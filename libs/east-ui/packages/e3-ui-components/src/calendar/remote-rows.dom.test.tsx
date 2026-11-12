@@ -24,18 +24,23 @@
  *   is then saved under: the job made here goes on under another key, both
  *   drawn, nothing to choose, and Save keeps both — and it stays selected
  *   under its new key, the inspector open on it still.
+ * - A job changed, removed or made here and saved, which another session
+ *   puts back exactly before the board reads its period again, is read back
+ *   as e3 holds the jobs: the Save never left saving (`putBackAfterSave`).
  */
 
 import { expect, test } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { StringType, equalFor } from "@elaraai/east";
 import * as ex from "@elaraai/e3-ui/examples/calendar/calendar";
 import type { E3Request } from "../e3-web.test-utils.js";
-import { addedOnBothSides, removedHere, removedOnBothSides, removedThere } from "../shared/remote-rows.test-utils.js";
+import { addedOnBothSides, putBackAfterSave, removedHere, removedOnBothSides, removedThere } from "../shared/remote-rows.test-utils.js";
 import { act, calendarHarness, event, settle, slot } from "./harness.test-utils.js";
 import { parseEventKey } from "./model.js";
 
 const h = calendarHarness();
+const sameText = equalFor(StringType);
 /** The jobs' record, as its dataset's requests name it. */
 const JOBS = `records.${ex.calendarJobs.name}`;
 
@@ -139,4 +144,43 @@ test("a job made here that goes on under another key stays selected under it: th
         watch.disconnect();
     }
     expect([event(c, "job", moved!).hasAttribute("data-selected"), inspected(), [...shown]]).toEqual([true, "Bracket batch", ["Bracket batch"]]);
+});
+
+/** What the shared check takes of the Calendar: the jobs the board draws, what e3 holds, and a Save followed by a write that puts the jobs back. */
+async function putBack(c: HTMLElement) {
+    const before = await read();
+    return {
+        container: c,
+        held: async () => [...(await read())],
+        savedThenPutBack: (save: () => void) => h.followed(ex.calendarJobs, save, () => before),
+    };
+}
+/** The jobs the board draws, by their keys, in order. */
+const jobsDrawn = (c: HTMLElement): string[] => [...c.querySelectorAll<HTMLElement>("[data-calendar-event]")].flatMap((el) => {
+    const parsed = parseEventKey(el.getAttribute("data-calendar-event")!);
+    return parsed.success && sameText(parsed.value.kind, "job") ? [parsed.value.key] : [];
+}).sort();
+
+test("a job's customer typed here and saved, typed back by another session before the board reads its period again, is read back with the customer as it was: the Save never left saving, nothing asked, nothing left to save", async () => {
+    const { container: c } = await h.mount(ex.calendarOperations, { storageKey: "calendar-remote-put-back-changed" });
+    // The job selected to begin with, so the inspector shows its customer before the change and once it is read back.
+    await act(async () => { select(c)(); }); await settle();
+    await putBackAfterSave({ ...await putBack(c), change: change(c), look: () => customer(c) });
+});
+
+test("a job removed here and saved, added back by another session exactly as it was before the board reads its period again, stands on the board as e3 holds it: the Save never left saving, and the job never removed again", async () => {
+    const { container: c } = await h.mount(ex.calendarOperations, { storageKey: "calendar-remote-put-back-removed" });
+    await putBackAfterSave({ ...await putBack(c), change: remove(c), look: () => jobsDrawn(c) });
+});
+
+test("a job made here from a template and saved, removed again by another session before the board reads its period again, is gone as e3 holds the jobs: the Save never left saving, and the job never made again", async () => {
+    const { container: c } = await h.mount(ex.calendarOperations, { storageKey: "calendar-remote-put-back-added" });
+    await putBackAfterSave({
+        ...await putBack(c),
+        change: [
+            () => { fireEvent.click(within(slot(c, "start")).getByRole("button", { name: "Create" })); },
+            () => { fireEvent.click(within(within(document.body).getByRole("dialog")).getByRole("button", { name: "Create" })); },
+        ],
+        look: () => jobsDrawn(c),
+    });
 });

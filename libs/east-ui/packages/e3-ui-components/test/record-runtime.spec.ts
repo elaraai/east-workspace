@@ -555,6 +555,74 @@ describe("RecordRuntime — tracking, scoping, lifecycle", () => {
 });
 
 // =============================================================================
+// settledOf — what the cache holds of a record read whole, since its last answered write
+// =============================================================================
+
+describe("RecordRuntime — what it holds of a record read whole since a write was answered (#1599)", () => {
+    const JOB_A = new SortedMap([["a", CUT]], compareFor(StringType));
+
+    test("nothing until a write from here is answered; then nothing until a poll started since the answer has landed, and what the cache holds from then — its readers told, though a record put back exactly changes no byte to tell them of", async () => {
+        const { runtime, cache, handle } = await jobsRuntime();
+        const key = recordChannelKey(h.workspace, ex.jobs.name);
+        assert.equal(runtime.settledOf(ex.jobs.name), undefined, "no write from here has been answered");
+        const began = cache.read(h.workspace, ex.jobs.path);
+        // The write is answered, and the poll it asks for is held on its way to e3.
+        const polls = h.e3.hold((request) => request.kind === "status");
+        const outcome = await handle.commit.patch("req-1", jobUpdate(CUT, { task: "Cut", qty: 5n }));
+        assert.equal(outcome.type, "committed");
+        await polls.holding;
+        const settled = runtime.settledOf(ex.jobs.name);
+        assert.notEqual(settled, undefined);
+        // Read while tracking, the reader is run again as the channel and the record's dataset tell.
+        runtime.enableTracking();
+        assert.equal(settled!(), undefined, "the cache has not read the record since the answer: it holds it as before the write");
+        assert.deepEqual([...runtime.disableTracking().keys()], [key]);
+        assert.deepEqual(cache.read(h.workspace, ex.jobs.path), began);
+        // Another session puts the job back exactly as it was, before the poll reads the record's status.
+        await h.patch(ex.jobs, JOB_A);
+        let told = 0;
+        const stop = runtime.subscribe(key, () => { told++; });
+        polls.release();
+        await h.settle();
+        stop();
+        // The poll found the hash the cache holds: nothing fetched, no byte changed — and the channel told its readers.
+        assert.deepEqual(settled!(), began, "the record as the cache holds it: read since the answer, as it stood before the write");
+        assert.ok(told > 0, "the channel tells what reads it that the record was read since");
+        assert.equal(handle.read().get("a")!.qty, CUT.qty);
+    });
+
+    test("a later write's answer starts the wait again: nothing until a poll started since that answer has landed", async () => {
+        const { runtime, handle } = await jobsRuntime();
+        await handle.commit.patch("req-1", jobUpdate(CUT, { task: "Cut", qty: 5n }));
+        await h.settle();
+        const settled = runtime.settledOf(ex.jobs.name)!;
+        assert.equal(decodeBeast2For(JobsType)(settled()!).get("a")!.qty, 5n);
+        const polls = h.e3.hold((request) => request.kind === "status");
+        await handle.commit.patch("req-2", jobUpdate({ task: "Cut", qty: 5n }, { task: "Cut", qty: 6n }));
+        await polls.holding;
+        assert.equal(settled(), undefined, "the second write is answered, and nothing has read the record since");
+        polls.release();
+        await h.settle();
+        assert.equal(decodeBeast2For(JobsType)(settled()!).get("a")!.qty, 6n);
+    });
+
+    test("nothing of a record the cache does not read whole — one read a page at a time — nor of a write that did not commit", async () => {
+        // Not loaded whole: no poll reconciles its content.
+        await h.patch(ex.jobs, JOB_A);
+        const paged = await h.bindRecord(ex.jobs, JobsHandleType);
+        const pagedHandle = paged.handle as unknown as JobsHandle;
+        assert.equal((await pagedHandle.commit.patch("req-1", jobUpdate(CUT, { task: "Cut", qty: 5n }))).type, "committed");
+        await h.settle();
+        assert.equal(paged.runtime.settledOf(ex.jobs.name), undefined);
+        // Read whole, a write another session's commit left stale: refused, and no answer to read since.
+        const { runtime, handle } = await newRuntime(ex.jobs, JobsHandleType);
+        const stale = await (handle as unknown as JobsHandle).commit.patch("req-2", jobUpdate(CUT, { task: "Cut", qty: 3n }));
+        assert.equal(stale.type, "conflict");
+        assert.equal(runtime.settledOf(ex.jobs.name), undefined);
+    });
+});
+
+// =============================================================================
 // history() — failed-fetch retry guard
 // =============================================================================
 

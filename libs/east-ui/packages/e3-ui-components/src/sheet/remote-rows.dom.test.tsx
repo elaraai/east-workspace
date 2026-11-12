@@ -29,7 +29,7 @@ import { East, IntegerType, parseFor, printFor, type ValueTypeOf } from "@elaraa
 import { Data, Record, Sheet, SheetPayloadType } from "@elaraai/e3-ui/internal";
 import * as fx from "@elaraai/e3-ui/fixtures/sheet/sheet-keys";
 import type { E3Request } from "../e3-web.test-utils.js";
-import { addedOnBothSides, removedHere, removedOnBothSides, removedThere } from "../shared/remote-rows.test-utils.js";
+import { addedOnBothSides, putBackAfterSave, removedHere, removedOnBothSides, removedThere } from "../shared/remote-rows.test-utils.js";
 import { act, settle, sheetHarness } from "./frame/harness.test-utils.js";
 
 const h = sheetHarness({ modules: { "sheet/sheet-keys.fixtures": fx }, frame: 2000 });
@@ -146,4 +146,40 @@ test("a job added here under the key another session's new job then takes goes o
         }),
         heldKeys: async () => [...(await h.read(fx.numberedJobs)).keys()].map((key) => keyText(key)),
     });
+});
+
+/** What the shared check takes of the Sheet: what the grid draws of the jobs, what e3 holds, and a Save followed by a write that puts the jobs back. */
+async function putBack(c: HTMLElement) {
+    const before = await h.read(fx.numberedJobs);
+    return {
+        container: c,
+        // The jobs the record holds or the drafts add, each by its key and what its cells say: never the blank row.
+        look: () => rowEls(c).map((row) => [row.getAttribute("data-row-id"), cells(row)]),
+        held: async () => [...(await h.read(fx.numberedJobs))],
+        savedThenPutBack: (save: () => void) => h.followed(fx.numberedJobs, save, () => before),
+    };
+}
+
+test("a quantity pasted here and saved, put back by another session before the sheet reads its window again, is read back with the quantity as it was: the Save never left saving, nothing asked, nothing left to save", async () => {
+    const c = await mounted("sheet-remote-put-back-changed");
+    await putBackAfterSave({ ...await putBack(c), change: () => requantify(c, "9", "7") });
+});
+
+test("a job removed here and saved, added back by another session exactly as it was before the sheet reads its window again, stands on the grid as e3 holds it: the Save never left saving, and the job never removed again", async () => {
+    const c = await mounted("sheet-remote-put-back-removed");
+    await putBackAfterSave({ ...await putBack(c), change: () => remove(c, "9") });
+    expect(ids(c)).toEqual(["9", "10"]);
+});
+
+test("a job added here and saved, removed again by another session before the sheet reads its window again, is gone as e3 holds the jobs: the Save never left saving, and the job never added again", async () => {
+    const c = await mounted("sheet-remote-put-back-added");
+    await putBackAfterSave({
+        ...await putBack(c),
+        // A job pasted in the blank row.
+        change: [
+            () => { fireEvent.mouseDown(c.querySelector<HTMLElement>('[data-slot="row"][data-blank] [data-key="task"]')!, { button: 0 }); },
+            () => { fireEvent.paste(card(c), { clipboardData: { getData: () => "Sanding\t6" } }); },
+        ],
+    });
+    expect(ids(c)).toEqual(["9", "10"]);
 });

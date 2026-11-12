@@ -30,7 +30,7 @@ import { bindingOf, gateOf, historyKeyOf, keptHistory, keptSession, sessionKeyOf
 import { keepDrafts, keptDraftsKey } from "./keep.js";
 import { useEditingScope } from "./scope.js";
 import { EditSession, keyReader, type ConflictRange, type ConflictTogether, type EditSessionBinding, type EntryVersion } from "./session.js";
-import type { EditingValue } from "./use-edit-session.js";
+import { settledCollection, type EditingValue } from "./use-edit-session.js";
 
 /**
  * A keyed source read a window at a time, as a history's session reads it
@@ -169,10 +169,11 @@ interface Part<W> {
 /** The base a session observes: a source's whole snapshot, or a paged source's revision. */
 type Base = Parameters<EditSession<unknown>["observeBase"]>[0];
 
-/** One read of every source: each session's base, and a paged source's entries read at it, by the history's keys. */
+/** One read of every source: each session's base, a paged source's entries read at it, and what a source read whole holds now where its host says, by the history's keys. */
 interface Observed {
     readonly bases: ReadonlyMap<string, Base>;
     readonly reads: ReadonlyMap<string, ReadonlyMap<string, option<unknown>>>;
+    readonly settled: ReadonlyMap<string, { readonly value: unknown }>;
 }
 
 /** An entry the session holds no version of: absent, nowhere. */
@@ -312,6 +313,7 @@ export function useEditHistory<W>(
     const read = useCallback((): Observed => {
         const bases = new Map<string, Base>();
         const reads = new Map<string, Map<string, option<unknown>>>();
+        const settled = new Map<string, { readonly value: unknown }>();
         for (const part of parts) {
             part.session.recheck(part.binding.ready, part.binding.ready?.(part.session.entries));
             if (part.paged !== undefined) {
@@ -352,8 +354,11 @@ export function useEditHistory<W>(
                 decodedSnapshots.set(snapshot.value, held);
             }
             bases.set(part.key, variant("snapshot", held) as Base);
+            // What the source holds now, where its host says: what a Save of it is taken as read back at.
+            const now = settledCollection(part.editing.sourceId, part.session.status === "reconciling", part.decodeSnapshot);
+            if (now !== undefined) settled.set(part.key, now);
         }
-        return { bases, reads };
+        return { bases, reads, settled };
         // The sessions' entries move under the history's version.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [parts, version]);
@@ -370,7 +375,7 @@ export function useEditHistory<W>(
             // paged source, by the entries read at the revision it committed.
             const got = observed?.reads.get(part.key);
             const readOf = (id: string): option<unknown> | undefined => got?.get(id);
-            part.session.reconcile(base, readOf);
+            part.session.reconcile(base, readOf, observed?.settled.get(part.key));
             part.session.nameConflicts(base, readOf);
             part.session.observeBase(base);
             // A source that moved under the drafts carries them over, once each is read at its new revision.

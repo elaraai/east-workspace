@@ -741,9 +741,9 @@ export class EditSession<W> {
     private resuming: KeptRequest<W> | undefined;
     /**
      * A request sent again after no answer, and refused: its bytes, what it changes and what it leaves. The refusal
-     * says nothing of its first sending. A source answers a request again only while that request is its last write —
-     * e3 names the key of a record's last mutation alone — so once another write has landed, the same request is
-     * checked afresh, and one that had landed is refused: its entries no longer hold what its changes began from.
+     * says nothing of its first sending. A source answers a request again only while it remembers it — e3 remembers
+     * a record's last sixteen keyed requests — so one it has forgotten, or holds no memory of, is checked afresh, and
+     * one that had landed is refused: its entries no longer hold what its changes began from.
      * Taken at its word, the refusal would have the session carry its drafts over from what they began as: a new
      * entry the first sending saved would read as another write's under the session's key, be made another key and
      * saved twice; an entry it removed, put back by Undo since, would read as removed by another and go.
@@ -2484,25 +2484,41 @@ export class EditSession<W> {
      * entry the request held has what it left for its original, so a draft
      * made since is a change from that, and the next Save's to send.
      *
+     * A source read whole whose host says what it holds now, read since it
+     * answered the request (`settled`), is taken as read back only at a
+     * collection that is that one — or that holds the request's entries as it
+     * left them: nothing else a collection holds says for certain that it was
+     * read after the request landed. That collection holds the request, or what
+     * was written over it, each entry judged as it reads there: one put back
+     * exactly as its edit began among them, which no later collection would
+     * ever tell from one read before the request.
+     *
      * @param base - The base the source is at now
      * @param read - An entry the request changed, as a source at a revision holds it: its value, `none` for one it does not hold, or `undefined` while it is not read
+     * @param settled - For a source read whole whose host can say what it holds now: that collection, once the host has
+     *   read it since the source answered the request — its `value` `undefined` until then. Left out where no host says:
+     *   the collection's own entries then say when it was read, as far as they can ({@link EditSession.landedIn})
      * @returns Whether the request was acknowledged
      */
-    reconcile(base: Base, read: (id: string) => option<unknown> | undefined): boolean {
+    reconcile(base: Base, read: (id: string) => option<unknown> | undefined, settled?: { readonly value: unknown }): boolean {
         const request = this.submission;
         if (!request || this.status !== "reconciling") return false;
         // At a revision: the one the request committed, or a later one — another write may land before the session reads
         // its own (two Saves at once) — never the one it was drafted at, but where the source holds that content again.
         if (request.base.type === "revision" && (base.type !== "revision" || request.revision === undefined || (stringEqual(base.value, request.base.value) && !this.putBack(request)))) return false;
         if (request.base.type === "snapshot" && base.type !== "snapshot") return false;
+        // Read whole, where its host says what the source holds now: whether this collection is that one.
+        const current = settled !== undefined && base.type === "snapshot" && settled.value !== undefined
+            && this.baseEqual(base, variant("snapshot", settled.value) as Base);
         // Whether every entry reads back as the session's versions hold it.
         let exact = true;
         if (request.expected !== undefined) {
             // Another write may land beside the request before the session reads it back (two Saves at once): then
             // the collection is not the request's, but holds the request's entries as it left them — or, where another
-            // write changed one of them again since, shows by its entries that the request landed.
+            // write changed one of them again since, shows by its entries that the request landed; or it is the one
+            // its host says the source holds now.
             if (!blobEqual(this.encodeCollection(base.value), request.expected)) {
-                if (!this.leftIn(base, request) && !this.landedIn(request, (id) => this.inSnapshot(base.value, id))) return false;
+                if (!this.leftIn(base, request) && !(settled !== undefined ? current : this.landedIn(request, (id) => this.inSnapshot(base.value, id)))) return false;
                 exact = false;
                 // Each of its entries the collection holds otherwise than the request left it, as it holds it.
                 request.otherwise.clear();
@@ -2513,7 +2529,9 @@ export class EditSession<W> {
             }
         } else if (base.type === "snapshot") {
             const held = (id: string): option<unknown> => this.heldIn(base.value, id);
-            if (!this.landedIn(request, held)) return false;
+            // The collection its host says the source holds now; else, where a host says so, one that holds the request's
+            // every entry as it left them; where none says, one whose entries show the request landed.
+            if (!(settled !== undefined ? current || this.leftWhole(request, held) : this.landedIn(request, held))) return false;
             // Read whole at each pass: what an earlier pass read otherwise is read again here.
             request.otherwise.clear();
             for (const [id, target] of request.targets) {
@@ -2830,6 +2848,25 @@ export class EditSession<W> {
         }
         const again = this.transform(collection, { requestId: "", base, label: "", changes }, none);
         return again.type === "applied" && blobEqual(this.encodeCollection(again.value), this.encodeCollection(collection));
+    }
+
+    /**
+     * Whether a collection read whole holds a request's every entry as the
+     * request left it ({@link EditSession.leftAs}), one at least changed: what
+     * says for certain that the request landed in it, whenever it was read.
+     *
+     * @param request - The request
+     * @param held - An entry as the collection holds it: `none` for one it does not hold
+     * @returns Whether it does
+     */
+    private leftWhole(request: Submission<W>, held: (id: string) => option<unknown>): boolean {
+        let changed = false;
+        for (const [id, target] of request.targets) {
+            if (this.domainEqual(target.before, target.after)) continue;
+            if (!this.leftAs(held(id), target)) return false;
+            changed = true;
+        }
+        return changed;
     }
 
     /**

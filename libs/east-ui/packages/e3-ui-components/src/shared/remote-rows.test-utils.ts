@@ -37,6 +37,14 @@
  *   lose one. It goes on under another key the builder makes: both drawn,
  *   nothing to choose, and Save keeps both.
  *
+ * - {@link putBackAfterSave}: a change saved here — a row changed, added or
+ *   removed — that another session puts back exactly as it was before the
+ *   builder reads the record again is read back with the row as the record
+ *   holds it: the Save never left saving, nothing asked and nothing left to
+ *   save. The record then reads as it did before the Save, which nothing it
+ *   holds tells from a read made before the Save landed: only when it was
+ *   read does.
+ *
  * A conflict's card names its row as the builder names it — its name, never
  * its key — whether the builder draws the row or the draft removed it.
  *
@@ -355,4 +363,54 @@ export async function addedOnBothSides(check: AddedHere): Promise<void> {
     const keys = await check.heldKeys();
     expect([keys.includes(mine!), keys.includes(moved)], "the record holds both rows").toEqual([true, true]);
     expect([check.drawn(mine!), check.drawn(moved), check.added()], "saved, both are drawn, neither a draft").toEqual([true, true, []]);
+}
+
+/** What a builder gives the check of a Save another session's write puts back. */
+export interface PutBack {
+    /** The builder's container. */
+    readonly container: HTMLElement;
+    /** The change made here and saved — a row changed, added or removed: a gesture, as a person makes it — its steps, where it takes more than one act. */
+    readonly change: (() => void | Promise<void>) | readonly (() => void | Promise<void>)[];
+    /** What the builder draws of what the change touches — what a cell says, whether a row stands: read before the change, as drafted, and once the Save is read back. */
+    readonly look: () => unknown;
+    /** What the record holds of what the change touches, now. */
+    readonly held: () => Promise<unknown>;
+    /**
+     * The Save pressed, its commit made, and then — before anything of the builder's reads the record again — another
+     * session's write that leaves the record exactly as it stood before the Save: the harness's `followed`, given the
+     * record as it stood.
+     */
+    readonly savedThenPutBack: (save: () => void) => Promise<void>;
+}
+
+/**
+ * A change saved here that another session puts back exactly before the builder reads the record again (see the
+ * module docs): the Save is read back where the record is — the row as it was — and the builder comes to rest.
+ *
+ * @param check - The builder's container, the change, what it draws and the record holds of it, and the Save followed by the other session's write
+ * @returns Once the Save is read back
+ * @throws An assertion's error where the Save is left saving, something is asked, a change is left to save, or the row is drawn otherwise than the record holds it
+ */
+export async function putBackAfterSave(check: PutBack): Promise<void> {
+    const [began, stood] = [JSON.stringify(check.look()), await check.held()];
+    await made(check.change);
+    expect(JSON.stringify(check.look()), "the change is drawn").not.toBe(began);
+    expect(unsaved(check.container), "the change waits to be saved").toBe(true);
+    await check.savedThenPutBack(() => { fireEvent.click(historyButton(check.container, editingMessages.apply())); });
+    expect(await check.held(), "the record holds the row as it did before the Save").toEqual(stood);
+    // Read back where the record is now: Save at rest — off, none out and none still read back.
+    await waitFor(() => expect(
+        [unsaved(check.container), historyButton(check.container, editingMessages.apply()).getAttribute("aria-busy")],
+        "the Save is read back: nothing is left to save, and no Save is out",
+    ).toEqual([false, null]), { timeout: 10_000 });
+    await settle();
+    const toolbar = within(slot(check.container, "toolbar"));
+    expect([
+        toolbar.queryByRole("button", { name: editingMessages.retryRequest() }),
+        toolbar.queryByRole("button", { name: editingMessages.retryRefresh() }),
+        historyButton(check.container, editingMessages.apply()).getAttribute("aria-busy"),
+        check.container.querySelector("[data-conflicts]"),
+    ], "nothing to ask again, no Save out, nothing to choose").toEqual([null, null, null, null]);
+    expect(JSON.stringify(check.look()), "the builder draws the row as the record holds it: as it was before the Save").toBe(began);
+    expect(await check.held(), "nothing is saved again").toEqual(stood);
 }

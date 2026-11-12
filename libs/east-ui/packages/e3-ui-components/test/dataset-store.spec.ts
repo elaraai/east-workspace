@@ -1443,6 +1443,75 @@ describe("ReactiveDatasetCache — watchHash", () => {
         assert.deepEqual(heard, [first, later], "what the overtaken poll read is never told, and what the chained poll read is");
     });
 
+    test("says whether what it holds of a dataset was confirmed by a poll started since a mark: never by one in flight as the mark was taken, and by one that finds the hash it holds unchanged as by one that fetches", async () => {
+        // What tells that the content held is the dataset's as of a read made since some moment — a record's commit
+        // being answered. A hash cannot: it names content, and a dataset put back as it was is under the hash it had.
+        const { cache, clock } = newCache();
+        cache.setRefetchInterval(ws(), policyPath, 1000);
+        await h.settle();
+        assert.equal(cache.has(ws(), policyPath), true);
+        // A poll in flight as the mark is taken read the status before it: its answer confirms nothing since.
+        const answer = h.e3.holdAnswers((request) => request.kind === "status");
+        clock.tickAll();
+        await answer.holding;
+        const mark = cache.pollMark(ws());
+        answer.release();
+        await h.settle();
+        assert.equal(cache.confirmedSince(ws(), policyPath, mark), false, "the poll in flight started before the mark");
+        // The next poll finds the hash it holds unchanged: confirmed, with nothing fetched.
+        const fetched = reads("inputs.count");
+        await cache.refresh(ws());
+        assert.equal(cache.confirmedSince(ws(), policyPath, mark), true);
+        assert.equal(reads("inputs.count"), fetched, "nothing was fetched to confirm it");
+        // A new value: confirmed since a later mark only once a poll started after it has fetched it.
+        const later = cache.pollMark(ws());
+        await h.write(policy, 7n);
+        assert.equal(cache.confirmedSince(ws(), policyPath, later), false);
+        await cache.refresh(ws());
+        assert.equal(cache.confirmedSince(ws(), policyPath, later), true);
+        assert.deepEqual(cache.read(ws(), policyPath), encodeBeast2For(IntegerType)(7n));
+    });
+
+    test("tells whoever waits once a poll started since their mark has found what it holds to be the dataset's — one that changed nothing among them — and says nothing of a dataset no poll reconciles", async () => {
+        const { cache, clock } = newCache();
+        // Never watched: no poll of the cache reconciles its content.
+        assert.equal(cache.confirmed(ws(), policyPath, cache.pollMark(ws())), undefined);
+        cache.setRefetchInterval(ws(), policyPath, 1000);
+        await h.settle();
+        // A poll in flight as the mark is taken read the status before it: whoever waits is not told by its answer.
+        const answer = h.e3.holdAnswers((request) => request.kind === "status");
+        clock.tickAll();
+        await answer.holding;
+        const mark = cache.pollMark(ws());
+        let told = 0;
+        const waiting = cache.confirmed(ws(), policyPath, mark);
+        assert.notEqual(waiting, undefined);
+        void waiting!.then(() => { told++; });
+        answer.release();
+        await h.settle();
+        assert.equal(told, 0, "the poll in flight started before the mark");
+        // The next finds the hash it holds unchanged: nothing to tell the dataset's readers of, and whoever waits is told.
+        let changes = 0;
+        const stop = cache.subscribe(datasetCacheKey(ws(), policyPath), () => { changes++; });
+        await cache.refresh(ws());
+        await h.settle();
+        assert.deepEqual([told, changes], [1, 0]);
+        stop();
+        // Found so already: told at once.
+        let again = 0;
+        void cache.confirmed(ws(), policyPath, mark)!.then(() => { again++; });
+        await h.settle();
+        assert.equal(again, 1);
+        // Since a later mark: only once a poll started after it has landed.
+        let later = 0;
+        void cache.confirmed(ws(), policyPath, cache.pollMark(ws()))!.then(() => { later++; });
+        await h.settle();
+        assert.equal(later, 0);
+        await cache.refresh(ws());
+        await h.settle();
+        assert.equal(later, 1);
+    });
+
     test("a stopped watch hears nothing more, and destroy stops them all", async () => {
         const { cache, clock } = newCache();
         const first = await hashOf(policy);

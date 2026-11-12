@@ -46,6 +46,8 @@ export {
     registerRecordSliceBatches,
     RECORD_SLICE_DATA_MARK,
     type RecordSliceBatches,
+    registerSettledSources,
+    type SettledSource,
     SliceApplyImpl,
     buildSliceHandle,
     DEFAULT_SLICE_STATE,

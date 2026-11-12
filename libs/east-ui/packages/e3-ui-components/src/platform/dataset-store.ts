@@ -353,6 +353,47 @@ export interface ReactiveDatasetCacheInterface {
      * Fire-and-forget; resolves when the refresh's poll settles.
      */
     refresh(workspace: string): Promise<void>;
+    /**
+     * A mark of a workspace's status polls as they stand now: a poll started
+     * after it reads the workspace's status after it.
+     *
+     * @remarks
+     * With {@link confirmedSince}, what says that the content the cache holds
+     * of a dataset is the dataset's own as of a read made since some moment —
+     * since a record's commit was answered, say, which the content then holds.
+     * A hash alone cannot say so: it names content, and a dataset put back as
+     * it was is under the hash it had before.
+     *
+     * @param workspace - The workspace
+     * @returns The mark
+     */
+    pollMark(workspace: string): number;
+    /**
+     * Whether a status poll started since a mark has found the content the
+     * cache holds of a dataset to be the dataset's: fetched by that poll, or
+     * held already under the hash it read.
+     *
+     * @param workspace - The workspace
+     * @param path - The dataset's path, one whose content the cache polls
+     * @param mark - A mark {@link pollMark} gave
+     * @returns Whether one has
+     */
+    confirmedSince(workspace: string, path: TreePath, mark: number): boolean;
+    /**
+     * The moment a status poll started since a mark finds the content the
+     * cache holds of a dataset to be the dataset's ({@link confirmedSince}).
+     * A dataset put back as it was is found so with no change to tell anyone
+     * of, so whoever waits on one is told here.
+     *
+     * @param workspace - The workspace
+     * @param path - The dataset's path
+     * @param mark - A mark {@link pollMark} gave
+     * @returns A promise settled at that moment — at once, where a poll has
+     *   found it so already; `undefined` for a dataset whose content no poll
+     *   of the cache reconciles: one never watched, or held only as it was
+     *   written here
+     */
+    confirmed(workspace: string, path: TreePath, mark: number): Promise<void> | undefined;
     /** Subscribe to changes on a specific key */
     subscribe(key: string, callback: () => void): () => void;
     /** Subscribe to all changes */
@@ -489,6 +530,12 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
      * ({@link ReactiveDatasetCache.refresh}).
      */
     private refreshesAsked: Map<string, number> = new Map();
+    /** How many status polls each workspace has started: what {@link ReactiveDatasetCache.pollMark} gives. */
+    private pollsStarted: Map<string, number> = new Map();
+    /** The last poll, by its number among its workspace's, that found each key's held content to be its dataset's. */
+    private confirmedAt: Map<string, number> = new Map();
+    /** Who waits to hear a key's content found its dataset's by a poll started since a mark ({@link ReactiveDatasetCache.confirmed}). */
+    private confirmWaits: Map<string, { readonly mark: number; readonly settle: () => void }[]> = new Map();
 
     // Hash-only watches, by workspace and path: each callback with the hash it
     // was last told. A watched path rides its workspace's poll, but its
@@ -952,6 +999,42 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
         return inFlight.then(again, again);
     }
 
+    pollMark(workspace: string): number {
+        return this.pollsStarted.get(workspace) ?? 0;
+    }
+
+    confirmedSince(workspace: string, path: TreePath, mark: number): boolean {
+        return (this.confirmedAt.get(datasetCacheKey(workspace, path)) ?? 0) > mark;
+    }
+
+    confirmed(workspace: string, path: TreePath, mark: number): Promise<void> | undefined {
+        if (this.destroyed || this.workspacePollers.get(workspace)?.paths.has(datasetPathToString(path)) !== true) return undefined;
+        const key = datasetCacheKey(workspace, path);
+        if ((this.confirmedAt.get(key) ?? 0) > mark) return Promise.resolve();
+        return new Promise<void>((settle) => {
+            const waits = this.confirmWaits.get(key);
+            if (waits === undefined) this.confirmWaits.set(key, [{ mark, settle }]);
+            else waits.push({ mark, settle });
+        });
+    }
+
+    /**
+     * Records that a poll found the content held of a key to be its dataset's,
+     * and tells whoever waited for one started since their mark.
+     *
+     * @param key - The dataset's key
+     * @param poll - The poll, by its number among its workspace's
+     */
+    private confirm(key: string, poll: number): void {
+        this.confirmedAt.set(key, poll);
+        const waits = this.confirmWaits.get(key);
+        if (waits === undefined) return;
+        const left = waits.filter((wait) => wait.mark >= poll);
+        if (left.length === 0) this.confirmWaits.delete(key);
+        else this.confirmWaits.set(key, left);
+        for (const wait of waits) if (wait.mark < poll) wait.settle();
+    }
+
     /**
      * Poll workspace status and reconcile the cache with the server.
      * Concurrent calls for the same workspace dedupe to a single fetch.
@@ -992,6 +1075,9 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
         const now = this.now();
         // The refreshes asked for as the poll starts: one asked for while it is in flight overtakes it.
         const refreshes = this.refreshesAsked.get(workspace) ?? 0;
+        // Which of the workspace's polls this is: what it finds current, it confirms as of its own start.
+        const poll = (this.pollsStarted.get(workspace) ?? 0) + 1;
+        this.pollsStarted.set(workspace, poll);
         const held = poller.last;
         const etag = held !== null && held.paths === covering && now - held.at < STATUS_UNCHANGED_MAX_MS ? held.etag : undefined;
         let status;
@@ -1005,7 +1091,13 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
         if (this.destroyed) return;
         if (status === null) {
             // The status the last full answer gave is current: nothing it
-            // shows changed.
+            // shows changed, and what the cache holds of each path it
+            // reconciles is that path's still — but one a write owns.
+            for (const pathStr of poller.paths.keys()) {
+                const key = pathStr ? `${workspace}.${pathStr}` : workspace;
+                if (!watched.has(pathStr) || (this.writeEpochs.get(key) ?? 0) !== epochsAtStart.get(key) || (this.pendingWriteCounts.get(key) ?? 0) > 0) continue;
+                if (this.has(workspace, this.stringToPath(pathStr))) this.confirm(key, poll);
+            }
             this.backOff(workspace);
             return;
         }
@@ -1085,6 +1177,9 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
                     } else if (this.has(workspace, path)) {
                         pending.push({ kind: "clear", key, path });
                     }
+                } else {
+                    // Held under the hash this poll read: the dataset's content as of this poll.
+                    this.confirm(key, poll);
                 }
             }
         });
@@ -1124,10 +1219,12 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
                 if (p.kind === "fetch") {
                     this.client.setQueryData(queryKey, result.value.result!.data);
                     this.knownHashes.set(p.key, result.value.result!.hash ?? p.newHash);
+                    this.confirm(p.key, poll);
                     this.notifyChange(p.key);
                 } else {
                     this.client.removeQueries({ queryKey, exact: true });
                     this.knownHashes.set(p.key, null);
+                    this.confirm(p.key, poll);
                     this.notifyChange(p.key);
                 }
             }
@@ -1285,6 +1382,9 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
         this.workspacePollers.clear();
         this.inFlightPolls.clear();
         this.refreshesAsked.clear();
+        this.pollsStarted.clear();
+        this.confirmedAt.clear();
+        this.confirmWaits.clear();
         this.hashWatches.clear();
         this.keySubscribers.clear();
         this.globalSubscribers.clear();

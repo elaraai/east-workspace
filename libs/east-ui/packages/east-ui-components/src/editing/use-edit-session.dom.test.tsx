@@ -11,6 +11,7 @@ import { afterEach, expect, test } from "vitest";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { ArrayType, DictType, IntegerType, StringType, StructType, encodeBeast2For, equalFor, none, printFor, some, toEastTypeValue, variant } from "@elaraai/east";
 import { Editing } from "@elaraai/east-ui/internal";
+import { registerSettledSources } from "../platform/settled-source.js";
 import { initializeStore } from "../platform/state-runtime.js";
 import { UIStore } from "../platform/state-store.js";
 import { autosaveChoiceKey, autosaveChoiceOf } from "./autosave-choice.js";
@@ -117,6 +118,61 @@ test("a keyed source places every entry in key order, and its base is its Dict s
     // The Dict as East decodes it — compared by East's equality, never a JS Map's.
     expect(sameRunsByKey(observed!.base.value as Map<string, (typeof RUNS)[number]>, new Map(RUNS.map((run) => [run.id, run])))).toBe(true);
     expect(hook.result.current.available).toBe(true);
+});
+
+test("a Save over a source read whole is read back at the collection its host says the source holds, once the host has read it since the Save was answered: every part put back exactly, the Save is acknowledged, never waited on (#1599)", async () => {
+    initializeStore(new UIStore());
+    // What the source's host says it holds: nothing until it has read the source since the Save's answer.
+    let held: Uint8Array | undefined;
+    registerSettledSources((sourceId) => (sourceId === "bars-settled" ? () => held : undefined));
+    try {
+        const editing = (): EditingValue => ({ ...editingOf(true), sourceId: "bars-settled" });
+        const hook = renderHook(({ value }) => useEditSession<Bar>(value, undefined, BARS, POSITIONS, "bars-settled", { idOf }), { initialProps: { value: editing() } });
+        act(() => {
+            const { session, original } = hook.result.current;
+            const before = original("b");
+            session.record([{ id: "b", before, after: { ...before, draft: { id: variant("value", "b"), end: variant("value", 5n) } } }], "typed", "Edit b");
+        });
+        await act(async () => { await hook.result.current.session.apply(); });
+        const session = () => hook.result.current.session;
+        // The page draws the source again as it stood before the Save — put back by another write, or not yet read.
+        hook.rerender({ value: editing() });
+        expect([session().status, session().locked]).toEqual(["reconciling", true]);
+        // Its host has read the source since the answer, and holds the rows as they were: the change was put back.
+        held = editing().snapshot.value as Uint8Array;
+        hook.rerender({ value: editing() });
+        expect([session().status, session().locked, session().pending]).toEqual(["idle", false, 0]);
+    } finally {
+        registerSettledSources(() => undefined);
+    }
+});
+
+test("a host that holds the source at another type than the session's collection says nothing the session can read: the Save is left to what the collection's entries show (#1599)", async () => {
+    initializeStore(new UIStore());
+    // The keyed session's collection is a Dict; its host holds an Array.
+    registerSettledSources((sourceId) => (sourceId === "bars-mistyped" ? () => encodeBeast2For(ArrayType(Run))(RUNS) : undefined));
+    try {
+        const editing = (end: bigint): EditingValue => ({
+            ...editingOf(true), sourceId: "bars-mistyped",
+            snapshot: some(encodeBeast2For(RunsByKey)(new Map(RUNS.map((run) => [run.id, run.id === "b" ? { ...run, end } : run])))),
+        });
+        const hook = renderHook(({ value }) => useEditSession<Bar>(value, undefined, BARS, POSITIONS, "bars-mistyped", { idOf }), { initialProps: { value: editing(2n) } });
+        act(() => {
+            const { session, original } = hook.result.current;
+            const before = original("b");
+            session.record([{ id: "b", before, after: { ...before, draft: { id: variant("value", "b"), end: variant("value", 5n) } } }], "typed", "Edit b");
+        });
+        await act(async () => { await hook.result.current.session.apply(); });
+        const session = () => hook.result.current.session;
+        // As the edit began: nothing of the Save in it, and no host to say when it was read.
+        hook.rerender({ value: editing(2n) });
+        expect(session().status).toBe("reconciling");
+        // The collection holds the Save: read back by its own entry.
+        hook.rerender({ value: editing(5n) });
+        expect([session().status, session().pending]).toEqual(["idle", 0]);
+    } finally {
+        registerSettledSources(() => undefined);
+    }
 });
 
 test("a keyed paged source's reconcile seeks each entry by its key's `.east` literal — a String key quoted (#880)", async () => {

@@ -18,6 +18,7 @@ import { ArrayType, DictType, OptionType, StringType, decodeBeast2For, encodeBea
 import type { SeekQueryType, SeekRangeType } from "@elaraai/east-ui";
 import type { EditingType } from "@elaraai/east-ui/internal";
 import { getStore } from "../platform/state-runtime.js";
+import { settledSourceOf } from "../platform/settled-source.js";
 import { useTrackedEvaluation } from "../reactive/index.js";
 import { liftDraft } from "./draft.js";
 import { autosaveChoiceKey, beginAutosave, keepAutosaveChoice } from "./autosave-choice.js";
@@ -167,6 +168,31 @@ const printString = printFor(StringType);
 const ABSENT: EntryVersion<never> = { draft: undefined, wire: undefined, place: none };
 
 /**
+ * What a source read whole holds now, where its host says (`platform/settled-source.ts`): the collection, once the
+ * host has read it since the source answered the Save being read back — what the session takes that Save as read back
+ * at (`EditSession.reconcile`).
+ *
+ * @param sourceId - The source's id, as its editing declaration names it
+ * @param reading - Whether a Save is being read back: asked only then
+ * @param decode - The collection's decoder, at the session's snapshot type
+ * @returns The collection — its `value` `undefined` until its host has read it since; `undefined` where no host says it
+ *   of the source, or holds it at another type than the session's snapshot
+ */
+export function settledCollection(sourceId: string, reading: boolean, decode: (bytes: Uint8Array) => unknown): { readonly value: unknown } | undefined {
+    const settled = settledSourceOf(sourceId);
+    if (settled === undefined) return undefined;
+    if (!reading) return { value: undefined };
+    const bytes = settled();
+    if (bytes === undefined) return { value: undefined };
+    try {
+        return { value: decode(bytes) };
+    } catch {
+        // Held at another type than the session's snapshot: its host says nothing the session can read.
+        return undefined;
+    }
+}
+
+/**
  * Bind decoded callbacks and retain unresolved requests through remounts.
  *
  * @typeParam W - The collection's projection of an entry
@@ -244,7 +270,12 @@ export function useEditSession<W>(editing: EditingValue, source: EditSource<W> |
         // moved to (#1199) — each one's value, or `none` for one confirmed
         // absent. The session judges them.
         const reads = new Map<string, option<unknown>>();
-        if (editing.snapshot.type === "some") return { base: variant("snapshot", codecs.decodeSnapshot(editing.snapshot.value)), reads };
+        if (editing.snapshot.type === "some") {
+            return {
+                base: variant("snapshot", codecs.decodeSnapshot(editing.snapshot.value)), reads,
+                settled: settledCollection(editing.sourceId, session.status === "reconciling", codecs.decodeSnapshot),
+            };
+        }
         const revision = source?.revision();
         if (revision?.type !== "some" || source === undefined) return undefined;
         // Every entry still to judge in one read, where the source reads several at once (#1596): its rows as it decoded them.
@@ -316,7 +347,7 @@ export function useEditSession<W>(editing: EditingValue, source: EditSource<W> |
         if (!observed) return;
         // An inline snapshot the session reads itself; at a revision, the entries read here —
         // a commit's, read back, and a conflict's, which they name (#1199).
-        session.reconcile(observed.base, (id) => observed.reads.get(id));
+        session.reconcile(observed.base, (id) => observed.reads.get(id), "settled" in observed ? observed.settled : undefined);
         session.nameConflicts(observed.base, (id) => observed.reads.get(id));
         session.observeBase(observed.base);
         // A source that moved under the drafts carries them over, once each is read at its new revision.

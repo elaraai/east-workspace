@@ -171,7 +171,7 @@ export class EntryMerger {
     /**
      * What an entry's draft and its source's value both began from, where a request that changed the entry may or may
      * not have landed: it was sent, no answer came, and sent again it was refused — which says nothing of the first
-     * sending, since a source answers a request again only while it is its last write.
+     * sending, since a source answers a request again only while it remembers it (e3: a record's last sixteen keyed requests).
      *
      * Each part the request changed is judged by what the source holds there:
      * - as the request left it: the request's doing, or another write's to the same end — it began from what was sent,

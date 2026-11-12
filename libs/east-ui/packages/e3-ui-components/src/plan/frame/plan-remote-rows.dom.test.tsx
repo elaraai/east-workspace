@@ -23,8 +23,8 @@ import { parseFor } from "@elaraai/east";
 import { ScheduleEventRefType } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
 import type { E3Request } from "../../e3-web.test-utils.js";
-import { addedOnBothSides } from "../../shared/remote-rows.test-utils.js";
-import { act, el, entry, planHarness, rowAt, settle, slot } from "./harness.test-utils.js";
+import { addedOnBothSides, putBackAfterSave } from "../../shared/remote-rows.test-utils.js";
+import { act, el, entry, madeFrom, planHarness, rowAt, settle, slot } from "./harness.test-utils.js";
 
 const h = planHarness();
 /** The jobs' record, as its dataset's requests name it. */
@@ -92,4 +92,18 @@ test("a job duplicated here that goes on under another key stays selected under 
         watch.disconnect();
     }
     expect([bar(c, moved!)?.getAttribute("aria-pressed"), inspected(), [...shown]]).toEqual(["true", "Spring catalogue", ["Spring catalogue"]]);
+});
+
+test("a job duplicated here and saved, removed again by another planner before the canvas reads its window again, is gone as e3 holds the jobs: the Save never left saving, and the copy never made again", async () => {
+    const { container: c } = await h.mount(ex.planPrintWorks, { storageKey: "plan-remote-put-back-added" });
+    await settle();
+    const before = await readJobs();
+    await putBackAfterSave({
+        container: c,
+        change: duplicate(c),
+        // The spring catalogue's copies Press A1 draws, a draft's or the record's: how many there are.
+        look: () => madeFrom(c.querySelector(rowAt(A1))!, "data-run", "job", "J-1001").length,
+        held: async () => [...(await readJobs()).keys()],
+        savedThenPutBack: (save) => h.followed(ex.planPrintJobs, save, () => before),
+    });
 });

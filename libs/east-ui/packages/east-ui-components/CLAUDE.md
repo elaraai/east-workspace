@@ -761,9 +761,18 @@ component, nothing in east-ui.
   off. And a draft made while that Save was read back, from a row the collection it is acknowledged at no longer
   holds so, is carried over to that collection there and then (`draftedBehind`) — a part both changed a conflict to
   choose — where left as it began its Save was refused over the session's own base, nothing newer to move to and
-  nothing to choose. Still open: every part a Save wrote put back exactly as it was by another write, before the
-  source is read again, reads as a collection from before the Save, and waits until the page is reloaded — the
-  source must say which state it read (as a source at a revision does), which a collection alone cannot.
+  nothing to choose. A collection does not say which state of its source it is: every part a Save wrote put back
+  exactly as it was by another write, before the source is read again, reads as one from before the Save, and waited
+  until the page was reloaded. Only when it was read tells the two apart, and a host that knows says so
+  (`platform/settled-source.ts`, hardened 12 Nov 2026): its runtime registers what its sources hold, by their ids
+  (`registerSettledSources`) — the collection, once the host has read the source since it last answered a Save of the
+  page's. The hooks hand the session that collection while a Save is read back (`settledCollection`, a tracked read),
+  and the session acknowledges the Save at a collection that is the one its host holds (`reconcile`'s `settled`) —
+  each entry as it reads there, one put back among them — or at one that holds the Save's every entry as it was left,
+  which says for certain that it was read after the Save whenever its host says so; never at any other. e3's record
+  runtime says it of every record a page reads whole (e3-ui-components' `record-runtime.ts`, `settledOf`). A host that
+  cannot — a collection of the page's own, held at another type than the session's, or one entry's rows of a record
+  (the Sheet's `entry`) — leaves the Save to what the collection's entries show, as before.
 - **A Save with no answer** (`EditSession.unconfirmed`, `keptRequest`; hardened 12 Nov 2026). A write that throws, or
   answers with no revision, leaves its request unresolved (`unknown`), and Retry sends the same bytes, so the same
   request id. A source answers a request again while it remembers it — e3 remembers a record's last sixteen keyed
@@ -849,9 +858,13 @@ component, nothing in east-ui.
     to choose, with nothing to save, over a row of a request that had no answer and was refused when sent again
     (above: one the record never took, or has forgotten — never one it took and remembers, which it answers: held of
     every world read a revision at a time), those in which a Save over a
-    source read whole waited for good, every part it wrote put back exactly, and those in which a Save's late answer
-    put its source back at the revision the Save committed, its rows drawn there. Each is a fault still to close,
-    never a behaviour to keep.
+    source read whole whose host cannot say what it read (`says` false) waited for good, every part it wrote put back
+    exactly, and those in which a Save's late answer put its source back at the revision the Save committed, its rows
+    drawn there. Each is a fault still to close, never a behaviour to keep. A source read whole whose host says what it
+    holds — every world read whole but those run with `says` false, as e3's record runtime says it of a record — has
+    its Saves read back once its host has read the record since the answer: one that still waits then is a fault the
+    harness holds, the read its host makes after an answer an operation of its own (`see`, there whatever the
+    record's revision: a request answered again leaves it where it was).
   - **A new entry's key** (`keys-world.test-utils.ts`, run by `keys-model.test.ts`): sessions that each make their new
     rows' keys by one rule — the next in a row, or the next Integer — beside another session that saves rows of its own
     under the very keys that rule makes, over a source read a revision at a time — where such a row may stand out of

@@ -1387,6 +1387,30 @@ another session before Retry is acknowledged at the state e3 answers with,
 never waited on (`record/remote-edits.dom.test.tsx`, the crew read a window at
 a time; east-ui-components' "A Save with no answer").
 
+A change saved here that another session puts back exactly before the builder
+reads the record again — a row changed, added or removed — is the shared
+check `putBackAfterSave`: the Save is read back with the row as e3 holds it,
+never left saving, nothing asked and nothing saved again. Every builder runs
+it: the Record over the crew read a window at a time and read whole
+(`record/put-back.dom.test.tsx`), the Sheet and the Calendar each of the three
+changes over a record read a window at a time and two over one read whole
+(their `put-back.dom.test.tsx`), the Plan a job duplicated, the Roster a duty
+placed and one removed, the Allocation a bin removed, the Flowchart a state
+renamed, and the Schematic a rack moved over racks read whole. A record read whole holds, put back,
+the bytes it held before the Save under the hash it had, so nothing it holds
+tells when it was read: the record runtime does (`platform/record-runtime.ts`'
+`settledOf`). It marks the workspace's polls as each of a record's writes is
+answered (the dataset cache's `pollMark`) and says what the cache holds of the
+record once a poll started since has found it the record's — fetched, or held
+already under the hash that poll read (`confirmedSince`; `confirmed` tells
+whoever waits, since a record put back changes no byte to tell its readers
+of) — and it registers that as what its sources hold
+(east-ui-components' `registerSettledSources`: a source's id is its record's
+name there), which an editing session reads a Save back at. It says nothing
+of a record no write from here has been answered for, nor of one the cache's
+polls do not reconcile — read a page at a time, or held offline. The same
+Save with its answer lost, then Retry, is `record/unanswered-save.dom.test.tsx`'s.
+
 The Sheet's footer note of a gesture goes with a step of the history, and
 with a conflict's choice, which is one taken in the conflicts popover: a
 removal's `Apply writes it, Undo restores` is so no more once the other side

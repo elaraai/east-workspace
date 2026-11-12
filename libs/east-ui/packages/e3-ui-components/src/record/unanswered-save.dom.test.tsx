@@ -21,8 +21,14 @@
  *   remembered more than its last request, the Retry was refused, and the
  *   person asked to choose over a change they no longer had.
  *
- * (What the Save wrote put back exactly by another session, before Retry, is
- * `remote-edits.dom.test.tsx`'s, over the crew read a window at a time.)
+ * - What the Save wrote put back exactly by another session — the level
+ *   stepped back down, the new member removed again — reads, where the Retry
+ *   is answered, as it did before the Save. The crew are read whole here: the
+ *   Save is read back at what the page holds of them once it has read them
+ *   since that answer (`record-runtime.ts`' `settledOf`), the row as e3 holds
+ *   it — never waited on for a read that would show the Save: none ever would.
+ *   (Over the crew read a window at a time: `remote-edits.dom.test.tsx`. With
+ *   the Save answered at once: `put-back.dom.test.tsx`.)
  *
  * A request sixteen others have followed is forgotten: asked again it is
  * checked afresh, and refused, since the rows no longer hold what its changes
@@ -183,6 +189,32 @@ test("recordConflicts: a level stepped here is saved and no answer comes; anothe
     await theirs((members) => { members.set("C-002", { ...members.get("C-002")!, forklift: "2" }); });
     await retriedToRest(c);
     expect([level(c, "C-002"), (await crew()).get("C-002")!.forklift]).toEqual([competent, "2"]);
+});
+
+test("recordConflicts: a level stepped here is saved and no answer comes; Someone else saves, which steps it back down to where it began; Retry — the Save is read back once the page has read the crew since e3's answer, the level as it was before the Save: never left saving, nothing asked, nothing left to save", async () => {
+    const { container: c } = await h.mount(ex.recordConflicts, { storageKey: "record-unanswered-put-back" });
+    const [began, said] = [(await crew()).get("C-002")!.forklift, level(c, "C-002")];
+    await press(cellOf(rowOf(c, "C-002"), "forklift"));
+    await saveWithNoAnswer(c);
+    expect((await crew()).get("C-002")!.forklift).not.toBe(began);
+    // Every level a step down: B. Ellis's is back where it began, exactly.
+    await press(someoneElse(c, "Someone else saves"));
+    expect((await crew()).get("C-002")!.forklift).toBe(began);
+    await retriedToRest(c);
+    expect([level(c, "C-002"), (await crew()).get("C-002")!.forklift]).toEqual([said, began]);
+});
+
+test("recordConflicts: a member added here is saved and no answer comes; another session removes them again; Retry — the Save is read back with the member gone, as e3 holds the crew: never left saving, and never added again", async () => {
+    const { container: c } = await h.mount(ex.recordConflicts, { storageKey: "record-unanswered-removed-again" });
+    await press(add(c));
+    await name(c, "C-004", "E. Novak");
+    await saveWithNoAnswer(c);
+    expect((await crew()).has("C-004")).toBe(true);
+    await theirs((members) => { members.delete("C-004"); });
+    const commits = (await h.history(ex.recordConflictCrew)).commits.length;
+    await retriedToRest(c);
+    expect([ids(c), [...(await crew()).keys()]]).toEqual([["C-001", "C-002", "C-003"], ["C-001", "C-002", "C-003"]]);
+    expect((await h.history(ex.recordConflictCrew)).commits.length).toBe(commits);
 });
 
 test("recordConflicts: a member added here is saved and no answer comes; sixteen other Saves follow, and e3 has forgotten the request; Retry — refused, and judged by what e3 holds: the member is in the crew once, under the key they were added under, with nothing asked and nothing left to save", async () => {

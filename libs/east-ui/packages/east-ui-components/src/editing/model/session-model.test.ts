@@ -196,6 +196,17 @@ for (const shape of ["fields", "whole"] as const) {
             expect(found.worlds).toBeGreaterThan(DEEPER < 0 ? 0 : 2_000);
         }, 600_000);
 
+        it("a source read whole whose host cannot say what it read: every ordering of a person's gestures, Saves and choices with another session's writes, and two people's", async () => {
+            // A collection of the page's own, which no runtime reads for it: its session reads a Save back by what the
+            // collection's entries show. Every other family read whole has a host that says, as e3's record runtime does.
+            const found = await explore({ shape, remotes: 2, inline: true, says: false }, 5 + DEEPER, (op) => INLINE.test(op));
+            console.info(said(`${shape} inline, its host silent`, found));
+            expect(found.worlds).toBeGreaterThan(DEEPER < 0 ? 0 : 2_000);
+            const two = await explore({ shape, clients: 2, remotes: 0, inline: true, says: false }, 6 + DEEPER, (op) => INLINE_TWO.test(op));
+            console.info(said(`${shape} inline two, its host silent`, two));
+            expect(two.worlds).toBeGreaterThan(DEEPER < 0 ? 0 : 2_000);
+        }, 600_000);
+
         it("two people: every ordering of their gestures, Saves, reads and choices on one row", async () => {
             const found = await explore({ shape, clients: 2, remotes: 0 }, 6 + DEEPER, (op) => TWO.test(op));
             console.info(said(`${shape} two`, found));
@@ -219,9 +230,12 @@ for (const shape of ["fields", "whole"] as const) {
         it("random runs past that depth, each from its seed", async () => {
             let lost = 0, waited = 0;
             for (let seed = 1; seed <= 1_000 * RUNS; seed++) {
-                // A third of them with each Save prepared first, a quarter over a source read whole, and a fifth over a
-                // record that has forgotten every request sent again.
-                const world = await wander({ shape, clients: 1 + (seed % 2), remotes: 3, prepares: seed % 3 === 0, inline: seed % 4 === 1, ...(seed % 5 === 2 && { remembers: 0 }) }, seed, 40);
+                // A third of them with each Save prepared first, a quarter over a source read whole — half of those with a
+                // host that cannot say what it read — and a fifth over a record that has forgotten every request sent again.
+                const world = await wander({
+                    shape, clients: 1 + (seed % 2), remotes: 3, prepares: seed % 3 === 0, inline: seed % 4 === 1, says: seed % 8 !== 5,
+                    ...(seed % 5 === 2 && { remembers: 0 }),
+                }, seed, 40);
                 if (world.stepsLost > 0) lost++;
                 if (world.waitedForGood > 0) waited++;
             }
@@ -477,12 +491,37 @@ describe("what the harness found of a source read whole", () => {
             await world.rest();
         });
 
-        it(`counted, not yet held: a Save whose every part another session put back exactly, before the record was read again, waits to be read back until the page is reloaded (${shape})`, async () => {
-            // c0 adds a row and saves; c1 removes it before c0's page reads the record again: the record reads as it did
-            // before c0's Save, which nothing a collection holds tells from one read before the Save landed.
+        // c0 adds a row and saves; c1 removes it before c0's page reads the record again: the record reads as it did
+        // before c0's Save, which nothing a collection holds tells from one read before the Save landed.
+        const putBack: readonly ModelOp[] = ["c0.add(k3)", "c0.save", "c0.deliver", "c1.see", "c1.remove(k3)", "c1.save", "c1.deliver"];
+
+        it(`a Save whose every part another session put back exactly, before the record was read again, is read back once its host has read the record since the Save was answered — the row gone, as the record holds it (${shape})`, async () => {
+            const world = await worldAfter({ shape, clients: 2, remotes: 0, inline: true }, putBack);
+            const client = world.clients[0]!;
+            // Answered, and not yet read since: the collection it holds is from before the Save, and it waits.
+            expect([client.session.status, client.session.locked, client.awaitsRead]).toEqual(["reconciling", true, true]);
+            await world.run("c0.see");
+            expect([client.session.status, client.session.locked, client.session.pending, client.shown("k3")]).toEqual(["idle", false, 0, undefined]);
+            await world.rest();
+            expect(world.waitedForGood).toBe(0);
+        });
+
+        it(`a Save answered again by the record that remembers it, every part put back since, is read back by the read its host makes after that answer — at the revision it had read already (${shape})`, async () => {
+            // The answer lost; c1 removes the row; c0's page reads the record, then asks again: the record answers at
+            // the revision it is at, which the page has read — before the answer, so it says nothing of the Save yet.
             const world = await worldAfter({ shape, clients: 2, remotes: 0, inline: true }, [
-                "c0.add(k3)", "c0.save", "c0.deliver", "c1.see", "c1.remove(k3)", "c1.save", "c1.deliver", "c0.see",
+                "c0.add(k3)", "c0.save", "c0.deliverUnanswered", "c1.see", "c1.remove(k3)", "c1.save", "c1.deliver", "c0.see", "c0.retry", "c0.deliver",
             ]);
+            const client = world.clients[0]!;
+            expect([client.session.status, client.awaitsRead, world.enabled().includes("c0.see")]).toEqual(["reconciling", true, true]);
+            await world.run("c0.see");
+            expect([client.session.status, client.session.locked, client.session.pending, client.shown("k3")]).toEqual(["idle", false, 0, undefined]);
+            await world.rest();
+            expect([world.waitedForGood, world.record.now.has("k3")]).toEqual([0, false]);
+        });
+
+        it(`counted, where its host cannot say what it read: such a Save waits to be read back until the page is reloaded (${shape})`, async () => {
+            const world = await worldAfter({ shape, clients: 2, remotes: 0, inline: true, says: false }, [...putBack, "c0.see"]);
             const { session } = world.clients[0]!;
             expect([session.status, session.locked]).toEqual(["reconciling", true]);
             // The world reloads the page, as its person would, and comes to rest.

@@ -352,6 +352,91 @@ test("one commit lands whole: an entry that reads as the commit left it says the
     expect([session.status, session.locked, session.pending, session.entries.size]).toEqual(["idle", false, 0, 0]);
 });
 
+// ── A source read whole whose host says what it holds (#1599) ───────────────
+
+/** A keyed session over the jobs, read whole, its quantity for J1 saved and answered. */
+const savedQuantity = async () => {
+    const session = keyed();
+    session.record([{ id: "J1", before: job(cut), after: job({ ...cut, qty: 5n }) }], "typed", "Set quantity");
+    await session.apply();
+    expect(session.status).toBe("reconciling");
+    return session;
+};
+/** The jobs as the edit began. */
+const began = () => jobs([["J1", cut], ["J2", band], ["J3", route]]);
+
+test("a Save whose every part another write put back exactly is read back at the collection its host says the source holds, read since the Save was answered — never waited on for good (#1599)", async () => {
+    const session = await savedQuantity();
+    // The collection as the edit began, its host still to read the source since the answer: read before the Save, for all it says.
+    expect(session.reconcile(variant("snapshot", began()), () => undefined, { value: undefined })).toBe(false);
+    expect([session.status, session.locked]).toEqual(["reconciling", true]);
+    // Read since: the source holds the row as it was — the Save landed, and another write put its quantity back.
+    expect(session.reconcile(variant("snapshot", began()), () => undefined, { value: began() })).toBe(true);
+    expect([session.status, session.locked, session.pending, session.entries.size]).toEqual(["idle", false, 0, 0]);
+    // The row is the source's: nothing left to save, and no step to take back over it.
+    expect([session.canApply, session.canUndo]).toEqual([false, false]);
+});
+
+test("where its host says what the source holds, a collection that is not that one confirms only by holding the Save's every entry as it was left — one from before the Save never does, whatever its host holds (#1599)", async () => {
+    // The page still draws the collection from before the Save, while its host holds the one the Save left: the page's next.
+    const lagging = await savedQuantity();
+    const left = jobs([["J1", { ...cut, qty: 5n }], ["J2", band], ["J3", route]]);
+    expect(lagging.reconcile(variant("snapshot", began()), () => undefined, { value: left })).toBe(false);
+    expect(lagging.status).toBe("reconciling");
+    expect(lagging.reconcile(variant("snapshot", left), () => undefined, { value: left })).toBe(true);
+    expect([lagging.status, lagging.pending, lagging.canUndo]).toEqual(["idle", 0, true]);
+    // The Save's every entry as it was left: read after the Save, whenever its host says so.
+    const certain = await savedQuantity();
+    expect(certain.reconcile(variant("snapshot", left), () => undefined, { value: undefined })).toBe(true);
+    expect([certain.status, certain.pending]).toEqual(["idle", 0]);
+    // The same part changed again by another write: read after the Save for all a host that cannot say knows — but
+    // where its host can, read back at the collection it says, once it has read the source since.
+    const again = await savedQuantity();
+    const overtaken = jobs([["J1", { ...cut, qty: 9n }], ["J2", band], ["J3", route]]);
+    expect(again.reconcile(variant("snapshot", overtaken), () => undefined, { value: undefined })).toBe(false);
+    expect(again.reconcile(variant("snapshot", overtaken), () => undefined, { value: overtaken })).toBe(true);
+    expect([again.status, again.locked, again.pending, again.entries.size]).toEqual(["idle", false, 0, 0]);
+});
+
+test("a host that cannot say leaves a Save to what the collection's entries show: every part put back exactly, it waits (#1599)", async () => {
+    const session = await savedQuantity();
+    expect(session.reconcile(variant("snapshot", began()), () => undefined)).toBe(false);
+    expect(session.reconcile(variant("snapshot", began()), () => undefined, undefined)).toBe(false);
+    expect([session.status, session.locked]).toEqual(["reconciling", true]);
+});
+
+test("a change made while a Save was read back stands over the row as another write put it back: the next Save's, from what the source holds (#1599)", async () => {
+    const batches: ValueTypeOf<typeof JobBatch>[] = [];
+    const session = new EditSession<Bar>({
+        sourceId: "jobs", entryType: Job, draftType: JobDraft, keyType: StringType, patch: undefined, refresh: undefined,
+        apply: (bytes) => { batches.push(decodeBeast2For(JobBatch)(bytes)); return variant("applied", { revision: some("r2") }); },
+    });
+    session.observeBase(variant("snapshot", began()));
+    session.record([{ id: "J1", before: job(cut), after: job({ ...cut, qty: 5n }) }], "typed", "Set quantity");
+    await session.apply();
+    // While it is read back: the task set here, over the row as the Save left it.
+    session.record([{ id: "J1", before: job({ ...cut, qty: 5n }), after: job({ task: "Panel cutting, maple", qty: 5n }) }], "typed", "Set task");
+    // The quantity put back by another write before the source was read again.
+    expect(session.reconcile(variant("snapshot", began()), () => undefined, { value: began() })).toBe(true);
+    expect([session.status, session.pending, session.unsettled]).toEqual(["idle", 1, 0]);
+    expect((equalFor(OptionType(JobDraft)) as (a: unknown, b: unknown) => boolean)(
+        some(session.entries.get("J1")!.draft), some(liftDraft(JobDraft, { task: "Panel cutting, maple", qty: 2n })))).toBe(true);
+    // Its Save sends the task alone, from the row the source holds.
+    await session.apply();
+    expect(batches).toHaveLength(2);
+    expect(session.reconcile(variant("snapshot", jobs([["J1", { task: "Panel cutting, maple", qty: 2n }], ["J2", band], ["J3", route]])), () => undefined, { value: undefined })).toBe(true);
+    expect([session.status, session.pending]).toEqual(["idle", 0]);
+});
+
+test("a positional snapshot put back exactly is read back at the collection its host says the source holds (#1599)", async () => {
+    const session = create();
+    session.record([{ id: "a", before: version(a), after: version({ ...a, end: 5n }) }], "resize", "Resize a");
+    await session.apply();
+    expect(session.reconcile(variant("snapshot", [a]), () => undefined, { value: undefined })).toBe(false);
+    expect(session.reconcile(variant("snapshot", [a]), () => undefined, { value: [a] })).toBe(true);
+    expect([session.status, session.locked, session.pending, session.entries.size]).toEqual(["idle", false, 0, 0]);
+});
+
 test("a draft first made while a Save was read back, from a row another write has since changed, is carried over to the collection the Save is confirmed at: a conflict to choose, never a Save refused with nothing newer to move to (#1599)", async () => {
     const batches: ValueTypeOf<typeof JobBatch>[] = [];
     const session = new EditSession<Bar>({

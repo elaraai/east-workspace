@@ -13,8 +13,9 @@
 
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
-import { IntegerType, StringType, StructType, encodeBeast2For, none, some, toEastTypeValue, variant, type option, type ValueTypeOf } from "@elaraai/east";
+import { DictType, IntegerType, SortedMap, StringType, StructType, compareFor, encodeBeast2For, none, some, toEastTypeValue, variant, type option, type ValueTypeOf } from "@elaraai/east";
 import { Editing } from "@elaraai/east-ui/internal";
+import { registerSettledSources } from "../platform/settled-source.js";
 import { getStore, initializeStore, trackKey } from "../platform/state-runtime.js";
 import { UIStore } from "../platform/state-store.js";
 import { autosaveChoiceOf } from "./autosave-choice.js";
@@ -231,4 +232,36 @@ test("a history's builder's choice of an automatic Save begins where its author 
     stop();
     const silent = renderHook(() => useEditHistory(sources, "silent"));
     expect(autosaveChoiceOf(silent.result.current.history)!.begins()).toBe(false);
+});
+
+test("a source read whole has its Save read back at the collection its host says the source holds, once the host has read it since the Save was answered: every part put back exactly, the Save is acknowledged, never waited on (#1599)", async () => {
+    const Jobs = DictType(StringType, Job);
+    const whole = encodeBeast2For(Jobs)(new SortedMap([["J00", { task: "J00", qty: 1n }], ["J01", { task: "J01", qty: 1n }]], compareFor(StringType)));
+    // The jobs read whole, their snapshot the collection as it stood before the Save — put back since, or not yet read.
+    const sourcesNow = (): readonly EditHistorySource<null>[] => [{
+        editing: {
+            sourceId: "jobs-whole", entryType: toEastTypeValue(Job), draftType: toEastTypeValue(JobDraft),
+            idField: none, children: none, keyType: some(toEastTypeValue(StringType)), snapshot: some(whole), onPatch: none,
+            readEntry: () => none,
+            onApply: some(variant("sync", () => variant("applied", { revision: none }))),
+        },
+    }];
+    // What the source's host says it holds: nothing until it has read the source since the Save's answer.
+    let held: Uint8Array | undefined;
+    registerSettledSources((sourceId) => (sourceId === "jobs-whole" ? () => held : undefined));
+    try {
+        const hook = renderHook(({ sources }) => useEditHistory(sources, "whole-put-back"), { initialProps: { sources: sourcesNow() } });
+        const session = () => hook.result.current.history.session(hook.result.current.keys[0]!)!;
+        await waitFor(() => expect(hook.result.current.available(hook.result.current.keys[0]!)).toBe(true));
+        act(() => { session().record([{ id: "J00", before: job({ task: "J00", qty: 1n }), after: job({ task: "J00", qty: 5n }) }], "typed", "Set quantity"); });
+        await act(async () => { await session().apply(); });
+        hook.rerender({ sources: sourcesNow() });
+        expect([session().status, session().locked]).toEqual(["reconciling", true]);
+        // Its host has read the source since the answer, and holds the jobs as they were: the quantity was put back.
+        held = whole;
+        hook.rerender({ sources: sourcesNow() });
+        expect([session().status, session().locked, session().pending]).toEqual(["idle", false, 0]);
+    } finally {
+        registerSettledSources(() => undefined);
+    }
 });

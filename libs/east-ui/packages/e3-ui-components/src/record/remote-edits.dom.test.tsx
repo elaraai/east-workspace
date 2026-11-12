@@ -33,6 +33,10 @@
  * - A member another session adds, and one it removes, that no draft touches:
  *   the grid shows it, nothing is asked, and Save writes what was typed here
  *   alone.
+ * - A level typed here and saved, or a member removed here and saved, that
+ *   another session puts back exactly before the grid reads the crew again:
+ *   the check every builder runs (`putBackAfterSave`) — the Save is read back
+ *   with the row as e3 holds it, never left saving.
  * - A Save that landed with no answer, whose row another session then put
  *   back exactly as it was — the level typed back, the removed member added
  *   again — and Retry: e3 answers the request it remembers with the state it
@@ -50,7 +54,7 @@ import { Data, Record } from "@elaraai/e3-ui/internal";
 import * as fx from "@elaraai/e3-ui/fixtures/sheet/sheet-keys";
 import type { E3Request } from "../e3-web.test-utils.js";
 import { conflictCards } from "../e3-web-mount.test-utils.js";
-import { removedHere, removedOnBothSides, removedThere } from "../shared/remote-rows.test-utils.js";
+import { putBackAfterSave, removedHere, removedOnBothSides, removedThere } from "../shared/remote-rows.test-utils.js";
 import { act, settle, sheetHarness, slot } from "../sheet/frame/harness.test-utils.js";
 // The Record is an extension: its renderer registers as it loads.
 import "./index.js";
@@ -366,4 +370,25 @@ test("a member removed here is saved and no answer comes; another session adds t
     await retriedToRest(c);
     expect([drawn(c), (await h.read(fx.numberedCrew)).get(9n)]).toEqual([["2", "9", "10"], member]);
     expect((await h.history(fx.numberedCrew)).commits.length).toBe(commits);
+});
+
+/** What the shared check takes of the crew read a window at a time: what the grid draws, what e3 holds, and a Save followed by a write that puts the crew back. */
+async function putBack(c: HTMLElement) {
+    const before = await h.read(fx.numberedCrew);
+    return {
+        container: c,
+        look: () => look(c),
+        held: async () => [...(await h.read(fx.numberedCrew))],
+        savedThenPutBack: (save: () => void) => h.followed(fx.numberedCrew, save, () => before),
+    };
+}
+
+test("a level typed here and saved, typed back by another session before the grid reads the crew again, is read back with the level as it was: the Save never left saving, nothing asked, nothing left to save", async () => {
+    const c = await mounted("record-remote-put-back-level");
+    await putBackAfterSave({ ...await putBack(c), change: () => type(c, "9", "2") });
+});
+
+test("a member removed here and saved, added back by another session exactly as they were before the grid reads the crew again, stands on the grid as e3 holds them: the Save never left saving, and the member never removed again", async () => {
+    const c = await mounted("record-remote-put-back-removed");
+    await putBackAfterSave({ ...await putBack(c), change: () => remove(c, "9") });
 });
