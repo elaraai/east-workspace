@@ -18,29 +18,70 @@
  * depth with no budget: more operations at once, fewer of them in a row. The
  * two are run together.
  *
- * `EDITING_MODEL_STATES=1` runs each family at its larger budgets: a proof
- * run, by hand, on one core for each draft shape — the shapes run side by
- * side (`-t "drafting a field at a time"`, `-t "drafting a row whole"`). The
- * unit suite runs the smaller ones.
+ * `EDITING_MODEL_STATES=1` is a proof run, by hand: each family past the unit
+ * suite's budgets one way at a time — a world with one more gesture, one with
+ * one more request, one with one more of another session's writes — on one
+ * core for each draft shape, the shapes run side by side (`-t "drafting a
+ * field at a time"`, `-t "drafting a row whole"`). `EDITING_MODEL_STATES=2`
+ * raises every one of them at once: the largest world, which grows with every
+ * field the session gains — a state's print holds each — and no longer ends in
+ * a sitting for most families (12 Nov 2026). The unit suite runs the smallest.
  */
 import { describe, expect, it } from "vitest";
 import { deskAfter } from "./desk.test-utils.js";
 import { everyState, type StatesWalked } from "./explore.test-utils.js";
 import { worldAfter, type WorldOptions } from "./world.test-utils.js";
 
-/** Whether this is a proof run: each family at its larger budgets. */
-const PROOF = Number(process.env["EDITING_MODEL_STATES"] ?? 0) > 0;
+/** How far past the unit suite's budgets a run goes: not at all; one way at a time, a proof run; or every way at once. */
+const LEVEL = Number(process.env["EDITING_MODEL_STATES"] ?? 0);
+/** Whether this is a proof run: each family past the unit suite's budgets. */
+const PROOF = LEVEL > 0;
 /** The most states a walk meets before it gives up saying it met them all. */
 const LIMIT = 2_000_000;
 
-/** A family's budgets: the unit suite's, or a proof run's. */
-function budgets<T>(unit: T, proof: T): T {
-    return PROOF ? proof : unit;
+/** A world's budgets: how many gestures and choices, requests, and writes of another session's it runs. */
+type Budget = Readonly<Record<string, number>>;
+
+/**
+ * The worlds a family walks: the unit suite's; in a proof run, the unit's raised to the larger budget one way at a
+ * time, a world for each way the two differ; at `EDITING_MODEL_STATES=2`, the larger budget whole.
+ *
+ * @param unit - The unit suite's budgets
+ * @param larger - The larger budgets
+ * @returns Each world's budgets
+ */
+function budgets<T extends Budget>(unit: T, larger: T): T[] {
+    if (LEVEL <= 0) return [unit];
+    if (LEVEL >= 2) return [larger];
+    const raised = Object.keys(larger).filter((way) => larger[way] !== unit[way]).map((way) => ({ ...unit, [way]: larger[way] }) as T);
+    return raised.length === 0 ? [unit] : raised;
+}
+
+/** A world's budgets, in words: `2 acts, 1 sends`. */
+function worded(budget: Budget): string {
+    return Object.entries(budget).map(([way, count]) => `${count} ${way}`).join(", ");
 }
 
 /** What a walk covered, in a line. */
 function said(name: string, walked: StatesWalked): string {
     return `[editing model] ${name}: ${walked.states} states, ${walked.transitions} operations run from them, the furthest ${walked.depth} operations away`;
+}
+
+/**
+ * Walks every state of a family's worlds, each closed under its operations.
+ *
+ * @param name - The family, as its line names it
+ * @param unit - The unit suite's budgets
+ * @param larger - The larger budgets
+ * @param walk - Walks one world of the budgets given
+ * @throws {ModelFault} The first fault a walk meets — and an assertion's error where a walk gave up before it met every state
+ */
+async function walked<T extends Budget>(name: string, unit: T, larger: T, walk: (budget: T) => Promise<StatesWalked>): Promise<void> {
+    for (const budget of budgets(unit, larger)) {
+        const found = await walk(budget);
+        console.info(said(`${name}, ${worded(budget)}`, found));
+        expect(found.closed, `${name}, ${worded(budget)}: every state met`).toBe(true);
+    }
 }
 
 /** Every state a world can reach. */
@@ -88,89 +129,60 @@ const RELOADED = /^(c\d\.(edit\(k1,a\)|undo|save|deliver|deliverUnanswered|retry
 for (const shape of ["fields", "whole"] as const) {
     describe(`every state the editing core can reach, drafting ${shape === "fields" ? "a field at a time" : "a row whole"}`, () => {
         it("one person: their gestures and Saves, with every way a request can go", async () => {
-            // A proof run walks two worlds, each larger than the unit suite's one way: a third gesture, or a second
-            // request. Both at once — three gestures and two requests — walked 968,052 states in 42 minutes on 12 Nov
-            // 2026, and no longer ends in an hour: every field the session has gained since is in a state's print.
-            for (const budget of budgets([{ acts: 2, sends: 1 }], [{ acts: 3, sends: 1 }, { acts: 2, sends: 2 }])) {
-                const walked = await states({ shape, remotes: 0, ...budget }, OWN);
-                console.info(said(`${shape} own, ${budget.acts} gestures and ${budget.sends} request${budget.sends === 1 ? "" : "s"}`, walked));
-                expect(walked.closed).toBe(true);
-            }
+            // Three gestures and two requests at once walked 968,052 states in 42 minutes on 12 Nov 2026, and on the core
+            // as it stood that evening no longer ended in 75: a proof run walks the two worlds either side of it.
+            await walked(`${shape} own`, { acts: 2, sends: 1 }, { acts: 3, sends: 2 }, (budget) => states({ shape, remotes: 0, ...budget }, OWN));
         }, 3_600_000);
 
         it("another session's write to the same field: gestures, Saves, and the choice it asks", async () => {
-            const walked = await states({ shape, remotes: 1, ...budgets({ acts: 1, sends: 1 }, { acts: 2, sends: 2 }) }, BESIDE);
-            console.info(said(`${shape} beside`, walked));
-            expect(walked.closed).toBe(true);
+            await walked(`${shape} beside`, { acts: 1, sends: 1 }, { acts: 2, sends: 2 }, (budget) => states({ shape, remotes: 1, ...budget }, BESIDE));
         }, 3_600_000);
 
         it("one person's rows: a row removed and added again, a row added and removed, with every way a request can go", async () => {
-            const walked = await states({ shape, remotes: 0, ...budgets({ acts: 2, sends: 1 }, { acts: 3, sends: 2 }) }, ROWS_OWN);
-            console.info(said(`${shape} rows own`, walked));
-            expect(walked.closed).toBe(true);
+            await walked(`${shape} rows own`, { acts: 2, sends: 1 }, { acts: 3, sends: 2 }, (budget) => states({ shape, remotes: 0, ...budget }, ROWS_OWN));
         }, 3_600_000);
 
         it("rows added and removed on both sides: a row changed here and removed there, removed here and changed there, added by both, and the choice each asks", async () => {
-            const walked = await states({ shape, ...budgets({ remotes: 1, acts: 1, sends: 1 }, { remotes: 2, acts: 2, sends: 2 }) }, ROWS_BESIDE);
-            console.info(said(`${shape} rows beside`, walked));
-            expect(walked.closed).toBe(true);
+            await walked(`${shape} rows beside`, { remotes: 1, acts: 1, sends: 1 }, { remotes: 2, acts: 2, sends: 2 }, (budget) => states({ shape, ...budget }, ROWS_BESIDE));
         }, 3_600_000);
 
         it("an automatic Save: gestures, an optimiser's result, Undo, Redo and a person's Save", async () => {
-            const walked = await states({ shape, remotes: 0, ...budgets({ acts: 2, sends: 2 }, { acts: 3, sends: 2 }) }, AUTOMATIC);
-            console.info(said(`${shape} automatic`, walked));
-            expect(walked.closed).toBe(true);
+            await walked(`${shape} automatic`, { acts: 2, sends: 2 }, { acts: 3, sends: 2 }, (budget) => states({ shape, remotes: 0, ...budget }, AUTOMATIC));
         }, 3_600_000);
 
         it("a source read whole, with another session's write", async () => {
-            const walked = await states({ shape, remotes: 1, inline: true, ...budgets({ acts: 2, sends: 1 }, { acts: 2, sends: 2 }) }, PROOF ? INLINE : INLINE_ANSWERED);
-            console.info(said(`${shape} inline`, walked));
-            expect(walked.closed).toBe(true);
+            await walked(`${shape} inline`, { acts: 2, sends: 1 }, { acts: 2, sends: 2 }, (budget) => states({ shape, remotes: 1, inline: true, ...budget }, PROOF ? INLINE : INLINE_ANSWERED));
         }, 3_600_000);
 
         it("a Save's answer that comes late: the record taking the Save, another session's writes, the page hearing of them, and the answer — before, after, or as the page moves on", async () => {
-            const walked = await states({ shape, ...budgets({ remotes: 1, acts: 1, sends: 1 }, { remotes: 2, acts: 2, sends: 2 }) }, LATE);
-            console.info(said(`${shape} late`, walked));
-            expect(walked.closed).toBe(true);
+            await walked(`${shape} late`, { remotes: 1, acts: 1, sends: 1 }, { remotes: 2, acts: 2, sends: 2 }, (budget) => states({ shape, ...budget }, LATE));
         }, 3_600_000);
 
         it("a change taken back by hand while its conflict waits: a field typed back to what both sides began from, with the choices, Undo, Redo and the Saves around it", async () => {
-            const walked = await states({ shape, remotes: 1, flips: true, ...budgets({ acts: 2, sends: 1 }, { acts: 3, sends: 2 }) }, BACK);
-            console.info(said(`${shape} taken back`, walked));
-            expect(walked.closed).toBe(true);
+            await walked(`${shape} taken back`, { acts: 2, sends: 1 }, { acts: 3, sends: 2 }, (budget) => states({ shape, remotes: 1, flips: true, ...budget }, BACK));
         }, 3_600_000);
 
         it("a row's change taken back by hand while its conflict waits: a new row removed again, a removed row put back, a changed row typed back", async () => {
-            const walked = await states({ shape, remotes: 1, flips: true, ...budgets({ acts: 2, sends: 1 }, { acts: 3, sends: 2 }) }, BACK_ROWS);
-            console.info(said(`${shape} rows taken back`, walked));
-            expect(walked.closed).toBe(true);
+            await walked(`${shape} rows taken back`, { acts: 2, sends: 1 }, { acts: 3, sends: 2 }, (budget) => states({ shape, remotes: 1, flips: true, ...budget }, BACK_ROWS));
         }, 3_600_000);
 
         it("a page reloaded with its drafts kept, with another session's write", async () => {
-            const walked = await states({ shape, remotes: 1, ...budgets({ acts: 2, sends: 1 }, { acts: 2, sends: 2 }) }, RELOADED);
-            console.info(said(`${shape} reloaded`, walked));
-            expect(walked.closed).toBe(true);
+            await walked(`${shape} reloaded`, { acts: 2, sends: 1 }, { acts: 2, sends: 2 }, (budget) => states({ shape, remotes: 1, ...budget }, RELOADED));
         }, 3_600_000);
 
         it("a record that has forgotten a request sent again: another session's write to the same field, with every way a request can go", async () => {
             // What a record is to a request sixteen others have followed: sent again it is checked afresh, and the
             // session judges what it finds by evidence. Every other family's record remembers its requests, as e3 does.
-            const walked = await states({ shape, remotes: 1, remembers: 0, ...budgets({ acts: 1, sends: 1 }, { acts: 2, sends: 2 }) }, BESIDE);
-            console.info(said(`${shape} beside, forgotten`, walked));
-            expect(walked.closed).toBe(true);
+            await walked(`${shape} beside, forgotten`, { acts: 1, sends: 1 }, { acts: 2, sends: 2 }, (budget) => states({ shape, remotes: 1, remembers: 0, ...budget }, BESIDE));
         }, 3_600_000);
 
         it("a record that has forgotten a request sent again: a page reloaded with its drafts kept, with another session's write", async () => {
-            const walked = await states({ shape, remotes: 1, remembers: 0, ...budgets({ acts: 2, sends: 1 }, { acts: 2, sends: 2 }) }, RELOADED);
-            console.info(said(`${shape} reloaded, forgotten`, walked));
-            expect(walked.closed).toBe(true);
+            await walked(`${shape} reloaded, forgotten`, { acts: 2, sends: 1 }, { acts: 2, sends: 2 }, (budget) => states({ shape, remotes: 1, remembers: 0, ...budget }, RELOADED));
         }, 3_600_000);
 
         it("one history over two records: gestures in each and across both, an optimiser's result and an automatic Save among them", async () => {
-            const budget = budgets({ acts: 2, sends: 1 }, { acts: 2, sends: 2 });
-            const walked = await everyState((ops) => deskAfter(shape, ops, budget), (desk) => desk.print(), (op) => PROOF || DESK.test(op), () => undefined, LIMIT);
-            console.info(said(`${shape} desk`, walked));
-            expect(walked.closed).toBe(true);
+            await walked(`${shape} desk`, { acts: 2, sends: 1 }, { acts: 2, sends: 2 },
+                (budget) => everyState((ops) => deskAfter(shape, ops, budget), (desk) => desk.print(), (op) => PROOF || DESK.test(op), () => undefined, LIMIT));
         }, 3_600_000);
     });
 }

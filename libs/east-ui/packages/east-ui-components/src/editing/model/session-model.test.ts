@@ -709,6 +709,32 @@ describe("what the harness found of a source read whole", () => {
             await world.rest();
         });
 
+        // Both fields of k1 changed and saved; the request is lost and sent again, another session changing k1.a
+        // meanwhile, so it is refused. The change of a is taken back by Undo and the rest saved; Redo puts it back while
+        // that Save is out. Read back, the record holds the other session's a: Redo's change and theirs both began from
+        // the value the Save sent — a conflict to choose. But the request refused before was still to be judged, and
+        // judged k1 from the row as the session held it by then — the other session's — which left Redo's change a
+        // plain one, and the next Save wrote it over theirs with nothing asked. (Found by the every-state walk of a
+        // source read whole at its proof budget, 12 Nov 2026.)
+        const redone: readonly ModelOp[] = ["c0.edit(k1,b)", "c0.edit(k1,a)", "c0.save", "c0.lose", "c0.retry", "remote.edit(k1,a)", "c0.deliver", "c0.undo", "c0.save", "c0.redo", "c0.deliver", "c0.see"];
+
+        it(`a change Redo puts back while a later Save of its row is out, over a request with no answer that was refused when sent again, is a conflict to choose where another session changed the same part — never written over theirs unasked (${shape})`, async () => {
+            const world = await worldAfter({ shape, remotes: 1, inline: true }, redone);
+            const { session } = world.clients[0]!;
+            expect([session.status, session.pending, session.unsettled, session.canApply]).toEqual(["idle", 1, 1, false]);
+            // Chosen for the draft, with theirs shown on its card, it is saved.
+            await world.rest();
+            expect(world.record.now.get("k1")).toEqual({ a: 101n, b: 100n });
+        });
+
+        it(`the same over a source read a revision at a time (${shape})`, async () => {
+            const world = await worldAfter({ shape, remotes: 1 }, [...redone, "c0.read"]);
+            const { session } = world.clients[0]!;
+            expect([session.status, session.pending, session.unsettled, session.canApply]).toEqual(["idle", 1, 1, false]);
+            await world.rest();
+            expect(world.record.now.get("k1")).toEqual({ a: 101n, b: 100n });
+        });
+
         // c0 adds a row and saves; c1 removes it before c0's page reads the record again: the record reads as it did
         // before c0's Save, which nothing a collection holds tells from one read before the Save landed.
         const putBack: readonly ModelOp[] = ["c0.add(k3)", "c0.save", "c0.deliver", "c1.see", "c1.remove(k3)", "c1.save", "c1.deliver"];

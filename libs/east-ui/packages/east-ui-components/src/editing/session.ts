@@ -1845,9 +1845,14 @@ export class EditSession<W> {
             const began = this.baseline.get(id) ?? ABSENT;
             // An entry of a request sent again after no answer and refused: its first sending may have landed, and what
             // both began from is judged by what the source holds, a part at a time ({@link EditSession.unconfirmed}).
-            // Held whole as the request left it, what the request sent is the entry's original.
+            // Held whole as the request left it, what the request sent is the entry's original. The other candidate is
+            // what the entry's draft and its original began from as they read now ({@link EditSession.beganOf}) — never
+            // the original alone where a conflict waits on the entry: a later Save of it, read back beside another
+            // write, leaves the source's value for its original and what both began from for the conflict's
+            // ({@link EditSession.behind}), and judged from the original there, a part both changed read as a part the
+            // draft alone changed — the conflict gone, and the next Save written over the other write unasked.
             const sent = this.sentOf(id);
-            const either = sent === undefined ? undefined : this.merger.eitherBegan(draftOf(began), draftOf(sent), draftOf(mine), source);
+            const either = sent === undefined ? undefined : this.merger.eitherBegan(this.beganOf(id, mine, began), draftOf(sent), draftOf(mine), source);
             const original = sent !== undefined && either !== undefined && this.merger.equal(either, draftOf(sent)) ? sent : began;
             // A new entry whose id another write added meanwhile is a second new entry, not the same one changed both
             // ways: either choice between them would lose one. Where the session made the id, it makes another — but

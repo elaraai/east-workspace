@@ -843,7 +843,12 @@ component, nothing in east-ui.
   request is judged by what the source holds of it as the drafts are carried over (`merge`), a part at a time
   (`EntryMerger.eitherBegan`): held as the request left it, it began from what was sent, and a draft made since is a
   change from that; held as the edit began, from that; held as neither — another write's value — from whichever makes
-  the draft's difference a conflict to choose, never given up for the other write unasked. A whole new row or a
+  the draft's difference a conflict to choose, never given up for the other write unasked. Where a conflict already
+  waits on the entry, the candidate beside what was sent is what both sides began from (`beganOf`), never the entry's
+  original alone: a later Save of the entry, read back beside another write, leaves the source's value for its
+  original, and judged from that the conflict went — after a Save lost, retried and refused, an Undo, a Save and a
+  Redo, the next Save wrote the person's value over the other session's (the every-state walk of a source read whole
+  found it; its replays are `session-model.test.ts`'s). A whole new row or a
   removal is judged whole, never merged with another row a part at a time. A new entry of the request's is made no
   other key, and a key a request leaves a row under is known taken. The tab keeps the request beside the drafts, under
   a key of its own (`keep.ts`, `<key>:request`): the page that loads puts the session back as it stood and sends the
