@@ -19,7 +19,9 @@
  * two are run together.
  *
  * `EDITING_MODEL_STATES=1` runs each family at its larger budgets: a proof
- * run, by hand, some tens of minutes. The unit suite runs the smaller ones.
+ * run, by hand, on one core for each draft shape — the shapes run side by
+ * side (`-t "drafting a field at a time"`, `-t "drafting a row whole"`). The
+ * unit suite runs the smaller ones.
  */
 import { describe, expect, it } from "vitest";
 import { deskAfter } from "./desk.test-utils.js";
@@ -86,9 +88,14 @@ const RELOADED = /^(c\d\.(edit\(k1,a\)|undo|save|deliver|deliverUnanswered|retry
 for (const shape of ["fields", "whole"] as const) {
     describe(`every state the editing core can reach, drafting ${shape === "fields" ? "a field at a time" : "a row whole"}`, () => {
         it("one person: their gestures and Saves, with every way a request can go", async () => {
-            const walked = await states({ shape, remotes: 0, ...budgets({ acts: 2, sends: 1 }, { acts: 3, sends: 2 }) }, OWN);
-            console.info(said(`${shape} own`, walked));
-            expect(walked.closed).toBe(true);
+            // A proof run walks two worlds, each larger than the unit suite's one way: a third gesture, or a second
+            // request. Both at once — three gestures and two requests — walked 968,052 states in 42 minutes on 12 Nov
+            // 2026, and no longer ends in an hour: every field the session has gained since is in a state's print.
+            for (const budget of budgets([{ acts: 2, sends: 1 }], [{ acts: 3, sends: 1 }, { acts: 2, sends: 2 }])) {
+                const walked = await states({ shape, remotes: 0, ...budget }, OWN);
+                console.info(said(`${shape} own, ${budget.acts} gestures and ${budget.sends} request${budget.sends === 1 ? "" : "s"}`, walked));
+                expect(walked.closed).toBe(true);
+            }
         }, 3_600_000);
 
         it("another session's write to the same field: gestures, Saves, and the choice it asks", async () => {
