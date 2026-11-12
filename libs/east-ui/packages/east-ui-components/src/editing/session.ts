@@ -1819,6 +1819,17 @@ export class EditSession<W> {
             if (carrying.read.size !== before) this.changed();
             return "waiting";
         }
+        // Another write of other entries: the source moved, and holds every entry the session knows of as the session's
+        // original has it. Nothing of the drafts moves — no draft, nothing one began from, no conflict that waits — and
+        // no step of the history either: Undo and Redo stand, with what a person's Save has taken and what an automatic
+        // Save may send. Started over here, the history went at every Save of anyone's, whatever it wrote.
+        if (this.unmoved(carrying.read)) {
+            this.base = this.cloneBase(base);
+            this.renumberedIds = new Map();
+            this.moving = undefined;
+            this.changed();
+            return "merged";
+        }
         const baseline = new Map<string, EntryVersion<W>>();
         const current = new Map<string, EntryVersion<W>>();
         const ancestors = new Map<string, option<unknown>>();
@@ -1882,6 +1893,25 @@ export class EditSession<W> {
         this.changed();
         if (this.again) queueMicrotask(() => this.resend());
         return "merged";
+    }
+
+    /**
+     * Whether a source that moved holds every entry the session knows of as the session's original has it, with
+     * nothing else for a carry-over to do: no Save refused that it sends again, and no request without an answer whose
+     * entries it judges ({@link EditSession.unconfirmed}).
+     *
+     * @param read - Each entry the session holds, as the source holds it at the base it moved to
+     * @returns Whether the carry-over moves nothing
+     */
+    private unmoved(read: ReadonlyMap<string, option<unknown>>): boolean {
+        if (this.status !== "idle" || this.again || this.unconfirmed !== undefined || this.conflicted !== undefined) return false;
+        for (const id of this.current.keys()) {
+            const now = read.get(id);
+            if (now === undefined) return false;
+            const source: option<unknown> = now.type === "some" ? some(liftDraft(this.binding.draftType, now.value)) : none;
+            if (!this.merger.equal(source, draftOf(this.baseline.get(id) ?? ABSENT))) return false;
+        }
+        return true;
     }
 
     /**

@@ -615,7 +615,16 @@ component, nothing in east-ui.
   an automatic Save then offered to send a row as it stood before an
   optimiser's result, in a conflict no Save had taken. A session bound
   `carryOver: false` goes out of date instead (`stale`, Save off). The
-  carry-over starts the history over at the drafts. A keyed source's entry
+  carry-over starts the history over at the drafts — unless it moves none of
+  them (`EditSession.unmoved`, 12 Nov 2026): a source that moved by another
+  write of other entries holds every entry the session knows of as the
+  session's original has it, so no draft, no conflict that waits and no step
+  moves, and Undo and Redo stand, with what a person's Save has taken and
+  what an automatic Save may send. Started over regardless, the history went
+  whenever anyone saved anything. (Still to close: a write of an entry the
+  session holds, whose steps' versions are to be carried over as the draft
+  is; and a source that moves while nothing waits to be saved, where the
+  session reads no entry and starts the history over still.) A keyed source's entry
   stands in its key's order whatever version the session makes of it, so the
   other side taken of a row both sessions added is no change of its place
   still to save. A conflict chosen before that reads again — the other side

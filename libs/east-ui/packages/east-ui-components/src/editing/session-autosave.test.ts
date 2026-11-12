@@ -329,15 +329,33 @@ test("the history gone while the steps stood stepped away — the drafts carried
     await first;
     session.reconcile(variant("revision", "r2"), () => some({ ...cut, qty: 5n }));
     session.undo();
-    // Another write moves the source on: the draft Undo left is carried over, and nothing is left to step back with.
+    // Another write of the job — its task renamed — moves the source on: the draft Undo left is carried over, and
+    // nothing is left to step back with.
     session.observeBase(variant("revision", "r3"));
-    expect(session.merge(variant("revision", "r3"), () => some({ ...cut, qty: 5n }))).toBe("merged");
+    expect(session.merge(variant("revision", "r3"), () => some({ task: "Panel cutting, maple", qty: 5n }))).toBe("merged");
     expect([session.canUndo, session.canRedo, session.pending, session.autosaveStepped, session.canAutosave, session.canApply]).toEqual([false, false, 1, true, false, true]);
     // The next change is the person's newest: saved by itself, with the draft under it.
     setQty(session, "J2", band, 8n);
     expect([session.autosaveStepped, session.canAutosave]).toEqual([false, true]);
     void session.autosave();
     expect(batches(sent)).toEqual([["J1"], ["J1", "J2"]]);
+});
+
+test("the history stands through another write of other entries, the steps stepped away as they were: Redo is there still, and what Undo left waits for a person's Save as it did", async () => {
+    const { session, answer } = saving();
+    setQty(session, "J1", cut, 5n);
+    const first = session.autosave();
+    await answer(saved("r2"));
+    await first;
+    session.reconcile(variant("revision", "r2"), () => some({ ...cut, qty: 5n }));
+    session.undo();
+    // Another write of another job moves the source on: J1 is as the session's Save left it.
+    session.observeBase(variant("revision", "r3"));
+    expect(session.merge(variant("revision", "r3"), () => some({ ...cut, qty: 5n }))).toBe("merged");
+    expect([session.canUndo, session.canRedo, session.pending, session.autosaveStepped, session.canAutosave, session.canApply]).toEqual([false, true, 1, true, false, true]);
+    // Forward again, nothing waits: it is as it was saved.
+    session.redo();
+    expect([session.pending, session.autosaveStepped]).toEqual([0, false]);
 });
 
 test("a step back whose drafts the source came to hold waits for nothing: carried over with none left, the next change is saved by itself", async () => {
@@ -384,9 +402,11 @@ test("the history gone while it held a result — the drafts carried over to a s
     const { session, sent, answer } = saving();
     setQty(session, "J1", cut, 5n);
     setQty(session, "J2", band, 9n, "optimise");
-    // Another write moves the source on: the drafts are carried over, and their history goes.
+    // Another write of a job drafted here — J1's task renamed — moves the source on: the drafts are carried over, and
+    // their history goes.
+    const renamed = { task: "Panel cutting, maple", qty: cut.qty };
     session.observeBase(variant("revision", "r2"));
-    expect(session.merge(variant("revision", "r2"), (id) => some(id === "J1" ? cut : band))).toBe("merged");
+    expect(session.merge(variant("revision", "r2"), (id) => some(id === "J1" ? renamed : band))).toBe("merged");
     expect([session.canUndo, session.pending, session.autosaveHeld, session.canAutosave, session.canApply]).toEqual([false, 2, true, false, true]);
     // A change made since waits with them.
     setQty(session, "J3", route, 2n);
@@ -395,9 +415,22 @@ test("the history gone while it held a result — the drafts carried over to a s
     expect([batches(sent), session.autosaveHeld]).toEqual([[["J1", "J2", "J3"]], false]);
     await answer(saved("r3"));
     await save;
-    session.reconcile(variant("revision", "r3"), (id) => some(id === "J1" ? { ...cut, qty: 5n } : id === "J2" ? { ...band, qty: 9n } : { ...route, qty: 2n }));
+    session.reconcile(variant("revision", "r3"), (id) => some(id === "J1" ? { ...renamed, qty: 5n } : id === "J2" ? { ...band, qty: 9n } : { ...route, qty: 2n }));
     setQty(session, "J3", { ...route, qty: 2n }, 3n);
     expect([session.autosaveHeld, session.canAutosave]).toEqual([false, true]);
+});
+
+test("the history stands through another write of other entries while it holds a result: the result waits for a person's Save as it did, and the change made before it is an automatic Save's still", () => {
+    const { session, sent } = saving();
+    setQty(session, "J1", cut, 5n);
+    setQty(session, "J2", band, 9n, "optimise");
+    // Another write of another job moves the source on: J1 and J2 are as the session's drafts began.
+    session.observeBase(variant("revision", "r2"));
+    expect(session.merge(variant("revision", "r2"), (id) => some(id === "J1" ? cut : band))).toBe("merged");
+    expect([session.canUndo, session.pending, session.autosaveHeld, session.canAutosave, session.canApply]).toEqual([true, 2, true, true, true]);
+    // The change made before the result goes by itself, at the base the source moved to; the result waits.
+    void session.autosave();
+    expect(batches(sent)).toEqual([["J1"]]);
 });
 
 test("a history gone with no result held holds nothing: the drafts carried over are saved by themselves", () => {

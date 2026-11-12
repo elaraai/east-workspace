@@ -1526,3 +1526,57 @@ test("times put at the other side's by hand take the other side's shift with the
     expect([session.unsettled, session.pending, holds(session.entries.get("d1"), theirs)]).toEqual([0, 0, true]);
 });
 
+// ── The history through another write of other entries ────────────────────────
+
+test("a source that moves under the drafts by another write of other entries takes no step of the history: Undo and Redo stand, and the next Save is drafted at the base it moved to", async () => {
+    // Started over at every carry-over, the history went whenever anyone saved anything: Undo was off the moment a
+    // colleague's Save landed, whatever row it wrote.
+    const bases: string[] = [];
+    const session = new EditSession<Bar>({
+        sourceId: "jobs", entryType: Job, draftType: JobDraft, keyType: StringType, patch: undefined, refresh: undefined,
+        apply: (bytes) => {
+            const base = decodeBeast2For(JobBatch)(bytes).base;
+            bases.push(base.type === "revision" ? base.value : "snapshot");
+            return variant("applied", { revision: some("r3") });
+        },
+    });
+    session.observeBase(variant("revision", "r1"));
+    session.record([{ id: "J1", before: job(cut), after: job({ ...cut, qty: 5n }) }], "typed", "Set quantity");
+    session.record([{ id: "J1", before: job({ ...cut, qty: 5n }), after: job({ ...cut, qty: 6n }) }], "typed", "Set quantity");
+    session.undo();
+    expect(session.depth).toEqual({ undo: 1, redo: 1 });
+    // Another write, of J2: J1 is as its edits began.
+    session.observeBase(variant("revision", "r2"));
+    expect(session.merge(variant("revision", "r2"), (id) => (id === "J1" ? some(cut) : some({ ...band, qty: 9n })))).toBe("merged");
+    expect([session.depth, session.pending, session.unsettled, jobIs(session, "J1", { ...cut, qty: 5n })]).toEqual([{ undo: 1, redo: 1 }, 1, 0, true]);
+    session.redo();
+    expect(jobIs(session, "J1", { ...cut, qty: 6n })).toBe(true);
+    session.undo();
+    session.undo();
+    expect([session.pending, session.canUndo, session.depth.redo]).toEqual([0, false, 2]);
+    session.redo();
+    await session.apply();
+    expect(bases).toEqual(["r2"]);
+});
+
+test("another write of an entry the session holds starts the history over at the drafts, as it has: its steps began from a row the source no longer holds", () => {
+    const session = keyed("r1");
+    session.record([{ id: "J1", before: job(cut), after: job({ ...cut, qty: 5n }) }], "typed", "Set quantity");
+    session.observeBase(variant("revision", "r2"));
+    // J1's task renamed by another write: beside the draft's quantity, nothing to choose.
+    expect(session.merge(variant("revision", "r2"), (id) => (id === "J1" ? some({ ...cut, task: "Panel cutting, maple" }) : some(band)))).toBe("merged");
+    expect([session.depth, session.pending, jobIs(session, "J1", { task: "Panel cutting, maple", qty: 5n })]).toEqual([{ undo: 0, redo: 0 }, 1, true]);
+});
+
+test("a conflict that waits, and one settled, stand through another write of other entries: neither is read afresh, and Undo of the choice brings the conflict back", () => {
+    const { session } = quantities();
+    expect(session.settleAll("draft")).toBe(true);
+    expect([session.unsettled, session.settled.length, session.canUndo]).toEqual([0, 1, true]);
+    // Another write of J2: J1 is as the source held it when the conflict was read.
+    session.observeBase(variant("revision", "r3"));
+    expect(session.merge(variant("revision", "r3"), (id) => (id === "J1" ? some({ ...cut, qty: 3n }) : some({ ...band, qty: 9n })))).toBe("merged");
+    expect([session.unsettled, session.settled.length, session.canUndo, session.pending]).toEqual([0, 1, true, 1]);
+    session.undo();
+    expect([session.unsettled, session.settled.length]).toEqual([1, 0]);
+});
+

@@ -157,7 +157,7 @@ for (const arm of ["inline", "paged"] as const) {
             expect(canvas.applies).toHaveLength(1);
         });
 
-        test("a source that moves under pending drafts carries them over: another writer's job on another press stands beside them, and Save stays on", async () => {
+        test("a source that moves under pending drafts carries them over: another writer's job on another press stands beside them, Save stays on, and Undo stands — none of the drafts moved", async () => {
             const canvas = await mountCanvas({ arm });
             const c = canvas.container;
             await dropJob(canvas, "job-1", "p1");
@@ -169,8 +169,13 @@ for (const arm of ["inline", "paged"] as const) {
             expect(jobs(c)).toEqual([["job-1"], ["job-9"], []]);
             expect(marks(c)).toEqual({ p1: "pending" });
             expect(historyButton(canvas, "Save").disabled).toBe(false);
-            // The history starts over at the drafts carried over; the canvas takes a gesture.
-            expect(historyButton(canvas, "Undo").disabled).toBe(true);
+            // The other writer's job is on another press: no draft moved, and the history stands — Undo takes the drop
+            // back still, and Redo puts it there again. The canvas takes a gesture.
+            expect(historyButton(canvas, "Undo").disabled).toBe(false);
+            await history(canvas, "Undo");
+            expect([jobs(c), marks(c)]).toEqual([[[], ["job-9"], []], {}]);
+            await history(canvas, "Redo");
+            expect([jobs(c), marks(c)]).toEqual([[["job-1"], ["job-9"], []], { p1: "pending" }]);
             expect(dropCellOf(c, "p3")).not.toBeNull();
             await history(canvas, "Save");
             expect(canvas.applies).toHaveLength(1);

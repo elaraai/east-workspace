@@ -131,6 +131,11 @@ const LATE = /^(c\d\.(edit\(k1,a\)|save|land|deliver|see|read|redraw|settle\(dra
 const BACK_FIELD = /^(c\d\.(edit\(k1,[ab]\)|revert|undo|save|deliver|see|read|redraw|settle\((draft|source)\))|remote\.edit\(k1,a\))/;
 /** A row's change taken back by hand while its conflict waits: a new row removed again, a removed row put back, a changed row typed back. */
 const BACK_ROWS = /^(c\d\.(add\(k3\)|remove\(k[13]\)|edit\(k1,a\)|revert|restore|save|deliver|see|read|redraw|settle\((draft|source)\))|remote\.(add\(k3\)|remove\(k1\)|edit\(k1,a\)))/;
+/**
+ * One person's gestures on one row, never taken back nor saved — so a change of theirs waits from the first on —
+ * beside another session's writes of another row.
+ */
+const ELSEWHERE = /^(c\d\.(edit\(k1,[ab]\)|remove\(k1\)|see|read|redraw)|remote\.edit\(k2,a\))/;
 /** Two people on one field and its neighbour. */
 const TWO = /^c\d\.(edit\(k1,[ab]\)|save|deliver|see|read|redraw|settle\(draft\))/;
 
@@ -236,6 +241,16 @@ for (const shape of ["fields", "whole"] as const) {
             const found = await explore({ shape, remotes: 1, flips: true }, 7 + DEEPER, (op) => BACK_ROWS.test(op));
             console.info(said(`${shape} taken back, a row`, found));
             expect(found.worlds).toBeGreaterThan(DEEPER < 0 ? 0 : 1);
+        }, 600_000);
+
+        it("another session's writes of another row, while changes wait here: every ordering of them with a person's gestures — and no step of theirs goes", async () => {
+            const found = await explore({ shape, remotes: 2 }, 7 + DEEPER, (op) => ELSEWHERE.test(op));
+            console.info(said(`${shape} elsewhere`, found));
+            expect(found.worlds).toBeGreaterThan(DEEPER < 0 ? 0 : 500);
+            // The source moves under the drafts, and holds each row the session knows as its edits began: its history
+            // stands. (With nothing waiting — every change saved, or taken back — a source that moves starts the history
+            // over still: counted in the families above, and still to close.)
+            expect(found.stepsLost).toBe(0);
         }, 600_000);
 
         it("two people: every ordering of their gestures, Saves, reads and choices on one row", async () => {
