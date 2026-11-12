@@ -287,6 +287,82 @@ test("two Saves at once: one reads its own back at the later revision the other 
     expect(early.reconcile(variant("revision", "r4"), () => some({ ...cut, qty: 5n }))).toBe(true);
 });
 
+test("a Save's answer over a source that has moved on since it was drafted installs no revision: the source is asked to follow its state, and the Save is read back once its host says it has read since the answer — and that word is taken where the revision asked for was never installed, the session not told", async () => {
+    const asked: string[] = [];
+    let reads = "r1";
+    const saved = async () => {
+        const session = new EditSession<Bar>({
+            sourceId: "jobs", entryType: Job, draftType: JobDraft, keyType: StringType, patch: undefined,
+            apply: () => variant("applied", { revision: some("r2") }),
+            refresh: (revision) => { asked.push(revision.type === "some" ? revision.value : "follow"); },
+            // Its host says when the source has read since an answer: where it reads now.
+            reads: () => some(reads),
+        });
+        session.observeBase(variant("revision", "r1"));
+        session.record([{ id: "J1", before: job(cut), after: job({ ...cut, qty: 5n }) }], "typed", "Set quantity");
+        asked.length = 0;
+        await session.apply();
+        return session;
+    };
+    // Still where the Save was drafted as its answer comes: the revision it committed is installed.
+    await saved();
+    expect(asked).toEqual(["r2"]);
+
+    // Moved on meanwhile — it heard of r3, another write's: asked to follow, never put back at r2.
+    reads = "r3";
+    const late = await saved();
+    expect(asked).toEqual(["follow"]);
+    // At r3 its row reads as its edit began, which says nothing until its host has read since the answer: read before
+    // the Save landed, or put back by that other write. Once it has, the row was put back: acknowledged so.
+    expect(late.reconcile(variant("revision", "r3"), () => some(cut), { value: undefined })).toBe(false);
+    expect(late.status).toBe("reconciling");
+    expect(late.reconcile(variant("revision", "r3"), () => some(cut), { value: "r3" })).toBe(true);
+    expect([late.status, late.entries.size, late.pending]).toEqual(["idle", 0, 0]);
+
+    // Found where the Save was drafted, and asked for r2 — which its host installed no more, the source moved in the
+    // very turn it was asked. The session is not told, and reads at r3 with its row as its edit began: left to a read
+    // at r2, which never comes, it stayed saving for good. Its host's word settles it all the same.
+    reads = "r1";
+    const declined = await saved();
+    expect(asked).toEqual(["r2"]);
+    expect(declined.reconcile(variant("revision", "r3"), () => some(cut), { value: undefined })).toBe(false);
+    expect(declined.status).toBe("reconciling");
+    expect(declined.reconcile(variant("revision", "r3"), () => some(cut), { value: "r3" })).toBe(true);
+    expect([declined.status, declined.entries.size, declined.pending]).toEqual(["idle", 0, 0]);
+
+    // A row changed again by another write since reads as neither side: asked to follow, that too waits for its host's
+    // word — a source that follows may still read at a revision from before the Save.
+    reads = "r3";
+    const again = await saved();
+    expect(again.reconcile(variant("revision", "r3"), () => some({ ...cut, qty: 9n }), { value: undefined })).toBe(false);
+    expect(again.reconcile(variant("revision", "r3"), () => some({ ...cut, qty: 9n }), { value: "r3" })).toBe(true);
+    expect([again.status, again.entries.size, again.pending]).toEqual(["idle", 0, 0]);
+});
+
+test("a source asked to follow its state whose host says nothing of when it read any more has the Save's revision installed after all, and the Save is read back there", async () => {
+    const asked: string[] = [];
+    const session = new EditSession<Bar>({
+        sourceId: "jobs", entryType: Job, draftType: JobDraft, keyType: StringType, patch: undefined,
+        apply: () => variant("applied", { revision: some("r2") }),
+        refresh: (revision) => { asked.push(revision.type === "some" ? revision.value : "follow"); },
+        reads: () => some("r3"),
+    });
+    session.observeBase(variant("revision", "r1"));
+    session.record([{ id: "J1", before: job(cut), after: job({ ...cut, qty: 5n }) }], "typed", "Set quantity");
+    await session.apply();
+    expect(asked).toEqual(["follow"]);
+    // No word from its host: left to follow, a row not as the Save left it would wait on a word that never comes.
+    expect(session.reconcile(variant("revision", "r3"), () => some(cut))).toBe(false);
+    expect(asked).toEqual(["follow", "r2"]);
+    // Asked again by a Retry, it is the revision still: its host is asked nothing more.
+    session.refresh();
+    expect(asked).toEqual(["follow", "r2", "r2"]);
+    // Read at the revision the Save committed, and then where another write put the row back.
+    expect(session.reconcile(variant("revision", "r2"), () => undefined)).toBe(false);
+    expect(session.reconcile(variant("revision", "r3"), () => some(cut))).toBe(true);
+    expect([session.status, session.entries.size, session.pending]).toEqual(["idle", 0, 0]);
+});
+
 test("a positional snapshot confirms once its whole collection reads back as the commit left it, and the history stands", async () => {
     const session = create();
     session.record([{ id: "a", before: version(a), after: version({ ...a, end: 5n }) }], "resize", "Resize a");

@@ -283,14 +283,44 @@ export class ModelRecord {
      * @param value - The value
      * @param by - How many commits the record had made where the value was read: no later write is the one read there.
      *   Every commit by default
+     * @param own - Whose later writes may be the one all the same, and up to how many commits: a session shows what its
+     *   own Saves wrote before its source has read them — never what another's wrote past where its source has read
      * @returns How many commits the record had made by then, counting that one — 0 for the rows it began with; `undefined`
      *   for a value the record never held there
      */
-    writtenAt(key: string, field: Field, value: Value, by = this.commits.length): number | undefined {
-        for (let i = Math.min(by, this.commits.length) - 1; i >= 0; i--) {
-            if (this.commits[i]!.changed.some((change) => textEqual(change.key, key) && textEqual(change.field, field) && sameValue(change.after, value))) return i + 1;
+    writtenAt(key: string, field: Field, value: Value, by = this.commits.length, own?: { readonly by: string; readonly until: number }): number | undefined {
+        for (let i = Math.min(Math.max(by, own?.until ?? 0), this.commits.length) - 1; i >= 0; i--) {
+            const commit = this.commits[i]!;
+            if (i + 1 > by && !(own !== undefined && textEqual(commit.by, own.by))) continue;
+            if (commit.changed.some((change) => textEqual(change.key, key) && textEqual(change.field, field) && sameValue(change.after, value))) return i + 1;
         }
         return sameValue(this.at("r1").get(key)?.[field], value) ? 0 : undefined;
+    }
+
+    /**
+     * Which of the record's writes a value shown of a field may be: the earliest and the latest that put the field at
+     * it. A value the record held more than once — a row removed, added and removed again shows no row twice — is
+     * one of several writes, and nothing a value alone holds tells which.
+     *
+     * @param key - The row's key
+     * @param field - The field
+     * @param value - The value
+     * @param by - How many commits the record had made where the value was read: no later write is the one read there
+     * @param own - Whose later writes may be the one all the same ({@link ModelRecord.writtenAt})
+     * @returns The earliest and the latest, each as how many commits the record had made by then — 0 for the rows it
+     *   began with; `undefined` for a value the record never held there
+     */
+    writtenBetween(key: string, field: Field, value: Value, by: number, own?: { readonly by: string; readonly until: number }): { readonly first: number; readonly last: number } | undefined {
+        const last = this.writtenAt(key, field, value, by, own);
+        if (last === undefined) return undefined;
+        if (sameValue(this.at("r1").get(key)?.[field], value)) return { first: 0, last };
+        let first = last;
+        for (let i = last - 2; i >= 0; i--) {
+            const commit = this.commits[i]!;
+            if (i + 1 > by && !(own !== undefined && textEqual(commit.by, own.by))) continue;
+            if (commit.changed.some((change) => textEqual(change.key, key) && textEqual(change.field, field) && sameValue(change.after, value))) first = i + 1;
+        }
+        return { first, last };
     }
 
     /**

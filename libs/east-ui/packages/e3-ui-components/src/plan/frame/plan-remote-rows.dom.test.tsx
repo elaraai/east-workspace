@@ -15,6 +15,11 @@
  * first, the copy made here goes on under another key: both drawn, nothing to
  * choose, and Save keeps both — and it stays selected under its new key, the
  * inspector open on it still, never on the other planner's.
+ *
+ * And a job duplicated here and saved, its answer coming only after the canvas
+ * has heard of another planner's later removal of another job: the canvas is
+ * never put back at the jobs as the Save left them — it asks e3 for no state
+ * the jobs have left (`heardBeforeAnswer`).
  */
 
 import { expect, test } from "vitest";
@@ -23,7 +28,7 @@ import { parseFor } from "@elaraai/east";
 import { ScheduleEventRefType } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
 import type { E3Request } from "../../e3-web.test-utils.js";
-import { addedOnBothSides, putBackAfterSave } from "../../shared/remote-rows.test-utils.js";
+import { addedOnBothSides, heardBeforeAnswer, putBackAfterSave } from "../../shared/remote-rows.test-utils.js";
 import { act, el, entry, madeFrom, planHarness, rowAt, settle, slot } from "./harness.test-utils.js";
 
 const h = planHarness();
@@ -107,3 +112,22 @@ test("a job duplicated here and saved, removed again by another planner before t
         savedThenPutBack: (save) => h.followed(ex.planPrintJobs, save, () => before),
     });
 });
+
+test("a Save whose answer comes after the canvas has heard of another planner's later removal of another job never takes the canvas back to the jobs as the Save left them: their removal stays drawn, beside the copy made here, and e3 refuses none of the canvas's reads", async () => {
+    const { container: c } = await h.mount(ex.planPrintWorks, { storageKey: "plan-remote-late-answer" });
+    await settle();
+    // Every answer e3 gives the canvas's reads of the jobs, from here.
+    const reads = h.e3.answers((request: E3Request) => request.kind !== "mutate" && request.dataset === JOBS);
+    await heardBeforeAnswer({
+        container: c,
+        change: duplicate(c),
+        // The spring catalogue's copies Press A1 draws, and whether it draws the museum guide.
+        mine: () => madeFrom(c.querySelector(rowAt(A1))!, "data-run", "job", "J-1001").length,
+        theirs: () => bar(c, "J-1002") !== null,
+        refused: () => reads.filter((answer) => answer.status >= 400).length,
+        // Another planner removes the museum guide once the Save here has committed.
+        savedThenHeard: (save) => h.late(ex.planPrintJobs, save, (jobs) => { const next = new Map(jobs); next.delete("J-1002"); return next as typeof jobs; }),
+    });
+    expect((await readJobs()).has("J-1002")).toBe(false);
+});
+

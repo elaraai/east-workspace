@@ -668,6 +668,48 @@ describe("PagedRuntime — snapshots", () => {
         assert.deepEqual(handle.revision!(), some(R3));
     });
 
+    test("a refresh that names a revision installs it only while the source still reads where it read as the refresh was asked: moved meanwhile, it follows the dataset instead, and is never stepped back to the revision named", async () => {
+        const R1 = await hashOf(rows);
+        const { runtime } = await known(new PagedRuntime());
+        const handle = handleOf(runtime, rowsTypeValue, rowsPath);
+        await h.write(rows, [2n]);
+        const R2 = await hashOf(rows);
+        // Two answers in one turn, both asked while the source reads at R1: the one that names where the dataset is
+        // now, then one that names a revision the dataset has left. The first moves the source before the second's turn.
+        handle.refresh!(some(R2));
+        handle.refresh!(some(R1));
+        assert.deepEqual(handle.revision!(), some(R1), "each move is deferred out of the caller's render");
+        await h.settle();
+        // Installed, the second would put the source back at R1, a state the dataset has left, until a read pinned
+        // there is refused or the next poll tells it where the dataset is. It looked the dataset's state up instead.
+        assert.deepEqual(handle.revision!(), some(R2));
+        assert.equal(looked(), 2, "the revision as the source first read, and the lookup the second refresh made");
+    });
+
+    test("a source put at a revision by evidence of its own is brought to the dataset's state by the next poll, though the dataset is back under the hash the source was last told of", async () => {
+        // A Save's answer names the state it committed, and the source is put there. Another session has by then put
+        // the dataset back as it was: under the hash it had, the one the source's follower last told it. Told a hash
+        // only where it differs from the last one told, the source heard nothing more, and stayed at the Save's state
+        // until the dataset next changed — e3 refuses a read pinned there, but a browser answers one it kept by itself.
+        const R1 = await hashOf(rows);
+        const began = await h.read(rows);
+        const { runtime, clock } = await known(new PagedRuntime());
+        const handle = handleOf(runtime, rowsTypeValue, rowsPath);
+        await poll(clock);
+        assert.deepEqual(handle.revision!(), some(R1));
+
+        await h.write(rows, [2n]);
+        const R2 = await hashOf(rows);
+        handle.refresh!(some(R2));
+        await h.settle();
+        assert.deepEqual(handle.revision!(), some(R2));
+
+        await h.write(rows, began);
+        assert.equal(await hashOf(rows), R1);
+        await poll(clock);
+        assert.deepEqual(handle.revision!(), some(R1), "told the dataset's hash, though it is the one it was last told");
+    });
+
     test("a dataset with no value reads `none` and fetches nothing until a value lands", async () => {
         // The workspace as a deploy leaves it: the jobs a task generates have no value until the dataflow runs.
         await h.unrun();

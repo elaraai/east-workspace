@@ -116,7 +116,9 @@ const encodePresses = encodeBeast2For(Presses);
 const decodePresses = decodeBeast2For(Presses);
 
 /** The presses' record, as its dataset's requests name it. */
-const PRESSES_DATASET = `records.${records.planPresses.name}`;
+export const PRESSES_DATASET = `records.${records.planPresses.name}`;
+/** The presses' record, as a mutation's request names it. */
+export const PRESSES_RECORD = records.planPresses.name;
 
 /** The e3-ui example module a paged canvas reads: a file's harness deploys it ({@link canvasHarness}, or among its own). */
 export const CANVAS_MODULES = { "plan/plan-records": records } as const;

@@ -1022,8 +1022,8 @@ from it.
 example's reads loaded first and polled while it shows.
 
 - **Counting.** What a test counts it reads from the request log (`h.requests`), and what e3 answered from a tap of its answers (`h.e3.answers`).
-- **Faults.** A held or failed request is a fault at the harness's fetch (`h.e3.hold`, `h.e3.fail`): e3's own failure, `network`, `lost` (committed, its answer never arriving) or `untagged` (its answer's tags dropped). An answer slow on its way back is `h.e3.holdAnswers`, and a unit e3 runs, held before it starts, `h.e3.holdUnits`.
-- **Another session.** Another session's change is a real commit through the record's patch door (`h.patch`), a write (`h.write`) or a run (`h.run`); a Save it overtakes is `h.race`. A workspace deployed and not run is the node harness's `h.unrun`.
+- **Faults.** A held or failed request is a fault at the harness's fetch (`h.e3.hold`, `h.e3.fail`): e3's own failure, `network`, `lost` (committed, its answer never arriving) or `untagged` (its answer's tags dropped). An answer slow on its way back is `h.e3.holdAnswers`, and a unit e3 runs, held before it starts, `h.e3.holdUnits`. A browser's cache is `h.e3.browserCache()`: from then each answer e3 marks to keep for good (`Cache-Control: immutable`, a read pinned to a state) is kept, and a later request for it answered from there — e3 never asked, so it refuses nothing.
+- **Another session.** Another session's change is a real commit through the record's patch door (`h.patch`), a write (`h.write`) or a run (`h.run`); a Save it overtakes is `h.race`, one it follows before the page reads again `h.followed`, and one whose answer comes only after the page has heard of it `h.late`. `h.poll` is the page's next poll of the workspace's status, now. A workspace deployed and not run is the node harness's `h.unrun`.
 - **Waiting.** `settle()` waits until no request is in flight and React has flushed. It waits on real time, so a test's fake clock stands still meanwhile. e3's client retries a lost answer under the same idempotency key, and a backoff between its tries is a timer `settle()` cannot see, so a test waits for what the user sees then.
 - **Mounting.** `h.mount` settles once what the example reads has loaded, it has rendered and a first poll has told it e3's status, so the run that status brings lands before the test begins. It takes a counted `program`, a `view` the test renders itself under the example's reads, a `wrap` around the page (a locale), a `host` inside e3's providers (calls or plan options of its own) and a `token`. `h.install` installs the runtimes alone, for a program or a hook outside a mount, and `E3Surface` renders a component of the test's own over the file's e3. A builder's fit is asked through `fitCalls` (`shared/func/fit-calls.test-utils.ts`), and a Plan canvas's rail is bound through `bindRail` (`plan/rail.test-utils.ts`).
 
@@ -1371,8 +1371,12 @@ held when last read, read as its kind reads a row with no draft in place
 (`shared/schedule/editing.ts`' `heldEvent`, which `scheduleIssueName` falls
 back to). The Record (`record/remote-edits.dom.test.tsx`), the Calendar
 (`calendar/remote-rows.dom.test.tsx`) and the Sheet, over a record read a
-window at a time (`sheet/remote-rows.dom.test.tsx`), run them, and the Plan
-the row added on both sides (`plan/frame/plan-remote-rows.dom.test.tsx`). The
+window at a time (`sheet/remote-rows.dom.test.tsx`), run them, the Allocation
+the three removals over its bins (`allocation/remote-rows.dom.test.tsx`: its
+board reads a bin it draws back from its day's own pages, so no read is held
+apart), and the Plan the row added on both sides
+(`plan/frame/plan-remote-rows.dom.test.tsx`). Still to run them: the Roster,
+the Schematic and the Flowchart. The
 Sheet's check of a row added on both sides holds no read: its session learns
 that the new row's key is taken from the very page its grid reads the row's
 place in. A Save whose answer never comes — saved all the same, another
@@ -1410,6 +1414,60 @@ name there), which an editing session reads a Save back at. It says nothing
 of a record no write from here has been answered for, nor of one the cache's
 polls do not reconcile — read a page at a time, or held offline. The same
 Save with its answer lost, then Retry, is `record/unanswered-save.dom.test.tsx`'s.
+
+A Save's answer that comes after the builder has heard of another session's
+later write — and reads it — names a state the record has left (hardened 12
+Nov 2026). Installed, the builder asked e3 for that state: e3 refused each
+read pinned there, naming the state it holds, and the builder read what it
+shows a second time. But e3 marks a read pinned to a state as one to keep
+for good (`Cache-Control: immutable`), and a browser that holds it answers by
+itself: where the Save had put the record back at a state the builder read
+before — a level typed back, and saved — nothing was refused, and the builder
+drew that past state, the other session's change gone from it. The session installs
+the revision an answer names only while its source still reads where the Save
+was drafted (east-ui-components' `EditSessionBinding.reads`); otherwise the
+source follows its state, and the Save is read back once the workspace has
+read the record since the answer, wherever the source then reads. The record
+runtime says when (`followedOf`: a poll started since the record's last
+answered write has read its hash, every watcher of it told — the dataset
+cache's `hashReadSince`, and `hashRead` for whoever waits, since a hash its
+watchers hold already changes nothing to tell them of), and each host hands
+its session that as its source's `followed` through the paging runtime's
+`readSinceAnswerOf`: the boards' shared editing (`shared/schedule/editing.ts`),
+the Sheet's and the Record's (`sheet/use-editing.ts`) and the Plan's own rows
+(`plan/use-plan-editing.ts`). The paging runtime holds the same line under
+them: a refresh that names a revision installs it only while the source still
+reads where it read as the refresh was asked, and otherwise follows the
+dataset. The shared check is `heardBeforeAnswer`, over the harness's `late`
+(the Save's commit made and its answer held, another session's write, the
+builder hearing of it and reading it, then the answer): the other session's
+change stays drawn through the answer, the Save is read back, and e3 refuses
+none of the builder's reads. One runs for each place a host wires it — the
+Record (`record/remote-edits.dom.test.tsx`), the Calendar
+(`calendar/remote-rows.dom.test.tsx`), the Plan's events
+(`plan/frame/plan-remote-rows.dom.test.tsx`) and the Plan's own rows
+(`plan/plan-editing.dom.test.tsx`) — each proved to fail with its wiring
+taken out; and the Record runs it once more over a browser's cache
+(the harness's `browserCache`, which keeps what e3 marks to keep and answers
+it again by itself), where the fault was the grid drawing a past state.
+
+A builder never stays at a state its record has left (hardened 12 Nov 2026).
+The dataset cache's hash watch tells a follower a hash where it differs from
+the one the follower holds — and the paging runtime says where its source
+reads whenever it moves by evidence of its own: an answer's revision
+installed, a refusal naming the record's state, a lookup (`paged/channels.ts`'
+`moveTo`, the cache's `hashHeld`). The first poll started from then on
+compares the record's hash with that, asked in full; a poll in flight as the
+source moved may have read before the evidence, and says nothing to it.
+Compared with the last hash the watch had told alone, a source put at a
+Save's state while the record was already back at the state before — another
+session's write, under the very hash last told — heard nothing more: with
+its pinned reads answered by a browser that kept them, the grid drew a level
+as saved which the crew no longer held, until they next changed
+(`record/remote-edits.dom.test.tsx`, `test/dataset-store.spec.ts`,
+`test/paged-runtime.spec.ts`). And a poll a refresh overtook, which tells no
+watch what it read, keeps no tag of its answer: the poll its refresh chains
+asks in full.
 
 The Sheet's footer note of a gesture goes with a step of the history, and
 with a conflict's choice, which is one taken in the conflicts popover: a

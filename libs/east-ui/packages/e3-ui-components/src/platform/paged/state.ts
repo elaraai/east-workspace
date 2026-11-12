@@ -142,6 +142,9 @@ export interface Snapshot {
     /** Stops following the dataset; `undefined` while it is not followed —
      *  nothing reads it, or no adapter is installed. */
     unwatch: (() => void) | undefined;
+    /** What the dataset's follower is told its hashes through, while it is followed: named when the snapshot says
+     *  where it reads by evidence of its own. */
+    told?: ((hash: string | null) => void) | undefined;
 }
 
 /** The rows reads by key have held at one revision, of one family (#1351). */

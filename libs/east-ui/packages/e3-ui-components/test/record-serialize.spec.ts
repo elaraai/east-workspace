@@ -52,6 +52,7 @@ function fakeCache(seedValue?: bigint): ReactiveDatasetCacheInterface {
         // No poll reconciles its content: it is held as it was written here.
         pollMark: () => 0,
         confirmed: () => undefined,
+        hashRead: () => undefined,
         async launchDataflow() { /* no-op */ },
     } as unknown as ReactiveDatasetCacheInterface;
 }

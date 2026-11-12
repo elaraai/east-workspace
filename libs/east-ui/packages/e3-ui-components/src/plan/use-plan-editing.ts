@@ -56,7 +56,7 @@ import { rowIdOfKey, rowKeyOf, type PlanRootValue, type PlanRowId, type PlanRowV
 import type { RowKey } from "./plan-state.js";
 import { planPart, planSlices, ROWS_SOURCE } from "./root/sources.js";
 import { mintKey } from "../shared/schedule/records.js";
-import { entriesByKeyOf } from "../platform/paged-runtime.js";
+import { entriesByKeyOf, readSinceAnswerOf } from "../platform/paged-runtime.js";
 import type { PlanWholeRows } from "./root/nested.js";
 import type { PlanTypedValue } from "./edit/typing.js";
 
@@ -383,6 +383,9 @@ export function usePlanEditing(args: PlanEditingArgs): PlanEditing {
             },
             revision: () => revision(),
             refresh: (target) => refresh(target),
+            // Whether the workspace has read the rows' record since its last write from here was answered: a Save's
+            // answer that comes after its pages have moved on never puts them back at the revision it names (#1599).
+            followed: readSinceAnswerOf(paged.id),
             seek: paged.seek,
             // A Save's entries read back by key outside every narrowing: over rows read lean, whole (#1438) — a lean binding
             // pages no row whole, so its slice's read of one would be refused — else through the slice, when it gives the rows.

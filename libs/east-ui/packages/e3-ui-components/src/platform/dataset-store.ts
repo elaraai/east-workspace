@@ -317,9 +317,11 @@ export interface ReactiveDatasetCacheInterface {
      * @remarks
      * The path joins its workspace's status poll, started at `intervalMs` when
      * nothing else polls the workspace. `onHash` is called with the hash a
-     * poll reports whenever it differs from the last this watch was told
-     * (`null` while the dataset has no value), the first poll after the watch
-     * starts included. The dataset's content is never fetched.
+     * poll reports whenever it differs from the one this watch holds — the
+     * last it was told, or the one its watcher last said it holds
+     * ({@link hashHeld}) — (`null` while the dataset has no value), the first
+     * poll after the watch starts included. The dataset's content is never
+     * fetched.
      *
      * @param workspace - The workspace
      * @param path - The dataset's path
@@ -341,6 +343,24 @@ export interface ReactiveDatasetCacheInterface {
         intervalMs?: number,
         backoffMs?: number,
     ): () => void;
+    /**
+     * A watcher of a dataset's hash says which hash it holds now, by evidence
+     * of its own: a write's answer naming the state it committed, a read
+     * refused that names the dataset's state. The watch is told of the
+     * dataset's hash where it differs from that one, by the first poll
+     * started from here on — a poll in flight may have read before the
+     * evidence, and says nothing to this watcher — which is asked in full,
+     * and soon. Without it the watch compares each poll's hash with the last
+     * it told: a watcher put at a state the dataset has since left, where the
+     * dataset's hash is the one last told, would hear nothing more, and hold
+     * that state until the dataset next changed.
+     *
+     * @param workspace - The workspace
+     * @param path - The dataset's path
+     * @param onHash - The watcher, as {@link watchHash} was given it
+     * @param hash - The hash it holds now, `null` for no value
+     */
+    hashHeld(workspace: string, path: TreePath, onHash: (hash: string | null) => void, hash: string | null): void;
     /**
      * Force one immediate workspace-status poll, reconciling every watched
      * path's content against the server (hash-gated; only changed datasets
@@ -394,6 +414,33 @@ export interface ReactiveDatasetCacheInterface {
      *   written here
      */
     confirmed(workspace: string, path: TreePath, mark: number): Promise<void> | undefined;
+    /**
+     * Whether a status poll started since a mark has read the hash of a
+     * dataset whose hash the cache follows ({@link watchHash}), every watcher
+     * of it holding that hash from then: told it, or holding it already. What
+     * says that the revision a paged source is pinned to is the dataset's as
+     * of a read made since some moment — a record's commit being answered —
+     * as {@link confirmedSince} says it of content.
+     *
+     * @param workspace - The workspace
+     * @param path - The dataset's path
+     * @param mark - A mark {@link pollMark} gave
+     * @returns Whether one has
+     */
+    hashReadSince(workspace: string, path: TreePath, mark: number): boolean;
+    /**
+     * The moment a status poll started since a mark has read the hash of a
+     * dataset whose hash the cache follows ({@link hashReadSince}). A dataset
+     * whose hash is as its watchers hold it is read so with nothing to tell
+     * them, so whoever waits on one is told here.
+     *
+     * @param workspace - The workspace
+     * @param path - The dataset's path
+     * @param mark - A mark {@link pollMark} gave
+     * @returns A promise settled at that moment — at once, where a poll has
+     *   read it so already; `undefined` for a dataset whose hash no watch follows
+     */
+    hashRead(workspace: string, path: TreePath, mark: number): Promise<void> | undefined;
     /** Subscribe to changes on a specific key */
     subscribe(key: string, callback: () => void): () => void;
     /** Subscribe to all changes */
@@ -504,15 +551,15 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
     // `backoffMs` the shortest backoff, and `currentMs` the one the timer
     // runs at: `intervalMs` while what the poll shows changes, backing off to
     // `backoffMs` once nothing has. `last` is the tag of the last full answer,
-    // the paths it covered, and when it came: what the next poll asks
-    // conditionally with.
+    // the paths it covered, when it came and which of the workspace's polls
+    // it answered: what the next poll asks conditionally with.
     private workspacePollers: Map<string, {
         intervalMs: number;
         backoffMs: number;
         currentMs: number;
         paths: Map<string, number>;
         handle: { clear(): void } | null;
-        last: { etag: string; paths: string; at: number } | null;
+        last: { etag: string; paths: string; at: number; poll: number } | null;
     }> = new Map();
     private readonly clock: Clock;
     private readonly visibility: Visibility;
@@ -536,11 +583,18 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
     private confirmedAt: Map<string, number> = new Map();
     /** Who waits to hear a key's content found its dataset's by a poll started since a mark ({@link ReactiveDatasetCache.confirmed}). */
     private confirmWaits: Map<string, { readonly mark: number; readonly settle: () => void }[]> = new Map();
+    /** The last poll, by its number among its workspace's, that read each watched key's hash, its watchers holding that hash from then. */
+    private hashReadAt: Map<string, number> = new Map();
+    /** Who waits to hear a watched key's hash read by a poll started since a mark ({@link ReactiveDatasetCache.hashRead}). */
+    private hashReadWaits: Map<string, { readonly mark: number; readonly settle: () => void }[]> = new Map();
 
     // Hash-only watches, by workspace and path: each callback with the hash it
-    // was last told. A watched path rides its workspace's poll, but its
-    // content is never fetched — a paged source reads windows, never the value.
-    private hashWatches: Map<string, Map<string, Map<(hash: string | null) => void, string | null | undefined>>> = new Map();
+    // holds — the last it was told, or the one its watcher last said it holds
+    // by evidence of its own — and how many of the workspace's polls had
+    // started as it last said so. A watched path rides its workspace's poll,
+    // but its content is never fetched — a paged source reads windows, never
+    // the value.
+    private hashWatches: Map<string, Map<string, Map<(hash: string | null) => void, { told: string | null | undefined; since: number }>>> = new Map();
 
     // Batching
     private batchDepth: number = 0;
@@ -914,7 +968,7 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
             callbacks = new Map();
             byPath.set(pathStr, callbacks);
         }
-        callbacks.set(onHash, undefined);
+        callbacks.set(onHash, { told: undefined, since: 0 });
 
         const poller = this.workspacePollers.get(workspace);
         if (!poller) {
@@ -937,6 +991,18 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
             if (watched.size === 0) this.hashWatches.delete(workspace);
             this.stopIdlePoller(workspace);
         };
+    }
+
+    hashHeld(workspace: string, path: TreePath, onHash: (hash: string | null) => void, hash: string | null): void {
+        const watch = this.hashWatches.get(workspace)?.get(datasetPathToString(path))?.get(onHash);
+        if (watch === undefined) return;
+        watch.told = hash;
+        watch.since = this.pollsStarted.get(workspace) ?? 0;
+        // The next poll asks in full, and soon: what it reads is told to the watcher where it differs.
+        const poller = this.workspacePollers.get(workspace);
+        if (poller === undefined) return;
+        poller.last = null;
+        this.pollSoon(workspace);
     }
 
     /** Stops a workspace's poller once it has no path to reconcile and no hash
@@ -1027,11 +1093,43 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
      */
     private confirm(key: string, poll: number): void {
         this.confirmedAt.set(key, poll);
-        const waits = this.confirmWaits.get(key);
+        ReactiveDatasetCache.settleWaits(this.confirmWaits, key, poll);
+    }
+
+    hashReadSince(workspace: string, path: TreePath, mark: number): boolean {
+        return (this.hashReadAt.get(datasetCacheKey(workspace, path)) ?? 0) > mark;
+    }
+
+    hashRead(workspace: string, path: TreePath, mark: number): Promise<void> | undefined {
+        if (this.destroyed || this.hashWatches.get(workspace)?.has(datasetPathToString(path)) !== true) return undefined;
+        const key = datasetCacheKey(workspace, path);
+        if ((this.hashReadAt.get(key) ?? 0) > mark) return Promise.resolve();
+        return new Promise<void>((settle) => {
+            const waits = this.hashReadWaits.get(key);
+            if (waits === undefined) this.hashReadWaits.set(key, [{ mark, settle }]);
+            else waits.push({ mark, settle });
+        });
+    }
+
+    /**
+     * Records that a poll read a watched key's hash, every watcher of it holding that hash from then, and tells
+     * whoever waited for one started since their mark.
+     *
+     * @param key - The dataset's key
+     * @param poll - The poll, by its number among its workspace's
+     */
+    private readHash(key: string, poll: number): void {
+        this.hashReadAt.set(key, poll);
+        ReactiveDatasetCache.settleWaits(this.hashReadWaits, key, poll);
+    }
+
+    /** Tells those waiting on a key for a poll started since their mark, and keeps the rest. */
+    private static settleWaits(all: Map<string, { readonly mark: number; readonly settle: () => void }[]>, key: string, poll: number): void {
+        const waits = all.get(key);
         if (waits === undefined) return;
         const left = waits.filter((wait) => wait.mark >= poll);
-        if (left.length === 0) this.confirmWaits.delete(key);
-        else this.confirmWaits.set(key, left);
+        if (left.length === 0) all.delete(key);
+        else all.set(key, left);
         for (const wait of waits) if (wait.mark < poll) wait.settle();
     }
 
@@ -1098,10 +1196,17 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
                 if (!watched.has(pathStr) || (this.writeEpochs.get(key) ?? 0) !== epochsAtStart.get(key) || (this.pendingWriteCounts.get(key) ?? 0) > 0) continue;
                 if (this.has(workspace, this.stringToPath(pathStr))) this.confirm(key, poll);
             }
+            // And each hash a watch follows is the one its watchers were told — but one a watcher is still to be told, or
+            // holds by evidence of its own since that answer, which no poll has yet compared with the dataset's.
+            for (const [pathStr, callbacks] of this.hashWatches.get(workspace) ?? []) {
+                if (!watched.has(pathStr) || held === null) continue;
+                if ([...callbacks.values()].some((watch) => watch.told === undefined || watch.since >= held.poll)) continue;
+                this.readHash(pathStr ? `${workspace}.${pathStr}` : workspace, poll);
+            }
             this.backOff(workspace);
             return;
         }
-        poller.last = typeof status.etag === "string" ? { etag: status.etag, paths: covering, at: now } : null;
+        poller.last = typeof status.etag === "string" ? { etag: status.etag, paths: covering, at: now, poll } : null;
 
         // Whether the poll saw what it shows change: a hash a watch is told,
         // a status, or content to fetch or clear. One that saw none backs the
@@ -1120,20 +1225,29 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
         // refresh overtook say anything to them: the poll that refresh chains
         // reads after what it was asked for, and tells them then.
         const overtaken = (this.refreshesAsked.get(workspace) ?? 0) !== refreshes;
+        // What an overtaken poll read it told no watch: its tag is not kept, so the poll its refresh chains asks in full.
+        if (overtaken && this.hashWatches.has(workspace)) poller.last = null;
         for (const [pathStr, callbacks] of overtaken ? [] : this.hashWatches.get(workspace) ?? []) {
             if (!watched.has(pathStr)) continue;
             const info = infoByPath.get(pathStr ? `.${pathStr}` : "");
             const hash = info?.hash?.type === "some" ? info.hash.value : null;
-            for (const [onHash, told] of [...callbacks]) {
-                if (told === hash || !callbacks.has(onHash)) continue;
+            for (const [onHash, watch] of [...callbacks]) {
+                if (!callbacks.has(onHash)) continue;
+                // A watcher that came to hold a hash by evidence of its own once this poll had started
+                // ({@link hashHeld}): the poll may have read before that evidence, and says nothing to it. Its tag is
+                // not kept, so the next poll asks in full, and tells the watcher where the dataset's hash differs.
+                if (watch.since >= poll) { poller.last = null; continue; }
+                if (watch.told === hash) continue;
                 changed = true;
-                callbacks.set(onHash, hash);
+                watch.told = hash;
                 try {
                     onHash(hash);
                 } catch (error) {
                     console.error(`A hash watch on ${workspace}.${pathStr} failed:`, error);
                 }
             }
+            // Every watcher of the path holds the hash this poll read, from here.
+            if ([...callbacks.values()].every((watch) => watch.told === hash)) this.readHash(pathStr ? `${workspace}.${pathStr}` : workspace, poll);
         }
 
         // First pass — apply status updates synchronously, collect paths
@@ -1385,6 +1499,8 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
         this.pollsStarted.clear();
         this.confirmedAt.clear();
         this.confirmWaits.clear();
+        this.hashReadAt.clear();
+        this.hashReadWaits.clear();
         this.hashWatches.clear();
         this.keySubscribers.clear();
         this.globalSubscribers.clear();

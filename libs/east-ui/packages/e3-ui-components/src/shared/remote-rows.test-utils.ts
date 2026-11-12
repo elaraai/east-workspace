@@ -45,6 +45,19 @@
  *   holds tells from a read made before the Save landed: only when it was
  *   read does.
  *
+ * - {@link heardBeforeAnswer}: a Save whose answer comes after the builder
+ *   has heard of a later write of another session's — and drawn it — never
+ *   takes the builder back to the state the Save committed: the other
+ *   session's change stays drawn, the Save is read back where the builder
+ *   reads, and e3 refuses none of the builder's reads. Put back there, the
+ *   builder asked e3 for a state the record had left: e3 refused each read of
+ *   it, naming the state it holds, and the builder read every row it shows a
+ *   second time — and until then what the Save landed was laid over rows read
+ *   after it. And where a browser held those reads — the Save having put the
+ *   record back at a state the builder read before — it answered them by
+ *   itself, e3 refused nothing, and the builder drew that past state, the
+ *   other session's change gone from it.
+ *
  * A conflict's card names its row as the builder names it — its name, never
  * its key — whether the builder draws the row or the draft removed it.
  *
@@ -413,4 +426,66 @@ export async function putBackAfterSave(check: PutBack): Promise<void> {
     ], "nothing to ask again, no Save out, nothing to choose").toEqual([null, null, null, null]);
     expect(JSON.stringify(check.look()), "the builder draws the row as the record holds it: as it was before the Save").toBe(began);
     expect(await check.held(), "nothing is saved again").toEqual(stood);
+}
+
+/** What a builder gives the check of a Save whose answer comes after it has heard of a later write. */
+export interface HeardBeforeAnswer {
+    /** The builder's container. */
+    readonly container: HTMLElement;
+    /** The change made here and saved: a gesture, as a person makes it — its steps, where it takes more than one act. */
+    readonly change: (() => void | Promise<void>) | readonly (() => void | Promise<void>)[];
+    /** What the builder draws of what the other session's write changes — another row than the Save's: read before the write, and once the Save is read back. */
+    readonly theirs: () => unknown;
+    /** What the builder draws of what the Save changes, once the change is made. */
+    readonly mine: () => unknown;
+    /**
+     * How many of the builder's reads e3 has refused so far: the answers the harness's tap keeps of them
+     * (`h.e3.answers`) that are no success. A read pinned to a state its record has left is refused.
+     */
+    readonly refused: () => number;
+    /**
+     * The Save pressed, its commit made; another session's write of another row; the builder hearing of that write and
+     * reading it; and only then the Save's answer (the harness's `late`).
+     */
+    readonly savedThenHeard: (save: () => void) => Promise<void>;
+}
+
+/**
+ * A Save whose answer comes after the builder has heard of another session's later write (see the module docs): the
+ * other session's change stays drawn through the answer and after it, beside the Save's own, and the builder asks e3
+ * for no state the record has left.
+ *
+ * @param check - The builder's container, the change, what it draws of each side's row, its refused reads, and the Save answered late
+ * @returns Once the Save is read back
+ * @throws An assertion's error where the other session's change leaves the builder, a read is refused, the Save is left saving, or something is asked
+ */
+export async function heardBeforeAnswer(check: HeardBeforeAnswer): Promise<void> {
+    const refused = check.refused();
+    const before = JSON.stringify(check.theirs());
+    await made(check.change);
+    const mine = JSON.stringify(check.mine());
+    expect(unsaved(check.container), "the change waits to be saved").toBe(true);
+    const { looks, read, stop } = watched(check.container, () => JSON.stringify(check.theirs()));
+    let heard: string | undefined;
+    try {
+        await check.savedThenHeard(() => { fireEvent.click(historyButton(check.container, editingMessages.apply())); });
+        await waitFor(() => expect(
+            [unsaved(check.container), historyButton(check.container, editingMessages.apply()).getAttribute("aria-busy")],
+            "the Save is read back: nothing is left to save, and no Save is out",
+        ).toEqual([false, null]), { timeout: 10_000 });
+        await settle();
+        read();
+        heard = looks[looks.length - 1];
+        expect(heard, "the builder draws the other session's change").not.toBe(before);
+        // Drawn once, it never leaves: every look from the first that shows it on is that one.
+        const from = looks.indexOf(heard!);
+        expect(looks.slice(from), "once drawn, the other session's change stays drawn through the Save's answer").toEqual(looks.slice(from).map(() => heard));
+    } finally {
+        stop();
+    }
+    expect(check.container.querySelector("[data-conflicts]"), "another row's change is nothing to choose").toBeNull();
+    expect(JSON.stringify(check.mine()), "the builder draws the Save's own change").toBe(mine);
+    await settle();
+    expect(JSON.stringify(check.theirs()), "and still, once everything has settled").toBe(heard);
+    expect(check.refused() - refused, "e3 refuses none of the builder's reads: it is never asked for a state the record has left").toBe(0);
 }

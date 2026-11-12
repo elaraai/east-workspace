@@ -219,6 +219,20 @@ export interface E3Harness {
      */
     followed<T extends EastType>(record: E3Record<T>, save: () => void, next: (now: ValueTypeOf<T>) => ValueTypeOf<T>): Promise<void>;
     /**
+     * A Save whose answer comes late: the record's next mutation commits and
+     * its answer is held on its way back; another session's write commits
+     * after it, and what is mounted hears of that write and reads it; only
+     * then does the Save's answer arrive — naming the state the Save
+     * committed, which the page has passed. Then settles.
+     *
+     * @param record - The record both write, which declares a patch mutation
+     * @param save - What sends the Save: a press of its button, say
+     * @param next - The record's state as the other session leaves it, from its state once the Save has committed
+     */
+    late<T extends EastType>(record: E3Record<T>, save: () => void, next: (now: ValueTypeOf<T>) => ValueTypeOf<T>): Promise<void>;
+    /** What is mounted polls the workspace's status now, as its next poll would, and what that leads to settles. */
+    poll(): Promise<void>;
+    /**
      * Writes a dataset as another session would, then settles.
      *
      * @param dataset - The dataset
@@ -437,6 +451,17 @@ export function e3Harness(modules: Readonly<Record<string, Readonly<Record<strin
             await act(async () => { reading.release(); });
             await settle();
         },
+        async late(record, save, next) {
+            const answer = e3().holdAnswers((request) => request.kind === "mutate" && request.record === record.name);
+            await act(async () => { save(); });
+            await answer.holding;
+            await patchRecord(e3(), workspace(), record, next(await readDataset(e3(), workspace(), record)));
+            // What is mounted hears of the other session's write, and reads it, while the Save's answer is still out.
+            await refreshMounted(workspace());
+            await act(async () => { answer.release(); });
+            await settle();
+        },
+        poll: () => refreshMounted(workspace()),
         async write(dataset, value) {
             await writeDataset(e3(), workspace(), dataset, value);
             await refreshMounted(workspace());

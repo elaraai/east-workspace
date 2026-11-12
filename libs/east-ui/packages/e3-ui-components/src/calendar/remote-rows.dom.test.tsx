@@ -27,6 +27,10 @@
  * - A job changed, removed or made here and saved, which another session
  *   puts back exactly before the board reads its period again, is read back
  *   as e3 holds the jobs: the Save never left saving (`putBackAfterSave`).
+ * - A job removed here and saved, its answer coming only after the board has
+ *   heard of another session's later removal of another job: the board is
+ *   never put back at the jobs as the Save left them — it asks e3 for no
+ *   state the jobs have left (`heardBeforeAnswer`).
  */
 
 import { expect, test } from "vitest";
@@ -35,7 +39,7 @@ import userEvent from "@testing-library/user-event";
 import { StringType, equalFor } from "@elaraai/east";
 import * as ex from "@elaraai/e3-ui/examples/calendar/calendar";
 import type { E3Request } from "../e3-web.test-utils.js";
-import { addedOnBothSides, putBackAfterSave, removedHere, removedOnBothSides, removedThere } from "../shared/remote-rows.test-utils.js";
+import { addedOnBothSides, heardBeforeAnswer, putBackAfterSave, removedHere, removedOnBothSides, removedThere } from "../shared/remote-rows.test-utils.js";
 import { act, calendarHarness, event, settle, slot } from "./harness.test-utils.js";
 import { parseEventKey } from "./model.js";
 
@@ -183,4 +187,21 @@ test("a job made here from a template and saved, removed again by another sessio
         ],
         look: () => jobsDrawn(c),
     });
+});
+
+test("a Save whose answer comes after the board has heard of another session's later removal of another job never takes the board back to the jobs as the Save left them: their removal stays drawn, beside the job removed here, and e3 refuses none of the board's reads", async () => {
+    const { container: c } = await h.mount(ex.calendarOperations, { storageKey: "calendar-remote-late-answer" });
+    // Every answer e3 gives the board's reads of the jobs, from here.
+    const reads = h.e3.answers((request: E3Request) => request.kind !== "mutate" && request.dataset === JOBS);
+    await heardBeforeAnswer({
+        container: c,
+        change: remove(c),
+        mine: () => jobsDrawn(c).includes("job1"),
+        theirs: () => jobsDrawn(c).includes("job2"),
+        refused: () => reads.filter((answer) => answer.status >= 400).length,
+        // Another session removes the second job once the Save here has committed.
+        savedThenHeard: (save) => h.late(ex.calendarJobs, save, (jobs) => { const next = new Map(jobs); next.delete("job2"); return next as typeof jobs; }),
+    });
+    const held = await read();
+    expect([held.has("job1"), held.has("job2")]).toEqual([false, false]);
 });

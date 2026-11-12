@@ -622,6 +622,42 @@ describe("RecordRuntime — what it holds of a record read whole since a write w
     });
 });
 
+describe("RecordRuntime — whether a record read a page at a time has been read since a write was answered (#1599)", () => {
+    test("nothing where no watch follows the record's hash; where one does, false from the answer until a poll started since has read the hash — its watcher told nothing, the record put back as it was — and its readers told", async () => {
+        await h.patch(ex.jobs, new SortedMap([["a", CUT]], compareFor(StringType)));
+        // Read a page at a time: nothing of the record is loaded whole.
+        const { runtime, cache, handle } = await h.bindRecord(ex.jobs, JobsHandleType);
+        const jobs = handle as unknown as JobsHandle;
+        const key = recordChannelKey(h.workspace, ex.jobs.name);
+        assert.equal((await jobs.commit.patch("req-0", jobUpdate(CUT, { task: "Cut", qty: 4n }))).type, "committed");
+        assert.equal(runtime.followedOf(ex.jobs.name), undefined, "no watch follows its hash");
+        // A paged source follows the record's hash.
+        const heard: (string | null)[] = [];
+        cache.watchHash(h.workspace, ex.jobs.path, (hash) => { heard.push(hash); });
+        await h.settle();
+        const polls = h.e3.hold((request) => request.kind === "status");
+        assert.equal((await jobs.commit.patch("req-1", jobUpdate({ task: "Cut", qty: 4n }, { task: "Cut", qty: 5n }))).type, "committed");
+        await polls.holding;
+        const followed = runtime.followedOf(ex.jobs.name);
+        assert.notEqual(followed, undefined);
+        runtime.enableTracking();
+        assert.equal(followed!(), false, "no poll started since the answer has read the record's hash");
+        assert.deepEqual([...runtime.disableTracking().keys()], [key]);
+        // Another session puts the job back exactly as it was before the poll reads the record's status.
+        await h.patch(ex.jobs, new SortedMap([["a", { task: "Cut", qty: 4n }]], compareFor(StringType)));
+        let told = 0;
+        const stop = runtime.subscribe(key, () => { told++; });
+        const before = heard.length;
+        polls.release();
+        await h.settle();
+        stop();
+        assert.deepEqual([followed!(), heard.length], [true, before], "read since the answer, the watcher told nothing: the hash is the one it held");
+        assert.ok(told > 0, "the channel tells what reads it that the record was read since");
+        // And no word of the record's content: it is not read whole.
+        assert.equal(runtime.settledOf(ex.jobs.name), undefined);
+    });
+});
+
 // =============================================================================
 // history() — failed-fetch retry guard
 // =============================================================================

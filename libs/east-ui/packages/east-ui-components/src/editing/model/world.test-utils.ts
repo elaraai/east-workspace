@@ -84,9 +84,17 @@
  * - how often a session's steps went under its person — Undo lost as the
  *   source moved ({@link ModelClient.stepsLost});
  * - how often a late answer stepped a screen back
- *   ({@link ModelClient.lateAnswer}): a Save's answer that came after its
- *   source had read at a newer revision put the source back at the revision
- *   the Save committed, and its rows were drawn there;
+ *   ({@link ModelClient.lateAnswer}), where its host cannot say when it read
+ *   (`says` false): a Save's answer that came after its source had read at a
+ *   newer revision put the source back at the revision the Save committed,
+ *   and its rows were drawn there. A host that says — e3's record runtime, and
+ *   every other world — has its source follow the record's state instead,
+ *   the answer's revision never installed over one the source has moved to:
+ *   a screen that goes back there is a fault. And an answer may come in the
+ *   very turn its source is told of the record's state now
+ *   ({@link ModelClient.deliverPast}): the revision the session asks for is
+ *   installed no more, the session not told, and its host's word of when it
+ *   read settles the Save all the same — one that waits then is a fault;
  * - how often a person was asked to choose where they had nothing to save,
  *   over a row of a request that had no answer, was sent again and was
  *   refused ({@link ModelClient.unansweredAsked}). A record answers a request
@@ -104,7 +112,12 @@
  *   read (`says` false): every part it wrote put back exactly as it was by
  *   another session before the source was read again, which nothing a
  *   collection holds tells from one read before the Save landed. The world
- *   reloads the page then, as its person would, and goes on. A host that says
+ *   reloads the page then, as its person would, and goes on. And how often such
+ *   a session took a collection read before its Save landed for one read
+ *   after ({@link ModelClient.readEarly}): another session's row stood under
+ *   the key its Save adds, and was gone again by the time the Save landed —
+ *   neither side of the Save's change, which is all a collection can show. Its
+ *   screen then shows that row until its host reads the record again. A host that says
  *   what its source holds, read since the Save was answered — as e3's record
  *   runtime does, and every world read whole but those — has its Saves read
  *   back there: a Save that waits once its source has read the record since
@@ -211,8 +224,11 @@ export class ModelClient {
     known: { revision: string; readonly asked: Set<string>; readonly landed: Set<string> };
     /** What its screen's rows are: read at a revision. */
     screen: { revision: string; rows: RowsValue };
-    /** Its request on its way: the batch, and what answers it. */
-    out: { readonly batch: BatchValue; readonly resolve: (answer: Answer) => void; readonly reject: (error: Error) => void } | undefined;
+    /**
+     * Its request on its way: the batch, what answers it — and, once the record has heard it ({@link ModelClient.land}),
+     * the record's answer on its way back.
+     */
+    out: { readonly batch: BatchValue; readonly resolve: (answer: Answer) => void; readonly reject: (error: Error) => void; readonly answer?: Answer | undefined } | undefined;
     /** Its Save being prepared, before its request is sent: what ends the preparation, either way. */
     preparing: { readonly done: () => void; readonly fail: (error: Error) => void } | undefined;
     /**
@@ -233,6 +249,11 @@ export class ModelClient {
     unansweredAsked = 0;
     /** How often a Save of its, over a source read whole, waited for good to be read back: every part it wrote put back since, exactly as it was. */
     waitedForGood = 0;
+    /**
+     * How often its session, its host unable to say when a collection was read, took one read before its Save landed
+     * for one read after, and its screen showed an older row for it until its host read the record again.
+     */
+    readEarly = 0;
     /** How many gestures and choices its person has made: what a world budgets (`acts`). */
     acts = 0;
     /** How many requests its session has started, each counted once however often it is sent: what a world budgets (`sends`). */
@@ -248,9 +269,9 @@ export class ModelClient {
      */
     private heardMost = 0;
     /**
-     * How often a late answer stepped its screen back: its source read at a newer revision — a poll heard of another
-     * session's write — before its Save's answer came, and the answer put it back at the revision the Save committed,
-     * where its rows were then drawn.
+     * How often a late answer stepped its screen back, its host unable to say when it read: its source read at a newer
+     * revision — a poll heard of another session's write — before its Save's answer came, and the answer put it back at
+     * the revision the Save committed, where its rows were then drawn.
      */
     lateAnswer = 0;
     /** The rows of a request that had no answer, was sent again, and was refused — or, read whole, was judged unasked as the page loaded — each with its request's id. */
@@ -259,7 +280,10 @@ export class ModelClient {
     private readonly unanswered = new Set<string>();
     /** Those of them a conflict has since asked of: asked again where its choice is taken back, until the drafts are discarded. */
     private readonly asked = new Set<string>();
-    /** Which of the record's writes each field of the screen last showed, where it showed the record's own value. */
+    /**
+     * Which of the record's writes each field of the screen last showed, where it showed the record's own value: the
+     * earliest write it may have been. A value the record held more than once is one of several writes.
+     */
     private readonly freshest = new Map<string, Map<Field, number>>();
     /** What its screen showed as each request was first sent, by the request's id. */
     private readonly sent = new Map<string, Screen>();
@@ -268,12 +292,24 @@ export class ModelClient {
     /** For a source read whole: the revision of the collection its session reads at — the last it was handed while no request of its own was unresolved. */
     private based: string | undefined;
     /**
-     * For a source read whole whose host says what it holds (`says`): whether its source has read the record since the
-     * record last answered a Save of this page's — `"none"` while the page has heard no answer, which a page that
-     * reloads has not. What e3's record runtime knows of a record: it marks its reads as each write is answered, and
-     * says what it holds once one started since has landed.
+     * Where its host says when it read (`says`): whether its source has read the record since the record last answered
+     * a Save of this page's — `"none"` while the page has heard no answer, which a page that reloads has not. What
+     * e3's record runtime knows of a record: it marks its reads as each write is answered, and says what the page holds
+     * of it — the collection of one read whole, the revision of one read a revision at a time — once a read started
+     * since has landed.
      */
     private heard: "none" | "unread" | "read" = "none";
+    /**
+     * Read a revision at a time: its source was asked to follow the record's state, never to read at the revision a
+     * Save's answer named — it had moved since that Save was drafted. The read its host makes since the answer is an
+     * operation of its own ({@link ModelClient.awaitsRead}).
+     */
+    private follows = false;
+    /**
+     * While an answer arrives in the very turn its source is told of the record's state now
+     * ({@link ModelClient.deliverPast}): the revision its session asks installed is installed no more.
+     */
+    private declines = false;
     /**
      * What its own Saves last wrote of a field that its session has still to read back: the value, and how many commits
      * the record had made by then. Until then the session holds the field as it stood before that Save, and what its
@@ -332,7 +368,17 @@ export class ModelClient {
             sourceId: "rows", entryType: Row, draftType: this.draftType, keyType: StringType, patch: undefined, drawsLanded: !this.inline,
             // The Save installs the revision it committed: the source reads there from then on, its reads still to land.
             // A source read whole installs none: its next collection comes as its host reads it again.
-            refresh: this.inline ? undefined : (revision) => { if (revision.type === "some") this.readAt(revision.value); },
+            refresh: this.inline ? undefined : (revision) => {
+                if (revision.type === "some" && !this.declines) { this.readAt(revision.value); return; }
+                // Asked to follow the record — or asked for a revision in the very turn its source moved on, which the
+                // paging layer installs no more: the source reads where it was told the record is, and its host has
+                // still to read since the answer.
+                if (this.declines) this.readAt(this.record.revision);
+                this.follows = true;
+            },
+            // Where its source reads now, where its host says when it has read since an answer: what an answer's
+            // revision is installed over, or not.
+            reads: this.inline || !this.says ? undefined : () => some(this.known.revision),
             // A record slice's Save is prepared first (`prepareRecordSliceSave`): called as the request is made, in the
             // press itself, and the request sent once it is done — or never, where it fails.
             prepare: !this.prepares ? undefined : () => new Promise((resolve, reject) => {
@@ -435,8 +481,9 @@ export class ModelClient {
                 reads.set(id, row === undefined ? none : some(row));
             }
             const read = (id: string): option<unknown> | undefined => reads.get(id);
-            // Read whole, what its host says the source holds now: the collection, once read since the Save was answered.
-            const holds = this.inline && this.says && this.heard !== "none" ? { value: this.heard === "read" ? rows : undefined } : undefined;
+            // What its host says the source holds now, once read since the Save was answered: the collection of one read
+            // whole, the revision of one read a revision at a time.
+            const holds = this.says && this.heard !== "none" ? { value: this.heard !== "read" ? undefined : this.inline ? rows : revision } : undefined;
             this.session.confirmFailed(undefined);
             this.session.reconcile(base, read, holds);
             this.session.nameConflicts(base, read);
@@ -768,6 +815,7 @@ export class ModelClient {
         this.based = undefined;
         // The page that loads has heard no answer: its host says nothing of when it read, until a Save of its is answered.
         this.heard = "none";
+        this.follows = false;
         this.session = this.open();
         this.session.restore(entries, held, stepped);
         if (request !== undefined) {
@@ -788,9 +836,12 @@ export class ModelClient {
         // having taken it: the page puts that request back as it stood, its rows still to be read back, and what its
         // person puts such a field at is a change from what the Save wrote there. A choice made is made again where its
         // conflict reads again.
+        // (Told by the commit that wrote each: whatever another session has written there since, the session holds that
+        // write as its request's still.)
         const kept = request === undefined ? undefined : decodeBatch(request.payload).requestId;
-        for (const [key, fields] of this.unread) {
-            for (const field of [...fields.keys()]) if (kept === undefined || this.record.requestOf(key, field) !== kept) fields.delete(field);
+        const keptAt = kept === undefined ? 0 : this.record.commits.findIndex((commit) => commit.requestId !== undefined && textEqual(commit.requestId, kept)) + 1;
+        for (const fields of this.unread.values()) {
+            for (const [field, wrote] of [...fields]) if (keptAt === 0 || wrote.at !== keptAt) fields.delete(field);
         }
         this.chosen = [];
     }
@@ -845,25 +896,62 @@ export class ModelClient {
      * @param answered - Whether the answer comes back; lost, the session is left with a write of unknown outcome
      */
     async deliver(answered: boolean): Promise<void> {
+        if (this.out !== undefined && this.out.answer === undefined) this.land();
         const out = this.out;
-        if (out === undefined) return;
+        if (out === undefined || out.answer === undefined) return;
         this.out = undefined;
-        const before = this.record.commits.length;
-        const answer = this.record.commit(out.batch, this.name);
-        if (this.record.commits.length > before) this.committed(out.batch);
-        else if (answer.type === "conflict") this.refused(out.batch);
+        const answer = out.answer;
         // Answered as applied — a request the record remembers, answered again, among them: its host has yet to read
         // the record since.
-        if (answered && answer.type === "applied" && this.inline && this.says) this.heard = "unread";
+        if (answered && answer.type === "applied" && this.says) this.heard = "unread";
         if (answered) out.resolve(answer);
         else { this.unanswered.add(out.batch.requestId); out.reject(new Error("No answer")); }
         await settled();
     }
 
+    /**
+     * The request's answer comes back in the very turn its source is told of the record's state now — a read pinned
+     * where the request was drafted, refused, names it. The revision the session then asks its source for is installed
+     * no more: its paging layer installs one only while the source still reads where it read as it was asked, and
+     * follows the record otherwise (e3's does: `PagedRuntime`'s `refresh`). The session is not told.
+     */
+    async deliverPast(): Promise<void> {
+        this.declines = true;
+        try { await this.deliver(true); } finally { this.declines = false; }
+    }
+
+    /**
+     * Whether its request's answer is on its way back, applied, and the record has been written again since: an answer
+     * whose revision its source may be moved past in the very turn it arrives ({@link ModelClient.deliverPast}).
+     */
+    get passed(): boolean {
+        const answer = this.out?.answer;
+        return !this.inline && this.says && answer !== undefined && answer.type === "applied" && answer.value.revision.type === "some"
+            && !textEqual(answer.value.revision.value, this.record.revision);
+    }
+
+    /**
+     * The request reaches the record, which takes or refuses it; its answer is still on its way back. What the record
+     * holds from here is what the answer names, whenever it arrives — after another session's write, and after the
+     * page has heard of that write, among them.
+     */
+    land(): void {
+        const out = this.out;
+        if (out === undefined || out.answer !== undefined) return;
+        const before = this.record.commits.length;
+        const answer = this.record.commit(out.batch, this.name);
+        if (this.record.commits.length > before) this.committed(out.batch);
+        else if (answer.type === "conflict") this.refused(out.batch);
+        this.out = { ...out, answer };
+    }
+
+    /** Whether its request is on its way and the record has not heard it yet. */
+    get unheard(): boolean { return this.out !== undefined && this.out.answer === undefined; }
+
     /** The request is lost before the record hears of it. */
     async lose(): Promise<void> {
         const out = this.out;
-        if (out === undefined) return;
+        if (out === undefined || out.answer !== undefined) return;
         this.out = undefined;
         this.unanswered.add(out.batch.requestId);
         out.reject(new Error("No answer"));
@@ -924,14 +1012,17 @@ export class ModelClient {
     see(): void {
         this.readAt(this.record.revision);
         if (this.heard === "unread") this.heard = "read";
+        this.follows = false;
         if (this.inline) this.redraw();
     }
 
     /**
-     * Whether its source is still to read the record since a Save of its was answered: a read its host makes whatever
-     * the record's revision — a request answered again leaves it where it was.
+     * Whether its source is still to read the record since a Save of its was answered, and the session waits on that
+     * read: a read its host makes whatever the record's revision — a request answered again leaves it where it was. A
+     * source read a revision at a time waits on it only where it was asked to follow the record's state; put at the
+     * revision the answer named, it has read there.
      */
-    get awaitsRead(): boolean { return this.heard === "unread"; }
+    get awaitsRead(): boolean { return this.heard === "unread" && (this.inline || this.follows); }
 
     /** Whether rows the session asked for by key are still to land. */
     get reading(): boolean { return [...this.known.asked].some((id) => !this.known.landed.has(id)); }
@@ -1003,8 +1094,13 @@ export class ModelClient {
                 }
             }
         }
-        // The newest of the record's writes a value its person is shown can be: one its source has read at, or its own Save's.
-        const heard = Math.max(this.heardMost, this.wrote);
+        // The newest of the record's writes a value its person is shown can be: one its source has read at, or its own
+        // Save's — never another session's past where its source has read. (Counted in with its own Saves, another
+        // session's later write that happens to leave a field as the page first showed it — a row added and removed
+        // again while the page still shows none — read as the write the page showed, and the row's first reading as a
+        // step back from it.)
+        const heard = this.heardMost;
+        const saved = { by: this.name, until: this.wrote };
         // Whether its source reads at a revision older than one it had read at — a late answer's doing — and the screen's
         // rows were drawn there.
         const steppedBack = this.record.commitsAt(this.known.revision) < this.heardMost && textEqual(this.screen.revision, this.known.revision);
@@ -1027,22 +1123,33 @@ export class ModelClient {
                 }
                 fields.delete(field);
                 // The record's value now, as their screen showed it: the write that put it there.
-                this.showsWrite(key, field, this.record.writtenAt(key, field, value, heard));
+                this.showsWrite(key, field, this.record.writtenBetween(key, field, value, heard, saved)?.first);
             }
         }
-        // What the record held there, as the screen shows it: never a write older than the one it last showed.
+        // What the record held there, as the screen shows it: never a write older than the one it last showed. A row the
+        // session holds no version of is the screen's own, read at the screen's revision: the write that last changed the
+        // field by then, exactly. One the session holds — as its edit began, as a Save landed it, as it was carried
+        // over — is one of the writes that put the field at that value, among those its source has read or its own
+        // Saves made: went back only where the latest of them is older than the earliest the screen last showed.
         for (const [key, row] of rows) {
             for (const field of FIELDS) {
                 if (this.claims.get(key)?.has(field) === true) continue;
-                const written = this.record.writtenAt(key, field, row?.[field], heard);
-                if (written === undefined) continue;
+                const exact = this.session.entries.has(key) || this.session.landed.has(key) ? undefined
+                    : this.record.commitsAt(this.record.stampOf(key, field, this.screen.revision));
+                const between = exact !== undefined ? { first: exact, last: exact } : this.record.writtenBetween(key, field, row?.[field], heard, saved);
+                if (between === undefined) continue;
+                const written = between.last;
                 const last = this.freshest.get(key)?.get(field);
                 if (last !== undefined && written < last) {
-                    // Counted, where a late answer stepped the source back and its rows were drawn there: still to close.
-                    if (!steppedBack) throw new ModelFault(`${this.name}'s screen went back: ${key}.${field} shows ${say(row?.[field])}, which the record held before the value the screen last showed there`);
-                    this.lateAnswer++;
+                    // Counted, where a late answer stepped the source back and its rows were drawn there, its host
+                    // unable to say when it read: one that says never has an answer's revision installed over a newer one.
+                    if (steppedBack && !this.says) this.lateAnswer++;
+                    // And where its host cannot say when its collection was read: its session took one read before its
+                    // Save landed for one read after — what a host that says never lets it do.
+                    else if (this.inline && !this.says) this.readEarly++;
+                    else throw new ModelFault(`${this.name}'s screen went back: ${key}.${field} shows ${say(row?.[field])}, which the record held before the value the screen last showed there`);
                 }
-                this.showsWrite(key, field, written);
+                this.showsWrite(key, field, between.first);
             }
         }
     }
@@ -1154,7 +1261,7 @@ export interface WorldOptions {
 const SESSION_NO_STATE: ReadonlySet<string> = new Set([
     "binding", "listeners", "serial", "made", "conflictsCache", "draftsCache", "readinessCache", "draftedViews", "compiledTransform", "compileTransform", "merger",
 ]);
-const CLIENT_NO_STATE: ReadonlySet<string> = new Set(["stepsLost", "unansweredAsked", "waitedForGood", "lateAnswer"]);
+const CLIENT_NO_STATE: ReadonlySet<string> = new Set(["stepsLost", "unansweredAsked", "waitedForGood", "readEarly", "lateAnswer"]);
 const WORLD_PRINT: PrintRules = {
     skip: (owner, key) => (owner instanceof EditSession ? SESSION_NO_STATE.has(key) : owner instanceof ModelClient && CLIENT_NO_STATE.has(key)),
     // A request's bytes hold the id it drew at random: read as the batch they are, the id is named by its order.
@@ -1173,7 +1280,7 @@ function partsOf(op: ModelOp): { readonly who: string; readonly name: string; re
 }
 
 /** The operations that read or write the record itself: what one actor's must be ordered against another's. */
-const TOUCHES_RECORD: ReadonlySet<string> = new Set(["deliver", "deliverUnanswered", "see"]);
+const TOUCHES_RECORD: ReadonlySet<string> = new Set(["deliver", "deliverUnanswered", "deliverPast", "land", "see"]);
 
 /**
  * Whether two operations may run in either order to the same end: those of different actors, unless each reads or
@@ -1237,6 +1344,9 @@ export class ModelWorld {
     /** How often a Save over a source read whole waited for good to be read back, in this world. */
     get waitedForGood(): number { return this.clients.reduce((n, client) => n + client.waitedForGood, 0); }
 
+    /** How often a session whose host cannot say when it read took a collection read before its Save landed for one read after, in this world. */
+    get readEarly(): number { return this.clients.reduce((n, client) => n + client.readEarly, 0); }
+
     /**
      * The world's print: everything it holds that what it does next may turn on — the record and its every revision,
      * each session's every field, each person's steps and what they have been shown — and nothing that only counts.
@@ -1273,7 +1383,11 @@ export class ModelWorld {
             if (sends && session.canApply && client.out === undefined) ops.push(`${c}.save`);
             if (sends && session.canAutosave && client.out === undefined) ops.push(`${c}.autosave`);
             if (client.preparing !== undefined) ops.push(`${c}.prepared`, `${c}.prepareFails`);
-            if (client.out !== undefined) ops.push(`${c}.deliver`, `${c}.deliverUnanswered`, `${c}.lose`);
+            if (client.out !== undefined) ops.push(`${c}.deliver`, `${c}.deliverUnanswered`);
+            // Its answer on its way back, the record written again since: the answer arriving as its source moves on.
+            if (client.passed) ops.push(`${c}.deliverPast`);
+            // Lost before the record hears it — or heard, its answer still to come.
+            if (client.unheard) ops.push(`${c}.lose`, `${c}.land`);
             if (session.status === "unknown" && client.out === undefined) ops.push(`${c}.retry`);
             if (!textEqual(client.known.revision, this.record.revision) || client.awaitsRead) ops.push(`${c}.see`);
             if (client.reading) ops.push(`${c}.read`);
@@ -1366,7 +1480,9 @@ export class ModelWorld {
             case "prepareFails": await client.prepared(false); break;
             case "deliver": await client.deliver(true); break;
             case "deliverUnanswered": await client.deliver(false); break;
+            case "deliverPast": await client.deliverPast(); break;
             case "lose": await client.lose(); break;
+            case "land": client.land(); break;
             case "retry": await client.retry(); break;
             case "see": client.see(); break;
             case "read": client.read(); break;

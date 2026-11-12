@@ -153,6 +153,19 @@ export interface PagedApi {
      * @returns A function that stops following
      */
     watchRevision(workspace: string, path: TreePath, onChange: (hash: string | null) => void): () => void;
+    /**
+     * Says which hash a follower of a dataset reads at now, by evidence of
+     * its own — an answer's revision installed, a refusal naming the
+     * dataset's state, a lookup: {@link watchRevision} then tells it of the
+     * dataset's hash wherever that differs, from the next poll started on,
+     * rather than only where it differs from the last hash told.
+     *
+     * @param workspace - The workspace
+     * @param path - The dataset's path
+     * @param onChange - The follower, as {@link watchRevision} was given it
+     * @param hash - The hash it reads at now; `null` while the dataset has no value
+     */
+    revisionHeld?(workspace: string, path: TreePath, onChange: (hash: string | null) => void, hash: string | null): void;
 }
 
 /**
@@ -204,7 +217,7 @@ export function createDefaultPagedApi(
     apiUrl: string,
     repo: string,
     getOptions: () => RequestOptions,
-    datasets: Pick<ReactiveDatasetCacheInterface, "watchHash">,
+    datasets: Pick<ReactiveDatasetCacheInterface, "watchHash" | "hashHeld">,
 ): PagedApi {
     return {
         async getPage(workspace, path, window, signal) {
@@ -234,6 +247,9 @@ export function createDefaultPagedApi(
         },
         watchRevision(workspace, path, onChange) {
             return datasets.watchHash(workspace, path, onChange);
+        },
+        revisionHeld(workspace, path, onChange, hash) {
+            datasets.hashHeld(workspace, path, onChange, hash);
         },
     };
 }

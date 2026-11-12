@@ -46,6 +46,8 @@ interface Explored {
     waitedForGood: number;
     /** In how many of them a Save's late answer stepped a screen back to the revision the Save committed. */
     lateAnswer: number;
+    /** In how many of them a session whose host cannot say when it read took a collection read before its Save landed for one read after. */
+    readEarly: number;
 }
 
 /**
@@ -58,19 +60,20 @@ interface Explored {
  * @throws {ModelFault} The first fault, with the operations that led to it
  */
 async function explore(options: WorldOptions, depth: number, allow: (op: ModelOp) => boolean): Promise<Explored> {
-    const found: Explored = { worlds: 0, stepsLost: 0, unansweredAsked: 0, waitedForGood: 0, lateAnswer: 0 };
+    const found: Explored = { worlds: 0, stepsLost: 0, unansweredAsked: 0, waitedForGood: 0, lateAnswer: 0, readEarly: 0 };
     found.worlds = await everyOrdering((ops) => worldAfter(options, ops), depth, allow, independent, (world) => {
         if (world.stepsLost > 0) found.stepsLost++;
         if (world.unansweredAsked > 0) found.unansweredAsked++;
         if (world.waitedForGood > 0) found.waitedForGood++;
         if (world.lateAnswer > 0) found.lateAnswer++;
+        if (world.readEarly > 0) found.readEarly++;
     });
     return found;
 }
 
 /** What an exploration covered, in a line. */
 function said(name: string, found: Explored): string {
-    const waited = `${found.waitedForGood === 0 ? "" : `; a Save read whole waited for good in ${found.waitedForGood}`}${found.lateAnswer === 0 ? "" : `; a late answer stepped a screen back in ${found.lateAnswer}`}`;
+    const waited = `${found.waitedForGood === 0 ? "" : `; a Save read whole waited for good in ${found.waitedForGood}`}${found.readEarly === 0 ? "" : `; a collection read before a Save landed was taken for one read after in ${found.readEarly}`}${found.lateAnswer === 0 ? "" : `; a late answer stepped a screen back in ${found.lateAnswer}`}`;
     return `[editing model] ${name}: ${found.worlds} orderings; steps lost in ${found.stepsLost}; asked with nothing to save, after a request with no answer was refused, in ${found.unansweredAsked}${waited}`;
 }
 
@@ -122,6 +125,8 @@ const PREPARED = /^(c\d\.(edit\(k1,[ab]\)|optimise|undo|save|autosave|prepared|p
 const INLINE = /^(c\d\.(edit\(k1,[ab]\)|remove|undo|redo|save|deliver|deliverUnanswered|retry|see|settle)|remote\.(edit|remove))/;
 /** Two people over a source read whole: a row one adds and the other removes, each Save read back as the other's lands. */
 const INLINE_TWO = /^c\d\.(add|remove\(k3\)|edit\(k1,a\)|save|deliver|see|settle\(draft\))/;
+/** A Save's answer that comes late: the record takes the Save, another session writes, the page hears of that write — and then the answer arrives. */
+const LATE = /^(c\d\.(edit\(k1,a\)|save|land|deliver|see|read|redraw|settle\(draft\))|remote\.edit\(k[12],a\))/;
 /** Two people on one field and its neighbour. */
 const TWO = /^c\d\.(edit\(k1,[ab]\)|save|deliver|see|read|redraw|settle\(draft\))/;
 
@@ -205,6 +210,16 @@ for (const shape of ["fields", "whole"] as const) {
             const two = await explore({ shape, clients: 2, remotes: 0, inline: true, says: false }, 6 + DEEPER, (op) => INLINE_TWO.test(op));
             console.info(said(`${shape} inline two, its host silent`, two));
             expect(two.worlds).toBeGreaterThan(DEEPER < 0 ? 0 : 2_000);
+        }, 600_000);
+
+        it("a Save's answer that comes late: every ordering of the record taking the Save, another session's writes, the page hearing of them, and the answer", async () => {
+            // Eight operations reach it: an edit, its Save, the record taking it, another session's write, the page
+            // hearing of that and drawing it, the answer, and the page drawn again.
+            const found = await explore({ shape, remotes: 2 }, 8 + DEEPER, (op) => LATE.test(op));
+            console.info(said(`${shape} late`, found));
+            expect(found.worlds).toBeGreaterThan(DEEPER < 0 ? 0 : 5_000);
+            // The answer names the revision the Save committed, which the page may have passed: it is never put back there.
+            expect(found.lateAnswer).toBe(0);
         }, 600_000);
 
         it("two people: every ordering of their gestures, Saves, reads and choices on one row", async () => {
@@ -465,6 +480,105 @@ describe("what the harness found of a conflict chosen again", () => {
     });
 });
 
+describe("a Save's answer that comes after the page has heard of a later write", () => {
+    for (const shape of ["fields", "whole"] as const) {
+        // The record takes the Save; another session writes k2; the page hears of that write and draws it; then the
+        // Save's answer arrives, naming the revision the Save committed — one the page has passed.
+        const late: readonly ModelOp[] = ["c0.edit(k1,a)", "c0.save", "c0.land", "remote.edit(k2,a)", "c0.see", "c0.read", "c0.redraw", "c0.deliver"];
+
+        it(`never puts the page back at the revision the Save committed: the other session's write stays on the screen, and the Save is read back where the page is (${shape})`, async () => {
+            const world = await worldAfter({ shape, remotes: 1 }, [...late, "c0.redraw"]);
+            const client = world.clients[0]!;
+            expect([client.shown("k2")?.a, client.shown("k1")?.a, world.lateAnswer]).toEqual([900n, 100n, 0]);
+            await world.rest();
+            expect([client.session.status, client.session.pending, world.lateAnswer]).toEqual(["idle", 0, 0]);
+        });
+
+        it(`counted, where its host cannot say when it read: the answer puts the page back at the revision the Save committed, the other session's write gone from the screen until the record is read again (${shape})`, async () => {
+            const world = await worldAfter({ shape, remotes: 1, says: false }, [...late, "c0.redraw"]);
+            expect([world.clients[0]!.shown("k2")?.a, world.lateAnswer]).toEqual([3n, 1]);
+            await world.rest();
+        });
+
+        it(`is read back as put back where its source moved on in the very turn the answer came, the revision the session asked for never installed, and the other session's write had put the Save's own row back exactly: never left saving (${shape})`, async () => {
+            // The other person removes the row the Save added, and the answer arrives as the page is told of the record's
+            // state now: the paging layer installs the Save's revision no more, and follows the record. The session, not
+            // told, reads at a revision where its row is as it began — put back, once its host says it has read since.
+            const world = await worldAfter({ shape, clients: 2, remotes: 0 }, [
+                "c0.add(k3)", "c0.save", "c0.land", "c1.see", "c1.read", "c1.redraw", "c1.remove(k3)", "c1.save", "c1.deliver", "c0.deliverPast", "c0.see", "c0.read", "c0.redraw",
+            ]);
+            const client = world.clients[0]!;
+            await world.rest();
+            expect([client.session.status, client.session.pending, client.shown("k3"), world.record.now.has("k3"), world.lateAnswer]).toEqual(["idle", 0, undefined, false, 0]);
+        });
+
+        it(`is read back as put back, where the other session's write put the Save's own row back exactly: never left saving (${shape})`, async () => {
+            // The other session's write is of the very field the Save set, back to what it was — and the page had heard
+            // of it before the answer came: the source reads there still once its host has read since the answer.
+            const world = await worldAfter({ shape, clients: 2, remotes: 0 }, [
+                "c0.add(k3)", "c0.save", "c0.land", "c1.see", "c1.read", "c1.redraw", "c1.remove(k3)", "c1.save", "c1.deliver", "c0.see", "c0.read", "c0.redraw", "c0.deliver",
+            ]);
+            const client = world.clients[0]!;
+            await world.rest();
+            expect([client.session.status, client.session.pending, client.shown("k3"), world.record.now.has("k3"), world.lateAnswer]).toEqual(["idle", 0, undefined, false, 0]);
+        });
+    }
+});
+
+describe("what the harness found of a choice made while a Save was out, each replayed", () => {
+    for (const shape of ["fields", "whole"] as const) {
+        it(`a conflict chosen after a Save was sent is still a choice the drafts before it wait on, once that Save is read back: no automatic Save sends the row as it stood before the choice, behind an optimiser's result (${shape})`, async () => {
+            // The row changed here and removed there; their removal taken, the row added again and saved by itself.
+            // While that Save is out, Undo goes back past the choice — the conflict waits again — an optimiser's result
+            // lands on the row, and the conflict is chosen again. The Save, read back, took none of those steps: the
+            // session forgot every step's choice with it, and an automatic Save then offered to send the row as it
+            // stood before the result — in a conflict nobody had chosen.
+            const world = await worldAfter({ shape, remotes: 1, inline: true }, [
+                "c0.edit(k1,b)", "remote.remove(k1)", "c0.see", "c0.settle(source)", "c0.add(k1)", "c0.autosave",
+                "c0.undo", "c0.undo", "c0.optimise(k1,a)", "c0.settle(draft)", "c0.deliver", "c0.see",
+            ]);
+            const { session } = world.clients[0]!;
+            expect([session.status, session.unsettled, session.autosaveHeld, session.canAutosave]).toEqual(["idle", 0, true, false]);
+            // A person's Save takes it all.
+            expect(session.canApply).toBe(true);
+            await world.rest();
+        });
+    }
+});
+
+describe("what the harness's own checks got wrong, each replayed", () => {
+    for (const shape of ["fields", "whole"] as const) {
+        it(`a row another session added and removed again, while a page still showed none, is no step back when the page first draws it: a shown value is one of the writes its source has read, or of its own Saves (${shape})`, async () => {
+            // The record: k3 added (1), removed (2), c1's own Save (3), k3 added again (4). c1's source has read as far
+            // as the first; its page, drawn late, showed no k3 until then. Read with c1's own Save for a bound, "no k3"
+            // was the removal — a write its source never read — and the row's first drawing a step back from it.
+            const world = await worldAfter({ shape, clients: 2, remotes: 3 }, [
+                "remote.add(k3)", "c1.remove(k1)", "c1.save", "c1.see", "remote.remove(k3)", "c1.deliverUnanswered", "remote.add(k3)", "c1.undo", "c1.retry",
+                "c1.edit(k2,a)", "c1.edit(k1,b)", "c1.redraw",
+            ]);
+            expect(world.clients[1]!.shown("k3")?.a).toBe(900n);
+            await world.rest();
+        });
+
+        it(`a row its person adds and removes again, over a removal their unanswered Save made and a page reload kept, is no change of theirs — whatever another session has written under the key since (${shape})`, async () => {
+            // The removal of k1 landed with no answer and is asked again; the page reloads, keeping it; another session
+            // adds a row of its own under k1; the page reloads again. What the person then puts k1 at is still a change
+            // from what their own Save wrote — no row — until the session reads that Save back: the check forgot the
+            // Save's write once the record's last write there was another's, and took a row added and removed again
+            // for a removal of the other session's row, which the session rightly never made.
+            const world = await worldAfter({ shape, remotes: 1 }, [
+                "c0.remove(k1)", "c0.save", "c0.deliverUnanswered", "c0.retry", "c0.reload", "remote.add(k1)", "c0.reload",
+                "c0.add(k1)", "c0.deliver", "c0.remove(k1)", "c0.read",
+            ]);
+            const client = world.clients[0]!;
+            // Read back: the row is the other session's, and nothing of k1 is left to save.
+            expect([client.session.entries.has("k1"), client.shown("k1")?.a]).toEqual([false, 900n]);
+            await world.rest();
+            expect(world.record.now.get("k1")?.a).toBe(900n);
+        });
+    }
+});
+
 describe("what the harness found of a source read whole", () => {
     for (const shape of ["fields", "whole"] as const) {
         it(`a Save another session's write overtook on the same part, before the record was read again, is read back with the newer value — never waited on for good (${shape})`, async () => {
@@ -518,6 +632,24 @@ describe("what the harness found of a source read whole", () => {
             expect([client.session.status, client.session.locked, client.session.pending, client.shown("k3")]).toEqual(["idle", false, 0, undefined]);
             await world.rest();
             expect([world.waitedForGood, world.record.now.has("k3")]).toEqual([0, false]);
+        });
+
+        // c1 adds a row under the key c0's row, since removed, still stands under in the collection c1's page holds.
+        const underTheirs: readonly ModelOp[] = ["c0.add(k3)", "c0.save", "c0.remove(k3)", "c0.deliver", "c1.add(k3)", "c1.save", "c1.deliverUnanswered", "c0.see", "c0.save", "c1.see", "c1.retry", "c0.deliver", "c0.see"];
+
+        it(`a Save that lands over a key another session's row stood under, in the collection its page still holds, is read back at the collection its host reads after the answer — the row as it saved it, its screen never showing the other session's (${shape})`, async () => {
+            const world = await worldAfter({ shape, clients: 2, remotes: 0, inline: true }, [...underTheirs, "c1.deliver"]);
+            const client = world.clients[1]!;
+            // Answered, and its page holds the collection from before: the other session's row under its key. It waits.
+            expect([client.session.status, client.awaitsRead, client.shown("k3")?.a]).toEqual(["reconciling", true, 200n]);
+            await world.rest();
+            expect([world.readEarly, world.record.now.get("k3")?.a]).toEqual([0, 200n]);
+        });
+
+        it(`counted, where its host cannot say what it read: such a Save is taken as read back at the collection from before it, and its screen shows the other session's row until the record is read again (${shape})`, async () => {
+            const world = await worldAfter({ shape, clients: 2, remotes: 0, inline: true, says: false }, [...underTheirs, "c1.deliver"]);
+            await world.rest();
+            expect(world.readEarly).toBeGreaterThan(0);
         });
 
         it(`counted, where its host cannot say what it read: such a Save waits to be read back until the page is reloaded (${shape})`, async () => {

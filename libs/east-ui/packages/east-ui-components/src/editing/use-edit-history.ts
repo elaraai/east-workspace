@@ -30,7 +30,7 @@ import { bindingOf, gateOf, historyKeyOf, keptHistory, keptSession, sessionKeyOf
 import { keepDrafts, keptDraftsKey } from "./keep.js";
 import { useEditingScope } from "./scope.js";
 import { EditSession, keyReader, type ConflictRange, type ConflictTogether, type EditSessionBinding, type EntryVersion } from "./session.js";
-import { settledCollection, type EditingValue } from "./use-edit-session.js";
+import { readsOf, settledCollection, settledRevision, type EditingValue } from "./use-edit-session.js";
 
 /**
  * A keyed source read a window at a time, as a history's session reads it
@@ -41,6 +41,13 @@ export interface EditHistoryPaged {
     readonly revision: () => option<string>;
     /** Install a committed revision, or discover the current one. */
     readonly refresh: (revision: option<string>) => unknown;
+    /**
+     * Whether the source's host has read the source's state since its last write from here was answered (#1599) —
+     * tracked; `undefined` where nothing says (`EditSource.followed`): a Save's answer then installs its revision only
+     * while the source still reads where the Save was drafted, and is read back wherever the source reads once this
+     * says it has read since.
+     */
+    readonly followed?: (() => boolean | undefined) | undefined;
     /** An entry by its id, read by its key at the source's revision — tracked: `none` while the read is in flight, `some(none)` for an entry the source does not hold. */
     readonly entry: (id: string) => option<option<unknown>>;
     /**
@@ -280,6 +287,7 @@ export function useEditHistory<W>(
         const binding = {
             ...bindingOf<W>(editing, { entryType, draftType, keyType }, source.ready, paged?.refresh), prepare: source.prepare, ranges: source.ranges,
             together: source.together, drawsLanded: source.drawsLanded, keys: source.keys, underKey: source.underKey,
+            reads: paged === undefined ? undefined : readsOf(paged.revision, paged.followed),
         };
         const kept = sourceSessionsOf(store, scope, editing.sourceId);
         const session = keptSession<W>(kept, sessionKeyOf(storageKey, editing.entryType, editing.draftType), () => {
@@ -344,6 +352,9 @@ export function useEditHistory<W>(
                 }
                 bases.set(part.key, variant("revision", revision.value) as Base);
                 reads.set(part.key, got);
+                // Where its host says it has read the source's state since the Save being read back was answered.
+                const followed = settledRevision(part.paged.followed, session.status === "reconciling", revision.value);
+                if (followed !== undefined) settled.set(part.key, followed);
                 continue;
             }
             const snapshot = part.editing.snapshot;

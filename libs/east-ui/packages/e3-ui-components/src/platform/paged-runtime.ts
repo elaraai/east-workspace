@@ -123,9 +123,10 @@ import { TreePathType, type TreePath } from "@elaraai/e3-types";
 
 import { datasetPathToString } from "./dataset-store.js";
 import { IndexedPagedRuntime, indexedBindingOfSource, recordSliceBatchesOf } from "./indexed-paged.js";
+import { defaultRecordRuntime, recordOfPath } from "./record-runtime.js";
 import { toFindQuery } from "./find-query.js";
 import type { PagedSelector, PagedSource, PagedApi } from "./paged/api.js";
-import { NO_INDEX, selectorKey, pagedWindowFamily, pagedWindowKey, pagedTotalKey, pagedSeekKey } from "./paged/keys.js";
+import { NO_INDEX, selectorKey, pagedRevisionKey, pagedWindowFamily, pagedWindowKey, pagedTotalKey, pagedSeekKey } from "./paged/keys.js";
 import { heldSearch } from "./paged/state.js";
 import type { PagedLandingFrame } from "./paged/channels.js";
 import { PagedBatches } from "./paged/batches.js";
@@ -384,11 +385,20 @@ export class PagedRuntime extends PagedBatches {
                     const workspace = this.resolveWorkspace();
                     const path = pathArg as TreePath;
                     const target = targetArg as option<string>;
+                    // Where the source reads as it is asked: a revision is installed only while it still reads there.
+                    const from = this.snapshots.get(pagedRevisionKey(workspace, path))?.revision;
                     // Deferred: a refresh called while a view renders must not
                     // re-fire that render from inside it.
                     queueMicrotask(() => {
                         if (this.workspace !== workspace) return;
-                        if (target.type === "some") { this.moveTo(workspace, path, this.snapshotOf(workspace, path), target.value); return; }
+                        const snapshot = this.snapshotOf(workspace, path);
+                        // Moved meanwhile — told a newer hash, a refused pin naming one — the source may read past
+                        // the revision named, and revisions have no order to tell by: installed, it would pin the
+                        // page to a state the dataset has left, until e3 refuses a read pinned there — every window
+                        // then read a second time — or, where a browser answers those reads from what it kept, until
+                        // the next poll tells the source where the dataset is (`moveTo`). It follows the dataset's
+                        // current state instead, as a refresh that names no revision asks.
+                        if (target.type === "some" && snapshot.revision === from) { this.moveTo(workspace, path, snapshot, target.value); return; }
                         // Following the current state is a Retry too: what failed is asked again now.
                         this.retryNow(workspace, path);
                     });
@@ -600,6 +610,29 @@ export function entriesByKeyOf(id: string, keyType: EastType, rowType: EastType)
         const found = new Map<string, option<unknown>>(ids.map((entry) => [entry, none] as const));
         asked.forEach(({ entry }, i) => found.set(entry, read.value[i]!));
         return some(found);
+    };
+}
+
+/**
+ * Whether the workspace has read the record a paged source reads since the
+ * record's last write from here was answered (the record runtime's
+ * `followedOf`): from then the revision the source is pinned to is the
+ * record's as of a read made after that write. What a Save over the source
+ * that did not install the revision it committed — the source having moved
+ * since the Save was drafted — is read back by, wherever the source then
+ * reads. The source is found as each read runs: its handle is bound as the
+ * page's program runs.
+ *
+ * @param id - The source's id, as its handle carries it
+ * @returns The reader, tracked: `true` once it has, `false` until then, and
+ *   `undefined` where nothing says — a source of no record, a record no write
+ *   from here has been answered for, or one whose hash is not followed
+ */
+export function readSinceAnswerOf(id: string): () => boolean | undefined {
+    return () => {
+        const path = indexedBindingOfSource(id)?.path ?? pagedSourceOf(id)?.path;
+        const record = path === undefined ? undefined : recordOfPath(path);
+        return record === undefined ? undefined : defaultRecordRuntime.followedOf(record)?.();
     };
 }
 

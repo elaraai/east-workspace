@@ -257,7 +257,9 @@ export class PagedChannels extends TrackedChannelStore<PageEntry> {
         }
         if (snapshot.unwatch === undefined && this.api !== null) {
             const followed = snapshot;
-            snapshot.unwatch = this.api.watchRevision(workspace, path, (hash) => this.moveTo(workspace, path, followed, hash));
+            const told = (hash: string | null): void => this.moveTo(workspace, path, followed, hash, true);
+            snapshot.told = told;
+            snapshot.unwatch = this.api.watchRevision(workspace, path, told);
         }
         return snapshot;
     }
@@ -286,6 +288,7 @@ export class PagedChannels extends TrackedChannelStore<PageEntry> {
             if (!this.isLive(snapshot) || this.isSubscribed(key)) return;
             snapshot.unwatch?.();
             snapshot.unwatch = undefined;
+            snapshot.told = undefined;
         });
     }
 
@@ -355,11 +358,23 @@ export class PagedChannels extends TrackedChannelStore<PageEntry> {
      * delivered and re-fire every read of the dataset, so the windows and
      * searches still in use are fetched again, pinned to the new one. A move to
      * the revision the source already has changes nothing.
+     *
+     * A move made by evidence of the source's own — an answer's revision
+     * installed, a refusal naming the dataset's state, a lookup — is said to
+     * whoever follows the dataset for it ({@link PagedApi.revisionHeld}), so
+     * the next poll compares the dataset's hash with where the source reads.
+     * A source put at a state the dataset has since left would otherwise
+     * stay there wherever the dataset's hash is the one it was last told:
+     * its pinned reads answered by a browser that kept them, e3 never asked
+     * and so refusing none.
+     *
+     * @param told - Whether the follower itself told the source of `revision`
      */
-    protected moveTo(workspace: string, path: TreePath, snapshot: Snapshot, revision: string | null): void {
+    protected moveTo(workspace: string, path: TreePath, snapshot: Snapshot, revision: string | null, told = false): void {
         if (!this.isLive(snapshot) || snapshot.revision === revision) return;
         snapshot.revision = revision;
         snapshot.moves += 1;
+        if (!told && snapshot.told !== undefined) this.api?.revisionHeld?.(workspace, path, snapshot.told, revision);
         delete snapshot.findError;
         delete snapshot.findFailedAtMs;
         for (const key of snapshot.channels) {

@@ -25,7 +25,7 @@ import { shownDrafts, type ShownDrafts } from "./shown-drafts.js";
 import { entryBreaches, type SheetBounds } from "./bounds.js";
 import { sheetDayOf } from "./day.js";
 import { SHEET_PAGE_SIZE } from "./paging.js";
-import { entriesByKeyOf } from "../platform/paged-runtime.js";
+import { entriesByKeyOf, readSinceAnswerOf } from "../platform/paged-runtime.js";
 import { SheetRefused, prepareCreation, unsetField } from "./creation.js";
 import type { EntryVersion, EntryUpdate, Origin, Placement, SheetTransactions } from "./transactions.js";
 import type { SheetEditValue, SheetPagedSourceValue, SheetRowValue } from "./values.js";
@@ -222,6 +222,10 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
     // Where no record Slice gives the rows, a Save's entries are read by key from the source's own rows (#1596).
     const entriesByKey = useMemo(() => (rowsId === undefined || editing.keyType.type !== "some" ? undefined
         : entriesByKeyOf(rowsId, fromEastTypeValue(editing.keyType.value), fromEastTypeValue(editing.entryType))), [rowsId, editing.keyType, editing.entryType]);
+    // Whether the workspace has read the source's record since its last write from here was answered: a Save's answer
+    // that comes after its pages have moved on never puts them back at the revision it names (#1599).
+    const sourceId = source?.id;
+    const followed = useMemo(() => (sourceId === undefined ? undefined : readSinceAnswerOf(sourceId)), [sourceId]);
     // Only a PINNED source names the revision a session's base is (#880): an
     // unpinned one leaves the session without a base, so nothing is drafted —
     // and the factory refuses such a source an apply.
@@ -229,7 +233,7 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
         if (source === undefined) return undefined;
         const { revision, refresh } = source;
         return revision !== undefined && refresh !== undefined ? {
-            ...source, revision, refresh, readCurrent: recordSlice?.readEntry, pageSize: SHEET_PAGE_SIZE,
+            ...source, revision, refresh, followed, readCurrent: recordSlice?.readEntry, pageSize: SHEET_PAGE_SIZE,
             // A window read back is its rows and the entries it carried beside them: one read (#1599).
             page: (offset: bigint, count: bigint) => {
                 const window = source.page(offset, count);
@@ -237,7 +241,7 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
             },
             readCurrentAll: recordSlice === undefined ? entriesByKey : (ids: readonly string[]) => recordSliceReadEntries(recordSlice, ids),
         } : undefined;
-    }, [source, recordSlice, entriesByKey]);
+    }, [source, recordSlice, entriesByKey, followed]);
     const prepare = useMemo(() => prepareRecordSliceSave(recordSlice, source?.revision), [recordSlice, source]);
     // An entry's version before any gesture is the session's to say (`EditSession.startOf`, asked by the hook): its own;
     // else, for one a Save landed that the rows have still to read, what the Save left (#1583) — never the rows read

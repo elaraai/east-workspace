@@ -54,7 +54,7 @@ import { Data, Record } from "@elaraai/e3-ui/internal";
 import * as fx from "@elaraai/e3-ui/fixtures/sheet/sheet-keys";
 import type { E3Request } from "../e3-web.test-utils.js";
 import { conflictCards } from "../e3-web-mount.test-utils.js";
-import { putBackAfterSave, removedHere, removedOnBothSides, removedThere } from "../shared/remote-rows.test-utils.js";
+import { heardBeforeAnswer, putBackAfterSave, removedHere, removedOnBothSides, removedThere } from "../shared/remote-rows.test-utils.js";
 import { act, settle, sheetHarness, slot } from "../sheet/frame/harness.test-utils.js";
 // The Record is an extension: its renderer registers as it loads.
 import "./index.js";
@@ -392,3 +392,75 @@ test("a member removed here and saved, added back by another session exactly as 
     const c = await mounted("record-remote-put-back-removed");
     await putBackAfterSave({ ...await putBack(c), change: () => remove(c, "9") });
 });
+
+test("a Save whose answer comes after the grid has heard of another session's later change of another member never takes the grid back to the crew as the Save left them: their change stays drawn, beside the level saved here", async () => {
+    const c = await mounted("record-remote-late-answer");
+    const levelOf = (id: string) => look(c).find(([key]) => key === id)?.[2];
+    // Every answer e3 gives the grid's reads of the crew, from here.
+    const reads = h.e3.answers((request: E3Request) => request.kind !== "mutate" && request.dataset === CREW);
+    await heardBeforeAnswer({
+        container: c,
+        change: () => type(c, "9", "2"),
+        mine: () => levelOf("9"),
+        theirs: () => levelOf("10"),
+        refused: () => reads.filter((answer) => answer.status >= 400).length,
+        // Another session sets member 10's level once the Save here has committed.
+        savedThenHeard: (save) => h.late(fx.numberedCrew, save, (crew) => { const next = new Map(crew); next.set(10n, { ...next.get(10n)!, forklift: "2" }); return next as typeof crew; }),
+    });
+    const held = await h.read(fx.numberedCrew);
+    expect([held.get(9n)!.forklift, held.get(10n)!.forklift]).toEqual(["2", "2"]);
+});
+
+test("with a browser keeping what e3 marks to keep: a level typed back and saved — the crew as the grid first read them, a state the browser answers every read of itself — answered after the grid has heard of another session's later change, never takes the grid back to that state: their change stays drawn", async () => {
+    // A browser keeps each read pinned to a state, as e3 marks it, and answers it again itself: e3 is never asked, and
+    // refuses nothing. Put back at a state it holds the reads of, the grid drew the crew as they were then — the other
+    // session's change gone — and stayed there until the crew next changed: the hash it had last heard was theirs.
+    const kept = h.e3.browserCache();
+    const c = await mounted("record-remote-late-answer-kept");
+    const levelOf = (id: string) => look(c).find(([key]) => key === id)?.[2];
+    // A level typed and saved, read back: the crew at another state.
+    await type(c, "9", "2");
+    await press(saveButton(c));
+    await waitFor(() => expect([off(discardButton(c)), saveButton(c).getAttribute("aria-busy")]).toEqual([true, null]), { timeout: 10_000 });
+    await settle();
+    // Typed back and saved: the crew are as the grid first read them.
+    const reads = h.e3.answers((request: E3Request) => request.kind !== "mutate" && request.dataset === CREW);
+    await heardBeforeAnswer({
+        container: c,
+        change: () => type(c, "9", "0"),
+        mine: () => levelOf("9"),
+        theirs: () => levelOf("10"),
+        refused: () => reads.filter((answer) => answer.status >= 400).length,
+        // Another session sets member 10's level once the Save here has committed.
+        savedThenHeard: (save) => h.late(fx.numberedCrew, save, (crew) => { const next = new Map(crew); next.set(10n, { ...next.get(10n)!, forklift: "2" }); return next as typeof crew; }),
+    });
+    const held = await h.read(fx.numberedCrew);
+    expect([held.get(9n)!.forklift, held.get(10n)!.forklift]).toEqual(["0", "2"]);
+    // The grid asked for no read the browser held: it was never back at a state it had read before.
+    expect(kept.filter((request) => request.dataset === CREW).length).toBe(0);
+});
+
+test("with a browser keeping what e3 marks to keep: a level typed back and saved, and put back again by another session before the grid's next poll — the crew at the state the grid was last told of — never leaves the grid drawn as the Save left it: its next poll brings it to the crew as e3 holds them", async () => {
+    // The Save's answer puts the grid at the state it committed: one the browser holds every read of, so e3 is asked
+    // nothing and refuses nothing. The crew are by then back at the state before the Save — whose hash is the one the
+    // grid was last told. Told a hash only where it differs from the last one told, the grid heard nothing more, and
+    // drew the level as saved — which the crew no longer held — until they next changed.
+    h.e3.browserCache();
+    const c = await mounted("record-remote-kept-put-back");
+    const levelOf = (id: string) => look(c).find(([key]) => key === id)?.[2];
+    const readBack = () => waitFor(() => expect([off(discardButton(c)), saveButton(c).getAttribute("aria-busy")]).toEqual([true, null]), { timeout: 10_000 });
+    // A level typed and saved, read back: the crew at another state.
+    await type(c, "9", "2");
+    await press(saveButton(c));
+    await readBack();
+    await settle();
+    const before = await h.read(fx.numberedCrew);
+    // Typed back and saved — the crew as the grid first read them — then put back by another session before the grid reads the crew again.
+    await type(c, "9", "0");
+    await h.followed(fx.numberedCrew, () => { fireEvent.click(saveButton(c)); }, () => before);
+    await readBack();
+    await h.poll();
+    expect((await h.read(fx.numberedCrew)).get(9n)!.forklift).toBe("2");
+    expect(levelOf("9"), "the grid draws the level as the crew hold it").toBe("2");
+});
+

@@ -82,6 +82,17 @@ export interface EditSource<W> {
      * time (#1596).
      */
     pageSize?: number | undefined;
+    /**
+     * Whether the source's host has read the source's state since its last
+     * write from here was answered (#1599) — tracked: `true` once it has,
+     * `false` until then, `undefined` where nothing says. Given, a Save's
+     * answer installs the revision it names only while the source still
+     * reads at the revision the Save was drafted at: a source that has moved
+     * since may read past it, and follows its state instead — the Save read
+     * back wherever the source reads once this says it has read since
+     * (`EditSessionBinding.reads`, `EditSession.reconcile`'s `settled`).
+     */
+    followed?: (() => boolean | undefined) | undefined;
 }
 
 /**
@@ -193,6 +204,34 @@ export function settledCollection(sourceId: string, reading: boolean, decode: (b
 }
 
 /**
+ * The revision a source reads at, where its host says it has read the source's state since the Save being read back was
+ * answered ({@link EditSource.followed}): what the session takes a Save that could not install its revision as read
+ * back at (`EditSession.reconcile`).
+ *
+ * @param followed - Whether the source's host has read its state since; `undefined` for a source no host says it of
+ * @param reading - Whether a Save is being read back: asked only then
+ * @param revision - The revision the source reads at now
+ * @returns The revision — its `value` `undefined` until its host has read since; `undefined` where no host says
+ */
+export function settledRevision(followed: (() => boolean | undefined) | undefined, reading: boolean, revision: string): { readonly value: unknown } | undefined {
+    if (followed === undefined) return undefined;
+    if (!reading) return { value: undefined };
+    const read = followed();
+    return read === undefined ? undefined : { value: read ? revision : undefined };
+}
+
+/**
+ * Where a source reads now, as a Save's answer asks before its revision is installed (`EditSessionBinding.reads`).
+ *
+ * @param revision - The source's revision
+ * @param followed - Whether the source's host has read its state since its last write was answered
+ * @returns The reader; `undefined` for a source whose host says nothing of when it read
+ */
+export function readsOf(revision: () => option<string>, followed: (() => boolean | undefined) | undefined): (() => option<string> | undefined) | undefined {
+    return followed === undefined ? undefined : () => (followed() === undefined ? undefined : revision());
+}
+
+/**
  * Bind decoded callbacks and retain unresolved requests through remounts.
  *
  * @typeParam W - The collection's projection of an entry
@@ -217,8 +256,10 @@ export function useEditSession<W>(editing: EditingValue, source: EditSource<W> |
     // The data set its host names: another's source of the same name holds sessions and drafts of its own.
     const scope = useEditingScope();
     const sourceSessions = useMemo(() => sourceSessionsOf(store, scope, sourceId), [store, scope, sourceId]);
-    const binding = useMemo(() => ({ ...bindingOf<W>(editing, { entryType, draftType, keyType }, ready, source?.refresh), prepare, wireOf, carryOver, drawsLanded, keys, underKey }),
-        [entryType, draftType, keyType, editing, source, ready, prepare, wireOf, carryOver, drawsLanded, keys, underKey]);
+    const binding = useMemo(() => ({
+        ...bindingOf<W>(editing, { entryType, draftType, keyType }, ready, source?.refresh), prepare, wireOf, carryOver, drawsLanded, keys, underKey,
+        reads: source === undefined ? undefined : readsOf(source.revision, source.followed),
+    }), [entryType, draftType, keyType, editing, source, ready, prepare, wireOf, carryOver, drawsLanded, keys, underKey]);
     const schemaKey = useMemo(() => sessionKeyOf(storageKey, editing.entryType, editing.draftType), [storageKey, editing.entryType, editing.draftType]);
     const session = useMemo(() => keptSession<W>(sourceSessions, schemaKey, () => {
         const next = new EditSession<W>(binding);
@@ -278,11 +319,13 @@ export function useEditSession<W>(editing: EditingValue, source: EditSource<W> |
         }
         const revision = source?.revision();
         if (revision?.type !== "some" || source === undefined) return undefined;
+        // Where its host says it has read the source's state since the Save being read back was answered.
+        const settled = settledRevision(source.followed, session.status === "reconciling", revision.value);
         // Every entry still to judge in one read, where the source reads several at once (#1596): its rows as it decoded them.
         const all = source.readCurrentAll?.(session.unresolvedIdsAt(revision.value));
         if (all !== undefined) {
             if (all.type === "some") for (const [id, current] of all.value) reads.set(id, current);
-            return { base: variant("revision", revision.value), reads };
+            return { base: variant("revision", revision.value), reads, settled };
         }
         // A positional source's entries, from the windows its rows are read in (#1596); any other's, a bounded batch at a time.
         const size = keyType === undefined ? source.pageSize : undefined;
@@ -332,7 +375,7 @@ export function useEditSession<W>(editing: EditingValue, source: EditSource<W> |
             const raw = kept !== undefined ? some(kept) : editing.readEntry(id, BigInt(at));
             if (raw.type === "some") reads.set(id, some(codecs.decodeEntry(raw.value)));
         }
-        return { base: variant("revision", revision.value), reads };
+        return { base: variant("revision", revision.value), reads, settled };
         // Session status and entries change under the external-store version.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [editing, keyType, source, rows, rowIndex, positions, codecs, session, version, binding, idOf]);
@@ -347,7 +390,7 @@ export function useEditSession<W>(editing: EditingValue, source: EditSource<W> |
         if (!observed) return;
         // An inline snapshot the session reads itself; at a revision, the entries read here —
         // a commit's, read back, and a conflict's, which they name (#1199).
-        session.reconcile(observed.base, (id) => observed.reads.get(id), "settled" in observed ? observed.settled : undefined);
+        session.reconcile(observed.base, (id) => observed.reads.get(id), observed.settled);
         session.nameConflicts(observed.base, (id) => observed.reads.get(id));
         session.observeBase(observed.base);
         // A source that moved under the drafts carries them over, once each is read at its new revision.

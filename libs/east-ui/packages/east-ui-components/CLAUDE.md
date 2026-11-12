@@ -590,7 +590,12 @@ component, nothing in east-ui.
   over again (`EntryMerger.began`): the source's next change there is the
   source's to make, never a conflict over a change the person no longer has.
   A choice a Save has taken is no conflict to bring back: Undo past it puts
-  back the versions its step moved, nothing of the conflict. A session bound
+  back the versions its step moved, nothing of the conflict. A Save takes the
+  choices of the steps done as it was sent (`Submission.took`), and no
+  other's: read back, it once forgot every step's choice with its own — one
+  made while it was out among them, after an Undo back past the first — and
+  an automatic Save then offered to send a row as it stood before an
+  optimiser's result, in a conflict no Save had taken. A session bound
   `carryOver: false` goes out of date instead (`stale`, Save off). The
   carry-over starts the history over at the drafts. A keyed source's entry
   stands in its key's order whatever version the session makes of it, so the
@@ -743,7 +748,27 @@ component, nothing in east-ui.
   acknowledged is read back at the revision the source answered with — the one it committed, or, for a request the
   source took before and answers again, the one it is at — or a later one; once the source has read at that revision,
   there or after, an entry it holds as its edit began was put back by another write — a row the Save added, removed
-  since — and is acknowledged so, never waited on for a read that would not come (`Submission.reached`). A session takes its
+  since — and is acknowledged so, never waited on for a read that would not come (`Submission.reached`). An answer that
+  comes after its source has moved on — the page heard of another write while the request was out, and reads it —
+  installs no revision (`EditSessionBinding.reads`, hardened 12 Nov 2026): the source may read past the one the answer
+  names, and revisions name content, with no order to tell by. Installed, the source was put back at a state its record
+  had left. e3 refuses a read pinned to such a state and names the one the record holds, and the page moved on — each
+  such read refused (the Calendar's six of its period), every row the page shows read a second time, and what the Save
+  landed laid meanwhile over rows read after it. But e3 marks a read pinned to a state as one to keep for good, and a
+  browser that holds it answers by itself: where the Save had put the record back at a state the page read before — a
+  change taken back by hand, and saved — nothing was refused, and the page showed that past state, the other write
+  gone from it (e3-ui-components' `record/remote-edits.dom.test.tsx`, over a browser's cache). The session asks its
+  source to follow its state instead (`refresh` given none), as it does when asked again, a Retry; and that source has
+  read at or after the commit
+  once its host says it has read its state since the answer (`EditSource.followed`, handed to `reconcile` as `settled`
+  by `settledRevision`), wherever it then reads — until then only an entry that reads as the request left it is
+  acknowledged. That word is taken of any source read a revision at a time, asked to follow or not: e3's paging layer
+  installs no revision over a source that moved in the very turn it was asked (`PagedRuntime`'s `refresh`), and the
+  session is not told — left to a read at the revision it had asked for, a row another write put back exactly
+  meanwhile left its Save saving for good (the harness's `deliverPast`). A source asked to follow whose host says
+  nothing any more has the Save's revision installed after all. e3's hosts say it of every record read a window at a
+  time (e3-ui-components' `readSinceAnswerOf`); a host that says nothing (`reads` undefined) installs as before. A
+  session takes its
   snapshot apply (`Editing.apply`) when a snapshot is first applied — one over a source at a revision, as every
   paged record's is, takes none — and an apply is compiled once for the types it applies over, East's own equality
   telling two alike, and kept for every session over them (`transformOver`). What the tab keeps of the drafts through a reload (`keptEntries`, `keep.ts`) counts a
@@ -860,11 +885,17 @@ component, nothing in east-ui.
     every world read a revision at a time), those in which a Save over a
     source read whole whose host cannot say what it read (`says` false) waited for good, every part it wrote put back
     exactly, and those in which a Save's late answer put its source back at the revision the Save committed, its rows
-    drawn there. Each is a fault still to close, never a behaviour to keep. A source read whole whose host says what it
-    holds — every world read whole but those run with `says` false, as e3's record runtime says it of a record — has
-    its Saves read back once its host has read the record since the answer: one that still waits then is a fault the
-    harness holds, the read its host makes after an answer an operation of its own (`see`, there whatever the
-    record's revision: a request answered again leaves it where it was).
+    drawn there (`lateAnswer`, `readEarly`: counted only of a host that cannot say, `says` false). Each is a fault
+    still to close, never a behaviour to keep. A source whose host says when it has read since an answer — every world
+    but those run with `says` false, as e3's record runtime and its paging runtime say it of a record — has its Saves
+    read back once its host has read the record since the answer, and is never put back at a revision it has passed:
+    a Save that still waits then, or an answer that takes a screen back, is a fault the harness holds. The read a
+    host makes after an answer is an operation of its own (`see`, there whatever the record's revision: a request
+    answered again leaves it where it was), and so is the record taking a Save apart from the answer's arrival
+    (`land`, then `deliver`), so another session's write and the page's read of it fall between the two — or the
+    answer arrives in the very turn its source is told of the record's state now (`deliverPast`): the revision the
+    session asks for is installed no more, as e3's paging layer installs none over a source that has moved since it
+    was asked, and the session is not told.
   - **A new entry's key** (`keys-world.test-utils.ts`, run by `keys-model.test.ts`): sessions that each make their new
     rows' keys by one rule — the next in a row, or the next Integer — beside another session that saves rows of its own
     under the very keys that rule makes, over a source read a revision at a time — where such a row may stand out of

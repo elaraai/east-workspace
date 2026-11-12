@@ -18,6 +18,7 @@
  * Discard off, until the page was reloaded.
  *
  * - A forklift level stepped here and saved, stepped back by another session.
+ * - An induction ticked here and saved, unticked by another session.
  * - A member added here and saved, removed again by another session: they
  *   are gone, and never added again.
  * - A member removed here and saved, added back by another session exactly as
@@ -86,6 +87,11 @@ async function crewCheck(c: HTMLElement) {
 test("recordConflicts: a level stepped here and saved, stepped back by another session before the page reads the crew again, is read back with the level as it was — the Save never left saving, nothing asked, nothing left to save", async () => {
     const { container: c } = await h.mount(ex.recordConflicts, { storageKey: "record-put-back-level" });
     await putBackAfterSave({ ...await crewCheck(c), change: () => press(cellOf(rowOf(c, "C-002")!, "forklift")) });
+});
+
+test("recordConflicts: an induction ticked here and saved, unticked by another session before the page reads the crew again, is read back unticked — the Save never left saving, nothing asked, nothing left to save", async () => {
+    const { container: c } = await h.mount(ex.recordConflicts, { storageKey: "record-put-back-ticked" });
+    await putBackAfterSave({ ...await crewCheck(c), change: () => press(cellOf(rowOf(c, "C-002")!, "inducted")) });
 });
 
 test("recordConflicts: a member added here and saved, removed again by another session before the page reads the crew again, is gone as e3 holds the crew — the Save never left saving, and the member never added again", async () => {

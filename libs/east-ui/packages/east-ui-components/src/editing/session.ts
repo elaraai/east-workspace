@@ -403,8 +403,23 @@ export interface EditSessionBinding<W> {
     apply: ((payload: Uint8Array) => ApplyResult | Promise<ApplyResult>) | undefined;
     /** The patch observer, over the event's bytes. */
     patch: ((payload: Uint8Array) => unknown) | undefined;
-    /** Installs the revision an apply committed. */
+    /** Installs the revision an apply committed — or, given none, has the source follow its current state. */
     refresh: ((revision: ValueTypeOf<OptionType<StringType>>) => unknown) | undefined;
+    /**
+     * The revision the source reads at now, read as it is asked — `none` while it is not known — where the source's
+     * host can say when the source has read its state since a Save was answered ({@link EditSession.reconcile}'s
+     * `settled`); `undefined` from it where the host cannot say. With it, a Save's answer installs the revision it
+     * names only while the source still reads at the revision the Save was drafted at. A source that has moved since —
+     * it heard of another write while the request was out — may read past the revision named, and revisions name
+     * content and have no order to tell by: installed, the source would be put back at the Save's own state, one its
+     * record has left. What comes of that is its host's. e3 refuses a read pinned there, naming the state it holds,
+     * and the page moves on again — every row it shows read a second time, and what the Save landed laid meanwhile
+     * over rows read after it. But e3 marks a read pinned to a state as one to keep for good, and a browser that holds
+     * it answers by itself: where the Save put the record back at a state the page had read before — a change taken
+     * back by hand, and saved — nothing is refused, and the page shows that past state as the record's. The source is
+     * asked to follow its current state instead.
+     */
+    reads?: (() => ValueTypeOf<OptionType<StringType>> | undefined) | undefined;
     /** Additional domain requirements over the current draft collection. */
     ready?: ((entries: ReadonlyMap<string, EntryVersion<W>>) => BatchReadiness) | undefined;
     /** One unresolved request across every view bound to this source. */
@@ -486,6 +501,21 @@ interface Submission<W> {
     payload: Uint8Array;
     apply: NonNullable<EditSessionBinding<W>["apply"]>;
     refresh: EditSessionBinding<W>["refresh"];
+    reads: EditSessionBinding<W>["reads"];
+    /**
+     * The source was asked to follow its current state, never to install the revision the request committed: it had
+     * moved since the request was drafted as the answer came. It has read at or after the commit once its host says it
+     * has read its state since the answer ({@link Submission.reached}).
+     */
+    follows?: boolean | undefined;
+    /** The source has been asked for the request's revision, or to follow its state, once: asked again, it follows. */
+    asked?: boolean | undefined;
+    /**
+     * The steps done as the request was made: what it sends is what they left, so a conflict one of them chose is a
+     * choice the request takes ({@link EditSession.reconcile}). A step made since — after an Undo back past such a
+     * choice, say — is none of the request's.
+     */
+    took: ReadonlySet<object>;
     after: Map<string, EntryVersion<W>>;
     /** Each entry the request changes. */
     targets: Map<string, Target>;
@@ -503,9 +533,11 @@ interface Submission<W> {
     revision: string | undefined;
     /**
      * The source has read at the revision it answered the request with — the one the request committed, or, answered
-     * again by a source that remembers the request, the one the source was at as it answered. That revision and any
-     * other it reads at from then on is at or after the request's commit, so an entry read there as its edit began
-     * was put back by another write since, never read before the request landed ({@link EditSession.reconcile}).
+     * again by a source that remembers the request, the one the source was at as it answered — or, asked to follow
+     * its state instead ({@link Submission.follows}), its host has said it has read its state since the answer. That
+     * revision and any other it reads at from then on is at or after the request's commit, so an entry read there as
+     * its edit began was put back by another write since, never read before the request landed
+     * ({@link EditSession.reconcile}).
      */
     reached?: boolean | undefined;
     /**
@@ -1583,7 +1615,7 @@ export class EditSession<W> {
         const placed = batch.changes.filter((change) => change.place.type === "some").map(({ id, place }) => ({ id, place }));
         this.binding.gate?.acquire();
         this.submission = {
-            prepare: undefined, release: this.binding.gate?.release, expected: undefined, placed, payload: request.payload, apply, refresh: this.binding.refresh,
+            prepare: undefined, release: this.binding.gate?.release, expected: undefined, placed, payload: request.payload, apply, refresh: this.binding.refresh, reads: this.binding.reads, took: new Set(),
             after, targets, checked: new Map(), otherwise: new Map(), base: this.cloneBase(batch.base), revision: undefined, unanswered: true,
         };
         this.status = "unknown";
@@ -2317,7 +2349,11 @@ export class EditSession<W> {
             const payload = this.encodeBatch(batch);
             this.binding.gate?.acquire();
             const placed = batch.changes.filter((change) => change.place.type === "some").map(({ id, place }) => ({ id, place }));
-            this.submission = { prepare: this.binding.prepare, release: this.binding.gate?.release, expected, placed, payload, apply: this.binding.apply, refresh: this.binding.refresh, after: new Map(drafts), targets, checked: new Map(), otherwise: new Map(), base: this.cloneBase(this.base), revision: undefined };
+            this.submission = {
+                prepare: this.binding.prepare, release: this.binding.gate?.release, expected, placed, payload, apply: this.binding.apply, refresh: this.binding.refresh,
+                reads: this.binding.reads, took: new Set(this.history.slice(0, depth)), after: new Map(drafts), targets, checked: new Map(), otherwise: new Map(),
+                base: this.cloneBase(this.base), revision: undefined,
+            };
         }
         const request = this.submission;
         this.status = "applying"; this.error = undefined; this.conflicted = undefined; this.changed();
@@ -2368,18 +2404,37 @@ export class EditSession<W> {
             this.status = "unknown"; this.error = SESSION_TEXT.noRevision; this.changed(); return false;
         }
         request.revision = result.value.revision.type === "some" ? result.value.revision.value : undefined;
+        // Where the source reads as the answer comes: moved since the request was drafted, it follows its state.
+        if (request.base.type === "revision") {
+            const now = this.readsNow(request);
+            if (now !== undefined && (now.type !== "some" || !stringEqual(now.value, request.base.value))) request.follows = true;
+        }
         this.status = "reconciling"; this.changed();
         this.refresh();
         return true;
     }
 
-    /** Ask the source for the committed revision again; a retry never calls onApply again. */
+    /**
+     * Ask the source for the revision the request committed, once, while the source still reads where the request was
+     * drafted; otherwise — the source moved meanwhile, or it is asked again, a Retry — to follow its current state,
+     * where its host says when it has ({@link EditSessionBinding.reads}). A retry never calls onApply again.
+     */
     refresh(): void {
         const request = this.submission;
         if (!request || this.status !== "reconciling" || !request.refresh) return;
-        try { request.refresh(request.revision === undefined ? none : some(request.revision)); this.error = undefined; }
+        // Asked again where its host says when the source has read since: it follows from here, wherever it reads now.
+        if (request.asked === true && request.revision !== undefined && this.readsNow(request) !== undefined) request.follows = true;
+        const install = request.revision !== undefined && request.follows !== true;
+        request.asked = true;
+        try { request.refresh(install ? some(request.revision!) : none); this.error = undefined; }
         catch (error) { this.error = error instanceof Error ? error.message : String(error); }
         this.changed();
+    }
+
+    /** Where a request's source reads now, where its host says when it has read since a Save was answered ({@link EditSessionBinding.reads}): unknown where the read fails. */
+    private readsNow(request: Submission<W>): ValueTypeOf<OptionType<StringType>> | undefined {
+        if (request.reads === undefined) return undefined;
+        try { return request.reads(); } catch { return none; }
     }
 
     /**
@@ -2484,6 +2539,18 @@ export class EditSession<W> {
      * entry the request held has what it left for its original, so a draft
      * made since is a change from that, and the next Save's to send.
      *
+     * A source at a revision that had moved as the request's answer came —
+     * it heard of another write while the request was out — is not put back at
+     * the revision the request committed, which it may have passed: it follows
+     * its state, and has read at or after the commit once its host says it has
+     * read its state since the answer (`settled`), wherever it then reads. Until
+     * then only an entry that reads as the request left it is acknowledged. The
+     * host's word is taken of any source at a revision, asked to follow or not:
+     * a host may install no revision over a source that moved in the very turn
+     * it was asked, and the session is not told. And a source asked to follow
+     * whose host says nothing any more has the request's revision installed
+     * after all.
+     *
      * A source read whole whose host says what it holds now, read since it
      * answered the request (`settled`), is taken as read back only at a
      * collection that is that one — or that holds the request's entries as it
@@ -2495,14 +2562,33 @@ export class EditSession<W> {
      *
      * @param base - The base the source is at now
      * @param read - An entry the request changed, as a source at a revision holds it: its value, `none` for one it does not hold, or `undefined` while it is not read
-     * @param settled - For a source read whole whose host can say what it holds now: that collection, once the host has
-     *   read it since the source answered the request — its `value` `undefined` until then. Left out where no host says:
-     *   the collection's own entries then say when it was read, as far as they can ({@link EditSession.landedIn})
+     * @param settled - What the source's host says of it, read since the source answered the request — its `value`
+     *   `undefined` until the host has read it since. For a source read whole: the collection it holds now. For one at a
+     *   revision ({@link EditSessionBinding.reads}): the revision it reads at. Left out where no host says: a
+     *   collection's own entries then say when it was read, as far as they can ({@link EditSession.landedIn}), and a
+     *   source at a revision is read back where the request's revision was installed
      * @returns Whether the request was acknowledged
      */
     reconcile(base: Base, read: (id: string) => option<unknown> | undefined, settled?: { readonly value: unknown }): boolean {
         const request = this.submission;
         if (!request || this.status !== "reconciling") return false;
+        // Its host says the source has read its state since the answer, at the revision it reads at now: that revision is
+        // at or after the request's commit, whether or not the revision the answer named was ever installed — the source
+        // asked to follow its state instead, or its host installing none over a source that moved in the very turn it
+        // was asked, of which the session is not told.
+        if (request.reached !== true && request.base.type === "revision" && base.type === "revision" && settled !== undefined
+            && typeof settled.value === "string" && stringEqual(base.value, settled.value)) {
+            request.reached = true;
+            // The entries still to judge are read at this revision from here: asked for by whoever reads for the session.
+            this.changed();
+        }
+        // Asked to follow its state, and its host says nothing of when it read any more: the request asks it no more, and
+        // the revision it committed is installed after all, as over a source no host says it of.
+        else if (request.follows === true && request.reached !== true && request.revision !== undefined && base.type === "revision" && settled === undefined) {
+            request.follows = false; request.reads = undefined;
+            this.refresh();
+            return false;
+        }
         // At a revision: the one the request committed, or a later one — another write may land before the session reads
         // its own (two Saves at once) — never the one it was drafted at, but where the source holds that content again.
         if (request.base.type === "revision" && (base.type !== "revision" || request.revision === undefined || (stringEqual(base.value, request.base.value) && !this.putBack(request)))) return false;
@@ -2561,7 +2647,10 @@ export class EditSession<W> {
                 // it was, and no later read would ever tell it from one the request has yet to reach. At that very
                 // revision too: answered again, the source names the revision it is at, where a row the request
                 // added may be gone again, or one it changed be as it was.
-                else if (!this.applies(now, target) || request.reached === true) {
+                // (A source that follows its state, the request's revision never installed, may still read at a
+                // revision from before the request: an entry otherwise than either side there says nothing, and waits
+                // for its host's word that it has read since.)
+                else if (request.reached === true || (!this.applies(now, target) && request.follows !== true)) {
                     request.checked.set(id, false);
                     request.otherwise.set(id, now);
                 }
@@ -2596,8 +2685,10 @@ export class EditSession<W> {
             for (const [id, version] of request.after) this.baseline.set(id, version);
             // A choice the Save has taken is no conflict to bring back: a step that settled one keeps the versions it
             // moved, and Undo of it puts back nothing of the conflict — what both began from, put back, would read
-            // against what the Save left, and ask again at the source's next change of a part no draft changes.
-            for (const step of this.history) { step.ancestors = undefined; step.settled = undefined; }
+            // against what the Save left, and ask again at the source's next change of a part no draft changes. A
+            // choice made since the Save was sent is none of the Save's: its step says still that the drafts before it
+            // held a conflict to choose, which no automatic Save may send ({@link EditSession.draftsBefore}).
+            for (const step of this.history) if (request.took.has(step)) { step.ancestors = undefined; step.settled = undefined; }
         } else this.behind(request);
         // Read whole, the collection the request is acknowledged at may hold an entry otherwise than a draft made since
         // the request was sent began from: drafted from rows read before another write's, the base moving on under the
