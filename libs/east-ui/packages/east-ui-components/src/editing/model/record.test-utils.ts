@@ -13,13 +13,16 @@
  *   — and the whole is applied by East's patch apply: every row's change, or
  *   none. A part a change began from that the record no longer holds refuses
  *   the batch, as a conflict.
- * - A request id is answered again only while it is the record's last write,
- *   as e3 answers one (`e3-core`'s records: the record's ref names the key of
- *   its last mutation alone): sent again then, it is answered as it was and
- *   nothing is applied twice. Once another write has landed, or where the
- *   request was refused, the same request sent again is checked afresh — and
- *   one that had landed is refused, since the rows no longer hold what its
- *   changes began from.
+ * - A request id is answered again while the record remembers it, as e3
+ *   answers one (`e3-core`'s records: a record's ref names its last keyed
+ *   requests, `RECORD_KEYS_REMEMBERED` of them): sent again then, whatever
+ *   was written since, nothing is applied twice and it is answered `applied`
+ *   at the revision the record is at now — the one to read it at. A request
+ *   the record has forgotten, never took or refused is checked afresh when
+ *   sent again — and one that had landed is refused, since the rows no longer
+ *   hold what its changes began from. A record made to remember none
+ *   (`remembers` 0) is one that has forgotten every request: what a record
+ *   is to a request sixteen others have followed.
  * - Another session's write is a commit of its own, at a revision of its own.
  * - Every commit says who made it and each field it changed, from what to
  *   what: what the harness's checks read (`world.test-utils.ts`).
@@ -100,6 +103,9 @@ export interface ModelChange {
     readonly after: Value;
 }
 
+/** How many of the requests it took a record remembers, where its maker says nothing: e3's `RECORD_KEYS_REMEMBERED`. */
+export const REMEMBERS = 16;
+
 /**
  * The record of the proof harness — see the module docs.
  */
@@ -107,8 +113,8 @@ export class ModelRecord {
     private rows: RowsValue;
     private serial = 1;
     private readonly held = new Map<string, RowsValue>();
-    /** The record's last write, where a session's batch made it: its request id, and the answer it was given. */
-    private last: { readonly requestId: string; readonly answer: Answer } | undefined;
+    /** The requests it remembers, newest first: each batch it took, by its request id. */
+    private remembered: string[] = [];
     /** Every commit, oldest first. */
     readonly commits: ModelCommit[] = [];
     /** How many batches it applied: one a request id, however often the request was sent. */
@@ -116,8 +122,10 @@ export class ModelRecord {
 
     /**
      * @param rows - The rows it begins with, at revision `r1`
+     * @param remembers - How many of the requests it took it remembers, the newest of them: as many as e3 does by
+     *   default ({@link REMEMBERS}); 0 for a record that has forgotten every one
      */
-    constructor(rows: Iterable<readonly [string, RowValue]>) {
+    constructor(rows: Iterable<readonly [string, RowValue]>, private readonly remembers = REMEMBERS) {
         this.rows = rowsOf(rows);
         this.held.set(this.revision, this.rows);
     }
@@ -156,11 +164,11 @@ export class ModelRecord {
      *
      * @param batch - The batch
      * @param by - Who sends it
-     * @returns The record's answer: the revision the batch made, or its conflict — the answer it gave before, where the
-     *   batch's request is the record's last write
+     * @returns The record's answer: the revision the batch made, or its conflict — or, for a request it took before and
+     *   remembers, the revision it is at now, nothing applied
      */
     commit(batch: BatchValue, by: Writer): Answer {
-        if (this.last !== undefined && this.last.requestId === batch.requestId) return this.last.answer;
+        if (this.remembered.some((requestId) => textEqual(requestId, batch.requestId))) return variant("applied", { revision: some(this.revision) });
         // Each change, restated by key: the batch's own values and entry patches, carrying what each row was as its edit began.
         const ops = new SortedMap<string, unknown>([], compareKeys);
         for (const change of batch.changes) {
@@ -178,7 +186,7 @@ export class ModelRecord {
             this.move(rowsOf(applyRows(this.rows, variant("patch", ops))), by, batch.requestId);
             this.applied++;
             answer = variant("applied", { revision: some(this.revision) });
-            this.last = { requestId: batch.requestId, answer };
+            this.remembered = [batch.requestId, ...this.remembered].slice(0, this.remembers);
         } catch (error) {
             if (!(error instanceof ConflictError)) throw error;
             // As a record read a window at a time answers: its own issue, and each row the batch changed.
@@ -330,7 +338,15 @@ export class ModelRecord {
         this.serial++;
         this.held.set(this.revision, next);
         this.commits.push({ revision: this.revision, by, requestId, changed });
-        // Whoever wrote, the record's last write is this one now: a batch's own names itself as it is answered.
-        this.last = undefined;
+    }
+
+    /**
+     * Whether the record took a request and remembers it: sent again, it is answered, never checked afresh.
+     *
+     * @param requestId - The request's id
+     * @returns Whether it does
+     */
+    remembersRequest(requestId: string): boolean {
+        return this.remembered.some((held) => textEqual(held, requestId));
     }
 }

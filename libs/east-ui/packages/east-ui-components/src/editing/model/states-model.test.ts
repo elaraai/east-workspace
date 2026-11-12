@@ -115,6 +115,20 @@ for (const shape of ["fields", "whole"] as const) {
             expect(walked.closed).toBe(true);
         }, 3_600_000);
 
+        it("a record that has forgotten a request sent again: another session's write to the same field, with every way a request can go", async () => {
+            // What a record is to a request sixteen others have followed: sent again it is checked afresh, and the
+            // session judges what it finds by evidence. Every other family's record remembers its requests, as e3 does.
+            const walked = await states({ shape, remotes: 1, remembers: 0, ...budgets({ acts: 1, sends: 1 }, { acts: 2, sends: 2 }) }, BESIDE);
+            console.info(said(`${shape} beside, forgotten`, walked));
+            expect(walked.closed).toBe(true);
+        }, 3_600_000);
+
+        it("a record that has forgotten a request sent again: a page reloaded with its drafts kept, with another session's write", async () => {
+            const walked = await states({ shape, remotes: 1, remembers: 0, ...budgets({ acts: 2, sends: 1 }, { acts: 2, sends: 2 }) }, RELOADED);
+            console.info(said(`${shape} reloaded, forgotten`, walked));
+            expect(walked.closed).toBe(true);
+        }, 3_600_000);
+
         it("one history over two records: gestures in each and across both, an optimiser's result and an automatic Save among them", async () => {
             const budget = budgets({ acts: 2, sends: 1 }, { acts: 2, sends: 2 });
             const walked = await everyState((ops) => deskAfter(shape, ops, budget), (desk) => desk.print(), (op) => PROOF || DESK.test(op), () => undefined, LIMIT);

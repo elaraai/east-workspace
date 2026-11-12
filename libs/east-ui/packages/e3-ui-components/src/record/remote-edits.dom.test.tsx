@@ -33,6 +33,12 @@
  * - A member another session adds, and one it removes, that no draft touches:
  *   the grid shows it, nothing is asked, and Save writes what was typed here
  *   alone.
+ * - A Save that landed with no answer, whose row another session then put
+ *   back exactly as it was — the level typed back, the removed member added
+ *   again — and Retry: e3 answers the request it remembers with the state it
+ *   holds now, where the row reads as it did before the Save. The Save is
+ *   acknowledged with the row as e3 holds it, never waited on for a read that
+ *   would show it: none ever would.
  */
 
 import { expect, test } from "vitest";
@@ -308,4 +314,56 @@ test("a member another session removes while another is edited here leaves the g
     await save(c);
     const crew = await h.read(fx.numberedCrew);
     expect([crew.get(2n)!.forklift, crew.has(9n)]).toEqual(["5", false]);
+});
+
+/**
+ * Save, with e3's every answer to it lost on its way back: the write commits, the client asks again under the same id
+ * until it gives up, and the session is left with a write of unknown outcome — Save turned into Retry.
+ */
+async function saveWithNoAnswer(c: HTMLElement): Promise<void> {
+    const losing = h.e3.fail((request) => request.kind === "mutate" && request.record === fx.numberedCrew.name, "lost");
+    await act(async () => { fireEvent.click(saveButton(c)); });
+    await waitFor(() => expect(toolbar(c).queryByRole("button", { name: editingMessages.retryRequest() })).not.toBeNull(), { timeout: 15_000 });
+    losing();
+    await settle();
+}
+
+/** Retry pressed, and the Record at rest: nothing left to save, no Save out and none still read back, nothing to ask again or to choose. */
+async function retriedToRest(c: HTMLElement): Promise<void> {
+    await press(toolbar(c).getByRole("button", { name: editingMessages.retryRequest() }));
+    await waitFor(() => expect([discardButton(c).disabled, saveButton(c).getAttribute("aria-busy")], "nothing is left to save, and no Save is out").toEqual([true, null]), { timeout: 10_000 });
+    await settle();
+    expect([
+        toolbar(c).queryByRole("button", { name: editingMessages.retryRequest() }),
+        toolbar(c).queryByRole("button", { name: editingMessages.retryRefresh() }),
+        saveButton(c).getAttribute("aria-busy"),
+        c.querySelector("[data-conflicts]"),
+    ]).toEqual([null, null, null, null]);
+}
+
+test("a level typed here is saved and no answer comes; another session types it back as it was; Retry — the Save is acknowledged at the state e3 answers with, where the level reads as it did before the Save: never waited on, nothing asked, nothing left to save", async () => {
+    const c = await mounted("record-remote-unanswered-put-back");
+    await type(c, "2", "5");
+    await saveWithNoAnswer(c);
+    // It landed: e3 holds the level, and the Record does not know.
+    expect((await h.read(fx.numberedCrew)).get(2n)!.forklift).toBe("5");
+    await theirs((crew) => { crew.set(2n, { ...crew.get(2n)!, forklift: "2" }); });
+    const commits = (await h.history(fx.numberedCrew)).commits.length;
+    await retriedToRest(c);
+    expect([look(c)[0], (await h.read(fx.numberedCrew)).get(2n)!.forklift]).toEqual([["2", "yes", "2"], "2"]);
+    // Answered, never applied again: the Retry committed nothing.
+    expect((await h.history(fx.numberedCrew)).commits.length).toBe(commits);
+});
+
+test("a member removed here is saved and no answer comes; another session adds them back as they were; Retry — the Save is acknowledged with the member there, as e3 holds the crew: never waited on, and never removed again", async () => {
+    const c = await mounted("record-remote-unanswered-added-back");
+    const member = (await h.read(fx.numberedCrew)).get(9n)!;
+    await remove(c, "9");
+    await saveWithNoAnswer(c);
+    expect((await h.read(fx.numberedCrew)).has(9n)).toBe(false);
+    await theirs((crew) => { crew.set(9n, member); });
+    const commits = (await h.history(fx.numberedCrew)).commits.length;
+    await retriedToRest(c);
+    expect([drawn(c), (await h.read(fx.numberedCrew)).get(9n)]).toEqual([["2", "9", "10"], member]);
+    expect((await h.history(fx.numberedCrew)).commits.length).toBe(commits);
 });

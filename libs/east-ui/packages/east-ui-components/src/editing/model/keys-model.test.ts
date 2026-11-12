@@ -163,15 +163,25 @@ describe("a new row's key: the faults the model found, by name", () => {
             expect([keysOf(world), world.remade, world.unsure]).toEqual([["j1", "j1-2"], 0, false]);
         });
 
-        it(`a Save of a new row that landed with no answer, then another session's write, then Retry: the record refuses the request it has forgotten, and the row is saved once all the same — never again under another key (${shape})`, async () => {
-            // e3 answers a request again only while it is the record's last write: after another's, the same request is
-            // checked afresh, and refused over the row its own first sending added.
-            const world = await rested({ shape, rule: "madeFrom", remotes: 1 }, ["c0.make", "c0.save", "c0.deliverUnanswered", "remote.addUnseen", "c0.retry", "c0.deliver", "c0.see", "c0.read"]);
-            expect([keysOf(world).filter((key) => key === "j1" || key === "j1-2"), world.remade]).toEqual([["j1", "j1-2"], 0]);
+        it(`a Save of a new row that landed with no answer, then another session's write, then Retry: the record answers the request it remembers, and the row is saved once — never again under another key (${shape})`, async () => {
+            const world = await rested({ shape, rule: "madeFrom", remotes: 1 }, ["c0.make", "c0.save", "c0.deliverUnanswered", "remote.addUnseen", "c0.retry", "c0.deliver", "c0.read"]);
+            expect([keysOf(world).filter((key) => key === "j1" || key === "j1-2"), world.remade, world.unsure]).toEqual([["j1", "j1-2"], 0, false]);
         });
 
         it(`the same through a reload: the page gone while the Save had no answer, another session's write, and the request sent again as the page loads (${shape})`, async () => {
-            const world = await rested({ shape, rule: "madeFrom", remotes: 1 }, ["c0.make", "c0.save", "c0.deliverUnanswered", "remote.addUnseen", "c0.reload", "c0.see", "c0.deliver", "c0.see", "c0.read"]);
+            const world = await rested({ shape, rule: "madeFrom", remotes: 1 }, ["c0.make", "c0.save", "c0.deliverUnanswered", "remote.addUnseen", "c0.reload", "c0.see", "c0.deliver", "c0.read"]);
+            expect([keysOf(world).filter((key) => key === "j1" || key === "j1-2"), world.remade, world.unsure]).toEqual([["j1", "j1-2"], 0, false]);
+        });
+
+        it(`over a record that has forgotten the request, such a Save sent again is refused over the row its own first sending added, and the row is saved once all the same — never again under another key (${shape})`, async () => {
+            // A record answers a request again only while it remembers it: forgotten, the same request is checked
+            // afresh, and refused over the row its own first sending added.
+            const world = await rested({ shape, rule: "madeFrom", remotes: 1, remembers: 0 }, ["c0.make", "c0.save", "c0.deliverUnanswered", "remote.addUnseen", "c0.retry", "c0.deliver", "c0.see", "c0.read"]);
+            expect([keysOf(world).filter((key) => key === "j1" || key === "j1-2"), world.remade]).toEqual([["j1", "j1-2"], 0]);
+        });
+
+        it(`the same through a reload, over a record that has forgotten the request (${shape})`, async () => {
+            const world = await rested({ shape, rule: "madeFrom", remotes: 1, remembers: 0 }, ["c0.make", "c0.save", "c0.deliverUnanswered", "remote.addUnseen", "c0.reload", "c0.see", "c0.deliver", "c0.see", "c0.read"]);
             expect([keysOf(world).filter((key) => key === "j1" || key === "j1-2"), world.remade]).toEqual([["j1", "j1-2"], 0]);
         });
 
@@ -235,6 +245,16 @@ for (const shape of ["fields", "whole"] as const) {
                 expect(found.worlds).toBeGreaterThan(DEEPER < 0 ? 0 : 300);
             }, 600_000);
 
+            it("a record that has forgotten a request sent again: every way a request can go, and the page reloaded at every point", async () => {
+                const answers = await explore({ shape, rule, remotes: 1, remembers: 0 }, 5 + DEEPER, ANSWERS);
+                console.info(said(`keys ${shape} ${rule} answers, forgotten`, answers));
+                expect(answers.worlds).toBeGreaterThan(DEEPER < 0 ? 0 : 300);
+                expect(answers.asked).toBe(0);
+                const reloaded = await explore({ shape, rule, remotes: 1, remembers: 0 }, 5 + DEEPER, RELOADED);
+                console.info(said(`keys ${shape} ${rule} reloaded, forgotten`, reloaded));
+                expect(reloaded.worlds).toBeGreaterThan(DEEPER < 0 ? 0 : 300);
+            }, 600_000);
+
             it("a source read whole: every ordering", async () => {
                 const found = await explore({ shape, rule, remotes: 2, inline: true }, 5 + DEEPER, INLINE);
                 console.info(said(`keys ${shape} ${rule} read whole`, found));
@@ -255,7 +275,8 @@ for (const shape of ["fields", "whole"] as const) {
 
             it("random runs past the depth: two people and another session, every operation", async () => {
                 for (let seed = 1; seed <= 40 * RUNS; seed++) {
-                    await wander({ shape, rule, clients: 2, remotes: 4 }, seed, 40);
+                    // A quarter of them over a record that has forgotten every request sent again.
+                    await wander({ shape, rule, clients: 2, remotes: 4, ...(seed % 4 === 3 && { remembers: 0 }) }, seed, 40);
                     await wander({ shape, rule, clients: 2, remotes: 3, inline: true }, seed, 40);
                 }
             }, 600_000);

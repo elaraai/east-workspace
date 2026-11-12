@@ -89,13 +89,16 @@
  *   the Save committed, and its rows were drawn there;
  * - how often a person was asked to choose where they had nothing to save,
  *   over a row of a request that had no answer, was sent again and was
- *   refused ({@link ModelClient.unansweredAsked}). The record answers a
- *   request again only while it is its last write, as e3 does, so the refusal
- *   says nothing of the first sending, and a row another session wrote
- *   meanwhile reads the same whether the request landed and was written over,
- *   or never landed: the session asks, where taking the other write unasked
- *   would give up an unsaved change in one case or an Undo of a saved one in
- *   the other. Only the record's own word on the request would tell them;
+ *   refused ({@link ModelClient.unansweredAsked}). A record answers a request
+ *   again while it remembers it, as e3 does, and such a request is never
+ *   refused: held, of every world whose sessions read the record a revision
+ *   at a time. A request it refuses when sent again is one it never took — lost on
+ *   its way — or has forgotten (`remembers` 0: what a record is to a request
+ *   sixteen others have followed). The refusal says nothing of which, and a
+ *   row another session wrote meanwhile reads the same whether the request
+ *   landed and was written over, or never landed: the session asks, where
+ *   taking the other write unasked would give up an unsaved change in one
+ *   case or an Undo of a saved one in the other;
  * - how often a Save over a source read whole waited for good to be read back
  *   ({@link ModelClient.waitedForGood}): every part it wrote put back exactly
  *   as it was by another session before the source was read again, which
@@ -245,8 +248,8 @@ export class ModelClient {
      * where its rows were then drawn.
      */
     lateAnswer = 0;
-    /** The rows of a request that had no answer, was sent again, and was refused. */
-    private readonly reasked = new Set<string>();
+    /** The rows of a request that had no answer, was sent again, and was refused — or, read whole, was judged unasked as the page loaded — each with its request's id. */
+    private readonly reasked = new Map<string, string>();
     /** The requests sent again after no answer came: lost on its way, its answer lost, or the page gone with it unresolved. */
     private readonly unanswered = new Set<string>();
     /** Those of them a conflict has since asked of: asked again where its choice is taken back, until the drafts are discarded. */
@@ -739,7 +742,7 @@ export class ModelClient {
             this.unanswered.add(id);
             // Read whole, the request is not sent again: the page judges each of its rows by the collection it has read
             // afresh, and may ask of one another session has written ({@link ModelClient.unansweredAsked}).
-            if (this.inline) for (const target of request.targets) this.reasked.add(target.id);
+            if (this.inline) for (const target of request.targets) this.reasked.set(target.id, id);
         }
         this.out = undefined;
         this.preparing = undefined;
@@ -761,8 +764,14 @@ export class ModelClient {
         this.taken = 0;
         this.allWait = held;
         this.left = stepped ? undefined : 0;
-        // What its Saves wrote, the page reads with the record; a choice made is made again where its conflict reads again.
-        this.unread.clear();
+        // What its Saves wrote, the page reads with the record — but what a Save it holds unresolved wrote, the record
+        // having taken it: the page puts that request back as it stood, its rows still to be read back, and what its
+        // person puts such a field at is a change from what the Save wrote there. A choice made is made again where its
+        // conflict reads again.
+        const kept = request === undefined ? undefined : decodeBatch(request.payload).requestId;
+        for (const [key, fields] of this.unread) {
+            for (const field of [...fields.keys()]) if (kept === undefined || this.record.requestOf(key, field) !== kept) fields.delete(field);
+        }
         this.chosen = [];
     }
 
@@ -868,9 +877,9 @@ export class ModelClient {
 
     /**
      * The record refused the client's batch: never over a change the client itself wrote there last — but for the
-     * same request, sent again after no answer came. The record answers a request again only while it is its last
-     * write, as e3 does, so once another write has landed the request is checked afresh, and refused over what its
-     * own first sending wrote: the session cannot have known, and judges each row by what the record holds of it.
+     * same request, sent again after no answer came, where the record has forgotten it. A record answers a request
+     * again only while it remembers it, as e3 does: one it has forgotten is checked afresh, and refused over what
+     * its own first sending wrote. The session cannot have known, and judges each row by what the record holds of it.
      */
     private refused(batch: BatchValue): void {
         for (const { key, field } of this.record.mismatched(batch)) {
@@ -883,7 +892,7 @@ export class ModelClient {
         }
         // Sent again after no answer: the session cannot tell whether its first sending landed, and may ask of each
         // row of it another session has written ({@link ModelClient.unansweredAsked}).
-        if (this.unanswered.has(batch.requestId)) for (const change of batch.changes) this.reasked.add(change.id);
+        if (this.unanswered.has(batch.requestId)) for (const change of batch.changes) this.reasked.set(change.id, batch.requestId);
     }
 
     // ── What it learns of the record ─────────────────────────────────────────
@@ -944,8 +953,18 @@ export class ModelClient {
                 // Asked only of a change still to save: in the conflict's field, or — for one of the row itself — in the row.
                 // (A choice undone while the Save that took it is unresolved reads until that Save is read back.)
                 if (!this.session.locked && !FIELDS.some((field) => (part.field === undefined || textEqual(part.field, field)) && this.claims.get(key)?.has(field) === true)) {
-                    // A row of a request with no answer, sent again and refused: counted, once.
-                    if (this.reasked.delete(key)) { this.unansweredAsked++; this.asked.add(key); }
+                    // A row of a request with no answer, sent again and refused: counted, once — and never of a request
+                    // the record took and remembers, which it answers when asked again. (Read whole, a page that
+                    // reloads judges such a request unasked: counted there.)
+                    const reasked = this.reasked.get(key);
+                    if (reasked !== undefined) {
+                        this.reasked.delete(key);
+                        if (!this.inline && this.record.remembersRequest(reasked)) {
+                            throw new ModelFault(`${this.name} is asked to choose at ${key}${part.field === undefined ? "" : `.${part.field}`}, where its person has no change to save, over a request the record took and remembers`);
+                        }
+                        this.unansweredAsked++;
+                        this.asked.add(key);
+                    }
                     if (this.asked.has(key)) continue;
                     throw new ModelFault(`${this.name} is asked to choose at ${key}${part.field === undefined ? "" : `.${part.field}`}, where its person has no change to save`);
                 }
@@ -1079,6 +1098,12 @@ export interface WorldOptions {
     readonly acts?: number | undefined;
     /** The most requests each session's person starts — a Save, an automatic Save: unbounded by default. */
     readonly sends?: number | undefined;
+    /**
+     * How many of the requests it took the record remembers: as many as e3 does, by default. 0 for a record that has
+     * forgotten every one — what a record is to a request sixteen others have followed, and what e3 was to any
+     * request but a record's last before records remembered more.
+     */
+    readonly remembers?: number | undefined;
 }
 
 /** What a print of a world leaves out: what is no state — caches, counters that only count, what a session is bound to. */
@@ -1126,7 +1151,7 @@ export function independent(a: ModelOp, b: ModelOp): boolean {
  */
 export class ModelWorld {
     /** The record. */
-    readonly record = new ModelRecord(START);
+    readonly record: ModelRecord;
     /** The clients. */
     readonly clients: ModelClient[];
     /** The operations run, in order. */
@@ -1140,6 +1165,7 @@ export class ModelWorld {
      * @param options - What it is made of
      */
     constructor(private readonly options: WorldOptions) {
+        this.record = new ModelRecord(START, options.remembers);
         this.clients = Array.from({ length: options.clients ?? 1 }, (_, i) => new ModelClient(`c${i}`, i, this.record, options.shape, options.prepares === true, options.inline === true));
         this.remotes = options.remotes ?? 2;
     }

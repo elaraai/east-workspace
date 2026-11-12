@@ -899,17 +899,18 @@ export async function writeDataset<T extends EastType>(e3: TestE3, workspace: st
  * @param record - The record, which declares a patch mutation (`mutation.patch()`)
  * @param next - Its new state
  * @param mutation - The patch mutation's name; `patch` unless given
+ * @param key - The request's key (`Idempotency-Key`), as a session's Save carries one; none unless given
  * @returns What e3 answered
  * @throws {Error} When e3 does not commit it, naming what it answered
  */
 export async function patchRecord<T extends EastType>(
-    e3: TestE3, workspace: string, record: E3Record<T>, next: ValueTypeOf<T>, mutation = "patch",
+    e3: TestE3, workspace: string, record: E3Record<T>, next: ValueTypeOf<T>, mutation = "patch", key?: string,
 ): Promise<MutationResult> {
     const before = await readDataset(e3, workspace, record);
     const patch: unknown = diffFor(record.type)(before, next);
     const args = [encodeBeast2For(PatchType(record.type))(patch as never)];
     const result = await workspaceRecordMutate(e3.apiUrl, e3.repo, workspace, record.name, mutation,
-        { args, actor: some("another session"), limits: none }, e3.direct);
+        { args, actor: some("another session"), limits: none }, e3.direct, key);
     if (result.outcome.type !== "committed") throw new Error(`e3 did not commit the patch to ${record.name}: ${result.outcome.type}`);
     return result;
 }

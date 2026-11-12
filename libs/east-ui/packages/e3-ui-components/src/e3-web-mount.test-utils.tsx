@@ -190,8 +190,10 @@ export interface E3Harness {
      *
      * @param record - The record, which declares a patch mutation
      * @param next - Its new state
+     * @param key - The request's key, as a session's Save carries one: a record remembers its last keyed requests, and
+     *   forgets the oldest as another is committed. None unless given
      */
-    patch<T extends EastType>(record: E3Record<T>, next: ValueTypeOf<T>): Promise<void>;
+    patch<T extends EastType>(record: E3Record<T>, next: ValueTypeOf<T>, key?: string): Promise<void>;
     /**
      * A Save another session's write overtakes: the record's next mutation is
      * held on its way to e3 while the other session commits the record's new
@@ -410,8 +412,8 @@ export function e3Harness(modules: Readonly<Record<string, Readonly<Record<strin
             return () => mounted.unmount();
         },
         read: (dataset) => readDataset(e3(), workspace(), dataset),
-        async patch(record, next) {
-            await patchRecord(e3(), workspace(), record, next);
+        async patch(record, next, key) {
+            await patchRecord(e3(), workspace(), record, next, "patch", key);
             await refreshMounted(workspace());
         },
         async race(record, save, next) {

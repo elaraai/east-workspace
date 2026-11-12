@@ -123,7 +123,13 @@ export const EditingOriginType = VariantType({
 /**
  * The source's authoritative answer to one idempotent request.
  *
- * @property applied - Applied; a mutable source names the revision it committed
+ * @remarks
+ * A request sent again under its id is applied once: a source that took it
+ * before, and remembers it, answers `applied` again, with the revision it is
+ * at as it answers. So the revision an `applied` names is the one to read the
+ * source at, at or after the request's commit — never before it.
+ *
+ * @property applied - Applied; a mutable source names the revision to read it at: the one the request committed, or, answering a request it took before, the one it is at
  * @property rejected - Refused as asked — revise the drafts before applying again
  * @property conflict - The source moved on — review or discard the drafts
  */

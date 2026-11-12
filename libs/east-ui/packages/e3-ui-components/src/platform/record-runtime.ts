@@ -741,6 +741,9 @@ export function createScopedRecordPlatform(records: readonly string[]): Platform
 // re-renders offline without a poller) and appends a synthetic commit.
 // =============================================================================
 
+/** How many keyed mutations an offline record remembers: as many as a deployed one (e3-core's `RECORD_KEYS_REMEMBERED`). */
+const KEYS_REMEMBERED = 16;
+
 /** One offline record implementation for {@link createInMemoryRecordApi}. */
 export interface InMemoryRecordDef {
     /** Record name (what `Record.bind` is bound to). */
@@ -769,8 +772,9 @@ export interface InMemoryRecordDef {
  * A reducer that throws a patch's `ConflictError` — `applyFor` over a patch
  * whose befores the state no longer holds — is the stale write the server
  * reports as a `conflict` naming the key; any other throw is a failed program.
- * A mutation carrying the key the last one carried returns that one's result
- * without running again, as the server's idempotent retry does.
+ * A mutation carrying a key one of its last {@link KEYS_REMEMBERED} keyed
+ * mutations carried runs nothing again: it answers with that mutation's commit
+ * and the state it holds now, as the server answers a request it remembers.
  */
 export function createInMemoryRecordApi(
     cache: ReactiveDatasetCacheInterface,
@@ -782,8 +786,8 @@ export function createInMemoryRecordApi(
         mutations: Map<string, { argTypes: EastTypeValue[]; reduce: (state: unknown, ...args: unknown[]) => unknown }>;
         commits: CommitInfo[];
         seq: number;
-        /** The last mutation's idempotency key, and its result. */
-        keyed?: { key: string; result: MutationResult } | undefined;
+        /** The keyed mutations it remembers, newest first: each one's idempotency key, and the commit it made. */
+        keyed: { readonly key: string; readonly commitHash: string }[];
     }
     const compiled = new Map<string, Compiled>();
     for (const def of defs) {
@@ -801,7 +805,7 @@ export function createInMemoryRecordApi(
             at: new Date(0),
             delta: none,
         };
-        compiled.set(def.name, { stateType, mutations, commits: [genesis], seq: 0 });
+        compiled.set(def.name, { stateType, mutations, commits: [genesis], seq: 0, keyed: [] });
         // Seed the record's current value into the dataset cache; a record
         // declared with no initial value holds none
         if (def.initial !== undefined) void cache.write(workspace, recordPath(def.name), encodeBeast2For(stateType)(def.initial));
@@ -821,7 +825,10 @@ export function createInMemoryRecordApi(
             if (!c) throw new Error(`no in-memory record "${record}"`);
             const m = c.mutations.get(mutation);
             if (!m) return { outcome: variant("invalid", { message: `no mutation "${mutation}"` }) } as MutationResult;
-            if (req.idempotencyKey !== undefined && c.keyed?.key === req.idempotencyKey) return c.keyed.result;
+            const remembered = req.idempotencyKey === undefined ? undefined : c.keyed.find((held) => held.key === req.idempotencyKey);
+            if (remembered !== undefined) {
+                return { outcome: variant("committed", { commitHash: remembered.commitHash, stateHash: c.commits[0]!.state }) } as MutationResult;
+            }
             const current = cache.read(ws, recordPath(record));
             // A record that holds no state yet refuses the write, as the server does
             if (current === undefined) {
@@ -850,10 +857,9 @@ export function createInMemoryRecordApi(
                 at: new Date(0),
                 delta: none,
             });
-            const result = { outcome: variant("committed", { commitHash: hash, stateHash: `${record}-state-${c.seq}`.padEnd(64, "0") }) } as MutationResult;
-            // Every commit rewrites the slot, and one without a key empties it.
-            c.keyed = req.idempotencyKey !== undefined ? { key: req.idempotencyKey, result } : undefined;
-            return result;
+            // A keyed mutation joins those it remembers, the oldest of which it forgets.
+            if (req.idempotencyKey !== undefined) c.keyed = [{ key: req.idempotencyKey, commitHash: hash }, ...c.keyed].slice(0, KEYS_REMEMBERED);
+            return { outcome: variant("committed", { commitHash: hash, stateHash: `${record}-state-${c.seq}`.padEnd(64, "0") }) } as MutationResult;
         },
         async history(_ws, record, limit) {
             const c = compiled.get(record);

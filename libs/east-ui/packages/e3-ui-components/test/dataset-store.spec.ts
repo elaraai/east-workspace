@@ -1416,6 +1416,33 @@ describe("ReactiveDatasetCache — watchHash", () => {
         assert.deepEqual(cache.read(ws(), schedulePath), str("two"), "the polled path still updated");
     });
 
+    test("a poll a refresh overtook tells no watch what it read: the poll the refresh chains reads after what the refresh was asked for, and tells them then", async () => {
+        // A record's Save asks for a refresh as its answer comes, and its page moves to the state the answer names at
+        // once. A poll in flight then read the status before the commit — another session's write that came before it,
+        // say. Told that hash, a page the answer had moved on stepped back to it.
+        const { cache, clock } = newCache();
+        const first = await hashOf(policy);
+        const heard: (string | null)[] = [];
+        cache.watchHash(ws(), policyPath, (hash) => { heard.push(hash); });
+        await h.settle();
+        assert.deepEqual(heard, [first]);
+        // Another session's write, and a poll that reads it, its answer held on its way back.
+        await h.write(policy, 2n);
+        const earlier = await hashOf(policy);
+        const answer = h.e3.holdAnswers((request) => request.kind === "status");
+        clock.tickAll();
+        await answer.holding;
+        // A later write, and the refresh asked for after it: it overtakes the poll in flight.
+        await h.write(policy, 3n);
+        const later = await hashOf(policy);
+        const refreshed = cache.refresh(ws());
+        answer.release();
+        await refreshed;
+        await h.settle();
+        assert.notEqual(earlier, later);
+        assert.deepEqual(heard, [first, later], "what the overtaken poll read is never told, and what the chained poll read is");
+    });
+
     test("a stopped watch hears nothing more, and destroy stops them all", async () => {
         const { cache, clock } = newCache();
         const first = await hashOf(policy);

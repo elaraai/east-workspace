@@ -1377,9 +1377,15 @@ Sheet's check of a row added on both sides holds no read: its session learns
 that the new row's key is taken from the very page its grid reads the row's
 place in. A Save whose answer never comes — saved all the same, another
 session's write, then Retry — is held on e3 in the Record
-(`record/unanswered-save.dom.test.tsx`): a new member saved once, never again
-under another key, and a change put back by Undo since still to save
-(east-ui-components' "A Save with no answer").
+(`record/unanswered-save.dom.test.tsx`): e3 answers the request it remembers,
+so a new member is saved once, a change put back by Undo since is still to
+save, and another session's change of the same part meanwhile is no conflict;
+sixteen other Saves on, e3 has forgotten the request and refuses it, and the
+session judges it by what e3 holds — a new member saved once all the same,
+never again under another key. What such a Save wrote put back exactly by
+another session before Retry is acknowledged at the state e3 answers with,
+never waited on (`record/remote-edits.dom.test.tsx`, the crew read a window at
+a time; east-ui-components' "A Save with no answer").
 
 The Sheet's footer note of a gesture goes with a step of the history, and
 with a conflict's choice, which is one taken in the conflicts popover: a

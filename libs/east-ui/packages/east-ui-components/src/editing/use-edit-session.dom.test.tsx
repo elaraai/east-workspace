@@ -145,7 +145,9 @@ test("a keyed paged source's reconcile seeks each entry by its key's `.east` lit
         session.record([{ id: "b", before, after: { ...before, draft: { id: variant("value", "b"), end: variant("value", 5n) } } }], "typed", "Edit b");
     });
     await act(async () => { await hook.result.current.session.apply(); });
-    expect(hook.result.current.session.status).toBe("reconciling");
+    // This source holds "b" at the revision it answered with as the edit began — put back since, for all the session
+    // can tell — so the Save is acknowledged there with the row as the source holds it.
+    expect(hook.result.current.session.status).toBe("idle");
     // The read after the Apply found "b" by its literal — `"b"`, not the raw id.
     expect(queries).toContain("\"b\"");
     expect(queries).not.toContain("b");

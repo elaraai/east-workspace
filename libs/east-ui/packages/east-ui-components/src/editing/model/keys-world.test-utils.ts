@@ -634,6 +634,8 @@ export interface KeysOptions {
     readonly acts?: number | undefined;
     /** The most requests each session's person starts: unbounded by default. */
     readonly sends?: number | undefined;
+    /** How many of the requests it took the record remembers: as many as e3 does, by default; 0 for a record that has forgotten every one. */
+    readonly remembers?: number | undefined;
 }
 
 /** What a print of a keys world leaves out: what is no state — caches, counters that only count, what a session is bound to. */
@@ -678,7 +680,7 @@ export function keysIndependent(a: KeysOp, b: KeysOp): boolean {
  */
 export class KeysWorld {
     /** The record. */
-    readonly record = new ModelRecord(START);
+    readonly record: ModelRecord;
     /** The clients. */
     readonly clients: KeysClient[];
     /** The operations run, in order. */
@@ -694,6 +696,7 @@ export class KeysWorld {
      * @param options - What it is made of
      */
     constructor(private readonly options: KeysOptions) {
+        this.record = new ModelRecord(START, options.remembers);
         this.clients = Array.from({ length: options.clients ?? 1 }, (_, i) => new KeysClient(`c${i}`, i, this.record, options.shape, options.rule, options.inline === true, this.unseen));
         this.remotes = options.remotes ?? 2;
     }

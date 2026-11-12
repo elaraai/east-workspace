@@ -202,11 +202,26 @@ for (const shape of ["fields", "whole"] as const) {
             expect(found.worlds).toBeGreaterThan(DEEPER < 0 ? 0 : 5_000);
         }, 600_000);
 
+        it("a record that has forgotten a request sent again: every ordering of a Save with no answer, another session's writes and Retry, the page reloaded among them", async () => {
+            // What a record is to a request sixteen others have followed: sent again, the request is checked afresh, and
+            // one that had landed is refused over what its own first sending wrote. The session judges it by evidence.
+            const beside = await explore({ shape, remotes: 2, remembers: 0 }, 5 + DEEPER, (op) => BESIDE.test(op));
+            console.info(said(`${shape} beside, forgotten`, beside));
+            expect(beside.worlds).toBeGreaterThan(DEEPER < 0 ? 0 : 2_500);
+            const removed = await explore({ shape, remotes: 2, remembers: 0 }, 5 + DEEPER, (op) => REMOVED_HERE.test(op));
+            console.info(said(`${shape} removed here, forgotten`, removed));
+            expect(removed.worlds).toBeGreaterThan(DEEPER < 0 ? 0 : 1_500);
+            const reloaded = await explore({ shape, remotes: 1, remembers: 0 }, 5 + DEEPER, (op) => RELOADED.test(op));
+            console.info(said(`${shape} reloaded, forgotten`, reloaded));
+            expect(reloaded.worlds).toBeGreaterThan(DEEPER < 0 ? 0 : 2_500);
+        }, 600_000);
+
         it("random runs past that depth, each from its seed", async () => {
             let lost = 0, waited = 0;
             for (let seed = 1; seed <= 1_000 * RUNS; seed++) {
-                // A third of them with each Save prepared first, and a quarter over a source read whole.
-                const world = await wander({ shape, clients: 1 + (seed % 2), remotes: 3, prepares: seed % 3 === 0, inline: seed % 4 === 1 }, seed, 40);
+                // A third of them with each Save prepared first, a quarter over a source read whole, and a fifth over a
+                // record that has forgotten every request sent again.
+                const world = await wander({ shape, clients: 1 + (seed % 2), remotes: 3, prepares: seed % 3 === 0, inline: seed % 4 === 1, ...(seed % 5 === 2 && { remembers: 0 }) }, seed, 40);
                 if (world.stepsLost > 0) lost++;
                 if (world.waitedForGood > 0) waited++;
             }
@@ -267,7 +282,21 @@ describe("what the harness found, each replayed", () => {
             const world = await worldAfter({ shape, clients: 2, remotes: 0 }, [
                 // A row added and saved, the answer lost; the other session removes the row.
                 "c1.add(k3)", "c1.save", "c1.deliverUnanswered", "c0.see", "c0.redraw", "c0.remove(k3)", "c0.save", "c0.deliver",
-                // Asked again and answered: its source reads at the revision it committed, then at the one after.
+                // Asked again, the record answers the request it remembers at the revision it is at now, where the row is
+                // gone again: read there, the Save is acknowledged with the row as the other session left it.
+                "c1.retry", "c1.deliver", "c1.read",
+            ]);
+            const { session } = world.clients[1]!;
+            expect([session.status, session.locked, session.pending]).toEqual(["idle", false, 0]);
+            // Saved once: the row the other session removed is not added again.
+            expect([world.record.applied, world.record.now.has("k3")]).toEqual([2, false]);
+            await world.rest();
+            expect(world.record.now.has("k3")).toBe(false);
+        });
+
+        it(`over a record that has forgotten the request, the same Save sent again is applied again, and read back at the revision it committed, then the one after (${shape})`, async () => {
+            const world = await worldAfter({ shape, clients: 2, remotes: 0, remembers: 0 }, [
+                "c1.add(k3)", "c1.save", "c1.deliverUnanswered", "c0.see", "c0.redraw", "c0.remove(k3)", "c0.save", "c0.deliver",
                 "c1.retry", "c1.deliver", "c1.see", "c1.read",
             ]);
             const { session } = world.clients[1]!;
@@ -293,11 +322,20 @@ describe("what the harness found of a page reloaded", () => {
             await world.rest();
         });
 
-        it(`a Save that landed with no answer, another session's write, then Retry: the record refuses the request it has forgotten, and a change put back by Undo since is still the next Save's (${shape})`, async () => {
-            // e3 answers a request again only while it is the record's last write. After another's — to another row — the
-            // same request is checked afresh and refused over what its own first sending wrote. Taken at its word, the
-            // refusal had the Undo read as no change at all, and the row stayed as the Save left it.
-            const world = await worldAfter({ shape, remotes: 1 }, ["c0.edit(k1,a)", "c0.save", "c0.undo", "c0.deliverUnanswered", "remote.edit(k2,a)", "c0.retry", "c0.deliver", "c0.see", "c0.read"]);
+        it(`a Save that landed with no answer, another session's write, then Retry: the record answers the request it remembers, and a change put back by Undo since is still the next Save's (${shape})`, async () => {
+            const world = await worldAfter({ shape, remotes: 1 }, ["c0.edit(k1,a)", "c0.save", "c0.undo", "c0.deliverUnanswered", "remote.edit(k2,a)", "c0.retry", "c0.deliver", "c0.read"]);
+            const client = world.clients[0]!;
+            // Answered, never refused: the Save is read back at the revision the record is at, and the Undo is a change from it.
+            expect([client.session.status, client.session.pending, client.session.unsettled, client.shown("k1")?.a, world.record.applied]).toEqual(["idle", 1, 0, 1n, 1]);
+            await world.rest();
+            expect([world.record.now.get("k1")?.a, world.unansweredAsked]).toEqual([1n, 0]);
+        });
+
+        it(`a Save that landed with no answer, another session's write, then Retry: a record that has forgotten the request refuses it, and a change put back by Undo since is still the next Save's (${shape})`, async () => {
+            // A record answers a request again only while it remembers it. Forgotten, the same request is checked afresh
+            // and refused over what its own first sending wrote. Taken at its word, the refusal had the Undo read as no
+            // change at all, and the row stayed as the Save left it.
+            const world = await worldAfter({ shape, remotes: 1, remembers: 0 }, ["c0.edit(k1,a)", "c0.save", "c0.undo", "c0.deliverUnanswered", "remote.edit(k2,a)", "c0.retry", "c0.deliver", "c0.see", "c0.read"]);
             const client = world.clients[0]!;
             expect([client.session.pending, client.session.unsettled, client.shown("k1")?.a]).toEqual([1, 0, 1n]);
             await world.rest();
@@ -307,7 +345,7 @@ describe("what the harness found of a page reloaded", () => {
         it(`after such a refusal, a change of another row saved before the page hears of the other session's write does not make the first request forgotten: what Undo put back is still the next Save's (${shape})`, async () => {
             // The second Save lands — e3 checks a row's change against that row alone — and says nothing of whether the
             // first had: its rows are still to be judged by what the record holds.
-            const world = await worldAfter({ shape, remotes: 1 }, [
+            const world = await worldAfter({ shape, remotes: 1, remembers: 0 }, [
                 "c0.edit(k1,a)", "c0.save", "c0.undo", "c0.deliverUnanswered", "remote.edit(k2,a)", "c0.retry", "c0.deliver",
                 "c0.edit(k2,b)", "c0.save", "c0.deliver", "c0.see", "c0.read", "c0.read",
             ]);
@@ -332,9 +370,17 @@ describe("what the harness found of a page reloaded", () => {
             await world.rest();
         });
 
-        it(`a change that landed with no answer and was then written over at the same part by another session is asked of, on Retry: nothing the record holds tells it from a Save another write got ahead of (${shape})`, async () => {
-            // Counted, never excused in general: only the record's own word on the request would close it.
-            const world = await worldAfter({ shape, remotes: 1 }, ["c0.edit(k1,a)", "c0.save", "c0.deliverUnanswered", "remote.edit(k1,a)", "c0.retry", "c0.deliver", "c0.see", "c0.read"]);
+        it(`a change that landed with no answer and was then written over at the same part by another session is no conflict on Retry: the record answers the request it remembers, and the row is the other session's (${shape})`, async () => {
+            const world = await worldAfter({ shape, remotes: 1 }, ["c0.edit(k1,a)", "c0.save", "c0.deliverUnanswered", "remote.edit(k1,a)", "c0.retry", "c0.deliver", "c0.read"]);
+            const client = world.clients[0]!;
+            expect([client.session.status, client.session.unsettled, client.session.pending, client.shown("k1")?.a, world.unansweredAsked]).toEqual(["idle", 0, 0, 900n, 0]);
+            await world.rest();
+            expect(world.record.now.get("k1")?.a).toBe(900n);
+        });
+
+        it(`over a record that has forgotten the request, such a change is asked of, on Retry: nothing the record holds tells it from a Save another write got ahead of (${shape})`, async () => {
+            // Counted, never excused in general: only the record's own word on the request closes it, and it has none left.
+            const world = await worldAfter({ shape, remotes: 1, remembers: 0 }, ["c0.edit(k1,a)", "c0.save", "c0.deliverUnanswered", "remote.edit(k1,a)", "c0.retry", "c0.deliver", "c0.see", "c0.read"]);
             const client = world.clients[0]!;
             expect([client.session.unsettled, world.unansweredAsked]).toEqual([1, 1]);
         });

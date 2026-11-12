@@ -483,6 +483,12 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
     // In-flight poll dedup — concurrent callers (interval tick + a
     // post-write trigger) share a single round-trip rather than racing.
     private inFlightPolls: Map<string, Promise<void>> = new Map();
+    /**
+     * How many refreshes each workspace has been asked for: a poll in flight as one is asked for was overtaken by it —
+     * it may have read the status before what the refresh was asked for — and tells no hash watch what it read
+     * ({@link ReactiveDatasetCache.refresh}).
+     */
+    private refreshesAsked: Map<string, number> = new Map();
 
     // Hash-only watches, by workspace and path: each callback with the hash it
     // was last told. A watched path rides its workspace's poll, but its
@@ -926,10 +932,16 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
         // as write() does after a confirmed set. No-op when nothing watches the
         // workspace. A poll in flight may have read the status before what the
         // caller refreshes for, so joining it could leave the change unseen
-        // until the next interval: the refresh polls once it has settled.
+        // until the next interval: the refresh polls once it has settled. And
+        // what that poll read is told to no hash watch: a record's Save asks
+        // for a refresh as its answer comes, and its page moves to the state
+        // the answer names at once — told what a poll read before the commit,
+        // another session's write that came before it, the page would step
+        // back to it.
         if (this.destroyed) return Promise.resolve();
         const poller = this.workspacePollers.get(workspace);
         if (poller === undefined) return Promise.resolve();
+        this.refreshesAsked.set(workspace, (this.refreshesAsked.get(workspace) ?? 0) + 1);
         // A refresh asks in full: what it refreshes for may be content a
         // fetch failed, which the tag still names.
         poller.last = null;
@@ -978,6 +990,8 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
         const watched = new Set([...poller.paths.keys(), ...(this.hashWatches.get(workspace)?.keys() ?? [])]);
         const covering = [...watched].sort().join("\n");
         const now = this.now();
+        // The refreshes asked for as the poll starts: one asked for while it is in flight overtakes it.
+        const refreshes = this.refreshesAsked.get(workspace) ?? 0;
         const held = poller.last;
         const etag = held !== null && held.paths === covering && now - held.at < STATUS_UNCHANGED_MAX_MS ? held.etag : undefined;
         let status;
@@ -1010,8 +1024,11 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
         // Hash watches hear the hashes first: they fetch nothing, and a
         // watcher that throws must not cost the content paths their update.
         // A path watched since the request was made was not asked for, so the
-        // answer says nothing of it: the next poll does.
-        for (const [pathStr, callbacks] of this.hashWatches.get(workspace) ?? []) {
+        // answer says nothing of it: the next poll does. Nor does a poll a
+        // refresh overtook say anything to them: the poll that refresh chains
+        // reads after what it was asked for, and tells them then.
+        const overtaken = (this.refreshesAsked.get(workspace) ?? 0) !== refreshes;
+        for (const [pathStr, callbacks] of overtaken ? [] : this.hashWatches.get(workspace) ?? []) {
             if (!watched.has(pathStr)) continue;
             const info = infoByPath.get(pathStr ? `.${pathStr}` : "");
             const hash = info?.hash?.type === "some" ? info.hash.value : null;
@@ -1267,6 +1284,7 @@ export class ReactiveDatasetCache implements ReactiveDatasetCacheInterface {
         }
         this.workspacePollers.clear();
         this.inFlightPolls.clear();
+        this.refreshesAsked.clear();
         this.hashWatches.clear();
         this.keySubscribers.clear();
         this.globalSubscribers.clear();

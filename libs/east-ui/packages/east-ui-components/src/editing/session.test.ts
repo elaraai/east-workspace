@@ -195,9 +195,72 @@ test("a source at a revision confirms at the one the commit made, its entries re
     const session = keyed("r1");
     session.record([{ id: "J1", before: job(cut), after: job({ ...cut, qty: 5n }) }], "typed", "Set quantity");
     await session.apply();
-    expect(session.reconcile(variant("revision", "r2"), () => some(cut))).toBe(false);
+    // Its read there still on its way: nothing to judge yet.
+    expect(session.reconcile(variant("revision", "r2"), () => undefined)).toBe(false);
     expect(session.reconcile(variant("revision", "r2"), () => some({ task: "Panel cutting, oak", qty: 5n }))).toBe(true);
     expect(session.entries.size).toBe(0);
+});
+
+test("the revision a source answers a Save with is at or after its commit — a source that took the request before answers with the one it is at now — so an entry read there as its edit began was put back by another write: acknowledged so, never waited on for good", async () => {
+    // e3 answers a request it remembers with the state the record holds as it answers: a Save that had landed with no
+    // answer, asked again after another session put its row back as it was, reads there as its edit began. Waited on
+    // for a read that shows the Save, the session stayed saving for good: no later revision would ever show it.
+    const session = keyed("r1");
+    session.record([{ id: "J1", before: job(cut), after: job({ ...cut, qty: 5n }) }], "typed", "Set quantity");
+    await session.apply();
+    expect(session.reconcile(variant("revision", "r2"), () => some(cut))).toBe(true);
+    // The source's value is the row's now, nothing of it left to save, and the session takes gestures and Saves again.
+    expect([session.status, session.locked, session.entries.size, session.pending]).toEqual(["idle", false, 0, 0]);
+
+    // A row the Save added, removed again by another write: the same.
+    const added = keyed("r1");
+    added.record([{ id: "J4", before: absentJob, after: job(spray) }], "typed", "Add a job");
+    await added.apply();
+    expect(added.reconcile(variant("revision", "r2"), () => none)).toBe(true);
+    expect([added.status, added.entries.size, added.pending]).toEqual(["idle", 0, 0]);
+
+    // And a row it removed, put back as it was.
+    const removed = keyed("r1");
+    removed.record([{ id: "J2", before: job(band), after: absentJob }], "typed", "Remove a job");
+    await removed.apply();
+    expect(removed.reconcile(variant("revision", "r2"), () => some(band))).toBe(true);
+    expect([removed.status, removed.entries.size, removed.pending]).toEqual(["idle", 0, 0]);
+});
+
+test("a revision names content: a source put back exactly as it was reads at the revision a Save was drafted at — answered with that very revision, or read there once it has read at the one it answered with, the Save is acknowledged with every row as it began; a source still at that revision with neither is one that has yet to move", async () => {
+    // An e3 record's revision is its state's hash: its rows put back exactly, it is at the revision it was at before.
+    // A source that took the request before answers with the revision it is at — here, the one the Save was drafted at.
+    const answered = new EditSession<Bar>({
+        sourceId: "jobs", entryType: Job, draftType: JobDraft, keyType: StringType,
+        apply: () => variant("applied", { revision: some("r1") }), patch: undefined, refresh: undefined, drawsLanded: true,
+    });
+    answered.observeBase(variant("revision", "r1"));
+    answered.record([{ id: "J1", before: job(cut), after: job({ ...cut, qty: 5n }) }], "typed", "Set quantity");
+    await answered.apply();
+    // Its entries are read there: the revision holds the request, each change put back since.
+    expect(answered.readIdsAt("r1")).toEqual(["J1"]);
+    expect(answered.reconcile(variant("revision", "r1"), () => some(cut))).toBe(true);
+    // Nothing of it is left: no draft, no Save out, and no landed row for its host to draw over rows it reads as they are.
+    expect([answered.status, answered.locked, answered.entries.size, answered.pending, answered.landed.size]).toEqual(["idle", false, 0, 0, 0]);
+
+    // Answered with the revision its commit made, read there before its rows landed — then the source is at the
+    // revision the Save was drafted at again: another write put the row back.
+    const moved = keyed("r1");
+    moved.record([{ id: "J1", before: job(cut), after: job({ ...cut, qty: 5n }) }], "typed", "Set quantity");
+    await moved.apply();
+    expect(moved.reconcile(variant("revision", "r2"), () => undefined)).toBe(false);
+    expect(moved.readIdsAt("r1")).toEqual(["J1"]);
+    expect(moved.reconcile(variant("revision", "r1"), () => some(cut))).toBe(true);
+    expect([moved.status, moved.entries.size, moved.pending]).toEqual(["idle", 0, 0]);
+
+    // A source still at the revision the Save was drafted at, never having read at the one it answered with, has yet
+    // to move: nothing of the Save is there to read, and it waits.
+    const waiting = keyed("r1");
+    waiting.record([{ id: "J1", before: job(cut), after: job({ ...cut, qty: 5n }) }], "typed", "Set quantity");
+    await waiting.apply();
+    expect(waiting.readIdsAt("r1")).toEqual([]);
+    expect(waiting.reconcile(variant("revision", "r1"), () => some(cut))).toBe(false);
+    expect(waiting.status).toBe("reconciling");
 });
 
 test("two Saves at once: one reads its own back at the later revision the other made — its change beside the other's, or changed again since, is acknowledged; still as its edit began, it waits", async () => {

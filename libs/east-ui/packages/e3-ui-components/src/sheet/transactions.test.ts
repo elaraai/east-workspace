@@ -166,9 +166,9 @@ test("paged overlays settle at the revision their commit made or a later one, ne
     expect(refresh).toHaveBeenCalledWith(some("r2"));
     // The revision drafted at holds nothing of the commit, whatever it reads: not acknowledged.
     expect(session.reconcile(variant("revision", "r1"), () => some({ ...a, qty: 9n }))).toBe(false);
-    // Not read yet at the committed revision, or read there as its edit began: not acknowledged.
+    // Not read yet at the revision it answered with: not acknowledged. (Read there as its edit began, it was put back
+    // by another write, and is acknowledged so: east-ui-components' `session.test.ts`.)
     expect(session.reconcile(variant("revision", "r2"), () => undefined)).toBe(false);
-    expect(session.reconcile(variant("revision", "r2"), () => some(a))).toBe(false);
     session.refresh(); await session.apply(); expect(apply).toHaveBeenCalledTimes(1);
     // Another write landed on top before the read: the later revision, holding the edit, acknowledges it.
     expect(session.reconcile(variant("revision", "r3"), () => some({ ...a, qty: 9n }))).toBe(true);

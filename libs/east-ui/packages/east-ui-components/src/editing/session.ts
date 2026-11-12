@@ -502,9 +502,10 @@ interface Submission<W> {
     base: Base;
     revision: string | undefined;
     /**
-     * The source has read at the revision the request committed: any other revision it reads at from then on is a
-     * later one, so an entry read there as its edit began was put back by another write since, never read before the
-     * request landed ({@link EditSession.reconcile}).
+     * The source has read at the revision it answered the request with — the one the request committed, or, answered
+     * again by a source that remembers the request, the one the source was at as it answered. That revision and any
+     * other it reads at from then on is at or after the request's commit, so an entry read there as its edit began
+     * was put back by another write since, never read before the request landed ({@link EditSession.reconcile}).
      */
     reached?: boolean | undefined;
     /**
@@ -2443,8 +2444,9 @@ export class EditSession<W> {
         }
         const request = this.submission;
         if (request !== undefined && this.status === "reconciling") {
-            // At the revision it committed, or a later one: never the one it was drafted at, which holds nothing of it.
-            if (request.revision === undefined || request.base.type !== "revision" || stringEqual(revision, request.base.value)) return [];
+            // At the revision it committed, or a later one: never the one it was drafted at, which holds nothing of it —
+            // but where the source holds that content again, each change put back ({@link EditSession.putBack}).
+            if (request.revision === undefined || request.base.type !== "revision" || (stringEqual(revision, request.base.value) && !this.putBack(request))) return [];
             return [...request.targets.keys()].filter(id => !request.checked.has(id)).slice(0, limit);
         }
         const conflict = this.conflicted;
@@ -2490,8 +2492,8 @@ export class EditSession<W> {
         const request = this.submission;
         if (!request || this.status !== "reconciling") return false;
         // At a revision: the one the request committed, or a later one — another write may land before the session reads
-        // its own (two Saves at once) — never the one it was drafted at.
-        if (request.base.type === "revision" && (base.type !== "revision" || request.revision === undefined || stringEqual(base.value, request.base.value))) return false;
+        // its own (two Saves at once) — never the one it was drafted at, but where the source holds that content again.
+        if (request.base.type === "revision" && (base.type !== "revision" || request.revision === undefined || (stringEqual(base.value, request.base.value) && !this.putBack(request)))) return false;
         if (request.base.type === "snapshot" && base.type !== "snapshot") return false;
         // Whether every entry reads back as the session's versions hold it.
         let exact = true;
@@ -2521,9 +2523,10 @@ export class EditSession<W> {
                 request.otherwise.set(id, now);
             }
         } else {
-            // At the revision the request committed, the source holds it: every revision it reads at from here is a later one.
-            const committed = stringEqual(base.value, request.revision!);
-            if (committed) request.reached = true;
+            // At the revision the source answered the request with, it holds the request: that revision is the one the
+            // request committed, or — for a request the source took before and answers again, as e3 answers one it
+            // remembers — the one it was at as it answered, a later one. Every revision it reads at from here is later still.
+            if (stringEqual(base.value, request.revision!)) request.reached = true;
             const before = request.checked.size;
             for (const [id, target] of request.targets) {
                 if (request.checked.has(id)) continue;
@@ -2536,9 +2539,11 @@ export class EditSession<W> {
                 }
                 // Another write changed it since the request landed: acknowledged, the newer value the source's. One the
                 // change still applies to was read before the request landed, and a later read judges it — unless the
-                // source has read at the revision the request committed and moved on: then another write put the entry
-                // back as it was, and no later read would ever tell it from one the request has yet to reach.
-                else if (!this.applies(now, target) || (request.reached === true && !committed)) {
+                // source has read at the revision it answered the request with: then another write put the entry back as
+                // it was, and no later read would ever tell it from one the request has yet to reach. At that very
+                // revision too: answered again, the source names the revision it is at, where a row the request
+                // added may be gone again, or one it changed be as it was.
+                else if (!this.applies(now, target) || request.reached === true) {
                     request.checked.set(id, false);
                     request.otherwise.set(id, now);
                 }
@@ -2553,7 +2558,9 @@ export class EditSession<W> {
         }
         // What the Save landed, for a host whose rows are read apart from this confirmation to draw until they read it
         // again: each entry as it began, and as the source holds it now — the request's version, or the one read back.
-        if (this.binding.drawsLanded === true && request.base.type === "revision") {
+        // (None where the source reads at the very revision the request was drafted at: its rows there are as its host
+        // read them before the Save, which is what the source holds again.)
+        if (this.binding.drawsLanded === true && request.base.type === "revision" && !(base.type === "revision" && stringEqual(base.value, request.base.value))) {
             for (const id of request.targets.keys()) {
                 const saved = request.after.get(id) ?? ABSENT;
                 const otherwise = request.otherwise.get(id);
@@ -2605,6 +2612,23 @@ export class EditSession<W> {
             if (!this.domainEqual(this.optionOf(id, this.baseline.get(id)), this.inSnapshot(collection, id))) return true;
         }
         return false;
+    }
+
+    /**
+     * Whether a source that reads at the revision a request was drafted at holds that content again, after the
+     * request's commit — each of its changes put back by another write — and so is read there as at any later
+     * revision. A revision names content, as an e3 record's state hash does: a record whose rows are put back exactly
+     * as they were is at the revision it was at before. That is so where the source answered the request with that
+     * very revision — a source that took the request before answers with the one it is at — or has since read at the
+     * one it answered with. Else a source at that revision is one that has yet to move: it holds nothing of the
+     * request.
+     *
+     * @param request - The request, acknowledged by the source
+     * @returns Whether a read at the revision it was drafted at is one after its commit
+     */
+    private putBack(request: Submission<W>): boolean {
+        return request.base.type === "revision" && request.revision !== undefined
+            && (request.reached === true || stringEqual(request.revision, request.base.value));
     }
 
     /**
