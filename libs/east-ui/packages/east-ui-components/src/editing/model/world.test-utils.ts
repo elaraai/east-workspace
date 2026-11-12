@@ -1215,9 +1215,12 @@ export class ModelClient {
             for (const [field, { value }] of fields) {
                 // Theirs while the session holds the row so: on their screen, and its to save. Held as the row began, with
                 // no request unresolved, it is no change the session has left to save: the record's, at the session's
-                // base — a row removed, saved so, then put back and removed again — or it is lost.
+                // base — a row removed, saved so, then put back and removed again — or it is lost. But while the session
+                // carries its drafts over, what a row began from is still to be judged where the record is: what it was
+                // carried from — the row at the revision before, or what a page that reloaded kept it beside — says
+                // nothing yet of what the record holds, so a value held is its person's still.
                 if (own !== undefined && sameValue(this.rowOfDraft(key, own.draft)?.[field], value)
-                    && (this.session.locked || was === undefined || !sameValue(this.rowOfDraft(key, was.draft)?.[field], value))) continue;
+                    && (this.session.locked || this.session.carrying || was === undefined || !sameValue(this.rowOfDraft(key, was.draft)?.[field], value))) continue;
                 // Let go of: the record's, by another's write — theirs no more to save — or it is lost.
                 const held = this.record.at(base).get(key)?.[field];
                 if (!sameValue(held, value)) {

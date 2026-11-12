@@ -659,6 +659,27 @@ describe("what the harness's own checks got wrong, each replayed", () => {
             await world.rest();
             expect(world.record.now.get("k1")?.a).toBe(900n);
         });
+
+        it(`a value typed back while its conflict waits, on a page then reloaded, is its person's still while the kept drafts are read where the record is — what a draft was kept beside says nothing of the record (${shape})`, async () => {
+            // An automatic Save of k1.a is out as another session removes k1; its person removes the row, the page reloads,
+            // and the Save is refused. They add k1 again — a conflict with the removal, over the row the Save sent — type
+            // a back to what that row held, and the page reloads once more. The session restores the draft beside the row
+            // the conflict stood on, still to be read at the record's revision: the check took that row for what the record
+            // holds, found the value typed back in it, and called the value lost — the record holding no k1 — though the
+            // session had still to judge it. (Found by a random run at the proof depth, seed 6867, 12 Nov 2026.)
+            const world = await worldAfter({ shape, remotes: 1 }, [
+                "c0.edit(k1,a)", "c0.autosave", "remote.remove(k1)", "c0.remove(k1)", "c0.reload", "c0.deliver", "c0.add(k1)", "c0.read", "c0.revert(k1,a)", "c0.reload",
+            ]);
+            const client = world.clients[0]!;
+            // Restored, and still to be carried over: the row as typed back, a draft.
+            expect([client.session.carrying, client.session.pending, client.shown("k1")?.a]).toEqual([true, 1, 100n]);
+            // Read where the record is — it holds no k1 — the row is one the draft adds, the removal a conflict to choose.
+            await world.run("c0.read");
+            expect([client.session.carrying, client.session.unsettled, client.session.originals.get("k1")?.draft]).toEqual([false, 1, undefined]);
+            // Kept, it is saved as typed back.
+            await world.rest();
+            expect(world.record.now.get("k1")?.a).toBe(100n);
+        });
     }
 });
 
