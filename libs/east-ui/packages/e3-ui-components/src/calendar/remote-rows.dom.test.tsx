@@ -18,15 +18,22 @@
  *   Save removes it; let go, it is back as the other session left it.
  * - A job removed here and by another session is nothing to choose and
  *   nothing to save, and is never drawn again.
+ * - A job made here from a template takes a key the Calendar's session makes
+ *   from the template's — the jobs are read a window at a time, so the
+ *   template's key and a suffix drawn at random — which another session's job
+ *   is then saved under: the job made here goes on under another key, both
+ *   drawn, nothing to choose, and Save keeps both — and it stays selected
+ *   under its new key, the inspector open on it still.
  */
 
-import { test } from "vitest";
-import { fireEvent } from "@testing-library/react";
+import { expect, test } from "vitest";
+import { fireEvent, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import * as ex from "@elaraai/e3-ui/examples/calendar/calendar";
 import type { E3Request } from "../e3-web.test-utils.js";
-import { removedHere, removedOnBothSides, removedThere } from "../shared/remote-rows.test-utils.js";
-import { calendarHarness, event, settle, slot } from "./harness.test-utils.js";
+import { addedOnBothSides, removedHere, removedOnBothSides, removedThere } from "../shared/remote-rows.test-utils.js";
+import { act, calendarHarness, event, settle, slot } from "./harness.test-utils.js";
+import { parseEventKey } from "./model.js";
 
 const h = calendarHarness();
 /** The jobs' record, as its dataset's requests name it. */
@@ -83,4 +90,53 @@ test.each([["kept, the next Save removes it", "draft"], ["let go, the job is bac
 test("a job removed here and by another session is nothing to choose and nothing to save, and the board never draws it again — nor while its period, standing from before the other session's write, is read again", async () => {
     const { container: c } = await h.mount(ex.calendarOperations, { storageKey: "calendar-remote-removed-both" });
     await removedOnBothSides({ ...job(c), remove: remove(c) });
+});
+
+/** The keys of the jobs the board draws from a draft: those made here. */
+const drafted = (c: HTMLElement): string[] => [...c.querySelectorAll<HTMLElement>("[data-calendar-event][data-drafted]")].flatMap((el) => {
+    const read = parseEventKey(el.getAttribute("data-calendar-event")!);
+    return read.success ? [read.value.key] : [];
+});
+
+test("a job made here from a template, under the key another session's job then takes, goes on under another key the Calendar's session makes: both drawn, nothing to choose, and Save keeps both", async () => {
+    const { container: c } = await h.mount(ex.calendarOperations, { storageKey: "calendar-remote-added-both" });
+    await addedOnBothSides({
+        e3: h.e3, container: c,
+        reads: (request: E3Request) => request.dataset === JOBS && (request.kind === "find" || request.kind === "page"),
+        // The library's first template, created: its dialog's own Create makes the job.
+        add: [
+            () => { fireEvent.click(within(slot(c, "start")).getByRole("button", { name: "Create" })); },
+            () => { fireEvent.click(within(within(document.body).getByRole("dialog")).getByRole("button", { name: "Create" })); },
+        ],
+        added: () => drafted(c),
+        drawn: (key) => event(c, "job", key) !== null,
+        // Their own job under that key: another run on the first lathe that morning.
+        theirAddition: (key) => theirs((jobs) => { jobs.set(key, { ...jobs.get("job2")!, title: "Their new job" }); }),
+        heldKeys: async () => [...(await read()).keys()],
+    });
+});
+
+test("a job made here that goes on under another key stays selected under it: the inspector open on it still, never emptied", async () => {
+    const { container: c } = await h.mount(ex.calendarOperations, { storageKey: "calendar-remote-added-selected" });
+    await act(async () => { fireEvent.click(within(slot(c, "start")).getByRole("button", { name: "Create" })); }); await settle();
+    await act(async () => { fireEvent.click(within(within(document.body).getByRole("dialog")).getByRole("button", { name: "Create" })); }); await settle();
+    // Keyed from its template's: the jobs are read a window at a time, so `brackets-` and a suffix drawn at random.
+    const [made, ...more] = drafted(c);
+    expect([more, made]).toEqual([[], expect.stringMatching(/^brackets-[0-9a-f]{8}$/)]);
+    await act(async () => { fireEvent.click(event(c, "job", made!)); }); await settle();
+    const inspected = () => slot(c, "end").querySelector("[data-inspector-title]")?.textContent;
+    expect([event(c, "job", made!).hasAttribute("data-selected"), inspected()]).toEqual([true, "Bracket batch"]);
+    // Every title the inspector shows from here on, as the page changes.
+    const shown = new Set<string | undefined>();
+    const watch = new MutationObserver(() => { shown.add(inspected()); });
+    watch.observe(c, { subtree: true, childList: true, characterData: true });
+    let moved: string | undefined;
+    try {
+        await theirs((jobs) => { jobs.set(made!, { ...jobs.get("job2")!, title: "Their new job" }); });
+        await waitFor(() => { moved = drafted(c).find((key) => key !== made); expect(moved).toBeDefined(); });
+        await settle();
+    } finally {
+        watch.disconnect();
+    }
+    expect([event(c, "job", moved!).hasAttribute("data-selected"), inspected(), [...shown]]).toEqual([true, "Bracket batch", ["Bracket batch"]]);
 });

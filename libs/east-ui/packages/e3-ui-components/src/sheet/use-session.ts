@@ -16,7 +16,7 @@ import { IntegerType, OptionType, StringType, StructType, equalFor, fromEastType
 import { Sheet, SheetBatchReadinessType } from "@elaraai/e3-ui/internal";
 import {
     fieldBreachIssue, fieldBreachText, fieldFormMessages, getSomeorUndefined, useLanding, useLandingStyles, useDataStable, usePersistedState, type BatchReadiness,
-    type EditIssue,
+    type EditIssue, type EntryKeys,
 } from "@elaraai/east-ui-components";
 import { kindOfIssue, windowedSourceOf } from "@elaraai/east-ui-components/internal";
 import { RecordSliceWhereType } from "@elaraai/east-ui/internal";
@@ -28,7 +28,6 @@ import { sheetOptimiseTypes, type SheetOptimiseRequest, type SheetOptimiseResult
 import type { LensGeometry, LensWords } from "./lens-layout.js";
 import { useRecordLens } from "./use-lens.js";
 import { initialSheetStore, sheetStoreReducer } from "./sheet-state.js";
-import { SheetRefused } from "./creation.js";
 import { useSheetEditing, type LocalLayer, type SheetRowsRead } from "./use-editing.js";
 import { useCellsFromData } from "./cells-from-data.js";
 import { useSheetDay } from "./day.js";
@@ -86,7 +85,7 @@ interface SheetSessionValues {
 export function useSheetSession(value: SheetRootValue, storageKey: string, host: SheetHost, sheetDecode: SheetDecode) {
     const {
         activeView, bandPx, blanks, canInsertRows, columns, declaredNoun, decodedRows, driverColumn, group, hostGrid, keyOrder,
-        lensWanted, loose, mintAmong, minted, pagedSource, readOnly, rowPx, rowsPart, rowsWhere, subRowPx, words,
+        lensWanted, loose, makeKey, pagedSource, readOnly, rowPx, rowsPart, rowsWhere, subRowPx, words,
     } = sheetDecode;
     // ── What survives a remount (#857) ────────────────────────────────────
     // Under the sheet's `storageKey`: the folds the viewer left, with the tab
@@ -189,21 +188,25 @@ export function useSheetSession(value: SheetRootValue, storageKey: string, host:
     // The rows shown are not the narrowing's yet — another narrowing's stand in, or nothing is read: they take no
     // gesture (#1345). A new revision's rows reading under the last ones still do.
     const standingIn = lensDrawn ? lens.replacing || lensStandsIn : paging.replacing || pagesStandIn || (lensWanted && !lensReady);
-    // Every key a new one's must not be (#1536), read as one is minted: so it reaches the session made below.
+    // Every key a new one's must not be (#1536), read as one is made: so it reaches the session made below.
     const takenRef = useRef<() => Set<string>>(() => new Set());
-    // A new line beside loose rows (#846) takes a minted id: the field a loose row is identified by, a key of the same rows.
-    const mintLineId = useCallback(() => mintAmong(takenRef.current()), [mintAmong]);
-    // A new row whose key another write added meanwhile takes the sheet's next where the sheet minted the first (#1583). A
-    // key it did not mint — or none it can mint now, the app's `newKey` refusing — leaves the two rows to choose between.
-    const renumber = useCallback((id: string): string | undefined => {
-        if (!minted.current.has(id)) return undefined;
-        try {
-            return mintAmong(takenRef.current());
-        } catch (error) {
-            if (error instanceof SheetRefused) return undefined;
-            throw error;
-        }
-    }, [minted, mintAmong]);
+    // A new line beside loose rows (#846) takes an id made by the sheet's rule: the field a loose row is identified by, a
+    // key of the same rows. A line is no entry of the session's, so its id is none of the session's own.
+    const mintLineId = useCallback(() => {
+        const taken = takenRef.current();
+        return makeKey({ has: (id) => taken.has(id), ids: () => taken });
+    }, [makeKey]);
+    // How a new row is keyed (#1536, #1583): its key is the session's to make, by the sheet's rule, and the session's own
+    // until its row is saved — made another, by the same rule, where another Save takes it. A gesture says what it knows
+    // taken as it asks (`mintAmong`, below); a carry-over, which no gesture speaks for, reads what the sheet has read. A
+    // rule that can make no other key — the app's `newKey` refusing — leaves the two rows to choose between.
+    const keys = useMemo((): EntryKeys => ({
+        make: (known, _from, taken) => {
+            if (taken === undefined) return makeKey(known);
+            const read = takenRef.current();
+            return makeKey({ has: (id) => read.has(id) || known.has(id), ids: function* () { yield* read; yield* known.ids(); } });
+        },
+    }), [makeKey]);
     // The rows a key's far jump holds stand in, retained, until its rows replace them (#1398, CL10): the source's own
     // rows still, which the session holds, but they take no gesture. So do rows read another way than their source
     // reads them now, while its windows are read again (#1599).
@@ -221,7 +224,7 @@ export function useSheetSession(value: SheetRootValue, storageKey: string, host:
     }, [decodedRows, lensDrawn, lens.revision, lens.readBefore, paging.revision, pagesStanding]);
     // The inspector's numbers held to bounds (#1585): a changed row's Save waits while one is outside them.
     const bounds = useMemo(() => sheetBoundsOf(host.forms), [host.forms]);
-    const editingState = useSheetEditing(value.editing, pagedSource, sourceRows, sourcePositions, storageKey, loose ? mintLineId : undefined, rowsPart, standingIn, keyHeld, declaredNoun?.singular, day, rowsRead, renumber, bounds, windowedSourceOf(value.rows)?.id, host.autosave, entryOf);
+    const editingState = useSheetEditing(value.editing, pagedSource, sourceRows, sourcePositions, storageKey, loose ? mintLineId : undefined, rowsPart, standingIn, keyHeld, declaredNoun?.singular, day, rowsRead, keys, bounds, windowedSourceOf(value.rows)?.id, host.autosave, entryOf);
     const session = editingState.session;
     // A new row given a new key as the drafts carried over, another write having added its own (#1583): the footer says
     // so, once — never again as the sheet mounts over a session that did so before.
@@ -260,12 +263,12 @@ export function useSheetSession(value: SheetRootValue, storageKey: string, host:
     const readiness = useDataStable(session.readiness, readinessEqual);
     const draftType = useMemo(() => fromEastTypeValue(value.editing.draftType), [value.editing.draftType]);
     const childField = getSomeorUndefined(value.editing.children);
-    // Every key a new one's must not be (#1536): each the sheet has read; each its batch has drafted, a removed entry's
-    // among them, which the record holds until Apply; and each it has minted. Beside loose rows, each drafted line's id
-    // too, a key of the same rows.
+    // Every key a new one's must not be (#1536): each the sheet has read, and each its batch has drafted, a removed
+    // entry's among them, which the record holds until Apply. Beside loose rows, each drafted line's id too, a key of the
+    // same rows.
     const lineIdField = loose ? getSomeorUndefined(value.editing.idField) : undefined;
     const takenKeys = useCallback((): Set<string> => {
-        const taken = new Set(minted.current);
+        const taken = new Set<string>();
         for (const row of sourceRows) taken.add(row.id);
         for (const [id, entry] of session.entries) {
             taken.add(id);
@@ -277,8 +280,16 @@ export function useSheetSession(value: SheetRootValue, storageKey: string, host:
             }
         }
         return taken;
-    }, [sourceRows, session, lineIdField, childField, minted]);
+    }, [sourceRows, session, lineIdField, childField]);
     takenRef.current = takenKeys;
+    // A new row's key, as a gesture asks for one: the session's to make (#1583), past every key the gesture says is taken
+    // — the sheet's rows, and those it has made already, which the key then joins.
+    const mintAmong = useCallback((taken: Set<string>): string => {
+        const id = session.mint(undefined, taken);
+        if (id === undefined) throw new Error("The sheet's session is bound to no rule for a new row's key");
+        taken.add(id);
+        return id;
+    }, [session]);
     const draftVersion = editingState.version;
     // Every gesture the session records, counted (#1533): what a host's status line lets the last gesture's words go by
     // when the next has none of its own. A ref, read as the sheet draws: a recorded gesture moves the session, which
@@ -408,7 +419,7 @@ export function useSheetSession(value: SheetRootValue, storageKey: string, host:
     return {
         barClosedAt, canEdit, changesOf, childField, dispatchStore, draftOf, draftType, draftVersion, drafts,
         editingState, exhausted, foldedOf, folds, geometry, gestureCount, keyHeld, landRef, landing, landingRoot,
-        landingStyles, layer, layerRef, lens, lensDrawn, locked, mintLineId, optimiseTypes, optimised, pagesReady,
+        landingStyles, layer, layerRef, lens, lensDrawn, locked, mintAmong, mintLineId, optimiseTypes, optimised, pagesReady,
         pagesStandIn, paging, persist, persistedRef, recordGesture, restored, rowsOffset, rowsQuery, run, runLayout,
         session, setBarClosedAt, setLayer, setOptimised, standingIn, store, subRowsOpenOf, takenKeys, total, totalRevision, ui,
         ...named,

@@ -6,11 +6,13 @@
  *
  * A new row's key another Save took meanwhile (#1583): a piece drafted under
  * the key the Record's `newKey` makes next, and another session's Save adding
- * its own piece under that key first. Where the Record made the key, its piece
- * goes on under the next key it makes — both pieces saved, nothing to choose —
- * and the status line says so, once; a key it does not know as its own leaves
- * the two pieces a conflict to choose between. Over the Record's examples
- * deployed to e3 itself, each test a workspace of its own.
+ * its own piece under that key first. The key is its session's own, which
+ * made it — mounted again, and through a reload of the page, which keeps the
+ * session's own keys with its drafts: the piece goes on under the next key
+ * the rule makes — both pieces saved, nothing to choose — and the status line
+ * says so, once. A key no session made — a draft a tab kept before sessions
+ * kept theirs — leaves the two pieces a conflict to choose between. Over the
+ * Record's examples deployed to e3 itself, each test a workspace of its own.
  */
 
 import { describe, expect, test } from "vitest";
@@ -101,12 +103,30 @@ describe("a new row's key another Save took (#1583)", () => {
         expect(status(again.container)).toBe("");
     });
 
-    test("a piece under a key the Record does not know as its own — a draft the tab kept through a reload — and the other's under the same key are a conflict to choose between, as before", async () => {
+    test("a reload keeps the key the session's own: a piece drafted before it, whose key another Save takes after it, goes on under the next — both pieces saved, nothing to choose", async () => {
         const first = await h.mount({ fn: piecesNumbered }, { storageKey: "record-renumber-reload" });
         await add(first.container);
-        // The page reloads: the tab keeps the draft, and the keys the Record made go with the page.
+        // The page reloads: the tab keeps the draft, and its key as one the session made.
         reloadPage();
         const { container } = await h.mount({ fn: piecesNumbered }, { storageKey: "record-renumber-reload" });
+        await waitFor(() => expect(ids(container)).toEqual(["J-101", "J-102", "J-103", "J-104"]));
+        await h.race(ex.recordPieces, () => { fireEvent.click(history(container, editingMessages.apply())); }, theirs);
+        await waitFor(() => expect(status(container)).toBe("J-104 was taken by another save — the new piece is J-105"));
+        const pieces = await h.read(ex.recordPieces);
+        expect([...pieces.keys()]).toEqual(["J-101", "J-102", "J-103", "J-104", "J-105"]);
+        expect([pieceEqual(pieces.get("J-104")!, PANTRY), pieceEqual(pieces.get("J-105")!, BOOKSHELF)], printPieces(pieces)).toEqual([true, true]);
+        expect(banners(container)).toEqual([]);
+    });
+
+    test("a piece under a key no session made — a draft a tab kept before sessions kept their own keys — and the other's under the same key are a conflict to choose between", async () => {
+        const first = await h.mount({ fn: piecesNumbered }, { storageKey: "record-renumber-kept" });
+        await add(first.container);
+        // The page reloads over drafts kept with no key of the session's own beside them, as an earlier release kept them.
+        const made = Object.keys(window.sessionStorage).filter((name) => name.endsWith(":made"));
+        expect(made).toHaveLength(1);
+        for (const name of made) window.sessionStorage.removeItem(name);
+        reloadPage();
+        const { container } = await h.mount({ fn: piecesNumbered }, { storageKey: "record-renumber-kept" });
         await waitFor(() => expect(ids(container)).toEqual(["J-101", "J-102", "J-103", "J-104"]));
         await h.race(ex.recordPieces, () => { fireEvent.click(history(container, editingMessages.apply())); }, theirs);
         await waitFor(() => expect(banners(container)).toEqual(["conflicts"]));

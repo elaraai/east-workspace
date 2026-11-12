@@ -366,8 +366,12 @@ function EditableCalendar(props: Omit<HostProps, "editing" | "onHeld" | "onBackl
     // The kinds the reader may give cells (#1424, #1599) — every kind read a window at a time: what each Save lands of
     // them draws as the Save left it over cells read before the commit, until they are read again.
     const drawsLanded = useMemo(() => calendarCellKinds(value.events), [value.events]);
+    // A new event whose made key another Save took goes on under the next its kind makes (#1583) — two people who each
+    // make an event from one template are given the same key. Nothing the Calendar drafts names an event by its key, so
+    // every kind's may.
+    const rekeys = useMemo(() => new Set(value.events.map(kind => kind.key)), [value.events]);
     const editing = useScheduleEditing({ kinds: value.events, storageKey: props.storageKey, joined: NO_JOINED, range: props.dates.range,
-        recordSlices, held, reads, drawsLanded, autosave: value.settings.autosave });
+        recordSlices, held, reads, drawsLanded, rekeys, autosave: value.settings.autosave });
     return <CalendarFrame {...props} editing={editing} onHeld={onHeld} onBacklog={onBacklog} />;
 }
 /**
@@ -692,6 +696,19 @@ function CalendarFrame(props: HostProps) {
         const now = picked.current;
         select(additive ? now.some(was => eventKey(was) === id) ? now.filter(was => eventKey(was) !== id) : [...now, ref] : [ref]);
     }, [select]);
+    // A new event whose made key another Save took goes on under the next its kind makes (#1583): what was selected of it
+    // stays selected, under its new key — the inspector open on it still, before the frame is drawn without it.
+    const renumbered = editing?.renumbered;
+    useLayoutEffect(() => {
+        if (renumbered === undefined || renumbered.size === 0) return;
+        const now = picked.current;
+        const next = now.map((ref): CalendarRef => {
+            const to = renumbered.get(ref.kind)?.get(ref.key);
+            return to === undefined ? ref : { kind: ref.kind, key: to };
+        });
+        // One moved is another object: the rest are the very refs held.
+        if (next.some((ref, i) => !Object.is(ref, now[i]))) select(next);
+    }, [renumbered, select]);
     // A followed source not yet resolved holds the frame's cold load, as an event kind's window does — and a paged kind's
     // first window.
     const cold = [...followed.values()].some(source => !source.shown.ready && source.error === undefined)

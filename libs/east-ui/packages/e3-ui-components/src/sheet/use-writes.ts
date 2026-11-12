@@ -59,8 +59,8 @@ interface SheetWritesValues {
  * @returns The writes, the removal and the proposals' inserts
  */
 export function useSheetWrites(sheetDecode: SheetDecode, sheetSession: SheetSession, sheetBody: SheetBody) {
-    const { allColumns, canInsertRows, capabilities, columns, group, keyOrder, mintAmong } = sheetDecode;
-    const { canEdit, dispatchStore, editingState, layerRef, setLayer, sourceRows, takenKeys } = sheetSession;
+    const { allColumns, canInsertRows, capabilities, columns, group, keyOrder } = sheetDecode;
+    const { canEdit, dispatchStore, editingState, layerRef, mintAmong, setLayer, sourceRows, takenKeys } = sheetSession;
     const { blankLineRowOf, body, metaAt, rowAt, rowCount, rowSpace } = sheetBody;
     // ── Writes — the local layer, then the host ───────────────────────────
     const gestureEvents = useRef<SheetEditValue[]>([]);

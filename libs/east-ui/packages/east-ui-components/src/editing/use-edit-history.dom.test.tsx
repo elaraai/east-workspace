@@ -7,7 +7,8 @@
  * the entries the collection's own reads hold at the revision
  * committed are judged in one pass, with no request; only the rest are read by
  * their keys, a bounded batch at a time — or, where the source reads several
- * at once, in one read, asked again as it was until it lands.
+ * at once, in one read, asked again as it was until it lands. And a source's
+ * rule for its new entries' keys (`keys`), which is its session's.
  */
 
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
@@ -159,6 +160,57 @@ test("a read of several entries by their keys in flight is asked again as it was
     await waitFor(() => expect(session.status).toBe("idle"));
     expect(session.pending).toBe(0);
     expect(asked.filter((batch, i) => batch !== asked[i - 1])).toEqual([unheld, "J29"]);
+});
+
+test("a source's rule for its new entries' keys is its session's: a new entry under a key the session made, which another write took, goes on under the next, both kept and nothing to choose — and under a key it did not make, the two are a conflict (#1583)", async () => {
+    /** The jobs' rule: the first `J<nn>` not taken, past the one job the record holds. */
+    const keys: EditHistorySource<null>["keys"] = {
+        make: (known) => {
+            for (let n = 2; ; n++) {
+                const id = `J${String(n).padStart(2, "0")}`;
+                if (!known.has(id)) return id;
+            }
+        },
+    };
+    /** A job added here, then another write's own job under the same key: the session once it has carried its draft over. */
+    const taken = async (view: string, minted: boolean) => {
+        let revision = "r1";
+        const rows = new Map<string, JobValue>([["J01", { task: "J01", qty: 1n }]]);
+        const key = `${REVISION_KEY}.${view}`;
+        const paged: EditHistoryPaged = {
+            revision: () => { trackKey(key); return some(revision); },
+            refresh: (next) => {
+                if (next.type === "some") revision = next.value;
+                getStore().write(key, encodeBeast2For(StringType)(revision));
+                return null;
+            },
+            entry: (id) => { trackKey(key); const row = rows.get(id); return some(row === undefined ? none : some(row)); },
+        };
+        const editing: EditingValue = {
+            sourceId: `jobs-${view}`, entryType: toEastTypeValue(Job), draftType: toEastTypeValue(JobDraft),
+            idField: none, children: none, keyType: some(toEastTypeValue(StringType)), snapshot: none, onPatch: none,
+            readEntry: () => none,
+            onApply: some(variant("sync", () => variant("applied", { revision: some("r9") }))),
+        };
+        const sources: readonly EditHistorySource<null>[] = [{ editing, paged, keys }];
+        const hook = renderHook(() => useEditHistory(sources, view));
+        const session = hook.result.current.history.session(hook.result.current.keys[0]!)!;
+        await waitFor(() => expect(hook.result.current.available(hook.result.current.keys[0]!)).toBe(true));
+        // The session's own key, or one a person gave: J02 either way.
+        const id = minted ? session.mint()! : "J02";
+        expect(id).toBe("J02");
+        act(() => { session.record([{ id, before: { draft: undefined, wire: undefined, place: none }, after: job({ task: "Mine", qty: 2n }) }], "insert", "Add a job"); });
+        // Another write adds its own J02: the source moves on under the draft.
+        await act(async () => { rows.set("J02", { task: "Theirs", qty: 7n }); paged.refresh(some("r2")); });
+        return session;
+    };
+    const made = await taken("made", true);
+    await waitFor(() => expect([...made.renumbered]).toEqual([["J02", "J03"]]));
+    expect([[...made.entries.keys()], made.originals.get("J03")!.draft, made.unsettled, made.pending]).toEqual([["J03"], undefined, 0, 1]);
+
+    const given = await taken("given", false);
+    await waitFor(() => expect(given.unsettled).toBe(1));
+    expect([[...given.entries.keys()], [...given.renumbered]]).toEqual([["J02"], []]);
 });
 
 test("a history's builder's choice of an automatic Save begins where its author says — off, said nothing — from the history's first render, and moves as the author's word does", () => {

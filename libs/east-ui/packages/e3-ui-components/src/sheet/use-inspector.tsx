@@ -118,10 +118,10 @@ export function useSheetInspector(value: SheetRootValue, sheetDecode: SheetDecod
     sheetViewTabs: SheetViewTabs, sheetActions: SheetActions) {
     const {
         allColumns, canInsertGroups, canInsertRows, capabilities, chrome, columns, copilotOn, declaredNoun,
-        driverColumn, group, lensWanted, loose, mintAmong, narrowing, registers, triggers, words,
+        driverColumn, group, lensWanted, loose, narrowing, registers, triggers, words,
     } = sheetDecode;
     const {
-        canEdit, changesOf, childField, dispatchStore, draftOf, draftType, draftVersion, editingState, layerRef, mintLineId,
+        canEdit, changesOf, childField, dispatchStore, draftOf, draftType, draftVersion, editingState, layerRef, mintAmong, mintLineId,
         readiness, recordGesture, rows, session, setLayer, sourceRows, store, storedBreaches, takenKeys, ui,
     } = sheetSession;
     const { allowedFor, body, idAt, levelAt, linkCellCtx, parseCtxFor, rowAt, rowSpace } = sheetBody;

@@ -21,14 +21,17 @@
  * it starts at the restored drafts, as after any carry-over. Whether an
  * optimiser's result among them waited for a person's Save is kept beside them,
  * and whether they stood where Undo or Redo had left them, so no automatic Save
- * sends restored drafts that waited for a person's (`autosave.ts`).
+ * sends restored drafts that waited for a person's (`autosave.ts`). So are the
+ * keys the session made for the new entries among them (`EditSession.ownKeys`,
+ * keys.ts): a new entry whose key another write takes while the page is away
+ * is given another, as it would have been before the reload.
  *
  * @packageDocumentation
  */
 import { useSyncExternalStore } from "react";
 import {
-    ArrayType, BlobType, EastTypeType, OptionType, StringType, StructType, decodeBeast2For, encodeBeast2For, equalFor, none, some,
-    toEastTypeValue, type EastType, type ValueTypeOf, type option,
+    ArrayType, BlobType, DictType, EastTypeType, OptionType, SortedMap, StringType, StructType, compareFor, decodeBeast2For, encodeBeast2For, equalFor,
+    none, some, toEastTypeValue, type EastType, type ValueTypeOf, type option,
 } from "@elaraai/east";
 import { EditingPlacementType } from "@elaraai/east-ui/internal";
 import { kept, keptBytes, keptFlag, type KeptFailureReason } from "../platform/kept.js";
@@ -62,8 +65,20 @@ export const KeptDraftsType = StructType({
 
 type KeptEntryValue = ValueTypeOf<typeof KeptEntryType>;
 
+/**
+ * The keys a session made for the new entries among its drafts, as the tab
+ * keeps them beside the drafts: each with the id it was made from. Under a key
+ * of their own, so the drafts' bytes stay as every version that kept them
+ * wrote them.
+ */
+const KeptOwnKeysType = DictType(StringType, OptionType(StringType));
+
 const encodeDrafts = encodeBeast2For(KeptDraftsType);
 const decodeDrafts = decodeBeast2For(KeptDraftsType);
+const encodeOwnKeys = encodeBeast2For(KeptOwnKeysType);
+const decodeOwnKeys = decodeBeast2For(KeptOwnKeysType);
+const sameOwnKeys = equalFor(KeptOwnKeysType);
+const compareText = compareFor(StringType);
 const sameType = equalFor(EastTypeType);
 const sameText = equalFor(StringType);
 
@@ -187,6 +202,10 @@ export function keepDrafts<W>(session: EditSession<W>, key: string, wireType: Ea
     const waiting = kept(`${key}:held`, keptFlag, { where: "tab" });
     // And whether they stood where Undo or Redo had left them, which no automatic Save sends either.
     const stepped = kept(`${key}:stepped`, keptFlag, { where: "tab" });
+    // And the keys the session made for the new entries among them: its own to make again where another write takes one.
+    const made = kept(`${key}:made`, keptBytes, { where: "tab" });
+    const ownKeysOf = (keys: ReadonlyMap<string, string | undefined>): ValueTypeOf<typeof KeptOwnKeysType> =>
+        new SortedMap([...keys].map(([id, from]) => [id, from === undefined ? none : some(from)] as const), compareText);
     const types = { entryType: toEastTypeValue(session.entryType), draftType: toEastTypeValue(session.draftType), wireType: toEastTypeValue(wireType) };
     const encodeDraft = cachedEncoder(session.draftType);
     const encodeWire = cachedEncoder(wireType);
@@ -217,7 +236,16 @@ export function keepDrafts<W>(session: EditSession<W>, key: string, wireType: Ea
         try {
             const value = decodeDrafts(stored);
             if (!sameType(value.entryType, types.entryType) || !sameType(value.draftType, types.draftType) || !sameType(value.wireType, types.wireType)) lost = "schema";
-            else session.restore(value.entries.map(entryOf), waiting.read() === true, stepped.read() === true);
+            else if (session.restore(value.entries.map(entryOf), waiting.read() === true, stepped.read() === true)) {
+                // The keys it made, where the tab kept any: bytes that do not read leave the drafts restored, their new
+                // entries under keys the session no longer knows as its own — a conflict to choose where one is taken.
+                const own = made.read();
+                try {
+                    if (own !== undefined) session.restoreOwnKeys(new Map([...decodeOwnKeys(own)].map(([id, from]) => [id, from.type === "some" ? from.value : undefined] as const)));
+                } catch {
+                    made.remove();
+                }
+            }
         } catch {
             lost = "unreadable";
         }
@@ -225,17 +253,29 @@ export function keepDrafts<W>(session: EditSession<W>, key: string, wireType: Ea
             handle.remove();
             waiting.remove();
             stepped.remove();
+            made.remove();
             setKeeping(session, { state: "lost", reason: lost });
         }
     } else {
         waiting.remove();
         stepped.remove();
+        made.remove();
     }
 
     // Written as each change is made: the same versions as last written write nothing.
     let last: readonly KeptEntry<W>[] | undefined;
+    let lastOwn: ValueTypeOf<typeof KeptOwnKeysType> | undefined;
     session.subscribe(() => {
         const entries = session.keptEntries;
+        // Kept with the drafts, and gone with them: the keys of the new entries among them that the session made.
+        const own = entries.length === 0 ? undefined : ownKeysOf(session.ownKeys);
+        if (own === undefined || own.size === 0) {
+            made.remove();
+            lastOwn = undefined;
+        } else if (lastOwn === undefined || !sameOwnKeys(lastOwn, own)) {
+            made.write(encodeOwnKeys(own));
+            lastOwn = own;
+        }
         // Kept with the drafts, and gone with them: a person's Save, or an Undo of the result, ends the wait with no draft moving.
         if (entries.length > 0 && session.autosaveHeld) waiting.write(true);
         else waiting.remove();

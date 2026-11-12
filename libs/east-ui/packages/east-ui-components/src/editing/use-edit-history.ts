@@ -92,6 +92,14 @@ export interface EditHistorySource<W> {
      * confirmation. `false` by default.
      */
     readonly drawsLanded?: boolean | undefined;
+    /**
+     * How its new entries are keyed (keys.ts, the session's `keys`): its session makes each new entry's key by it
+     * (`EditSession.mint`), and makes it another where another write adds its own entry under it meanwhile (#1583) —
+     * both entries kept, nothing to choose. Not given, its session makes no key.
+     */
+    readonly keys?: EditSessionBinding<W>["keys"];
+    /** A new entry's version as it stands under another id, where its session makes it another key (the session's `underKey`). */
+    readonly underKey?: EditSessionBinding<W>["underKey"];
 }
 
 /**
@@ -270,7 +278,7 @@ export function useEditHistory<W>(
         const keyType = fromEastTypeValue(editing.keyType.value);
         const binding = {
             ...bindingOf<W>(editing, { entryType, draftType, keyType }, source.ready, paged?.refresh), prepare: source.prepare, ranges: source.ranges,
-            together: source.together, drawsLanded: source.drawsLanded,
+            together: source.together, drawsLanded: source.drawsLanded, keys: source.keys, underKey: source.underKey,
         };
         const kept = sourceSessionsOf(store, scope, editing.sourceId);
         const session = keptSession<W>(kept, sessionKeyOf(storageKey, editing.entryType, editing.draftType), () => {

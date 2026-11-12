@@ -34,7 +34,7 @@ import { Data, Plan, Record, Schedule } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
 import { rowKeyOf, type PlanRowId } from "../model.js";
 import { carry, carrySaid, dragTo, keyOn } from "../plan-move.test-utils.js";
-import { act, el, elementKey, entry, planHarness, rowAt, settle, slot, tabs } from "./harness.test-utils.js";
+import { act, drawnFrom, el, elementKey, entry, madeFrom, planHarness, rowAt, settle, slot, tabs } from "./harness.test-utils.js";
 
 const h = planHarness();
 
@@ -65,6 +65,11 @@ const stop = (c: HTMLElement, key: string) => c.querySelector<HTMLElement>(`${ro
 const chip = (c: HTMLElement, key: string) => c.querySelector<HTMLElement>(`${rowAt(C1)} ${el("data-chip", "shift", key)}`);
 /** The jobs a row draws, by their keys. */
 const jobsOn = (c: HTMLElement, row: PlanRowId) => [...c.querySelectorAll(`${rowAt(row)} [data-run]`)].map((n) => n.getAttribute("data-run"));
+/**
+ * The keys of the jobs a row draws that were made from a template: the print works' jobs and shifts are read a window
+ * at a time, so each is its template's key and a suffix drawn at random, read here rather than named.
+ */
+const jobsFrom = (c: HTMLElement, template: string, row = A1) => madeFrom(c.querySelector<HTMLElement>(rowAt(row))!, "data-run", "job", template);
 /** An element's name — its title, its times, its state. */
 const named = (node: HTMLElement | null) => node?.getAttribute("aria-label") ?? null;
 
@@ -318,14 +323,16 @@ describe("a template card dropped on a resource's row (PB32)", () => {
         await settle();
         expect(announced()).toBe("Brochure run was dropped on Press A1, Mon, Oct 12, 2026.");
         // A new job, keyed from its template, drawn where it was dropped, selected, and drafted.
-        const made = bar(c, "brochure-2");
+        const [key, ...more] = jobsFrom(c, "brochure");
+        expect([more, key]).toEqual([[], expect.stringMatching(drawnFrom("brochure"))]);
+        const made = bar(c, key!);
         expect(named(made)).toMatch(/^Brochure run, Oct 12, 2026 – Oct 12, 2026, 06:00, proposed/);
         expect(made!.getAttribute("aria-pressed")).toBe("true");
         expect(made!.hasAttribute("data-draft")).toBe(true);
         expect(inspected(c)).toBe("Brochure run");
         expect(pending(c)).toBe("1 pending");
         await press(historyButton(c, UNDO));
-        expect(bar(c, "brochure-2")).toBeNull();
+        expect(bar(c, key!)).toBeNull();
         expect(pending(c)).toBe("0 pending");
         expect(historyButton(c, UNDO).disabled).toBe(true);
     });
@@ -341,7 +348,9 @@ describe("a template card dropped on a resource's row (PB32)", () => {
         expect(caption()).toBe("Early shift · Crew 1 · Tue, Oct 13, 2026 · 06:00");
         await letGo();
         await settle();
-        expect(named(chip(c, "early-2"))).toMatch(/^Early, Oct 13, 2026, 06:00 – Oct 13, 2026, 14:00/);
+        const [early, ...others] = madeFrom(c.querySelector<HTMLElement>(rowAt(C1))!, "data-chip", "shift", "early");
+        expect([others, early]).toEqual([[], expect.stringMatching(drawnFrom("early"))]);
+        expect(named(chip(c, early!))).toMatch(/^Early, Oct 13, 2026, 06:00 – Oct 13, 2026, 14:00/);
         // A mark cannot land on the neighbouring bars, even on the same press.
         y = layOutPlots(c, [A1, A1_MARKS, C1]);
         const refused = await carry(cardOf(c, elementKey("stop", "plates"))!, OFF, { x: xAt(3), y: y(A1) });
@@ -392,8 +401,9 @@ describe("a template card dropped on a resource's row (PB32)", () => {
         await drop(cardOf(c, elementKey("job", "brochure"))!, OFF, { x: xAt(7), y: y(A1) });
         y = layOutPlots(c, [A1]);
         await drop(cardOf(c, elementKey("job", "brochure"))!, OFF, { x: xAt(7), y: y(A1) });
-        expect(named(bar(c, "brochure-2"))).toMatch(/^Brochure run, Oct 12, 2026 – Oct 12, 2026, 06:00/);
-        expect(named(bar(c, "brochure-3"))).toMatch(/^Brochure run, Oct 12, 2026 – Oct 12, 2026, 06:00/);
+        const made = jobsFrom(c, "brochure");
+        expect([made.length, new Set(made).size, made.every((key) => drawnFrom("brochure").test(key))]).toEqual([2, 2, true]);
+        for (const key of made) expect(named(bar(c, key))).toMatch(/^Brochure run, Oct 12, 2026 – Oct 12, 2026, 06:00/);
         expect(pending(c)).toBe("2 pending");
     });
 
@@ -414,19 +424,21 @@ describe("a template card dropped on a resource's row (PB32)", () => {
         expect(caption()).toBe("Brochure run · Press A3 · Wed, Oct 14, 2026");
         await letGo();
         await settle();
-        expect(bar(c, "brochure-2", A3)!.hasAttribute("data-draft")).toBe(true);
+        const [made, ...more] = jobsFrom(c, "brochure", A3);
+        expect([more, made]).toEqual([[], expect.stringMatching(drawnFrom("brochure"))]);
+        expect(bar(c, made!, A3)!.hasAttribute("data-draft")).toBe(true);
         expect(pending(c)).toBe("2 pending");
         await act(async () => { writes.release(); });
         await settle();
         // The Save is back: the catalogue's move is saved, and the job dropped meanwhile is the one change left.
         await waitFor(() => expect(pending(c)).toBe("1 pending"));
         expect(bar(c, "J-1001")!.hasAttribute("data-draft")).toBe(false);
-        expect(bar(c, "brochure-2", A3)!.hasAttribute("data-draft")).toBe(true);
-        expect((await readJobs()).has("brochure-2")).toBe(false);
+        expect(bar(c, made!, A3)!.hasAttribute("data-draft")).toBe(true);
+        expect((await readJobs()).has(made!)).toBe(false);
         // Saved in its turn, it is the record's.
         await press(historyButton(c, SAVE));
         await waitFor(() => expect(pending(c)).toBe("0 pending"));
-        expect((await readJobs()).has("brochure-2")).toBe(true);
+        expect((await readJobs()).has(made!)).toBe(true);
     });
 });
 
@@ -792,7 +804,7 @@ describe("every gesture is one step of the Plan's one history", () => {
         // Five events drafted by the six gestures: the museum guide moved and resized.
         expect(pending(c)).toBe("5 pending");
         const state = () => ({
-            poster: bar(c, "poster-2", A3) !== null,
+            poster: jobsFrom(c, "poster", A3).length === 1,
             forms: bar(c, "J-1024", A3) !== null,
             guide: named(bar(c, "J-1002"))?.split(", actual")[0] ?? null,
             catalogue: bar(c, "J-1001") !== null,

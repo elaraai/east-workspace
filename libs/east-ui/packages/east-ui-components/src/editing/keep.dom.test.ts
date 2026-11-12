@@ -16,6 +16,7 @@ import { Editing } from "@elaraai/east-ui/internal";
 import { clearKept, keptName, resetKept } from "../platform/kept.js";
 import { liftDraft } from "./draft.js";
 import { draftsKeepingOf, keepDrafts, keptDraftsKey } from "./keep.js";
+import { madeFromKeys, randomKeys } from "./keys.js";
 import { EditSession, type EditSessionBinding, type EntryVersion } from "./session.js";
 
 const Job = StructType({ name: StringType, qty: IntegerType });
@@ -36,11 +37,12 @@ const band: JobValue = { name: "Edge banding", qty: 4n };
 const jobs = (j1: JobValue = cut, j2: JobValue = band) => variant("snapshot", new SortedMap([["J1", j1], ["J2", j2]], compareFor(StringType)));
 const version = (id: string, job: JobValue): EntryVersion<WireValue> => ({ draft: liftDraft(JobDraft, job), wire: { id }, place: keyOrder });
 
-/** A session over the jobs, its drafts kept under the key. */
-function session(entryType = Job, draftType = JobDraft): EditSession<WireValue> {
+/** A session over the jobs, its drafts kept under the key: a new job's key made from the job it is copied from. */
+function session(entryType = Job, draftType = JobDraft, apply: NonNullable<EditSessionBinding<WireValue>["apply"]> = () => variant("applied", { revision: none })): EditSession<WireValue> {
     const binding: EditSessionBinding<WireValue> = {
-        sourceId: "jobs", entryType, draftType, keyType: StringType,
-        apply: () => variant("applied", { revision: none }), patch: undefined, refresh: undefined,
+        sourceId: "jobs", entryType, draftType, keyType: StringType, keys: madeFromKeys(randomKeys()),
+        underKey: (id, version) => ({ ...version, wire: { id } }),
+        apply, patch: undefined, refresh: undefined,
     };
     const next = new EditSession<WireValue>(binding);
     keepDrafts(next, KEY, Wire);
@@ -94,6 +96,47 @@ describe("drafts kept through a reload", () => {
         const clash = session();
         clash.observeBase(jobs({ ...cut, qty: 3n }));
         expect([clash.pending, clash.unsettled, clash.canApply]).toEqual([1, 1, false]);
+    });
+
+    test("the keys the session made are kept with its drafts: after a reload, a copied job whose key another write took goes on under the next, both kept — and the keys go from the tab with the drafts", () => {
+        const before = session();
+        before.observeBase(jobs());
+        // J1 copied: its copy's key made from J1's.
+        const copy = before.mint("J1")!;
+        expect(copy).toBe("J1-2");
+        before.record([{ id: copy, before: { draft: undefined, wire: undefined, place: none }, after: version(copy, { ...cut, qty: 9n }) }], "insert", "Duplicate J1");
+        const kept = () => window.sessionStorage.getItem(keptName(`${KEY}:made`, { where: "tab" }));
+        expect(kept()).not.toBeNull();
+        reload();
+        const after = session();
+        // Another write saved its own J1-2 meanwhile: the record holds it as the page loads again.
+        after.observeBase(variant("snapshot", new SortedMap([["J1", cut], ["J1-2", band], ["J2", band]], compareFor(StringType))));
+        expect([[...after.entries.keys()], [...after.renumbered], after.unsettled, after.pending]).toEqual([["J1-3"], [["J1-2", "J1-3"]], 0, 1]);
+        expect(after.entries.get("J1-3")!.wire).toEqual({ id: "J1-3" });
+        expect([...after.ownKeys]).toEqual([["J1-3", "J1"]]);
+        // Discarded: no draft, and no key of the session's own kept.
+        after.discard();
+        expect([stored(), kept()]).toEqual([null, null]);
+    });
+
+    test("a key a Save holds with no answer yet is kept as the session's own no more: reloaded then, the record having taken the Save, the copy is saved once — no draft left, and none made under another key", async () => {
+        // A Save whose answer never comes.
+        const before = session(Job, JobDraft, () => new Promise(() => undefined));
+        before.observeBase(jobs());
+        const copy = before.mint("J1")!;
+        before.record([{ id: copy, before: { draft: undefined, wire: undefined, place: none }, after: version(copy, { ...cut, qty: 9n }) }], "insert", "Duplicate J1");
+        const kept = () => window.sessionStorage.getItem(keptName(`${KEY}:made`, { where: "tab" }));
+        expect([[...before.ownKeys], kept() === null]).toEqual([[[copy, "J1"]], false]);
+        void before.apply();
+        for (let i = 0; i < 12; i++) await Promise.resolve();
+        // Sent: the record may hold the copy as the request left it, which nothing tells from another write's. The draft
+        // is kept — its Save's outcome is not known — and its key as the session's own is not.
+        expect([before.status, [...before.ownKeys], kept(), stored() === null]).toEqual(["applying", [], null, false]);
+        reload();
+        const after = session();
+        // The record took the Save: it holds the copy as the request left it. Made another key, the copy would be saved twice.
+        after.observeBase(variant("snapshot", new SortedMap([["J1", cut], ["J1-2", { ...cut, qty: 9n }], ["J2", band]], compareFor(StringType))));
+        expect([[...after.entries.keys()], [...after.renumbered], after.unsettled, after.pending]).toEqual([[], [], 0, 0]);
     });
 
     test("a Save that landed before the reload leaves no draft, and nothing kept", () => {

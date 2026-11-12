@@ -69,6 +69,22 @@ async function remove(c: HTMLElement, id: string): Promise<void> {
     await press(action(c, "delete"));
 }
 
+/** A member's name typed, as a person types it: the ring on the name, its editor opened by the first key, Tab to commit. */
+async function name(c: HTMLElement, id: string, text: string): Promise<void> {
+    await press(cellOf(rowOf(c, id), "name"));
+    fireEvent.keyDown(grid(c), { key: text[0]! });
+    await settle();
+    const input = await waitFor(() => {
+        const open = cellOf(rowOf(c, id), "name").querySelector<HTMLInputElement>('[data-slot="editorInput"]');
+        expect(open).not.toBeNull();
+        return open!;
+    });
+    fireEvent.input(input, { target: { value: text } });
+    await settle();
+    fireEvent.keyDown(input, { key: "Tab" });
+    await settle();
+}
+
 /** Presses Save and waits until nothing is left to save. */
 async function save(c: HTMLElement): Promise<void> {
     await press(history(c, editingMessages.apply()));
@@ -124,20 +140,8 @@ test("recordConflicts: a member added here takes the key Someone else adds a mem
     await press(action(c, "add"));
     // Keyed as the crew's own are: the first C-00N none of them holds.
     expect(ids(c)).toEqual(["C-001", "C-002", "C-003", "C-004"]);
-    // They join not yet inducted and not trained: named, nothing of them is left to fill in — the ring on the name, its
-    // editor opened by the first key.
-    await press(cellOf(rowOf(c, "C-004"), "name"));
-    fireEvent.keyDown(grid(c), { key: "E" });
-    await settle();
-    const input = await waitFor(() => {
-        const open = cellOf(rowOf(c, "C-004"), "name").querySelector<HTMLInputElement>('[data-slot="editorInput"]');
-        expect(open).not.toBeNull();
-        return open!;
-    });
-    fireEvent.input(input, { target: { value: "E. Novak" } });
-    await settle();
-    fireEvent.keyDown(input, { key: "Tab" });
-    await settle();
+    // They join not yet inducted and not trained: named, nothing of them is left to fill in.
+    await name(c, "C-004", "E. Novak");
     await press(someoneElse(c, "Someone else adds a member"));
     await waitFor(() => expect(status(c)).toBe("C-004 was taken by another save — the new crew member is C-005"));
     expect([c.querySelector("[data-conflicts]"), ids(c)]).toEqual([null, ["C-001", "C-002", "C-003", "C-004", "C-005"]]);

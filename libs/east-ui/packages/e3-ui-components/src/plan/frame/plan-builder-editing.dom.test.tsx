@@ -40,7 +40,7 @@ import type { PlanEntryRef } from "../use-plan-editing.js";
 import { carrySaid, keyOn } from "../plan-move.test-utils.js";
 import { boundFrame } from "../../sheet/frame.test-utils.js";
 import { offering } from "../../shared/schedule/keys.test-utils.js";
-import { act, el, elementKey, entry, planHarness, rowAt, settle, slot } from "./harness.test-utils.js";
+import { act, drawnFrom, el, entry, madeFrom, planHarness, rowAt, settle, slot } from "./harness.test-utils.js";
 import { conflictCards, evaluatesAgain, reloadPage } from "../../e3-web-mount.test-utils.js";
 import type { E3Request } from "../../e3-web.test-utils.js";
 import { editedThroughReload, redrawnThroughReload, savedThroughReload } from "../../shared/save-held.test-utils.js";
@@ -86,8 +86,13 @@ const bar = (c: HTMLElement, key: string, row = A1) => c.querySelector<HTMLEleme
 const stop = (c: HTMLElement, key: string) => c.querySelector<HTMLElement>(`${rowAt(A1_MARKS)} [role="button"]${el("data-mark", "stop", key)}`);
 /** A shift's chip on Crew 1. */
 const shift = (c: HTMLElement, key: string) => c.querySelector<HTMLElement>(`${rowAt(C1)} ${el("data-chip", "shift", key)}`);
-/** The titles of the jobs drawn on a press's row, in order. */
-const jobsOn = (c: HTMLElement, row = A1) => [...c.querySelectorAll(`${rowAt(row)} [data-run]`)].map((node) => node.getAttribute("data-run"));
+/**
+ * The keys of the copies a row draws of an event — each keyed from it. The print works' jobs and shifts are read a
+ * window at a time, so a copy's key is the event's and a suffix drawn at random, read here rather than named; its stops
+ * are read whole, and their copies are the next in a row (`S-01-2`).
+ */
+const copiesOf = (c: HTMLElement, attr: "data-run" | "data-chip", kind: string, from: string, row = A1) =>
+    madeFrom(c.querySelector<HTMLElement>(rowAt(row))!, attr, kind, from);
 
 /** The inspector pane. */
 const pane = (c: HTMLElement) => slot(c, "end")!;
@@ -399,24 +404,25 @@ describe("every gesture is one transaction (PB43)", () => {
         await press(action(container, "duplicate"));
         // The footer counts the copy: its counts read the drafts (PB23).
         expect(counted(container)).toBe(`${initialCount + 1} events`);
-        // The copy draws beside the catalogue, keyed past the record's keys, and is what the inspector shows now.
-        expect(jobsOn(container)).toContain(elementKey("job", "J-1001-2"));
-        expect(bar(container, "J-1001-2")!.getAttribute("aria-pressed")).toBe("true");
+        // The copy draws beside the catalogue, keyed from it, and is what the inspector shows now.
+        const [copy, ...more] = copiesOf(container, "data-run", "job", "J-1001");
+        expect([more, copy]).toEqual([[], expect.stringMatching(drawnFrom("J-1001"))]);
+        expect(bar(container, copy!)!.getAttribute("aria-pressed")).toBe("true");
         expect(pane(container).querySelector("[data-inspector-title]")!.textContent).toBe("Spring catalogue");
         expect(fact(container, "start")).toBe("Oct 5, 2026, 06:00");
         expect(pending(container)).toBe("1 pending");
         // A copy is new: every field its form has is tinted.
         expect(field(container, "customer").hasAttribute("data-dirty")).toBe(true);
         await press(action(container, "delete"));
-        expect(bar(container, "J-1001-2")).toBeNull();
+        expect(bar(container, copy!)).toBeNull();
         expect(pending(container)).toBe("0 pending");
         expect(counted(container)).toBe(`${initialCount} events`);
-        // Undo brings the copy back; again, takes it away; the record never held it.
+        // Undo brings the copy back, under its key; again, takes it away; the record never held it.
         await press(historyButton(container, UNDO));
-        expect(bar(container, "J-1001-2")).not.toBeNull();
+        expect(bar(container, copy!)).not.toBeNull();
         await press(historyButton(container, UNDO));
-        expect(bar(container, "J-1001-2")).toBeNull();
-        expect((await readJobs()).has("J-1001-2")).toBe(false);
+        expect(bar(container, copy!)).toBeNull();
+        expect((await readJobs()).has(copy!)).toBe(false);
         // Delete of the record's own job: its bar goes, and the record still holds it.
         await select(bar(container, "J-1001")!);
         await press(action(container, "delete"));
@@ -468,7 +474,10 @@ describe("every gesture is one transaction (PB43)", () => {
         // Duplicate and Delete over the three: each one transaction across the kinds — the copies then selected.
         await press(action(container, "duplicate"));
         expect(pending(container)).toBe("3 pending");
-        const copies = [bar(container, "J-1001-2"), shift(container, "SH-01-2"), stop(container, "S-01-2")];
+        const [job, ...jobs] = copiesOf(container, "data-run", "job", "J-1001");
+        const [early, ...shifts] = copiesOf(container, "data-chip", "shift", "SH-01", C1);
+        expect([jobs, shifts, job, early]).toEqual([[], [], expect.stringMatching(drawnFrom("J-1001")), expect.stringMatching(drawnFrom("SH-01"))]);
+        const copies = [bar(container, job!), shift(container, early!), stop(container, "S-01-2")];
         expect(copies.every((node) => node !== null)).toBe(true);
         expect(copies.map((node) => node!.getAttribute("aria-pressed"))).toEqual(["true", "true", "true"]);
         await press(historyButton(container, UNDO));

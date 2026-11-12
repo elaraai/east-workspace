@@ -70,7 +70,7 @@ import { boundFrame } from "../../sheet/frame.test-utils.js";
 import { PLAN_GEOMETRY } from "../geometry.js";
 import { carry, carrySaid, dragTo, keyOn } from "../plan-move.test-utils.js";
 import { emulateWindowScroll } from "../window-scroll.test-utils.js";
-import { act, el, elementKey, entry, planHarness, rowAt, settle, slot, tabs } from "./harness.test-utils.js";
+import { act, drawnFrom, el, elementKey, entry, madeFrom, planHarness, rowAt, settle, slot, tabs } from "./harness.test-utils.js";
 import { conflictCards, evaluatesAgain } from "../../e3-web-mount.test-utils.js";
 import { editedThroughReload, redrawnThroughReload, savedThroughReload } from "../../shared/save-held.test-utils.js";
 
@@ -264,6 +264,11 @@ const pressRow = (key: string) => entry("presses.span", key);
 const bars = (c: HTMLElement, key: string) => [...slot(c, "main")!.querySelectorAll<HTMLElement>(el("data-run", "job", key))];
 /** A job's bar on a press's row. */
 const bar = (c: HTMLElement, key: string, press: string) => c.querySelector<HTMLElement>(`${rowAt(pressRow(press))} ${el("data-run", "job", key)}`);
+/**
+ * The keys of the jobs a press's row draws that were made from another's key — a template's, a copied job's: the jobs
+ * are read a window at a time, so each is that key and a suffix drawn at random, read here rather than named.
+ */
+const jobsFrom = (c: HTMLElement, from: string, press: string) => madeFrom(c.querySelector<HTMLElement>(rowAt(pressRow(press)))!, "data-run", "job", from);
 /** Whether the canvas draws a press's row. */
 const draws = (c: HTMLElement, press: string) => c.querySelector(rowAt(pressRow(press))) !== null;
 /** The footer's count of the events in the window. */
@@ -744,7 +749,9 @@ describe("the jobs edited, their record never read whole (#1199)", () => {
         expect(caption()).toBe("Brochure run · Press 1004 · Thu, Oct 8, 2026");
         await letGo();
         await settle();
-        expect(named(bar(c, "brochure-2", "P-1004"))).toMatch(/^Brochure run, Oct 8, 2026 – Oct 8, 2026, 06:00/);
+        const [dropped, ...more] = jobsFrom(c, "brochure", "P-1004");
+        expect([more, dropped]).toEqual([[], expect.stringMatching(drawnFrom("brochure"))]);
+        expect(named(bar(c, dropped!, "P-1004"))).toMatch(/^Brochure run, Oct 8, 2026 – Oct 8, 2026, 06:00/);
         // A move across presses: the brochure run (W-0001) from Press 1001 onto Press 1002, the same day.
         y = layOutPlots(c, ["P-1001", "P-1002", "P-1003", "P-1004"]);
         await dragTo(bar(c, "W-0001", "P-1001")!, { x: xAt(0, 9), y: y("P-1001") }, { x: xAt(0, 9), y: y("P-1002") });
@@ -830,11 +837,13 @@ describe("the jobs edited, their record never read whole (#1199)", () => {
         expect(inspectorField(c, "sheets").hasAttribute("data-dirty")).toBe(false);
         // Duplicate: a copy under a new key, selected, every field tinted; Delete takes it away.
         await press(action(c, "duplicate"));
-        expect(bar(c, "W-0001-2", "P-1001")!.getAttribute("aria-pressed")).toBe("true");
+        const [copy, ...more] = jobsFrom(c, "W-0001", "P-1001");
+        expect([more, copy]).toEqual([[], expect.stringMatching(drawnFrom("W-0001"))]);
+        expect(bar(c, copy!, "P-1001")!.getAttribute("aria-pressed")).toBe("true");
         expect(inspectorField(c, "customer").hasAttribute("data-dirty")).toBe(true);
         expect(inspectorField(c, "sheets").hasAttribute("data-dirty")).toBe(true);
         await press(action(c, "delete"));
-        expect(bar(c, "W-0001-2", "P-1001")).toBeNull();
+        expect(bar(c, copy!, "P-1001")).toBeNull();
         // The bulk edit over two jobs: an hour on, one step.
         await select(bar(c, "W-0001", "P-1001")!);
         await select(bar(c, "W-0003", "P-1002")!, true);

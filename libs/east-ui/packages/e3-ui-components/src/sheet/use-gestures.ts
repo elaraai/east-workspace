@@ -47,10 +47,10 @@ export interface SheetInsertFrom {
 export function useSheetGestures(host: SheetHost, sheetDecode: SheetDecode, sheetSession: SheetSession,
     sheetBody: SheetBody, sheetMachine: SheetMachine, sheetWrites: SheetWrites, sheetEffects: SheetEffects) {
     const {
-        canInsertGroups, canInsertRows, columns, declaredNoun, driverColumn, group, keyed, loose, mintAmong,
+        canInsertGroups, canInsertRows, columns, declaredNoun, driverColumn, group, keyed, loose,
     } = sheetDecode;
     const {
-        canEdit, childField, dispatchStore, draftType, editingState, locked, recordGesture, rows, runLayout, session,
+        canEdit, childField, dispatchStore, draftType, editingState, locked, mintAmong, recordGesture, rows, runLayout, session,
         store, takenKeys, ui,
     } = sheetSession;
     const { endPosition, rowAt, rowOf, rowSpace } = sheetBody;

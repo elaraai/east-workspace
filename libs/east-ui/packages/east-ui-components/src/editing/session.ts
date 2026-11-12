@@ -32,12 +32,13 @@
  *
  * @packageDocumentation
  */
-import { ArrayType, BlobType, ConflictError, DictType, East, EastTypeType, OptionType, StringType, StructType, applyFor, decodeBeast2For, diffFor, encodeBeast2For, equalFor, none, parseFor, pathFromString, some, toEastTypeValue, variant, type EastType, type PatchPath, type ValueTypeOf, type option } from "@elaraai/east";
+import { ArrayType, BlobType, ConflictError, DictType, East, EastTypeType, OptionType, StringType, StructType, applyFor, decodeBeast2For, diffFor, encodeBeast2For, equalFor, none, parseFor, pathFromString, printFor, some, toEastTypeValue, variant, type EastType, type PatchPath, type ValueTypeOf, type option } from "@elaraai/east";
 import {
     applyEditing, EditingAppliedTypeFor, EditingApplyResultType, EditingBaseTypeFor, EditingChangeSetTypeFor,
     EditingChangeTypeFor, EditingPlacementType, EditingIssueType, EditingOriginType, EditingPatchEventTypeWith,
 } from "@elaraai/east-ui/internal";
 import { liftDraft, normalizeDraft, type BatchReadiness } from "./draft.js";
+import type { EntryKeys, KnownKeys } from "./keys.js";
 import { EntryMerger, type ConflictPoint } from "./merge.js";
 import { SESSION_TEXT } from "./messages.js";
 import type { AutosaveState } from "./autosave.js";
@@ -412,14 +413,24 @@ export interface EditSessionBinding<W> {
      */
     drawsLanded?: boolean | undefined;
     /**
-     * A new identity for an entry the drafts add whose id the source has come
-     * to hold as another's — added meanwhile by another write (#1583): given
-     * the entry's id and its version, the id it goes on under and its version
-     * there, a new entry still ({@link EditSession.renumbered}). Only for an id
-     * the collection made itself: `undefined` — an id a person or a seed gave —
-     * keeps the two a conflict to choose between. None by default.
+     * How the collection's new entries are keyed (keys.ts): the session makes
+     * each new entry's key by it ({@link EditSession.mint}), holds the key as
+     * its own until the entry is saved ({@link EditSession.ownKeys}), and
+     * makes it another by the same rule where the source comes to hold it as
+     * another's — added meanwhile by another write (#1583): the entry goes on
+     * under the new key, a new entry still ({@link EditSession.renumbered}).
+     * A key the session did not make — one a person typed, one an app built
+     * from the entry itself — keeps the two a conflict to choose between.
+     * None by default: the session makes no key.
      */
-    rekey?: ((id: string, version: EntryVersion<W>) => { readonly id: string; readonly version: EntryVersion<W> } | undefined) | undefined;
+    keys?: EntryKeys | undefined;
+    /**
+     * A new entry's version as it stands under another id, where the session
+     * makes it another key ({@link EditSessionBinding.keys}): what of it names
+     * the entry moved with it — its projection's own id, an identity field its
+     * draft carries. The version as it is, by default.
+     */
+    underKey?: ((id: string, version: EntryVersion<W>, was: string) => EntryVersion<W>) | undefined;
 }
 
 /** An entry a request changes: as its edit began, and as the request leaves it — `none` while it is absent. */
@@ -483,6 +494,11 @@ interface Submission<W> {
 type Transform = (collection: unknown, batch: Batch, revision: ValueTypeOf<OptionType<StringType>>) => Applied;
 
 const placementEqual = equalFor(OptionType(EditingPlacementType));
+/**
+ * How many keys a session has made that no gesture has recorded an entry under are still the session's to make its
+ * own ({@link EditSession.mint}): past them the oldest is forgotten — a key no one's, as one a gesture gave up.
+ */
+const OFFERED_KEYS = 64;
 /**
  * How many times in a row a Save the source refused because another write got
  * there first is sent again by the session itself, once its drafts carry over
@@ -571,6 +587,18 @@ export function keyReader(keyType: EastType): (id: string) => unknown {
         const read = parse(id);
         return read.success ? read.value : undefined;
     };
+}
+
+/**
+ * How a keyed source's key is named (#880): a String key is its own id, any
+ * other key its `.east` printing — what {@link keyReader} reads back.
+ *
+ * @param keyType - The source's key type
+ * @returns A key's id
+ */
+export function keyPrinter(keyType: EastType): (key: unknown) => string {
+    if (keyType.type === "String") return key => key as string;
+    return printFor(toEastTypeValue(keyType)) as (key: unknown) => string;
 }
 
 /** Opaque 128-bit IDs for cross-tab deduplication, including HTTP showcases.
@@ -712,6 +740,32 @@ export class EditSession<W> {
     private landedEntries = new Map<string, LandedEntry<W>>();
     /** Each new entry the last carry-over gave a new id, by the id it had ({@link EditSession.renumbered}). */
     private renumberedIds: ReadonlyMap<string, string> = new Map();
+    /**
+     * The keys the session made for new entries ({@link EditSession.mint}), each with the id it was made from: its own
+     * while its drafts add their entries ({@link EditSession.ownKeys}).
+     */
+    private minted = new Map<string, string | undefined>();
+    /**
+     * The keys the session made that no gesture has recorded an entry under yet, each with the id it was made from: a
+     * gesture given up — a drop refused, a check of whether a copy can be made — leaves its key no one's. The newest
+     * few alone ({@link OFFERED_KEYS}): a builder that asks for a key as it draws asks for many it never uses.
+     */
+    private readonly offered = new Map<string, string | undefined>();
+    /**
+     * The keys the session has learned its source holds as another write's: each one a new entry of its own was made
+     * another key for ({@link EditSession.merge}). No key is made under one again: over a source the session does not
+     * hold whole, a rule that makes each key from the same start would come back to the first once the entry had left
+     * it, the source refuse it again, and the entry go between the two for good, never saved.
+     */
+    private readonly taken = new Set<string>();
+    /**
+     * A source held whole, as it was last observed ({@link EditSession.observeBase}): the session's own base, or a
+     * later collection its drafts have still to move to while a request of their own is unresolved. A new entry's key
+     * is made past its keys ({@link EditSession.mint}): its host begins a gesture from the collection as it reads now,
+     * so a key made past the session's own base alone could be one another write has added since, and the new entry
+     * would begin from that write's and be saved over it. `undefined` for a source at a revision, which holds none.
+     */
+    private seen: Extract<Base, { type: "snapshot" }> | undefined;
     /** Each drafted entry's view, by its original and its draft: the same object while both hold (#1437). */
     private draftedViews = new WeakMap<EntryVersion<W>, WeakMap<EntryVersion<W>, DraftedEntry<W>>>();
     /** The drafts as last read, at the session's version and base: the same object while neither moves (#1437). */
@@ -1138,11 +1192,142 @@ export class EditSession<W> {
     /**
      * Each new entry the last carry-over gave a new id, by the id it had
      * (#1583): the source had come to hold that one as another's, and the
-     * collection made the entry another ({@link EditSessionBinding.rekey}).
-     * A new map at each carry-over — empty where none was — so a host says so
-     * once.
+     * session made the entry another by its collection's rule
+     * ({@link EditSessionBinding.keys}). A new map at each carry-over — empty
+     * where none was — so a host says so once, and moves on what it holds by
+     * the id the entry had: its selection.
      */
     get renumbered(): ReadonlyMap<string, string> { return this.renumberedIds; }
+
+    /**
+     * A key for a new entry, by the collection's rule
+     * ({@link EditSessionBinding.keys}): past every key the drafts hold — one
+     * they remove among them, which the source holds until the removal is
+     * saved — every key a Save landed that its host has yet to show, every
+     * key the session has learned is another write's, every key of a source
+     * held whole, as it was last observed, and `also`. The key is the
+     * session's own once a gesture records its entry
+     * ({@link EditSession.ownKeys}); a gesture given up leaves it no one's.
+     *
+     * @param from - The id the entry is made from — a template's, a copied entry's — where it is made from one
+     * @param also - Keys taken beside those the session knows of: those a gesture has made already
+     * @returns The key's id; `undefined` where the collection has no rule, or its rule makes none now
+     * @throws Whatever the collection's rule throws to refuse the gesture
+     */
+    mint(from?: string, also?: ReadonlySet<string>): string | undefined {
+        const keys = this.binding.keys;
+        if (keys === undefined) return undefined;
+        const id = keys.make(this.knownKeys(this.seen ?? this.base, also), from, undefined);
+        if (id === undefined) return undefined;
+        // Its own once a gesture records its entry: until then, the newest of the keys it has made and not used.
+        this.offered.delete(id);
+        this.offered.set(id, from);
+        for (const oldest of this.offered.keys()) {
+            if (this.offered.size <= OFFERED_KEYS) break;
+            this.offered.delete(oldest);
+        }
+        return id;
+    }
+
+    /**
+     * The keys the session made that are its own still, each with the id it
+     * was made from: those of the new entries its drafts add. A key whose
+     * entry is saved is the source's, and one whose entry the drafts no
+     * longer add — undone, discarded — is no one's. What a reload keeps with
+     * the drafts (keep.ts), so a new entry whose key another write takes is
+     * given another after it as before it.
+     *
+     * A key a request not yet resolved holds is none of them: where the page
+     * reloads before the request's answer, the source may hold the entry as
+     * the request left it, which nothing tells from another write's — made
+     * another key then, an entry whose Save landed would be saved twice.
+     * Restored as a key the session did not make, its entry is no draft
+     * where the source holds it whole, and a conflict to choose where it
+     * holds it otherwise, as an entry under a key a person typed is.
+     */
+    get ownKeys(): ReadonlyMap<string, string | undefined> {
+        const out = new Map<string, string | undefined>();
+        const sent = this.submission?.targets;
+        for (const [id, from] of this.minted) if (this.adds(id) && sent?.has(id) !== true) out.set(id, from);
+        return out;
+    }
+
+    /**
+     * Restore the keys the session made, kept through a reload with its
+     * drafts ({@link EditSession.restore}), before the session's first base.
+     *
+     * @param keys - Each key it made, with the id it was made from
+     * @returns Whether they are restored: `false` once the session has a base
+     */
+    restoreOwnKeys(keys: ReadonlyMap<string, string | undefined>): boolean {
+        if (this.base !== undefined) return false;
+        this.minted = new Map(keys);
+        return true;
+    }
+
+    /** Whether the drafts add an entry: one they hold that the source, as the session began from it, does not. */
+    private adds(id: string): boolean {
+        return this.current.get(id)?.draft !== undefined && this.baseline.get(id)?.draft === undefined;
+    }
+
+    /** Forgets the keys the session made whose entries its drafts no longer add, once nothing is left to step back to them with. */
+    private forgetMade(): void {
+        for (const id of [...this.minted.keys()]) if (!this.adds(id)) this.minted.delete(id);
+    }
+
+    /**
+     * The keys a new one must not be, as far as the session knows: those its drafts hold and those they began from —
+     * an entry the drafts remove among them, the source's until that is saved — those a Save landed that its host has
+     * yet to show ({@link EditSession.landed}), the source's by then and no draft's any more; those it has learned the
+     * source holds as another write's, a new entry of its own made another key for each; those of a base the session
+     * holds whole; and `also`. A new entry made under a key a Save just landed would begin from that Save's entry
+     * ({@link EditSession.startOf}) and be saved over it.
+     */
+    private knownKeys(base: Base | undefined, also: { has(id: string): boolean; [Symbol.iterator](): Iterator<string> } | undefined): KnownKeys {
+        const { current, baseline, landedEntries, taken } = this;
+        const holds = (id: string): boolean => current.get(id)?.draft !== undefined || baseline.get(id)?.draft !== undefined
+            || landedEntries.get(id)?.after.draft !== undefined || taken.has(id);
+        const snapshot = base?.type === "snapshot" ? base.value : undefined;
+        const printKey = this.binding.keyType === undefined ? undefined : keyPrinter(this.binding.keyType);
+        const idField = this.binding.idField;
+        return {
+            has: (id) => also?.has(id) === true || holds(id) || (snapshot !== undefined && this.inSnapshot(snapshot, id).type === "some"),
+            ids: function* () {
+                if (also !== undefined) yield* also;
+                for (const id of current.keys()) if (holds(id)) yield id;
+                for (const id of baseline.keys()) if (holds(id)) yield id;
+                for (const id of landedEntries.keys()) if (holds(id)) yield id;
+                yield* taken;
+                if (snapshot === undefined) return;
+                if (printKey !== undefined) for (const key of (snapshot as ReadonlyMap<unknown, unknown>).keys()) yield printKey(key);
+                else if (idField !== undefined) for (const entry of snapshot as readonly Record<string, unknown>[]) yield entry[idField] as string;
+            },
+        };
+    }
+
+    /**
+     * Another key for a new entry whose own the source has come to hold as another's (#1583), and the entry's version
+     * under it: made by the collection's rule from the id the first was made from, past every key known taken and
+     * every one this carry-over has given already. None for a key the session did not make, or where its rule makes no
+     * other — it throws, or answers none: the two entries are a conflict then.
+     */
+    private remade(id: string, version: EntryVersion<W>, base: Base, given: ReadonlyMap<string, unknown>): { readonly id: string; readonly version: EntryVersion<W> } | undefined {
+        const keys = this.binding.keys;
+        if (keys === undefined || !this.minted.has(id)) return undefined;
+        const from = this.minted.get(id);
+        const known = this.knownKeys(base, undefined);
+        let next: string | undefined;
+        try {
+            next = keys.make({ has: (other) => stringEqual(other, id) || given.has(other) || known.has(other), ids: function* () { yield id; yield* given.keys(); yield* known.ids(); } }, from, id);
+        } catch {
+            next = undefined;
+        }
+        if (next === undefined || stringEqual(next, id) || given.has(next) || known.has(next)) return undefined;
+        this.minted.set(next, from);
+        // The source's, as another write's: no key is made under it again.
+        this.taken.add(id);
+        return { id: next, version: this.binding.underKey?.(next, version, id) ?? version };
+    }
 
     /**
      * The host's rows show these entries as the source holds them now — read
@@ -1353,6 +1538,8 @@ export class EditSession<W> {
      * @param base - The base the source is at now
      */
     observeBase(base: Base): void {
+        // Held whole, the collection as it reads now: what a new entry's key is made past, whatever base the drafts stand at.
+        this.seen = base.type === "snapshot" ? base : undefined;
         if (this.base === undefined) {
             this.base = this.cloneBase(base);
             const kept = this.restoring;
@@ -1365,6 +1552,7 @@ export class EditSession<W> {
         if (this.pending === 0) {
             this.base = this.cloneBase(base);
             this.baseline.clear(); this.current.clear(); this.ancestors.clear(); this.forgetConflicts(); this.history = []; this.cursor = 0;
+            this.minted.clear();
             this.moving = undefined; this.stale = false; this.accepted = 0; this.unaccepted = false; this.drafted = 0;
             // What the last request left to say — a refusal, its issues — was of drafts taken back since, while they were
             // being carried over: with none left to carry, no merge ends it, and it would stand over no draft.
@@ -1399,8 +1587,8 @@ export class EditSession<W> {
      * draft the source's value now holds whole is no draft any more. The
      * history starts over at the drafts: an undo would take an entry back to
      * its version at the old base. A new entry whose id the source has come to
-     * hold as another's goes on under a new id, where its collection makes one
-     * ({@link EditSessionBinding.rekey}), and is no conflict. A Save the
+     * hold as another's goes on under a new id, where the session made the
+     * first ({@link EditSession.mint}), and is no conflict. A Save the
      * source refused because another write got there first is sent again,
      * once its drafts carry over with nothing to choose — a few times in a row
      * at most ({@link RESENDS}).
@@ -1440,9 +1628,9 @@ export class EditSession<W> {
             const original = this.baseline.get(id) ?? ABSENT;
             const now = carrying.read.get(id)!;
             // A new entry whose id another write added meanwhile is a second new entry, not the same one changed both
-            // ways: either choice between them would lose one. Where the collection made the id, it makes another.
-            const moved = original.draft === undefined && mine.draft !== undefined && now.type === "some" ? this.binding.rekey?.(id, mine) : undefined;
-            if (moved !== undefined && !this.current.has(moved.id) && !current.has(moved.id)) {
+            // ways: either choice between them would lose one. Where the session made the id, it makes another.
+            const moved = original.draft === undefined && mine.draft !== undefined && now.type === "some" ? this.remade(id, mine, base, current) : undefined;
+            if (moved !== undefined) {
                 baseline.set(moved.id, ABSENT);
                 current.set(moved.id, moved.version);
                 renumbered.set(id, moved.id);
@@ -1472,6 +1660,7 @@ export class EditSession<W> {
         this.base = this.cloneBase(base);
         this.baseline = baseline; this.current = current; this.ancestors = ancestors; this.forgetConflicts(); this.said = said;
         this.renumberedIds = renumbered;
+        this.forgetMade();
         this.moving = undefined;
         this.history = []; this.cursor = 0; this.accepted = 0; this.unaccepted = waits && current.size > 0;
         this.drafted = stepped && current.size > 0 ? undefined : 0;
@@ -1759,6 +1948,12 @@ export class EditSession<W> {
         if (this.unaccepted && this.pending === 0) this.unaccepted = false;
         for (const [id, entry] of before) if (!this.baseline.has(id)) this.baseline.set(id, entry);
         for (const [id, entry] of after) this.current.set(id, entry);
+        // A key the session made, its entry recorded: its own from here ({@link EditSession.ownKeys}).
+        for (const id of after.keys()) {
+            if (!this.offered.has(id)) continue;
+            this.minted.set(id, this.offered.get(id));
+            this.offered.delete(id);
+        }
         this.draftsChanged();
         const last = this.cursor > 0 && this.cursor === this.history.length ? this.history[this.cursor - 1] : undefined;
         if (joins !== undefined && last?.joins !== undefined && stringEqual(last.joins, joins) && last.ancestors === undefined && last.settled === undefined) {
@@ -1816,6 +2011,7 @@ export class EditSession<W> {
         if (carried) { this.baseline.clear(); this.current.clear(); this.draftsChanged(); }
         this.ancestors.clear(); this.forgetConflicts(); this.moving = undefined; this.again = false;
         this.history = []; this.cursor = 0; this.stale = false; this.accepted = 0; this.unaccepted = false; this.automatic = false;
+        this.minted.clear();
         this.drafted = 0;
         this.status = "idle"; this.issues = []; this.error = undefined; this.conflicted = undefined;
         this.changed();
@@ -2268,6 +2464,7 @@ export class EditSession<W> {
         this.baseline = baseline; this.current = current; this.ancestors = ancestors;
         this.history = []; this.cursor = 0; this.accepted = 0; this.unaccepted = waits && current.size > 0;
         this.drafted = stepped && current.size > 0 ? undefined : 0;
+        this.forgetMade();
         this.draftsChanged();
     }
 

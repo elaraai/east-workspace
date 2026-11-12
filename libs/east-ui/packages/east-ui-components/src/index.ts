@@ -615,7 +615,10 @@ export {
 // whose entries live in several sources keeps a session per source and one
 // history over them (#1194): the Plan's event kinds, the Calendar's. A session's
 // drafts are kept through a reload of the tab where its builder says how its
-// projection of an entry is typed (`wireType`): a ref's, `EntryRefType`.
+// projection of an entry is typed (`wireType`): a ref's, `EntryRefType`. A
+// new entry's key is its session's to make (`EditSession.mint`), by the rule
+// its builder binds — the shared ones here (`keys.ts`) — and to make again
+// where another write takes it (#1583).
 export {
     EditSession,
     EditHistory,
@@ -624,6 +627,13 @@ export {
     useEditHistory,
     historyKeyOf,
     EntryRefType,
+    drawnFromKeys,
+    madeFromKeys,
+    nextIntegerKeys,
+    onceKeys,
+    pastKeys,
+    placeholderKeys,
+    randomKeys,
     liftDraft,
     historyToolbarItem,
     historyShortcut,
@@ -647,8 +657,10 @@ export {
     type EditingWords,
     type EditSessionBinding,
     type EditSessionOptions,
+    type EntryKeys,
     type EntryUpdate,
     type EntryVersion,
+    type KnownKeys,
     type HeldRows,
     type HistoryAction,
     type HistoryBarProps,

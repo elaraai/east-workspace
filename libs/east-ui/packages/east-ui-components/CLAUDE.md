@@ -656,6 +656,61 @@ component, nothing in east-ui.
   read at another revision than the one their source reads at now are from
   before it, and a count read at a revision holds it already
   (`sheet/local-rows.ts`' `layerCounts`).
+- **A new entry's key is the session's to make** (`src/editing/keys.ts`,
+  `EditSession.mint`; ruled 12 Nov 2026: in the session, never in the
+  builders). A session is bound to a rule (`EditSessionBinding.keys`, an
+  `EntryKeys`) and makes every new entry's key by it, past every key it knows
+  taken: those its drafts hold — one they remove among them, the source's
+  until that is saved — those a Save landed that its host has yet to show,
+  those it has learned are another write's, every key of a source held whole
+  as it was last observed — never the base its drafts stand at alone, an
+  older collection while a request is unresolved — and what the gesture says
+  it has made already. A new entry under a key a row stands under would begin
+  from that row and be saved over it. A key is handled as its id, its text (a
+  String key itself, any other as East prints it), so a rule keys a source of
+  any key type. The shared rules:
+  - `randomKeys`: a UUID.
+  - `madeFromKeys`: `<from>-2`, from a template's key or a copied entry's —
+    for a source the session holds whole.
+  - `drawnFromKeys`: `<from>-` and eight hex digits drawn at random — for a
+    source read a window at a time, where the next in a row is as often as
+    not an earlier copy's out of view: the session knows none of the source's
+    keys but those it has met.
+  - `nextIntegerKeys`: one past the largest, the host adding the largest key
+    of a source read a window at a time.
+  - `placeholderKeys`: a text no key prints as, for a key a person types.
+  - `pastKeys`: any of them, past the keys its host shows rows under — what
+    a session over a source read a window at a time is bound to, so a new
+    entry is never drawn over a row on the page.
+  - `onceKeys`: any of them, made once (below).
+
+  A builder whose app gives its own rule binds that (the Sheet's `newKey`,
+  given the keys of the rows the Sheet has read). The key is the session's
+  own once a gesture records its entry — one asked for and never used, a
+  drop refused or a check of whether a copy can be made, is no one's — and
+  while its drafts add the entry and no request holds it (`ownKeys`): kept
+  through a reload beside the drafts (keep.ts, under a key of its own, so
+  kept drafts read as every release wrote them). Where the source comes to
+  hold it as another's — added meanwhile by another write, or held all along
+  out of view and refused at Save — the session makes the entry another by
+  the same rule (`merge`), and never again one it has learned is taken: two
+  sessions that each add an entry may be given the same key, and the two are
+  two new entries, never one changed both ways — a choice between them would
+  lose one. The entry goes on under the new key as its builder says it stands
+  there (`underKey`: its projection's id, an identity field its draft
+  carries), and the session says so once (`renumbered`), for its builder to
+  tell its person, and to move on what it holds by the old key — a selection
+  left there would open the other write's entry. These leave the two a
+  conflict — or no draft, where the source holds the entry whole: a key the
+  session did not make (one a person typed, one an app built from the entry
+  itself, a draft's kept by a release that kept none); a key a request not
+  yet resolved held as the page reloaded, since the source may hold the entry
+  as that request left it, which nothing tells from another write's — made
+  another key, an entry whose Save landed would be saved twice; a row saved,
+  removed and put back by Undo under its key, which another write took once
+  the removal was saved; and a rule that can make no other. `onceKeys` makes
+  a key and never another: for entries other drafts name by key (a transition
+  its states), whose names a new key would leave on the other write's entry.
 - **Where a gesture begins** (`EditSession.startOf`, ruled 11 Nov 2026). An edit starts from the row its person is
   looking at, captured at the entry's first change: the session's own version of it; else what its last Save left of
   it, while its host has yet to show that Save (`landed`) — the host's rows are from before the commit then; else the
@@ -757,8 +812,21 @@ component, nothing in east-ui.
     source read whole waited for good, every part it wrote put back exactly, and those in which a Save's late answer
     put its source back at the revision the Save committed, its rows drawn there. Each is a fault still to close,
     never a behaviour to keep.
+  - **A new entry's key** (`keys-world.test-utils.ts`, run by `keys-model.test.ts`): sessions that each make their new
+    rows' keys by one rule — the next in a row, or the next Integer — beside another session that saves rows of its own
+    under the very keys that rule makes, over a source read a revision at a time — where such a row may stand out of
+    view, shown by no page, found taken only as a Save is refused — or whole: rows made, changed and removed, Undo,
+    Redo, Save and every way its request can go, and the page reloaded with its drafts and its keys kept. Every row carries a tag nothing changes, so it is followed whatever key it comes to stand under. It holds: a
+    key made is free — never one the session holds a row under, one its last Save landed, one the page shows a row
+    under, nor, read whole, one the collection as last read holds; no row is saved over one someone keeps, and none
+    twice; a key the session made for a row still to save is never a conflict to choose; each row a person made is on
+    their screen under one key, at the value they put it at; and at rest every row made and kept is in the record
+    once, every row another session added there as it was added. A person is asked to choose only over a key their
+    session does not hold as its own — after a page reloaded with a Save unresolved, and where a row saved, removed
+    and put back by Undo finds its key taken — and a world where someone was is held to this alone: no row is saved
+    twice, and it converges.
   - **What it does not model yet:** a source that is an ordered list (an Array with an identity field, its entries
-    placed before and after one another), ranges settled together, and an entry given a new key.
+    placed before and after one another), and ranges settled together.
   - **Using it.** A change to `session.ts`, `history.ts` or `merge.ts` runs it deeper before it lands
     (`EDITING_MODEL_DEPTH=1 EDITING_MODEL_RUNS=20`, some ten minutes, and `EDITING_MODEL_STATES=1`, each family's
     larger budgets, some tens of minutes; `--silent=false --reporter=verbose` shows what each exploration covered). A fault it finds is added to its replays, by name, each proved to fail over the code

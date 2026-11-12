@@ -47,6 +47,7 @@ export {
 } from "./use-edit-history.js";
 export { historyKeyOf } from "./kept.js";
 export { EntryRefType } from "./keep.js";
+export { drawnFromKeys, madeFromKeys, nextIntegerKeys, onceKeys, pastKeys, placeholderKeys, randomKeys, type EntryKeys, type KnownKeys } from "./keys.js";
 export {
     liftDraft,
     normalizeDraft,

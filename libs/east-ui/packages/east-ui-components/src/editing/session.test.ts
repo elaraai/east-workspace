@@ -20,6 +20,7 @@ import {
 import { Editing } from "@elaraai/east-ui/internal";
 import { liftDraft } from "./draft.js";
 import { editingMessages } from "./messages.js";
+import { madeFromKeys, randomKeys, type EntryKeys } from "./keys.js";
 import { EditSession, type EditSessionBinding, type EntryVersion, type HeldRows, type Origin, type Placement } from "./session.js";
 
 const Run = StructType({ id: StringType, start: IntegerType, end: IntegerType });
@@ -864,48 +865,142 @@ test("a refused Save carried over again before it is sent again goes once, at th
     expect([dropped.session.pending, dropped.bases]).toEqual([0, ["r1"]]);
 });
 
-test("a new entry whose key another write added meanwhile goes on under a key its collection makes again — a new entry still, sent again with nothing to choose; with no new key, the two are a conflict (#1583)", async () => {
-    const adding = (rekey: EditSessionBinding<Bar>["rekey"]) => {
-        const sent: string[][] = [];
-        const session = new EditSession<Bar>({
-            sourceId: "jobs", entryType: Job, draftType: JobDraft, keyType: StringType, rekey,
-            apply: (bytes) => {
-                sent.push(decodeBeast2For(JobBatch)(bytes).changes.map((change) => change.id));
-                return sent.length === 1 ? lastConflict() : variant("applied", { revision: some("r3") });
-            },
-            patch: undefined, refresh: undefined,
-        });
-        session.observeBase(variant("revision", "r1"));
-        session.record([{ id: "J4", before: absentJob, after: job(spray) }], "insert", "Insert row");
-        return { session, sent };
-    };
-    // Another write added J4 before this Save of a new J4 landed: the record holds theirs there now.
-    const theirs = (id: string) => (id === "J4" ? some(route) : none);
+// ── A new entry's key, the session's own (#1583) ─────────────────────────────
 
-    const made = adding((id, version) => (id === "J4" ? { id: "J5", version: { ...version, wire: { key: "J5", caption: version.wire!.caption } } } : undefined));
+/** The jobs' own rule for a new key: the first `J<n>` not taken — the record holds J1 to J3. */
+const jobKeys: EntryKeys = {
+    make: (known) => {
+        for (let n = 1; ; n++) {
+            const id = `J${n}`;
+            if (n > 3 && !known.has(id)) return id;
+        }
+    },
+};
+/** A session over the jobs at a revision, its Saves recorded: the first refused for another write, the rest applied. */
+const adding = (overrides: Partial<EditSessionBinding<Bar>> = {}) => {
+    const sent: string[][] = [];
+    const session = new EditSession<Bar>({
+        sourceId: "jobs", entryType: Job, draftType: JobDraft, keyType: StringType, keys: jobKeys,
+        // Its bar is named after its key: under another key, it is another bar.
+        underKey: (id, version) => ({ ...version, wire: { key: id, caption: version.wire!.caption } }),
+        apply: (bytes) => {
+            sent.push(decodeBeast2For(JobBatch)(bytes).changes.map((change) => change.id));
+            return sent.length === 1 ? lastConflict() : variant("applied", { revision: some("r3") });
+        },
+        patch: undefined, refresh: undefined, ...overrides,
+    });
+    session.observeBase(variant("revision", "r1"));
+    return { session, sent };
+};
+/** A job added under an id, its bar named after the id. */
+const added = (session: EditSession<Bar>, id: string, value: JobValue = spray): void => {
+    session.record([{ id, before: absentJob, after: { ...job(value), wire: { key: id, caption: `${value.qty}` } } }], "insert", "Insert row");
+};
+/** Another write added J4 before this session's own J4 was saved: the record holds theirs there now. */
+const theirJ4 = (id: string) => (id === "J4" ? some(route) : none);
+
+test("the session makes a new entry's key by its collection's rule: past every key its drafts hold and a gesture has made already — and none where the collection has no rule", () => {
+    const { session } = adding();
+    expect(session.mint()).toBe("J4");
+    // Not taken until its entry is recorded: a gesture given up leaves the key free.
+    expect(session.mint()).toBe("J4");
+    added(session, "J4");
+    expect(session.mint()).toBe("J5");
+    // A gesture that adds several says which it has made.
+    expect(session.mint(undefined, new Set(["J5", "J6"]))).toBe("J7");
+    // A draft that removes an entry holds its key still: the record does, until the removal is saved.
+    session.record([{ id: "J5", before: job(band), after: absentJob }], "remove", "Delete row");
+    expect(session.mint()).toBe("J6");
+    expect(adding({ keys: undefined }).session.mint()).toBeUndefined();
+});
+
+test("a key is made past the keys of a source the session holds whole, and from the key the entry is made from", () => {
+    const session = new EditSession<Bar>({
+        sourceId: "jobs", entryType: Job, draftType: JobDraft, keyType: StringType, keys: madeFromKeys(randomKeys()),
+        apply: () => variant("applied", { revision: none }), patch: undefined, refresh: undefined,
+    });
+    session.observeBase(variant("snapshot", jobs([["brackets", cut], ["brackets-2", band]])));
+    expect(session.mint("brackets")).toBe("brackets-3");
+});
+
+test("a new entry under a key the session made, which another write added meanwhile, goes on under the next its rule makes — a new entry still, sent again with nothing to choose; under a key it did not make, the two are a conflict (#1583)", async () => {
+    const made = adding();
+    added(made.session, made.session.mint()!);
+    expect([...made.session.ownKeys.keys()]).toEqual(["J4"]);
     await made.session.apply();
     expect(made.session.status).toBe("conflict");
     made.session.observeBase(variant("revision", "r2"));
-    expect(made.session.merge(variant("revision", "r2"), theirs)).toBe("merged");
-    // Mine goes on as J5, new to the record still; theirs stands as J4, and nothing waits to be chosen.
+    expect(made.session.merge(variant("revision", "r2"), theirJ4)).toBe("merged");
+    // Mine goes on as J5, new to the record still, its bar with it; theirs stands as J4, and nothing waits to be chosen.
     expect([...made.session.entries.keys()]).toEqual(["J5"]);
     expect(made.session.originals.get("J5")!.draft).toBeUndefined();
     expect(made.session.entries.get("J5")!.wire).toEqual({ key: "J5", caption: "6" });
     expect([...made.session.renumbered]).toEqual([["J4", "J5"]]);
-    expect(made.session.unsettled).toBe(0);
+    expect([made.session.unsettled, [...made.session.ownKeys.keys()]]).toEqual([0, ["J5"]]);
     await answered();
     // Sent again by itself: J5 added.
     expect([made.session.status, made.sent]).toEqual(["reconciling", [["J4"], ["J5"]]]);
 
-    // A key its collection did not make — a person's, or a seed's — makes no new one: the two are a conflict at the entry.
-    const given = adding(() => undefined);
+    // A key the session did not make — a person's, or a seed's — is given no other: the two are a conflict at the entry.
+    const given = adding();
+    added(given.session, "J4");
+    expect(given.session.ownKeys.size).toBe(0);
     await given.session.apply();
     given.session.observeBase(variant("revision", "r2"));
-    expect(given.session.merge(variant("revision", "r2"), theirs)).toBe("merged");
+    expect(given.session.merge(variant("revision", "r2"), theirJ4)).toBe("merged");
     expect([...given.session.entries.keys()]).toEqual(["J4"]);
     expect([given.session.renumbered.size, given.session.unsettled]).toEqual([0, 1]);
     await answered();
     expect(given.sent).toEqual([["J4"]]);
+});
+
+test("a rule that can make no other key — it throws, or makes none — leaves the two entries a conflict, the drafts carried over all the same", () => {
+    for (const failing of [() => { throw new Error("no key"); }, () => undefined]) {
+        let fails = false;
+        const { session } = adding({ keys: { make: (known, from, taken) => (fails ? failing() : jobKeys.make(known, from, taken)) } });
+        added(session, session.mint()!);
+        fails = true;
+        session.observeBase(variant("revision", "r2"));
+        expect(session.merge(variant("revision", "r2"), theirJ4)).toBe("merged");
+        expect([[...session.entries.keys()], session.unsettled, session.renumbered.size]).toEqual([["J4"], 1, 0]);
+    }
+});
+
+test("the keys a session made are its own only while its drafts add their entries: one undone, discarded or saved is its own no more", async () => {
+    const { session } = adding({ apply: () => variant("applied", { revision: some("r2") }) });
+    added(session, session.mint()!);
+    expect([...session.ownKeys]).toEqual([["J4", undefined]]);
+    session.undo();
+    expect(session.ownKeys.size).toBe(0);
+    session.redo();
+    expect([...session.ownKeys.keys()]).toEqual(["J4"]);
+    session.discard();
+    expect(session.ownKeys.size).toBe(0);
+    // Saved: the record's own entry, whose key is no draft's to make again.
+    added(session, session.mint()!);
+    await session.apply();
+    session.observeBase(variant("revision", "r2"));
+    session.reconcile(variant("revision", "r2"), (id) => (id === "J4" ? some(spray) : none));
+    expect([session.pending, session.ownKeys.size]).toEqual([0, 0]);
+});
+
+test("the keys a session made are kept with its drafts through a reload: restored, a new entry whose key another write took meanwhile goes on under the next, as before the reload", () => {
+    const before = adding();
+    added(before.session, before.session.mint("template")!);
+    const kept = { entries: before.session.keptEntries, own: before.session.ownKeys };
+    expect([...kept.own]).toEqual([["J4", "template"]]);
+    // The page loads again: the drafts and the keys the session made, restored before its first base.
+    const { session } = adding();
+    const reloaded = new EditSession<Bar>({
+        sourceId: "jobs", entryType: Job, draftType: JobDraft, keyType: StringType, keys: jobKeys,
+        apply: () => variant("applied", { revision: none }), patch: undefined, refresh: undefined,
+    });
+    expect(session.restoreOwnKeys(kept.own)).toBe(false);
+    expect(reloaded.restore(kept.entries)).toBe(true);
+    expect(reloaded.restoreOwnKeys(kept.own)).toBe(true);
+    reloaded.observeBase(variant("revision", "r2"));
+    expect(reloaded.merge(variant("revision", "r2"), theirJ4)).toBe("merged");
+    expect([[...reloaded.entries.keys()], [...reloaded.renumbered], reloaded.unsettled, [...reloaded.ownKeys]]).toEqual([["J5"], [["J4", "J5"]], 0, [["J5", "template"]]]);
 });
 
 // ── Drafts carried over a source that moved (#1438) ─────────────────────────

@@ -31,6 +31,12 @@
  *   kept, the next Save removes it; let go, the row is back as the other
  *   session left it and nothing is left to save.
  *
+ * - {@link addedOnBothSides}: a row added here under a key the builder made,
+ *   which another session saves a row of its own under, is a second new row,
+ *   never the same one changed both ways — either choice between them would
+ *   lose one. It goes on under another key the builder makes: both drawn,
+ *   nothing to choose, and Save keeps both.
+ *
  * A conflict's card names its row as the builder names it — its name, never
  * its key — whether the builder draws the row or the draft removed it.
  *
@@ -283,4 +289,70 @@ export async function removedHere(check: RemovedHereChangedThere, choice: "draft
     await settle();
     expect(await check.held(), "the record holds the row no more").toBe(false);
     expect(check.drawn(), "saved, the row is off the builder").toBe(false);
+}
+
+/** What a builder gives the check of a row added here under a key it makes, which another session saves a row under. */
+export interface AddedHere {
+    /** The file's e3 (`h.e3`). */
+    readonly e3: TestE3;
+    /** The builder's container. */
+    readonly container: HTMLElement;
+    /** The builder's own reads of the record the row is added to, which the check holds ({@link RemoteRow.reads}). */
+    readonly reads: E3Match;
+    /** A row added here under a key the builder makes: a gesture, as a person makes it — its steps, where it takes more than one act. */
+    readonly add: (() => void | Promise<void>) | readonly (() => void | Promise<void>)[];
+    /** The keys of the rows the builder draws that its drafts add, in the order it draws them. */
+    readonly added: () => readonly string[];
+    /** Whether the builder draws a row under a key — one the record holds, or one its drafts add. */
+    readonly drawn: (key: string) => boolean;
+    /** Another session's own new row, saved under a key: a commit of the record, the page then settled. */
+    readonly theirAddition: (key: string) => Promise<void>;
+    /** The keys the record holds now. */
+    readonly heldKeys: () => Promise<readonly string[]>;
+}
+
+/**
+ * A row added here under a key the builder made, which another session saves a row of its own under (see the module
+ * docs): the row added here goes on under another key — while the builder's own reads are held, as they land one at a
+ * time, and once they have all landed — with nothing to choose; both are drawn, and Save keeps both.
+ *
+ * @param check - The builder's e3, its container, its reads, the addition here and the other session's
+ * @returns Once the row added here stands under its new key, and is saved beside the other session's
+ * @throws An assertion's error where a conflict is asked, the row added here leaves, or the record ends without either row
+ */
+export async function addedOnBothSides(check: AddedHere): Promise<void> {
+    await made(check.add);
+    const [mine, ...others] = check.added();
+    expect([mine === undefined, others], "one row is added here, and drawn").toEqual([false, []]);
+    expect(unsaved(check.container), "the addition waits to be saved").toBe(true);
+    const held = check.e3.hold(check.reads);
+    let moved: string | undefined;
+    try {
+        await check.theirAddition(mine!);
+        // The row added here is a second new row: it goes on under another key the builder makes, and nothing is asked.
+        await waitFor(() => {
+            const now = check.added();
+            expect([now.length, now[0] !== mine, check.container.querySelector("[data-conflicts]")], "the row added here goes on under another key, nothing to choose").toEqual([1, true, null]);
+        }, { timeout: 5_000 });
+        moved = check.added()[0]!;
+        for (let n = 1; held.held > 0 && n <= MOST_READS; n++) {
+            await act(async () => { held.releaseOne(); });
+            await settle();
+            expect([check.added(), check.container.querySelector("[data-conflicts]")], `once ${n} of the builder's reads of the record landed, the rest held`).toEqual([[moved], null]);
+        }
+    } finally {
+        await act(async () => { held.release(); });
+    }
+    await settle();
+    await waitFor(() => expect(check.drawn(mine!), "the other session's row is drawn under the key it took").toBe(true), { timeout: 5_000 });
+    expect([check.added(), check.container.querySelector("[data-conflicts]")], "once the builder's reads of the record have landed").toEqual([[moved], null]);
+    // Save keeps both.
+    expect(off(historyButton(check.container, editingMessages.apply())), "Save is on").toBe(false);
+    await act(async () => { fireEvent.click(historyButton(check.container, editingMessages.apply())); });
+    await settle();
+    await waitFor(() => expect(unsaved(check.container), "the row added here is saved").toBe(false), { timeout: 5_000 });
+    await settle();
+    const keys = await check.heldKeys();
+    expect([keys.includes(mine!), keys.includes(moved)], "the record holds both rows").toEqual([true, true]);
+    expect([check.drawn(mine!), check.drawn(moved), check.added()], "saved, both are drawn, neither a draft").toEqual([true, true, []]);
 }

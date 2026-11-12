@@ -18,7 +18,7 @@ import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
 import { OptionType, StringType, decodeBeast2For, encodeBeast2For, equalFor, fromEastTypeValue, isVariant, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Sheet, SheetEditingType } from "@elaraai/e3-ui/internal";
 import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
-import { fieldBreachIssue, getSomeorUndefined, useEditSession } from "@elaraai/east-ui-components";
+import { fieldBreachIssue, getSomeorUndefined, useEditSession, type EntryKeys } from "@elaraai/east-ui-components";
 import { boundedReadiness, editWindow, normalizeDraft, prepareRecordSliceSave, recordSliceReadEntries, standingBeforeSave } from "@elaraai/east-ui-components/internal";
 import { authorReadiness } from "./readiness.js";
 import { shownDrafts, type ShownDrafts } from "./shown-drafts.js";
@@ -159,8 +159,9 @@ export interface SheetEditingResult {
  * @param rowsRead - How the rows were read, where they are read apart from a Save's confirmation — a paged source's
  *   pages, read again at the revision it committed: what the Save landed is drawn over the rows read before it until
  *   they are read again. Without it the rows are the source's as it is, and a Save's entries are theirs at once.
- * @param renumber - A new key for a new row whose key another write added meanwhile (#1583): the sheet's next, where it
- *   minted that one; `undefined` for a key it did not mint, and the two rows are a conflict to choose between
+ * @param keys - How a new row is keyed (#1583): the rule the session makes each new row's key by, and makes it another
+ *   by where another write adds its own row under it meanwhile; a key the session did not make keeps the two rows a
+ *   conflict to choose between
  * @param bounds - The inspector's numbers held to bounds (#1585): an entry a draft changed waits for Save while one is
  *   outside them, as while a field is still missing; `undefined` holds none
  * @param rowsId - The id of the windowed source that gives the rows, no narrowing printed into it: what a Save's entries
@@ -172,7 +173,7 @@ export interface SheetEditingResult {
  *   at now, which is on its way
  * @returns The session, its layer and gesture recorder, the drafts, and whether editing is available
  */
-export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue | undefined, rows: readonly SheetRowValue[], positions: readonly number[], storageKey: string, mint?: () => string, recordSlice?: ValueTypeOf<RecordSliceBindType>, replacing = false, retained = false, noun?: string, day?: Date, rowsRead?: SheetRowsRead, renumber?: (id: string) => string | undefined, bounds?: SheetBounds, rowsId?: string, autosave?: boolean, entryOf?: (id: string, at: number) => Uint8Array | undefined): SheetEditingResult {
+export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue | undefined, rows: readonly SheetRowValue[], positions: readonly number[], storageKey: string, mint?: () => string, recordSlice?: ValueTypeOf<RecordSliceBindType>, replacing = false, retained = false, noun?: string, day?: Date, rowsRead?: SheetRowsRead, keys?: EntryKeys, bounds?: SheetBounds, rowsId?: string, autosave?: boolean, entryOf?: (id: string, at: number) => Uint8Array | undefined): SheetEditingResult {
     const currentRows = replacing ? NO_ROWS : rows;
     const currentPositions = replacing ? NO_POSITIONS : positions;
     const editing = useMemo(() => recordSlice === undefined ? declared : { ...declared, sourceId: recordSlice.sourceId }, [declared, recordSlice]);
@@ -205,22 +206,19 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
             return entry === undefined ? prior : decodeRow(editing.project(encodeEntry(entry), id)) as SheetRowValue;
         };
     }, [editing]);
-    // A new row whose key another write added meanwhile goes on under the key the sheet mints next, where it minted the
-    // first (#1583): its draft's identity field — where its draft holds one — and its row with it.
-    const rekey = useMemo(() => {
-        if (renumber === undefined) return undefined;
+    // A new row the session makes another key — another write having added its own under the first (#1583) — goes on
+    // under it whole: its draft's identity field, where its draft holds one, and its row with it.
+    const underKey = useMemo(() => {
         const idField = editing.idField.type === "some" ? editing.idField.value : undefined;
-        return (id: string, version: EntryVersion): { id: string; version: EntryVersion } | undefined => {
-            const next = renumber(id);
-            if (next === undefined) return undefined;
+        return (next: string, version: EntryVersion): EntryVersion => {
             const held = version.draft;
             const fields = (isVariant(held) ? held.value : held) as Record<string, unknown>;
             const renamed = idField !== undefined && idField in fields ? { ...fields, [idField]: variant("value", next) } : fields;
             const draft = isVariant(held) ? variant(held.type, renamed) : renamed;
             const prior = version.wire === undefined ? undefined : { ...version.wire, id: next };
-            return { id: next, version: { draft, wire: wireOf(next, draft, prior), place: version.place } };
+            return { draft, wire: wireOf(next, draft, prior), place: version.place };
         };
-    }, [renumber, editing, wireOf]);
+    }, [editing, wireOf]);
     // Where no record Slice gives the rows, a Save's entries are read by key from the source's own rows (#1596).
     const entriesByKey = useMemo(() => (rowsId === undefined || editing.keyType.type !== "some" ? undefined
         : entriesByKeyOf(rowsId, fromEastTypeValue(editing.keyType.value), fromEastTypeValue(editing.entryType))), [rowsId, editing.keyType, editing.entryType]);
@@ -246,7 +244,7 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
     // before it, nor nothing for one it added; else the row drawn. The session holds a landed entry exactly while its
     // rows have still to read it: the effect below lets it go as they do.
     const { session, observed, draftType, codecs, rowIndex, original, drafts, available, version } =
-        useEditSession<SheetRowValue>(editing, pinned, currentRows, currentPositions, storageKey, { idOf: sheetRowId, ready, prepare, wireOf, drawsLanded: true, wireType: Sheet.Types.Row, rekey, autosave, entryOf: shownEntry });
+        useEditSession<SheetRowValue>(editing, pinned, currentRows, currentPositions, storageKey, { idOf: sheetRowId, ready, prepare, wireOf, drawsLanded: true, wireType: Sheet.Types.Row, keys, underKey, autosave, entryOf: shownEntry });
     sessionRef.current = session;
     // Each row's copies past its first: a window read again at a new revision beside one still standing from before it
     // holds a row twice where a change moved it from the one to the other.

@@ -1298,7 +1298,10 @@ other session's write, let the reads go one at a time and read what the
 builder draws of the row at every change of the page — a row removed on both
 sides never drawn again, a row changed here and removed there standing as
 drafted, a row removed here and changed there staying off — then the choice,
-each way. A conflict's card names its row as the builder names it, never by
+each way; and `addedOnBothSides`, a row added here under a key the builder
+made that another session saves its own row under: the one added here goes on
+under another key, both drawn, nothing to choose, and Save keeps both.
+A conflict's card names its row as the builder names it, never by
 its key, whether the builder draws the row or the draft removed it: a row off
 the rows drawn is named from what the session holds of it — the Sheet's
 `rowWhere`, from its `originals`; a board's event from the row its record
@@ -1311,6 +1314,47 @@ The Sheet's footer note of a gesture goes with a step of the history, and
 with a conflict's choice, which is one taken in the conflicts popover: a
 removal's `Apply writes it, Undo restores` is so no more once the other side
 is taken, and the Record's status line, which says the note, goes with it.
+
+**A new row's key is its session's to make** (#1583; east-ui-components'
+`keys.ts`, `EditSession.mint`). No builder makes a key: each binds its
+session a rule, asks the session for a new row's key, and the session holds
+the key as its own until the row is saved — through a reload too — and makes
+it another where another Save takes it, both rows kept and nothing to choose.
+The Sheet and the Record bind the app's `newKey`, else a key made up at
+random (`sheet/use-decode.ts`' `makeKey`, `use-session.ts`' `keys` and
+`mintAmong`), a gesture saying which keys it knows taken as it asks, and say
+a re-made key in the footer. The boards' shared editing binds each kind and
+record by its key type (`shared/schedule/editing.ts`): a text key made from
+the key its row is made from — a template's, a copied event's — else made up;
+an Integer key one past the largest; `ScheduleEditing.mint` is the kind's
+session's. A text key made from another's is the next in a row
+(`brackets-2`) only for a kind whose record its session holds whole. A kind
+read a window at a time — every kind given `entries`, the operations
+calendar's and the print works' jobs among them — is keyed with a suffix
+drawn at random (`brackets-5f3a9c2e`, `drawnFromKeys`): its session knows
+none of its record's keys but those it has met, and the next in a row was an
+earlier copy's whenever that copy stood out of what the page had read — a
+second job from one template, the page loaded again since the first was
+saved, took the first one's key, its Save was refused, and the two were a
+conflict to choose between (`calendar/new-event-keys.dom.test.tsx`). Its
+rule is bound past the keys the builder shows a row under — what it draws,
+what its own reads and its cells hold (`pastKeys`) — so a new row is never
+drawn over one on the page; and a gesture that makes a row under a key one
+stands under records nothing (`record`'s guard), whoever made the key. A
+test reads the key a gesture made, never names it (`plan/frame/harness.test-utils.tsx`'
+`madeFrom`, `drawnFrom`). A kind is re-made a key only where its builder
+says nothing else it drafts names its events by key
+(`ScheduleEditingArgs.rekeys`; any other part's rule is made once,
+`onceKeys`), and that builder moves on what it holds by the old key
+(`ScheduleEditing.renumbered`): a selection left on it would open the other
+session's event in the inspector. The Calendar gives every kind the rule and
+moves its selection (`calendar/remote-rows.dom.test.tsx`). Still to move to
+their sessions: the keys the Roster, the Allocation, the Plan's own rows, the
+Schematic and the Flowchart make up through `shared/schedule/records.ts`'
+`mintKey`; and still a conflict where two sessions make the same key: the
+Plan's events, and the Schematic's and the Flowchart's Integer-keyed rows,
+whose rows name one another by key — a Flowchart's transitions name their
+states.
 
 The period is assembled from the app's rows, never stored. A reader of its own
 (`RosterDataReader`, `AllocationDataReader`, as the Calendar's is, #1343) reads
