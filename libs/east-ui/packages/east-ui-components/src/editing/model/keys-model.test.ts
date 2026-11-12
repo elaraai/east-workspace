@@ -159,7 +159,20 @@ describe("a new row's key: the faults the model found, by name", () => {
 
         it(`a page reloaded while the Save of a new row has no answer, the record having taken it, saves the row once — never again under another key (${shape})`, async () => {
             const world = await rested({ shape, rule: "madeFrom", remotes: 0 }, ["c0.make", "c0.save", "c0.deliverUnanswered", "c0.reload"]);
-            expect([keysOf(world), world.remade, world.unsure]).toEqual([["j1", "j1-2"], 0, true]);
+            // The page sends the request again as it loads, and the record answers it as it did: nobody is asked anything.
+            expect([keysOf(world), world.remade, world.unsure]).toEqual([["j1", "j1-2"], 0, false]);
+        });
+
+        it(`a Save of a new row that landed with no answer, then another session's write, then Retry: the record refuses the request it has forgotten, and the row is saved once all the same — never again under another key (${shape})`, async () => {
+            // e3 answers a request again only while it is the record's last write: after another's, the same request is
+            // checked afresh, and refused over the row its own first sending added.
+            const world = await rested({ shape, rule: "madeFrom", remotes: 1 }, ["c0.make", "c0.save", "c0.deliverUnanswered", "remote.addUnseen", "c0.retry", "c0.deliver", "c0.see", "c0.read"]);
+            expect([keysOf(world).filter((key) => key === "j1" || key === "j1-2"), world.remade]).toEqual([["j1", "j1-2"], 0]);
+        });
+
+        it(`the same through a reload: the page gone while the Save had no answer, another session's write, and the request sent again as the page loads (${shape})`, async () => {
+            const world = await rested({ shape, rule: "madeFrom", remotes: 1 }, ["c0.make", "c0.save", "c0.deliverUnanswered", "remote.addUnseen", "c0.reload", "c0.see", "c0.deliver", "c0.see", "c0.read"]);
+            expect([keysOf(world).filter((key) => key === "j1" || key === "j1-2"), world.remade]).toEqual([["j1", "j1-2"], 0]);
         });
 
         it(`a row made once a Save has landed and the record moved on, before the page shows what the Save left, takes no key that Save took: it would begin from that row and be saved over it (${shape})`, async () => {

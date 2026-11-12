@@ -87,10 +87,15 @@
  *   ({@link ModelClient.lateAnswer}): a Save's answer that came after its
  *   source had read at a newer revision put the source back at the revision
  *   the Save committed, and its rows were drawn there;
- * - how often a reload lost a change made while a Save was unresolved
- *   ({@link ModelClient.reloadLost}), or made a change already saved a
- *   conflict to choose ({@link ModelClient.reloadAsked}): each where the page
- *   reloads while its Save's outcome is not known;
+ * - how often a person was asked to choose where they had nothing to save,
+ *   over a row of a request that had no answer, was sent again and was
+ *   refused ({@link ModelClient.unansweredAsked}). The record answers a
+ *   request again only while it is its last write, as e3 does, so the refusal
+ *   says nothing of the first sending, and a row another session wrote
+ *   meanwhile reads the same whether the request landed and was written over,
+ *   or never landed: the session asks, where taking the other write unasked
+ *   would give up an unsaved change in one case or an Undo of a saved one in
+ *   the other. Only the record's own word on the request would tell them;
  * - how often a Save over a source read whole waited for good to be read back
  *   ({@link ModelClient.waitedForGood}): every part it wrote put back exactly
  *   as it was by another session before the source was read again, which
@@ -212,14 +217,12 @@ export class ModelClient {
     readonly claims = new Map<string, Map<Field, Claim>>();
     /** How often its session's steps went under its person: Undo lost as the source moved. */
     stepsLost = 0;
-    /** How often a reload lost a change: one made while a Save was unresolved that its session held as no draft, and so did not keep. */
-    reloadLost = 0;
     /**
-     * How often a reload made a saved change a conflict to choose: the page reloaded while its Save's outcome was not
-     * known — sent, or its answer lost — so the change was kept as a draft, and another session then changed the same
-     * part.
+     * How often its person was asked to choose where they had nothing to save, over a row of a request that had no
+     * answer, was sent again and was refused: another session wrote the row meanwhile, and nothing the record holds
+     * tells whether the request landed first.
      */
-    reloadAsked = 0;
+    unansweredAsked = 0;
     /** How often a Save of its, over a source read whole, waited for good to be read back: every part it wrote put back since, exactly as it was. */
     waitedForGood = 0;
     /** How many gestures and choices its person has made: what a world budgets (`acts`). */
@@ -242,8 +245,10 @@ export class ModelClient {
      * where its rows were then drawn.
      */
     lateAnswer = 0;
-    /** The rows whose drafts a reload kept while their Save's outcome was not known, though the record had taken it. */
-    private readonly unsure = new Set<string>();
+    /** The rows of a request that had no answer, was sent again, and was refused. */
+    private readonly reasked = new Set<string>();
+    /** The requests sent again after no answer came: lost on its way, its answer lost, or the page gone with it unresolved. */
+    private readonly unanswered = new Set<string>();
     /** Those of them a conflict has since asked of: asked again where its choice is taken back, until the drafts are discarded. */
     private readonly asked = new Set<string>();
     /** Which of the record's writes each field of the screen last showed, where it showed the record's own value. */
@@ -512,7 +517,7 @@ export class ModelClient {
         // Every draft, and every choice made over one: a conflict met again is a new one to choose.
         this.claims.clear();
         this.unread.clear();
-        this.unsure.clear();
+        this.reasked.clear();
         this.asked.clear();
         this.chosen = [];
         this.freshest.clear();
@@ -721,24 +726,20 @@ export class ModelClient {
         const entries = this.session.keptEntries.map((entry) => ({ ...entry, was: again(entry.was), draft: again(entry.draft) }));
         const held = entries.length > 0 && this.session.autosaveHeld;
         const stepped = entries.length > 0 && this.session.autosaveStepped;
-        // A Save whose outcome the session does not know — sent, or its answer lost — is kept as drafts: where the record
-        // had taken it, a later change of another session's to the same part reads as a conflict over a change saved.
-        if (this.session.locked && this.session.status !== "reconciling") {
-            for (const entry of entries) if ((this.unread.get(entry.id)?.size ?? 0) > 0) this.unsure.add(entry.id);
-        }
-        // A row put back as its edit began while the Save that changed it is unresolved is no draft to the session, and
-        // is not kept: where that Save lands, the change is lost with the page. Counted, and theirs no more.
-        if (this.session.locked) {
-            for (const [key, fields] of this.claims) {
-                const entry = entries.find((kept) => textEqual(kept.id, key));
-                const [draft, was] = [entry?.draft.type === "some" ? this.rowOfDraft(key, entry.draft.value) : undefined, entry?.was.type === "some" ? this.rowOfDraft(key, entry.was.value) : undefined];
-                for (const [field, { value }] of fields) {
-                    // Kept as a change: the draft holds it, away from what the draft is kept as begun from.
-                    if (entry !== undefined && sameValue(draft?.[field], value) && !sameValue(was?.[field], value)) continue;
-                    this.reloadLost++;
-                    fields.delete(field);
-                }
-            }
+        // A Save whose outcome the session does not know — on its way, or its answer lost — is kept with the drafts, and
+        // sent again by the page as it loads: what was drafted since it was sent stands as it did, a row put back as its
+        // edit began among them, and what it saved is no draft the record's next change could ask of.
+        const request = this.session.keptRequest;
+        const version = <T extends { readonly draft: unknown }>(held: T): T => (held.draft === undefined ? held : { ...held, draft: decode(encode(held.draft)) });
+        // Made and not yet sent — its preparation still running as the page went: what its person saw as it was made is
+        // what it is held to once the page sends it.
+        if (request !== undefined) {
+            const id = decodeBatch(request.payload).requestId;
+            if (this.shot !== undefined && !this.sent.has(id)) this.sent.set(id, this.shot);
+            this.unanswered.add(id);
+            // Read whole, the request is not sent again: the page judges each of its rows by the collection it has read
+            // afresh, and may ask of one another session has written ({@link ModelClient.unansweredAsked}).
+            if (this.inline) for (const target of request.targets) this.reasked.add(target.id);
         }
         this.out = undefined;
         this.preparing = undefined;
@@ -746,6 +747,12 @@ export class ModelClient {
         this.based = undefined;
         this.session = this.open();
         this.session.restore(entries, held, stepped);
+        if (request !== undefined) {
+            this.session.restoreRequest({
+                ...request, payload: request.payload.slice(), minted: new Map(request.minted),
+                targets: request.targets.map((target) => ({ id: target.id, before: version(target.before), after: version(target.after) })),
+            });
+        }
         this.known = { revision: this.record.revision, asked: new Set(), landed: new Set() };
         this.heardMost = Math.max(this.heardMost, this.record.commits.length);
         this.screen = { revision: this.record.revision, rows: this.record.now };
@@ -817,7 +824,7 @@ export class ModelClient {
         if (this.record.commits.length > before) this.committed(out.batch);
         else if (answer.type === "conflict") this.refused(out.batch);
         if (answered) out.resolve(answer);
-        else out.reject(new Error("No answer"));
+        else { this.unanswered.add(out.batch.requestId); out.reject(new Error("No answer")); }
         await settled();
     }
 
@@ -826,6 +833,7 @@ export class ModelClient {
         const out = this.out;
         if (out === undefined) return;
         this.out = undefined;
+        this.unanswered.add(out.batch.requestId);
         out.reject(new Error("No answer"));
         await settled();
     }
@@ -858,13 +866,21 @@ export class ModelClient {
         }
     }
 
-    /** The record refused the client's batch: never over a change the client itself wrote there last. */
+    /**
+     * The record refused the client's batch: never over a change the client itself wrote there last — but for the
+     * same request, sent again after no answer came. The record answers a request again only while it is its last
+     * write, as e3 does, so once another write has landed the request is checked afresh, and refused over what its
+     * own first sending wrote: the session cannot have known, and judges each row by what the record holds of it.
+     */
     private refused(batch: BatchValue): void {
         for (const { key, field } of this.record.mismatched(batch)) {
-            if (this.record.writerOf(key, field) === this.name) {
+            if (this.record.writerOf(key, field) === this.name && this.record.requestOf(key, field) !== batch.requestId) {
                 throw new ModelFault(`The record refused ${this.name}'s Save over ${key}.${field}, which ${this.name}'s own Save wrote last`);
             }
         }
+        // Sent again after no answer: the session cannot tell whether its first sending landed, and may ask of each
+        // row of it another session has written ({@link ModelClient.unansweredAsked}).
+        if (this.unanswered.has(batch.requestId)) for (const change of batch.changes) this.reasked.add(change.id);
     }
 
     // ── What it learns of the record ─────────────────────────────────────────
@@ -925,8 +941,8 @@ export class ModelClient {
                 // Asked only of a change still to save: in the conflict's field, or — for one of the row itself — in the row.
                 // (A choice undone while the Save that took it is unresolved reads until that Save is read back.)
                 if (!this.session.locked && !FIELDS.some((field) => (part.field === undefined || textEqual(part.field, field)) && this.claims.get(key)?.has(field) === true)) {
-                    // Kept through a reload as a draft though its Save had landed: counted, once.
-                    if (this.unsure.delete(key)) { this.reloadAsked++; this.asked.add(key); }
+                    // A row of a request with no answer, sent again and refused: counted, once.
+                    if (this.reasked.delete(key)) { this.unansweredAsked++; this.asked.add(key); }
                     if (this.asked.has(key)) continue;
                     throw new ModelFault(`${this.name} is asked to choose at ${key}${part.field === undefined ? "" : `.${part.field}`}, where its person has no change to save`);
                 }
@@ -945,9 +961,13 @@ export class ModelClient {
         for (const fields of this.unread.values()) for (const [field, wrote] of fields) if (commits >= wrote.at) fields.delete(field);
         for (const [key, fields] of this.claims) {
             const own = this.session.entries.get(key);
+            const was = this.session.originals.get(key);
             for (const [field, { value }] of fields) {
-                // Theirs while the session holds the row so: on their screen, and its to save.
-                if (own !== undefined && sameValue(this.rowOfDraft(key, own.draft)?.[field], value)) continue;
+                // Theirs while the session holds the row so: on their screen, and its to save. Held as the row began, with
+                // no request unresolved, it is no change the session has left to save: the record's, at the session's
+                // base — a row removed, saved so, then put back and removed again — or it is lost.
+                if (own !== undefined && sameValue(this.rowOfDraft(key, own.draft)?.[field], value)
+                    && (this.session.locked || was === undefined || !sameValue(this.rowOfDraft(key, was.draft)?.[field], value))) continue;
                 // Let go of: the record's, by another's write — theirs no more to save — or it is lost.
                 const held = this.record.at(base).get(key)?.[field];
                 if (!sameValue(held, value)) {
@@ -1062,7 +1082,7 @@ export interface WorldOptions {
 const SESSION_NO_STATE: ReadonlySet<string> = new Set([
     "binding", "listeners", "serial", "made", "conflictsCache", "draftsCache", "readinessCache", "draftedViews", "compiledTransform", "compileTransform", "merger",
 ]);
-const CLIENT_NO_STATE: ReadonlySet<string> = new Set(["stepsLost", "reloadLost", "reloadAsked", "waitedForGood", "lateAnswer"]);
+const CLIENT_NO_STATE: ReadonlySet<string> = new Set(["stepsLost", "unansweredAsked", "waitedForGood", "lateAnswer"]);
 const WORLD_PRINT: PrintRules = {
     skip: (owner, key) => (owner instanceof EditSession ? SESSION_NO_STATE.has(key) : owner instanceof ModelClient && CLIENT_NO_STATE.has(key)),
     // A request's bytes hold the id it drew at random: read as the batch they are, the id is named by its order.
@@ -1137,11 +1157,8 @@ export class ModelWorld {
     /** How often a late answer stepped a screen back, in this world. */
     get lateAnswer(): number { return this.clients.reduce((n, client) => n + client.lateAnswer, 0); }
 
-    /** How often a reload lost a change made while a Save was unresolved, in this world. */
-    get reloadLost(): number { return this.clients.reduce((n, client) => n + client.reloadLost, 0); }
-
-    /** How often a reload made a saved change a conflict to choose, in this world. */
-    get reloadAsked(): number { return this.clients.reduce((n, client) => n + client.reloadAsked, 0); }
+    /** How often a person was asked to choose, with nothing to save, over a row of a request with no answer that was sent again and refused, in this world. */
+    get unansweredAsked(): number { return this.clients.reduce((n, client) => n + client.unansweredAsked, 0); }
 
     /** How often a Save over a source read whole waited for good to be read back, in this world. */
     get waitedForGood(): number { return this.clients.reduce((n, client) => n + client.waitedForGood, 0); }

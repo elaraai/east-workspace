@@ -265,6 +265,30 @@ export interface KeptEntry<W> {
 }
 
 /**
+ * A request whose outcome the session does not know, as a reload keeps it
+ * (keep.ts) beside the drafts: enough to put the session back as it stood and
+ * ask the source again ({@link EditSession.restoreRequest}).
+ *
+ * @typeParam W - The collection's projection of an entry
+ */
+export interface KeptRequest<W> {
+    /** The batch as it was sent: sent again, it is the same request, under the same id. */
+    readonly payload: Uint8Array;
+    /** Whether an automatic Save sent it. */
+    readonly automatic: boolean;
+    /** Each entry it changes: as its edit began, and as the request leaves it. */
+    readonly targets: readonly { readonly id: string; readonly before: EntryVersion<W>; readonly after: EntryVersion<W> }[];
+    /** The keys the session made among the entries it adds, each with the id it was made from ({@link EditSession.mint}). */
+    readonly minted: ReadonlyMap<string, string | undefined>;
+    /**
+     * Where it stands. `"unanswered"`: sent, or about to be, with no answer — it is sent again. `"refused"`: sent
+     * again after no answer and refused, its entries still to be read for what its first sending left
+     * ({@link EditSession.merge}) — it is not sent again.
+     */
+    readonly asked: "unanswered" | "refused";
+}
+
+/**
  * A conflict settled since the drafts were last carried over, until Save:
  * how, and what each side held, so it reads back as settled and can be
  * settled the other way.
@@ -483,6 +507,12 @@ interface Submission<W> {
      * request landed ({@link EditSession.reconcile}).
      */
     reached?: boolean | undefined;
+    /**
+     * The request was sent and no answer came — the write threw, or answered with no revision — so it may have landed
+     * all the same. Sent again, an answer that it was applied is the source's word on it; one that it was refused is
+     * not ({@link EditSession.unconfirmed}).
+     */
+    unanswered?: boolean | undefined;
     /** A positional snapshot's whole collection as the request leaves it — its target, order included. */
     expected: Uint8Array | undefined;
     /** Each entry the request places, and where: what a positional snapshot holds once the request lands. */
@@ -675,6 +705,8 @@ export class EditSession<W> {
     /** A keyed source's key by an entry's id; `undefined` for an Array source. */
     private readonly keyOf: ((id: string) => unknown) | undefined;
     private readonly encodeBatch: (value: unknown) => Uint8Array;
+    /** A batch read back from its bytes: what a request kept through a reload was drafted at, and what it places. */
+    private readonly decodeBatch: (bytes: Uint8Array) => Batch;
     private readonly encodeEvent: (value: unknown) => Uint8Array;
     private readonly cloneDraft: (value: unknown) => unknown;
     /** Compiles the source's own apply over an inline snapshot; `undefined` for an Array source with no identity field. */
@@ -704,6 +736,27 @@ export class EditSession<W> {
     private moving: { readonly base: Base; readonly read: Map<string, option<unknown>> } | undefined;
     /** Drafts a reload kept, waiting for the session's first base ({@link EditSession.restore}). */
     private restoring: readonly KeptEntry<W>[] | undefined;
+    /** A request a reload kept, waiting for the session's first base ({@link EditSession.restoreRequest}). */
+    private resuming: KeptRequest<W> | undefined;
+    /**
+     * A request sent again after no answer, and refused: its bytes, what it changes and what it leaves. The refusal
+     * says nothing of its first sending. A source answers a request again only while that request is its last write —
+     * e3 names the key of a record's last mutation alone — so once another write has landed, the same request is
+     * checked afresh, and one that had landed is refused: its entries no longer hold what its changes began from.
+     * Taken at its word, the refusal would have the session carry its drafts over from what they began as: a new
+     * entry the first sending saved would read as another write's under the session's key, be made another key and
+     * saved twice; an entry it removed, put back by Undo since, would read as removed by another and go.
+     *
+     * So each entry is judged by what the source holds of it, as the drafts are carried over ({@link EditSession.merge}),
+     * a part at a time ({@link EntryMerger.eitherBegan}): one the source holds as the request left it began from what
+     * the request sent — a draft made since is a change from that, as after a Save the source acknowledged; one it
+     * holds as the edit began, from that, as after any refusal; and one it holds as neither, from whichever makes the
+     * draft's difference a conflict to choose — never given up for the source's value with nothing asked. A new entry
+     * of the request's is made no other key: the entry under its key may be the request's own.
+     */
+    private unconfirmed: { readonly payload: Uint8Array; readonly after: ReadonlyMap<string, EntryVersion<W>>; readonly targets: ReadonlyMap<string, Target> } | undefined;
+    /** The kept request as last read, and what it was read from: the same object while neither moves (keep.ts writes on a change). */
+    private keptRequestCache: { readonly of: object; readonly asked: "unanswered" | "refused"; readonly value: KeptRequest<W> } | undefined;
     private readonly merger: EntryMerger;
     /** Each conflict settled since the drafts were last carried over, by entry and path. */
     private settledPoints = new Map<string, SettledConflict>();
@@ -799,6 +852,7 @@ export class EditSession<W> {
         this.domainApply = applyFor(toEastTypeValue(OptionType(entry)));
         this.keyOf = keyType === undefined ? undefined : keyReader(keyType);
         this.encodeBatch = encodeBeast2For(toEastTypeValue(EditingChangeSetTypeFor(entry, keyType)));
+        this.decodeBatch = decodeBeast2For(toEastTypeValue(EditingChangeSetTypeFor(entry, keyType))) as (bytes: Uint8Array) => Batch;
         // Events carry the collection's own drafts — field by field for the
         // Sheet, whole entries for the Plan — at the exact type its wire names.
         this.encodeEvent = encodeBeast2For(toEastTypeValue(EditingPatchEventTypeWith(entry, draft)));
@@ -1247,8 +1301,9 @@ export class EditSession<W> {
      */
     get ownKeys(): ReadonlyMap<string, string | undefined> {
         const out = new Map<string, string | undefined>();
-        const sent = this.submission?.targets;
-        for (const [id, from] of this.minted) if (this.adds(id) && sent?.has(id) !== true) out.set(id, from);
+        // Nor one of a request sent again after no answer and refused: the entry under it may be that request's own.
+        const [sent, unconfirmed] = [this.submission?.targets, this.unconfirmed?.targets];
+        for (const [id, from] of this.minted) if (this.adds(id) && sent?.has(id) !== true && unconfirmed?.has(id) !== true) out.set(id, from);
         return out;
     }
 
@@ -1285,8 +1340,12 @@ export class EditSession<W> {
      */
     private knownKeys(base: Base | undefined, also: { has(id: string): boolean; [Symbol.iterator](): Iterator<string> } | undefined): KnownKeys {
         const { current, baseline, landedEntries, taken } = this;
+        // What a request leaves an entry under — one unresolved, or one sent again after no answer and refused, whose
+        // first sending may have landed: the source's by then, whatever the drafts have done with the entry since.
+        const [out, unconfirmed] = [this.submission?.after, this.unconfirmed?.after];
+        const sent = (id: string): boolean => out?.get(id)?.draft !== undefined || unconfirmed?.get(id)?.draft !== undefined;
         const holds = (id: string): boolean => current.get(id)?.draft !== undefined || baseline.get(id)?.draft !== undefined
-            || landedEntries.get(id)?.after.draft !== undefined || taken.has(id);
+            || landedEntries.get(id)?.after.draft !== undefined || taken.has(id) || sent(id);
         const snapshot = base?.type === "snapshot" ? base.value : undefined;
         const printKey = this.binding.keyType === undefined ? undefined : keyPrinter(this.binding.keyType);
         const idField = this.binding.idField;
@@ -1297,6 +1356,8 @@ export class EditSession<W> {
                 for (const id of current.keys()) if (holds(id)) yield id;
                 for (const id of baseline.keys()) if (holds(id)) yield id;
                 for (const id of landedEntries.keys()) if (holds(id)) yield id;
+                for (const id of out?.keys() ?? []) if (sent(id)) yield id;
+                for (const id of unconfirmed?.keys() ?? []) if (sent(id)) yield id;
                 yield* taken;
                 if (snapshot === undefined) return;
                 if (printKey !== undefined) for (const key of (snapshot as ReadonlyMap<unknown, unknown>).keys()) yield printKey(key);
@@ -1435,6 +1496,112 @@ export class EditSession<W> {
     }
 
     /**
+     * The request whose outcome the session does not know, as a reload keeps
+     * it (keep.ts): one on its way or left with no answer, to send again; or
+     * one sent again after no answer and refused, whose entries are still to
+     * be read for what its first sending left ({@link EditSession.merge}).
+     * `undefined` for any other: a request the source acknowledged is saved,
+     * and what it left is what {@link EditSession.keptEntries} are kept from.
+     * The same object while the request and where it stands hold.
+     */
+    get keptRequest(): KeptRequest<W> | undefined {
+        const out = this.submission !== undefined && (this.status === "applying" || this.status === "unknown") ? this.submission : undefined;
+        const held = out ?? this.unconfirmed;
+        if (held === undefined) { this.keptRequestCache = undefined; return undefined; }
+        const asked = out !== undefined ? "unanswered" : "refused";
+        const cached = this.keptRequestCache;
+        if (cached !== undefined && Object.is(cached.of, held) && cached.asked === asked) return cached.value;
+        const minted = new Map<string, string | undefined>();
+        for (const [id, from] of this.minted) if (held.targets.has(id)) minted.set(id, from);
+        const value: KeptRequest<W> = {
+            payload: held.payload, automatic: this.automatic, asked, minted,
+            targets: [...held.targets.keys()].map((id) => ({ id, before: this.baseline.get(id) ?? ABSENT, after: held.after.get(id) ?? ABSENT })),
+        };
+        this.keptRequestCache = { of: held, asked, value };
+        return value;
+    }
+
+    /**
+     * Restore a request a reload kept (keep.ts), before the session's first
+     * base, with the drafts kept beside it ({@link EditSession.restore}): at
+     * that base the session is put back as it stood when the page went — its
+     * drafts at the base the request was drafted at, the request unresolved —
+     * and the request is sent again, under the same id. The source's answer is
+     * then the request's own, and what was drafted since it was sent is a
+     * change from what it leaves, as if the page had never gone. Over a source
+     * held whole the request is not sent again: the page has read the
+     * collection afresh, and each of the request's entries is judged by what
+     * it holds ({@link EditSession.merge}), what did not land a draft still.
+     *
+     * Without it the reload forgot the request. A draft made since that put an
+     * entry back as its edit began — an Undo of a removal the request saved —
+     * was no draft to keep, and the entry was gone; one the request had saved
+     * was carried over as unsaved, and could come back as a conflict to choose.
+     *
+     * @param request - The kept request
+     * @returns Whether it will be restored: `false` once the session has a base
+     */
+    restoreRequest(request: KeptRequest<W>): boolean {
+        if (this.base !== undefined) return false;
+        this.resuming = request;
+        return true;
+    }
+
+    /** A kept request and the drafts kept beside it, put back at the session's first base as they stood when the page went. */
+    private resume(observed: Base, request: KeptRequest<W>, entries: readonly KeptEntry<W>[]): void {
+        const batch = this.decodeBatch(request.payload);
+        // The drafts stand at the base the request was drafted at, as they did: where the source is now is taken up once
+        // the request is resolved, as it is for a session whose page never went.
+        this.base = this.cloneBase(batch.base);
+        const after = new Map(request.targets.map((target) => [target.id, target.after] as const));
+        for (const { id, before } of request.targets) { this.baseline.set(id, before); this.current.set(id, before); }
+        for (const entry of entries) {
+            if (!this.baseline.has(entry.id)) this.baseline.set(entry.id, entry.was.type === "some" ? { draft: entry.was.value, wire: entry.beforeWire, place: entry.beforePlace } : ABSENT);
+            // An entry as the request sent it is the request's own version of it: nothing drafted since.
+            const sent = after.get(entry.id);
+            this.current.set(entry.id, sent !== undefined && this.draftEqual(draftOf(sent), entry.draft) && placementEqual(sent.place, entry.place) ? sent
+                : entry.draft.type === "some" ? { draft: entry.draft.value, wire: entry.wire, place: entry.place } : ABSENT);
+        }
+        const targets = new Map(request.targets.map((target) => [target.id, { before: this.optionOf(target.id, target.before), after: this.optionOf(target.id, target.after) }] as const));
+        for (const [id, from] of request.minted) this.minted.set(id, from);
+        this.automatic = request.automatic;
+        this.draftsChanged();
+        const apply = this.binding.apply;
+        if (request.asked === "refused" || apply === undefined || batch.base.type === "snapshot") {
+            // Sent again and refused before the page went, or no way to send it again here — or a source held whole,
+            // which the page has read afresh: put back at the collection the request was drafted at, the session would
+            // draw rows older than the page shows. Its entries are read where the source is now, and each judged by
+            // what the source holds of it, as the drafts are carried over; what the request did not land is a draft
+            // still, and the next Save's.
+            this.unconfirmed = { payload: request.payload, after, targets };
+            this.moving = { base: this.cloneBase(observed), read: new Map() };
+            if (observed.type === "snapshot") { this.merge(observed, (id) => this.inSnapshot(observed.value, id)); return; }
+            this.changed();
+            return;
+        }
+        const placed = batch.changes.filter((change) => change.place.type === "some").map(({ id, place }) => ({ id, place }));
+        this.binding.gate?.acquire();
+        this.submission = {
+            prepare: undefined, release: this.binding.gate?.release, expected: undefined, placed, payload: request.payload, apply, refresh: this.binding.refresh,
+            after, targets, checked: new Map(), otherwise: new Map(), base: this.cloneBase(batch.base), revision: undefined, unanswered: true,
+        };
+        this.status = "unknown";
+        this.changed();
+        void this.send();
+    }
+
+    /**
+     * What a request sent again after no answer, and refused, sent of an entry it changed ({@link EditSession.unconfirmed});
+     * `undefined` for any other entry, and for one the request only placed, which says nothing of whether it landed.
+     */
+    private sentOf(id: string): EntryVersion<W> | undefined {
+        const request = this.unconfirmed;
+        const target = request?.targets.get(id);
+        if (request === undefined || target === undefined || this.domainEqual(target.before, target.after)) return undefined;
+        return request.after.get(id) ?? ABSENT;
+    }
+
+    /**
      * A conflict — open, or settled since the drafts were last carried over —
      * as an issue of its entry, at the child row and the field it is in: what
      * a collection goes to and names as it does its own issues. The same
@@ -1543,13 +1710,17 @@ export class EditSession<W> {
         if (this.base === undefined) {
             this.base = this.cloneBase(base);
             const kept = this.restoring;
-            this.restoring = undefined;
+            const request = this.resuming;
+            this.restoring = undefined; this.resuming = undefined;
+            if (request !== undefined) { this.resume(base, request, kept ?? []); return; }
             if (kept !== undefined && kept.length > 0) this.restoreAt(base, kept);
             return;
         }
         if (this.baseEqual(this.base, base)) return;
         if (this.locked) return; // Only reconcile() may acknowledge a submitted request.
-        if (this.pending === 0) {
+        // With nothing drafted the source's rows are simply the session's — unless a request sent again after no answer
+        // was refused: what its first sending left is still to be read, entry by entry ({@link EditSession.unconfirmed}).
+        if (this.pending === 0 && this.unconfirmed === undefined) {
             this.base = this.cloneBase(base);
             this.baseline.clear(); this.current.clear(); this.ancestors.clear(); this.forgetConflicts(); this.history = []; this.cursor = 0;
             this.minted.clear();
@@ -1625,25 +1796,32 @@ export class EditSession<W> {
         const lands = this.binding.drawsLanded === true && this.base?.type === "revision" && base.type === "revision";
         const from = lands && this.base?.type === "revision" && base.type === "revision" && !stringEqual(this.base.value, base.value) ? this.base.value : undefined;
         for (const [id, mine] of this.current) {
-            const original = this.baseline.get(id) ?? ABSENT;
             const now = carrying.read.get(id)!;
+            const source: option<unknown> = now.type === "some" ? some(liftDraft(this.binding.draftType, now.value)) : none;
+            const began = this.baseline.get(id) ?? ABSENT;
+            // An entry of a request sent again after no answer and refused: its first sending may have landed, and what
+            // both began from is judged by what the source holds, a part at a time ({@link EditSession.unconfirmed}).
+            // Held whole as the request left it, what the request sent is the entry's original.
+            const sent = this.sentOf(id);
+            const either = sent === undefined ? undefined : this.merger.eitherBegan(draftOf(began), draftOf(sent), draftOf(mine), source);
+            const original = sent !== undefined && either !== undefined && this.merger.equal(either, draftOf(sent)) ? sent : began;
             // A new entry whose id another write added meanwhile is a second new entry, not the same one changed both
-            // ways: either choice between them would lose one. Where the session made the id, it makes another.
-            const moved = original.draft === undefined && mine.draft !== undefined && now.type === "some" ? this.remade(id, mine, base, current) : undefined;
+            // ways: either choice between them would lose one. Where the session made the id, it makes another — but
+            // never for an entry of such a request, which the entry under its key may be.
+            const moved = sent === undefined && original.draft === undefined && mine.draft !== undefined && now.type === "some" ? this.remade(id, mine, base, current) : undefined;
             if (moved !== undefined) {
                 baseline.set(moved.id, ABSENT);
                 current.set(moved.id, moved.version);
                 renumbered.set(id, moved.id);
                 continue;
             }
-            const source: option<unknown> = now.type === "some" ? some(liftDraft(this.binding.draftType, now.value)) : none;
             const held = this.versionOf(id, source, original);
             // The entry as the source holds it now, read here by its key, while its host's rows are from before: the host
             // draws it over them until they are read again. Left to those rows, an entry the session lets go of here —
             // its draft the source's now — would show as they last held it: a row removed on both sides, back on the
             // grid; and so would one whose draft is taken back later.
             if (lands) this.landedEntries.set(id, { before: original, after: held, from });
-            const merged = this.merger.merge(this.beganOf(id, mine, original), draftOf(mine), source, this.joined);
+            const merged = this.merger.merge(either ?? this.beganOf(id, mine, original), draftOf(mine), source, this.joined);
             // A draft the source's value holds whole is a draft no more.
             if (this.merger.equal(merged.draft, source)) continue;
             baseline.set(id, held);
@@ -1661,7 +1839,7 @@ export class EditSession<W> {
         this.baseline = baseline; this.current = current; this.ancestors = ancestors; this.forgetConflicts(); this.said = said;
         this.renumberedIds = renumbered;
         this.forgetMade();
-        this.moving = undefined;
+        this.moving = undefined; this.unconfirmed = undefined;
         this.history = []; this.cursor = 0; this.accepted = 0; this.unaccepted = waits && current.size > 0;
         this.drafted = stepped && current.size > 0 ? undefined : 0;
         this.status = "idle"; this.issues = []; this.error = undefined; this.conflicted = undefined;
@@ -2009,7 +2187,7 @@ export class EditSession<W> {
         this.draftsChanged();
         this.emit(before, this.current, "discard", "Discard changes");
         if (carried) { this.baseline.clear(); this.current.clear(); this.draftsChanged(); }
-        this.ancestors.clear(); this.forgetConflicts(); this.moving = undefined; this.again = false;
+        this.ancestors.clear(); this.forgetConflicts(); this.moving = undefined; this.again = false; this.unconfirmed = undefined;
         this.history = []; this.cursor = 0; this.stale = false; this.accepted = 0; this.unaccepted = false; this.automatic = false;
         this.minted.clear();
         this.drafted = 0;
@@ -2158,13 +2336,18 @@ export class EditSession<W> {
         let result: ApplyResult;
         try { result = await request.apply(request.payload.slice()); }
         catch (error) {
+            request.unanswered = true;
             this.status = "unknown"; this.error = error instanceof Error ? error.message : String(error); this.changed(); return false;
         }
         if (result.type !== "applied") {
             this.submission = undefined; request.release?.();
+            // Sent again after no answer: the refusal is of this sending alone, and the first may have landed. Each of
+            // its entries is judged by what the source holds of it, as the drafts are carried over.
+            if (request.unanswered === true) this.unconfirmed = { payload: request.payload, after: request.after, targets: request.targets };
             // Refused, with nothing of it left to save — every draft taken back while the request was out: the session
-            // has nothing to say of it, and nothing to carry over. Its refusal said, it would stand over no draft, Save
-            // off, until the person's next gesture.
+            // has nothing to say of it. Its refusal said, it would stand over no draft, Save off, until the person's next
+            // gesture. (What a request sent again after no answer may have left is judged all the same, once the source
+            // is seen to have moved.)
             if (this.pending === 0) { this.status = "idle"; this.issues = []; this.changed(); return false; }
             this.status = result.type; this.issues = result.value;
             // At a revision base the source names no entry it would have to
@@ -2180,6 +2363,7 @@ export class EditSession<W> {
         }
         if (request.base.type === "revision" && result.value.revision.type !== "some") {
             // The session's own text, canonical; the history bar words it (#861).
+            request.unanswered = true;
             this.status = "unknown"; this.error = SESSION_TEXT.noRevision; this.changed(); return false;
         }
         request.revision = result.value.revision.type === "some" ? result.value.revision.value : undefined;
@@ -2399,6 +2583,13 @@ export class EditSession<W> {
             this.moving = { base: this.cloneBase(base), read: new Map() };
             this.merge(base, (id) => this.inSnapshot(base.value, id));
         }
+        // An earlier request, sent again after no answer and refused, is still to be judged: this one's landing says
+        // nothing of it — a source checks an entry's change against that entry alone, so a Save of other entries lands
+        // whether the earlier one did or not. Its entries are read where the source is now, as for any carry-over.
+        if (this.unconfirmed !== undefined && this.moving === undefined) {
+            this.moving = { base: this.cloneBase(base), read: new Map() };
+            if (base.type === "snapshot") this.merge(base, (id) => this.inSnapshot(base.value, id));
+        }
         this.changed();
         if (request.confirmed !== undefined) {
             const confirmed = request.base.type === "revision" && base.type === "revision"
@@ -2441,8 +2632,10 @@ export class EditSession<W> {
                 current.set(id, mine);
                 continue;
             }
-            // As the request sent it: the source's now.
-            if (Object.is(mine, sent)) continue;
+            // As the request sent it: the source's now — but for an entry of an earlier request, sent again after no
+            // answer and refused, which this one sent as it stood and changed nothing of: it is still to be judged by
+            // what the source holds ({@link EditSession.unconfirmed}), and stays as its person has it until then.
+            if (Object.is(mine, sent) && this.unconfirmed?.targets.has(id) !== true) continue;
             const otherwise = request.otherwise.get(id);
             if (otherwise === undefined) {
                 baseline.set(id, sent);

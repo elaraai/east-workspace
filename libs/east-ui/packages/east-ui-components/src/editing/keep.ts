@@ -24,18 +24,25 @@
  * sends restored drafts that waited for a person's (`autosave.ts`). So are the
  * keys the session made for the new entries among them (`EditSession.ownKeys`,
  * keys.ts): a new entry whose key another write takes while the page is away
- * is given another, as it would have been before the reload.
+ * is given another, as it would have been before the reload. And so is a
+ * request whose outcome the session does not know — a Save on its way, or one
+ * left with no answer — with what it changes and what it leaves
+ * (`EditSession.keptRequest`): the page that loads puts the session back as it
+ * stood and asks the source again, so what was drafted since the request was
+ * sent is still a change from what it leaves, whatever the request came to.
+ * Forgotten, a row put back by Undo since was no draft to keep and was gone
+ * with the page, and a change the request had saved came back as unsaved.
  *
  * @packageDocumentation
  */
 import { useSyncExternalStore } from "react";
 import {
-    ArrayType, BlobType, DictType, EastTypeType, OptionType, SortedMap, StringType, StructType, compareFor, decodeBeast2For, encodeBeast2For, equalFor,
+    ArrayType, BlobType, BooleanType, DictType, EastTypeType, OptionType, SortedMap, StringType, StructType, compareFor, decodeBeast2For, encodeBeast2For, equalFor,
     none, some, toEastTypeValue, type EastType, type ValueTypeOf, type option,
 } from "@elaraai/east";
 import { EditingPlacementType } from "@elaraai/east-ui/internal";
 import { kept, keptBytes, keptFlag, type KeptFailureReason } from "../platform/kept.js";
-import type { EditSession, KeptEntry } from "./session.js";
+import type { EditSession, EntryVersion, KeptEntry, KeptRequest } from "./session.js";
 
 /**
  * The type of a collection's projection of an entry that is only the entry's
@@ -73,6 +80,33 @@ type KeptEntryValue = ValueTypeOf<typeof KeptEntryType>;
  */
 const KeptOwnKeysType = DictType(StringType, OptionType(StringType));
 
+/** An entry's version as the tab keeps it beside a request: its draft and the collection's projection of it, each beast2 at its own type, and where it stands. */
+const KeptVersionType = StructType({ draft: OptionType(BlobType), wire: OptionType(BlobType), place: OptionType(EditingPlacementType) });
+
+/**
+ * A request whose outcome its session does not know, as the tab keeps it
+ * beside the drafts, under a key of its own — the drafts' bytes stay as every
+ * version that kept them wrote them: the schemas it was made under, the batch
+ * as it was sent, each entry it changes as its edit began and as the request
+ * leaves it, the keys the session made among them, whether an automatic Save
+ * sent it, and whether it has been sent again and refused since
+ * (`EditSession.keptRequest`).
+ */
+export const KeptRequestType = StructType({
+    entryType: EastTypeType,
+    draftType: EastTypeType,
+    wireType: EastTypeType,
+    payload: BlobType,
+    automatic: BooleanType,
+    refused: BooleanType,
+    targets: ArrayType(StructType({ id: StringType, before: KeptVersionType, after: KeptVersionType })),
+    minted: KeptOwnKeysType,
+});
+
+type KeptVersionValue = ValueTypeOf<typeof KeptVersionType>;
+
+const encodeRequest = encodeBeast2For(KeptRequestType);
+const decodeRequest = decodeBeast2For(KeptRequestType);
 const encodeDrafts = encodeBeast2For(KeptDraftsType);
 const decodeDrafts = decodeBeast2For(KeptDraftsType);
 const encodeOwnKeys = encodeBeast2For(KeptOwnKeysType);
@@ -204,6 +238,8 @@ export function keepDrafts<W>(session: EditSession<W>, key: string, wireType: Ea
     const stepped = kept(`${key}:stepped`, keptFlag, { where: "tab" });
     // And the keys the session made for the new entries among them: its own to make again where another write takes one.
     const made = kept(`${key}:made`, keptBytes, { where: "tab" });
+    // And a request whose outcome the session does not know: the page that loads asks the source again.
+    const asking = kept(`${key}:request`, keptBytes, { where: "tab" });
     const ownKeysOf = (keys: ReadonlyMap<string, string | undefined>): ValueTypeOf<typeof KeptOwnKeysType> =>
         new SortedMap([...keys].map(([id, from]) => [id, from === undefined ? none : some(from)] as const), compareText);
     const types = { entryType: toEastTypeValue(session.entryType), draftType: toEastTypeValue(session.draftType), wireType: toEastTypeValue(wireType) };
@@ -228,6 +264,35 @@ export function keepDrafts<W>(session: EditSession<W>, key: string, wireType: Ea
         beforeWire: entry.beforeWire === undefined ? none : some(encodeWire(entry.beforeWire)),
         place: entry.place, beforePlace: entry.beforePlace,
     });
+
+    const versionOf = (version: KeptVersionValue): EntryVersion<W> => {
+        const wire = optionOf(version.wire, decodeWire);
+        return { draft: version.draft.type === "some" ? decodeDraft(version.draft.value) : undefined, wire: wire.type === "some" ? wire.value : undefined, place: version.place };
+    };
+    const versionValueOf = (version: EntryVersion<W>): KeptVersionValue => ({
+        draft: version.draft === undefined ? none : some(encodeDraft(version.draft)),
+        wire: version.wire === undefined ? none : some(encodeWire(version.wire)),
+        place: version.place,
+    });
+    // The request the tab kept, read before the drafts are restored: made under other schemas, or bytes this version
+    // does not read, it is forgotten — the drafts are then carried over as they are where no request was kept.
+    let request: KeptRequest<W> | undefined;
+    const asked = asking.read();
+    if (asked !== undefined) {
+        try {
+            const value = decodeRequest(asked);
+            if (sameType(value.entryType, types.entryType) && sameType(value.draftType, types.draftType) && sameType(value.wireType, types.wireType)) {
+                request = {
+                    payload: value.payload, automatic: value.automatic, asked: value.refused ? "refused" : "unanswered",
+                    targets: value.targets.map((target) => ({ id: target.id, before: versionOf(target.before), after: versionOf(target.after) })),
+                    minted: new Map([...value.minted].map(([id, from]) => [id, from.type === "some" ? from.value : undefined] as const)),
+                };
+            }
+        } catch {
+            request = undefined;
+        }
+        if (request === undefined) asking.remove();
+    }
 
     // What the tab kept: restored at the session's first base, if it was made under these schemas and reads.
     const stored = handle.read();
@@ -254,6 +319,8 @@ export function keepDrafts<W>(session: EditSession<W>, key: string, wireType: Ea
             waiting.remove();
             stepped.remove();
             made.remove();
+            asking.remove();
+            request = undefined;
             setKeeping(session, { state: "lost", reason: lost });
         }
     } else {
@@ -261,11 +328,31 @@ export function keepDrafts<W>(session: EditSession<W>, key: string, wireType: Ea
         stepped.remove();
         made.remove();
     }
+    // With the drafts kept beside it, or with none: every draft made since may have been taken back.
+    if (request !== undefined) session.restoreRequest(request);
 
     // Written as each change is made: the same versions as last written write nothing.
     let last: readonly KeptEntry<W>[] | undefined;
     let lastOwn: ValueTypeOf<typeof KeptOwnKeysType> | undefined;
+    let lastRequest: KeptRequest<W> | undefined;
+    // Whether the tab holds a request: the one it kept as the page loaded, until the session has resolved it, or one written since.
+    let asks = request !== undefined;
+    // Why the request's last write was refused, while it was: a reload would lose it, whatever the drafts' own write did.
+    let unasked: KeptFailureReason | undefined;
     session.subscribe(() => {
+        // The request first, kept while its outcome is not known and gone once it is: the same request writes nothing.
+        const out = session.keptRequest;
+        if (out === undefined) {
+            if (asks) asking.remove();
+            asks = false; lastRequest = undefined; unasked = undefined;
+        } else if (!Object.is(out, lastRequest)) {
+            lastRequest = out; asks = true;
+            asking.write(encodeRequest({
+                ...types, payload: out.payload, automatic: out.automatic, refused: out.asked === "refused", minted: ownKeysOf(out.minted),
+                targets: out.targets.map((target) => ({ id: target.id, before: versionValueOf(target.before), after: versionValueOf(target.after) })),
+            }));
+            unasked = asking.failure();
+        }
         const entries = session.keptEntries;
         // Kept with the drafts, and gone with them: the keys of the new entries among them that the session made.
         const own = entries.length === 0 ? undefined : ownKeysOf(session.ownKeys);
@@ -282,15 +369,19 @@ export function keepDrafts<W>(session: EditSession<W>, key: string, wireType: Ea
         // A step back, too: a person's Save of it, a Redo back to where the last change left the steps, or the next change ends it.
         if (entries.length > 0 && session.autosaveStepped) stepped.write(true);
         else stepped.remove();
-        if (last !== undefined && sameEntries(last, entries)) return;
+        if (last !== undefined && sameEntries(last, entries)) {
+            if (unasked !== undefined) setKeeping(session, { state: "unkept", reason: unasked });
+            return;
+        }
         last = entries;
         if (entries.length === 0) {
             handle.remove();
-            if (keepingOf(session).state.state === "unkept") setKeeping(session, KEPT);
+            if (unasked !== undefined) setKeeping(session, { state: "unkept", reason: unasked });
+            else if (keepingOf(session).state.state === "unkept") setKeeping(session, KEPT);
             return;
         }
         handle.write(encodeDrafts({ ...types, entries: entries.map(valueOf) }));
-        const failure = handle.failure();
+        const failure = handle.failure() ?? unasked;
         setKeeping(session, failure === undefined ? KEPT : { state: "unkept", reason: failure });
     });
 }

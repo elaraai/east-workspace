@@ -151,3 +151,97 @@ describe("one entry's three-way merge", () => {
         expect(merger.merge(began, none, added).points).toEqual([]);
     });
 });
+
+describe("what both began from, where a request that changed the entry may or may not have landed", () => {
+    // The request set the hours from 442 to 500. It was sent, no answer came, and sent again it was refused — which says
+    // nothing of its first sending. What the source holds of the entry is all there is to judge it by.
+    const before = draft(row());
+    const sent = draft(row({ hours: 500 }));
+    /** The draft carried over from what `eitherBegan` says both began from. */
+    const carried = (mine: option<unknown>, source: option<unknown>) => merger.merge(merger.eitherBegan(before, sent, mine, source), mine, source);
+
+    test("held as the request left it, it began from what was sent: a change put back since is a change from that, and nothing is asked", () => {
+        expect(merger.equal(merger.eitherBegan(before, sent, before, sent), sent)).toBe(true);
+        const merged = carried(before, sent);
+        expect(merged.points).toEqual([]);
+        expect(merger.equal(merged.draft, before)).toBe(true);
+    });
+
+    test("held as the request left it, a draft still as it was sent is no draft: the source's value holds it whole", () => {
+        const merged = carried(sent, sent);
+        expect([merged.points, merger.equal(merged.draft, sent)]).toEqual([[], true]);
+    });
+
+    test("held as the edit began, it began from that: the request did not land there, and the draft is its change still", () => {
+        expect(merger.equal(merger.eitherBegan(before, sent, sent, before), before)).toBe(true);
+        const merged = carried(sent, before);
+        expect([merged.points, merger.equal(merged.draft, sent)]).toEqual([[], true]);
+        // Changed again since, to another value: still one plain change, of a part no other write has touched.
+        const again = carried(draft(row({ hours: 510 })), before);
+        expect([again.points, merger.equal(again.draft, draft(row({ hours: 510 })))]).toEqual([[], true]);
+    });
+
+    test("held as neither, a draft still as it was sent is asked of: an unsaved change against another write's, where the request never landed", () => {
+        const theirs = draft(row({ hours: 470 }));
+        const merged = carried(sent, theirs);
+        expect(merged.points.map((point) => point.kind)).toEqual(["changed"]);
+        expect(merger.equal(merged.draft, sent)).toBe(true);
+    });
+
+    test("held as neither, a draft put back since is asked of too, never given up for the other write: an Undo of a saved change, where the request had landed", () => {
+        const theirs = draft(row({ hours: 470 }));
+        expect(merger.equal(merger.eitherBegan(before, sent, before, theirs), sent)).toBe(true);
+        const merged = carried(before, theirs);
+        expect(merged.points.map((point) => point.kind)).toEqual(["changed"]);
+        expect(merger.equal(merged.draft, before)).toBe(true);
+    });
+
+    test("each part is judged on its own: one the source holds as sent and one it holds as the edit began, in one entry", () => {
+        const both = draft(row({ hours: 500, name: "Works 10013" }));
+        // The name landed; the hours did not, and its person has since put them at 510.
+        const source = draft(row({ name: "Works 10013" }));
+        const mine = draft(row({ hours: 510, name: "Works 10013" }));
+        const began = merger.eitherBegan(before, both, mine, source);
+        expect(merger.equal(began, source)).toBe(true);
+        const merged = merger.merge(began, mine, source);
+        expect([merged.points, merger.equal(merged.draft, mine)]).toEqual([[], true]);
+    });
+
+    test("a part the request left alone began as the edit did, whatever the source holds there", () => {
+        const source = draft(row({ hours: 500, name: "Works 10099" }));
+        const merged = carried(sent, source);
+        // The hours are the source's, as sent; the name is another write's, taken with nothing asked.
+        expect([merged.points, merger.equal(merged.draft, source)]).toEqual([[], true]);
+    });
+
+    test("a new entry held as the request left it began from what was sent: a field changed since is a change of that entry", () => {
+        const made = draft(row({ name: "Works 20001" }));
+        const mine = draft(row({ name: "Works 20001", hours: 12 }));
+        expect(merger.equal(merger.eitherBegan(none, made, mine, made), made)).toBe(true);
+        const merged = merger.merge(merger.eitherBegan(none, made, mine, made), mine, made);
+        expect([merged.points, merger.equal(merged.draft, mine)]).toEqual([[], true]);
+    });
+
+    test("a new entry the source holds otherwise began from none, though a field of the draft has changed since: two entries under one key, a conflict of the whole — never one merged a part at a time", () => {
+        const made = draft(row({ name: "Works 20001" }));
+        const mine = draft(row({ name: "Works 20001", hours: 12 }));
+        const theirs = draft(row({ name: "Works 30007", hours: 90 }));
+        expect(merger.eitherBegan(none, made, mine, theirs)).toEqual(none);
+        const merged = merger.merge(merger.eitherBegan(none, made, mine, theirs), mine, theirs);
+        expect(merged.points.map((point) => point.kind)).toEqual(["added-by-both"]);
+        expect(merger.equal(merged.draft, mine)).toBe(true);
+    });
+
+    test("an entry the request removed, gone from the source, began from none: put back since, it is the draft's to add, and nothing is asked", () => {
+        expect(merger.eitherBegan(before, none, before, none)).toEqual(none);
+        const merged = merger.merge(merger.eitherBegan(before, none, before, none), before, none);
+        expect([merged.points, merger.equal(merged.draft, before)]).toEqual([[], true]);
+    });
+
+    test("an entry the request removed that the source still holds, changed by another write, began as the edit did: removed here and changed there, a conflict of the whole", () => {
+        const theirs = draft(row({ hours: 470 }));
+        expect(merger.equal(merger.eitherBegan(before, none, none, theirs), before)).toBe(true);
+        const merged = merger.merge(merger.eitherBegan(before, none, none, theirs), none, theirs);
+        expect(merged.points.map((point) => point.kind)).toEqual(["removed-by-draft"]);
+    });
+});

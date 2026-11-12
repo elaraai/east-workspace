@@ -13,8 +13,13 @@
  *   — and the whole is applied by East's patch apply: every row's change, or
  *   none. A part a change began from that the record no longer holds refuses
  *   the batch, as a conflict.
- * - A request id is answered once: sent again, it is answered as it was, and
- *   nothing is applied twice.
+ * - A request id is answered again only while it is the record's last write,
+ *   as e3 answers one (`e3-core`'s records: the record's ref names the key of
+ *   its last mutation alone): sent again then, it is answered as it was and
+ *   nothing is applied twice. Once another write has landed, or where the
+ *   request was refused, the same request sent again is checked afresh — and
+ *   one that had landed is refused, since the rows no longer hold what its
+ *   changes began from.
  * - Another session's write is a commit of its own, at a revision of its own.
  * - Every commit says who made it and each field it changed, from what to
  *   what: what the harness's checks read (`world.test-utils.ts`).
@@ -77,6 +82,8 @@ export interface ModelCommit {
     readonly revision: string;
     /** Who made it. */
     readonly by: Writer;
+    /** The request that made it, where a session's batch did: its id. */
+    readonly requestId: string | undefined;
     /** Each field of each row it changed. */
     readonly changed: readonly ModelChange[];
 }
@@ -100,7 +107,8 @@ export class ModelRecord {
     private rows: RowsValue;
     private serial = 1;
     private readonly held = new Map<string, RowsValue>();
-    private readonly answers = new Map<string, Answer>();
+    /** The record's last write, where a session's batch made it: its request id, and the answer it was given. */
+    private last: { readonly requestId: string; readonly answer: Answer } | undefined;
     /** Every commit, oldest first. */
     readonly commits: ModelCommit[] = [];
     /** How many batches it applied: one a request id, however often the request was sent. */
@@ -148,11 +156,11 @@ export class ModelRecord {
      *
      * @param batch - The batch
      * @param by - Who sends it
-     * @returns The record's answer: the revision the batch made, or its conflict — the same answer for the same request id
+     * @returns The record's answer: the revision the batch made, or its conflict — the answer it gave before, where the
+     *   batch's request is the record's last write
      */
     commit(batch: BatchValue, by: Writer): Answer {
-        const answered = this.answers.get(batch.requestId);
-        if (answered !== undefined) return answered;
+        if (this.last !== undefined && this.last.requestId === batch.requestId) return this.last.answer;
         // Each change, restated by key: the batch's own values and entry patches, carrying what each row was as its edit began.
         const ops = new SortedMap<string, unknown>([], compareKeys);
         for (const change of batch.changes) {
@@ -167,9 +175,10 @@ export class ModelRecord {
         }
         let answer: Answer;
         try {
-            this.move(rowsOf(applyRows(this.rows, variant("patch", ops))), by);
+            this.move(rowsOf(applyRows(this.rows, variant("patch", ops))), by, batch.requestId);
             this.applied++;
             answer = variant("applied", { revision: some(this.revision) });
+            this.last = { requestId: batch.requestId, answer };
         } catch (error) {
             if (!(error instanceof ConflictError)) throw error;
             // As a record read a window at a time answers: its own issue, and each row the batch changed.
@@ -178,7 +187,6 @@ export class ModelRecord {
                 ...batch.changes.map((change) => ({ entry: change.id, row: none, field: none, message: "Changed since this edit began" })),
             ]);
         }
-        this.answers.set(batch.requestId, answer);
         return answer;
     }
 
@@ -207,6 +215,21 @@ export class ModelRecord {
         for (let i = this.commits.length - 1; i >= 0; i--) {
             const commit = this.commits[i]!;
             if (commit.changed.some((change) => textEqual(change.key, key) && textEqual(change.field, field))) return commit.by;
+        }
+        return undefined;
+    }
+
+    /**
+     * The request that changed a field of a row last.
+     *
+     * @param key - The row's key
+     * @param field - The field
+     * @returns Its id; `undefined` for a field no session's batch changed last
+     */
+    requestOf(key: string, field: Field): string | undefined {
+        for (let i = this.commits.length - 1; i >= 0; i--) {
+            const commit = this.commits[i]!;
+            if (commit.changed.some((change) => textEqual(change.key, key) && textEqual(change.field, field))) return commit.requestId;
         }
         return undefined;
     }
@@ -294,7 +317,7 @@ export class ModelRecord {
     }
 
     /** The record moved to new rows: a revision, and what changed in it. */
-    private move(next: RowsValue, by: Writer): void {
+    private move(next: RowsValue, by: Writer, requestId?: string): void {
         const changed: ModelChange[] = [];
         for (const key of new Set([...this.rows.keys(), ...next.keys()])) {
             const [was, is] = [this.rows.get(key), next.get(key)];
@@ -306,6 +329,8 @@ export class ModelRecord {
         this.rows = next;
         this.serial++;
         this.held.set(this.revision, next);
-        this.commits.push({ revision: this.revision, by, changed });
+        this.commits.push({ revision: this.revision, by, requestId, changed });
+        // Whoever wrote, the record's last write is this one now: a batch's own names itself as it is answered.
+        this.last = undefined;
     }
 }

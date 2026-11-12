@@ -169,6 +169,45 @@ export class EntryMerger {
     }
 
     /**
+     * What an entry's draft and its source's value both began from, where a request that changed the entry may or may
+     * not have landed: it was sent, no answer came, and sent again it was refused — which says nothing of the first
+     * sending, since a source answers a request again only while it is its last write.
+     *
+     * Each part the request changed is judged by what the source holds there:
+     * - as the request left it: the request's doing, or another write's to the same end — it began from what was sent,
+     *   so a draft made since is a change from that;
+     * - as the edit began: the request did not land there, or was put back — it began from that;
+     * - neither, another write's value: it began from whichever makes the draft's difference from the source a
+     *   conflict to choose. A draft still as it was sent began as its edit did, an unsaved change against another's;
+     *   one changed since at that part, or at one that holds it, began from what was sent, a change since against
+     *   another's. Taken the other way, either would be given up for the source's value with nothing asked: an
+     *   unsaved change lost where the request never landed, an Undo of a saved one where it had. A part the request
+     *   set whole — a new entry, a removal — that the draft has changed only within began as its edit did: the two
+     *   are then two entries under one key, or an entry removed by one and changed by the other, a conflict of the
+     *   whole, never one entry whose parts are merged.
+     *
+     * @param before - The entry as its edit began
+     * @param sent - The entry as the request left it
+     * @param draft - The draft
+     * @param source - The value its source holds now
+     * @returns What both began from
+     */
+    eitherBegan(before: option<unknown>, sent: option<unknown>, draft: option<unknown>, source: option<unknown>): option<unknown> {
+        const leaves = (patch: unknown): PatchPath[] => {
+            const out: PatchPath[] = [];
+            this.prune(patch as never, (leaf) => { out.push(leaf); return true; });
+            return out;
+        };
+        const offSent = leaves(this.diff(sent, source));
+        const offBefore = leaves(this.diff(before, source));
+        const drafted = leaves(this.diff(sent, draft));
+        const at = (places: readonly PatchPath[], leaf: PatchPath): boolean => places.some((place) => related(leaf, place));
+        // Changed since at the part itself, or at one that holds it: a change within the part alone is no change of it.
+        const over = (places: readonly PatchPath[], leaf: PatchPath): boolean => places.some((place) => place.length <= leaf.length && related(leaf, place));
+        return this.apply(before, this.prune(this.diff(before, sent) as never, (leaf) => !at(offSent, leaf) || (at(offBefore, leaf) && over(drafted, leaf))));
+    }
+
+    /**
      * An entry's conflicts, read from its three values.
      *
      * @param was - What both began from

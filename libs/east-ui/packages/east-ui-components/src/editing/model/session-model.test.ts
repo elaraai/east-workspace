@@ -40,10 +40,8 @@ interface Explored {
     worlds: number;
     /** In how many of them a session's steps went under its person: Undo lost as the source moved. */
     stepsLost: number;
-    /** In how many of them a reload lost a change made while a Save was unresolved. */
-    reloadLost: number;
-    /** In how many of them a reload made a change already saved a conflict to choose. */
-    reloadAsked: number;
+    /** In how many of them a person was asked to choose, with nothing to save, over a row of a request with no answer that was sent again and refused. */
+    unansweredAsked: number;
     /** In how many of them a Save over a source read whole waited for good to be read back: every part it wrote put back since, exactly. */
     waitedForGood: number;
     /** In how many of them a Save's late answer stepped a screen back to the revision the Save committed. */
@@ -60,11 +58,10 @@ interface Explored {
  * @throws {ModelFault} The first fault, with the operations that led to it
  */
 async function explore(options: WorldOptions, depth: number, allow: (op: ModelOp) => boolean): Promise<Explored> {
-    const found: Explored = { worlds: 0, stepsLost: 0, reloadLost: 0, reloadAsked: 0, waitedForGood: 0, lateAnswer: 0 };
+    const found: Explored = { worlds: 0, stepsLost: 0, unansweredAsked: 0, waitedForGood: 0, lateAnswer: 0 };
     found.worlds = await everyOrdering((ops) => worldAfter(options, ops), depth, allow, independent, (world) => {
         if (world.stepsLost > 0) found.stepsLost++;
-        if (world.reloadLost > 0) found.reloadLost++;
-        if (world.reloadAsked > 0) found.reloadAsked++;
+        if (world.unansweredAsked > 0) found.unansweredAsked++;
         if (world.waitedForGood > 0) found.waitedForGood++;
         if (world.lateAnswer > 0) found.lateAnswer++;
     });
@@ -74,7 +71,7 @@ async function explore(options: WorldOptions, depth: number, allow: (op: ModelOp
 /** What an exploration covered, in a line. */
 function said(name: string, found: Explored): string {
     const waited = `${found.waitedForGood === 0 ? "" : `; a Save read whole waited for good in ${found.waitedForGood}`}${found.lateAnswer === 0 ? "" : `; a late answer stepped a screen back in ${found.lateAnswer}`}`;
-    return `[editing model] ${name}: ${found.worlds} orderings; steps lost in ${found.stepsLost}; a reload lost a change in ${found.reloadLost}, and asked of a saved one in ${found.reloadAsked}${waited}`;
+    return `[editing model] ${name}: ${found.worlds} orderings; steps lost in ${found.stepsLost}; asked with nothing to save, after a request with no answer was refused, in ${found.unansweredAsked}${waited}`;
 }
 
 /**
@@ -296,6 +293,52 @@ describe("what the harness found of a page reloaded", () => {
             await world.rest();
         });
 
+        it(`a Save that landed with no answer, another session's write, then Retry: the record refuses the request it has forgotten, and a change put back by Undo since is still the next Save's (${shape})`, async () => {
+            // e3 answers a request again only while it is the record's last write. After another's — to another row — the
+            // same request is checked afresh and refused over what its own first sending wrote. Taken at its word, the
+            // refusal had the Undo read as no change at all, and the row stayed as the Save left it.
+            const world = await worldAfter({ shape, remotes: 1 }, ["c0.edit(k1,a)", "c0.save", "c0.undo", "c0.deliverUnanswered", "remote.edit(k2,a)", "c0.retry", "c0.deliver", "c0.see", "c0.read"]);
+            const client = world.clients[0]!;
+            expect([client.session.pending, client.session.unsettled, client.shown("k1")?.a]).toEqual([1, 0, 1n]);
+            await world.rest();
+            expect([world.record.now.get("k1")?.a, world.unansweredAsked]).toEqual([1n, 0]);
+        });
+
+        it(`after such a refusal, a change of another row saved before the page hears of the other session's write does not make the first request forgotten: what Undo put back is still the next Save's (${shape})`, async () => {
+            // The second Save lands — e3 checks a row's change against that row alone — and says nothing of whether the
+            // first had: its rows are still to be judged by what the record holds.
+            const world = await worldAfter({ shape, remotes: 1 }, [
+                "c0.edit(k1,a)", "c0.save", "c0.undo", "c0.deliverUnanswered", "remote.edit(k2,a)", "c0.retry", "c0.deliver",
+                "c0.edit(k2,b)", "c0.save", "c0.deliver", "c0.see", "c0.read", "c0.read",
+            ]);
+            const client = world.clients[0]!;
+            expect([client.session.pending, client.session.unsettled, client.shown("k1")?.a]).toEqual([1, 0, 1n]);
+            await world.rest();
+            expect(world.record.now.get("k1")?.a).toBe(1n);
+        });
+
+        it(`the page reloaded while a Save has no answer, the record having taken it: the request is sent again as the page loads, and a change put back by Undo since is still the next Save's (${shape})`, async () => {
+            const world = await worldAfter({ shape, remotes: 0 }, ["c0.edit(k1,a)", "c0.save", "c0.undo", "c0.deliverUnanswered", "c0.reload", "c0.see", "c0.deliver", "c0.read"]);
+            const client = world.clients[0]!;
+            expect([client.session.pending, client.session.unsettled, client.shown("k1")?.a]).toEqual([1, 0, 1n]);
+            await world.rest();
+            expect([world.record.now.get("k1")?.a, world.unansweredAsked]).toEqual([1n, 0]);
+        });
+
+        it(`the page reloaded while a Save is on its way, the record never having heard of it: the page sends it, and the change is saved once (${shape})`, async () => {
+            const world = await worldAfter({ shape, remotes: 0 }, ["c0.edit(k1,a)", "c0.save", "c0.reload", "c0.see", "c0.deliver", "c0.read"]);
+            const client = world.clients[0]!;
+            expect([client.session.pending, client.session.status, world.record.commits.length]).toEqual([0, "idle", 1]);
+            await world.rest();
+        });
+
+        it(`a change that landed with no answer and was then written over at the same part by another session is asked of, on Retry: nothing the record holds tells it from a Save another write got ahead of (${shape})`, async () => {
+            // Counted, never excused in general: only the record's own word on the request would close it.
+            const world = await worldAfter({ shape, remotes: 1 }, ["c0.edit(k1,a)", "c0.save", "c0.deliverUnanswered", "remote.edit(k1,a)", "c0.retry", "c0.deliver", "c0.see", "c0.read"]);
+            const client = world.clients[0]!;
+            expect([client.session.unsettled, world.unansweredAsked]).toEqual([1, 1]);
+        });
+
         it(`a Save the source acknowledged is no draft to a page reloaded before its read back: another session's later change of it is no conflict (${shape})`, async () => {
             const world = await worldAfter({ shape, remotes: 1 }, ["c0.edit(k1,a)", "c0.save", "c0.deliver", "c0.reload", "remote.edit(k1,a)", "c0.see", "c0.read"]);
             const client = world.clients[0]!;
@@ -307,7 +350,7 @@ describe("what the harness found of a page reloaded", () => {
             const world = await worldAfter({ shape, remotes: 0 }, ["c0.edit(k1,a)", "c0.save", "c0.undo", "c0.deliver", "c0.reload", "c0.read"]);
             const client = world.clients[0]!;
             // The Save wrote the edit; the Undo, kept, is the change still to save.
-            expect([client.session.pending, client.shown("k1")?.a, world.reloadLost]).toEqual([1, 1n, 0]);
+            expect([client.session.pending, client.shown("k1")?.a]).toEqual([1, 1n]);
             await world.rest();
             expect(world.record.now.get("k1")?.a).toBe(1n);
         });

@@ -150,6 +150,8 @@ export class KeysClient {
     asked = 0;
     /** What its person kept of their rows as each request was first sent, by the request's id: what the request is held to. */
     private readonly sent = new Map<string, ReadonlyMap<string, bigint | undefined>>();
+    /** The requests sent again after no answer came: lost on its way, its answer lost, or the page gone with it unresolved. */
+    private readonly unanswered = new Set<string>();
     /** What the session last said it moved: said once, so each map is counted once. */
     private said: ReadonlyMap<string, string> | undefined;
     /** Its person's steps, as they made them. */
@@ -460,14 +462,24 @@ export class KeysClient {
         const entries = this.session.keptEntries.map((entry) => ({ ...entry, was: again(entry.was), draft: again(entry.draft) }));
         // Kept with the drafts, and gone with them (`keep.ts`).
         const own = entries.length === 0 ? new Map<string, string | undefined>() : new Map(this.session.ownKeys);
-        // A Save whose outcome the session does not know — sent, or its answer lost — is kept as drafts, which the record
-        // may hold already; and a row put back as it began since — made, sent, then removed — is no draft, and is not
-        // kept: where that Save lands, its removal is lost with the page (what `world.test-utils.ts` counts).
-        if (this.session.locked && this.session.status !== "reconciling") this.unsure = true;
+        // A Save whose outcome the session does not know — on its way, or its answer lost — is kept with the drafts, the
+        // keys the session made among its rows with it, and sent again by the page as it loads.
+        const request = this.session.keptRequest;
+        const version = <T extends { readonly draft: unknown }>(held: T): T => (held.draft === undefined ? held : { ...held, draft: decode(encode(held.draft)) });
+        if (request !== undefined) this.unanswered.add(decodeBatch(request.payload).requestId);
+        // Read whole, the request is not sent again: the page judges each of its rows by the collection it has read
+        // afresh, and where that holds another row under a key the request added, its person is asked to choose.
+        if (request !== undefined && this.inline) this.unsure = true;
         this.out = undefined;
         this.session = this.open();
         this.session.restore(entries, false, false);
         if (own.size > 0) this.session.restoreOwnKeys(own);
+        if (request !== undefined) {
+            this.session.restoreRequest({
+                ...request, payload: request.payload.slice(), minted: new Map(request.minted),
+                targets: request.targets.map((target) => ({ id: target.id, before: version(target.before), after: version(target.after) })),
+            });
+        }
         this.mine = new Set(own.keys());
         this.said = this.session.renumbered;
         this.known = { revision: this.record.revision, asked: new Set(), landed: new Set() };
@@ -502,8 +514,11 @@ export class KeysClient {
         this.out = undefined;
         const before = this.record.commits.length;
         const answer = this.record.commit(out.batch, this.name);
+        // Sent again after no answer, and refused: the session cannot tell whether its first sending landed, and its
+        // person may be asked to choose over a row of it — a key the session made among them.
+        if (answer.type !== "applied" && this.unanswered.has(out.batch.requestId)) this.unsure = true;
         if (answered) out.resolve(answer);
-        else out.reject(new Error("No answer"));
+        else { this.unanswered.add(out.batch.requestId); out.reject(new Error("No answer")); }
         await settled();
         return this.record.commits.length > before ? this.sent.get(out.batch.requestId) : undefined;
     }
@@ -513,6 +528,7 @@ export class KeysClient {
         const out = this.out;
         if (out === undefined) return;
         this.out = undefined;
+        this.unanswered.add(out.batch.requestId);
         out.reject(new Error("No answer"));
         await settled();
     }

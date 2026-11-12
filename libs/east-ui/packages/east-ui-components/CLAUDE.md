@@ -763,6 +763,30 @@ component, nothing in east-ui.
   nothing to choose. Still open: every part a Save wrote put back exactly as it was by another write, before the
   source is read again, reads as a collection from before the Save, and waits until the page is reloaded — the
   source must say which state it read (as a source at a revision does), which a collection alone cannot.
+- **A Save with no answer** (`EditSession.unconfirmed`, `keptRequest`; hardened 12 Nov 2026). A write that throws, or
+  answers with no revision, leaves its request unresolved (`unknown`), and Retry sends the same bytes, so the same
+  request id. A source answers a request again only while that request is its last write — e3 names the key of a
+  record's last mutation alone (`e3-core`'s `records.ts`) — so once another write has landed the same request is
+  checked afresh, and one that had landed is refused over what its own first sending wrote. That refusal is never
+  taken at its word. Taken so, a new row the first sending saved read as another write's under the session's key, was
+  made another key and saved twice, and a row it removed, put back by Undo since, was gone. Each entry of such a
+  request is judged by what the source holds of it as the drafts are carried over (`merge`), a part at a time
+  (`EntryMerger.eitherBegan`): held as the request left it, it began from what was sent, and a draft made since is a
+  change from that; held as the edit began, from that; held as neither — another write's value — from whichever makes
+  the draft's difference a conflict to choose, never given up for the other write unasked. A whole new row or a
+  removal is judged whole, never merged with another row a part at a time. A new entry of the request's is made no
+  other key, and a key a request leaves a row under is known taken. The tab keeps the request beside the drafts, under
+  a key of its own (`keep.ts`, `<key>:request`): the page that loads puts the session back as it stood and sends the
+  request again — over a source read whole it judges the request at once, by the collection it has read afresh — so a
+  reload while a Save has no answer loses nothing drafted since and asks of nothing the Save had saved. A later Save
+  that lands says nothing of an earlier request still to be judged — a source checks a row's change against that row
+  alone — so the earlier one's rows stay as their person has them and are read once it has. Its tests: the harness's
+  named replays (`model/`), `merge.test.ts`, `keep.dom.test.ts`, and e3-ui-components'
+  `record/unanswered-save.dom.test.tsx`, both faults on e3 itself with e3's answers lost at the harness's fetch — taken
+  out, the Record there saves a new crew member twice. Still open: a
+  row another write changed meanwhile may be asked of where its person has nothing to save. Nothing a source holds
+  tells a request that landed and was written over from one another write got ahead of; only the source's own word on
+  the request would — e3 remembering more than a record's last key, or its history naming each commit's request.
 - **The editing core's proof harness** (`src/editing/model/`, in the unit suite). It runs the code itself through
   what can happen to it, never examples (`explore.test-utils.ts`):
   - **Every ordering to a depth** (`everyOrdering`): each from a fresh model, two operations whose order is no matter
@@ -778,7 +802,7 @@ component, nothing in east-ui.
     only counts.
   - **One session** (`world.test-utils.ts`, run by `session-model.test.ts`). `record.test-utils.ts` is a small record
     that checks a Save's batch as `Record.onApply` does — East's patch apply a row, a revision a commit, a request id
-    answered once — and the world is sessions over it, each with a screen of its own, driven as `useEditSession`
+    answered again only while it is the record's last write, as e3 answers one — and the world is sessions over it, each with a screen of its own, driven as `useEditSession`
     drives one, with every operation that can meet in one: gestures — a row changed, removed and added, a removed key
     added again and an added row changed and removed, by its person and by another session alike — an optimiser's
     result, Undo, Redo, Discard, a
@@ -807,8 +831,9 @@ component, nothing in east-ui.
     the record held before the one the screen last showed there — which of the record's writes a shown value is,
     read no later than the newest revision its source has read at, or its own Save.
   - **What it only counts**, and holds nothing of yet: the orderings in which a session's steps went under its
-    person as the source moved, those in which a reload lost a
-    change made while a Save's outcome was unknown, or asked of one already saved, those in which a Save over a
+    person as the source moved, those in which a person was asked
+    to choose, with nothing to save, over a row of a request that had no answer and was refused when sent again
+    (above: only the source's own word on the request would close it), those in which a Save over a
     source read whole waited for good, every part it wrote put back exactly, and those in which a Save's late answer
     put its source back at the revision the Save committed, its rows drawn there. Each is a fault still to close,
     never a behaviour to keep.

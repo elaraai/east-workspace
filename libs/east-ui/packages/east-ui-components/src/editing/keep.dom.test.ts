@@ -139,6 +139,74 @@ describe("drafts kept through a reload", () => {
         expect([[...after.entries.keys()], [...after.renumbered], after.unsettled, after.pending]).toEqual([[], [], 0, 0]);
     });
 
+    /** What the tab keeps of a request whose outcome is not known. */
+    const asked = () => window.sessionStorage.getItem(keptName(`${KEY}:request`, { where: "tab" }));
+    /** J1's quantity set to 5 and saved, the Save left with no answer, then the change put back by Undo. */
+    async function undoneAfterNoAnswer(base: Parameters<EditSession<WireValue>["observeBase"]>[0], sent?: Uint8Array[]): Promise<EditSession<WireValue>> {
+        const s = session(Job, JobDraft, (bytes) => { sent?.push(bytes); throw new Error("offline"); });
+        s.observeBase(base);
+        s.record([{ id: "J1", before: version("J1", cut), after: version("J1", { ...cut, qty: 5n }) }], "typed", "Set quantity");
+        void s.apply();
+        for (let i = 0; i < 12; i++) await Promise.resolve();
+        s.undo();
+        return s;
+    }
+
+    test("a Save left with no answer is kept beside the drafts — with none, where every change was put back since: reloaded with the source having taken it, the Undo is a change still to save", async () => {
+        const before = await undoneAfterNoAnswer(jobs());
+        // J1 reads as it began: no draft to keep. The request, whose outcome is not known, is kept all the same.
+        expect([before.status, before.pending, stored(), asked() === null]).toEqual(["unknown", 0, null, false]);
+        reload();
+        const after = session();
+        // The source took the Save: J1 is at 5 there. What its person put back is a change from that, the next Save's.
+        after.observeBase(jobs({ ...cut, qty: 5n }));
+        expect([after.pending, after.unsettled, sameDraft(after.entries.get("J1")!.draft as JobDraftValue, draftOf(cut))]).toEqual([1, 0, true]);
+        // Judged, the request is no longer kept; the draft it left is.
+        expect([asked(), stored() === null]).toEqual([null, false]);
+    });
+
+    test("reloaded with the source never having taken that Save, nothing is left to save, and nothing is asked", async () => {
+        await undoneAfterNoAnswer(jobs());
+        reload();
+        const after = session();
+        after.observeBase(jobs());
+        expect([after.pending, after.unsettled, after.status, asked(), stored()]).toEqual([0, 0, "idle", null, null]);
+    });
+
+    test("reloaded with another write over the same part, the Undo is asked of, never given up for the other write", async () => {
+        await undoneAfterNoAnswer(jobs());
+        reload();
+        const after = session();
+        // Neither what the request sent nor what the edit began as: whether the Save landed first, nothing here says.
+        after.observeBase(jobs({ ...cut, qty: 8n }));
+        expect([after.pending, after.unsettled, sameDraft(after.entries.get("J1")!.draft as JobDraftValue, draftOf(cut))]).toEqual([1, 1, true]);
+    });
+
+    test("over a source at a revision, the page that loads sends the same request again, and what was put back since is a change from what it left", async () => {
+        const sent: Uint8Array[] = [];
+        await undoneAfterNoAnswer(variant("revision", "r1"), sent);
+        reload();
+        const again: Uint8Array[] = [];
+        const after = session(Job, JobDraft, (bytes) => { again.push(bytes); return variant("applied", { revision: some("r2") }); });
+        after.observeBase(variant("revision", "r2"));
+        for (let i = 0; i < 12; i++) await Promise.resolve();
+        // The same bytes, so the same request id: a source that took the first sending answers it as it did.
+        expect([sent.length, again.map((bytes) => [...bytes])]).toEqual([1, [[...sent[0]!]]]);
+        expect([after.status, asked()]).toEqual(["reconciling", null]);
+        after.reconcile(variant("revision", "r2"), (id) => (id === "J1" ? some({ ...cut, qty: 5n }) : undefined));
+        expect([after.status, after.pending, sameDraft(after.entries.get("J1")!.draft as JobDraftValue, draftOf(cut))]).toEqual(["idle", 1, true]);
+    });
+
+    test("a kept request this version does not read is forgotten, and the drafts are restored as they are", async () => {
+        const before = await undoneAfterNoAnswer(jobs());
+        before.record([{ id: "J2", before: version("J2", band), after: version("J2", { ...band, qty: 6n }) }], "typed", "Set quantity");
+        window.sessionStorage.setItem(keptName(`${KEY}:request`, { where: "tab" }), "not a request");
+        reload();
+        const after = session();
+        after.observeBase(jobs());
+        expect([after.pending, [...after.entries.keys()], asked(), draftsKeepingOf(after).state]).toEqual([1, ["J2"], null, "kept"]);
+    });
+
     test("a Save that landed before the reload leaves no draft, and nothing kept", () => {
         drafted();
         reload();
