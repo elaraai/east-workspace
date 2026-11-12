@@ -111,6 +111,7 @@ import type { RowKey } from "./plan-state.js";
 import { conflictPlaceOf, entryOf, usePlanEditing, type PlanEntryRef } from "./use-plan-editing.js";
 import { timeInstant } from "./instant.js";
 import { usePlanEventEditing } from "./edit/events.js";
+import { scheduleIssueName } from "../shared/schedule/editing.js";
 import { drawnKinds, usePlanEventDrag, type PlanEventCanDropFn } from "./edit/event-drag.js";
 import { PlanNarrow, PLAN_NARROW_BELOW } from "./narrow/index.js";
 import type { PlanNarrowPaging } from "./narrow/demand.js";
@@ -431,11 +432,25 @@ export function usePlanCanvas({
     // the revision they were read at (#1039, #1599): what each Save lands of such a kind draws as the Save left it, over
     // cells read before the commit, until they are read again.
     const drawsLanded = useMemo(() => new Set(cellKinds(kinds)), [kinds]);
+    // A new event whose made key another Save took goes on under the next its session makes (#1583) — two planners who
+    // each duplicate one event, or drop one template, are given the same key. Nothing the Plan drafts names an event by
+    // its key — its links are the app's own, of events the record holds — so every kind's may.
+    const rekeys = useMemo(() => new Set(kinds.map((kind) => kind.key)), [kinds]);
     const eventEditing = usePlanEventEditing({
-        kinds, storageKey, joined, range: eventRange, recordSlices: eventSlices, held: heldCells, drawsLanded, autosave,
+        kinds, storageKey, joined, range: eventRange, recordSlices: eventSlices, held: heldCells, drawsLanded, rekeys, autosave,
     });
     const history = eventEditing.history;
     historyRef.current = history;
+    // What was selected of an event given another key stays selected under it — the inspector open on it still, before
+    // the frame is drawn without it: left on the old key, it would open the other session's event.
+    const renumbered = eventEditing.renumbered;
+    useLayoutEffect(() => {
+        if (renumbered.size === 0) return;
+        const moved = new Map<string, string>();
+        for (const [kind, ids] of renumbered) for (const [from, to] of ids) moved.set(printEventRef({ kind, key: from }), printEventRef({ kind, key: to }));
+        const ui = controller.getSnapshot().store.ui;
+        if (ui.elements.some((key) => moved.has(key))) controller.selectEvents(ui.elements.map((key) => moved.get(key) ?? key), ui.selected);
+    }, [renumbered, controller]);
 
     // ── The app's optimiser (#1409, #1419) ────────────────────────────────
     // One run over the plan window in view, its result landed on the event kinds' events as one step of the history,
@@ -1329,8 +1344,12 @@ export function usePlanCanvas({
     }, [history, locked, acted]);
     const edits = editing.enabled || kinds.length > 0;
     // Each session's banners: `data`'s naming no source, each kind's naming its kind, its issues by its events' titles —
-    // each event read as a gesture reads it, where the canvas reads its rows, else by its key (#1199).
+    // each event read as a gesture reads it, where the canvas reads its rows; one its drafts removed, as its record held
+    // it; else by its key (#1199, `scheduleIssueName`). The two reads are the same functions while the editing stands, so
+    // a window landing makes the banners no new props.
     const readEvent = eventEditing.read;
+    const heldEvent = eventEditing.heldEvent;
+    const naming = useMemo(() => ({ read: readEvent, heldEvent }), [readEvent, heldEvent]);
     const sessions = useMemo((): readonly PlanSessionBanner[] => {
         const actOn = (key: string) => (action: HistoryAction) => history.actOn(key, action);
         const out: PlanSessionBanner[] = editing.enabled
@@ -1342,18 +1361,11 @@ export function usePlanCanvas({
             if (kind === undefined || out.some((s) => stringEqual(s.key, held.key))) continue;
             out.push({
                 key: held.key, session: held.session, name: kind.name, onAction: actOn(held.key),
-                where: (issue) => {
-                    if (issue.entry === "") return "";
-                    try {
-                        return readEvent(kind.key, issue.entry)?.item.title ?? issue.entry;
-                    } catch {
-                        return issue.entry;
-                    }
-                },
+                where: (issue) => scheduleIssueName(naming, kind.key, issue.entry),
             });
         }
         return out;
-    }, [editing.enabled, editing.historyKey, editing.session, where, kindSessions, kinds, readEvent, history]);
+    }, [editing.enabled, editing.historyKey, editing.session, where, kindSessions, kinds, naming, history]);
     // A conflict's item in the history bar's popover, named as its session's banners name its issues — by this
     // render's rows, read as the popover draws, so a window landing makes the history item no new props (CL9).
     const namingNow = useRef({ sessions, where });

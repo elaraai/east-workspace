@@ -408,9 +408,9 @@ export interface ScheduleEditingArgs<I extends Item = Item> {
     drawsLanded?: ReadonlySet<string> | undefined;
     /**
      * The kinds whose new events take another key where another Save took the one made for them (#1583), by their
-     * slots: two people who each make an event from one template are given the same key
-     * ({@link ScheduleEditing.mint}), and the event made here goes on under the next its session makes — both kept,
-     * nothing to choose. Only for a kind none of whose events anything else the builder drafts names by its key: under
+     * slots: two people who each make an event from one template, over a kind whose record their sessions hold whole,
+     * are given the same key ({@link ScheduleEditing.mint}), and the event made here goes on under another its session
+     * makes — both kept, nothing to choose. Only for a kind none of whose events anything else the builder drafts names by its key: under
      * a new key, such a name would be left on the other session's event (keys.ts' `onceKeys`). None by default: the
      * two are a conflict to choose between. Its builder moves on what it holds by the old key
      * ({@link ScheduleEditing.renumbered}).

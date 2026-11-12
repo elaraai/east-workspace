@@ -1308,7 +1308,8 @@ the rows drawn is named from what the session holds of it — the Sheet's
 held when last read, read as its kind reads a row with no draft in place
 (`shared/schedule/editing.ts`' `heldEvent`, which `scheduleIssueName` falls
 back to). The Record (`record/remote-edits.dom.test.tsx`) and the Calendar
-(`calendar/remote-rows.dom.test.tsx`) run them.
+(`calendar/remote-rows.dom.test.tsx`) run them, and the Plan the row added on
+both sides (`plan/frame/plan-remote-rows.dom.test.tsx`).
 
 The Sheet's footer note of a gesture goes with a step of the history, and
 with a conflict's choice, which is one taken in the conflicts popover: a
@@ -1348,13 +1349,15 @@ says nothing else it drafts names its events by key
 `onceKeys`), and that builder moves on what it holds by the old key
 (`ScheduleEditing.renumbered`): a selection left on it would open the other
 session's event in the inspector. The Calendar gives every kind the rule and
-moves its selection (`calendar/remote-rows.dom.test.tsx`). Still to move to
-their sessions: the keys the Roster, the Allocation, the Plan's own rows, the
-Schematic and the Flowchart make up through `shared/schedule/records.ts`'
-`mintKey`; and still a conflict where two sessions make the same key: the
-Plan's events, and the Schematic's and the Flowchart's Integer-keyed rows,
-whose rows name one another by key — a Flowchart's transitions name their
-states.
+moves its selection (`calendar/remote-rows.dom.test.tsx`), and so does the
+Plan (`plan/canvas.tsx`, `plan/frame/plan-remote-rows.dom.test.tsx`): nothing
+it drafts names an event by its key, and its banners name an event through
+the boards' one `scheduleIssueName`. Still to move to their sessions: the
+keys the Roster, the Allocation, the Plan's own rows, the Schematic and the
+Flowchart make up through `shared/schedule/records.ts`' `mintKey`; and still a
+conflict where two sessions make the same key: the Schematic's and the
+Flowchart's Integer-keyed rows, whose rows name one another by key — a
+Flowchart's transitions name their states.
 
 The period is assembled from the app's rows, never stored. A reader of its own
 (`RosterDataReader`, `AllocationDataReader`, as the Calendar's is, #1343) reads
