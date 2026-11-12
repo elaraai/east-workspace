@@ -5,7 +5,8 @@
 
 /**
  * A Roster's, an Allocation's and a Plan's first drag add no rule to the page's styles as an item is picked up or
- * carried, as a Calendar's does not (`calendar-first-drag.spec.ts`, #1594): what a drag draws has its classes already.
+ * carried, as a Calendar's does not (`calendar-first-drag.spec.ts`, #1594): what a drag draws has its classes already —
+ * and so has the tooltip a Plan's bar opens where the pointer rests on it a moment, which a slow pick-up does.
  * Each test is a page of its own, never `./kept-page`'s: a page another test has dragged in holds these rules already.
  */
 
@@ -177,8 +178,17 @@ test("a Plan's first drag adds no rule to the page's styles as it is picked up o
     await carried(page, card, "a Library card");
     await letGo(page);
 
-    // A bar, carried to another day.
+    // A bar the pointer rests on says its whole label in a tooltip a moment later (#1264) — in the middle of its
+    // pick-up, where the pointer rests that long, as it does on a slow machine. Its first opening adds no rule either:
+    // the tooltip's styles are made as the Plan's overlays mount.
     const handbook = entry.locator(`${PRESS_A1} [data-run]`, { hasText: "Course handbook" });
+    await handbook.scrollIntoViewIfNeeded();
+    const rested = await addedCount(page);
+    await handbook.hover();
+    await expect(page.locator("[data-plan-overlay='tooltip']")).toBeVisible();
+    expect.soft(await addedSince(page, rested), "the rules a bar's tooltip added as it first opened").toEqual([]);
+
+    // The bar, carried to another day.
     const bar = await pickUp(page, handbook, () => expect(moveGhost(page)).toBeVisible(), "a bar");
     const other = await dayOf(plot, 20);
     await page.mouse.move(other.x, other.y, { steps: 8 });

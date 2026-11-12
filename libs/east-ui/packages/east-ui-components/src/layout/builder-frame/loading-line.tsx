@@ -30,6 +30,11 @@
  *   beside the words `aria-hidden` and ticking, so the line is announced once
  *   — and, after Stop, `note` — `Stopped · nothing changed`, its dot still.
  *   Both show at once, whatever the reveal says: a run is not a read.
+ * - **Its styles** are made as its rail is drawn, each part's, ahead of the
+ *   read that first shows it (`useSlotClass`, #1594): a rule first added to
+ *   the page's styles as a line shows has the page's styles worked out again
+ *   in that frame — in the middle of the zoom, the pan or the drag whose read
+ *   it tells of.
  * - **On a phone** (`BuilderFrame` at 560px or narrower) the footer is laid
  *   over main's foot while the line or a live notice shows, and shows nothing
  *   else of its rail: main never resizes as a read comes and goes, so a
@@ -50,8 +55,9 @@
  */
 
 import { useCallback, useLayoutEffect, useMemo, useState, type MouseEvent, type ReactNode, type RefObject } from "react";
-import { Box, chakra, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
+import { Box, chakra, type SystemStyleObject } from "@chakra-ui/react";
 import { loadingMessages } from "../../collections/loading/messages.js";
+import { useSlotClass, useSlotStyles } from "../../theme/slot-styles.js";
 import { FOOTER_UNFIT, fitFooter, type FooterFit, type FooterFitInput, type LoadingLineForm } from "./footer-fit.js";
 
 type Styles = Record<string, SystemStyleObject>;
@@ -135,9 +141,9 @@ function Form({ form, value, styles, retry }: { form: LoadingLineForm; value: Lo
     return (
         <Box as="span" css={styles.form} data-form={form}>
             <Box as="span" css={styles.dot} />
-            {form === "full" && <Box as="span"><Words text={value.text} styles={styles} /></Box>}
+            {form === "full" && <span><Words text={value.text} styles={styles} /></span>}
             {form === "full" && aside !== undefined && <Box as="span" css={styles.aside}><Box as="span" css={styles.sep}>·</Box>{aside}</Box>}
-            {form === "short" && <Box as="span">{value.short}</Box>}
+            {form === "short" && <span>{value.short}</span>}
             {failed && form !== "dot" && <Box as="span" css={styles.sep}>·</Box>}
             {failed && <Box as="span" css={styles.retry}>{retry}</Box>}
         </Box>
@@ -151,8 +157,10 @@ function Form({ form, value, styles, retry }: { form: LoadingLineForm; value: Lo
  * @returns The line's slot: an empty live region while nothing shows
  */
 export function LoadingLine({ value, shown, form }: LoadingLineProps) {
-    const recipe = useSlotRecipe({ key: "builderFooterLine" });
-    const styles = useMemo(() => recipe() as Styles, [recipe]);
+    const styles: Styles = useSlotStyles("builderFooterLine");
+    // Every part's styles made now, while the line says nothing: none is first made as a read shows it (see the module docs).
+    const made = useSlotClass();
+    useMemo(() => { for (const part of Object.values(styles)) made(part); }, [styles, made]);
     // What it said last: a read in flight, kept through the hold once it has landed (CL4) — state the render adjusts
     // as what it says moves, never a ref written as it renders, so a render React throws away keeps no words of its
     // own. A failure, a run out and a note show at once, and are kept through no hold.
@@ -209,8 +217,7 @@ export interface FooterMoreProps {
  * @returns The mark
  */
 export function FooterMore({ shown, children }: FooterMoreProps) {
-    const recipe = useSlotRecipe({ key: "builderFooterLine" });
-    const styles = useMemo(() => recipe() as Styles, [recipe]);
+    const styles: Styles = useSlotStyles("builderFooterLine");
     return (
         <Box as="span" css={styles.more} data-footer-more="" data-footer-cut={shown ? undefined : ""} aria-hidden="true">
             {children ?? loadingMessages.more()}
