@@ -1307,9 +1307,17 @@ the rows drawn is named from what the session holds of it — the Sheet's
 `rowWhere`, from its `originals`; a board's event from the row its record
 held when last read, read as its kind reads a row with no draft in place
 (`shared/schedule/editing.ts`' `heldEvent`, which `scheduleIssueName` falls
-back to). The Record (`record/remote-edits.dom.test.tsx`) and the Calendar
-(`calendar/remote-rows.dom.test.tsx`) run them, and the Plan the row added on
-both sides (`plan/frame/plan-remote-rows.dom.test.tsx`).
+back to). The Record (`record/remote-edits.dom.test.tsx`), the Calendar
+(`calendar/remote-rows.dom.test.tsx`) and the Sheet, over a record read a
+window at a time (`sheet/remote-rows.dom.test.tsx`), run them, and the Plan
+the row added on both sides (`plan/frame/plan-remote-rows.dom.test.tsx`). The
+Sheet's check of a row added on both sides holds no read: its session learns
+that the new row's key is taken from the very page its grid reads the row's
+place in. A Save whose answer never comes — saved all the same, another
+session's write, then Retry — is held on e3 in the Record
+(`record/unanswered-save.dom.test.tsx`): a new member saved once, never again
+under another key, and a change put back by Undo since still to save
+(east-ui-components' "A Save with no answer").
 
 The Sheet's footer note of a gesture goes with a step of the history, and
 with a conflict's choice, which is one taken in the conflicts popover: a

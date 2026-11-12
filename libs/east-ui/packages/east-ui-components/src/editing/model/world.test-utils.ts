@@ -874,7 +874,10 @@ export class ModelClient {
      */
     private refused(batch: BatchValue): void {
         for (const { key, field } of this.record.mismatched(batch)) {
-            if (this.record.writerOf(key, field) === this.name && this.record.requestOf(key, field) !== batch.requestId) {
+            // Nor for a Save built before the session could know its own earlier one had landed: that one's answer never
+            // came, and until the page reads the record on, its rows stand as they did before it.
+            const wrote = this.record.requestOf(key, field);
+            if (this.record.writerOf(key, field) === this.name && wrote !== batch.requestId && !(wrote !== undefined && this.unanswered.has(wrote))) {
                 throw new ModelFault(`The record refused ${this.name}'s Save over ${key}.${field}, which ${this.name}'s own Save wrote last`);
             }
         }
