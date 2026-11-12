@@ -20,15 +20,29 @@
  * has heard of another planner's later removal of another job: the canvas is
  * never put back at the jobs as the Save left them — it asks e3 for no state
  * the jobs have left (`heardBeforeAnswer`).
+ *
+ * And a job another planner removes or changes under a draft of it here, as
+ * every builder's rows are held to it:
+ *
+ * - A job changed here that another planner removes stands as drafted, a
+ *   conflict to choose — whichever lands first, the canvas's own reads of its
+ *   window or its session's read of the job by its key: kept, the next Save
+ *   puts it back; let go, it leaves.
+ * - A job removed here that another planner changes stays off the canvas, a
+ *   conflict to choose, its card naming the job by its title: kept, the next
+ *   Save removes it; let go, it is back as the other planner left it.
+ * - A job removed here and by another planner is nothing to choose and
+ *   nothing to save, and is never drawn again.
  */
 
 import { expect, test } from "vitest";
 import { fireEvent, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { parseFor } from "@elaraai/east";
 import { ScheduleEventRefType } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
 import type { E3Request } from "../../e3-web.test-utils.js";
-import { addedOnBothSides, heardBeforeAnswer, putBackAfterSave } from "../../shared/remote-rows.test-utils.js";
+import { addedOnBothSides, heardBeforeAnswer, putBackAfterSave, removedHere, removedOnBothSides, removedThere } from "../../shared/remote-rows.test-utils.js";
 import { act, el, entry, madeFrom, planHarness, rowAt, settle, slot } from "./harness.test-utils.js";
 
 const h = planHarness();
@@ -131,3 +145,72 @@ test("a Save whose answer comes after the canvas has heard of another planner's 
     expect((await readJobs()).has("J-1002")).toBe(false);
 });
 
+// ── A job another planner removes or changes under a draft of it here ─────
+
+/** Another planner's write: the jobs as it leaves them, from the jobs as e3 holds them now. */
+async function theirs(change: (jobs: Map<string, Awaited<ReturnType<typeof readJobs>> extends ReadonlyMap<string, infer Job> ? Job : never>) => void): Promise<void> {
+    const jobs = new Map(await readJobs());
+    change(jobs);
+    await h.patch(ex.planPrintJobs, jobs);
+    await settle();
+}
+
+/** The customer the inspector shows of the job selected; `null` where it shows none. */
+const customer = (c: HTMLElement) => slot(c, "end")?.querySelector<HTMLInputElement>("[data-inspector-fields='form'] [data-field='customer'] input")?.value ?? null;
+
+/** What the shared checks take of the Plan, over the spring catalogue on Press A1. */
+const job = (c: HTMLElement) => ({
+    e3: h.e3, container: c,
+    // The canvas's own reads of the jobs: its window's searches, runs and pages, never the reads a session makes by key.
+    reads: (request: E3Request) => request.dataset === JOBS && (request.kind === "find" || request.kind === "runs" || request.kind === "within" || request.kind === "page"),
+    // The session's reads of the jobs its drafts hold, by their keys.
+    byKey: (request: E3Request) => request.dataset === JOBS && request.kind === "rows",
+    drawn: () => bar(c, "J-1001") !== null,
+    theirRemoval: () => theirs((jobs) => { jobs.delete("J-1001"); }),
+    held: async () => (await readJobs()).has("J-1001"),
+    name: "Spring catalogue",
+});
+
+/** The job selected, as a click selects it. */
+const select = (c: HTMLElement) => () => { fireEvent.click(bar(c, "J-1001")!); };
+/** The job removed here: selected, then Delete. */
+const remove = (c: HTMLElement) => [select(c), () => { fireEvent.keyDown(bar(c, "J-1001")!, { key: "Delete" }); }];
+/** The job's customer typed here in the inspector: a draft. */
+const change = (c: HTMLElement) => [select(c), async () => {
+    const input = pane(c).querySelector<HTMLInputElement>("[data-inspector-fields='form'] [data-field='customer'] input")!;
+    const user = userEvent.setup();
+    await user.clear(input);
+    await user.type(input, "Customer here{Enter}");
+}];
+
+/** The print works mounted, the spring catalogue drawn on Press A1. */
+async function mounted(storageKey: string): Promise<HTMLElement> {
+    const { container: c } = await h.mount(ex.planPrintWorks, { storageKey });
+    await settle();
+    await waitFor(() => expect(bar(c, "J-1001")).not.toBeNull());
+    return c;
+}
+
+test.each([
+    ["its session's read of it landing first, kept: the next Save puts it back as drafted", "draft", "session"],
+    ["its session's read of it landing first, let go: the job leaves and nothing is left to save", "source", "session"],
+    ["the canvas's window read again without it first, kept: the next Save puts it back as drafted", "draft", "rows"],
+    ["the canvas's window read again without it first, let go: the job leaves and nothing is left to save", "source", "rows"],
+] as const)("a job changed here that another planner removes stands as drafted, a conflict to choose — %s", async (_ends, choice, first) => {
+    const c = await mounted(`plan-remote-removed-there-${first}-${choice}`);
+    await removedThere({ ...job(c), change: change(c), look: () => customer(c) }, choice, first);
+});
+
+test.each([["kept, the next Save removes it", "draft"], ["let go, the job is back as the other planner left it", "source"]] as const)(
+    "a job removed here that another planner changed stays off the canvas while its window is read again, a conflict to choose, its card naming the job by its title: %s", async (_ends, choice) => {
+        const c = await mounted(`plan-remote-removed-here-${choice}`);
+        await removedHere({
+            ...job(c), remove: remove(c),
+            theirChange: () => theirs((jobs) => { jobs.set("J-1001", { ...jobs.get("J-1001")!, customer: "Customer there" }); }),
+        }, choice);
+    });
+
+test("a job removed here and by another planner is nothing to choose and nothing to save, and the canvas never draws it again — nor while its window, standing from before the other planner's write, is read again", async () => {
+    const c = await mounted("plan-remote-removed-both");
+    await removedOnBothSides({ ...job(c), remove: remove(c) });
+});

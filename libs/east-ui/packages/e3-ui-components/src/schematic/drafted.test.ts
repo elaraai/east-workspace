@@ -26,10 +26,11 @@ import {
     EMPTY_DRAWN, SchematicDrawnItemType, SchematicDrawnLinkType, drawnItem, drawnLink, drawnNet, drawnZone, entityId,
     type DetailsRoles, type ItemRoles, type LinkRoles, type NetRoles, type SchematicDrawn, type SchematicRef, type ZoneRoles,
 } from "./canvas/drawn.js";
+import type { DraftedRow } from "../shared/schedule/drafted-rows.js";
 import type { SchematicHeldRows, SchematicWindowRows } from "./data.js";
 import {
     NO_DRAFTS, NO_LANDED, draftedDrawing, landedDrafts, landedRead, landedWindows, waitingDrafts, waitingPoint, withWaiting,
-    type DraftedCache, type DraftedRow, type SchematicDrafts, type SchematicLanded,
+    type DraftedCache, type SchematicDrafts, type SchematicLanded,
 } from "./drafted.js";
 
 const T = Schematic.Types;

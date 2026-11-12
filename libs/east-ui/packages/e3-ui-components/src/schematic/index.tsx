@@ -163,6 +163,7 @@ import {
     type BuilderFramePanes, type EditIssue, type EditingWords, type HistoryAction, type Origin,
 } from "@elaraai/east-ui-components";
 import { LoadingReveal, loadingLineText, schematicColorTokens, type LoadingLineText, type LoadingLineValue, keptRead } from "@elaraai/east-ui-components/internal";
+import { DraftedStanding } from "../shared/schedule/drafted-rows.js";
 import { FieldAskProvider, useFieldAsks } from "../shared/schedule/field-ask.js";
 import { FollowSources, type FollowedSources } from "../shared/schedule/follow-sources.js";
 import type { SourceHiding } from "../shared/schedule/hidden.js";
@@ -449,6 +450,8 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     const editingWords = useMemo((): EditingWords => ({ ...formatters, m: editingMessages }), [formatters]);
     // What the canvas draws: the stored rows, the drafts in place, each drafted row drawn once.
     const draftedCache = useRef<DraftedCache>(new WeakMap());
+    // Which drafted rows draw, and what the canvas last drew of them: what stands through a carry-over (`drafted.ts`).
+    const [draftsStanding] = useState(() => new DraftedStanding());
     // A kind read by area holds only its window: a drafted row of it off the window draws where its draft places it while its
     // narrowing holds it — the hidden narrowing's leaving it waiting in its session (#1393).
     const dim = look.dim;
@@ -461,12 +464,14 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     const canvasDrafts = useMemo(() => landedDrafts(editing.drafts, editing.landed, data.windows, data.revisions),
         [editing.drafts, editing.landed, data.windows, data.revisions]);
     const inspectedWindows = useMemo(() => landedWindows(data.windows, editing.landed, data.revisions), [data.windows, editing.landed, data.revisions]);
-    const drawing = useMemo(() => draftedDrawing(data.drawn, data.held, canvasDrafts, draftedCache.current, areas, leftOut),
-        [data.drawn, data.held, canvasDrafts, areas, leftOut]);
-    // The drafted rows the drawing leaves out — each waiting in its session, the narrowing leaving out the row it drafts —
-    // as their kinds draw them, never drawn: Issues checks and names every unsaved change, drawn or not (ruled 27 Oct 2026,
-    // "Checked in view, said so").
-    const waiting = useMemo(() => waitingDrafts(data.held, editing.drafts, areas, leftOut), [data.held, editing.drafts, areas, leftOut]);
+    // And the drafted rows the drawing leaves out — each waiting in its session, the narrowing leaving out the row it
+    // drafts — as their kinds draw them, never drawn: Issues checks and names every unsaved change, drawn or not (ruled
+    // 27 Oct 2026, "Checked in view, said so"). Made with the drawing, and after it: the rule is asked of them once the
+    // drawing has told it what it drew, so a row that stands through a carry-over waits nowhere.
+    const { drawing, waiting } = useMemo(() => {
+        const drawn = draftedDrawing(data.drawn, data.held, canvasDrafts, draftedCache.current, areas, leftOut, draftsStanding);
+        return { drawing: drawn, waiting: waitingDrafts(data.held, editing.drafts, areas, leftOut, draftsStanding) };
+    }, [data.drawn, data.held, canvasDrafts, editing.drafts, areas, leftOut, draftsStanding]);
 
     // ── The narrowing (#1392, §10.2, §10.3): what each kind's source of the rail leaves out, hidden or dimmed ──
     // Each kind read through its source: its shown keys once they have resolved — a pending one is not empty — `none`

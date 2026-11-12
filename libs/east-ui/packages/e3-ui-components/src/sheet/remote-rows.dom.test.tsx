@@ -94,6 +94,8 @@ const job = (c: HTMLElement) => ({
     e3: h.e3, container: c,
     // The sheet's own reads of the jobs: its window's pages, never the reads a session makes by key.
     reads: (request: E3Request) => request.dataset === JOBS && request.kind === "page",
+    // The session's reads of the jobs its drafts hold, by their keys.
+    byKey: (request: E3Request) => request.dataset === JOBS && request.kind === "rows",
     drawn: () => rowOf(c, "9") !== undefined,
     theirRemoval: () => theirs((jobs) => { jobs.delete(9n); }),
     held: async () => (await h.read(fx.numberedJobs)).has(9n),
@@ -110,6 +112,12 @@ test.each([["kept, the next Save puts it back as drafted", "draft"], ["let go, t
     "a job changed here that another session removes stands as drafted while the sheet's window is read again, a conflict to choose: %s", async (_ends, choice) => {
         const c = await mounted(`sheet-remote-removed-there-${choice}`);
         await removedThere({ ...job(c), change: () => requantify(c, "9", "7"), look: () => cells(rowOf(c, "9")) }, choice);
+    });
+
+test.each([["kept, the next Save puts it back as drafted", "draft"], ["let go, the row leaves and nothing is left to save", "source"]] as const)(
+    "a job changed here that another session removes stands as drafted while the sheet's window is read again without it and its session has yet to read it by key: %s", async (_ends, choice) => {
+        const c = await mounted(`sheet-remote-removed-there-rows-${choice}`);
+        await removedThere({ ...job(c), change: () => requantify(c, "9", "7"), look: () => cells(rowOf(c, "9")) }, choice, "rows");
     });
 
 test.each([["kept, the next Save removes it", "draft"], ["let go, the row is back as the other session left it", "source"]] as const)(

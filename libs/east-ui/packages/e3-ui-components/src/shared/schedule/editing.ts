@@ -282,6 +282,18 @@ export interface ScheduleEditing<I extends Item = Item> {
      */
     available(kind: string): boolean;
     /**
+     * Whether a kind's session — or a record's — has yet to judge its drafts where its record reads now (#1599): it is
+     * carrying them over to a record that moved, or — from the very render the record moves in, before the session is
+     * told — it stands, no request of its own out, at another revision than the one its record reads at. What it says
+     * of a drafted row meanwhile, that its record holds it ({@link ScheduleEditing.held}), is of the record as it was: a
+     * builder keeps such a row as it last drew it (`drafted-rows.ts`' `DraftedStanding`). Tracked where it is called:
+     * it reads the record's revision.
+     *
+     * @param kind - The kind's slot, or the record's key
+     * @returns Whether it has; never for one read whole, whose session judges its drafts as its record is read
+     */
+    carrying(kind: string): boolean;
+    /**
      * Whether an event — or a row of a record a builder writes — holds a
      * conflict not yet chosen: what wears the warn ring on a canvas.
      *
@@ -859,6 +871,19 @@ export function useScheduleEditing<I extends Item = Item>({
             const i = indexOf(kind);
             return i >= 0 && state.available(keys[i]!);
         },
+        carrying(kind: string): boolean {
+            const i = indexOf(kind);
+            const session = i < 0 ? undefined : history.session(keys[i]!);
+            if (session === undefined) return false;
+            if (session.carrying) return true;
+            // At another revision than its record reads at, no request of its own out: told of it only after this render.
+            // A session whose Save is out reads its own commit back, and carries nothing over meanwhile.
+            const seam = parts[i]!.entries;
+            if (seam.type !== "some" || session.locked) return false;
+            const base = session.drafts.revision;
+            const now = seam.value.revision();
+            return base !== undefined && now.type === "some" && !stringEqual(base, now.value);
+        },
         conflicted(kind: string, id: string): boolean {
             const i = indexOf(kind);
             return i >= 0 && history.session(keys[i]!)?.conflicts.has(id) === true;
@@ -980,6 +1005,7 @@ export function useScheduleEditing<I extends Item = Item>({
     const shown = useCallback((kind: string, ids: Iterable<string>) => latest.current.shown(kind, ids), []);
     const draftsOf = useCallback((kind: string) => latest.current.draftsOf(kind), []);
     const available = useCallback((kind: string) => latest.current.available(kind), []);
+    const carrying = useCallback((kind: string) => latest.current.carrying(kind), []);
     const conflicted = useCallback((kind: string, id: string) => latest.current.conflicted(kind, id), []);
     const held = useCallback((kind: string, id: string) => latest.current.held(kind, id), []);
     const heldEvent = useCallback((kind: string, id: string) => latest.current.heldEvent(kind, id), []);
@@ -989,6 +1015,6 @@ export function useScheduleEditing<I extends Item = Item>({
 
     return useMemo(() => ({
         history, sessions, drafts: drafts.drafts, draftsVersion: drafts.version, landed, renumbered, version,
-        shown, draftsOf, available, conflicted, held, heldEvent, read, mint, record,
-    }), [history, sessions, drafts, landed, renumbered, version, shown, draftsOf, available, conflicted, held, heldEvent, read, mint, record]);
+        shown, draftsOf, available, carrying, conflicted, held, heldEvent, read, mint, record,
+    }), [history, sessions, drafts, landed, renumbered, version, shown, draftsOf, available, carrying, conflicted, held, heldEvent, read, mint, record]);
 }

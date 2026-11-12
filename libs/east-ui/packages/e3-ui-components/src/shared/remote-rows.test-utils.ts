@@ -25,7 +25,13 @@
  * - {@link removedThere}: a row changed here that another session removes
  *   stands as drafted until a person chooses, Save waiting on the choice:
  *   kept, the next Save puts the row back as drafted; let go, the row leaves
- *   and nothing is left to save.
+ *   and nothing is left to save. Over a record read a window at a time the
+ *   check runs both ways round: the session's read of the row landing first,
+ *   the builder's own rows held — and the builder's rows landing first, read
+ *   again without the row while the session has yet to read it by its key.
+ *   There the session still holds the row as one its record holds, and a
+ *   builder that takes a drafted row its rows do not hold for one a narrowing
+ *   hides drew nothing of it until the session's read landed.
  * - {@link removedHere}: a row removed here that another session changes
  *   stays off the builder until a person chooses, Save waiting on the choice:
  *   kept, the next Save removes it; let go, the row is back as the other
@@ -112,6 +118,11 @@ export interface ChangedHere extends RemoteRow {
     readonly change: (() => void | Promise<void>) | readonly (() => void | Promise<void>)[];
     /** What the builder draws of the change — what a cell says, where a card stands: the look the draft has. */
     readonly look: () => unknown;
+    /**
+     * The reads the builder's session makes by key of the rows it drafted, where they are requests of their own — a
+     * record read a window at a time: what {@link removedThere} holds where the builder's own rows are to land first.
+     */
+    readonly byKey?: E3Match;
 }
 
 /** The most reads let go one at a time: past it, a builder that keeps asking is let go whole. */
@@ -195,31 +206,52 @@ export async function removedOnBothSides(check: RemovedHere): Promise<void> {
  *
  * @param check - The builder's e3, its container, its reads, the row, the change and the other session's removal
  * @param choice - Which side is taken: the draft kept, and saved; or the other session's removal
+ * @param first - Which reads land first: the session's by key, the builder's own held and let go one at a time; or the
+ *   builder's own `"rows"`, the session's reads by key ({@link ChangedHere.byKey}) held until they have landed
  * @returns Once the choice is made, and — the draft kept — saved
  * @throws An assertion's error where the row leaves before a person chooses, no conflict is asked, or the choice ends otherwise than it says
  */
-export async function removedThere(check: ChangedHere, choice: "draft" | "source"): Promise<void> {
+export async function removedThere(check: ChangedHere, choice: "draft" | "source", first: "session" | "rows" = "session"): Promise<void> {
     expect(check.drawn(), "the builder draws the row to begin with").toBe(true);
     await made(check.change);
     const drafted = JSON.stringify(check.look());
     expect(unsaved(check.container), "the change waits to be saved").toBe(true);
     const { looks, read, stop } = watched(check.container, () => [check.drawn(), JSON.stringify(check.look())] as const);
     const stood = [[true, drafted]];
-    const held = check.e3.hold(check.reads);
-    try {
-        await check.theirRemoval();
-        await waitFor(() => expect(check.container.querySelector("[data-conflicts]"), "the removal of a row changed here is a conflict to choose").not.toBeNull(), { timeout: 5_000 });
-        await settle();
-        read();
-        expect(looks, "while the builder's reads of the record are held, the row stands as drafted").toEqual(stood);
-        for (let n = 1; held.held > 0 && n <= MOST_READS; n++) {
-            await act(async () => { held.releaseOne(); });
+    const conflict = (): Element | null => check.container.querySelector("[data-conflicts]");
+    if (first === "rows") {
+        if (check.byKey === undefined) throw new Error("removedThere: the builder's rows are to land first, and its session's reads by key (byKey) are not said");
+        const held = check.e3.hold(check.byKey);
+        try {
+            await check.theirRemoval();
+            // The builder's own reads of the record land, the row gone from them; its session's read of the row is held.
+            await check.e3.idle();
             await settle();
             read();
-            expect(looks, `once ${n} of the builder's reads of the record landed, the rest held`).toEqual(stood);
+            expect(held.held, "the session's reads of its drafted rows by key are held").toBeGreaterThan(0);
+            expect(conflict(), "the session has yet to read the row: nothing to choose yet").toBeNull();
+            expect(looks, "while the session's reads by key are held, the builder's own rows read again, the row stands as drafted").toEqual(stood);
+        } finally {
+            await act(async () => { held.release(); });
         }
-    } finally {
-        await act(async () => { held.release(); });
+        await waitFor(() => expect(conflict(), "the removal of a row changed here is a conflict to choose").not.toBeNull(), { timeout: 5_000 });
+    } else {
+        const held = check.e3.hold(check.reads);
+        try {
+            await check.theirRemoval();
+            await waitFor(() => expect(conflict(), "the removal of a row changed here is a conflict to choose").not.toBeNull(), { timeout: 5_000 });
+            await settle();
+            read();
+            expect(looks, "while the builder's reads of the record are held, the row stands as drafted").toEqual(stood);
+            for (let n = 1; held.held > 0 && n <= MOST_READS; n++) {
+                await act(async () => { held.releaseOne(); });
+                await settle();
+                read();
+                expect(looks, `once ${n} of the builder's reads of the record landed, the rest held`).toEqual(stood);
+            }
+        } finally {
+            await act(async () => { held.release(); });
+        }
     }
     await settle();
     read();

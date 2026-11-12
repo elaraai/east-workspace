@@ -78,6 +78,7 @@ import {
 import { LoadingReveal, loadingLineText, type LoadingLineValue } from "@elaraai/east-ui-components/internal";
 import { isBounded } from "../shared/bounds.js";
 import { pagedLoadingLine } from "../shared/loading.js";
+import { DraftedStanding } from "../shared/schedule/drafted-rows.js";
 import { FieldAskProvider, useFieldAsks } from "../shared/schedule/field-ask.js";
 import { FollowSources, type FollowedSources } from "../shared/schedule/follow-sources.js";
 import type { SourceHiding } from "../shared/schedule/hidden.js";
@@ -366,8 +367,10 @@ function FlowchartFrame({ value, data, attempt, readAgain, storageKey, words, no
     useLayoutEffect(() => {
         for (const [sort, keys] of landedRead(landed, data.revisions, data.now)) shownLanded(sort, keys);
     }, [landed, data.revisions, data.now, shownLanded]);
-    const drafted = useMemo(() => draftedRows(data.held, data.hiddenWith, laidDrafts, rowKeys, dimmed),
-        [data.held, data.hiddenWith, laidDrafts, rowKeys, dimmed]);
+    // Which drafted rows stand, and what the canvas last made its model of: what stands through a carry-over (`drafted.ts`).
+    const [standing] = useState(() => new DraftedStanding());
+    const drafted = useMemo(() => draftedRows(data.held, data.hiddenWith, laidDrafts, rowKeys, dimmed, standing),
+        [data.held, data.hiddenWith, laidDrafts, rowKeys, dimmed, standing]);
     const model = useMemo(() => buildModel(drafted.rows, words), [drafted.rows, words]);
 
     // ── The details: read by the rows drawn, in a reader of their own, and counted into the flowchart's bins ──

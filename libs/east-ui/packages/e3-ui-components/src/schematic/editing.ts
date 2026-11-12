@@ -48,12 +48,12 @@
  * - **A number its field's bounds don't hold (#1585).** Each record's form
  *   goes with it (`fields`): a changed row whose number is under its least or
  *   over its most holds Save, as the app's check does, and Issues names it.
- * - **Its drafts.** Each draft is decoded once: its roles read through its
+ * - **Its drafts.** Each draft is read once for its version and the original
+ *   beside it (`shared/schedule/drafted-rows.ts`): its roles through its
  *   kind's `read` — a row under a placeholder as keyed by its key type's
- *   default — and the roles of the row its session began from beside
- *   them, kept while its session keeps the entry's version — what the frame
- *   draws over the stored rows (`drafted.ts`), and where a kind read by area's
- *   Backlog lists it (`backlog.ts`).
+ *   default — whether its draft adds it, and the roles of the row its session
+ *   began from — what the frame draws over the stored rows (`drafted.ts`), and
+ *   where a kind read by area's Backlog lists it (`backlog.ts`).
  * - **What a Save landed.** A kind read by area draws its rows from its
  *   window, which a Save's confirmation does not read again: its session keeps
  *   what each Save landed (`drawsLanded`, `EditSession.landed`), each row
@@ -75,7 +75,8 @@
 import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
 import { StringType, equalFor, some, variant, type EastTypeValue, type ValueTypeOf, type option } from "@elaraai/east";
 import type { EditingReadinessType, RecordSliceBindType } from "@elaraai/east-ui/internal";
-import type { EditHistory, EntryVersion, LandedEntry, Origin } from "@elaraai/east-ui-components";
+import type { EditHistory, LandedEntry, Origin } from "@elaraai/east-ui-components";
+import { draftedOf, type DraftedRows, type DraftedRowsKind } from "../shared/schedule/drafted-rows.js";
 import {
     useScheduleEditing,
     type ScheduleChange, type ScheduleEditing, type ScheduleEditingKind, type ScheduleEditingRecord, type ScheduleEntryRef, type ScheduleRowRead,
@@ -83,9 +84,10 @@ import {
 } from "../shared/schedule/editing.js";
 import { kindKeys, type KindKeys } from "../shared/schedule/kind-keys.js";
 import { draftedRow, heldInWindow, keptAtRevision, madeFromValues, mintKey, rowCodec } from "../shared/schedule/records.js";
+import { useDraftedRows } from "../shared/schedule/use-drafted-rows.js";
 import type { SchematicRef } from "./canvas/drawn.js";
 import type { SchematicHeldRows, SchematicValue, SchematicWindowRows } from "./data.js";
-import { NO_LANDED, type DraftedRow, type LandedRow, type SchematicDrafts, type SchematicLanded, type SortDrafts, type SortLanded } from "./drafted.js";
+import { NO_LANDED, type LandedRow, type SchematicDrafts, type SchematicLanded, type SortDrafts, type SortLanded } from "./drafted.js";
 import type { SchematicEdit } from "./edits.js";
 import { detailsKey } from "./record-keys.js";
 
@@ -410,47 +412,20 @@ export function useSchematicEditing(value: SchematicValue, storageKey: string, r
     }, [kinds, areas]);
     const schedule = useScheduleEditing({ kinds: NO_KINDS, records, reads, standing, storageKey, joined: NO_JOINED, recordSlices, autosave: value.autosave });
 
-    // Each draft decoded once: a session keeps an entry's version the same object until a gesture replaces it.
-    const decoded = useRef(new WeakMap<EntryVersion<ScheduleEntryRef>, DraftedRow<unknown>>());
-    const draftsNow = schedule.drafts;
+    // Each drafted row as its kind reads it, and whether its draft adds it: read again as its original moves — another
+    // session's removal of a row drafted here leaves the draft adding it — and the same rows while none does.
+    const draftedRows = useDraftedRows(schedule, kinds);
     const drafts = useMemo((): SchematicDrafts => {
-        const sort = <R,>(sorted: readonly {
-            readonly key: string; readonly rowType: EastTypeValue; readonly keyType: EastTypeValue; readonly read: (bytes: Uint8Array, key: string) => R;
-        }[]): SortDrafts<R> => {
-            const out = new Map<string, Map<string, DraftedRow<R> | undefined>>();
+        const sort = <R,>(sorted: readonly DraftedRowsKind<R>[]): SortDrafts<R> => {
+            const out = new Map<string, DraftedRows<R>>();
             for (const kind of sorted) {
-                const ids = schedule.draftsOf(kind.key);
-                if (ids.size === 0) continue;
-                const session = schedule.sessions.find((part) => stringEqual(part.kind, kind.key))?.session;
-                const codec = rowCodec(kind.rowType);
-                // A row under a placeholder is read as keyed by its key type's default, its key still to be typed (#1549).
-                const keys = kindKeys(kind.keyType);
-                const rows = new Map<string, DraftedRow<R> | undefined>();
-                for (const id of ids.keys()) {
-                    const entry = session?.entries.get(id);
-                    const row = draftedRow(entry);
-                    if (entry === undefined || row === undefined) { rows.set(id, undefined); continue; }
-                    let drafted = decoded.current.get(entry) as DraftedRow<R> | undefined;
-                    if (drafted === undefined) {
-                        // A row its session found absent before the gesture that wrote it is new; any other began as the row its
-                        // record held then.
-                        const began = draftedRow(session?.originals.get(id))?.row;
-                        drafted = {
-                            roles: kind.read(codec.encode(row.row), keys.readKey(id)), created: began === undefined,
-                            began: began === undefined ? undefined : kind.read(codec.encode(began), keys.readKey(id)),
-                        };
-                        decoded.current.set(entry, drafted);
-                    }
-                    rows.set(id, drafted);
-                }
-                out.set(kind.key, rows);
+                const rows = draftedOf(draftedRows, kind);
+                if (rows !== undefined) out.set(kind.key, rows);
             }
             return out;
         };
         return { items: sort(value.items), zones: sort(value.zones), links: sort(value.links), nets: sort(value.nets) };
-        // The drafts move with every gesture: their bytes say when.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [draftsNow, value.items, value.zones, value.links, value.nets]);
+    }, [draftedRows, value.items, value.zones, value.links, value.nets]);
 
     // What each Save landed of a kind read by area, each row decoded once: a session keeps a landed entry the same object
     // until it lets it go.

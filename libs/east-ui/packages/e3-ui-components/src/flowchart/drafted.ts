@@ -11,12 +11,20 @@
  *
  * - **A drafted row the read holds** stands as drafted; one its draft deletes
  *   stands nowhere.
- * - **A new row** — one a gesture created — stands whatever the narrowing,
- *   and draws as itself, never as context.
+ * - **A row its draft adds** — one a gesture created, or one another session
+ *   removed under the draft, its session's original holding none of it
+ *   (`shared/schedule/drafted-rows.ts`) — stands whatever the narrowing, and
+ *   draws as itself, never as context.
  * - **A drafted row the read does not hold** — a source's narrowing hides it
  *   — waits in its session by its original key: Issues lists it with the
  *   choices hiding it, and Save writes it with the rest. So does a drafted
  *   transition hidden with its far end (`read.ts`' `hiddenWith`).
+ * - **Through a carry-over a drafted row stands as it last stood**
+ *   (`shared/schedule/drafted-rows.ts`' `DraftedStanding`, the one rule every
+ *   builder that draws its records' own rows asks): its record read again,
+ *   its session yet to read the row there by its key, a state renamed here
+ *   that another session removed is in no read and not yet a row its draft
+ *   adds — and never leaves the canvas meanwhile.
  * - **Under `"dim"`** a stored row the narrowing's shown keys leave out stands
  *   as context (`dimmed`), and so does its draft.
  * - **What a Save landed** of a kind read through its source stands as the
@@ -34,23 +42,14 @@
  */
 
 import { readBeforeSaves } from "@elaraai/east-ui-components/internal";
+import { DraftedStanding, type DraftedRow, type DraftedRows } from "../shared/schedule/drafted-rows.js";
 import type {
     FlowchartDecisionRoles, FlowchartKindKeys, FlowchartLaneRoles, FlowchartRow, FlowchartRows, FlowchartStateRoles, FlowchartTransitionRoles,
 } from "./model.js";
 import { FLOWCHART_SORTS, type FlowchartHeld, type FlowchartSort, type FlowchartStored } from "./read.js";
 
-/** A drafted row, as the model takes it: its roles, as its kind reads them, and whether a gesture created it. */
-export interface DraftedRow<R> {
-    /** Its roles. */
-    readonly roles: R;
-    /** Whether a gesture created it: its session found no row of its key before. */
-    readonly created: boolean;
-    /** The roles of the row its session began from, as its kind reads them; `undefined` for a row a gesture created. */
-    readonly began?: R | undefined;
-}
-
 /** One kind's drafts, by key: the drafted row, or `undefined` for one its draft deletes. */
-export type KindDrafts<R> = ReadonlyMap<string, DraftedRow<R> | undefined>;
+export type KindDrafts<R> = DraftedRows<R>;
 
 /** Every kind's drafts. */
 export interface FlowchartDrafts {
@@ -145,29 +144,38 @@ const NO_KEYS: ReadonlySet<string> = new Set<string>();
 
 /**
  * One kind's rows with its drafts in place: each stored row as drafted, or
- * nowhere where its draft deletes it; each new row after them.
+ * nowhere where its draft deletes it; each row its draft adds after them.
  *
+ * @param sort - The kind
  * @param stored - The kind's stored rows the read holds
  * @param drafts - The kind's drafts
  * @param waits - A drafted row of the kind drawn nowhere, as Issues lists it
  * @param dimmed - Whether a stored row draws as context
  * @param hidden - Stored rows hidden from the canvas, though held: a transition hidden with its far end
  * @param waiting - Where a drafted row drawn nowhere is listed
+ * @param standing - Which drafted rows stand, and what the canvas last drew
+ * @param drew - Where the kind's drafted rows these rows hold are told: what the canvas remembers of them
  * @returns The rows
  */
-function merged<R>(stored: FlowchartStored<R>, drafts: KindDrafts<R>, waits: (key: string, roles: R) => FlowchartWaiting,
-    dimmed: (key: string) => boolean, hidden: ReadonlySet<string>, waiting: FlowchartWaiting[]): FlowchartRow<R>[] {
+function merged<R>(sort: FlowchartSort, stored: FlowchartStored<R>, drafts: KindDrafts<R>, waits: (key: string, roles: R) => FlowchartWaiting,
+    dimmed: (key: string) => boolean, hidden: ReadonlySet<string>, waiting: FlowchartWaiting[], standing: DraftedStanding,
+    drew: Map<string, ReadonlySet<string>>): FlowchartRow<R>[] {
     const out: FlowchartRow<R>[] = [];
+    const stood = new Set<string>();
+    drew.set(sort, stood);
     for (const [key, entry] of stored) {
         if (hidden.has(key)) continue;
         if (!drafts.has(key)) { out.push({ key, roles: entry.roles, dimmed: dimmed(key) }); continue; }
         const drafted = drafts.get(key);
-        if (drafted !== undefined) out.push({ key, roles: drafted.roles, dimmed: dimmed(key) });
+        if (drafted !== undefined) { stood.add(key); out.push({ key, roles: drafted.roles, dimmed: dimmed(key) }); }
     }
     for (const [key, drafted] of drafts) {
-        if (drafted === undefined || (stored.has(key) && !hidden.has(key))) continue;
-        // A new row draws whatever the narrowing; any other the read doesn't show waits in its session.
-        if (drafted.created && !stored.has(key)) out.push({ key, roles: drafted.roles, dimmed: false });
+        // A row its draft deletes stands nowhere, and is remembered as it stood: the deletion taken back finds it so.
+        if (drafted === undefined) { if (standing.stood(sort, key)) stood.add(key); continue; }
+        if (stored.has(key) && !hidden.has(key)) continue;
+        // A row its draft adds draws whatever the narrowing; any other the read doesn't show waits in its session — but
+        // through a carry-over, its session yet to judge it where its record is, one the canvas last drew stands.
+        if (!stored.has(key) && standing.stands(sort, key, drafted, false)) { stood.add(key); out.push({ key, roles: drafted.roles, dimmed: false }); }
         else waiting.push(waits(key, drafted.roles));
     }
     return out;
@@ -181,18 +189,23 @@ function merged<R>(stored: FlowchartStored<R>, drafts: KindDrafts<R>, waits: (ke
  * @param drafts - Every kind's drafts
  * @param keys - Each kind's keys (#1549), which the model orders each kind's rows by
  * @param dimmed - Which stored rows the narrowing leaves out, under `"dim"`
+ * @param standing - Which drafted rows stand, and what the canvas last drew, which these rows replace: the canvas's own,
+ *   kept while it is mounted; one that remembers nothing unless given
  * @returns The rows, and the drafts drawn nowhere
  */
 export function draftedRows(held: FlowchartHeld, hiddenWith: ReadonlySet<string>, drafts: FlowchartDrafts, keys: FlowchartKindKeys,
-    dimmed: FlowchartDimmed = {}): FlowchartDraftedRows {
+    dimmed: FlowchartDimmed = {}, standing: DraftedStanding = new DraftedStanding()): FlowchartDraftedRows {
     const waiting: FlowchartWaiting[] = [];
-    const states = merged(held.states, drafts.states, (key, roles) => ({ sort: "states", key, roles }), dimmed.states ?? LIT, NO_KEYS, waiting);
+    const drew = new Map<string, ReadonlySet<string>>();
+    const states = merged("states", held.states, drafts.states, (key, roles) => ({ sort: "states", key, roles }), dimmed.states ?? LIT, NO_KEYS, waiting, standing, drew);
     const transitions = held.transitions === undefined ? []
-        : merged(held.transitions, drafts.transitions, (key, roles) => ({ sort: "transitions", key, roles }), dimmed.transitions ?? LIT, hiddenWith, waiting);
+        : merged("transitions", held.transitions, drafts.transitions, (key, roles) => ({ sort: "transitions", key, roles }), dimmed.transitions ?? LIT, hiddenWith, waiting, standing, drew);
     const lanes = held.lanes === undefined ? undefined
-        : merged(held.lanes, drafts.lanes, (key, roles) => ({ sort: "lanes", key, roles }), LIT, NO_KEYS, waiting);
+        : merged("lanes", held.lanes, drafts.lanes, (key, roles) => ({ sort: "lanes", key, roles }), LIT, NO_KEYS, waiting, standing, drew);
     const decisions = held.decisions === undefined ? []
-        : merged(held.decisions, drafts.decisions, (key, roles) => ({ sort: "decisions", key, roles }), LIT, NO_KEYS, waiting);
+        : merged("decisions", held.decisions, drafts.decisions, (key, roles) => ({ sort: "decisions", key, roles }), LIT, NO_KEYS, waiting, standing, drew);
+    // What these rows hold of the drafts, once every one was asked by what the last rows held.
+    standing.drew(drew);
     // The transitions hidden with their far end, as drafted: a deleted one is gone.
     const hidden: FlowchartRow<FlowchartTransitionRoles>[] = [];
     for (const key of hiddenWith) {

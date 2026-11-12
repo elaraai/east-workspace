@@ -115,7 +115,9 @@
  * editing. A kind read whole has no such read to wait on, and is left to its
  * host as before. Which of its drafts draw is as its window's own read drew
  * them: for a kind whose window draws a draft only of an event it holds, or of
- * a new one ({@link ScheduleCellKind.isNew}, #1343), the drafts of the other
+ * a new one ({@link ScheduleCellKind.isNew}, #1343) — or, while its session has
+ * yet to judge its drafts where its record reads now, of one the reader last
+ * drew ({@link ScheduleCellKind.carrying}, #1599) — the drafts of the other
  * events are left out, told by the rows held and the row each draft's session
  * began from — e3 asked nothing.
  *
@@ -173,6 +175,7 @@ import {
 import { isPagedReadError } from "../../platform/paged-read-error.js";
 import type { TimeResolution } from "../time/scale.js";
 import { sameView, viewState, type ReadView, type ViewState } from "../view-read.js";
+import { DraftedStanding } from "./drafted-rows.js";
 import type { ScheduleEventDraftsValue, ScheduleKindRows, ScheduleLanded, ScheduleLandedRow, ScheduleLandedRows } from "./editing.js";
 
 /** How many of a paged resource kind's resources a cell holds: a block of them, in the kind's order. */
@@ -269,6 +272,15 @@ export interface ScheduleCellKind {
      * and for one no source narrows.
      */
     readonly isNew?: ((id: string) => boolean) | undefined;
+    /**
+     * Whether its editing session has yet to judge its drafts where its record reads now (the shared editing's
+     * `carrying`, #1599), for a kind given {@link ScheduleCellKind.isNew}: what the session says of an event — that it
+     * is no new one — is then of the record as it was, and a draft the reader last drew stays drawn though its window's
+     * rows, read again, hold its event no more. Another session removed it: left out as one the narrowing does not
+     * hold, it left its builder until the session's read of it landed. `undefined` for a kind whose session judges its
+     * drafts as its record is read.
+     */
+    readonly carrying?: (() => boolean) | undefined;
     /**
      * Its window's own stored rows over `[from, to)`, as one beast2 of {@link ScheduleCellKind.cellsType} — each row once
      * by its key, no draft in place — or `none` while their read is in flight: its host's, for a kind read a window at a
@@ -864,6 +876,11 @@ class CellsReader {
     private readonly windows = new Map<string, { readonly at: string; readonly bytes: Uint8Array; readonly held: StoredRows }>();
     /** The view the latest read was asked for, in flight or not — the same object while it says the same. */
     private askedView: ReadView = NO_VIEW;
+    /**
+     * Which drafts a kind given {@link ScheduleCellKind.isNew} draws, and those its last read drew: what stands through
+     * a carry-over (`drafted-rows.ts`).
+     */
+    private readonly standing = new DraftedStanding();
 
     /** The paged kind's resources whose blocks the latest read wants (#1398): while it is in flight, the rows it reads again. */
     wanted(): ReadonlySet<string> {
@@ -1202,8 +1219,9 @@ class CellsReader {
                         outside = this.own(kind, () => this.draftsOutside(kind, part, windowField, drafts, held));
                     } else if (read !== READING && read.mode === "cells" && kind.isNew !== undefined) {
                         // A kind whose window draws a draft only of an event it holds, or of a new one (#1343): the
-                        // drafts of the other events left out, told by the rows held and where each draft began.
-                        outside = draftsNotHeld(drafts.get(kind.key), read.held, kind.isNew);
+                        // drafts of the other events left out, told by the rows held and where each draft began — but
+                        // one drawn last, while its session has yet to judge it where its record reads now (#1599).
+                        outside = draftsNotHeld(kind.key, drafts.get(kind.key), read.held, kind.isNew, kind.carrying?.() === true, this.standing);
                     }
                 }
             } catch (thrown) {
@@ -1551,17 +1569,29 @@ class CellsReader {
 
 /**
  * The drafted events of a kind that its window's rows do not hold and that are no new ones (see
- * {@link ScheduleCellKind.isNew}): what its window's own read never drew a draft of.
+ * {@link ScheduleCellKind.isNew}): what its window's own read never drew a draft of. Which drafts draw is the rule every
+ * builder that draws its drafts over the rows it reads asks (`drafted-rows.ts`' `DraftedStanding`): one its window
+ * holds, a new one, and — while its session has yet to judge its drafts where its record reads now — one the reader last
+ * drew, its window read again without its event.
  *
+ * @param kind - The kind's slot
  * @param drafts - The kind's drafts, by the event's key's text
  * @param held - The rows its window holds
  * @param isNew - Whether an event's session began from no stored row
+ * @param carrying - Whether the kind's session has yet to judge its drafts where its record reads now
+ * @param standing - The rule, and the drafts last drawn, which the kind's drawn here replace
  * @returns Their keys' texts
  */
-function draftsNotHeld(drafts: ReadonlyMap<string, Uint8Array> | undefined, held: HeldRows, isNew: (id: string) => boolean): ReadonlySet<string> {
-    if (drafts === undefined || drafts.size === 0) return NO_IDS;
+export function draftsNotHeld(kind: string, drafts: ReadonlyMap<string, Uint8Array> | undefined, held: Pick<HeldRows, "has">, isNew: (id: string) => boolean,
+    carrying: boolean, standing: DraftedStanding): ReadonlySet<string> {
+    if (drafts === undefined || drafts.size === 0) { standing.drewKind(kind, NO_IDS); return NO_IDS; }
     let out: Set<string> | undefined;
-    for (const id of drafts.keys()) if (!held.has(id) && !isNew(id)) (out ??= new Set()).add(id);
+    const drawn = new Set<string>();
+    for (const id of drafts.keys()) {
+        if (standing.stands(kind, id, { created: isNew(id), carrying }, held.has(id))) drawn.add(id);
+        else (out ??= new Set()).add(id);
+    }
+    standing.drewKind(kind, drawn);
     return out ?? NO_IDS;
 }
 

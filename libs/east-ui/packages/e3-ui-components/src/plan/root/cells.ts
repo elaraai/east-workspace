@@ -124,7 +124,7 @@ export interface PlanCellsArgs {
      * let go: drawn over a kind's cells read before the commit until they are read again — and the row each drafted
      * event's session began from, which tells a new event from one the record holds; `undefined` for none.
      */
-    readonly editing?: Pick<ScheduleEditing, "landed" | "shown" | "held"> | undefined;
+    readonly editing?: Pick<ScheduleEditing, "landed" | "shown" | "held" | "carrying"> | undefined;
 }
 
 /** Whether a kind's rows draw bars or chips, which shade as the share of each bucket booked. */
@@ -155,6 +155,7 @@ function linkEnds(links: Links, slot: string): string[] {
 export function usePlanCells(args: PlanCellsArgs): ScheduleCellsRead {
     const { kinds, resources, parts, paged, scale, range, drafts, hidden, span, links, editing } = args;
     const held = editing?.held;
+    const carrying = editing?.carrying;
     const cellKindsOf = useMemo((): ScheduleCellKind[] => kinds.map((kind) => ({
         key: kind.key,
         name: kind.name,
@@ -173,11 +174,14 @@ export function usePlanCells(args: PlanCellsArgs): ScheduleCellsRead {
         // A kind narrowed through its source draws a draft only of an event its window's read holds — its backlog's among
         // them — or of a new one (#1343): one its session began from no stored row.
         isNew: held !== undefined && parts.some((p) => stringEqual(p.kind.key, kind.key)) ? (id: string) => held(kind.key, id) === undefined : undefined,
+        // And of one it last drew, while the kind's session has yet to judge its drafts where its record reads now (#1599):
+        // another planner's removal of a job drafted here never takes it off the canvas before the session has read it.
+        carrying: carrying === undefined ? undefined : () => carrying(kind.key),
         // A kind read a window at a time gives the reader the rows its window's read holds to keep standing (#1599), and —
         // no source narrowing it — the revision its record reads at.
         stored: kind.entries.type === "some" ? kind.stored : undefined,
         revision: kind.entries.type === "some" ? kind.entries.value.revision : undefined,
-    })), [kinds, parts, hidden, links, held]);
+    })), [kinds, parts, hidden, links, held, carrying]);
     const whole = useMemo((): ScheduleCellResources[] => resources.map((kind) => ({ key: kind.key, keys: kind.rows.map((row) => row.key) })), [resources]);
     const pagedKind = useMemo((): ScheduleCellPaged | undefined => (paged === undefined ? undefined : {
         kind: paged.kind,

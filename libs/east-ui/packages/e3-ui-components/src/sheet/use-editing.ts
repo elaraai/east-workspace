@@ -10,7 +10,9 @@
  * builder's inspector makes beside them, #1188, and the seeds a dropped
  * template's new entry takes, #1187) and its local layer over the resident
  * rows — what a Save landed among it, over the rows read before the Save,
- * until their source reads them again.
+ * until their source reads them again; and a row changed here that the rows,
+ * read again, hold no more — another session removed it — standing where it
+ * stood until its session has read it by its key (`standing-rows.ts`).
  *
  * @packageDocumentation
  */
@@ -27,6 +29,7 @@ import { sheetDayOf } from "./day.js";
 import { SHEET_PAGE_SIZE } from "./paging.js";
 import { entriesByKeyOf, readSinceAnswerOf } from "../platform/paged-runtime.js";
 import { SheetRefused, prepareCreation, unsetField } from "./creation.js";
+import { closedOver } from "./standing-rows.js";
 import type { EntryVersion, EntryUpdate, Origin, Placement, SheetTransactions } from "./transactions.js";
 import type { SheetEditValue, SheetPagedSourceValue, SheetRowValue } from "./values.js";
 
@@ -61,6 +64,11 @@ export interface SheetRowsRead {
     readonly revision: string | undefined;
     /** Whether the row drawn at a source position was read before that revision — given none, any row that may yet be drawn. */
     readonly before: (position: number | undefined) => boolean;
+    /**
+     * How many rows the source holds, counted at that revision; `undefined` while its count there is not known. What
+     * tells a source's last row, gone from it, from a row whose page was let go (`standing-rows.ts`).
+     */
+    readonly total?: number | undefined;
 }
 
 /**
@@ -342,6 +350,9 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
         session.observeBase(observed.base);
         return session.record(updates, origin, label);
     }, [session, observed, replacing]);
+    // The source position each drafted row the rows draw stood at as the layer was last made: what stands through a
+    // carry-over (`standing-rows.ts`).
+    const stoodRef = useRef<ReadonlyMap<string, number>>(new Map());
     const { layer, savedFrom } = useMemo((): { layer: LocalLayer; savedFrom: ReadonlyMap<string, string | undefined> } => {
         const edits = new Map<string, SheetRowValue>();
         const appended: SheetRowValue[] = [];
@@ -359,6 +370,24 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
         // of, and which may have read a Save's new entry already (#1583).
         const drawnIds = replacing ? new Set(rows.map(sheetRowId)) : undefined;
         const drawn = (id: string): boolean => drawnIds?.has(id) ?? rowIndex.has(id);
+        // Whether the session has yet to judge its drafts where its source reads now: carrying them over to a record that
+        // moved — or, from the very render the record moves in, before the session is told, standing at another revision
+        // with no request of its own out. Its word of a drafted row — that the record holds it — is then of the record as
+        // it was. (A session whose Save is out reads its own commit back, and carries nothing over meanwhile.)
+        const drafting = session.drafts.revision;
+        const carrying = rowsRead !== undefined && !replacing && !retained
+            && (session.carrying || (!session.locked && drafting !== undefined && rowsRead.revision !== undefined && !stringEqual(drafting, rowsRead.revision)));
+        // The row drawn at a source position: asked of the few rows that stood, so made as the first is.
+        let placed: Map<number, string> | undefined;
+        const idAt = (position: number): string | undefined => {
+            if (placed === undefined) {
+                placed = new Map();
+                currentRows.forEach((row, i) => { const at = currentPositions[i]; if (at !== undefined && !placed!.has(at)) placed!.set(at, row.id); });
+            }
+            return placed.get(position);
+        };
+        const stood = stoodRef.current;
+        const stands = new Map<string, number>();
         for (const [id, entry] of session.entries) {
             const before = session.originals.get(id) ?? absent;
             const same = codecs.draftEqual(before.draft === undefined ? none : some(before.draft), entry.draft === undefined ? none : some(entry.draft));
@@ -380,14 +409,29 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
             const saved = session.landed.get(id);
             const landed = saved !== undefined && awaiting(id, saved.from) ? saved : undefined;
             const held = landed?.before ?? before;
-            if (entry.wire === undefined) { removed.add(id); continue; }
+            const was = stood.get(id);
+            // A row its draft removes is drawn nowhere, and remembered where it stood: the removal taken back finds it so.
+            if (entry.wire === undefined) { removed.add(id); if (was !== undefined) stands.set(id, was); continue; }
             if (held.draft === undefined && !drawn(id)) {
                 appended.push(entry.wire);
                 // The Save's new entry still: a count read since that Save holds it.
                 if (landed !== undefined) savedFrom.set(id, landed.from);
-            } else edits.set(id, entry.wire);
+            } else if (!drawn(id) && carrying && was !== undefined && closedOver(was, idAt, (position) => !rowsRead.before(position), rowsRead.total)) {
+                // A row changed here that the rows, read again, hold no more — another session removed it — while its
+                // session has yet to read it by its key: it stands where it stood, never off the grid until that read
+                // lands. One the sheet no longer draws because its page was let go is told from it by the rows that
+                // closed over its place (`standing-rows.ts`).
+                appended.push(entry.wire);
+                stands.set(id, was);
+            } else {
+                edits.set(id, entry.wire);
+                const at = rowIndex.get(id);
+                const position = at === undefined ? undefined : currentPositions[at];
+                if (position !== undefined) stands.set(id, position);
+            }
             if (!samePlace(held.place, entry.place)) placements.set(id, entry.place);
         }
+        stoodRef.current = stands;
         // What a Save landed, over the rows read before it: an entry it removed stays off them, one it added stands where
         // it placed it until a row read again brings it, and one the rows hold is drawn as the Save left it.
         for (const [id, saved] of session.landed) {
@@ -401,7 +445,7 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
         return { layer: { edits, appended, removed, placements }, savedFrom };
         // The version tracks mutations to the session's maps.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [session, codecs, version, rows, rowIndex, awaiting, replacing]);
+    }, [session, codecs, version, rows, rowIndex, awaiting, replacing, retained, currentRows, currentPositions, rowsRead]);
     // A landed entry its rows have read again is the source's to draw: the session lets it go.
     useLayoutEffect(() => {
         const read: string[] = [];

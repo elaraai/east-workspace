@@ -66,6 +66,8 @@ const job = (c: HTMLElement) => ({
     e3: h.e3, container: c,
     // The board's own reads of the jobs: its period's searches and its pages, never the reads a session makes by key.
     reads: (request: E3Request) => request.dataset === JOBS && (request.kind === "find" || request.kind === "page"),
+    // The session's reads of the jobs its drafts hold, by their keys.
+    byKey: (request: E3Request) => request.dataset === JOBS && request.kind === "rows",
     drawn: () => event(c, "job", "job1") !== null,
     theirRemoval: () => theirs((jobs) => { jobs.delete("job1"); }),
     held: async () => (await read()).has("job1"),
@@ -88,6 +90,12 @@ test.each([["kept, the next Save puts it back as drafted", "draft"], ["let go, t
     "a job changed here that another session removes stands as drafted while the board's period is read again, a conflict to choose: %s", async (_ends, choice) => {
         const { container: c } = await h.mount(ex.calendarOperations, { storageKey: `calendar-remote-removed-there-${choice}` });
         await removedThere({ ...job(c), change: change(c), look: () => customer(c) }, choice);
+    });
+
+test.each([["kept, the next Save puts it back as drafted", "draft"], ["let go, the job leaves and nothing is left to save", "source"]] as const)(
+    "a job changed here that another session removes stands as drafted while the board's period is read again without it and its session has yet to read it by key: %s", async (_ends, choice) => {
+        const { container: c } = await h.mount(ex.calendarOperations, { storageKey: `calendar-remote-removed-there-rows-${choice}` });
+        await removedThere({ ...job(c), change: change(c), look: () => customer(c) }, choice, "rows");
     });
 
 test.each([["kept, the next Save removes it", "draft"], ["let go, the job is back as the other session left it", "source"]] as const)(

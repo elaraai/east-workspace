@@ -279,6 +279,8 @@ const member = (c: HTMLElement) => ({
     e3: h.e3, container: c,
     // The grid's own reads of the crew: its window's pages, never the reads a session makes by key.
     reads: (request: E3Request) => request.dataset === CREW && request.kind === "page",
+    // The session's reads of the members its drafts hold, by their keys.
+    byKey: (request: E3Request) => request.dataset === CREW && request.kind === "rows",
     drawn: () => rowOf(c, "2") !== undefined,
     theirRemoval: () => theirs((crew) => { crew.delete(2n); }),
     held: async () => (await h.read(fx.numberedCrew)).has(2n),
@@ -289,6 +291,12 @@ test.each([["kept, the next Save puts them back as drafted", "draft"], ["let go,
     "a member changed here whom another session removes stands as drafted while the grid's window is read again, a conflict to choose: %s", async (_ends, choice) => {
         const c = await mounted(`record-remote-removed-there-${choice}`);
         await removedThere({ ...member(c), change: () => type(c, "2", "5"), look: () => look(c).find(([id]) => id === "2") }, choice);
+    });
+
+test.each([["kept, the next Save puts them back as drafted", "draft"], ["let go, the row leaves and nothing is left to save", "source"]] as const)(
+    "a member changed here whom another session removes stands as drafted while the grid's window is read again without them and its session has yet to read them by key: %s", async (_ends, choice) => {
+        const c = await mounted(`record-remote-removed-there-rows-${choice}`);
+        await removedThere({ ...member(c), change: () => type(c, "2", "5"), look: () => look(c).find(([id]) => id === "2") }, choice, "rows");
     });
 
 test.each([["kept, the next Save removes them", "draft"], ["let go, the row is back as the other session left it", "source"]] as const)(

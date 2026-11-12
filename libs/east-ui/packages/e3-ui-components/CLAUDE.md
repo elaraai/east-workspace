@@ -1369,14 +1369,48 @@ the rows drawn is named from what the session holds of it — the Sheet's
 `rowWhere`, from its `originals`; a board's event from the row its record
 held when last read, read as its kind reads a row with no draft in place
 (`shared/schedule/editing.ts`' `heldEvent`, which `scheduleIssueName` falls
-back to). The Record (`record/remote-edits.dom.test.tsx`), the Calendar
-(`calendar/remote-rows.dom.test.tsx`) and the Sheet, over a record read a
-window at a time (`sheet/remote-rows.dom.test.tsx`), run them, the Allocation
-the three removals over its bins (`allocation/remote-rows.dom.test.tsx`: its
-board reads a bin it draws back from its day's own pages, so no read is held
-apart), and the Plan the row added on both sides
-(`plan/frame/plan-remote-rows.dom.test.tsx`). Still to run them: the Roster,
-the Schematic and the Flowchart. The
+back to). Every builder that saves runs the three removals: the Record
+(`record/remote-edits.dom.test.tsx`), the Calendar
+(`calendar/remote-rows.dom.test.tsx`), the Sheet, over a record read a
+window at a time (`sheet/remote-rows.dom.test.tsx`), the Plan
+(`plan/frame/plan-remote-rows.dom.test.tsx`, with the row added on both
+sides), the Allocation over its bins (`allocation/remote-rows.dom.test.tsx`:
+its board reads a bin it draws back from its day's own pages, so no read is
+held apart), the Roster over its duties (`roster/remote-rows.dom.test.tsx`),
+the Flowchart over its states (`flowchart/remote-rows.dom.test.tsx`) and the
+Schematic over its racks (`schematic/remote-rows.dom.test.tsx`) — the last two
+over a record read whole, where the canvas and its session read it in the one
+read, and over one read through its source of the rail; the Schematic's racks
+read by area in `schematic/schematic-review-drafts.dom.test.tsx`.
+
+**`removedThere` runs both ways round** over a record read a window at a
+time (hardened 12 Nov 2026): the session's read of the row by its key landing
+first, the builder's own rows held — and the builder's rows landing first,
+read again without the row, the session's read by key held (`"rows"`, its
+`byKey`). There the session still holds the row as one its record holds, and
+a builder that draws a draft only where its rows hold the row — any other a
+row a narrowing hides, waiting in its session — drew nothing of it until the
+session's read landed: a row its person had changed left the page for a round
+trip, and came back with its conflict. The Schematic and the Flowchart read
+through a source, the Plan, the Sheet and the Record did so. One rule holds
+them now: **through a carry-over a drafted row stands as its builder last drew
+it**, until its session has judged it where its record reads
+(`shared/schedule/drafted-rows.ts`' `DraftedStanding`, asked by the
+Schematic's and the Flowchart's drawings and by the shared cells reader of
+the Plan's and the Calendar's events, `cells.ts`' `draftsNotHeld`; whether a
+session has yet to judge its drafts is the shared editing's `carrying`, true
+from the very render its record moves in). The Sheet and the Record, which
+draw a page at a time, keep such a row only where the rows read again have
+closed over its place — another row standing at its position, read at the
+revision the source reads at now, or the source, counted there, ending before
+it — which tells it from a row whose page was let go, scrolled away from
+(`sheet/standing-rows.ts`). And whether a draft adds its row is read from its
+session's original as it stands, never once as the draft is first decoded
+(`shared/schedule/use-drafted-rows.ts`): a rack moved here and removed by
+another session was held to be a rack its record held still, and left the
+Schematic's canvas, and the Flowchart's, while its person was asked to choose
+over it. The Calendar, the Roster and the Allocation held under both from the
+start. The
 Sheet's check of a row added on both sides holds no read: its session learns
 that the new row's key is taken from the very page its grid reads the row's
 place in. A change taken back by hand while its conflict waits — a level

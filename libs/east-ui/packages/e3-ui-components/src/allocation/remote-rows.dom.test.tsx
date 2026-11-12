@@ -47,6 +47,8 @@ const bin = (c: HTMLElement, id: string, name: string) => ({
     // (#1596): the session waits on the board's own read of the day, so the two land together, and held, nothing
     // would tell the session of the other session's write. What the board draws is read at every change of the page.
     reads: (_request: E3Request) => false,
+    // The session's reads of the bins its drafts hold, by their keys: of one the day's own pages hold no more.
+    byKey: (request: E3Request) => request.dataset === `records.${ex.kilnBins.name}` && request.kind === "rows",
     drawn: () => c.querySelector(`[data-allocation-card="${id}"]`) !== null,
     theirRemoval: () => theirs((bins) => { bins.delete(id); }),
     held: async () => (await read()).has(id),
@@ -68,6 +70,12 @@ test.each([["kept, the next Save puts it back as drafted", "draft"], ["let go, t
     "a bin moved to another lane here that another session removes stands as drafted while the board's day is read again, a conflict to choose: %s", async (_ends, choice) => {
         const c = await open();
         await removedThere({ ...bin(c, "3113", "LD-2210 · B-3 10:55"), change: relane(c, "3113", "B-3"), look: look(c, "3113") }, choice);
+    });
+
+test.each([["kept, the next Save puts it back as drafted", "draft"], ["let go, the bin leaves and nothing is left to save", "source"]] as const)(
+    "a bin moved to another lane here that another session removes stands as drafted while the board's day is read again without it and its session has yet to read it by key: %s", async (_ends, choice) => {
+        const c = await open();
+        await removedThere({ ...bin(c, "3113", "LD-2210 · B-3 10:55"), change: relane(c, "3113", "B-3"), look: look(c, "3113") }, choice, "rows");
     });
 
 test.each([["kept, the next Save removes it", "draft"], ["let go, the bin is back as the other session left it", "source"]] as const)(

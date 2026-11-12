@@ -13,10 +13,10 @@
 import { describe, expect, test } from "vitest";
 import { defaultValue, none, some } from "@elaraai/east";
 import { Schematic } from "@elaraai/e3-ui/internal";
+import type { DraftedRow } from "../shared/schedule/drafted-rows.js";
 import type { ItemRoles } from "./canvas/drawn.js";
 import { backlogEntries } from "./backlog.js";
 import type { SchematicHeldRows, SchematicUnplacedRows } from "./data.js";
-import type { DraftedRow } from "./drafted.js";
 
 const T = Schematic.Types;
 

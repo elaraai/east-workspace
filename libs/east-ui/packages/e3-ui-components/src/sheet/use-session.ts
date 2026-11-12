@@ -216,12 +216,16 @@ export function useSheetSession(value: SheetRootValue, storageKey: string, host:
     const pagesStanding = paging.standing;
     const rowsRead = useMemo((): SheetRowsRead | undefined => {
         if (decodedRows !== undefined) return undefined;
-        if (lensDrawn) return { revision: lens.revision, before: () => lens.readBefore };
+        // The source's count, where it was read at the revision the rows are read at now.
+        const counted = (revision: string | undefined): number | undefined =>
+            (total !== undefined && revision !== undefined && totalRevision !== undefined && stringEqual(totalRevision, revision) ? total : undefined);
+        if (lensDrawn) return { revision: lens.revision, before: () => lens.readBefore, total: counted(lens.revision) };
         return {
             revision: paging.revision,
             before: (position) => position === undefined ? pagesStanding.length > 0 : pagesStanding.includes(Math.floor(position / SHEET_PAGE_SIZE)),
+            total: counted(paging.revision),
         };
-    }, [decodedRows, lensDrawn, lens.revision, lens.readBefore, paging.revision, pagesStanding]);
+    }, [decodedRows, lensDrawn, lens.revision, lens.readBefore, paging.revision, pagesStanding, total, totalRevision]);
     // The inspector's numbers held to bounds (#1585): a changed row's Save waits while one is outside them.
     const bounds = useMemo(() => sheetBoundsOf(host.forms), [host.forms]);
     const editingState = useSheetEditing(value.editing, pagedSource, sourceRows, sourcePositions, storageKey, loose ? mintLineId : undefined, rowsPart, standingIn, keyHeld, declaredNoun?.singular, day, rowsRead, keys, bounds, windowedSourceOf(value.rows)?.id, host.autosave, entryOf);

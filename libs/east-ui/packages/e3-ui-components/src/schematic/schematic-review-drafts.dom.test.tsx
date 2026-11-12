@@ -18,6 +18,10 @@
  * where it stood, and as its record holds it once they are read again — a rack
  * saved twice before its window is read again as the second Save left it,
  * never as it stood before either. Each test fails on the code under review.
+ * And the checks every builder runs of a rack another session removes or
+ * changes under a draft of it here (#1599, `shared/remote-rows.test-utils.ts`),
+ * over the racks read by area: whichever lands first, the window's own reads
+ * or the session's read of the rack by its key.
  *
  * jsdom lays nothing out: the canvas is given the box a page would give it,
  * 1080 × 540 px at the client origin, and each card the tests press answers at
@@ -34,6 +38,7 @@ import { Data, Record, Schematic } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/schematic/schematic";
 import type { E3Hold, E3Request } from "../e3-web.test-utils.js";
 import { e3Harness, evaluatesAgain, settle, slot } from "../e3-web-mount.test-utils.js";
+import { removedHere, removedOnBothSides, removedThere } from "../shared/remote-rows.test-utils.js";
 import { editedThroughReload, redrawnThroughReload, savedThroughReload } from "../shared/save-held.test-utils.js";
 import { entityId } from "./canvas/drawn.js";
 import { at, cameraOf, card, fitted, layOutCanvas, near, tap, unsaved, zoomInto } from "./schematic.test-utils.js";
@@ -752,4 +757,74 @@ test("a rack saved twice before its window is read again draws where the second 
     expect(card(container, "racks", "A01")!.style.transform).toBe(second);
     expect(value()).toBe(typed);
     expect(field().hasAttribute("data-dirty")).toBe(false);
+});
+
+// ============================================================================
+// Another session's removal or change of a rack read by area, under a draft of it here (#1599)
+// ============================================================================
+
+/** What the shared checks take of the floor, over rack A03, read by area. */
+const remoteRack = (c: HTMLElement) => ({
+    e3: h.e3, container: c,
+    // The canvas's own reads of the racks: its window's searches and its runs' rows, never the reads a session makes by key.
+    reads: areaRead,
+    // The session's reads of the racks its drafts hold, by their keys.
+    byKey: (request: E3Request) => request.dataset === RACKS_DATASET && request.kind === "rows",
+    drawn: () => card(c, "racks", "A03") !== null,
+    theirRemoval: async () => {
+        const racks = await h.read(ex.schematicRacks);
+        await h.patch(ex.schematicRacks, new Map([...racks].filter(([key]) => !stringEqual(key, "A03"))));
+        await settle();
+    },
+    held: async () => (await h.read(ex.schematicRacks)).has("A03"),
+    name: "A03",
+});
+
+/** A tool picked from the toolbar. */
+const pick = (c: HTMLElement, name: string) => () => { fireEvent.click(within(slot(c, "toolbar")).getByRole("radio", { name })); };
+/** Rack A03 moved here, down into the clear floor below its row: a draft. */
+const moveA03 = (c: HTMLElement) => [pick(c, "Move"), () => moveFrom(c, [9.6, 2.9], [9.6, 5.0])];
+/** Rack A03 removed here: selected, then Del with the pointer over the canvas. */
+const removeA03 = (c: HTMLElement) => [
+    pick(c, "Select"),
+    () => {
+        const canvas = canvasOf(c);
+        fireEvent.pointerDown(canvas, { pointerId: 1, pointerType: "mouse", button: 0, buttons: 1, ...at(CAM, 9.6, 2.9) });
+        fireEvent.pointerUp(canvas, { pointerId: 1, pointerType: "mouse", button: 0, buttons: 0, ...at(CAM, 9.6, 2.9) });
+    },
+    () => { fireEvent.keyDown(window, { key: "Delete" }); },
+];
+/** Where the canvas places rack A03's card, and what the card says. */
+const lookA03 = (c: HTMLElement) => () => {
+    const el = card(c, "racks", "A03");
+    return el === null ? null : [el.style.transform, el.textContent];
+};
+
+test.each([
+    ["its session's read of it landing first, kept: the next Save puts it back as drafted", "draft", "session"],
+    ["its session's read of it landing first, let go: the rack leaves and nothing is left to save", "source", "session"],
+    ["its window read again without it first, kept: the next Save puts it back as drafted", "draft", "rows"],
+    ["its window read again without it first, let go: the rack leaves and nothing is left to save", "source", "rows"],
+] as const)("read by area, a rack moved here that another session removes stands as drafted, a conflict to choose — %s", async (_ends, choice, first) => {
+    const { container } = await open();
+    await removedThere({ ...remoteRack(container), change: moveA03(container), look: lookA03(container) }, choice, first);
+});
+
+test.each([["kept, the next Save removes it", "draft"], ["let go, the rack is back as the other session left it", "source"]] as const)(
+    "read by area, a rack removed here that another session changed stays off the canvas while its window is read again, a conflict to choose, its card naming the rack: %s", async (_ends, choice) => {
+        const { container } = await open();
+        await removedHere({
+            ...remoteRack(container), remove: removeA03(container),
+            // Its model read again by another session: no part of where it stands.
+            theirChange: async () => {
+                const racks = await h.read(ex.schematicRacks);
+                await h.patch(ex.schematicRacks, new Map([...racks, ["A03", { ...racks.get("A03")!, model: "42U · 10 kW" }]]));
+                await settle();
+            },
+        }, choice);
+    });
+
+test("read by area, a rack removed here and by another session is nothing to choose and nothing to save, and the canvas never draws it again — nor while its window, standing from before the other session's write, is read again", async () => {
+    const { container } = await open();
+    await removedOnBothSides({ ...remoteRack(container), remove: removeA03(container) });
 });

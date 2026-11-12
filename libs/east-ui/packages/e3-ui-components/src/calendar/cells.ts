@@ -185,7 +185,7 @@ export interface CalendarCellsArgs {
      * event's session began from, which tells a new event from one the record holds; `undefined` for a Calendar read
      * only.
      */
-    readonly editing?: Pick<ScheduleEditing, "landed" | "shown" | "held"> | undefined;
+    readonly editing?: Pick<ScheduleEditing, "landed" | "shown" | "held" | "carrying"> | undefined;
 }
 
 /**
@@ -213,6 +213,7 @@ export function calendarCellKinds(kinds: readonly CalendarKind[]): ReadonlySet<s
 export function useCalendarCells(args: CalendarCellsArgs): ScheduleCellsRead {
     const { kinds, parts, resources, range, bucket, drafts, paged, span, editing } = args;
     const held = editing?.held;
+    const carrying = editing?.carrying;
     const cellKinds = useMemo((): ScheduleCellKind[] => kinds.map((kind) => ({
         key: kind.key,
         name: kind.name,
@@ -236,11 +237,14 @@ export function useCalendarCells(args: CalendarCellsArgs): ScheduleCellsRead {
         // A narrowed kind with no backlog draws a draft only of an event its window holds, or of a new one (#1343): one its
         // session began from no stored row.
         isNew: !kind.backlog && held !== undefined && parts.some((p) => stringEqual(p.kind.key, kind.key)) ? (id: string) => held(kind.key, id) === undefined : undefined,
+        // And of one it last drew, while the kind's session has yet to judge its drafts where its record reads now (#1599):
+        // another session's removal of an event drafted here never takes it off the board before the session has read it.
+        carrying: carrying === undefined ? undefined : () => carrying(kind.key),
         // A kind read a window at a time gives the reader the rows its window's read holds to keep standing (#1599), and —
         // no source narrowing it — the revision its record reads at.
         stored: kind.entries.type === "some" ? kind.stored : undefined,
         revision: kind.entries.type === "some" ? kind.entries.value.revision : undefined,
-    })), [kinds, parts, held]);
+    })), [kinds, parts, held, carrying]);
     const from = range.from.getTime();
     const to = range.to.getTime();
     const over = useMemo(() => ({ from: new Date(from), to: new Date(to) }), [from, to]);

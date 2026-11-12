@@ -50,9 +50,10 @@
  * - **A number its field's bounds don't hold (#1585).** Each kind's form goes
  *   with its record (`fields`): a changed row whose number is under its least
  *   or over its most holds Save, as the app's check does, and Issues names it.
- * - **Its drafts.** Each draft is decoded once: its roles read through its
- *   kind's `read`, kept while its session keeps the entry's version — what the
- *   frame draws over the stored rows (`drafted.ts`).
+ * - **Its drafts.** Each draft is read once for its version and the original
+ *   beside it (`shared/schedule/drafted-rows.ts`): its roles through its
+ *   kind's `read`, and whether its draft adds it — what the frame draws over
+ *   the stored rows (`drafted.ts`).
  * - **What a Save landed.** A kind read by key is confirmed as its rows land,
  *   while the frame is handed what was read only once every kind has: its
  *   session keeps what each Save landed (`drawsLanded`, `EditSession.landed`),
@@ -73,8 +74,9 @@
 import { useCallback, useMemo, useRef } from "react";
 import { StringType, equalFor, none, some, variant, type ValueTypeOf, type option } from "@elaraai/east";
 import type { EditingReadinessType, RecordSliceBindType } from "@elaraai/east-ui/internal";
-import { getSomeorUndefined, type EditHistory, type EntryVersion, type LandedEntry, type Origin } from "@elaraai/east-ui-components";
+import { getSomeorUndefined, type EditHistory, type LandedEntry, type Origin } from "@elaraai/east-ui-components";
 import { recordSliceRows } from "@elaraai/east-ui-components/internal";
+import type { DraftedRowsKind } from "../shared/schedule/drafted-rows.js";
 import {
     useScheduleEditing,
     type ScheduleChange, type ScheduleEditing, type ScheduleEditingKind, type ScheduleEditingRecord, type ScheduleEntryRef, type ScheduleKindSession,
@@ -82,8 +84,9 @@ import {
 } from "../shared/schedule/editing.js";
 import { kindKeys } from "../shared/schedule/kind-keys.js";
 import { draftedRow, heldInWindow, keptAtRevision, madeFromValues, mintKey, rowCodec } from "../shared/schedule/records.js";
+import { useDraftedRows } from "../shared/schedule/use-drafted-rows.js";
 import { sourcePart } from "../shared/schedule/visibility.js";
-import { NONE_LANDED, NO_LANDED, type DraftedRow, type FlowchartDrafts, type FlowchartLanded, type KindDrafts, type KindLanded, type LandedRow } from "./drafted.js";
+import { NONE_LANDED, NO_DRAFTS, NO_LANDED, type FlowchartDrafts, type FlowchartLanded, type KindDrafts, type KindLanded, type LandedRow } from "./drafted.js";
 import type {
     FlowchartDecisionRoles, FlowchartLaneRoles, FlowchartStateRoles, FlowchartTransitionRoles, FlowchartValue,
 } from "./model.js";
@@ -434,48 +437,19 @@ export function useFlowchartEditing(value: FlowchartValue, storageKey: string, r
     const schedule = useScheduleEditing({ kinds: NO_KINDS, records, reads, storageKey, joined: NO_JOINED, recordSlices, autosave: value.autosave });
     sessionsNow.current = schedule.sessions;
 
-    // Each draft decoded once: a session keeps an entry's version the same object until a gesture replaces it.
-    const decoded = useRef(new WeakMap<EntryVersion<ScheduleEntryRef>, DraftedRow<unknown>>());
-    const draftsNow = schedule.drafts;
-    const drafts = useMemo((): FlowchartDrafts => {
-        const sortDrafts = <R,>(sort: FlowchartSort): KindDrafts<R> => {
-            const kind = kindOf(value, sort);
-            const ids = schedule.draftsOf(sort);
-            const rows = new Map<string, DraftedRow<R> | undefined>();
-            if (kind === undefined || ids.size === 0) return rows;
-            const session = schedule.sessions.find((part) => stringEqual(part.kind, sort))?.session;
-            const codec = rowCodec(kind.rowType);
-            const read = kind.read as (bytes: Uint8Array, key: string) => R;
-            // A row under a placeholder is read as keyed by its key type's default, its key still to be typed (#1549).
-            const keys = kindKeys(kind.keyType);
-            for (const id of ids.keys()) {
-                const entry = session?.entries.get(id);
-                const row = draftedRow(entry);
-                if (entry === undefined || row === undefined) { rows.set(id, undefined); continue; }
-                let drafted = decoded.current.get(entry) as DraftedRow<R> | undefined;
-                if (drafted === undefined) {
-                    // A row its session found absent before the gesture that wrote it is new; any other began as the row its
-                    // record held then.
-                    const began = draftedRow(session?.originals.get(id))?.row;
-                    drafted = {
-                        roles: read(codec.encode(row.row), keys.readKey(id)), created: began === undefined,
-                        began: began === undefined ? undefined : read(codec.encode(began), keys.readKey(id)),
-                    };
-                    decoded.current.set(entry, drafted);
-                }
-                rows.set(id, drafted);
-            }
-            return rows;
-        };
-        return {
-            states: sortDrafts<FlowchartStateRoles>("states"),
-            transitions: sortDrafts<FlowchartTransitionRoles>("transitions"),
-            lanes: sortDrafts<FlowchartLaneRoles>("lanes"),
-            decisions: sortDrafts<FlowchartDecisionRoles>("decisions"),
-        };
-        // The drafts move with every gesture: their bytes say when.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [draftsNow, value]);
+    // Each drafted row as its kind reads it, and whether its draft adds it: read again as its original moves — another
+    // session's removal of a row drafted here leaves the draft adding it — and the same rows while none does.
+    const draftedKinds = useMemo((): readonly DraftedRowsKind[] => FLOWCHART_SORTS.flatMap((sort) => {
+        const kind = kindOf(value, sort);
+        return kind === undefined ? [] : [{ key: sort, rowType: kind.rowType, keyType: kind.keyType, read: kind.read as DraftedRowsKind["read"] }];
+    }), [value]);
+    const draftedRows = useDraftedRows(schedule, draftedKinds);
+    const drafts = useMemo((): FlowchartDrafts => ({
+        states: (draftedRows.get("states") ?? NO_DRAFTS.states) as KindDrafts<FlowchartStateRoles>,
+        transitions: (draftedRows.get("transitions") ?? NO_DRAFTS.transitions) as KindDrafts<FlowchartTransitionRoles>,
+        lanes: (draftedRows.get("lanes") ?? NO_DRAFTS.lanes) as KindDrafts<FlowchartLaneRoles>,
+        decisions: (draftedRows.get("decisions") ?? NO_DRAFTS.decisions) as KindDrafts<FlowchartDecisionRoles>,
+    }), [draftedRows]);
 
     // What each Save landed of a kind read by key, each row decoded once: a session keeps a landed entry the same object
     // until it lets it go.
