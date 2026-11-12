@@ -803,15 +803,23 @@ const pkg = e3.package('planning', '3.0.0', plans, …);
   - `lock`, the workspace lock the caller holds across rounds, which the deploy uses and never releases;
   - `signal`: a deploy that throws once its signal has aborted leaves the job `processing` and rethrows, so the caller tells a hand-over from a failure.
 
-**Commits and the reserved slots.** A `$migrate:<name>` commit is written per step, by `system:deploy`, and the last one writes `$schema` and `$migrations`. Then come the `$reindex` commits of the index builds. A kept record gets one `$deploy` commit when the package's hash differs from the one deployed before. What each commit does to the idempotency slots decides whether a keyed retry is answered or applied again:
+**Commits and the reserved slots.** A `$migrate:<name>` commit is written per step, by `system:deploy`, and the last one writes `$schema` and `$migrations`. Then come the `$reindex` commits of the index builds. A kept record gets one `$deploy` commit when the package's hash differs from the one deployed before.
 
-| Commit | `$idem` and `$idem.commit` | `$schema` | `$migrations` |
+**What a record remembers of its requests.** A mutation may carry an idempotency key, the API's `Idempotency-Key` header. A record remembers its last 16 keyed requests (`RECORD_KEYS_REMEMBERED`), and a request repeated under one of their keys is never applied again, whatever was written since: it is answered `committed`, with the commit that answered it first and the state the record holds as the repeat is answered. That state is the one to read the record at — the commit's own is one the record has left once anything was written since, which a read pinned to it is refused — and it holds the request's write, or what was written over it. So a client whose answer was lost asks again after other writes have landed, writes nothing twice, and reads the record where it is. A request the record has forgotten is a new request.
+- **The slots.** `$idem` and `$idem.commit` name the last keyed mutation's key and the commit that answers it. `$idem.log` names the keyed requests before it, newest first: the head commit the slot was written at, then each request's key, as its SHA-256, and the commit that answers it (`head;key=commit,…`). A key is kept there as its digest, so what a ref carries is bounded whatever a client's keys hold: 15 digests and commits.
+- **A mutation** moves the request `$idem` named into the log and forgets the oldest, whether or not it carries a key itself.
+- **The head.** The log is trusted only under the head it names, which every commit of this e3 writes it again under. An e3 from before records kept it carries the slot as it stands, as it carries any reserved slot it does not know, past commits of its own that cut the remembered commits from the chain or drop their writes; carried so, the log names another head and is read as none, so each request it named is a new request, as it was to that e3.
+- **A backend** implements nothing for it: the slots are entries of the ref's version vector, which a ref store keeps whole. The shared API suite holds a backend to it (`records`: a keyed request repeated after other writes, and after a compaction).
+
+What each commit does to the slots decides whether a keyed retry is answered or applied again:
+
+| Commit | `$idem`, `$idem.commit` and `$idem.log` | `$schema` | `$migrations` |
 |---|---|---|---|
-| a mutation | written when keyed, dropped when not | carried | carried |
-| `$reindex`, `$deploy`, and a system commit (a rollback or a restore) | carried | carried | carried |
-| `$compact` | `$idem.commit` points at this commit, whose state holds the keyed write | carried | rewritten: each step's time kept, its commit dropped |
-| `$migrate:<name>` | `$idem.commit` points at this commit, whose state holds the keyed write | written by the last | written by the last: each step it ran by its own commit, beside the steps applied before |
-| `$reset` | dropped: the keyed write is gone with the state | written, the whole chain | written, the whole chain applied by this commit |
+| a mutation | `$idem` and `$idem.commit` written when keyed, dropped when not; the request they named joins `$idem.log`, which forgets its oldest | carried | carried |
+| `$reindex`, `$deploy`, and a system commit (a rollback or a restore) | carried, the log under the new head | carried | carried |
+| `$compact` | `$idem.commit`, and every request of `$idem.log`, point at this commit, whose state holds the keyed writes | carried | rewritten: each step's time kept, its commit dropped |
+| `$migrate:<name>` | `$idem.commit`, and every request of `$idem.log`, point at this commit, whose state holds the keyed writes | written by the last | written by the last: each step it ran by its own commit, beside the steps applied before |
+| `$reset` | dropped: the keyed writes are gone with the state | written, the whole chain | written, the whole chain applied by this commit |
 | `$init`, a deploy's mint or the system commit of a first state | none | written, the whole chain | written, the whole chain applied by this commit |
 
 **System commits** (`recordSystemCommit`) commit a given state as a named system commit, such as a cloud's `$rollback` and `$restore`, so that what the commit does to the slots is the commit protocol's.
@@ -820,7 +828,7 @@ const pkg = e3.package('planning', '3.0.0', plans, …);
 - **A restore** of a state from outside the history, such as a backup's, names the migrations that state had applied, which must be the record's.
 - **Type.** Either is refused a state whose type is not the record's, as a backstop.
 - **Indexes.** It rebuilds the indexes whose declarations differ from those the state was built under, and drops those the package does not declare.
-- **Slots.** It carries every reserved slot, as the table says, so a keyed retry after a rollback is answered by the keyed commit, which stays in the chain under it.
+- **Slots.** It carries every reserved slot, as the table says, so a keyed retry after a rollback is answered by the keyed commit, which stays in the chain under it, as each commit the record remembers does.
 - **Arguments and head.** It records the caller's arguments as a mutation's are, and refuses a head the caller did not expect.
 - **A first state.** A record declared with no initial value holds none after its deploy: its ref is unassigned, as the package exports it, and its dependents wait as they wait on an unset input — a run leaves them waiting and goes on without them (§3.15) — so nothing runs on an empty state. A system commit named `$init` commits its first state — from a stored value, which `deliveryAdoptStored` takes a delivery in as, naming no dataset, or `e3 seed` from a file — with a `{ state, applied }` target whose `applied` is the whole declared chain, since a first state is at the package's type. It writes the ref as a mint writes it, `$schema` and `$migrations` naming itself and no idempotency slot, and is refused on a record that holds a state; every other name is refused on one that holds none, as a mutation, a compaction and a reindex are. The intake and the commit run under one hold of the repository's running work (§3.16), since what the intake stores is named by nothing until the commit. A first state, like a restored one, is read as the door reads a stored value (§3.6): its type from its manifest, or from the head of any other object, never the object whole; a collection the store holds whole, or a manifest an older e3 cut, is refused as the door refuses it, since a record's collection is the manifest of its segments, which its mutations rewrite a segment at a time. A `--plan` of a deploy that migrates such a record plans every index the package declares as built: the migrated state is not stored yet, and names none.
 

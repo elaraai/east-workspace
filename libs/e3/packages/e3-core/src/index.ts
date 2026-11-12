@@ -226,6 +226,7 @@ export {
   appliedMigrations,
   resolveRecord,
   recordLeafType,
+  RECORD_KEYS_REMEMBERED,
   type RecordRef,
   type RecordSystemCommitOptions,
   type RecordSystemCommitTarget,

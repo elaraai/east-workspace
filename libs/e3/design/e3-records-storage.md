@@ -50,7 +50,10 @@ the value-add over a plain input.
 - **Writes.** A mutation takes a shared workspace lock (it coexists with a
   dataflow and is fenced out by deploy) and runs in a compare-and-swap loop:
   retried against fresher state on a conflict, with jittered backoff, an
-  idempotency key in a reserved `$idem` version-vector slot, and a deadline.
+  idempotency key in a reserved `$idem` version-vector slot — the record's
+  last 16 keyed requests are remembered there and in `$idem.log`, each
+  answered with its own commit when repeated, never applied again — and a
+  deadline.
   - A keyed record (a Dict or a Set) is written by delta.
     - Every form — a reducer, an `edit` body, a client's patch — runs as a
       generated program that emits the delta, in any order; the runner sorts

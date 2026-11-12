@@ -881,3 +881,23 @@ Each wire changed under this rule, with the kind it is.
   new type. A UI task's output is not stored state, and a column from data
   reads and writes a field the app's record already holds, as it holds it, so
   no repository upgrade step ships with it.
+- **A record's ref remembers its last 16 keyed requests (#1599)** — stored
+  state, and no type changes. A record's ref holds its version vector, a
+  `Dict<String, String>`, and in it the commit protocol's reserved entries.
+  Beside `$idem` and `$idem.commit`, which keep their meaning — the last keyed
+  mutation's key and the commit that answers it — it gains `$idem.log`: the
+  keyed requests before the last, each by its key's SHA-256 and the commit
+  that answers it, under the head commit the entry was written at
+  (e3-core's `records.ts`, `RECORD_KEYS_REMEMBERED`). A ref an earlier release
+  wrote holds no such entry and reads as one that remembers its last request
+  alone, so no repository upgrade step ships. An earlier release carries the
+  entry as it carries any reserved entry it does not know, and does not keep
+  it: past a commit of its own the entry names another head than the ref's,
+  and this release reads it as none, so a request it named is a new request,
+  as it was to that release. The API's types do not change: a request
+  repeated under a key the record remembers is answered `committed` with a
+  commit and a state, as the last one always was — the commit that answered
+  it first, and the state the record holds as the repeat is answered, where
+  it was that commit's own, which a record has left once anything is written
+  since. A backend implements nothing for it, since a ref store keeps a ref's
+  version vector whole.

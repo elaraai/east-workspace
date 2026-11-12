@@ -342,9 +342,13 @@ describe('a deploy\'s record migrations', () => {
     await assert.rejects(deploy(v2(), { schema: 'fail' }),
       /record 'records\/plans' has migrations 'add_owner' to run, and this deploy runs none\. Deploy with --schema=migrate to run them\./);
 
-    // A keyed write, then a type change with no migration, reset.
-    const outcome = await recordMutate(storage, runner, repo, ws, 'plans', 'seed', [encodeInt(3n)], { actor: 'cli:test', idempotencyKey: 'k1' });
-    assert.equal(outcome.kind, 'committed');
+    // Two keyed writes, so the record remembers one beside its last, then a
+    // type change with no migration, reset.
+    for (const [key, rows] of [['k0', 2n], ['k1', 3n]] as const) {
+      const outcome = await recordMutate(storage, runner, repo, ws, 'plans', 'seed', [encodeInt(rows)], { actor: 'cli:test', idempotencyKey: key });
+      assert.equal(outcome.kind, 'committed');
+    }
+    assert.notEqual((await ref()).versions.get('$idem.log'), undefined, 'the first is remembered beside the last');
     const unmigrated = (() => {
       const plans = e3.record('plans', PlansV2Type, { initial: new Map() });
       return e3.package('planning', '2.0.1', plans);
@@ -356,6 +360,7 @@ describe('a deploy\'s record migrations', () => {
     const held = await ref();
     assert.equal(held.versions.get('$idem'), undefined, 'the keyed write went with the state');
     assert.equal(held.versions.get('$idem.commit'), undefined);
+    assert.equal(held.versions.get('$idem.log'), undefined, 'and so did every keyed write the record remembered before it');
     assert.equal((await workspaceGetDataset(storage, repo, ws, plansPath) as Map<string, unknown>).size, 0);
   });
 
@@ -484,18 +489,26 @@ describe('a deploy\'s record migrations', () => {
 
   it('keeps $schema through a mutation, a compaction and a reindex, and answers a keyed retry after a compaction or a migration', async () => {
     await deploy(v2());
-    const retry = (): Promise<unknown> => recordMutate(storage,
-      { execute: () => { throw new Error('the retry ran the mutation again'); } } as unknown as TaskRunner,
+    const noRunner = { execute: () => { throw new Error('the retry ran the mutation again'); } } as unknown as TaskRunner;
+    const retry = (): Promise<unknown> => recordMutate(storage, noRunner,
       repo, ws, 'plans', 'add', [encodeStr('q')], { actor: 'cli:test', idempotencyKey: 'k1' });
+    /** The keyed write before the last, which the record remembers beside it. */
+    const retryEarlier = (): Promise<unknown> => recordMutate(storage, noRunner,
+      repo, ws, 'plans', 'add', [encodeStr('p')], { actor: 'cli:test', idempotencyKey: 'k0' });
 
+    const earlier = await recordMutate(storage, runner, repo, ws, 'plans', 'add', [encodeStr('p')], { actor: 'cli:test', idempotencyKey: 'k0' });
+    assert.equal(earlier.kind, 'committed', JSON.stringify(earlier));
     const first = await recordMutate(storage, runner, repo, ws, 'plans', 'add', [encodeStr('q')], { actor: 'cli:test', idempotencyKey: 'k1' });
     assert.equal(first.kind, 'committed', JSON.stringify(first));
     assert.deepEqual(appliedMigrations((await ref()).versions), ['add_owner']);
+    assert.deepEqual(await retryEarlier(), { kind: 'committed', commitHash: (earlier as { commitHash: string }).commitHash, stateHash: (await ref()).hash },
+      'the keyed write before the last is answered with its own commit, and the state the record holds now');
 
     const compacted = await recordCompact(storage, repo, ws, 'plans', { actor: 'cli:test' });
     assert.equal(compacted.kind, 'committed');
     assert.deepEqual(appliedMigrations((await ref()).versions), ['add_owner']);
     assert.deepEqual(await retry(), compacted, 'the compaction, whose state holds the keyed write, answers the key');
+    assert.deepEqual(await retryEarlier(), compacted, 'and the key of the write before it, which its state holds too');
 
     const reindexed = await recordReindex(storage, runner, repo, ws, 'plans', { actor: 'cli:test' });
     assert.equal(reindexed.kind, 'committed', JSON.stringify(reindexed));
@@ -507,8 +520,14 @@ describe('a deploy\'s record migrations', () => {
     const [, migrated] = await recordHistory(storage, repo, ws, 'plans');
     assert.equal(migrated!.commit.mutation, '$migrate:by_title');
     assert.deepEqual(appliedMigrations((await ref()).versions), ['add_owner', 'by_title']);
-    assert.deepEqual(await retry(), { kind: 'committed', commitHash: migrated!.hash, stateHash: migrated!.commit.state },
+    // The state is the record's now, which the index build after the
+    // migration left it at
+    const now = (await ref()).hash;
+    assert.equal(now, head!.commit.state);
+    assert.deepEqual(await retry(), { kind: 'committed', commitHash: migrated!.hash, stateHash: now },
       'the migration, whose state holds the keyed write at the new type, answers the key');
+    assert.deepEqual(await retryEarlier(), { kind: 'committed', commitHash: migrated!.hash, stateHash: now },
+      'and the key of the write before it');
   });
 
   it('keeps a migrated record\'s history through gc, each state read under the type it was written with', async () => {
@@ -531,6 +550,9 @@ describe('a deploy\'s record migrations', () => {
     const target = (added as { commitHash: string }).commitHash;
     const keyed = await recordMutate(storage, runner, repo, ws, 'plans', 'add', [encodeStr('q')], { actor: 'cli:test', idempotencyKey: 'k1' });
     assert.equal(keyed.kind, 'committed', JSON.stringify(keyed));
+    // A second keyed write, so the record remembers the first beside its last
+    const last = await recordMutate(storage, runner, repo, ws, 'plans', 'add', [encodeStr('r')], { actor: 'cli:test', idempotencyKey: 'k2' });
+    assert.equal(last.kind, 'committed', JSON.stringify(last));
 
     const rolled = await recordSystemCommit(storage, runner, repo, ws, 'plans',
       { name: '$rollback', target: { commit: target }, actor: 'ops:test', args: [encodeStr(target)] });
@@ -543,13 +565,17 @@ describe('a deploy\'s record migrations', () => {
     assert.equal(head!.commit.args.type, 'some', 'the commit carries its arguments');
     const held = await ref();
     assert.deepEqual(appliedMigrations(held.versions), ['add_owner']);
-    assert.equal(held.versions.get('$idem'), 'k1');
+    assert.equal(held.versions.get('$idem'), 'k2');
     assert.deepEqual([...(await readRecordState(storage, repo, held.hash)).indexes.keys()], ['by_owner']);
 
-    const retry = await recordMutate(storage,
-      { execute: () => { throw new Error('the retry ran the mutation again'); } } as unknown as TaskRunner,
+    const noRunner = { execute: () => { throw new Error('the retry ran the mutation again'); } } as unknown as TaskRunner;
+    const retry = await recordMutate(storage, noRunner,
       repo, ws, 'plans', 'add', [encodeStr('q')], { actor: 'cli:test', idempotencyKey: 'k1' });
-    assert.deepEqual(retry, keyed, 'the keyed write the rollback undid answers the retry, which is not applied again');
+    assert.deepEqual(retry, { kind: 'committed', commitHash: (keyed as { commitHash: string }).commitHash, stateHash: held.hash },
+      'the keyed write the rollback undid answers the retry, which is not applied again, with the state the record was rolled back to');
+    assert.deepEqual(await recordMutate(storage, noRunner, repo, ws, 'plans', 'add', [encodeStr('r')], { actor: 'cli:test', idempotencyKey: 'k2' }),
+      { kind: 'committed', commitHash: (last as { commitHash: string }).commitHash, stateHash: held.hash },
+      'and so does the last keyed write, which it undid too');
   });
 
   it("refuses a rollback past a migration, even one that keeps the record's type, and past a reset or a compaction", async () => {
