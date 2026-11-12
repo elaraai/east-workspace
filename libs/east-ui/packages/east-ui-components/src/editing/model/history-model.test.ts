@@ -23,6 +23,12 @@ import { everyOrdering, seeded } from "./explore.test-utils.js";
 
 const DEEPER = Number(process.env["EDITING_MODEL_DEPTH"] ?? 0);
 const RUNS = Number(process.env["EDITING_MODEL_RUNS"] ?? 1);
+/**
+ * How long one exploration may take: a backstop against a walk that never ends, never a budget. An exploration is
+ * bounded by what it walks — a depth, so many runs, a limit of states — and takes what that takes on the machine it
+ * runs on: a proof run's take minutes each, and on a CI runner some times what they take on a desk.
+ */
+const WITHIN = DEEPER > 0 || RUNS > 1 ? 10_800_000 : 600_000;
 
 /** A person's gestures in each record and across both, Undo, Redo, Discard, Save and each record's answer and reads. */
 const OWN = /^(edit|both|undo|redo|discard|save|deliver\(|read|redraw)/;
@@ -40,19 +46,19 @@ for (const shape of ["fields", "whole"] as const) {
             const count = await explore(5 + DEEPER, OWN);
             console.info(`[editing model] ${shape} desk own: ${count} orderings`);
             expect(count).toBeGreaterThan(DEEPER < 0 ? 0 : 2_000);
-        }, 600_000);
+        }, WITHIN);
 
         it("a Save answered, its answer lost, or lost itself, in each record: every ordering with gestures and Undo", async () => {
             const count = await explore(5 + DEEPER, ANSWERS);
             console.info(`[editing model] ${shape} desk answers: ${count} orderings`);
             expect(count).toBeGreaterThan(DEEPER < 0 ? 0 : 2_000);
-        }, 600_000);
+        }, WITHIN);
 
         it("an automatic Save: every ordering with gestures in each record, an optimiser's result, Undo, Redo and a person's Save", async () => {
             const count = await explore(5 + DEEPER, AUTOMATIC);
             console.info(`[editing model] ${shape} desk automatic: ${count} orderings`);
             expect(count).toBeGreaterThan(DEEPER < 0 ? 0 : 2_000);
-        }, 600_000);
+        }, WITHIN);
 
         it("random runs past that depth, each from its seed", async () => {
             for (let seed = 1; seed <= 500 * RUNS; seed++) {
@@ -70,7 +76,7 @@ for (const shape of ["fields", "whole"] as const) {
                     throw new Error(`seed ${seed}: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
                 }
             }
-        }, 600_000);
+        }, WITHIN);
     });
 }
 

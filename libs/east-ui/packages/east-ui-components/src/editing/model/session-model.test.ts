@@ -16,9 +16,11 @@
  * one order only.
  *
  * `EDITING_MODEL_DEPTH` deepens every exploration by that many operations, and
- * `EDITING_MODEL_RUNS` multiplies the random runs: a proof run, by hand
- * (`EDITING_MODEL_DEPTH=1 EDITING_MODEL_RUNS=20`, some minutes). The unit
- * suite runs the depths below, with no clock and no retry.
+ * `EDITING_MODEL_RUNS` multiplies the random runs: a proof run
+ * (`EDITING_MODEL_DEPTH=1 EDITING_MODEL_RUNS=20`, some twenty minutes — the
+ * `orderings` part of `make proof-editing` in libs/east-ui, which CI runs for
+ * a pull request labelled `proof:editing`). The unit suite runs the depths
+ * below, with no clock and no retry.
  *
  * Each exploration also says what it only counts (`--silent=false
  * --reporter=verbose` shows it): in how many orderings a session's steps went
@@ -33,6 +35,12 @@ import { ModelWorld, independent, worldAfter, type ModelOp, type WorldOptions } 
 
 const DEEPER = Number(process.env["EDITING_MODEL_DEPTH"] ?? 0);
 const RUNS = Number(process.env["EDITING_MODEL_RUNS"] ?? 1);
+/**
+ * How long one exploration may take: a backstop against a walk that never ends, never a budget. An exploration is
+ * bounded by what it walks — a depth, so many runs, a limit of states — and takes what that takes on the machine it
+ * runs on: a proof run's take minutes each, and on a CI runner some times what they take on a desk.
+ */
+const WITHIN = DEEPER > 0 || RUNS > 1 ? 10_800_000 : 600_000;
 
 /** What an exploration covered. */
 interface Explored {
@@ -147,68 +155,68 @@ for (const shape of ["fields", "whole"] as const) {
             expect(found.worlds).toBeGreaterThan(DEEPER < 0 ? 0 : 1_500);
             // Alone, nothing moves under a person: no step of theirs goes.
             expect(found.stepsLost).toBe(0);
-        }, 600_000);
+        }, WITHIN);
 
         it("another session's writes: every ordering of them with a person's gestures, Saves, reads and choices", async () => {
             const found = await explore({ shape, remotes: 2 }, 5 + DEEPER, (op) => BESIDE.test(op));
             console.info(said(`${shape} beside`, found));
             expect(found.worlds).toBeGreaterThan(DEEPER < 0 ? 0 : 2_500);
-        }, 600_000);
+        }, WITHIN);
 
         it("rows added and removed on both sides: every ordering", async () => {
             const found = await explore({ shape, remotes: 2 }, 5 + DEEPER, (op) => ROWS.test(op));
             console.info(said(`${shape} rows`, found));
             expect(found.worlds).toBeGreaterThan(DEEPER < 0 ? 0 : 4_000);
-        }, 600_000);
+        }, WITHIN);
 
         it("a row removed here that another session changes: every ordering of the removal, its Save and the choice it asks", async () => {
             const found = await explore({ shape, remotes: 2 }, 5 + DEEPER, (op) => REMOVED_HERE.test(op));
             console.info(said(`${shape} removed here`, found));
             expect(found.worlds).toBeGreaterThan(DEEPER < 0 ? 0 : 1_500);
-        }, 600_000);
+        }, WITHIN);
 
         it("a key removed and added again, and a row added then changed or removed, on either side: every ordering", async () => {
             const found = await explore({ shape, remotes: 2 }, 5 + DEEPER, (op) => ADDED.test(op));
             console.info(said(`${shape} added`, found));
             expect(found.worlds).toBeGreaterThan(DEEPER < 0 ? 0 : 2_500);
-        }, 600_000);
+        }, WITHIN);
 
         it("several rows and several conflicts: reads landing a row at a time, and choices made one at a time", async () => {
             const found = await explore({ shape, remotes: 3 }, 5 + DEEPER, (op) => SEVERAL.test(op));
             console.info(said(`${shape} several`, found));
             expect(found.worlds).toBeGreaterThan(DEEPER < 0 ? 0 : 2_500);
-        }, 600_000);
+        }, WITHIN);
 
         it("an automatic Save: every ordering of it with gestures, an optimiser's result, Undo, Redo and a person's Save", async () => {
             const found = await explore({ shape, remotes: 0 }, 5 + DEEPER, (op) => AUTOMATIC.test(op));
             console.info(said(`${shape} automatic`, found));
             expect(found.worlds).toBeGreaterThan(DEEPER < 0 ? 0 : 2_500);
             expect(found.stepsLost).toBe(0);
-        }, 600_000);
+        }, WITHIN);
 
         it("a page reloaded with its drafts kept: every ordering of it with gestures, Saves, their answers and another session's write", async () => {
             const found = await explore({ shape, remotes: 1 }, 5 + DEEPER, (op) => RELOADED.test(op));
             console.info(said(`${shape} reloaded`, found));
             expect(found.worlds).toBeGreaterThan(DEEPER < 0 ? 0 : 2_500);
-        }, 600_000);
+        }, WITHIN);
 
         it("a Save prepared before it is sent: every ordering of its preparation, done or failing, with gestures, an automatic Save and another session's write", async () => {
             const found = await explore({ shape, remotes: 1, prepares: true }, 5 + DEEPER, (op) => PREPARED.test(op));
             console.info(said(`${shape} prepared`, found));
             expect(found.worlds).toBeGreaterThan(DEEPER < 0 ? 0 : 2_000);
-        }, 600_000);
+        }, WITHIN);
 
         it("a source read whole: every ordering of a person's gestures, Saves and choices with another session's writes", async () => {
             const found = await explore({ shape, remotes: 2, inline: true }, 5 + DEEPER, (op) => INLINE.test(op));
             console.info(said(`${shape} inline`, found));
             expect(found.worlds).toBeGreaterThan(DEEPER < 0 ? 0 : 2_000);
-        }, 600_000);
+        }, WITHIN);
 
         it("two people over a source read whole: every ordering of their gestures and Saves, a row one adds and the other removes among them", async () => {
             const found = await explore({ shape, clients: 2, remotes: 0, inline: true }, 6 + DEEPER, (op) => INLINE_TWO.test(op));
             console.info(said(`${shape} inline two`, found));
             expect(found.worlds).toBeGreaterThan(DEEPER < 0 ? 0 : 2_000);
-        }, 600_000);
+        }, WITHIN);
 
         it("a source read whole whose host cannot say what it read: every ordering of a person's gestures, Saves and choices with another session's writes, and two people's", async () => {
             // A collection of the page's own, which no runtime reads for it: its session reads a Save back by what the
@@ -219,7 +227,7 @@ for (const shape of ["fields", "whole"] as const) {
             const two = await explore({ shape, clients: 2, remotes: 0, inline: true, says: false }, 6 + DEEPER, (op) => INLINE_TWO.test(op));
             console.info(said(`${shape} inline two, its host silent`, two));
             expect(two.worlds).toBeGreaterThan(DEEPER < 0 ? 0 : 2_000);
-        }, 600_000);
+        }, WITHIN);
 
         it("a Save's answer that comes late: every ordering of the record taking the Save, another session's writes, the page hearing of them, and the answer", async () => {
             // Eight operations reach it: an edit, its Save, the record taking it, another session's write, the page
@@ -229,19 +237,19 @@ for (const shape of ["fields", "whole"] as const) {
             expect(found.worlds).toBeGreaterThan(DEEPER < 0 ? 0 : 5_000);
             // The answer names the revision the Save committed, which the page may have passed: it is never put back there.
             expect(found.lateAnswer).toBe(0);
-        }, 600_000);
+        }, WITHIN);
 
         it("a field's change taken back by hand while its conflict waits: every ordering of it with the choices, Undo and the Saves around it", async () => {
             const found = await explore({ shape, remotes: 1, flips: true }, 8 + DEEPER, (op) => BACK_FIELD.test(op));
             console.info(said(`${shape} taken back, a field`, found));
             expect(found.worlds).toBeGreaterThan(DEEPER < 0 ? 0 : 1);
-        }, 600_000);
+        }, WITHIN);
 
         it("a row's change taken back by hand while its conflict waits: every ordering of a new row removed again, a removed row put back and a changed row typed back", async () => {
             const found = await explore({ shape, remotes: 1, flips: true }, 7 + DEEPER, (op) => BACK_ROWS.test(op));
             console.info(said(`${shape} taken back, a row`, found));
             expect(found.worlds).toBeGreaterThan(DEEPER < 0 ? 0 : 1);
-        }, 600_000);
+        }, WITHIN);
 
         it("another session's writes of another row, while changes wait here: every ordering of them with a person's gestures — and no step of theirs goes", async () => {
             const found = await explore({ shape, remotes: 2 }, 7 + DEEPER, (op) => ELSEWHERE.test(op));
@@ -251,13 +259,13 @@ for (const shape of ["fields", "whole"] as const) {
             // stands. (With nothing waiting — every change saved, or taken back — a source that moves starts the history
             // over still: counted in the families above, and still to close.)
             expect(found.stepsLost).toBe(0);
-        }, 600_000);
+        }, WITHIN);
 
         it("two people: every ordering of their gestures, Saves, reads and choices on one row", async () => {
             const found = await explore({ shape, clients: 2, remotes: 0 }, 6 + DEEPER, (op) => TWO.test(op));
             console.info(said(`${shape} two`, found));
             expect(found.worlds).toBeGreaterThan(DEEPER < 0 ? 0 : 5_000);
-        }, 600_000);
+        }, WITHIN);
 
         it("a record that has forgotten a request sent again: every ordering of a Save with no answer, another session's writes and Retry, the page reloaded among them", async () => {
             // What a record is to a request sixteen others have followed: sent again, the request is checked afresh, and
@@ -271,7 +279,7 @@ for (const shape of ["fields", "whole"] as const) {
             const reloaded = await explore({ shape, remotes: 1, remembers: 0 }, 5 + DEEPER, (op) => RELOADED.test(op));
             console.info(said(`${shape} reloaded, forgotten`, reloaded));
             expect(reloaded.worlds).toBeGreaterThan(DEEPER < 0 ? 0 : 2_500);
-        }, 600_000);
+        }, WITHIN);
 
         it("random runs past that depth, each from its seed", async () => {
             let lost = 0, waited = 0;
@@ -286,7 +294,7 @@ for (const shape of ["fields", "whole"] as const) {
                 if (world.waitedForGood > 0) waited++;
             }
             console.info(`[editing model] ${shape} random: ${1_000 * RUNS} runs; steps lost in ${lost}; a Save read whole waited for good in ${waited}`);
-        }, 600_000);
+        }, WITHIN);
     });
 }
 

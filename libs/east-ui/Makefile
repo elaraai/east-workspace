@@ -25,7 +25,7 @@ EAST_UI_EXAMPLE_ITEM_KEYS := $(shell for f in $$(find packages/east-ui/test \( -
 E3_UI_EXAMPLE_KEYS := $(shell find packages/e3-ui/test \( -name '*.examples.ts' -o -name '*.examples.tsx' \) 2>/dev/null \
                              | sed -e 's|^packages/e3-ui/test/||' -e 's|\.examples\.tsx$$||' -e 's|\.examples\.ts$$||')
 
-.PHONY: build build-js build-js-ir build-js-renderers build-checked check-apps test test-group test-export lint showcase build-showcase build-showcase-js design probe-slice probe-collections clean examples test-responsive \
+.PHONY: build build-js build-js-ir build-js-east-ui build-js-renderers build-checked check-apps test test-group test-export lint showcase build-showcase build-showcase-js design probe-slice probe-collections clean examples test-responsive \
         east-ui-examples-html-all $(EAST_UI_EXAMPLE_KEYS:%=east-ui-examples-html-%) \
         $(EAST_UI_EXAMPLE_ITEM_KEYS:%=east-ui-examples-html-%) \
         e3-ui-examples-html-all $(E3_UI_EXAMPLE_KEYS:%=e3-ui-examples-html-%) select-responsive help
@@ -48,9 +48,13 @@ build-js:
 	$(MAKE) --no-print-directory -j2 build-js-ir build-js-renderers
 
 ## east-ui, then e3-ui against its declarations, compiled and type-checked.
-build-js-ir:
-	pnpm --filter @elaraai/east-ui exec tsc
+build-js-ir: build-js-east-ui
 	pnpm --filter @elaraai/e3-ui exec tsc
+
+## east-ui alone, compiled and type-checked: of this lib's builds, all that
+## the editing core's proof reads (`proof-editing`).
+build-js-east-ui:
+	pnpm --filter @elaraai/east-ui exec tsc
 
 ## The two renderers bundled, side by side.
 build-js-renderers:
@@ -122,6 +126,36 @@ else
 	pnpm -r $(TEST_GROUP_rest) run test
 	pnpm --filter @elaraai/e3-ui-cli exec node --enable-source-maps --test-reporter=spec --test $(CLI_SPECS)
 endif
+
+## The editing core's proof (#1599): east-ui-components' harness
+## (`src/editing/model/`) past the budgets `test` runs it at — every ordering
+## an operation deeper with twenty times the random runs, and every state
+## under each family's larger budgets. Some hours of a core's time in all, so
+## no part of `test`: CI runs it, a part a job, for a pull request labelled
+## `proof:editing`, nightly on main and by hand
+## (.github/workflows/proof-editing.yml), and holds a pull request that
+## changes what the harness loads to it. PART names one part; with none they
+## run one after another. It reads east's build and east-ui's
+## (`build-js-east-ui`), as the package's tests do.
+PROOF_EDITING_PARTS := orderings keys states-fields states-whole
+PROOF_EDITING_orderings := src/editing/model/session-model.test.ts src/editing/model/history-model.test.ts
+PROOF_EDITING_keys := src/editing/model/keys-model.test.ts
+PROOF_EDITING_states-fields := src/editing/model/states-model.test.ts -t "drafting a field at a time"
+PROOF_EDITING_states-whole := src/editing/model/states-model.test.ts -t "drafting a row whole"
+
+ifneq ($(filter proof-editing,$(MAKECMDGOALS)),)
+ifneq ($(filter-out $(PROOF_EDITING_PARTS),$(PART)),)
+$(error proof-editing takes PART=orderings, keys, states-fields or states-whole)
+endif
+endif
+
+.PHONY: proof-editing $(PROOF_EDITING_PARTS:%=proof-editing-%)
+
+proof-editing: $(addprefix proof-editing-,$(or $(PART),$(PROOF_EDITING_PARTS)))
+
+$(PROOF_EDITING_PARTS:%=proof-editing-%): proof-editing-%:
+	EDITING_MODEL_DEPTH=1 EDITING_MODEL_RUNS=20 EDITING_MODEL_STATES=1 \
+		pnpm --filter @elaraai/east-ui-components exec vitest run $(PROOF_EDITING_$*) --maxWorkers 2 --silent=false --reporter=verbose
 
 ## Export east-ui's suites as IR to EAST_UI_TEST_IR, this checkout's
 ## tmp/east-ui-tests
@@ -254,12 +288,14 @@ help:
 	@echo "  build             - Build all packages"
 	@echo "  build-js          - The JavaScript the tests run: no type-check, no declarations (CI's test build)"
 	@echo "  build-js-ir       - Its half of east-ui and e3-ui"
+	@echo "  build-js-east-ui  - east-ui alone: what the editing core's proof reads of this lib's builds"
 	@echo "  build-js-renderers - Its half of the two renderers"
 	@echo "  build-checked     - Every package a test or lint reads, type-checked with its declarations (CI's check)"
 	@echo "  check-apps        - Over build-checked: the showcase type-checked (CI's apps check)"
 	@echo "  build-showcase-js - The showcase's bundle alone, over build-js (CI's browser shards)"
 	@echo "  test              - Run tests"
 	@echo "  test-group GROUP=components|ir|node|showcase|e3-components|rest - Run a CI group over what is built (e3-components takes SHARD=n/count and REPORT=file)"
+	@echo "  proof-editing [PART=orderings|keys|states-fields|states-whole] - The editing core's proof: its harness past the unit budgets, some hours (CI: the proof:editing label)"
 	@echo "  test-export       - Export east-ui's suites as IR to this checkout's tmp/east-ui-tests"
 	@echo "  lint              - Run linters"
 	@echo "  showcase          - Run showcase dev server"

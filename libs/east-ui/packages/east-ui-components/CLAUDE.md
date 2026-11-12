@@ -948,11 +948,22 @@ component, nothing in east-ui.
     placed before and after one another), ranges settled together, and revisions that name content — its record's
     are a count, where an e3 record's is its state's hash, so a record put back exactly is at the revision it was at
     before: held by `session.test.ts` and on e3 itself (e3-ui-components' `record/remote-edits.dom.test.tsx`).
-  - **Using it.** A change to `session.ts`, `history.ts` or `merge.ts` runs it deeper before it lands
-    (`EDITING_MODEL_DEPTH=1 EDITING_MODEL_RUNS=20`, some ten minutes, and `EDITING_MODEL_STATES=1`, each family's
-    larger budgets, some tens of minutes; `--silent=false --reporter=verbose` shows what each exploration covered). A fault it finds is added to its replays, by name, each proved to fail over the code
-    as it stood. A check added to it is proved to bite: the code broken by hand where the check should catch it, the
-    harness run, the break put back.
+  - **Using it.** A change to what the harness loads — `session.ts`, `history.ts`, `merge.ts`, `keys.ts`, `landed.ts`,
+    `draft.ts`, the harness itself: `model/proof.json`'s `reads`, which `test/editing/proof-reads.spec.ts` holds to
+    the harness's own imports — is proved before it lands. The proof is `make proof-editing` from `libs/east-ui`: the
+    harness past the budgets the unit suite runs it at, some hours of a core's time, in four parts (`PART=` runs one).
+    `orderings` is every ordering an operation deeper with twenty times the random runs, of one session and of one
+    history over two records (`EDITING_MODEL_DEPTH=1 EDITING_MODEL_RUNS=20`, some twenty minutes); `keys` the same of
+    new rows' keys, with their every-state walks; `states-fields` and `states-whole` every state under each family's
+    larger budgets, a draft shape each (`EDITING_MODEL_STATES=1`). It runs with `--silent=false --reporter=verbose`,
+    which shows what each exploration covered. CI runs it, a part a job, for a pull request labelled `proof:editing`,
+    nightly on main and by hand (`.github/workflows/proof-editing.yml`), never at every push: a proof that passed is
+    recorded against the content it read — the git ids of the paths `proof.json` names, what the harness loads and
+    what it is run on — so the same content is proved once, and the workflow's `editing proof` check, seconds on every
+    pull request, fails one that changes any of `reads` until the proof has passed on what it holds, saying to label
+    it. A fault the harness finds is added to its replays, by name, each proved to fail over the code as it stood. A
+    check added to it is proved to bite: the code broken by hand where the check should catch it, the harness run,
+    the break put back.
 - **An automatic Save** (`src/editing/autosave.ts`, `use-autosave.ts`, `autosave-choice.ts`). Where a builder keeps a
   session or a history (`useEditSession`, `useEditHistory`), the history bar's Save is a split button: its chevron opens
   the choice — one switch, Autosave (ruled 11 Nov 2026: the theme's switch and its one word, never a pair of choices to

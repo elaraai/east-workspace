@@ -1,0 +1,24 @@
+{
+  "reads": [
+    "libs/east-ui/packages/east-ui-components/src/editing/model",
+    "libs/east-ui/packages/east-ui-components/src/editing/draft.ts",
+    "libs/east-ui/packages/east-ui-components/src/editing/history.ts",
+    "libs/east-ui/packages/east-ui-components/src/editing/keys.ts",
+    "libs/east-ui/packages/east-ui-components/src/editing/landed.ts",
+    "libs/east-ui/packages/east-ui-components/src/editing/merge.ts",
+    "libs/east-ui/packages/east-ui-components/src/editing/messages.ts",
+    "libs/east-ui/packages/east-ui-components/src/editing/session.ts",
+    "libs/east-ui/packages/east-ui-components/src/platform/kept.ts"
+  ],
+  "runsOn": [
+    "libs/east/src",
+    "libs/east-ui/packages/east-ui/src",
+    "libs/east-ui/packages/east-ui-components/package.json",
+    "libs/east-ui/packages/east-ui-components/tsconfig.json",
+    "libs/east-ui/packages/east-ui-components/vitest.config.ts",
+    "libs/east-ui/packages/east-ui-components/vitest.setup.ts",
+    "libs/east-ui/Makefile",
+    "pnpm-lock.yaml",
+    ".github/workflows/proof-editing.yml"
+  ]
+}

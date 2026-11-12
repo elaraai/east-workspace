@@ -18,11 +18,13 @@
  * depth with no budget: more operations at once, fewer of them in a row. The
  * two are run together.
  *
- * `EDITING_MODEL_STATES=1` is a proof run, by hand: each family past the unit
- * suite's budgets one way at a time — a world with one more gesture, one with
- * one more request, one with one more of another session's writes — on one
- * core for each draft shape, the shapes run side by side (`-t "drafting a
- * field at a time"`, `-t "drafting a row whole"`). `EDITING_MODEL_STATES=2`
+ * `EDITING_MODEL_STATES=1` is a proof run: each family past the unit suite's
+ * budgets one way at a time — a world with one more gesture, one with one
+ * more request, one with one more of another session's writes — on one core
+ * for each draft shape, the shapes run side by side (`-t "drafting a field at
+ * a time"`, `-t "drafting a row whole"`: the `states-fields` and
+ * `states-whole` parts of `make proof-editing` in libs/east-ui, which CI runs
+ * for a pull request labelled `proof:editing`). `EDITING_MODEL_STATES=2`
  * raises every one of them at once: the largest world, which grows with every
  * field the session gains — a state's print holds each — and no longer ends in
  * a sitting for most families (12 Nov 2026). The unit suite runs the smallest.
@@ -38,6 +40,12 @@ const LEVEL = Number(process.env["EDITING_MODEL_STATES"] ?? 0);
 const PROOF = LEVEL > 0;
 /** The most states a walk meets before it gives up saying it met them all. */
 const LIMIT = 2_000_000;
+/**
+ * How long one exploration may take: a backstop against a walk that never ends, never a budget. An exploration is
+ * bounded by what it walks — a depth, so many runs, a limit of states — and takes what that takes on the machine it
+ * runs on: a proof run's take minutes each, and on a CI runner some times what they take on a desk.
+ */
+const WITHIN = PROOF ? 10_800_000 : 600_000;
 
 /** A world's budgets: how many gestures and choices, requests, and writes of another session's it runs. */
 type Budget = Readonly<Record<string, number>>;
@@ -132,58 +140,58 @@ for (const shape of ["fields", "whole"] as const) {
             // Three gestures and two requests at once walked 968,052 states in 42 minutes on 12 Nov 2026, and on the core
             // as it stood that evening no longer ended in 75: a proof run walks the two worlds either side of it.
             await walked(`${shape} own`, { acts: 2, sends: 1 }, { acts: 3, sends: 2 }, (budget) => states({ shape, remotes: 0, ...budget }, OWN));
-        }, 3_600_000);
+        }, WITHIN);
 
         it("another session's write to the same field: gestures, Saves, and the choice it asks", async () => {
             await walked(`${shape} beside`, { acts: 1, sends: 1 }, { acts: 2, sends: 2 }, (budget) => states({ shape, remotes: 1, ...budget }, BESIDE));
-        }, 3_600_000);
+        }, WITHIN);
 
         it("one person's rows: a row removed and added again, a row added and removed, with every way a request can go", async () => {
             await walked(`${shape} rows own`, { acts: 2, sends: 1 }, { acts: 3, sends: 2 }, (budget) => states({ shape, remotes: 0, ...budget }, ROWS_OWN));
-        }, 3_600_000);
+        }, WITHIN);
 
         it("rows added and removed on both sides: a row changed here and removed there, removed here and changed there, added by both, and the choice each asks", async () => {
             await walked(`${shape} rows beside`, { remotes: 1, acts: 1, sends: 1 }, { remotes: 2, acts: 2, sends: 2 }, (budget) => states({ shape, ...budget }, ROWS_BESIDE));
-        }, 3_600_000);
+        }, WITHIN);
 
         it("an automatic Save: gestures, an optimiser's result, Undo, Redo and a person's Save", async () => {
             await walked(`${shape} automatic`, { acts: 2, sends: 2 }, { acts: 3, sends: 2 }, (budget) => states({ shape, remotes: 0, ...budget }, AUTOMATIC));
-        }, 3_600_000);
+        }, WITHIN);
 
         it("a source read whole, with another session's write", async () => {
             await walked(`${shape} inline`, { acts: 2, sends: 1 }, { acts: 2, sends: 2 }, (budget) => states({ shape, remotes: 1, inline: true, ...budget }, PROOF ? INLINE : INLINE_ANSWERED));
-        }, 3_600_000);
+        }, WITHIN);
 
         it("a Save's answer that comes late: the record taking the Save, another session's writes, the page hearing of them, and the answer — before, after, or as the page moves on", async () => {
             await walked(`${shape} late`, { remotes: 1, acts: 1, sends: 1 }, { remotes: 2, acts: 2, sends: 2 }, (budget) => states({ shape, ...budget }, LATE));
-        }, 3_600_000);
+        }, WITHIN);
 
         it("a change taken back by hand while its conflict waits: a field typed back to what both sides began from, with the choices, Undo, Redo and the Saves around it", async () => {
             await walked(`${shape} taken back`, { acts: 2, sends: 1 }, { acts: 3, sends: 2 }, (budget) => states({ shape, remotes: 1, flips: true, ...budget }, BACK));
-        }, 3_600_000);
+        }, WITHIN);
 
         it("a row's change taken back by hand while its conflict waits: a new row removed again, a removed row put back, a changed row typed back", async () => {
             await walked(`${shape} rows taken back`, { acts: 2, sends: 1 }, { acts: 3, sends: 2 }, (budget) => states({ shape, remotes: 1, flips: true, ...budget }, BACK_ROWS));
-        }, 3_600_000);
+        }, WITHIN);
 
         it("a page reloaded with its drafts kept, with another session's write", async () => {
             await walked(`${shape} reloaded`, { acts: 2, sends: 1 }, { acts: 2, sends: 2 }, (budget) => states({ shape, remotes: 1, ...budget }, RELOADED));
-        }, 3_600_000);
+        }, WITHIN);
 
         it("a record that has forgotten a request sent again: another session's write to the same field, with every way a request can go", async () => {
             // What a record is to a request sixteen others have followed: sent again it is checked afresh, and the
             // session judges what it finds by evidence. Every other family's record remembers its requests, as e3 does.
             await walked(`${shape} beside, forgotten`, { acts: 1, sends: 1 }, { acts: 2, sends: 2 }, (budget) => states({ shape, remotes: 1, remembers: 0, ...budget }, BESIDE));
-        }, 3_600_000);
+        }, WITHIN);
 
         it("a record that has forgotten a request sent again: a page reloaded with its drafts kept, with another session's write", async () => {
             await walked(`${shape} reloaded, forgotten`, { acts: 2, sends: 1 }, { acts: 2, sends: 2 }, (budget) => states({ shape, remotes: 1, remembers: 0, ...budget }, RELOADED));
-        }, 3_600_000);
+        }, WITHIN);
 
         it("one history over two records: gestures in each and across both, an optimiser's result and an automatic Save among them", async () => {
             await walked(`${shape} desk`, { acts: 2, sends: 1 }, { acts: 2, sends: 2 },
                 (budget) => everyState((ops) => deskAfter(shape, ops, budget), (desk) => desk.print(), (op) => PROOF || DESK.test(op), () => undefined, LIMIT));
-        }, 3_600_000);
+        }, WITHIN);
     });
 }
 

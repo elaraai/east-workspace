@@ -31,6 +31,12 @@ const RUNS = Number(process.env["EDITING_MODEL_RUNS"] ?? 1);
 const PROOF = Number(process.env["EDITING_MODEL_STATES"] ?? 0) > 0;
 /** The most states a walk meets before it gives up saying it met them all. */
 const LIMIT = 2_000_000;
+/**
+ * How long one exploration may take: a backstop against a walk that never ends, never a budget. An exploration is
+ * bounded by what it walks — a depth, so many runs, a limit of states — and takes what that takes on the machine it
+ * runs on: a proof run's take minutes each, and on a CI runner some times what they take on a desk.
+ */
+const WITHIN = PROOF || DEEPER > 0 || RUNS > 1 ? 10_800_000 : 600_000;
 
 /** What an exploration covered. */
 interface Explored {
@@ -212,7 +218,7 @@ for (const shape of ["fields", "whole"] as const) {
                 console.info(said(`keys ${shape} ${rule} beside`, found));
                 expect(found.worlds).toBeGreaterThan(DEEPER < 0 ? 0 : 300);
                 expect(found.remade).toBeGreaterThan(0);
-            }, 600_000);
+            }, WITHIN);
 
             it("another session's rows out of view, under the keys made here: every ordering", async () => {
                 const found = await explore({ shape, rule, remotes: 3 }, 5 + DEEPER, UNSEEN);
@@ -220,7 +226,7 @@ for (const shape of ["fields", "whole"] as const) {
                 expect(found.worlds).toBeGreaterThan(DEEPER < 0 ? 0 : 300);
                 expect(found.remade).toBeGreaterThan(0);
                 expect(found.asked).toBe(0);
-            }, 600_000);
+            }, WITHIN);
 
             it("every way a request can go, beside another session's rows", async () => {
                 const found = await explore({ shape, rule, remotes: 1 }, 5 + DEEPER, ANSWERS);
@@ -228,7 +234,7 @@ for (const shape of ["fields", "whole"] as const) {
                 expect(found.worlds).toBeGreaterThan(DEEPER < 0 ? 0 : 300);
                 // Nothing here removes a row or takes a step back: no one is asked to choose.
                 expect(found.asked).toBe(0);
-            }, 600_000);
+            }, WITHIN);
 
             it("two people who each make rows by the one rule: every ordering", async () => {
                 const found = await explore({ shape, rule, clients: 2, remotes: 0 }, 5 + DEEPER, TWO);
@@ -237,13 +243,13 @@ for (const shape of ["fields", "whole"] as const) {
                 expect(found.remade).toBeGreaterThan(0);
                 // Two people's new rows under one key are two rows: no one is asked to choose.
                 expect(found.asked).toBe(0);
-            }, 600_000);
+            }, WITHIN);
 
             it("the page reloaded with its drafts and its keys kept: every ordering", async () => {
                 const found = await explore({ shape, rule, remotes: 1 }, 5 + DEEPER, RELOADED);
                 console.info(said(`keys ${shape} ${rule} reloaded`, found));
                 expect(found.worlds).toBeGreaterThan(DEEPER < 0 ? 0 : 300);
-            }, 600_000);
+            }, WITHIN);
 
             it("a record that has forgotten a request sent again: every way a request can go, and the page reloaded at every point", async () => {
                 const answers = await explore({ shape, rule, remotes: 1, remembers: 0 }, 5 + DEEPER, ANSWERS);
@@ -253,25 +259,25 @@ for (const shape of ["fields", "whole"] as const) {
                 const reloaded = await explore({ shape, rule, remotes: 1, remembers: 0 }, 5 + DEEPER, RELOADED);
                 console.info(said(`keys ${shape} ${rule} reloaded, forgotten`, reloaded));
                 expect(reloaded.worlds).toBeGreaterThan(DEEPER < 0 ? 0 : 300);
-            }, 600_000);
+            }, WITHIN);
 
             it("a source read whole: every ordering", async () => {
                 const found = await explore({ shape, rule, remotes: 2, inline: true }, 5 + DEEPER, INLINE);
                 console.info(said(`keys ${shape} ${rule} read whole`, found));
                 expect(found.worlds).toBeGreaterThan(DEEPER < 0 ? 0 : 300);
-            }, 600_000);
+            }, WITHIN);
 
             it("every state a budgeted world can reach: a person's rows beside another session's", async () => {
                 const walked = await states({ shape, rule, remotes: 1, ...(PROOF ? { acts: 3, sends: 2 } : { acts: 2, sends: 1 }) }, BESIDE);
                 console.info(walkedSaid(`keys ${shape} ${rule} beside`, walked));
                 expect(walked.closed).toBe(true);
-            }, 3_600_000);
+            }, WITHIN);
 
             it("every state a budgeted world can reach: the page reloaded at every point", async () => {
                 const walked = await states({ shape, rule, remotes: 1, ...(PROOF ? { acts: 3, sends: 2 } : { acts: 2, sends: 1 }) }, RELOADED);
                 console.info(walkedSaid(`keys ${shape} ${rule} reloaded`, walked));
                 expect(walked.closed).toBe(true);
-            }, 3_600_000);
+            }, WITHIN);
 
             it("random runs past the depth: two people and another session, every operation", async () => {
                 for (let seed = 1; seed <= 40 * RUNS; seed++) {
@@ -279,7 +285,7 @@ for (const shape of ["fields", "whole"] as const) {
                     await wander({ shape, rule, clients: 2, remotes: 4, ...(seed % 4 === 3 && { remembers: 0 }) }, seed, 40);
                     await wander({ shape, rule, clients: 2, remotes: 3, inline: true }, seed, 40);
                 }
-            }, 600_000);
+            }, WITHIN);
         });
     }
 }
