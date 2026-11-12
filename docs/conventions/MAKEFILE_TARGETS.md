@@ -22,7 +22,7 @@ use `make`.**
 
 ## 2. Root-level targets
 
-Run from the workspace root (`/home/crambelsoupy/src/east-workspace/`):
+Run from the workspace root:
 
 | Target | What it does |
 |---|---|
@@ -62,7 +62,7 @@ Lib-specific extras (run `make help` in each):
 
 | Lib | Notable extras |
 |---|---|
-| `libs/east` | `make test-export` (the describeEast suites as IR, into `EAST_TEST_IR_DIR`), `make export-examples` (every example as IR, into `EAST_EXAMPLES_IR_DIR`), `make query-corpus` (rewrite the checked-in query fixtures `test/fixtures/query-corpus.beast2` and `query-fixture.beast2` from their sources; their specs fail while either is stale), `make query-types` (rewrite `test/fixtures/query-types.json`, jq 1.8.1's runs of the query type matrix — jq on the PATH — and `devdocs/QUERY.md` §16.5's tables), `make query-types-tables` (the tables alone, from the checked-in runs), `make paged-weights` (rewrite `test/fixtures/paged-weights.beast2`, the decoded weights every runtime's pager cache is held to; its spec fails while it is stale) |
+| `libs/east` | `make test-floor` (the tests again on an engine with nothing newer than ES2023, as the oldest browsers East runs in are: `BROWSER_FLOOR.md`), `make test-export` (the describeEast suites as IR, into `EAST_TEST_IR_DIR`), `make export-examples` (every example as IR, into `EAST_EXAMPLES_IR_DIR`), `make query-corpus` (rewrite the checked-in query fixtures `test/fixtures/query-corpus.beast2` and `query-fixture.beast2` from their sources; their specs fail while either is stale), `make query-types` (rewrite `test/fixtures/query-types.json`, jq 1.8.1's runs of the query type matrix — jq on the PATH — and `devdocs/QUERY.md` §16.5's tables), `make query-types-tables` (the tables alone, from the checked-in runs), `make paged-weights` (rewrite `test/fixtures/paged-weights.beast2`, the decoded weights every runtime's pager cache is held to; its spec fails while it is stale) |
 | `libs/e3` | `make test-packages` and `make test-integration` (the two halves of `make test`), `make test-packages-core` and `make test-packages-rest` (e3-core's unit tests, or `SHARD=n`'s of CI's two shards split by recorded time, and every other package's), `make test-integration-shard SHARD=n` (one of the four integration shards CI runs side by side, split by recorded time, or of `SHARDS=n`; `make integration-shard-specs SHARD=n` prints its specs), `make e2e-stack` (the local stack the environment e2e installs), `make install-job` (the Windows job launcher) |
 | `libs/east-c` | `make unit` (ctest gates), `make test-east-c`, `make test-east-c-std`, `make leak-check-all` (ASan/LSan), `make bench-cli` (the interpreter, emit-sink and paged-read benchmarks the CLI is profiled on) |
 | `libs/east-web` | `make test-compliance` (east-node-std's exported compliance suite over east-web-std, from `EAST_NODE_STD_IR`; `make test` exports it first) |

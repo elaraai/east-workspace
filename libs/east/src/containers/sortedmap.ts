@@ -4,6 +4,7 @@
  */
 import sorted_btree from "sorted-btree";
 import { defaultKeyCompare } from "../string_order.js";
+import { builtinIterator } from "./iterators.js";
 
 // Deal with CJS default import. Node's ESM interop hands back the whole
 // `module.exports`, so the class is under `.default`; Vite/vitest (and other
@@ -211,7 +212,7 @@ export class SortedMap<K, T> implements Map<K, T> {
      * This enables efficient range queries over sorted data.
      */
     keys(firstKey?: K | undefined): MapIterator<K> {
-        return Iterator.from(this.btree.keys(firstKey)) as MapIterator<K>;
+        return builtinIterator(this.btree.keys(firstKey)) as MapIterator<K>;
     }
 
     /**
@@ -224,7 +225,7 @@ export class SortedMap<K, T> implements Map<K, T> {
      * Values are returned in the order of their sorted keys, not sorted by value.
      */
     values(firstKey?: K | undefined): MapIterator<T> {
-        return Iterator.from(this.btree.values(firstKey)) as MapIterator<T>;
+        return builtinIterator(this.btree.values(firstKey)) as MapIterator<T>;
     }
 
     /**
@@ -242,7 +243,7 @@ export class SortedMap<K, T> implements Map<K, T> {
                 yield [key, value];
             }
         })(this.btree);
-        return Iterator.from(gen) as MapIterator<[K, T]>;
+        return builtinIterator(gen) as MapIterator<[K, T]>;
     }
 
     /**
@@ -254,7 +255,7 @@ export class SortedMap<K, T> implements Map<K, T> {
      * Makes {@link SortedMap} iterable with `for...of` loops.
      */
     [Symbol.iterator](): MapIterator<[K, T]> {
-        return Iterator.from(this.btree.entries()) as MapIterator<[K, T]>;
+        return builtinIterator(this.btree.entries()) as MapIterator<[K, T]>;
     }
 
     /** Returns the string tag for this object type. */

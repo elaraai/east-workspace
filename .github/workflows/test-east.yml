@@ -74,3 +74,14 @@ jobs:
         env:
           EAST_CONFORMANCE_REQUIRED: ${{ runner.os == 'Linux' && '1' || '0' }}
         run: pnpm --filter @elaraai/east run test
+
+      # East runs in browsers on iPhones back to iOS 16.4, whose engine has
+      # ES2023's built-ins and few newer ones; Node has most of them. The suite
+      # again, on an engine with the newer ones taken away
+      # (docs/conventions/BROWSER_FLOOR.md). The engine is the same on every
+      # OS; run it once on Linux.
+      - name: Run tests on an engine with nothing newer than ES2023 (Linux only)
+        if: runner.os == 'Linux'
+        env:
+          EAST_CONFORMANCE_REQUIRED: '1'
+        run: pnpm --filter @elaraai/east run test:floor

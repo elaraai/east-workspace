@@ -198,6 +198,11 @@ naming convention, they use `SCREAMING_SNAKE_CASE.md` to signal
   — `find_spec` + lazy import guard pattern.
 - [`docs/conventions/MAKEFILE_TARGETS.md`](docs/conventions/MAKEFILE_TARGETS.md)
   — canonical `make` targets.
+- [`docs/conventions/BROWSER_FLOOR.md`](docs/conventions/BROWSER_FLOOR.md)
+  — code a browser runs names no built-in newer than ES2023, for iPhones
+  back to iOS 16.4: what is newer, the lint rule and East's suite on an
+  engine without them that hold it, and how to read one where the engine
+  has it.
 - [`docs/conventions/BEAST2_WIRE_VERSION.md`](docs/conventions/BEAST2_WIRE_VERSION.md)
   — where the beast2 container version is declared, what it guarantees
   (readers accept every released version; writers are lockstep), and why the
