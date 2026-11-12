@@ -12,8 +12,8 @@
  * role maps as it was (B1); a bin gone removed; a new one's row the kind's
  * `create`, a booking's with its arrival's `values` or the fields' defaults, a
  * reservation's with the bin kind's `values` of it (#1526) or the defaults
- * (B13), under a key minted unique among every
- * key the board holds (B15, `shared/schedule/records.ts`). The inspector's
+ * (B13), under a key its record's session makes (B15, #1583: made up at
+ * random, through `ScheduleEditing.mint`). The inspector's
  * form edits the row's own fields through the kind's `write` of a field, and
  * the kind's own form writes the row whole. Publish runs Save, then writes the
  * status of the period holding the day — the day's, or its week's (#1550) —
@@ -25,7 +25,7 @@
 import { SortedMap, none, some, variant, type option } from "@elaraai/east";
 import type { Origin } from "@elaraai/east-ui-components";
 import type { ScheduleChange } from "../shared/schedule/editing.js";
-import { fieldChange, madeFromValues, mintKey, periodPublishChange } from "../shared/schedule/records.js";
+import { fieldChange, madeFromValues, periodPublishChange } from "../shared/schedule/records.js";
 import { PERIODS, type AllocationEditing } from "./editing.js";
 import { one } from "./nouns.js";
 import {
@@ -110,7 +110,7 @@ export interface AllocationState {
     /** The own row of the period holding the day — the day's, or its week's (#1550) — as drafted, and as stored. */
     readonly period: PlacedPeriod;
     readonly heldPeriod: PlacedPeriod;
-    /** The bins the day's window read, by key: each stored bin's bytes, and what a new key is minted unique among. */
+    /** The bins the day's window read, by key: each stored bin's bytes. */
     readonly read: ReadonlyMap<string, StoredBin>;
     /** The editing; `undefined` for a read-only board. */
     readonly editing: AllocationEditing | undefined;
@@ -204,9 +204,6 @@ export function allocationCommands(state: AllocationState, select: (next: Select
         && editableStatus(state.heldPeriod.status) && editableStatus(state.period.status) && schedule.available(bins);
     // Retained, the board keeps its controls and takes no gesture (#1398, CL8).
     const takes = available && state.retained !== true;
-    // Every bin key the board holds: read, drafted, the day's as drafted and as stored, the record's own when it is read whole, or this gesture's.
-    const taken = (minted: ReadonlySet<string>) => (key: string) => minted.has(key) || state.read.has(key) || plan.bins.has(key) || held.bins.has(key)
-        || schedule?.draftsOf(bins).has(key) === true || schedule?.held(bins, key) !== undefined;
     const record = (changes: readonly ScheduleChange[], origin: Origin, label: string) => schedule !== undefined && changes.length > 0 && schedule.record(changes, origin, label);
     /**
      * The rows a day as it leaves a gesture changes, from the day as drafted: each bin gone removed; each new or changed one's
@@ -235,14 +232,16 @@ export function allocationCommands(state: AllocationState, select: (next: Select
     };
     /**
      * A new bin of the day: its row the kind's `create` of its roles and the values given, its roles as the kind reads
-     * them back; its key minted. `undefined` where the app's `values` fail to make it.
+     * them back; its key its session's to make (#1583), past those this gesture has made. `undefined` where the app's
+     * `values` fail to make it, or the history holds no session to make its key yet.
      */
     const created = (roles: Roles, values: option<Uint8Array>, minted: Set<string>): { id: string; bin: Bin } | undefined => {
         const bytes = madeFromValues("Allocation", `a new ${one(value.labels.bin)}`, () => value.bin.create(roles, values));
         if (bytes === undefined) return undefined;
         const bin = domain.binOf(value.bin.read(bytes), domain.decodeRow(bytes), day);
         if (bin.type !== "some") return undefined;
-        const id = mintKey(taken(minted));
+        const id = schedule?.mint(bins, "", minted);
+        if (id === undefined) return undefined;
         minted.add(id);
         return { id, bin: bin.value };
     };

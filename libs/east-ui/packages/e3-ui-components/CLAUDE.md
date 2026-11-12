@@ -1352,8 +1352,10 @@ session's event in the inspector. The Calendar gives every kind the rule and
 moves its selection (`calendar/remote-rows.dom.test.tsx`), and so does the
 Plan (`plan/canvas.tsx`, `plan/frame/plan-remote-rows.dom.test.tsx`): nothing
 it drafts names an event by its key, and its banners name an event through
-the boards' one `scheduleIssueName`. Still to move to their sessions: the
-keys the Roster, the Allocation, the Plan's own rows, the Schematic and the
+the boards' one `scheduleIssueName`. The Roster's duties and targets and the
+Allocation's bins ask their sessions too (`roster/actions.ts`,
+`allocation/actions.ts`): a key made up at random, as it was. Still to move
+to their sessions: the keys the Plan's own rows, the Schematic and the
 Flowchart make up through `shared/schedule/records.ts`' `mintKey`; and still a
 conflict where two sessions make the same key: the Schematic's and the
 Flowchart's Integer-keyed rows, whose rows name one another by key — a
@@ -1373,8 +1375,8 @@ type, East deciding which types are the same. Each command works out the
 period as it leaves it, then records the rows it changed: a changed row
 through the kind's `write`, every field no role maps as it was; a new one
 through `create` — a booked bin's with its arrival's `values` — under a key
-minted unique among every key the builder holds (`mintKey`,
-`crypto.randomUUID()`). Publish saves first, and only once every record reads
+its record's session makes (`ScheduleEditing.mint`: made up at random, a
+UUID). Publish saves first, and only once every record reads
 back as saved writes the period's status and saves the periods
 (`publishPeriod`): a failed save leaves the period a draft, its drafts kept.
 The status is written over the period's row as the Save left it — the row

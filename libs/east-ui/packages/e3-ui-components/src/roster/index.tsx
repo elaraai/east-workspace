@@ -355,9 +355,9 @@ function RosterFrame(props: FrameProps) {
     const ready = current && !publishing && !visibility.loading && visibility.error === undefined;
     const unlocked = useMemo(() => rosterCommands({
         value, start, context, week, held, duties: draftedDuties, heldDuties: storedDuties, previous, targets, periods, publishes: viewed, weeks: weekStates,
-        read: [data.duties, ...(data.previous === undefined ? [] : [data.previous])], readTargets: data.targets, editing, ready, retained,
-    }, setSelection, findFix, publish), [value, start, context, week, held, draftedDuties, storedDuties, previous, targets, periods, viewed, weekStates, data.duties, data.previous,
-        data.targets, editing, ready, retained, findFix, publish]);
+        editing, ready, retained,
+    }, setSelection, findFix, publish), [value, start, context, week, held, draftedDuties, storedDuties, previous, targets, periods, viewed, weekStates, editing, ready, retained,
+        findFix, publish]);
     // The app's optimiser (#1409, #1421): one run over the week in view, its result landed on the week's duties as one
     // edit, and what it left on them until Apply — the landing and the highlight over the whole frame.
     const landing = useLanding(root);
