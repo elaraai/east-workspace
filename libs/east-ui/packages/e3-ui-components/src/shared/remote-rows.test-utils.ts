@@ -32,16 +32,33 @@
  *   There the session still holds the row as one its record holds, and a
  *   builder that takes a drafted row its rows do not hold for one a narrowing
  *   hides drew nothing of it until the session's read landed.
+ * - {@link removedThereAtSave}: the same row, removed by another session
+ *   before the page has heard of it, and Save pressed over it. e3 takes no
+ *   change of a row it holds no more: the Save is refused, and the row stands
+ *   as drafted through the refusal, as the page hears why and reads its rows
+ *   again — one conflict to choose, then as {@link removedThere} ends.
  * - {@link removedHere}: a row removed here that another session changes
  *   stays off the builder until a person chooses, Save waiting on the choice:
  *   kept, the next Save removes it; let go, the row is back as the other
  *   session left it and nothing is left to save.
+ *
+ * - {@link removedHereAtSave}: the same row, changed by another session before
+ *   the page has heard of it, and Save pressed over the removal. e3 removes no
+ *   row that is no longer as the session read it: the Save is refused, the
+ *   row stays off the builder through the refusal and as the page hears why —
+ *   one conflict to choose, then as {@link removedHere} ends.
  *
  * - {@link addedOnBothSides}: a row added here under a key the builder made,
  *   which another session saves a row of its own under, is a second new row,
  *   never the same one changed both ways — either choice between them would
  *   lose one. It goes on under another key the builder makes: both drawn,
  *   nothing to choose, and Save keeps both.
+ *
+ * - {@link addedOnBothSidesAtSave}: the same row, its key taken by another
+ *   session's own new row before the page has heard of it, and Save pressed.
+ *   e3 saves no row over the other session's: the Save is refused, the row
+ *   added here goes on under another key the builder makes and is saved under
+ *   it, sent again by itself — both kept, nothing to choose.
  *
  * - {@link putBackAfterSave}: a change saved here — a row changed, added or
  *   removed — that another session puts back exactly as it was before the
@@ -257,6 +274,20 @@ export async function removedThere(check: ChangedHere, choice: "draft" | "source
     read();
     stop();
     expect(looks, "once the builder's reads of the record have landed, the row stands as drafted still").toEqual(stood);
+    await chosenOverRemoval(check, choice, drafted);
+}
+
+/**
+ * The choice over a row changed here that another session removed, its conflict waiting: Save waits on it, its card
+ * names the row and reads the other side removed; let go, the row leaves and nothing is left to save; kept, Save puts
+ * the row back as drafted.
+ *
+ * @param check - The builder's container, the row and what it draws of the change
+ * @param choice - Which side is taken
+ * @param drafted - The look the draft has, printed
+ * @returns Once the choice is made, and — the draft kept — saved
+ */
+async function chosenOverRemoval(check: ChangedHere, choice: "draft" | "source", drafted: string): Promise<void> {
     // Save waits on the choice.
     expect(off(historyButton(check.container, editingMessages.apply())), "Save waits on the conflict").toBe(true);
     const [card, ...more] = await conflictCards(check.container);
@@ -280,6 +311,46 @@ export async function removedThere(check: ChangedHere, choice: "draft" | "source
     await settle();
     expect(await check.held(), "the record holds the row again").toBe(true);
     expect([check.drawn(), JSON.stringify(check.look())], "saved, the row stands as drafted").toEqual([true, drafted]);
+}
+
+/** What a builder gives the check of a Save pressed over a row another session removed, the page not having heard. */
+export interface SavedOverRemoval extends ChangedHere {
+    /**
+     * Save pressed, and — its request held on its way to e3 — the other session's removal of the row committed first:
+     * the harness's `race`, given the record without the row. What is mounted hears of the removal only from the Save's
+     * answer.
+     */
+    readonly savedOver: (save: () => void) => Promise<void>;
+}
+
+/**
+ * A row changed here that another session removes before the page has heard of it, and Save pressed over it (see the
+ * module docs): e3 refuses the Save, and the row stands as drafted — through the refusal, and as the page then hears of
+ * the removal and reads its rows again — with one conflict to choose and Save waiting on it; then the choice.
+ *
+ * @param check - The builder's e3, its container, the row, the change and the Save the other session's removal overtakes
+ * @param choice - Which side is taken: the draft kept, and saved; or the other session's removal
+ * @returns Once the choice is made, and — the draft kept — saved
+ * @throws An assertion's error where e3 takes the Save, the row leaves before a person chooses, no conflict is asked, or the choice ends otherwise than it says
+ */
+export async function removedThereAtSave(check: SavedOverRemoval, choice: "draft" | "source"): Promise<void> {
+    expect(check.drawn(), "the builder draws the row to begin with").toBe(true);
+    await made(check.change);
+    const drafted = JSON.stringify(check.look());
+    expect(unsaved(check.container), "the change waits to be saved").toBe(true);
+    const { looks, read, stop } = watched(check.container, () => [check.drawn(), JSON.stringify(check.look())] as const);
+    const stood = [[true, drafted]];
+    try {
+        await check.savedOver(() => { fireEvent.click(historyButton(check.container, editingMessages.apply())); });
+        expect(await check.held(), "e3 took nothing of the Save: the record holds the row no more").toBe(false);
+        await waitFor(() => expect(check.container.querySelector("[data-conflicts]"), "the removal of a row changed here is a conflict to choose").not.toBeNull(), { timeout: 5_000 });
+        await settle();
+        read();
+    } finally {
+        stop();
+    }
+    expect(looks, "from the press of Save on — refused, the page hearing why and reading its rows again — the row stands as drafted").toEqual(stood);
+    await chosenOverRemoval(check, choice, drafted);
 }
 
 /** What a builder gives the check of a row removed here that another session changes. */
@@ -322,6 +393,19 @@ export async function removedHere(check: RemovedHereChangedThere, choice: "draft
     read();
     stop();
     expect(looks, "once the builder's reads of the record have landed, the removal stands still").toEqual([false]);
+    await chosenOverChange(check, choice);
+}
+
+/**
+ * The choice over a row removed here that another session changed, its conflict waiting: Save waits on it, its card
+ * names the row and reads this side removed; let go, the row is back as the other session left it and nothing is left
+ * to save; kept, Save removes the row.
+ *
+ * @param check - The builder's container and the row
+ * @param choice - Which side is taken
+ * @returns Once the choice is made, and — the removal kept — saved
+ */
+async function chosenOverChange(check: RemovedHere, choice: "draft" | "source"): Promise<void> {
     expect(off(historyButton(check.container, editingMessages.apply())), "Save waits on the conflict").toBe(true);
     const [card, ...more] = await conflictCards(check.container);
     expect(more, "one conflict, the row's").toEqual([]);
@@ -342,6 +426,44 @@ export async function removedHere(check: RemovedHereChangedThere, choice: "draft
     await settle();
     expect(await check.held(), "the record holds the row no more").toBe(false);
     expect(check.drawn(), "saved, the row is off the builder").toBe(false);
+}
+
+/** What a builder gives the check of a Save pressed over the removal of a row another session changed, the page not having heard. */
+export interface SavedOverChange extends RemovedHere {
+    /**
+     * Save pressed, and — its request held on its way to e3 — the other session's change of the row committed first:
+     * the harness's `race`, given the record with the row changed. What is mounted hears of the change only from the
+     * Save's answer.
+     */
+    readonly savedOver: (save: () => void) => Promise<void>;
+}
+
+/**
+ * A row removed here that another session changes before the page has heard of it, and Save pressed over the removal
+ * (see the module docs): e3 refuses the Save, the row stays off the builder — through the refusal, and as the page then
+ * hears of the change and reads its rows again — with one conflict to choose and Save waiting on it; then the choice.
+ *
+ * @param check - The builder's e3, its container, the row, the removal and the Save the other session's change overtakes
+ * @param choice - Which side is taken: the removal kept, and saved; or the other session's row
+ * @returns Once the choice is made, and — the removal kept — saved
+ * @throws An assertion's error where e3 takes the Save, the row is drawn before a person chooses, no conflict is asked, or the choice ends otherwise than it says
+ */
+export async function removedHereAtSave(check: SavedOverChange, choice: "draft" | "source"): Promise<void> {
+    expect(check.drawn(), "the builder draws the row to begin with").toBe(true);
+    await made(check.remove);
+    expect(check.drawn(), "removed here, the row is off the builder").toBe(false);
+    const { looks, read, stop } = watched(check.container, check.drawn);
+    try {
+        await check.savedOver(() => { fireEvent.click(historyButton(check.container, editingMessages.apply())); });
+        expect(await check.held(), "e3 took nothing of the Save: the record holds the row still, as the other session left it").toBe(true);
+        await waitFor(() => expect(check.container.querySelector("[data-conflicts]"), "the change of a row removed here is a conflict to choose").not.toBeNull(), { timeout: 5_000 });
+        await settle();
+        read();
+    } finally {
+        stop();
+    }
+    expect(looks, "from the press of Save on — refused, the page hearing why and reading its rows again — the removal stands").toEqual([false]);
+    await chosenOverChange(check, choice);
 }
 
 /** What a builder gives the check of a row added here under a key it makes, which another session saves a row under. */
@@ -408,6 +530,51 @@ export async function addedOnBothSides(check: AddedHere): Promise<void> {
     const keys = await check.heldKeys();
     expect([keys.includes(mine!), keys.includes(moved)], "the record holds both rows").toEqual([true, true]);
     expect([check.drawn(mine!), check.drawn(moved), check.added()], "saved, both are drawn, neither a draft").toEqual([true, true, []]);
+}
+
+/** What a builder gives the check of a Save pressed over a new row whose key another session took, the page not having heard. */
+export interface SavedOverAddition {
+    /** The builder's container. */
+    readonly container: HTMLElement;
+    /** A row added here under a key the builder makes ({@link AddedHere.add}). */
+    readonly add: (() => void | Promise<void>) | readonly (() => void | Promise<void>)[];
+    /** The keys of the rows the builder draws that its drafts add, in the order it draws them. */
+    readonly added: () => readonly string[];
+    /** Whether the builder draws a row under a key — one the record holds, or one its drafts add. */
+    readonly drawn: (key: string) => boolean;
+    /** The keys the record holds now. */
+    readonly heldKeys: () => Promise<readonly string[]>;
+    /**
+     * Save pressed, and — its request held on its way to e3 — another session's own new row committed first under the
+     * key given: the harness's `race`. What is mounted hears of that row only from the Save's answer.
+     */
+    readonly savedOver: (key: string, save: () => void) => Promise<void>;
+}
+
+/**
+ * A row added here under a key the builder made, which another session saves a row of its own under before the page has
+ * heard of it, and Save pressed (see the module docs): e3 refuses the Save, the row added here goes on under another key
+ * and is saved under it with no second press — both rows kept, both drawn, nothing to choose.
+ *
+ * @param check - The builder's container, the addition here, and the Save the other session's addition overtakes
+ * @returns Once the row added here is saved under its new key, beside the other session's
+ * @throws An assertion's error where a conflict is asked, the row added here is lost or saved over the other session's, or it waits on a second Save
+ */
+export async function addedOnBothSidesAtSave(check: SavedOverAddition): Promise<void> {
+    const before = await check.heldKeys();
+    await made(check.add);
+    const [mine, ...others] = check.added();
+    expect([mine === undefined, others], "one row is added here, and drawn").toEqual([false, []]);
+    expect(unsaved(check.container), "the addition waits to be saved").toBe(true);
+    await check.savedOver(mine!, () => { fireEvent.click(historyButton(check.container, editingMessages.apply())); });
+    // e3 saved no row over the other session's: the one added here goes on under another key, and its Save is sent again.
+    await waitFor(() => expect([unsaved(check.container), check.container.querySelector("[data-conflicts]")], "the row added here is saved under another key by the Save sent again, nothing to choose")
+        .toEqual([false, null]), { timeout: 10_000 });
+    await settle();
+    const added = (await check.heldKeys()).filter((key) => !before.includes(key));
+    const moved = added.filter((key) => key !== mine);
+    expect([added.includes(mine!), moved.length], "the record holds both rows: the other session's under the key it took, and the one added here under another").toEqual([true, 1]);
+    expect([check.drawn(mine!), check.drawn(moved[0]!), check.added()], "saved, both are drawn, neither a draft").toEqual([true, true, []]);
 }
 
 /** What a builder gives the check of a Save another session's write puts back. */

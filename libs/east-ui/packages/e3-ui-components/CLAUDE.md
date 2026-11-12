@@ -1410,7 +1410,18 @@ session's original as it stands, never once as the draft is first decoded
 another session was held to be a rack its record held still, and left the
 Schematic's canvas, and the Flowchart's, while its person was asked to choose
 over it. The Calendar, the Roster and the Allocation held under both from the
-start. The
+start.
+
+**And with Save pressed before the page has heard** (`removedThereAtSave`,
+`removedHereAtSave`, `addedOnBothSidesAtSave`, over the harness's `race`,
+which holds the Save's request while the other session commits): e3 takes no
+change of a row it holds no more, removes no row that is no longer as the
+session read it, and saves no new row over another's — the Save is refused,
+and each case ends as it does at rest: the row changed here standing as
+drafted, the row removed here staying off, a conflict to choose; the new row
+going on under another key and saved by the Save sent again, both kept. Every
+builder runs the two removals; the Calendar, the Plan and the Sheet, which
+make new rows' keys, the addition. The
 Sheet's check of a row added on both sides holds no read: its session learns
 that the new row's key is taken from the very page its grid reads the row's
 place in. A change taken back by hand while its conflict waits — a level

@@ -34,7 +34,7 @@ import { SortedMap, StringType, compareFor, none, printFor, type ValueTypeOf } f
 import * as ex from "@elaraai/e3-ui/examples/flowchart/flowchart";
 import type { E3Request } from "../e3-web.test-utils.js";
 import { slot } from "../e3-web-mount.test-utils.js";
-import { removedHere, removedOnBothSides, removedThere } from "../shared/remote-rows.test-utils.js";
+import { removedHere, removedHereAtSave, removedOnBothSides, removedThere, removedThereAtSave } from "../shared/remote-rows.test-utils.js";
 import { flowchartHarness, settle } from "./flowchart.test-utils.js";
 
 const h = flowchartHarness();
@@ -139,3 +139,29 @@ test("read through its source, a state removed here and by another session is no
     const c = await mounted(ex.flowchartDepot);
     await removedOnBothSides({ ...state(c), remove: remove(c) });
 });
+
+// ── Save pressed over a row another session removed or changed, the page not having heard (#1599) ──
+
+test.each([["kept, the next Save puts the state back as drafted", "draft"], ["let go, the state leaves and nothing is left to save", "source"]] as const)(
+    "a state renamed here that another session removes before the canvas has heard, and Save pressed: e3 refuses the Save, the state stands as drafted, a conflict to choose — %s", async (_ends, choice) => {
+        const c = await mounted();
+        await removedThereAtSave({ ...state(c), change: rename(c), look: () => node(c, "ASD")?.textContent ?? null, savedOver: (save: () => void) => h.race(ex.depotStates, save, (now) => { const next = new Map(now); next.delete("ASD"); return next as typeof now; }) }, choice);
+    });
+
+test.each([["kept, the next Save removes the state", "draft"], ["let go, the state is back as the other session left it", "source"]] as const)(
+    "a state removed here that another session changes before the canvas has heard, and Save pressed: e3 refuses the Save, the state stays off the canvas, a conflict to choose — %s", async (_ends, choice) => {
+        const c = await mounted();
+        await removedHereAtSave({ ...state(c), remove: remove(c), savedOver: (save: () => void) => h.race(ex.depotStates, save, (now) => { const next = new Map(now); next.set("ASD", { ...next.get("ASD")!, name: "Aside there" }); return next as typeof now; }) }, choice);
+    });
+
+test.each([["kept, the next Save puts the state back as drafted", "draft"], ["let go, the state leaves and nothing is left to save", "source"]] as const)(
+    "read through its source, a state renamed here that another session removes before the canvas has heard, and Save pressed: e3 refuses the Save, the state stands as drafted, a conflict to choose — %s", async (_ends, choice) => {
+        const c = await mounted(ex.flowchartDepot);
+        await removedThereAtSave({ ...state(c), change: rename(c), look: () => node(c, "ASD")?.querySelector("[data-card-name]")?.textContent ?? null, savedOver: (save: () => void) => h.race(ex.depotStates, save, (now) => { const next = new Map(now); next.delete("ASD"); return next as typeof now; }) }, choice);
+    });
+
+test.each([["kept, the next Save removes the state", "draft"], ["let go, the state is back as the other session left it", "source"]] as const)(
+    "read through its source, a state removed here that another session changes before the canvas has heard, and Save pressed: e3 refuses the Save, the state stays off the canvas, a conflict to choose — %s", async (_ends, choice) => {
+        const c = await mounted(ex.flowchartDepot);
+        await removedHereAtSave({ ...state(c), remove: remove(c), savedOver: (save: () => void) => h.race(ex.depotStates, save, (now) => { const next = new Map(now); next.set("ASD", { ...next.get("ASD")!, name: "Aside there" }); return next as typeof now; }) }, choice);
+    });

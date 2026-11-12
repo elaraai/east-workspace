@@ -39,7 +39,7 @@ import userEvent from "@testing-library/user-event";
 import { StringType, equalFor } from "@elaraai/east";
 import * as ex from "@elaraai/e3-ui/examples/calendar/calendar";
 import type { E3Request } from "../e3-web.test-utils.js";
-import { addedOnBothSides, heardBeforeAnswer, putBackAfterSave, removedHere, removedOnBothSides, removedThere } from "../shared/remote-rows.test-utils.js";
+import { addedOnBothSides, addedOnBothSidesAtSave, heardBeforeAnswer, putBackAfterSave, removedHere, removedHereAtSave, removedOnBothSides, removedThere, removedThereAtSave } from "../shared/remote-rows.test-utils.js";
 import { act, calendarHarness, event, settle, slot } from "./harness.test-utils.js";
 import { parseEventKey } from "./model.js";
 
@@ -212,4 +212,35 @@ test("a Save whose answer comes after the board has heard of another session's l
     });
     const held = await read();
     expect([held.has("job1"), held.has("job2")]).toEqual([false, false]);
+});
+
+// ── Save pressed over a row another session removed or changed, the page not having heard (#1599) ──
+
+test.each([["kept, the next Save puts the job back as drafted", "draft"], ["let go, the job leaves and nothing is left to save", "source"]] as const)(
+    "a job changed here that another session removes before the board has heard, and Save pressed: e3 refuses the Save, the job stands as drafted, a conflict to choose — %s", async (_ends, choice) => {
+        const { container: c } = await h.mount(ex.calendarOperations, { storageKey: `calendar-remote-saved-over-removal-${choice}` });
+        await removedThereAtSave({ ...job(c), change: change(c), look: () => customer(c), savedOver: (save: () => void) => h.race(ex.calendarJobs, save, (now) => { const next = new Map(now); next.delete("job1"); return next as typeof now; }) }, choice);
+    });
+
+test.each([["kept, the next Save removes the job", "draft"], ["let go, the job is back as the other session left it", "source"]] as const)(
+    "a job removed here that another session changes before the board has heard, and Save pressed: e3 refuses the Save, the job stays off the board, a conflict to choose — %s", async (_ends, choice) => {
+        const { container: c } = await h.mount(ex.calendarOperations, { storageKey: `calendar-remote-saved-over-change-${choice}` });
+        await removedHereAtSave({ ...job(c), remove: remove(c), savedOver: (save: () => void) => h.race(ex.calendarJobs, save, (now) => { const next = new Map(now); next.set("job1", { ...next.get("job1")!, customer: "Changed elsewhere" }); return next as typeof now; }) }, choice);
+    });
+
+test("a job made here from a template, its key taken by another session's job before the board has heard, and Save pressed: e3 refuses the Save, the job goes on under another key and is saved under it — both kept, nothing to choose", async () => {
+    const { container: c } = await h.mount(ex.calendarOperations, { storageKey: "calendar-remote-saved-over-addition" });
+    await addedOnBothSidesAtSave({
+        container: c,
+        // The library's first template, created: its dialog's own Create makes the job.
+        add: [
+            () => { fireEvent.click(within(slot(c, "start")).getByRole("button", { name: "Create" })); },
+            () => { fireEvent.click(within(within(document.body).getByRole("dialog")).getByRole("button", { name: "Create" })); },
+        ],
+        added: () => drafted(c),
+        drawn: (key) => event(c, "job", key) !== null,
+        heldKeys: async () => [...(await read()).keys()],
+        // Their own job under that key: another run on the first lathe that morning.
+        savedOver: (key, save) => h.race(ex.calendarJobs, save, (now) => { const next = new Map(now); next.set(key, { ...next.get("job2")!, title: "Their new job" }); return next as typeof now; }),
+    });
 });

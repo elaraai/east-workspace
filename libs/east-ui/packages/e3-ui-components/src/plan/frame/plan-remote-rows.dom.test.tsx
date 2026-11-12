@@ -42,7 +42,7 @@ import { parseFor } from "@elaraai/east";
 import { ScheduleEventRefType } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
 import type { E3Request } from "../../e3-web.test-utils.js";
-import { addedOnBothSides, heardBeforeAnswer, putBackAfterSave, removedHere, removedOnBothSides, removedThere } from "../../shared/remote-rows.test-utils.js";
+import { addedOnBothSides, addedOnBothSidesAtSave, heardBeforeAnswer, putBackAfterSave, removedHere, removedHereAtSave, removedOnBothSides, removedThere, removedThereAtSave } from "../../shared/remote-rows.test-utils.js";
 import { act, el, entry, madeFrom, planHarness, rowAt, settle, slot } from "./harness.test-utils.js";
 
 const h = planHarness();
@@ -213,4 +213,31 @@ test.each([["kept, the next Save removes it", "draft"], ["let go, the job is bac
 test("a job removed here and by another planner is nothing to choose and nothing to save, and the canvas never draws it again — nor while its window, standing from before the other planner's write, is read again", async () => {
     const c = await mounted("plan-remote-removed-both");
     await removedOnBothSides({ ...job(c), remove: remove(c) });
+});
+
+// ── Save pressed over a row another session removed or changed, the page not having heard (#1599) ──
+
+test.each([["kept, the next Save puts the job back as drafted", "draft"], ["let go, the job leaves and nothing is left to save", "source"]] as const)(
+    "a job changed here that another planner removes before the canvas has heard, and Save pressed: e3 refuses the Save, the job stands as drafted, a conflict to choose — %s", async (_ends, choice) => {
+        const c = await mounted(`plan-remote-saved-over-removal-${choice}`);
+        await removedThereAtSave({ ...job(c), change: change(c), look: () => customer(c), savedOver: (save: () => void) => h.race(ex.planPrintJobs, save, (now) => { const next = new Map(now); next.delete("J-1001"); return next as typeof now; }) }, choice);
+    });
+
+test.each([["kept, the next Save removes the job", "draft"], ["let go, the job is back as the other session left it", "source"]] as const)(
+    "a job removed here that another planner changes before the canvas has heard, and Save pressed: e3 refuses the Save, the job stays off the canvas, a conflict to choose — %s", async (_ends, choice) => {
+        const c = await mounted(`plan-remote-saved-over-change-${choice}`);
+        await removedHereAtSave({ ...job(c), remove: remove(c), savedOver: (save: () => void) => h.race(ex.planPrintJobs, save, (now) => { const next = new Map(now); next.set("J-1001", { ...next.get("J-1001")!, customer: "Customer there" }); return next as typeof now; }) }, choice);
+    });
+
+test("a job duplicated here, its key taken by another planner's job before the canvas has heard, and Save pressed: e3 refuses the Save, the copy goes on under another key and is saved under it — both kept, nothing to choose", async () => {
+    const c = await mounted("plan-remote-saved-over-addition");
+    await addedOnBothSidesAtSave({
+        container: c,
+        add: duplicate(c),
+        added: () => copies(c),
+        drawn: (key) => bar(c, key) !== null,
+        heldKeys: async () => [...(await readJobs()).keys()],
+        // Another planner's own copy of the spring catalogue, under that key.
+        savedOver: (key, save) => h.race(ex.planPrintJobs, save, (now) => { const next = new Map(now); next.set(key, { ...next.get("J-1001")!, title: "Their catalogue" }); return next as typeof now; }),
+    });
 });

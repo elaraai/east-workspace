@@ -39,7 +39,7 @@ import { Data, Record, Schematic } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/schematic/schematic";
 import type { E3Request } from "../e3-web.test-utils.js";
 import { e3Harness, settle, slot } from "../e3-web-mount.test-utils.js";
-import { removedHere, removedOnBothSides, removedThere } from "../shared/remote-rows.test-utils.js";
+import { removedHere, removedHereAtSave, removedOnBothSides, removedThere, removedThereAtSave } from "../shared/remote-rows.test-utils.js";
 import { at, card, fitted, layOutCanvas } from "./schematic.test-utils.js";
 import "./index.js";
 
@@ -242,3 +242,31 @@ test("read through its source, a rack removed here and by another session is not
     await chosen(container, "Northwind Media");
     await removedOnBothSides({ ...rack(FLOOR, container), remove: remove(FLOOR, container, canvas) });
 });
+
+// ── Save pressed over a row another session removed or changed, the page not having heard (#1599) ──
+
+test.each([["kept, the next Save puts the rack back as drafted", "draft"], ["let go, the rack leaves and nothing is left to save", "source"]] as const)(
+    "a rack moved here that another session removes before the canvas has heard, and Save pressed: e3 refuses the Save, the rack stands as drafted, a conflict to choose — %s", async (_ends, choice) => {
+        const { container, canvas } = await mounted(HALL);
+        await removedThereAtSave({ ...rack(HALL, container), change: move(HALL, container, canvas), look: look(container), savedOver: (save: () => void) => h.race(ex.schematicConflictRacks, save, (now) => { const next = new Map(now); next.delete("A03"); return next as typeof now; }) }, choice);
+    });
+
+test.each([["kept, the next Save removes the rack", "draft"], ["let go, the rack is back as the other session left it", "source"]] as const)(
+    "a rack removed here that another session changes before the canvas has heard, and Save pressed: e3 refuses the Save, the rack stays off the canvas, a conflict to choose — %s", async (_ends, choice) => {
+        const { container, canvas } = await mounted(HALL);
+        await removedHereAtSave({ ...rack(HALL, container), remove: remove(HALL, container, canvas), savedOver: (save: () => void) => h.race(ex.schematicConflictRacks, save, (now) => { const next = new Map(now); next.set("A03", { ...next.get("A03")!, kw: 6.5 }); return next as typeof now; }) }, choice);
+    });
+
+test.each([["kept, the next Save puts the rack back as drafted", "draft"], ["let go, the rack leaves and nothing is left to save", "source"]] as const)(
+    "read through its source, a rack moved here that another session removes before the canvas has heard, and Save pressed: e3 refuses the Save, the rack stands as drafted, a conflict to choose — %s", async (_ends, choice) => {
+        const { container, canvas } = await mounted(FLOOR);
+        await chosen(container, "Northwind Media");
+        await removedThereAtSave({ ...rack(FLOOR, container), change: move(FLOOR, container, canvas), look: look(container), savedOver: (save: () => void) => h.race(ex.schematicRacks, save, (now) => { const next = new Map(now); next.delete("A03"); return next as typeof now; }) }, choice);
+    });
+
+test.each([["kept, the next Save removes the rack", "draft"], ["let go, the rack is back as the other session left it", "source"]] as const)(
+    "read through its source, a rack removed here that another session changes before the canvas has heard, and Save pressed: e3 refuses the Save, the rack stays off the canvas, a conflict to choose — %s", async (_ends, choice) => {
+        const { container, canvas } = await mounted(FLOOR);
+        await chosen(container, "Northwind Media");
+        await removedHereAtSave({ ...rack(FLOOR, container), remove: remove(FLOOR, container, canvas), savedOver: (save: () => void) => h.race(ex.schematicRacks, save, (now) => { const next = new Map(now); next.set("A03", { ...next.get("A03")!, model: "42U · 10 kW" }); return next as typeof now; }) }, choice);
+    });

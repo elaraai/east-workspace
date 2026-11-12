@@ -29,7 +29,7 @@ import { East, IntegerType, parseFor, printFor, type ValueTypeOf } from "@elaraa
 import { Data, Record, Sheet, SheetPayloadType } from "@elaraai/e3-ui/internal";
 import * as fx from "@elaraai/e3-ui/fixtures/sheet/sheet-keys";
 import type { E3Request } from "../e3-web.test-utils.js";
-import { addedOnBothSides, putBackAfterSave, removedHere, removedOnBothSides, removedThere } from "../shared/remote-rows.test-utils.js";
+import { addedOnBothSides, addedOnBothSidesAtSave, putBackAfterSave, removedHere, removedHereAtSave, removedOnBothSides, removedThere, removedThereAtSave } from "../shared/remote-rows.test-utils.js";
 import { act, settle, sheetHarness } from "./frame/harness.test-utils.js";
 
 const h = sheetHarness({ modules: { "sheet/sheet-keys.fixtures": fx }, frame: 2000 });
@@ -190,4 +190,41 @@ test("a job added here and saved, removed again by another session before the sh
         ],
     });
     expect(ids(c)).toEqual(["9", "10"]);
+});
+
+// ── Save pressed over a row another session removed or changed, the page not having heard (#1599) ──
+
+test.each([["kept, the next Save puts the job back as drafted", "draft"], ["let go, the job leaves and nothing is left to save", "source"]] as const)(
+    "a job changed here that another session removes before the sheet has heard, and Save pressed: e3 refuses the Save, the job stands as drafted, a conflict to choose — %s", async (_ends, choice) => {
+        const c = await mounted(`sheet-remote-saved-over-removal-${choice}`);
+        await removedThereAtSave({ ...job(c), change: () => requantify(c, "9", "7"), look: () => cells(rowOf(c, "9")), savedOver: (save: () => void) => h.race(fx.numberedJobs, save, (now) => { const next = new Map(now); next.delete(9n); return next as typeof now; }) }, choice);
+    });
+
+test.each([["kept, the next Save removes the job", "draft"], ["let go, the job is back as the other session left it", "source"]] as const)(
+    "a job removed here that another session changes before the sheet has heard, and Save pressed: e3 refuses the Save, the job stays off the grid, a conflict to choose — %s", async (_ends, choice) => {
+        const c = await mounted(`sheet-remote-saved-over-change-${choice}`);
+        await removedHereAtSave({ ...job(c), remove: () => remove(c, "9"), savedOver: (save: () => void) => h.race(fx.numberedJobs, save, (now) => { const next = new Map(now); next.set(9n, { ...next.get(9n)!, qty: 7n }); return next as typeof now; }) }, choice);
+    });
+
+test("a job added here, its key taken by another session's new job before the sheet has heard, and Save pressed: e3 refuses the Save, the job goes on under the next key and is saved under it — both kept, nothing to choose", async () => {
+    const c = await mounted("sheet-remote-saved-over-addition");
+    await addedOnBothSidesAtSave({
+        container: c,
+        // A job pasted in the blank row: the next key the sheet's session makes.
+        add: [
+            () => { fireEvent.mouseDown(c.querySelector<HTMLElement>('[data-slot="row"][data-blank] [data-key="task"]')!, { button: 0 }); },
+            () => { fireEvent.paste(card(c), { clipboardData: { getData: () => "Sanding\t6" } }); },
+        ],
+        added: () => rowEls(c).filter((row) => row.hasAttribute("data-draft")).map((row) => row.getAttribute("data-row-id")!).filter((id) => id !== "9" && id !== "10"),
+        drawn: (key) => rowOf(c, key) !== undefined,
+        heldKeys: async () => [...(await h.read(fx.numberedJobs)).keys()].map((key) => keyText(key)),
+        // Their own job under that key.
+        savedOver: (key, save) => h.race(fx.numberedJobs, save, (now) => {
+            const read = keyOf(key);
+            if (!read.success) throw new Error(`The sheet made a key that is no Integer: ${key}`);
+            const next = new Map(now);
+            next.set(read.value, { task: "Edge banding", qty: 3n });
+            return next as typeof now;
+        }),
+    });
 });

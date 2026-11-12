@@ -22,7 +22,7 @@ import { test } from "vitest";
 import { within } from "@testing-library/react";
 import * as ex from "@elaraai/e3-ui/examples/roster/roster";
 import type { E3Request } from "../e3-web.test-utils.js";
-import { removedHere, removedOnBothSides, removedThere } from "../shared/remote-rows.test-utils.js";
+import { removedHere, removedHereAtSave, removedOnBothSides, removedThere, removedThereAtSave } from "../shared/remote-rows.test-utils.js";
 import { assignment, cell, drop, press, rosterHarness, settle } from "./harness.test-utils.js";
 
 const h = rosterHarness();
@@ -84,3 +84,17 @@ test("a duty removed here and by another session is nothing to choose and nothin
     const { container: c } = await h.mount(ex.rosterWarehouse);
     await removedOnBothSides({ ...duty(c), remove: remove(c) });
 });
+
+// ── Save pressed over a row another session removed or changed, the page not having heard (#1599) ──
+
+test.each([["kept, the next Save puts the duty back as drafted", "draft"], ["let go, the duty leaves and nothing is left to save", "source"]] as const)(
+    "a duty moved here that another session removes before the board has heard, and Save pressed: e3 refuses the Save, the duty stands as drafted, a conflict to choose — %s", async (_ends, choice) => {
+        const { container: c } = await h.mount(ex.rosterWarehouse);
+        await removedThereAtSave({ ...duty(c), change: move(c), look: () => where(c), savedOver: (save: () => void) => h.race(ex.rosterDuties, save, (now) => { const next = new Map(now); next.delete("s37"); return next as typeof now; }) }, choice);
+    });
+
+test.each([["kept, the next Save removes the duty", "draft"], ["let go, the duty is back as the other session left it", "source"]] as const)(
+    "a duty removed here that another session changes before the board has heard, and Save pressed: e3 refuses the Save, the duty stays off the board, a conflict to choose — %s", async (_ends, choice) => {
+        const { container: c } = await h.mount(ex.rosterWarehouse);
+        await removedHereAtSave({ ...duty(c), remove: remove(c), savedOver: (save: () => void) => h.race(ex.rosterDuties, save, (now) => { const next = new Map(now); next.set("s37", { ...next.get("s37")!, note: "asked to swap" }); return next as typeof now; }) }, choice);
+    });

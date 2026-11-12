@@ -54,7 +54,7 @@ import { Data, Record } from "@elaraai/e3-ui/internal";
 import * as fx from "@elaraai/e3-ui/fixtures/sheet/sheet-keys";
 import type { E3Request } from "../e3-web.test-utils.js";
 import { conflictCards } from "../e3-web-mount.test-utils.js";
-import { heardBeforeAnswer, putBackAfterSave, removedHere, removedOnBothSides, removedThere } from "../shared/remote-rows.test-utils.js";
+import { heardBeforeAnswer, putBackAfterSave, removedHere, removedHereAtSave, removedOnBothSides, removedThere, removedThereAtSave } from "../shared/remote-rows.test-utils.js";
 import { act, settle, sheetHarness, slot } from "../sheet/frame/harness.test-utils.js";
 // The Record is an extension: its renderer registers as it loads.
 import "./index.js";
@@ -500,3 +500,16 @@ test("with a browser keeping what e3 marks to keep: a level typed back and saved
     expect(levelOf("9"), "the grid draws the level as the crew hold it").toBe("2");
 });
 
+// ── Save pressed over a row another session removed or changed, the page not having heard (#1599) ──
+
+test.each([["kept, the next Save puts the member back as drafted", "draft"], ["let go, the member leaves and nothing is left to save", "source"]] as const)(
+    "a member changed here whom another session removes before the grid has heard, and Save pressed: e3 refuses the Save, the member stands as drafted, a conflict to choose — %s", async (_ends, choice) => {
+        const c = await mounted(`record-remote-saved-over-removal-${choice}`);
+        await removedThereAtSave({ ...member(c), change: () => type(c, "2", "5"), look: () => look(c).find(([id]) => id === "2"), savedOver: (save: () => void) => h.race(fx.numberedCrew, save, (now) => { const next = new Map(now); next.delete(2n); return next as typeof now; }) }, choice);
+    });
+
+test.each([["kept, the next Save removes the member", "draft"], ["let go, the member is back as the other session left it", "source"]] as const)(
+    "a member removed here whom another session changes before the grid has heard, and Save pressed: e3 refuses the Save, the member stays off the grid, a conflict to choose — %s", async (_ends, choice) => {
+        const c = await mounted(`record-remote-saved-over-change-${choice}`);
+        await removedHereAtSave({ ...member(c), remove: () => remove(c, "2"), savedOver: (save: () => void) => h.race(fx.numberedCrew, save, (now) => { const next = new Map(now); next.set(2n, { ...next.get(2n)!, forklift: "3" }); return next as typeof now; }) }, choice);
+    });

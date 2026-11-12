@@ -22,7 +22,7 @@ import { test } from "vitest";
 import { within } from "@testing-library/react";
 import * as ex from "@elaraai/e3-ui/examples/allocation/allocation";
 import type { E3Request } from "../e3-web.test-utils.js";
-import { removedHere, removedOnBothSides, removedThere } from "../shared/remote-rows.test-utils.js";
+import { removedHere, removedHereAtSave, removedOnBothSides, removedThere, removedThereAtSave } from "../shared/remote-rows.test-utils.js";
 import { allocationHarness, settle } from "./harness.test-utils.js";
 import { card, details, inspectorKit, key, press } from "./inspector.test-utils.js";
 
@@ -91,3 +91,20 @@ test("a bin removed here and by another session is nothing to choose and nothing
     const c = await open();
     await removedOnBothSides({ ...bin(c, "3101", "LD-2201 · B-3 01:55"), remove: remove(c, "3101") });
 });
+
+// ── Save pressed over a row another session removed or changed, the page not having heard (#1599) ──
+
+test.each([["kept, the next Save puts the bin back as drafted", "draft"], ["let go, the bin leaves and nothing is left to save", "source"]] as const)(
+    "a bin moved to another lane here that another session removes before the board has heard, and Save pressed: e3 refuses the Save, the bin stands as drafted, a conflict to choose — %s", async (_ends, choice) => {
+        const c = await open();
+        await removedThereAtSave({ ...bin(c, "3113", "LD-2210 · B-3 10:55"), change: relane(c, "3113", "B-3"), look: look(c, "3113"), savedOver: (save: () => void) => h.race(ex.kilnBins, save, (now) => { const next = new Map(now); next.delete("3113"); return next as typeof now; }) }, choice);
+    });
+
+test.each([["kept, the next Save removes the bin", "draft"], ["let go, the bin is back as the other session left it", "source"]] as const)(
+    "a bin removed here that another session changes before the board has heard, and Save pressed: e3 refuses the Save, the bin stays off the board, a conflict to choose — %s", async (_ends, choice) => {
+        const c = await open();
+        await removedHereAtSave({
+            ...bin(c, "3101", "LD-2201 · B-3 01:55"), remove: remove(c, "3101"),
+            savedOver: (save: () => void) => h.race(ex.kilnBins, save, (now) => { const next = new Map(now); const held = next.get("3101")!; next.set("3101", { ...held, m3: held.m3 + 1 }); return next as typeof now; }),
+        }, choice);
+    });
