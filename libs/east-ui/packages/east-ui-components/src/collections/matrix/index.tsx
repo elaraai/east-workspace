@@ -27,7 +27,7 @@ import {
 import { useDensityHeights } from "../shared/helpers";
 import { DensityProvider } from "../../contracts/density";
 import { usePlotGutter } from "../../contracts/plot-gutter.js";
-import { followPointer } from "../../dnd/follow-pointer.js";
+import { followPointer } from "../../pointer/follow-pointer.js";
 
 const matrixRootEqual = equivalentFor(Matrix.Types.Root);
 

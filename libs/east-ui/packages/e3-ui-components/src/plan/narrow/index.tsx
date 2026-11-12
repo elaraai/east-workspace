@@ -76,7 +76,7 @@ import { GridSeparators } from "../rows/RowShell.js";
 import { HeatCells } from "../rows/HeatRow.js";
 import { PlanPartBoundary } from "../rows/PartBoundary.js";
 import { RowDiagnostic } from "../rows/RowDiagnostic.js";
-import { LoadingFailedLine, PlaceholderCard, PlaceholderShape, loadingLineText } from "@elaraai/east-ui-components/internal";
+import { LoadingFailedLine, PlaceholderCard, PlaceholderShape, loadingLineText, useSurfaceGestures } from "@elaraai/east-ui-components/internal";
 import { bandElements } from "../use-plan-paging.js";
 import {
     rowHeight, spansWindows,
@@ -88,7 +88,7 @@ import { usePlanWords } from "../words.js";
 import type { RowKey } from "../plan-state.js";
 import type { PlanUiView } from "../root/view.js";
 import type { PlanDraftMark } from "../use-plan-editing.js";
-import { feedTwoFingerPan, newTwoFingerPan } from "./pan.js";
+import { newTwoFingerPan, twoFingerPan } from "./pan.js";
 import { NarrowRowCard } from "./cards.js";
 import { NarrowRuler } from "./chrome.js";
 import { useListDemand, type PlanNarrowPaging } from "./demand.js";
@@ -111,6 +111,8 @@ const PENDING_CARD_PX = 72;
 const BODY_INSET_PX = 25;
 /** The Rows-tab scope for root data rows that belong to no group. */
 const OTHER_SCOPE = " other";
+/** The list's pointers are fingers: a mouse over it is none, and pans nothing. */
+const fingersOnly = (e: PointerEvent): boolean => e.pointerType === "touch";
 
 type NarrowTab = "groups" | "rows" | "measures";
 
@@ -377,21 +379,18 @@ export function PlanNarrow({
         card?.scrollIntoView({ block: scrollOwner.current === "search" ? "center" : "nearest" });
         setRevealing(undefined);
     }, [revealing]);
-    const gesture = useRef(newTwoFingerPan());
+    // The list is a surface of the shared pointer core (`useSurfaceGestures`, east-ui-components' `src/pointer/`): which
+    // fingers it holds, and when two of them pan, are that rule's — a finger whose lift is never heard is let go of as
+    // the page's next first finger lands, so none is counted into a pan that never ends, nor against the two that pan.
+    // It takes fingers alone, and captures none: a card's tap stays the card's, and one finger's scroll the page's.
+    const [panning] = useState(newTwoFingerPan);
     const periodPx = () => {
         const w = listRef.current?.clientWidth ?? 0;
         return w > 0 ? (w - 2 * BODY_INSET_PX) / scale.n : 0;
     };
-    const onPointerDown = (e: PointerEvent<HTMLDivElement>) => {
-        feedTwoFingerPan(gesture.current, "down", e.pointerId, e.clientX, periodPx());
-    };
-    const onPointerMove = (e: PointerEvent<HTMLDivElement>) => {
-        const periods = feedTwoFingerPan(gesture.current, "move", e.pointerId, e.clientX, periodPx());
-        if (periods !== 0) dispatch({ t: "pan", buckets: periods });
-    };
-    const onPointerEnd = (e: PointerEvent<HTMLDivElement>) => {
-        feedTwoFingerPan(gesture.current, "up", e.pointerId, e.clientX, 0);
-    };
+    const listGestures = useSurfaceGestures(
+        twoFingerPan(panning, periodPx, (periods) => dispatch({ t: "pan", buckets: periods })),
+        { accepts: fingersOnly, capture: false });
 
     const nowLine = scale.nowFrac !== undefined ? <NowLine styles={styles} at={scale.nowFrac} data-plan-axisline /> : null;
 
@@ -615,9 +614,7 @@ export function PlanNarrow({
                     wears the list's styles: a recipe `display` outranks the
                     `hidden` Zag puts on the others. */}
                 {tabs.map((t) => (t.key !== activeTab ? <Tabs.Content key={t.key} value={t.key} /> : (
-                    <Tabs.Content key={t.key} value={t.key} ref={listRef} css={styles.narrowList} data-slot="narrowList"
-                        onPointerDown={onPointerDown} onPointerMove={onPointerMove}
-                        onPointerUp={onPointerEnd} onPointerCancel={onPointerEnd}>
+                    <Tabs.Content key={t.key} value={t.key} ref={listRef} css={styles.narrowList} data-slot="narrowList" {...listGestures}>
                         <NarrowRuler styles={styles} />
                         {/* A window whose read failed (#811) — said once, as the canvas's run says it (#1398, CL11):
                             the reason and Retry, above whatever did land. */}

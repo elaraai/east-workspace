@@ -342,6 +342,54 @@ test("on, nothing is saved under an open editor, a run of the optimiser, a held 
     ui.stop();
 });
 
+test("on, a finger whose lift the page never hears holds no Save back for good: the page's next first finger lets go of it, and the change goes a pause after that one lifts — while a finger still down beside another's lift holds it, until the browser takes it back", async () => {
+    vi.useFakeTimers();
+    turnOn();
+    /** A finger's event, as the page hears it: its first finger — none other down — is the browser's primary pointer. */
+    const finger = (type: "pointerDown" | "pointerUp" | "pointerCancel", pointerId: number, isPrimary: boolean) =>
+        act(() => { fireEvent[type](document.body, { pointerId, pointerType: "touch", isPrimary }); });
+    // A finger put down, and its lift never heard: a phone does not always say a finger ended.
+    const lost = runs();
+    const ui = mount(lost.session);
+    finger("pointerDown", 11, true);
+    await setEnd(lost.session, "a", 1n, 4n);
+    await pass(60_000);
+    // Held, as far as the page can know.
+    expect(lost.sent).toHaveLength(0);
+    // The next touch. Its finger is the page's first — no other is down — so the lost one is let go of, and this one's
+    // lift ends the hold: the change goes a pause after it.
+    finger("pointerDown", 12, true);
+    finger("pointerUp", 12, true);
+    await pass(AUTOSAVE_PAUSE_MS - 1);
+    expect(lost.sent).toHaveLength(0);
+    await pass(1);
+    expect(lost.sent).toHaveLength(1);
+    ui.stop();
+    // Two fingers down, and one lifts: the other is down still, and holds the Save — until the browser takes it back.
+    const two = runs();
+    const again = mount(two.session);
+    finger("pointerDown", 21, true);
+    finger("pointerDown", 22, false);
+    await setEnd(two.session, "a", 1n, 4n);
+    finger("pointerUp", 22, false);
+    await pass(60_000);
+    expect(two.sent).toHaveLength(0);
+    finger("pointerCancel", 21, true);
+    await pass(AUTOSAVE_PAUSE_MS);
+    expect(two.sent).toHaveLength(1);
+    again.stop();
+    // A finger's lift never heard, then a mouse: its press lets go of the finger, and its release ends the hold.
+    const mixed = runs();
+    const hybrid = mount(mixed.session);
+    finger("pointerDown", 31, true);
+    await setEnd(mixed.session, "a", 1n, 4n);
+    act(() => { fireEvent.pointerDown(document.body, { pointerId: 1, pointerType: "mouse", isPrimary: true }); });
+    act(() => { fireEvent.pointerUp(document.body, { pointerId: 1, pointerType: "mouse", isPrimary: true }); });
+    await pass(AUTOSAVE_PAUSE_MS);
+    expect(mixed.sent).toHaveLength(1);
+    hybrid.stop();
+});
+
 test("on, a tab hidden saves at once what is due; with the bar gone, nothing is saved by itself", async () => {
     vi.useFakeTimers();
     turnOn();

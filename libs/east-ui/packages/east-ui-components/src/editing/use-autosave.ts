@@ -21,13 +21,19 @@
  *   anywhere in the page starts its pause again; a pointer held, a drag in
  *   flight (the shared drag layer's, a keyboard's included), an editor open
  *   and a run of the optimiser out hold it, each said by the bars that know;
- *   and a tab hidden, or a page left, sends at once what is due.
+ *   and a tab hidden, or a page left, sends at once what is due. A pointer is
+ *   held only while it is down, as far as the page can know: a finger whose
+ *   lift is never heard — a phone does not always say a finger ended — is let
+ *   go of as the page's next first finger lands, as a mouse presses, and as the
+ *   window is left (the fingers' own record, `../pointer/touches.ts`). Held
+ *   on, it would hold every Save back until the page was left.
  *
  * @packageDocumentation
  */
 import { useEffect, useId, useSyncExternalStore } from "react";
 import { useDragLayerOptional } from "../dnd/drag-layer.js";
 import { keptFlag, useKeptValue } from "../platform/kept.js";
+import { makeTouches } from "../pointer/touches.js";
 import { createAutosave, type Autosave, type AutosaveHold, type AutosaveTarget } from "./autosave.js";
 import type { AutosaveKept } from "./autosave-choice.js";
 
@@ -50,23 +56,35 @@ const bound = new WeakMap<object, Bound>();
  */
 function bindPage(autosave: Autosave): () => void {
     if (typeof document === "undefined") return () => undefined;
-    const pointers = new Set<number>();
-    const held = (): void => { autosave.hold("pointer", pointers.size > 0); };
+    // The pointers down on the page, as far as it can know. The fingers are the shared record of them
+    // (`../pointer/touches.ts`): one whose lift is never heard is let go of as the page's next first finger lands — the
+    // browser's primary pointer, down while no other finger is on the page. A mouse or a pen is one pointer.
+    const fingers = makeTouches();
+    const others = new Set<number>();
+    const held = (): void => { autosave.hold("pointer", fingers.size + others.size > 0); };
     const onDown = (event: PointerEvent): void => {
-        // A mouse is one pointer: a press its release was not heard of — let go outside the window — is not held on.
-        if (event.pointerType === "mouse") pointers.clear();
-        pointers.add(event.pointerId);
+        if (event.pointerType === "touch") {
+            fingers.down(event.pointerId, { x: event.clientX, y: event.clientY }, event.isPrimary);
+        } else {
+            // A mouse or a pen presses alone, as on a surface (`../pointer/gestures.ts`): a press its release was not heard
+            // of — let go outside the window — is not held on, nor is a finger whose lift was never heard.
+            fingers.clear();
+            others.clear();
+            others.add(event.pointerId);
+        }
         held();
     };
     const onUp = (event: PointerEvent): void => {
-        pointers.delete(event.pointerId);
+        fingers.end(event.pointerId);
+        others.delete(event.pointerId);
         autosave.touch();
         held();
     };
     // A pointer the page stopped hearing of — its window left, its tab hidden: none is held.
     const onLost = (): void => {
-        if (pointers.size === 0) return;
-        pointers.clear();
+        if (fingers.size + others.size === 0) return;
+        fingers.clear();
+        others.clear();
         held();
     };
     const onKey = (): void => { autosave.touch(); };

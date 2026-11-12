@@ -192,8 +192,8 @@ async function renameState(c: HTMLElement, key: string, label: string): Promise<
 
 /** A pointer pressed on an element at a point of the canvas, moved to another, and let go there. */
 async function drag(el: Element, from: { x: number; y: number }, to: { x: number; y: number }): Promise<void> {
-    await act(async () => { fireEvent.pointerDown(el, { pointerId: 1, pointerType: "mouse", button: 0, clientX: from.x, clientY: from.y }); });
-    await act(async () => { fireEvent.pointerMove(window, { pointerId: 1, pointerType: "mouse", clientX: to.x, clientY: to.y }); });
+    await act(async () => { fireEvent.pointerDown(el, { pointerId: 1, pointerType: "mouse", isPrimary: true, button: 0, buttons: 1, clientX: from.x, clientY: from.y }); });
+    await act(async () => { fireEvent.pointerMove(window, { pointerId: 1, pointerType: "mouse", isPrimary: true, buttons: 1, clientX: to.x, clientY: to.y }); });
     await act(async () => { fireEvent.pointerUp(window, { pointerId: 1, pointerType: "mouse", clientX: to.x, clientY: to.y }); });
     await settle();
 }
@@ -203,8 +203,8 @@ async function drag(el: Element, from: { x: number; y: number }, to: { x: number
  * its pointer cancelled, as a touch's scroll or the browser's own drag cancels it — and let go there after.
  */
 async function cancelledDrag(el: Element, from: { x: number; y: number }, to: { x: number; y: number }): Promise<void> {
-    await act(async () => { fireEvent.pointerDown(el, { pointerId: 1, pointerType: "mouse", button: 0, clientX: from.x, clientY: from.y }); });
-    await act(async () => { fireEvent.pointerMove(window, { pointerId: 1, pointerType: "mouse", clientX: to.x, clientY: to.y }); });
+    await act(async () => { fireEvent.pointerDown(el, { pointerId: 1, pointerType: "mouse", isPrimary: true, button: 0, buttons: 1, clientX: from.x, clientY: from.y }); });
+    await act(async () => { fireEvent.pointerMove(window, { pointerId: 1, pointerType: "mouse", isPrimary: true, buttons: 1, clientX: to.x, clientY: to.y }); });
     await act(async () => { fireEvent.pointerCancel(window, { pointerId: 1, pointerType: "mouse" }); });
     await act(async () => { fireEvent.pointerUp(window, { pointerId: 1, pointerType: "mouse", clientX: to.x, clientY: to.y }); });
     await settle();
@@ -358,7 +358,7 @@ describe("each gesture is one step, writing its roles' fields alone in the recor
         expect(node(c, "SRD")!.hasAttribute("data-selected")).toBe(true);
     });
 
-    test("a carried state and a transition being drawn are their own pointers': another finger's lift neither lands nor ends one, its own lands it, and the window losing the page lets go of one, which lands nothing", async () => {
+    test("a carried state and a transition being drawn are their own pointers': another finger's lift neither lands nor ends one, its own lands it, and the window losing the page — or a mouse moved with its button no longer held — lets go of one, which lands nothing", async () => {
         const before = await h.read(ex.depotStates);
         const { container: c } = await h.mountExample(ex.flowchartDepotEditing);
         const sorted = centre(c, "SRD"), held = centre(c, "HLD"), cleared = centre(c, "CLR");
@@ -392,6 +392,19 @@ describe("each gesture is one step, writing its roles' fields alone in the recor
         await finger("pointerUp", window, 3, centre(c, "IND"));
         await settle();
         expect([pending(c), linkKeys(c)]).toEqual([pendingText(0), links]);
+        // A mouse carries SRD — from Hold, where it stands now, back over where it stood — and lets go of its button where
+        // the window cannot hear it: its next move, no button held, lets go of the carry, and nothing lands — nor at a
+        // release heard after all.
+        const from = centre(c, "SRD");
+        const mouse = (type: "pointerDown" | "pointerMove" | "pointerUp", on: Element | Window, at: { x: number; y: number }, buttons: number) =>
+            act(async () => { fireEvent[type](on, { pointerId: 1, pointerType: "mouse", isPrimary: true, button: type === "pointerMove" ? -1 : 0, buttons, clientX: at.x, clientY: at.y }); });
+        await mouse("pointerDown", node(c, "SRD")!, from, 1);
+        await mouse("pointerMove", window, sorted, 1);
+        expect(node(c, "SRD")!.style.opacity).toBe("0.3");
+        await mouse("pointerMove", window, sorted, 0);
+        await mouse("pointerUp", window, sorted, 0);
+        await settle();
+        expect([pending(c), node(c, "SRD")!.style.opacity]).toEqual([pendingText(0), "1"]);
     });
 
     test("a state double-clicked into its editor shows its key fixed — a saved row's key is printed, never a field — and ⏎ writes its label alone (D1)", async () => {

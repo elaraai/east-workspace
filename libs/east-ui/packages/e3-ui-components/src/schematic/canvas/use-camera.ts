@@ -411,10 +411,8 @@ export function useCameraMoves({
         requestRender();
     }, [transition, requestRender, renderSnapRef, cameraRef]);
 
-    // Minimap is a camera writer (jump on press, follow on drag — invariant 8): the pointer dragging it, `null` while none
-    // is. Its moves alone follow, and its release, the browser taking it back or its capture lost ends the drag
-    // (invariant 34).
-    const minimapDragRef = useRef<number | null>(null);
+    // Minimap is a camera writer (jump on press, follow on drag — invariant 8): whose its drag is, and each way it ends,
+    // are its surface's (`view.tsx`' `minimapSurface`, invariant 34).
     const minimapJump = useCallback((el: HTMLElement, clientX: number, clientY: number) => {
         const sz = renderSnapRef.current.size;
         if (sz === null) return;
@@ -448,7 +446,7 @@ export function useCameraMoves({
         const box = renderSnapRef.current.fitBox;
         if (box !== undefined) flyTo({ x: box.minX, y: box.minY, w: Math.max(box.maxX - box.minX, 1e-3), h: Math.max(box.maxY - box.minY, 1e-3) });
     }, [narrowingFit.key, narrowingFit.reading, fitBox, sized, flyTo, renderSnapRef]);
-    return { requestRender, drawPending, transition, flyTo, resetView, zoomBy, minimapDragRef, minimapJump };
+    return { requestRender, drawPending, transition, flyTo, resetView, zoomBy, minimapJump };
 }
 
 /** What moves the camera: {@link useCameraMoves}'s. */

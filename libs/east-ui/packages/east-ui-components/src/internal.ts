@@ -59,7 +59,12 @@ export { createPickHandOff, usePickHandOff, type PickHandOff, type PickingSource
 // Density, the drag grammar's IR veto, and its slot codecs.
 export { DensityProvider, useDensity } from "./contracts/density.js";
 export { useIRCanDrop, type CanDropFn } from "./dnd/ir-can-drop.js";
-export { followPointer, type PointerFollow, type PointerPress } from "./dnd/follow-pointer.js";
+// A part's own pointers (`src/pointer/`): the one rule a gesture in flight is held to, a surface's handlers over it, a drag
+// that follows the pointer that pressed, and the fingers a surface holds.
+export { makeGestures, pointerState, type GestureHost, type Gestures, type PointerRead, type PointerState } from "./pointer/gestures.js";
+export { capturePointer, useSurfaceGestures, type SurfaceGestures, type SurfaceOptions } from "./pointer/surface.js";
+export { followPointer, type PointerFollow, type PointerPress } from "./pointer/follow-pointer.js";
+export { makeTouches, pinchMoves, type PinchStep, type TouchBegan, type TouchPoint, type Touches } from "./pointer/touches.js";
 export { dateTimeSlot, numberSlot, stringSlot } from "./dnd/slot-key.js";
 // The date field's parts and its conversions — the Sheet's date editor.
 export { CompoundDateField, CompoundDateInput, CompoundDateSegment } from "./forms/input/date/index.js";

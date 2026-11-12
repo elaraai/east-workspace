@@ -93,15 +93,28 @@ export function useSheetInput(sheetDecode: SheetDecode, sheetSession: SheetSessi
     // ── Input ─────────────────────────────────────────────────────────────
     // A range drag is a press followed by pointer MOVEMENT; a mouseenter with
     // no movement (the sheet moved under a stationary pointer — a paged
-    // window landing, a fill changing a row) never extends the range.
+    // window landing, a fill changing a row) never extends the range. The
+    // drag is over as its button lifts, and as much when its lift is never
+    // heard — let go off the window, or under another app: a move with the
+    // button no longer held ends it, and so does the window losing the page,
+    // so no range is left following a pointer that holds nothing (the rule
+    // every gesture is held to, east-ui-components' `src/pointer/`).
     const pressed = useRef(false);
     const dragging = useRef(false);
     useEffect(() => {
         const up = () => { pressed.current = false; dragging.current = false; };
-        const move = (e: globalThis.MouseEvent) => { if (pressed.current && (e.buttons & 1) !== 0) dragging.current = true; };
+        const move = (e: globalThis.MouseEvent) => {
+            if ((e.buttons & 1) === 0) up();
+            else if (pressed.current) dragging.current = true;
+        };
         window.addEventListener("mouseup", up);
         window.addEventListener("mousemove", move);
-        return () => { window.removeEventListener("mouseup", up); window.removeEventListener("mousemove", move); };
+        window.addEventListener("blur", up);
+        return () => {
+            window.removeEventListener("mouseup", up);
+            window.removeEventListener("mousemove", move);
+            window.removeEventListener("blur", up);
+        };
     }, []);
     /**
      * A gesture on the ring (#860): counted — a key's move past the rows read lands only if none came after it — and,

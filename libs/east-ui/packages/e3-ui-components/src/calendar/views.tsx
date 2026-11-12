@@ -57,7 +57,7 @@ import { tileNext } from "@elaraai/east-ui/internal";
 import { optimiseMessages, takeKey, useDragEventChip, useDragEventEdge, useDragMessages, useDropCell, type CellCoord, type DragPayload, type Formatters } from "@elaraai/east-ui-components";
 import {
     LoadingFailedBox, LoadingFailedLine, LoadingWash, PlaceholderShape, UnloadedRun, VirtualRows, devicePixels, loadingLineText, useRowsTop, useSlotClass,
-    type RowRuns, type RunCell, type RunFailure, keptRead
+    useSurfaceGestures, type RowRuns, type RunCell, type RunFailure, keptRead
 } from "@elaraai/east-ui-components/internal";
 import { pagedLoadingMessages, type PeriodRead } from "../shared/loading.js";
 import type { ScheduleCellShade, ScheduleCellShading } from "../shared/schedule/cells.js";
@@ -862,6 +862,10 @@ function DropLane({ props, from, to, resource, along = "y", wholeDay = false, ch
     // Its preview's class, made as the lane is drawn, ahead of the drag that first shows it (see `useSlotClass`).
     const ghostClass = useSlotClass()(props.styles.ghost);
     const down = useRef<{ start: Date; x: number; y: number } | undefined>(undefined);
+    // The span a draw stands at: what its release creates, whether or not the render that shows it has committed.
+    const drawn = useRef<{ start: Date; end: Date } | undefined>(undefined);
+    /** Lets go of a press on the lane and of what it drew. */
+    const letGo = () => { down.current = undefined; drawn.current = undefined; setDrawing(undefined); };
     const coordinate = (x: number, y: number, payload?: DragPayload) => {
         const rect = ref.current?.getBoundingClientRect();
         const fraction = rect === undefined ? 0 : along === "x" ? (x - rect.left) / rect.width : (y - rect.top) / rect.height;
@@ -905,22 +909,30 @@ function DropLane({ props, from, to, resource, along = "y", wholeDay = false, ch
         // The slot is produced here from an instant; the shared reader uses the same codec.
         const parsed = props.drag.readTime(offset); return parsed ?? from;
     };
+    // A new event drawn on the lane, a surface of the shared pointer core (`useSurfaceGestures`): a press off an event
+    // begins it, the pressing pointer's drag past 4px draws its span, and that pointer's release creates it — a
+    // release with nothing drawn a click on the lane, which lets go of the selection. The draw is its pointer's: no
+    // other pointer's move draws it and no other's lift creates it, and a second finger, the browser taking the
+    // pointer back, the lane losing its capture and the window losing the page each let go of it, creating nothing.
+    const drawGestures = useSurfaceGestures({
+        press: event => { down.current = { start: timeAt(event), x: event.clientX, y: event.clientY }; },
+        drag: event => {
+            const pressed = down.current; if (pressed === undefined || Math.hypot(event.clientX - pressed.x, event.clientY - pressed.y) < 4) return;
+            const span = drawSpan(scale, scale.fracOf(pressed.start), scale.fracOf(timeAt(event)), true);
+            drawn.current = span; setDrawing(span);
+        },
+        release: () => {
+            const span = drawn.current;
+            if (span !== undefined) props.drag.create(span.start, span.end, resource); else if (down.current !== undefined) props.clear();
+            letGo();
+        },
+        drop: letGo,
+    }, { accepts: event => (event.target as Element).closest("[data-calendar-event]") === null });
     return <Box ref={attach} css={css} style={style} data-calendar-cell="" data-calendar-column={column} data-outside={outside ? "" : undefined} data-calendar-from={from.getTime()} data-calendar-to={to.getTime()} data-calendar-snap={snap}
         onClick={event => { if (!(event.target as Element).closest("[data-calendar-event], button")) props.clear(); }}
         // Esc lets a draw under way go, the key going no further (#1398); with none, it goes on to the frame.
-        onKeyDown={event => { if (event.key === "Escape" && (down.current !== undefined || drawing !== undefined)) { takeKey(event); down.current = undefined; setDrawing(undefined); } }}
-        onPointerDown={props.drag.enabled && draw && !wholeDay ? event => {
-            if (event.button !== 0 || (event.target as Element).closest("[data-calendar-event]")) return;
-            down.current = { start: timeAt(event), x: event.clientX, y: event.clientY }; event.currentTarget.setPointerCapture(event.pointerId);
-        } : undefined}
-        onPointerMove={props.drag.enabled && draw ? event => {
-            const pressed = down.current; if (pressed === undefined || Math.hypot(event.clientX - pressed.x, event.clientY - pressed.y) < 4) return;
-            const time = timeAt(event); setDrawing(drawSpan(scale, scale.fracOf(pressed.start), scale.fracOf(time), true));
-        } : undefined}
-        onPointerUp={props.drag.enabled && draw ? () => {
-            if (drawing !== undefined) props.drag.create(drawing.start, drawing.end, resource); else if (down.current !== undefined) props.clear();
-            down.current = undefined; setDrawing(undefined);
-        } : undefined} onPointerCancel={() => { down.current = undefined; setDrawing(undefined); }}>
+        onKeyDown={event => { if (event.key === "Escape" && (down.current !== undefined || drawing !== undefined)) { takeKey(event); letGo(); } }}
+        {...(props.drag.enabled && draw && !wholeDay ? drawGestures : {})}>
         {children}
         {[{ span: drawing, ghost: false }, { span: landing, ghost: true }].map(({ span, ghost }, i) => {
             if (span === undefined) return null;

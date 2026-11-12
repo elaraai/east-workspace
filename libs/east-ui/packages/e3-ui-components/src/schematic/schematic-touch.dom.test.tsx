@@ -5,7 +5,7 @@
  * @vitest-environment jsdom
  *
  * The Schematic's canvas under fingers, on e3 itself (`canvas/CLAUDE.md`
- * invariants 33 and 34): the fingers it holds (`../shared/touches.ts`) and the
+ * invariants 33 and 34): the fingers it holds (the shared pointer core's, east-ui-components' `src/pointer/`) and the
  * one gesture in flight.
  *
  * - A finger is gone as it lifts, as the browser takes it back, and as the

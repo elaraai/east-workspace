@@ -919,19 +919,59 @@ component, nothing in east-ui.
   same view over another data set in the tab, its sources of the same names,
   never takes them. With none named, a page's sources are its own.
 
-## A drag a part draws itself
+## A part's own pointers
 
-A drag off the shared drag layer — a resize handle, a line drawn out of a
-port — follows the pointer that pressed through `followPointer`
-(`src/dnd/follow-pointer.ts`, exported from `./internal`), never listeners of
-its own on the window: its pointer's moves alone, ended once by that
-pointer's release, by the browser taking it back (`pointercancel`) or by the
-window losing the page, and hearing nothing after. The drag layer's sensor
-holds its drags to the same (`src/dnd/sensor.ts`). The Matrix's slice resize
-is one (`collections/matrix/`): left on window listeners with no cancel, a
-touch the browser took back left every later pointer resizing the slice.
-e3-ui-components' builders' rules, and a canvas's fingers, are in its
-CLAUDE.md › A drag a part draws itself, and fingers.
+A part that takes pointers of its own, off the shared drag layer, takes them
+through `src/pointer/` (exported from `./internal`) — never pointer handlers
+or window listeners of its own, and never an owner, a finger count or a
+"pressed" flag kept in the component (ruled 12 Nov 2026, after a phone's
+canvas was left zooming under one finger). One rule holds every such gesture,
+in one place:
+
+- `gestures.ts` (`makeGestures`, pure): one gesture in flight on a surface,
+  and whose it is. A press begins it and its pointer owns it — that pointer's
+  moves alone drive it — and it ends once: released by its own pointer, when
+  it lands, or let go of, landing nothing — a second finger put down, a new
+  press while it is in flight, its pointer taken back by the browser or its
+  capture lost, a mouse moved with its button no longer held, the window
+  losing the page. Two fingers pinch, between a start and an end; a third
+  does nothing. Its tests walk every state two fingers and a mouse can bring
+  a surface to — each event heard or never heard, in every order.
+- `touches.ts` (`makeTouches`, pure): the fingers a surface holds and the
+  pinch between two of them. A finger is gone as it lifts, is taken back or
+  loses its capture, and one whose end is never heard is let go of as the
+  page's next first finger lands or the window loses the page.
+- `surface.ts` (`useSurfaceGestures`): the handlers a surface's element
+  carries, over that rule — every pointer it takes captured, the window
+  listened to only while it holds one, and a surface inside another keeping
+  its own pointers' events (`contained`). A surface whose children are
+  pressed in their own right — a list of cards — captures none
+  (`capture: false`): a captured pointer's click is the capturing element's,
+  never the child's it pressed. A part says only what a press begins, what
+  its drag draws, what its release lands and what letting go puts back.
+- `follow-pointer.ts` (`followPointer`): a drag begun on one of many
+  elements — a resize handle, a line drawn out of a port, a card carried
+  across a canvas — handed its press and followed at the window, by the same
+  rule.
+
+The drag layer's sensor holds its drags to the same (`src/dnd/sensor.ts`).
+Two parts here follow a pointer of their own: the Matrix's slice resize
+(`collections/matrix/`) — left on window listeners with no cancel, a touch
+the browser took back left every later pointer resizing the slice — and the
+SnapGrid's three resize handles (`layout/snap-grid/editor.tsx`): left on
+listeners of the handle's own, another pointer's move over a handle snapped
+the tile and its lift landed the resize, and a resize whose handle went under
+it — the selection let go mid-drag — never ended, its preview left standing.
+Esc lets go of a resize in flight, landing nothing, before it lets go of the
+selection.
+
+The page's held pointers are read through the same record. The automatic
+Save waits while a pointer is down (`editing/use-autosave.ts`), and counts
+the fingers down by `makeTouches`: counted by hand, one finger whose lift a
+phone never said held every Save back until the page was left.
+
+Which of e3-ui-components' builders are surfaces, and what a test of one
+fires, is in its CLAUDE.md › A part's own pointers.
 
 ## Field form
 

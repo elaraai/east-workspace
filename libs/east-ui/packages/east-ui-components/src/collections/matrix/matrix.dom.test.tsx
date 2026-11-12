@@ -11,7 +11,7 @@
  * east-ui factory and COMPILED, so the renderer reads what an author's
  * program produces.
  *
- * A slice's resize is its pointer's (`dnd/follow-pointer.ts`): no other
+ * A slice's resize is its pointer's (`pointer/follow-pointer.ts`): no other
  * pointer's moves resize it or end it, and once the browser has taken its
  * pointer back nothing resizes it.
  */
@@ -205,7 +205,7 @@ describe("a slice's resize", () => {
         };
     }
 
-    test("follows the pointer that pressed its handle alone, another pointer's release ending nothing; taken back by the browser it is over, and no pointer resizes the slice after", async () => {
+    test("follows the pointer that pressed its handle alone, another pointer's release ending nothing; taken back by the browser, or a mouse's button let go unheard, it is over, and no pointer resizes the slice after", async () => {
         const restore = layOutBars();
         try {
             const changes: { row: string; column: string; segmentIndex: bigint; weight: number }[] = [];
@@ -219,25 +219,36 @@ describe("a slice's resize", () => {
             };
             // Row a books half of Monday: its slice's handle, pressed at 100px of the 200px bar.
             const handle = rowAt(container, "a", 0).querySelector<HTMLElement>('[data-slot="resizeHandle"]')!;
-            fireEvent.pointerDown(handle, { pointerId: 3, clientX: 100 });
-            fireEvent.pointerMove(window, { pointerId: 3, clientX: 140 });
+            const finger = (type: "pointerDown" | "pointerMove" | "pointerUp" | "pointerCancel", on: Element | Window, pointerId: number, clientX = 0) =>
+                fireEvent[type](on, { pointerId, pointerType: "touch", isPrimary: pointerId !== 9, button: 0, buttons: type === "pointerUp" || type === "pointerCancel" ? 0 : 1, clientX });
+            finger("pointerDown", handle, 3, 100);
+            finger("pointerMove", window, 3, 140);
             expect(await heard()).toEqual(["a/mon/0 0.700"]);
-            // Another pointer moves, and lifts: neither is the resize's.
-            fireEvent.pointerMove(window, { pointerId: 9, clientX: 20 });
-            fireEvent.pointerUp(window, { pointerId: 9, clientX: 20 });
-            fireEvent.pointerMove(window, { pointerId: 3, clientX: 120 });
+            // Another finger moves, and lifts: neither is the resize's.
+            finger("pointerMove", window, 9, 20);
+            finger("pointerUp", window, 9, 20);
+            finger("pointerMove", window, 3, 120);
             expect(await heard()).toEqual(["a/mon/0 0.600"]);
-            // The browser takes the pointer back: no release is heard, and the resize is over all the same.
-            fireEvent.pointerCancel(window, { pointerId: 3 });
-            fireEvent.pointerMove(window, { pointerId: 3, clientX: 180 });
-            fireEvent.pointerMove(window, { pointerId: 9, clientX: 180 });
+            // The browser takes the finger back: no release is heard, and the resize is over all the same.
+            finger("pointerCancel", window, 3);
+            finger("pointerMove", window, 3, 180);
+            finger("pointerMove", window, 9, 180);
             expect(await heard()).toEqual([]);
             // A new press resizes again, and its own release ends it.
-            fireEvent.pointerDown(handle, { pointerId: 4, clientX: 100 });
-            fireEvent.pointerMove(window, { pointerId: 4, clientX: 60 });
-            fireEvent.pointerUp(window, { pointerId: 4, clientX: 60 });
-            fireEvent.pointerMove(window, { pointerId: 4, clientX: 10 });
+            finger("pointerDown", handle, 4, 100);
+            finger("pointerMove", window, 4, 60);
+            finger("pointerUp", window, 4, 60);
+            finger("pointerMove", window, 4, 10);
             expect(await heard()).toEqual(["a/mon/0 0.300"]);
+            // A mouse's resize, its button let go where the window could not hear it: its next move, no button held, resizes nothing.
+            const mouse = (type: "pointerDown" | "pointerMove", on: Element | Window, clientX: number, buttons = 1) =>
+                fireEvent[type](on, { pointerId: 1, pointerType: "mouse", isPrimary: true, button: type === "pointerDown" ? 0 : -1, buttons, clientX });
+            mouse("pointerDown", handle, 100);
+            mouse("pointerMove", window, 150);
+            expect(await heard()).toEqual(["a/mon/0 0.750"]);
+            mouse("pointerMove", window, 190, 0);
+            mouse("pointerMove", window, 60);
+            expect(await heard()).toEqual([]);
         } finally {
             restore();
         }

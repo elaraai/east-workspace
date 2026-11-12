@@ -162,6 +162,11 @@ describe("Plan narrow layout (§10 / #570)", () => {
         left: some({ domain: some(variant("number", { min: 80, max: 110 })), tickValues: some(variant("number", [80, 100])), format: none }),
         right: none, height: variant("spark", null), expandedHeight: none, expandable: false,
     });
+    type Sent = "pointerDown" | "pointerMove" | "pointerUp" | "pointerCancel";
+    /** A finger's event on the list: the page's first finger — no other down — is the browser's primary pointer. */
+    const finger = (list: HTMLElement, type: Sent, pointerId: number, clientX: number, isPrimary = false) =>
+        fireEvent[type](list, { pointerId, pointerType: "touch", isPrimary, button: 0, buttons: type === "pointerDown" || type === "pointerMove" ? 1 : 0, clientX });
+
     const fixture = (opts?: Parameters<typeof planRoot>[1]) => planRoot([
         planRow("hall1", variant("group", { summary: variant("aggregate", variant("mean", null)) }),
             { gutter: gutter("Hall 1", { value: "82%" }) }),
@@ -271,17 +276,55 @@ describe("Plan narrow layout (§10 / #570)", () => {
         // layout: give the list a width so a period has a size.
         const list = container.querySelector("[data-slot='narrowList']") as HTMLElement;
         Object.defineProperty(list, "clientWidth", { value: 360 });          // period ≈ (360 − 50) / 12 ≈ 25.8px
-        fireEvent.pointerDown(list, { pointerId: 1, clientX: 200 });
-        fireEvent.pointerDown(list, { pointerId: 2, clientX: 240 });
-        fireEvent.pointerMove(list, { pointerId: 1, clientX: 174 });          // centroid −13
-        fireEvent.pointerMove(list, { pointerId: 2, clientX: 214 });          // centroid −26 → one period
+        finger(list, "pointerDown", 1, 200, true);
+        finger(list, "pointerDown", 2, 240);
+        finger(list, "pointerMove", 1, 174);                                  // centroid −13
+        finger(list, "pointerMove", 2, 214);                                  // centroid −26 → one period
         expect(range().from.toISOString()).toBe("2026-07-06T00:00:00.000Z");
         // A record's range is half-open, as the window is: `[W28, W40)` (#1344).
         expect(range().to.toISOString()).toBe("2026-09-28T00:00:00.000Z");
         // One finger alone never pans — page scroll stays vertical.
-        fireEvent.pointerUp(list, { pointerId: 2, clientX: 214 });
-        fireEvent.pointerMove(list, { pointerId: 1, clientX: 0 });
+        finger(list, "pointerUp", 2, 214);
+        finger(list, "pointerMove", 1, 0);
         expect(range().from.toISOString()).toBe("2026-07-06T00:00:00.000Z");
+    });
+
+    test("a finger whose lift the list never hears is no finger of a later pan — one finger after it pans nothing, and two pan as two — and a mouse over the list is no finger at all", async () => {
+        const rail = await bindRail(() => Slice.bindRecords("plan.narrow.pan.lost", {
+            dated: {
+                source: Data.bindPaged(records.planDatedRows, { indexes: ["plan_dated_rows_by_at"] }),
+                fields: { at: { label: "At" } }, range: "at", initial: { at: { from: W27, to: W39 } },
+            },
+        }), ["range"]);
+        const part = rail.part("dated");
+        const from = () => new Date(recordSliceWindow(part)!.min).toISOString();
+        const { container } = renderPlan(fixture({ slice: some(rail.chrome) }), "plan-narrow-pan-lost");
+        const list = container.querySelector("[data-slot='narrowList']") as HTMLElement;
+        Object.defineProperty(list, "clientWidth", { value: 360 });          // period ≈ 25.8px
+        // A finger put down, and its lift never heard: a phone does not always say a finger ended.
+        finger(list, "pointerDown", 1, 200, true);
+        // The next touch. Its finger is the page's first, no other down: alone, it pans nothing — the page's scroll is its.
+        finger(list, "pointerDown", 3, 200, true);
+        finger(list, "pointerMove", 3, 100);
+        expect(from()).toBe(W27.toISOString());
+        // A second finger beside it: the two pan as two, one period for a period's width.
+        finger(list, "pointerDown", 4, 140);
+        finger(list, "pointerMove", 3, 74);                                   // centroid −13
+        finger(list, "pointerMove", 4, 114);                                  // centroid −26 → one period
+        expect(from()).toBe("2026-07-06T00:00:00.000Z");
+        finger(list, "pointerUp", 4, 114);
+        finger(list, "pointerUp", 3, 74);
+        // A mouse moving over the list is no finger: a finger beside it is one finger, and pans nothing.
+        fireEvent.pointerMove(list, { pointerId: 9, pointerType: "mouse", isPrimary: true, buttons: 0, clientX: 300 });
+        finger(list, "pointerDown", 5, 200, true);
+        finger(list, "pointerMove", 5, 100);
+        expect(from()).toBe("2026-07-06T00:00:00.000Z");
+        // The window loses the page with two fingers down: both are let go of, and one finger after pans nothing.
+        finger(list, "pointerDown", 6, 240);
+        act(() => { fireEvent.blur(window); });
+        finger(list, "pointerDown", 7, 200, true);
+        finger(list, "pointerMove", 7, 0);
+        expect(from()).toBe("2026-07-06T00:00:00.000Z");
     });
 
     test("one or two strip-less groups are no index: the plan LANDS on Rows, sectioned by group; a section header scopes", () => {

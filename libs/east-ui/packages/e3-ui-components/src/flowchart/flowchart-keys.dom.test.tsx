@@ -196,8 +196,8 @@ async function gesture(fire: () => void): Promise<void> {
 
 /** A pointer pressed on an element at a point of the canvas, moved to another, and let go there. */
 async function drag(el: Element, from: { x: number; y: number }, to: { x: number; y: number }): Promise<void> {
-    await act(async () => { fireEvent.pointerDown(el, { pointerId: 1, pointerType: "mouse", button: 0, clientX: from.x, clientY: from.y }); });
-    await act(async () => { fireEvent.pointerMove(window, { pointerId: 1, pointerType: "mouse", clientX: to.x, clientY: to.y }); });
+    await act(async () => { fireEvent.pointerDown(el, { pointerId: 1, pointerType: "mouse", isPrimary: true, button: 0, buttons: 1, clientX: from.x, clientY: from.y }); });
+    await act(async () => { fireEvent.pointerMove(window, { pointerId: 1, pointerType: "mouse", isPrimary: true, buttons: 1, clientX: to.x, clientY: to.y }); });
     await act(async () => { fireEvent.pointerUp(window, { pointerId: 1, pointerType: "mouse", clientX: to.x, clientY: to.y }); });
     await settle();
 }
