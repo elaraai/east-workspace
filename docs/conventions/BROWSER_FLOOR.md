@@ -104,7 +104,10 @@ as the module loads.
   16.4, and guard it as the renderers guard theirs — `typeof
   el.checkVisibility === "function"`, `typeof requestIdleCallback ===
   "function"` — with a path that works without it. An event an older engine
-  never fires (`scrollend`) needs its fallback too.
+  never fires (`scrollend`) needs its fallback too: a scroll's rest is asked of
+  `libs/east-ui/packages/e3-ui-components/src/shared/scroll-rest.ts`
+  (`onScrollRest`), which hears the event where the engine has it and waits
+  for the scroll to stand still where it has none.
 - **Syntax.** An app's bundler lowers syntax to its build target and adds no
   built-in: the target is the app's to set no newer than the phones it serves.
 - **What an app bundles besides East.** A dependency that names a newer

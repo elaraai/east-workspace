@@ -770,7 +770,10 @@ Below 480px of main nothing drags (#1505): no draggable card and no drop
 cell. Details carries the gestures — a state's lane, a transition's ends —
 through the same edits, and a phone's lane pager (`lane-pager.tsx`) steps the
 canvas's sideways scroll a lane at a time: two lanes in view by default
-(`narrow.lanes`), each a whole lane, a Find's pick opening on whole lanes; and
+(`narrow.lanes`), each a whole lane, a Find's pick opening on whole lanes, and
+a swipe let go between two settling on the nearer once its scroll has come to
+rest — as the browser says it, or, on an older iPhone, which has no
+`scrollend`, once it has stood still a moment (`shared/scroll-rest.ts`); and
 where the details draw on the cards one lane, at least the window wide, its
 card brought to the middle of what the window shows, its scrollbar left out —
 as the window opens and resizes, at each step, as a swipe settles and at a

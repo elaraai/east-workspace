@@ -11,7 +11,9 @@
  * under reduced motion — so a swipe and a step are one window, and › reaches
  * what stands past the last lane, `+ LANE`, as a swipe does. A window that comes
  * to rest between two lanes — a swipe let go there — settles on the nearer, as a
- * step would; a Find's pick opens on whole lanes (the canvas's). Where the
+ * step would: at rest as the browser says it (`scrollend`), and on an older
+ * iPhone, which never does, once its scroll has stood still a moment
+ * (`../shared/scroll-rest.ts`). A Find's pick opens on whole lanes (the canvas's). Where the
  * details draw on the cards a lane keeps its width, wider than the window, and
  * each step brings its card to the window's middle — the middle of what the
  * window shows, its scrollbar left out — as the window opens, as it resizes and
@@ -28,6 +30,7 @@ import { Box, chakra } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faChevronLeft, faChevronRight } from "@fortawesome/free-solid-svg-icons";
 import { useSlotStyles } from "@elaraai/east-ui-components/internal";
+import { onScrollRest } from "../shared/scroll-rest.js";
 import type { FlowchartWords } from "./messages.js";
 
 /** Props of {@link FlowchartLanePager}. */
@@ -87,10 +90,10 @@ export const FlowchartLanePager = memo(function FlowchartLanePager({ frame, tota
         };
         read();
         frame.addEventListener("scroll", read, { passive: true });
-        frame.addEventListener("scrollend", settle, { passive: true });
+        const stop = onScrollRest(frame, settle);
         return () => {
             frame.removeEventListener("scroll", read);
-            frame.removeEventListener("scrollend", settle);
+            stop();
         };
     }, [frame, slotPx, offset, last]);
     // A lane wider than the window: its card to the window's middle as the window opens, and on the lane it rests on as it resizes.
