@@ -11,10 +11,12 @@
  * answers and no process: each check a call's start makes of a draft; what the
  * call keeps of the drafts it passed; the laying, in the order they were
  * passed; every end a draft gives a call, its function shown not to have run;
- * and the drafted state kept through a collection for as long as the call is.
+ * the drafted state kept through a collection for as long as the call is; and
+ * a call no store keeps (`functionCallUnkept`), which reads and ends as a kept
+ * one does.
  * Over a local repository and the real runner: a function's body reading
  * drafts its record's own programs laid over an indexed record, which is the
- * state a Save of them leaves, hash for hash.
+ * state a Save of them leaves, hash for hash, whether the call is kept or not.
  */
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
@@ -27,8 +29,8 @@ import {
 } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import {
-  ExecuteResultType, FunctionCallDraftType, FunctionCallDraftedType, decodeFunctionCallJob, encodeFunctionCallJob,
-  type FunctionCallJob, type FunctionCallRequest, type FunctionDraft, type TreePath,
+  ExecuteResultType, FunctionCallDraftType, FunctionCallDraftedType, decodeFunctionCallJob, decodeFunctionObject, encodeFunctionCallJob,
+  type ExecuteResult, type FunctionCallJob, type FunctionCallRequest, type FunctionDraft, type TreePath,
 } from '@elaraai/e3-types';
 import { DatasetSegments, readDatasetWhole } from '../dataset-open.js';
 import { inputsHash } from '../executions.js';
@@ -49,6 +51,7 @@ import {
   functionCallLost, functionCallRun, functionCallStart, functionCallStatus,
   type FunctionCallLifetimes, type FunctionCallRun, type FunctionCallRunOptions,
 } from './functionCall.js';
+import { functionCallUnkept, type FunctionCallUnkeptOptions } from './functionCallUnkept.js';
 import { NO_CALL_DRAFTS, pinCallDrafts } from './functionDrafts.js';
 import type { DetachedResult, DetachedRunOptions, DetachedSpec, TaskExecuteOptions, TaskResult, TaskRunner } from './interfaces.js';
 
@@ -600,6 +603,165 @@ describe('a call\'s drafts', () => {
       assert.ok(sameJobs(await workspaceGetDataset(storage, REPO, WS, JOBS) as Jobs, SAVED_JOBS), 'and the record reads as saved');
     });
   });
+
+  describe('a call no store keeps', () => {
+    /** The limits a kept call of these cases runs under, a log limit apart. */
+    const LIMITS: FunctionCallUnkeptOptions['limits'] = { timeoutMs: 600_000, maxResultBytes: 1024, maxLogBytes: 64 };
+
+    /** A call made within this process, of a function of the deployed package. */
+    const unkept = async (
+      fn: string, args: Uint8Array[], drafts: FunctionDraft[], on: TaskRunner = runner, limits: FunctionCallUnkeptOptions['limits'] = LIMITS,
+    ): Promise<ExecuteResult> => {
+      const pkg = await packageRead(storage, REPO, 'drafts', '1.0.0');
+      const fnObj = decodeFunctionObject(await storage.objects.read(REPO, pkg.functions.get(fn)!));
+      return functionCallUnkept(storage, on, REPO, WS, pkg, fnObj, { args: args.map((arg) => variant('value', arg)), drafts }, { limits, now });
+    };
+    /** The same call as a store keeps it, run to its end: what it answers. */
+    const kept = async (
+      fn: string, args: Uint8Array[], drafts: FunctionDraft[], on: TaskRunner, limits: FunctionCallRequest['limits'] = none,
+    ): Promise<ExecuteResult> => {
+      const { result } = await run((await start(fn, args, drafts, limits)).call.id, on);
+      if (result === null) assert.fail('the kept call answers its result');
+      return result;
+    };
+    const noCallKept = async (): Promise<void> =>
+      assert.equal((await storage.calls.list(REPO, WS, { limit: 10 })).calls.length, 0, 'no call is filed');
+    const add = (by = 5n): FunctionDraft => draft('tally', 'add', encodeInt(by));
+    /** The reducer, answered as it would answer: the state and what is added to it. */
+    const adding = (): UnitRunner => {
+      const units = new UnitRunner(async (_task, [state, by]) =>
+        succeeded(decodeInt(await storage.objects.read(REPO, state!)) + decodeInt(await storage.objects.read(REPO, by!))));
+      units.setDetachedResult(ran({ kind: 'success', value: encodeInt(10n) }));
+      return units;
+    };
+
+    it('runs a call that passes no draft over the workspace as saved, and counts the arguments alone', async () => {
+      const jobsHead = await head('jobs');
+      const rate = sha256Hex(encodeInt(10n));
+      runner.setDetachedResult(ran({ kind: 'success', value: encodeInt(1n) }));
+      const result = await unkept('jobs_on', [encodeString('P1')], []);
+      if (result.outcome.type !== 'success') assert.fail(`the call ended ${result.outcome.type}`);
+
+      assert.deepEqual(result.outcome.value.value, encodeInt(1n));
+      const [spec] = runner.getDetachedCalls();
+      assert.deepEqual(spec!.args, [{ dataset: jobsHead.state }, { dataset: rate }, encodeString('P1')],
+        'its inputs as stored, then its argument as passed');
+      assert.deepEqual(spec!.limits, LIMITS, 'under the call\'s limits');
+      assert.ok(sameInputs(result.inputs, [{ path: JOBS, hash: jobsHead.state }, { path: RATE, hash: rate }]), 'its result names what it read');
+      assert.equal(result.drafts.length, 0, 'and no record drafted');
+      assert.equal(runner.getCalls().length, 0, 'no mutation\'s program runs');
+      await noCallKept();
+
+      const miscounted = await unkept('jobs_on', [], []);
+      if (miscounted.outcome.type !== 'invalid') assert.fail(`the call ended ${miscounted.outcome.type}`);
+      assert.equal(miscounted.outcome.value.diagnostics[0]!.message, 'Expected 1 argument(s), got 0');
+      assert.equal(runner.getDetachedCalls().length, 1, 'and nothing more ran');
+    });
+
+    it('lays its drafts and runs its function at the drafted state, answers as a kept call does, and keeps and saves nothing', async () => {
+      const [jobsHead, tallyHead] = [await head('jobs'), await head('tally')];
+      const before = await storage.datasets.read(REPO, WS, 'records/jobs');
+      const drafts = [add(5n), draft('jobs', 'patch', insertJ3()), add(2n)];
+      const units = adding();
+      const result = await unkept('load', [], drafts, units);
+      if (result.outcome.type !== 'success') assert.fail(`the call ended ${result.outcome.type}`);
+
+      const [tallyInput, jobsInput] = result.inputs;
+      assert.equal(units.getCalls().length, 2, 'each reducer ran, and no program for the patch');
+      assert.equal(tallyInput!.hash, sha256Hex(encodeInt(7n)), 'each draft over the state the one before it left');
+      assert.ok(sameJobs(await jobsAt(jobsInput!.hash), withJ3));
+      assert.deepEqual(units.getDetachedCalls()[0]!.args, [{ dataset: tallyInput!.hash }, { dataset: jobsInput!.hash }],
+        'the function reads each record at its drafted state');
+      assert.ok(sameRead(result.drafts, [{ record: 'tally', commit: tallyHead.commit }, { record: 'jobs', commit: jobsHead.commit }]),
+        'its result names each drafted record once, with the commit it stood at');
+
+      await noCallKept();
+      assert.deepEqual(await storage.datasets.read(REPO, WS, 'records/jobs'), before, 'the record stands where it stood');
+      assert.equal((await recordHistory(storage, REPO, WS, 'jobs')).length, 1, 'no commit joined its history');
+      assert.equal(await workspaceGetDataset(storage, REPO, WS, TALLY), 0n, 'and another reader reads each as saved');
+      assert.ok(sameResult(result, await kept('load', [], drafts, adding())), 'the call a store keeps answers the same');
+    });
+
+    it('answers a draft found wrong invalid, in the words a kept call is filed with, and nothing runs', async () => {
+      const refused = await unkept('count', [], [draft('jobs', 'patch', insertJ3())]);
+      if (refused.outcome.type !== 'invalid') assert.fail(`the call ended ${refused.outcome.type}`);
+      assert.equal(refused.outcome.value.diagnostics[0]!.message, 'draft jobs.patch (1 of 1): the function lists no record a call may draft');
+      assert.equal(refused.inputs.length + refused.drafts.length, 0, 'it names nothing read');
+      assert.equal(runner.getCalls().length + runner.getDetachedCalls().length, 0, 'no mutation\'s program runs, nor the function');
+      await noCallKept();
+    });
+
+    it('ends as a draft ends it, its function not run: failed with the draft in the first line of its stderr, and a conflict', async () => {
+      const [jobsHead, tallyHead] = [await head('jobs'), await head('tally')];
+      const failing = (): UnitRunner => {
+        let units = 0;
+        return new UnitRunner(async (task, inputs) => {
+          if (++units === 1) return succeeded(5n);
+          const execution = uuidv7();
+          await storage.logs.append(REPO, task, inputsHash(inputs), execution, 'stderr', `${'x'.repeat(100)}the tail`);
+          return { state: 'failed', cached: false, exitCode: 3, executionId: execution };
+        });
+      };
+      const first = failing();
+      const failed = await unkept('load', [], [add(), add(), add()], first, { ...LIMITS, maxLogBytes: 8 });
+      if (failed.outcome.type !== 'failed') assert.fail(`the call ended ${failed.outcome.type}`);
+      assert.equal(failed.outcome.value.exitCode, 3n);
+      assert.equal(failed.stderr, 'draft tally.add (2 of 3) failed\nthe tail', 'the draft, then as much of its program\'s stderr as the call\'s log limit keeps');
+      assert.equal(failed.stderrTruncated, true);
+      assert.equal(first.getCalls().length, 2, 'the draft after it did not run');
+      assert.equal(first.getDetachedCalls().length, 0, 'nor the function');
+      assert.ok(sameInputs(failed.inputs, [{ path: TALLY, hash: tallyHead.state }, { path: JOBS, hash: jobsHead.state }]), 'it names its inputs as they were pinned');
+      assert.ok(sameRead(failed.drafts, [{ record: 'tally', commit: tallyHead.commit }]));
+      assert.ok(sameResult(failed, await kept('load', [], [add(), add(), add()], failing(), some({ timeoutMs: none, maxResultBytes: none, maxLogBytes: some(8n) }))),
+        'the call a store keeps answers the same');
+
+      // The page read j1 on P1 and moved it to P9; another Save moved it to P2 first
+      const saved = await recordMutate(storage, runner, REPO, WS, 'jobs', 'patch', [jobsPatch([['j1', moved('P1', 'P2')]])], { actor: 'grace@example.com' });
+      assert.equal(saved.kind, 'committed');
+      const landed = await head('jobs');
+      const unfit = await unkept('jobs_on', [encodeString('P9')], [draft('jobs', 'patch', jobsPatch([['j1', moved('P1', 'P9')]]))]);
+      if (unfit.outcome.type !== 'conflict') assert.fail(`the call ended ${unfit.outcome.type}`);
+      assert.deepEqual({ ...unfit.outcome.value }, { record: 'jobs', mutation: 'patch', message: 'primary: Cannot apply replace - expected "P1", found "P2"' });
+      assert.equal(unfit.stderr, '');
+      assert.ok(sameRead(unfit.drafts, [{ record: 'jobs', commit: landed.commit }]), 'it names the commit the edit no longer fits');
+      assert.equal(runner.getDetachedCalls().length, 0, 'its function does not run');
+      assert.deepEqual(await head('jobs'), landed, 'and the record stands where the Save left it');
+    });
+
+    it('runs its drafts and then its function under the one timeout, and a call it ends names the whole of it', async () => {
+      const tallyHead = await head('tally');
+      /** A draft's program that takes so much of the call's time. */
+      const spending = (ms: number): UnitRunner => new UnitRunner(async () => {
+        T += ms;
+        return succeeded(5n);
+      });
+
+      // What is left of the timeout is the function's
+      const partly = spending(100_000);
+      partly.setDetachedResult(ran({ kind: 'timed_out', ms: 500_000 }));
+      const cut = await unkept('load', [], [add()], partly);
+      assert.deepEqual(partly.getDetachedCalls()[0]!.limits, { ...LIMITS, timeoutMs: 500_000 }, 'its function runs for what its drafts left');
+      assert.ok(cut.outcome.type === 'timed_out' && cut.outcome.value.ms === 600_000n, 'and one cut short names the call\'s timeout');
+      assert.ok(sameRead(cut.drafts, [{ record: 'tally', commit: tallyHead.commit }]));
+
+      // The first draft takes all of it: the second does not start
+      const first = spending(600_000);
+      const unstarted = await unkept('load', [], [add(), add()], first);
+      assert.ok(unstarted.outcome.type === 'timed_out' && unstarted.outcome.value.ms === 600_000n);
+      assert.equal(unstarted.stderr, 'draft tally.add (2 of 2) timed out\n', 'the draft that did not start');
+      assert.equal(first.getCalls().length, 1);
+      assert.equal(first.getDetachedCalls().length, 0);
+
+      // The last draft takes all of it: the function does not start
+      const second = spending(600_000);
+      const laid = await unkept('load', [], [add()], second);
+      assert.ok(laid.outcome.type === 'timed_out' && laid.outcome.value.ms === 600_000n);
+      assert.equal(laid.stderr, '', 'no draft ended it');
+      assert.equal(second.getDetachedCalls().length, 0, 'its function does not start');
+      assert.equal(laid.inputs[0]!.hash, sha256Hex(encodeInt(5n)), 'its drafts were laid, and it names the state they left');
+      await noCallKept();
+    });
+  });
 });
 
 const PlanType = StructType({ status: StringType, due: IntegerType, title: StringType });
@@ -729,6 +891,20 @@ describe('a call\'s drafts, on the real runner', () => {
     assert.equal((await recordHistory(storage, repo, ws, 'plans')).length, commits, 'no commit joined its history');
     const asSaved = await functionCallRun(storage, runner, repo, ws, (await call([])).call.id);
     assert.ok(sameLabels(labelsOf(asSaved), new Map([['p-1', 'ok/Plan 1'], ['p-2', 'late/Plan 2'], ['p-3', 'ok/Plan 3']])), 'a call with no draft reads it as saved');
+
+    // A call no store keeps (`e3 call -w` of a local repository) reads the same
+    const pkg = await packageRead(storage, repo, 'plans', '1.0.0');
+    const fnObj = decodeFunctionObject(await storage.objects.read(repo, pkg.functions.get('labels')!));
+    const unkept = await functionCallUnkept(storage, runner, repo, ws, pkg, fnObj, {
+      args: [variant('value', encodeString('>'))],
+      drafts: [retitle('p-1', 'Renamed'), draft('plans', 'patch', edits())],
+    }, { limits: { timeoutMs: 120_000, maxResultBytes: 1024 * 1024, maxLogBytes: 64 * 1024 } });
+    if (unkept.outcome.type !== 'success') assert.fail(`the call ended ${unkept.outcome.type}: ${unkept.stderr}`);
+    assert.ok(sameLabels(decodeLabels(unkept.outcome.value.value), new Map([['p-1', '>ok/Renamed'], ['p-3', '>late/Plan 3'], ['p-4', '>ok/Plan 4']])),
+      'a call no store keeps reads the rows with every draft laid');
+    assert.equal(unkept.inputs[0]!.hash, drafted, 'at the same drafted state');
+    assert.ok(sameRead(unkept.drafts, [{ record: 'plans', commit: stood.commit }]));
+    assert.deepEqual(await storage.datasets.read(repo, ws, 'records/plans'), before, 'and saves nothing');
 
     // Saved, the same mutations leave the state the drafts were read at
     for (const [mutation, args] of [['retitle', [encodeString('p-1'), encodeString('Renamed')]], ['patch', [edits()]]] as const) {

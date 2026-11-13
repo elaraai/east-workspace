@@ -71,7 +71,9 @@ import { storeDatasetBytes } from '../store-collection.js';
 import type { FunctionCallEnd, StorageBackend } from '../storage/interfaces.js';
 import { uuidv7, uuidv7Timestamp } from '../uuid.js';
 import { workspaceGetPackage } from '../workspaces.js';
-import { NO_CALL_DRAFTS, draftedInputs, layCallDrafts, pinCallDrafts, type CallDrafts, type CallDraftsLaid } from './functionDrafts.js';
+import {
+  NO_CALL_DRAFTS, callDraftsEnd, callDraftsRead, draftedInputs, layCallDrafts, pinCallDrafts, type CallDrafts, type CallDraftsLaid,
+} from './functionDrafts.js';
 import type { DetachedArg, DetachedResult, TaskRunner } from './interfaces.js';
 import {
   oneShotPlatformUse, pinCallArguments, programSignature, resolveExecuteLimits, resolveJobLimits, type ExecuteCeilings, type OneShotGrant,
@@ -758,12 +760,13 @@ export async function functionCallRun(
   }
   if ('left' in ran) return { job: ran.left, result: null };
 
+  // How the call ended before its function ran, when it did: as a Save of the
+  // draft that ended it would have ended, or at its timeout
+  const unrun = 'unrun' in ran && ran.unrun.kind !== 'aborted' ? callDraftsEnd(ran.unrun, job.call.limits.timeoutMs) : null;
   // The function's log tails, or the words of the draft that ended the call
   const streams = 'result' in ran
     ? { stdout: ran.result.stdout, stderr: ran.result.stderr, stdoutTruncated: ran.result.stdoutTruncated, stderrTruncated: ran.result.stderrTruncated }
-    : ran.unrun.kind === 'failed' || ran.unrun.kind === 'timed_out'
-      ? { ...QUIET, stderr: ran.unrun.stderr, stderrTruncated: ran.unrun.stderrTruncated }
-      : QUIET;
+    : unrun === null ? QUIET : { ...QUIET, stderr: unrun.stderr, stderrTruncated: unrun.stderrTruncated };
   const cancel = asked.cancel;
   if (cancel.type === 'some') {
     return { job: await end(variant('cancelled', { by: cancel.value.by }), streams), result: null };
@@ -773,26 +776,9 @@ export async function functionCallRun(
   }
   const read = { inputs: functionCallInputs(job), drafts: functionCallDrafted(job) };
   if ('unrun' in ran) {
-    // The call ended before its function ran: as a Save of the draft that
-    // ended it would have ended, or at its timeout
-    const { unrun } = ran;
-    switch (unrun.kind) {
-      case 'failed': {
-        const failed = variant('failed', { exitCode: BigInt(unrun.exitCode) });
-        return { job: await end(failed, streams), result: { outcome: failed, ...streams, ...read } };
-      }
-      case 'timed_out': {
-        const timedOut = variant('timed_out', { ms: job.call.limits.timeoutMs });
-        return { job: await end(timedOut, streams), result: { outcome: timedOut, ...streams, ...read } };
-      }
-      case 'conflict': {
-        const conflict = variant('conflict', { record: unrun.record, mutation: unrun.mutation, message: unrun.message });
-        return { job: await end(conflict, streams), result: { outcome: conflict, ...streams, ...read } };
-      }
-      case 'aborted':
-        // A laying stops at the run's own signal alone, which is not aborted
-        return { job: await end(variant('lost', { message: 'the laying of the call\'s drafts was stopped' }), streams), result: null };
-    }
+    // A laying stops at the run's own signal alone, which is not aborted
+    if (unrun === null) return { job: await end(variant('lost', { message: 'the laying of the call\'s drafts was stopped' }), streams), result: null };
+    return { job: await end(unrun.outcome, streams), result: { outcome: unrun.outcome, ...streams, ...read } };
   }
   const { result } = ran;
   switch (result.kind) {
@@ -1010,14 +996,7 @@ export function functionCallInputs(job: FunctionCallJob): ExecuteResult['inputs'
  * @returns The records it drafted; none for a call that passed no draft
  */
 export function functionCallDrafted(job: FunctionCallJob): ExecuteResult['drafts'] {
-  const drafted: ExecuteResult['drafts'] = [];
-  const named = new Set<string>();
-  for (const draft of job.call.drafts) {
-    if (named.has(draft.record)) continue;
-    named.add(draft.record);
-    drafted.push({ record: draft.record, commit: draft.commit });
-  }
-  return drafted;
+  return callDraftsRead(job.call.drafts);
 }
 
 /** Records how a call ended, with the lifetime its end gives it, and answers

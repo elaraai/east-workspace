@@ -23,6 +23,12 @@
  * calls naming no function. A split call — a caller's program over a
  * dataset's pieces — runs as a job, launched under one-shot's grant and polled
  * for its result.
+ *
+ * A function's call through a workspace may pass drafts
+ * (`FunctionCallRequest`'s `drafts`): edits nobody has saved, each a call of a
+ * record's mutation, which the server lays over the records the function
+ * reads, so the function reads them as a Save would have left them, and
+ * nothing is saved ({@link workspaceFunctionCall}).
  */
 
 import type {
@@ -153,8 +159,8 @@ export async function functionDescribe(
  * @param fn - Function name
  * @param req - The arguments, one beast2 value each, a runner to run on
  *   instead of the function's own, and the limits. A package has no workspace
- *   to read a dataset argument from: one is `invalid` here, and passed through
- *   {@link workspaceFunctionCall}
+ *   to read a dataset argument from, nor one to lay a draft over: either is
+ *   `invalid` here, and passed through {@link workspaceFunctionCall}
  * @param options - Request options including auth token
  * @returns The call's terminal result
  * @throws {ApiError} `permission_denied` (`path` `runner`) when the caller may
@@ -267,21 +273,44 @@ export interface WorkspaceFunctionCallOptions {
  * them, has no route to start one, and the call is made through
  * {@link workspaceFunctionCallSync} instead.
  *
+ * `req.drafts` are edits nobody has saved, laid over the records the function
+ * reads: each names a record the function lists as one a call may draft (its
+ * signature's `drafts`), one of the record's mutations, and that mutation's
+ * arguments, as a mutation call takes them. The server lays them in the order
+ * given, each by the mutation's own program over the state the one before it
+ * left, so the record's rows and every index of it hold them as they would
+ * after the Save; the function reads the record at that state, and nothing is
+ * saved or shown to another reader. The result's `inputs` names the drafted
+ * state's hash for such a record, and its `drafts` the commit the record
+ * stood at: a caller that holds another commit knows its edits were laid over
+ * newer saves. A draft found wrong — of a record the function does not list,
+ * an unknown mutation, arguments of the wrong number or type — is an `invalid`
+ * result, naming the draft, and nothing runs. A draft whose mutation fails or
+ * runs out of the call's time ends the call `failed` or `timed_out` before the
+ * function runs, the first line of `stderr` naming it
+ * (`draft jobs.patch (2 of 3) failed`, which `functionDraftEnded` reads back);
+ * one that no longer fits the record, which changed under the edit, ends it
+ * `conflict`, naming the record, the mutation and the refusal's words.
+ *
  * @param url - Base URL of the e3 API server
  * @param repo - Repository name
  * @param ws - The workspace whose deployed package holds the function, and
  *   whose datasets its arguments may name
  * @param fn - Function name
  * @param req - The arguments (values or dataset paths), a runner to run on
- *   instead of the function's own, and the limits
+ *   instead of the function's own, the limits, and the drafts to lay over the
+ *   records the function reads (`[]` for none)
  * @param options - Request options including auth token
  * @param call - The signal that stops the call, and who is told its id once
  *   it runs on past its start
  * @returns The call's terminal result
  * @throws {ApiError} `permission_denied` (`path` `runner`) when the caller may
- *   not run the function on the runner the request names,
- *   `workspace_not_found` / `workspace_not_deployed`, and `internal` for a
- *   call someone cancelled, or the server lost, which has no result
+ *   not run the function on the runner the request names, `permission_denied`
+ *   (`path` `draft <record>.<mutation>`) when the server does not let the
+ *   caller pass a draft — one may be passed only where its mutation may be
+ *   committed — `workspace_not_found` / `workspace_not_deployed`, and
+ *   `internal` for a call someone cancelled, or the server lost, which has no
+ *   result
  * @throws {AuthError} On 401 Unauthorized
  * @throws The abort's reason, once `call.signal` aborts
  */
@@ -406,7 +435,8 @@ export interface FunctionCallStartOptions {
  * @param ws - The workspace whose deployed package holds the function
  * @param fn - Function name
  * @param req - The arguments, a runner to run on instead of the function's
- *   own, and the limits
+ *   own, the limits, and the drafts to lay over the records the function
+ *   reads, as {@link workspaceFunctionCall} says
  * @param options - Request options including auth token
  * @param start - How long the start waits for the call to end, and the id to
  *   file it under
@@ -595,7 +625,8 @@ export async function workspaceCallGet(
  * @param ws - The workspace whose deployed package holds the function
  * @param fn - Function name
  * @param req - The arguments, a runner to run on instead of the function's
- *   own, and the limits
+ *   own, the limits, and the drafts to lay over the records the function
+ *   reads, as {@link workspaceFunctionCall} says
  * @param options - Request options including auth token
  * @returns The call's terminal result
  * @throws {ApiError} As {@link workspaceFunctionCall} does

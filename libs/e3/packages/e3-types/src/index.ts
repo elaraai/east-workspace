@@ -127,6 +127,14 @@ export {
   functionCallRoots,
 } from './function-call.js';
 
+// How a call says which of its drafts ended it
+export {
+  functionDraftLabel,
+  functionDraftEndLine,
+  functionDraftEnded,
+  type FunctionDraftEnd,
+} from './function-draft.js';
+
 // Record objects
 export {
   RecordCommitType,

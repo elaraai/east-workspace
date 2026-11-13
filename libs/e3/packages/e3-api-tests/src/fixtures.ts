@@ -195,6 +195,93 @@ export async function createFunctionPackageZip(
   return zipPath;
 }
 
+/** A row of the drafts fixture's record: the press a print job runs on, and its hours. */
+export const DraftJobRowType = StructType({ press: StringType, hours: IntegerType });
+/** The drafts fixture's record: print jobs by key. */
+export const DraftJobsType = DictType(StringType, DraftJobRowType);
+
+/**
+ * Create a package whose functions a call lays drafts over (#1619): unsaved
+ * edits of the records they read, which the call reads and nothing saves.
+ *
+ * Creates a package with:
+ * - Record: "jobs" (Dict<String, {press, hours}>, holding `j1` on P1 for 2
+ *   hours, `j2` on P2 for 3 and `j3` on P1 for 4), its index "by_press", so
+ *   each write of it runs a program that maintains the index, and its writes:
+ *   `patch`; `move` (edit, key, press) => that job on that press; and `refuse`
+ *   (reduce, why), which fails in East as it runs, with the message
+ *   "refused: <why>"
+ * - Record: "tally" (Integer, initial 0), and Mutation "add" (by) => state + by
+ * - Function: "jobs_on" - reads "jobs", lists it as a record a call may draft,
+ *   and is given a press: how many jobs it holds
+ * - Function: "hours" - reads "jobs" and "tally", and lists both: the jobs'
+ *   hours and the tally, summed
+ * - Function: "job_count" - reads "jobs", and lists no record: how many jobs
+ *
+ * Every body is East, so every server runs them.
+ *
+ * @param tempDir - Directory to write the zip file
+ * @param name - Package name
+ * @param version - Package version
+ * @returns Path to the created zip file
+ */
+export async function createDraftsPackageZip(
+  tempDir: string,
+  name: string,
+  version: string
+): Promise<string> {
+  mkdirSync(tempDir, { recursive: true });
+
+  const jobs = e3.record('jobs', DraftJobsType, {
+    initial: new Map([
+      ['j1', { press: 'P1', hours: 2n }],
+      ['j2', { press: 'P2', hours: 3n }],
+      ['j3', { press: 'P1', hours: 4n }],
+    ]),
+    indexes: (index) => ({
+      by_press: index.on(['press']),
+    }),
+    mutations: (mutation) => ({
+      patch: mutation.patch(),
+      move: mutation.edit(East.function([DraftJobsType, StringType, StringType, e3.mutation.editType(DraftJobsType)], NullType,
+        ($, state, key, press, edit) => {
+          const row = $.let(state.get(key));
+          $(edit.set(key, { press, hours: row.hours }));
+        })),
+      refuse: mutation.reduce(East.function([DraftJobsType, StringType], DraftJobsType, ($, _state, why) => $.error(East.str`refused: ${why}`))),
+    }),
+  });
+  const tally = e3.record('tally', IntegerType, {
+    initial: 0n,
+    mutations: (mutation) => ({
+      add: mutation.reduce(East.function([IntegerType, IntegerType], IntegerType, ($, state, by) => state.add(by))),
+    }),
+  });
+  const jobsOn = e3.function('jobs_on', { inputs: [jobs], drafts: [jobs], args: [StringType], output: IntegerType }, ($, jobs, press) => {
+    const found = $.let(0n);
+    $.for(jobs, ($, job) => {
+      $.if(East.equal(job.press, press), ($) => {
+        $.assign(found, found.add(1n));
+      });
+    });
+    return found;
+  });
+  const hours = e3.function('hours', { inputs: [jobs, tally], drafts: [jobs, tally], args: [], output: IntegerType }, ($, jobs, tally) => {
+    const total = $.let(tally);
+    $.for(jobs, ($, job) => {
+      $.assign(total, total.add(job.hours));
+    });
+    return total;
+  });
+  const jobCount = e3.function('job_count', { inputs: [jobs], args: [], output: IntegerType }, ($, jobs) => jobs.size());
+  const pkg = e3.package(name, version, jobs, tally, jobsOn, hours, jobCount);
+
+  const zipPath = join(tempDir, `${name}-${version}.zip`);
+  await e3.export(pkg, zipPath);
+
+  return zipPath;
+}
+
 /**
  * Create a package with a record + mutations for testing `e3.record`.
  *

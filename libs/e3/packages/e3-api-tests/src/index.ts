@@ -43,6 +43,8 @@ export { templateWorkspace, type TemplateCopy } from './template.js';
 export {
   createPackageZip,
   createFunctionPackageZip,
+  createDraftsPackageZip,
+  DraftJobsType,
   createMultiInputPackageZip,
   createStringPackageZip,
   createTablePackageZip,

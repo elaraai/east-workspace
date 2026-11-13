@@ -18,6 +18,10 @@
  * route waits for it within the request. A function runs on its author's
  * runner for any caller the routes admit; a runner a call names instead is
  * held to the caller's grant, which the routes take as the one-shot routes do.
+ * A call through a workspace may pass drafts, unsaved edits it lays over the
+ * records its function reads and never saves (east-workspace#1619). A caller
+ * may pass one only where they may commit its mutation, which is the host's to
+ * say as who may commit is: the routes take a {@link DraftAccess}.
  *
  * One-shot is workspace-scoped, caller-supplied IR. Who may run what is the
  * host's to say, since only its auth knows who the caller is: the route takes
@@ -48,6 +52,7 @@ import {
   PackageJobResponseType,
   SplitCallRequestType,
   SplitCallStatusType,
+  type FunctionDraft,
 } from '../types.js';
 import {
   listPackageFunctions,
@@ -72,6 +77,21 @@ export type GetRunner = (repoPath: string) => TaskRunner;
  * the caller is, so every host that mounts the one-shot routes decides.
  */
 export type OneShotAccess = (c: Context) => OneShotGrant | Promise<OneShotGrant>;
+
+/**
+ * Whether a request's caller may pass a draft to a call: an unsaved edit of a
+ * record, a call of one of its mutations that the function's call lays over
+ * the record and never saves (east-workspace#1619). A caller may pass a draft
+ * only where they may commit its mutation. Only the host's auth knows who the
+ * caller is, and only the host knows whom its mutate route admits to which
+ * mutation, so a host that holds its callers to some decides here by the rule
+ * it decides there.
+ *
+ * It is asked with the request's context, whose `repo` and `ws` parameters
+ * name the workspace, and the draft as the call passed it: its record, its
+ * mutation and the mutation's arguments.
+ */
+export type DraftAccess = (c: Context, draft: FunctionDraft) => boolean | Promise<boolean>;
 
 /** Options for {@link createOneShotRoutes}. */
 export interface OneShotRoutesOptions {
@@ -137,6 +157,15 @@ export interface FunctionRoutesOptions {
   /** Who makes a call, as it is kept (default `callerOfIdentity`: the
    *  identity's email, else its subject) */
   callerOf?: CallerOf;
+  /**
+   * Who may pass a draft to a call through a workspace. It is asked for each
+   * draft a call passes, in the order passed, before the call is filed: the
+   * first it refuses answers the request `permission_denied` (`path`
+   * `draft <record>.<mutation>`), and nothing is filed or run. Absent, every
+   * caller the routes admit may pass any draft, which is what a host whose
+   * mutate route admits each of them to every mutation allows.
+   */
+  draftAccess?: DraftAccess;
 }
 
 /** The grant of a function call's caller, by the routes' options. */
@@ -228,6 +257,11 @@ export function createPackageFunctionRoutes(
  *   for within the request, its timeout clamped under the sync deadline, and
  *   answered as its `ExecuteResult`.
  *
+ * Either call may pass drafts (`FunctionCallRequestType`'s `drafts`), which
+ * its run lays over the records its function reads. Each is put to
+ * `options.draftAccess` first, in the order passed, and one it refuses answers
+ * `permission_denied` (`path` `draft <record>.<mutation>`): no call is filed.
+ *
  * @remarks
  * A workspace whose package cannot be resolved — none deployed, or no such
  * workspace — is answered in the envelope of the route's own type, as its
@@ -239,7 +273,8 @@ export function createPackageFunctionRoutes(
  * @param transferBackend - Runs the calls where the backend runs them, and
  *   hears of their ends
  * @param options - The host's sync deadline, the grant a runner a call names
- *   is held to, the ceilings, the start's window, the lifetimes, and who calls
+ *   is held to, the ceilings, the start's window, the lifetimes, who calls,
+ *   and who may pass a draft
  * @returns The routes
  */
 export function createWorkspaceFunctionRoutes(
@@ -251,12 +286,15 @@ export function createWorkspaceFunctionRoutes(
   const app = new Hono();
   const windowMs = options.windowMs ?? DEFAULT_CALL_WINDOW_MS;
   const callerOf = options.callerOf ?? callerOfIdentity;
+  const { draftAccess } = options;
   const filing = (c: Context, grant: OneShotGrant) => ({
     caller: callerOf(c),
     grant,
     verbose: c.req.query('verbose') === '1',
     ...(options.ceilings !== undefined && { ceilings: options.ceilings }),
     ...(options.lifetimes !== undefined && { lifetimes: options.lifetimes }),
+    // The host's say on each draft the call passes, for this request's caller
+    ...(draftAccess !== undefined && { admitDraft: (draft: FunctionDraft) => draftAccess(c, draft) }),
   });
 
   const deployed = async (c: Context): Promise<{ repoPath: string; name: string; version: string }> => {

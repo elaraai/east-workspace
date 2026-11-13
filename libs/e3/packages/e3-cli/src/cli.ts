@@ -368,6 +368,11 @@ program
   .argument('[args...]', 'Arguments: .east literals or .beast2/.json/.east file paths, and with --workspace a dataset of the workspace as @<keypath> (e.g. @.inputs.sales)')
   .option('-w, --workspace <ws>', 'Call against the package deployed in a workspace, whose datasets an argument may name')
   .option('-o, --output <path>', 'Write the result to a .beast2 file instead of printing')
+  .option(
+    '--draft <draft...>',
+    'With --workspace: lay an unsaved edit over a record the function reads, and save nothing: <record>.<mutation> then its arguments, '
+    + "as e3 mutate takes them. Repeatable, laid in order; written after the call's own arguments",
+  )
   .option('-v, --verbose', "Pass -v to the runner (timing/perf to stderr; local or remote)")
   .option(...JOBS)
   .option(...MEMORY)

@@ -106,6 +106,7 @@ export {
   listFunctionCalls,
   getFunctionCall,
   type CallAdmit,
+  type DraftAdmit,
   type FunctionCallFilingOptions,
   type StartFunctionCallOptions,
   type CallFunctionInWorkspaceOptions,
