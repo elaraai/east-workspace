@@ -191,9 +191,11 @@ const pkg = e3.package("planning", "1.0.0", forecast /*, + inputs/tasks */);
 export interface FunctionDef<
   Args extends readonly EastType[] = readonly EastType[],
   Output extends EastType = EastType,
-  // What the type says of the records listed in `drafts` (§3.4): none (`readonly []`),
-  // at least one (`readonly [RecordDef, ...RecordDef[]]`), or, undeclared, any number.
-  Drafts extends readonly RecordDef[] = readonly RecordDef[],
+  // Whether it lists a record in `drafts` (§3.4), as its type says it: `false` for none,
+  // `true` for at least one, and `boolean` where its declaration does not say. A flag, and
+  // not the records' types, so a declaration file can write an exported definition's type.
+  // `out`: a definition that says is one that does not say, and never the reverse.
+  out Drafted extends boolean = boolean,
 > {
   readonly kind: 'function';
   readonly name: string;
@@ -202,7 +204,10 @@ export interface FunctionDef<
   // exactly as task.ts does for its function_ir (task.ts:62, :70 `as any`).
   readonly body: EastIR<any, any> | AsyncEastIR<any, any>; // fn.toIR() as any
   readonly inputs: readonly DatasetDef[]; // what a call reads from its workspace (§3.3); [] in this form
-  readonly drafts: Drafts;       // the records a call may pass drafts of (§3.4); [] for a function that lists none
+  // the records a call may pass drafts of (§3.4): at least one where `Drafted` is `true`, none where it is `false`
+  readonly drafts: [Drafted] extends [true] ? readonly [RecordDef, ...RecordDef[]]
+    : [Drafted] extends [false] ? readonly []
+    : readonly RecordDef[];
   readonly argTypes: Args;       // the caller's arguments, after the inputs — converted to homoiconic values at export (§3.2)
   readonly outputType: Output;   // Expr.type(fn).output
   readonly runner: Runner;       // defaults to DEFAULT_RUNNER
@@ -371,9 +376,8 @@ which is a mutation's declaration before `e3.record` builds it.
   the inputs reads; a record listed twice is held once. The function object
   and its signature hold the records' names (`drafts: Array<String>`). A task
   takes no drafts. The definition's type says whether it lists any
-  (`FunctionDef`'s third type argument: `readonly []` for a function that
-  lists none, `readonly [RecordDef, ...RecordDef[]]` for one that lists a
-  record), which e3-ui's `Func.bind` reads: a handle of a function that lists
+  (`FunctionDef`'s third type argument: `false` for a function that lists
+  none, `true` for one that lists a record), which e3-ui's `Func.bind` reads: a handle of a function that lists
   a record takes the drafts as its call's last argument, and one of a function
   that lists none has the call it had (#1620). A spec declared apart from its
   call, under a `FunctionSpec` annotation, names the records it lists as the

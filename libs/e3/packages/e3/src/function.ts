@@ -45,16 +45,17 @@ type ArgExprs<T extends readonly EastType[]> = {
 type RecordsOf<Inputs extends readonly DatasetDef[]> = Extract<Inputs[number], { readonly recordKind: 'record' }>;
 
 /**
- * What a function's type says of the records its spec lists in `drafts`
- * ({@link FunctionDef}'s `Drafts`): none, at least one, or, where the list is
- * no tuple, any number.
+ * Whether a function's spec lists a record in `drafts`, as its definition's
+ * type says it ({@link FunctionDef}'s `Drafted`): `false` for none, `true`
+ * for at least one, and `boolean` where the list is no tuple, so that its
+ * length is not known.
  *
  * @typeParam Listed - The spec's `drafts`, as listed
  */
-type DraftsOf<Listed extends readonly unknown[]> =
-  number extends Listed['length'] ? readonly RecordDef[]
-  : Listed extends readonly [] ? readonly []
-  : readonly [RecordDef, ...RecordDef[]];
+type DraftedOf<Listed extends readonly unknown[]> =
+  number extends Listed['length'] ? boolean
+  : Listed extends readonly [] ? false
+  : true;
 
 /**
  * The declaration half of a function with inputs ({@link function_}'s
@@ -200,7 +201,7 @@ export function function_<
   name: Name,
   spec: FunctionSpec<Inputs, Args, Output, Listed>,
   fn: ($: BlockBuilder<Output>, ...params: [...InputExprs<Inputs>, ...ArgExprs<Args>]) => SubtypeExprOrValue<NoInfer<Output>> | void,
-): FunctionDef<Args, Output, DraftsOf<Listed>>;
+): FunctionDef<Args, Output, DraftedOf<Listed>>;
 /**
  * Defines a named function stored in a package.
  *
@@ -247,7 +248,7 @@ export function function_<Name extends string, Args extends EastType[], Output e
     | AsyncFunctionExpr<Args, Output>
     | CallableAsyncFunctionExpr<Args, Output>,
   config?: { runner?: FunctionRunner, environment?: EnvironmentDecl },
-): FunctionDef<Args, Output, readonly []>;
+): FunctionDef<Args, Output, false>;
 export function function_(
   name: string,
   second: FunctionExpr<EastType[], EastType> | AsyncFunctionExpr<EastType[], EastType> | FunctionSpec<(DatasetDef | RecordDef)[], EastType[], EastType, readonly RecordDef[]>,

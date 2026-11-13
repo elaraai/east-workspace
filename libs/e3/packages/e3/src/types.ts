@@ -234,17 +234,21 @@ export interface TaskDef<TOutput extends EastType = EastType, Path extends TreeP
  *
  * @typeParam Args - The East types of the arguments a caller passes
  * @typeParam Output - The East type of the return value
- * @typeParam Drafts - What its type says of the records it lists in
- *   {@link drafts}: none (`readonly []`), at least one
- *   (`readonly [RecordDef, ...RecordDef[]]`), or, where its declaration does
- *   not say, any number (`readonly RecordDef[]`). What binds a function to a
- *   page reads it, since a call of a function that lists a record takes
- *   drafts and a call of one that lists none does not
+ * @typeParam Drafted - Whether it lists a record in {@link drafts}, as its
+ *   type says it: `false` for none, `true` for at least one, and `boolean`
+ *   where its declaration does not say. What binds a function to a page reads
+ *   it, since a call of a function that lists a record takes drafts and a
+ *   call of one that lists none does not. It is a flag, and not the listed
+ *   records' types, so that the type of a definition a module exports is one
+ *   its declaration file can write: `FunctionDef<[StringType], IntegerType, true>`.
+ *   It is declared `out`: a definition that says is one that does not say,
+ *   and never the reverse, which TypeScript does not work out for itself
+ *   from a flag read only where {@link drafts} is typed by it
  */
 export interface FunctionDef<
   Args extends readonly EastType[] = readonly EastType[],
   Output extends EastType = EastType,
-  Drafts extends readonly RecordDef[] = readonly RecordDef[],
+  out Drafted extends boolean = boolean,
 > {
   readonly kind: 'function';
   /** Function name (unique within the package) */
@@ -259,7 +263,9 @@ export interface FunctionDef<
    *  that are not committed, laid over it for that call alone — each once,
    *  and each a record among {@link inputs}; empty for a function that takes
    *  none. */
-  readonly drafts: Drafts;
+  readonly drafts: [Drafted] extends [true] ? readonly [RecordDef, ...RecordDef[]]
+    : [Drafted] extends [false] ? readonly []
+    : readonly RecordDef[];
   /** The types of the arguments a caller passes, after the inputs. */
   readonly argTypes: Args;
   /** Return type */

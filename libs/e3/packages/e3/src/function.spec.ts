@@ -35,7 +35,7 @@ import { export_ } from './export.js';
 import { input } from './input.js';
 import { record } from './record.js';
 import { partition, task } from './task.js';
-import type { IRBundle, RecordDef } from './types.js';
+import type { FunctionDef, IRBundle, RecordDef } from './types.js';
 import type { FunctionSpec } from './index.js';
 
 /**
@@ -77,6 +77,22 @@ async function readZip(zipPath: string): Promise<Map<string, Buffer>> {
 function objectEntry(entries: Map<string, Buffer>, hash: string): Buffer | undefined {
   return entries.get(`objects/${hash.slice(0, 2)}/${hash.slice(2)}.beast2`);
 }
+
+// A function that lists drafts, exported so that the build writes its
+// declaration: the type of a definition a module exports is one a declaration
+// file can write. A definition's type once named the records it lists, and a
+// record's type, with its path, is one no declaration outside east can write
+// (TS4023), so no module could export such a function.
+const exportedJobs = record('exported_jobs', DictType(StringType, StructType({ press: StringType })), {
+  initial: new Map(),
+  mutations: (mutation) => ({ patch: mutation.patch() }),
+});
+export const exportedDrafted = function_('exported_drafted', {
+  inputs: [exportedJobs],
+  drafts: [exportedJobs],
+  args: [StringType],
+  output: IntegerType,
+}, ($, jobs, _press) => jobs.size());
 
 describe('function_', () => {
   it('infers argTypes/outputType from the East function, which reads no input', () => {
@@ -249,6 +265,34 @@ describe('function_ with drafts', () => {
     assert.deepStrictEqual([ofPlain, ofSimple, ofEmpty, plainAsSome], [[], [], [], []]);
     assert.deepStrictEqual(ofDrafted, [jobs, presses]);
     assert.strictEqual(draftedAsNone, ofDrafted);
+
+    // The definition's type says it as a flag, which a declaration file can write
+    const flagged: FunctionDef<[], IntegerType, true> = drafted;
+    const unflagged: FunctionDef<[], IntegerType, false> = plain;
+    // @ts-expect-error — a function that lists a record is not flagged as listing none
+    const flaggedAsNone: FunctionDef<[], IntegerType, false> = drafted;
+    // @ts-expect-error — and one that lists none is not flagged as listing one
+    const unflaggedAsSome: FunctionDef<[], IntegerType, true> = plain;
+    // Either is a function whose type does not say, which lists any number
+    const unsaid: FunctionDef<[], IntegerType>[] = [flagged, unflagged];
+    const ofUnsaid: (readonly RecordDef[])[] = unsaid.map((fn) => fn.drafts);
+    assert.deepStrictEqual(ofUnsaid, [[jobs, presses], []]);
+    assert.strictEqual(flaggedAsNone, drafted);
+    assert.strictEqual(unflaggedAsSome, plain);
+
+    // And one whose type does not say is neither, so nothing takes it for one that lists none
+    const wide: FunctionDef<[], IntegerType> = drafted;
+    // @ts-expect-error — a definition whose type does not say is not one that lists none
+    const wideAsNone: FunctionDef<[], IntegerType, false> = wide;
+    // @ts-expect-error — nor one that lists a record
+    const wideAsSome: FunctionDef<[], IntegerType, true> = wide;
+    assert.strictEqual(wideAsNone, drafted);
+    assert.strictEqual(wideAsSome, drafted);
+  });
+
+  it('is exported by a module whose declaration the build writes', () => {
+    const flagged: FunctionDef<[StringType], IntegerType, true> = exportedDrafted;
+    assert.deepStrictEqual(flagged.drafts, [exportedJobs]);
   });
 
   it('lists a record in a spec declared apart from its call where the spec names it', () => {

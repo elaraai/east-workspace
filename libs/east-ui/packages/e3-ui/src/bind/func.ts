@@ -36,7 +36,7 @@ import {
     type ExprType,
 } from '@elaraai/east';
 import { FunctionDraftConflictType, FunctionDraftedType, FunctionDraftType } from '@elaraai/e3-types';
-import type { FunctionDef, RecordDef } from '@elaraai/e3';
+import type { FunctionDef } from '@elaraai/e3';
 
 // ============================================================================
 // Status + error types
@@ -491,7 +491,7 @@ export const FuncBindPrimitives = {
  * ```
  */
 function bindFunction<Inputs extends EastType[], Output extends EastType>(
-    fn: FunctionDef<Inputs, Output, readonly []>,
+    fn: FunctionDef<Inputs, Output, false>,
 ): BoundFunc<Inputs, Output>;
 /**
  * Bind an `e3.function` that lists `drafts` to a reactive call handle whose
@@ -560,7 +560,7 @@ function bindFunction<Inputs extends EastType[], Output extends EastType>(
  * ```
  */
 function bindFunction<Inputs extends EastType[], Output extends EastType>(
-    fn: FunctionDef<Inputs, Output, readonly [RecordDef, ...RecordDef[]]>,
+    fn: FunctionDef<Inputs, Output, true>,
 ): BoundDraftsFunc<Inputs, Output>;
 function bindFunction(fn: FunctionDef): Expr {
     // The records the function lists, as the deployed package names them
