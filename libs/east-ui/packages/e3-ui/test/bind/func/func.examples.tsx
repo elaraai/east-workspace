@@ -47,6 +47,82 @@ export const quoteFn = e3.function("quote", {
     return { total, short };
 });
 
+// Functions a page calls over its unsaved edits (#1620). Each lists, in
+// `drafts`, the records a call may lay edits over: a call that passes drafts
+// reads those records as a Save of the drafts would leave them, and saves
+// nothing. The print shop's jobs take a patch — what a builder's Save commits,
+// and so what its draft holds — and a move of one job to another press, which
+// refuses a job the shop does not hold; its presses take a patch.
+export const PressJobType = StructType({ press: StringType, hours: IntegerType });
+export const PressJobsType = DictType(StringType, PressJobType);
+export const pressJobs = e3.record("press_jobs", PressJobsType, {
+    initial: new Map([
+        ["j1", { press: "P1", hours: 4n }],
+        ["j2", { press: "P1", hours: 2n }],
+        ["j3", { press: "P2", hours: 6n }],
+    ]),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+        move: mutation.edit(East.function([PressJobsType, StringType, StringType, e3.mutation.editType(PressJobsType)], NullType,
+            ($, jobs, job, press, edit) => {
+                $.if(jobs.has(job).not(), $ => {
+                    $.error(East.str`the shop holds no job ${job}`);
+                });
+                $(edit.set(job, { press, hours: jobs.get(job).hours }));
+            })),
+    }),
+});
+export const PressType = StructType({ name: StringType, hoursPerDay: IntegerType });
+export const PressesType = DictType(StringType, PressType);
+export const presses = e3.record("presses", PressesType, {
+    initial: new Map([
+        ["P1", { name: "Offset", hoursPerDay: 8n }],
+        ["P2", { name: "Digital", hoursPerDay: 8n }],
+    ]),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
+// How many jobs a press holds: it reads the jobs, and lists them, so a call
+// may lay a page's edits of them over what it reads.
+export const jobsOnFn = e3.function("jobs_on", {
+    inputs: [pressJobs],
+    drafts: [pressJobs],
+    args: [StringType],
+    output: IntegerType,
+}, ($, jobs, press) => {
+    const found = $.let(0n);
+    $.for(jobs, ($, job) => {
+        $.if(East.equal(job.press, press), $ => {
+            $.assign(found, found.add(1n));
+        });
+    });
+    return found;
+});
+// A press's load against its day: it reads the jobs and the presses, and lists
+// both, so one call may lay edits of each.
+export const PressLoadType = StructType({ jobs: ArrayType(StringType), hours: IntegerType, capacity: IntegerType });
+export const pressLoadFn = e3.function("press_load", {
+    inputs: [pressJobs, presses],
+    drafts: [pressJobs, presses],
+    args: [StringType],
+    output: PressLoadType,
+}, ($, jobs, shop, press) => {
+    const held = $.let([], ArrayType(StringType));
+    const hours = $.let(0n);
+    $.for(jobs, ($, job, key) => {
+        $.if(East.equal(job.press, press), $ => {
+            $(held.pushLast(key));
+            $.assign(hours, hours.add(job.hours));
+        });
+    });
+    const capacity = $.let(0n);
+    $.match(shop.tryGet(press), {
+        some: ($, found) => { $.assign(capacity, found.hoursPerDay); },
+    });
+    return { jobs: held, hours, capacity };
+});
+
 export const funcBindCall = example({
     keywords: ["Func", "bind", "call", "Reactive", "Button", "pending", "read", "RPC", "FunctionDef"],
     description: "Bind an e3.function def; a button launches it and a stat shows the result",
