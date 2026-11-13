@@ -74,6 +74,19 @@ describe("the rota the check reads beside the duties (#1551)", () => {
         expect(rotaIssues(c)).toEqual(expect.arrayContaining([CHANGED, GONE, MISSING]));
     });
 
+    test("with nothing selected, Details counts what the check finds in words, each in its number: one gap is `1 gap`, never `1 gaps`", async () => {
+        const { container: c } = await open(ex.rosterRota);
+        await issuesTab(c);
+        const found = (kind: string) => slot(c, "end").querySelectorAll(`[data-roster-issue="${kind}"]`).length;
+        // The week's check finds several breaches and one gap.
+        const [breaches, gaps] = [found("breach"), found("gap")];
+        expect(breaches).toBeGreaterThan(1);
+        expect(gaps).toBe(1);
+        const label = [...slot(c, "end").querySelectorAll<HTMLElement>('[data-roster-inspector="details"] *')]
+            .find(el => el.childElementCount === 0 && el.textContent === "Issues")!;
+        expect(label.parentElement!.lastElementChild!.textContent).toBe(`${breaches} breaches · 1 gap`);
+    });
+
     test("while the week's rows and the rota are read the Issues tab shows it is loading, its count unsaid, and never says there are no issues; read, it says what the check finds (#1595)", async () => {
         const { container: c } = await open(ex.rosterRota);
         await issuesTab(c);

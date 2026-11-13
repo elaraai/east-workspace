@@ -40,14 +40,16 @@ export function kindPlural(name: string): string {
 }
 
 /**
- * A count and what it counts, as English says it: `1 issue`, `3 issues`.
+ * A count and what it counts, as English says it: `1 issue`, `3 issues` — the
+ * word's plural as English makes one ({@link kindPlural}): `1 breach`,
+ * `4 breaches`.
  *
  * @param n - How many
  * @param word - What it counts, in the singular
  * @returns The words
  */
 export function plural(n: number, word: string): string {
-    return `${n} ${word}${n === 1 ? "" : "s"}`;
+    return `${n} ${n === 1 ? word : kindPlural(word)}`;
 }
 
 /**

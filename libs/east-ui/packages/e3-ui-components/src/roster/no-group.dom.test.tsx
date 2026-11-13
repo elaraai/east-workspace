@@ -110,6 +110,9 @@ describe("a duty in no group yet (#1548)", () => {
         // A tile names a group not its person's own in capitals, as it names every group.
         expect(tile().textContent).toContain("NO GROUP");
         await press(tile());
+        // Its Details names its Group once — the field's own label, no heading over it saying the same.
+        const details = slot(c, "end").querySelector<HTMLElement>('[data-roster-inspector="details"]')!;
+        expect([...details.querySelectorAll("*")].filter(el => el.childElementCount === 0 && el.textContent?.trim() === "Group")).toHaveLength(1);
         const trigger = slot(c, "end").querySelector<HTMLElement>('[data-field="group"] [data-scope=select][data-part=trigger]')!;
         await act(async () => { fireEvent.click(trigger); });
         await settle();

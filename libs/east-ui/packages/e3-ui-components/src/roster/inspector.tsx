@@ -14,6 +14,7 @@ import { useFieldAsk } from "../shared/schedule/field-ask.js";
 import { ScheduleInspectorHead } from "../shared/schedule/inspector-head.js";
 import { madeFromValues } from "../shared/schedule/records.js";
 import { Seg } from "../shared/schedule/segments.js";
+import { plural } from "../shared/schedule/words.js";
 import { AssignmentActions, AssignmentFields, GroupField, PlaceAction, RequirementFields, TimesFields, dutyForm, type DutyFormValue } from "./controls.js";
 import { CoverageView, ProposalCard, assignmentName, costed, dismissible, money, type RosterViewsProps } from "./views.js";
 import { difference, looseOf, summedCoverage } from "./demand.js";
@@ -184,9 +185,10 @@ function OneAssignment({ props, id, assignment: a }: { props: Args; id: string; 
         {!removed && refusals.length > 0 && <Box css={props.styles.section} data-roster-refusals=""><BannerView status="warning" title="Not saved yet" description={refusals.map(r => r.text).join("; ")} /></Box>}
         {!removed && <RosterIssues props={props} issues={props.issues.filter(issue => issue.assignment.type === "some" && issue.assignment.value === id)} />}
         {!removed && <Box css={props.styles.fields}>
-            {/* Where the duty kind's group takes none (#1548): the groups and No group, a choice moving the duty there. */}
-            {props.value.duty.roles.noGroup && <><Box css={props.styles.sectionHead}>Group</Box>
-                <GroupField value={props.value} group={a.place.group} baseline={baseline?.place.group} readOnly={!props.commands.availableOn(a.place.day)} onChange={toGroup} /></>}
+            {/* Where the duty kind's group takes none (#1548): the groups and No group, a choice moving the duty there —
+                under the field's own label, no heading over it saying Group a second time. */}
+            {props.value.duty.roles.noGroup
+                && <GroupField value={props.value} group={a.place.group} baseline={baseline?.place.group} readOnly={!props.commands.availableOn(a.place.day)} onChange={toGroup} />}
             <Box css={props.styles.sectionHead}>Shift</Box>
             <Seg fullWidth label="Duty shift" scope="roster" name="assignment-shift" active={a.place.shift} items={props.value.shifts.map(s => ({ key: s.key, label: s.label, disabled: !props.commands.availableOn(a.place.day) }))} onPick={shift => props.onError(props.commands.place({ type: "assignment", key: id }, { day: a.place.day, group: a.place.group, shift }))} />
             <Box css={props.styles.detail}>{props.format.time(a.start)}–{props.format.time(a.end)} · {props.format.number(a.hours)} h{props.format.weekday(a.end) !== props.format.weekday(a.start) && " · ends next day"}</Box>
@@ -276,7 +278,7 @@ function Summary({ props }: { props: Args }) {
         { label: "Cost", value: money(props.format, props.value, costs.total, false), sub: [...costs.byCode].map(([code, amount]) => `${code} ${money(props.format, props.value, amount)}`).join(" · ") },
         { label: "Positions", value: `${totals.filled} / ${totals.positions}`, sub: `${totals.open} open` },
         { label: "Hours", value: `${props.format.number(totals.hours)} h`, sub: `of ${props.format.number(totals.needed)} h needed` },
-        { label: "Issues", value: String(breaches + gaps), sub: `${breaches} breaches · ${gaps} gaps` },
+        { label: "Issues", value: String(breaches + gaps), sub: `${plural(breaches, "breach")} · ${plural(gaps, "gap")}` },
     ];
     const period = days === 1 ? `Day · ${props.format.weekdayDate(new Date(props.view.date))}`
         : props.view.period === "month" ? `Month · ${props.format.monthYear(dayStart(props.view.date))}` : `Week · ${props.format.range(props.start, new Date(props.start.getTime() + 6 * DAY))}`;
