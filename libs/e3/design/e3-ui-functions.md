@@ -42,6 +42,22 @@
 > a UUIDv7 of its own, the start's `?id=` — so a call is asked to stop however
 > soon its page goes, its start's answer or not. A server that keeps no calls
 > answers the sync route alone, which the client falls back to.
+> **Drafts amendment (#1620):** a function may list `drafts` — records a call
+> may lay unsaved edits over, read as a Save of them would leave them, and
+> never saved (`e3-functions.md`). A draft is `FuncDraftType`, e3's
+> `{ record, mutation, args }`: a mutation's call, not committed, which
+> `Record.bind`'s `draft.<name>(…)` and `Record.toDraft` make. `Func.bind` of
+> a function that lists drafts answers a second handle type,
+> `FuncBindDraftsHandleType`: its `call` takes the drafts after the arguments,
+> an Array, and it gains `drafted()` — each record the call drafted and the
+> commit it stood at, for the result `read()` gives. `function_bind` takes the
+> listed records' names as a second argument, which every handle's
+> `binding.drafts` carries (empty for a function that lists none), and
+> `function_call` carries the call's drafts, empty for a call as saved.
+> `FuncErrorType`'s kinds gain `conflict` — the record, the mutation and the
+> refusal's words — for a draft of a record that changed under the edit. The
+> in-memory `FunctionApi` reads no record, so a call that passes it a draft
+> ends `invalid`. Signatures below predate this.
 > Audience: e3-ui maintainers + an implementing agent. Companion to
 > `e3-functions.md` (the `e3.function` execution primitive this binds to) and
 > `e3-ui.md` (the `e3.ui()` / `Data.bind` surface this extends). Implementation

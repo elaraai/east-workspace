@@ -5,7 +5,7 @@
 /** @jsxImportSource @elaraai/e3-ui */
 import { ArrayType, DictType, East, FloatType, IntegerType, NullType, RecursiveType, StringType, StructType, example, variant } from "@elaraai/east";
 import { Button, HStack, Reactive, Stat, Text, UIComponentType, VStack } from "@elaraai/east-ui";
-import { Func } from "@elaraai/e3-ui";
+import { Func, Record } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
 
 // The package-side function definitions. `Func.bind` takes the def itself —
@@ -193,7 +193,7 @@ export const funcBindStatus = example({
 
 export const funcBindCancel = example({
     keywords: ["Func", "bind", "cancel", "pending", "abort"],
-    description: "Cancel stops waiting for the in-flight call (the server still finishes it)",
+    description: "Cancel stops the in-flight call: the page stops waiting, and the server is asked to stop it",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const rebalance = $.let(Func.bind(rebalanceFn));
@@ -231,6 +231,110 @@ export const funcBindSharedChannel = example({
                     <Button onClick={run} loading={launcher.pending()}>Run forecast</Button>
                     <Stat label={East.str`Result of ${observer.binding.name}`}
                           value={East.print(observer.read())} />
+                </VStack>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+export const funcBindDrafts = example({
+    keywords: ["Func", "bind", "drafts", "draft", "call", "unsaved edits", "what-if", "Record", "Record.bind", "FuncDraftType", "nothing saved", "e3.function"],
+    description: "Call a function over the page's unsaved edits: a function that lists drafts takes them as its call's last argument, an Array — each a mutation made with Record.bind's draft.<name>, not committed — reads the record with them laid over it, and saves nothing; an empty Array is a call as saved",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const board = $.let(Record.bind(pressJobs));
+            // `jobsOnFn` lists `drafts: [pressJobs]`, so its call takes drafts after its arguments.
+            const count = $.let(Func.bind(jobsOnFn));
+            const asSaved = $.const(East.function([], NullType, $ => {
+                $(count.call("P1", []));
+            }));
+            const withMove = $.const(East.function([], NullType, $ => {
+                // j3 moved onto P1 and not committed: the arguments `board.mutate.move` takes.
+                $(count.call("P1", [board.draft.move("j3", "P1")]));
+            }));
+            return (
+                <VStack gap="3" align="stretch">
+                    <HStack gap="2">
+                        <Button variant="outline" onClick={asSaved} loading={count.pending()}>As saved</Button>
+                        <Button onClick={withMove} loading={count.pending()}>With j3 moved to P1</Button>
+                    </HStack>
+                    <Stat label="Jobs on P1" value={East.print(count.read())} />
+                </VStack>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+export const funcBindDrafted = example({
+    keywords: ["Func", "bind", "drafted", "binding", "drafts", "commit", "several records", "two records", "Record.bind", "draft", "patch", "East.diff"],
+    description: "Drafts of two records in one call, and what the call read beneath them: drafted() names each record the call drafted and the commit it stood at for the result read() gives, and binding.drafts the records the function lists",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const board = $.let(Record.bind(pressJobs));
+            const shop = $.let(Record.bind(presses));
+            // `pressLoadFn` lists both records, so one call may lay edits of each.
+            const load = $.let(Func.bind(pressLoadFn));
+            const run = $.const(East.function([], NullType, $ => {
+                // P1 given a ten-hour day: a patch from the presses as read to the presses as edited.
+                const edited = $.let(shop.read().copy());
+                $(edited.insertOrUpdate("P1", { name: "Offset", hoursPerDay: 10n }));
+                $(load.call("P1", [
+                    board.draft.move("j3", "P1"),
+                    shop.draft.patch(East.diff(shop.read(), edited)),
+                ]));
+            }));
+            const figure = $.let(load.read().match({
+                some: (_$, held) => East.str`${held.hours} h of ${held.capacity} h, ${held.jobs.size()} jobs`,
+                none: _$ => East.str`not asked yet`,
+            }));
+            // Each record the call drafted, and the commit it stood at as e3 laid the drafts over it.
+            const beneath = $.let(load.drafted().map((_$, drafted) => East.str`${drafted.record} at ${drafted.commit.substring(0n, 8n)}`).stringJoin(", "));
+            return (
+                <VStack gap="3" align="stretch">
+                    <Button onClick={run} loading={load.pending()}>Load P1 with my edits</Button>
+                    <Stat label="P1 with j3 and a ten-hour day" value={figure} />
+                    <Text color="fg.muted">{East.str`May draft: ${load.binding.drafts.stringJoin(", ")}`}</Text>
+                    <Text color="fg.muted">{East.str`Read over: ${beneath}`}</Text>
+                </VStack>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+export const funcBindDraftRefused = example({
+    keywords: ["Func", "bind", "drafts", "error", "conflict", "failed", "refused", "draft", "kind", "stale edit", "changed under the edit", "FuncErrorType"],
+    description: "A draft the record refuses ends the call as a Save of it would have ended, and the function does not run: error() names the draft, its kind conflict where the record changed under the edit — the record, the mutation and the refusal's words — and failed where the mutation's own program refuses",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const board = $.let(Record.bind(pressJobs));
+            const count = $.let(Func.bind(jobsOnFn));
+            const stale = $.const(East.function([], NullType, $ => {
+                // An edit begun when j1 was on P2: its patch carries what the job was, and the
+                // record, where j1 is on P1, refuses it as it would refuse the Save.
+                const was = $.const(new Map([["j1", { press: "P2", hours: 4n }]]), PressJobsType);
+                const now = $.const(new Map([["j1", { press: "P3", hours: 4n }]]), PressJobsType);
+                $(count.call("P1", [board.draft.patch(East.diff(was, now))]));
+            }));
+            const unknown = $.const(East.function([], NullType, $ => {
+                // The jobs' `move` refuses a job the shop does not hold, as it would refuse the commit.
+                $(count.call("P1", [board.draft.move("j9", "P1")]));
+            }));
+            const detail = $.let(count.error().match({
+                some: (_$, error) => error.kind.match({
+                    conflict: (_$, refused) => East.str`${refused.record}.${refused.mutation} changed under the edit: ${refused.message}`,
+                }, _$ => error.message),
+                none: _$ => East.str`no draft refused`,
+            }));
+            return (
+                <VStack gap="3" align="stretch">
+                    <HStack gap="2">
+                        <Button variant="outline" onClick={stale} loading={count.pending()}>A stale edit</Button>
+                        <Button variant="outline" onClick={unknown} loading={count.pending()}>An unknown job</Button>
+                    </HStack>
+                    <Text color="fg.muted">{detail}</Text>
                 </VStack>
             );
         }}</Reactive>

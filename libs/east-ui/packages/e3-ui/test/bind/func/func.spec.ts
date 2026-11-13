@@ -47,6 +47,9 @@ describeEast("Func", (test) => {
         funcBindStatus: ex.funcBindStatus,
         funcBindCancel: ex.funcBindCancel,
         funcBindSharedChannel: ex.funcBindSharedChannel,
+        funcBindDrafts: ex.funcBindDrafts,
+        funcBindDrafted: ex.funcBindDrafted,
+        funcBindDraftRefused: ex.funcBindDraftRefused,
     });
 
     test("Func.bind exposes a call closure inside Reactive.Root", $ => {

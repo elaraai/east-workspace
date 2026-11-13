@@ -527,34 +527,43 @@ function bindFunction<Inputs extends EastType[], Output extends EastType>(
  *
  * @example
  * ```ts
- * import { East, DictType, IntegerType, NullType, StringType, StructType } from "@elaraai/east";
- * import { Button, Reactive, Stat, UIComponentType, VStack } from "@elaraai/east-ui";
+ * import { DictType, East, IntegerType, NullType, StringType, StructType } from "@elaraai/east";
+ * import { Button, HStack, Reactive, Stat, UIComponentType, VStack } from "@elaraai/east-ui";
  * import { Func, Record } from "@elaraai/e3-ui";
  * import e3 from "@elaraai/e3";
  *
- * const jobs = e3.record('jobs', DictType(StringType, StructType({ press: StringType })), {
- *     initial: new Map(),
- *     mutations: (mutation) => ({ patch: mutation.patch() }),
+ * const PressJobsType = DictType(StringType, StructType({ press: StringType, hours: IntegerType }));
+ * // The print shop's jobs: j1 and j2 on P1, j3 on P2. `move` puts a job on another press
+ * const pressJobs = e3.record('press_jobs', PressJobsType, {
+ *     initial: new Map([...]),
+ *     mutations: (mutation) => ({ patch: mutation.patch(), move: mutation.edit(...) }),
  * });
- * // `drafts: [jobs]`: a call may lay unsaved edits over the record it reads
- * const jobsOn = e3.function('jobs_on',
- *     { inputs: [jobs], drafts: [jobs], args: [StringType], output: IntegerType },
+ * // `drafts: [pressJobs]`: a call may lay unsaved edits over the record it reads
+ * const jobsOnFn = e3.function('jobs_on',
+ *     { inputs: [pressJobs], drafts: [pressJobs], args: [StringType], output: IntegerType },
  *     ($, jobs, press) => ...);
  *
- * const jobsOnPress = East.function([], UIComponentType, _$ => {
+ * // Mirrors `funcBindDrafts` in test/bind/func/func.examples.tsx.
+ * const funcBindDrafts = East.function([], UIComponentType, _$ => {
  *     return Reactive.Root(East.function([], UIComponentType, $ => {
- *         const board = $.let(Record.bind(jobs));
- *         const count = $.let(Func.bind(jobsOn));
- *         const run = $.const(East.function([], NullType, $ => {
- *             // `change` is the patch `board.mutate.patch` would take
- *             const moved = $.const(board.draft.patch(change));
- *             // The call's last argument is its drafts; nothing is saved
- *             $(count.call("P1", [moved]));
+ *         const board = $.let(Record.bind(pressJobs));
+ *         const count = $.let(Func.bind(jobsOnFn));
+ *         const asSaved = $.const(East.function([], NullType, $ => {
+ *             // An empty Array is a call as saved: two jobs on P1
+ *             $(count.call("P1", []));
+ *         }));
+ *         const withMove = $.const(East.function([], NullType, $ => {
+ *             // j3 moved onto P1 and not committed — the arguments `board.mutate.move`
+ *             // takes. The call's last argument is its drafts: three jobs, nothing saved
+ *             $(count.call("P1", [board.draft.move("j3", "P1")]));
  *         }));
  *         return VStack.Root([
- *             Button.Root("Count with my move", { onClick: run, loading: count.pending() }),
+ *             HStack.Root([
+ *                 Button.Root("As saved", { variant: "outline", onClick: asSaved, loading: count.pending() }),
+ *                 Button.Root("With j3 moved to P1", { onClick: withMove, loading: count.pending() }),
+ *             ], { gap: "2" }),
  *             Stat.Root({ label: "Jobs on P1", value: East.print(count.read()) }),
- *         ], { gap: "3" });
+ *         ], { gap: "3", align: "stretch" });
  *     }));
  * });
  * ```

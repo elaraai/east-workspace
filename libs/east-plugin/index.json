@@ -1,15 +1,15 @@
 {
   "version": 2,
   "stats": {
-    "totalEntries": 1348,
-    "totalFiles": 222,
+    "totalEntries": 1353,
+    "totalFiles": 223,
     "packages": {
       "east": 587,
       "east-node-std": 55,
       "east-node-io": 63,
       "east-py-datascience": 94,
       "east-ui": 308,
-      "e3-ui": 202,
+      "e3-ui": 207,
       "e3": 25,
       "e3-ui-cli": 8,
       "e3-create": 6
@@ -41157,7 +41157,7 @@
       "imports": [
         "import { ArrayType, DictType, East, FloatType, IntegerType, NullType, RecursiveType, StringType, StructType, example, variant } from \"@elaraai/east\";",
         "import { Button, HStack, Reactive, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
-        "import { Func } from \"@elaraai/e3-ui\";",
+        "import { Func, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
       "languages": [
@@ -41186,7 +41186,7 @@
       "imports": [
         "import { ArrayType, DictType, East, FloatType, IntegerType, NullType, RecursiveType, StringType, StructType, example, variant } from \"@elaraai/east\";",
         "import { Button, HStack, Reactive, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
-        "import { Func } from \"@elaraai/e3-ui\";",
+        "import { Func, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
       "languages": [
@@ -41212,7 +41212,7 @@
       "imports": [
         "import { ArrayType, DictType, East, FloatType, IntegerType, NullType, RecursiveType, StringType, StructType, example, variant } from \"@elaraai/east\";",
         "import { Button, HStack, Reactive, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
-        "import { Func } from \"@elaraai/e3-ui\";",
+        "import { Func, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
       "languages": [
@@ -41226,7 +41226,7 @@
       "package": "e3-ui",
       "file": "east-ui/packages/e3-ui/test/bind/func/func.examples.tsx",
       "suite": "",
-      "test": "Cancel stops waiting for the in-flight call (the server still finishes it)",
+      "test": "Cancel stops the in-flight call: the page stops waiting, and the server is asked to stop it",
       "keywords": [
         "Func",
         "bind",
@@ -41237,13 +41237,13 @@
       "imports": [
         "import { ArrayType, DictType, East, FloatType, IntegerType, NullType, RecursiveType, StringType, StructType, example, variant } from \"@elaraai/east\";",
         "import { Button, HStack, Reactive, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
-        "import { Func } from \"@elaraai/e3-ui\";",
+        "import { Func, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
       "languages": [
         "tsx"
       ],
-      "source": "// Cancel stops waiting for the in-flight call (the server still finishes it)\n// inputs: []\nexport const rebalanceFn = e3.function(\"rebalance\", East.function([FloatType], FloatType, (_$, target) => target));\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const rebalance = $.let(Func.bind(rebalanceFn));\n            const run = $.const(East.function([], NullType, $ => {\n                $(rebalance.call(0.5));\n            }));\n            return (\n                <HStack gap=\"3\">\n                    <Button onClick={run} loading={rebalance.pending()}>Rebalance</Button>\n                    <Button variant=\"outline\" onClick={rebalance.cancel}\n                            disabled={rebalance.pending().not()}>\n                        Cancel\n                    </Button>\n                </HStack>\n            );\n        }}</Reactive>\n    ))"
+      "source": "// Cancel stops the in-flight call: the page stops waiting, and the server is asked to stop it\n// inputs: []\nexport const rebalanceFn = e3.function(\"rebalance\", East.function([FloatType], FloatType, (_$, target) => target));\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const rebalance = $.let(Func.bind(rebalanceFn));\n            const run = $.const(East.function([], NullType, $ => {\n                $(rebalance.call(0.5));\n            }));\n            return (\n                <HStack gap=\"3\">\n                    <Button onClick={run} loading={rebalance.pending()}>Rebalance</Button>\n                    <Button variant=\"outline\" onClick={rebalance.cancel}\n                            disabled={rebalance.pending().not()}>\n                        Cancel\n                    </Button>\n                </HStack>\n            );\n        }}</Reactive>\n    ))"
     },
     {
       "id": "e3-ui:func.examples.tsx:funcBindSharedChannel",
@@ -41263,13 +41263,140 @@
       "imports": [
         "import { ArrayType, DictType, East, FloatType, IntegerType, NullType, RecursiveType, StringType, StructType, example, variant } from \"@elaraai/east\";",
         "import { Button, HStack, Reactive, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
-        "import { Func } from \"@elaraai/e3-ui\";",
+        "import { Func, Record } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
       "languages": [
         "tsx"
       ],
       "source": "// Handles bound to the same function share one channel: one launches, another observes\n// inputs: []\nexport const forecastFn = e3.function(\"forecast\", East.function([IntegerType, FloatType], FloatType, (_$, _periods, growth) => growth));\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            // Two independent binds of the same function observe the same\n            // tracked call — `binding.name` is the channel key.\n            const launcher = $.let(Func.bind(forecastFn));\n            const observer = $.let(Func.bind(forecastFn));\n            const run = $.const(East.function([], NullType, $ => {\n                $(launcher.call(12n, 1.05));\n            }));\n            return (\n                <VStack gap=\"3\" align=\"stretch\">\n                    <Button onClick={run} loading={launcher.pending()}>Run forecast</Button>\n                    <Stat label={East.str`Result of ${observer.binding.name}`}\n                          value={East.print(observer.read())} />\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "e3-ui:func.examples.tsx:funcBindDrafts",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/bind/func/func.examples.tsx",
+      "suite": "",
+      "test": "Call a function over the page's unsaved edits: a function that lists drafts takes them as its call's last argument, an Array — each a mutation made with Record.bind's draft.<name>, not committed — reads the record with them laid over it, and saves nothing; an empty Array is a call as saved",
+      "keywords": [
+        "Func",
+        "bind",
+        "drafts",
+        "draft",
+        "call",
+        "unsaved edits",
+        "what-if",
+        "Record",
+        "Record.bind",
+        "FuncDraftType",
+        "nothing saved",
+        "e3.function"
+      ],
+      "imports": [
+        "import { ArrayType, DictType, East, FloatType, IntegerType, NullType, RecursiveType, StringType, StructType, example, variant } from \"@elaraai/east\";",
+        "import { Button, HStack, Reactive, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
+        "import { Func, Record } from \"@elaraai/e3-ui\";",
+        "import e3 from \"@elaraai/e3\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// Call a function over the page's unsaved edits: a function that lists drafts takes them as its call's last argument, an Array — each a mutation made with Record.bind's draft.<name>, not committed — reads the record with them laid over it, and saves nothing; an empty Array is a call as saved\n// inputs: []\nexport const PressJobType = StructType({ press: StringType, hours: IntegerType });\n\nexport const PressJobsType = DictType(StringType, PressJobType);\n\nexport const pressJobs = e3.record(\"press_jobs\", PressJobsType, {\n    initial: new Map([\n        [\"j1\", { press: \"P1\", hours: 4n }],\n        [\"j2\", { press: \"P1\", hours: 2n }],\n        [\"j3\", { press: \"P2\", hours: 6n }],\n    ]),\n    mutations: (mutation) => ({\n        patch: mutation.patch(),\n        move: mutation.edit(East.function([PressJobsType, StringType, StringType, e3.mutation.editType(PressJobsType)], NullType,\n            ($, jobs, job, press, edit) => {\n                $.if(jobs.has(job).not(), $ => {\n                    $.error(East.str`the shop holds no job ${job}`);\n                });\n                $(edit.set(job, { press, hours: jobs.get(job).hours }));\n            })),\n    }),\n});\n\nexport const jobsOnFn = e3.function(\"jobs_on\", {\n    inputs: [pressJobs],\n    drafts: [pressJobs],\n    args: [StringType],\n    output: IntegerType,\n}, ($, jobs, press) => {\n    const found = $.let(0n);\n    $.for(jobs, ($, job) => {\n        $.if(East.equal(job.press, press), $ => {\n            $.assign(found, found.add(1n));\n        });\n    });\n    return found;\n});\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const board = $.let(Record.bind(pressJobs));\n            // `jobsOnFn` lists `drafts: [pressJobs]`, so its call takes drafts after its arguments.\n            const count = $.let(Func.bind(jobsOnFn));\n            const asSaved = $.const(East.function([], NullType, $ => {\n                $(count.call(\"P1\", []));\n            }));\n            const withMove = $.const(East.function([], NullType, $ => {\n                // j3 moved onto P1 and not committed: the arguments `board.mutate.move` takes.\n                $(count.call(\"P1\", [board.draft.move(\"j3\", \"P1\")]));\n            }));\n            return (\n                <VStack gap=\"3\" align=\"stretch\">\n                    <HStack gap=\"2\">\n                        <Button variant=\"outline\" onClick={asSaved} loading={count.pending()}>As saved</Button>\n                        <Button onClick={withMove} loading={count.pending()}>With j3 moved to P1</Button>\n                    </HStack>\n                    <Stat label=\"Jobs on P1\" value={East.print(count.read())} />\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "e3-ui:func.examples.tsx:funcBindDrafted",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/bind/func/func.examples.tsx",
+      "suite": "",
+      "test": "Drafts of two records in one call, and what the call read beneath them: drafted() names each record the call drafted and the commit it stood at for the result read() gives, and binding.drafts the records the function lists",
+      "keywords": [
+        "Func",
+        "bind",
+        "drafted",
+        "binding",
+        "drafts",
+        "commit",
+        "several records",
+        "two records",
+        "Record.bind",
+        "draft",
+        "patch",
+        "East.diff"
+      ],
+      "imports": [
+        "import { ArrayType, DictType, East, FloatType, IntegerType, NullType, RecursiveType, StringType, StructType, example, variant } from \"@elaraai/east\";",
+        "import { Button, HStack, Reactive, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
+        "import { Func, Record } from \"@elaraai/e3-ui\";",
+        "import e3 from \"@elaraai/e3\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// Drafts of two records in one call, and what the call read beneath them: drafted() names each record the call drafted and the commit it stood at for the result read() gives, and binding.drafts the records the function lists\n// inputs: []\nexport const PressJobType = StructType({ press: StringType, hours: IntegerType });\n\nexport const PressJobsType = DictType(StringType, PressJobType);\n\nexport const pressJobs = e3.record(\"press_jobs\", PressJobsType, {\n    initial: new Map([\n        [\"j1\", { press: \"P1\", hours: 4n }],\n        [\"j2\", { press: \"P1\", hours: 2n }],\n        [\"j3\", { press: \"P2\", hours: 6n }],\n    ]),\n    mutations: (mutation) => ({\n        patch: mutation.patch(),\n        move: mutation.edit(East.function([PressJobsType, StringType, StringType, e3.mutation.editType(PressJobsType)], NullType,\n            ($, jobs, job, press, edit) => {\n                $.if(jobs.has(job).not(), $ => {\n                    $.error(East.str`the shop holds no job ${job}`);\n                });\n                $(edit.set(job, { press, hours: jobs.get(job).hours }));\n            })),\n    }),\n});\n\nexport const PressType = StructType({ name: StringType, hoursPerDay: IntegerType });\n\nexport const PressesType = DictType(StringType, PressType);\n\nexport const presses = e3.record(\"presses\", PressesType, {\n    initial: new Map([\n        [\"P1\", { name: \"Offset\", hoursPerDay: 8n }],\n        [\"P2\", { name: \"Digital\", hoursPerDay: 8n }],\n    ]),\n    mutations: (mutation) => ({\n        patch: mutation.patch(),\n    }),\n});\n\nexport const PressLoadType = StructType({ jobs: ArrayType(StringType), hours: IntegerType, capacity: IntegerType });\n\nexport const pressLoadFn = e3.function(\"press_load\", {\n    inputs: [pressJobs, presses],\n    drafts: [pressJobs, presses],\n    args: [StringType],\n    output: PressLoadType,\n}, ($, jobs, shop, press) => {\n    const held = $.let([], ArrayType(StringType));\n    const hours = $.let(0n);\n    $.for(jobs, ($, job, key) => {\n        $.if(East.equal(job.press, press), $ => {\n            $(held.pushLast(key));\n            $.assign(hours, hours.add(job.hours));\n        });\n    });\n    const capacity = $.let(0n);\n    $.match(shop.tryGet(press), {\n        some: ($, found) => { $.assign(capacity, found.hoursPerDay); },\n    });\n    return { jobs: held, hours, capacity };\n});\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const board = $.let(Record.bind(pressJobs));\n            const shop = $.let(Record.bind(presses));\n            // `pressLoadFn` lists both records, so one call may lay edits of each.\n            const load = $.let(Func.bind(pressLoadFn));\n            const run = $.const(East.function([], NullType, $ => {\n                // P1 given a ten-hour day: a patch from the presses as read to the presses as edited.\n                const edited = $.let(shop.read().copy());\n                $(edited.insertOrUpdate(\"P1\", { name: \"Offset\", hoursPerDay: 10n }));\n                $(load.call(\"P1\", [\n                    board.draft.move(\"j3\", \"P1\"),\n                    shop.draft.patch(East.diff(shop.read(), edited)),\n                ]));\n            }));\n            const figure = $.let(load.read().match({\n                some: (_$, held) => East.str`${held.hours} h of ${held.capacity} h, ${held.jobs.size()} jobs`,\n                none: _$ => East.str`not asked yet`,\n            }));\n            // Each record the call drafted, and the commit it stood at as e3 laid the drafts over it.\n            const beneath = $.let(load.drafted().map((_$, drafted) => East.str`${drafted.record} at ${drafted.commit.substring(0n, 8n)}`).stringJoin(\", \"));\n            return (\n                <VStack gap=\"3\" align=\"stretch\">\n                    <Button onClick={run} loading={load.pending()}>Load P1 with my edits</Button>\n                    <Stat label=\"P1 with j3 and a ten-hour day\" value={figure} />\n                    <Text color=\"fg.muted\">{East.str`May draft: ${load.binding.drafts.stringJoin(\", \")}`}</Text>\n                    <Text color=\"fg.muted\">{East.str`Read over: ${beneath}`}</Text>\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "e3-ui:func.examples.tsx:funcBindDraftRefused",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/bind/func/func.examples.tsx",
+      "suite": "",
+      "test": "A draft the record refuses ends the call as a Save of it would have ended, and the function does not run: error() names the draft, its kind conflict where the record changed under the edit — the record, the mutation and the refusal's words — and failed where the mutation's own program refuses",
+      "keywords": [
+        "Func",
+        "bind",
+        "drafts",
+        "error",
+        "conflict",
+        "failed",
+        "refused",
+        "draft",
+        "kind",
+        "stale edit",
+        "changed under the edit",
+        "FuncErrorType"
+      ],
+      "imports": [
+        "import { ArrayType, DictType, East, FloatType, IntegerType, NullType, RecursiveType, StringType, StructType, example, variant } from \"@elaraai/east\";",
+        "import { Button, HStack, Reactive, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
+        "import { Func, Record } from \"@elaraai/e3-ui\";",
+        "import e3 from \"@elaraai/e3\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// A draft the record refuses ends the call as a Save of it would have ended, and the function does not run: error() names the draft, its kind conflict where the record changed under the edit — the record, the mutation and the refusal's words — and failed where the mutation's own program refuses\n// inputs: []\nexport const PressJobType = StructType({ press: StringType, hours: IntegerType });\n\nexport const PressJobsType = DictType(StringType, PressJobType);\n\nexport const pressJobs = e3.record(\"press_jobs\", PressJobsType, {\n    initial: new Map([\n        [\"j1\", { press: \"P1\", hours: 4n }],\n        [\"j2\", { press: \"P1\", hours: 2n }],\n        [\"j3\", { press: \"P2\", hours: 6n }],\n    ]),\n    mutations: (mutation) => ({\n        patch: mutation.patch(),\n        move: mutation.edit(East.function([PressJobsType, StringType, StringType, e3.mutation.editType(PressJobsType)], NullType,\n            ($, jobs, job, press, edit) => {\n                $.if(jobs.has(job).not(), $ => {\n                    $.error(East.str`the shop holds no job ${job}`);\n                });\n                $(edit.set(job, { press, hours: jobs.get(job).hours }));\n            })),\n    }),\n});\n\nexport const jobsOnFn = e3.function(\"jobs_on\", {\n    inputs: [pressJobs],\n    drafts: [pressJobs],\n    args: [StringType],\n    output: IntegerType,\n}, ($, jobs, press) => {\n    const found = $.let(0n);\n    $.for(jobs, ($, job) => {\n        $.if(East.equal(job.press, press), $ => {\n            $.assign(found, found.add(1n));\n        });\n    });\n    return found;\n});\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const board = $.let(Record.bind(pressJobs));\n            const count = $.let(Func.bind(jobsOnFn));\n            const stale = $.const(East.function([], NullType, $ => {\n                // An edit begun when j1 was on P2: its patch carries what the job was, and the\n                // record, where j1 is on P1, refuses it as it would refuse the Save.\n                const was = $.const(new Map([[\"j1\", { press: \"P2\", hours: 4n }]]), PressJobsType);\n                const now = $.const(new Map([[\"j1\", { press: \"P3\", hours: 4n }]]), PressJobsType);\n                $(count.call(\"P1\", [board.draft.patch(East.diff(was, now))]));\n            }));\n            const unknown = $.const(East.function([], NullType, $ => {\n                // The jobs' `move` refuses a job the shop does not hold, as it would refuse the commit.\n                $(count.call(\"P1\", [board.draft.move(\"j9\", \"P1\")]));\n            }));\n            const detail = $.let(count.error().match({\n                some: (_$, error) => error.kind.match({\n                    conflict: (_$, refused) => East.str`${refused.record}.${refused.mutation} changed under the edit: ${refused.message}`,\n                }, _$ => error.message),\n                none: _$ => East.str`no draft refused`,\n            }));\n            return (\n                <VStack gap=\"3\" align=\"stretch\">\n                    <HStack gap=\"2\">\n                        <Button variant=\"outline\" onClick={stale} loading={count.pending()}>A stale edit</Button>\n                        <Button variant=\"outline\" onClick={unknown} loading={count.pending()}>An unknown job</Button>\n                    </HStack>\n                    <Text color=\"fg.muted\">{detail}</Text>\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "e3-ui:record-draft.examples.ts:recordToDraft",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/bind/record/record-draft.examples.ts",
+      "suite": "",
+      "test": "A pending Save as a draft: Record.toDraft takes the batch Record.onApply takes and answers the patch that Save would commit as a draft of the record's patch mutation, for a function's call, with nothing committed — or the Save's refusal, or unchanged for a batch that changes nothing",
+      "keywords": [
+        "Record",
+        "toDraft",
+        "draft",
+        "pending Save",
+        "batch",
+        "ChangeSet",
+        "onApply",
+        "patch",
+        "unsaved edits",
+        "FuncDraftType",
+        "not committed"
+      ],
+      "imports": [
+        "import { DictType, East, IntegerType, OptionType, StringType, StructType, example, none, some, variant } from \"@elaraai/east\";",
+        "import { Editing } from \"@elaraai/east-ui\";",
+        "import { Record } from \"@elaraai/e3-ui\";",
+        "import e3 from \"@elaraai/e3\";"
+      ],
+      "languages": [
+        "typescript"
+      ],
+      "source": "// A pending Save as a draft: Record.toDraft takes the batch Record.onApply takes and answers the patch that Save would commit as a draft of the record's patch mutation, for a function's call, with nothing committed — or the Save's refusal, or unchanged for a batch that changes nothing\n// inputs: []  returns: \"a draft of bindery_jobs.patch\"\nexport const BinderyJobType = StructType({ task: StringType, qty: IntegerType });\n\nexport const binderyJobs = e3.record(\"bindery_jobs\", DictType(StringType, BinderyJobType), {\n    initial: new Map(),\n    mutations: (mutation) => ({\n        patch: mutation.patch(),\n    }),\n});\n\nEast.function([], StringType, ($) => {\n        const board = $.let(Record.bind(binderyJobs));\n        // The twin of `Record.onApply(board, { keyed: true })`: the same options, the same batch.\n        const toDraft = $.const(Record.toDraft(board, { keyed: true }));\n        // What an editing surface hands its Save: each entry's change from what it was as the edit began.\n        const folded = $.const(some({ task: \"Fold\", qty: 200n }), OptionType(BinderyJobType));\n        const refolded = $.const(some({ task: \"Fold\", qty: 250n }), OptionType(BinderyJobType));\n        const absent = $.const(none, OptionType(BinderyJobType));\n        const stitched = $.const(some({ task: \"Stitch\", qty: 250n }), OptionType(BinderyJobType));\n        const pending = $.const({\n            requestId: \"\", base: variant(\"revision\", \"a41c09d2\"), label: \"Fold and stitch 250\",\n            changes: [\n                { id: \"b1\", patch: East.diff(folded, refolded), place: none },\n                { id: \"b2\", patch: East.diff(absent, stitched), place: some(variant(\"keyOrder\", null)) },\n            ],\n        }, Editing.Types.ChangeSet(BinderyJobType, StringType));\n        return toDraft(pending).match({\n            // The draft a bound function that lists the record takes with its call.\n            draft: (_$, draft) => East.str`a draft of ${draft.record}.${draft.mutation}`,\n            unchanged: _$ => East.str`nothing to send`,\n            rejected: (_$, issues) => East.str`refused: ${issues.map((_$, issue) => issue.message).stringJoin(\"; \")}`,\n            conflict: (_$, issues) => East.str`changed since the edit began: ${issues.map((_$, issue) => issue.message).stringJoin(\"; \")}`,\n        });\n    })"
     },
     {
       "id": "e3-ui:record.examples.tsx:recordBindMutate",
@@ -41290,9 +41417,9 @@
         "system of record"
       ],
       "imports": [
-        "import { ArrayType, DictType, East, IntegerType, NullType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { ArrayType, BooleanType, DictType, East, IntegerType, NullType, StringType, StructType, example } from \"@elaraai/east\";",
         "import { Box, Button, Editing, HStack, Reactive, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
-        "import { Data, Record, Sheet } from \"@elaraai/e3-ui\";",
+        "import { Data, Func, Record, Sheet } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
       "languages": [
@@ -41316,15 +41443,45 @@
         "mutate"
       ],
       "imports": [
-        "import { ArrayType, DictType, East, IntegerType, NullType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { ArrayType, BooleanType, DictType, East, IntegerType, NullType, StringType, StructType, example } from \"@elaraai/east\";",
         "import { Box, Button, Editing, HStack, Reactive, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
-        "import { Data, Record, Sheet } from \"@elaraai/e3-ui\";",
+        "import { Data, Func, Record, Sheet } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
       "languages": [
         "tsx"
       ],
       "source": "// Render the mutation lifecycle (idle / running / committed / failed / cancelled) and any failure\n// inputs: []\nexport const counter = e3.record(\"counter\", IntegerType, {\n    initial: 0n,\n    mutations: (mutation) => ({\n        increment: mutation.reduce(East.function([IntegerType, IntegerType], IntegerType, ($, state, by) => state.add(by))),\n        reset: mutation.reduce(East.function([IntegerType], IntegerType, (_$, _state) => 0n)),\n        // What the record runtime's specs write beside them (#1378): a take off the\n        // counter that refuses to leave it below zero, so a mutation fails as a\n        // reducer's program does.\n        take: mutation.reduce(East.function([IntegerType, IntegerType], IntegerType, (_$, state, n) =>\n            East.less(state, n).ifElse(() => East.error(\"the counter holds fewer than that\"), () => state.subtract(n)))),\n    }),\n});\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const r = $.let(Record.bind(counter, [\"increment\"]));\n            const bump = $.const(East.function([], NullType, $ => { $(r.mutate.increment(1n)); }));\n            const statusLine = $.let(r.mutate.status().getTag().upperCase());\n            const detail = $.let(r.mutate.error().match({\n                some: (_$, e) => e.message,\n                none: _$ => East.print(r.read()),\n            }));\n            return (\n                <VStack gap=\"3\" align=\"stretch\">\n                    <Button onClick={bump} loading={r.mutate.pending()}>Increment</Button>\n                    <Text.MonoLabel>{statusLine}</Text.MonoLabel>\n                    <Text color=\"fg.muted\">{detail}</Text>\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
+    },
+    {
+      "id": "e3-ui:record.examples.tsx:recordBindDraft",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/bind/record/record.examples.tsx",
+      "suite": "",
+      "test": "A mutation as a draft: draft.<name> takes what mutate.<name> takes and commits nothing — a function that lists the record reads it with the draft laid over it, so a page asks about an edit before it commits it, and the record stays as saved",
+      "keywords": [
+        "Record",
+        "bind",
+        "draft",
+        "unsaved edit",
+        "not committed",
+        "what-if",
+        "check before commit",
+        "Func",
+        "drafts",
+        "FuncDraftType"
+      ],
+      "imports": [
+        "import { ArrayType, BooleanType, DictType, East, IntegerType, NullType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { Box, Button, Editing, HStack, Reactive, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
+        "import { Data, Func, Record, Sheet } from \"@elaraai/e3-ui\";",
+        "import e3 from \"@elaraai/e3\";"
+      ],
+      "languages": [
+        "tsx"
+      ],
+      "source": "// A mutation as a draft: draft.<name> takes what mutate.<name> takes and commits nothing — a function that lists the record reads it with the draft laid over it, so a page asks about an edit before it commits it, and the record stays as saved\n// inputs: []\nexport const counter = e3.record(\"counter\", IntegerType, {\n    initial: 0n,\n    mutations: (mutation) => ({\n        increment: mutation.reduce(East.function([IntegerType, IntegerType], IntegerType, ($, state, by) => state.add(by))),\n        reset: mutation.reduce(East.function([IntegerType], IntegerType, (_$, _state) => 0n)),\n        // What the record runtime's specs write beside them (#1378): a take off the\n        // counter that refuses to leave it below zero, so a mutation fails as a\n        // reducer's program does.\n        take: mutation.reduce(East.function([IntegerType, IntegerType], IntegerType, (_$, state, n) =>\n            East.less(state, n).ifElse(() => East.error(\"the counter holds fewer than that\"), () => state.subtract(n)))),\n    }),\n});\n\nexport const withinLimitFn = e3.function(\"within_limit\", {\n    inputs: [counter],\n    drafts: [counter],\n    args: [IntegerType],\n    output: BooleanType,\n}, (_$, count, limit) => East.lessEqual(count, limit));\n\nEast.function([], UIComponentType, (_$) => (\n        <Reactive>{$ => {\n            const r = $.let(Record.bind(counter, [\"increment\"]));\n            // `withinLimitFn` lists `drafts: [counter]`, so its call takes drafts after its arguments.\n            const within = $.let(Func.bind(withinLimitFn));\n            const ask = $.const(East.function([], NullType, $ => {\n                // The arguments `r.mutate.increment` takes, not committed: nobody else sees the edit.\n                $(within.call(10n, [r.draft.increment(25n)]));\n            }));\n            return (\n                <VStack gap=\"3\" align=\"stretch\">\n                    <Stat label=\"Counter, as saved\" value={East.print(r.read())} />\n                    <Stat label=\"Within 10 after 25 more\" value={East.print(within.read())} />\n                    <Button onClick={ask} loading={within.pending()}>Ask about 25 more</Button>\n                </VStack>\n            );\n        }}</Reactive>\n    ))"
     },
     {
       "id": "e3-ui:record.examples.tsx:recordSheetApply",
@@ -41347,9 +41504,9 @@
         "system of record"
       ],
       "imports": [
-        "import { ArrayType, DictType, East, IntegerType, NullType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { ArrayType, BooleanType, DictType, East, IntegerType, NullType, StringType, StructType, example } from \"@elaraai/east\";",
         "import { Box, Button, Editing, HStack, Reactive, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
-        "import { Data, Record, Sheet } from \"@elaraai/e3-ui\";",
+        "import { Data, Func, Record, Sheet } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
       "languages": [
@@ -41373,9 +41530,9 @@
         "chain"
       ],
       "imports": [
-        "import { ArrayType, DictType, East, IntegerType, NullType, StringType, StructType, example } from \"@elaraai/east\";",
+        "import { ArrayType, BooleanType, DictType, East, IntegerType, NullType, StringType, StructType, example } from \"@elaraai/east\";",
         "import { Box, Button, Editing, HStack, Reactive, Stat, Text, UIComponentType, VStack } from \"@elaraai/east-ui\";",
-        "import { Data, Record, Sheet } from \"@elaraai/e3-ui\";",
+        "import { Data, Func, Record, Sheet } from \"@elaraai/e3-ui\";",
         "import e3 from \"@elaraai/e3\";"
       ],
       "languages": [
