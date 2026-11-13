@@ -17,6 +17,7 @@ import { recordDraftForm } from "@elaraai/e3-ui/internal";
 import e3 from "@elaraai/e3";
 import { refusingPlatform } from "../../refusing-platform.js";
 import * as ex from "./record.examples.js";
+import * as draftEx from "./record-draft.examples.js";
 
 // `Record.bind(record, names?)` takes the state type from the record def
 // and each mutation's name + arg types from its def, so the tests declare the
@@ -35,6 +36,7 @@ describeEast("Record", (test) => {
         recordBindStatus: ex.recordBindStatus,
         recordBindHistory: ex.recordBindHistory,
         recordSheetApply: ex.recordSheetApply,
+        recordBindDraft: ex.recordBindDraft,
     });
 
     test("Record.bind exposes read + a typed mutate closure inside Reactive.Root", $ => {
@@ -285,6 +287,14 @@ describeEast("Record.onApply", (test) => {
         assert.deepEqual(manifest.records, ["jobs"]);
     });
 }, { platformFns: TestImpl });
+
+// The example of `Record.toDraft` runs against the platform whose every read, write and call refuses: over a record's
+// own entries a draft is built from the batch alone.
+describeEast("Record.toDraft — its example", (test) => {
+    Assert.examples(test, {
+        recordToDraft: draftEx.recordToDraft,
+    });
+}, { platformFns: [...TestImpl, ...refusingPlatform] });
 
 // `Record.toDraft` (#1620): `Record.onApply`'s twin — the same options, the same batch, and the patch that Save
 // commits answered as a draft. Over the record's own entries it reads nothing of the record, so it runs here; over one

@@ -442,6 +442,12 @@ type AllMutationsOf<R> = R extends { readonly mutations: infer M } ? readonly M[
  * re-fetched) — no manual invalidation. All handles bound to the same record
  * in the same workspace share one mutation channel.
  *
+ * `draft.<name>` takes the arguments `mutate.<name>` takes and answers the
+ * mutation as a draft ({@link FuncDraftType}): a call of it that is not
+ * committed. It commits nothing, reads nothing and changes no status of the
+ * handle. A function that lists the record in its `drafts` takes the draft
+ * with its call (`Func.bind`), and reads the record with it laid over.
+ *
  * @example
  * ```ts
  * import { East, IntegerType, NullType } from "@elaraai/east";
@@ -464,6 +470,36 @@ type AllMutationsOf<R> = R extends { readonly mutations: infer M } ? readonly M[
  *             Stat.Root({ label: "Counter", value: East.print(r.read()) }),
  *             Button.Root("Increment", { onClick: bump, loading: r.mutate.pending() }),
  *         ], { gap: "3" });
+ *     })));
+ * ```
+ *
+ * @example
+ * ```ts
+ * // A mutation as a draft: asked about before it is committed, over the counter above.
+ * import { BooleanType, East, IntegerType, NullType } from "@elaraai/east";
+ * import { Button, Reactive, Stat, UIComponentType, VStack } from "@elaraai/east-ui";
+ * import { Func, Record } from "@elaraai/e3-ui";
+ * import e3 from "@elaraai/e3";
+ *
+ * // `drafts: [counter]`: a call may lay drafts of the counter's mutations over what it reads
+ * const withinLimitFn = e3.function("within_limit",
+ *     { inputs: [counter], drafts: [counter], args: [IntegerType], output: BooleanType },
+ *     (_$, count, limit) => East.lessEqual(count, limit));
+ *
+ * // Mirrors `recordBindDraft` in test/bind/record/record.examples.tsx.
+ * const recordBindDraft = East.function([], UIComponentType, _$ =>
+ *     Reactive.Root(East.function([], UIComponentType, $ => {
+ *         const r = $.let(Record.bind(counter, ["increment"]));
+ *         const within = $.let(Func.bind(withinLimitFn));
+ *         const ask = $.const(East.function([], NullType, $ => {
+ *             // The arguments `r.mutate.increment` takes, not committed: nobody else sees the edit
+ *             $(within.call(10n, [r.draft.increment(25n)]));
+ *         }));
+ *         return VStack.Root([
+ *             Stat.Root({ label: "Counter, as saved", value: East.print(r.read()) }),
+ *             Stat.Root({ label: "Within 10 after 25 more", value: East.print(within.read()) }),
+ *             Button.Root("Ask about 25 more", { onClick: ask, loading: within.pending() }),
+ *         ], { gap: "3", align: "stretch" });
  *     })));
  * ```
  */
@@ -1072,26 +1108,45 @@ function applyToRecord(
  *
  * @example
  * ```ts
- * import { DictType, East, IntegerType, StringType, StructType } from "@elaraai/east";
+ * import { DictType, East, IntegerType, OptionType, StringType, StructType, none, some, variant } from "@elaraai/east";
  * import { Editing } from "@elaraai/east-ui";
- * import { Record, RecordToDraftResultType } from "@elaraai/e3-ui";
+ * import { Record } from "@elaraai/e3-ui";
  * import e3 from "@elaraai/e3";
  *
- * const JobType = StructType({ press: StringType, qty: IntegerType });
- * const jobs = e3.record("jobs", DictType(StringType, JobType), {
+ * const BinderyJobType = StructType({ task: StringType, qty: IntegerType });
+ * const binderyJobs = e3.record("bindery_jobs", DictType(StringType, BinderyJobType), {
  *     initial: new Map(),
  *     mutations: (mutation) => ({
  *         patch: mutation.patch(),
  *     }),
  * });
  *
- * // A board's pending Save as a draft: the patch `Record.onApply(board, { keyed: true })`
- * // would commit of the same batch, not committed.
- * const pendingSave = East.function([Editing.Types.ChangeSet(JobType, StringType)], RecordToDraftResultType, ($, pending) => {
- *     const board = $.let(Record.bind(jobs));
+ * // Mirrors `recordToDraft` in test/bind/record/record-draft.examples.ts.
+ * const recordToDraft = East.function([], StringType, ($) => {
+ *     const board = $.let(Record.bind(binderyJobs));
+ *     // The twin of `Record.onApply(board, { keyed: true })`: the same options, the same batch
  *     const toDraft = $.const(Record.toDraft(board, { keyed: true }));
- *     return toDraft(pending);
+ *     // What an editing surface hands its Save: each entry's change from what it was as the edit began
+ *     const folded = $.const(some({ task: "Fold", qty: 200n }), OptionType(BinderyJobType));
+ *     const refolded = $.const(some({ task: "Fold", qty: 250n }), OptionType(BinderyJobType));
+ *     const absent = $.const(none, OptionType(BinderyJobType));
+ *     const stitched = $.const(some({ task: "Stitch", qty: 250n }), OptionType(BinderyJobType));
+ *     const pending = $.const({
+ *         requestId: "", base: variant("revision", "a41c09d2"), label: "Fold and stitch 250",
+ *         changes: [
+ *             { id: "b1", patch: East.diff(folded, refolded), place: none },
+ *             { id: "b2", patch: East.diff(absent, stitched), place: some(variant("keyOrder", null)) },
+ *         ],
+ *     }, Editing.Types.ChangeSet(BinderyJobType, StringType));
+ *     return toDraft(pending).match({
+ *         // The draft a bound function that lists the record takes with its call
+ *         draft: (_$, draft) => East.str`a draft of ${draft.record}.${draft.mutation}`,
+ *         unchanged: _$ => East.str`nothing to send`,
+ *         rejected: (_$, issues) => East.str`refused: ${issues.map((_$, issue) => issue.message).stringJoin("; ")}`,
+ *         conflict: (_$, issues) => East.str`changed since the edit began: ${issues.map((_$, issue) => issue.message).stringJoin("; ")}`,
+ *     });
  * });
+ * // a draft of bindery_jobs.patch
  * ```
  */
 function draftOfRecord<K extends EastType, V extends EastType>(

@@ -108,6 +108,7 @@ Task → What do you need?
     │   ├─ Its current value        → .read()
     │   ├─ Apply a mutation         → .mutate.<name>(args…)
     │   ├─ The mutation's lifecycle → .mutate.status() / .pending() / .error()
+    │   ├─ A mutation as a draft, not committed → .draft.<name>(args…) · a pending Save's: Record.toDraft(record, { keyed? })
     │   ├─ Recompute what reads it  → .start()  (a mutation commits but does not run the dataflow)
     │   ├─ Its commit history       → .history()
     │   └─ A builder's Save door    → Record.bind(record) on a record declaring mutation.patch()
@@ -115,11 +116,11 @@ Task → What do you need?
     ├─ Call a named package function (e3.function) from the UI — Func.bind(fn)
     │   ├─ Launch (fire-and-forget, sync-callback safe) → .call(args…)
     │   ├─ Last successful result   → .read()   (Option(O))
-    │   ├─ Lifecycle (variant)      → .status() (idle|running|succeeded|failed|cancelled)
+    │   ├─ Lifecycle (variant)      → .status() (idle|running|succeeded|failed|cancelled) · spinner boolean: .pending()
     │   ├─ Failure detail           → .error()  (Option — message/kind/stdout/stderr)
-    │   ├─ Spinner boolean          → .pending()
     │   ├─ Stop the call            → .cancel() (asks the server to stop it; a later .call() supersedes one in flight the same way)
-    │   └─ A function that reads workspace data too → e3.function(name, { inputs, args, output }, fn); .call(args…) takes the args alone
+    │   ├─ A function that reads workspace data too → e3.function(name, { inputs, args, output }, fn); .call(args…) takes the args alone
+    │   └─ Ask over the page's unsaved edits, saving nothing → a function listing drafts: [record]; .call(args…, [drafts]) · .drafted() · .binding.drafts
     │
     ├─ Edit a graph / ontology dataset
     │   └─ <Ontology value={view} />   (OntologyType: NodeType / LinkType)
@@ -334,25 +335,28 @@ conflict naming the entry, and nothing is overwritten. `Record.onApply(record,
 
 A call handle for an `e3.function`. `call(args…)` is fire-and-forget and safe
 in a sync `onClick`, latest-wins; the outcome arrives reactively through
-`read()`, `status()`, `error()` and `pending()`. All handles bound to one
-function share one channel, so one component can launch while another shows the
-spinner. A call is the server's: it outlives the request that starts it, and
-runs until its timeout — the server's ceiling, ten minutes locally — however
-long that is, so an optimiser of several minutes is called the same way; the
-server keeps it for its lifetime, with its arguments, the inputs it read, its
-value and its logs (the **e3** skill). `cancel()` asks the server to stop the
-call, and `status()` reads `cancelled`; a `call` that supersedes one in flight
-asks the server to stop that one. A result is at most 1 MiB: a large one
-belongs in a task, read with `Data.bind`.
+`read()`, `status()`, `error()` and `pending()`, on one channel for every
+handle of the function. A call is the server's, kept for its lifetime (the
+**e3** skill): it outlives its request and runs until its timeout — the
+server's ceiling, ten minutes locally — so an optimiser of several minutes is
+called the same way. `cancel()` asks the server to stop it, and `status()`
+reads `cancelled`; a `call` that supersedes one in flight does the same. A
+result is at most 1 MiB: a large one belongs in a task, read with `Data.bind`.
 
 A function that declares `inputs` (`e3.function(name, { inputs, args, output },
-fn)`, the **e3** skill) is bound the same way: its handle's `call` takes the
-`args` alone, and each call reads the inputs from the workspace as they are
-stored when it launches. The page binds none of them; an optimiser's eye
-(`optimise={Func.bind(fn)}`) passes its request as the one argument while the
-function reads its reference data as inputs. `e3-ui:func.examples.tsx:funcBindCall`
-launches a call from a button and shows its result;
-`e3-ui:func.examples.tsx:funcBindInputs` binds a function that declares inputs.
+fn)`, the **e3** skill) is bound the same way: its `call` takes the `args`
+alone, and each call reads the inputs as the workspace stores them when it
+launches. The page binds none of them: a builder's `optimise={Func.bind(fn)}`
+passes its request as the one argument, and the function reads its reference
+data as inputs (`e3-ui:func.examples.tsx:funcBindCall`, `funcBindInputs`).
+
+A function that lists records in `drafts` (the **e3** skill) is asked over the
+page's unsaved edits: its `call` takes drafts last, an Array (`[]`: as saved),
+each a mutation's call, not committed: `record.draft.<name>(args…)`, or a
+pending Save's from `Record.toDraft`. e3 lays them over what the function reads
+and saves nothing. A draft the record refuses ends the call as its Save would
+have, the function not run: `error()`'s `kind` is `conflict` where the record
+changed under the edit (`e3-ui:func.examples.tsx:funcBindDrafts`).
 
 ## The builders
 
@@ -481,11 +485,7 @@ in; dates print in UTC.
 - **A record's mutation from a button**: `Record.bind(r, ["increment"])`, the
   button applying `r.mutate.increment(1n)` with `loading={r.mutate.pending()}`:
   `e3-ui:record.examples.tsx:recordBindMutate`.
-- **Disable controls on stale data**:
-
-  ```tsx
-  <Slider value={t.read()} onChangeEnd={t.writeAndStart} disabled={t.status().hasTag('stale')} />
-  ```
+- **Disable controls on stale data**: `disabled={t.status().hasTag('stale')}`.
 
 ## Related skills
 

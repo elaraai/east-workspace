@@ -3,9 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /** @jsxImportSource @elaraai/e3-ui */
-import { ArrayType, DictType, East, IntegerType, NullType, StringType, StructType, example } from "@elaraai/east";
+import { ArrayType, BooleanType, DictType, East, IntegerType, NullType, StringType, StructType, example } from "@elaraai/east";
 import { Box, Button, Editing, HStack, Reactive, Stat, Text, UIComponentType, VStack } from "@elaraai/east-ui";
-import { Data, Record, Sheet } from "@elaraai/e3-ui";
+import { Data, Func, Record, Sheet } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
 
 // The package-side record + mutation definitions. `Record.bind` takes the
@@ -83,6 +83,41 @@ export const recordBindStatus = example({
                     <Button onClick={bump} loading={r.mutate.pending()}>Increment</Button>
                     <Text.MonoLabel>{statusLine}</Text.MonoLabel>
                     <Text color="fg.muted">{detail}</Text>
+                </VStack>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+// Whether the counter is within a limit (#1620). The function reads the
+// counter, and lists it in `drafts`: a call may lay drafts of the counter's
+// mutations over what it reads, so a page asks about an edit before it commits
+// it.
+export const withinLimitFn = e3.function("within_limit", {
+    inputs: [counter],
+    drafts: [counter],
+    args: [IntegerType],
+    output: BooleanType,
+}, (_$, count, limit) => East.lessEqual(count, limit));
+
+export const recordBindDraft = example({
+    keywords: ["Record", "bind", "draft", "unsaved edit", "not committed", "what-if", "check before commit", "Func", "drafts", "FuncDraftType"],
+    description: "A mutation as a draft: draft.<name> takes what mutate.<name> takes and commits nothing — a function that lists the record reads it with the draft laid over it, so a page asks about an edit before it commits it, and the record stays as saved",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const r = $.let(Record.bind(counter, ["increment"]));
+            // `withinLimitFn` lists `drafts: [counter]`, so its call takes drafts after its arguments.
+            const within = $.let(Func.bind(withinLimitFn));
+            const ask = $.const(East.function([], NullType, $ => {
+                // The arguments `r.mutate.increment` takes, not committed: nobody else sees the edit.
+                $(within.call(10n, [r.draft.increment(25n)]));
+            }));
+            return (
+                <VStack gap="3" align="stretch">
+                    <Stat label="Counter, as saved" value={East.print(r.read())} />
+                    <Stat label="Within 10 after 25 more" value={East.print(within.read())} />
+                    <Button onClick={ask} loading={within.pending()}>Ask about 25 more</Button>
                 </VStack>
             );
         }}</Reactive>
