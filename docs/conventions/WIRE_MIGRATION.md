@@ -1022,3 +1022,31 @@ Each wire changed under this rule, with the kind it is.
   without, as a handle has what its type names — it is re-exported for its
   session's fields all the same. A UI task's output is not stored state, and a
   draft is written nowhere, so no repository upgrade step ships with it.
+- **e3-ui's bound function names the records its function lists, and its
+  call sends drafts (#1620)** — package-borne. `Func.bind`'s platform function
+  (`function_bind`) takes a second argument, after the function's name: the
+  names of the records the function lists in its `drafts`. The handle's
+  `binding` (`FuncBindingType`) gains `drafts`, after `name`, which holds
+  them, and its `error` (`FuncErrorType`) gains the kind `conflict`, a draft
+  that no longer fits its record (e3-types' `FunctionDraftConflictType`),
+  which sorts first among its kinds. A function that lists no record keeps the
+  handle it had (`FuncBindHandleType`) but for those two. One that lists a
+  record has a handle type of its own (`FuncBindDraftsHandleType`): its `call`
+  takes the call's drafts after the function's arguments, an Array of
+  `FuncDraftType`, and it gains `drafted`, after `read` — the records drafted
+  by the call that gave `read`'s result, each with the commit it stood at
+  (`FuncDraftedType`, which is e3-types' `FunctionDraftedType`). Behind the
+  handles, `function_call` takes the drafts as a third argument, and
+  `function_drafted` is a new UI platform function, which the function
+  platform's list carries wherever it is spread. A program that binds a
+  function holds the bind's call and the handle's type in its IR: one an
+  earlier SDK exported passes `function_bind` the name alone, and is refused
+  as it is checked, naming the count (`Platform function 'function_bind'
+  expects 2 arguments but got 1`) — re-export its package. The binding travels
+  in five builders' payloads as well — the Calendar's, the Plan's and the
+  Sheet's `optimise`, and the Roster's and the Allocation's `fit` and
+  `optimise` — so a UI value encoded under either type does not decode under
+  the other, and the dataflow computes each UI task's output again under the
+  new type. A UI task's output is not stored state, and a call's drafts ride
+  the function routes' request, whose change is #1619's (above), so no
+  repository upgrade step ships with it.

@@ -14,7 +14,7 @@
  */
 
 import { isTypeEqual, printType, type EastType, type ExprType, type NullType, type StructType } from "@elaraai/east";
-import { FuncBindingType, boundFuncSignature } from "../bind/func.js";
+import { FuncBindingType, boundFuncSignature, refuseDraftsHandle } from "../bind/func.js";
 
 /**
  * A `Func.bind` handle of the app's optimiser, as a tag takes it where its
@@ -70,11 +70,12 @@ export interface OptimiseContract {
  * @param contract - The types it is held to, and the words
  * @returns The binding's descriptor, which names the function
  * @throws {Error} When it is not a `Func.bind` handle, or its function asks or answers another type, naming it — one bound
- *   over other rows naming both
+ *   over other rows naming both — or lists `drafts`, which a builder's run does not pass
  * @internal
  */
 export function optimiseBinding(optimise: unknown, contract: OptimiseContract): ExprType<typeof FuncBindingType> {
     const { builder, names } = contract;
+    refuseDraftsHandle(optimise, builder, "optimise");
     const signature = boundFuncSignature(optimise);
     if (signature === undefined) {
         throw new Error(`${builder}: \`optimise\` is Func.bind of the app's e3.function ${contract.signature} — the period's rows in, the same rows out, complete`);

@@ -153,12 +153,10 @@ const indexed = bindIndexedPagedPlatformFn.implement((...types: EastTypeValue[])
         };
     });
 
-/** `Func.bind`: the handle, its descriptor naming the function. */
-const functions = funcBindPlatformFn.implement((_handleType: EastTypeValue) => (nameArg: unknown) => {
+/** `Func.bind`: the handle its type declares, its descriptor naming the function and the records it lists in `drafts`. */
+const functions = funcBindPlatformFn.implement((handleType: EastTypeValue) => (nameArg: unknown, draftsArg: unknown) => {
     const name = nameArg as string;
-    const what = `Func.bind("${name}")`;
-    const methods = ["call", "read", "status", "error", "pending", "cancel"];
-    return { ...Object.fromEntries(methods.map((method) => [method, refusal(`${what}.${method}`)])), binding: { name } };
+    return { ...refusingFields(fromEastTypeValue(handleType), `Func.bind("${name}")`), binding: { name, drafts: draftsArg } };
 });
 
 /**

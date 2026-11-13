@@ -234,10 +234,17 @@ export interface TaskDef<TOutput extends EastType = EastType, Path extends TreeP
  *
  * @typeParam Args - The East types of the arguments a caller passes
  * @typeParam Output - The East type of the return value
+ * @typeParam Drafts - What its type says of the records it lists in
+ *   {@link drafts}: none (`readonly []`), at least one
+ *   (`readonly [RecordDef, ...RecordDef[]]`), or, where its declaration does
+ *   not say, any number (`readonly RecordDef[]`). What binds a function to a
+ *   page reads it, since a call of a function that lists a record takes
+ *   drafts and a call of one that lists none does not
  */
 export interface FunctionDef<
   Args extends readonly EastType[] = readonly EastType[],
   Output extends EastType = EastType,
+  Drafts extends readonly RecordDef[] = readonly RecordDef[],
 > {
   readonly kind: 'function';
   /** Function name (unique within the package) */
@@ -252,7 +259,7 @@ export interface FunctionDef<
    *  that are not committed, laid over it for that call alone — each once,
    *  and each a record among {@link inputs}; empty for a function that takes
    *  none. */
-  readonly drafts: readonly RecordDef[];
+  readonly drafts: Drafts;
   /** The types of the arguments a caller passes, after the inputs. */
   readonly argTypes: Args;
   /** Return type */
