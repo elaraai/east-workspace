@@ -321,6 +321,28 @@ describe('function handlers', () => {
     assert.equal(runner.getDetachedCalls().length, 0, 'nothing should have executed');
   });
 
+  it('answers a draft of a call a host runs within its request, which keeps no call to hold what is laid, invalid without executing', async () => {
+    // A function that lists the record, called in a workspace: the one thing
+    // missing is a call that is kept
+    const response = await callFunctionSync(
+      storage, REPO, runner, PKG, VERSION, 'planned',
+      { ...callRequest([encodeInt(5n)]), drafts: [{ record: 'jobs', mutation: 'patch', args: [] }, { record: 'jobs', mutation: 'patch', args: [] }] },
+      false, undefined, 'platform_free', 'main',
+    );
+    const result = await decodeResponse(response, ExecuteResultType);
+    assert.ok(result.type === 'success');
+    const { outcome } = result.value;
+    assert.ok(outcome.type === 'invalid');
+    assert.equal(
+      outcome.value.diagnostics[0]!.message,
+      'The call passes 2 draft(s), and a call run within its request lays none: '
+      + 'start it as a call a workspace keeps, at …/workspaces/main/functions/planned',
+    );
+    assert.equal(result.value.drafts.length, 0);
+    assert.deepEqual(result.value.inputs, [], 'it read nothing of the workspace');
+    assert.equal(runner.getCalls().length + runner.getDetachedCalls().length, 0, 'nothing should have executed: no mutation\'s program, nor the function');
+  });
+
 });
 
 describe('draft access', () => {
