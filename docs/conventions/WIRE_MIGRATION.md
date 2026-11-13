@@ -938,9 +938,10 @@ Each wire changed under this rule, with the kind it is.
   (#1619)** — neither package-borne nor stored in a repository: the function,
   one-shot and split-call routes' answers. `ExecuteResultType` gains `drafts`,
   after `inputs`: each record the call drafted, once, with the commit it stood
-  at as its drafts were laid (`FunctionDraftedType`), and none for a call that
-  passed no draft; and its `outcome` gains `conflict`, a draft that no longer
-  fits its record, with the record, the mutation and the refusal's words
+  at as the call started, which its drafts were laid over
+  (`FunctionDraftedType`), and none for a call that passed no draft; and its
+  `outcome` gains `conflict`, a draft that no longer fits its record, with
+  the record, the mutation and the refusal's words
   (`FunctionDraftConflictType`). The result is what a sync call answers, and
   two more answers hold it: a kept call's status (`FunctionCallStatusType`'s
   `completed`) and a split call's (`SplitCallStatusType`'s `completed`, as its
