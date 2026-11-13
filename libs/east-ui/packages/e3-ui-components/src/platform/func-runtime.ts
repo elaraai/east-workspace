@@ -700,8 +700,10 @@ export function createInMemoryFunctionApi(functions: InMemoryFunctionDef[]): Fun
         async list() {
             return defs.map(def => ({
                 name: def.name,
-                // An offline function reads nothing of a workspace.
+                // An offline function reads nothing of a workspace, and so
+                // has no record a call could draft.
                 inputs: [],
+                drafts: [],
                 argTypes: def.argTypes,
                 outputType: def.outputType,
                 runner: variant("east_node", { platforms: [], decode: variant("lazy", null) }),

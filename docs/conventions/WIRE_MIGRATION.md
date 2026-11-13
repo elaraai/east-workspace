@@ -901,3 +901,19 @@ Each wire changed under this rule, with the kind it is.
   it was that commit's own, which a record has left once anything is written
   since. A backend implements nothing for it, since a ref store keeps a ref's
   version vector whole.
+- **e3's functions list the records a call may draft: a function object and
+  its signature gain `drafts` (#1619)** — package-borne, and the function
+  routes' answer. `FunctionObjectType` gains `drafts`, after `inputs`: the
+  names of the records a call may pass drafts of, each a record one of the
+  function's inputs reads, and none for a function that lists none. A
+  function object an earlier SDK exported does not decode under the new type:
+  a call, a list or a describe of its package's functions is refused, naming
+  the fix — re-export the package — and gc, which knows a function object by
+  its current shape, no longer walks it, so the body and the environment only
+  it names are swept: re-export a package with functions before a gc. Packages
+  are re-exported, so no repository upgrade step ships for it. The function
+  routes' signature (`FunctionSignatureType`, which list and describe answer)
+  gains `drafts`, after `inputs`, alike: an answer of either release does not
+  decode as the other's, and a client refuses a server's answer of the other
+  release, naming both types, as it refuses any type it does not read — so
+  `e3 call`, e3-ui's `Func.bind` and the server they call are of one release.

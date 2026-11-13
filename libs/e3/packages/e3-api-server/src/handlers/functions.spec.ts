@@ -65,15 +65,20 @@ type IdentityEnv = { Variables: { identity?: Identity } };
 /** The input `scaled` reads. */
 const N_PATH = [variant('field', 'inputs'), variant('field', 'n')];
 
-/** Seed a repo containing a function `double` (Integer -> Integer), and
- *  `scaled`, which reads `.inputs.n` and is given an Integer. */
+/** The record `planned` reads, and lets a call draft. */
+const JOBS_PATH = [variant('field', 'records'), variant('field', 'jobs')];
+
+/** Seed a repo containing a function `double` (Integer -> Integer),
+ *  `scaled`, which reads `.inputs.n` and is given an Integer, and `planned`,
+ *  which reads the record `jobs` and lists it in its drafts. */
 async function seedPackage(storage: InMemoryStorage): Promise<void> {
   await storage.repos.create(REPO);
 
   const bodyIrHash = await storage.objects.write(REPO, encodeInt(0n)); // stand-in IR blob
-  const fnObject = (inputs: typeof N_PATH[]) => ({
+  const fnObject = (inputs: typeof N_PATH[], drafts: string[] = []) => ({
     bodyIr: bodyIrHash,
     inputs,
+    drafts,
     argTypes: [toEastTypeValue(IntegerType)],
     outputType: toEastTypeValue(IntegerType),
     runner: variant('east_node', { platforms: ['@elaraai/east-node-std'], decode: variant('lazy', null) }),
@@ -81,11 +86,12 @@ async function seedPackage(storage: InMemoryStorage): Promise<void> {
   });
   const fnHash = await storage.objects.write(REPO, encodeBeast2For(FunctionObjectType)(fnObject([])));
   const scaledHash = await storage.objects.write(REPO, encodeBeast2For(FunctionObjectType)(fnObject([N_PATH])));
+  const plannedHash = await storage.objects.write(REPO, encodeBeast2For(FunctionObjectType)(fnObject([JOBS_PATH], ['jobs'])));
 
   const pkgObject = {
     tasks: new Map<string, string>(),
     data: { structure: variant('struct', new Map()), refs: new Map() },
-    functions: new Map([['double', fnHash], ['scaled', scaledHash]]),
+    functions: new Map([['double', fnHash], ['planned', plannedHash], ['scaled', scaledHash]]),
     records: new Map<string, string>(),
     sources: new Map(),
   };
@@ -108,17 +114,30 @@ describe('function handlers', () => {
     await seedPackage(storage);
   });
 
-  it('listPackageFunctions surfaces each signature, the inputs a call reads apart from its arguments', async () => {
+  it('listPackageFunctions surfaces each signature, the inputs a call reads apart from its arguments, and the records it may draft', async () => {
     const response = await listPackageFunctions(storage, REPO, PKG, VERSION);
     const result = await decodeResponse(response, ArrayType(FunctionSignatureType));
     assert.ok(result.type === 'success');
-    assert.deepEqual(result.value.map((signature) => signature.name), ['double', 'scaled']);
-    const [double, scaled] = result.value;
+    assert.deepEqual(result.value.map((signature) => signature.name), ['double', 'planned', 'scaled']);
+    const [double, planned, scaled] = result.value;
     assert.equal(double!.argTypes.length, 1);
     assert.equal(double!.inputs.length, 0);
+    assert.deepEqual(double!.drafts, []);
     assert.equal(double!.outputType.type, 'Integer');
+    assert.deepEqual(planned!.inputs, [JOBS_PATH]);
+    assert.deepEqual(planned!.drafts, ['jobs']);
     assert.deepEqual(scaled!.inputs, [N_PATH]);
+    assert.deepEqual(scaled!.drafts, [], 'an input is read as stored: only a listed record takes a draft');
     assert.equal(scaled!.argTypes.length, 1);
+  });
+
+  it('describePackageFunction answers one function\'s signature, as the list holds it', async () => {
+    const listed = await decodeResponse(await listPackageFunctions(storage, REPO, PKG, VERSION), ArrayType(FunctionSignatureType));
+    assert.ok(listed.type === 'success');
+    for (const signature of listed.value) {
+      const described = await decodeResponse(await describePackageFunction(storage, REPO, PKG, VERSION, signature.name), FunctionSignatureType);
+      assert.deepEqual(described, variant('success', signature), signature.name);
+    }
   });
 
   it('answers a function with inputs through the package, which has no workspace to read them from, invalid without executing', async () => {

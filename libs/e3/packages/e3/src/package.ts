@@ -16,6 +16,7 @@ import type {
   RecordDef,
   TaskDef,
 } from './types.js';
+import { isRecord } from './record.js';
 
 /**
  * Creates a package definition from items.
@@ -146,10 +147,7 @@ export function package_(
   // Each record whole, as `e3.record` declared it.
   const records: Record<string, RecordDef> = { ...importedRecords };
   for (const item of all_items) {
-    if (item.kind === 'dataset' && 'recordKind' in item && (item as RecordDef).recordKind === 'record') {
-      const rec = item as RecordDef;
-      records[rec.name] = rec;
-    }
+    if (isRecord(item)) records[item.name] = item;
   }
 
   return {

@@ -338,6 +338,8 @@ export async function export_<D extends Record<string, unknown>>(pkg: PackageDef
     const fnObject: FunctionObject = {
       bodyIr: bodyIrHash,
       inputs: fdef.inputs.map((input) => input.path),
+      // A record is named as a call's draft names it, and as `e3 mutate` does.
+      drafts: fdef.drafts.map((record) => record.name),
       argTypes: fdef.argTypes.map((t) => toEastTypeValue(t)),
       outputType: toEastTypeValue(fdef.outputType),
       runner: runnerToVariant(fdef.runner),

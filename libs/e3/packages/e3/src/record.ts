@@ -59,6 +59,20 @@ export const recordsTree: DataTreeDef = {
 };
 
 /**
+ * Tells a record from any other dataset: one `e3.record` declared, written
+ * only through its mutations.
+ *
+ * @param value - A package's item, or whatever a declaration was given
+ * @returns Whether it is a record
+ * @internal
+ */
+export function isRecord(value: unknown): value is RecordDef {
+  if (typeof value !== 'object' || value === null) return false;
+  const item = value as { readonly kind?: unknown; readonly recordKind?: unknown };
+  return item.kind === 'dataset' && item.recordKind === 'record';
+}
+
+/**
  * Defines a record — a root dataset written only through mutations — declared
  * whole: its type, its initial value, its indexes, its mutations and its
  * migrations, in one call, never changed after.
