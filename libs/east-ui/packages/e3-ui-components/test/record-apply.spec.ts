@@ -13,18 +13,23 @@
  * holds it — names the entries another write moved; one drafted at a revision
  * — over the record read a window at a time (#1199), nothing of it loaded —
  * never reads the record whole, and leaves naming them to its session.
+ *
+ * `Record.toDraft` over the same runtime (#1620): the batch a Save takes,
+ * answered as a draft of the patch door and never sent — its patch the one
+ * that Save then commits, in each of `Record.onApply`'s forms, and its
+ * refusals that Save's.
  */
 
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import {
-    DictType, East, OptionType, PatchType, SortedMap, StringType, StructType,
-    compareFor, decodeBeast2For, diffFor, none, some, variant,
+    ArrayType, DictType, East, OptionType, PatchType, SortedMap, StringType, StructType,
+    compareFor, decodeBeast2For, diffFor, equalFor, none, some, variant,
     type ValueTypeOf,
 } from "@elaraai/east";
 import { Editing } from "@elaraai/east-ui";
-import { Record, RecordBindHandleType } from "@elaraai/e3-ui/internal";
+import { Record, RecordBindHandleType, RecordToDraftResultType } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/bind/record/record";
 import { MutationCallRequestType } from "@elaraai/e3-types";
 import type { E3Record } from "../src/e3-web.test-utils.js";
@@ -46,6 +51,8 @@ const JobsHandle = RecordBindHandleType(JobsType, { patch: [PatchType(JobsType)]
 type Job = ValueTypeOf<typeof JobType>;
 type Result = ValueTypeOf<typeof Editing.Types.ApplyResult>;
 type Apply = (handle: unknown, batch: unknown) => Promise<Result>;
+type Drafted = ValueTypeOf<typeof RecordToDraftResultType>;
+type ToDraft = (handle: unknown, batch: unknown) => Drafted;
 
 const keys = compareFor(StringType);
 /** An entry's composed patch, as the editing session diffs it. */
@@ -99,6 +106,33 @@ function sentPatches<T extends DictType>(record: E3Record<T>) {
     return h.requests("mutate", record.name).map((request) => ({
         request, patch: decode(decodeBeast2For(MutationCallRequestType)(request.body!).args[0]!),
     }));
+}
+
+/**
+ * The patch a draft holds, decoded by its record's patch type.
+ *
+ * @param record - The record the draft is of
+ * @param answer - What `Record.toDraft` answered: a draft of the record's patch door, of its one argument
+ */
+function draftedPatch<T extends DictType>(record: E3Record<T>, answer: Drafted) {
+    if (answer.type !== "draft") assert.fail(`expected a draft, got ${answer.type}`);
+    assert.deepEqual([answer.value.record, answer.value.mutation, answer.value.args.length], [record.name, "patch", 1]);
+    return decodeBeast2For(PatchType(record.type))(answer.value.args[0]!);
+}
+
+const issuesEqual = equalFor(ArrayType(Editing.Types.Issue));
+/**
+ * Holds a draft form's refusal to the Save's of the same batch: the same case, in the same words, and no draft.
+ *
+ * @param drafted - What `Record.toDraft` answered
+ * @param saved - What `Record.onApply` answered
+ * @param kind - The refusal both give
+ */
+function assertSameRefusal(drafted: Drafted, saved: Result, kind: "rejected" | "conflict"): void {
+    if (drafted.type !== "rejected" && drafted.type !== "conflict") assert.fail(`expected the draft refused, got ${drafted.type}`);
+    if (saved.type !== "rejected" && saved.type !== "conflict") assert.fail(`expected the Save refused, got ${saved.type}`);
+    assert.deepEqual([drafted.type, saved.type], [kind, kind]);
+    assert.ok(issuesEqual(drafted.value, saved.value), "the Save's own words");
 }
 
 describe("Record.onApply — over the record's own entries", () => {
@@ -226,6 +260,37 @@ describe("Record.onApply — over the record's own entries", () => {
         assert.deepEqual(commits.map(c => c.mutation), ["patch", "patch", "$init"], "written once, after another session's");
         assert.ok(h.requests("mutate", ex.jobs.name).every((request) => request.idempotencyKey === "apply-1"), "every try under the batch's key");
     });
+
+    test("Record.toDraft answers the batch as a draft of the patch door, its patch the one Record.onApply then commits — un-keyed and keyed — and sends nothing: the record is never read, and stays as saved (#1620)", async () => {
+        const { runtime, handle } = await jobs(false);
+        const draftOf = East.compile(East.function([JobsHandle, Editing.Types.ChangeSet(JobType)], RecordToDraftResultType, ($, record, batch) => {
+            const toDraft = $.const(Record.toDraft(record));
+            return toDraft(batch);
+        }), runtime.buildPrimitives()) as unknown as ToDraft;
+        const keyedDraftOf = East.compile(East.function([JobsHandle, Editing.Types.ChangeSet(JobType, StringType)], RecordToDraftResultType, ($, record, batch) => {
+            const toDraft = $.const(Record.toDraft(record, { keyed: true }));
+            return toDraft(batch);
+        }), runtime.buildPrimitives()) as unknown as ToDraft;
+        const saved = (await h.history(ex.jobs)).commits.map((commit) => commit.state);
+
+        const drafted = draftedPatch(ex.jobs, draftOf(handle, EDIT));
+        const keyedDrafted = draftedPatch(ex.jobs, keyedDraftOf(handle, { ...EDIT, base: variant("snapshot", CUT_AND_GLUE) }));
+        // A batch that changes nothing gives no draft.
+        assert.equal(draftOf(handle, { ...EDIT, changes: [] }).type, "unchanged");
+        assert.equal(keyedDraftOf(handle, { ...EDIT, base: variant("snapshot", CUT_AND_GLUE), changes: [] }).type, "unchanged");
+        // Nothing was sent or read, and the record is as saved: its commits, and what it holds.
+        assert.deepEqual(h.requests("mutate"), []);
+        assert.deepEqual(h.requests("read", "records.jobs"), [], "the record is never read whole");
+        assert.deepEqual((await h.history(ex.jobs)).commits.map((commit) => commit.state), saved);
+        assert.deepEqual([...(await h.read(ex.jobs)).entries()], [["a", CUT], ["b", GLUE]]);
+
+        // The Save of the same batch commits that patch.
+        assert.equal((await sheetApply(runtime)(handle, EDIT)).type, "applied");
+        const [sent] = sentPatches(ex.jobs);
+        const same = equalFor(PatchType(JobsType));
+        assert.ok(same(drafted, sent!.patch), "un-keyed: one patch for one batch");
+        assert.ok(same(keyedDrafted, sent!.patch), "keyed: the same patch");
+    });
 });
 
 describe("Record.onApply — over a collection inside one entry", () => {
@@ -312,6 +377,51 @@ describe("Record.onApply — over a collection inside one entry", () => {
         assert.equal(result.type, "rejected");
         assert.deepEqual(h.requests("mutate"), []);
     });
+
+    /** `Record.toDraft` over the home page's cells, compiled against the runtime: `cellsApply`'s options, not committed. */
+    function cellsDraft(runtime: RecordRuntime): ToDraft {
+        return East.compile(East.function([PagesHandle, Editing.Types.ChangeSet(CellType)], RecordToDraftResultType, ($, record, batch) => {
+            const toDraft = $.const(Record.toDraft(record, {
+                entry: "home",
+                get: East.function([PageType], ex.PageType.fields.cells, (_$, page) => page.cells),
+                set: East.function([PageType, ex.PageType.fields.cells], PageType, (_$, page, cells) => ({ title: page.title, cells })),
+                idField: "key",
+            }));
+            return toDraft(batch);
+        }), runtime.buildPrimitives()) as unknown as ToDraft;
+    }
+
+    test("Record.toDraft over the entry's rows is a draft of the patch Record.onApply then commits — one entry, its other fields untouched — and sends nothing (#1620)", async () => {
+        const { runtime, handle } = await pages();
+        const drafted = draftedPatch(ex.layoutPages, cellsDraft(runtime)(handle, RESIZE));
+        assert.equal(cellsDraft(runtime)(handle, { ...RESIZE, changes: [] }).type, "unchanged");
+        assert.deepEqual(h.requests("mutate"), []);
+        assert.deepEqual((await h.read(ex.layoutPages)).get("home"), HOME, "the record stays as saved");
+
+        assert.equal((await cellsApply(runtime)(handle, RESIZE)).type, "applied");
+        const [sent] = sentPatches(ex.layoutPages);
+        assert.ok(equalFor(PatchType(PagesType))(drafted, sent!.patch), "one patch for one batch");
+    });
+
+    test("where Record.onApply refuses before it writes — the entry changed since the edit began, the entry removed, a batch checked by revision — Record.toDraft answers that refusal, and no draft (#1620)", async () => {
+        const { cache, runtime, handle } = await pages();
+        const [toDraft, apply] = [cellsDraft(runtime), cellsApply(runtime)];
+        const byRevision = { ...RESIZE, base: variant("revision", "r0") };
+        assertSameRefusal(toDraft(handle, byRevision), await apply(handle, byRevision), "rejected");
+
+        // Another write moves a cell: the page's rows are no longer the ones the edit began from.
+        await h.patch(ex.layoutPages, new SortedMap([["home", { ...HOME, cells: [{ key: "k1", span: 4n }, { key: "k2", span: 12n }] }]], keys));
+        await cache.refresh(h.workspace);
+        await h.settle();
+        assertSameRefusal(toDraft(handle, RESIZE), await apply(handle, RESIZE), "conflict");
+
+        // And then removes the page.
+        await h.patch(ex.layoutPages, new SortedMap<string, Page>([], keys));
+        await cache.refresh(h.workspace);
+        await h.settle();
+        assertSameRefusal(toDraft(handle, RESIZE), await apply(handle, RESIZE), "conflict");
+        assert.deepEqual(h.requests("mutate"), [], "nothing was sent");
+    });
 });
 
 describe("Record.onApply — over a Sheet's groups and loose rows inside one entry", () => {
@@ -381,5 +491,32 @@ describe("Record.onApply — over a Sheet's groups and loose rows inside one ent
         });
         assert.equal(result.type, "conflict");
         assert.deepEqual((await h.read(ex.plannedWeeks)).get("w42"), moved);
+    });
+
+    test("Record.toDraft over a week's groups and loose rows is a draft of the patch Record.onApply then commits (#1620)", async () => {
+        const { runtime, handle } = await weeks();
+        const entriesDraft = East.compile(East.function([WeeksHandle, Editing.Types.ChangeSet(EntryType)], RecordToDraftResultType, ($, record, batch) => {
+            const toDraft = $.const(Record.toDraft(record, {
+                entry: "w42",
+                get: East.function([WeekType], WeekType.fields.entries, (_$, week) => week.entries),
+                set: East.function([WeekType, WeekType.fields.entries], WeekType, (_$, week, entries) => ({ title: week.title, entries })),
+                idField: "id",
+            }));
+            return toDraft(batch);
+        }), runtime.buildPrimitives()) as unknown as ToDraft;
+        const batch = {
+            requestId: "week-1", base: variant("snapshot", W42.entries), label: "Edit the week",
+            changes: [
+                { id: "kitchen", patch: entryChange(some(KITCHEN), some(KITCHEN_REVISED)), place: none },
+                { id: "handover", patch: entryChange(none, some(HANDOVER)), place: some(variant("ordered", variant("after", "kitchen"))) },
+            ],
+        };
+        const drafted = draftedPatch(ex.plannedWeeks, entriesDraft(handle, batch));
+        assert.deepEqual(h.requests("mutate"), []);
+        assert.deepEqual((await h.read(ex.plannedWeeks)).get("w42"), W42, "the record stays as saved");
+
+        assert.equal((await entriesApply(runtime)(handle, batch)).type, "applied");
+        const [sent] = sentPatches(ex.plannedWeeks);
+        assert.ok(equalFor(PatchType(WeeksType))(drafted, sent!.patch), "one patch for one batch");
     });
 });

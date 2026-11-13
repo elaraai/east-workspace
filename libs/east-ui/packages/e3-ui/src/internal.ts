@@ -58,10 +58,12 @@ export {
     RecordBindingType,
     RecordBindHandleType,
     RecordOutcomeType,
+    RecordToDraftResultType,
     type BoundRecord,
     type RecordApplyOptions,
     type RecordApplyInsideOptions,
     recordBindPlatformFn,
+    recordDraftForm,
     RecordBindPrimitives,
 } from './bind/record.js';
 // The Record: `<Record>` with its namespace, the payload the renderer takes

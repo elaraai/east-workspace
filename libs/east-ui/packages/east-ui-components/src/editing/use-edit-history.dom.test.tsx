@@ -56,7 +56,7 @@ function jobs(holds: (id: string) => boolean) {
     const editing: EditingValue = {
         sourceId: "jobs", entryType: toEastTypeValue(Job), draftType: toEastTypeValue(JobDraft),
         idField: none, children: none, keyType: some(toEastTypeValue(StringType)), snapshot: none, onPatch: none,
-        readEntry: () => none,
+        readEntry: () => none, toDraft: none,
         onApply: some(variant("sync", () => {
             rows = new Map<string, JobValue>([...rows].map(([id, row]) => [id, { ...row, qty: 5n }]));
             return variant("applied", { revision: some("r2") });
@@ -128,7 +128,7 @@ test("a read of several entries by their keys in flight is asked again as it was
     const editing: EditingValue = {
         sourceId: "jobs-in-flight", entryType: toEastTypeValue(Job), draftType: toEastTypeValue(JobDraft),
         idField: none, children: none, keyType: some(toEastTypeValue(StringType)), snapshot: none, onPatch: none,
-        readEntry: () => none,
+        readEntry: () => none, toDraft: none,
         onApply: some(variant("sync", () => {
             rows = new Map<string, JobValue>([...rows].map(([id, row]) => [id, { ...row, qty: 5n }]));
             return variant("applied", { revision: some("r2") });
@@ -190,7 +190,7 @@ test("a source's rule for its new entries' keys is its session's: a new entry un
         const editing: EditingValue = {
             sourceId: `jobs-${view}`, entryType: toEastTypeValue(Job), draftType: toEastTypeValue(JobDraft),
             idField: none, children: none, keyType: some(toEastTypeValue(StringType)), snapshot: none, onPatch: none,
-            readEntry: () => none,
+            readEntry: () => none, toDraft: none,
             onApply: some(variant("sync", () => variant("applied", { revision: some("r9") }))),
         };
         const sources: readonly EditHistorySource<null>[] = [{ editing, paged, keys }];
@@ -242,7 +242,7 @@ test("a source read whole has its Save read back at the collection its host says
         editing: {
             sourceId: "jobs-whole", entryType: toEastTypeValue(Job), draftType: toEastTypeValue(JobDraft),
             idField: none, children: none, keyType: some(toEastTypeValue(StringType)), snapshot: some(whole), onPatch: none,
-            readEntry: () => none,
+            readEntry: () => none, toDraft: none,
             onApply: some(variant("sync", () => variant("applied", { revision: none }))),
         },
     }];

@@ -10,18 +10,20 @@
  * batch's own entries where it placed them — a keyed one by the batch's own
  * entries, and at a revision the entries read there; for a host whose rows are
  * read apart from that confirmation, it holds what it landed until they read it.
+ * Its complete edits are handed to a source's draft form as the batch a Save of
+ * them sends, and nothing is sent (#1620).
  */
 
 import { expect, test } from "vitest";
 import {
-    ArrayType, DictType, IntegerType, OptionType, SortedMap, StringType, StructType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, some, variant,
+    ArrayType, DictType, IntegerType, OptionType, PatchType, SortedMap, StringType, StructType, compareFor, decodeBeast2For, diffFor, encodeBeast2For, equalFor, none, some, variant,
     type ValueTypeOf, type option,
 } from "@elaraai/east";
 import { Editing } from "@elaraai/east-ui/internal";
 import { liftDraft } from "./draft.js";
 import { editingMessages } from "./messages.js";
 import { madeFromKeys, randomKeys, type EntryKeys } from "./keys.js";
-import { EditSession, type EditSessionBinding, type EntryVersion, type HeldRows, type Origin, type Placement } from "./session.js";
+import { EditSession, type EditSessionBinding, type EntryVersion, type HeldRows, type Origin, type Placement, type ToDraftResult } from "./session.js";
 
 const Run = StructType({ id: StringType, start: IntegerType, end: IntegerType });
 const Draft = Editing.Types.Draft(Run);
@@ -1580,3 +1582,164 @@ test("a conflict that waits, and one settled, stand through another write of oth
     expect([session.unsettled, session.settled.length]).toEqual([1, 0]);
 });
 
+// ── The complete edits, handed over as a draft (#1620) ───────────────────────
+
+/** What a source's draft form answers with: bytes that stand for the draft it makes of a batch. */
+const DRAFT_BYTES = new Uint8Array([1, 6, 2, 0]);
+const samePlace = equalFor(OptionType(Editing.Types.Placement));
+const sameJobPatch = equalFor(PatchType(OptionType(Job)));
+/**
+ * A keyed session over the jobs, read whole, whose source has a draft form: the batches the form was handed, and the
+ * batches its Save sent.
+ *
+ * @param overrides - What the session's binding says otherwise
+ * @param answer - What the draft form answers a batch with; the draft by default
+ */
+const drafting = (overrides: Partial<EditSessionBinding<Bar>> = {}, answer: () => ToDraftResult = () => variant("draft", DRAFT_BYTES)) => {
+    const handed: ValueTypeOf<typeof JobBatch>[] = [];
+    const sent: ValueTypeOf<typeof JobBatch>[] = [];
+    const session = new EditSession<Bar>({
+        sourceId: "jobs", entryType: Job, draftType: JobDraft, keyType: StringType, patch: undefined, refresh: undefined,
+        apply: (bytes) => { sent.push(decodeBeast2For(JobBatch)(bytes)); return variant("applied", { revision: some("r2") }); },
+        toDraft: (bytes) => { handed.push(decodeBeast2For(JobBatch)(bytes)); return answer(); },
+        ...overrides,
+    });
+    session.observeBase(variant("snapshot", began()));
+    return { session, handed, sent };
+};
+/** The ids a batch changes, in order of their text. */
+const changed = (batch: ValueTypeOf<typeof JobBatch> | undefined) => batch?.changes.map((change) => change.id).sort();
+
+test("a session hands its complete edits to its source's draft form as the batch a Save of them sends — nothing sent, no step taken, the session where it was — and a source with no draft form hands nothing over (#1620)", async () => {
+    expect(keyed().toDraft()).toBeUndefined();
+    const { session, handed, sent } = drafting();
+    session.record([
+        { id: "J1", before: job(cut), after: job({ ...cut, qty: 5n }) },
+        { id: "J4", before: absentJob, after: job(spray) },
+        { id: "J2", before: job(band), after: absentJob },
+    ], "typed", "Edit jobs");
+    const stood = () => [session.getSnapshot(), session.status, session.pending, session.locked, session.canApply, session.depth];
+    const before = stood();
+    const answer = session.toDraft();
+    expect([answer?.type, answer?.value]).toEqual(["draft", DRAFT_BYTES]);
+    expect([handed.length, sent.length]).toEqual([1, 0]);
+    expect(stood()).toEqual(before);
+    expect(changed(handed[0])).toEqual(["J1", "J2", "J4"]);
+    // The Save of the same edits sends that batch, under a request and a label of its own.
+    await session.apply();
+    expect(sent).toHaveLength(1);
+    expect(equalFor(JobBatch)(handed[0]!, { ...sent[0]!, requestId: "", label: "" })).toBe(true);
+});
+
+test("with no complete edit that changes the source there is no draft, and the draft form is not asked: nothing drafted, an edit undone, a source not yet read (#1620)", () => {
+    const { session, handed } = drafting();
+    expect(session.toDraft()?.type).toBe("unchanged");
+    session.record([{ id: "J1", before: job(cut), after: job({ ...cut, qty: 5n }) }], "typed", "Set quantity");
+    session.undo();
+    expect(session.toDraft()?.type).toBe("unchanged");
+    const unread = new EditSession<Bar>({
+        sourceId: "jobs", entryType: Job, draftType: JobDraft, keyType: StringType, apply: undefined, patch: undefined, refresh: undefined,
+        toDraft: (bytes) => { handed.push(decodeBeast2For(JobBatch)(bytes)); return variant("draft", DRAFT_BYTES); },
+    });
+    expect(unread.toDraft()?.type).toBe("unchanged");
+    expect(handed).toHaveLength(0);
+});
+
+test("a check holding Save holds no draft back, and neither does a conflict that waits: the draft's value stands there, a change of what the source holds now (#1620)", () => {
+    const refused = { entry: "J1", row: none, field: some("qty"), message: "Over the bench's hours" };
+    const held = drafting({ ready: () => variant("invalid", [refused]) });
+    held.session.record([{ id: "J1", before: job(cut), after: job({ ...cut, qty: 5n }) }], "typed", "Set quantity");
+    expect(held.session.canApply).toBe(false);
+    expect(held.session.toDraft()?.type).toBe("draft");
+    expect(changed(held.handed[0])).toEqual(["J1"]);
+
+    // J1's quantity set to 5 here, and to 3 by another write: a conflict nobody has chosen at.
+    const waiting = drafting();
+    waiting.session.record([{ id: "J1", before: job(cut), after: job({ ...cut, qty: 5n }) }], "typed", "Set quantity");
+    waiting.session.observeBase(variant("snapshot", jobs([["J1", { ...cut, qty: 3n }], ["J2", band], ["J3", route]])));
+    expect([waiting.session.unsettled, waiting.session.canApply]).toEqual([1, false]);
+    expect(waiting.session.toDraft()?.type).toBe("draft");
+    const [change] = waiting.handed[0]!.changes;
+    expect(change!.id).toBe("J1");
+    expect(sameJobPatch(change!.patch, diffFor(OptionType(Job))(some({ ...cut, qty: 3n }), some({ ...cut, qty: 5n })))).toBe(true);
+    expect(waiting.session.unsettled).toBe(1);
+});
+
+test("an entry with a field still missing, or text that could not be read, has no row to hand over: one the source holds stands as it began, a new one is left out, and the complete edits beside them go (#1620)", () => {
+    const { session, handed } = drafting();
+    const missing: EntryVersion<Bar> = { draft: { task: variant("value", cut.task), qty: variant("missing", null) }, wire: { key: cut.task, caption: "" }, place: keyOrder };
+    const unread: EntryVersion<Bar> = { draft: { task: variant("value", spray.task), qty: variant("invalid", "six") }, wire: { key: spray.task, caption: "six" }, place: keyOrder };
+    session.record([
+        { id: "J1", before: job(cut), after: missing },
+        { id: "J4", before: absentJob, after: unread },
+    ], "typed", "Edit jobs");
+    // Nothing of it is complete: no draft, and the form is not asked.
+    expect([session.pending, session.toDraft()?.type, handed.length]).toEqual([2, "unchanged", 0]);
+    session.record([{ id: "J3", before: job(route), after: job({ ...route, qty: 2n }) }], "typed", "Set quantity");
+    expect(session.toDraft()?.type).toBe("draft");
+    expect(changed(handed[0])).toEqual(["J3"]);
+    // Each completed, it goes with the next.
+    session.record([{ id: "J1", before: missing, after: job({ ...cut, qty: 7n }) }, { id: "J4", before: unread, after: job(spray) }], "typed", "Edit jobs");
+    expect(session.toDraft()?.type).toBe("draft");
+    expect(changed(handed[1])).toEqual(["J1", "J3", "J4"]);
+});
+
+test("an entry placed beside a new entry that is left out stands where that one stood; placed by one another alone, it stays where it began (#1620)", () => {
+    const b: RunValue = { id: "b", start: 4n, end: 6n };
+    const c: RunValue = { id: "c", start: 7n, end: 8n };
+    const after = (id: string): Placement => some(variant("ordered", variant("after", id)));
+    const placed = (run: RunValue, place: Placement): EntryVersion<Bar> => ({ ...version(run), place });
+    /** A new run whose end is still missing, placed where given. */
+    const unfinished = (place: Placement): EntryVersion<Bar> => ({
+        draft: { id: variant("value", "n"), start: variant("value", 2n), end: variant("missing", null) }, wire: { key: "n", caption: "2–" }, place,
+    });
+    const absent: EntryVersion<Bar> = { draft: undefined, wire: undefined, place: none };
+    const over = () => {
+        const handed: ValueTypeOf<typeof Batch>[] = [];
+        const session = create({ toDraft: (bytes) => { handed.push(decodeBeast2For(Batch)(bytes)); return variant("draft", DRAFT_BYTES); } });
+        session.observeBase(variant("snapshot", [a, b, c]));
+        return { session, handed };
+    };
+    // A new run after a, and c moved up to stand after it: the batch holds no n, so c stands where n stood.
+    const moved = over();
+    moved.session.record([
+        { id: "n", before: absent, after: unfinished(after("a")) },
+        { id: "c", before: placed(c, after("b")), after: placed(c, after("n")) },
+    ], "move", "Add a run");
+    expect(moved.session.toDraft()?.type).toBe("draft");
+    expect(moved.handed[0]!.changes.map((change) => change.id)).toEqual(["c"]);
+    expect(samePlace(moved.handed[0]!.changes[0]!.place, after("a"))).toBe(true);
+    // The new run placed after c, and c after it: neither says where, and c stays where it began — no change at all.
+    const circular = over();
+    circular.session.record([
+        { id: "n", before: absent, after: unfinished(after("c")) },
+        { id: "c", before: placed(c, after("b")), after: placed(c, after("n")) },
+    ], "move", "Add a run");
+    expect([circular.session.toDraft()?.type, circular.handed.length]).toEqual(["unchanged", 0]);
+});
+
+test("what the draft form answers is the session's answer — the refusal a Save of the batch would get before it wrote, as it is — and a form that throws is refused in its words (#1620)", () => {
+    const moved = [{ entry: "J1", row: none, field: none, message: "Changed since this edit began" }];
+    const conflict = drafting({}, () => variant("conflict", moved));
+    conflict.session.record([{ id: "J1", before: job(cut), after: job({ ...cut, qty: 5n }) }], "typed", "Set quantity");
+    const refusal = conflict.session.toDraft();
+    expect([refusal?.type, refusal?.value]).toEqual(["conflict", moved]);
+    // Nothing of it reaches the session: no status, no issue, and Save is where it was.
+    expect([conflict.session.status, conflict.session.issues, conflict.session.canApply]).toEqual(["idle", [], true]);
+
+    const thrown = drafting({}, () => { throw new Error("the record is not bound"); });
+    thrown.session.record([{ id: "J1", before: job(cut), after: job({ ...cut, qty: 5n }) }], "typed", "Set quantity");
+    const answer = thrown.session.toDraft();
+    expect(answer?.type).toBe("rejected");
+    expect(answer?.type === "rejected" ? answer.value.map((issue) => issue.message) : []).toEqual(["the record is not bound"]);
+    expect(thrown.session.status).toBe("idle");
+});
+
+test("while a Save of the session's own is unresolved it hands over still, from what its edits began from: whoever asks decides whether to wait (#1620)", async () => {
+    const { session, handed } = drafting();
+    session.record([{ id: "J1", before: job(cut), after: job({ ...cut, qty: 5n }) }], "typed", "Set quantity");
+    await session.apply();
+    expect([session.status, session.locked]).toEqual(["reconciling", true]);
+    expect(session.toDraft()?.type).toBe("draft");
+    expect(changed(handed[0])).toEqual(["J1"]);
+});

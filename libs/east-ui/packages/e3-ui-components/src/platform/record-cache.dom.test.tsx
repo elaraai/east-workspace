@@ -198,6 +198,7 @@ test("40 drafts survive paging, filters and remounts; Save confirms all original
             submitted.push(batch.changes.map((change) => change.id));
             return f.apply(batch);
         })),
+        toDraft: none,
     };
     type Bar = { id: string };
     const source: EditSource<Bar> = { revision: f.slice.data.revision, refresh: f.slice.data.refresh, seek: none,
