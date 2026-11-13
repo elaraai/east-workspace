@@ -5,9 +5,14 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { ArrayType, DictType, East, IntegerType, OptionType, StringType, StructType, diffFor, equalFor, isTypeEqual, none, printFor, some, variant, type ValueTypeOf } from "@elaraai/east";
+import {
+    ArrayType, BlobType, DictType, East, FunctionType, IntegerType, OptionType, StringType, StructType,
+    decodeBeast2For, diffFor, encodeBeast2For, equalFor, isTypeEqual, none, printFor, some, variant, type ValueTypeOf,
+} from "@elaraai/east";
 import { Assert, describeEast, TestImpl } from "@elaraai/east-node-std";
-import { Editing, EditingPatchEventTypeWith } from "@elaraai/east-ui/internal";
+import {
+    Editing, EditingPatchEventTypeWith, EditingSessionFields, EditingToDraftResultTypeFor, EditingWireToDraftType, buildWireToDraft,
+} from "@elaraai/east-ui/internal";
 import * as ex from "./editing.examples.js";
 
 describeEast("Editing contract examples", test => {
@@ -132,6 +137,56 @@ test("a patch event is one shape over any draft — field by field for the Sheet
     assert.ok(isTypeEqual(whole.fields.draftChanges, ArrayType(Editing.Types.Change(Editing.Types.DraftField(Job)))));
     assert.ok(isTypeEqual(whole.fields.domainChanges, Editing.Types.PatchEvent(Job).fields.domainChanges));
     assert.ok(isTypeEqual(whole.fields.readiness, Editing.Types.PatchEvent(Job).fields.readiness));
+});
+
+// ── A batch handed over as a draft of the source's write (#1620) ─────────────
+
+test("a session's fields carry toDraft beside onApply: the batch's bytes in, and out the draft's, no change, or the refusal a Save meets before it writes", () => {
+    assert.ok(isTypeEqual(EditingSessionFields.toDraft, OptionType(EditingWireToDraftType)));
+    assert.ok(isTypeEqual(EditingWireToDraftType, FunctionType([BlobType], EditingToDraftResultTypeFor(BlobType))));
+    const answer = EditingToDraftResultTypeFor(StringType);
+    assert.deepEqual(Object.keys(answer.cases).sort(), ["conflict", "draft", "rejected", "unchanged"]);
+    assert.ok(isTypeEqual(answer.cases.draft, StringType), "the draft is the source's own");
+    assert.ok(isTypeEqual(answer.cases.rejected, Editing.Types.ApplyResult.cases.rejected), "refused in a Save's issues");
+    assert.ok(isTypeEqual(answer.cases.conflict, Editing.Types.ApplyResult.cases.conflict));
+});
+
+test("buildWireToDraft reads the batch at its type and answers the draft at the source's own; no change and a refusal cross as they are", () => {
+    // A source whose draft is a line of text: how many entries the batch changes, under its label.
+    const Answer = EditingToDraftResultTypeFor(StringType);
+    const wire = East.compile(East.function([], EditingWireToDraftType, (_$) => buildWireToDraft(_Batch, East.function([_Batch], Answer, ($, asked) => {
+        const answer = $.let(variant("unchanged", null), Answer);
+        $.if(asked.changes.size().greater(0n), ($) => {
+            $.assign(answer, variant("draft", East.str`${asked.label}: ${East.print(asked.changes.size())}`));
+        });
+        $.if(asked.label.equal("Refused"), ($) => {
+            $.assign(answer, variant("rejected", [{ entry: "", row: none, field: none, message: "Not as asked" }]));
+        });
+        $.if(asked.label.equal("Moved"), ($) => {
+            $.assign(answer, variant("conflict", [{ entry: "a", row: none, field: none, message: "Changed since this edit began" }]));
+        });
+        return answer;
+    }))), [])();
+    const encode = encodeBeast2For(_Batch);
+    const same = equalFor(EditingToDraftResultTypeFor(BlobType));
+    const edit: BatchValue["changes"] = [{ id: "a", patch: diff(some(cut), some({ ...cut, qty: 3n })), place: none }];
+
+    const drafted = wire(encode(batch(edit)));
+    if (drafted.type !== "draft") assert.fail(`expected a draft, got ${drafted.type}`);
+    assert.equal(decodeBeast2For(StringType)(drafted.value), "Edit jobs: 1", "the draft's bytes, at the source's draft type");
+    assert.ok(same(wire(encode(batch([]))), variant("unchanged", null)));
+    assert.ok(same(wire(encode({ ...batch(edit), label: "Refused" })), variant("rejected", [{ entry: "", row: none, field: none, message: "Not as asked" }])));
+    assert.ok(same(wire(encode({ ...batch(edit), label: "Moved" })), variant("conflict", [{ entry: "a", row: none, field: none, message: "Changed since this edit began" }])));
+});
+
+test("buildWireToDraft refuses a function that is not its batch's draft: another batch's, or one that answers anything else", () => {
+    const refusal = /a session's toDraft must be an East function of its batch, answering the draft of the source's write or why there is none/;
+    const Answer = EditingToDraftResultTypeFor(StringType);
+    const unkeyed = East.function([Editing.Types.ChangeSet(Job)], Answer, (_$, _asked) => East.value(variant("unchanged", null), Answer));
+    assert.throws(() => buildWireToDraft(_Batch, unkeyed), refusal);
+    const saved = East.function([_Batch], Editing.Types.ApplyResult, (_$, _asked) => East.value(variant("applied", { revision: none }), Editing.Types.ApplyResult));
+    assert.throws(() => buildWireToDraft(_Batch, saved), refusal);
+    assert.throws(() => buildWireToDraft(_Batch, East.value("a draft", StringType)), refusal);
 });
 
 test("an origin names every gesture of every collection — the Plan's resize, drop and verdict among them, a run of the app's optimiser (#1409), a conflict chosen, and a Sheet action column's step (#1480)", () => {

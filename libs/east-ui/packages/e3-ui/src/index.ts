@@ -17,7 +17,7 @@
  *   (`Sheet.column.*`, `Sheet.register.*`, `Sheet.driver`, `Sheet.Types`).
  * - `<Record>` — the table for a system of records, with the record binding
  *   and its vocabulary on `Record` (`Record.bind`, `Record.onApply`,
- *   `Record.column.*`, `Record.register.*`, `Record.Types`).
+ *   `Record.toDraft`, `Record.column.*`, `Record.register.*`, `Record.Types`).
  * - `<Flowchart>` — the state-transition flowchart over the app's records:
  *   its states in ordered lanes, the transitions between them and the
  *   decisions that govern them, each record's fields mapped to its roles,
@@ -74,9 +74,13 @@ export {
     Func,
     FuncStatusType,
     FuncErrorType,
+    FuncDraftType,
+    FuncDraftedType,
     FuncBindingType,
     FuncBindHandleType,
+    FuncBindDraftsHandleType,
     type BoundFunc,
+    type BoundDraftsFunc,
     funcBindPlatformFn,
 } from './bind/func.js';
 export {
@@ -85,13 +89,14 @@ export {
     RecordBindingType,
     RecordBindHandleType,
     RecordOutcomeType,
+    RecordToDraftResultType,
     type BoundRecord,
     type RecordApplyOptions,
     type RecordApplyInsideOptions,
     recordBindPlatformFn,
 } from './bind/record.js';
 // The Record: `<Record>`, the table for a system of records, and the record
-// binding beside it — `Record.bind`, `Record.onApply`, its columns, registers,
+// binding beside it — `Record.bind`, `Record.onApply`, `Record.toDraft`, its columns, registers,
 // hints, patches and types (`Record.column.*`, `Record.register.*`,
 // `Record.field`, `Record.patch`, `Record.Types`).
 export {

@@ -90,6 +90,14 @@ describe("`optimise` (§4): Func.bind of an e3.function from OptimiseRequest(E, 
         assert.throws(() => payload({ optimise: East.value("calendar_schedule_backlog") }), notBound);
         assert.throws(() => payload({ optimise: ex.calendarOptimiseBody }), notBound);
     });
+
+    test("one that lists drafts is refused, since its call takes them and the Calendar's run passes none (#1620)", () => {
+        const drafted = e3.function("calendar_optimise_spec_drafted", {
+            inputs: [base.calendarJobs], drafts: [base.calendarJobs], args: [ex.CalendarOptimiseRequest], output: ex.CalendarOptimiseResult,
+        }, (_$, _jobs, req) => ({ events: { job: req.events.job } }));
+        assert.throws(() => payload({ optimise: Func.bind(drafted) }),
+            /^Error: Calendar: `optimise` is Func\.bind of a function that lists `drafts`, whose call takes them, and the Calendar passes none — bind a function that lists no drafts$/);
+    });
 });
 
 describe("the shop's optimiser over a small window (§3.1)", () => {

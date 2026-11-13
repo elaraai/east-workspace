@@ -996,3 +996,57 @@ Each wire changed under this rule, with the kind it is.
   answer of the other release, naming both types — so `e3 call`, e3-ui's
   `Func.bind` and the server they call are of one release, as the function's
   signature already holds them.
+- **east-ui's editing session gains its draft form, and e3-ui's bound record
+  the draft of each mutation (#1620)** — package-borne. The shared session's
+  fields (`EditingSessionFields`: east-ui's `EditingType` and
+  `SnapGridEditingType`, e3-ui's `PlanEditingType` and `SheetEditingType`)
+  gain `toDraft`, after `onApply`: the batch `onApply` takes, over the same
+  bytes, answered as a draft of the source's write and not written
+  (`EditingWireToDraftType`) — the draft's bytes, no change, or the refusal a
+  Save of the batch meets before it writes. A session that saves through
+  e3-ui's `Record.onApply` holds one: a Schedule kind's that saves to its
+  record, a Sheet's over a record, and a Sheet's or a Plan's handed
+  `Record.onApply` as its Save. Every other holds `none`: the SnapGrid's, the
+  query builder's and Studio's, whose Save is the builder's own function, and
+  a Save of the host's own. The fields travel in east-ui's `SnapGrid` arm and
+  in every e3-ui builder's payload, each Schedule kind's session among them,
+  so a UI value encoded under either type does not decode under the other:
+  packages are re-exported, and the dataflow computes each UI task's output
+  again under the new type. e3-ui's `Record.bind` handle
+  (`RecordBindHandleType`) gains `draft`, after `commit`: one function for
+  each mutation the handle binds, from the arguments `mutate.<name>` takes to
+  the mutation's call as a draft (`FuncDraftType`, which is e3-types'
+  `FunctionDraftType`), made by a new UI platform function, `record_draft`. A
+  program that binds a record holds the handle's type in its IR; one an
+  earlier SDK exported names a handle with no `draft`, and is bound one
+  without, as a handle has what its type names — it is re-exported for its
+  session's fields all the same. A UI task's output is not stored state, and a
+  draft is written nowhere, so no repository upgrade step ships with it.
+- **e3-ui's bound function names the records its function lists, and its
+  call sends drafts (#1620)** — package-borne. `Func.bind`'s platform function
+  (`function_bind`) takes a second argument, after the function's name: the
+  names of the records the function lists in its `drafts`. The handle's
+  `binding` (`FuncBindingType`) gains `drafts`, after `name`, which holds
+  them, and its `error` (`FuncErrorType`) gains the kind `conflict`, a draft
+  that no longer fits its record (e3-types' `FunctionDraftConflictType`),
+  which sorts first among its kinds. A function that lists no record keeps the
+  handle it had (`FuncBindHandleType`) but for those two. One that lists a
+  record has a handle type of its own (`FuncBindDraftsHandleType`): its `call`
+  takes the call's drafts after the function's arguments, an Array of
+  `FuncDraftType`, and it gains `drafted`, after `read` — the records drafted
+  by the call that gave `read`'s result, each with the commit it stood at
+  (`FuncDraftedType`, which is e3-types' `FunctionDraftedType`). Behind the
+  handles, `function_call` takes the drafts as a third argument, and
+  `function_drafted` is a new UI platform function, which the function
+  platform's list carries wherever it is spread. A program that binds a
+  function holds the bind's call and the handle's type in its IR: one an
+  earlier SDK exported passes `function_bind` the name alone, and is refused
+  as it is checked, naming the count (`Platform function 'function_bind'
+  expects 2 arguments but got 1`) — re-export its package. The binding travels
+  in five builders' payloads as well — the Calendar's, the Plan's and the
+  Sheet's `optimise`, and the Roster's and the Allocation's `fit` and
+  `optimise` — so a UI value encoded under either type does not decode under
+  the other, and the dataflow computes each UI task's output again under the
+  new type. A UI task's output is not stored state, and a call's drafts ride
+  the function routes' request, whose change is #1619's (above), so no
+  repository upgrade step ships with it.

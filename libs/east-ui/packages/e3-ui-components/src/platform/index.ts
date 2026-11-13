@@ -87,6 +87,8 @@ export {
     type FunctionCallArgs,
     type FunctionCallOptions,
     type DefaultFunctionApiOptions,
+    type FuncDraft,
+    type FuncDrafted,
     type FuncRuntimeOptions,
     type FuncPage,
 } from "./func-runtime.js";

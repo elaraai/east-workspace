@@ -77,7 +77,8 @@ export {
     type EditingCollectionOf, EditingBaseTypeFor, EditingChangeTypeFor, EditingChangeSetTypeFor,
     EditingAppliedTypeFor, EditingPatchEventTypeFor, EditingDraftChangeTypeFor,
     applyEditing,
-    EditingWireApplyType, EditingSessionFields, EditingType,
+    EditingWireApplyType, EditingToDraftResultTypeFor, EditingWireToDraftType, buildWireToDraft,
+    EditingSessionFields, EditingType,
     EditingRequestStore, buildInlineApply,
     Editing, type EditingNamespace,
 } from "./editing.js";

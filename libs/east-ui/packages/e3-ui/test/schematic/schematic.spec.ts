@@ -27,7 +27,7 @@ import { Slice, UIComponentType } from "@elaraai/east-ui";
 import { Text } from "@elaraai/east-ui/internal";
 import { DatasetStatusType, RecordCommitInfoType } from "@elaraai/e3-types";
 import {
-    Data, DataBindHandleType, Record, RecordBindHandleType, RecordErrorType, RecordMutateStatusType, RecordOutcomeType, Schematic as PublicSchematic,
+    Data, DataBindHandleType, FuncDraftType, Record, RecordBindHandleType, RecordErrorType, RecordMutateStatusType, RecordOutcomeType, Schematic as PublicSchematic,
 } from "@elaraai/e3-ui";
 import { Schematic, SchematicBoxFieldsType, SchematicPayloadType, buildSchematicLibrary, schematicKeys } from "@elaraai/e3-ui/internal";
 import * as ex from "./schematic.examples.js";
@@ -123,6 +123,9 @@ function recordHandle<T extends EastType>(type: T, value: ValueTypeOf<T>, name: 
         },
         commit: patch
             ? { patch: East.asyncFunction([StringType, PatchType(type)], RecordOutcomeType, (_$2) => variant("committed", { commitHash: "c", stateHash: "s" })) }
+            : {},
+        draft: patch
+            ? { patch: East.function([PatchType(type)], FuncDraftType, (_$2, change) => ({ record: name, mutation: "patch", args: [East.Blob.encodeBeast(change as never, "v2")] })) }
             : {},
         start: East.function([], NullType, (_$2) => null),
         binding: { name, mutations: patch ? ["patch"] : [] },

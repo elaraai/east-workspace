@@ -45,17 +45,34 @@ type ArgExprs<T extends readonly EastType[]> = {
 type RecordsOf<Inputs extends readonly DatasetDef[]> = Extract<Inputs[number], { readonly recordKind: 'record' }>;
 
 /**
+ * Whether a function's spec lists a record in `drafts`, as its definition's
+ * type says it ({@link FunctionDef}'s `Drafted`): `false` for none, `true`
+ * for at least one, and `boolean` where the list is no tuple, so that its
+ * length is not known.
+ *
+ * @typeParam Listed - The spec's `drafts`, as listed
+ */
+type DraftedOf<Listed extends readonly unknown[]> =
+  number extends Listed['length'] ? boolean
+  : Listed extends readonly [] ? false
+  : true;
+
+/**
  * The declaration half of a function with inputs ({@link function_}'s
  * `(name, spec, fn)` form); the body comes last as the `fn` argument.
  *
  * @typeParam Inputs - The datasets a call reads from its workspace
  * @typeParam Args - The types of the arguments a caller passes
  * @typeParam Output - The return type
+ * @typeParam Listed - The records it lists in `drafts`, as a tuple: none
+ *   unless named, so a spec declared apart from its call names them to list
+ *   any (`FunctionSpec<[typeof jobs], [], IntegerType, [typeof jobs]>`)
  */
 export interface FunctionSpec<
   Inputs extends readonly DatasetDef[],
   Args extends EastType[],
   Output extends EastType,
+  Listed extends readonly RecordsOf<Inputs>[] = readonly [],
 > {
   /** The datasets each call reads from the workspace it runs in, in the
    *  body's parameter order before the arguments: an input, a task's output
@@ -71,7 +88,7 @@ export interface FunctionSpec<
    *  record says the body is fit to run over edits nobody has saved, so a
    *  function that sends a message or writes elsewhere lists none. Omitted, a
    *  call takes no draft. */
-  readonly drafts?: readonly NoInfer<RecordsOf<Inputs>>[];
+  readonly drafts?: readonly [...Listed];
   /** The types of the arguments a caller passes, after the inputs. */
   readonly args: [...Args];
   /** The return type. */
@@ -119,6 +136,8 @@ export interface FunctionSpec<
  * @typeParam Inputs - The datasets a call reads
  * @typeParam Args - The argument types a caller passes
  * @typeParam Output - Return type
+ * @typeParam Listed - The records listed in `drafts`, as listed: the
+ *   definition's type says whether there is any, which a page's bind reads
  * @param name - Function name (unique within the package)
  * @param spec - The inputs, the records a call may draft, the argument types
  *   and the return type, and the runner, environment and `async`
@@ -177,11 +196,12 @@ export function function_<
   Inputs extends readonly DatasetDef[],
   Args extends EastType[],
   Output extends EastType,
+  Listed extends readonly RecordsOf<Inputs>[] = readonly [],
 >(
   name: Name,
-  spec: FunctionSpec<Inputs, Args, Output>,
+  spec: FunctionSpec<Inputs, Args, Output, Listed>,
   fn: ($: BlockBuilder<Output>, ...params: [...InputExprs<Inputs>, ...ArgExprs<Args>]) => SubtypeExprOrValue<NoInfer<Output>> | void,
-): FunctionDef<Args, Output>;
+): FunctionDef<Args, Output, DraftedOf<Listed>>;
 /**
  * Defines a named function stored in a package.
  *
@@ -228,10 +248,10 @@ export function function_<Name extends string, Args extends EastType[], Output e
     | AsyncFunctionExpr<Args, Output>
     | CallableAsyncFunctionExpr<Args, Output>,
   config?: { runner?: FunctionRunner, environment?: EnvironmentDecl },
-): FunctionDef<Args, Output>;
+): FunctionDef<Args, Output, false>;
 export function function_(
   name: string,
-  second: FunctionExpr<EastType[], EastType> | AsyncFunctionExpr<EastType[], EastType> | FunctionSpec<DatasetDef[], EastType[], EastType>,
+  second: FunctionExpr<EastType[], EastType> | AsyncFunctionExpr<EastType[], EastType> | FunctionSpec<(DatasetDef | RecordDef)[], EastType[], EastType, readonly RecordDef[]>,
   third?: { runner?: FunctionRunner, environment?: EnvironmentDecl } | (($: BlockBuilder<EastType>, ...params: Expr[]) => unknown),
 ): FunctionDef {
   if (!name) {

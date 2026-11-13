@@ -13,23 +13,24 @@
  * - The app's check, over a drafted row and its key at its type.
  * - A card's write, at any depth of the row.
  * - The record's session: its key type on the wire, one entry read by its key's text, and Save through the patch
- *   door, which writes each change under its key at the record's key type.
+ *   door, which writes each change under its key at the record's key type — and the same batch handed over as the
+ *   draft of that Save (#1620), its patch the one Save sends.
  *
  * e3-ui's specs read and write no e3: each record is a handle as `Record.bind` gives one, its patch door answering
- * with the record the patch writes, printed.
+ * with the record the patch writes, printed, and its draft door with the patch as a draft.
  */
 
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
     ArrayType, BlobType, BooleanType, DictType, East, FunctionType, IntegerType, NullType, OptionType, PatchType, SortedMap, StringType, StructType,
-    compareFor, decodeBeast2For, encodeBeast2For, equalFor, fromEastTypeValue, isTypeEqual, none, printFor, some, variant,
+    compareFor, decodeBeast2For, diffFor, encodeBeast2For, equalFor, fromEastTypeValue, isTypeEqual, none, printFor, some, variant,
     type EastType, type ExprType,
 } from "@elaraai/east";
 import { Editing } from "@elaraai/east-ui";
 import { EditingReadinessType } from "@elaraai/east-ui/internal";
 import { DatasetStatusType, RecordCommitInfoType } from "@elaraai/e3-types";
-import { RecordBindHandleType, RecordErrorType, RecordMutateStatusType, RecordOutcomeType } from "@elaraai/e3-ui";
+import { FuncDraftType, RecordBindHandleType, RecordErrorType, RecordMutateStatusType, RecordOutcomeType } from "@elaraai/e3-ui";
 import { KindSideFields, accessorRole, kindWholeRows, readOf, recordSide, rowsReadOf, storedRows } from "@elaraai/e3-ui/internal";
 
 // ============================================================================
@@ -64,6 +65,18 @@ const MoveKind = StructType({
     read: FunctionType([BlobType, StringType], MoveRoles),
 });
 
+/** The steps the record holds, and the moves between them: what each handle's read answers. */
+const STEPS = new SortedMap([
+    [2n, { name: "Weigh", station: 1n }],
+    [9n, { name: "Proof", station: 1n }],
+    [10n, { name: "Mix", station: 1n }],
+], compareFor(IntegerType));
+const MOVES = new SortedMap([
+    [{ from: 10n, to: 20n }, { note: "Mixed dough to proof" }],
+    [{ from: 20n, to: 30n }, { note: "Proofed dough to the oven" }],
+    [{ from: 30n, to: 40n }, { note: "Loaves to cool" }],
+], compareFor(MoveKey));
+
 const stepBytes = encodeBeast2For(Step);
 const stepOf = decodeBeast2For(Step);
 const stepEqual = equalFor(Step);
@@ -81,11 +94,7 @@ const moveText = printFor(MoveKey);
 
 /** The steps, a kind over a record keyed by Integer: bound with its patch door, read whole, its accessor and check over the key. */
 const steps = East.compile(East.function([], StepKind, ($) => {
-    const read = $.const(East.function([], Steps, (_$2) => new SortedMap([
-        [2n, { name: "Weigh", station: 1n }],
-        [9n, { name: "Proof", station: 1n }],
-        [10n, { name: "Mix", station: 1n }],
-    ], compareFor(IntegerType))));
+    const read = $.const(East.function([], Steps, (_$2) => STEPS));
     const handle = $.let({
         read,
         status: East.function([], DatasetStatusType, (_$2) => variant("up-to-date", null)),
@@ -101,6 +110,11 @@ const steps = East.compile(East.function([], StepKind, ($) => {
         commit: {
             patch: East.asyncFunction([StringType, PatchType(Steps)], RecordOutcomeType, (_$2, _id, patch) =>
                 variant("committed", { commitHash: "c", stateHash: East.print(East.applyPatch(read(), patch)) })),
+        },
+        // The same door, not committed: the patch as a draft, its bytes the ones a commit sends.
+        draft: {
+            patch: East.function([PatchType(Steps)], FuncDraftType, (_$2, patch) =>
+                ({ record: "spec_steps", mutation: "patch", args: [East.Blob.encodeBeast(patch, "v2")] })),
         },
         start: East.function([], NullType, (_$2) => null),
         binding: { name: "spec_steps", mutations: ["patch"] },
@@ -126,11 +140,7 @@ const steps = East.compile(East.function([], StepKind, ($) => {
 
 /** The moves, a kind over a record keyed by a struct, East's Dict over it a SortedMap in East's order. */
 const moves = East.compile(East.function([], MoveKind, ($) => {
-    const read = $.const(East.function([], Moves, (_$2) => new SortedMap([
-        [{ from: 10n, to: 20n }, { note: "Mixed dough to proof" }],
-        [{ from: 20n, to: 30n }, { note: "Proofed dough to the oven" }],
-        [{ from: 30n, to: 40n }, { note: "Loaves to cool" }],
-    ], compareFor(MoveKey))));
+    const read = $.const(East.function([], Moves, (_$2) => MOVES));
     const handle = $.let({
         read,
         status: East.function([], DatasetStatusType, (_$2) => variant("up-to-date", null)),
@@ -145,6 +155,10 @@ const moves = East.compile(East.function([], MoveKind, ($) => {
         commit: {
             patch: East.asyncFunction([StringType, PatchType(Moves)], RecordOutcomeType, (_$2, _id, patch) =>
                 variant("committed", { commitHash: "c", stateHash: East.print(East.applyPatch(read(), patch)) })),
+        },
+        draft: {
+            patch: East.function([PatchType(Moves)], FuncDraftType, (_$2, patch) =>
+                ({ record: "spec_moves", mutation: "patch", args: [East.Blob.encodeBeast(patch, "v2")] })),
         },
         start: East.function([], NullType, (_$2) => null),
         binding: { name: "spec_moves", mutations: ["patch"] },
@@ -287,5 +301,51 @@ describe("the record's session is at the record's key type: its read by key and 
             [{ from: 30n, to: 10n }, { note: "Back to the bench" }],
             [{ from: 30n, to: 40n }, { note: "Loaves to cool" }],
         ], compareFor(MoveKey))));
+    });
+
+    test("the session hands a batch over as the draft of that Save (#1620): the record's patch door, not committed, its patch the one Save sends — at the record's key type, a number's or a struct's", async () => {
+        if (steps.editing.type !== "some" || moves.editing.type !== "some") assert.fail("editable");
+        const stepChange = diffFor(OptionType(Step));
+        const stepsBatch = encodeBeast2For(Editing.Types.ChangeSet(Step, IntegerType))({
+            requestId: "spec-steps-draft", base: variant("revision", "r1"), label: "Add a step, and move one",
+            changes: [
+                { id: "11", patch: stepChange(none, some({ name: "Bake", station: 2n })), place: some(variant("keyOrder", null)) },
+                { id: "9", patch: stepChange(some({ name: "Proof", station: 1n }), some({ name: "Proof", station: 3n })), place: none },
+            ],
+        });
+        const bakeToMix = moveText({ from: 30n, to: 10n });
+        const movesBatch = encodeBeast2For(Editing.Types.ChangeSet(Move, MoveKey))({
+            requestId: "spec-moves-draft", base: variant("revision", "r1"), label: "Connect Bake to Mix",
+            changes: [{ id: bakeToMix, patch: diffFor(OptionType(Move))(none, some({ note: "Back to the bench" })), place: some(variant("keyOrder", null)) }],
+        });
+        // The record a patch writes, printed: what each handle's patch door answers a Save with.
+        const stepsAfter = East.compile(East.function([PatchType(Steps)], StringType, (_$, patch) => East.print(East.applyPatch(East.value(STEPS, Steps), patch))), []);
+        const movesAfter = East.compile(East.function([PatchType(Moves)], StringType, (_$, patch) => East.print(East.applyPatch(East.value(MOVES, Moves), patch))), []);
+        const cases = [
+            { name: "spec_steps", editing: steps.editing.value, batch: stepsBatch, after: (bytes: Uint8Array) => stepsAfter(decodeBeast2For(PatchType(Steps))(bytes)) },
+            { name: "spec_moves", editing: moves.editing.value, batch: movesBatch, after: (bytes: Uint8Array) => movesAfter(decodeBeast2For(PatchType(Moves))(bytes)) },
+        ];
+        for (const { name, editing, batch, after } of cases) {
+            const { onApply, toDraft } = editing;
+            if (toDraft.type !== "some") assert.fail("a session over a record carries its Save's draft form");
+            if (onApply.type !== "some" || onApply.value.type !== "async") assert.fail("Save goes through the patch door, awaited");
+            const answer = toDraft.value(batch);
+            if (answer.type !== "draft") assert.fail(`the batch is a draft: ${answer.type}`);
+            const draft = decodeBeast2For(FuncDraftType)(answer.value);
+            assert.equal(draft.record, name);
+            assert.equal(draft.mutation, "patch");
+            assert.equal(draft.args.length, 1, "the patch door's one argument");
+            // Its patch writes the record Save's writes.
+            const saved = await onApply.value.value(batch);
+            if (saved.type !== "applied" || saved.value.revision.type !== "some") assert.fail(`Save applies: ${saved.type}`);
+            assert.equal(after(draft.args[0]!), saved.value.revision.value);
+        }
+        // A batch of no change is no draft.
+        const stepsToDraft = steps.editing.value.toDraft;
+        if (stepsToDraft.type !== "some") assert.fail("carried");
+        const unchanged = stepsToDraft.value(encodeBeast2For(Editing.Types.ChangeSet(Step, IntegerType))({
+            requestId: "spec-steps-none", base: variant("revision", "r1"), label: "Nothing", changes: [],
+        }));
+        assert.equal(unchanged.type, "unchanged");
     });
 });

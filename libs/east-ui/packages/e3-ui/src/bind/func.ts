@@ -13,6 +13,10 @@
  * `error` / `pending` observe the call lifecycle reactively inside
  * `Reactive.Root`. See `libs/e3/design/e3-ui-functions.md`.
  *
+ * A function that lists `drafts` is bound to a handle whose `call` takes
+ * them last: unsaved edits of the records it reads, which the call lays over
+ * them and never saves (east-workspace#1620).
+ *
  * @packageDocumentation
  */
 
@@ -31,6 +35,7 @@ import {
     type EastType,
     type ExprType,
 } from '@elaraai/east';
+import { FunctionDraftConflictType, FunctionDraftedType, FunctionDraftType } from '@elaraai/e3-types';
 import type { FunctionDef } from '@elaraai/e3';
 
 // ============================================================================
@@ -41,17 +46,16 @@ import type { FunctionDef } from '@elaraai/e3';
  * Tracked-call lifecycle for a bound function.
  *
  * @remarks
- * Client-defined — the sync-only function surface has no server-side call
- * state. `idle` means the function has never been launched through this
- * binding; `cancelled` means the client stopped waiting (via `cancel()` or
- * a superseding `call`) — the server still ran the call to completion or
- * its deadline.
+ * `idle` means the function has never been launched through this binding.
+ * `cancelled` means the page stopped the call, by `cancel()` or by a `call`
+ * that superseded it: the server is asked to stop it, and whatever it answers
+ * after that is discarded.
  *
  * @property idle - Never launched
  * @property running - A call is in flight
  * @property succeeded - The most recent call returned a value (see `read`)
  * @property failed - The most recent call failed (see `error`)
- * @property cancelled - The client stopped waiting for the most recent call
+ * @property cancelled - The page stopped the most recent call
  */
 export const FuncStatusType = VariantType({
     idle:      NullType,
@@ -75,16 +79,25 @@ export type FuncStatusType = typeof FuncStatusType;
  * (already truncated server-side); they are empty for `transport`
  * failures, which never reached an execution.
  *
+ * A draft the call passed can end it before the function runs, as a Save of
+ * the same edit would have ended: `invalid`, `failed` or `timed_out`, each
+ * `message` naming the draft (`draft jobs.patch (2 of 3) …`), or `conflict`
+ * where the record changed under the edit.
+ *
  * @property kind - Which way the call failed:
- *   `failed` (runner exited non-zero), `invalid` (argument or signature
- *   diagnostics), `too_large` (result exceeded the server limit),
- *   `timed_out` (server deadline hit), `transport` (HTTP/decode failure).
+ *   `conflict` (a draft no longer fits its record, which changed under the
+ *   edit: the record, the mutation and the refusal's words, as a Save's
+ *   conflict gives them), `failed` (runner exited non-zero), `invalid`
+ *   (argument or signature diagnostics, or a draft the call may not pass),
+ *   `too_large` (result exceeded the server limit), `timed_out` (server
+ *   deadline hit), `transport` (HTTP/decode failure).
  * @property message - One-line human-readable summary, always present
  * @property stdout - Captured runner stdout (may be truncated)
  * @property stderr - Captured runner stderr (may be truncated)
  */
 export const FuncErrorType = StructType({
     kind: VariantType({
+        conflict:  FunctionDraftConflictType,
         failed:    StructType({ exitCode: IntegerType }),
         invalid:   StructType({ diagnostics: ArrayType(StringType) }),
         too_large: StructType({ bytes: IntegerType, limit: IntegerType }),
@@ -102,13 +115,63 @@ export const FuncErrorType = StructType({
 export type FuncErrorType = typeof FuncErrorType;
 
 /**
+ * A draft: a call of one of a record's mutations that is not committed — the
+ * record, the mutation, and the mutation's arguments, each encoded as a
+ * commit sends it.
+ *
+ * @remarks
+ * `Record.bind`'s `draft.<name>(…)` makes one. A bound function that lists
+ * the record in its `drafts` takes drafts with its call, and reads the record
+ * with them laid over it; nothing is saved.
+ *
+ * It is e3's draft (e3-types' `FunctionDraftType`), one type for every
+ * record, so one list holds drafts of several records. It is not a row's
+ * draft (`Record.Types.Draft(R)`, `Sheet.Types.Draft(R)`,
+ * `Editing.Types.Draft(R)`: a row whose fields may still be missing), and not
+ * what a record's declaration makes of a mutation (e3's `MutationDraft`).
+ *
+ * @property record - The record's name in the deployed package
+ * @property mutation - The mutation's name on the record
+ * @property args - The mutation's arguments, in order, each as beast2 bytes at its declared type
+ */
+export const FuncDraftType = FunctionDraftType;
+
+/**
+ * Type representing the FuncDraft structure.
+ */
+export type FuncDraftType = typeof FuncDraftType;
+
+/**
+ * A record a call read with drafts laid over it, and the commit it stood at:
+ * what a drafted handle's `drafted()` answers for each (e3-types'
+ * `FunctionDraftedType`).
+ *
+ * @property record - The record's name in the deployed package
+ * @property commit - The commit the record stood at as the call started, which
+ *   its drafts were laid over: a page that holds an older commit of the record
+ *   knows the function read newer saves beneath its edits
+ */
+export const FuncDraftedType = FunctionDraftedType;
+
+/**
+ * Type representing the FuncDrafted structure.
+ */
+export type FuncDraftedType = typeof FuncDraftedType;
+
+/**
  * Descriptor for a function binding — carried on the handle's `binding`
- * field for inspector surfaces.
+ * field for inspector surfaces, and for a builder to check its own records
+ * against.
  *
  * @property name - The bound function's name in the deployed package
+ * @property drafts - The records the function lists in its `drafts`, by name,
+ *   in the order listed: the records a call may pass drafts of. Empty for a
+ *   function that lists none. A draft of any other record ends the call
+ *   `invalid`, at the server
  */
 export const FuncBindingType = StructType({
     name: StringType,
+    drafts: ArrayType(StringType),
 });
 
 /**
@@ -121,9 +184,9 @@ export type FuncBindingType = typeof FuncBindingType;
 // ============================================================================
 
 /**
- * The struct returned by every {@link Func.bind} call. All closures are
- * sync — the call's async effects happen behind the platform and are
- * observed reactively.
+ * The struct {@link Func.bind} returns for a function that lists no
+ * `drafts`. All closures are sync — the call's async effects happen behind
+ * the platform and are observed reactively.
  *
  * @remarks
  * The field set is deliberately the function-shaped subset of
@@ -148,9 +211,9 @@ export type FuncBindingType = typeof FuncBindingType;
  *   {@link FuncStatusType}.
  * @property error - Last failure detail; `none` unless status is `failed`.
  * @property pending - True while a call is in flight (== status `running`).
- * @property cancel - Stop waiting for the in-flight call (no-op when idle
- *   or terminal). Client-side only: the server runs the call to completion
- *   or its deadline regardless; the late response is discarded.
+ * @property cancel - Stop the in-flight call (no-op when idle or
+ *   terminal): the page stops waiting, and the server is asked to stop the
+ *   call; an answer that arrives after it is discarded.
  * @property binding - Descriptor for this binding — see
  *   {@link FuncBindingType}.
  */
@@ -168,9 +231,59 @@ export const FuncBindHandleType = <I extends EastType[], O extends EastType>(
 });
 
 /**
+ * The struct {@link Func.bind} returns for a function that lists `drafts`:
+ * {@link FuncBindHandleType}'s, with the drafts as the call's last argument
+ * and `drafted` beside `read`.
+ *
+ * @remarks
+ * A handle has what its type names: one with `drafted` is a handle of a
+ * function that lists drafts, and its `call` takes them.
+ *
+ * @param inputs - Positional parameter East types.
+ * @param output - Return East type.
+ * @returns The handle StructType for that signature.
+ *
+ * @property call - Launch the function with these arguments and, last, the
+ *   drafts: an Array of {@link FuncDraftType}, each an unsaved edit of a
+ *   record the function lists, which the call lays over the record and never
+ *   saves. An empty Array is a call as saved. Otherwise as
+ *   {@link FuncBindHandleType}'s `call`.
+ * @property read - Last successful result; `none` until the first
+ *   `succeeded` call, then survives until the next launch overwrites it.
+ * @property drafted - For the result `read` answers: each record that call
+ *   drafted, once, in the order its drafts first named them, with the commit
+ *   the record stood at as the server laid them ({@link FuncDraftedType}).
+ *   Empty until the first `succeeded` call, and for a call that passed no
+ *   draft.
+ * @property status - Lifecycle of the most recent `call` — see
+ *   {@link FuncStatusType}.
+ * @property error - Last failure detail; `none` unless status is `failed`.
+ *   A draft the record refuses surfaces here, as the Save's refusal would.
+ * @property pending - True while a call is in flight (== status `running`).
+ * @property cancel - Stop the in-flight call, as {@link FuncBindHandleType}'s
+ *   `cancel` does.
+ * @property binding - Descriptor for this binding — see
+ *   {@link FuncBindingType}. Its `drafts` names the records the function
+ *   lists.
+ */
+export const FuncBindDraftsHandleType = <I extends EastType[], O extends EastType>(
+    inputs: [...I],
+    output: O,
+) => StructType({
+    call:    FunctionType([...inputs, ArrayType(FuncDraftType)], NullType),
+    read:    FunctionType([], OptionType(output)),
+    drafted: FunctionType([], ArrayType(FuncDraftedType)),
+    status:  FunctionType([], FuncStatusType),
+    error:   FunctionType([], OptionType(FuncErrorType)),
+    pending: FunctionType([], BooleanType),
+    cancel:  FunctionType([], NullType),
+    binding: FuncBindingType,
+});
+
+/**
  * The TypeScript type of a {@link Func.bind} handle bound to the signature
- * `(...Inputs) => Output` — i.e. the return of
- * `Func.bind([[...Inputs], Output], name)`.
+ * `(...Inputs) => Output` — i.e. the return of `Func.bind(fn)` for a function
+ * that lists no `drafts`.
  *
  * @remarks
  * The signature lives in the East type itself (the `call` / `read` field
@@ -184,13 +297,27 @@ export type BoundFunc<I extends EastType[], O extends EastType> =
     ExprType<ReturnType<typeof FuncBindHandleType<I, O>>>;
 
 /**
+ * The TypeScript type of a {@link Func.bind} handle of a function that lists
+ * `drafts`, bound to the signature `(...Inputs) => Output`: its `call` takes
+ * the drafts after the arguments.
+ *
+ * @typeParam I - Positional parameter East types.
+ * @typeParam O - Return East type.
+ */
+export type BoundDraftsFunc<I extends EastType[], O extends EastType> =
+    ExprType<ReturnType<typeof FuncBindDraftsHandleType<I, O>>>;
+
+/**
  * What a {@link Func.bind} handle of a one-argument function asks and
  * answers, read from the handle's type: its `call`'s one input and its
  * `read`'s result. A tag that takes a bound function checks the handle it is
  * given with this, then holds each type to its own with `isTypeEqual`.
  *
  * @param handle - What an app passed where a `Func.bind` handle goes
- * @returns The function's argument type and result type, or `undefined` for a value that is no `Func.bind` handle of a one-argument function
+ * @returns The function's argument type and result type, or `undefined` for a
+ *   value that is no `Func.bind` handle of a one-argument function — a handle
+ *   of a function that lists `drafts` among them, whose `call` takes the
+ *   drafts too ({@link refuseDraftsHandle})
  * @internal
  */
 export function boundFuncSignature(handle: unknown): { asks: EastType; answers: EastType } | undefined {
@@ -201,6 +328,28 @@ export function boundFuncSignature(handle: unknown): { asks: EastType; answers: 
     const asks = call?.type === "Function" && call.inputs.length === 1 ? call.inputs[0] : undefined;
     const answers = read?.type === "Function" && read.output.type === "Variant" ? read.output.cases["some"] : undefined;
     return asks === undefined || answers === undefined ? undefined : { asks, answers };
+}
+
+/**
+ * Refuses a {@link Func.bind} handle of a function that lists `drafts` where
+ * a builder takes a bound function: a builder's call passes its arguments
+ * alone, and that handle's `call` takes the drafts too. Read from the
+ * handle's type: one that has `drafted`.
+ *
+ * @param handle - What an app passed where a `Func.bind` handle goes
+ * @param builder - The builder, as the refusal names it (`Roster`)
+ * @param prop - The prop it was passed as (`optimise`)
+ * @throws {Error} When the handle is of a function that lists `drafts`, naming the builder and the prop
+ * @internal
+ */
+export function refuseDraftsHandle(handle: unknown, builder: string, prop: string): void {
+    if (!(handle instanceof Expr)) return;
+    const type = Expr.type(handle) as EastType;
+    if (type.type !== "Struct" || type.fields["binding"] === undefined || type.fields["drafted"] === undefined) return;
+    throw new Error(
+        `${builder}: \`${prop}\` is Func.bind of a function that lists \`drafts\`, whose call takes them, and the ${builder} passes none — ` +
+        `bind a function that lists no drafts`,
+    );
 }
 
 // ============================================================================
@@ -216,13 +365,16 @@ export function boundFuncSignature(handle: unknown): { asks: EastType; answers: 
  * @remarks
  * Generic over `H`, the fully-instantiated handle struct — the handle's
  * shape IS the signature (runtimes recover the input types from the `call`
- * field and the output type from `read`), so there are no duplicate
- * signature arguments to drift out of sync.
+ * field and the output type from `read`, and a handle with `drafted` is one
+ * whose call takes drafts), so there are no duplicate signature arguments to
+ * drift out of sync. Its arguments are the function's name, a literal, which
+ * manifest derivation reads, and the names of the records the function lists
+ * in its `drafts`, which the handle's `binding` carries.
  */
 export const funcBindPlatformFn = East.genericPlatform(
     "function_bind",
     ["H"],
-    [StringType],
+    [StringType, ArrayType(StringType)],
     "H",
     { optional: true },
 );
@@ -239,8 +391,11 @@ export const funcBindPlatformFn = East.genericPlatform(
 // are bundled into one `ArgsStruct` (StructType({arg0,arg1,…})); `function_call`
 // is generic over that struct type `A` *and* the output type `O` so the impl can
 // recover per-arg types from `A`'s fields and `launch` keeps its output type.
-const function_call = East.genericPlatform("function_call", ["A", "O"], [StringType, "A"], NullType, { optional: true });
+// Its last argument is the call's drafts: what a drafted handle's `call` was
+// given, and none from a handle of a function that lists none.
+const function_call = East.genericPlatform("function_call", ["A", "O"], [StringType, "A", ArrayType(FuncDraftType)], NullType, { optional: true });
 const function_read = East.genericPlatform("function_read", ["O"], [StringType], OptionType("O"), { optional: true });
+const function_drafted = East.platform("function_drafted", [StringType], ArrayType(FuncDraftedType), { optional: true });
 const function_status = East.platform("function_status", [StringType], FuncStatusType, { optional: true });
 const function_error = East.platform("function_error", [StringType], OptionType(FuncErrorType), { optional: true });
 const function_pending = East.platform("function_pending", [StringType], BooleanType, { optional: true });
@@ -254,10 +409,12 @@ const function_cancel = East.platform("function_cancel", [StringType], NullType,
  * rather than raw host closures.
  */
 export const FuncBindPrimitives = {
-    /** `function_call([ArgsStruct, O], name, argsStruct) -> Null` — launch. */
+    /** `function_call([ArgsStruct, O], name, argsStruct, drafts) -> Null` — launch. */
     call: function_call,
     /** `function_read([O], name) -> Option(O)` — last successful result. */
     read: function_read,
+    /** `function_drafted(name) -> Array(FuncDrafted)` — the records that result's call drafted. */
+    drafted: function_drafted,
     /** `function_status(name) -> FuncStatus`. */
     status: function_status,
     /** `function_error(name) -> Option(FuncError)`. */
@@ -289,7 +446,8 @@ export const FuncBindPrimitives = {
  *
  * @typeParam Inputs - The argument East types a caller passes (from the def).
  * @typeParam Output - Return East type (from the def).
- * @param fn - The `e3.function` definition to bind.
+ * @param fn - The `e3.function` definition to bind: one that lists no
+ *   `drafts`.
  * @returns A handle struct described by {@link FuncBindHandleType} —
  *   `call` / `read` / `status` / `error` / `pending` / `cancel` /
  *   `binding`.
@@ -302,6 +460,11 @@ export const FuncBindPrimitives = {
  * bound to the same function in the same workspace share one tracked
  * channel — one component can launch while another renders the spinner.
  *
+ * Which handle a function is bound to is read from the definition's type,
+ * which says whether it lists `drafts`. A definition held under a type that
+ * does not say (`FunctionDef<Args, Output>`, written out) is not bound: let
+ * its type be inferred from `e3.function`.
+ *
  * @example
  * ```ts
  * import { East, FloatType, IntegerType, NullType } from "@elaraai/east";
@@ -312,7 +475,7 @@ export const FuncBindPrimitives = {
  * const forecastFn = e3.function('forecast',
  *     East.function([IntegerType, FloatType], FloatType, ($, periods, growth) => ...));
  *
- * // Mirrors `funcBindCall` in test/func/func.examples.tsx.
+ * // Mirrors `funcBindCall` in test/bind/func/func.examples.tsx.
  * const funcBindCall = East.function([], UIComponentType, _$ => {
  *     return Reactive.Root(East.function([], UIComponentType, $ => {
  *         const forecast = $.let(Func.bind(forecastFn));
@@ -328,16 +491,100 @@ export const FuncBindPrimitives = {
  * ```
  */
 function bindFunction<Inputs extends EastType[], Output extends EastType>(
-    fn: FunctionDef<Inputs, Output>,
-): BoundFunc<Inputs, Output> {
+    fn: FunctionDef<Inputs, Output, false>,
+): BoundFunc<Inputs, Output>;
+/**
+ * Bind an `e3.function` that lists `drafts` to a reactive call handle whose
+ * call takes them.
+ *
+ * A draft is an unsaved edit: a call of one of a record's mutations that is
+ * not committed, which `Record.bind`'s `draft.<name>(…)` and `Record.toDraft`
+ * make. The call lays its drafts over the records the function reads, runs
+ * the function over that state, and saves nothing: no commit, no history, and
+ * nothing another reader of the workspace can see.
+ *
+ * @typeParam Inputs - The argument East types a caller passes (from the def).
+ * @typeParam Output - Return East type (from the def).
+ * @param fn - The `e3.function` definition to bind: one that lists a record
+ *   in its `drafts`.
+ * @returns A handle struct described by {@link FuncBindDraftsHandleType} —
+ *   `call` / `read` / `drafted` / `status` / `error` / `pending` / `cancel` /
+ *   `binding`.
+ *
+ * @remarks
+ * - `call(…args, drafts)` takes the drafts last, an Array. One list holds
+ *   drafts of several records; an empty Array is a call as saved.
+ * - `binding.drafts` names the records the function lists. A draft of any
+ *   other record ends the call `invalid`, at the server.
+ * - `drafted()` answers for the result `read()` answers: each record that call
+ *   drafted, and the commit it stood at as the server laid its drafts.
+ * - A draft the record refuses ends the call as a Save of it would have
+ *   ended, and the function does not run: `error()` is `invalid`, `failed` or
+ *   `timed_out`, its `message` naming the draft, or `conflict` where the
+ *   record changed under the edit.
+ * - A call with drafts starts, is polled, cancels and is kept as any call
+ *   through a workspace.
+ *
+ * @example
+ * ```ts
+ * import { DictType, East, IntegerType, NullType, StringType, StructType } from "@elaraai/east";
+ * import { Button, HStack, Reactive, Stat, UIComponentType, VStack } from "@elaraai/east-ui";
+ * import { Func, Record } from "@elaraai/e3-ui";
+ * import e3 from "@elaraai/e3";
+ *
+ * const PressJobsType = DictType(StringType, StructType({ press: StringType, hours: IntegerType }));
+ * // The print shop's jobs: j1 and j2 on P1, j3 on P2. `move` puts a job on another press
+ * const pressJobs = e3.record('press_jobs', PressJobsType, {
+ *     initial: new Map([...]),
+ *     mutations: (mutation) => ({ patch: mutation.patch(), move: mutation.edit(...) }),
+ * });
+ * // `drafts: [pressJobs]`: a call may lay unsaved edits over the record it reads
+ * const jobsOnFn = e3.function('jobs_on',
+ *     { inputs: [pressJobs], drafts: [pressJobs], args: [StringType], output: IntegerType },
+ *     ($, jobs, press) => ...);
+ *
+ * // Mirrors `funcBindDrafts` in test/bind/func/func.examples.tsx.
+ * const funcBindDrafts = East.function([], UIComponentType, _$ => {
+ *     return Reactive.Root(East.function([], UIComponentType, $ => {
+ *         const board = $.let(Record.bind(pressJobs));
+ *         const count = $.let(Func.bind(jobsOnFn));
+ *         const asSaved = $.const(East.function([], NullType, $ => {
+ *             // An empty Array is a call as saved: two jobs on P1
+ *             $(count.call("P1", []));
+ *         }));
+ *         const withMove = $.const(East.function([], NullType, $ => {
+ *             // j3 moved onto P1 and not committed — the arguments `board.mutate.move`
+ *             // takes. The call's last argument is its drafts: three jobs, nothing saved
+ *             $(count.call("P1", [board.draft.move("j3", "P1")]));
+ *         }));
+ *         return VStack.Root([
+ *             HStack.Root([
+ *                 Button.Root("As saved", { variant: "outline", onClick: asSaved, loading: count.pending() }),
+ *                 Button.Root("With j3 moved to P1", { onClick: withMove, loading: count.pending() }),
+ *             ], { gap: "2" }),
+ *             Stat.Root({ label: "Jobs on P1", value: East.print(count.read()) }),
+ *         ], { gap: "3", align: "stretch" });
+ *     }));
+ * });
+ * ```
+ */
+function bindFunction<Inputs extends EastType[], Output extends EastType>(
+    fn: FunctionDef<Inputs, Output, true>,
+): BoundDraftsFunc<Inputs, Output>;
+function bindFunction(fn: FunctionDef): Expr {
+    // The records the function lists, as the deployed package names them
+    const drafts = fn.drafts.map(record => record.name);
     // The handle's `call` takes the arguments alone: a function's inputs are
-    // read by the server from the workspace, never sent from the page.
-    const handleType = FuncBindHandleType([...fn.argTypes], fn.outputType);
+    // read by the server from the workspace, never sent from the page. A
+    // function that lists drafts takes them after its arguments.
+    const handleType = drafts.length > 0
+        ? FuncBindDraftsHandleType([...fn.argTypes], fn.outputType)
+        : FuncBindHandleType([...fn.argTypes], fn.outputType);
     // The name must be a single literal Value IR node — the only shape
     // manifest derivation (`derive.ts`) handles. `fn.name` is a static JS
     // string at IR-build time, so this holds by construction.
     const nameValue = East.value(fn.name, StringType);
-    return funcBindPlatformFn([handleType], nameValue) as BoundFunc<Inputs, Output>;
+    return funcBindPlatformFn([handleType], nameValue, East.value(drafts, ArrayType(StringType)));
 }
 
 /**
@@ -347,9 +594,13 @@ function bindFunction<Inputs extends EastType[], Output extends EastType>(
  * `Func.bind` binds a named function in the workspace's deployed package
  * (`e3.function`) to a call handle: `call` launches it fire-and-forget,
  * and `read` / `status` / `error` / `pending` observe the call lifecycle.
- * An `e3.function` is a *bounded* RPC — the server enforces a wall-clock
- * deadline and a result-size limit on the sync call path; long compute
- * belongs in dataflow tasks (`Data.bind`'s `writeAndStart`).
+ * An `e3.function` is a *bounded* RPC — the server holds each call to a time
+ * limit and a result-size limit; long compute belongs in dataflow tasks
+ * (`Data.bind`'s `writeAndStart`).
+ *
+ * A function that lists `drafts` is bound to a handle whose `call` takes
+ * them last: unsaved edits of the records it reads, laid over them for that
+ * call and never saved.
  *
  * Use inside `Reactive.Root` for reactive re-rendering as the call
  * progresses.

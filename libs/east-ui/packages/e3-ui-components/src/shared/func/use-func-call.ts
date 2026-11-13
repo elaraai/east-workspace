@@ -42,7 +42,7 @@ export type FuncCallError = ValueTypeOf<FuncErrorType>;
 export interface FuncCall<R> {
     /** Launch the call, fire-and-forget (latest-wins). No-op when not ready. */
     call: (...args: unknown[]) => void;
-    /** Cancel the call in flight, client-side: its response is ignored, and the channel reads `cancelled`. No-op when not ready. */
+    /** Cancel the call in flight: the server is asked to stop it, its response is ignored, and the channel reads `cancelled`. No-op when not ready. */
     cancel: () => void;
     /** Last successful result, or `null` until the first success. */
     result: R | null;
@@ -107,8 +107,9 @@ export function useFuncCall<R>(
 
     const handle = useMemo<FuncHandle | null>(() => {
         if (!ready || signature.inputs === null) return null;
+        // A handle of a function that lists no drafts: the tags refuse one that does where the page is built.
         const handleType = toEastTypeValue(FuncBindHandleType(signature.inputs, signature.output));
-        return defaultFuncRuntime.buildHandle(handleType, name!) as FuncHandle;
+        return defaultFuncRuntime.buildHandle(handleType, name!, []) as FuncHandle;
         // A new workspace is a new channel: rebuild the handle over it.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [ready, name, workspace, signature]);

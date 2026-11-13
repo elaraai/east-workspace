@@ -189,6 +189,14 @@ describe("the app's pay, check and fit, over the duties' row type", () => {
         assert.throws(() => payload(() => ({ fit: Func.bind(answersText) as never })), /Roster: `fit` answers \.String, not Roster\.Types\.FitResult/);
         assert.throws(() => payload(() => ({ fit: East.value("roster_staff_fit") as never })),
             /Roster: `fit` is Func\.bind of the app's e3\.function from Roster\.Types\.FitRequest\(R\) to Roster\.Types\.FitResult/);
+        // One that lists drafts (#1620): its call takes them, and a fit passes none. The prop's type refuses it too.
+        const drafted = e3.function("spec_drafted_fit", {
+            inputs: [ex.rosterDuties], drafts: [ex.rosterDuties], args: [Roster.Types.FitRequest(WarehouseDuty)], output: Roster.Types.FitResult,
+        }, (_$, _duties, req) => ({ need: req.need, slot: req.slot, people: new Map() }));
+        // @ts-expect-error — a handle of a function that lists drafts is no fit
+        const fit: RosterProps<typeof WarehouseDuty>["fit"] = Func.bind(drafted);
+        assert.throws(() => payload(() => ({ fit })),
+            /^Error: Roster: `fit` is Func\.bind of a function that lists `drafts`, whose call takes them, and the Roster passes none — bind a function that lists no drafts$/);
     });
 });
 

@@ -30,12 +30,18 @@
  * ({@link EditSession.reconcile}). One request at a time: the next Save waits
  * for it.
  *
+ * A source whose write can be handed to something else to read before it is
+ * made — an e3 record's, to a function's call — is handed the edits that are
+ * complete as a draft of that write ({@link EditSession.toDraft}, #1620):
+ * nothing is written, and the session does not move.
+ *
  * @packageDocumentation
  */
 import { ArrayType, BlobType, ConflictError, DictType, East, EastTypeType, OptionType, StringType, StructType, applyFor, decodeBeast2For, diffFor, encodeBeast2For, equalFor, none, parseFor, pathFromString, printFor, some, toEastTypeValue, variant, type EastType, type PatchPath, type ValueTypeOf, type option } from "@elaraai/east";
 import {
     applyEditing, EditingAppliedTypeFor, EditingApplyResultType, EditingBaseTypeFor, EditingChangeSetTypeFor,
     EditingChangeTypeFor, EditingPlacementType, EditingIssueType, EditingOriginType, EditingPatchEventTypeWith,
+    type EditingToDraftResultTypeFor,
 } from "@elaraai/east-ui/internal";
 import { liftDraft, normalizeDraft, type BatchReadiness } from "./draft.js";
 import type { EntryKeys, KnownKeys } from "./keys.js";
@@ -53,6 +59,12 @@ type Base = ValueTypeOf<ReturnType<typeof EditingBaseTypeFor<Opaque>>> | ValueTy
 type Batch = Omit<ValueTypeOf<ReturnType<typeof EditingChangeSetTypeFor<Opaque>>>, "base"> & { base: Base };
 type Applied = ValueTypeOf<ReturnType<typeof EditingAppliedTypeFor<Opaque>>> | ValueTypeOf<ReturnType<typeof EditingAppliedTypeFor<Opaque, EastType>>>;
 type ApplyResult = ValueTypeOf<typeof EditingApplyResultType>;
+/**
+ * What a source's draft form answers a batch with ({@link EditSession.toDraft}): the draft of the write a Save of the
+ * batch would make, as bytes at the source's own draft type; `unchanged` where the batch changes nothing; or the
+ * refusal that Save would get before it wrote.
+ */
+export type ToDraftResult = ValueTypeOf<ReturnType<typeof EditingToDraftResultTypeFor<BlobType>>>;
 /** An issue addressed to an entry. */
 export type EditIssue = ValueTypeOf<typeof EditingIssueType>;
 /** Where an entry stands, if anywhere. */
@@ -401,6 +413,12 @@ export interface EditSessionBinding<W> {
     prepare?: ((targets: ReadonlyMap<string, Target>, began: HeldRows | undefined) => Promise<(confirmed: HeldRows | undefined) => void>) | undefined;
     /** The authoritative apply, over the batch's bytes. */
     apply: ((payload: Uint8Array) => ApplyResult | Promise<ApplyResult>) | undefined;
+    /**
+     * The source's draft form, over the bytes `apply` takes (#1620): the batch answered as a draft of the source's
+     * write, and nothing written — an e3 record's, which a bound function's call takes with it. None by default: a
+     * source whose write cannot be handed over, a Save of the host's own among them.
+     */
+    toDraft?: ((payload: Uint8Array) => ToDraftResult) | undefined;
     /** The patch observer, over the event's bytes. */
     patch: ((payload: Uint8Array) => unknown) | undefined;
     /** Installs the revision an apply committed — or, given none, has the source follow its current state. */
@@ -575,6 +593,8 @@ const schemaEqual = equalFor(EastTypeType);
 const ABSENT: EntryVersion<never> = { draft: undefined, wire: undefined, place: none };
 /** Where a keyed source's entry stands: in its key's order, wherever it is. */
 const KEY_ORDER: Placement = some(variant("keyOrder", null));
+/** The end of an ordered source: where a new entry stands that nothing else places. */
+const AT_END: Placement = some(variant("ordered", variant("end", null)));
 
 /** A snapshot apply compiled, with what it applies over: its entry type, and a keyed source's key type or an Array source's identity field. */
 interface KeptTransform {
@@ -672,10 +692,15 @@ function randomId(): string {
 }
 
 /** The entry an ordered placement is anchored on — `before` / `after` it — if any. */
-function anchorOf(change: Change): string | undefined {
-    if (change.place.type !== "some" || change.place.value.type !== "ordered") return undefined;
-    const position = change.place.value.value;
+function anchoredOn(place: Placement): string | undefined {
+    if (place.type !== "some" || place.value.type !== "ordered") return undefined;
+    const position = place.value.value;
     return position.type === "before" || position.type === "after" ? position.value : undefined;
+}
+
+/** The entry a change's ordered placement is anchored on, if any. */
+function anchorOf(change: Change): string | undefined {
+    return anchoredOn(change.place);
 }
 
 /**
@@ -1725,6 +1750,87 @@ export class EditSession<W> {
         if (changes.length === 0) return this.base.value;
         const result = this.transform(this.base.value, { requestId: "", base: this.base, label: "", changes }, none);
         return result.type === "applied" ? result.value : undefined;
+    }
+
+    /**
+     * The edits that are complete, handed to the source's draft form (#1620):
+     * the batch a Save of them would send, answered as a draft of the source's
+     * write — an e3 record's patch mutation, not committed, which a bound
+     * function's call takes with it and reads laid over the record. Nothing is
+     * written, no request is made, and the session does not move.
+     *
+     * What is handed over is every entry whose draft is complete, as a change
+     * from what its edit began from — whether or not a check is holding Save,
+     * and whichever conflicts still wait: the draft's value stands at each, as
+     * on its person's screen. An entry with a field still missing, or text
+     * that could not be read, has no row to send: it is left out, standing as
+     * it began — a new one nowhere — and an entry placed before or after a new
+     * entry left out stands where that one stood.
+     *
+     * The draft is checked where it is laid, as a Save is where it is written.
+     * While a request of the session's own is unresolved
+     * ({@link EditSession.locked}), or its drafts are being carried over
+     * ({@link EditSession.carrying}), the source may hold other than the
+     * drafts began from, and a draft laid over it then is refused there as a
+     * Save sent then would be: whoever asks decides whether to wait.
+     *
+     * @returns The draft form's answer: the draft, as bytes at the source's
+     *   draft type; `unchanged` where no complete edit changes the source; or
+     *   the refusal a Save of the batch would get before it wrote — a draft
+     *   form that throws among them, in its words. `undefined` where the
+     *   source has no draft form ({@link EditSessionBinding.toDraft}).
+     */
+    toDraft(): ToDraftResult | undefined {
+        const form = this.binding.toDraft;
+        if (form === undefined) return undefined;
+        if (this.base === undefined) return variant("unchanged", null);
+        // Each entry as a Save of the complete edits would leave it; the new entries left out, apart.
+        const drafts = new Map<string, EntryVersion<W>>();
+        const left = new Map<string, EntryVersion<W>>();
+        for (const [id, entry] of this.current) {
+            if (entry.draft === undefined || this.domain(id, entry) !== undefined) { drafts.set(id, entry); continue; }
+            const original = this.baseline.get(id) ?? ABSENT;
+            if (original.draft === undefined) left.set(id, entry);
+            else drafts.set(id, original);
+        }
+        // An entry placed beside a new entry left out: the batch holds no such entry to place it by.
+        if (left.size > 0) {
+            for (const [id, entry] of drafts) {
+                const anchor = anchoredOn(entry.place);
+                if (anchor !== undefined && left.has(anchor)) drafts.set(id, { ...entry, place: this.placedPast(id, entry.place, left) });
+            }
+        }
+        const changes = this.changes(this.baseline, drafts, false);
+        if (changes.length === 0) return variant("unchanged", null);
+        const batch: Batch = { requestId: "", base: this.base, label: "", changes };
+        try { return form(this.encodeBatch(batch)); }
+        catch (error) {
+            return variant("rejected", [{ entry: "", row: none, field: none, message: error instanceof Error ? error.message : String(error) }]);
+        }
+    }
+
+    /**
+     * Where an entry placed before or after a new entry left out of a batch stands there ({@link EditSession.toDraft}):
+     * where that entry stood, and so on past each one left out. Entries left out that are placed by one another alone,
+     * or by this entry, say nowhere: an entry the source holds then stays where it began, and a new one goes to the end.
+     *
+     * @param id - The entry
+     * @param place - Where its draft stands
+     * @param left - The new entries left out, each as drafted
+     * @returns Where it stands in the batch
+     */
+    private placedPast(id: string, place: Placement, left: ReadonlyMap<string, EntryVersion<W>>): Placement {
+        const passed = new Set<string>();
+        let at = place;
+        for (let anchor = anchoredOn(at); anchor !== undefined && left.has(anchor); anchor = anchoredOn(at)) {
+            if (passed.has(anchor)) { at = none; break; }
+            passed.add(anchor);
+            at = left.get(anchor)!.place;
+        }
+        const anchor = anchoredOn(at);
+        if (at.type === "some" && (anchor === undefined || !stringEqual(anchor, id))) return at;
+        const original = this.baseline.get(id) ?? ABSENT;
+        return original.draft === undefined ? AT_END : original.place;
     }
 
     /**

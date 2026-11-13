@@ -38,7 +38,7 @@ function windowed(last: option<option<string>>): PlanEventEditingArgs["kinds"] {
         editing: {
             sourceId: "runs", entryType: toEastTypeValue(Run), idField: none, draftType: toEastTypeValue(EditingDraftFieldType(Run)),
             children: none, keyType: some(toEastTypeValue(IntegerType)), snapshot: none, readEntry: () => none, onPatch: none,
-            onApply: some(variant("sync", () => variant("applied", { revision: some("r2") }))),
+            onApply: some(variant("sync", () => variant("applied", { revision: some("r2") }))), toDraft: none,
         },
         ready: none,
         // Its form, as every kind's payload carries one: no field of it held to a bound.

@@ -8,17 +8,21 @@
  * record's whole Dict, read in key order — its rows, its keyed session, a row
  * read by its key — and the refusals that keep an author's inline Dict out;
  * then `recordRows`, the two ways a record's rows reach a sheet, and what
- * each refuses. How an Apply lands in a record runs in e3-ui-components'
- * `sheet-record-rows` spec, against the record runtime.
+ * each refuses; then a sheet's Save as a draft (#1620), which a sheet over a
+ * record carries and a sheet whose Save is the host's own does not. How an
+ * Apply lands in a record runs in e3-ui-components' `sheet-record-rows` spec,
+ * against the record runtime.
  */
 
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import {
-    ArrayType, AsyncFunctionType, BooleanType, DateTimeType, DictType, East, EastTypeType, Expr, IntegerType, NullType, OptionType, SetType, SortedMap, SortedSet, StringType, StructType,
-    compareFor, decodeBeast2For, equalFor, isTypeEqual, none, some, toEastTypeValue, variant, type BlockBuilder, type EastType, type ValueTypeOf,
+    ArrayType, AsyncFunctionType, BlobType, BooleanType, DateTimeType, DictType, East, EastTypeType, Expr, IntegerType, NullType, OptionType, PatchType, SetType, SortedMap, SortedSet, StringType, StructType,
+    compareFor, decodeBeast2For, diffFor, encodeBeast2For, equalFor, isTypeEqual, none, parseFor, some, toEastTypeValue, variant, type BlockBuilder, type EastType, type ValueTypeOf,
 } from "@elaraai/east";
-import { Editing, LiveSourceType, PinnedSourceType } from "@elaraai/east-ui/internal";
+import { Editing, EditingToDraftResultTypeFor, LiveSourceType, PinnedSourceType } from "@elaraai/east-ui/internal";
+import { DatasetStatusType, RecordCommitInfoType } from "@elaraai/e3-types";
+import { FuncDraftType, RecordBindHandleType, RecordErrorType, RecordMutateStatusType, RecordOutcomeType } from "@elaraai/e3-ui";
 import { Data, Record, Sheet, createSheetRootWith, recordRows, type SheetInternalOptions } from "@elaraai/e3-ui/internal";
 import e3 from "@elaraai/e3";
 
@@ -314,5 +318,186 @@ describe("recordRows — the two ways a record's rows reach a sheet", () => {
             /`entry.id` must name a String field of the rows `rows` holds — "qty" is not one of/);
         assert.throws(() => inBlock(($) => recordRows($.let(Record.bind(jobs)), { entry: { key: "J-0001", rows: "task", id: "id" } })),
             /`entry.rows` must name an Array field of the record's entries — "task" is a String field/);
+    });
+});
+
+// ============================================================================
+// A sheet's Save as a draft (#1620)
+// ============================================================================
+
+/** A week's rows, and the weeks a record holds them in: one entry's rows are a sheet's. */
+const DraftRow = StructType({ id: StringType, task: StringType, qty: IntegerType });
+const DraftWeek = StructType({ starts: DateTimeType, rows: ArrayType(DraftRow) });
+const DraftWeeks = DictType(StringType, DraftWeek);
+const W42_ROWS = [{ id: "w42-1", task: "Panel cutting", qty: 48n }, { id: "w42-2", task: "Edge banding", qty: 3n }];
+const WEEKS = new SortedMap([["2026-W42", { starts: new Date("2026-10-12T00:00:00Z"), rows: W42_ROWS }]], compareFor(StringType));
+const weekColumns = { task: Sheet.column.text(DraftRow, { header: "Task" }), qty: Sheet.column.integer(DraftRow, { header: "Qty" }) };
+
+/** The host's own Save, of keyed jobs and of a week's rows: neither goes through a record. */
+const OWN_KEYED = East.asyncFunction([Editing.Types.ChangeSet(JobType, StringType)], Editing.Types.ApplyResult,
+    (_$, _batch) => East.value(variant("applied", { revision: none }), Editing.Types.ApplyResult));
+const OWN_ROWS = East.asyncFunction([Editing.Types.ChangeSet(DraftRow)], Editing.Types.ApplyResult,
+    (_$, _batch) => East.value(variant("applied", { revision: none }), Editing.Types.ApplyResult));
+
+const JobSheets = StructType({ given: Sheet.Types.Root, handed: Sheet.Types.Root, own: Sheet.Types.Root });
+/**
+ * Sheets over a record's entries. The record is a handle made by hand, as
+ * `Record.bind` types one: read whole, its patch door answering the patch it
+ * was sent, printed, as the state it left, and its draft the one the record
+ * runtime makes.
+ */
+const jobSheets = East.compile(East.function([], JobSheets, ($) => {
+    const read = $.const(East.function([], textJobs, (_$2) => BY_TEXT));
+    const record = $.let({
+        read,
+        status: East.function([], DatasetStatusType, (_$2) => variant("up-to-date", null)),
+        history: East.function([], OptionType(ArrayType(RecordCommitInfoType)), (_$2) => none),
+        mutate: {
+            pending: East.function([], BooleanType, (_$2) => false),
+            status: East.function([], RecordMutateStatusType, (_$2) => variant("idle", null)),
+            error: East.function([], OptionType(RecordErrorType), (_$2) => none),
+            cancel: East.function([], NullType, (_$2) => null),
+            patch: East.function([PatchType(textJobs)], NullType, (_$2) => null),
+        },
+        commit: {
+            patch: East.asyncFunction([StringType, PatchType(textJobs)], RecordOutcomeType, (_$2, _id, patch) =>
+                variant("committed", { commitHash: "c", stateHash: East.print(patch) })),
+        },
+        draft: {
+            patch: East.function([PatchType(textJobs)], FuncDraftType, (_$2, patch) =>
+                ({ record: "sheet_draft_jobs", mutation: "patch", args: [East.Blob.encodeBeast(patch, "v2")] })),
+        },
+        start: East.function([], NullType, (_$2) => null),
+        binding: { name: "sheet_draft_jobs", mutations: ["patch"] },
+    }, RecordBindHandleType(textJobs, { patch: [PatchType(textJobs)] }));
+    const rows = recordRows(record);
+    const jobs = $.const(BY_TEXT, textJobs);
+    return {
+        // Given the record: the sheet makes the Save itself.
+        given: createSheetRootWith(rows.data, COLUMNS, rows.options, rows.internal),
+        // Handed the record's Save, as a sheet over a slice's rows is.
+        handed: createSheetRootWith(jobs, COLUMNS, {}, { keyOrdered: true, applyKeyed: Record.onApply(record, { keyed: true }) }),
+        own: createSheetRootWith(jobs, COLUMNS, {}, { keyOrdered: true, applyKeyed: OWN_KEYED }),
+    };
+}), []);
+
+const WeekSheets = StructType({ given: Sheet.Types.Root, handed: Sheet.Types.Root, own: Sheet.Types.Root, unsaved: Sheet.Types.Root });
+/** Sheets over one week's rows, the weeks a record's handle made by hand as the jobs' is. */
+const weekSheets = East.compile(East.function([], WeekSheets, ($) => {
+    const read = $.const(East.function([], DraftWeeks, (_$2) => WEEKS));
+    const record = $.let({
+        read,
+        status: East.function([], DatasetStatusType, (_$2) => variant("up-to-date", null)),
+        history: East.function([], OptionType(ArrayType(RecordCommitInfoType)), (_$2) => none),
+        mutate: {
+            pending: East.function([], BooleanType, (_$2) => false),
+            status: East.function([], RecordMutateStatusType, (_$2) => variant("idle", null)),
+            error: East.function([], OptionType(RecordErrorType), (_$2) => none),
+            cancel: East.function([], NullType, (_$2) => null),
+            patch: East.function([PatchType(DraftWeeks)], NullType, (_$2) => null),
+        },
+        commit: {
+            patch: East.asyncFunction([StringType, PatchType(DraftWeeks)], RecordOutcomeType, (_$2, _id, patch) =>
+                variant("committed", { commitHash: "c", stateHash: East.print(patch) })),
+        },
+        draft: {
+            patch: East.function([PatchType(DraftWeeks)], FuncDraftType, (_$2, patch) =>
+                ({ record: "sheet_draft_weeks", mutation: "patch", args: [East.Blob.encodeBeast(patch, "v2")] })),
+        },
+        start: East.function([], NullType, (_$2) => null),
+        binding: { name: "sheet_draft_weeks", mutations: ["patch"] },
+    }, RecordBindHandleType(DraftWeeks, { patch: [PatchType(DraftWeeks)] }));
+    const rows = recordRows(record, { entry: { key: "2026-W42", rows: "rows", id: "id" } });
+    const held = $.const(W42_ROWS, ArrayType(DraftRow));
+    const get = East.function([DraftWeek], ArrayType(DraftRow), (_$2, week) => week.rows);
+    const set = East.function([DraftWeek, ArrayType(DraftRow)], DraftWeek, (_$2, week, next) => ({ starts: week.starts, rows: next }));
+    return {
+        // Given the record and the entry: the sheet makes the Save itself.
+        given: createSheetRootWith(rows.data, weekColumns, rows.options, rows.internal),
+        // The host's own rows, handed the record's Save of them.
+        handed: createSheetRootWith(held, weekColumns, { id: "id", onApply: Record.onApply(record, { entry: "2026-W42", get, set, idField: "id" }) }, {}),
+        own: createSheetRootWith(held, weekColumns, { id: "id", onApply: OWN_ROWS }, {}),
+        unsaved: createSheetRootWith(held, weekColumns, { id: "id" }, {}),
+    };
+}), []);
+
+describe("a sheet's Save as a draft (#1620)", () => {
+    const answersEqual = equalFor(EditingToDraftResultTypeFor(BlobType));
+    const decodeDraft = decodeBeast2For(FuncDraftType);
+    const encodeKeyed = encodeBeast2For(Editing.Types.ChangeSet(JobType, StringType));
+    const encodeRows = encodeBeast2For(Editing.Types.ChangeSet(DraftRow));
+    const jobPatch = diffFor(OptionType(JobType));
+    const rowPatch = diffFor(OptionType(DraftRow));
+
+    /** A sheet's draft form, as the renderer's session calls it with a batch's bytes. */
+    const toDraftOf = (root: Root) => {
+        if (root.editing.toDraft.type !== "some") assert.fail("the sheet's Save has a draft form");
+        return root.editing.toDraft.value;
+    };
+    /** The patch a sheet's Save sent its door, which the door answers printed as the state it left. */
+    async function sentBy(root: Root, batch: Uint8Array): Promise<string> {
+        if (root.editing.onApply.type !== "some") assert.fail("the sheet has a Save");
+        const saved = await root.editing.onApply.value.value(batch);
+        if (saved.type !== "applied" || saved.value.revision.type !== "some") assert.fail(`Save applies: ${saved.type}`);
+        return saved.value.revision.value;
+    }
+
+    test("a record's entries: the batch is a draft of the record's patch door, its patch the one Save sends; a sheet handed that Save gives the same draft, and no change gives none", async () => {
+        const { given, handed } = jobSheets();
+        const cut = BY_TEXT.get("J-0001")!;
+        const band = BY_TEXT.get("J-0002")!;
+        const edit = {
+            requestId: "jobs-1", base: variant("snapshot", BY_TEXT), label: "Edit jobs",
+            changes: [
+                { id: "J-0001", patch: jobPatch(some(cut), some({ ...cut, qty: 50n })), place: none },
+                { id: "J-0002", patch: jobPatch(some(band), none), place: none },
+                { id: "J-0005", patch: jobPatch(none, some({ task: "Sanding", qty: 6n })), place: some(variant("keyOrder", null)) },
+            ],
+        };
+        const batch = encodeKeyed(edit);
+        const answer = toDraftOf(given)(batch);
+        if (answer.type !== "draft") assert.fail(`the batch is a draft: ${answer.type}`);
+        const draft = decodeDraft(answer.value);
+        assert.equal(draft.record, "sheet_draft_jobs");
+        assert.equal(draft.mutation, "patch");
+        assert.equal(draft.args.length, 1, "the patch door's one argument");
+        const sent = parseFor(PatchType(textJobs))(await sentBy(given, batch));
+        if (!sent.success) assert.fail("the door answers with the patch it was sent, printed");
+        assert.ok(equalFor(PatchType(textJobs))(decodeBeast2For(PatchType(textJobs))(draft.args[0]!), sent.value), "one patch for one batch");
+        assert.ok(answersEqual(toDraftOf(handed)(batch), answer), "handed the Save, the sheet gives the draft it gives when given the record");
+        assert.equal(toDraftOf(given)(encodeKeyed({ ...edit, changes: [] })).type, "unchanged");
+        assert.equal(toDraftOf(handed)(encodeKeyed({ ...edit, changes: [] })).type, "unchanged");
+    });
+
+    test("one entry's rows: the sheet given the record and a sheet of the host's rows handed Record.onApply give one draft, the patch that Save sends of that entry", async () => {
+        const { given, handed } = weekSheets();
+        const [first, second] = W42_ROWS;
+        const sand = { id: "w42-3", task: "Sanding", qty: 6n };
+        const batch = encodeRows({
+            requestId: "week-1", base: variant("snapshot", W42_ROWS), label: "Edit the week",
+            changes: [
+                { id: first!.id, patch: rowPatch(some(first!), some({ ...first!, qty: 50n })), place: none },
+                { id: sand.id, patch: rowPatch(none, some(sand)), place: some(variant("ordered", variant("after", second!.id))) },
+            ],
+        });
+        const answer = toDraftOf(given)(batch);
+        if (answer.type !== "draft") assert.fail(`the batch is a draft: ${answer.type}`);
+        const draft = decodeDraft(answer.value);
+        assert.equal(draft.record, "sheet_draft_weeks");
+        assert.equal(draft.mutation, "patch");
+        const patch = decodeBeast2For(PatchType(DraftWeeks))(draft.args[0]!);
+        const sent = parseFor(PatchType(DraftWeeks))(await sentBy(given, batch));
+        if (!sent.success) assert.fail("the door answers with the patch it was sent, printed");
+        assert.ok(equalFor(PatchType(DraftWeeks))(patch, sent.value), "one patch for one batch");
+        if (patch.type !== "patch") assert.fail(`a patch by key, got ${patch.type}`);
+        assert.deepEqual([...patch.value.keys()], ["2026-W42"], "the one entry");
+        assert.ok(answersEqual(toDraftOf(handed)(batch), answer), "handed the Save, the sheet gives the draft it gives when given the record");
+    });
+
+    test("a Save of the host's own has no draft form, and neither has a sheet that saves nothing", () => {
+        assert.equal(jobSheets().own.editing.toDraft.type, "none");
+        assert.equal(weekSheets().own.editing.toDraft.type, "none");
+        assert.equal(weekSheets().unsaved.editing.toDraft.type, "none");
+        assert.equal(textSheet().editing.toDraft.type, "none");
     });
 });

@@ -138,6 +138,34 @@ export const EditingApplyResultType = VariantType({
     rejected: ArrayType(EditingIssueType), conflict: ArrayType(EditingIssueType),
 });
 
+/**
+ * Constructs what a source answers when a batch is handed to it as a draft of
+ * its write, in place of the write: the write `onApply` would make of the
+ * batch, built and not made.
+ *
+ * @remarks
+ * What a draft is belongs to the source, and east-ui reads none of it. Over an
+ * e3 record it is the record's patch mutation, not committed, which a
+ * function's call takes with it (e3-ui's `Record.toDraft`).
+ *
+ * The cases:
+ * - `draft` — the batch, as a draft of the source's write
+ * - `unchanged` — the batch changes nothing, so there is no draft
+ * - `rejected` — refused as asked, as `onApply` refuses it before it writes
+ * - `conflict` — the source moved on, as `onApply` finds before it writes
+ *
+ * @internal
+ * @typeParam D - The source's draft type
+ * @param draftType - The source's draft type
+ * @returns The answer's variant
+ */
+export function EditingToDraftResultTypeFor<D extends EastType>(draftType: D) {
+    return VariantType({
+        draft: draftType, unchanged: NullType,
+        rejected: ArrayType(EditingIssueType), conflict: ArrayType(EditingIssueType),
+    });
+}
+
 // ============================================================================
 // Drafts
 // ============================================================================
@@ -689,6 +717,15 @@ export const EditingWireApplyType = VariantType({
 });
 
 /**
+ * A batch handed over as a draft of the source's write, over the batch's
+ * bytes: the bytes `onApply` takes, answered with the draft — its own bytes,
+ * beast2 v2 at the source's draft type — and nothing written.
+ *
+ * @internal
+ */
+export const EditingWireToDraftType = FunctionType([BlobType], EditingToDraftResultTypeFor(BlobType));
+
+/**
  * The fields every source-bound editing session carries to the renderer's
  * shared session — a collection's own editing declaration spreads them beside
  * its own (`SheetEditingType`). Blobs carry values at the exact schemas named,
@@ -722,6 +759,14 @@ export const EditingSessionFields = {
     onPatch: OptionType(FunctionType([BlobType], NullType)),
     /** The authoritative apply: what a batch goes through when the person applies it. */
     onApply: OptionType(EditingWireApplyType),
+    /**
+     * The batch `onApply` would take, answered as a draft of the source's
+     * write and not written: for a source whose write can be handed to
+     * something else to read before it is made — an e3 record's, which a
+     * function's call takes. `none` for every other source, a Save of the
+     * host's own among them.
+     */
+    toDraft: OptionType(EditingWireToDraftType),
 };
 
 /**
@@ -768,6 +813,39 @@ export function checkedEditingCallback(
         throw new Error(`${label}: editing.${name} must be an East ${allowAsync ? "sync or async " : ""}function ${expected}`);
     }
     return fn;
+}
+
+/**
+ * Builds a session's `toDraft` over a batch's bytes from its typed form: the
+ * batch decoded at its type, and the draft it answers encoded at the source's
+ * draft type. A refusal crosses as it is.
+ *
+ * @internal
+ * @param batchType - The batch type the session encodes: `ChangeSet(E)`, or `ChangeSet(E, K)` for a keyed source
+ * @param toDraft - The typed form: a function of the batch answering {@link EditingToDraftResultTypeFor} of the source's draft type
+ * @returns The function the wire carries ({@link EditingWireToDraftType})
+ * @throws {Error} When `toDraft` is not a function of the batch answering a draft result
+ */
+export function buildWireToDraft(batchType: EastType, toDraft: ExprType<EastType>): ExprType<typeof EditingWireToDraftType> {
+    const type = Expr.type(toDraft as unknown as Expr) as EastType;
+    const draftType = type.type === "Function" && type.output.type === "Variant"
+        ? (type.output.cases as Record<string, EastType>)["draft"] : undefined;
+    if (type.type !== "Function" || draftType === undefined || type.inputs.length !== 1 || !isTypeEqual(type.inputs[0]!, batchType)
+        || !isTypeEqual(type.output, EditingToDraftResultTypeFor(draftType))) {
+        throw new Error("Editing: a session's toDraft must be an East function of its batch, answering the draft of the source's write or why there is none");
+    }
+    const answerType = EditingToDraftResultTypeFor(BlobType);
+    const typed = toDraft as unknown as ExprType<FunctionType<[EastType], ReturnType<typeof EditingToDraftResultTypeFor<EastType>>>>;
+    return East.function([BlobType], answerType, ($, payload) => {
+        const draft = $.const(typed);
+        const answer = $.let(variant("unchanged", null), answerType);
+        $.match(draft(payload.decodeBeast(batchType, "v2")), {
+            draft: ($, made) => { $.assign(answer, variant("draft", East.Blob.encodeBeast(made, "v2"))); },
+            rejected: ($, issues) => { $.assign(answer, variant("rejected", issues)); },
+            conflict: ($, issues) => { $.assign(answer, variant("conflict", issues)); },
+        });
+        return answer;
+    });
 }
 
 // ============================================================================

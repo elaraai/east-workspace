@@ -11,6 +11,11 @@
  * read of its own entries (`entries`, `Data.bindPaged(record)`), its revision,
  * every entry it reads read by its key.
  *
+ * The session hands its pending Save over as a draft too
+ * (`Record.toDraft(record, { keyed: true })`, #1620): the batch a Save would
+ * commit, as the draft of that commit, which a function called over the
+ * builder's unsaved edits takes with its call.
+ *
  * An event kind's session (`Schedule.events`) and a builder's periods'
  * (`Schedule.periods`) are this one session, so a builder keeps each record it
  * writes in one session of one history, as the Calendar's and Plan's kinds are.
@@ -22,7 +27,9 @@ import {
     BlobType, East, Expr, IntegerType, NullType, OptionType, StringType, none, some, toEastTypeValue, variant,
     type DictType, type EastType, type ExprType, type FunctionType, type StructType, type VariantType,
 } from "@elaraai/east";
-import { EditingApplyResultType, EditingChangeSetTypeFor, EditingDraftFieldType, EditingType, EditingWireApplyType } from "@elaraai/east-ui/internal";
+import {
+    EditingApplyResultType, EditingChangeSetTypeFor, EditingDraftFieldType, EditingType, EditingWireApplyType, buildWireToDraft,
+} from "@elaraai/east-ui/internal";
 import { Record } from "../bind/record.js";
 import { ScheduleEntriesType } from "./types.js";
 import { keyOfText, keyTextOf, scheduleEntryByKey, scheduleLastKey } from "./window.js";
@@ -63,13 +70,15 @@ export interface ScheduleRecordSession {
  * @param rowType - The record's row type
  * @param entries - A paged read of the record's own entries, checked (`checkEntries`); `undefined` for a record read whole
  * @returns The session, declared
- * @throws {Error} When the record is not bound with its patch mutation (`Record.onApply`'s refusal)
+ * @throws {Error} When the record is not bound with its patch mutation (`Record.onApply`'s refusal, or `Record.toDraft`'s)
  */
 export function scheduleRecordSession(record: unknown, keyType: EastType, rowType: EastType, entries: ExprType<EastType> | undefined): ScheduleRecordSession {
     const handle = record as globalThis.Record<string, ExprType<EastType>>;
     // The Save: one patch commit through the record's patch door, its entries checked against what the drafts began from.
     // Declared now, so a record bound without its patch door is refused where the builder's kind is.
     const apply = Record.onApply(record as never, { keyed: true }) as unknown as ExprType<EastType>;
+    // The same batch as the draft of that commit, built by the Save's own code: nothing is committed.
+    const toDraft = Record.toDraft(record as never, { keyed: true }) as unknown as ExprType<EastType>;
     const readAll = handle["read"] as unknown as () => ExprType<DictType<EastType, EastType>>;
     const byKey = entries === undefined ? undefined : scheduleEntryByKey(entries, keyType, rowType);
     const lastKey = entries === undefined ? undefined : scheduleLastKey(entries, keyType);
@@ -85,7 +94,8 @@ export function scheduleRecordSession(record: unknown, keyType: EastType, rowTyp
         keyOf,
         history: handle["history"]!,
         build() {
-            // The shared session over the record: whole-entry drafts, keyed batches, Save through the patch door.
+            // The shared session over the record: whole-entry drafts, keyed batches, Save through the patch door,
+            // and the pending Save handed over as a draft of it.
             // Its base is the record's snapshot — or, for a record read by key (#1199), its revision, every entry
             // it reads read by its key through the record's own entries.
             const batchType = EditingChangeSetTypeFor(rowType as StructType<globalThis.Record<never, never>>, keyType);
@@ -120,6 +130,7 @@ export function scheduleRecordSession(record: unknown, keyType: EastType, rowTyp
                 readEntry,
                 onPatch: none,
                 onApply: some(East.value(variant("async", onApply), EditingWireApplyType)),
+                toDraft: some(buildWireToDraft(batchType, toDraft)),
             } as never, EditingType) as unknown as ExprType<typeof EditingType>;
             // The record read by key (#1199): its revision and a move to another, one entry's row, and its largest key.
             const seam = entries === undefined || byKey === undefined || lastKey === undefined

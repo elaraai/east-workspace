@@ -146,6 +146,7 @@ export function bindingOf<W>(
         idField: editing.idField.type === "some" ? editing.idField.value : undefined,
         children: editing.children.type === "some" ? editing.children.value : undefined,
         apply: editing.onApply.type === "some" ? editing.onApply.value.value : undefined,
+        toDraft: editing.toDraft.type === "some" ? editing.toDraft.value : undefined,
         patch: editing.onPatch.type === "some" ? editing.onPatch.value : undefined,
         refresh,
     };
