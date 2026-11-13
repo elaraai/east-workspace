@@ -21,6 +21,8 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import {
+    ArrayType,
+    BlobType,
     EastTypeValueType,
     IntegerType,
     PatchType,
@@ -31,13 +33,15 @@ import {
     compareFor,
     decodeBeast2For,
     diffFor,
+    encodeBeast2For,
+    equalFor,
     isValueOf,
     printFor,
     toEastTypeValue,
     variant,
     type ValueTypeOf,
 } from "@elaraai/east";
-import { RecordBindHandleType } from "@elaraai/e3-ui/internal";
+import { FuncDraftType, RecordBindHandleType } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/bind/record/record";
 import * as fixtures from "@elaraai/e3-ui/fixtures/bind/record/record";
 import { MutationCallRequestType, RecordCommitInfoType, type TreePath } from "@elaraai/e3-types";
@@ -339,9 +343,75 @@ describe("RecordRuntime — the awaited write", () => {
     test("a handle type exported before the awaited write binds without it", async () => {
         const { runtime } = await newRuntime();
         const fields = RecordBindHandleType(IntegerType, { increment: [IntegerType] }).fields;
-        const { commit: _commit, ...released } = fields;
+        const { commit: _commit, draft: _draft, ...released } = fields;
         const handle = runtime.buildHandle(toEastTypeValue(StructType(released)), "counter-before") as Record<string, unknown>;
         assert.equal("commit" in handle, false);
+        assert.equal(typeof (handle["mutate"] as Record<string, unknown>)["increment"], "function");
+    });
+});
+
+// =============================================================================
+// draft.<name> — the write not made
+// =============================================================================
+
+describe("RecordRuntime — the write not made (#1620)", () => {
+    const draftEqual = equalFor(FuncDraftType);
+    const bytesEqual = equalFor(ArrayType(BlobType));
+    const integerBytes = encodeBeast2For(IntegerType);
+    /** The arguments the last request of the mutation named sent, as the bytes it sent. */
+    const sentArgs = (name: string) => decodeBeast2For(MutationCallRequestType)(h.requests("mutate").filter(mutates(name)).at(-1)!.body!).args;
+
+    test("draft.<name> answers the call as a draft and asks nothing of e3, the cache or the channel: no request, no key read, no status moved, no reader told", async () => {
+        const { runtime, handle } = await newRuntime();
+        const key = recordChannelKey(h.workspace, ex.counter.name);
+        const requests = h.requests().length;
+        const version = runtime.getKeyVersion(key);
+        let told = 0;
+        const stop = runtime.subscribe(key, () => { told++; });
+        runtime.enableTracking();
+        const draft = handle.draft.increment(7n);
+        const read = runtime.disableTracking();
+        await h.settle();
+        stop();
+        assert.ok(draftEqual(draft, { record: "counter", mutation: "increment", args: [integerBytes(7n)] }));
+        assert.deepEqual([h.requests().length, read.size, runtime.getKeyVersion(key), told], [requests, 0, version, 0]);
+        assert.equal(handle.mutate.status().type, "idle");
+        assert.equal(await h.read(ex.counter), 0n, "nothing is committed");
+        assert.equal((await h.history(ex.counter)).commits.length, 1, "and the record's history is its initial state alone");
+    });
+
+    test("a draft holds the bytes a commit of the same arguments sends: an Integer's, and a patch's", async () => {
+        const { handle } = await newRuntime();
+        const bumped = handle.draft.increment(5n);
+        await handle.commit.increment("req-1", 5n);
+        assert.ok(bytesEqual(bumped.args, sentArgs("increment")));
+
+        const { handle: jobs } = await jobsRuntime();
+        const change = jobUpdate(CUT, { task: "Cut", qty: 3n });
+        const moved = jobs.draft.patch(change);
+        assert.deepEqual([moved.record, moved.mutation], ["jobs", "patch"]);
+        assert.equal((await jobs.commit.patch("req-2", change)).type, "committed");
+        assert.ok(bytesEqual(moved.args, sentArgs("patch")));
+    });
+
+    test("a draft is made unasked: of a mutation the deployed record lacks, which e3 refuses with the call it is passed to, and with no workspace to ask", async () => {
+        // The jobs record's one mutation is its patch door: it has no increment.
+        const { handle } = await newRuntime(ex.jobs);
+        const draft = handle.draft.increment(1n);
+        await h.settle();
+        assert.ok(draftEqual(draft, { record: "jobs", mutation: "increment", args: [integerBytes(1n)] }));
+        assert.deepEqual([h.requests("describe"), h.requests("mutate")], [[], []]);
+
+        const unbound = new RecordRuntime().buildHandle(toEastTypeValue(CounterHandle), ex.counter.name) as unknown as Handle;
+        assert.ok(draftEqual(unbound.draft.take(2n), { record: "counter", mutation: "take", args: [integerBytes(2n)] }));
+    });
+
+    test("a handle type exported before drafts binds without them, its writes as they were", async () => {
+        const { runtime } = await newRuntime();
+        const { draft: _draft, ...released } = RecordBindHandleType(IntegerType, { increment: [IntegerType] }).fields;
+        const handle = runtime.buildHandle(toEastTypeValue(StructType(released)), "counter-before-drafts") as Record<string, unknown>;
+        assert.equal("draft" in handle, false);
+        assert.equal(typeof (handle["commit"] as Record<string, unknown>)["increment"], "function");
         assert.equal(typeof (handle["mutate"] as Record<string, unknown>)["increment"], "function");
     });
 });

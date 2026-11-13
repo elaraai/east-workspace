@@ -29,7 +29,7 @@ import {
 import { Editing } from "@elaraai/east-ui";
 import { EditingReadinessType } from "@elaraai/east-ui/internal";
 import { DatasetStatusType, RecordCommitInfoType } from "@elaraai/e3-types";
-import { RecordBindHandleType, RecordErrorType, RecordMutateStatusType, RecordOutcomeType } from "@elaraai/e3-ui";
+import { FuncDraftType, RecordBindHandleType, RecordErrorType, RecordMutateStatusType, RecordOutcomeType } from "@elaraai/e3-ui";
 import { KindSideFields, accessorRole, kindWholeRows, readOf, recordSide, rowsReadOf, storedRows } from "@elaraai/e3-ui/internal";
 
 // ============================================================================
@@ -102,6 +102,11 @@ const steps = East.compile(East.function([], StepKind, ($) => {
             patch: East.asyncFunction([StringType, PatchType(Steps)], RecordOutcomeType, (_$2, _id, patch) =>
                 variant("committed", { commitHash: "c", stateHash: East.print(East.applyPatch(read(), patch)) })),
         },
+        // The same door, not committed: the patch as a draft, its bytes the ones a commit sends.
+        draft: {
+            patch: East.function([PatchType(Steps)], FuncDraftType, (_$2, patch) =>
+                ({ record: "spec_steps", mutation: "patch", args: [East.Blob.encodeBeast(patch, "v2")] })),
+        },
         start: East.function([], NullType, (_$2) => null),
         binding: { name: "spec_steps", mutations: ["patch"] },
     }, RecordBindHandleType(Steps, { patch: [PatchType(Steps)] }));
@@ -145,6 +150,10 @@ const moves = East.compile(East.function([], MoveKind, ($) => {
         commit: {
             patch: East.asyncFunction([StringType, PatchType(Moves)], RecordOutcomeType, (_$2, _id, patch) =>
                 variant("committed", { commitHash: "c", stateHash: East.print(East.applyPatch(read(), patch)) })),
+        },
+        draft: {
+            patch: East.function([PatchType(Moves)], FuncDraftType, (_$2, patch) =>
+                ({ record: "spec_moves", mutation: "patch", args: [East.Blob.encodeBeast(patch, "v2")] })),
         },
         start: East.function([], NullType, (_$2) => null),
         binding: { name: "spec_moves", mutations: ["patch"] },

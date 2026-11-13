@@ -21,6 +21,10 @@
  * editable collection's `onApply` that commits each batch to the record
  * through its patch door, as one commit.
  *
+ * `draft.<name>(…)` is the same write not made: the mutation's call as a
+ * draft (`FuncDraftType`), which a bound function that lists the record in
+ * its `drafts` takes with its call and reads laid over the record.
+ *
  * @packageDocumentation
  */
 
@@ -52,6 +56,7 @@ import {
 import { DatasetStatusType, MutationResultType, RecordCommitInfoType, type TreePath } from '@elaraai/e3-types';
 import { Editing } from '@elaraai/east-ui';
 import type { RecordDef, MutationDef } from '@elaraai/e3';
+import { FuncDraftType } from './func.js';
 
 // ============================================================================
 // Status + error + descriptor types
@@ -161,7 +166,8 @@ export type RecordOutcomeType = typeof RecordOutcomeType;
  * The struct returned by every {@link Record.bind} call. The read side
  * (`read` / `status` / `history`) is served reactively from the shared dataset
  * cache; the write side lives under `mutate` — one closure per mutation plus
- * the shared lifecycle accessors — and under `commit`, the same writes awaited.
+ * the shared lifecycle accessors — under `commit`, the same writes awaited, and
+ * under `draft`, the same writes not made.
  *
  * @remarks
  * The handle's shape IS the signature: the runtime recovers the state type
@@ -195,6 +201,12 @@ export type RecordOutcomeType = typeof RecordOutcomeType;
  *   what the write lost to. A record also bound with `Data.bindPaged` is read
  *   a window at a time and never whole (#1199): its UI task holds no value of
  *   it for `read` to serve, and its windows follow the record's revision.
+ * @property draft - The writes not made: one closure per mutation, taking the
+ *   arguments `mutate.<name>` takes and answering the call as a draft
+ *   ({@link FuncDraftType}), its arguments encoded as a commit sends them. It
+ *   commits nothing, reads nothing and changes no status of the handle: a
+ *   bound function that lists the record in its `drafts` takes the draft with
+ *   its call, and reads the record with it laid over.
  * @property start - Launch the workspace dataflow without mutating, so tasks
  *   that consume this record recompute against its latest committed state.
  *   The standalone "Run" affordance — a mutation refreshes the record's own
@@ -215,6 +227,7 @@ export const RecordBindHandleType = <T extends EastType, M extends Record<string
     ];
     const reserved = new Set(mutateFields.map(([name]) => name));
     const commitFields: (readonly [string, EastType])[] = [];
+    const draftFields: (readonly [string, EastType])[] = [];
     for (const [name, argTypes] of Object.entries(mutations)) {
         if (reserved.has(name)) {
             throw new Error(
@@ -224,6 +237,7 @@ export const RecordBindHandleType = <T extends EastType, M extends Record<string
         }
         mutateFields.push([name, FunctionType(argTypes, NullType)]);
         commitFields.push([name, AsyncFunctionType([StringType, ...argTypes], RecordOutcomeType)]);
+        draftFields.push([name, FunctionType(argTypes, FuncDraftType)]);
     }
     return StructType({
         read:    FunctionType([], stateType),
@@ -231,6 +245,7 @@ export const RecordBindHandleType = <T extends EastType, M extends Record<string
         history: FunctionType([], OptionType(ArrayType(RecordCommitInfoType))),
         mutate:  StructType(mutateFields),
         commit:  StructType(commitFields),
+        draft:   StructType(draftFields),
         start:   FunctionType([], NullType),
         binding: RecordBindingType,
     });
@@ -262,6 +277,7 @@ type RecordHandle<T extends EastType, M extends Record<string, EastType[]>> = St
         } & { [K in keyof M]: FunctionType<M[K], typeof NullType> }
     >;
     commit:  StructType<{ [K in keyof M]: AsyncFunctionType<[typeof StringType, ...M[K]], RecordOutcomeType> }>;
+    draft:   StructType<{ [K in keyof M]: FunctionType<M[K], FuncDraftType> }>;
     start:   FunctionType<[], typeof NullType>;
     binding: RecordBindingType;
 }>;
@@ -322,7 +338,8 @@ export const recordBindPlatformFn = East.genericPlatform(
 // `record_mutate` is generic over the per-mutation `ArgsStruct` `A` (the N args
 // bundled into one struct, since platform fns are fixed-arity): the impl recovers
 // the per-arg types from `A`'s fields and the values from the passed struct.
-// `record_commit` is its awaited sibling, which takes the write's request id too.
+// `record_commit` is its awaited sibling, which takes the write's request id too,
+// and `record_draft` the same call not made: it answers the draft, and writes nothing.
 const record_read = East.genericPlatform("record_read", ["T"], [StringType], "T", { optional: true });
 const record_status = East.platform("record_status", [StringType], DatasetStatusType, { optional: true });
 const record_history = East.platform("record_history", [StringType], OptionType(ArrayType(RecordCommitInfoType)), { optional: true });
@@ -333,6 +350,7 @@ const record_mutate_error = East.platform("record_mutate_error", [StringType], O
 const record_mutate_cancel = East.platform("record_mutate_cancel", [StringType], NullType, { optional: true });
 const record_mutate = East.genericPlatform("record_mutate", ["A"], [StringType, StringType, "A"], NullType, { optional: true });
 const record_commit = East.asyncGenericPlatform("record_commit", ["A"], [StringType, StringType, StringType, "A"], RecordOutcomeType, { optional: true });
+const record_draft = East.genericPlatform("record_draft", ["A"], [StringType, StringType, "A"], FuncDraftType, { optional: true });
 
 /**
  * Low-level platform primitives that back {@link Record.bind}'s handle methods.
@@ -362,6 +380,8 @@ export const RecordBindPrimitives = {
     mutate: record_mutate,
     /** `record_commit([ArgsStruct], recordName, mutationName, requestId, argsStruct) ~> RecordOutcome` — the awaited write. */
     commit: record_commit,
+    /** `record_draft([ArgsStruct], recordName, mutationName, argsStruct) -> FuncDraft` — the write not made: its call as a draft. */
+    draft: record_draft,
 } as const;
 
 // ============================================================================
@@ -407,7 +427,7 @@ type AllMutationsOf<R> = R extends { readonly mutations: infer M } ? readonly M[
  *   omitted, none for `[]`.
  * @returns A handle struct described by {@link RecordBindHandleType} —
  *   `read` / `status` / `history` / `mutate.{<name>,pending,status,error,cancel}`
- *   / `binding`.
+ *   / `commit.<name>` / `draft.<name>` / `start` / `binding`.
  * @throws {Error} Naming the record and its mutations, for a name it does not declare
  *
  * @remarks

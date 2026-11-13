@@ -14,12 +14,13 @@
  * give it — a record's and a function's descriptor, a dataset's paths, a paged
  * source's identity and whether it searches, an indexed source's declarations,
  * a Slice's narrowing of one (east-ui's) and the binding it narrows — and every
- * function in it refuses.
+ * function in it refuses. All but one: a record's `draft.<name>` reads, writes
+ * and calls nothing, so it answers the draft the record runtime answers.
  *
  * @packageDocumentation
  */
 
-import { fromEastTypeValue, none, some, type EastType, type EastTypeValue } from "@elaraai/east";
+import { encodeBeast2For, fromEastTypeValue, none, some, type EastType, type EastTypeValue } from "@elaraai/east";
 import type { PlatformFunction } from "@elaraai/east/internal";
 import type { TreePath } from "@elaraai/e3-types";
 import { LiveSourceType, RecordSliceHandleType, recordSliceBindPlatform } from "@elaraai/east-ui/internal";
@@ -59,13 +60,34 @@ function refusingFields(type: EastType, what: string): Record<string, unknown> {
     return fields;
 }
 
-/** `Record.bind`: the handle its type declares, its descriptor naming the record and the mutations it commits through. */
+/**
+ * A record's `draft` doors: each mutation's call as a draft, its arguments
+ * encoded as a commit sends them. It reaches no e3, so it is made here as the
+ * record runtime makes it.
+ *
+ * @param type - The handle's type
+ * @param record - The record's name
+ * @returns The handle's `draft` struct, one closure per mutation
+ */
+function draftDoors(type: EastType, record: string): Record<string, unknown> {
+    const drafts = type.type === "Struct" ? type.fields["draft"] : undefined;
+    if (drafts?.type !== "Struct") return {};
+    return Object.fromEntries(Object.entries(drafts.fields as Record<string, EastType>).map(([mutation, door]) => {
+        const encoders = door.type === "Function" ? (door.inputs as EastType[]).map((input) => encodeBeast2For(input)) : [];
+        return [mutation, (...args: unknown[]) => ({ record, mutation, args: args.map((arg, i) => encoders[i]!(arg)) })];
+    }));
+}
+
+/**
+ * `Record.bind`: the handle its type declares, its descriptor naming the record and the mutations it commits through,
+ * and its drafts made ({@link draftDoors}).
+ */
 const records = recordBindPlatformFn.implement((handleType: EastTypeValue) => (nameArg: unknown) => {
     const name = nameArg as string;
     const type = fromEastTypeValue(handleType);
     const commits = type.type === "Struct" ? type.fields["commit"] : undefined;
     const mutations = commits?.type === "Struct" ? Object.keys(commits.fields) : [];
-    return { ...refusingFields(type, `Record.bind("${name}")`), binding: { name, mutations } };
+    return { ...refusingFields(type, `Record.bind("${name}")`), draft: draftDoors(type, name), binding: { name, mutations } };
 });
 
 /** `Data.bind`: the handle, its descriptor the dataset's paths and the mode. */

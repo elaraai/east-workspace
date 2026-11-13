@@ -38,7 +38,7 @@ import { EditingReadinessType } from "@elaraai/east-ui/internal";
 import { DatasetStatusType, RecordCommitInfoType } from "@elaraai/e3-types";
 import * as E3UI from "@elaraai/e3-ui";
 import {
-    Data, DataBindHandleType, DataPagedHandleType, Flowchart as PublicFlowchart, Record, RecordBindHandleType, RecordErrorType, RecordMutateStatusType,
+    Data, DataBindHandleType, DataPagedHandleType, Flowchart as PublicFlowchart, FuncDraftType, Record, RecordBindHandleType, RecordErrorType, RecordMutateStatusType,
     RecordOutcomeType,
 } from "@elaraai/e3-ui";
 import * as E3UIInternal from "@elaraai/e3-ui/internal";
@@ -100,6 +100,9 @@ function recordHandle<T extends EastType>(type: T, value: ValueTypeOf<T>, name: 
         },
         commit: patch
             ? { patch: East.asyncFunction([StringType, PatchType(type)], RecordOutcomeType, (_$2) => variant("committed", { commitHash: "c", stateHash: "s" })) }
+            : {},
+        draft: patch
+            ? { patch: East.function([PatchType(type)], FuncDraftType, (_$2, change) => ({ record: name, mutation: "patch", args: [East.Blob.encodeBeast(change as never, "v2")] })) }
             : {},
         start: East.function([], NullType, (_$2) => null),
         binding: { name, mutations: patch ? ["patch"] : [] },
