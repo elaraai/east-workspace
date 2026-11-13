@@ -413,7 +413,7 @@ test.describe("Foundations — type", () => {
         // `--paper-2`, 1px `--rule-strong`, `--r-sm`.
         const kbd = read.kbd!;
         check("kbd height", Math.abs(kbd.height - 20) < 0.05, `${kbd.height}px, want 20px`);
-        check("kbd family", firstFamily(kbd.family) === "JetBrains Mono", kbd.family);
+        check("kbd family", firstFamily(kbd.family) === "Chivo Mono", kbd.family);
         check("kbd size", Math.abs(kbd.size - Number.parseFloat(TYPE.get("--fs-label-lg")!)) < 0.05, `${kbd.size}px, want --fs-label-lg`);
         check("kbd weight", kbd.weight === TYPE.get("--fw-medium"), `${kbd.weight}, want --fw-medium`);
         check("kbd ink", sameColour(kbd.color, await painted(page, dsColour("--ink-2", "light"))), `rgba(${kbd.color.join(", ")})`);
@@ -434,6 +434,32 @@ test.describe("Foundations — type", () => {
         const figures = await page.evaluate(() => getComputedStyle(document.body).fontFeatureSettings);
         check("page figures", /"tnum"/u.test(figures), figures);
         expect(bad).toEqual([]);
+    });
+
+    test("T3: no letters are joined — each letter of a mono word keeps its cell, an f-pair's too", async ({ page }) => {
+        await open(page, "light");
+        const read = await page.evaluate(async () => {
+            const words = "office staff fill flow";
+            const box = document.createElement("div");
+            box.setAttribute("data-joins-probe", "");
+            // The same words with no f, each letter a cell as every mono letter is: what the words take unjoined.
+            box.innerHTML = `<kbd data-joins="theme">${words}</kbd><kbd data-joins="on" style="font-variant-ligatures: common-ligatures">${words}</kbd><kbd data-joins="plain">${words.replaceAll("f", "t")}</kbd>`;
+            document.body.append(box);
+            const theme = box.querySelector("[data-joins=theme]")!;
+            const s = getComputedStyle(theme);
+            await document.fonts.load(`${s.fontSize} ${s.fontFamily}`, words);
+            const width = (joins: string) => {
+                const range = document.createRange();
+                range.selectNodeContents(box.querySelector(`[data-joins=${joins}]`)!);
+                return range.getBoundingClientRect().width;
+            };
+            return { joins: s.fontVariantLigatures, theme: width("theme"), on: width("on"), plain: width("plain") };
+        });
+        // The page joins none (global-css): the f-pairs take as many cells as any other letters.
+        expect(read.joins).toBe("no-common-ligatures");
+        expect(read.theme).toBeCloseTo(read.plain, 1);
+        // The face itself joins them: ffi, ff, fi and fl each drawn in one cell.
+        expect(read.on).toBeLessThan(read.theme);
     });
 });
 

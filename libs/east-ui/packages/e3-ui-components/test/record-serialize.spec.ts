@@ -49,6 +49,10 @@ function fakeCache(seedValue?: bigint): ReactiveDatasetCacheInterface {
         getStatus: () => variant("up-to-date", null),
         async write(w: string, p: TreePath, v: Uint8Array) { store.set(datasetCacheKey(w, p), v); },
         async refresh() { /* no-op */ },
+        // No poll reconciles its content: it is held as it was written here.
+        pollMark: () => 0,
+        confirmed: () => undefined,
+        hashRead: () => undefined,
         async launchDataflow() { /* no-op */ },
     } as unknown as ReactiveDatasetCacheInterface;
 }

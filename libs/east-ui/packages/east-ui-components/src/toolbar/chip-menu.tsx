@@ -51,7 +51,7 @@ export function ChipMenu({ label, icon, caret = false, data, onSelect, children 
     return (
         <ChakraMenu.Root {...(onSelect !== undefined && { onSelect: (d: { value: string }) => onSelect(d.value) })}>
             <ChakraMenu.Trigger asChild>
-                <chakra.button type="button" css={[chip({ tone: "neutral", numeric: true }), coarseHitArea({ position: true })]}
+                <chakra.button type="button" css={[chip({ tone: "neutral" }), coarseHitArea({ position: true })]}
                     aria-label={label} title={label} {...own}>
                     <FontAwesomeIcon icon={icon} data-chip-icon="" />
                     {caret && <FontAwesomeIcon icon={faCaretDown} data-chip-caret="" />}

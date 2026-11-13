@@ -85,8 +85,9 @@ function rowOf(key: string, label: string): ValueTypeOf<typeof Plan.Types.Row> {
     } as unknown as ValueTypeOf<typeof Plan.Types.Row>;
 }
 
-/** The Plan root over the bound handle — its `page` mapped to the canvas's
- *  blocks (one block of the machines' rows, #823), its identity, total,
+/** The Plan root over the bound handle — its `page` mapped to a window of the
+ *  canvas's blocks (one block of the machines' rows, #823) that carries no
+ *  entry, as a canvas that writes nothing is served — its identity, total,
  *  revision and refresh the handle's own: the `pinned` arm, the one a canvas
  *  follows from one snapshot to the next. */
 function planOver(handle: Record<string, unknown>): PlanRootValue {
@@ -102,7 +103,7 @@ function planOver(handle: Record<string, unknown>): PlanRootValue {
         page: (offset: bigint, limit: bigint) => {
             const win = bound.page(offset, limit);
             if (win.type !== "some" || win.value === undefined) return none;
-            return some([{ fixed: false, parent: none, charts: none, rows: [...win.value].map(([k, v]) => rowOf(k, v.label)) }]);
+            return some({ rows: [{ fixed: false, parent: none, charts: none, rows: [...win.value].map(([k, v]) => rowOf(k, v.label)) }], entries: [] });
         },
         total: bound.total,
         seek: none,

@@ -15,8 +15,10 @@
  * the panes are measured open, as they rest; on a phone each is opened from
  * its tab and measured over the frame, and where its row folds, a tap on its
  * `+n` opens the menu, which stays open, and a tab picked from it opens on
- * the row (#1235). Every measurement is polled until it
- * holds, on a page at rest.
+ * the row (#1235). An overlay pane opened by a press on its rail's tile,
+ * which is no control and takes no focus of its own, takes the focus, so Esc
+ * closes it (#1584). Every measurement is polled until it holds, on a page at
+ * rest.
  *
  * Run: `make test-responsive` (libs/east-ui), or
  * `pnpm exec playwright test builder-panes --project desktop`.
@@ -115,6 +117,25 @@ test.describe("every builder pane's tab row fits its pane (#1210)", { tag: "@des
             });
         }
     }
+});
+
+test("an overlay pane opened by a press on its rail's tile takes the focus, so Esc, pressed next, closes it and gives the focus back to its rail (#1584) @desktop", async ({ page }) => {
+    // The Sheet's frame at 700px: both its panes overlay, each closed on its rail.
+    const frame = await openFrame(page, { ...BUILDERS.find((builder) => builder.name === "the Sheet")!, width: 700 }, "light");
+    const end = frame.locator('[data-frame-slot="end"]');
+    await expect(end).toHaveAttribute("data-collapsed", "");
+    const focus = () => end.evaluate((slot) => ({
+        open: !slot.hasAttribute("data-collapsed"),
+        inPane: slot.contains(document.activeElement),
+        on: document.activeElement?.getAttribute("aria-label") ?? null,
+    }));
+    // The tile under the rail's control: a press there focuses nothing, the browser's or the pane's own.
+    await end.locator('[data-surface] > [title="Inspector"]').click();
+    await settled(page);
+    await expect.poll(async () => { const at = await focus(); return [at.open, at.inPane]; }).toEqual([true, true]);
+    await page.keyboard.press("Escape");
+    await settled(page);
+    await expect.poll(focus).toEqual({ open: false, inPane: true, on: "Expand Inspector" });
 });
 
 test.describe("every builder pane's tab row fits its pane, on a phone (#1210)", { tag: "@mobile" }, () => {

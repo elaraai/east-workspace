@@ -1074,10 +1074,14 @@ describe("a key search looks among the source's elements (#1192)", () => {
         const elements = ["e0", "e1", "e2"].map((e) => planRow(e, span(), undefined, "jobs"));
         const source = {
             id: "c1192-seek",
-            page: (offset: bigint, limit: bigint) => some([
-                { fixed: true, parent: none, charts: none, rows: lead },
-                { fixed: false, parent: none, charts: none, rows: elements.slice(Number(offset), Number(offset + limit)) },
-            ]),
+            // A window is its blocks, and the entries it carries: none here, a source nothing edits.
+            page: (offset: bigint, limit: bigint) => some({
+                rows: [
+                    { fixed: true, parent: none, charts: none, rows: lead },
+                    { fixed: false, parent: none, charts: none, rows: elements.slice(Number(offset), Number(offset + limit)) },
+                ],
+                entries: [],
+            }),
             total: () => some(3n),
             seek: some(() => some({ found: true, row: 2n, count: 1n })),
         };

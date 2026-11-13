@@ -35,14 +35,15 @@ export const planElementFocus = {
 } satisfies SystemStyleObject;
 
 /**
- * An event holding a conflict not yet chosen: the warn ring at its mark's edge,
- * drawn as the optimiser's highlight draws its own, over the marks beside it.
- * Its selection and a keyboard focus keep their own outlines just outside it.
- * Spread AFTER the lifecycle looks and the overlap ring, whose box shadows it
- * takes the place of while the conflict waits.
+ * An event holding a conflict not yet chosen, or a number outside its field's
+ * bounds (#1585): the warn ring at its mark's edge, drawn as the optimiser's
+ * highlight draws its own, over the marks beside it. Its selection and a
+ * keyboard focus keep their own outlines just outside it. Spread AFTER the
+ * lifecycle looks and the overlap ring, whose box shadows it takes the place
+ * of while the conflict waits or the bound is broken.
  */
 export const planElementConflict = {
-    "&[data-conflict]": { boxShadow: CONFLICT_RING, zIndex: 3 },
+    "&:is([data-conflict], [data-bounds])": { boxShadow: CONFLICT_RING, zIndex: 3 },
 } satisfies SystemStyleObject;
 
 /** A selected event's mark (#1197) — a 1.5px brand ring just outside it (the

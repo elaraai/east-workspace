@@ -37,7 +37,8 @@ import e3 from "@elaraai/e3";
 // - `sheetLoose`, loose rows between the groups (#846);
 // - `sheetPaged`, a record read a window at a time;
 // - `sheetUpkeep`, the inspector's every field kind (#1220);
-// - `sheetConflicts`, your edits meeting someone else's save, in one window.
+// - `sheetConflicts`, your edits meeting someone else's save — a change, a
+//   removal and an addition — in one window.
 //
 // Its panes are optional props, and the examples show each combination:
 // none (`sheetBasic`, `sheetVariants`, `sheetStress`, `sheetLoose`,
@@ -1044,21 +1045,21 @@ export const sheetWeekPlans = e3.record("sheet_week_plans", DictType(StringType,
  * the ERP, the row it is on owned upstream; and the machines a set of codes,
  * runs of which are offered and printed as one range. A row is ready once its
  * quantity is positive. Every gesture is journalled with its provenance
- * (`onPatch`), and a new row's id is minted from a counter (`newRowId`). Its
+ * (`onPatch`), and a new row's id is the host's own, the first `new-N` no row
+ * holds (`newKey`). Its
  * one pane is the inspector, its Details the author's own (SB58): a row's
  * quantity on a slider, written back through `update` as one transaction —
  * while a row is still missing a field, the sheet's own form shows instead.
  */
 export const sheetWeeks = example({
-    keywords: ["Sheet", "BuilderFrame", "record", "entry", "one entry", "rows", "id", "week", "State", "SegmentGroup", "drafts per entry", "inspector", "update", "Field.Slider", "column", "date", "text", "quantity", "integer", "reference", "enum", "set", "stamped", "owned", "register", "options", "level", "actual", "detail", "ranged", "DateLevel", "week", "day", "range", "time", "rule", "ready", "row", "Readiness", "completeness", "validation", "onPatch", "PatchEvent", "provenance", "source", "newRowId", "newRow", "write-back"],
-    description: "A sheet over one entry's rows — the week the viewer picks, its rows in the planner's order, each week its own drafts until Save or Discard — with every column kind and its rules (a date at each row's level with its actual, an integer, a reference, an enum narrowed by an options rule with a detail, a stamped code owning its row, a set of machines in ranges), a row rule, a journal of every gesture, ids minted by a counter, and its own Details in the inspector pane, a row's quantity on a slider written back as one transaction",
+    keywords: ["Sheet", "BuilderFrame", "record", "entry", "one entry", "rows", "id", "week", "State", "SegmentGroup", "drafts per entry", "inspector", "update", "Field.Slider", "column", "date", "text", "quantity", "integer", "reference", "enum", "set", "stamped", "owned", "register", "options", "level", "actual", "detail", "ranged", "DateLevel", "week", "day", "range", "time", "rule", "ready", "row", "Readiness", "completeness", "validation", "onPatch", "PatchEvent", "provenance", "source", "newKey", "newRow", "write-back"],
+    description: "A sheet over one entry's rows — the week the viewer picks, its rows in the planner's order, each week its own drafts until Save or Discard — with every column kind and its rules (a date at each row's level with its actual, an integer, a reference, an enum narrowed by an options rule with a detail, a stamped code owning its row, a set of machines in ranges), a row rule, a journal of every gesture, ids in the host's own scheme, and its own Details in the inspector pane, a row's quantity on a slider written back as one transaction",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const plans = $.let(Record.bind(sheetWeekPlans));
-            // The week the viewer picked, the journal and the id counter: a viewer's own state.
+            // The week the viewer picked and the journal: a viewer's own state.
             const week = $.let(State.bind([StringType], "sheet.weeks.week", "2026-W42"));
             const log = $.let(State.bind([ArrayType(StringType)], "sheet.weeks.journal", []));
-            const counter = $.let(State.bind([IntegerType], "sheet.weeks.counter", 1n));
             const weeks = $.let(["2026-W42", "2026-W43", "2026-W44"], ArrayType(StringType));
             const pick = $.const(East.function([StringType], NullType, ($, w) => { $(week.write(w)); }));
             const StatusType = StructType({ word: StringType, tone: StatusValueType });
@@ -1086,10 +1087,12 @@ export const sheetWeeks = example({
             const onPatch = $.const(East.function([Sheet.Types.PatchEvent(WeekRow)], NullType, ($, e) => {
                 $(log.write(log.read().concat([East.str`${e.origin.getTag()} · ${e.label} · ${e.readiness.getTag()}`])));
             }));
-            // The host mints a new row's id.
-            const newRowId = $.const(East.function([], StringType, ($) => {
-                const n = $.let(counter.read());
-                $(counter.write(n.add(1n)));
+            // A new row's id in the host's own scheme: given every id taken, the first new-N none of them is.
+            const newKey = $.const(East.function([SetType(StringType)], StringType, ($, taken) => {
+                const n = $.let(taken.size().add(1n));
+                $.while(taken.has(East.str`new-${n}`), ($2) => {
+                    $2.assign(n, n.add(1n));
+                });
                 return East.str`new-${n}`;
             }));
             const newRow = $.const(East.function([Sheet.Types.NewRow], Sheet.Types.Patch(WeekRow), () => Sheet.patch(WeekRow, {
@@ -1145,7 +1148,7 @@ export const sheetWeeks = example({
                             ready={{ row: readyRow }}
                             onPatch={onPatch}
                             newRow={newRow}
-                            newRowId={newRowId}
+                            newKey={newKey}
                         />
                     </Box>
                     <Text.MonoLabel>{East.str`EDITS · ${entries.length()}`}</Text.MonoLabel>
@@ -1163,10 +1166,9 @@ export const sheetWording = example({
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const plans = $.let(Record.bind(sheetWeekPlans));
-            // The week the viewer picked, the journal and the id counter: a viewer's own state.
+            // The week the viewer picked and the journal: a viewer's own state.
             const week = $.let(State.bind([StringType], "sheet.weeks.week", "2026-W42"));
             const log = $.let(State.bind([ArrayType(StringType)], "sheet.weeks.journal", []));
-            const counter = $.let(State.bind([IntegerType], "sheet.weeks.counter", 1n));
             const weeks = $.let(["2026-W42", "2026-W43", "2026-W44"], ArrayType(StringType));
             const pick = $.const(East.function([StringType], NullType, ($, w) => { $(week.write(w)); }));
             const StatusType = StructType({ word: StringType, tone: StatusValueType });
@@ -1194,10 +1196,12 @@ export const sheetWording = example({
             const onPatch = $.const(East.function([Sheet.Types.PatchEvent(WeekRow)], NullType, ($, e) => {
                 $(log.write(log.read().concat([East.str`${e.origin.getTag()} · ${e.label} · ${e.readiness.getTag()}`])));
             }));
-            // The host mints a new row's id.
-            const newRowId = $.const(East.function([], StringType, ($) => {
-                const n = $.let(counter.read());
-                $(counter.write(n.add(1n)));
+            // A new row's id in the host's own scheme: given every id taken, the first new-N none of them is.
+            const newKey = $.const(East.function([SetType(StringType)], StringType, ($, taken) => {
+                const n = $.let(taken.size().add(1n));
+                $.while(taken.has(East.str`new-${n}`), ($2) => {
+                    $2.assign(n, n.add(1n));
+                });
                 return East.str`new-${n}`;
             }));
             const newRow = $.const(East.function([Sheet.Types.NewRow], Sheet.Types.Patch(WeekRow), () => Sheet.patch(WeekRow, {
@@ -1254,7 +1258,7 @@ export const sheetWording = example({
                             ready={{ row: readyRow }}
                             onPatch={onPatch}
                             newRow={newRow}
-                            newRowId={newRowId}
+                            newKey={newKey}
                         />
                     </Box>
                     <Text.MonoLabel>{East.str`EDITS · ${entries.length()}`}</Text.MonoLabel>
@@ -1661,6 +1665,8 @@ export const sheetUpkeep = example({
                             supplier: { name: Sheet.field.text({ placeholder: "Who supplies its parts" }), phone: Sheet.field.text({ placeholder: "01632 960 000" }) },
                         }}
                         ready={{ row: readyMachine }}
+                        // A machine's serial is its maker's: the sheet keeps the machines' upkeep, and adds none.
+                        edits={{ insertRows: false }}
                     />
                 </Box>
             );
@@ -1697,6 +1703,21 @@ export const sheetConflictJobs = e3.record("sheet_conflict_jobs", DictType(Strin
                     none: (_$3) => East.value(none, OptionType(FloatType)),
                 }),
             })))),
+        // Someone else's save: Panel cutting, J-0001, removed — where the record still holds it.
+        removes: mutation.reduce(East.function([DictType(StringType, SheetJob)], DictType(StringType, SheetJob), ($, jobs) => {
+            const next = $.let(jobs.copy());
+            $(next.tryDelete("J-0001"));
+            return next;
+        })),
+        // Someone else's save: a job added under the next key, J-0005 — where the record holds none there.
+        adds: mutation.reduce(East.function([DictType(StringType, SheetJob)], DictType(StringType, SheetJob), ($, jobs) => {
+            const next = $.let(jobs.copy());
+            $.if(next.has("J-0005").not(), ($2) => {
+                const assembly = $2.const({ task: "Assembly", start: some(new Date("2026-10-16T00:00:00Z")), qty: some(6.0) }, SheetJob);
+                $2(next.insert("J-0005", assembly));
+            });
+            return next;
+        })),
     }),
 });
 
@@ -1706,21 +1727,44 @@ export const sheetConflictJobs = e3.record("sheet_conflict_jobs", DictType(Strin
  * every Qty 12 more and every Start a day later. A Qty or a Start you changed
  * too is a conflict, waiting for you to choose; a Task you changed combines
  * with theirs. Each press saves their change again.
+ *
+ * Someone else removes Panel cutting saves their removal of that job. Changed
+ * by you, it is a conflict of the whole row: yours keeps the row and puts it
+ * back at Save, theirs lets it go. Removed by you too, nothing is asked. And a
+ * job you removed that their save then changes is the same conflict the other
+ * way about.
+ *
+ * Someone else adds a job saves a new job under the next key, J-0005. The
+ * sheet keys a row you add the same way (`newKey`: the first J-000N no job
+ * holds), so one you added meanwhile was drafted under that very key: it
+ * takes the key after it, the footer saying so, and both are kept.
  */
 export const sheetConflicts = example({
-    keywords: ["Sheet", "conflict", "conflicts", "combine", "someone else", "carry over", "Choose", "record", "Record.bind", "mutate", "Button", "patch"],
-    description: "Your edits meeting someone else's save, in one window — edit a Qty or a Start, then press Someone else saves, which saves another person's change to the same jobs (every Qty 12 more, every Start a day later), so yours conflict and wait to be chosen; a Task you change combines with theirs",
+    keywords: ["Sheet", "conflict", "conflicts", "combine", "someone else", "carry over", "Choose", "record", "Record.bind", "mutate", "Button", "patch", "removed", "added", "delete", "insert", "key taken", "newKey", "renumbered"],
+    description: "Your edits meeting someone else's save, in one window — edit a Qty or a Start, then press Someone else saves, which saves another person's change to the same jobs (every Qty 12 more, every Start a day later), so yours conflict and wait to be chosen; a Task you change combines with theirs. Someone else removes Panel cutting removes that job — changed by you, a conflict of the whole row to choose — and Someone else adds a job adds one under the next key, which the sheet's newKey gives a row of yours too: one you added meanwhile takes the key after it, and both are kept",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const jobs = $.let(Record.bind(sheetConflictJobs, ["patch"]));
-            const others = $.let(Record.bind(sheetConflictJobs, ["elsewhere"]));
+            const others = $.let(Record.bind(sheetConflictJobs, ["elsewhere", "removes", "adds"]));
             const theirs = $.const(East.function([], NullType, ($) => { $(others.mutate.elsewhere()); }));
+            const theirRemoval = $.const(East.function([], NullType, ($) => { $(others.mutate.removes()); }));
+            const theirAddition = $.const(East.function([], NullType, ($) => { $(others.mutate.adds()); }));
+            // A new job's key in the workshop's own scheme: given every key taken, the first J-000N none of them is.
+            const newKey = $.const(East.function([SetType(StringType)], StringType, ($, taken) => {
+                const n = $.let(taken.size().add(1n));
+                $.while(taken.has(East.str`J-000${n}`), ($2) => {
+                    $2.assign(n, n.add(1n));
+                });
+                return East.str`J-000${n}`;
+            }));
             return (
                 <VStack gap="3" align="stretch">
-                    <HStack gap="3">
+                    <HStack gap="3" wrap="wrap">
                         <Button variant="outline" onClick={theirs} loading={others.mutate.pending()}>Someone else saves</Button>
-                        <Text color="fg.muted">Their change: every Qty 12 more, every Start a day later</Text>
+                        <Button variant="outline" onClick={theirRemoval} loading={others.mutate.pending()}>Someone else removes Panel cutting</Button>
+                        <Button variant="outline" onClick={theirAddition} loading={others.mutate.pending()}>Someone else adds a job</Button>
                     </HStack>
+                    <Text color="fg.muted">Someone else saves: every Qty 12 more, every Start a day later. Their removal: J-0001, Panel cutting. Their addition: J-0005, Assembly.</Text>
                     <Box height="560px">
                         <Sheet
                             name="conflicts"
@@ -1730,6 +1774,7 @@ export const sheetConflicts = example({
                                 start: Sheet.column.date(SheetJob, { header: "Start", width: "96px" }),
                                 qty:   Sheet.column.quantity(SheetJob, { header: "Qty", width: "96px" }),
                             }}
+                            newKey={newKey}
                         />
                     </Box>
                 </VStack>

@@ -188,6 +188,51 @@ export function recordTests(setup: TestSetup<TestContext>): void {
       assert.equal(await readCounter(ctx), 4n); // state unchanged
     });
 
+    // A request's key (`Idempotency-Key`) is how a client whose answer was lost
+    // asks again without writing twice. A record remembers its last keyed
+    // requests on its ref, in its version vector, so the contract is a
+    // backend's ref store's too: it must hand back the vector it was given,
+    // whole, at every read.
+    it('a keyed request repeated after other writes is answered with its own commit and the state the record holds, and applied once', async (t) => {
+      const ctx = await withRecords(t);
+      const opts = await ctx.opts();
+      const increment = (by: bigint, key?: string) => workspaceRecordMutate(
+        ctx.config.baseUrl, ctx.repoName, WS, 'counter', 'increment',
+        { args: [encodeInt(by)], actor: none, limits: none }, opts, key,
+      );
+      /** A committed result's commit and state. */
+      const committed = (result: Awaited<ReturnType<typeof increment>>): { commitHash: string; stateHash: string } => {
+        assert.equal(result.outcome.type, 'committed', `expected committed, got ${result.outcome.type}`);
+        const { commitHash, stateHash } = (result.outcome as { value: { commitHash: string; stateHash: string } }).value;
+        return { commitHash, stateHash };
+      };
+      const history = async () => (await workspaceRecordHistory(ctx.config.baseUrl, ctx.repoName, WS, 'counter', undefined, opts)).commits;
+
+      const first = committed(await increment(5n, 'request-1'));
+      const second = committed(await increment(1n, 'request-2'));
+      const latest = committed(await increment(1n)); // a write with no key
+      assert.equal(await readCounter(ctx), 7n);
+      const commits = (await history()).length;
+
+      // Each asked again under its key, after the writes that followed it:
+      // its own commit, and the state to read the record at, which is the
+      // one it holds now
+      assert.deepEqual(committed(await increment(5n, 'request-1')), { commitHash: first.commitHash, stateHash: latest.stateHash },
+        'the first request is answered with its own commit and the state the record holds');
+      assert.deepEqual(committed(await increment(1n, 'request-2')), { commitHash: second.commitHash, stateHash: latest.stateHash },
+        'and so is the second');
+      assert.equal(await readCounter(ctx), 7n, 'nothing was applied twice');
+      assert.equal((await history()).length, commits, 'and nothing was committed');
+
+      // A compaction cuts both commits from the chain. Its state holds their
+      // writes, so it answers both keys from here on.
+      const compacted = committed(await workspaceRecordCompact(ctx.config.baseUrl, ctx.repoName, WS, 'counter', opts));
+      assert.deepEqual(committed(await increment(5n, 'request-1')), compacted, 'the compaction answers the first request');
+      assert.deepEqual(committed(await increment(1n, 'request-2')), compacted, 'and the second');
+      assert.equal(await readCounter(ctx), 7n, 'nothing was applied twice');
+      assert.deepEqual((await history()).map((commit) => commit.mutation), ['$compact']);
+    });
+
     // The compare-and-swap is the contract a remote backend (e.g. the cloud's
     // DynamoDB conditional write) must satisfy. Exercising it here — not only in
     // the local e3-core unit tests — is what keeps that backend honest: a broken

@@ -12,13 +12,16 @@ import { FOCUS_HOME_PROPS } from "../focus-home.js";
 /**
  * The shared Plan/Calendar inspector heading, using the inspector's existing recipe slots; `children` sit under its row, in
  * its section (the Allocation's bin actions). Given `home`, it is its view's home: where the keyboard lands as the control it
- * was on goes with the view (`focus-home.ts`, #1398), as every builder's Details takes it.
+ * was on goes with the view (`focus-home.ts`, #1398), as every builder's Details takes it. Given `writes` — its view takes
+ * edits — its marks' row stands while it holds neither a status nor a chip, kept a chip tall by the recipe
+ * (`data-writes`), so a draft's chip arriving with the view's first edit moves nothing under it (#1584).
  */
-export function ScheduleInspectorHead({ styles, kind, title, when, status, pending, home = false, children }: {
+export function ScheduleInspectorHead({ styles, kind, title, when, status, pending, writes = false, home = false, children }: {
     styles: Record<string, BoxProps["css"]>;
     kind: { name: string; icon: string }; title: string; when: ReactNode;
     status?: { label: string; tone: { type: string }; ring: boolean } | undefined;
     pending?: "pending" | "new" | undefined;
+    writes?: boolean;
     home?: boolean;
     children?: ReactNode;
 }) {
@@ -29,7 +32,7 @@ export function ScheduleInspectorHead({ styles, kind, title, when, status, pendi
                 <Box css={styles.eyebrow} data-inspector-kind="">{kind.name}</Box>
                 <Box css={styles.name} data-inspector-title="">{title}</Box>
                 <Box css={styles.when} data-inspector-when="">{when}</Box>
-                {(status !== undefined || pending !== undefined) && <Box css={styles.marks} data-inspector-marks="">
+                {(status !== undefined || pending !== undefined || writes) && <Box css={styles.marks} data-inspector-marks="" data-writes={writes ? "" : undefined}>
                     {pending !== undefined && <Box as="span" css={styles.chip} data-state={pending}>{pending === "new" ? "New" : "Pending"}</Box>}
                     {status !== undefined && <Box as="span" css={styles.status} data-tone={status.tone.type} data-ring={status.ring ? "" : undefined} data-inspector-status="">{status.label}</Box>}
                 </Box>}

@@ -19,6 +19,10 @@
  * 5. and where even that leaves the legend no room (a rail under 480px), the
  *    legend ends at a whole item, then "…", and the line shows its short form.
  *
+ * A legend keeps its first item, as the design's, alone on its rail, does; a
+ * rail that keeps items of its own whole beside it — the Record's counts —
+ * folds it whole, to its "…" alone, where not even that item fits.
+ *
  * Nothing on the rail takes an ellipsis inside a word. The line's text is cut
  * when it is wider than its share of the rail (the recipe's `max-width`), and
  * a cut counts as not fitting, as an overflow of the rail does.
@@ -61,6 +65,8 @@ export interface FooterFitInput {
     readonly line: { readonly full: number; readonly short: number; readonly dot: number } | undefined;
     /** The share of the rail the line may take before its text is cut (the recipe's `max-width`, 64%). */
     readonly lineCap: number;
+    /** Whether the legend folds whole, to its "…" alone, where not even its first item fits; else it keeps that item. */
+    readonly fold?: boolean | undefined;
 }
 
 /** How a rail fits: how many units stay, and the form the line shows in. */
@@ -84,8 +90,10 @@ const SLACK = 1;
  * @returns How many units stay, and the line's form
  */
 export function fitFooter(input: FooterFitInput): FooterFit {
-    const { available, gap, fixed, units, unitGap, more, hints, line, lineCap } = input;
+    const { available, gap, fixed, units, unitGap, more, hints, line, lineCap, fold } = input;
     const n = units.length;
+    // The fewest units the legend keeps.
+    const least = fold === true ? 0 : 1;
     let fixedWidth = 0;
     for (const w of fixed) fixedWidth += w;
     /** The rail's width with `kept` units, the line in `form`: each item and the gaps between them, the units one item. */
@@ -115,15 +123,15 @@ export function fitFooter(input: FooterFitInput): FooterFit {
     let kept = n;
     // Nothing in flight: the legend alone, whole unless the rail cannot hold it.
     if (line === undefined) {
-        while (kept > 1 && over(kept, "full")) kept -= 1;
+        while (kept > least && over(kept, "full")) kept -= 1;
         return { kept, form: "full" };
     }
     // Hints give way to the line's full text, a whole hint at a time.
-    if (hints) while (kept > 1 && bad(kept, "full")) kept -= 1;
+    if (hints) while (kept > least && bad(kept, "full")) kept -= 1;
     if (!bad(kept, "full")) return { kept, form: "full" };
     if (!bad(kept, "short")) return { kept, form: "short" };
     if (!bad(kept, "dot")) return { kept, form: "dot" };
     // Where even the dot leaves the legend no room, the legend ends at a whole item and the line keeps its short form.
-    while (kept > 1 && bad(kept, "short")) kept -= 1;
+    while (kept > least && bad(kept, "short")) kept -= 1;
     return { kept, form: "short" };
 }

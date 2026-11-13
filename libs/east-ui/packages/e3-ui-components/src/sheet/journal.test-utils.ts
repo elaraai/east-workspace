@@ -31,8 +31,8 @@ export function sheetJournal(sheet: SheetValue): SheetJournal {
     const encodeDraft = encodeBeast2For(root.editing.draftType);
     const patch = applyFor(toEastTypeValue(OptionType(draftType)));
     const drafts = new Map<string, unknown>();
-    const opening = root.rows.type === "inline" ? some(root.rows.value) : root.rows.value.page(0n, 600n);
-    const initial = opening.type === "some" ? opening.value : [];
+    const paged = root.rows.type === "inline" ? undefined : root.rows.value.page(0n, 600n);
+    const initial = root.rows.type === "inline" ? root.rows.value : paged?.type === "some" ? paged.value.rows : [];
     for (const [offset, row] of initial.entries()) {
         const raw = root.editing.readEntry(row.id, BigInt(offset));
         if (raw.type === "some") drafts.set(row.id, liftDraft(draftType, decodeEntry(raw.value)));

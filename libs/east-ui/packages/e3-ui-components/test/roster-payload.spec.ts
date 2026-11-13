@@ -100,11 +100,12 @@ const program = East.function([], RosterPayloadType, ($) => {
     }));
     const check = $.const(East.function([Roster.Types.CheckContext(Duty)], ArrayType(Roster.Types.Issue), ($2, cx) => {
         const issues = $2.let([], ArrayType(Roster.Types.Issue));
+        const slotOf = $2.const(Roster.slotOf);
         $2.for(cx.week.assignments, ($3, a, id) => {
             const costs = $3.const(cx.pay.get(id, () => East.value(new Map(), DictType(StringType, FloatType))));
             $3.if(costs.has("OT1").and(() => East.notEqual(a.row.agreed, some(true))), ($4) => {
                 $4(issues.pushLast({ kind: variant("breach", null), tone: variant("info", null), title: "Overtime not agreed",
-                    detail: East.str`${a.row.team} · ${a.row.shift}`, slot: some(a.slot), assignment: some(id), flag: some("OT"), fix: none }));
+                    detail: East.str`${a.row.team} · ${a.row.shift}`, slot: slotOf(a.place), assignment: some(id), flag: some("OT"), fix: none }));
             });
         });
         return issues;
@@ -220,14 +221,14 @@ describe("the Roster's payload over the warehouse's records", () => {
         const context = contextOf(value);
         const s1 = (await h.read(rx.rosterDuties)).get("s1")!;
         const bytes = encodeDuty(s1);
-        const moved = move(value.duty.read(bytes, "s1"), rx.warehouseStart, { day: 2n, group: "picking", shift: "late" }, context);
+        const moved = move(value.duty.read(bytes, "s1"), rx.warehouseStart, { day: 2n, group: some("picking"), shift: "late" }, context);
         if (moved.type !== "some") assert.fail("expected the duty moved");
         const written = value.duty.write(bytes, moved.value);
         if (written.type !== "some") assert.fail("expected the duty written");
         const there = decodeDuty(written.value);
         assert.ok(dutyEqual(there, { ...s1, start: new Date("2028-03-07T14:00:00Z"), end: new Date("2028-03-07T22:00:00Z"), shift: "late", team: "picking" }),
             "its slot's fields and its times written; its role, task, break, agreement, cost centre and note its own");
-        const back = move(value.duty.read(written.value, "s1"), rx.warehouseStart, { day: 4n, group: "inbound", shift: "early" }, context);
+        const back = move(value.duty.read(written.value, "s1"), rx.warehouseStart, { day: 4n, group: some("inbound"), shift: "early" }, context);
         if (back.type !== "some") assert.fail("expected the duty moved back");
         const returned = value.duty.write(written.value, back.value);
         if (returned.type !== "some") assert.fail("expected the duty written back");

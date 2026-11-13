@@ -8,7 +8,8 @@
  * SB18–SB24). The Sheet's examples are mounted as a surface mounts them, over
  * their records on e3 itself (`harness.test-utils.tsx`, #1376): the frame's
  * regions and the panes it is given — none, a library, an inspector, or both
- * — the sheet's items in the frame's one toolbar, a Save's banners — a
+ * — the grid a phone's only in a phone's frame, never beside overlaid panes'
+ * rails — the sheet's items in the frame's one toolbar, a Save's banners — a
  * conflict, a write with no answer and its Retry, the out-of-date notice and
  * its Discard — the footer's last save, a week the record does not hold, and
  * the panes' open tab and collapsed state kept under the sheet's name. A
@@ -24,7 +25,9 @@ import { Record, Sheet, SheetPayloadType } from "@elaraai/e3-ui/internal";
 import { editingMessages, formatters } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/sheet/sheet";
 import { act, sheetHarness, settle, slot, tabs } from "./harness.test-utils.js";
+import { overlaidFrame } from "../frame.test-utils.js";
 import { conflictCards } from "../../e3-web-mount.test-utils.js";
+import { rowKeysOf } from "../../e3-web.test-utils.js";
 import { keptName } from "@elaraai/east-ui-components/internal";
 
 const h = sheetHarness();
@@ -42,7 +45,9 @@ const jobsPayload = East.function([], SheetPayloadType, ($) => {
 });
 const missingWeek = East.function([], SheetPayloadType, ($) => {
     const plans = $.let(Record.bind(ex.sheetWeekPlans, ["patch"]));
-    return Sheet.Payload({ record: plans, entry: { key: "2026-W50", rows: "rows", id: "id" }, columns: { task: Sheet.column.text(ex.WeekRow, { header: "Task" }) } });
+    // No column sets a row's site (#1536): the sheet adds no rows.
+    return Sheet.Payload({ record: plans, entry: { key: "2026-W50", rows: "rows", id: "id" }, columns: { task: Sheet.column.text(ex.WeekRow, { header: "Task" }) },
+        edits: { insertRows: false } });
 });
 
 /** The jobs as e3 holds them now. */
@@ -115,6 +120,23 @@ test("the Sheet is a BuilderFrame: main holding the grid and its strip, the foot
     expect(slot(container, "footer")!.querySelector('[data-slot="footer"]')).not.toBeNull();
 });
 
+test("a desktop's frame too narrow to pin its panes is no phone's, though main beside their rails is as narrow as one: the grid keeps its gutter, and no pager pages its columns", async () => {
+    // A frame of 580: the panes overlay main, which keeps 536 beside their rails.
+    const restore = overlaidFrame(580, 536);
+    try {
+        const { container } = await h.mount(ex.sheetWorkshop);
+        expect(container.querySelector("[data-builder-frame]")!.hasAttribute("data-phone")).toBe(false);
+        expect([slot(container, "start")!.getAttribute("data-pane-mode"), slot(container, "end")!.getAttribute("data-pane-mode")]).toEqual(["overlay", "overlay"]);
+        const main = slot(container, "main")!;
+        const card = main.querySelector<HTMLElement>("[data-sheet-card]")!;
+        expect(card.hasAttribute("data-phone")).toBe(false);
+        expect(card.style.getPropertyValue("--sheet-gutter")).toBe("128px");
+        expect(main.querySelector('[data-slot="pager"]')).toBeNull();
+    } finally {
+        restore();
+    }
+});
+
 test("the panes are optional props: a sheet given a library has a start pane alone, one given an inspector an end pane alone (#1216)", async () => {
     const library = await h.mount(ex.sheetLibrary);
     expect(tabs(slot(library.container, "start")!)).toEqual(["Tasks 5", "Columns 3"]);
@@ -183,7 +205,8 @@ test("a record read a window at a time carries a Save's drafts over to the rows 
     await typeTask(container, 0, "Panel cutting, maple");
     await typeTask(container, 1, "Edge banding, both edges");
     // Another session moves the first job just as Save goes; the second it leaves as its edit began.
-    const asked = h.requests("find", JOBS_DATASET).length;
+    const readsBefore = h.requests("rows", JOBS_DATASET).length;
+    const searchesBefore = h.requests("find", JOBS_DATASET).length;
     await h.race(JOBS, () => press(getByRole("button", { name: "Save" })), (jobs) => withTask(jobs, "J-0001", "Panel cutting, walnut"));
     await carriedOver(container, ["conflicts"]);
     // The first job's task, which both changed, waits to be chosen; the second's draft is carried over beside it.
@@ -192,9 +215,9 @@ test("a record read a window at a time carries a Save's drafts over to the rows 
         .toEqual(["Panel cutting, maple", "Edge banding, both edges"]);
     // Save waits aria-disabled while a conflict does, never disabled: it keeps the focus, and its tooltip says why.
     expect((getByRole("button", { name: "Save" }) as HTMLButtonElement).getAttribute("aria-disabled")).toBe("true");
-    // Each row the Save changed was sought by its key once it answered; the record never whole.
-    const sought = h.requests("find", JOBS_DATASET).slice(asked).map((request) => request.query.get("key"));
-    expect(sought).toEqual(expect.arrayContaining(['"J-0001"', '"J-0002"']));
+    // Each row the Save changed was read by its key once it answered, in reads of many keys and no search of one; the record never whole.
+    expect(h.requests("rows", JOBS_DATASET).slice(readsBefore).flatMap(rowKeysOf)).toEqual(expect.arrayContaining(['"J-0001"', '"J-0002"']));
+    expect(h.requests("find", JOBS_DATASET).slice(searchesBefore)).toEqual([]);
     expect(h.requests("read", JOBS_DATASET)).toEqual([]);
 });
 

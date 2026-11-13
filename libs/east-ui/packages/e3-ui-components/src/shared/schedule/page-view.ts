@@ -16,11 +16,10 @@
  * Followed, storage moved a page's view from outside it: another page writing
  * it — a second tab on the same builder, the browser's own storage editor —
  * reached this page's view and never what the page holds beside it. The
- * Calendar's window then put its date back at the window's first day, and its
- * timeline, centred there, re-centred a window back, writing a date the other
- * page heard in turn: a board stepped on in one tab ran back a window at a
- * time in both. The Roster's week and the Allocation's day moved under the
- * viewer, with what the toolbar's Publish and the history act on.
+ * Calendar's window then put its date back at the window's first day: the day
+ * the viewer stood on, and every step from it, moved to the window's start.
+ * The Roster's week and the Allocation's day moved under the viewer, with what
+ * the toolbar's Publish and the history act on.
  *
  * @packageDocumentation
  */

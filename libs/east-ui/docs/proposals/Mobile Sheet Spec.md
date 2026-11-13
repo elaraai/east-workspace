@@ -17,7 +17,7 @@ At 402 px today the Sheet gives Step, Good and Done 94 px between its 108 px fol
 - **SH1.1** ‹ › move the window one column. A pick in the jump menu brings that column into view.
 - **SH1.2** The window's scroll animates over `--dur-base` for one column and `--dur-slow` for more, easing out (the design: 200 ms, 360 ms, quintic out); under reduced motion it jumps.
 - **SH1.3** A swipe or a drag pans the columns; on release the view settles on the nearest column (`scroll-snap-type: x mandatory`, `scroll-padding-left` the pinned width). A fling carries to the next.
-- **SH1.4** The slot: (frame width − pinned width) ÷ columns in view, two by default, one or three by the author's choice (§9 DX).
+- **SH1.4** The slot: (frame width − pinned width) ÷ columns in view, two by default, one or three by the author's choice (§9 DX), and never more than there are columns to page: the window never ends at an empty slot, so one column beside the pinned one takes the whole width.
 
 **SH2. Jump menu.** 240 wide, `--paper`, 1 px `--rule-strong`, `--r-md`.
 - The eyebrow `Go to column`.
@@ -33,7 +33,7 @@ At 402 px today the Sheet gives Step, Good and Done 94 px between its 108 px fol
 **SH5. Rows.** 44 on a coarse pointer, 32 on a fine one, 1 px `--rule`. Numbers mono 13/500 right-aligned; text 13 left.
 
 **SH6. Order band.** 44 tall, `--paper-2`, the band's content sticky at the left across the frame's width:
-- a 40 fold chevron (`fa-chevron-down`/`-right` 12, `--ink-3`), named `Fold WO-1042` / `Open WO-1042`;
+- a 44 fold chevron (`fa-chevron-down`/`-right` 16, `--ink-3`), named `Fold WO-1042` / `Open WO-1042` — a touch icon alone, as every phone control's is (ruled 8 Nov 2026; the design drew it 12 in a 40);
 - the order's name, DM Sans 14/600 (ellipsis);
 - its id, mono 11 `--ink-4`;
 - at the end, its status: an 8 dot and the word mono 10.5/600 caps in its tone, on a `--brand-tint` chip while drafted.

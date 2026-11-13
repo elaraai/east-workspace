@@ -121,10 +121,11 @@ export { State, StateBindPrimitives, SliceApplyImpl, sliceDimensions, sliceField
 export { localSliceHandle, SliceConfigType, sliceConfigTypeFor, SliceChromeType, SliceStateType, SliceBindType, SliceBindPrimitives } from "./platform/slice/index.js";
 export { SliceAffordanceType, type SliceAffordanceLiteral } from "./contracts/slice-affordances.js";
 // Row-source contract (#567) — the contract's types, and the resolution every
-// collection shares.
+// collection shares; and what an indexed binding's unfiltered view adds to its id (#1596).
 export {
     Paged, PagedSourceType, PinnedSourceType, LiveSourceType, RowSourceType, type PagedSource, type PinnedSource, type LiveSource, type RowSource,
-    resolveRowSource, buildRowSource, buildPagedWindow, type ResolvedRowSource,
+    CarriedEntryType, CarriedWindowType, CarriedRowSourceType, type CarriedRowSource,
+    resolveRowSource, buildRowSource, buildCarriedRowSource, buildPagedWindow, type ResolvedRowSource, INDEXED_ROWS_SUFFIX,
 } from "./contracts/source.js";
 export * from "./platform/slice/record-types.js";
 export * from "./platform/slice/record-chrome.js";

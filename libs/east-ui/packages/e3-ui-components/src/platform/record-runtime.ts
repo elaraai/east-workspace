@@ -22,6 +22,18 @@
  * is never fetched whole — its windows hear its new revision through the
  * poll's hash watch instead.
  *
+ * A record read whole does not say which of its states the cache holds: its
+ * bytes name no commit, and a record another write put back exactly as it was
+ * reads as it did before a Save. The runtime knows when it read: it marks the
+ * workspace's polls as each of a record's writes is answered, and says what
+ * the cache holds of the record once a poll started since that answer has
+ * found it the record's ({@link RecordRuntime.settledOf}) — which an editing
+ * session reads a Save back at (east-ui-components' `settled-source.ts`). Of
+ * a record read a page at a time, whose hash the cache follows, it says
+ * whether a poll started since that answer has read the hash
+ * ({@link RecordRuntime.followedOf}): from then the revision its pages are
+ * pinned to is the record's as of a read made after the write.
+ *
  * All handles bound to the same record in the same workspace share one mutation
  * channel (mutations serialize server-side under compare-and-swap). Mutation
  * signatures are validated against the deployed record's describe output.
@@ -63,6 +75,8 @@ import {
 import {
     registerReactiveTracker,
     registerPlatformImplementation,
+    registerSettledSources,
+    type SettledSource,
 } from "@elaraai/east-ui-components/platform";
 import { TrackedChannelStore } from "./tracked-channel.js";
 import { trackDatasetPath } from "./bind-runtime.js";
@@ -242,6 +256,18 @@ function recordPath(name: string): TreePath {
     return [variant("field", "records"), variant("field", name)];
 }
 
+/**
+ * The record a dataset path is the current value of.
+ *
+ * @param path - A dataset's path
+ * @returns The record's name; `undefined` for a path that is no record's
+ */
+export function recordOfPath(path: TreePath): string | undefined {
+    const [root, name, ...rest] = path;
+    return root !== undefined && name !== undefined && rest.length === 0 && root.type === "field" && root.value === "records" && name.type === "field"
+        ? name.value : undefined;
+}
+
 /** Tracked mutation-channel key (one per record). */
 export function recordChannelKey(workspace: string, name: string): string {
     return `record:${workspace}:${name}`;
@@ -293,6 +319,14 @@ export class RecordRuntime extends TrackedChannelStore<RecordEntry> {
     // Cleared on clear().
     private readonly handleCache = new Map<string, Record<string, unknown>>();
 
+    // By channel, the workspace's polls as they stood when the record's last
+    // committed write was answered (the cache's `pollMark`) — kept only for a
+    // record the cache's polls read: its content, which they reconcile
+    // (`whole`), or its hash, which a watch follows (`hash`). What the cache
+    // holds of the record is the record's since that answer once a poll
+    // started after the mark has found it so.
+    private readonly answered = new Map<string, { readonly mark: number; readonly whole: boolean; readonly hash: boolean }>();
+
     protected createEntry(): RecordEntry {
         return { status: "idle", launchSeq: 0 };
     }
@@ -326,6 +360,7 @@ export class RecordRuntime extends TrackedChannelStore<RecordEntry> {
         this.historyInFlight.clear();
         this.historyFailed.clear();
         this.handleCache.clear();
+        this.answered.clear();
     }
 
     private resolveWorkspace(): string {
@@ -405,6 +440,75 @@ export class RecordRuntime extends TrackedChannelStore<RecordEntry> {
         return fetch;
     }
 
+    /**
+     * What the cache holds of a record read whole, once it has read the record
+     * since the record's last write from here was answered.
+     *
+     * @remarks
+     * The answer to a write names a commit the record holds, and what the cache
+     * holds of the record is from a read after it once a status poll started
+     * since the answer has found that content the record's — fetched it, or
+     * found it held under the hash the poll read. Until then the cache may
+     * hold the record as it was before the write. A record another write put
+     * back exactly as it was holds, after the write, the bytes it held before:
+     * only when they were read tells the two apart.
+     *
+     * @param name - The record's name
+     * @returns A tracked reader of the record's bytes — `undefined` from it
+     *   until the cache has read the record since; `undefined` for a record no
+     *   write from here has been answered for, or whose content the cache's
+     *   polls do not reconcile (one read a page at a time, or held offline)
+     */
+    settledOf(name: string): SettledSource | undefined {
+        const cache = this.cache;
+        const workspace = this.workspace;
+        if (cache === null || workspace === null) return undefined;
+        const key = recordChannelKey(workspace, name);
+        if (this.answered.get(key)?.whole !== true) return undefined;
+        const path = recordPath(name);
+        return () => {
+            this.track(key);
+            trackDatasetPath(workspace, path);
+            const answer = this.answered.get(key);
+            return answer !== undefined && cache.confirmedSince(workspace, path, answer.mark) ? cache.read(workspace, path) : undefined;
+        };
+    }
+
+    /**
+     * Whether the workspace has read a record's state since the record's last
+     * write from here was answered, for a record whose hash the cache follows:
+     * one read a page at a time.
+     *
+     * @remarks
+     * The pages of such a record are pinned to a revision, which follows the
+     * hash the workspace's status polls read. The answer to a write names the
+     * revision the write made, and a page that has moved to another one since
+     * the write was drafted cannot tell whether that one is older or newer:
+     * revisions name content, and have no order. A status poll started since
+     * the answer reads the record after the write, so from the moment one has
+     * read its hash — telling its watchers, or finding them holding it — the
+     * revision the pages are pinned to is the record's as of a read made
+     * after the write.
+     *
+     * @param name - The record's name
+     * @returns A tracked reader: whether a poll started since the answer has
+     *   read the record's hash; `undefined` for a record no write from here
+     *   has been answered for, or whose hash no watch follows
+     */
+    followedOf(name: string): (() => boolean) | undefined {
+        const cache = this.cache;
+        const workspace = this.workspace;
+        if (cache === null || workspace === null) return undefined;
+        const key = recordChannelKey(workspace, name);
+        if (this.answered.get(key)?.hash !== true) return undefined;
+        const path = recordPath(name);
+        return () => {
+            this.track(key);
+            const answer = this.answered.get(key);
+            return answer !== undefined && cache.hashReadSince(workspace, path, answer.mark);
+        };
+    }
+
     // ----- closure semantics -------------------------------------------------
 
     /**
@@ -454,10 +558,28 @@ export class RecordRuntime extends TrackedChannelStore<RecordEntry> {
             const outcome = result.outcome;
             if (outcome.type === "committed") {
                 settle(e => { e.status = "committed"; delete e.error; });
+                // What the cache holds of the record whole is the record's since
+                // this answer once a poll started from here on finds it so: the
+                // mark is taken before the refresh below starts one. A record
+                // put back as it was is found so with no change of its bytes to
+                // tell its readers of, so the channel tells them.
+                const cache = this.cache;
+                const mark = cache?.pollMark(workspace);
+                const confirmed = mark === undefined ? undefined : cache?.confirmed(workspace, recordPath(record), mark);
+                // And of a record read a page at a time: once one has read its hash, its watchers holding it.
+                const followed = mark === undefined ? undefined : cache?.hashRead(workspace, recordPath(record), mark);
+                if (mark === undefined || (confirmed === undefined && followed === undefined)) this.answered.delete(key);
+                else {
+                    const answer = { mark, whole: confirmed !== undefined, hash: followed !== undefined };
+                    this.answered.set(key, answer);
+                    const told = (): void => { if (this.answered.get(key) === answer) this.notify(key); };
+                    void confirmed?.then(told);
+                    void followed?.then(told);
+                }
                 // The record ref's commit hash moved — force one workspace poll so
                 // the dataset cache refetches the record's bytes and read() re-renders.
                 // Reuses the standing poller the manifest installed; no new poller.
-                void this.cache?.refresh(workspace);
+                void cache?.refresh(workspace);
                 // History grew — drop the cache (and any failed-fetch flag) so
                 // the next history() refetches.
                 this.histories.delete(key);
@@ -741,6 +863,9 @@ export function createScopedRecordPlatform(records: readonly string[]): Platform
 // re-renders offline without a poller) and appends a synthetic commit.
 // =============================================================================
 
+/** How many keyed mutations an offline record remembers: as many as a deployed one (e3-core's `RECORD_KEYS_REMEMBERED`). */
+const KEYS_REMEMBERED = 16;
+
 /** One offline record implementation for {@link createInMemoryRecordApi}. */
 export interface InMemoryRecordDef {
     /** Record name (what `Record.bind` is bound to). */
@@ -769,8 +894,9 @@ export interface InMemoryRecordDef {
  * A reducer that throws a patch's `ConflictError` — `applyFor` over a patch
  * whose befores the state no longer holds — is the stale write the server
  * reports as a `conflict` naming the key; any other throw is a failed program.
- * A mutation carrying the key the last one carried returns that one's result
- * without running again, as the server's idempotent retry does.
+ * A mutation carrying a key one of its last {@link KEYS_REMEMBERED} keyed
+ * mutations carried runs nothing again: it answers with that mutation's commit
+ * and the state it holds now, as the server answers a request it remembers.
  */
 export function createInMemoryRecordApi(
     cache: ReactiveDatasetCacheInterface,
@@ -782,8 +908,8 @@ export function createInMemoryRecordApi(
         mutations: Map<string, { argTypes: EastTypeValue[]; reduce: (state: unknown, ...args: unknown[]) => unknown }>;
         commits: CommitInfo[];
         seq: number;
-        /** The last mutation's idempotency key, and its result. */
-        keyed?: { key: string; result: MutationResult } | undefined;
+        /** The keyed mutations it remembers, newest first: each one's idempotency key, and the commit it made. */
+        keyed: { readonly key: string; readonly commitHash: string }[];
     }
     const compiled = new Map<string, Compiled>();
     for (const def of defs) {
@@ -801,7 +927,7 @@ export function createInMemoryRecordApi(
             at: new Date(0),
             delta: none,
         };
-        compiled.set(def.name, { stateType, mutations, commits: [genesis], seq: 0 });
+        compiled.set(def.name, { stateType, mutations, commits: [genesis], seq: 0, keyed: [] });
         // Seed the record's current value into the dataset cache; a record
         // declared with no initial value holds none
         if (def.initial !== undefined) void cache.write(workspace, recordPath(def.name), encodeBeast2For(stateType)(def.initial));
@@ -821,7 +947,10 @@ export function createInMemoryRecordApi(
             if (!c) throw new Error(`no in-memory record "${record}"`);
             const m = c.mutations.get(mutation);
             if (!m) return { outcome: variant("invalid", { message: `no mutation "${mutation}"` }) } as MutationResult;
-            if (req.idempotencyKey !== undefined && c.keyed?.key === req.idempotencyKey) return c.keyed.result;
+            const remembered = req.idempotencyKey === undefined ? undefined : c.keyed.find((held) => held.key === req.idempotencyKey);
+            if (remembered !== undefined) {
+                return { outcome: variant("committed", { commitHash: remembered.commitHash, stateHash: c.commits[0]!.state }) } as MutationResult;
+            }
             const current = cache.read(ws, recordPath(record));
             // A record that holds no state yet refuses the write, as the server does
             if (current === undefined) {
@@ -850,10 +979,9 @@ export function createInMemoryRecordApi(
                 at: new Date(0),
                 delta: none,
             });
-            const result = { outcome: variant("committed", { commitHash: hash, stateHash: `${record}-state-${c.seq}`.padEnd(64, "0") }) } as MutationResult;
-            // Every commit rewrites the slot, and one without a key empties it.
-            c.keyed = req.idempotencyKey !== undefined ? { key: req.idempotencyKey, result } : undefined;
-            return result;
+            // A keyed mutation joins those it remembers, the oldest of which it forgets.
+            if (req.idempotencyKey !== undefined) c.keyed = [{ key: req.idempotencyKey, commitHash: hash }, ...c.keyed].slice(0, KEYS_REMEMBERED);
+            return { outcome: variant("committed", { commitHash: hash, stateHash: `${record}-state-${c.seq}`.padEnd(64, "0") }) } as MutationResult;
         },
         async history(_ws, record, limit) {
             const c = compiled.get(record);
@@ -881,3 +1009,6 @@ registerReactiveTracker({
 });
 
 registerPlatformImplementation(RecordPlatform);
+
+// What an editing session reads a Save of a record read whole back at: a source's id is its record's name there.
+registerSettledSources((sourceId) => defaultRecordRuntime.settledOf(sourceId));

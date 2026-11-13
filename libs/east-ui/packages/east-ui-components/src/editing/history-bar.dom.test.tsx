@@ -52,7 +52,7 @@ const version = (end: bigint): EntryVersion<string> => ({ draft: liftDraft(Draft
 /** A session over a source of runs, of its own name. */
 function runs(sourceId = "runs"): EditSession<string> {
     const session = new EditSession<string>({
-        sourceId, entryType: Run, draftType: Draft, idField: "id", auto: false,
+        sourceId, entryType: Run, draftType: Draft, idField: "id",
         apply: () => variant("applied", { revision: none }), patch: undefined, refresh: undefined,
     });
     session.observeBase(variant("snapshot", [{ id: "a", end: 1n }]));
@@ -195,11 +195,71 @@ test("over a history of several sessions (#1194), Save reads the read back from 
     expect([save(), retry() !== null]).toEqual([null, true]);
 });
 
+test("over a history of several sessions, a conflict in one holds Save only while nothing else can be saved: another session's change keeps Save on, and Save waits, aria-disabled, once the conflict's own is all that is left", () => {
+    const [laps, legs] = [runs("laps"), runs("legs")];
+    const history = new EditHistory<string>();
+    history.sync([["laps", laps], ["legs", legs]]);
+    const onAction = vi.fn<(action: HistoryAction) => void>();
+    const bar = () => <ChakraProvider value={system}>
+        <HistoryBar session={history} words={WORDS} editing={false} onAction={onAction} onIssue={() => undefined} />
+    </ChakraProvider>;
+    // The laps' run drafted here and changed elsewhere, differently: a conflict to choose. The legs' run drafted alone.
+    laps.record([{ id: "a", before: version(1n), after: version(4n) }], "resize", "Resize a");
+    laps.observeBase(variant("snapshot", [{ id: "a", end: 7n }]));
+    legs.record([{ id: "a", before: version(1n), after: version(5n) }], "resize", "Resize a");
+    const ui = render(bar());
+    const save = () => ui.getByRole("button", { name: "⟦Save" }) as HTMLButtonElement;
+    expect([history.unsettled, save().disabled, save().getAttribute("aria-disabled")]).toEqual([1, false, null]);
+    fireEvent.click(save());
+    expect(onAction.mock.calls.map(([action]) => action)).toEqual(["apply"]);
+    // The legs' change gone, only the conflict's own is left: Save waits for the choice, and runs nothing.
+    act(() => { legs.discard(); });
+    ui.rerender(bar());
+    expect([save().disabled, save().getAttribute("aria-disabled")]).toEqual([false, "true"]);
+    fireEvent.click(save());
+    expect(onAction).toHaveBeenCalledTimes(1);
+});
+
+test("an open editor turns Save on, to commit it and save — never while a Save is unresolved: Save then shows the Save out, busy and off, and Undo, which commits the editor first, stays on", async () => {
+    let answer: (() => void) | undefined;
+    const session = new EditSession<string>({
+        sourceId: "runs", entryType: Run, draftType: Draft, idField: "id",
+        apply: () => new Promise((resolve) => { answer = () => resolve(variant("applied", { revision: none })); }), patch: undefined, refresh: undefined,
+    });
+    session.observeBase(variant("snapshot", [{ id: "a", end: 1n }]));
+    const bar = () => <ChakraProvider value={system}>
+        <HistoryBar session={session} words={WORDS} editing onAction={() => undefined} onIssue={() => undefined} />
+    </ChakraProvider>;
+    const ui = render(bar());
+    const save = () => ui.getByRole("button", { name: "⟦Save" }) as HTMLButtonElement;
+    const undo = () => ui.getByRole("button", { name: "⟦Undo" }) as HTMLButtonElement;
+    // Nothing drafted, an editor open: Save and Undo are on, each committing it first.
+    expect([save().disabled, undo().disabled]).toEqual([false, false]);
+    let saved!: Promise<void>;
+    await act(async () => {
+        session.record([{ id: "a", before: version(1n), after: version(4n) }], "resize", "Resize a");
+        saved = session.apply();
+        await Promise.resolve();
+    });
+    ui.rerender(bar());
+    // The request out: the session takes gestures still, so Undo is on; the next Save waits for it, so Save is off, busy.
+    expect([session.locked, session.writable]).toEqual([true, true]);
+    expect([save().disabled, save().getAttribute("aria-busy"), undo().disabled]).toEqual([true, "true", false]);
+    // Answered and read back, an editor still open: Save is on again.
+    await act(async () => {
+        answer!();
+        await saved;
+        expect(session.reconcile(variant("snapshot", [{ id: "a", end: 4n }]), () => undefined)).toBe(true);
+    });
+    ui.rerender(bar());
+    expect([session.locked, save().disabled, save().getAttribute("aria-busy")]).toEqual([false, false, null]);
+});
+
 test("drafts a reload would lose are said under the buttons, where the bar says its error", () => {
     resetKept();
     window.sessionStorage.clear();
     const session = new EditSession<string>({
-        sourceId: "runs", entryType: Run, draftType: Draft, idField: "id", auto: false,
+        sourceId: "runs", entryType: Run, draftType: Draft, idField: "id",
         apply: () => variant("applied", { revision: none }), patch: undefined, refresh: undefined,
     });
     keepDrafts(session, keptDraftsKey("", "runs", "runs.bar"), StringType);
@@ -224,8 +284,11 @@ test("a phone's form (Mobile Builder Frame Spec.md FR6): the drafts' count first
     expect(ui.getByRole("button", { name: "⟦Save" }).hasAttribute("data-ready")).toBe(false);
     ui.session.record([{ id: "a", before: version(1n), after: version(4n) }], "resize", "Resize a");
     ui.refresh();
-    const changes = ui.getByRole("status").firstElementChild!;
-    expect([changes.textContent, changes.hasAttribute("data-changes")]).toEqual([`⟦${editingMessages.historyChanges({ n: 1, count: "1" })}`, true]);
+    const changes = ui.getByRole("status").firstElementChild as HTMLElement;
+    const counted = `⟦${editingMessages.historyChanges({ n: 1, count: "1" })}`;
+    expect([changes.textContent, changes.hasAttribute("data-changes")]).toEqual([counted, true]);
+    // The chip says how many characters its number holds — the words before the noun — for the row to show it whole or not at all.
+    expect(changes.style.getPropertyValue("--history-figures")).toBe(String(counted.split(" ")[0]!.length));
     expect(ui.getByRole("button", { name: "⟦Save" }).hasAttribute("data-ready")).toBe(true);
 });
 
@@ -236,7 +299,8 @@ test("a phone's Discard asks first, in the band under its row (FR8, no popover, 
     await act(async () => { fireEvent.click(ui.getByRole("button", { name: "⟦Discard" })); });
     expect(ui.onAction).not.toHaveBeenCalled();
     expect(document.body.textContent).toContain(`⟦${editingMessages.discardAskTitle({ n: 1, count: "1" })}`);
-    expect(document.querySelector('[role="dialog"], [data-scope="popover"]')).toBeNull();
+    // No dialog, and no popover's content: what the row's Issues square would open its conflicts in stays shut.
+    expect(document.querySelector('[role="dialog"], [data-scope="popover"][data-part="positioner"], [data-scope="popover"][data-part="content"]')).toBeNull();
     await act(async () => { fireEvent.click(ui.getByRole("button", { name: "⟦Cancel" })); });
     expect(ui.onAction).not.toHaveBeenCalled();
     await act(async () => { fireEvent.click(ui.getByRole("button", { name: "⟦Discard" })); });

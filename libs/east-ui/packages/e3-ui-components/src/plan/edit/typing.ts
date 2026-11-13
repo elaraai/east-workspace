@@ -224,7 +224,7 @@ export function typedText(value: number | undefined, format: TickFormatOpt, word
  */
 export function readTyped(text: string, format: TickFormatOpt, words: Formatters): number | null | undefined {
     const percent = isPercent(format);
-    const n = parseQuantity(percent ? text.replace(/%/g, "") : text, words.separators, false);
+    const n = parseQuantity(percent ? text.replace(/%/g, "") : text, words.separators);
     if (n === null || n === undefined) return n;
     return percent ? significant(n / 100) : n;
 }

@@ -27,6 +27,23 @@
  * ({@link shownCellSpan}); the rows' ids name a resource by the last step of
  * their path.
  *
+ * A kind read a window at a time — through its source's interval index, or a
+ * day index, one event by its key — gives the reader the stored rows its
+ * window's read holds (`stored`, #1599), which the reader keeps as it keeps a
+ * kind's cells: the rows' read draws the kind from them, so they stand while
+ * they are read again — after a Save, after another session's write — a draft
+ * made meanwhile draws at once, and a gesture finds its event's row among them.
+ * A kind narrowed through its source draws a draft only of an event those rows
+ * hold, or of a new one (`isNew`, #1343), as its window's own read drew them.
+ * The canvas's range is a window panned over its rows, no period: what the last
+ * range held stands while the next is read.
+ *
+ * A Save's confirmation reads its events by their keys, never the cells: what
+ * it landed of a kind the reader gives cells draws as the Save left it over
+ * cells read before the commit, until they are read again — the editing keeps
+ * it for the kinds {@link cellKinds} names ({@link PlanCellsArgs.editing}, the
+ * shared reader's "What a Save landed").
+ *
  * @packageDocumentation
  */
 
@@ -37,7 +54,7 @@ import {
     useScheduleCells, type ScheduleCellBucket, type ScheduleCellKind, type ScheduleCellPaged, type ScheduleCellResources, type ScheduleCellSpan,
     type ScheduleCellsRead,
 } from "../../shared/schedule/cells.js";
-import type { ScheduleEventDraftsValue } from "../../shared/schedule/editing.js";
+import type { ScheduleEditing, ScheduleEventDraftsValue } from "../../shared/schedule/editing.js";
 import { hides } from "../frame/hidden.js";
 import { timeInstant } from "../instant.js";
 import type { PlanRootValue } from "../model.js";
@@ -102,6 +119,12 @@ export interface PlanCellsArgs {
     readonly span: ScheduleCellSpan | undefined;
     /** The canvas's links: an event end the cells do not hold is read by its key. */
     readonly links: Links;
+    /**
+     * The editing's say of what confirmed Saves landed of the kinds read by their cells ({@link cellKinds}), and how it is
+     * let go: drawn over a kind's cells read before the commit until they are read again — and the row each drafted
+     * event's session began from, which tells a new event from one the record holds; `undefined` for none.
+     */
+    readonly editing?: Pick<ScheduleEditing, "landed" | "shown" | "held" | "carrying"> | undefined;
 }
 
 /** Whether a kind's rows draw bars or chips, which shade as the share of each bucket booked. */
@@ -130,7 +153,9 @@ function linkEnds(links: Links, slot: string): string[] {
  * @returns What the shared reader read
  */
 export function usePlanCells(args: PlanCellsArgs): ScheduleCellsRead {
-    const { kinds, resources, parts, paged, scale, range, drafts, hidden, span, links } = args;
+    const { kinds, resources, parts, paged, scale, range, drafts, hidden, span, links, editing } = args;
+    const held = editing?.held;
+    const carrying = editing?.carrying;
     const cellKindsOf = useMemo((): ScheduleCellKind[] => kinds.map((kind) => ({
         key: kind.key,
         name: kind.name,
@@ -146,7 +171,17 @@ export function usePlanCells(args: PlanCellsArgs): ScheduleCellsRead {
         part: parts.find((p) => stringEqual(p.kind.key, kind.key))?.part,
         hidden: hides(hidden, planHideId.events(kind.key)),
         wanted: linkEnds(links, kind.key),
-    })), [kinds, parts, hidden, links]);
+        // A kind narrowed through its source draws a draft only of an event its window's read holds — its backlog's among
+        // them — or of a new one (#1343): one its session began from no stored row.
+        isNew: held !== undefined && parts.some((p) => stringEqual(p.kind.key, kind.key)) ? (id: string) => held(kind.key, id) === undefined : undefined,
+        // And of one it last drew, while the kind's session has yet to judge its drafts where its record reads now (#1599):
+        // another planner's removal of a job drafted here never takes it off the canvas before the session has read it.
+        carrying: carrying === undefined ? undefined : () => carrying(kind.key),
+        // A kind read a window at a time gives the reader the rows its window's read holds to keep standing (#1599), and —
+        // no source narrowing it — the revision its record reads at.
+        stored: kind.entries.type === "some" ? kind.stored : undefined,
+        revision: kind.entries.type === "some" ? kind.entries.value.revision : undefined,
+    })), [kinds, parts, hidden, links, held, carrying]);
     const whole = useMemo((): ScheduleCellResources[] => resources.map((kind) => ({ key: kind.key, keys: kind.rows.map((row) => row.key) })), [resources]);
     const pagedKind = useMemo((): ScheduleCellPaged | undefined => (paged === undefined ? undefined : {
         kind: paged.kind,
@@ -162,18 +197,31 @@ export function usePlanCells(args: PlanCellsArgs): ScheduleCellsRead {
     const buckets = useMemo(() => (scale === undefined || over === undefined ? undefined : bucketsOver(scale, over.from, over.to)), [scale, over]);
     return useScheduleCells({
         host: "Plan", kinds: cellKindsOf, resources: whole, paged: pagedKind, range: over, buckets, resolution: scale?.resolution, drafts, span,
+        landed: editing?.landed, shown: editing?.shown,
     });
 }
 
 /**
- * The kinds a Plan reads by their cells: those whose sources list a series
- * index of their records — each placed on the paged resource kind alone, as the
- * Plan holds a series index to.
+ * The kinds the reader may give cells: every kind read a window at a time, one
+ * event by its key — by its series index's cells, placed on the paged resource
+ * kind, or its window's own rows (#1599).
+ *
+ * @param kinds - The event kinds, as the payload carries them
+ * @returns The slots of such kinds
+ */
+export function cellKinds(kinds: readonly EventKind[]): string[] {
+    return kinds.filter((kind) => kind.entries.type === "some").map((kind) => kind.key);
+}
+
+/**
+ * The kinds a Plan reads by their series index's cells: those whose sources
+ * list a series index of their records — each placed on the paged resource
+ * kind alone, as the Plan holds a series index to.
  *
  * @param parts - The event kinds narrowed through their sources
  * @returns The slots of such kinds
  */
-export function cellKinds(parts: readonly PlanEventPart[]): string[] {
+export function seriesKinds(parts: readonly PlanEventPart[]): string[] {
     return parts.filter(({ part }) => part.config.indexes.some((index) => index.series.type === "some")).map(({ kind }) => kind.key);
 }
 

@@ -4,15 +4,12 @@
  */
 
 /**
- * One folding Toolbar: the rail, Calendar navigation, overlaps, Search Records and shared history. On the timeline the
- * navigator, the count and the overlaps chip follow the days it shows (#1398, CL9): each reads them itself, so a scroll
- * draws nothing else of the toolbar, and a figure over them is said once what the timeline draws covers them. The count
- * counts the events drawn, and names the kinds past the cap it counts none of (#1424): `13 events, print jobs not
- * counted`, never a count that leaves them out unsaid.
+ * One folding Toolbar: the rail, Calendar navigation, overlaps, Search Records and shared history. The count counts the
+ * events drawn, and names the kinds past the cap it counts none of (#1424): `13 events, print jobs not counted`, never a
+ * count that leaves them out unsaid.
  */
-import type { ValueTypeOf } from "@elaraai/east";
+import { some, type ValueTypeOf, type option } from "@elaraai/east";
 import type { RecordSlicesChromeType } from "@elaraai/east-ui/internal";
-import type { ReactNode } from "react";
 import { Box, Button, Menu as ChakraMenu, chakra, useRecipe } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCalendarWeek, faTriangleExclamation } from "@fortawesome/free-solid-svg-icons";
@@ -24,15 +21,12 @@ import { TimeNavigator } from "../shared/time/navigation.js";
 import { SEARCH_BOX_RANK } from "../shared/schedule/search-rank.js";
 import { eventsNotCounted } from "../shared/schedule/words.js";
 import { Seg } from "../shared/schedule/segments.js";
-import { scheduleOverlapsIn, type ScheduleOverlaps } from "../shared/schedule/overlaps.js";
+import type { ScheduleOverlaps } from "../shared/schedule/overlaps.js";
 import { scheduleIssueName } from "../shared/schedule/editing.js";
 import type { CalendarCommands } from "./actions.js";
 import type { CalendarWords } from "./messages.js";
 import type { CalendarEventPart } from "./window.js";
-import { coversShown, useShownOverlaps, useVisibleDays, type VisibleDaysStore } from "./visible.js";
-import {
-    dayStart, inWindow, navigate, type CalendarItem, type CalendarRange, type CalendarRef, type CalendarStyles, type CalendarUncounted, type CalendarView,
-} from "./model.js";
+import { dayStart, navigate, type CalendarItem, type CalendarRef, type CalendarStyles, type CalendarUncounted, type CalendarView } from "./model.js";
 
 const LAYOUTS: readonly { readonly key: CalendarView["layout"]; readonly label: string }[] = [{ key: "calendar", label: "Calendar" }, { key: "resources", label: "Resources" }, { key: "timeline", label: "Timeline" }];
 const PERIODS = [{ key: "day", label: "Day" }, { key: "week", label: "Week" }, { key: "month", label: "Month" }] as const;
@@ -52,7 +46,7 @@ function startOfIssue(commands: CalendarCommands, kind: string, entry: string): 
 }
 
 interface ToolbarArgs {
-    view: CalendarView; setView: (view: CalendarView) => void; range: CalendarRange; now: Date;
+    view: CalendarView; setView: (view: CalendarView) => void; now: Date;
     /** What this Calendar calls its Resources layout (#1516). */
     resourcesWord: string;
     /** The layouts this Calendar offers, in the switch's order: the `views` prop's. */
@@ -66,7 +60,7 @@ interface ToolbarArgs {
     styles: CalendarStyles; commands: CalendarCommands | undefined;
     /** The Calendar's words: its message table — the history's, and what Search Records searches — and the app's formatters. */
     words: CalendarWords; overlaps: ScheduleOverlaps<CalendarItem>; select: (refs: CalendarRef[]) => void;
-    /** Whether an overlap shows: among what is drawn — on the timeline, in the days it shows (`useOverlapsShown`). */
+    /** Whether an overlap shows among what is drawn. */
     overlapsShown: boolean;
     onAction: (action: HistoryAction) => void; paged: boolean;
     /** The rail; `undefined` with no slice. */
@@ -78,17 +72,7 @@ interface ToolbarArgs {
     /** The event sources that hold the window: their ranges are the navigation's, never chips of the rail's. */
     windowParts: readonly CalendarEventPart[];
     sunday: boolean; navigationDate: number; rangeLabel: string | undefined; onNavigate: (date: number) => void;
-    /**
-     * The days the timeline shows (#1398, CL9): while it shows, the navigator's date and label and the count are read
-     * from it by the items that say them, so its scroll draws nothing else of the toolbar.
-     */
-    visible?: VisibleDaysStore | undefined;
-    /**
-     * The events the timeline draws and the span they were read over (#1398): what the count counts over the days it
-     * shows, once that span covers them; `covered` undefined while none are drawn.
-     */
-    events?: { readonly items: readonly CalendarItem[]; readonly covered: CalendarRange | undefined } | undefined;
-    /** Told when the date picker's Today is pressed: the time grid brings the now line into view (#1398). */
+    /** Told when the date picker's Today is pressed: the time grid and the timeline bring the now line into view (#1398). */
     onToday?: (() => void) | undefined;
     /** Search Records over the event kinds' keys (#1398); `undefined` with no kind to seek. */
     search?: KeySearchSource | undefined;
@@ -96,15 +80,16 @@ interface ToolbarArgs {
     optimise?: ToolbarItem | undefined;
     /** Whether a run of the optimiser is out (#1409, R2): the history item's actions locked. */
     locked?: boolean | undefined;
-}
-
-/** The navigator over the days the timeline shows: its date the day under the view's centre, its label the days shown. */
-function VisibleNavigator({ visible, fallback, words, navigator }: {
-    visible: VisibleDaysStore; fallback: { date: number; label: string | undefined }; words: EditingWords;
-    navigator: (date: number, label: string | undefined) => ReactNode;
-}) {
-    const shown = useVisibleDays(visible);
-    return <>{shown === undefined ? navigator(fallback.date, fallback.label) : navigator(shown.center, words.range(shown.from, new Date(shown.to.getTime() - 1)))}</>;
+    /**
+     * The events drawn whose stored rows break their kind's bounds (#1585): each a warning beside the history's issues,
+     * holding no Save — its event, the field, by its form's key, and its words, `Mounting plates · Hours: at least 1`.
+     */
+    warnings?: readonly { readonly kind: string; readonly key: string; readonly field: string; readonly text: string }[] | undefined;
+    /**
+     * Asks an event's form for the field an issue or a warning gone to names, which takes the keyboard as the form draws
+     * it (`../shared/schedule/field-ask.tsx`); one naming no field asks for none.
+     */
+    askField?: ((kind: string, entry: string, field: option<string>) => void) | undefined;
 }
 
 /**
@@ -120,30 +105,6 @@ function countWords(count: number | undefined, uncounted: CalendarUncounted, wor
     if (count === undefined) return "… events";
     if (uncounted.names.length === 0) return `${words.number(count)} events`;
     return eventsNotCounted({ n: count, count: uncounted.all ? undefined : words.number(count), kinds: uncounted.names });
-}
-
-/**
- * The timeline's count: its window's events over the days it shows, read as they move; "…" while those days are read —
- * a period not read yet, or a re-centre's days the held read does not cover (CL13).
- */
-function VisibleCount({ visible, events, styles, words, range, uncounted }: {
-    visible: VisibleDaysStore; events: { readonly items: readonly CalendarItem[]; readonly covered: CalendarRange | undefined }; styles: CalendarStyles; words: EditingWords; range: CalendarRange;
-    uncounted: CalendarUncounted;
-}) {
-    const shown = useVisibleDays(visible);
-    const from = shown?.from ?? range.from, to = shown?.to ?? range.to;
-    const count = coversShown(events.covered, range, shown) ? events.items.filter(item => inWindow(item, from, to)).length : undefined;
-    return <Box css={styles.toolbarText} data-calendar-count="">{countWords(count, uncounted, words)}</Box>;
-}
-
-/**
- * How many overlaps show, as the overlaps chip and the View's words count them: every one among what is drawn, or on the
- * timeline those in the days it shows, read as they move (#1398) — never the window's, which jumps as it re-centres.
- */
-function OverlapsCount({ overlaps, visible, children }: {
-    overlaps: ScheduleOverlaps<CalendarItem>; visible: VisibleDaysStore | undefined; children: (count: number) => ReactNode;
-}) {
-    return <>{children(useShownOverlaps(overlaps, visible).pairs.length)}</>;
 }
 /** The control row uses shared folding ranks, popovers and coarse-pointer targets. */
 export function useCalendarToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem | false | undefined> {
@@ -172,23 +133,20 @@ export function useCalendarToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem
     // And the periods it offers, Resources being always a day.
     const periods = PERIODS.filter(item => args.periods.includes(item.key));
     const picksPeriod = view.layout !== "resources" && periods.length > 1;
-    // A step from where the view is: the timeline's, the day under its centre as it is when the step is asked.
-    const move = (step: number) => args.onNavigate(navigate({ ...view, date: args.visible?.get()?.center ?? args.navigationDate }, step).date);
-    // The overlaps shown: on the timeline, those in the days it shows (#1398), read by what counts them.
-    const visible = args.visible;
+    // A step from the view's date, a period exactly.
+    const move = (step: number) => args.onNavigate(navigate({ ...view, date: args.navigationDate }, step).date);
+    // The overlaps shown: every one among what is drawn.
+    const overlapCount = overlaps.pairs.length;
     const showOverlaps = () => {
-        const shownDays = visible?.get();
-        const firstPair = (shownDays === undefined ? overlaps : scheduleOverlapsIn(overlaps, shownDays.from, shownDays.to)).pairs[0];
+        const firstPair = overlaps.pairs[0];
         if (firstPair === undefined) return;
         select([firstPair.first, firstPair.second].map(item => ({ kind: item.kind, key: item.key })));
         if (firstPair.first.start.type === "some") setView({ ...view, layout: args.layouts.includes("resources") ? "resources" : view.layout, date: dayStart(firstPair.first.start.value).getTime() });
     };
     const overlapNoun = (n: number) => n === 1 ? "overlap" : "overlaps";
-    const warning = (short: boolean) => <OverlapsCount overlaps={overlaps} visible={visible}>{n =>
-        <chakra.button type="button" css={[chip({ tone: "warn", numeric: true }), coarseHitArea({ position: true })]}
-            aria-label={`${n} ${overlapNoun(n)}`} data-calendar-overlaps="" onClick={showOverlaps}><span data-chip-icon=""><FontAwesomeIcon icon={faTriangleExclamation} /></span><span data-chip-label="">{n}{!short && ` ${overlapNoun(n)}`}</span></chakra.button>}
-    </OverlapsCount>;
-    const overlapsWords = <OverlapsCount overlaps={overlaps} visible={visible}>{n => `${n} ${overlapNoun(n)}`}</OverlapsCount>;
+    const warning = (short: boolean) => <chakra.button type="button" css={[chip({ tone: "warn" }), coarseHitArea({ position: true })]}
+        aria-label={`${overlapCount} ${overlapNoun(overlapCount)}`} data-calendar-overlaps="" onClick={showOverlaps}><span data-chip-icon=""><FontAwesomeIcon icon={faTriangleExclamation} /></span><span data-chip-label="">{overlapCount}{!short && ` ${overlapNoun(overlapCount)}`}</span></chakra.button>;
+    const overlapsWords = `${overlapCount} ${overlapNoun(overlapCount)}`;
     const viewMenu = <ChipMenu label="View" icon={faCalendarWeek} data="data-calendar-view-menu" onSelect={key => {
         const layout = LAYOUTS.find(layout => layout.key === key); const picked = PERIODS.find(period => period.key === key);
         if (layout !== undefined) setView({ ...view, layout: layout.key });
@@ -210,8 +168,16 @@ export function useCalendarToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem
     const navigator = (compact: boolean, combined: boolean) => (date: number, label: string | undefined) => <TimeNavigator scope="calendar" date={date} period={period}
         sunday={args.sunday} now={now} onChange={args.onNavigate} compact={compact} rangeLabel={label}
         label={combined ? "View" : "Choose date"} controls={combined ? controls : undefined} rangeEditor={rangeEditor} onToday={args.onToday} />;
-    const navigation = (compact = false, combined = false) => visible === undefined ? navigator(compact, combined)(args.navigationDate, args.rangeLabel)
-        : <VisibleNavigator visible={visible} words={words} fallback={{ date: args.navigationDate, label: args.rangeLabel }} navigator={navigator(compact, combined)} />;
+    const navigation = (compact = false, combined = false) => navigator(compact, combined)(args.navigationDate, args.rangeLabel);
+    // An event's Go to — an issue's, a warning's — selects it and shows its day, as a pick of Search Records does, wherever
+    // the view stood, and asks its form for the field it names, which takes the keyboard: never the page's body, where the
+    // history's buttons, which keep no focus, leave it.
+    const goTo = (kind: string, key: string, field: option<string>) => {
+        args.askField?.(kind, key, field);
+        select([{ kind, key }]);
+        const start = commands === undefined ? undefined : startOfIssue(commands, kind, key);
+        if (start !== undefined) args.onNavigate(dayStart(start).getTime());
+    };
     return [
         ...rail,
         switches && { key: "calendar.layout", side: "start", rank: HOST_RANK + 1, bundle: "calendar.view", forms: [<Seg label="Layout" scope="calendar" name="layout" items={layouts} active={view.layout} onPick={layout => setView({ ...view, layout })} />, null] },
@@ -220,9 +186,8 @@ export function useCalendarToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem
         (switches || picksPeriod) && { key: "calendar.view", side: "start", rank: [HOST_RANK + 1, HOST_RANK + 6], bundle: ["calendar.view", "calendar.controls"], forms: [null, viewMenu, null] },
         { key: "calendar.navigation", side: "start", rank: [HOST_RANK + 4, HOST_RANK + 6], bundle: [undefined, "calendar.controls"], forms: [navigation(), navigation(true), navigation(true, true)] },
         // With no slice, the window's own count; a slice's summary counts each source instead.
-        chrome === undefined && { key: "calendar.count", side: "start", rank: HOST_RANK, forms: [visible !== undefined && args.events !== undefined
-            ? <VisibleCount visible={visible} events={args.events} styles={styles} words={words} range={args.range} uncounted={args.uncounted} />
-            : <Box css={styles.toolbarText} data-calendar-count="">{countWords(count, args.uncounted, words)}</Box>, null] },
+        chrome === undefined && { key: "calendar.count", side: "start", rank: HOST_RANK,
+            forms: [<Box css={styles.toolbarText} data-calendar-count="">{countWords(count, args.uncounted, words)}</Box>, null] },
         paged && chrome === undefined && { key: "calendar.scope", side: "start", forms: [<Box css={styles.toolbarText}>Loaded window</Box>, null], rank: HOST_RANK + 4 },
         overlapsShown && { key: "calendar.overlaps", side: "end", rank: [HOST_RANK, HOST_RANK + 6], forms: [warning(false), warning(true), null] },
         seek !== undefined && { ...seek, forms: [...seek.forms, null], rank: [SEARCH_BOX_RANK, HOST_RANK + 6], bundle: [undefined, "calendar.controls"] },
@@ -231,13 +196,8 @@ export function useCalendarToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem
         commands !== undefined && historyToolbarItem({ session: commands.editing.history, words, editing: false, showError: false, onAction, locked: args.locked === true,
             // A conflict's event, named as its kind's banners name it.
             where: issue => { const kind = kindOfIssue(commands, issue); return kind === undefined ? issue.entry : scheduleIssueName(commands.editing, kind, issue.entry); },
-            // An issue's Go to selects its event and shows its day, as a pick of Search Records does, wherever the view stood.
-            onIssue: issue => {
-                const kind = kindOfIssue(commands, issue);
-                if (kind === undefined) return;
-                select([{ kind, key: issue.entry }]);
-                const start = startOfIssue(commands, kind, issue.entry);
-                if (start !== undefined) args.onNavigate(dayStart(start).getTime());
-            } }),
+            onIssue: issue => { const kind = kindOfIssue(commands, issue); if (kind !== undefined) goTo(kind, issue.entry, issue.field); },
+            // A stored event's breach (#1585): a warning beside the issues, holding no Save, gone to as an issue is.
+            warnings: args.warnings?.map(warning => ({ text: warning.text, go: () => goTo(warning.kind, warning.key, some(warning.field)) })) }),
     ];
 }

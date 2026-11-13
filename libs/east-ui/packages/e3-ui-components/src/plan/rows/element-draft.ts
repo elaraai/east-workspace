@@ -25,6 +25,12 @@ export const PlanDraftedContext = createContext<ReadonlySet<string>>(NONE);
 /** The events holding a conflict not yet chosen, by their elements' keys — the warn ring's; none outside a Plan of event kinds. */
 export const PlanConflictedContext = createContext<ReadonlySet<string>>(NONE);
 
+/**
+ * The events whose rows break their kind's bounds (#1585), stored or changed, by their elements' keys — the warn ring's,
+ * as a conflict's; none outside a Plan of event kinds.
+ */
+export const PlanBoundedContext = createContext<ReadonlySet<string>>(NONE);
+
 /** No table cell holding a conflict. */
 const NO_CELLS: ReadonlyMap<string, readonly Date[]> = new Map();
 /** None of a row's cells holding a conflict. */
@@ -55,6 +61,16 @@ export function usePlanRowConflicts(rowKey: string): readonly Date[] {
  */
 export function usePlanElementConflicted(key: string): boolean {
     return useContext(PlanConflictedContext).has(key);
+}
+
+/**
+ * Whether an element's event's row breaks its kind's bounds: the element wears the warn ring, as a conflict's does.
+ *
+ * @param key - The element's key
+ * @returns Whether its row breaks one
+ */
+export function usePlanElementBounded(key: string): boolean {
+    return useContext(PlanBoundedContext).has(key);
 }
 
 /**

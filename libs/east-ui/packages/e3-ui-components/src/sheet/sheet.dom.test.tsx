@@ -87,7 +87,7 @@ const STATUSES = [
     { word: "RELEASED", tone: variant("info", null) },
     { word: "CANCELLED", tone: variant("danger", null) },
 ];
-/** j1 holds a fraction, so a whole-number re-read would show (#852). */
+/** j1 holds a fraction, so the viewer's decimal separator shows (#852). */
 const ROWS_FRACTION = [{ ...ROWS[0]!, qty: some(1234.5) }, ROWS[1]!];
 /** j1 holds more digits than the number field shows (`0.3`). */
 const ROWS_NOISE = [{ ...ROWS[0]!, qty: some(0.30000000000000004) }, ROWS[1]!];
@@ -416,7 +416,8 @@ describe("editing", () => {
         expect(cell(3, "task").hasAttribute("data-selected")).toBe(true);
         expect(edits).toHaveLength(1);
         const change = edits[0]!.draftChanges[0]!;
-        expect(change.id).toMatch(/^sheet-/);
+        // With no `newKey`, a new row's key is a UUID (#1536).
+        expect(change.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
         expect(change.place).toEqual(some(variant("ordered", variant("after", "j2"))));
         const inserted = draft(change.id, Sheet.Types.Draft(JobType));
         expect(inserted.task).toEqual(variant("value", "New job"));
@@ -513,10 +514,10 @@ describe("numbers in the viewer's language (#852)", () => {
         expect(container.querySelector('[data-slot="footerMessage"]')!.textContent).toBe("Copied 1×1 to clipboard");
     });
 
-    test("German: typing 1.234 saves 1234, 1.234,5 saves 1235 (the whole-number rule), 1,5k saves 1500; a paste reads the same", async () => {
+    test("German: typing 1.234 saves 1234, 1.234,5 saves 1234,5, 1,5k saves 1500; a paste reads the same", async () => {
         const { value, draft } = withSpies(buildSheet({ rows: ROWS_FRACTION }));
         const { card, cell, key, type, editorKey, flush } = mount(value, "de-DE");
-        for (const [text, n] of [["1.234", 1234], ["1.234,5", 1235], ["1,5k", 1500]] as const) {
+        for (const [text, n] of [["1.234", 1234], ["1.234,5", 1234.5], ["1,5k", 1500]] as const) {
             fireEvent.mouseDown(cell(1, "qty"), { button: 0 });
             key("1");
             await flush();
@@ -530,8 +531,22 @@ describe("numbers in the viewer's language (#852)", () => {
         fireEvent.mouseDown(cell(1, "qty"), { button: 0 });
         fireEvent.paste(card, { clipboardData: { getData: () => "2.345,5" } });
         await flush();
-        expect(draft("j2", Sheet.Types.Draft(JobType)).qty).toEqual(variant("value", some(2346)));
-        expect(cell(1, "qty").textContent).toBe("2.346");
+        expect(draft("j2", Sheet.Types.Draft(JobType)).qty).toEqual(variant("value", some(2345.5)));
+        expect(cell(1, "qty").textContent).toBe("2.345,5");
+    });
+
+    test("English: typing 7.5 saves 7.5, and the cell shows it", async () => {
+        const { value, draft } = withSpies(buildSheet());
+        const { cell, key, type, editorKey, flush } = mount(value, "en-US");
+        fireEvent.mouseDown(cell(1, "qty"), { button: 0 });
+        key("7");
+        await flush();
+        type("7.5");
+        await flush();
+        editorKey("Enter");
+        await flush();
+        expect(draft("j2", Sheet.Types.Draft(JobType)).qty).toEqual(variant("value", some(7.5)));
+        expect(cell(1, "qty").textContent).toBe("7.5");
     });
 
     test("English: the cell and the edit box are as they always were, and ⏎ on the unchanged box leaves 1234.5 as it was", async () => {
@@ -632,7 +647,7 @@ describe("a sheet reads only what it shows (#1188)", () => {
         expect(held.state.asked.slice(read)).toEqual([]);
     });
 
-    test("a builder's inspector reads a row's entry once while the rows stand, however often it draws: back on a row it read, it reads nothing", async () => {
+    test("a builder's inspector reads no page for the entry of a row the sheet shows — a row of a sheet that writes arrives with its entry (#1599) — however often it draws, and back on a row it showed", async () => {
         const held = heldSheet(20);
         /** What the builder's Details does: the ring's row's target, read as it draws. */
         function Inspector() {
@@ -659,21 +674,23 @@ describe("a sheet reads only what it shows (#1188)", () => {
         fireEvent.mouseDown(cell("r003", "task"), { button: 0 });
         await flush();
         expect([inspected().getAttribute("data-inspected"), inspected().textContent]).toEqual(["r003", "Task 3"]);
-        // One read: the row's entry, at its place in window 0.
-        expect(held.state.asked.slice(read)).toEqual([0]);
+        // No read: the row's entry came with the row, in the window's own read. Read as the inspector drew it, a one-row
+        // page of the source, it was on its way whenever the window was read again — after a Save, after another session's
+        // write — and nothing of the row could be edited until it landed.
+        expect(held.state.asked.slice(read)).toEqual([]);
         // A hover and a key that moves nothing: drawn again, nothing read.
         fireEvent.mouseEnter(cell("r005", "qty"));
         fireEvent.keyDown(card, { key: "Escape" });
         await flush();
-        expect(held.state.asked.slice(read)).toEqual([0]);
-        // The next row: its entry is read. Back on the first: it is not read again.
+        expect(held.state.asked.slice(read)).toEqual([]);
+        // The next row, and back on the first: neither is read for.
         fireEvent.keyDown(card, { key: "ArrowDown" });
         await flush();
         expect([inspected().getAttribute("data-inspected"), inspected().textContent]).toEqual(["r004", "Task 4"]);
         fireEvent.keyDown(card, { key: "ArrowUp" });
         await flush();
         expect(inspected().getAttribute("data-inspected")).toBe("r003");
-        expect(held.state.asked.slice(read)).toEqual([0, 0]);
+        expect(held.state.asked.slice(read)).toEqual([]);
     });
 
     test("an issue's row that is not in is sought by its key: the window lands, and the ring is on the issue's cell (SB53)", async () => {
@@ -813,6 +830,8 @@ const heldProgram = East.function([HeldSource], SheetPayloadType, ($, held) => {
             status: Sheet.column.text(JobType, { header: "Status", fill: [codeAbove] }),
         },
         id: "id", blanks: 2, ready: { row: codeAboveKept },
+        // A job's code is the ERP's, and no column sets it (#1536): a new job takes it from the app, blank until the ERP gives one.
+        newRow: East.function([Sheet.Types.NewRow], Sheet.Types.Patch(JobType), () => Sheet.patch(JobType, { code: "" })),
         onApply: East.function([Sheet.Types.ChangeSet(JobType)], Sheet.Types.ApplyResult, () => variant("conflict", [])),
     });
 });
@@ -840,7 +859,6 @@ function heldSheet(n: number) {
         /** The source has not counted itself yet: `total()` answers none (#860). */
         uncounted: false,
         totalError: undefined as string | undefined,
-        entryError: undefined as string | undefined,
         failing: new Map<number, string>(),
         inFlight: new Set<number>(),
         broken: undefined as string | undefined,
@@ -863,7 +881,6 @@ function heldSheet(n: number) {
             read();
             const w = Math.floor(Number(offset) / SHEET_PAGE_SIZE);
             state.asked.push(w);
-            if (limit === 1n && state.entryError !== undefined) throw new Error(state.entryError);
             const failure = state.failing.get(w);
             if (failure !== undefined) throw new Error(failure);
             if (state.inFlight.has(w)) return none;
@@ -913,7 +930,7 @@ function heldSheet(n: number) {
             // The renderer is handed the broken row as it draws it; the factory's own reads see it whole.
             rows: variant("pinned", { ...served, page: (offset: bigint, limit: bigint) => {
                 const window = served.page(offset, limit);
-                return window.type === "some" ? some(window.value.map((row) => (row.id === state.broken ? brokenRow(row) : row))) : window;
+                return window.type === "some" ? some({ ...window.value, rows: window.value.rows.map((row) => (row.id === state.broken ? brokenRow(row) : row)) }) : window;
             } }),
             editing: { ...root.editing, onApply: some(variant("sync", apply)) },
         },
@@ -1305,9 +1322,10 @@ describe("failure is local (#853)", () => {
             type("Applied");
             editorKey("Enter");
             await flush();
-            // The source takes the write, but from then on reading an entry back fails — the
-            // readiness check's reads too, which it reports as an issue: the sheet stays up.
-            held.state.afterApply = () => { held.state.entryError = "read-back refused"; };
+            // The source takes the write, but from then on the window the row stands in cannot be read: the Save's
+            // entries are read back from the windows their rows are read in (#1596), each from the entry its window
+            // read with the row (#1599), so the read back fails with the window — and the sheet stays up.
+            held.state.afterApply = () => { held.state.failing.set(2, "read-back refused"); };
             const bar = container.querySelector('[data-slot="history"]') as HTMLElement;
             // The read-back's reason is the frame's banner, with its Retry; the history item says nothing under its buttons.
             const confirm = () => container.querySelector<HTMLElement>('[data-frame-slot="banners"] [data-session-banner="confirm"]');
@@ -1315,7 +1333,6 @@ describe("failure is local (#853)", () => {
             await waitFor(() => expect(confirm()?.textContent).toContain("read-back refused"));
             expect(within(bar).queryByRole("alert")).toBeNull();
             expect(within(bar).getByRole("status").textContent).toBe("Saved — reading it back…");
-            expect(within(bar).getByRole("button", { name: "1 issue" })).toBeTruthy();
             expect(held.state.refreshes).toBe(1);
             // Retry asks the source again — the bar's, and then the banner's; the read fails again each time, and the banner says so again.
             fireEvent.click(within(bar).getByRole("button", { name: "Retry refresh" }));
@@ -1327,13 +1344,16 @@ describe("failure is local (#853)", () => {
             expect(held.state.refreshes).toBe(3);
             expect(confirm()?.textContent).toContain("read-back refused");
             // The read gets through: the Save is confirmed, and the banner leaves.
-            held.state.entryError = undefined;
+            held.state.failing.delete(2);
             held.touch();
             await waitFor(() => expect(confirm()).toBeNull());
             expect(within(bar).queryByRole("status")).toBeNull();
             expect(within(bar).queryByRole("button", { name: "Retry refresh" })).toBeNull();
             expect(within(bar).getByRole("button", { name: "0 issues" })).toBeTruthy();
-            expect(task().textContent).toBe("Applied");
+            // The grid's own read of that window failed with it, and is said where its rows stand, with its own Retry
+            // (#853): asked again, it lands the row as saved.
+            fireEvent.click(container.querySelector('[data-band="failed"][data-failed="2"] [data-loading-retry]')!);
+            await waitFor(() => expect(container.querySelector('[data-row-id="r401"] [data-key="task"]')?.textContent).toBe("Applied"));
         } finally {
             logged.mockRestore();
         }
@@ -1413,6 +1433,37 @@ describe("failure is local (#853)", () => {
         } finally {
             logged.mockRestore();
         }
+    }, HELD_TEST_MS);
+
+    test("an author's callbacks on a row edited while its window is read again see the rows around it as the sheet shows them, each over the entry it was read with (#1599)", async () => {
+        frameAt(EVERY_ROW_PX);
+        const held = heldSheet(20);
+        const { container, key, editorKey, flush } = mount(held.value);
+        await waitFor(() => expect(container.querySelector('[data-row-id="r005"]')).toBeTruthy(), { timeout: 15_000 });
+        // Another planner's write moves the record: the window is read again, and its read is on its way.
+        held.state.inFlight.add(0);
+        held.rewrite((jobs) => jobs.map((job, i) => (i === 12 ? { ...job, task: "Changed" } : job)));
+        await flush();
+        // The rows stand as they were read. A quantity typed on r005 is taken at once, and runs the copilot and the
+        // readiness check for it: both read the code of the row above, r004 — a field with no column, which reaches
+        // them only through r004's entry. It came with r004's row: nothing waits for the window.
+        const status = () => container.querySelector('[data-row-id="r005"] [data-key="status"]')!;
+        fireEvent.mouseDown(container.querySelector('[data-row-id="r005"] [data-key="qty"]')!, { button: 0 });
+        key("5");
+        await flush();
+        editorKey("Enter");
+        await flush();
+        await waitFor(() => expect(status().hasAttribute("data-proposed")).toBe(true));
+        expect(status().textContent).toBe("C4");
+        const bar = container.querySelector('[data-slot="history"]') as HTMLElement;
+        expect(within(bar).getByRole("button", { name: "0 issues" })).toBeTruthy();
+        expect(within(bar).getByRole("button", { name: "Save" }).hasAttribute("disabled")).toBe(false);
+        // The window lands: the same proposal, and no issue.
+        held.state.inFlight.delete(0);
+        held.touch();
+        await flush();
+        expect(status().textContent).toBe("C4");
+        expect(within(bar).getByRole("button", { name: "0 issues" })).toBeTruthy();
     }, HELD_TEST_MS);
 });
 

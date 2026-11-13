@@ -19,6 +19,7 @@ export {
     EditSession,
     type EditSessionBinding,
     type HeldRows,
+    type LandedEntry,
     type EntryVersion,
     type EntryUpdate,
     type EditIssue,
@@ -41,10 +42,12 @@ export {
     type EditHistorySource,
     type EditHistoryPaged,
     type EditHistoryJoined,
+    type EditHistoryOptions,
     type EditHistoryState,
 } from "./use-edit-history.js";
 export { historyKeyOf } from "./kept.js";
 export { EntryRefType } from "./keep.js";
+export { drawnFromKeys, madeFromKeys, nextIntegerKeys, onceKeys, pastKeys, placeholderKeys, randomKeys, type EntryKeys, type KnownKeys } from "./keys.js";
 export {
     liftDraft,
     normalizeDraft,
@@ -60,6 +63,7 @@ export {
     useEditSession,
     type EditingValue,
     type EditSource,
+    type EditWindow,
     type EditSessionOptions,
 } from "./use-edit-session.js";
 export { HistoryBar, type HistoryAction, type HistoryBarProps } from "./HistoryBar.js";

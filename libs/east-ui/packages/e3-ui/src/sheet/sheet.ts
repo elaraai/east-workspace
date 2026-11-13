@@ -34,8 +34,9 @@
  * The sheet is an interface. Its payload holds the sheet whole — its grid,
  * its rows, its narrowing's chrome and its session ({@link SheetRootType}) —
  * beside the templates' cards and seeds, the library's tabs, each source's
- * narrowed keys, the inspector's pane, the record's history and the sheet's
- * name. The `Sheet` renderer in `@elaraai/e3-ui-components` draws it.
+ * narrowed keys, the inspector's pane, the record's history, whether its
+ * Autosave begins on, and the sheet's name. The `Sheet` renderer in
+ * `@elaraai/e3-ui-components` draws it.
  *
  * @packageDocumentation
  */
@@ -77,6 +78,7 @@ import { buildForms, SheetFormsType } from "./fields.js";
 import { viewsOf } from "./views.js";
 import type { OrderedRowSource } from "../utils/ordered-source.js";
 import { recordSources, sliceSourceNames, templatesSource } from "../utils/record-sources.js";
+import { heldHandle } from "../utils/held.js";
 import { RowInspectorType, rowInspector } from "../utils/row-inspector.js";
 import { FuncBindingType } from "../bind/func.js";
 import type { OptimiseHandle } from "../utils/optimise.js";
@@ -183,6 +185,7 @@ export const SheetVocabularyType = StructType({
  * @property history - Over a record, its commits: the last save, and who changed it; `none` over `data`
  * @property missing - With `entry`, the entry's key while the record does not hold it: what the frame's banner names
  * @property vocabulary - The app's words for what the sheet draws of its own (#1516)
+ * @property autosave - Whether its Autosave begins on
  * @property name - Names the sheet, when a surface holds two
  */
 export const SheetPayloadType = StructType({
@@ -195,6 +198,7 @@ export const SheetPayloadType = StructType({
     history: OptionType(SheetHistoryType),
     missing: OptionType(StringType),
     vocabulary: SheetVocabularyType,
+    autosave: BooleanType,
     name: OptionType(StringType),
 });
 
@@ -362,6 +366,13 @@ export interface SheetCommon<L extends StructType, G extends StructType = never>
      * `unassigned`, a link's `source` and `destination`, and a dated column's `wanted` and `actual`.
      */
     vocabulary?: SheetVocabularyProp;
+    /**
+     * Whether Autosave — the switch in Save's menu — begins on; off by default. On, the sheet's changes are saved by
+     * themselves a pause after the viewer's last act: never an optimiser's result, an Undo or a Redo, which wait for a press of Save. A
+     * literal, or an expression data drives. The viewer's own choice, once made, is kept in their browser for the data
+     * set and the sheet, and stands over it.
+     */
+    autosave?: SubtypeExprOrValue<BooleanType>;
     /** Names the sheet — needed only when one surface holds two. */
     name?: string;
 }
@@ -389,6 +400,7 @@ type SheetAnyProps = {
     optimise?: unknown;
     views?: unknown;
     vocabulary?: SheetVocabularyProp;
+    autosave?: SubtypeExprOrValue<BooleanType>;
     name?: string;
     readOnly?: SubtypeExprOrValue<BooleanType> | boolean;
     newRow?: unknown;
@@ -409,15 +421,17 @@ const NarrowedType = DictType(StringType, RowSourceType(ArrayType(StringType)));
  * `Sheet` carrier — for the tests and the renderer's fixtures, which read it
  * whole: the sheet over its rows, its templates, its library's tabs, each
  * source's narrowed keys, its inspector pane, the record's history, the
- * missing entry's key and the sheet's name.
+ * missing entry's key, whether its Autosave begins on and the sheet's name.
  *
  * @param props - The sheet's props, as `<Sheet>` takes them
+ * @param internal - What only e3-ui's own builders pass: `recordKinds`, for `<Record>`'s columns
  * @returns An East expression of {@link SheetPayloadType}
  * @throws Error naming the prop and the remedy: rows from both `record` and `data`, or from neither; `entry` or `window` without a record; `id`, `onApply` or `onUpdate` over a record; `onViewsChange`, which `views` replaces; `fields` or `groupFields` without an inspector; an `optimise` that is not `Func.bind` of a function from `OptimiseRequest(R, K?)` to `OptimiseResult(R, K?)` over the sheet's rows (#1409); a `slice` that is not `{ slice: Slice.bindRecords(…) }`, one holding a source nothing names, and the rows of its `rows` source beside `record`, `data`, `entry` or `window`; `affordances` and `persist`, which moved into `slice`; a templates list written in the code or naming no source of the slice, and two naming the same; and everything `Sheet Spec.md` §3.12 and `Sheet Builder Spec.md` §4.3 refuse
  * @internal
  */
-export function createSheetPayload(props: { columns: unknown } & { [prop: string]: unknown }): ExprType<SheetPayloadType> {
-    const { record, entry, window, data, columns, slice, templates, library, fields, groupFields, inspector, optimise, views, vocabulary, name, ...sheet } = props as SheetAnyProps;
+export function createSheetPayload(props: { columns: unknown } & { [prop: string]: unknown }, internal: { recordKinds?: boolean } = {}): ExprType<SheetPayloadType> {
+    const recordKinds = internal.recordKinds === true ? { recordKinds: true } : {};
+    const { record, entry, window, data, columns, slice, templates, library, fields, groupFields, inspector, optimise, views, vocabulary, autosave, name, ...sheet } = props as SheetAnyProps;
     const words = sheetVocabulary(vocabulary);
     // The narrowing's props #1345 retired, refused by name for an app that still passes them.
     if (slice instanceof Expr || (slice !== undefined && (typeof slice !== "object" || slice === null || !("slice" in slice)))) {
@@ -461,6 +475,8 @@ export function createSheetPayload(props: { columns: unknown } & { [prop: string
         throw new Error("Sheet: `views` is a bind handle — State.bind keeps them per viewer, Data.bind shares them — and the sheet writes every change to them through it; it takes no `onViewsChange`");
     }
     const viewOptions = views === undefined ? {} : viewsOf(views);
+    // The inspector's hints, which the root reads for what its form lets a person set on a new entry (#1536).
+    const forms = inspector === undefined ? {} : { inspector: { fields, groupFields } };
     // The `rows` source's rows are the sheet's (#1345): paged from it, its record's keys their ids.
     const pagesRows = sources.names.includes("rows");
     if (pagesRows) {
@@ -494,30 +510,37 @@ export function createSheetPayload(props: { columns: unknown } & { [prop: string
         const bound = sources.bind($);
         // The bridge's functions, each bound once here for every wire function the sheet builds to refer to.
         const hold = <T extends EastType>(value: ExprType<T>): ExprType<T> => $.const(value) as ExprType<T>;
+        // The author's handles, each bound once here too (`heldHandle`, #1599): every function the sheet builds over one
+        // — the page its rows are read through among them — captures this block's constant, never the author's own
+        // variable, so it is the same function from one evaluation of the author's block to the next.
+        const rowsData = heldHandle($, data);
+        const rowsRecord = heldHandle($, record);
+        const rowsWindow = heldHandle($, window);
         const narrowed = East.value(new Map(Object.entries(bound.keys)) as never, NarrowedType) as ExprType<typeof NarrowedType>;
-        const parts = { templates: checked, library, sources: sources.names, narrowed, fields, groupFields, inspector, optimise, vocabulary: words, name, newRow: sheet.newRow, newGroup: sheet.newGroup };
+        const parts = { templates: checked, library, sources: sources.names, narrowed, fields, groupFields, inspector, optimise, vocabulary: words, autosave, name, newRow: sheet.newRow, newGroup: sheet.newGroup };
         if (pagesRows) {
             // The rows source's record, every row in its own order (#1349) — the renderer draws the source's narrowing
             // over them as the lens — and its record's identity, which names the session over them.
             const part = bound.parts["rows"] as unknown as RecordRowsPart;
-            const built = createSheetBuild(recordRowsOf(part), columns, { ...sheet, ...viewOptions }, { sourceId: part.sourceId, slice: sources.chrome, hold });
+            const built = createSheetBuild(recordRowsOf(part), columns, { ...sheet, ...viewOptions }, { sourceId: part.sourceId, slice: sources.chrome, hold, ...recordKinds, ...forms });
             return payloadOf(built, {
                 ...parts, id: sheet.id as string | undefined,
                 history: East.value(none, OptionType(SheetHistoryType)),
                 missing: East.value(none, OptionType(StringType)),
             });
         }
-        if (record === undefined) {
-            const built = createSheetBuild(data, columns, { ...sheet, ...viewOptions }, { slice: sources.chrome, hold });
+        if (rowsRecord === undefined) {
+            const built = createSheetBuild(rowsData, columns, { ...sheet, ...viewOptions }, { slice: sources.chrome, hold, ...recordKinds, ...forms });
             return payloadOf(built, {
                 ...parts, id: sheet.id as string | undefined,
                 history: East.value(none, OptionType(SheetHistoryType)),
                 missing: East.value(none, OptionType(StringType)),
             });
         }
-        const rows = recordRows(record, { entry, window });
-        // Read only by the author's word, or while the record does not hold the entry.
-        const readOnly = rows.options.readOnly === undefined ? sheet.readOnly
+        const rows = recordRows(rowsRecord, { entry, window: rowsWindow });
+        // Read only by the author's word, or while the record does not hold the entry. The author's `true` stays itself,
+        // so the build knows the sheet adds no rows (#1536).
+        const readOnly = rows.options.readOnly === undefined || sheet.readOnly === true ? sheet.readOnly
             : sheet.readOnly === undefined ? rows.options.readOnly
                 : East.value(sheet.readOnly as SubtypeExprOrValue<BooleanType>, BooleanType).or(() => rows.options.readOnly!);
         const built = createSheetBuild(rows.data, columns, {
@@ -525,8 +548,8 @@ export function createSheetPayload(props: { columns: unknown } & { [prop: string
             ...rows.options,
             ...viewOptions,
             ...(readOnly === undefined ? {} : { readOnly }),
-        }, { ...rows.internal, slice: sources.chrome, hold });
-        const history = (record as { history: ExprType<SheetHistoryType> }).history;
+        }, { ...rows.internal, slice: sources.chrome, hold, ...recordKinds, ...forms });
+        const history = (rowsRecord as { history: ExprType<SheetHistoryType> }).history;
         return payloadOf(built, {
             ...parts, id: rows.options.id,
             history: East.value(some(history), OptionType(SheetHistoryType)),
@@ -571,7 +594,7 @@ function recordRowsOf(part: RecordRowsPart): ExprType<StructType> {
     } as never, PinnedSourceType(collection)) as unknown as ExprType<StructType>;
 }
 
-/** The payload around a built sheet: its templates, its library, each source's narrowed keys, its inspector pane, its history and its name. */
+/** The payload around a built sheet: its templates, its library, each source's narrowed keys, its inspector pane, its history, whether its Autosave begins on and its name. */
 function payloadOf(built: SheetBuild, parts: {
     templates: readonly SheetTemplatesList[];
     library: SheetAnyProps["library"];
@@ -582,6 +605,7 @@ function payloadOf(built: SheetBuild, parts: {
     inspector: unknown;
     optimise: unknown;
     vocabulary: ValueTypeOf<typeof SheetVocabularyType>;
+    autosave: SubtypeExprOrValue<BooleanType> | undefined;
     name: string | undefined;
     newRow: unknown;
     newGroup: unknown;
@@ -600,6 +624,7 @@ function payloadOf(built: SheetBuild, parts: {
         history: parts.history,
         missing: parts.missing,
         vocabulary: parts.vocabulary,
+        autosave: parts.autosave ?? false,
         name: parts.name === undefined ? none : some(parts.name),
     }, SheetPayloadType);
 }
@@ -629,7 +654,7 @@ export function buildInspectorPane(
         }
         return East.value(none, OptionType(SheetInspectorPaneType));
     }
-    const forms = buildForms(built.bridge, built.metas, hints.fields, hints.groupFields, hints.id, built.registers);
+    const forms = buildForms(built.bridge, built.metas, hints.fields, hints.groupFields, hints.id, built.registers, built.data);
     const custom = inspector === true
         ? East.value(none, OptionType(SheetInspectorType))
         : East.value(some(buildInspector(inspector, built.bridge.lineType)), OptionType(SheetInspectorType));
@@ -710,7 +735,7 @@ export function SheetTag<K extends EastType, P extends StructType, F extends She
         window?: unknown;
         group: SheetGroupValue<P, F>;
         columns: SheetColumnSpec<SheetLineOf<P, F>>;
-    } & SheetCommon<SheetLineOf<P, F>, P> & Omit<SheetGroupedOptions<P, F>, SheetRecordOwned | "group">,
+    } & SheetCommon<SheetLineOf<P, F>, P> & Omit<SheetGroupedOptions<P, F, K>, SheetRecordOwned | "group">,
 ): UIElement;
 /**
  * `<Sheet record={jobs} columns={{ … }} />` — the record's entries are the
@@ -722,7 +747,7 @@ export function SheetTag<K extends EastType, R extends StructType>(
         record: SheetRecordHandle<K, R>;
         window?: unknown;
         columns: SheetColumnSpec<R>;
-    } & SheetCommon<R> & Omit<SheetOptions<R>, SheetRecordOwned>,
+    } & SheetCommon<R> & Omit<SheetOptions<R, K>, SheetRecordOwned>,
 ): UIElement;
 /**
  * `<Sheet data={entries} id="id" group={Sheet.group(P, "lines", …)} columns={{ … }} />`
@@ -788,7 +813,7 @@ export function SheetTag<K extends EastType, P extends StructType, F extends She
         slice: RecordSlicesChromeOptions;
         group: SheetGroupValue<P, F>;
         columns: SheetColumnSpec<SheetLineOf<P, F>>;
-    } & SheetCommon<SheetLineOf<P, F>, P> & Omit<SheetGroupedOptions<P, F>, "group" | "onApply"> & Pick<SheetIndexedOptions<K, P>, "onApply">,
+    } & SheetCommon<SheetLineOf<P, F>, P> & Omit<SheetGroupedOptions<P, F, K>, "group" | "onApply"> & Pick<SheetIndexedOptions<K, P>, "onApply">,
 ): UIElement;
 /**
  * `<Sheet slice={{ slice }} columns={{ … }} onApply={Record.onApply(record, { keyed: true })} />`

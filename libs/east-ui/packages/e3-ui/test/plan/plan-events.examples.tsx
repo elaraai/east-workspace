@@ -840,7 +840,10 @@ export const planPrintDeliveryTemplates = e3.record("plan_print_delivery_templat
  * toolbar's dates, the resolution and the horizon brush write both. Links
  * connect the plates,
  * printing, binding and dispatch. Delivery readiness holds Save for an
- * invalid pallet count, while the drop veto explains a press in service.
+ * invalid pallet count, while the drop veto explains a press in service. A
+ * job's sheets are held to the 200,000 a press run takes: the holiday
+ * catalogue's 240,000, stored, is a warning beside the toolbar's issues, its
+ * bar ringed, holding no Save until the job itself is changed.
  */
 export const planPrintWorks = example({
     keywords: [
@@ -853,8 +856,9 @@ export const planPrintWorks = example({
         "buckets", "lane", "status", "ready", "overlaps", "allow", "canDrop", "Schedule.Types.Candidate",
         "variant resource", "bay", "van", "Slice", "Slice.bindRecords", "sources", "Data.bindPaged", "indexes", "interval",
         "window", "range", "brush", "resolution", "Schedule.templates", "templates record", "Plan.eventRef", "Plan.over", "#1344",
+        "max", "bounds", "warning", "out of range",
     ],
-    description: "The print works from plates to dispatch — jobs, stops and shifts on grouped presses and crews, nested bindery resources, deliveries in AM/PM lanes on a bay or a van, status and readiness, links between event kinds, utilisation and paper stock; one Slice.bindRecords rail — the jobs and the shifts through their interval indexes, their range the one window, the presses, the customers and each kind's templates record — and the shared library, inspector and Save session",
+    description: "The print works from plates to dispatch — jobs, stops and shifts on grouped presses and crews, nested bindery resources, deliveries in AM/PM lanes on a bay or a van, status and readiness, links between event kinds, utilisation and paper stock; one Slice.bindRecords rail — the jobs and the shifts through their interval indexes, their range the one window, the presses, the customers and each kind's templates record — and the shared library, inspector and Save session; a stored job over the sheets a press run takes is a warning beside the toolbar's issues, holding no Save",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             // What the Plan reads whole binds with Data.bind, which keeps it loaded beside its pages; the event
@@ -1000,7 +1004,9 @@ export const planPrintWorks = example({
                             fields: {
                                 customer: Schedule.field.text({ label: "Customer" }),
                                 stock: Schedule.field.select({ labels: { coated: "Coated", uncoated: "Uncoated", board: "Board" } }),
-                                sheets: Schedule.field.number({ label: "Sheets", step: 1000.0, min: 0.0 }),
+                                // A press is loaded with at most 200,000 sheets for one run, so a longer job is split into
+                                // runs: the holiday catalogue's 240,000 went on as one.
+                                sheets: Schedule.field.number({ label: "Sheets", step: 1000.0, min: 0.0, max: 200000.0 }),
                             },
                             // Narrowed through its source of the slice (`job`): one job is read by its key here.
                             entries: jobEntries,

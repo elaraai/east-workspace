@@ -16,7 +16,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-    ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, RecursiveType, SortedMap, StringType, StructType,
+    ArrayType, BlobType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, RecursiveType, SortedMap, StringType, StructType,
     compareFor, decodeBeast2For, diffFor, encodeBeast2For, equalFor, none, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import { Editing, EditingRequestStore, Paged } from "@elaraai/east-ui/internal";
@@ -87,6 +87,8 @@ const moveOf = (key: string, from: RowId, to: RowId, start: Date, end: Date): Ge
 const encodeHall = encodeBeast2For(Hall);
 const decodeHall = decodeBeast2For(Hall);
 const sameHall = equalFor(Hall);
+const sameBytes = equalFor(BlobType);
+const sameEntries = equalFor(ArrayType(StructType({ id: StringType, entry: BlobType })));
 const sameIds = equalFor(ArrayType(Plan.Types.RowId));
 const sameBlocks = equalFor(Plan.Types.Blocks);
 
@@ -393,7 +395,9 @@ test("a table row says which of its positions take a typed number, and which of 
 
 test("derive draws each draft in its entry's place — with none it is the canvas's own blocks, and a draft derives like data", () => {
     const plain = inline.derive(0n, 0n, new Map());
-    assert.ok(plain.type === "some" && inlineRoot.rows.type === "inline" && sameBlocks(plain.value, inlineRoot.rows.value));
+    assert.ok(plain.type === "some" && inlineRoot.rows.type === "inline" && sameBlocks(plain.value.rows, inlineRoot.rows.value));
+    // Held whole, the source is read from as it is: the drafted canvas carries no entry beside its blocks.
+    assert.equal(plain.value.entries.length, 0);
     const grown: HallValue = { name: "Hall 2", presses: new Map([["P11", { jobs: new Map() }], ["P12", { jobs: new Map() }]]) };
     const drafted = inline.derive(0n, 0n, new Map([
         ["H1", encodeHall(hall1([["j4642", J4642], ["poster-1", POSTER]]))],
@@ -401,7 +405,7 @@ test("derive draws each draft in its entry's place — with none it is the canva
     ]));
     assert.equal(drafted.type, "some");
     if (drafted.type !== "some") return;
-    const rows = drafted.value.flatMap((b) => b.rows);
+    const rows = drafted.value.rows.flatMap((b) => b.rows);
     // A drafted press the source lacks draws where the applied batch would put it.
     assert.ok(sameIds(rows.map((r) => r.id), [
         hallRow("H1"), press("H1", "P03"), press("H1", "P04"), hallRow("H2"), press("H2", "P11"), press("H2", "P12"),
@@ -429,7 +433,6 @@ test("entryIds lists a window's entries in the source's order, and readEntry rea
 test("the declaration names the canvas's entries — their type and key, whole-entry drafts, and the snapshot a batch begins from", () => {
     assert.equal(inline.idField.type, "none");
     assert.equal(inline.keyType.type, "some");
-    assert.equal(inline.mode.type, "batch");
     assert.equal(inline.onApply.type, "none");
     assert.equal(inline.onPatch.type, "none");
     assert.equal(inline.ready.type, "none");
@@ -476,12 +479,27 @@ test("a paged canvas edits the windows it pages — derive and entryIds read the
     // Without drafts, derive is the canvas's own page; a draft takes its entry's place.
     const page = root.rows.type === "paged" ? root.rows.value.page(0n, 200n) : undefined;
     const plain = wire.derive(0n, 200n, new Map());
-    assert.ok(page?.type === "some" && plain.type === "some" && sameBlocks(plain.value, page.value));
+    assert.ok(page?.type === "some" && plain.type === "some" && sameBlocks(plain.value.rows, page.value.rows));
+    // The window arrives with the entries its rows were made from (#1599): each hall under its key, in the source's
+    // order, as the source holds it — the very bytes `readEntry` answers, with no read of its own.
+    assert.deepEqual(page.value.entries.map((carried) => carried.id), ["H1", "H2"]);
+    assert.ok(sameHall(decodeHall(page.value.entries[1]!.entry), hall2()));
+    const alone = wire.readEntry("H2", 1n);
+    assert.ok(alone.type === "some" && sameBytes(alone.value, page.value.entries[1]!.entry));
     const drafted = wire.derive(0n, 200n, new Map([["H2", encodeHall(hall2([["leaflet-0", LEAFLET]]))]]));
     assert.equal(drafted.type, "some");
     if (drafted.type !== "some") return;
-    const p11 = drafted.value.flatMap((b) => b.rows).find((r) => equalFor(Plan.Types.RowId)(r.id, press("H2", "P11")));
+    const p11 = drafted.value.rows.flatMap((b) => b.rows).find((r) => equalFor(Plan.Types.RowId)(r.id, press("H2", "P11")));
     assert.equal(p11 !== undefined && p11.kind.type === "span" ? p11.kind.value.runs.length : -1, 1);
+    // A drafted window carries the entries as the SOURCE holds them, never the drafts: the canvas's own window's.
+    assert.ok(sameEntries(drafted.value.entries, page.value.entries));
+    // And a window standing in while it is read again draws a draft from the entries it carried, reading nothing:
+    // the same blocks the read drew, and with no draft the window's own.
+    const reads = paged.log().length;
+    const standing = wire.deriveWindow(page.value.entries, new Map([["H2", encodeHall(hall2([["leaflet-0", LEAFLET]]))]]));
+    assert.ok(sameBlocks(standing, drafted.value.rows));
+    assert.ok(sameBlocks(wire.deriveWindow(page.value.entries, new Map()), page.value.rows));
+    assert.equal(paged.log().length, reads);
     // Read-only here, and a paged batch's base is the source's revision, so no
     // snapshot rides the wire; the session is the handle's, by its id.
     assert.equal(wire.onApply.type, "none");
@@ -557,9 +575,8 @@ test("onApply receives the change set at the canvas's own entry and key types �
         const data = $.const(SEED, Halls);
         const onApply = $.const(East.function([Batch], Editing.Types.ApplyResult, (_$, batch) =>
             variant("applied", { revision: some(batch.requestId) })));
-        return Plan.Root({ axis, data, series: SERIES, editing: { onApply, mode: "auto" } });
+        return Plan.Root({ axis, data, series: SERIES, editing: { onApply } });
     }).toIR().compile([])());
-    assert.equal(sync.mode.type, "auto");
     assert.ok(sync.onApply.type === "some" && sync.onApply.value.type === "sync");
     if (sync.onApply.type === "some" && sync.onApply.value.type === "sync") {
         const result = sync.onApply.value.value(encodeBatch(dropOnP03("r1", variant("snapshot", SEED))));

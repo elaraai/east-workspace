@@ -43,13 +43,15 @@ import {
     type ValueTypeOf,
 } from "@elaraai/east";
 import { PagedSourceType, PinnedSourceType, type SeekQueryType } from "@elaraai/east-ui";
-import { MAX_LANDED_SEARCHES, levelRuns } from "@elaraai/east-ui/internal";
+import { MAX_LANDED_SEARCHES, RecordSliceSource, levelRuns, type RecordSlicePlan } from "@elaraai/east-ui/internal";
 import { datasetGetStatus, type DatasetFindQuery } from "@elaraai/e3-api-client";
 import { RecordLevelType, datasetRowsType, indexWindowType, type TreePath } from "@elaraai/e3-types";
 import * as ex from "@elaraai/e3-ui/examples/bind/data/data";
 import type { E3Request } from "../src/e3-web.test-utils.js";
 import {
+    CUTS_BETWEEN_LOOKS,
     MAX_HELD_PLACEMENTS,
+    MAX_RETAINED_CUTS,
     MAX_RETAINED_WINDOWS,
     MAX_WITHIN_KEYS,
     PagedRuntime,
@@ -498,6 +500,32 @@ describe("PagedRuntime — a window a landed one covers (#1217)", () => {
         assert.deepEqual(windows("records.work_orders").at(-1), { offset: 1, limit: 2, hash: R2 });
         await h.settle();
     });
+
+    test("a window one in flight covers waits on it, asking nothing of its own, and is cut from it as it lands (#1596)", async () => {
+        await h.write(rows, Array.from({ length: 10 }, (_, i) => BigInt(i * 10)));
+        const R1 = await hashOf(rows);
+        const { runtime } = await known(new PagedRuntime());
+        const held = h.e3.hold(pages("inputs.preview_rows"));
+        assert.equal(callPage(runtime, 0n, 4n).type, "none");
+        await held.holding;
+        // A sheet's row check reads a row of a window being read again, after a Save: it waits on that window, which
+        // re-fires it as it lands.
+        runtime.enableTracking();
+        assert.equal(callPage(runtime, 2n, 1n).type, "none");
+        assert.ok(runtime.disableTracking().has(pagedWindowKey(h.workspace, rowsPath, R1, 0, 4)), "it tracks the window it waits on");
+        await h.settle();
+        assert.deepEqual(windows(), [{ offset: 0, limit: 4, hash: R1 }], "nothing asked of its own");
+        // A window the one in flight holds only part of is asked for.
+        assert.equal(callPage(runtime, 3n, 2n).type, "none");
+        await h.settle();
+        assert.deepEqual(windows().at(-1), { offset: 3, limit: 2, hash: R1 });
+        held.release();
+        await h.settle();
+        const cut = callPage(runtime, 2n, 1n);
+        assert.ok(cut.type === "some");
+        assert.equal(equalFor(RowsType)(cut.value, [20n]), true);
+        assert.equal(windows().length, 2, "the row is cut from the window that landed");
+    });
 });
 
 describe("PagedRuntime — snapshots", () => {
@@ -638,6 +666,48 @@ describe("PagedRuntime — snapshots", () => {
         await h.settle();
         assert.equal(looked(), 2);
         assert.deepEqual(handle.revision!(), some(R3));
+    });
+
+    test("a refresh that names a revision installs it only while the source still reads where it read as the refresh was asked: moved meanwhile, it follows the dataset instead, and is never stepped back to the revision named", async () => {
+        const R1 = await hashOf(rows);
+        const { runtime } = await known(new PagedRuntime());
+        const handle = handleOf(runtime, rowsTypeValue, rowsPath);
+        await h.write(rows, [2n]);
+        const R2 = await hashOf(rows);
+        // Two answers in one turn, both asked while the source reads at R1: the one that names where the dataset is
+        // now, then one that names a revision the dataset has left. The first moves the source before the second's turn.
+        handle.refresh!(some(R2));
+        handle.refresh!(some(R1));
+        assert.deepEqual(handle.revision!(), some(R1), "each move is deferred out of the caller's render");
+        await h.settle();
+        // Installed, the second would put the source back at R1, a state the dataset has left, until a read pinned
+        // there is refused or the next poll tells it where the dataset is. It looked the dataset's state up instead.
+        assert.deepEqual(handle.revision!(), some(R2));
+        assert.equal(looked(), 2, "the revision as the source first read, and the lookup the second refresh made");
+    });
+
+    test("a source put at a revision by evidence of its own is brought to the dataset's state by the next poll, though the dataset is back under the hash the source was last told of", async () => {
+        // A Save's answer names the state it committed, and the source is put there. Another session has by then put
+        // the dataset back as it was: under the hash it had, the one the source's follower last told it. Told a hash
+        // only where it differs from the last one told, the source heard nothing more, and stayed at the Save's state
+        // until the dataset next changed — e3 refuses a read pinned there, but a browser answers one it kept by itself.
+        const R1 = await hashOf(rows);
+        const began = await h.read(rows);
+        const { runtime, clock } = await known(new PagedRuntime());
+        const handle = handleOf(runtime, rowsTypeValue, rowsPath);
+        await poll(clock);
+        assert.deepEqual(handle.revision!(), some(R1));
+
+        await h.write(rows, [2n]);
+        const R2 = await hashOf(rows);
+        handle.refresh!(some(R2));
+        await h.settle();
+        assert.deepEqual(handle.revision!(), some(R2));
+
+        await h.write(rows, began);
+        assert.equal(await hashOf(rows), R1);
+        await poll(clock);
+        assert.deepEqual(handle.revision!(), some(R1), "told the dataset's hash, though it is the one it was last told");
     });
 
     test("a dataset with no value reads `none` and fetches nothing until a value lands", async () => {
@@ -1530,6 +1600,18 @@ describe("PagedRuntime — several reads in one request (#1351)", () => {
         assert.equal(h.requests("rows").length, 0);
     });
 
+    test("a read of rows by key prints each key on its own: a Struct key as East prints it (#1596)", async () => {
+        const { runtime } = await keyed(new PagedRuntime());
+        // The counts read as rows keyed by a Struct: each key asked as East prints it, whatever e3 makes of it.
+        const Key = StructType({ hall: StringType, bin: IntegerType });
+        const source: PagedSource = { path: countsPath, selector: NO_INDEX, type: toEastTypeValue(DictType(Key, IntegerType)) };
+        const asked: ValueTypeOf<typeof Key>[] = [{ hall: "north", bin: 1n }, { hall: "south", bin: 2n }];
+        assert.equal(runtime.rowsAll(source, asked).type, "none", "asked, never thrown");
+        await h.settle();
+        const printKey = printFor(Key);
+        assert.deepEqual(reads("rows").map((request) => bodyOf(request).keys), [asked.map((key) => printKey(key))]);
+    });
+
     test("keys an answer's byte budget did not reach are asked again, until every key is answered", async () => {
         // Machines whose labels are incompressible text, each over a third of e3's 4 MiB budget: an answer reaches two.
         const machines = ex.previewMachinesInput;
@@ -1768,6 +1850,41 @@ describe("PagedRuntime — which entries a narrowing's runs hold, kept for each 
         assert.equal(runtime.withinAll(source, narrowings[4]!, keysOf(4)).type, "some");
         assert.equal(asked().length, before, "the narrowing read last still holds its answers");
     });
+
+    test("a view check of more entries than the revision holds answers to finishes, each part kept by its reader as it lands and asked once (#1596)", async () => {
+        const { runtime } = await known(new WithinRuntime(), (r) => handleOf(r, toEastTypeValue(orders.type), ordersPath).revision!());
+        const source = runtime.sourceOf(handleOf(runtime, QueueWindowType, ordersPath, "pinned", BY_STATUS).id);
+        assert.ok(source !== undefined, "the runtime serves the handle it built");
+        // A record Slice's windows over the queue, as its binding's batches read them: the late orders' run, each entry
+        // asked by its key as the binding prints it.
+        const slice = new RecordSliceSource<never>({
+            page: () => none, total: () => none, seek: () => some({ found: true, row: 0n, count: 5n }),
+            revision: () => runtime.revisionOf(source),
+            withinAll: (_index, runs, entries) => {
+                const within = runtime.withinAll(source, runs.map((run) => [Number(run.row), Number(run.count)] as const), entries.map((entry) => entry.ik));
+                return within.type === "none" ? none : some([...within.value]);
+            },
+        });
+        const late: RecordSlicePlan = { index: "by_status", queries: [variant("fields", { values: ['"late"'], prefix: none })] };
+        // A Save's 45,000 entries: past the answers the revision holds over every narrowing.
+        const entries = Array.from({ length: CAP + 5_000 }, (_, n): ValueTypeOf<typeof EntryKey> => ({
+            ik: { status: "late", due: new Date(Date.UTC(2026, 8, 8) + n * 60_000) }, k: `S-${n}`,
+        }));
+        const asking = entries.map((entry) => ({ ik: printEntry(entry), key: entry.k }));
+        // e3's answers arrive one at a time, and each pass reads what has landed, as a Save's evaluation does.
+        const answers = h.e3.holdAnswers((request) => request.kind === "within");
+        let read = slice.within(late, asking);
+        await answers.holding;
+        for (let pass = 0; read.type === "none" && pass < 12; pass++) {
+            answers.releaseOne();
+            await h.settle();
+            read = slice.within(late, asking);
+        }
+        answers.release();
+        await h.settle();
+        assert.deepEqual(read, some(entries.map((entry) => entryOrder(entry, FIRST) >= 0 && entryOrder(entry, LAST) <= 0)), "it finishes, each entry answered");
+        assert.equal(asked().length, 5, "a request a part, each asked once");
+    });
 });
 
 describe("PagedRuntime — where a narrowing's rows sit, kept for as many narrowings as the revision keeps (#1349)", () => {
@@ -1985,6 +2102,79 @@ describe("PagedRuntime — a window a reader holds is never evicted under it", (
         assert.equal(windows().length, asked + 1);
         await h.settle();
         first.leave();
+    });
+
+    test("a cut of several rows is a window the cap counts, and a one-row cut is kept apart from them: the window they are cut from stays (#1596)", async () => {
+        const length = 4 * MAX_RETAINED_WINDOWS;
+        await h.write(rows, Array.from({ length }, (_, i) => BigInt(i)));
+        const { runtime } = await known(new HoldingRuntime());
+        assert.equal(callPage(runtime, 0n, BigInt(length)).type, "none");
+        await h.settle();
+        const source = runtime.sourceOf(handleOf(runtime, rowsTypeValue, rowsPath).id);
+        assert.ok(source !== undefined, "the runtime serves the handle it built");
+        // More two-row cuts than the windows the runtime keeps, each read where no reader holds it.
+        for (let at = 0; at < 2 * MAX_RETAINED_WINDOWS; at++) assert.equal(callPage(runtime, BigInt(2 * at), 2n).type, "some");
+        const { channels } = runtime.held(source);
+        assert.ok(channels <= MAX_RETAINED_WINDOWS + 1,
+            `the runtime holds ${channels} channels, past the ${MAX_RETAINED_WINDOWS} windows it keeps and the total`);
+        // Every row a row at a time, as a sheet's row checks read them: each a one-row cut, which pushes no window out.
+        for (let row = 0; row < length; row++) assert.equal(callPage(runtime, BigInt(row), 1n).type, "some");
+        assert.equal(callPage(runtime, 0n, BigInt(length)).type, "some", "the window they are cut from stays");
+        assert.equal(windows().length, 1, "every cut from the window that landed, nothing asked again");
+    });
+
+    test("a reader of more rows a row at a time than the one-row cuts the runtime keeps has them looked at once as it cuts them: its cuts stay, and reading them again looks at none to let one go; cuts no reader holds go once a look's worth more are kept, and the cuts are back within the cap once the reader lets its own go (#1596)", async () => {
+        /** A runtime that counts how often it asks whether a reader holds a channel: what a look at the cuts asks of each. */
+        class LookingRuntime extends HoldingRuntime {
+            looks = 0;
+            protected override isTracked(key: string): boolean { this.looks += 1; return super.isTracked(key); }
+            protected override isSubscribed(key: string): boolean { this.looks += 1; return super.isSubscribed(key); }
+        }
+        // More rows than the cuts the runtime keeps, as a sheet's row checks read over its resident windows, and twice
+        // as many more as are kept between two looks, which no reader will hold.
+        const held = MAX_RETAINED_CUTS + 904;
+        const length = held + 2 * CUTS_BETWEEN_LOOKS;
+        await h.write(rows, Array.from({ length }, (_, i) => BigInt(i)));
+        const { runtime } = await known(new LookingRuntime());
+        const page = handleOf(runtime, rowsTypeValue, rowsPath).page;
+        const source = runtime.sourceOf(handleOf(runtime, rowsTypeValue, rowsPath).id);
+        assert.ok(source !== undefined, "the runtime serves the handle it built");
+        // A reader of every row in one window, and of its first rows a row at a time: each a one-row cut of that window.
+        const reader = readerOf(runtime, () => {
+            if (page(0n, BigInt(length)).type === "none") return false;
+            for (let row = 0; row < held; row++) assert.equal(page(BigInt(row), 1n).type, "some", `row ${row}`);
+            return true;
+        });
+        assert.equal(reader.run(), false, "the window is asked for");
+        await h.settle();
+
+        // Its first run cuts them all: past the cap every cut is its own, and they are looked at once, not once a cut.
+        runtime.looks = 0;
+        assert.equal(reader.run(), true);
+        assert.ok(runtime.looks <= 2 * held, `cutting ${held} rows asked ${runtime.looks} times whether a reader holds a channel`);
+        await h.settle();
+        assert.equal(runtime.held(source).channels, held + 2, "every cut it holds stays, beside the window and the total");
+
+        // Read again, every cut is one it holds: nothing is looked at to let one go.
+        runtime.looks = 0;
+        assert.equal(reader.run(), true);
+        assert.ok(runtime.looks <= 2 * held, `reading ${held} held cuts again asked ${runtime.looks} times whether a reader holds a channel`);
+        await h.settle();
+        assert.equal(runtime.held(source).channels, held + 2, "and every cut it holds stays");
+
+        // Rows no reader holds, a row at a time: their cuts go as a look's worth have been kept, never piling up.
+        for (let row = held; row < length; row++) assert.equal(page(BigInt(row), 1n).type, "some", `row ${row}`);
+        const { channels } = runtime.held(source);
+        assert.ok(channels <= held + CUTS_BETWEEN_LOOKS + 2,
+            `after ${length - held} cuts no reader holds the runtime holds ${channels} channels: the reader's ${held} cuts, at most ${CUTS_BETWEEN_LOOKS} more, the window and the total`);
+        assert.equal(reader.run(), true, "the reader's cuts were let go under none of them");
+        assert.equal(windows().length, 1, "and nothing was asked again");
+
+        // It lets them go: the cuts are back within the cap.
+        reader.leave();
+        await h.settle();
+        assert.ok(runtime.held(source).channels <= MAX_RETAINED_CUTS + 2,
+            `once its reader lets them go the runtime holds ${runtime.held(source).channels} channels, past the ${MAX_RETAINED_CUTS} cuts it keeps, the window and the total`);
     });
 
     test("a reader of more rows by key than the windows the runtime keeps — each its key sought, then a one-row page at the row found — settles, each key sought once and each row read once; once it lets them go, the windows no reader holds are back within the cap", async () => {

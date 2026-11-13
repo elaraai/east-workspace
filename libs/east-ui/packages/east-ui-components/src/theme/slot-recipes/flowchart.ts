@@ -23,7 +23,8 @@
  * Awesome's solid icons in the canvas's HTML layer: each lane's × beside its
  * header (off, dimmed, while the lane holds states; a 44px target on a coarse
  * pointer, by its halo), "+ LANE" at the band row's tail, its plus over its
- * word, and the "+ STATE" ghost's plus beside its word. The frame's own
+ * word, and the "+ STATE" ghost's plus beside its word — each off, dimmed as
+ * the × is, where its kind's keys can't be typed (#1549). The frame's own
  * regions are the `builderFrame` recipe's. Where a library card drops on the
  * canvas (#1249), the canvas is one drop cell whose own marks stand in for
  * the shared stage frame — the lane it lands in washed in the brand's tint,
@@ -289,7 +290,7 @@ export const flowchartSlotRecipe = defineSlotRecipe({
             cursor: "pointer",
             "&[data-selected]": {
                 borderWidth: "1.5px",
-                borderColor: "brand.600",
+                borderColor: "brand.solid",
             },
             /* A conflict not yet chosen: the warn ring at the node's edge; a selection keeps its edge inside it. */
             ...conflictRing,
@@ -578,8 +579,8 @@ export const flowchartSlotRecipe = defineSlotRecipe({
              * surface — mirror the selected-node treatment. */
             "&[data-flowchart-inplace]": { cursor: "pointer" },
             "&[data-selected]": {
-                color: "brand.600",
-                borderColor: "brand.600",
+                color: "brand.solid",
+                borderColor: "brand.solid",
                 borderWidth: "1.5px",
             },
         },
@@ -631,8 +632,10 @@ export const flowchartSlotRecipe = defineSlotRecipe({
             textTransform: "uppercase",
             cursor: "pointer",
             "& svg": { fontSize: "12px" },
-            _hover: { borderColor: "brand.600", color: "fg.muted" },
+            _hover: { borderColor: "brand.solid", color: "fg.muted" },
             "&[data-orientation='TD']": { flexDirection: "row", justifyContent: "center", alignItems: "center", paddingTop: "0" },
+            /* Off where the lanes' keys can't be typed (#1549): faded, never a click, its tooltip saying why. */
+            "&[data-disabled]": { opacity: 0.4, cursor: "not-allowed", _hover: { borderColor: "border.strong", color: "fg.subtle" } },
         },
         /* The lane selected (#1250) — a click on its header: its band ringed
          * in the brand's rule just inside its edge, solid where a drop's lane
@@ -669,7 +672,9 @@ export const flowchartSlotRecipe = defineSlotRecipe({
             color: "fg.subtle",
             cursor: "pointer",
             background: "bg.surface",
-            _hover: { borderColor: "brand.600", color: "fg.muted" },
+            _hover: { borderColor: "brand.solid", color: "fg.muted" },
+            /* Off where the states' keys can't be typed (#1549): faded, never a click, its tooltip saying why. */
+            "&[data-disabled]": { opacity: 0.4, cursor: "not-allowed", _hover: { borderColor: "border.strong", color: "fg.subtle" } },
         },
         /* Editing flips the dashed border to brand-d: a new state's key
          * auto-focused, its label below; a rename's key shown fixed (#1503,
@@ -682,7 +687,7 @@ export const flowchartSlotRecipe = defineSlotRecipe({
             background: "bg.surface",
             borderWidth: "1px",
             borderStyle: "dashed",
-            borderColor: "brand.600",
+            borderColor: "brand.solid",
             borderRadius: "6px",
             padding: "3px 9px",
             display: "flex",
@@ -753,7 +758,7 @@ export const flowchartSlotRecipe = defineSlotRecipe({
             background: "bg.surface",
             opacity: 0.85,
             borderWidth: "1.5px",
-            borderColor: "brand.600",
+            borderColor: "brand.solid",
             borderRadius: "6px",
             padding: "4px 10px",
         },

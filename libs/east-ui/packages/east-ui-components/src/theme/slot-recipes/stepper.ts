@@ -24,6 +24,12 @@
  * own property: the theme resolves a colour token there, never on the
  * `borderInlineColor` shorthand, which left them in the value's ink (#1398).
  *
+ * A host that switches the whole strip off — both buttons off, as a fieldset
+ * that is off turns them — marks its root `data-disabled`: the strip then
+ * looks as a field that is off does, filled, faded and its value muted. Its
+ * buttons alone off at a bound leave the strip as it is: the value can still
+ * move the other way.
+ *
  * @packageDocumentation
  */
 
@@ -44,6 +50,8 @@ export const stepperSlotRecipe = defineSlotRecipe({
             borderRadius: "md",
             fontFamily: "mono",
             fontVariantNumeric: "tabular-nums",
+            // Switched off whole: a field's off look (`field-chrome.ts`), faded as the form's controls fade.
+            _disabled: { background: "bg.subtle", opacity: 0.5, cursor: "not-allowed" },
         },
         button: {
             display: "inline-flex",
@@ -68,6 +76,8 @@ export const stepperSlotRecipe = defineSlotRecipe({
             borderInlineStyle: "solid",
             fontWeight: "600",
             whiteSpace: "nowrap",
+            // The strip switched off: its value in an off field's ink, over either tone's.
+            "[data-disabled] > &": { color: "fg.muted" },
         },
     },
     variants: {

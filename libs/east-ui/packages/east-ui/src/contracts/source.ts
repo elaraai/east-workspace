@@ -31,6 +31,14 @@
  * uses. What lands in the IR is a tagged union the renderer matches
  * exhaustively, never a shape it has to sniff.
  *
+ * # Windows that carry their entries
+ *
+ * A component that EDITS a windowed source takes the {@link CarriedRowSourceType}
+ * variant instead (#1599): each window arrives with the stored entries its rows
+ * were made from ({@link CarriedWindowType}), in one read. What it shows of a
+ * window and what an edit of one of its rows begins from are then the same
+ * read's, whatever the source's revision has moved to since.
+ *
  * @packageDocumentation
  */
 
@@ -41,6 +49,7 @@ import {
     East,
     Expr,
     ArrayType,
+    BlobType,
     BooleanType,
     DictType,
     FunctionType,
@@ -397,6 +406,104 @@ export interface RowSourceType<C extends EastType> extends VariantType {
 export type RowSource<C extends EastType> = ExprType<ReturnType<typeof RowSourceType<C>>>;
 
 // ============================================================================
+// Carried windows — a window served with the entries its rows were made from
+// ============================================================================
+
+/**
+ * One stored entry a window's rows were made from (#1599).
+ *
+ * @property id - The entry's id, as its component names it: what its rows, and the editing session's drafts, are keyed by.
+ * @property entry - The entry as the source holds it, beast2 (v2) at the source's own entry type.
+ */
+export const CarriedEntryType = StructType({
+    id:    StringType,
+    entry: BlobType,
+});
+/** Type alias for {@link CarriedEntryType}. */
+export type CarriedEntryType = typeof CarriedEntryType;
+
+/**
+ * A WINDOW served with the stored entries its rows were made from (#1599) —
+ * what a component that edits a windowed source reads a window as.
+ *
+ * @remarks
+ * A component's rows are made from its source's entries, and an edit of a row
+ * begins from the entry it was made from. The rows a component shows stand at
+ * the revision they were read at while the source is read again — after a
+ * Save, or after another session's write — and an entry read on its own, as a
+ * gesture runs, is read at the revision the source has moved to: in flight,
+ * so the gesture is refused, or landed, so it begins from a row its person
+ * never saw. Served together, in ONE read, a window's rows and its entries are
+ * of one revision by construction: a gesture on a row a component shows is
+ * taken at once, from the entry that row was made from.
+ *
+ * `entries` are in the source's own order, each once, whatever rows `rows`
+ * makes of them — one row an entry, several, or a group of them. A source no
+ * one edits carries none.
+ *
+ * @typeParam C - The component's row collection type.
+ * @param c - The collection type value.
+ * @returns The concrete `StructType` of a carried window over `c`.
+ *
+ * @property rows - The window's rows, the component's own collection.
+ * @property entries - The stored entries those rows were made from, in the source's order; empty for a source no one edits.
+ */
+export const CarriedWindowType = <C extends EastType>(c: C) => StructType({
+    rows:    c,
+    entries: ArrayType(CarriedEntryType),
+});
+
+/**
+ * How an EDITED component's rows arrive (#1599): inline, or from a windowed
+ * source each of whose windows carries the entries its rows were made from.
+ *
+ * @remarks
+ * {@link RowSourceType}'s arms, the windowed ones serving a
+ * {@link CarriedWindowType} over the collection. The inline arm is the whole
+ * collection in hand, as {@link RowSourceType}'s is: a component holding its
+ * source whole reads an entry from it, whenever it likes.
+ *
+ * @typeParam C - The component's row collection type.
+ * @param c - The collection type value.
+ * @returns The concrete `VariantType` of a carried row source over `c`.
+ *
+ * @property inline - The whole collection, already in hand.
+ * @property live - A {@link LiveSourceType} of carried windows.
+ * @property paged - A {@link PagedSourceType} of carried windows.
+ * @property pinned - A {@link PinnedSourceType} of carried windows.
+ */
+export const CarriedRowSourceType = <C extends EastType>(c: C): CarriedRowSourceType<C> => VariantType({
+    inline: c,
+    live:   LiveSourceType(CarriedWindowType(c)),
+    paged:  PagedSourceType(CarriedWindowType(c)),
+    pinned: PinnedSourceType(CarriedWindowType(c)),
+});
+
+/**
+ * The East type {@link CarriedRowSourceType} builds over collection type `C`,
+ * as a named interface — a symbol the declaration emitter names, as
+ * {@link RowSourceType}'s is.
+ *
+ * @typeParam C - The component's row collection type.
+ */
+export interface CarriedRowSourceType<C extends EastType> extends VariantType {
+    /** The arms, by name — {@link CarriedRowSourceType}'s four. */
+    readonly cases: {
+        readonly inline: C;
+        readonly live: ReturnType<typeof LiveSourceType<ReturnType<typeof CarriedWindowType<C>>>>;
+        readonly paged: ReturnType<typeof PagedSourceType<ReturnType<typeof CarriedWindowType<C>>>>;
+        readonly pinned: ReturnType<typeof PinnedSourceType<ReturnType<typeof CarriedWindowType<C>>>>;
+    };
+}
+
+/**
+ * The TypeScript type of a {@link CarriedRowSourceType} over collection type `C`.
+ *
+ * @typeParam C - The component's row collection type.
+ */
+export type CarriedRowSource<C extends EastType> = ExprType<ReturnType<typeof CarriedRowSourceType<C>>>;
+
+// ============================================================================
 // Build-time resolution
 // ============================================================================
 
@@ -579,6 +686,12 @@ function indexedWindow(t: EastType, fields: Record<string, EastType>): ArrayType
 }
 
 /**
+ * What a record's indexed binding's unfiltered view adds to the binding's id
+ * (#1435): a reader that holds the view alone finds the binding by it (#1596).
+ */
+export const INDEXED_ROWS_SUFFIX = "@rows";
+
+/**
  * A record's indexed binding as its unfiltered view (#1435): a pinned source
  * of its default index's window — each row once, in that index's order —
  * counted, searched and following its revision as the binding does.
@@ -590,7 +703,7 @@ function indexedWindow(t: EastType, fields: Record<string, EastType>): ArrayType
 function indexedRows(expr: ExprType<EastType>, window: ArrayType<StructType>): ExprType<StructType> {
     const handle = expr as unknown as IndexedSource<EastType, StructType, EastType, StructType, VariantType>;
     return East.value({
-        id: handle.id.concat("@rows"),
+        id: handle.id.concat(INDEXED_ROWS_SUFFIX),
         page: East.function([IntegerType, IntegerType], OptionType(window), ($, offset, limit) => handle.page(handle.defaultIndex, offset, limit)),
         total: East.function([], OptionType(IntegerType), () => handle.total("primary")),
         seek: some(East.function([SeekQueryType], OptionType(SeekRangeType), ($, query) => handle.seek(handle.defaultIndex, query))),
@@ -769,21 +882,85 @@ export function buildRowSource<Out extends EastType>(
     // it there. The distinction is a BUILD-time one, which is why `ordered`
     // has no arm of its own for a renderer to match on. What picks the arm is
     // whether the source names its snapshot.
+    return East.value(derivedArm(resolved, outType, make) as never, sourceType) as RowSource<Out>;
+}
+
+/**
+ * Wrap a resolved rows prop into the {@link CarriedRowSourceType} arm an
+ * EDITED component stores (#1599): {@link buildRowSource}'s, each window
+ * served with the stored entries its rows were made from.
+ *
+ * @remarks
+ * `make` is the component's row pipeline, as {@link buildRowSource}'s is, and
+ * `entries` lists the entries the same collection holds — each one's id, as
+ * the component names it, and its bytes — in the source's order. Both run over
+ * ONE read of the window, so its rows and its entries are of one revision
+ * ({@link CarriedWindowType}). The inline arm is `make` over the whole
+ * collection, as {@link buildRowSource} builds it: `entries` is for windows.
+ *
+ * Everything else is {@link buildRowSource}'s: the derived source keeps the
+ * handle's `id`, its `page` serves WHOLE windows over a handle that trims its
+ * pages (#829), and the arm follows what the source names — its snapshot
+ * (`pinned`), its narrowing too (`live`), or neither (`paged`).
+ *
+ * @typeParam Out - The component's own row COLLECTION type.
+ * @param resolved - The output of {@link resolveRowSource}
+ * @param outType - The component's row collection type
+ * @param make - The source collection → the component's row collection
+ * @param entries - The source collection → its entries, each with its id, in the source's order; left out, a window
+ *   carries none: a source no one edits
+ * @returns The `CarriedRowSourceType(outType)` value to store in the IR
+ */
+export function buildCarriedRowSource<Out extends EastType>(
+    resolved: ResolvedRowSource,
+    outType: Out,
+    make: (collection: ExprType<EastType>) => SubtypeExprOrValue<Out>,
+    entries?: (collection: ExprType<EastType>) => SubtypeExprOrValue<ArrayType<CarriedEntryType>>,
+): CarriedRowSource<Out> {
+    const sourceType = CarriedRowSourceType(outType);
+    if (resolved.kind === "inline") {
+        return East.value(
+            variant("inline", make(resolved.rows)) as never,
+            sourceType,
+        ) as CarriedRowSource<Out>;
+    }
+    const windowType: EastType = CarriedWindowType(outType);
+    const carried = (collection: ExprType<EastType>) => ({
+        rows:    make(collection),
+        entries: entries === undefined ? East.value([], ArrayType(CarriedEntryType)) : entries(collection),
+    });
+    return East.value(derivedArm(resolved, windowType, carried as never) as never, sourceType) as CarriedRowSource<Out>;
+}
+
+/**
+ * The windowed arm of a derived source — what {@link buildRowSource} and
+ * {@link buildCarriedRowSource} store for a windowed source: the handle's
+ * `id`, `total` and `seek` as it has them, its snapshot and its narrowing
+ * where it names them, and a `page` that maps `build` over each WHOLE window
+ * of the source's own collection (#829).
+ *
+ * @param resolved - A resolved windowed source
+ * @param windowType - What the derived `page` serves a window as
+ * @param build - The source's window → what the derived `page` serves of it
+ * @returns The arm, tagged `paged`, `pinned` or `live`
+ */
+function derivedArm(
+    resolved: ResolvedWindowedSource,
+    windowType: EastType,
+    build: (collection: ExprType<EastType>) => SubtypeExprOrValue<EastType>,
+) {
     const handle = pagedHandleOf(resolved);
-    // Erased locally: the window type is `Out`, but TS cannot see through the
-    // generic to unify `Option<Out>`'s arms — the East type is what types it.
-    const winType: EastType = outType;
-    // The WHOLE window of the source's own collection, then `make` over it
+    // The WHOLE window of the source's own collection, then `build` over it
     // (#829) — reified once, and shared with anything that must read the very
     // windows a component reads (the Plan's editing, #880).
     const window = buildPagedWindow(resolved);
-    const page = East.function([IntegerType, IntegerType], OptionType(winType), ($, offset, limit) => {
+    const page = East.function([IntegerType, IntegerType], OptionType(windowType), ($, offset, limit) => {
         const read = $.const(window);
-        const result = $.let(none, OptionType(winType));
+        const result = $.let(none, OptionType(windowType));
         const whole = $.let(read(offset, limit));
         $.match(whole, {
             some: ($, entries) => {
-                const built = $.let(make(entries as ExprType<EastType>), outType);
+                const built = $.let(build(entries as ExprType<EastType>), windowType);
                 $.assign(result, some(built));
             },
         });
@@ -792,10 +969,7 @@ export function buildRowSource<Out extends EastType>(
     // Either shape carries `id` and `seek` — the type check that resolved it
     // says so — so the derived source forwards them as the handle has them.
     if (!resolved.pinned) {
-        return East.value(
-            variant("paged", { id: handle.id, page, total: handle.total, seek: handle.seek }) as never,
-            sourceType,
-        ) as RowSource<Out>;
+        return variant("paged", { id: handle.id, page, total: handle.total, seek: handle.seek });
     }
     const snapshot = resolved.source as unknown as ExprType<StructType<{
         revision: FunctionType<[], OptionType<StringType>>;
@@ -803,21 +977,15 @@ export function buildRowSource<Out extends EastType>(
         query: FunctionType<[], StringType>;
     }>>;
     if (resolved.query) {
-        return East.value(
-            variant("live", {
-                id: handle.id, page, total: handle.total, seek: handle.seek,
-                revision: snapshot.revision, refresh: snapshot.refresh, query: snapshot.query,
-            }) as never,
-            sourceType,
-        ) as RowSource<Out>;
-    }
-    return East.value(
-        variant("pinned", {
+        return variant("live", {
             id: handle.id, page, total: handle.total, seek: handle.seek,
-            revision: snapshot.revision, refresh: snapshot.refresh,
-        }) as never,
-        sourceType,
-    ) as RowSource<Out>;
+            revision: snapshot.revision, refresh: snapshot.refresh, query: snapshot.query,
+        });
+    }
+    return variant("pinned", {
+        id: handle.id, page, total: handle.total, seek: handle.seek,
+        revision: snapshot.revision, refresh: snapshot.refresh,
+    });
 }
 
 /** A resolved paged source's handle, at the contract's shape. */

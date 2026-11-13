@@ -15,10 +15,10 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import {
-    ArrayType, AsyncFunctionType, BooleanType, DateTimeType, DictType, East, EastTypeType, Expr, IntegerType, NullType, OptionType, SortedMap, StringType, StructType,
-    compareFor, decodeBeast2For, equalFor, isTypeEqual, none, toEastTypeValue, variant, type BlockBuilder, type EastType, type ValueTypeOf,
+    ArrayType, AsyncFunctionType, BooleanType, DateTimeType, DictType, East, EastTypeType, Expr, IntegerType, NullType, OptionType, SetType, SortedMap, SortedSet, StringType, StructType,
+    compareFor, decodeBeast2For, equalFor, isTypeEqual, none, some, toEastTypeValue, variant, type BlockBuilder, type EastType, type ValueTypeOf,
 } from "@elaraai/east";
-import { Editing } from "@elaraai/east-ui/internal";
+import { Editing, LiveSourceType, PinnedSourceType } from "@elaraai/east-ui/internal";
 import { Data, Record, Sheet, createSheetRootWith, recordRows, type SheetInternalOptions } from "@elaraai/e3-ui/internal";
 import e3 from "@elaraai/e3";
 
@@ -44,17 +44,26 @@ const textSheet = East.compile(East.function([], Sheet.Types.Root, ($) => {
     const jobs = $.const(BY_TEXT, textJobs);
     return createSheetRootWith(jobs, COLUMNS, {}, { keyOrdered: true });
 }), []);
-/** A sheet over jobs keyed by number: its new rows' keys named by `newRowId`. */
+/** A sheet over jobs keyed by number: a new row's key the app's — given the keys taken, the first number from their count up that none of them is. */
 const numberSheet = East.compile(East.function([], Sheet.Types.Root, ($) => {
     const jobs = $.const(BY_NUMBER, numberJobs);
-    const next = $.const(East.function([], StringType, (_$) => "11"));
-    return createSheetRootWith(jobs, COLUMNS, { newRowId: next }, { keyOrdered: true });
+    const next = $.const(East.function([SetType(IntegerType)], IntegerType, ($2, taken) => {
+        const n = $2.let(taken.size().add(1n));
+        $2.while(taken.has(n), ($3) => {
+            $3.assign(n, n.add(1n));
+        });
+        return n;
+    }));
+    return createSheetRootWith(jobs, COLUMNS, { newKey: next }, { keyOrdered: true });
 }), []);
 /** A sheet over jobs keyed by day, which takes no new rows. */
 const daySheet = East.compile(East.function([], Sheet.Types.Root, ($) => {
     const jobs = $.const(BY_DAY, dayJobs);
     return createSheetRootWith(jobs, COLUMNS, { edits: { insertRows: false } }, { keyOrdered: true });
 }), []);
+
+/** The last of three jobs keyed by number: job 20, a key none of those a sheet has taken names. */
+const LAST_JOB = new SortedMap([[20n, { task: "Wrapping", qty: 4n }]], compareFor(IntegerType));
 
 const ids = (root: Root): string[] => {
     if (root.rows.type !== "inline") assert.fail(`expected inline rows, got ${root.rows.type}`);
@@ -109,11 +118,97 @@ describe("a record's whole Dict, read in key order", () => {
         }), /a key-ordered sheet reads a Dict — a record's entries, in key order — and this source holds/);
     });
 
-    test("a key that is not a String needs `newRowId` to name a new row", () => {
-        assert.throws(() => East.function([], NullType, ($) => {
+    test("a key neither String nor Integer needs `newKey` to name a new row, wherever the sheet adds one", () => {
+        const applied = East.asyncFunction([Editing.Types.ChangeSet(JobType, DateTimeType)], Editing.Types.ApplyResult,
+            (_$, _batch) => East.value(variant("applied", { revision: none }), Editing.Types.ApplyResult));
+        const build = (options: object, internal: SheetInternalOptions) => East.function([], NullType, ($) => {
+            const jobs = $.const(BY_DAY, dayJobs);
+            $(createSheetRootWith(jobs, COLUMNS, options, { keyOrdered: true, ...internal }));
+        });
+        assert.throws(() => build({}, { applyKeyed: applied }),
+            /the rows are keyed by \.DateTime, and a new row's key is made only for a String key or an Integer one — pass `newKey`, an East function from the keys taken to a new one, or `edits=\{\{ insertRows: false \}\}`/);
+        // A sheet that adds no row needs none: one that writes nowhere, one read only, one whose edits insert none.
+        build({}, {});
+        build({ readOnly: true }, { applyKeyed: applied });
+        build({ edits: { insertRows: false } }, { applyKeyed: applied });
+        // `newKey` is typed over the rows' key.
+        assert.throws(() => build({ newKey: East.function([SetType(StringType)], StringType, (_$, _taken) => "11") }, { applyKeyed: applied }),
+            /`newKey` takes the keys taken and gives a new one — an East function from .+ to \.DateTime/);
+    });
+
+    test("a new row's key is the app's: the keys taken cross as their text, and its key comes back as its own", () => {
+        const root = numberSheet();
+        if (root.newKey.type !== "some") assert.fail("expected the app's newKey on the wire");
+        // 3 and 4 are taken, read back as numbers: the first number from their count up that neither is.
+        assert.equal(root.newKey.value(new SortedSet(["3", "4"], compareFor(StringType))), "5");
+        assert.equal(textSheet().newKey.type, "none", "with no newKey, a String key is the renderer's to mint");
+    });
+
+    test("with no `newKey`, an Integer key is one past the largest of the keys taken, by number — never by text — and 1 with none taken (#1549)", () => {
+        const applied = East.asyncFunction([Editing.Types.ChangeSet(JobType, IntegerType)], Editing.Types.ApplyResult,
+            (_$, _batch) => East.value(variant("applied", { revision: none }), Editing.Types.ApplyResult));
+        const root = East.compile(East.function([], Sheet.Types.Root, ($) => {
             const jobs = $.const(BY_NUMBER, numberJobs);
-            $(createSheetRootWith(jobs, COLUMNS, {}, { keyOrdered: true }));
-        }), /the rows are keyed by \.Integer, and a new row's key is minted only for a String key — pass `newRowId`/);
+            return createSheetRootWith(jobs, COLUMNS, {}, { keyOrdered: true, applyKeyed: applied });
+        }), [])();
+        if (root.newKey.type !== "some") assert.fail("expected one past the largest on the wire");
+        // 9 and 10 taken: 11, though the texts' largest is "9".
+        assert.equal(root.newKey.value(new SortedSet(["9", "10"], compareFor(StringType))), "11");
+        assert.equal(root.newKey.value(new SortedSet([], compareFor(StringType))), "1");
+    });
+
+    test("paging the record's own entries, an Integer key is one past the last they hold once that read lands, none made until then; over a narrowing it is the app's (#1549)", () => {
+        const applied = East.asyncFunction([Editing.Types.ChangeSet(JobType, IntegerType)], Editing.Types.ApplyResult,
+            (_$, _batch) => East.value(variant("applied", { revision: none }), Editing.Types.ApplyResult));
+        // The record's own entries a window at a time, as `Data.bindPaged(record)` serves them: three, the last job 20, read.
+        const landed = East.compile(East.function([], Sheet.Types.Root, ($) => {
+            const window = $.const({
+                id: "jobs",
+                page: East.function([IntegerType, IntegerType], OptionType(numberJobs), (_$, _offset, _limit) => some(LAST_JOB)),
+                total: East.function([], OptionType(IntegerType), (_$) => some(3n)),
+                seek: none,
+                revision: East.function([], OptionType(StringType), (_$) => some("r1")),
+                refresh: East.function([OptionType(StringType)], NullType, (_$, _to) => null),
+            }, PinnedSourceType(numberJobs));
+            return createSheetRootWith(window, COLUMNS, {}, { applyKeyed: applied });
+        }), [])();
+        // The same entries while every read of them is in flight.
+        const reading = East.compile(East.function([], Sheet.Types.Root, ($) => {
+            const window = $.const({
+                id: "jobs",
+                page: East.function([IntegerType, IntegerType], OptionType(numberJobs), (_$, _offset, _limit) => none),
+                total: East.function([], OptionType(IntegerType), (_$) => none),
+                seek: none,
+                revision: East.function([], OptionType(StringType), (_$) => some("r1")),
+                refresh: East.function([OptionType(StringType)], NullType, (_$, _to) => null),
+            }, PinnedSourceType(numberJobs));
+            return createSheetRootWith(window, COLUMNS, {}, { applyKeyed: applied });
+        }), [])();
+        // A narrowing of them, as a rail's `rows` source serves it: its last, job 20, the last it keeps — never the record's.
+        const narrowed = (options: object) => East.function([], Sheet.Types.Root, ($) => {
+            const window = $.const({
+                id: "jobs",
+                page: East.function([IntegerType, IntegerType], OptionType(numberJobs), (_$, _offset, _limit) => some(LAST_JOB)),
+                total: East.function([], OptionType(IntegerType), (_$) => some(3n)),
+                seek: none,
+                revision: East.function([], OptionType(StringType), (_$) => some("r1")),
+                refresh: East.function([OptionType(StringType)], NullType, (_$, _to) => null),
+                query: East.function([], StringType, (_$) => "status=Ready"),
+            }, LiveSourceType(numberJobs));
+            return createSheetRootWith(window, COLUMNS, options, { applyKeyed: applied });
+        });
+        if (landed.newKey.type !== "some" || reading.newKey.type !== "some") assert.fail("expected one past the largest on the wire");
+        const taken = new SortedSet(["9", "10"], compareFor(StringType));
+        // 9 and 10 taken, and job 20 the record's last: 21.
+        assert.equal(landed.newKey.value(taken), "21");
+        // The last key still being read: no key is made, for one past the keys taken alone may be one the record holds.
+        const unread = reading.newKey.value;
+        assert.throws(() => unread(taken), /the record's last key is still being read — try again in a moment/);
+        // Over a narrowing the app makes it, or the sheet adds no row.
+        assert.throws(() => narrowed({}),
+            /the rows are keyed by Integer and read through a narrowing, which can't say the record's largest key — a new row's is one past it — pass `newKey`, an East function from the keys taken to a new one, or `edits=\{\{ insertRows: false \}\}`/);
+        narrowed({ edits: { insertRows: false } });
+        narrowed({ newKey: East.function([SetType(IntegerType)], IntegerType, (_$, keys) => keys.size().add(100n)) });
     });
 
     test("a keyed Apply takes the session's keyed batch, and no onApply or onUpdate beside it", () => {

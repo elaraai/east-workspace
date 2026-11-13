@@ -16,18 +16,21 @@
  *   segment for the next cell; the buffer the machine holds is the date's
  *   edit form, so the commit parses exactly what the field shows;
  * - a **quantity** / **integer** column mounts the common number field
- *   (the stepper column on its right edge, ↑ / ↓ step, digits only);
+ *   (the stepper column on its right edge, ↑ / ↓ step), which takes what the
+ *   quantity grammar reads — digits, the decimal separator, a `k` or `m`;
  * - a **text** / **custom** column mounts the common text input;
  * - the **register kinds** (lookup · reference) keep the typed buffer — one
  *   mono input with the inline ghost drawn in a mirror behind the caret, a
  *   `→ replacement` preview and a `k/n` badge — because their candidates
  *   live in the docked strip, never in a popover (B§9);
- * - an **enum** column mounts the common combobox the way a
+ * - an **enum** column — and a Record's **person** column, the menu of its
+ *   register's people — mounts the common combobox the way a
  *   date column mounts the common date field: the Chakra combobox parts
  *   over the machine's own buffer and candidates (`options`, best first),
- *   the list open while the editor is, the armed candidate highlighted, a
- *   click on an option committing it. The machine keeps every key — ⏎ ⇥
- *   esc ↑ ↓ are captured before the combobox sees them;
+ *   each option its member in the words its cell shows, the list open while
+ *   the editor is, the armed candidate highlighted, a click on an option
+ *   committing that member. The machine keeps every key — ⏎ ⇥ esc ↑ ↓ are
+ *   captured before the combobox sees them;
  * - a **link** / **set** column draws BOTH halves on the cell's own grid:
  *   the active half carries a 1.5 px brand underline and the only input;
  *   the other half's chips are clickable to move the caret. Existing content
@@ -37,7 +40,7 @@
  * The editor stops keyboard propagation: the sheet owns every other key.
  */
 
-import { memo, useEffect, useMemo, useRef, type KeyboardEvent, type ChangeEvent, type FocusEvent, type MouseEvent, type ReactNode } from "react";
+import { memo, useEffect, useMemo, useRef, type KeyboardEvent, type ChangeEvent, type FocusEvent, type InputEvent, type MouseEvent, type ReactNode } from "react";
 import { Box, Combobox as ChakraCombobox, Input as ChakraInput, NumberInput as ChakraNumberInput, Portal, chakra, createListCollection, useCombobox } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faArrowRightLong, faChevronDown, faChevronUp, faMinus } from "@fortawesome/free-solid-svg-icons";
@@ -45,6 +48,7 @@ import type { DateValue } from "@internationalized/date";
 import { CompoundDateField, CompoundDateInput, CompoundDateSegment, dateToCalendarDate, dateValueToDate, useDensity } from "@elaraai/east-ui-components/internal";
 import { memberIsDashed, memberLabel, type SheetKind } from "./model.js";
 import { formatDateEdit, splitTimeToken, type WhenLevel } from "./parse/date.js";
+import { formatNumberBare, typedQuantity } from "./parse/quantity.js";
 import type { LinkVocabulary } from "./link/grammar.js";
 import type { LinkHalves } from "./link/sides.js";
 import type { LinkGroups } from "./sheet-state.js";
@@ -75,7 +79,7 @@ export interface LinkEditorView {
     single: boolean;
 }
 
-/** One option of an enum column's combobox: a register member, best first. */
+/** One option of a combobox column's menu: a register member, best first — its key, and the words its cell shows. */
 export interface EditorOption {
     key: string;
     label: string;
@@ -119,8 +123,10 @@ export interface SheetEditorProps {
     highlighted?: number | undefined;
     /** Browsing: the buffer is a whole option (or empty), so ↑ ↓ step the buffer through the options here instead of the machine's candidates. */
     browse?: boolean | undefined;
-    /** A click on an option: the sheet writes it and moves on. */
-    onPick?: ((label: string) => void) | undefined;
+    /** A click on an option: the sheet writes its member and moves on. */
+    onPick?: ((option: EditorOption) => void) | undefined;
+    /** ↑ ↓ while browsing reach an option: the buffer holds its member — the one of two who share its words. */
+    onBrowse?: ((option: EditorOption) => void) | undefined;
     /** A date column's level for this row (#844): at `time` the field grows a time box. */
     whenLevel?: WhenLevel | undefined;
     onChange: (val: string) => void;
@@ -139,8 +145,8 @@ const COMBOBOX_MACHINE_KEYS = new Set(["Enter", "Escape", "Tab", "ArrowUp", "Arr
  * field reads with `parseFloat` and prints with `String` whatever its locale,
  * so `1234,5` would open as `1234`. Fifteen significant digits: a float prints
  * as it was written up to there (it carries about sixteen). The field shows
- * and takes the bare form, so a group separator is never typed into it; a
- * pasted grouped number still reads through the grammar. On ⏎ and on a blur
+ * the bare form; what it TAKES as it is typed is the grammar's to say, never
+ * this format's ({@link SheetEditor}'s number field). On ⏎ and on a blur
  * the field rewrites its value in this format, but its handlers run after
  * the editor's (Zag merges the given handlers first), so a commit always
  * reads the buffer, never that rewrite.
@@ -152,12 +158,19 @@ const INTEGER_FORMAT: Intl.NumberFormatOptions = { useGrouping: false, maximumFr
 /** The window after a hop in which a blur is the OLD input going away, not the planner leaving. */
 const HOP_GRACE_MS = 300;
 
-/** The register kinds — the typed buffer with the ghost mirror (B§3.1); an enum column mounts the combobox instead. */
+/** The register kinds — the typed buffer with the ghost mirror (B§3.1); an enum or a person column mounts the combobox instead. */
 function isRegisterKind(kind: SheetKind): boolean {
-    return kind === "lookup" || kind === "reference" || kind === "enum";
+    return kind === "lookup" || kind === "reference" || kind === "enum" || kind === "person";
 }
-function isComboboxKind(kind: SheetKind): boolean {
-    return kind === "enum";
+
+/**
+ * Whether a column's editor is the combobox: its register's members in a menu.
+ *
+ * @param kind - The column kind
+ * @returns Whether it is an enum or a person column
+ */
+export function isComboboxKind(kind: SheetKind): boolean {
+    return kind === "enum" || kind === "person";
 }
 
 /** The keys a field hands the machine — the rest are the field's own. */
@@ -172,11 +185,12 @@ function segmentsOf(root: HTMLElement | null): HTMLElement[] {
 }
 
 /** Renders the overlay editor. */
-export const SheetEditor = memo(function SheetEditor({ styles, kind, value, date, seed, ghost, resolve, badge, error, focus, ariaLabel, link, options, highlighted, browse, onPick, whenLevel, onChange, onKey, onBlur, onHalfDown }: SheetEditorProps) {
+export const SheetEditor = memo(function SheetEditor({ styles, kind, value, date, seed, ghost, resolve, badge, error, focus, ariaLabel, link, options, highlighted, browse, onPick, onBrowse, whenLevel, onChange, onKey, onBlur, onHalfDown }: SheetEditorProps) {
     const density = useDensity();
     const controlSize = density === "comfortable" ? "md" : density === "condensed" ? "xs" : "sm";
     // The number field reads and steps the buffer in the viewer's language — the one the cells print and the grammar reads (#852) — and the editor speaks the sheet's words (#861).
-    const { locale, m } = useSheetWords();
+    const words = useSheetWords();
+    const { locale, m } = words;
     const rootRef = useRef<HTMLDivElement | null>(null);
     const inputRef = useRef<HTMLInputElement | null>(null);
     const lastFocus = useRef("");
@@ -206,7 +220,7 @@ export const SheetEditor = memo(function SheetEditor({ styles, kind, value, date
         disableLayer: true,
         positioning: { placement: "bottom-start", gutter: 4, sameWidth: false },
         onInputValueChange: (d) => { if (d.inputValue !== value) onChange(d.inputValue); },
-        onValueChange: (d) => { const o = items.find((x) => x.key === d.value[0]); if (o !== undefined) onPick?.(o.label); },
+        onValueChange: (d) => { const o = items.find((x) => x.key === d.value[0]); if (o !== undefined) onPick?.(o); },
     });
     const focusKey = `${focus.seq}:${link?.hop ?? 0}:${link?.side ?? -1}`;
     // A PASSIVE effect, after the fields' own: the number field's machine
@@ -248,12 +262,22 @@ export const SheetEditor = memo(function SheetEditor({ styles, kind, value, date
         const atEnd = el.selectionStart === el.value.length && el.selectionEnd === el.value.length;
         if (forward(e, atEnd)) e.preventDefault();
     };
-    // The integer field takes digits and a leading minus, like the common integer input.
-    const handleIntegerKey = (e: KeyboardEvent<HTMLInputElement>) => {
-        const control = e.key.length > 1 || e.metaKey || e.ctrlKey || e.altKey;
-        const minus = e.key === "-" && e.currentTarget.selectionStart === 0 && !e.currentTarget.value.includes("-");
-        if (!control && !minus && !/^\d$/.test(e.key)) { e.preventDefault(); e.stopPropagation(); return; }
-        handleKey(e);
+    // The number field takes what the quantity grammar reads, not what its own
+    // format does: that dropped a key without a word, so `1.005k` read 1.005
+    // and `2.5` in an integer column 25. A `k` or `m` completing a number
+    // turns the text into that number, so the field steps from it; a fraction
+    // in an integer column stays, for the strip to call unrecognised and the
+    // commit to refuse. Judged here, on the way down, the key never reaches
+    // the field's own check on the input.
+    const handleNumberInput = (e: InputEvent<HTMLDivElement>) => {
+        const el = inputRef.current;
+        if (el === null || e.target !== el) return;
+        e.stopPropagation();
+        const at = el.selectionStart ?? el.value.length;
+        const typed = typedQuantity(`${el.value.slice(0, at)}${e.data}${el.value.slice(el.selectionEnd ?? at)}`, words.separators);
+        if (typed.kind === "take") return;
+        e.preventDefault();
+        if (typed.kind === "read") onChange(formatNumberBare(typed.n, words));
     };
     // The date field owns its keys (digits, arrows, backspace); ⏎ and esc are
     // the sheet's, and ⇥ is the sheet's only at the edge segments.
@@ -282,13 +306,13 @@ export const SheetEditor = memo(function SheetEditor({ styles, kind, value, date
     const handleComboboxKeyCapture = (e: KeyboardEvent<HTMLElement>) => {
         if (!COMBOBOX_MACHINE_KEYS.has(e.key)) return;
         e.stopPropagation();
-        // Browsing: ↑ ↓ step the buffer through the options; ⏎ then commits it.
+        // Browsing: ↑ ↓ step the buffer through the options — by member, so a namesake is reached too; ⏎ then commits it.
         if (browse === true && (e.key === "ArrowDown" || e.key === "ArrowUp") && items.length > 0) {
             e.preventDefault();
             const i = highlighted ?? -1;
             const next = e.key === "ArrowDown" ? Math.min(i + 1, items.length - 1) : Math.max(i - 1, 0);
             const o = items[next];
-            if (o !== undefined && o.label !== value) onChange(o.label);
+            if (o !== undefined && next !== i) onBrowse?.(o);
             return;
         }
         const el = inputRef.current;
@@ -369,13 +393,14 @@ export const SheetEditor = memo(function SheetEditor({ styles, kind, value, date
             formatOptions={kind === "integer" ? INTEGER_FORMAT : NUMBER_FORMAT}
             inputMode={kind === "integer" ? "numeric" : "decimal"}
             onValueChange={(d) => onChange(d.value)}
+            onBeforeInputCapture={handleNumberInput}
         >
             <ChakraNumberInput.Input
                 ref={inputRef}
                 css={styles.editorNumberInput}
                 aria-label={ariaLabel}
                 data-slot="editorInput"
-                onKeyDown={kind === "integer" ? handleIntegerKey : handleKey}
+                onKeyDown={handleKey}
                 onBlur={handleBlur}
                 onCopy={stop}
                 onPaste={stop}

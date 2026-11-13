@@ -40,6 +40,17 @@ frame assembly or invent parallel framed/frameless APIs without a requirement.
 Keep tag factories to validation, typed accessor adapters and payload assembly.
 Do not emit an East program implementing layout, sessions or gestures there.
 
+A builder that saves takes `autosave` (ruled 11 Nov 2026): where the Autosave
+switch in Save's menu begins, a `SubtypeExprOrValue<BooleanType>` — a literal,
+or an expression the app's data drives — off when left out. Its payload carries
+the Boolean beside its other settings, and the viewer's own flick, kept in
+their browser, stands over it. The switch is within reach at every width — on a
+phone too narrow for Save's chevron, in the More square that stands in
+Discard's place — so an author's on is never one nobody can turn off. The
+Allocation, the Calendar, the Flowchart, the Plan, the Record, the Roster, the
+Schematic and the Sheet take it; the Calendar's `calendarAutosave` example
+reads it from an input.
+
 ### Bind data and Slice as Plan does
 
 Bind editable records with their mutation doors inside `Reactive`. Resources,
@@ -508,7 +519,13 @@ beside its bytes, in one pass — the week's own row through the periods' `rows`
 and its targets through theirs, and places each duty in its slot, its day the
 UTC day whose shift start is nearest its start, with the drafts in place. A
 duty whose shift or group isn't configured, or that names no one, is listed in
-Issues and kept as stored. Coverage, checks and the views read that week, and
+Issues and kept as stored. A duty's group may be an `Option<String>` field, the
+first step of a roster made in two steps (#1548): `none` is a duty in no group
+yet, its place (`Roster.Types.Place`) holding no slot (`Roster.slotOf`), drawn
+on its person's row in People and in Shifts' No group band, counted in its
+person's hours, contract and rest and in no group's targets; a drop in a
+group's slot writes `some(group)`, one back `none`, and the optimiser's request
+and answer carry it as it stands. Coverage, checks and the views read that week, and
 each assignment carries its duty's own row, untouched, for the app's
 functions.
 
@@ -558,6 +575,20 @@ shift's; the week before only while the week holds no duty of its own, Copy's
 source; and the open picker's month. The months either side are read ahead
 as the weeks are (#1398). Do not read a whole record to build the picker. Test
 reverse navigation.
+
+A record the app's check reads beside the period's rows — a two-step roster's
+rota beside its duties, a delivery schedule beside the Allocation's bins
+(#1551) — is the slice's `reference` source, and the check is made from
+`CheckContext(R, P)`: the builder writes its window into it as into its kind's
+(the Roster's span and the twelve hours either side, the Allocation's day) and
+gives the check that window's rows as `reference`, a `Dict<String, P>` read
+through the source's interval index, its choices aside, never the record
+whole. Nothing draws it and the rail offers none of it. The tag refuses a
+reference source beside no check or a check of `CheckContext(R)`, a check
+reading reference rows the slice gives none of or rows of another type, and a
+kind in the slot `reference`, each naming the change (`schedule/reference.ts`
+and each tag's own check).
+The examples are `rosterRota` and `allocationDeliveries`.
 
 The People tab has no filter of its own: leads, trainers, agency and skill are
 rail fields of the staff record (#1342). A Find fix asks the app's fit (#1334):
@@ -737,14 +768,15 @@ Sunday/Monday week start.
 Pass date changes through the host's existing window/Slice owner. Preserve
 whole-week Roster reads and every week's drafts, and request status only for
 the open picker's month. Cancel and browsing must not write the Slice. Calendar's
-timeline labels the visible range and steps from its visible center; Today
-recenters even if the persisted date was already today. Do not duplicate the
-current date as detached toolbar text. Counts remain a separate folding item.
+timeline labels its period and steps it as every layout does, a scroll never
+moving it (ruled 9 Nov 2026); Today brings the now line into view even if the
+persisted date was already today. Do not duplicate the current date as detached
+toolbar text. Counts remain a separate folding item.
 
 Test all three consumers at 1440/1024/768/390/360 and a 294px parent:
 popup Today, all valid units, keyboard selection/cancel, hover versus selected
-styles, bounded reads, Slice writes, month/year boundaries and timeline
-recentring. Rebuild and check the actual HTTPS showcase before reporting that
+styles, bounded reads, Slice writes, month/year boundaries and the timeline's
+Today. Rebuild and check the actual HTTPS showcase before reporting that
 navigation changed.
 
 Plan's time navigator uses its active scale unit (including hour, quarter and

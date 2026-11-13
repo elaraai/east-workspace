@@ -6,7 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-    DateTimeType, IntegerType, OptionType, SetType, StringType, StructType, decodeBeast2For, encodeBeast2For, none, parseFor, printFor, some, variant,
+    DateTimeType, IntegerType, OptionType, SetType, StringType, StructType, decodeBeast2For, encodeBeast2For, equalFor, none, parseFor, printFor, some, variant,
     type ValueTypeOf,
 } from "@elaraai/east";
 import { RecordSliceConfigType, RecordSliceStateType, RecordSliceChoiceType, RecordSliceController, type RecordSliceBinding } from "@elaraai/east-ui/internal";
@@ -24,6 +24,12 @@ const config = decodeBeast2For(Config)(encodeBeast2For(Config)({
 }));
 const Row = StructType({ status: StringType, due: OptionType(IntegerType) });
 const values = (...v: string[]) => variant("values", v);
+/** An Integer read from its East text. */
+function parseInteger(text: string): bigint {
+    const read = parseFor(IntegerType)(text);
+    assert.ok(read.success, text);
+    return read.value;
+}
 function state(): ValueTypeOf<RecordSliceStateType> {
     return decodeBeast2For(RecordSliceStateType)(encodeBeast2For(RecordSliceStateType)({
         where: new Map<string, ValueTypeOf<RecordSliceChoiceType>>([
@@ -404,6 +410,174 @@ test("the rows of several of the record's keys are read in one request when the 
         "rows read across a revision's move are none: the next read asks again at the new one");
     revision = "A";
     assert.throws(() => controllerOf(bindingOf(true, () => some([]))).rows(["a"]), /a different number of rows/);
+});
+
+/**
+ * A record whose rows are filed under their status: `held` at the index's rows 0 to 9, `late` at 10 to 19. It counts
+ * every read, and batches its reads when asked to.
+ */
+function membershipFixture(batches: { within?: boolean; rows?: boolean } = {}) {
+    const printString = printFor(StringType);
+    const encode = encodeBeast2For(Row);
+    const stored = new Map<string, ValueTypeOf<typeof Row>>([["c", { status: "late", due: none }]]);
+    const rowOfStatus = new Map([[printString("held"), 0n], [printString("late"), 10n]]);
+    const log = { rows: [] as unknown[][], within: [] as (readonly { ik: string; key: unknown }[])[], pages: 0, seeks: 0 };
+    let revision = "A";
+    let pending = false;
+    const binding: RecordSliceBinding = {
+        id: "many", recordId: "many", defaultIndex: "primary", revision: () => some(revision), refresh: () => null,
+        total: () => some(20n),
+        entryKeys: (_index, _key, row) => [printString((row as ValueTypeOf<typeof Row>).status)],
+        seek(_index, query) {
+            log.seeks++;
+            assert.equal(query.type, "fields");
+            const fields = query.type === "fields" ? query.value.values : [];
+            return some({ found: true, row: rowOfStatus.get(fields[0]!) ?? 20n, count: 10n });
+        },
+        page() { log.pages++; return none; },
+        ...(batches.within === false ? {} : {
+            withinAll(_index: string, runs: readonly { row: bigint; count: bigint }[], entries: readonly { ik: string; key: unknown }[]) {
+                log.within.push(entries);
+                return some(entries.map(({ ik }) => {
+                    const row = rowOfStatus.get(ik) ?? 20n;
+                    return runs.some(run => row >= run.row && row < run.row + run.count);
+                }));
+            },
+        }),
+        ...(batches.rows === false ? {} : {
+            rowsAll(asking: readonly unknown[]) {
+                log.rows.push([...asking]);
+                if (pending) return none;
+                return some(asking.map(key => (stored.has(key as string) ? some(stored.get(key as string)!) : none)));
+            },
+        }),
+    };
+    const empty = decodeBeast2For(RecordSliceStateType)(encodeBeast2For(RecordSliceStateType)({ where: new Map(), preset: none, resolution: none }));
+    const controller = new RecordSliceController(binding, config, Row, () => empty, () => {});
+    const late = new Map([["status", values(printString("late"))]]);
+    const heldRow = (status: string) => encode({ status, due: none });
+    return { controller, late, heldRow, log, stored, encode, pending(value: boolean) { pending = value; }, move() { revision = "B"; } };
+}
+
+test("several entries' membership is one read: the rows not held by key in one request, every row's entries in one more; an entry the record lacks is outside it (#1596)", () => {
+    const f = membershipFixture();
+    const ids = ["a", "b", "c", "d"];
+    const held = new Map([["a", f.heldRow("held")], ["b", f.heldRow("late")]]);
+    const answer = (asked: ReturnType<RecordSliceController["containsAll"]>) => (asked?.type === "some" ? [...asked.value] : asked);
+    assert.deepEqual(answer(f.controller.containsAll(f.late, ids, held)), [["d", false], ["a", false], ["b", true], ["c", true]]);
+    assert.deepEqual(f.log.rows, [["c", "d"]], "only the rows it does not hold, in one request");
+    assert.equal(f.log.within.length, 1, "every row's entries in one read");
+    assert.deepEqual(f.log.within[0]!.map(({ ik, key }) => [ik, key]), [[printFor(StringType)("held"), "a"], [printFor(StringType)("late"), "b"], [printFor(StringType)("late"), "c"]]);
+    assert.equal(f.log.pages, 0, "and no row is read a page at a time");
+
+    // Asked again while the question stands: no row read or made again, the same entries asked of.
+    f.controller.containsAll(f.late, ids, held);
+    assert.equal(f.log.rows.length, 1);
+    assert.ok(Object.is(f.log.within[1], f.log.within[0]));
+
+    // A move starts again: its rows are that revision's.
+    f.move();
+    f.controller.containsAll(f.late, ids, held);
+    assert.equal(f.log.rows.length, 2);
+    assert.ok(!Object.is(f.log.within[2], f.log.within[0]));
+});
+
+test("a read of several entries' membership is none while it is pending, nothing for no entries, and left to single reads where the binding does not batch (#1596)", () => {
+    const pending = membershipFixture();
+    pending.pending(true);
+    assert.deepEqual(pending.controller.containsAll(pending.late, ["c"], undefined), none);
+    assert.equal(pending.log.within.length, 0, "no entry is asked of before its row is read");
+
+    const empty = membershipFixture();
+    const none_ = empty.controller.containsAll(empty.late, [], undefined);
+    assert.ok(none_?.type === "some" && none_.value.size === 0);
+    assert.equal(empty.log.seeks + empty.log.rows.length + empty.log.within.length, 0, "no entry asks nothing");
+
+    for (const batches of [{ within: false }, { rows: false }]) {
+        const single = membershipFixture(batches);
+        assert.equal(single.controller.containsAll(single.late, ["c"], undefined), undefined);
+    }
+});
+
+test("a membership read of more entries than its reader holds answers of settles while it is asked with the same identities: each row read and its entries made once, each part's answers kept as it lands (#1596)", () => {
+    // 45,000 rows, every third one late. The reader holds at most 40,000 answers, as the paging runtime does, the least
+    // recently landed going first: by the time the last part of a read lands, some of the first part's answers have gone.
+    const printString = printFor(StringType);
+    const HELD = 40_000;
+    const ids = Array.from({ length: 45_000 }, (_, i) => `k${i}`);
+    const statusOf = (key: unknown) => (parseInteger((key as string).slice(1)) % 3n === 0n ? "late" : "held");
+    const rowOfStatus = new Map([[printString("held"), 0n], [printString("late"), 10n]]);
+    const log = { rows: 0, made: 0, parts: [] as (readonly { ik: string; key: unknown }[])[] };
+    const answers = new Map<unknown, boolean>();
+    let flying: { part: readonly { ik: string; key: unknown }[]; runs: readonly { row: bigint; count: bigint }[] }[] = [];
+    /** The reads in flight land, in the order asked: their answers held, the oldest going past what the reader holds. */
+    const land = () => {
+        for (const { part, runs } of flying.splice(0)) {
+            for (const { ik, key } of part) {
+                const row = rowOfStatus.get(ik) ?? 20n;
+                answers.delete(key);
+                answers.set(key, runs.some(run => row >= run.row && row < run.row + run.count));
+            }
+            for (const key of answers.keys()) {
+                if (answers.size <= HELD) break;
+                answers.delete(key);
+            }
+        }
+    };
+    const binding: RecordSliceBinding = {
+        id: "many", recordId: "many", defaultIndex: "primary", revision: () => some("A"), refresh: () => null,
+        total: () => some(20n),
+        entryKeys: (_index, key) => { log.made++; return [printString(statusOf(key))]; },
+        seek(_index, query) {
+            const fields = query.type === "fields" ? query.value.values : [];
+            return some({ found: true, row: rowOfStatus.get(fields[0]!) ?? 20n, count: 10n });
+        },
+        page: () => none,
+        rowsAll(asking) { log.rows++; return some(asking.map(key => some({ status: statusOf(key), due: none }))); },
+        withinAll(_index, runs, part) {
+            log.parts.push(part);
+            // Answered only while every answer asked for is held: else the part is asked of e3 again.
+            if (part.every(({ key }) => answers.has(key))) return some(part.map(({ key }) => answers.get(key)!));
+            if (!flying.some(read => read.part === part)) flying.push({ part, runs });
+            return none;
+        },
+    };
+    const empty = decodeBeast2For(RecordSliceStateType)(encodeBeast2For(RecordSliceStateType)({ where: new Map(), preset: none, resolution: none }));
+    const controller = new RecordSliceController(binding, config, Row, () => empty, () => {});
+    const late = new Map([["status", values(printString("late"))]]);
+    // The Save's check asks the same identities each pass, as its reads land.
+    let read = controller.containsAll(late, ids, undefined);
+    let passes = 1;
+    for (; read?.type === "none" && passes < 8; passes++) {
+        land();
+        read = controller.containsAll(late, ids, undefined);
+    }
+    assert.ok(read?.type === "some", `the read settles: after ${passes} passes it has not`);
+    assert.equal(read.value.size, ids.length);
+    assert.ok(ids.every(id => read.value.get(id) === (statusOf(id) === "late")), "every third row is late, and only those are held");
+    assert.equal(log.rows, 1, "the rows read by key once");
+    assert.equal(log.made, ids.length, "each row's entries made once");
+    assert.ok(log.parts.length < 2 * passes * 5, "only the parts still to land are asked again");
+    assert.ok(new Set(log.parts).size === 5, "each part the same array whenever it is asked again: five parts, a read's worth each");
+});
+
+test("several saved entries are confirmed in one read, each as its single read answers it but as the read decoded it, a key the record lacks none (#1596)", () => {
+    const f = membershipFixture();
+    const read = f.controller.readEntries(["c", "b"]);
+    assert.ok(read?.type === "some");
+    assert.deepEqual([...read.value.keys()], ["c", "b"]);
+    const c = read.value.get("c");
+    assert.ok(c?.type === "some");
+    assert.ok(equalFor(Row)(c.value as ValueTypeOf<typeof Row>, f.stored.get("c")!), "the row as the record holds it, never encoded to be decoded again");
+    assert.deepEqual(read.value.get("b"), none);
+    assert.deepEqual(f.log.rows, [["c", "b"]], "one request");
+    assert.equal(f.log.seeks + f.log.pages, 0, "and no key search or page");
+
+    const pending = membershipFixture();
+    pending.pending(true);
+    assert.deepEqual(pending.controller.readEntries(["c"]), none);
+    const single = membershipFixture({ rows: false });
+    assert.equal(single.controller.readEntries(["c"]), undefined, "a binding that does not batch reads each by its key");
 });
 
 test("a value's count is its own, exact at a trillion rows a value, whether it alone is chosen or every value is", () => {

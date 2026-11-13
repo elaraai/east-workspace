@@ -16,7 +16,7 @@ import { act } from "react";
 import { render, screen, cleanup } from "@testing-library/react";
 import {
     NOT_KEPT, clearKept, kept, keptBytes, keptFlag, keptJson, keptName, keptRead, keptReachable, keptText, onClearKept,
-    onKeptFailure, resetKept, setKeptScope, useKept, type KeptFailure,
+    onKeptFailure, resetKept, setKeptScope, useKept, useKeptValue, type KeptFailure,
 } from "./kept.js";
 
 beforeEach(() => {
@@ -209,6 +209,30 @@ describe("kept state", () => {
         rerender(<Pane n={2} />);
         expect(screen.getByTestId("view").textContent).toBe("1");
         expect(seen.every((value) => value === seen[0])).toBe(true);
+    });
+
+    test("a component that says itself what stands for nothing kept reads the value as kept: nothing, until a write, whatever it stands for meanwhile — a default that moves", () => {
+        function Pane({ begins }: { begins: boolean }) {
+            const [chosen, choose, forget] = useKeptValue("pane.pinned", keptFlag);
+            return <>
+                <span data-testid="pinned">{String(chosen ?? begins)}</span>
+                <span data-testid="chosen">{String(chosen)}</span>
+                <button data-testid="unpin" onClick={() => choose(false)} />
+                <button data-testid="forget" onClick={forget} />
+            </>;
+        }
+        const read = () => [screen.getByTestId("pinned").textContent, screen.getByTestId("chosen").textContent, window.localStorage.getItem(keptName("pane.pinned"))];
+        const { rerender } = render(<Pane begins={false} />);
+        expect(read()).toEqual(["false", "undefined", null]);
+        // What stands for nothing kept is the component's, each render: it moves, and nothing is written.
+        rerender(<Pane begins={true} />);
+        expect(read()).toEqual(["true", "undefined", null]);
+        // A choice is kept, and stands over it.
+        act(() => { screen.getByTestId("unpin").click(); });
+        expect(read()).toEqual(["false", "false", "false"]);
+        // Forgotten, nothing is kept again.
+        act(() => { screen.getByTestId("forget").click(); });
+        expect(read()).toEqual(["true", "undefined", null]);
     });
 
     test("another tab's write moves nothing here: a reload reads it", () => {

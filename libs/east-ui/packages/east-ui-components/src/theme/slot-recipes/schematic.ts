@@ -316,7 +316,7 @@ export const schematicSlotRecipe = defineSlotRecipe({
                 outlineOffset: "-1px",
                 zIndex: "1",
             },
-            /* Holding a conflict not yet chosen, the conflicts' warn ring at the card's edge. */
+            /* Holding a conflict not yet chosen, or a number outside its bounds, the conflicts' warn ring at the card's edge. */
             ...conflictRing,
             /* Emphasis: a matched card gets a brand ring. `halo` is a static
              * ring; `pulse` breathes — its ring width tracks the `--pulse` var
@@ -330,9 +330,9 @@ export const schematicSlotRecipe = defineSlotRecipe({
             },
             /* Holding a conflict too, the warn ring stays at the card's edge: a match's ring under it, a selection's
              * outline just outside it. */
-            "&[data-emphasis][data-conflict]": { boxShadow: `${CONFLICT_RING}, ${EMPHASIS_RING}` },
-            "&[data-emphasis=pulse][data-conflict]": { boxShadow: `${CONFLICT_RING}, ${PULSE_RING}` },
-            "&[data-selected][data-conflict]": { outlineOffset: "1px" },
+            "&[data-emphasis]:is([data-conflict], [data-bounds])": { boxShadow: `${CONFLICT_RING}, ${EMPHASIS_RING}` },
+            "&[data-emphasis=pulse]:is([data-conflict], [data-bounds])": { boxShadow: `${CONFLICT_RING}, ${PULSE_RING}` },
+            "&[data-selected]:is([data-conflict], [data-bounds])": { outlineOffset: "1px" },
             /* canConnect veto (#176): the hovered FORBIDDEN target rings danger
              * while a connect draft is over it (dot/label rings are canvas). */
             "&[data-forbidden]": {
@@ -472,11 +472,12 @@ export const schematicSlotRecipe = defineSlotRecipe({
         },
         /* Map-style ruler at the canvas's bottom-right — a bare bottom bracket
          * with quarter ticks and the distance floating above it; a text halo
-         * keeps it legible (the Mapbox convention). */
+         * keeps it legible (the Mapbox convention). In a phone's frame it stands
+         * clear of the footer's band laid over main's foot, as the minimap does. */
         scaleBar: {
             position: "absolute",
             right: "{spacing.3}",
-            bottom: "{spacing.2}",
+            bottom: "calc({spacing.2} + var(--builder-foot-inset, 0px))",
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
@@ -510,7 +511,7 @@ export const schematicSlotRecipe = defineSlotRecipe({
         minimap: {
             position: "absolute",
             left: "{spacing.2}",
-            bottom: "{spacing.2}",
+            bottom: "calc({spacing.2} + var(--builder-foot-inset, 0px))",
             background: "bg.surface",
             borderWidth: "1px",
             borderColor: "border.strong",
@@ -591,9 +592,12 @@ export const schematicSlotRecipe = defineSlotRecipe({
             outline: "none",
             "&:focus-visible [data-active]": { boxShadow: "focusInset" },
         },
-        /* Its rows' scroll box: the shared virtual rows', which the rows' offsets are measured from. */
+        /* Its rows' scroll box: the shared virtual rows', which the rows' offsets are measured from. The open zone's row,
+         * stuck at its top while the rows under it scroll (#1570), stands on the pane's paper, so no row shows through
+         * it; its own hover, selection and the zone in view draw over that. */
         indexRows: {
             position: "relative",
+            "& [data-virtual-stuck] > [data-index]": { background: "bg.surface" },
         },
         /* A row of the Index (the design system's tree row): 36px, no rule — the indent carries the structure,
          * 24px a level (`--index-depth`, its geometry); a zone's name 500, an item's 400 with its dot; hover the
@@ -632,9 +636,12 @@ export const schematicSlotRecipe = defineSlotRecipe({
             "&[data-open] svg": { transform: "rotate(90deg)" },
             "&[data-leaf]": { visibility: "hidden" },
         },
+        /* A row's name, in the design system's mono face as the Find list's keys are. */
         indexName: {
             flex: "1",
             minWidth: "0",
+            fontFamily: "mono",
+            fontVariantNumeric: "tabular-nums",
             whiteSpace: "nowrap",
             overflow: "hidden",
             textOverflow: "ellipsis",

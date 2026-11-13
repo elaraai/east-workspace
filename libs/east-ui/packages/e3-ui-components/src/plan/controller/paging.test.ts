@@ -45,6 +45,11 @@ function fixed(rows: PlanWireRow[]): PlanWireBlock {
     return { fixed: true, parent: none, charts: none, rows } as unknown as PlanWireBlock;
 }
 
+/** A window as a source serves it: its blocks, carrying no entries — these sources are read, never edited. */
+function served(blocks: PlanWireBlock[]): option<{ rows: PlanWireBlock[]; entries: never[] }> {
+    return some({ rows: blocks, entries: [] });
+}
+
 /** A skeleton carrying what these tests measure by — a row count. The model's
  *  own skeletons are tested with the model; the driver only keeps them. */
 function countSkeleton(rows: readonly PlanRowValue[]): WindowSkeleton {
@@ -83,7 +88,7 @@ function source(windows: number, rowsPer = 2) {
             const pad = String(w).padStart(4, "0");
             const rows: PlanWireRow[] = [];
             for (let i = 0; i < rowsPer; i++) rows.push(wire(`w${pad}r${String(i).padStart(3, "0")}`));
-            return some([paged(rows)]);
+            return served([paged(rows)]);
         },
         total: () => some(BigInt(windows * PLAN_PAGE_SIZE)),
         seek: none,
@@ -285,7 +290,7 @@ describe("paging driver — pins and totals (#614)", () => {
             page: (offset: bigint) => {
                 const w = Number(offset) / PLAN_PAGE_SIZE;
                 asked.push(w);
-                return some([paged([wire(`w${w}`)])]);
+                return served([paged([wire(`w${w}`)])]);
             },
             total: () => some(total),
             seek: none,
@@ -323,7 +328,7 @@ describe("paging driver — a pending jump owns the viewport (#812)", () => {
                 if (w === broken) throw new Error("fetch failed: 503");
                 if (w >= 100 && !state.open) return none;
                 const pad = String(w).padStart(4, "0");
-                return some([paged([wire(`w${pad}r000`), wire(`w${pad}r001`)])]);
+                return served([paged([wire(`w${pad}r000`), wire(`w${pad}r001`)])]);
             },
             total: () => some(BigInt(windows * PLAN_PAGE_SIZE)),
             seek: none,
@@ -404,7 +409,7 @@ describe("paging driver — a window loading beside the run never moves it (#876
                 const pad = String(w).padStart(4, "0");
                 const rows: PlanWireRow[] = [];
                 for (let i = 0; i < rowsPer; i++) rows.push(wire(`w${pad}r${String(i).padStart(3, "0")}`));
-                return some([paged(rows)]);
+                return served([paged(rows)]);
             },
             total: () => some(BigInt(windows * PLAN_PAGE_SIZE)),
             seek: none,
@@ -619,7 +624,7 @@ describe("paging driver — a failed window (#811)", () => {
                 asked.push(w);
                 if (w === 1 && state.failing) throw new Error("fetch failed: 503");
                 const pad = String(w).padStart(4, "0");
-                return some([paged([wire(`w${pad}r000`), wire(`w${pad}r001`)])]);
+                return served([paged([wire(`w${pad}r000`), wire(`w${pad}r001`)])]);
             },
             total: () => some(BigInt(windows * PLAN_PAGE_SIZE)),
             seek: none,
@@ -686,7 +691,7 @@ describe("paging driver — a failed window (#811)", () => {
                 asked.push(w);
                 if (w === 1 && held) throw new Error("fetch failed: 503");
                 const pad = String(w).padStart(4, "0");
-                return some([paged([wire(`w${pad}r000`), wire(`w${pad}r001`)])]);
+                return served([paged([wire(`w${pad}r000`), wire(`w${pad}r001`)])]);
             },
             total: () => some(BigInt(50 * PLAN_PAGE_SIZE)),
             seek: none,
@@ -770,7 +775,7 @@ describe("paging driver — a derived source whose rows change (#590)", () => {
             id,
             page: (offset: bigint) => {
                 const w = Number(offset) / PLAN_PAGE_SIZE;
-                return some([paged([wire(`${label}-w${w}`)])]);
+                return served([paged([wire(`${label}-w${w}`)])]);
             },
             total: () => some(BigInt(PLAN_PAGE_SIZE)),
             seek: none,
@@ -825,7 +830,7 @@ describe("paging driver — content revisions (#821)", () => {
                 const w = Number(offset) / PLAN_PAGE_SIZE;
                 if (!state.open.has(state.revision)) return none;
                 const pad = String(w).padStart(4, "0");
-                return some([paged([wire(`w${pad}r000`, { rev: state.revision }), wire(`w${pad}r001`, { rev: state.revision })])]);
+                return served([paged([wire(`w${pad}r000`, { rev: state.revision }), wire(`w${pad}r001`, { rev: state.revision })])]);
             },
             total: () => (state.open.has(state.revision) ? some(BigInt(state.total)) : none),
             seek: none,
@@ -883,7 +888,7 @@ describe("paging driver — content revisions (#821)", () => {
                 const w = Number(offset) / PLAN_PAGE_SIZE;
                 if (!state.open.has(state.revision)) return none;
                 const pad = String(w).padStart(4, "0");
-                return some([fixed([wire("hdr", { rev: state.revision })]), paged([wire(`w${pad}r000`, { rev: state.revision })])]);
+                return served([fixed([wire("hdr", { rev: state.revision })]), paged([wire(`w${pad}r000`, { rev: state.revision })])]);
             },
             total: () => (state.open.has(state.revision) ? some(BigInt(50 * PLAN_PAGE_SIZE)) : none),
             seek: none,
@@ -979,7 +984,7 @@ describe("paging driver — a new narrowing is a new result (#1354)", () => {
                 asked.push(`${state.narrowing}:${w}`);
                 if (!state.open.has(state.narrowing)) return none;
                 const pad = String(w).padStart(4, "0");
-                return some([paged([wire(`w${pad}r000`, { narrowing: state.narrowing }), wire(`w${pad}r001`, { narrowing: state.narrowing })])]);
+                return served([paged([wire(`w${pad}r000`, { narrowing: state.narrowing }), wire(`w${pad}r001`, { narrowing: state.narrowing })])]);
             },
             total: () => (state.open.has(state.narrowing) ? some(BigInt(windows * PLAN_PAGE_SIZE)) : none),
             seek: none,
@@ -1054,7 +1059,7 @@ describe("paging driver — a new narrowing is a new result (#1354)", () => {
                 const w = Number(offset) / PLAN_PAGE_SIZE;
                 if (!state.landed.has(`${state.narrowing}:${w}`)) return none;
                 const pad = String(w).padStart(4, "0");
-                return some([paged([wire(`w${pad}r000`, { narrowing: state.narrowing })])]);
+                return served([paged([wire(`w${pad}r000`, { narrowing: state.narrowing })])]);
             },
             total: () => some(BigInt(50 * PLAN_PAGE_SIZE)),
             seek: none,
@@ -1094,7 +1099,7 @@ describe("paging driver — blocks page apart (#823)", () => {
                 const rowsOf = (series: string) => Array.from({ length: rowsPer },
                     (_, i) => wire(`w${pad}r${String(i).padStart(3, "0")}`, { id: rowId(`w${pad}r${String(i).padStart(3, "0")}`, series) }));
                 const blocks = [paged(rowsOf("span")), paged(rowsOf("heat"))];
-                return some(opts?.header === true ? [fixed([wire("hdr")]), ...blocks] : blocks);
+                return served(opts?.header === true ? [fixed([wire("hdr")]), ...blocks] : blocks);
             },
             total: () => some(BigInt(windows * PLAN_PAGE_SIZE)),
             seek: none,
@@ -1171,7 +1176,7 @@ describe("paging driver — blocks page apart (#823)", () => {
     test("each paged block says what each entry makes of chart rows, as its shape says it; a fixed block says nothing (#1398)", () => {
         const value = {
             id: "charted",
-            page: () => some([fixed([wire("hdr")]), paged([wire("a")], undefined, 2n), paged([wire("b")])]),
+            page: () => served([fixed([wire("hdr")]), paged([wire("a")], undefined, 2n), paged([wire("b")])]),
             total: () => some(BigInt(PLAN_PAGE_SIZE)),
             seek: none,
             revision: () => none,
@@ -1265,7 +1270,7 @@ describe("the probe, inverted — a window holds its entries whole (#823)", () =
             const w = Number(offset) / PLAN_PAGE_SIZE;
             const hall = `H${w + 1}`;
             const presses = [0, 1, 2, 3].map((k) => full(`p${String(w + 1 + 2 * k).padStart(3, "0")}`, spanKind, hall));
-            return some([paged([full(hall, groupKind), ...presses])]);
+            return served([paged([full(hall, groupKind), ...presses])]);
         },
         total: () => some(BigInt(2 * PLAN_PAGE_SIZE)),
         seek: none,

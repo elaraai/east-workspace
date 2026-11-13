@@ -17,7 +17,11 @@
  * (`details-pane.tsx`, R35, R36) — then:
  *
  * - **a state**: its key, printed — a new state's the viewer's to change until
- *   Save, the transitions naming it following (R9) — its label and its lane,
+ *   Save, the transitions naming it following (R9), in the form's own editor
+ *   for its key type: a struct key's fields, a date's input, a number's
+ *   (#1549), a key of several parts typed a part at a time and taken whole by
+ *   Set key (#1581, `shared/schedule/key-draft.tsx`); a key its kind builds
+ *   from the row is printed — its label and its lane,
  *   the lane chosen from the lanes, each written as the canvas's rename and
  *   move write them (R8); its kind's form over the fields no role writes, or
  *   its kind's own Details in the form's place; Duplicate and Delete; and its
@@ -40,6 +44,12 @@
  *   transitions planned · observed · unresolved; each record's last save and
  *   who made it; and its hints.
  *
+ * Every list Details chooses from — a state's lane, a transition's ends and
+ * its decision, the lane several states move to — offers its rows in their
+ * keys' order at their kind's key type (#1584): never the drawing's, where a
+ * state second in its lane comes after every lane's first, nor their texts',
+ * where 10 comes before 9.
+ *
  * Every edit is one step of the history, through the gestures the canvas
  * makes (`edits.ts`): a role through its kind's `write`, a field of the form
  * through its kind's `set`, and the row an own Details hands back, whole. A
@@ -47,9 +57,23 @@
  * bound read only, or the Flowchart `readOnly` (R13) — Details prints every
  * field and edits none, an own Details giving way to the form; while a record
  * takes no edit — a Save in flight, or what the canvas draws standing in while
- * a new narrowing is read — its controls are off. A key typed that the
- * Flowchart holds already, or one left empty, is refused, the footer saying
- * why, and the field shows the key it has.
+ * a new narrowing is read — its controls are off. A field's edit refused leaves
+ * the field showing what its row holds: one the Flowchart says why of — a key
+ * typed that a row stands under already, or left empty; a key its fields build
+ * that another row holds; a row that would move while what may name it isn't
+ * held — says so under the field, as the footer does, the keyboard where the
+ * edit left it (`FieldForm`'s refusal); one refused with nothing to say — its
+ * kind's own `set` or `write` refusing it — draws its form again. A key whose
+ * row a draft deletes is free (#1581). A number a row holds outside its
+ * field's bounds is said in the tone the row's Save stands in (#1585): a
+ * warning as stored, an error once its record's session refuses the row's
+ * change, holding Save. A field its record's session's refusal names — the
+ * app's check of the row's change, a new row's key still to be typed — takes
+ * the warn wash and says the refusal's words under it (ruled 13 Nov 2026):
+ * Details lists no issue, so the field itself says why it is named. An issue
+ * gone to, from the toolbar or from its line in
+ * Issues, puts the keyboard in the field it names, the inspector opened at
+ * Details where it is collapsed or at Issues.
  *
  * Details keeps the keyboard (#1398): a control that goes with the view it
  * belongs to — Delete, which leaves nothing selected; Duplicate and a
@@ -58,11 +82,13 @@
  * (`../shared/focus-home.ts`), never on the page's body.
  *
  * Issues (R16) lists the Flowchart's issues (`issues.ts`), each a control that
- * selects what it names and brings it into view. An issue of an unsaved change
- * the narrowing hides says on a line of its own which of the rail's choices
- * hide it, asked of e3 through its source's hidden pick, and Go to issue on it
- * is the frame's hidden pick: those choices cleared, then selected once it is
- * drawn (R11).
+ * selects what it names and brings it into view, the field it names taking
+ * the keyboard in its Details, as the toolbar's issue gone to puts it there:
+ * the viewer lands where the issue is fixed, not left on Issues. An issue of
+ * an unsaved change the narrowing hides says on a line of its own which of the
+ * rail's choices hide it, asked of e3 through its source's hidden pick, and Go
+ * to issue on it is the frame's hidden pick: those choices cleared, then
+ * selected once it is drawn (R11).
  *
  * Its look is the `flowchartInspector` recipe's, the form's `fieldForm`'s and
  * the buttons the shared `button`'s; the pane — its tab row, its collapse
@@ -74,7 +100,7 @@
 import { Fragment, memo, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Box, chakra, useRecipe, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import {
-    DateTimeType, IntegerType, OptionType, StringType, StructType, compareFor, encodeBeast2For, equalFor, fromEastTypeValue, none, some,
+    DateTimeType, IntegerType, OptionType, StringType, StructType, encodeBeast2For, equalFor, fromEastTypeValue, none, some,
     type EastType, type StructType as EastStructType, type option,
 } from "@elaraai/east";
 import { Fields, type FieldSpecValue } from "@elaraai/east-ui/internal";
@@ -83,9 +109,11 @@ import {
 } from "@elaraai/east-ui-components";
 import { FrameDrawer } from "@elaraai/east-ui-components/internal";
 import { FOCUS_HOME_PROPS, useFocusHome } from "../shared/focus-home.js";
+import { useFieldAsk } from "../shared/schedule/field-ask.js";
 import { askHiding, hiddenLine, hiddenOf, type RowHidden, type RowHiding, type SourceHiding } from "../shared/schedule/hidden.js";
 import type { HiddenPicks } from "../shared/schedule/hidden-pick.js";
 import { draftedRow, rowCodec } from "../shared/schedule/records.js";
+import { entryRefusals, refusedFields, type RefusedFields } from "../shared/schedule/refusals.js";
 import type { FlowchartDetailsModel } from "./details.js";
 import { FlowchartPaneReads } from "./details-pane.js";
 import { kindOf, type FlowchartEditing, type FlowchartFieldWrites } from "./editing.js";
@@ -93,6 +121,8 @@ import {
     deleteDecision, deleteLane, deleteLink, deleteStates, duplicateState, editLink, moveStates, rekey, renameLane, renameState, setFields, setRow,
     type FlowchartGesture, type FlowchartHolding, type GestureEdits,
 } from "./edits.js";
+import { KeySetButton, useKeyDraft, type KeyDraft } from "../shared/schedule/key-draft.js";
+import { keyFieldSpecs, type KindKeys } from "../shared/schedule/kind-keys.js";
 import type { FlowchartLastSaves } from "./footer.js";
 import type { FlowchartIssue } from "./issues.js";
 import type { FlowchartWords } from "./messages.js";
@@ -119,14 +149,13 @@ const NO_EDIT = (): void => {};
 const NEW_ROW: Readonly<Record<string, unknown>> = {};
 
 const stringEqual = equalFor(StringType);
-const compareKey = compareFor(StringType);
 
-/** A state's roles as its form edits them: its key, its label and its lane. */
-const StateRolesForm = StructType({ key: StringType, label: StringType, lane: StringType });
+/** A state's roles as its form edits them past its key, whose field is its key type's own (`keyFieldSpecs`): its label and its lane. */
+const StateRolesForm = StructType({ label: StringType, lane: StringType });
 /** A transition's roles as its form edits them: its ends and its decision. */
 const TransitionRolesForm = StructType({ from: StringType, to: StringType, decision: OptionType(StringType) });
-/** A lane's roles as its form edits them: its key and its label. */
-const LaneRolesForm = StructType({ key: StringType, label: StringType });
+/** A lane's roles as its form edits them past its key: its label. */
+const LaneRolesForm = StructType({ label: StringType });
 /** A decision's key, as its form prints it. */
 const DecisionKeyForm = StructType({ key: StringType });
 /** A transition's evidence as its form prints it: the volume with its unit, the count, and when it was measured. */
@@ -160,6 +189,15 @@ export interface FlowchartInspectorProps {
      * @returns The edits recorded; `undefined` where nothing was
      */
     readonly act: (gesture: FlowchartGesture, edits: (holding: FlowchartHolding) => GestureEdits | undefined) => GestureEdits | undefined;
+    /**
+     * Records a form's edit as one step, as `act` does a gesture's: refused, why — the footer's words, which the form says
+     * under its field too.
+     *
+     * @param gesture - The gesture
+     * @param edits - Its edits, over what it reads; `undefined` where it makes none
+     * @returns `true` once recorded; refused, why — or `false` where nothing says
+     */
+    readonly edit: (gesture: FlowchartGesture, edits: (holding: FlowchartHolding) => GestureEdits | undefined) => boolean | string;
     /** Says why an edit was refused, in the footer. */
     readonly refuse: (words: string) => void;
     /** Selects something, or nothing — a transition in a state's Details, an issue's row — bringing it into view unless `scroll` is `false`. */
@@ -176,6 +214,15 @@ export interface FlowchartInspectorProps {
      * @param hidden - What hides it, as far as e3 has said; `undefined` where nothing does
      */
     readonly goToWaiting: (at: FlowchartSelection, hidden: readonly SourceHiding[] | undefined) => void;
+    /**
+     * Asks a row's Details for a field, which takes the keyboard there, the inspector opened at Details: what an issue's
+     * line in Issues asks, as the toolbar's issue gone to does. Asked for none, any ask standing is dropped.
+     *
+     * @param sort - The row's kind
+     * @param key - Its key
+     * @param field - The field the issue names, by its form's key; none for an issue naming none
+     */
+    readonly ask: (sort: FlowchartSort, key: string, field: option<string>) => void;
     /** Each record's last save, and who made it. */
     readonly saves: FlowchartLastSaves;
     /** The details: the reads a state's or a transition's Details shows after its head. */
@@ -279,13 +326,19 @@ export function flowchartInspectorPane(props: FlowchartInspectorProps): BuilderF
 // The shared parts
 // ============================================================================
 
-/** A view's head: what it shows, its name under that, and its chips — its view's home, where the keyboard lands as a control goes with the view. */
-function Head({ styles, what, name, chips, words }: { styles: Styles; what: string; name: string | undefined; chips: readonly Chip[]; words: FlowchartWords }) {
+/**
+ * A view's head: what it shows, its name under that, and its chips — their row kept while there is none where its view
+ * takes edits (`writes`, #1584), so a draft's chip arriving moves nothing under it — its view's home, where the keyboard
+ * lands as a control goes with the view.
+ */
+function Head({ styles, what, name, chips, writes = false, words }: {
+    styles: Styles; what: string; name: string | undefined; chips: readonly Chip[]; writes?: boolean; words: FlowchartWords;
+}) {
     return (
         <Box css={styles.head} {...FOCUS_HOME_PROPS}>
             <Box css={styles.eyebrow} data-inspector-what="">{what}</Box>
             {name !== undefined && <Box css={styles.name} data-inspector-name="">{name}</Box>}
-            <Box css={styles.marks}>
+            <Box css={styles.marks} data-writes={writes ? "" : undefined}>
                 {chips.map((chip) => (
                     <Box as="span" key={chip} css={styles.chip} data-inspector-chip="" data-state={chip}>{words.m.inspectorChip({ state: chip })}</Box>
                 ))}
@@ -319,11 +372,69 @@ function Fact({ styles, fact, children }: { styles: Styles; fact: string; childr
     return <Box css={styles.section}><Box css={styles.fact} data-inspector-fact={fact}>{children}</Box></Box>;
 }
 
-/** A remount counter for a form whose edit was refused: its inputs show what the row holds again. */
+/**
+ * A new row's key field (#1549): the form's own editor for its kind's key
+ * type, taking an edit while the row is new — a key its kind builds from the
+ * row never does — the warn wash and the keyboard while it holds a placeholder,
+ * which Issues points at, and under it what its record's session says of it
+ * while it waits, `Type this state's key: Save waits for it` (ruled 13 Nov
+ * 2026): the refusal names the key's field, and no check of the app's is asked
+ * of a row under a placeholder. A key of several parts says it is set whole
+ * (#1581), in its help line.
+ *
+ * @param keys - The kind's keys
+ * @param at - The row's key
+ * @param keyed - Whether its key takes an edit
+ * @param m - The Flowchart's messages
+ * @param refused - The fields its record's session's refusals name, each with their words
+ * @returns The key's specs, and what the form washes — each field with what it says under it — and focuses
+ */
+function useKeyField(keys: KindKeys, at: string, keyed: boolean, m: FlowchartWords["m"], refused: RefusedFields) {
+    const placeholder = !keys.isKey(at);
+    const specs = useMemo(() => keyFieldSpecs(keys, m.inspectorField({ field: "key" }), keys.specs.length > 1 ? m.inspectorKeyPartsHelp() : m.inspectorKeyHelp(), keyed),
+        [keys, m, keyed]);
+    const issues: RefusedFields | undefined = !placeholder ? undefined
+        : new Map(specs.map((spec) => { const key = spec.path.join("."); return [key, refused.get(key) ?? []] as const; }));
+    return { specs, issues, focus: placeholder && keyed ? specs[0]?.path.join(".") : undefined };
+}
+
+/**
+ * A row's key in a form of its own (#1549, #1581): printed, or the viewer's to type while the row is new — a key of
+ * several parts into its draft, which Set key takes whole.
+ */
+function KeyForm({ styles, keyField, draft, keyed, refused, baseline, writes, words }: {
+    styles: Styles; keyField: ReturnType<typeof useKeyField>; draft: KeyDraft; keyed: boolean; refused: number; baseline: unknown; writes: boolean;
+    words: FlowchartWords;
+}) {
+    return (
+        <>
+            <FieldForm key={refused} specs={keyField.specs} value={{ key: draft.value }} baseline={baseline}
+                onChange={writes ? draft.onChange : NO_EDIT} readOnly={!writes} issues={keyField.issues} focus={keyField.focus} />
+            {keyed && draft.parts && (
+                <Box css={styles.actions} data-inspector-actions="key"><KeySetButton draft={draft} label={words.m.inspectorKeySet()} /></Box>
+            )}
+        </>
+    );
+}
+
+/** A remount counter for a form whose edit was refused with nothing to say: its inputs show what the row holds again. */
 function useRefused(): [number, () => void] {
     const [refused, setRefused] = useState(0);
     const bump = useCallback(() => setRefused((n) => n + 1), []);
     return [refused, bump];
+}
+
+/**
+ * A list's choices in their keys' order at their kind's key type (#1584): the form holds a key's text, a String, and
+ * offers its choices in the order given.
+ *
+ * @param keys - The kind's keys
+ * @param choices - The choices, a row's key's text each, in any order
+ * @returns The choices, in their keys' order
+ */
+function inKeyOrder(keys: KindKeys, choices: readonly FieldOption[]): FieldOption[] {
+    const byText = new Map(choices.map((choice) => [choice.key, choice] as const));
+    return keys.order(byText.keys()).map(({ text }) => byText.get(text)!);
 }
 
 /** The form's words where it chooses a decision: the field form's, its reference with no key the Flowchart's no decision. */
@@ -422,38 +533,54 @@ function useRowState(editing: FlowchartEditing, sort: FlowchartSort, kind: AnyKi
  * @param sort - The row's kind
  * @param key - Its key
  * @param what - What it is, for the console
- * @returns The kind, whether it writes and takes an edit now, the row's state, the form's edit, and the own Details
+ * @returns The kind, whether it writes and takes an edit now, the row's state, the form's edit, the own Details, the
+ *   tone a bound its row breaks is said in, the fields its session's refusals name with their words, and the field an
+ *   issue gone to asks of it
  */
 function useSide(props: ViewProps, sort: FlowchartSort, key: string, what: string) {
-    const { value, editing, held, act } = props;
+    const { value, editing, held, act, edit } = props;
     const kind = kindOf(value, sort);
     const writes = kind !== undefined && editing.editable(sort);
     const available = writes && editing.available(sort);
     const rows: ReadonlyMap<string, { readonly row: Uint8Array }> | undefined = held[sort];
     const state = useRowState(editing, sort, kind, key, rows?.get(key)?.row);
     const [refused, bump] = useRefused();
-    const onField = useCallback((path: readonly string[], next: unknown) => {
-        if (kind === undefined) return;
+    // A field's edit refused shows what the row holds again: saying why under the field, or with nothing to say, the
+    // form drawn again.
+    const onField = useCallback((path: readonly string[], next: unknown): string | undefined => {
+        if (kind === undefined) return undefined;
         const write = fieldWrite(kind.fields, kind.rowType, path, next);
-        if (write === undefined || act("form", (holding) => setFields(holding, sort, key, [write])) === undefined) bump();
-    }, [kind, sort, key, act, bump]);
+        const done = write === undefined ? false : edit("form", (holding) => setFields(holding, sort, key, [write]));
+        if (done === false) bump();
+        return done === true || done === false ? undefined : done;
+    }, [kind, sort, key, edit, bump]);
     const update = useCallback((edited: Uint8Array): null => {
         if (writes) act("details", (holding) => setRow(holding, sort, key, edited));
         return null;
     }, [writes, sort, key, act]);
     // Read only, the form prints every field: an own Details is for a record that takes its edits.
     const own = useOwnDetails(writes && kind !== undefined ? getSomeorUndefined(kind.inspector) : undefined, state.bytes, update, what);
-    return { kind, writes, available, state, onField, own, refused, bump };
+    // What its record's session refuses of the row, holding Save. A bound its row breaks (#1585) is said in the tone its
+    // Save stands in: as stored it warns; its change refused, it is an error. And each field a refusal names says the
+    // refusal's words under it (ruled 13 Nov 2026): Details lists no issue, so the field says why it is named.
+    const refusals = entryRefusals(editing.schedule.sessions, sort, key);
+    const breaches: "warn" | "error" = refusals.length > 0 ? "error" : "warn";
+    const issues = refusedFields(refusals);
+    // The field an issue gone to names, from the toolbar or from Issues: it takes the keyboard, the inspector opened at
+    // Details.
+    const focus = useFieldAsk(sort, key);
+    return { kind, writes, available, state, onField, own, refused, bump, breaches, issues, focus };
 }
 
 /**
  * A row's fields: its roles' form, then its kind's form over the fields no
- * role writes — or its kind's own Details in that form's place.
+ * role writes, each field its session's refusal names saying why under it —
+ * or its kind's own Details in that form's place.
  */
 function RowFields({ styles, roles, side, storageKey }: {
     styles: Styles; roles: ReactNode; side: ReturnType<typeof useSide>; storageKey: string;
 }) {
-    const { kind, writes, state, onField, own, refused } = side;
+    const { kind, writes, state, onField, own, refused, breaches, issues, focus } = side;
     const specs = kind?.fields ?? [];
     return (
         <>
@@ -461,7 +588,8 @@ function RowFields({ styles, roles, side, storageKey }: {
                 {roles}
                 {own === undefined && specs.length > 0 && (
                     <Box data-inspector-form="fields">
-                        <FieldForm key={refused} specs={specs} value={state.row} baseline={state.baseline} onChange={writes ? onField : NO_EDIT} readOnly={!writes} />
+                        <FieldForm key={refused} specs={specs} value={state.row} baseline={state.baseline} onChange={writes ? onField : NO_EDIT} readOnly={!writes}
+                            breaches={breaches} issues={issues} focus={focus} />
                     </Box>
                 )}
             </Box>
@@ -484,10 +612,10 @@ interface LinkLine {
 }
 
 /**
- * Transitions as a list shows them, in key order (R37): each its ends' keys,
- * its kind — unresolved where an end is no state's — and its decision, and its
- * evidence's volume with its unit — *not measured* without one. What the
- * narrowing draws as context is left out.
+ * Transitions as a list shows them, in their keys' order at their key type
+ * (R37, #1549): each its ends' keys, its kind — unresolved where an end is no
+ * state's — and its decision, and its evidence's volume with its unit — *not
+ * measured* without one. What the narrowing draws as context is left out.
  *
  * @param props - The inspector's props: what the canvas draws
  * @param pick - Which of its transitions
@@ -496,9 +624,9 @@ interface LinkLine {
 function linkLines(props: FlowchartInspectorProps, pick: (roles: FlowchartTransitionRoles) => boolean): LinkLine[] {
     const { model, rows, words } = props;
     const unresolved = (key: string): boolean => model.nodesByKey.get(key)?.ghost !== false;
-    return rows.transitions
-        .filter((transition) => !transition.dimmed && pick(transition.roles))
-        .sort((a, b) => compareKey(a.key, b.key))
+    const picked = new Map(rows.transitions.filter((transition) => !transition.dimmed && pick(transition.roles)).map((transition) => [transition.key, transition] as const));
+    return rows.keys.transitions.order(picked.keys())
+        .map(({ text }) => picked.get(text)!)
         .map((transition) => {
             const { from, to } = transition.roles;
             const kind: LinkClass = unresolved(from) || unresolved(to) ? "unresolved" : transition.roles.kind.type;
@@ -613,86 +741,98 @@ function detailsView(view: ViewProps): ReactNode {
 }
 
 /**
- * A key typed for a new row (R9): refused — the footer saying why, the field
- * showing the key it has — when it is empty or the Flowchart holds it already;
- * else the row under it, the rows naming it following, and the selection with
- * it.
+ * A key typed for a new row (R9): refused — the field showing the key it has,
+ * saying why under it as the footer does — when it is empty or a row of the
+ * Flowchart stands under it already; else the row under it, the rows naming it
+ * following, and the selection with it. A key whose row a draft deletes is free
+ * (#1581).
  *
  * @param props - The view's props
  * @param sort - The row's kind: a state's or a lane's
  * @param from - Its key
  * @param typed - The key typed
  * @param bump - Draws the form again, showing the key it has
+ * @returns Why it was refused, where the Flowchart says: what the form says under the field
  */
-function typedKey(props: RowViewProps, sort: "states" | "lanes", from: string, typed: string, bump: () => void): void {
-    const { value, editing, act, refuse, reveal, words } = props;
+function typedKey(props: RowViewProps, sort: "states" | "lanes", from: string, typed: string, bump: () => void): string | undefined {
+    const { value, editing, edit, refuse, reveal, words } = props;
     const to = typed.trim();
     if (stringEqual(to, from)) {
         bump();
-        return;
+        return undefined;
     }
-    const why = to.length === 0 ? "empty" as const : editing.taken(sort, to) ? "taken" as const : undefined;
+    const why = to.length === 0 ? "empty" as const : editing.stands(sort, to) ? "taken" as const : undefined;
     if (why !== undefined) {
-        refuse(words.m.inspectorKeyRefused({ name: kindName(value, sort).toLocaleLowerCase(words.locale), key: to, why }));
-        bump();
-        return;
+        const said = words.m.inspectorKeyRefused({ name: kindName(value, sort).toLocaleLowerCase(words.locale), key: to, why });
+        refuse(said);
+        return said;
     }
-    if (act("rekey", (holding) => rekey(holding, sort, from, to)) === undefined) bump();
-    else reveal(sort === "states" ? { kind: "state", key: to } : { kind: "lane", key: to }, false);
+    const done = edit("rekey", (holding) => rekey(holding, sort, from, to));
+    if (done === true) reveal(sort === "states" ? { kind: "state", key: to } : { kind: "lane", key: to }, false);
+    else if (done === false) bump();
+    return done === true || done === false ? undefined : done;
 }
 
 // ── A state ─────────────────────────────────────────────────────────────────
 
 /** A state: its head, its roles and its kind's form — or own Details — Duplicate and Delete, and its transitions. */
 function StateView(props: RowViewProps) {
-    const { at, styles, words, value, model, rows, held, act, reveal, storageKey } = props;
+    const { at, styles, words, value, model, rows, held, editing, act, edit, reveal, storageKey } = props;
     const m = words.m;
     const side = useSide(props, "states", at, value.states.name);
     const { created } = side.state;
     const lanes = getSomeorUndefined(value.lanes);
-    const keyed = created && side.writes;
+    const keys = rows.keys.states;
+    const keyed = created && side.writes && !editing.builds("states");
+    const key = useKeyField(keys, at, keyed, m, side.issues);
     const specs = useMemo(() => Fields.specs(StateRolesForm, {
-        key: keyed ? Fields.text({ label: m.inspectorField({ field: "key" }), help: m.inspectorKeyHelp() }) : Fields.readonly({ label: m.inspectorField({ field: "key" }) }),
         label: Fields.text({ label: m.inspectorField({ field: "label" }) }),
         lane: Fields.reference({ of: "lanes", label: lanes?.name ?? "" }),
-    }, lanes === undefined ? ["lane"] : []), [m, keyed, lanes]);
+    }, lanes === undefined ? ["lane"] : []), [m, lanes]);
     const options = useMemo(() => ({
-        lanes: model.lanes.filter((lane) => lane.band === "lane").map((lane): FieldOption => ({ key: lane.key, label: lane.label })),
-    }), [model.lanes]);
+        lanes: inKeyOrder(rows.keys.lanes, model.lanes.filter((lane) => lane.band === "lane").map((lane): FieldOption => ({ key: lane.key, label: lane.label }))),
+    }), [model.lanes, rows.keys.lanes]);
     const roles = rows.states.find((state) => stringEqual(state.key, at))?.roles;
     const stored = held.states.get(at)?.roles;
     const { bump, refused } = side;
-    const onRole = useCallback((path: readonly string[], next: unknown) => {
-        const field = path[0]!;
-        if (stringEqual(field, "key")) typedKey(props, "states", at, next as string, bump);
-        else if (stringEqual(field, "label")) {
-            if (act("renameState", (holding) => renameState(holding, at, next as string)) === undefined) bump();
-        } else if (act("moveStates", (holding) => moveStates(holding, [at], next as string)) === undefined) bump();
-    }, [props, at, act, bump]);
+    const draft = useKeyDraft(keys, at, useCallback((typed: string) => typedKey(props, "states", at, typed, bump), [props, at, bump]));
+    const onRole = useCallback((path: readonly string[], next: unknown): string | undefined => {
+        const done = stringEqual(path[0]!, "label") ? edit("renameState", (holding) => renameState(holding, at, next as string))
+            : edit("moveStates", (holding) => moveStates(holding, [at], next as string));
+        if (done === false) bump();
+        return done === true || done === false ? undefined : done;
+    }, [at, edit, bump]);
     if (roles === undefined) return null;
     const transitions = stateGroups(props, at);
+    // Off where the states' keys can't be typed and their kind builds none: no copy has a key (#1549).
+    const untyped = editing.untyped("states");
     const actions = !side.writes ? undefined : (
         <>
-            <Action action="duplicate" words={words} onClick={() => {
+            <Action action="duplicate" words={words} disabled={untyped !== undefined} onClick={() => {
                 const copy = act("duplicateState", (holding) => duplicateState(holding, at));
                 if (copy?.key !== undefined) reveal({ kind: "state", key: copy.key });
             }} />
             <Action action="delete" words={words} onClick={() => {
                 if (act("deleteStates", (holding) => deleteStates(holding, [at])) !== undefined) reveal(null);
             }} />
+            {untyped !== undefined && (
+                <Box css={styles.why} data-inspector-why="">{m.keysUntyped({ name: value.states.name.toLocaleLowerCase(words.locale), type: untyped })}</Box>
+            )}
         </>
     );
     const label = roles.label.length === 0 ? undefined : roles.label;
     return (
         <Box css={styles.root} data-flowchart-inspector="state">
             <Head styles={styles} words={words} what={m.inspectorWhat({ what: "row", kind: value.states.name, name: at })} name={label}
-                chips={side.state.chip === undefined ? [] : [side.state.chip]} />
+                chips={side.state.chip === undefined ? [] : [side.state.chip]} writes={side.writes} />
             <FlowchartPaneReads styles={styles} kind={props.details.states} at={at} words={words} />
             <Edits styles={styles} available={side.available} actions={actions}>
                 <RowFields styles={styles} side={side} storageKey={`${storageKey}.inspector.states`} roles={(
-                    <Box data-inspector-form="roles">
-                        <FieldForm key={refused} specs={specs} value={{ key: at, label: roles.label, lane: getSomeorUndefined(roles.lane) }}
-                            baseline={created || stored === undefined ? NEW_ROW : { key: at, label: stored.label, lane: getSomeorUndefined(stored.lane) }}
+                    <Box css={styles.roleForms} data-inspector-form="roles">
+                        <KeyForm styles={styles} keyField={key} draft={draft} keyed={keyed} refused={refused} words={words}
+                            baseline={created || stored === undefined ? NEW_ROW : { key: keys.keyOf(at) }} writes={side.writes} />
+                        <FieldForm key={refused} specs={specs} value={{ label: roles.label, lane: getSomeorUndefined(roles.lane) }}
+                            baseline={created || stored === undefined ? NEW_ROW : { label: stored.label, lane: getSomeorUndefined(stored.lane) }}
                             options={options} onChange={side.writes ? onRole : NO_EDIT} readOnly={!side.writes} />
                     </Box>
                 )} />
@@ -733,7 +873,7 @@ function GhostView(props: RowViewProps) {
 
 /** A transition: its head, its ends and its decision, its kind's form — or own Details — Delete, and its evidence. */
 function LinkView(props: RowViewProps) {
-    const { at, styles, words, value, model, rows, held, act, reveal, storageKey } = props;
+    const { at, styles, words, value, model, rows, held, act, edit, reveal, storageKey } = props;
     const m = words.m;
     const name = kindName(value, "transitions");
     const side = useSide(props, "transitions", at, name);
@@ -744,20 +884,24 @@ function LinkView(props: RowViewProps) {
         to: Fields.reference({ of: "states", label: m.inspectorField({ field: "to" }) }),
         decision: Fields.reference({ of: "decisions", label: decisions?.name ?? "" }),
     }, decisions === undefined ? ["decision"] : []), [m, decisions]);
-    // The states the canvas draws as themselves, and the decisions: a choice always holds its own value, shown as itself.
+    // The states the canvas draws as themselves, and the decisions, each in their keys' order: a choice always holds its
+    // own value, shown as itself.
     const options = useMemo(() => ({
-        states: model.nodes.filter((node) => !node.ghost && !node.dimmed)
-            .map((node): FieldOption => ({ key: node.key, label: node.label === undefined ? node.key : m.inspectorChoice({ key: node.key, label: node.label }) })),
-        decisions: [...model.triggers.values()].map((trigger): FieldOption => ({ key: trigger.key, label: trigger.label.length === 0 ? trigger.key : trigger.label })),
-    }), [model, m]);
+        states: inKeyOrder(rows.keys.states, model.nodes.filter((node) => !node.ghost && !node.dimmed)
+            .map((node): FieldOption => ({ key: node.key, label: node.label === undefined ? node.key : m.inspectorChoice({ key: node.key, label: node.label }) }))),
+        decisions: inKeyOrder(rows.keys.decisions, [...model.triggers.values()]
+            .map((trigger): FieldOption => ({ key: trigger.key, label: trigger.label.length === 0 ? trigger.key : trigger.label }))),
+    }), [model, rows.keys, m]);
     const { bump, refused } = side;
-    const onRole = useCallback((path: readonly string[], next: unknown) => {
+    const onRole = useCallback((path: readonly string[], next: unknown): string | undefined => {
         const field = path[0]!;
         const write = stringEqual(field, "from") ? { from: some(next as string), to: none, decision: none }
             : stringEqual(field, "to") ? { from: none, to: some(next as string), decision: none }
                 : { from: none, to: none, decision: some(next as option<string>) };
-        if (act("editLink", (holding) => editLink(holding, at, write)) === undefined) bump();
-    }, [at, act, bump]);
+        const done = edit("editLink", (holding) => editLink(holding, at, write));
+        if (done === false) bump();
+        return done === true || done === false ? undefined : done;
+    }, [at, edit, bump]);
     const transition = transitionAt(rows, at);
     if (transition === undefined) return null;
     const roles = transition.roles;
@@ -775,11 +919,11 @@ function LinkView(props: RowViewProps) {
     return (
         <Box css={styles.root} data-flowchart-inspector="transition">
             <Head styles={styles} words={words} what={m.inspectorWhat({ what: "row", kind: name, name: endsOf(roles) })}
-                name={`${stateName(model, roles.from)} → ${stateName(model, roles.to)}`} chips={chips} />
+                name={`${stateName(model, roles.from)} → ${stateName(model, roles.to)}`} chips={chips} writes={side.writes} />
             <FlowchartPaneReads styles={styles} kind={props.details.transitions} at={at} words={words} />
             <Edits styles={styles} available={side.available} actions={actions}>
                 <RowFields styles={styles} side={side} storageKey={`${storageKey}.inspector.transitions`} roles={(
-                    <Box data-inspector-form="roles">
+                    <Box css={styles.roleForms} data-inspector-form="roles">
                         <FieldForm key={refused} specs={specs} value={{ from: roles.from, to: roles.to, decision: roles.decision }}
                             baseline={side.state.created || stored === undefined ? NEW_ROW : { from: stored.from, to: stored.to, decision: stored.decision }}
                             options={options} onChange={side.writes ? onRole : NO_EDIT} readOnly={!side.writes} words={decisionWords} />
@@ -842,10 +986,10 @@ function DecisionView(props: RowViewProps) {
     return (
         <Box css={styles.root} data-flowchart-inspector="decision">
             <Head styles={styles} words={words} what={m.inspectorWhat({ what: "row", kind: name, name: trigger.letter })}
-                name={trigger.label.length === 0 ? undefined : trigger.label} chips={side.state.chip === undefined ? [] : [side.state.chip]} />
+                name={trigger.label.length === 0 ? undefined : trigger.label} chips={side.state.chip === undefined ? [] : [side.state.chip]} writes={side.writes} />
             <Edits styles={styles} available={side.available} actions={actions}>
                 <RowFields styles={styles} side={side} storageKey={`${storageKey}.inspector.decisions`} roles={(
-                    <Box data-inspector-form="roles">
+                    <Box css={styles.roleForms} data-inspector-form="roles">
                         <FieldForm specs={specs} value={{ key: at }} onChange={NO_EDIT} readOnly />
                     </Box>
                 )} />
@@ -860,21 +1004,24 @@ function DecisionView(props: RowViewProps) {
 
 /** A lane: its head, its key and its label, its kind's form — or own Details — how many states it holds, and Delete. */
 function LaneView(props: RowViewProps) {
-    const { at, styles, words, value, model, rows, held, act, reveal, storageKey } = props;
+    const { at, styles, words, value, model, rows, held, editing, act, edit, reveal, storageKey } = props;
     const m = words.m;
     const name = kindName(value, "lanes");
     const side = useSide(props, "lanes", at, name);
     const { created } = side.state;
-    const keyed = created && side.writes;
+    const keys = rows.keys.lanes;
+    const keyed = created && side.writes && !editing.builds("lanes");
+    const key = useKeyField(keys, at, keyed, m, side.issues);
     const specs = useMemo(() => Fields.specs(LaneRolesForm, {
-        key: keyed ? Fields.text({ label: m.inspectorField({ field: "key" }), help: m.inspectorKeyHelp() }) : Fields.readonly({ label: m.inspectorField({ field: "key" }) }),
         label: Fields.text({ label: m.inspectorField({ field: "label" }) }),
-    }), [m, keyed]);
+    }), [m]);
     const { bump, refused } = side;
-    const onRole = useCallback((path: readonly string[], next: unknown) => {
-        if (stringEqual(path[0]!, "key")) typedKey(props, "lanes", at, next as string, bump);
-        else if (act("renameLane", (holding) => renameLane(holding, at, next as string)) === undefined) bump();
-    }, [props, at, act, bump]);
+    const draft = useKeyDraft(keys, at, useCallback((typed: string) => typedKey(props, "lanes", at, typed, bump), [props, at, bump]));
+    const onRole = useCallback((_path: readonly string[], next: unknown): string | undefined => {
+        const done = edit("renameLane", (holding) => renameLane(holding, at, next as string));
+        if (done === false) bump();
+        return done === true || done === false ? undefined : done;
+    }, [at, edit, bump]);
     const lane = rows.lanes?.find((row) => stringEqual(row.key, at));
     if (lane === undefined) return null;
     const stored = held.lanes?.get(at)?.roles;
@@ -891,12 +1038,14 @@ function LaneView(props: RowViewProps) {
     return (
         <Box css={styles.root} data-flowchart-inspector="lane">
             <Head styles={styles} words={words} what={m.inspectorWhat({ what: "row", kind: name, name: laneLabel(model, at) })} name={undefined}
-                chips={side.state.chip === undefined ? [] : [side.state.chip]} />
+                chips={side.state.chip === undefined ? [] : [side.state.chip]} writes={side.writes} />
             <Edits styles={styles} available={side.available} actions={actions}>
                 <RowFields styles={styles} side={side} storageKey={`${storageKey}.inspector.lanes`} roles={(
-                    <Box data-inspector-form="roles">
-                        <FieldForm key={refused} specs={specs} value={{ key: at, label: lane.roles.label }}
-                            baseline={created || stored === undefined ? NEW_ROW : { key: at, label: stored.label }}
+                    <Box css={styles.roleForms} data-inspector-form="roles">
+                        <KeyForm styles={styles} keyField={key} draft={draft} keyed={keyed} refused={refused} words={words}
+                            baseline={created || stored === undefined ? NEW_ROW : { key: keys.keyOf(at) }} writes={side.writes} />
+                        <FieldForm key={refused} specs={specs} value={{ label: lane.roles.label }}
+                            baseline={created || stored === undefined ? NEW_ROW : { label: stored.label }}
                             onChange={side.writes ? onRole : NO_EDIT} readOnly={!side.writes} />
                     </Box>
                 )} />
@@ -910,20 +1059,23 @@ function LaneView(props: RowViewProps) {
 
 /** Several states: how many; the lane every one moves to; and Delete. */
 function SeveralView(props: ViewProps & { readonly picked: readonly string[] }) {
-    const { picked, styles, words, value, model, editing, act, reveal } = props;
+    const { picked, styles, words, value, model, editing, act, edit, reveal } = props;
     const m = words.m;
     const lanes = getSomeorUndefined(value.lanes);
     const writes = editing.editable("states");
     const specs = useMemo(() => Fields.specs(MoveForm, {
         lane: Fields.reference({ of: "lanes", label: m.inspectorField({ field: "moveTo", name: (lanes?.name ?? "").toLocaleLowerCase(words.locale) }) }),
     }), [m, lanes, words.locale]);
+    const keys = props.rows.keys.lanes;
     const options = useMemo(() => ({
-        lanes: model.lanes.filter((lane) => lane.band === "lane").map((lane): FieldOption => ({ key: lane.key, label: lane.label })),
-    }), [model.lanes]);
+        lanes: inKeyOrder(keys, model.lanes.filter((lane) => lane.band === "lane").map((lane): FieldOption => ({ key: lane.key, label: lane.label }))),
+    }), [model.lanes, keys]);
     const [refused, bump] = useRefused();
-    const onChange = useCallback((_path: readonly string[], next: unknown) => {
-        if (act("moveStates", (holding) => moveStates(holding, picked, next as string)) === undefined) bump();
-    }, [act, picked, bump]);
+    const onChange = useCallback((_path: readonly string[], next: unknown): string | undefined => {
+        const done = edit("moveStates", (holding) => moveStates(holding, picked, next as string));
+        if (done === false) bump();
+        return done === true || done === false ? undefined : done;
+    }, [edit, picked, bump]);
     // The lane they share, when they do.
     const held = picked.map((key) => model.nodesByKey.get(key)?.lane);
     const first = held[0];
@@ -1009,11 +1161,11 @@ function FlowchartView({ styles, words, value, model, saves, editing }: ViewProp
 
 /**
  * The Issues tab: every issue of the Flowchart and of its unsaved changes, each a control that selects what it names and
- * brings it into view. An issue of a change the narrowing hides says on a line of its own which of the rail's choices
- * hide its row, asked of e3 through its source's hidden pick, and Go to issue on it is the frame's hidden pick
- * (`goToWaiting`): those choices cleared, then selected once it is drawn.
+ * brings it into view, the field it names taking the keyboard in its Details. An issue of a change the narrowing hides
+ * says on a line of its own which of the rail's choices hide its row, asked of e3 through its source's hidden pick, and
+ * Go to issue on it is the frame's hidden pick (`goToWaiting`): those choices cleared, then selected once it is drawn.
  */
-const FlowchartInspectorIssues = memo(function FlowchartInspectorIssues({ issues, value, picks, reveal, goToWaiting, words }: FlowchartInspectorProps) {
+const FlowchartInspectorIssues = memo(function FlowchartInspectorIssues({ issues, value, picks, reveal, goToWaiting, ask, words }: FlowchartInspectorProps) {
     const styles = useSlotRecipe({ key: "flowchartInspector" })() as Styles;
     const m = words.m;
     // Each issue's rows of the rail's sources whose narrowing hides what it names: each source's hidden pick, and the row.
@@ -1034,8 +1186,14 @@ const FlowchartInspectorIssues = memo(function FlowchartInspectorIssues({ issues
         return of.length === 0 ? undefined : hiddenOf(of);
     };
     // Go to issue: what it names selected and brought into view — a change the narrowing hides through the frame's hidden
-    // pick, the choices hiding it cleared first.
+    // pick, the choices hiding it cleared first. Its row's Details is asked for the field it names, as the toolbar's issue
+    // gone to asks, so Details opens where it is fixed; an issue naming none drops an earlier ask, which would otherwise
+    // take the keyboard when that row's Details is next drawn.
     const goTo = (issue: FlowchartIssue) => {
+        const sort = issue.where.sort;
+        if (sort !== undefined && issue.at !== null && issue.at.kind !== "states") {
+            ask(sort, issue.at.key, issue.field === undefined ? none : some(issue.field));
+        }
         if (issue.at !== null && issue.hiding.length > 0) goToWaiting(issue.at, hiddenOfIssue(issue));
         else reveal(issue.at);
     };

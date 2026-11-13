@@ -63,6 +63,15 @@ export function buildDraftRowDecoder(
                             some: (_$2, v) => East.value(variant("value", meta.optional ? some(v) : v), draftField),
                         }) as ExprType<typeof draftField>;
                     }
+                    // A cycle over a variant: the case its key names, or the text kept unread when no case has that key.
+                    if (meta.steps !== undefined) {
+                        const decode = $.const(meta.steps.decode);
+                        const text = payload as ExprType<StringType>;
+                        return decode(text).match({
+                            none: () => East.value(variant("invalid", text), draftField),
+                            some: (_$2, v) => East.value(variant("value", v), draftField),
+                        }) as ExprType<typeof draftField>;
+                    }
                     let value = payload;
                     if (meta.form === "array") {
                         const link = payload as unknown as ExprType<import("./types.js").SheetLinkType>;

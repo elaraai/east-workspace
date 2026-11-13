@@ -17,7 +17,7 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
     ArrayType, BlobType, DateTimeType, DictType, East, IntegerType, NullType, OptionType, SortedMap, StringType, StructType, compareFor, decodeBeast2For,
-    defaultValue, encodeBeast2For, equalFor, isTypeEqual, none, some, variant, type ValueTypeOf,
+    defaultValue, encodeBeast2For, equalFor, isTypeEqual, none, some, variant, type EastType, type ValueTypeOf,
 } from "@elaraai/east";
 import { Allocation, Schedule } from "@elaraai/e3-ui";
 import {
@@ -254,10 +254,18 @@ describe("the fit's and the check's requests carry each bin's own row, over deco
     });
 
     test("each type over a day is a constructor of the row type: the same row the same type, another row another; a bin carries its row", () => {
-        for (const make of [Allocation.Types.Bin, Allocation.Types.Day, Allocation.Types.FitRequest, Allocation.Types.CheckContext] as const) {
+        const makers: readonly ((row: EastType) => EastType)[] = [Allocation.Types.Bin, Allocation.Types.Day, Allocation.Types.FitRequest, Allocation.Types.CheckContext];
+        for (const make of makers) {
             assert.ok(isTypeEqual(make(KilnBin), make(KilnBin)), make.name);
             assert.ok(!isTypeEqual(make(KilnBin), make(IntegerType)), make.name);
         }
+        // Over a reference record (#1551), the check's context holds its rows by key: a constructor of both row types.
+        const over = Allocation.Types.CheckContext(KilnBin, TimberLoad);
+        assert.ok(isTypeEqual(over, Allocation.Types.CheckContext(KilnBin, TimberLoad)));
+        assert.ok(!isTypeEqual(over, Allocation.Types.CheckContext(KilnBin, IntegerType)), "another reference row, another type");
+        assert.ok(!isTypeEqual(over, Allocation.Types.CheckContext(KilnBin)), "the bins' rows alone, another type");
+        assert.ok(isTypeEqual(over.fields.reference, DictType(StringType, TimberLoad)));
+        assert.ok(isTypeEqual(over.fields.plan, Allocation.Types.CheckContext(KilnBin).fields.plan), "beside the bins' context as it is");
         assert.ok(isTypeEqual(Allocation.Types.Bin(IntegerType).fields.row, IntegerType));
         assert.ok(isTypeEqual(Allocation.Types.Status, SchedulePeriodStatusType), "a day's status is Schedule's period status");
         assert.ok(isTypeEqual(Allocation.Types.Day(IntegerType).fields.status, Allocation.Types.Status));

@@ -20,10 +20,20 @@
  * - **overlay** — its rail stays in the flow, so main never moves; opened,
  *   the pane floats over main from its edge, full height — never so wide
  *   that less than 48px of main shows beside it ({@link MIN_SCRIM},
- *   {@link paneWidths}). Esc closes it and returns the focus to its rail —
- *   but a layer open in it that takes Esc itself, marked `data-escape-layer`
- *   (a Chooser laid in a pane), closes first — and one overlay pane is open
- *   at a time;
+ *   {@link paneWidths}). Opened by a press on its rail, it takes the focus —
+ *   its open tab, or its first control, unless what it holds took the focus
+ *   as it opened — and closed by its own collapse or by Esc, it returns the
+ *   focus to its rail. Opened from code — by its host
+ *   ({@link BuilderFramePanes}): the Inspector a selection in main reveals, the
+ *   Issues the issues chip asks for; or by what it holds ({@link FramePane}): a
+ *   form an issue gone to asks a field of — it opens as its rail opens it, the
+ *   viewer's doing, and leaves the focus where it is, the field asked for
+ *   taking it as it shows (#1585); no host presses a pane's own control. What
+ *   of main it leaves in view, its host asks the frame
+ *   ({@link BuilderFramePanes.mainShown}), never the page: a picked event the
+ *   Calendar brings out from under it. Esc closes it — but a layer open in it
+ *   that takes Esc itself, marked `data-escape-layer` (a Chooser laid in a
+ *   pane), closes first — and one overlay pane is open at a time;
  * - **auto** (the default) — pinned while main keeps `minMain` beside the
  *   pinned panes, the start pane placed first; overlaid otherwise, and at
  *   560px and narrower always ({@link placePanes}). The width is the frame's
@@ -59,22 +69,27 @@
  * ruled 3 Nov 2026) — stacks its regions and gives main the frame's whole
  * width:
  *
- * - the toolbar's second row, always shown, 56px over its 44px buttons: the
- *   items that draw one (`ToolbarItem.secondRow` — the history, and the Elara
- *   eye before it, from a frame of `secondRowFrom` up) leave the first row for
- *   it, and the footer's loading line takes its start while
- *   it shows, in the place the history counts its drafts otherwise
- *   ({@link SessionRowSlot}); a footer whose line it so takes is not shown,
- *   mounted still (FR1, FR6, R5) — one with no loading line, the query
- *   builder's status line, stays, and under the cold-load cover the line
- *   stays in its live footer;
+ * - the toolbar's second row, 56px over its 44px buttons, for the items that
+ *   draw one (`ToolbarItem.secondRow` — the history, and the Elara eye before
+ *   it, from a frame of `secondRowFrom` up), which leave the first row for it
+ *   (FR1, FR6); a builder with none draws no second row;
+ * - the footer, laid over main's foot while its loading line or a live notice
+ *   shows, and nothing else of its rail: in the flow under main with no height
+ *   of its own, so main never resizes as a read or a notice comes and goes —
+ *   a Schematic never refits its drawing for one (ruled 7 Nov 2026, revising
+ *   R5, whose line in the second row drew a row a read-only builder had only
+ *   while a read was out). How far up main it reaches is main's
+ *   `--builder-foot-inset`, which what main draws at its foot — a Schematic's
+ *   scale and minimap — stands clear of. A footer with no loading line, the
+ *   query builder's status line, stays in the flow;
  * - no pane at either side: a described pane that collapses is a tab of the pane strip on the
  *   frame's bottom edge — its icon, its label, and its detail or its badge —
  *   and opens as a view over the whole builder, edge to edge, sliding in from
  *   the right as the Filters view does (ruled 3 Nov 2026, in place of FR5's
  *   drawer up from the strip), its tabs at its head and its collapse there
  *   (FR4), which closes it, as Esc does. One is open at a time, and the focus moves into it as it opens
- *   and back to its tab as it closes. Each keeps its open tab and its bodies
+ *   — from its tab, or from code, a selection's reveal leaving it closed — and
+ *   back to its tab as it closes. Each keeps its open tab and its bodies
  *   mounted across the width, as the pane does; what it holds is told it is
  *   in a phone's drawer ({@link FrameDrawer}), for its phone form;
  * - in a frame given `phonePanel`, what main's popovers and an open pane's open
@@ -90,7 +105,7 @@
  */
 
 import {
-    Fragment, useCallback, useLayoutEffect, useMemo, useRef, useState,
+    Fragment, useCallback, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState,
     type CSSProperties, type KeyboardEvent, type MutableRefObject, type ReactNode, type Ref,
 } from "react";
 import { flushSync } from "react-dom";
@@ -98,10 +113,11 @@ import { Box, chakra, Skeleton, type SystemStyleObject } from "@chakra-ui/react"
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconName } from "@fortawesome/fontawesome-svg-core";
 import { useFormatters } from "../../format/index.js";
-import { FrameSessionBand, SessionRowSlot } from "./session-row.js";
+import { FrameSessionBand } from "./session-row.js";
 import { useViewEscape } from "./view-escape.js";
 import { FrameOverlaySlot } from "./overlay-slot.js";
 import { FrameDrawer } from "./drawer-context.js";
+import { FramePane, type FramePaneHandle } from "./pane-context.js";
 import { FrameBottomPanel } from "./bottom-panel.js";
 import { FramePhoneLayer } from "./frame-layer.js";
 import { useSlotStyles } from "../../theme/slot-styles.js";
@@ -113,12 +129,13 @@ import {
     MIN_MAIN, NARROW_FRAME, paneWidths, placePanes, type PaneMode, type PanePlacement, type PanePlacements, type PaneWeight, type PaneWidths,
 } from "./place.js";
 
-export { FrameSessionBand, SessionRowSlot } from "./session-row.js";
+export { FrameSessionBand } from "./session-row.js";
 
 /** A phone form's `version`: back on a wider row, what the toolbar measured of it says nothing of the item's own forms. */
 const PHONE_FORM = "phone";
 export { FrameOverlaySlot } from "./overlay-slot.js";
 export { FrameDrawer } from "./drawer-context.js";
+export { FramePane, type FramePaneHandle } from "./pane-context.js";
 export { FrameBottomPanel } from "./bottom-panel.js";
 
 export {
@@ -219,8 +236,47 @@ export interface BuilderFrameProps {
     rootProps?: Readonly<Record<string, string | undefined>> | undefined;
     /** The toolbar's element: where a host finds its own items' controls — the search box a key puts the focus on, say. */
     toolbarRef?: Ref<HTMLDivElement> | undefined;
+    /**
+     * The panes as the host's code opens them (#1585): a selection in main revealing the Inspector, a control of the
+     * builder's asking for what a pane holds — never by pressing a pane's own control; and what of main they leave in
+     * view, never read from the page.
+     */
+    panesRef?: Ref<BuilderFramePanes> | undefined;
     /** Keys pressed anywhere in the frame, its panes included: the host's shortcuts. */
     onKeyDown?: ((event: KeyboardEvent<HTMLDivElement>) => void) | undefined;
+}
+
+/**
+ * The panes as the host's code opens them ({@link BuilderFrameProps.panesRef}, #1585): each as its rail opens it, the
+ * viewer's doing, kept where the pane persists, and the focus left where the viewer has it; and what of main they leave
+ * in view.
+ */
+export interface BuilderFramePanes {
+    /**
+     * Opens a pane where it is collapsed: what a control of the builder's asked for — the issues chip's Issues, a Find
+     * fix's Library, Enter's Details. On a phone's frame its view opens over the builder, as its strip tab's press opens
+     * it, and the focus moves into it.
+     *
+     * @param side - The pane's side
+     */
+    open(side: "start" | "end"): void;
+    /**
+     * Shows a pane where it is collapsed, as a selection in main shows its Details: on a wider frame as
+     * {@link BuilderFramePanes.open} opens it; on a phone's frame, whose view would cover main, the pane stays closed —
+     * its strip tab says what is selected, and main stays in view.
+     *
+     * @param side - The pane's side
+     */
+    reveal(side: "start" | "end"): void;
+    /**
+     * What of main shows beside the panes: main's box, less what an overlay pane open over it covers as it is drawn
+     * now — what the host keeps an item it shows clear of, as the Calendar brings a picked event out from under the
+     * Inspector the pick opened. A pinned pane sits beside main, and a phone's pane is a view over the whole builder,
+     * not beside main: neither takes from it.
+     *
+     * @returns The box, in viewport px; `undefined` while main is not in the page
+     */
+    mainShown(): Pick<DOMRectReadOnly, "left" | "top" | "right" | "bottom"> | undefined;
 }
 
 /** A pane: one the frame draws, or one its content draws, placed as it is and pinned at its side. */
@@ -395,18 +451,36 @@ function unmeasured(start: BuilderFramePane | undefined, end: BuilderFramePane |
 }
 
 /**
+ * Tells the frame whether a drag is under way, while an overlay pane or a phone's drawer is open (#1594): it steps off
+ * main and the scrim lifts for it, and nothing else of the frame moves for a drag, so a frame with neither open draws
+ * nothing as one starts and ends.
+ *
+ * @param props - Where it tells the frame
+ * @returns Nothing: it listens
+ */
+function OverlayDragWatch({ onDragging }: { onDragging: (dragging: boolean) => void }): null {
+    const active = useDragLayerOptional()?.active ?? false;
+    useLayoutEffect(() => {
+        onDragging(active);
+        return () => onDragging(false);
+    }, [active, onDragging]);
+    return null;
+}
+
+/**
  * Lays a builder-style component out — see the module docs.
  *
  * @param props - The regions, the panes and the frame's options ({@link BuilderFrameProps})
  * @returns The frame
  */
 export function BuilderFrame(props: BuilderFrameProps) {
-    const { children, toolbar, banners, start, end, footer, storageKey, label, ref, rootCss, rootProps, toolbarRef, onKeyDown, loading, busy, liveFooter, phonePanel, phoneViews } = props;
+    const { children, toolbar, banners, start, end, footer, storageKey, label, ref, rootCss, rootProps, toolbarRef, panesRef, onKeyDown, loading, busy, liveFooter, phonePanel, phoneViews } = props;
     const formatters = useFormatters();
     const minMain = props.minMain ?? MIN_MAIN;
     const loadingPitch = props.loadingPitch ?? DEFAULT_LOADING_PITCH;
     const styles = useSlotStyles("builderFrame") as Styles;
-    const dragging = useDragLayerOptional()?.active ?? false;
+    // Whether a drag is under way: heard only while an overlay pane or a phone's drawer is open, all it moves (`OverlayDragWatch`).
+    const [dragging, setDragging] = useState(false);
 
     const startDock = start !== undefined && !isElementPane(start) ? start : undefined;
     const endDock = end !== undefined && !isElementPane(end) ? end : undefined;
@@ -430,7 +504,6 @@ export function BuilderFrame(props: BuilderFrameProps) {
         if (!collapsed) lastOpened.current = side;
         collapseOf(side).set(collapsed, "viewer");
     };
-
     // ── What the frame measures of itself ───────────────────────────────
     const rootRef = useRef<HTMLDivElement | null>(null);
     const [initialReady, setInitialReady] = useState(false);
@@ -453,6 +526,10 @@ export function BuilderFrame(props: BuilderFrameProps) {
     }, [footerLive]);
     const slotRefs: Record<Side, MutableRefObject<HTMLDivElement | null>> = { start: useRef(null), end: useRef(null) };
     const probeRefs: Record<Side, MutableRefObject<HTMLDivElement | null>> = { start: useRef(null), end: useRef(null) };
+    // Main, and each pane's sheet — what floats over main from its edge while the pane is open as an overlay: what of
+    // main the panes leave in view.
+    const mainRef = useRef<HTMLDivElement | null>(null);
+    const sheetRefs: Record<Side, MutableRefObject<HTMLDivElement | null>> = { start: useRef(null), end: useRef(null) };
     const [measured, setMeasured] = useState<Measured | undefined>(undefined);
     const measuredRef = useRef(measured);
     measuredRef.current = measured;
@@ -547,8 +624,6 @@ export function BuilderFrame(props: BuilderFrameProps) {
         return row.map(({ it }, k) => (lead >= 0 && k >= lead ? { ...it, side: "end" as const } : it));
     }, [toolbar, secondKeys, phone]);
     const secondRow = toolbar === undefined ? [] : toolbar.filter(inSecondRow).map((it) => ({ key: it.key, node: it.secondRow }));
-    // The row's status slot: where a phone's footer's loading line draws itself.
-    const [statusSlot, setStatusSlot] = useState<HTMLElement | null>(null);
     // The slot a toolbar item's full-height view draws itself in, over every region: the rail's Filters view (FR7).
     const [overlaySlot, setOverlaySlot] = useState<HTMLElement | null>(null);
     // The bottom panel's slots, where main's popovers and an open pane's draw (FR9): main's, and each pane's own.
@@ -558,7 +633,36 @@ export function BuilderFrame(props: BuilderFrameProps) {
     // The band under the second row, where its items ask something (FR8).
     const [sessionBand, setSessionBand] = useState<HTMLElement | null>(null);
     const panelOf = (slot: HTMLElement | null) => (phone && phonePanel === true && !covered ? slot : null);
-    const sessionRow = phone && (secondRow.length > 0 || given(footer));
+    const sessionRow = phone && secondRow.length > 0;
+    // How far up main's foot a phone's footer laid over it reaches (`--builder-foot-inset`), for what main draws at its
+    // foot — a Schematic's scale and minimap — to stand clear of it. Its band is measured whether it speaks or not, so
+    // what stands clear of it stays put as a read or a notice comes and goes; a footer in the flow takes its own room. A
+    // frame whose footer does not hang sets nothing: a wider frame's commits are its host's alone.
+    const [footBand, setFootBand] = useState(0);
+    const footHangs = phone && given(footer);
+    const footInset = footHangs ? footBand : 0;
+    useLayoutEffect(() => {
+        const el = footerRef.current;
+        if (!footHangs || el === null) return undefined;
+        const read = () => {
+            const band = el.getBoundingClientRect().height > MOVED_PX ? 0
+                : [...el.children].reduce((sum, child) => sum + (child as HTMLElement).offsetHeight, 0);
+            setFootBand((was) => (Math.abs(was - band) > MOVED_PX ? band : was));
+        };
+        if (typeof ResizeObserver === "undefined" || typeof MutationObserver === "undefined") { read(); return undefined; }
+        const ro = new ResizeObserver(read);
+        // What the footer holds comes and goes with its host's state: each part of it watched as it does.
+        const watch = () => {
+            ro.disconnect();
+            ro.observe(el);
+            for (const child of el.children) ro.observe(child);
+            read();
+        };
+        watch();
+        const mo = new MutationObserver(watch);
+        mo.observe(el, { childList: true });
+        return () => { ro.disconnect(); mo.disconnect(); };
+    }, [footHangs]);
     /** Whether a side's pane is a drawer: a described pane that collapses, on a phone — one that never does stays pinned. */
     const drawn = (side: Side) => phone && dockOf(side) !== undefined && dockOf(side)?.collapsible !== false;
 
@@ -603,6 +707,8 @@ export function BuilderFrame(props: BuilderFrameProps) {
     /** The overlay pane that is open, if one is. */
     const openOverlay = SIDES.find((side) => placement[side] === "overlay" && dockOf(side) !== undefined && !collapseOf(side).collapsed);
     const openDock = openOverlay === undefined ? undefined : dockOf(openOverlay);
+    // What a drag moves: the open overlay pane, or a phone's open drawer, which a pane is there whatever its placement.
+    const dragMoves = openOverlay !== undefined || SIDES.some((side) => drawn(side) && !collapseOf(side).collapsed);
     // A phone's open pane, a view over the whole builder: it needs no scrim.
     const phoneDrawer = openOverlay !== undefined && drawn(openOverlay) ? openOverlay : undefined;
     // The scrim: while an overlay pane is open for lack of room — an `auto` pane overlaying, or any at 560px and narrower.
@@ -624,15 +730,58 @@ export function BuilderFrame(props: BuilderFrameProps) {
         }
         else slotRefs[side].current?.querySelector<HTMLElement>(":scope > * > [data-collapsed] > :first-child > button")?.focus();
     });
-    // A drawer opened from its tab takes the focus: its open tab, or its first control.
+    // A drawer opened from its tab, or an overlay pane from its rail, takes the focus: its open tab, or its first control —
+    // unless what it holds took the focus as it opened, a field an issue gone to names: the pane reports its opening a
+    // microtask after it shows.
     const drawerFocus = useRef<Side | undefined>(undefined);
     useLayoutEffect(() => {
         const side = drawerFocus.current;
         if (side === undefined) return;
         drawerFocus.current = undefined;
         const drawer = slotRefs[side].current;
-        (drawer?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]') ?? drawer?.querySelector<HTMLElement>("button, [href], input, [tabindex]"))?.focus({ preventScroll: true });
+        if (drawer === null || drawer.contains(drawer.ownerDocument.activeElement)) return;
+        (drawer.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]') ?? drawer.querySelector<HTMLElement>("button, [href], input, [tabindex]"))?.focus({ preventScroll: true });
     });
+    // A pane opened or closed from code (#1585) — by its host (`panesRef`), or by what it holds (`FramePane`) — as its rail
+    // and its collapse do, the viewer's doing. Opened, it leaves the focus where the viewer has it, the field asked for
+    // taking it as it shows; on a phone, whose view covers main, the focus moves in, as the strip tab's press moves it, and
+    // a pane only revealed stays closed. Closed by what it holds, the focus in it goes back to its rail, or its strip tab.
+    // What of main they leave in view, asked from code, is main's box less each overlay pane's sheet open over it, as it is
+    // drawn — off main while a drag is under way; a phone's pane, a view over the whole builder, is no pane beside main.
+    const fromCode = useRef<{ open: (side: Side, reveal: boolean) => void; close: (side: Side) => void; shown: BuilderFramePanes["mainShown"] }>({
+        open: () => undefined, close: () => undefined, shown: () => undefined,
+    });
+    fromCode.current = {
+        open: (side, reveal) => {
+            if (dockOf(side) === undefined || !collapseOf(side).collapsed) return;
+            if (drawn(side)) {
+                if (reveal) return;
+                drawerFocus.current = side;
+            }
+            toggled(side, false);
+        },
+        close: (side) => {
+            if (dockOf(side) === undefined || collapseOf(side).collapsed) return;
+            if (slotRefs[side].current?.contains(rootRef.current?.ownerDocument.activeElement ?? null) === true) railFocus.current = side;
+            toggled(side, true);
+        },
+        shown: () => {
+            const main = mainRef.current?.getBoundingClientRect();
+            if (main === undefined) return undefined;
+            const over = (side: Side) => dockOf(side) !== undefined && !drawn(side) && placement[side] === "overlay" && !collapseOf(side).collapsed
+                ? sheetRefs[side].current?.getBoundingClientRect() : undefined;
+            return { left: Math.max(main.left, over("start")?.right ?? main.left), top: main.top, right: Math.min(main.right, over("end")?.left ?? main.right), bottom: main.bottom };
+        },
+    };
+    useImperativeHandle(panesRef, (): BuilderFramePanes => ({
+        open: (side) => fromCode.current.open(side, false),
+        reveal: (side) => fromCode.current.open(side, true),
+        mainShown: () => fromCode.current.shown(),
+    }), []);
+    const paneHandles = useMemo((): Record<Side, FramePaneHandle> => ({
+        start: { open: () => fromCode.current.open("start", false), close: () => fromCode.current.close("start") },
+        end: { open: () => fromCode.current.open("end", false), close: () => fromCode.current.close("end") },
+    }), []);
     /** A strip tab: its drawer opens, or, open, closes; one of the pane's own tabs opens it there. */
     const onPaneTab = (side: Side, tab?: string) => {
         const open = !collapseOf(side).collapsed;
@@ -699,7 +848,8 @@ export function BuilderFrame(props: BuilderFrameProps) {
             <Box ref={slotRefs[side]} css={styles.pane} data-frame-slot={side} data-pane-mode={placedAt}
                 data-collapsed={collapsed ? "" : undefined}
                 style={{ width: placedAt === "overlay" || collapsed ? `${RAIL}px` : size }}>
-                <Box css={styles.sheet} style={floating ? { width: sheetWidth === undefined ? size : `${sheetWidth}px`, transform: aside } : undefined}>
+                <Box ref={sheetRefs[side]} css={styles.sheet} style={floating ? { width: sheetWidth === undefined ? size : `${sheetWidth}px`, transform: aside } : undefined}>
+                    <FramePane.Provider value={paneHandles[side]}>
                     <DockPane
                         storageKey={`${storageKey}.${side}`}
                         side={side}
@@ -718,8 +868,19 @@ export function BuilderFrame(props: BuilderFrameProps) {
                         onTabChange={described.onTabChange}
                         collapsible={described.collapsible}
                         collapsed={collapsed}
-                        onCollapsedChange={(next) => toggled(side, next)}
+                        onCollapsedChange={(next) => {
+                            // The viewer's press — its rail's control or its tile, its collapse: no host presses them, opening
+                            // a pane from code through `panesRef` (#1585). The control pressed goes with the change, and the
+                            // focus on it with it: opened from its rail, an overlay pane takes the focus, so Esc reaches it;
+                            // closed by its own collapse, it gives the focus back to its rail, as Esc does.
+                            if (placedAt === "overlay") {
+                                if (next) railFocus.current = side;
+                                else drawerFocus.current = side;
+                            }
+                            toggled(side, next);
+                        }}
                     />
+                    </FramePane.Provider>
                 </Box>
                 {pxOf(size) === undefined && <Box ref={probeRefs[side]} css={styles.probe} style={{ width: size }} aria-hidden />}
             </Box>
@@ -738,6 +899,7 @@ export function BuilderFrame(props: BuilderFrameProps) {
                 <FrameDrawer.Provider value={true}>
                 <FrameOverlaySlot.Provider value={phoneViews === true && !covered ? overlaySlot : null}>
                 <FrameBottomPanel.Provider value={panelOf(side === "start" ? startPanel : endPanel)}>
+                <FramePane.Provider value={paneHandles[side]}>
                 <DockPane
                     storageKey={`${storageKey}.${side}`}
                     orientation="vertical"
@@ -754,6 +916,7 @@ export function BuilderFrame(props: BuilderFrameProps) {
                     collapsed={!open}
                     onCollapsedChange={(next) => { if (next) { railFocus.current = side; toggled(side, true); } }}
                 />
+                </FramePane.Provider>
                 </FrameBottomPanel.Provider>
                 </FrameOverlaySlot.Provider>
                 </FrameDrawer.Provider>
@@ -800,6 +963,7 @@ export function BuilderFrame(props: BuilderFrameProps) {
             data-builder-frame="" data-phone={phone ? "" : undefined} data-loading={covered ? "" : undefined} aria-busy={loading === undefined ? undefined : covered}
             {...(label !== undefined ? { role: "group", "aria-label": label } : {})}
             onKeyDownCapture={onKeyDownCapture} onKeyDown={onKeyDown}>
+            {dragMoves && <OverlayDragWatch onDragging={setDragging} />}
             <FramePhoneLayer.Provider value={phone && !covered ? overlaySlot : null}>
             {toolbar !== undefined && (
                 <Box ref={toolbarRef} css={styles.toolbar} data-frame-slot="toolbar" inert={covered} aria-hidden={covered ? true : undefined}>
@@ -808,10 +972,9 @@ export function BuilderFrame(props: BuilderFrameProps) {
                     </FrameOverlaySlot.Provider>
                 </Box>
             )}
-            {/* A phone's second row: the frame's status, then each item's own, in item order (FR6). */}
+            {/* A phone's second row: each item's own, in item order (FR6). */}
             {sessionRow && (
                 <Box css={styles.sessionRow} data-frame-slot="sessionRow" inert={covered} aria-hidden={covered ? true : undefined}>
-                    <Box ref={setStatusSlot} css={styles.sessionStatus} data-session-status="" />
                     <FrameSessionBand.Provider value={!covered ? sessionBand : null}>
                         <FrameBottomPanel.Provider value={!covered ? mainPanel : null}>
                             {secondRow.map(({ key, node }) => <Fragment key={key}>{node}</Fragment>)}
@@ -824,7 +987,8 @@ export function BuilderFrame(props: BuilderFrameProps) {
             <Box css={styles.body} data-frame-slot="body" inert={covered} aria-hidden={covered ? true : undefined}>
                 {start !== undefined && !drawn("start") && pane("start", start)}
                 {/* The region a read after cold load is in flight for (#1398, CL12): nothing covered, main busy. */}
-                <Box css={styles.main} data-frame-slot="main" aria-busy={busy === undefined ? undefined : busy && !covered}>
+                <Box ref={mainRef} css={styles.main} data-frame-slot="main" aria-busy={busy === undefined ? undefined : busy && !covered}
+                    style={footInset > 0 ? { "--builder-foot-inset": `${footInset}px` } as CSSProperties : undefined}>
                     <FrameOverlaySlot.Provider value={phoneViews === true && !covered ? overlaySlot : null}>
                         <FrameBottomPanel.Provider value={panelOf(mainPanel)}>{children}</FrameBottomPanel.Provider>
                     </FrameOverlaySlot.Provider>
@@ -842,8 +1006,7 @@ export function BuilderFrame(props: BuilderFrameProps) {
             {given(footer) && (
                 <Box ref={footerRef} css={styles.footer} data-frame-slot="footer" data-frame-live={footerLive ? "" : undefined}
                     inert={covered && !footerLive} aria-hidden={covered && !footerLive ? true : undefined}>
-                    {/* Under the cold-load cover the line stays in the live footer, the row covered with the rest. */}
-                    <SessionRowSlot.Provider value={sessionRow && !covered ? statusSlot : null}>{footer}</SessionRowSlot.Provider>
+                    {footer}
                 </Box>
             )}
             {/* A phone's panes: each a view over the whole builder, edge to edge, as the Filters view is (ruled 3 Nov 2026,

@@ -38,8 +38,9 @@ export {
 // (the window ledger), which of them are resident, and a key search's query
 // as its `seek` asks it — the paged Plan's and the paged Sheet's (#577).
 // A row's measured height on the device-pixel grid the frame places its rows on — what a collection measures its rows'
-// estimates from (#1398, CL8); and where the rows a collection draws as runs stand, which the frame anchors on (#1424).
-export { VIRTUALIZE_UNBOUNDED_AT, VirtualRows, devicePixels, type RowRuns, type RowsViewport } from "./collections/virtual-rows.js";
+// estimates from (#1398, CL8); where the rows a collection draws as runs stand, which the frame anchors on (#1424); and
+// the sections whose first rows stick under the header — the Roster's work requirement over its people (#1568).
+export { VIRTUALIZE_UNBOUNDED_AT, VirtualRows, devicePixels, type RowRuns, type RowsViewport, type StickySection } from "./collections/virtual-rows.js";
 // What scrolls a frame's rows, for a row taller than the view — an unloaded run — to draw what of it is in view, and
 // which row shows at the top of the view, for the row that says something once there (#1398).
 export { useRowsScroll, useRowsTop, type RowsScroll } from "./collections/rows-scroll.js";
@@ -58,6 +59,12 @@ export { createPickHandOff, usePickHandOff, type PickHandOff, type PickingSource
 // Density, the drag grammar's IR veto, and its slot codecs.
 export { DensityProvider, useDensity } from "./contracts/density.js";
 export { useIRCanDrop, type CanDropFn } from "./dnd/ir-can-drop.js";
+// A part's own pointers (`src/pointer/`): the one rule a gesture in flight is held to, a surface's handlers over it, a drag
+// that follows the pointer that pressed, and the fingers a surface holds.
+export { makeGestures, pointerState, type GestureHost, type Gestures, type PointerRead, type PointerState } from "./pointer/gestures.js";
+export { capturePointer, useSurfaceGestures, type SurfaceGestures, type SurfaceOptions } from "./pointer/surface.js";
+export { followPointer, type PointerFollow, type PointerPress } from "./pointer/follow-pointer.js";
+export { makeTouches, pinchMoves, type PinchStep, type TouchBegan, type TouchPoint, type Touches } from "./pointer/touches.js";
 export { dateTimeSlot, numberSlot, stringSlot } from "./dnd/slot-key.js";
 // The date field's parts and its conversions — the Sheet's date editor.
 export { CompoundDateField, CompoundDateInput, CompoundDateSegment } from "./forms/input/date/index.js";
@@ -66,10 +73,16 @@ export { dateToCalendarDate, dateValueToDate } from "./forms/input/index.js";
 export { HistoryBar } from "./editing/HistoryBar.js";
 export { EditingScope } from "./editing/scope.js";
 export {
-    CLEAN_DRAFT, conflictMarks, kindOfIssue, normalizeDraft, presentDraft, raiseIssue, wholeEntryReadiness, type ConflictMarks, type DraftPresentation,
+    CLEAN_DRAFT, boundedReadiness, conflictMarks, kindOfIssue, normalizeDraft, presentDraft, raiseIssue, wholeEntryReadiness, type ConflictMarks,
+    type DraftPresentation,
 } from "./editing/draft.js";
 export { DRAFT_ISSUE_TEXT, SESSION_TEXT, type EditHistoryWord } from "./editing/messages.js";
-export { type EditSource } from "./editing/use-edit-session.js";
+export { type EditSource, type EditWindow } from "./editing/use-edit-session.js";
+export { entryLookup, editWindow, type CarriedEntry, type EntryLookup } from "./editing/carried.js";
+// When a host that draws what a Save landed lets it go (`EditSession.landed`): the one rule that tells rows read before a
+// Save from rows read since — the Schematic's windows and a schedule's cells read by it, the Sheet's pages and the Plan's
+// windows by whether they stand from before the revision their source reads at now.
+export { readBeforeSave, readBeforeSaves, standingBeforeSave } from "./editing/landed.js";
 // The Slice: its bound range, the brush, the rail's toolbar items, and density.
 export { boundRangeDomain, boundRangeHistogram } from "./platform/slice/index.js";
 export { BrushStrip, type BrushBucket, type BrushStripProps, type BrushWords } from "./slice/brush-strip.js";
@@ -99,7 +112,7 @@ export { recordSliceWindow, recordSliceDomain, recordSliceWindowFits, setRecordS
 // (#1393); and a generated index's `on` printer, which those searches name its leading values with (#1432).
 export {
     recordSliceSeeded, recordSlicePlace, recordSliceWithin, recordSliceWithinAt, recordSliceSeek, recordSliceCellRuns, recordSliceCellEntries,
-    recordSliceCellJoins, recordSliceRows, recordSliceRevision, recordSlicePage, recordSliceBounds, recordSliceRunEntries, recordSliceRunJoins,
+    recordSliceCellJoins, recordSliceContainsAll, recordSliceReadEntries, recordSliceRows, recordSliceRevision, recordSlicePage, recordSliceBounds, recordSliceRunEntries, recordSliceRunJoins,
     recordSliceOnPrinter, recordSlicePosition,
 } from "./platform/slice/record.js";
 // The UI store, tracked reads, and the boundary a renderer's East calls run in.
@@ -161,5 +174,9 @@ export {
 export { FOOTER_UNFIT, fitFooter, type FooterFit, type FooterFitInput, type LoadingLineForm } from "./layout/builder-frame/footer-fit.js";
 // Whether a pane's body is drawn in a phone's drawer: a builder's inspector draws its phone form there (SH12).
 export { FrameDrawer } from "./layout/builder-frame/drawer-context.js";
+// The pane a part of a builder is drawn in, and the tab of it, as the part opens them: a form an issue gone to asks a
+// field of (#1585); and the pane as the part closes it: a phone's list that sends the viewer to main.
+export { FramePane, type FramePaneHandle } from "./layout/builder-frame/pane-context.js";
+export { DockTab, type DockTabOpen } from "./layout/dock/tab-context.js";
 // What a menu or a Select's list draws in: floating, or a view over the builder in a phone's frame (ruled 4 Nov 2026).
 export { FrameMenuLayer, FramePhoneLayer, FrameSelectLayer, type FrameMenuLayerProps, type FrameSelectLayerProps } from "./layout/builder-frame/frame-layer.js";

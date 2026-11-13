@@ -18,8 +18,9 @@
  * A row the window holds at the record's revision is the stored row itself:
  * kept as the window holds it, so a row the window then leaves is drawn for
  * Details at once, as it was, and read again by its key — every such row of a
- * kind in one request (`recordSliceRows`) — only once the revision moves. Its
- * narrowing is asked of it only once it is off the window, the window's own
+ * kind in one request (`recordSliceRows`), each key read back at the kind's
+ * key type (#1549), a text no key prints as gone — only once the revision
+ * moves. Its narrowing is asked of it only once it is off the window, the window's own
  * rows being its narrowing's, each answer kept at the revision and the
  * narrowing. While a read or an answer is in flight, the row as last kept
  * stands in. Its drafts are the frame's: a drafted row draws, or is let go,
@@ -33,6 +34,7 @@ import { StringType, equalFor, type ValueTypeOf } from "@elaraai/east";
 import { RecordSliceWhereType, type RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined, useTrackedEvaluation } from "@elaraai/east-ui-components";
 import { recordSliceRevision, recordSliceRows, recordSliceWithin } from "@elaraai/east-ui-components/internal";
+import { kindKeys, type KindKeys } from "../shared/schedule/kind-keys.js";
 import { rowCodec } from "../shared/schedule/records.js";
 import { sourcePart } from "../shared/schedule/visibility.js";
 import { drawnItem, drawnZone, entityId, refOfId, type DrawnItem, type DrawnZone } from "./canvas/drawn.js";
@@ -77,12 +79,12 @@ interface Answered {
 
 /**
  * Which of some rows a narrowing holds: each answer kept at the kind's revision and narrowing, the rows not yet answered
- * asked in one request.
+ * asked in one request, each at its key (#1549).
  *
- * @returns The answers, by key; `undefined` while the request is in flight
+ * @returns The answers, by key's text; `undefined` while the request is in flight
  */
 function answersOf(kept: Map<string, Answered>, slot: string, part: Part, revision: string, where: Where,
-    rows: readonly { readonly key: string; readonly row: unknown }[]): ReadonlyMap<string, boolean> | undefined {
+    rows: readonly { readonly key: string; readonly row: unknown }[], keyed: KindKeys): ReadonlyMap<string, boolean> | undefined {
     let answered = kept.get(slot);
     if (answered === undefined || !stringEqual(answered.revision, revision) || !sameWhere(answered.where, where)) {
         answered = { revision, where, held: new Map() };
@@ -91,7 +93,7 @@ function answersOf(kept: Map<string, Answered>, slot: string, part: Part, revisi
     const held = answered.held;
     const asked = rows.filter(({ key }) => !held.has(key));
     if (asked.length === 0) return held;
-    const answer = recordSliceWithin(part, where, asked);
+    const answer = recordSliceWithin(part, where, asked.map(({ key, row }) => ({ key: keyed.keyOf(key), row })));
     if (answer.type !== "some") return undefined;
     // Only the selected rows': a row let go takes its answer with it.
     const next = new Map(rows.flatMap(({ key }) => { const was = held.get(key); return was === undefined ? [] : [[key, was] as const]; }));
@@ -152,6 +154,7 @@ export function SchematicSelectedReader({ value, areas = NO_AREAS, selected = NO
             const part = sourcePart(chrome, slot);
             if (kind === undefined || part === undefined) continue;
             const codec = rowCodec(kind.rowType);
+            const keyed = kindKeys(kind.keyType);
             const idOf = (key: string) => entityId({ kind: slot, key });
             // A row as its stored row draws it — the same entity while its bytes are.
             const put = (key: string, row: Uint8Array) => {
@@ -187,10 +190,17 @@ export function SchematicSelectedReader({ value, areas = NO_AREAS, selected = NO
             if (off.length === 0) continue;
             // Off the window: read by its key once the revision has moved from the one it was kept at, every such row in one request.
             const unread = off.filter((key) => { const was = kept.current.get(idOf(key)); return was === undefined || !stringEqual(was.revision, revision.value); });
-            if (unread.length > 0) {
-                const got = recordSliceRows(part, unread);
+            // Each read at the kind's key type: a text no key of its prints as names no row, and is gone.
+            const asked: { readonly key: string; readonly at: unknown }[] = [];
+            for (const key of unread) {
+                const at = keyed.keyOf(key);
+                if (at === undefined) gone(key);
+                else asked.push({ key, at });
+            }
+            if (asked.length > 0) {
+                const got = recordSliceRows(part, asked.map(({ at }) => at));
                 if (got.type !== "some") { off.forEach(standIn); continue; }
-                unread.forEach((key, i) => {
+                asked.forEach(({ key }, i) => {
                     const row = got.value[i];
                     if (row === undefined || row.type !== "some") { gone(key); return; }
                     kept.current.set(idOf(key), { revision: revision.value, row: codec.encode(row.value), value: row.value });
@@ -205,7 +215,7 @@ export function SchematicSelectedReader({ value, areas = NO_AREAS, selected = NO
                     const was = kept.current.get(idOf(key))!;
                     if (was.value === undefined) was.value = codec.decode(was.row);
                     return { key, row: was.value };
-                }));
+                }), keyed);
                 if (narrowed === undefined) { present.forEach(standIn); continue; }
             }
             for (const key of present) {

@@ -4,11 +4,12 @@
  * @vitest-environment jsdom
  *
  * What a group's assignment may hold (#1342): its skills, then the duties —
- * those the slice's `activities` source shows, and the assignment's own always.
+ * those the slice's `activities` source shows, and the assignment's own always;
+ * and the configuration the Roster draws.
  */
 import { describe, expect, test } from "vitest";
 import { SortedSet, StringType, compareFor, none, some, type option } from "@elaraai/east";
-import { activityChoices, duties, groupSkills, type RosterValue } from "./model.js";
+import { activityChoices, configError, duties, groupSkills, type RosterValue } from "./model.js";
 
 const activities: RosterValue["activities"] = [
     { key: "general", label: "General duties", code: "GD", group: none },
@@ -37,5 +38,20 @@ describe("a group's activities", () => {
     test("an edit keeps both its own activity and the stored one, so a stored activity the rail hides can be picked again", () => {
         // Stored Put-away, hidden by the rail; the edit has picked Unloading.
         expect(keys(activityChoices(value(shown("unload")), "inbound", ["unload", "putaway"]))).toEqual(["putaway", "unload"]);
+    });
+});
+
+describe("the configuration the Roster draws", () => {
+    const shifts: RosterValue["shifts"] = [{ key: "early", label: "Early", code: "E", start: { hour: 6n, minute: 0n }, hours: 8, color: none }];
+    /** The lists the check reads, its groups those given, and whether a duty may be in no group yet (#1548). */
+    const config = (groups: RosterValue["groups"], noGroup: boolean) => ({
+        groups, shifts, people: [], activities: [], positions: [], agencies: [], duty: { roles: { noGroup } },
+    });
+
+    test("a group keyed by the empty key is refused only where a duty may be in no group, whose band that key names", () => {
+        const unkeyed = [{ key: "", label: "Yard" }, { key: "inbound", label: "Inbound" }];
+        expect(configError(config(unkeyed, true))).toBe("Roster groups need keys where a duty may be in no group.");
+        expect(configError(config(unkeyed, false))).toBeUndefined();
+        expect(configError(config([{ key: "inbound", label: "Inbound" }], true))).toBeUndefined();
     });
 });

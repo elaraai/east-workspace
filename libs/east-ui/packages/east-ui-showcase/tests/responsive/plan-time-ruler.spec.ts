@@ -40,7 +40,7 @@ for (const theme of LAYOUT_THEMES) {
             expect(bands[0]!.left).toBe(bands[1]!.left);
             expect(bands[0]!.width).toBe(bands[1]!.width);
             expect(bands[0]!.font).toEqual(bands[1]!.font);
-            expect(bands[0]!.font[0]).toContain("JetBrains Mono");
+            expect(bands[0]!.font[0]).toContain("Chivo Mono");
             expect(await entry.evaluate(rulerFaults)).toEqual([]);
             expect(await entry.evaluate(cutText)).toEqual([]);
         }

@@ -61,7 +61,7 @@ describe("the board's frame", () => {
         expect(shownDay(container)).toBe(TUE.getTime());
     });
 
-    test("A2 — the picker marks each day of its open month Published · Draft · Not started", async () => {
+    test("A2 — the picker marks each day of its open month, its legend naming each mark: Published, Draft, Not started", async () => {
         const { container } = await h.mount(ex.allocationKilnYard);
         await press(toolbar(container).getByRole("button", { name: "Choose plan day" }));
         const picker = within(document.body).getByRole("dialog");
@@ -69,7 +69,8 @@ describe("the board's frame", () => {
         expect(mark(TUE_4)).toBe("published");
         expect(mark(TUE)).toBe("draft");
         expect(mark(THU)).toBe("empty");
-        expect(picker.textContent).toContain("Published · Draft · Not started");
+        expect([...picker.querySelectorAll("[data-allocation-picker-legend]")].map(item => [item.querySelector("[data-state]")?.getAttribute("data-state"), item.textContent]))
+            .toEqual([["published", "Published"], ["draft", "Draft"], ["empty", "Not started"]]);
     });
 
     test("A2 — read a day at a time, the picker marks each day of the month it browses to, the month read as one run of keys", async () => {
@@ -118,6 +119,23 @@ describe("the board's frame", () => {
         // Publish keeps its slot, off: the toolbar never shifts as a day's status changes (#1398, CL1).
         expect(toolbar(container).getByRole("button", { name: "Publish" }).hasAttribute("disabled")).toBe(true);
         expect(toolbar(container).queryByRole("button", { name: editingMessages.apply() })).toBeNull();
+    });
+
+    test("A4 — Publish publishes the day it was pressed on: a day stepped to while its Save is on its way is left as it was (#1584)", async () => {
+        const { container } = await h.mount(ex.allocationKilnYard);
+        const wednesday = (await h.read(ex.yardDays)).get(WED)?.state.type;
+        // A bin back to its arrivals, for the Save to write.
+        await press(container.querySelector('[data-allocation-card="3113"]')!);
+        await key(container, "Delete");
+        // The bins' Save held on its way to e3, and the day stepped on meanwhile.
+        const held = h.e3.hold((request) => request.kind === "mutate" && request.record === ex.kilnBins.name);
+        await act(async () => { fireEvent.click(toolbar(container).getByRole("button", { name: "Publish" })); });
+        await settle();
+        await key(container, "]");
+        expect(shownDay(container)).toBe(WED.getTime());
+        await act(async () => { held.release(); }); await settle();
+        await waitFor(async () => expect((await h.read(ex.yardDays)).get(TUE)?.state.type).toBe("issued"));
+        expect([wednesday, (await h.read(ex.yardDays)).get(WED)?.state.type]).toEqual(["draft", "draft"]);
     });
 
     test("A4 — the published example's day, Tue 4, opens read-only", async () => {

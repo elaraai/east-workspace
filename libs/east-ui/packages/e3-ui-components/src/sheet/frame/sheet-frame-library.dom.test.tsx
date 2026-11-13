@@ -24,6 +24,7 @@ import { ArrayType, East, StringType, StructType, some } from "@elaraai/east";
 import { Record, Sheet, SheetPayloadType } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/sheet/sheet";
 import { act, sheetHarness, settle, slot, tabs } from "./harness.test-utils.js";
+import { frameScrolls, touchFrame } from "../frame.test-utils.js";
 import { keptName, resetKept } from "@elaraai/east-ui-components/internal";
 
 const h = sheetHarness();
@@ -298,4 +299,21 @@ test("an empty tab says so: No templates, Nothing in an author's tab, or No matc
     expect(emptyState(container)).toBeNull();
     await search(container, "zz");
     expect(emptyState(container)).toEqual(["No matches", 'Nothing matches "zz".']);
+});
+
+test("on a phone a column's Go to in the Columns tab closes the Library's view, the focus back on its strip tab (SH11, #1585)", async () => {
+    const restore = touchFrame(390, { builder: true });
+    const restoreScroll = frameScrolls();
+    try {
+        const { container } = await h.mount(ex.sheetWorkshop);
+        const stripTab = () => container.querySelector<HTMLElement>('[data-pane-tab="start"]')!;
+        await act(async () => { fireEvent.click(stripTab()); });
+        await settle();
+        expect(pane(container).hasAttribute("data-open")).toBe(true);
+        await openTab(container, "Columns");
+        const go = within(pane(container)).getByRole("button", { name: "Go to Start" });
+        await act(async () => { go.focus(); fireEvent.click(go); });
+        await settle();
+        expect([pane(container).hasAttribute("data-open"), document.activeElement]).toEqual([false, stripTab()]);
+    } finally { restoreScroll(); restore(); }
 });

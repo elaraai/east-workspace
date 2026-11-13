@@ -11,11 +11,13 @@
  * given where the canvas measures it, its body; what the zoom draws is read
  * off the canvas's own geometry — the drawing's size, the size of the box main
  * scrolls, and the scale between them. The depot draws its details on its
- * cards, five lanes of them, wider and taller than a main of 600 × 400.
+ * cards, five lanes of them, wider and taller than a main of 600 × 400. A
+ * phone's main windows the lanes (R40): never more of them than the flow has.
  */
 
 import { describe, expect, test, vi } from "vitest";
 import { waitFor } from "@testing-library/react";
+import { Data, Flowchart } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/flowchart/flowchart";
 import { enabled, flowchartHarness, press } from "./flowchart.test-utils.js";
 
@@ -98,5 +100,30 @@ describe("the zoom (R42)", () => {
         await press("Fit");
         expect([drawn(container).zoom, drawn(container).transform]).toEqual([1, ""]);
         expect(strip()).toEqual([false, false, true]);
+    });
+});
+
+describe("a phone's window of lanes (R40)", () => {
+    test("a flow with fewer lanes than the window holds fills it, never ending at an empty slot: its one lane takes the whole of main's width, and no pager steps it", async () => {
+        mainOf(324, 600);
+        // One lane, every state in it.
+        const lanes = await h.read(ex.depotLanes);
+        await h.patch(ex.depotLanes, new Map([["sort", lanes.get("sort")!]]));
+        const states = await h.read(ex.depotStates);
+        await h.patch(ex.depotStates, new Map([...states].map(([key, state]) => [key, { ...state, phase: "sort" }] as const)));
+        // Read whole, with no details on the cards: the window holds two lanes of a phone's 324.
+        const { container } = await h.mountFlowchart(($) => {
+            const stateRows = $.let(Data.bind(ex.depotStates));
+            const laneRows = $.let(Data.bind(ex.depotLanes));
+            return {
+                states: Flowchart.states(stateRows, { label: "name", lane: "phase", order: "seq" }),
+                lanes: Flowchart.lanes(laneRows, { label: "label", order: "seq" }),
+            };
+        });
+        await waitFor(() => expect(container.querySelector("[data-flowchart-node]")).not.toBeNull());
+        // The lane's header strip runs its band's width.
+        const head = container.querySelector("[data-flowchart-lane-head='sort'] rect")!;
+        expect(Number(head.getAttribute("width"))).toBe(324);
+        expect(container.querySelector("[data-flowchart-lane-pager]")).toBeNull();
     });
 });

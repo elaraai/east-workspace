@@ -14,13 +14,14 @@
  * is minted unique in its record (B15); and pay is asked a person at a time
  * (B17).
  */
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
-import { DateTimeType, equalFor, variant } from "@elaraai/east";
+import { DateTimeType, SortedSet, StringType, compareFor, equalFor, none, variant } from "@elaraai/east";
 import { editingMessages } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/roster/roster";
 import {
-    START, act, assignment, at, cell, drop, history, libraryCard, narrow, open, press, rosterHarness, settle, slot, warehouseRoster, weekDuties, width, type Choice,
+    NEXT, START, act, assignment, at, cell, drop, history, libraryCard, narrow, open, press, rosterHarness, settle, slot, warehouseRoster, weekDuties, width,
+    type Choice,
 } from "./harness.test-utils.js";
 import { conflictCards } from "../e3-web-mount.test-utils.js";
 import { setRosterPayProbe } from "./model.js";
@@ -48,7 +49,7 @@ afterEach(() => { setRosterPayProbe(undefined); });
 
 describe("one history over the Roster's records (#1369)", () => {
     test("B5 — accepting a proposal is one step across records: the duty and the week's dismissal are drafted together, and undone together", async () => {
-        // The warehouse's roster with no check of its own on a draft: a new duty saves with no cost centre given.
+        // The warehouse's roster with no check of its own on a draft: a new duty saves with the fields the app's `values` give it.
         const { container: c } = await h.mount(warehouseRoster());
         await press(within(proposal(c, "s317")!).getByRole("button", { name: "Accept proposal for N. Ochre" }));
         expect(proposal(c, "s317")).toBeNull();
@@ -69,6 +70,8 @@ describe("one history over the Roster's records (#1369)", () => {
             && sameDate(duty.start, at("2028-03-09T22:00:00")));
         expect(added).toHaveLength(1);
         expect([added[0]!.team, added[0]!.shift, added[0]!.end]).toEqual(["inbound", "night", at("2028-03-10T06:00:00")]);
+        // Its own fields, the app's `values` of it (#1526): half an hour's break on the eight-hour night, and its team's cost centre.
+        expect([added[0]!.unpaidBreak, added[0]!.agreed, added[0]!.costCentre, added[0]!.note]).toEqual([30, none, "CC-IN", ""]);
     });
 
     test("B6 — Save sends each record's changes as its own request: the duties' door refusing keeps their drafts, and the week's commit stands", async () => {
@@ -89,7 +92,7 @@ describe("one history over the Roster's records (#1369)", () => {
     test("B7 — Publish saves the week's records first, then writes its status, and the week is read-only", async () => {
         const { container: c } = await h.mount(ex.rosterWarehouse);
         await press(within(assignment(c, "s37")).getByRole("button", { name: "Remove C. Clover" }));
-        await press(history(c, "Publish"));
+        await press(history(c, "Publish week"));
         // The duties' Save first; the week's status once the duties read back as saved.
         expect(mutated()).toEqual([ex.rosterDuties.name, ex.rosterWeeks.name]);
         expect((await h.read(ex.rosterDuties)).has("s37")).toBe(false);
@@ -99,15 +102,64 @@ describe("one history over the Roster's records (#1369)", () => {
         expect(slot(c, "toolbar").querySelector("[data-roster-status]")?.textContent).toBe("Published");
     });
 
+    test("B7 — the status is written over the week's row as the Save left it: another session's write just after the Save, and the Save's own dismissal, both stand", async () => {
+        // The weeks read by key (`entries`): the Roster holds no copy of the record, only what it reads of the week.
+        const { container: c } = await h.mount(ex.rosterWindowed);
+        // From the week it opens on, which the weeks record holds no row of, back to the week before, and its Thursday: the
+        // day's proposals.
+        await act(async () => { fireEvent.keyDown(slot(c, "main"), { key: "[" }); });
+        await settle();
+        await press(within(slot(c, "toolbar")).getByRole("radio", { name: "Thu" }));
+        const before = (await h.read(ex.rosterWeeks)).get(START)!;
+        // A dismissal drafted on the week's row: Publish saves it before it writes the status.
+        await press(within(proposal(c, "s318")!).getByRole("button", { name: "Reject proposal for B. Pumice" }));
+        // The weeks' Save commits, and another session dismisses N. Ochre's suggestion just after it, before the Roster
+        // reads its own back: what it reads back is its own dismissal beside the other's.
+        await h.followed(ex.rosterWeeks, () => { fireEvent.click(history(c, "Publish week")); }, now => {
+            const week = now.get(START)!;
+            now.set(START, { ...week, dismissed: new SortedSet([...week.dismissed, "s317"], compareFor(StringType)) });
+            return now;
+        });
+        await waitFor(async () => expect((await h.read(ex.rosterWeeks)).get(START)!.state.type).toBe("issued"));
+        await settle();
+        const published = (await h.read(ex.rosterWeeks)).get(START)!;
+        expect([...published.dismissed]).toEqual([...before.dismissed, "s317", "s318"].sort(compareFor(StringType)));
+        expect(slot(c, "toolbar").querySelector("[data-roster-status]")?.textContent).toBe("Published");
+    });
+
     test("B7 — a Save that fails leaves the week a draft, its drafts kept: the status is never written over unsaved duties", async () => {
         const { container: c } = await h.mount(warehouseRoster({ locked: true }));
         await press(within(assignment(c, "s37")).getByRole("button", { name: "Remove C. Clover" }));
-        await press(history(c, "Publish"));
+        await press(history(c, "Publish week"));
         expect(mutated()).toEqual([ex.rosterLockedDuties.name]);
         expect((await h.read(ex.rosterWeeks)).get(START)!.state.type).toBe("open");
         expect(assignment(c, "s37").hasAttribute("data-removed")).toBe(true);
         expect(c.querySelector('[data-session-banner="rejected"]')).not.toBeNull();
         expect(c.querySelector("[data-roster-readonly]")).toBeNull();
+    });
+
+    test("B7 — a week with no row whose `values` fail as they run publishes nothing: the Save stands, the week stays a draft, and the console says why", async () => {
+        const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+        try {
+            // The warehouse's roster whose new week's approver cannot be made (#1526); to the week after its own, which the
+            // weeks record holds no row of, and a request drafted there.
+            const { container: c } = await h.mount(warehouseRoster({ failingValues: true }));
+            await act(async () => { fireEvent.keyDown(slot(c, "main"), { key: "]" }); });
+            await settle();
+            const before = await h.read(ex.rosterDuties);
+            await press(within(cell(c, 4, "inbound", "night")).getByRole("button", { name: "Request Northside Staffing" }));
+            await press(history(c, "Publish week"));
+            // The duties' Save commits; the week's row, made only as its status is written, fails, and none of it is written.
+            expect(mutated()).toEqual([ex.rosterDuties.name]);
+            expect([...(await h.read(ex.rosterDuties)).keys()].filter(key => !before.has(key))).toHaveLength(1);
+            expect((await h.read(ex.rosterWeeks)).has(NEXT)).toBe(false);
+            expect(logged).toHaveBeenCalledWith(expect.stringMatching(/^\[Roster\] the period's row could not be made from the app's values:$/), expect.anything());
+            // The week stays a draft, taking gestures.
+            expect(c.querySelector("[data-roster-readonly]")).toBeNull();
+            expect(slot(c, "toolbar").querySelector("[data-roster-status]")?.textContent).not.toBe("Published");
+        } finally {
+            logged.mockRestore();
+        }
     });
 
     test("B8 — a published week is read-only in every layout, phones included", async () => {
@@ -118,7 +170,7 @@ describe("one history over the Roster's records (#1369)", () => {
         expect(c.querySelector("[data-roster-grip], [data-roster-chip-action], [data-roster-action]")).toBeNull();
         expect(toolbar.queryByRole("button", { name: editingMessages.apply() })).toBeNull();
         // Publish keeps its slot, as on every week of a Roster that publishes and edits (#1398, CL1): there, and off.
-        expect(toolbar.getByRole("button", { name: "Publish" }).hasAttribute("disabled")).toBe(true);
+        expect(toolbar.getByRole("button", { name: "Publish week" }).hasAttribute("disabled")).toBe(true);
         await press(toolbar.getByRole("radio", { name: "People" }));
         expect(within(slot(c, "main")).queryAllByRole("button", { name: /assign/i })).toEqual([]);
         await width(390);
@@ -207,7 +259,7 @@ describe("one history over the Roster's records (#1369)", () => {
 
     test("B15 — a new duty's key is minted unique in its record: a key the week holds is passed over, and so is one a draft holds", async () => {
         offering(["s37", "e5c3a1f0-0000-4000-8000-000000000001", "e5c3a1f0-0000-4000-8000-000000000001", "e5c3a1f0-0000-4000-8000-000000000002"]);
-        // The warehouse's roster with no check of its own on a draft: a request saves with no cost centre given.
+        // The warehouse's roster with no check of its own on a draft: a request saves with the fields the app's `values` give it.
         const { container: c } = await h.mount(warehouseRoster());
         const before = await h.read(ex.rosterDuties);
         await press(within(cell(c, 4, "inbound", "night")).getByRole("button", { name: "Request Northside Staffing" }));
@@ -258,8 +310,9 @@ describe("one history over the Roster's records (#1369)", () => {
         expect(asked).toEqual(["aalder"]);
         await act(async () => { fireEvent.keyDown(slot(c, "main"), { key: "Escape" }); });
         await settle();
-        // His Wednesday: 8 h of ordinary time at 42; his Saturday: 6 h at 42, 2 h at the OT1 rate of 63, where it was 8 h at 42.
-        expect(amount(stat(c, "Cost")) - cost).toBe(8 * 42 + 6 * 42 + 2 * 63 - 8 * 42);
+        // His Wednesday, new: 7.5 h of ordinary time at 42 — its eight hours less the half hour's break the app's `values` give it;
+        // his Saturday: 6.5 h at 42, 1.5 h at the OT1 rate of 63, where it was 8 h at 42.
+        expect(amount(stat(c, "Cost")) - cost).toBe(7.5 * 42 + 6.5 * 42 + 1.5 * 63 - 8 * 42);
         // The warehouse's check is given the pay: his Saturday is overtime nobody agreed.
         await press(within(slot(c, "end")).getByRole("tab", { name: /^Issues/ }));
         expect(titled(c, "Overtime not agreed")).toHaveLength(overtime + 1);

@@ -48,7 +48,10 @@
  *   (`use-drop.ts`);
  * - **the inspector** (`inspector.tsx`), the end pane: what is selected, and
  *   the flowchart's issues — each one selecting what it names, an unsaved
- *   change the rail hides by the same hidden pick;
+ *   change the rail hides by the same hidden pick. An issue gone to, from the
+ *   toolbar or from its line in Issues, asks its row's Details for the field
+ *   it names, which takes the keyboard there, the inspector opened at Details
+ *   where it is collapsed or at Issues;
  * - **the footer** (`footer.tsx`): the counts, the changes waiting on Save,
  *   the last save, each Save's notice, a refused gesture's words, and the
  *   loading line — `Loading states…`, `Updating states…`, or a failed read
@@ -64,39 +67,45 @@
 
 import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Box, Button, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
-import { ArrayType, StringType, equalFor, equivalentFor, type PatchPath } from "@elaraai/east";
+import { ArrayType, StringType, equalFor, equivalentFor, none, type PatchPath } from "@elaraai/east";
 import { EditingBatchReadinessType } from "@elaraai/east-ui/internal";
 import { Flowchart, flowchartKeys } from "@elaraai/e3-ui/internal";
 import {
-    BannerView, BuilderFrame, SessionBanners, focusKeySearch, getSomeorUndefined, historyShortcut, historyToolbarItem,
-    implementUIComponent, takeKey, typedInto, useContainerBelow, useDataStable, useFormatters, type EditIssue, type HistoryAction,
+    BannerView, BuilderFrame, SessionBanners, fieldBreachText, fieldBreaches, fieldFormMessages, focusKeySearch, getSomeorUndefined, historyShortcut,
+    historyToolbarItem, implementUIComponent, takeKey, typedInto, useContainerBelow, useDataStable, useFormatters,
+    type EditIssue, type FieldBreach, type HistoryAction, type Origin,
 } from "@elaraai/east-ui-components";
 import { LoadingReveal, loadingLineText, type LoadingLineValue } from "@elaraai/east-ui-components/internal";
+import { isBounded } from "../shared/bounds.js";
 import { pagedLoadingLine } from "../shared/loading.js";
+import { DraftedStanding } from "../shared/schedule/drafted-rows.js";
+import { FieldAskProvider, useFieldAsks } from "../shared/schedule/field-ask.js";
 import { FollowSources, type FollowedSources } from "../shared/schedule/follow-sources.js";
 import type { SourceHiding } from "../shared/schedule/hidden.js";
 import { HideSources, useHiddenPick, type HiddenPicks, type HiddenSource } from "../shared/schedule/hidden-pick.js";
-import { rowCodec } from "../shared/schedule/records.js";
+import { draftedRow, rowCodec } from "../shared/schedule/records.js";
 import { sourcePart, type KeyVisibilityWords } from "../shared/schedule/visibility.js";
 import { NARROW_WIDTH } from "../shared/schedule/window.js";
 import { kindPlural } from "../shared/schedule/words.js";
 import type { ZoomRange } from "../shared/schedule/zoom.js";
 import { FlowchartCanvasView, type FlowchartCanvasEdit, type FlowchartCanvasFailure, type FlowchartCanvasHandle, type FlowchartReveal } from "./canvas.js";
 import { FlowchartDetailsReader, NO_DETAILS, askDetailsAgain, detailsKindsOf, flowchartDetailsModel, useDrawnKeys, type FlowchartDetailsData } from "./details.js";
-import { draftedRows, type FlowchartDimmed } from "./drafted.js";
+import { draftedRows, landedDrafts, landedRead, type FlowchartDimmed } from "./drafted.js";
 import type { FlowchartDropContext } from "./drop.js";
 import { kindOf, useFlowchartEditing, type FlowchartKeyCheckWords } from "./editing.js";
 import {
-    EDIT_ORIGIN, addLane, addState, connect, deleteDecision, deleteLane, deleteLink, deleteStates, moveStates, renameLane, renameState,
-    type FlowchartGesture, type FlowchartHolding, type GestureEdits,
+    EDIT_ORIGIN, addLane, addState, connect, deleteDecision, deleteLane, deleteLink, deleteStates, followBuiltKeys, moveStates, renameLane, renameState,
+    type FlowchartGesture, type FlowchartHolding, type FlowchartRefusal, type GestureEdits,
 } from "./edits.js";
 import { useFlowchartFind, type FindableState, type FoundState } from "./find.js";
 import { FlowchartFooter, useLastSaves, type FlowchartNotice } from "./footer.js";
 import { flowchartInspectorPane } from "./inspector.js";
-import { conflictValueName, flowchartIssues, selectionOf, sessionIssues, type FlowchartIssueArgs, type FlowchartKeyFields } from "./issues.js";
+import {
+    conflictValueName, flowchartIssues, selectionOf, sessionIssues, type FlowchartBreach, type FlowchartBreachWords, type FlowchartIssueArgs, type FlowchartKeyFields,
+} from "./issues.js";
 import { useFlowchartLibrary } from "./library.js";
-import { DEFAULT_FLOWCHART_NOUNS, flowchartMessagesOf, type FlowchartNouns, type FlowchartWords } from "./messages.js";
-import { buildModel, type FlowchartValue } from "./model.js";
+import { DEFAULT_FLOWCHART_NOUNS, flowchartMessagesOf, type FlowchartNouns, type FlowchartRefusalWord, type FlowchartWords } from "./messages.js";
+import { buildModel, flowchartKindKeys, type FlowchartValue } from "./model.js";
 import { useViewerOrientation } from "./orientation.js";
 import { FLOWCHART_SORTS, FlowchartDataReader, INITIAL_FLOWCHART_DATA, SOURCE_SORTS, type FlowchartData, type FlowchartSort } from "./read.js";
 import { selectionHeld, type FlowchartSelection } from "./selection.js";
@@ -208,10 +217,12 @@ function FlowchartFollows(props: FlowchartFollowsProps) {
     const nouns = useMemo(() => sourceNouns(value, words.m, words.locale), [value, words]);
     // What a source's failed narrowing says, in the Flowchart's words.
     const said = useCallback((name: string): KeyVisibilityWords => ({ changed: words.m.sourceChanged({ name }), failed: words.m.sourceFailed({ name }) }), [words]);
-    // The states and the transitions, each read through its source of the rail: each one's hidden pick.
+    // The states and the transitions, each read through its source of the rail: each one's hidden pick, which asks e3 of
+    // a row at its kind's key type (#1549).
     const hidden = useMemo(() => SOURCE_SORTS.flatMap((sort): HiddenSource[] => {
-        const part = kindOf(value, sort) === undefined ? undefined : sourcePart(chrome, sort);
-        return part === undefined ? [] : [{ key: sort, part }];
+        const kind = kindOf(value, sort);
+        const part = kind === undefined ? undefined : sourcePart(chrome, sort);
+        return kind === undefined || part === undefined ? [] : [{ key: sort, part, keyType: kind.keyType }];
     }), [value, chrome]);
     return (
         <FollowSources chrome={chrome} narrowed={value.shown} sources={sources} nouns={nouns} said={said}>
@@ -236,6 +247,62 @@ interface FlowchartFrameProps extends FlowchartFollowsProps {
     readonly picks: HiddenPicks;
 }
 
+/**
+ * A refusal in the footer's words (#1549): the row holding the key a row
+ * builds, or the row whose key would move (#1580), named as the canvas names it
+ * — a transition by its ends' states, a state by its label, else its key, a
+ * lane by its label.
+ *
+ * @param refusal - Why the gesture records nothing
+ * @param holding - What the Flowchart holds: the row named, among those drawn, hidden and waiting
+ * @returns Its words
+ */
+function refusalWord(refusal: FlowchartRefusal, holding: FlowchartHolding): FlowchartRefusalWord {
+    if (refusal.refusal === "placeholder" || refusal.refusal === "untyped") return refusal;
+    const { model, rows } = holding;
+    const key = refusal.key;
+    const waiting = holding.waiting.find((row) => row.sort === refusal.sort && stringEqual(row.key, key));
+    const stateName = (state: string): string => model.nodesByKey.get(state)?.label ?? state;
+    const labelled = (label: string | undefined): string => (label === undefined || label.length === 0 ? key : label);
+    const nameOf = (): string => {
+        switch (refusal.sort) {
+            case "states": return labelled(rows.states.find((row) => stringEqual(row.key, key))?.roles.label ?? (waiting?.sort === "states" ? waiting.roles.label : undefined));
+            case "lanes": return labelled(model.lanes.find((lane) => lane.band === "lane" && stringEqual(lane.key, key))?.label ?? (waiting?.sort === "lanes" ? waiting.roles.label : undefined));
+            case "decisions": return model.triggers.get(key)?.label ?? key;
+            case "transitions": return key;
+        }
+    };
+    if (refusal.refusal === "unheld") return { refusal: "unheld", name: nameOf(), by: refusal.by, why: refusal.why };
+    if (refusal.sort !== "transitions") return { refusal: "taken", sort: refusal.sort, name: nameOf() };
+    const roles = [...rows.transitions, ...holding.hidden].find((row) => stringEqual(row.key, key))?.roles
+        ?? (waiting?.sort === "transitions" ? waiting.roles : undefined);
+    return roles === undefined ? { refusal: "taken", sort: "transitions", name: key }
+        : { refusal: "taken", sort: "transitions", from: stateName(roles.from), to: stateName(roles.to) };
+}
+
+/**
+ * What is selected, after a gesture moved rows under the keys their fields
+ * build (#1549): a moved row's selection under its new key.
+ *
+ * @param selection - What was selected
+ * @param moved - The rows moved
+ * @returns The selection that follows them; `undefined` where none moved
+ */
+function followMoves(selection: FlowchartSelection | null, moved: GestureEdits["moved"]): FlowchartSelection | undefined {
+    if (selection === null || moved === undefined || moved.length === 0) return undefined;
+    const to = (sort: FlowchartSort, key: string) => moved.find((move) => move.sort === sort && stringEqual(move.key, key))?.to;
+    switch (selection.kind) {
+        case "states": {
+            const keys = selection.keys.map((key) => to("states", key) ?? key);
+            return keys.some((key, i) => !stringEqual(key, selection.keys[i]!)) ? { kind: "states", keys } : undefined;
+        }
+        case "state": { const key = to("states", selection.key); return key === undefined ? undefined : { kind: "state", key }; }
+        case "link": { const key = to("transitions", selection.key); return key === undefined ? undefined : { kind: "link", key }; }
+        case "lane": { const key = to("lanes", selection.key); return key === undefined ? undefined : { kind: "lane", key }; }
+        case "trigger": return undefined;
+    }
+}
+
 /** What the frame's gestures read as they are made, the latest render's: what is held, what is selected, and how a drop lands. */
 interface Latest {
     readonly holding: FlowchartHolding;
@@ -256,6 +323,8 @@ function FlowchartFrame({ value, data, attempt, readAgain, storageKey, words, no
     const m = words.m;
     const name = getSomeorUndefined(value.name);
     const keys = useMemo(() => flowchartKeys(name), [name]);
+    // Each kind's keys (#1549): each key's text, read back at its record's key type, and their order by it.
+    const rowKeys = useMemo(() => flowchartKindKeys(value), [value]);
     const chrome = useMemo(() => getSomeorUndefined(value.slice), [value.slice]);
     const kindName = useCallback((sort: FlowchartSort): string => kindOf(value, sort)?.name ?? sort, [value]);
 
@@ -274,7 +343,7 @@ function FlowchartFrame({ value, data, attempt, readAgain, storageKey, words, no
         const part = kindOf(value, sort)?.editable === true ? sourcePart(chrome, sort) : undefined;
         return part === undefined ? [] : [part];
     }), [value, chrome]);
-    const keyWords = useMemo((): FlowchartKeyCheckWords => ({ held: m.keyHeld, checking: m.keyChecking }), [m]);
+    const keyWords = useMemo((): FlowchartKeyCheckWords => ({ held: m.keyHeld, checking: m.keyChecking, placeholder: m.keyPlaceholder }), [m]);
     const editing = useFlowchartEditing(value, `${storageKey}.${name ?? "flowchart"}`, recordSlices, data.held, keyWords, retained);
     const history = editing.history;
     const sessions = editing.schedule.sessions;
@@ -289,7 +358,19 @@ function FlowchartFrame({ value, data, attempt, readAgain, storageKey, words, no
         };
         return { states: of("states"), transitions: of("transitions") };
     }, [value.narrowed, followed]);
-    const drafted = useMemo(() => draftedRows(data.held, data.hiddenWith, editing.drafts, dimmed), [data.held, data.hiddenWith, editing.drafts, dimmed]);
+    // A kind read by key is confirmed as its rows land, while the reader hands the frame what it read only once every
+    // kind has: what a Save landed stands as the Save left it over stored rows read before it — at another revision than
+    // the one their record reads at now — and is let go once they are read at it, before paint, so no frame draws both.
+    const laidDrafts = useMemo(() => landedDrafts(editing.drafts, editing.landed, data.held, data.hiddenWith, data.revisions, data.now),
+        [editing.drafts, editing.landed, data.held, data.hiddenWith, data.revisions, data.now]);
+    const landed = editing.landed, shownLanded = editing.shown;
+    useLayoutEffect(() => {
+        for (const [sort, keys] of landedRead(landed, data.revisions, data.now)) shownLanded(sort, keys);
+    }, [landed, data.revisions, data.now, shownLanded]);
+    // Which drafted rows stand, and what the canvas last made its model of: what stands through a carry-over (`drafted.ts`).
+    const [standing] = useState(() => new DraftedStanding());
+    const drafted = useMemo(() => draftedRows(data.held, data.hiddenWith, laidDrafts, rowKeys, dimmed, standing),
+        [data.held, data.hiddenWith, laidDrafts, rowKeys, dimmed, standing]);
     const model = useMemo(() => buildModel(drafted.rows, words), [drafted.rows, words]);
 
     // ── The details: read by the rows drawn, in a reader of their own, and counted into the flowchart's bins ──
@@ -314,42 +395,94 @@ function FlowchartFrame({ value, data, attempt, readAgain, storageKey, words, no
         model, rows: drafted.rows, hidden: drafted.hidden, waiting: drafted.waiting,
         can: (sort) => editing.editable(sort) && editing.available(sort),
         taken: (sort, key) => editing.taken(sort, key),
+        stands: (sort, key) => editing.stands(sort, key),
         mintTransition: (minted) => editing.mintTransition(minted),
         unqueues: editing.unqueues, wholeLaneOrders: editing.wholeLaneOrders,
-    }), [model, drafted, editing]);
+        newKey: (sort, made, madeUp, minted) => editing.newKey(sort, made, madeUp, minted),
+        moves: (edits) => editing.moves(edits),
+        // A state or a transition the rail narrows reads only its narrowing, under `"hide"`; under `"dim"` it reads every
+        // row, and a lane or a decision is read whole (#1580).
+        unheld: (sort) => {
+            if (!editing.editable(sort)) return undefined;
+            const narrows = (sort === "states" || sort === "transitions") && value.narrowed.type !== "dim";
+            if (narrows && (sourcePart(chrome, sort)?.read().where.size ?? 0) > 0) return "filtered";
+            return editing.available(sort) ? undefined : "busy";
+        },
+        created: (sort, key) => editing.drafts[sort].get(key)?.created === true,
+    }), [model, drafted, editing, value.narrowed, chrome]);
     const context = useMemo((): FlowchartDropContext => ({
         model,
         editable: (sort) => editing.editable(sort),
         available: (sort) => editing.available(sort),
         kindName: (sort) => kindName(sort).toLocaleLowerCase(words.locale),
+        untyped: (sort) => editing.untyped(sort),
     }), [model, editing, kindName, words.locale]);
     // The latest render's, as a gesture reads them when it is made: set once the render commits, never as it renders.
     const latest = useRef<Latest>({ holding, selection, context });
     useLayoutEffect(() => { latest.current = { holding, selection, context }; });
     const record = editing.record;
+    // Every gesture's one way into the history, a drop's too: every row whose kind builds its key from it following its
+    // fields (#1549); a refusal said in the footer, its words handed back; and what is selected following a row the
+    // gesture moves.
+    const recordGesture = useCallback((made: GestureEdits, origin: Origin, label: string):
+        { readonly done: GestureEdits } | { readonly said: string } | undefined => {
+        const { holding: now, selection: picked } = latest.current;
+        const followed = followBuiltKeys(now, made);
+        if (followed.refused !== undefined) {
+            const said = m.gestureRefused(refusalWord(followed.refused, now));
+            setNotice(said);
+            return { said };
+        }
+        if (followed.edits.length > 0 && !record(followed.edits, origin, label)) return undefined;
+        setNotice(undefined);
+        const follows = followMoves(picked, followed.moved);
+        if (follows !== undefined) setSelected(follows);
+        return { done: followed };
+    }, [record, m]);
+    const commit = useCallback((made: GestureEdits, origin: Origin, label: string): GestureEdits | undefined => {
+        const got = recordGesture(made, origin, label);
+        return got === undefined || "said" in got ? undefined : got.done;
+    }, [recordGesture]);
     const act = useCallback((gesture: FlowchartGesture, build: (holding: FlowchartHolding) => GestureEdits | undefined): GestureEdits | undefined => {
         const made = build(latest.current.holding);
-        if (made === undefined) return undefined;
-        if (made.edits.length > 0 && !record(made.edits, EDIT_ORIGIN[gesture], m.editLabel({ gesture }))) return undefined;
-        setNotice(undefined);
-        return made;
-    }, [record, m]);
+        return made === undefined ? undefined : commit(made, EDIT_ORIGIN[gesture], m.editLabel({ gesture }));
+    }, [commit, m]);
+    // A form's edit in the inspector, as every gesture's: refused, why, which Details says under the field too.
+    const edit = useCallback((gesture: FlowchartGesture, build: (holding: FlowchartHolding) => GestureEdits | undefined): boolean | string => {
+        const made = build(latest.current.holding);
+        const got = made === undefined ? undefined : recordGesture(made, EDIT_ORIGIN[gesture], m.editLabel({ gesture }));
+        return got === undefined ? false : "said" in got ? got.said : true;
+    }, [recordGesture, m]);
     const edits = editing.edits;
     const editable = editing.editable;
+    const untyped = editing.untyped;
     const number = words.number;
+    // Why "+ LANE", "+ STATE" and a kind's library cards add nothing, of a kind edited at all: its keys can't be typed, and
+    // it builds none (#1549).
+    const keysOff = useMemo(() => {
+        const why = (sort: "states" | "lanes"): string | undefined => {
+            const type = editable(sort) ? untyped(sort) : undefined;
+            return type === undefined ? undefined : m.keysUntyped({ name: kindName(sort).toLocaleLowerCase(words.locale), type });
+        };
+        return { states: why("states"), lanes: why("lanes") };
+    }, [editable, untyped, m, kindName, words.locale]);
     const canvasEdit = useMemo((): FlowchartCanvasEdit | undefined => {
         if (!edits) return undefined;
         const lanes = editable("lanes"), states = editable("states"), transitions = editable("transitions"), decisions = editable("decisions");
+        // The "+ STATE" editor types a new state's key where the states are keyed by String and build none.
+        const typed = states && rowKeys.states.text && !editing.builds("states");
         return {
+            off: keysOff,
             addLane: lanes ? () => { act("addLane", (h) => addLane(h, (n) => m.newLane({ n, count: number(n) }))); } : undefined,
             renameLane: lanes ? (key, label) => { act("renameLane", (h) => renameLane(h, key, label)); } : undefined,
             deleteLane: lanes ? (key) => { act("deleteLane", (h) => deleteLane(h, key)); } : undefined,
             addState: states ? (band, key, label) => {
-                const made = act("addState", (h) => addState(h, band, key, label));
-                if (made !== undefined) revealSelection({ kind: "state", key: made.key ?? key }, false);
+                const made = act("addState", (h) => addState(h, band, typed ? key : undefined, label));
+                const added = made?.key ?? key;
+                if (made !== undefined && added !== undefined) revealSelection({ kind: "state", key: added }, false);
                 return made !== undefined;
             } : undefined,
-            stateKeyTaken: states ? (key) => editing.taken("states", key) : undefined,
+            stateKeyTaken: typed ? (key) => editing.taken("states", key) : undefined,
             renameState: states ? (key, label) => { act("renameState", (h) => renameState(h, key, label)); } : undefined,
             moveStates: states ? (keys, band, at) => { act("moveStates", (h) => moveStates(h, keys, band, at)); } : undefined,
             deleteStates: states ? (keys) => { act("deleteStates", (h) => deleteStates(h, keys)); } : undefined,
@@ -360,7 +493,7 @@ function FlowchartFrame({ value, data, attempt, readAgain, storageKey, words, no
             deleteLink: transitions ? (key) => { act("deleteLink", (h) => deleteLink(h, key)); } : undefined,
             deleteDecision: decisions ? (key) => { act("deleteDecision", (h) => deleteDecision(h, key)); } : undefined,
         };
-    }, [edits, editable, editing, act, m, number, revealSelection]);
+    }, [edits, editable, editing, act, m, number, revealSelection, keysOff, rowKeys]);
 
     // ── The narrow layout: below 480px of main, measured by the canvas's element, which fills it ──
     const mainRef = useRef<HTMLDivElement | null>(null);
@@ -380,7 +513,7 @@ function FlowchartFrame({ value, data, attempt, readAgain, storageKey, words, no
         value, keys, words,
         context: () => latest.current.context,
         holding: () => latest.current.holding,
-        record: (made, label) => record(made, EDIT_ORIGIN.dropCard, label),
+        record: (made, label) => commit(made, EDIT_ORIGIN.dropCard, label),
         selection: () => latest.current.selection,
         select: revealSelection,
         notice: setNotice,
@@ -411,7 +544,7 @@ function FlowchartFrame({ value, data, attempt, readAgain, storageKey, words, no
     const findable = useMemo(() => model.nodes.filter((node) => !node.ghost)
         .map((node): FindableState => ({ key: node.key, label: node.label, dimmed: node.dimmed })), [model.nodes]);
     const finder = useFlowchartFind({
-        part: statesPart, read: value.states.read, codec, drawn: findable, stored: data.held.states, pick: picks.get("states"),
+        part: statesPart, read: value.states.read, codec, keys: rowKeys.states, drawn: findable, stored: data.held.states, pick: picks.get("states"),
         dim: value.narrowed.type === "dim", words, onPick: onFound,
     });
     const find = useMemo(() => (finder === undefined ? undefined : pick.search(finder)), [finder, pick]);
@@ -433,10 +566,16 @@ function FlowchartFrame({ value, data, attempt, readAgain, storageKey, words, no
         const key = history.sourceOf(issue);
         return key === undefined ? undefined : sessions.find((part) => stringEqual(part.key, key));
     }, [history, sessions]);
-    const onIssue = useCallback((issue: EditIssue) => {
+    // The field an issue gone to names, from the toolbar or from Issues, asked of its row's Details: it takes the keyboard
+    // there, the inspector opened where it is collapsed (`../shared/schedule/field-ask.tsx`) — a conflict's Go to, which
+    // names its path, asks none.
+    const { asks: fieldAsks, request: askField } = useFieldAsks();
+    const onIssue = useCallback((issue: EditIssue, at?: PatchPath) => {
         const sort = sortOf(partOf(issue)?.kind ?? "");
-        if (sort !== undefined) revealSelection(selectionOf(sort, issue.entry));
-    }, [partOf, revealSelection]);
+        if (sort === undefined) return;
+        askField(sort, issue.entry, at === undefined ? issue.field : none);
+        revealSelection(selectionOf(sort, issue.entry));
+    }, [partOf, revealSelection, askField]);
     const where = useCallback((issue: EditIssue) => {
         const part = partOf(issue);
         return part === undefined ? issue.entry : rowName(part.kind, issue.entry);
@@ -500,17 +639,68 @@ function FlowchartFrame({ value, data, attempt, readAgain, storageKey, words, no
 
     // ── The issues, and the panes ──────────────────────────────────────
     const decisionsGiven = getSomeorUndefined(value.decisions) !== undefined;
-    const issueArgs = useMemo((): FlowchartIssueArgs => ({
-        model, transitions: drafted.rows.transitions, waiting: drafted.waiting, hiddenWith: data.hiddenWith, stored: data.held.states, decisions: decisionsGiven,
-        details: detailsModel.findings,
-    }), [model, drafted, data.hiddenWith, data.held.states, decisionsGiven, detailsModel.findings]);
     const historyVersion = editing.version;
     // Each session's readiness, held by what it says, as the Sheet holds its own: the history checks each session again
     // as what its checks read lands — the key check's answer from e3 (D3) — and that moves no version of it.
     const readiness = useDataStable(sessions.map((part) => part.session.readiness), readinessesEqual);
-    const issues = useMemo(() => [...sessionIssues(sessions, issueArgs, kindName), ...flowchartIssues(issueArgs)],
+    // Each kind's form's numbers held to bounds (#1585), and its rows' codec: what each row drawn is checked against, in
+    // the form's own words.
+    const bounded = useMemo(() => FLOWCHART_SORTS.flatMap((sort) => {
+        const kind = kindOf(value, sort);
+        const specs = kind?.fields.filter(isBounded) ?? [];
+        return kind === undefined || specs.length === 0 ? [] : [{ sort, specs, codec: rowCodec(kind.rowType) }];
+    }), [value]);
+    const breachWords = useCallback((sort: FlowchartSort, breach: FieldBreach): FlowchartBreachWords => ({
+        field: bounded.find((one) => one.sort === sort)?.specs.find((spec) => stringEqual(spec.path.join("."), breach.key))?.label ?? breach.key,
+        bound: fieldBreachText(breach, { ...words, m: fieldFormMessages }),
+    }), [bounded, words]);
+    // Each stored row decoded once: a read keeps a row's bytes the same object while it holds the row.
+    const decodedRows = useRef(new WeakMap<Uint8Array, unknown>());
+    // The rows drawn whose numbers their fields' bounds don't hold, the drafts in place: each warns, but a changed row's,
+    // which its session's readiness lists among what holds Save — and a state's, stored or changed, wears the warn ring.
+    const breaches = useMemo((): { readonly warned: FlowchartBreach[]; readonly states: ReadonlySet<string> } => {
+        const warned: FlowchartBreach[] = [];
+        const states = new Set<string>();
+        for (const { sort, specs, codec } of bounded) {
+            const session = sessions.find((part) => stringEqual(part.kind, sort))?.session;
+            const said = session === undefined || session.readiness.type === "ready" ? [] : session.readiness.value;
+            const stored: ReadonlyMap<string, { readonly row: Uint8Array }> | undefined = data.held[sort];
+            const rows = sort === "lanes" ? drafted.rows.lanes ?? [] : drafted.rows[sort];
+            for (const { key, dimmed } of rows) {
+                // What the narrowing draws as context raises none: no path selects it.
+                if (dimmed) continue;
+                const entry = session?.entries.get(key);
+                let held: unknown;
+                if (entry !== undefined) {
+                    held = draftedRow(entry)?.row;
+                } else {
+                    const bytes = stored?.get(key)?.row;
+                    if (bytes === undefined) continue;
+                    held = decodedRows.current.get(bytes);
+                    if (held === undefined) {
+                        held = codec.decode(bytes);
+                        decodedRows.current.set(bytes, held);
+                    }
+                }
+                if (held === undefined) continue;
+                const found = fieldBreaches(specs, held);
+                if (sort === "states" && found.length > 0) states.add(key);
+                for (const breach of found) {
+                    if (said.some((issue) => stringEqual(issue.entry, key) && issue.field.type === "some" && stringEqual(issue.field.value, breach.key))) continue;
+                    warned.push({ sort, key, fieldKey: breach.key, ...breachWords(sort, breach) });
+                }
+            }
+        }
+        return { warned, states };
         // eslint-disable-next-line react-hooks/exhaustive-deps -- the sessions are mutable: the history's version and their readiness say they moved
-        [sessions, issueArgs, kindName, historyVersion, readiness]);
+    }, [bounded, drafted.rows, data.held, sessions, breachWords, historyVersion, readiness]);
+    const issueArgs = useMemo((): FlowchartIssueArgs => ({
+        model, transitions: drafted.rows.transitions, waiting: drafted.waiting, hiddenWith: data.hiddenWith, stored: data.held.states, decisions: decisionsGiven,
+        details: detailsModel.findings, breaches: breaches.warned,
+    }), [model, drafted, data.hiddenWith, data.held.states, decisionsGiven, detailsModel.findings, breaches]);
+    const issues = useMemo(() => [...sessionIssues(sessions, issueArgs, kindName, breachWords), ...flowchartIssues(issueArgs)],
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- the sessions are mutable: the history's version and their readiness say they moved
+        [sessions, issueArgs, kindName, breachWords, historyVersion, readiness]);
     // The states a Save's conflict names: the canvas marks them.
     const conflicted = useMemo(() => {
         const out = new Set<string>();
@@ -519,10 +709,10 @@ function FlowchartFrame({ value, data, attempt, readAgain, storageKey, words, no
         // eslint-disable-next-line react-hooks/exhaustive-deps -- the sessions are mutable: the history's version says they moved
     }, [sessions, historyVersion]);
     const saves = useLastSaves(value, words);
-    const start = useFlowchartLibrary({ value, keys, words, enter: drop.enter, followed, narrow });
+    const start = useFlowchartLibrary({ value, keys, words, enter: drop.enter, followed, narrow, off: keysOff });
     const end = flowchartInspectorPane({
-        value, model, rows: drafted.rows, held: data.held, selection, editing, act, refuse: setNotice, reveal: revealSelection,
-        issues, picks, goToWaiting, saves, details: detailsModel, storageKey: keys.frame, words,
+        value, model, rows: drafted.rows, held: data.held, selection, editing, act, edit, refuse: setNotice, reveal: revealSelection,
+        issues, picks, goToWaiting, ask: askField, saves, details: detailsModel, storageKey: keys.frame, words,
     });
 
     // ── The banners: each session's, and each source the rail could not read ──
@@ -578,7 +768,7 @@ function FlowchartFrame({ value, data, attempt, readAgain, storageKey, words, no
         (line?.kind === "failed" ? { message: loadingLineText(line.text), retry: line.onRetry } : undefined), [line]);
 
     return (
-        <Box css={styles.root} data-flowchart-root="" data-flowchart-layout={narrow ? "narrow" : "wide"}>
+        <FieldAskProvider value={fieldAsks}><Box css={styles.root} data-flowchart-root="" data-flowchart-layout={narrow ? "narrow" : "wide"}>
             <FlowchartDetailsReader kinds={detailsKinds} drawn={drawn} attempt={attempt} onDetails={setDetails} />
             {/* The frame's one reveal clock: the footer's line shows a read in flight after 150 ms, held 300 ms once shown. */}
             <LoadingReveal waiting={line?.kind === "loading"}>
@@ -596,11 +786,12 @@ function FlowchartFrame({ value, data, attempt, readAgain, storageKey, words, no
                     onKeyDown={onKeyDown}
                 >
                     <FlowchartCanvasView ref={canvasRef} canvas={value.canvas} model={model} details={detailsModel} orientation={orientation} reveal={reveal} conflicted={conflicted}
+                        bounded={breaches.states}
                         edit={canvasEdits} drop={drop.canvas} selection={selection} onSelect={setSelected} words={words} storageKey={storageKey}
                         onElement={onCanvasElement} failure={failure} onZoomRange={setZoomRange} />
                 </BuilderFrame>
             </LoadingReveal>
-        </Box>
+        </Box></FieldAskProvider>
     );
 }
 

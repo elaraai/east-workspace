@@ -9,7 +9,9 @@
  * records appear — the main area, the Choosers and the Library tab that lists
  * that record. The one check every builder's tag makes of its `slice`, the one
  * binding of its sources in the builder's payload (#1356), the one check of a
- * tab's `source`, and the one of a templates list's.
+ * tab's `source`, and the one of a templates list's. A source narrows a record
+ * keyed by String — or, for a builder that takes them, by any type, each key
+ * shown as its text (#1549).
  *
  * @packageDocumentation
  */
@@ -33,6 +35,12 @@ export interface RecordSourcesSpec {
     what: string;
     /** Whether it takes a source of this name; by default, one of `names`. A builder whose sources are its own keys (the Calendar's event kinds) says so here. */
     takes?: (name: string) => boolean;
+    /**
+     * Whether a source may narrow a record keyed by any type a Dict takes, each of its shown keys its key's text — a
+     * String key as itself, any other as East prints it (#1549): the Flowchart's and the Schematic's. By default, a
+     * source narrows a record keyed by String.
+     */
+    anyKey?: boolean;
 }
 
 /**
@@ -40,6 +48,12 @@ export interface RecordSourcesSpec {
  * its narrowed keys. A function captures what it reads, so one reading a source through these holds that source
  * alone. One reading through the slice would hold every source's methods, and beast2 writes a captured value
  * wherever a function holding it is written.
+ *
+ * Each is bound as a constant (#1599): a function captures a constant as its value, which the slice gives the same
+ * from one evaluation of the author's block to the next, so the functions a builder makes over its sources are the
+ * same too. A mutable variable is captured as its box, which every evaluation makes anew — the functions over it then
+ * differed each time (East's `equivalentFor`), and a renderer that keeps what it read by the function that read it
+ * let all of it go whenever the author's block was evaluated again (`utils/held.ts`).
  */
 export interface BoundSources {
     /** Each source's part of the slice, its typed record Slice handle: what a kind narrowed through it reads (a Calendar's event kind), and its record's identity. */
@@ -76,13 +90,14 @@ function quoted(names: readonly string[]): string {
 /**
  * Checks a builder's `slice` and reads its sources (#1340): the slice is
  * `Slice.bindRecords`, every source one the builder takes, each a record with
- * String primary keys. `bind` binds each source once in the builder's payload
- * (#1356).
+ * String primary keys — or, `anyKey`, keys of any type. `bind` binds each
+ * source once in the builder's payload (#1356).
  *
  * @param slice - The builder's `slice` prop, if given
  * @param spec - What the builder takes, and its words
  * @returns The chrome, the sources' names, and the binding of each one's part, data and keys
- * @throws {Error} When `slice` is `Slice.bind` or `Slice.bindRecord`, names a source the builder does not take, or narrows a record whose keys are not Strings
+ * @throws {Error} When `slice` is `Slice.bind` or `Slice.bindRecord`, names a source the builder does not take, or —
+ *   unless `anyKey` — narrows a record whose keys are not Strings
  */
 export function recordSources(slice: RecordSlicesChromeOptions | undefined, spec: RecordSourcesSpec): RecordSources {
     if (slice === undefined) return { chrome: none, names: [], bind: () => ({ parts: {}, data: {}, keys: {} }) };
@@ -99,9 +114,9 @@ export function recordSources(slice: RecordSlicesChromeOptions | undefined, spec
         if (!takes(name)) {
             throw new Error(`${spec.builder}: \`slice\` narrows ${spec.what} — its source '${name}' is none of them; name the sources ${quoted(spec.names)}`);
         }
-        // A source's rows are keyed as its record is: a builder matches them by String key.
+        // A source's rows are keyed as its record is: a builder matches them by String key — or, `anyKey`, by its key's text.
         const resolved = resolveRowSource((handle.sources[name] as unknown as { data: unknown }).data, prop(name));
-        if (resolved.kind !== "ordered" || !isTypeEqual(resolved.keyType, StringType)) throw unkeyed(name);
+        if (resolved.kind !== "ordered" || !(spec.anyKey === true || isTypeEqual(resolved.keyType, StringType))) throw unkeyed(name);
     }
     return {
         chrome: some(recordSlicesChrome(slice)),
@@ -111,12 +126,12 @@ export function recordSources(slice: RecordSlicesChromeOptions | undefined, spec
             const data: Record<string, ExprType<StructType>> = {};
             const keys: Record<string, RowSource<ArrayType<StringType>>> = {};
             for (const name of names) {
-                const part = $.let(handle.sources[name]!);
-                const rows = $.let((part as unknown as { data: ExprType<StructType> }).data);
-                // Its keys page through its own data.
-                const visible = keyVisibility(rows, prop(name));
+                const part = $.const(handle.sources[name]!);
+                const rows = $.const((part as unknown as { data: ExprType<StructType> }).data);
+                // Its keys page through its own data, each its text.
+                const visible = keyVisibility(rows, prop(name), spec.anyKey === true);
                 if (visible.source === undefined) throw unkeyed(name);
-                const shown = $.let(visible.source);
+                const shown = $.const(visible.source);
                 parts[name] = part;
                 data[name] = rows;
                 keys[name] = shown;

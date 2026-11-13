@@ -128,7 +128,7 @@
  *     of the window, padded 0 8, snapping to their start past any pinned
  *     column (SH1.3); the header 32
  *     tall, one line (SH3); numbers mono 13/500 in ink (SH5); a band 44
- *     tall, its content across the view whatever the scroll — a 40 wide
+ *     tall, its content across the view whatever the scroll — a touch-sized
  *     chevron, the name, its id, and at its end its status as a chip (SH6):
  *     the name and the status keep their room, the id whole or not at all;
  *     the selected cell's head tinted `bg.subtle` (SH3); and with the jump
@@ -228,6 +228,11 @@ export const sheetSlotRecipe = defineSlotRecipe({
             // A picked row is one `brandTint` surface — the cells' own range wash would double it.
             "& [data-row][data-picked] [data-slot=rangeWash]": { display: "none" },
             "& [data-row][data-draft] > [data-slot=cell][data-blank][data-editable]": {
+                background: "color-mix(in srgb, var(--chakra-colors-status-warn) 17%, var(--chakra-colors-bg-surface))",
+            },
+            // A number outside its field's bounds (#1585), whatever row holds it — a stored one nobody changed among them:
+            // the wash a field still missing wears.
+            "& [data-row] > [data-slot=cell][data-bounds], & [data-band-row] [data-slot=cell][data-bounds]": {
                 background: "color-mix(in srgb, var(--chakra-colors-status-warn) 17%, var(--chakra-colors-bg-surface))",
             },
             "& [data-row][data-invalid] > [data-slot=cell][data-invalid]": {
@@ -1492,8 +1497,8 @@ export const sheetSlotRecipe = defineSlotRecipe({
             _hover: { color: "fg" },
             "& svg": { transition: "transform 180ms cubic-bezier(0.2, 0, 0, 1)", "@media (prefers-reduced-motion: reduce)": { transition: "none" } },
             "&[aria-expanded=true] svg": { transform: "rotate(90deg)" },
-            // A phone's (SH6): a 40 wide target the band's height, its chevron 12.
-            "[data-sheet-card][data-phone] &": { width: "40px", height: "43px", fontSize: "12px", borderRadius: "0", marginRight: "-8px" },
+            // A phone's (SH6): a touch target the band's height, its chevron a touch icon alone (#1547).
+            "[data-sheet-card][data-phone] &": { width: "44px", height: "43px", fontSize: "16px", borderRadius: "0", marginRight: "-8px" },
         },
         groupCount: {
             fontFamily: "mono",
@@ -1515,11 +1520,11 @@ export const sheetSlotRecipe = defineSlotRecipe({
             minHeight: "28px", cursor: "text", overflow: "visible",
             '&:has([data-slot=editorInput])': { width: "240px", flex: "0 0 240px" },
         },
+        // The title: body 13/600 in ink, as the band's spec has it.
         groupTitleText: {
-            fontFamily: "heading",
-            fontSize: "14px",
+            fontFamily: "body",
+            fontSize: "13px",
             fontWeight: "600",
-            letterSpacing: "-0.01em",
             color: "fg",
             whiteSpace: "nowrap",
             overflow: "hidden",

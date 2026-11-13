@@ -20,7 +20,7 @@
  */
 
 import { useCallback, useMemo, useSyncExternalStore, type PointerEvent as ReactPointerEvent } from "react";
-import { MoveGhost } from "../../shared/schedule/move-ghost.js";
+import { MoveGhost, useMoveGhostClasses } from "../../shared/schedule/move-ghost.js";
 import { useDragEventChip, useDragEventEdge, type CellCoord, type DragHandle } from "@elaraai/east-ui-components";
 import { slotOfInstant } from "../../shared/time/slot.js";
 import type { PlanScale } from "../scale.js";
@@ -92,6 +92,8 @@ function PlanMoveGhost({ edit, movable }: { edit: PlanEditContextValue; movable:
  */
 export function usePlanMovable(movable: PlanMovable | undefined): PlanMovableProps {
     const edit = usePlanEdit();
+    // Its ghost's classes, made as the element is drawn, ahead of the drag that first draws one (#1594).
+    useMoveGhostClasses(edit?.styles);
     const surface = edit?.surface;
     const scale = edit?.scale;
     const on = edit !== null && surface !== undefined && movable !== undefined;

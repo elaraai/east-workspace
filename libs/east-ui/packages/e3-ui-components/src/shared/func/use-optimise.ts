@@ -21,10 +21,12 @@
  * When the result lands the builder is told, with the request it answers and
  * the run's number: it diffs the two by key and records one step
  * ({@link OptimiseArgs.onLanded}), answering what it counted — changes, the
- * `done` outcome; none, the `none` outcome and one blink of the eye; or no
- * answer for an invalid response, a failure. A rejected call, a transport
- * error and a timed-out call are failures too (R10). Runs are numbered per
- * builder per browser, from 1, under the builder's key (D5).
+ * `done` outcome; none, the `none` outcome and one blink of the eye; a
+ * refusal, a failure saying why — an answer that would change what the
+ * builder takes no edit of (#1553); or no answer for an invalid response, a
+ * failure. A rejected call, a transport error and a timed-out call are
+ * failures too (R10). Runs are numbered per builder per browser, from 1, under
+ * the builder's key (D5).
  *
  * @packageDocumentation
  */
@@ -43,6 +45,14 @@ export interface OptimiseCounts {
     readonly added: number;
     readonly changed: number;
     readonly removed: number;
+}
+
+/**
+ * A result the builder would not land (#1553): why, in its words — the
+ * banner's line — such as an answer changing a duty of a published week.
+ */
+export interface OptimiseRefused {
+    readonly refused: string;
 }
 
 /**
@@ -65,17 +75,19 @@ export interface OptimiseArgs<Req, Res> {
     /**
      * The result landed, for the run it was asked of: the builder diffs it
      * against the request by key and records one step (R7, R8), answering
-     * what it counted; `undefined` for an invalid response — a key outside
-     * the scope, a row of another type — which is a failure (R10, §12).
+     * what it counted; a refusal, recording nothing, for an answer it would
+     * not take, naming why (#1553); `undefined` for an invalid response — a
+     * key outside the scope, a row of another type — which is a failure (R10,
+     * §12).
      */
-    readonly onLanded: (result: Res, request: Req, run: number) => OptimiseCounts | undefined;
+    readonly onLanded: (result: Res, request: Req, run: number) => OptimiseCounts | OptimiseRefused | undefined;
 }
 
-/** What a run came to (R10): its number, the period it was asked of, and what changed. */
+/** What a run came to (R10): its number, the period it was asked of, and what changed — or why not, `refused` the builder's words where it refused the answer (#1553). */
 export type OptimiseRunOutcome =
     | { readonly kind: "done"; readonly run: number; readonly period: string; readonly counts: OptimiseCounts }
     | { readonly kind: "none"; readonly run: number; readonly period: string }
-    | { readonly kind: "fail"; readonly run: number; readonly period: string; readonly message: string };
+    | { readonly kind: "fail"; readonly run: number; readonly period: string; readonly message: string; readonly refused?: string };
 
 /**
  * A run of the app's optimiser (see the module docs).
@@ -158,16 +170,17 @@ export function useOptimise<Req, Res>(args: OptimiseArgs<Req, Res>): OptimiseRun
         flight.current = undefined;
         setRunning(false);
         if (call.status === "succeeded" && call.result !== null) {
-            let counts: OptimiseCounts | undefined;
+            let landed: OptimiseCounts | OptimiseRefused | undefined;
             try {
-                counts = live.current.onLanded(call.result, out.request, out.run);
+                landed = live.current.onLanded(call.result, out.request, out.run);
             } catch (err) {
                 console.error("[Optimise] the result could not be landed:", err);
-                counts = undefined;
+                landed = undefined;
             }
-            if (counts === undefined) setOutcome({ kind: "fail", run: out.run, period: out.period, message: "the optimiser's answer could not be used" });
-            else if (counts.added + counts.changed + counts.removed === 0) { setOutcome({ kind: "none", run: out.run, period: out.period }); setBlinks((n) => n + 1); }
-            else setOutcome({ kind: "done", run: out.run, period: out.period, counts });
+            if (landed === undefined) setOutcome({ kind: "fail", run: out.run, period: out.period, message: "the optimiser's answer could not be used" });
+            else if ("refused" in landed) setOutcome({ kind: "fail", run: out.run, period: out.period, message: landed.refused, refused: landed.refused });
+            else if (landed.added + landed.changed + landed.removed === 0) { setOutcome({ kind: "none", run: out.run, period: out.period }); setBlinks((n) => n + 1); }
+            else setOutcome({ kind: "done", run: out.run, period: out.period, counts: landed });
         } else if (call.status === "failed") {
             setOutcome({ kind: "fail", run: out.run, period: out.period, message: call.error?.message ?? "the call failed" });
         }

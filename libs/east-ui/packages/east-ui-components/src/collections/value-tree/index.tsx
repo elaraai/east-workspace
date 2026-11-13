@@ -347,6 +347,8 @@ function Row({ row, styles, cbs, tabbable, matched, phone, onToggle, onKeyNav, o
             : phone ? <Box as="span" css={styles["phoneSummary"]}>{row.summary.split(" · ").filter((part) => part !== row.label).map((part, i) => <span key={i}>{i > 0 ? `· ${part}` : part}</span>)}</Box>
             : <Box as="span" css={styles["summary"]}>{row.summary}</Box>;
     }
+    // An array's element or a dict's entry is named by its index, title or key: data, set as the values are.
+    const step = row.ownPath[row.ownPath.length - 1];
     return (
         <Box
             css={styles["row"]}
@@ -383,7 +385,8 @@ function Row({ row, styles, cbs, tabbable, matched, phone, onToggle, onKeyNav, o
             ) : (
                 <Box css={styles["twist"]} visibility="hidden" aria-hidden="true" />
             )}
-            <Box as="span" css={styles["label"]} title={row.label}>{row.label}</Box>
+            <Box as="span" css={styles["label"]} title={row.label}
+                data-element={step !== undefined && (step.type === "index" || step.type === "key") ? "" : undefined}>{row.label}</Box>
             <Box css={styles["value"]} data-leaf={row.leaf?.type}>{tagText}{tagSelect}{valueCell}</Box>
             <Box css={styles["controls"]}>
                 {row.optionCtl !== undefined && onTag !== undefined && (() => {

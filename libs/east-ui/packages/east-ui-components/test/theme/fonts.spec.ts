@@ -42,12 +42,12 @@ const PKG = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const ENTRY = "@elaraai/east-ui-components/fonts";
 
 /** Every face the entry registers, as `<family> <style>`: the three families
- *  upright, and JetBrains Mono italic for the muted "no data" value. */
+ *  upright, and Chivo Mono italic for the muted "no data" value. */
 const FACES = [
+    "Chivo Mono Variable italic",
+    "Chivo Mono Variable normal",
     "DM Sans Variable normal",
     "Inter Tight Variable normal",
-    "JetBrains Mono Variable italic",
-    "JetBrains Mono Variable normal",
 ];
 
 /** The `@font-face` rules in a stylesheet: each one's family and style, and the files its `src` names. */

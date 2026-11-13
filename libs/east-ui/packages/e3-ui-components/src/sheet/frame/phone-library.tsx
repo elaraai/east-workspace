@@ -15,13 +15,12 @@
  * @packageDocumentation
  */
 
-import { useContext, useRef, type ReactNode } from "react";
+import { useContext, type ReactNode } from "react";
 import { Box, chakra } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faArrowRight, faEye, faEyeSlash } from "@fortawesome/free-solid-svg-icons";
-import { FrameDrawer, useSlotStyles } from "@elaraai/east-ui-components/internal";
+import { FrameDrawer, FramePane, useSlotStyles } from "@elaraai/east-ui-components/internal";
 import { getSomeorUndefined, type LibraryItemValue } from "@elaraai/east-ui-components";
-import { closeFramePane } from "../../shared/schedule/open-pane.js";
 import { useSheetPhoneLibrary } from "../index.js";
 import { useSheetWords } from "../words.js";
 
@@ -97,11 +96,12 @@ export function PhoneColumns({ columns, pin, onToggle, children }: PhoneColumnsP
     const phone = useContext(FrameDrawer);
     const styles = useSlotStyles("sheet");
     const { goToColumn } = useSheetPhoneLibrary();
-    const list = useRef<HTMLDivElement | null>(null);
+    // The view the list is drawn in, closed by the frame as its collapse closes it.
+    const pane = useContext(FramePane);
     if (!phone) return <>{children}</>;
     const pinned = columns.find((col) => col.key === pin)?.header;
     const go = (col: PhoneColumn) => {
-        closeFramePane(list.current, m.libraryPane());
+        pane?.close();
         if (col.key === pin) return;
         // A column it hides comes back first, and is gone to once the grid has drawn it.
         if (col.hidden) {
@@ -110,7 +110,7 @@ export function PhoneColumns({ columns, pin, onToggle, children }: PhoneColumnsP
         } else goToColumn(col.key);
     };
     return (
-        <Box ref={list} css={styles.phoneList} data-sheet-phone-list="">
+        <Box css={styles.phoneList} data-sheet-phone-list="">
             <Box css={styles.phoneHint} data-sheet-phone-hint="">{m.libraryPhoneColumns({ pinned })}</Box>
             {columns.map((col) => (
                 <Box key={col.key} css={styles.phoneRow} data-sheet-phone-row={col.key} data-off={col.hidden ? "" : undefined}>

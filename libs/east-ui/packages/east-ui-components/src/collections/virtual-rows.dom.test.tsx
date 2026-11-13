@@ -21,7 +21,7 @@ import { ChakraProvider } from "@chakra-ui/react";
 import { system } from "../theme/index.js";
 import type { Virtualizer } from "@tanstack/react-virtual";
 import { useRowsTop } from "./rows-scroll.js";
-import { VirtualRows, devicePixels, observeOffsetWithin, type RowRuns, type RowsViewport } from "./virtual-rows.js";
+import { VirtualRows, devicePixels, observeOffsetWithin, stuckRows, type RowRuns, type RowsViewport, type StickySection } from "./virtual-rows.js";
 
 const ROW_H = 32;
 /** What zoomed measurement reports for a nominally 32px row. */
@@ -519,12 +519,12 @@ describe("VirtualRows — scroll anchoring (#878)", () => {
 
     const keysOf = (prefix: string, n: number): string[] => Array.from({ length: n }, (_u, i) => `${prefix}${i}`);
     const ROWS = keysOf("r", 100);
-    /** The frame over `keys` — every row may anchor unless `anchorable` says otherwise. */
-    const frame = (keys: readonly string[], opts: { anchorable?: ((i: number) => boolean) | null; scrollToIndex?: number; scrollNonce?: number } = {}) => (
+    /** The frame over `keys` — every row may anchor unless `anchorable` says otherwise; told to stay on its start where `startStays`. */
+    const frame = (keys: readonly string[], opts: { anchorable?: ((i: number) => boolean) | null; scrollToIndex?: number; scrollNonce?: number; startStays?: boolean } = {}) => (
         <ChakraProvider value={system}>
             <VirtualRows height="200px" maxHeight={undefined} count={keys.length} estimateSize={() => ROW_H} overscan={2}
                 getItemKey={(i) => keys[i]!} anchorable={opts.anchorable === null ? undefined : opts.anchorable ?? (() => true)}
-                scrollToIndex={opts.scrollToIndex} scrollNonce={opts.scrollNonce}
+                startStays={opts.startStays} scrollToIndex={opts.scrollToIndex} scrollNonce={opts.scrollNonce}
                 renderRow={(i) => <div data-key={keys[i]}>{keys[i]}</div>} />
         </ChakraProvider>
     );
@@ -550,6 +550,51 @@ describe("VirtualRows — scroll anchoring (#878)", () => {
         rerender(frame([...keysOf("n", 10), ...ROWS]));
         expect(scrollEl.scrollTop).toBe(60 * ROW_H);
         expect(inView(container, "r50")).toBe(0);
+    });
+
+    test("a frame told to stay on its start: at the rows' very start a row landing above the first is shown, the view staying there, where keeping the anchor in place took it past the new first row", () => {
+        const STAYS = { startStays: true };
+        const { container, rerender } = render(frame(ROWS, STAYS));
+        const scrollEl = container.firstElementChild as HTMLElement;
+        expect(scrollEl.scrollTop).toBe(0);
+        expect(inView(container, "r0")).toBe(0);
+        // A row put back first — one removed here that comes back, one another write adds there.
+        rerender(frame(["n0", ...ROWS], STAYS));
+        expect(scrollEl.scrollTop).toBe(0);
+        expect(inView(container, "n0")).toBe(0);
+        expect(inView(container, "r0")).toBe(ROW_H);
+    });
+
+    test("a frame told to stay on its start: the first row leaving for a commit and coming back moves nothing — a pass no one saw draws the rows without it, and the frame takes its anchor there", () => {
+        const STAYS = { startStays: true };
+        const { container, rerender } = render(frame(ROWS, STAYS));
+        const scrollEl = container.firstElementChild as HTMLElement;
+        // The first row gone for one commit, then back.
+        rerender(frame(ROWS.slice(1), STAYS));
+        rerender(frame(ROWS, STAYS));
+        expect(scrollEl.scrollTop).toBe(0);
+        expect(inView(container, "r0")).toBe(0);
+    });
+
+    test("a frame told to stay on its start, a little way into the first row, is not at the start: the row at its top keeps its place as one lands above", () => {
+        const STAYS = { startStays: true };
+        const { container, rerender } = render(frame(ROWS, STAYS));
+        // Ten px into r0: r1 is the first row starting in the view, and its anchor.
+        const scrollEl = scrollTo(container, 10);
+        rerender(frame(["n0", ...ROWS], STAYS));
+        expect(scrollEl.scrollTop).toBe(10 + ROW_H);
+        expect(inView(container, "r1")).toBe(ROW_H - 10);
+    });
+
+    test("a frame not told to stay keeps its anchor at the rows' very start too: rows shown again above the first — a Plan's hidden series — leave the view on what it showed", () => {
+        const { container, rerender } = render(frame(ROWS));
+        const scrollEl = container.firstElementChild as HTMLElement;
+        expect(scrollEl.scrollTop).toBe(0);
+        // A block of rows back above the first.
+        const block = keysOf("s", 10);
+        rerender(frame([...block, ...ROWS]));
+        expect(scrollEl.scrollTop).toBe(block.length * ROW_H);
+        expect(inView(container, "r0")).toBe(0);
     });
 
     test("a row above the view growing leaves the row at its top where it is — its heights re-measured after the render", () => {
@@ -1023,6 +1068,98 @@ describe("VirtualRows — a row out of the layout keeps its size (#1389)", () =>
     });
 });
 
+describe("VirtualRows — a horizontal scrollbar is no view", () => {
+    // The frame's scrollport is a bar shorter than its 200px box — the classic bar Chromium draws at its foot wherever
+    // the rows run wider than the view. The frame's writes land on scrollTop, and it scrolls as far as its rows reach,
+    // as a browser's does; each ResizeObserver hears a box change when the test says the page laid it out again.
+    const BAR = 12;
+    let view = 200 - BAR;
+    const proto = HTMLElement.prototype as unknown as { scrollTo?: (options: ScrollToOptions) => void };
+    const realScrollTo = proto.scrollTo;
+    const realClientHeight = Object.getOwnPropertyDescriptor(Element.prototype, "clientHeight")!;
+    const realScrollHeight = Object.getOwnPropertyDescriptor(Element.prototype, "scrollHeight")!;
+    const realRO = (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
+    const observers: { cb: ResizeObserverCallback; targets: Set<Element>; self: ResizeObserver }[] = [];
+    beforeEach(() => {
+        view = 200 - BAR;
+        observers.length = 0;
+        proto.scrollTo = function (this: HTMLElement, options: ScrollToOptions) {
+            if (options.top !== undefined) this.scrollTop = options.top;
+        };
+        Object.defineProperty(Element.prototype, "clientHeight", {
+            configurable: true,
+            get(this: Element) { return this.hasAttribute("data-virtual-rows") ? view : realClientHeight.get!.call(this) as number; },
+        });
+        Object.defineProperty(Element.prototype, "scrollHeight", {
+            configurable: true,
+            get(this: Element) { return Number(this.querySelector("[data-virtual-extent]")?.getAttribute("data-virtual-extent") ?? 0); },
+        });
+        (globalThis as { ResizeObserver?: unknown }).ResizeObserver = class {
+            private readonly entry: { cb: ResizeObserverCallback; targets: Set<Element>; self: ResizeObserver };
+            constructor(cb: ResizeObserverCallback) {
+                this.entry = { cb, targets: new Set(), self: this as unknown as ResizeObserver };
+                observers.push(this.entry);
+            }
+            observe(target: Element) { this.entry.targets.add(target); }
+            unobserve(target: Element) { this.entry.targets.delete(target); }
+            disconnect() { this.entry.targets.clear(); }
+        };
+    });
+    afterEach(() => {
+        (globalThis as { ResizeObserver?: unknown }).ResizeObserver = realRO;
+        Object.defineProperty(Element.prototype, "clientHeight", realClientHeight);
+        Object.defineProperty(Element.prototype, "scrollHeight", realScrollHeight);
+        if (realScrollTo === undefined) delete proto.scrollTo;
+        else proto.scrollTo = realScrollTo;
+    });
+
+    const ROWS = Array.from({ length: 20 }, (_u, i) => `r${i}`);
+    const frame = (asked: { scrollToIndex?: number; scrollAlign?: "auto" | "end" } = {}) => (
+        <ChakraProvider value={system}>
+            <VirtualRows height="200px" maxHeight={undefined} count={ROWS.length} sizes={ROWS.map(() => ROW_H)} measureRows={false}
+                overscan={2} getItemKey={(i) => ROWS[i]!} scrollToIndex={asked.scrollToIndex} scrollAlign={asked.scrollAlign}
+                renderRow={(i) => <div data-key={ROWS[i]}>{ROWS[i]}</div>} />
+        </ChakraProvider>
+    );
+    /** Scroll the frame and let the virtualizer read it. */
+    const scrollTo = (container: HTMLElement, px: number) => {
+        const scrollEl = container.querySelector<HTMLElement>('[data-virtual-rows="bounded"]')!;
+        scrollEl.scrollTop = px;
+        fireEvent.scroll(scrollEl);
+        return scrollEl;
+    };
+
+    test.each([
+        // The last row ends 6px under the bar: its box counted as view, it was in view, and nothing scrolled.
+        ["auto", 19, 446],
+        // Row 6 brought to the view's foot: its box counted as view, it stopped under the bar.
+        ["end", 6, 0],
+    ] as const)("a request aligned %s brings its row wholly above the bar, however little of it the bar covers", (align, index, from) => {
+        const { container, rerender } = render(frame());
+        const scrollEl = scrollTo(container, from);
+        rerender(frame({ scrollToIndex: index, scrollAlign: align }));
+        const bottom = (index + 1) * ROW_H;
+        expect(scrollEl.scrollTop).toBe(bottom - view);
+        expect(bottom - scrollEl.scrollTop).toBeLessThanOrEqual(view);
+    });
+
+    test("the bar coming as the rows widen — the rows' box laid out again, the frame's own box as it was — is no view either", () => {
+        view = 200;
+        const { container, rerender } = render(frame());
+        const scrollEl = scrollTo(container, 446);
+        // The rows run wider than the view: the bar comes, and the page lays out the rows' box, not the frame's.
+        view = 200 - BAR;
+        const rows = container.querySelector("[data-virtual-extent]")!;
+        act(() => {
+            for (const { cb, targets, self } of observers) {
+                if (targets.has(rows)) cb([{ target: rows } as unknown as ResizeObserverEntry], self);
+            }
+        });
+        rerender(frame({ scrollToIndex: 19, scrollAlign: "auto" }));
+        expect(scrollEl.scrollTop).toBe(20 * ROW_H - view);
+    });
+});
+
 describe("VirtualRows — what moves its rows (#856)", () => {
     test("bounded, its scroll element both ways; unbounded at scale, its root and the ancestor it watches; below scale, its root alone; each change once, and null once unmounted", () => {
         const seen: (RowsViewport | null)[] = [];
@@ -1059,6 +1196,209 @@ describe("VirtualRows — what moves its rows (#856)", () => {
         unmount();
         expect(seen).toHaveLength(4);
         expect(seen[3]).toBeNull();
+    });
+});
+
+describe("VirtualRows — sections whose heads stick (#1568)", () => {
+    /** A section's rows at the row pitch, from the frame's top: each row's height and place. */
+    const size = () => ROW_H;
+    const place = (i: number) => i * ROW_H;
+    /** For every stuck row: where its rail ends, less where it sticks — the same for each, so they are pushed out together. */
+    const pushedAt = (rows: ReadonlyMap<number, { top: number; rail: number }>) => [...new Set([...rows].map(([i, at]) => place(i) + at.rail - at.top - size()))];
+
+    test("every head row sticks while the head fits in half the view, each under the ones above it, in a rail ending where the next section's start pushes them all out at once", () => {
+        const { rows, height } = stuckRows({ start: 0, end: 10, head: 3 }, size, place, 10 * ROW_H, 100);
+        expect(height).toBe(3 * ROW_H);
+        expect([...rows]).toEqual([
+            [0, { top: 0, rail: 10 * ROW_H - 3 * ROW_H + ROW_H }],
+            [1, { top: ROW_H, rail: 10 * ROW_H - 3 * ROW_H + ROW_H }],
+            [2, { top: 2 * ROW_H, rail: 10 * ROW_H - 3 * ROW_H + ROW_H }],
+        ]);
+        expect(pushedAt(rows)).toEqual([10 * ROW_H - height]);
+    });
+
+    test("past half the view a row that yields scrolls with the section, and the rows after it stick under the ones above them; past that, the head's rows stick while they fit", () => {
+        const yielding: StickySection = { start: 0, end: 10, head: 4, yields: (i) => i === 2 };
+        const past = stuckRows(yielding, size, place, 10 * ROW_H, 100);
+        expect(past.height).toBe(3 * ROW_H);
+        expect([...past.rows.keys()]).toEqual([0, 1, 3]);
+        expect(past.rows.get(3)!.top).toBe(2 * ROW_H);
+        expect(pushedAt(past.rows)).toEqual([10 * ROW_H - past.height]);
+        // The whole head fitting, the row that yields sticks too.
+        expect([...stuckRows(yielding, size, place, 10 * ROW_H, 4 * ROW_H).rows.keys()]).toEqual([0, 1, 2, 3]);
+        // Five rows that never yield, three fitting in half the view: the three stick, the last two scroll.
+        const tall = stuckRows({ start: 0, end: 10, head: 5 }, size, place, 10 * ROW_H, 100);
+        expect([...tall.rows.keys()]).toEqual([0, 1, 2]);
+        expect(tall.height).toBe(3 * ROW_H);
+    });
+
+    describe("in a bounded frame", () => {
+        // jsdom has no element `scrollTo`: the frame's writes land on scrollTop, as a browser's do.
+        const proto = HTMLElement.prototype as unknown as { scrollTo?: (options: ScrollToOptions) => void };
+        const realScrollTo = proto.scrollTo;
+        // The rows sit under a 36px header, as the frame measures it.
+        const realOffsetTop = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetTop");
+        beforeEach(() => {
+            proto.scrollTo = function (this: HTMLElement, options: ScrollToOptions) {
+                if (options.top !== undefined) this.scrollTop = options.top;
+            };
+            Object.defineProperty(HTMLElement.prototype, "offsetTop", {
+                configurable: true,
+                get(this: HTMLElement) { return this.hasAttribute("data-virtual-extent") ? 36 : 0; },
+            });
+        });
+        afterEach(() => {
+            if (realScrollTo === undefined) delete proto.scrollTo;
+            else proto.scrollTo = realScrollTo;
+            if (realOffsetTop !== undefined) Object.defineProperty(HTMLElement.prototype, "offsetTop", realOffsetTop);
+        });
+        const KEYS = Array.from({ length: 100 }, (_u, i) => `r${i}`);
+        const SECTIONS: readonly StickySection[] = [{ start: 0, end: 40, head: 3 }, { start: 40, end: 100, head: 2 }];
+        const frame = (opts: { sections?: readonly StickySection[]; scrollToIndex?: number; keys?: readonly string[] } = {}) => {
+            const keys = opts.keys ?? KEYS;
+            return (
+                <ChakraProvider value={system}>
+                    <VirtualRows height="200px" maxHeight={undefined} count={keys.length} estimateSize={() => ROW_H} overscan={2}
+                        getItemKey={(i) => keys[i]!} anchorable={() => true} header={<div>header</div>} sections={opts.sections ?? SECTIONS}
+                        scrollToIndex={opts.scrollToIndex} scrollAlign="auto"
+                        renderRow={(i) => <button type="button" data-key={keys[i]}>{keys[i]}</button>} />
+                </ChakraProvider>
+            );
+        };
+        const scrollTo = (container: HTMLElement, px: number) => {
+            const scrollEl = container.firstElementChild as HTMLElement;
+            act(() => {
+                scrollEl.scrollTop = px;
+                fireEvent.scroll(scrollEl);
+            });
+            return scrollEl;
+        };
+        /** Each mounted row, by its index: whether its place is a rail, the rail's height, and where the row sticks. */
+        const placed = (container: HTMLElement) => new Map([...container.querySelectorAll<HTMLElement>("[data-index]")].map((row) => {
+            const place = row.parentElement!;
+            return [Number(row.dataset["index"]), { stuck: place.hasAttribute("data-virtual-stuck"), rail: place.style.height, top: row.style.top }] as const;
+        }));
+
+        test("scrolled deep into a section, its head stays mounted, each row sticking under the header and the rows above it in its rail; past the section, the next one's", () => {
+            const { container } = render(frame());
+            scrollTo(container, 20 * ROW_H);
+            const deep = placed(container);
+            const rail = `${40 * ROW_H - 3 * ROW_H + ROW_H}px`;
+            expect([0, 1, 2].map((i) => deep.get(i))).toEqual([
+                { stuck: true, rail, top: "36px" },
+                { stuck: true, rail, top: `${36 + ROW_H}px` },
+                { stuck: true, rail, top: `${36 + 2 * ROW_H}px` },
+            ]);
+            // The section's other rows are drawn as the window's, in places of their own.
+            expect(deep.get(20)).toEqual({ stuck: false, rail: "", top: "" });
+            expect(deep.has(10)).toBe(false);
+            // Into the next section: its head sticks, and the first section's is gone.
+            scrollTo(container, 60 * ROW_H);
+            const next = placed(container);
+            expect([0, 1, 2].some((i) => next.has(i))).toBe(false);
+            expect([40, 41].map((i) => next.get(i)?.stuck)).toEqual([true, true]);
+        });
+
+        test("a row brought into view at its start, going up or already in view behind the head, lands under the stuck head; one in view below it stays where it is", () => {
+            const { container, rerender } = render(frame());
+            const scrollEl = scrollTo(container, 50 * ROW_H);
+            Object.defineProperty(scrollEl, "scrollHeight", { configurable: true, get: () => 100 * ROW_H + 36 });
+            // Row 45, above the view, in a section whose two-row head sticks.
+            rerender(frame({ scrollToIndex: 45 }));
+            expect(scrollEl.scrollTop).toBe(45 * ROW_H - 2 * ROW_H);
+            // Row 44, in view at the top, behind the head.
+            rerender(frame({ scrollToIndex: 44 }));
+            expect(scrollEl.scrollTop).toBe(44 * ROW_H - 2 * ROW_H);
+            // Row 46, in view under the head: nothing moves.
+            rerender(frame({ scrollToIndex: 46 }));
+            expect(scrollEl.scrollTop).toBe(44 * ROW_H - 2 * ROW_H);
+        });
+
+        // A first section whose head is past half the view (100px): rows 0, 1 and 7 do not yield and stick, three rows
+        // deep; rows 2 to 6 yield and scroll with the section.
+        const YIELDING: readonly StickySection[] = [{ start: 0, end: 40, head: 8, yields: (i) => i >= 2 && i <= 6 }, { start: 40, end: 100, head: 2 }];
+
+        test("each row's place names what covers it, which its elements scroll into view clear of: the header and the stuck head over a row past the head or one that yields, the header and the rows stuck above a stuck row", () => {
+            const { container } = render(frame({ sections: YIELDING }));
+            const cover = (i: number) => container.querySelector(`[data-key="r${i}"]`)!.closest<HTMLElement>("[data-slot=virtualRow]")!.style.getPropertyValue("--virtual-cover");
+            expect([0, 1, 7].map(cover)).toEqual(["36px", `${36 + ROW_H}px`, `${36 + 2 * ROW_H}px`]);
+            expect(cover(6)).toBe(`${36 + 3 * ROW_H}px`);
+            const scrollEl = scrollTo(container, 20 * ROW_H);
+            expect(cover(20)).toBe(`${36 + 3 * ROW_H}px`);
+            expect(cover(7)).toBe(`${36 + 2 * ROW_H}px`);
+            // Into the next section: its rows are covered by its own head.
+            scrollTo(container, 60 * ROW_H);
+            expect(cover(60)).toBe(`${36 + 2 * ROW_H}px`);
+            expect(scrollEl.scrollTop).toBe(60 * ROW_H);
+        });
+
+        test("a head row that yields, brought into view at its start, lands under the rows that stick, as a row past the head does", () => {
+            const { container, rerender } = render(frame({ sections: YIELDING }));
+            const scrollEl = scrollTo(container, 20 * ROW_H);
+            Object.defineProperty(scrollEl, "scrollHeight", { configurable: true, get: () => 100 * ROW_H + 36 });
+            rerender(frame({ sections: YIELDING, scrollToIndex: 6 }));
+            expect(scrollEl.scrollTop).toBe(6 * ROW_H - 3 * ROW_H);
+        });
+
+        test("a row that comes to head a section keeps its element, and the row's own box is the one measured", () => {
+            const { container, rerender } = render(frame({ sections: [] }));
+            const row = container.querySelector('[data-key="r1"]')!.parentElement!;
+            expect(row.dataset["index"]).toBe("1");
+            expect(row.parentElement!.dataset["slot"]).toBe("virtualRow");
+            rerender(frame({ sections: [{ start: 0, end: 10, head: 2 }] }));
+            expect(container.querySelector('[data-key="r1"]')!.parentElement).toBe(row);
+            expect(row.parentElement!.hasAttribute("data-virtual-stuck")).toBe(true);
+        });
+
+        test("a section's rows folding away under the view, its stuck first row — heading no section now — stays where it showed, its element and the focus kept", () => {
+            const { container, rerender } = render(frame());
+            const scrollEl = scrollTo(container, 20 * ROW_H);
+            const band = container.querySelector<HTMLElement>('[data-key="r0"]')!;
+            expect(band.closest("[data-slot=virtualRow]")!.hasAttribute("data-virtual-stuck")).toBe(true);
+            act(() => { band.focus(); });
+            // Rows 1–39 fold away under row 0, which starts no section now: the next one starts under it.
+            const folded = [KEYS[0]!, ...KEYS.slice(40)];
+            rerender(frame({ keys: folded, sections: [{ start: 1, end: folded.length, head: 2 }] }));
+            // It showed at the view's top: it stays there, its place the view's top now.
+            expect(scrollEl.scrollTop).toBe(0);
+            expect(container.querySelector('[data-key="r0"]')).toBe(band);
+            expect(document.activeElement).toBe(band);
+            expect(band.closest("[data-slot=virtualRow]")!.hasAttribute("data-virtual-stuck")).toBe(false);
+        });
+
+        test("rows joining a section's head while the view is deep in it, one measured taller than its estimate, leave the row the view rests on where it is: the anchored offset keeps the virtualizer's correction", async () => {
+            const measured = Element.prototype.getBoundingClientRect;
+            Element.prototype.getBoundingClientRect = function (this: Element) {
+                const rect = measured.call(this);
+                return this.hasAttribute("data-index") && this.querySelector('[data-key="x1"]') !== null ? { ...rect, height: 48, bottom: 48 } : rect;
+            };
+            try {
+                const { container, rerender } = render(frame());
+                const scrollEl = scrollTo(container, 20 * ROW_H);
+                // At rest: TanStack measures a row as it mounts once its scroll has settled, 150ms on.
+                await act(async () => { await new Promise((r) => setTimeout(r, 250)); });
+                // Two rows join the first section's head under its third row, mounted with it far above the view: x1
+                // measures 48px, its estimate 32.
+                const joined = [...KEYS.slice(0, 3), "x1", "x2", ...KEYS.slice(3)];
+                rerender(frame({ keys: joined, sections: [{ start: 0, end: 42, head: 5 }, { start: 42, end: joined.length, head: 2 }] }));
+                expect(container.querySelector('[data-key="x1"]')).not.toBeNull();
+                // The view moved on by both, x1 as it measured: r20 is still at its top.
+                expect(scrollEl.scrollTop).toBe(20 * ROW_H + 48 + ROW_H);
+            } finally {
+                Element.prototype.getBoundingClientRect = measured;
+            }
+        });
+
+        test("the row the view rests on staying, a stuck head's rows leaving keep it where it is, not the head's first row", () => {
+            const { container, rerender } = render(frame());
+            const scrollEl = scrollTo(container, 20 * ROW_H);
+            // The head's rows after the first leave — rows 1 and 2 — and the section keeps no head but its first row.
+            const left = KEYS.filter((_k, i) => i !== 1 && i !== 2);
+            rerender(frame({ keys: left, sections: [{ start: 0, end: 38, head: 1 }, { start: 38, end: left.length, head: 2 }] }));
+            // Rows above the view went: the view moved up by as much, so the row it rested on stays where it was.
+            expect(scrollEl.scrollTop).toBe(18 * ROW_H);
+            expect(placed(container).get(0)?.stuck).toBe(true);
+        });
     });
 });
 

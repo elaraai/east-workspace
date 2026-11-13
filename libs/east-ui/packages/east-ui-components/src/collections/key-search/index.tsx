@@ -389,8 +389,11 @@ export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind
 
     const handleOpen = useCallback((next: boolean) => {
         setOpen(next);
-        if (next && !typed && browseQuery !== undefined) runFind(browseQuery);
-    }, [typed, browseQuery, runFind]);
+        // An empty box browses as its list opens. A list opened by typing is told of the text first, in the same turn and
+        // before any render has seen it, so what the box holds is read from what it was told, never from the render's
+        // `typed`: a browse under the text would list rows it does not find, and Enter would pick the first of them.
+        if (next && typedRef.current === '' && !showingRef.current && browseQuery !== undefined) runFind(browseQuery);
+    }, [browseQuery, runFind]);
 
     const clearSearch = useCallback(() => {
         resetQueryState();
@@ -445,10 +448,16 @@ export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind
     // Worst-case degrade: with no highlighted popup option, Enter behaves
     // as a plain search box and jumps to the first match — a pick, as a
     // highlighted option's Enter is. A highlighted option commits through
-    // the combobox itself.
+    // the combobox itself. The Enter is the input's alone — one on a button
+    // of the box, Next match or Clear search, is that button's — and the
+    // highlight read is its own list's, which the input names
+    // (`aria-activedescendant`): an option highlighted in another combobox on
+    // the page holds nothing of this one.
     const onKeyDownCapture = useCallback((e: React.KeyboardEvent) => {
         if (e.key !== 'Enter' || range === null || !range.found) return;
-        if (document.querySelector('[data-scope="combobox"][data-part="content"] [data-highlighted]') !== null) return;
+        const input = e.target;
+        if (!(input instanceof HTMLInputElement) || input.getAttribute('role') !== 'combobox') return;
+        if (input.getAttribute('aria-activedescendant')) return;
         commit(range.row + Math.max(0, activeIdx), 'pick');
     }, [range, activeIdx, commit]);
 
@@ -559,7 +568,7 @@ export const DatasetKeySearch = memo(function DatasetKeySearch({ keyType, onFind
     return (
         <Box css={[styles.search, { '--key-search-width': `${placeholder.length + (status === null ? 10 : 26)}ch` }]}
             onKeyDownCapture={onKeyDownCapture} data-part="dataset-key-search">
-            <EastChakraCombobox key={resetSeq} value={payload} selectionBehavior="preserve" filterItems={false} openOnClick={browseQuery !== undefined} text={shown}
+            <EastChakraCombobox key={resetSeq} value={payload} selectionBehavior="preserve" filterItems={false} keyed openOnClick={browseQuery !== undefined} text={shown}
                 // Its lines on their way, the popup says so — never `No matches` over a range found (#1398, CL13).
                 indicators={indicators} emptyText={loading || listing ? 'Searching…' : listFailure ?? hint ?? (range === null ? 'Type to search' : noMatchesText ?? (keyType.type === 'String'
                     ? 'No matches. Keys are case-sensitive.' : 'No matches'))} />

@@ -13,10 +13,11 @@
  * point — the toolbar's, about the middle, and the wheel's, about the cursor;
  * Fit; the minimap's jump; the fly to the narrowing's matches, keyed on the
  * narrowing itself (invariant 22);
- * and what the camera tells as it moves — the zone the viewport is in, where
- * the viewport rests, for the reader, where the zoom stands, for the toolbar,
- * and each move the viewer makes, for the frame, whose refusal's words go with
- * it. Its maths is `camera.ts`'.
+ * and what the camera tells as it moves — as it comes to rest, never during a
+ * fly, the zone the viewport is in, for the Index (#1570), and where the
+ * viewport rests, for the reader; where the zoom stands, for the toolbar; and
+ * each move the viewer makes, for the frame, whose refusal's words go with it.
+ * Its maths is `camera.ts`'.
  *
  * The commit-phase snapshot reads the camera (`use-paint.ts`, invariant 1), and
  * what moves it reads the snapshot and calls the painter's apply:
@@ -167,7 +168,7 @@ export interface CameraMovesProps {
     readonly shownZones: readonly DrawnZone[];
     /** What the narrowing takes out of every list and of the selection (#1392): the Index lists none of it. */
     readonly narrowedOut: ReadonlySet<string>;
-    /** Told the zone the viewport is in, by its id — `undefined` for none — as that changes (#1389). */
+    /** Told the zone the viewport is in, by its id — `undefined` for none — as that changes, once the camera rests (#1389, #1570). */
     readonly onZoneInView: ((zone: string | undefined) => void) | undefined;
     /** Where the canvas writes its viewport as its camera comes to rest (#1393); `undefined`, it writes nowhere. */
     readonly viewport: SchematicViewportStore | undefined;
@@ -194,7 +195,7 @@ export interface CameraMovesProps {
  * @param props - The canvas's element and the drawing's extent, what the camera tells and whom, the narrowing's look and
  *   its matches, the camera, and the snapshot and the painter's apply
  * @returns The frame applier, a press's draw of a frame still waiting, the mode machine's transition, the fly, Fit, a
- *   zoom about the middle, and the minimap's jump and whether it is dragged
+ *   zoom about the middle, and the minimap's jump and the pointer dragging it
  */
 export function useCameraMoves({
     canvasRef, W, H, lod, shownZones, narrowedOut, onZoneInView, viewport, onZoomRange, onAction, narrowingFit, fitBox, camera, paint,
@@ -205,24 +206,39 @@ export function useCameraMoves({
     const animRef = useRef<number | null>(null);
 
     // The zone the viewport is in (#1389): the one covering most of it, kept until it clearly loses, none at the fit —
-    // told the frame only as it changes, never at every frame of a pan — among the zones the Index lists, what the
-    // narrowing takes out left out (#1392).
+    // among the zones the Index lists, what the narrowing takes out left out (#1392) — told the frame as it changes, and
+    // only as the camera comes to rest, as where the viewport rests is told (#1570): 100 ms without a move, or while it
+    // moves slower than a viewport and zooms by less than a quarter each 200 ms; never during a fly, which lands where it
+    // flies, nor at each frame of a pan or a wheel's zoom. The Index opens the zone it is told and reads its items: told
+    // the zones a move passes on its way, it opened and read each in turn.
     const listedZones = useMemo(() => (narrowedOut.size === 0 ? shownZones : shownZones.filter(z => !narrowedOut.has(z.key))), [shownZones, narrowedOut]);
     const inViewRef = useRef<string | undefined>(undefined);
+    const zoneToldRef = useRef<ViewTold | undefined>(undefined);
     useEffect(() => {
-        if (onZoneInView === undefined || size === null || ppu === 0) return;
-        const view = {
-            box: {
-                minX: -cameraSnapshot.tx / ppu, minY: -cameraSnapshot.ty / ppu,
-                maxX: (size.w - cameraSnapshot.tx) / ppu, maxY: (size.h - cameraSnapshot.ty) / ppu,
-            },
-            fitted: cameraSnapshot.zoom <= 1.05,
+        if (onZoneInView === undefined || size === null || ppu === 0) return undefined;
+        const box = {
+            minX: -cameraSnapshot.tx / ppu, minY: -cameraSnapshot.ty / ppu,
+            maxX: (size.w - cameraSnapshot.tx) / ppu, maxY: (size.h - cameraSnapshot.ty) / ppu,
         };
-        const next = zoneInView(listedZones, view, inViewRef.current);
-        const was = inViewRef.current;
-        if (next === undefined ? was === undefined : was !== undefined && stringEqual(next, was)) return;
-        inViewRef.current = next;
-        onZoneInView(next);
+        const centre = { x: (box.minX + box.maxX) / 2, y: (box.minY + box.maxY) / 2 };
+        const fitted = cameraSnapshot.zoom <= 1.05;
+        const tell = () => {
+            zoneToldRef.current = { at: performance.now(), ...centre, ppu };
+            const was = inViewRef.current;
+            const next = zoneInView(listedZones, { box, fitted }, was);
+            if (next === undefined ? was === undefined : was !== undefined && stringEqual(next, was)) return;
+            inViewRef.current = next;
+            onZoneInView(next);
+        };
+        const told = zoneToldRef.current;
+        const span = Math.max(box.maxX - box.minX, box.maxY - box.minY);
+        if (told === undefined || (modeRef.current !== "flying" && tellsAsItMoves(told, { at: performance.now(), ...centre, ppu, span }))) {
+            tell();
+            return undefined;
+        }
+        // A fly's frames each put this off again, and the one after its last tells: one late enough to run mid-fly tells nothing.
+        const timer = setTimeout(() => { if (modeRef.current !== "flying") tell(); }, REST_READ_MS);
+        return () => clearTimeout(timer);
     }, [onZoneInView, size, ppu, cameraSnapshot, listedZones]);
 
     // --- Where the viewport rests (#1393): what a kind read by area reads its window around. ---
@@ -395,8 +411,8 @@ export function useCameraMoves({
         requestRender();
     }, [transition, requestRender, renderSnapRef, cameraRef]);
 
-    // Minimap is a camera writer (jump on press, follow on drag — invariant 8).
-    const minimapDragRef = useRef(false);
+    // Minimap is a camera writer (jump on press, follow on drag — invariant 8): whose its drag is, and each way it ends,
+    // are its surface's (`view.tsx`' `minimapSurface`, invariant 34).
     const minimapJump = useCallback((el: HTMLElement, clientX: number, clientY: number) => {
         const sz = renderSnapRef.current.size;
         if (sz === null) return;
@@ -430,7 +446,7 @@ export function useCameraMoves({
         const box = renderSnapRef.current.fitBox;
         if (box !== undefined) flyTo({ x: box.minX, y: box.minY, w: Math.max(box.maxX - box.minX, 1e-3), h: Math.max(box.maxY - box.minY, 1e-3) });
     }, [narrowingFit.key, narrowingFit.reading, fitBox, sized, flyTo, renderSnapRef]);
-    return { requestRender, drawPending, transition, flyTo, resetView, zoomBy, minimapDragRef, minimapJump };
+    return { requestRender, drawPending, transition, flyTo, resetView, zoomBy, minimapJump };
 }
 
 /** What moves the camera: {@link useCameraMoves}'s. */

@@ -27,6 +27,7 @@ import { createContext, createElement, useContext, useMemo, type ReactNode } fro
 import type { ValueTypeOf } from "@elaraai/east";
 import type { PlanPayloadType } from "@elaraai/e3-ui/internal";
 import { editingMessages, getSomeorUndefined, type EditingMessages } from "@elaraai/east-ui-components";
+import { withArticle } from "../shared/article.js";
 import { pagedLoadingMessages, type PagedLoadingMessages } from "../shared/loading.js";
 import { eventsNotCounted, hiddenByText, joinedWords as joined, kindPlural as pluralName, lowerWord, type HiddenWords } from "../shared/schedule/words.js";
 import { timeMessages, type TimeMessages } from "../shared/time/scale.js";
@@ -295,6 +296,8 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
     inspectorRowOverlaps: (p: { n: number; count: string }) => string;
     /** One pair in a row's banner — `Market posters · Loyalty cards`: its events' titles. */
     inspectorOverlapPair: (p: { first: string; second: string }) => string;
+    /** The banner over one event's form while the app's `ready` refuses it, which holds Save (#1525). */
+    inspectorRefusals: () => string;
 
     // ── The horizon, the ruler, the axis in words ──────────────────────────
     /** The horizon strip's caption — `HORIZON · 26 WK`. */
@@ -571,9 +574,6 @@ const listed = (parts: ReadonlyArray<string | undefined>): string =>
 const fieldNoun = (fields: readonly string[]): string =>
     fields.length === 0 ? "card" : joined(fields.map((f) => f.replace(/_/g, " ")), "and");
 
-/** A noun with its article — `a customer`, `an address`. */
-const withArticle = (noun: string): string => `${/^[aeiou]/i.test(noun) ? "an" : "a"} ${noun}`;
-
 /** What a library tab the rail narrows lists, as its narrowed words say it — `templates`, `backlog events`, an author's tab's name. */
 const narrowedNoun = (tab: PlanLibraryTabWord, name: string): string =>
     (tab === "events" ? "templates" : tab === "backlog" ? "backlog events" : tab === "series" ? "series" : name);
@@ -701,6 +701,7 @@ export const planMessages: PlanMessages = {
     inspectorOverlaps: ({ n, count, on }) => `Overlaps ${count} ${plural(n, "event", "events")} on ${on}`,
     inspectorRowOverlaps: ({ n, count }) => `${count} ${plural(n, "overlap", "overlaps")}`,
     inspectorOverlapPair: ({ first, second }) => `${first} · ${second}`,
+    inspectorRefusals: () => "Not saved yet",
 
     horizon: ({ count, unit }) => `HORIZON · ${count} ${HORIZON_UNIT[unit]}`,
     horizonMax: ({ n, count, unit }) => `max ${count} ${plural(n, "item", "items")} / ${HORIZON_PER[unit]}`,

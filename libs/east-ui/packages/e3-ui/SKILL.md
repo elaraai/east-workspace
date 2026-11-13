@@ -1,6 +1,6 @@
 ---
 name: e3-ui
-description: "Builds interactive decision surfaces as e3 UI tasks (ui()) authored in east-ui JSX and bound to workspace data: Data.bind and Data.bindPaged for datasets, Record.bind for records and their mutations, Func.bind for e3.function calls, staged edits applied or discarded together. Provides the planning builders Plan, Sheet, Calendar, Roster, Allocation, Flowchart and Schematic, plus Ontology, the Decide loop (Decision.bind, DecisionQueue, DecisionJournal), the Studio page builder, saved jq queries (Query.Builder), and rendering deployed surfaces in a React app (E3Provider). Use when a UI reads or writes e3 workspace data or runs as an e3 task; components with no e3 data are east-ui's."
+description: "Builds interactive decision surfaces as e3 UI tasks (ui()) authored in east-ui JSX and bound to workspace data: Data.bind and Data.bindPaged for datasets, Record.bind for records and their mutations, Func.bind for e3.function calls, staged edits applied or discarded together. Provides the planning builders Plan, Sheet, Calendar, Roster, Allocation, Flowchart and Schematic, the Record table over a system of records, plus Ontology, the Decide loop (Decision.bind, DecisionQueue, DecisionJournal), the Studio page builder, saved jq queries (Query.Builder), and rendering deployed surfaces in a React app (E3Provider). Use when a UI reads or writes e3 workspace data or runs as an e3 task; components with no e3 data are east-ui's."
 ---
 
 # e3-ui — e3 + UI bridge
@@ -13,7 +13,7 @@ commit / discard, a view is where a user commits a decision with its evidence.
 
 Everything comes from one import, `@elaraai/e3-ui`: the `ui()` task factory, the
 bindings (`Data`, `Record`, `Func`, `Decision`, `Slice.bindRecords`), the e3
-tags (`<Ontology>`, `<Plan>`, `<Sheet>`, `<Calendar>`,
+tags (`<Ontology>`, `<Plan>`, `<Sheet>`, `<Record>`, `<Calendar>`,
 `<Roster>`, `<Allocation>`, `<Flowchart>`, `<Schematic>`, `<DecisionQueue>`,
 `<DecisionJournal>`) and the `Studio` and `Query` components. Base tags
 (`<VStack>`, `<Text>`, `<Stat>`, …) come from `@elaraai/east-ui`.
@@ -160,7 +160,6 @@ Task → What do you need?
     │   ├─ Drags of templates, backlog cards and events       → built in with resources + events (+ library); canDrop={fn(Schedule.Types.Candidate) => Option<String>}
     │   ├─ The app's optimiser over the window and the backlog → optimise={Func.bind(e3.function)} from Plan.Types.OptimiseRequest({ job: Job }, { presses: Press }) to Plan.Types.OptimiseResult({ job: Job })
     │   ├─ Overlap warnings, without dropping overlapping events → Schedule.events(record, { overlaps: "warn" | "allow" })
-    │   ├─ Save each changed event kind through its patch door → applyMode="batch" (default); "auto" commits each ready gesture
     │   └─ Dropped cards and moves of data rows as drafts      → a series' edit + editing={{ onUpdate | onApply }}
     │
     ├─ Let planners type rows in place — the Sheet
@@ -178,6 +177,17 @@ Task → What do you need?
     │   ├─ On a phone: a column pinned, how many in view      → narrow={{ pin?: "<column>", columns?: 1 | 2 | 3 }} (none pinned, 2 in view by default)
     │   └─ Drafts checked as they are made, one checked Save  → onUpdate | onApply, ready, newRow
     │
+    ├─ Keep a system of records — people, skills, certificates — the Record
+    │   ├─ A record's rows, each field a typed cell           → <Record record={Record.bind(r)} columns={{ name: Record.column.title(R, {…}), … }} />
+    │   ├─ Click-stepped states, two words, a checkbox        → Record.column.cycle(R, register, { scale? }) · toggle(R, { on, off }) · boolean(R, {…})
+    │   ├─ A variant's cases, stepped in their order          → Record.column.cycle(R, Variant, { steps: [{ case, label, tone? }] })
+    │   ├─ Who, and the row's last change                     → Record.column.person(R, register, {…}) · audit(R, { mode }) on a Record.Types.Change field
+    │   ├─ Time since a moment, to the viewer's clock         → days_since: Record.column.age(R, { since, unit?, stale? }), keyed by a name no field has
+    │   ├─ Column groups over adjacent columns                → columnGroups={[{ label, columnKeys }]}
+    │   ├─ Columns from data: a member's each, a struct field's → any kind's { each: "<register>", groups?: "<register>" } over a Dict keyed by the member · { each: { field: "Header" } } · a field stored its own way: field, read, write, each given the day
+    │   ├─ Words or a lock on a cell; a cell read off the row → mark: (…, day) → Option<Record.Types.Mark>, a note or a lock the grid won't edit · value: (row) => … on title, text, date, quantity, integer
+    │   └─ Narrow it — one rail — and Apply through the door  → slice={{ slice: Slice.bindRecords(key, { rows }) }} + onApply={Record.onApply(record, { keyed: true })}
+    │
     ├─ Schedule bound records on a calendar — the Calendar
     │   ├─ Event records, with their backlog                  → <Calendar events={{ job: Calendar.events(Record.bind(jobs), { name, icon, title, start, end, resource: { field, of }, entries, backlog }) }} />
     │   ├─ Resources and templates, read whole                → resources={{ machines: Calendar.resources(Data.bind(r).read(), {…}) }} · Calendar.templates(rows, {…})
@@ -188,6 +198,7 @@ Task → What do you need?
     ├─ Draw a state-transition flow over the app's records — the Flowchart
     │   ├─ A kind per record: its states, transitions, lanes, decisions → <Flowchart states={Flowchart.states(record, { label, lane, order, members? })} transitions={Flowchart.transitions(record, { from, to, decision?, kind?, evidence? })} lanes={Flowchart.lanes(record, { label, order })} decisions={Flowchart.decisions(record, { label, owner? })} />
     │   ├─ Editable, or read only                              → Record.bind(record) · Data.bind(record) (lanes and decisions: small records, read whole)
+    │   ├─ Records keyed by any type a Dict takes              → a field naming a kind's row holds that kind's key type, checked at build · a new row's key: the kind's key: (row) => … builds it from the row; without one, a String's is made up, an Integer's one past the largest, and any other's typed in the inspector before Save — an editable transition kind keyed so needs key
     │   ├─ Narrow its states, transitions and cards — one rail → slice={{ slice: Slice.bindRecords(key, { states: { source: Data.bindPaged(record, { indexes }) }, transitions: { … }, <a cards list's source>? }, { presets? }) }} (+ the kind's entries: Data.bindPaged(record))
     │   ├─ What a narrowing leaves out: gone, or faded         → narrowed="hide" (the default) · narrowed="dim"
     │   ├─ What its cards and labels draw from the app's rows  → details: Flowchart.details(rows, { details: [Flowchart.figure(f), .tags(f), .histogram(f, { unit }), .list(f)] }) on Flowchart.states / .transitions — rows keyed as the kind's, bound as it is read (Data.bind, or Data.bindPaged beside a kind read through its source)
@@ -198,7 +209,7 @@ Task → What do you need?
     │   ├─ The app's own words for what it draws              → each kind's own name: Flowchart.states(record, { …, name: "Stop" }) — its tabs, canvas, inspector, footer and Find say it · vocabulary={{ planned, observed }}, a transition's kinds
     │   ├─ An author's card dropped onto any kind's row        → Flowchart.library.tab(rows, { …, drop: (r) => Flowchart.patch(R, { … }) })
     │   ├─ The inspector, a kind's form and the app's check    → on by default (inspector={false} takes it away) · Flowchart.states(record, { …, fields?, ready? })
-    │   ├─ What the host hears, and the connect veto           → onSelectState · onSelectLink · onSelectTrigger · onTracePath (⌥-click) · canConnect={fn → Option<String>}
+    │   ├─ What the host hears, and the connect veto           → onSelectState · onSelectLink · onSelectTrigger · onTracePath (⌥-click) · canConnect={fn → Option<String>}, each key as its text
     │   ├─ Top down, a minimap, no legend, read only           → orientation="TD" · minimap · legend={false} · readOnly
     │   ├─ On a phone: how many lanes in view, ‹ › through them → narrow={{ lanes?: 1 | 2 | 3 }} (2 by default; one where the details draw on the cards)
     │   └─ Edit it: lanes, states, transitions, one Save       → each kind Record.bind(record) over a record declaring mutation.patch(); Save writes each through its patch door
@@ -206,6 +217,8 @@ Task → What do you need?
     ├─ Draw the app's records at world coordinates — a floor, a site — the Schematic
     │   ├─ A kind per record, under its slot                   → <Schematic extent={{ width, height }} items={{ racks: Schematic.items(record, { name, icon, x, y, label, … }) }} zones={{ … }} links={{ … }} nets={{ … }} />
     │   ├─ Editable, or read only                              → Record.bind(record) · Data.bind(record)
+    │   ├─ Records keyed by any type a Dict takes              → as the Flowchart's, new keys too — an item's typed, a link kind's or a net kind's key; a link's end and a net's side hold their items' key type, a variant's each case its slot's
+    │   ├─ A link or net drawn with no template: its fields    → the kind's values: (ends) => ({ … }), over Schematic.Types.Ends (a net's, Sides)
     │   ├─ Narrow its kinds and templates — one rail           → slice={{ slice: Slice.bindRecords(key, { <a kind's slot>: { source: Data.bindPaged(record, { indexes }) }, … }) }} (+ the kind's entries: Data.bindPaged(record))
     │   ├─ A floor too large to read whole: a window at a time → its source lists index.area({ x, y, width, height, at: "centre", cell }); past 5,000 rows in view, their density
     │   ├─ Shapes from the row's own fields                    → footprint: (u) => some(Schematic.circle(u.radius)) · a zone's geometry: (a) => some(Schematic.polygon(a.corners))
@@ -215,34 +228,43 @@ Task → What do you need?
     │   ├─ The app's own words for what it draws               → vocabulary={{ templates, backlog, index, layer, zone, net, link, source, destination }}
     │   ├─ An author's card dropped onto an entity             → Schematic.library.tab(rows, { …, drop: (r) => Schematic.patch(R, { … }) })
     │   ├─ The inspector, a kind's form and its own Details    → inspector · Schematic.items(record, { …, fields?, ready?, inspector? })
-    │   └─ What the host hears, and the connect veto           → onSelect={fn(Array<Schematic.Types.Ref>)} · canConnect={fn(Schematic.Types.Candidate) → Option<String>}
+    │   └─ What the host hears, and the connect veto           → onSelect={fn(Array<Schematic.Types.Ref>)} · canConnect={fn(Schematic.Types.Candidate) → Option<String>}, each key as its text
     │
     ├─ Staff a week's shifts from the app's own duties — the Roster
     │   ├─ The duties: the app's record, a span kind                  → events={{ duty: Schedule.events(Record.bind(duties), { start, end, resource: { field, of }, shift, group, position?, activity?, hours? }) }}
+    │   ├─ Duties in no group yet: a roster in two steps              → group over an Option<String> field, none a duty in no group — on its person's row in People and in Shifts' No group band, counted in their hours, contract and rest and in no group's targets; a drop in a group's slot writes some(group), the optimiser's request and result carry none · in a check, a duty's place (Roster.Types.Place) and Roster.slotOf(place), none in no group · vocabulary={{ noGroup }}
     │   ├─ Who is rostered                                            → resources={{ people: Schedule.resources(staff.read(), { name, icon, label, group, … }), agencies? }}
     │   ├─ The lists it reads, over the app's rows                    → Roster.shifts / groups / positions / activities / proposals(rows, { … })
     │   ├─ Publish, and the targets: the app's weeks and cover        → periods={Schedule.periods(Record.bind(weeks), { every: "week", status, dismissed? })} · targets={Roster.targets(Record.bind(cover), { day, group, shift, positions, hours })}
+    │   ├─ Publish a day at a time: the app's days                    → periods={Schedule.periods(Record.bind(days), { every: "day", status, dismissed?, entries? })} — in Shifts' Day, Publish day writes the day in view; else Publish week, each day of the week that takes edits, as one request; a published day read-only in every layout and period while its week's other days take edits, a rejected proposal kept on its day's row
+    │   ├─ A new duty's, target's and week's own fields               → values: (d) => ({ … }) on the duty kind, over Roster.Types.NewDuty · Roster.targets(…, { values }) · Schedule.periods(…, { values })
     │   ├─ Costs in the app's own pay codes                           → pay={fn(Roster.Types.PayRequest(R)) → Roster.Types.Pay} currency="…"
     │   ├─ Who fits a Find fix: the app's fit, on e3                  → fit={Func.bind(e3.function)} from Roster.Types.FitRequest(R) to FitResult, over Roster.answer(R) + Roster.fit(R)
     │   ├─ The app's optimiser over the week                          → optimise={Func.bind(e3.function)} from Roster.Types.OptimiseRequest(R) to Roster.Types.OptimiseResult(R)
+    │   ├─ An optimiser that sees the week's edges                    → Roster.Types.OptimiseRequest(R, { edges: true }) to OptimiseResult(R, { edges: true }) — edges: the window's duties the Roster places in another week, drafts in place; fixed: those of a week that takes no edit, left as they are; an answer that changes a fixed duty, puts one in a week taking no edit or beyond the weeks either side, or gives a key twice is refused, naming the duty
     │   ├─ Narrow its duties, targets, people, activities, patterns   → slice={{ slice: Slice.bindRecords(key, { duty: { source, range: "start" }, targets?, people?, activities?, patterns? }) }}
+    │   ├─ The app's check, and a record it reads beside the duties   → check={fn(Roster.Types.CheckContext(R)) → Array<Roster.Types.Issue>} · the first step's rota as the slice's reference: { duty, reference: { source, range: "start" } }, check from CheckContext(R, P) — cx.reference: Dict<String, P>, the week's rows and 12 h either side, read through its interval index, never whole; nothing draws it, the rail offers none of it
     │   ├─ People by week or by month                                 → view={{ layout: "people", period: "week" | "month", date }}
+    │   ├─ People in one list, no band over each group                → peopleBands={false} — ranked as a group's people are (leads, the rest, agency staff), every group's agency requests one row at its foot; a person keeps their home group for + Assign, a Find, the fit and the optimiser
+    │   ├─ The cover targets over People by week or month             → on with targets: under each band its work requirement — a lane a shift its targets name, each day's hours rostered (requests included) of needed over a bar, by month a mark a day on the person marks' columns (short, requested, covered or no target), a lane opening to its skill rows, a day or a mark opening its slot in the inspector; one block over every group with peopleBands={false}; deep in a band's people its block stays under the header; on a phone a card a day before each band's people's cards, a line a shift · requirements={false} takes it away
     │   ├─ Offer only some layouts, no switch with one left           → views={["people"]} or views={expr of Array<Roster.Types.Layout>}
-    │   ├─ The app's own words for who is on it                       → vocabulary={{ permanent: "Employees", agency: "Contractors", others: "Colleagues" }}; a fit's reason: Roster.fit(R, { notALead })
+    │   ├─ The app's own words for who is on it                       → vocabulary={{ permanent: "Employees", agency: "Contractors", agencyShort: "contr", others: "Colleagues", requests: "Contractor requests", demand: "Hours needed" }} — agencyShort the agency badge in People and on a Shifts chip, requests its rows of agency requests, demand the People layout's work requirement; a fit's reason: Roster.fit(R, { notALead })
     │   ├─ The shifts' colours, and the app's week patterns           → Roster.shifts(rows, { …, color }) · patterns={Roster.patterns(rows, {…})} · library={[…, Roster.library.patterns()]}
     │   └─ The week's figures in a task                               → Roster.coverage / check / weekHours / rest (R)
     │
     ├─ Book a day's arrivals into lane slots, each bin on its resources — the Allocation
     │   ├─ The bins: the app's record, an instant kind                → events={{ bin: Schedule.events(Record.bind(bins), { at, resource: { field, of: "<lanes>" }, arrival, quantity: { field, unit }, parts: { field, of: "<resources>" }, hold, kind? }) }}
+    │   ├─ A reservation's own fields                                 → the bin kind's values: (b) => ({ … }), over Allocation.Types.NewBin; a booked bin takes its arrival's values
     │   ├─ The lanes and the resources                                → resources={{ <lanes>: Schedule.resources(rows, { name, icon, label, offset? }), <resources>: Schedule.resources(rows, { name, icon, label, min, max, … }) }}
     │   ├─ What it books from                                         → arrivals={Allocation.arrivals(rows, { label, quantity, hold, kind?, values?, … })}
-    │   ├─ Publish: the app's days                                    → periods={Schedule.periods(Record.bind(days), { every: "day", status })}
+    │   ├─ Publish: the app's days, or its weeks                      → periods={Schedule.periods(Record.bind(days), { every: "day", status })} · or its weeks, { every: "week", … }, each keyed by its first day, week={{ start: "monday" | "sunday" }} — Publish week writes the week holding the day in view, and every day of a published week is read-only
     │   ├─ Who fits where: the app's fit, on e3                       → fit={Func.bind(e3.function)} from Allocation.Types.FitRequest(R) to FitResult, over Allocation.answer(R) + Allocation.fit (+ Allocation.lookahead(R))
     │   ├─ The app's optimiser over the day                           → optimise={Func.bind(e3.function)} from Allocation.Types.OptimiseRequest(R) to Allocation.Types.OptimiseResult(R)
     │   ├─ Narrow its bins, lanes, resources and arrivals — one rail  → slice={{ slice: Slice.bindRecords(key, { bin: { source, range: "at" }, <lanes>?, <resources>?, arrivals? }) }}
     │   ├─ Its panes                                                  → library={[Allocation.library.arrivals(), Allocation.library.resources()]} · inspector
     │   ├─ The app's own words for what it holds                      → labels={{ lane, arrival, resource, quantity, bin, reservation, reserved, priorJob, nextJob, hold, groups: { overdue, ready, removed, allocated, free, loading, busy } }}
     │   ├─ The app's bin fields on the board, and its own issues      → columns={[{ key, label, text }]} · check={fn(CheckContext(R)) → Array<Issue>}
+    │   ├─ A record the check reads beside the bins                   → the slice's reference: { bin, …, reference: { source, range } }, check from CheckContext(R, P) — cx.reference: Dict<String, P>, the day's rows, read through its interval index, never whole; nothing draws it
     │   └─ The board's figures in a task                              → Allocation.loads / candidates / check / slots (R)
     │
     ├─ Render deployed surfaces in a React app (@elaraai/e3-ui-components)
@@ -261,9 +283,8 @@ datasets in `inputs` (their values passed to `fn`), every dataset, record and
 paged source the body binds, and every `Func.bind`. `fn` returns
 `UIComponentType` exactly. It runs on `east-c` by default; where only the Node
 runner is installed, pass `{ runner: { runtime: "east-node" } }` as
-`options`. Bindings
-take the def itself (`e3.input`, `e3.task`, `e3.record`, `e3.function`), so the
-path and type are fixed when the IR is built.
+`options`. Bindings take the def itself (`e3.input`, `e3.task`, `e3.record`,
+`e3.function`), so the path and type are fixed when the IR is built.
 
 ### `Data.bind(dataset, options?)`
 
@@ -329,38 +350,29 @@ fn)`, the **e3** skill) is bound the same way: its handle's `call` takes the
 `args` alone, and each call reads the inputs from the workspace as they are
 stored when it launches. The page binds none of them; an optimiser's eye
 (`optimise={Func.bind(fn)}`) passes its request as the one argument while the
-function reads its reference data as inputs. `e3-ui:func.examples.tsx:funcBindInputs`
-is the example.
-
-```tsx
-<Reactive>{$ => {
-    const forecast = $.let(Func.bind(forecastFn));   // e3.function('forecast', East.function([IntegerType, FloatType], FloatType, …))
-    const run = $.const(East.function([], NullType, $ => { $(forecast.call(12n, 1.05)); }));
-    return (
-        <VStack gap="3">
-            <Button onClick={run} loading={forecast.pending()}>Run forecast</Button>
-            <Stat label="Forecast" value={East.print(forecast.read())} />
-        </VStack>
-    );
-}}</Reactive>
-```
+function reads its reference data as inputs. `e3-ui:func.examples.tsx:funcBindCall`
+launches a call from a button and shows its result;
+`e3-ui:func.examples.tsx:funcBindInputs` binds a function that declares inputs.
 
 ## The builders
 
-`<Plan>`, `<Sheet>`, `<Calendar>`, `<Roster>`, `<Allocation>`, `<Flowchart>`
-and `<Schematic>` share one contract:
+`<Plan>`, `<Sheet>`, `<Record>`, `<Calendar>`, `<Roster>`, `<Allocation>`,
+`<Flowchart>` and `<Schematic>` share one contract:
 
 - **Data is the app's own records.** Each builder maps roles onto the app's
-  fields (`title: "title", start: "start", resource: { field, of }`) and
-  stores nothing in a shape of its own. Editable data is
+  fields (`title: "title"` or a function of the row, `start: "start"`,
+  `resource: { field, of }`) and stores nothing of its own. Editable data is
   `Record.bind(record)` over a record declaring `mutation.patch()`.
   `Schedule.events` / `resources` / `templates` / `periods` are the shared
   vocabulary for kinds of events and resources (Plan, Calendar, Roster,
   Allocation).
 - **Every gesture is a draft.** Drags, drops, typed cells and form edits are
-  steps of one editing session with Undo / Redo, saved with one checked Save
-  through each record's patch door (or the host's `onApply`). Drafts survive
-  paging, narrowing and remount.
+  steps of one session with Undo / Redo, saved with one checked Save through
+  each record's patch door (or the host's `onApply`), surviving paging,
+  narrowing and remount. While a kind's `ready` refuses a draft, Save waits:
+  the entry's panel shows the refusal over its form, the field ringed, an
+  Issues tab lists it, and the history's warning button selects the entry.
+  Save's menu holds Autosave, off unless `autosave` (a Boolean) begins it on.
 - **It renders in its own frame**: one toolbar, the canvas, a footer, and the
   panes its props ask for (`library`, `inspector`). Give it a box with a height.
 - **One rail narrows it**: `slice={{ slice: Slice.bindRecords(key, { … }) }}`,
@@ -398,15 +410,17 @@ and `<Schematic>` share one contract:
 |---|---|---|
 | `<Plan>` | Heterogeneous rows on one time / number / ordinal axis: series over data, event kinds over records, read-only rows | `e3-ui:plan-events.examples.tsx:planEvents` (smallest), `e3-ui:plan.examples.tsx:planTargetState`, `e3-ui:plan-windows.examples.tsx:planWindows`, `e3-ui:plan-records.examples.tsx:planRecordIndexes` |
 | `<Sheet>` | A planning spreadsheet over a record, the host's rows or a paged source: typed columns, registers, groups, copilot, Excel round-trip | `e3-ui:sheet.examples.tsx:sheetBasic` (smallest), `e3-ui:sheet.examples.tsx:sheetWorkshop`, `e3-ui:sheet.examples.tsx:sheetPaged`, `e3-ui:sheet-records.examples.tsx:sheetRecordIndexes` |
+| `<Record>` | A system of records' rows as a table: the Sheet's kinds with title, person, boolean, toggle, cycle, age and audit; column groups, columns from data, marks and locks, Add and Delete | `e3-ui:record.examples.tsx:recordBasic` (smallest), `e3-ui:record.examples.tsx:recordSkillsMatrix`, `e3-ui:record.examples.tsx:recordEveryKind`, `e3-ui:record.examples.tsx:recordFinishes`, `e3-ui:record.examples.tsx:recordHoursByProject` (columns from data), `e3-ui:record.examples.tsx:recordSkillHistory` (a dated history, read and written at the day) |
 | `<Calendar>` | Calendar, Resources and Timeline layouts over event records with a backlog | `e3-ui:calendar.examples.tsx:calendarMinimal` (smallest), `e3-ui:calendar.examples.tsx:calendarOperations`, `e3-ui:calendar-records.examples.tsx:calendarRecordIndexes` |
-| `<Roster>` | Weekly staffing: duties over people by shift, cover targets, pay, fit, publish | `e3-ui:roster.examples.tsx:rosterMinimal` (smallest), `e3-ui:roster.examples.tsx:rosterWarehouse`, `e3-ui:roster.examples.tsx:rosterPeople` |
+| `<Roster>` | Weekly staffing: duties over people by shift, cover targets, pay, fit, publish, duties in no group yet | `e3-ui:roster.examples.tsx:rosterMinimal` (smallest), `e3-ui:roster.examples.tsx:rosterWarehouse`, `e3-ui:roster.examples.tsx:rosterPeople`, `e3-ui:roster.examples.tsx:rosterNoGroup` (in two steps) |
 | `<Allocation>` | A day's arrivals booked into lane slots, each bin on resources | `e3-ui:allocation.examples.tsx:allocationMinimal` (smallest), `e3-ui:allocation.examples.tsx:allocationKilnYard`, `e3-ui:allocation.examples.tsx:allocationFitRule` |
-| `<Flowchart>` | States in ordered lanes, transitions and decisions, a record of the app's each, the app's details drawn on the cards and labels | `e3-ui:flowchart.examples.tsx:flowchartDwell` (smallest), `e3-ui:flowchart.examples.tsx:flowchartDepot`, `e3-ui:flowchart.examples.tsx:flowchartDepotEditing`, `e3-ui:flowchart.examples.tsx:flowchartTicketMinutes`, `e3-ui:flowchart.examples.tsx:flowchartDepotTopDown` |
-| `<Schematic>` | Items, zones, links and nets at world coordinates | `e3-ui:schematic.examples.tsx:schematicFloor` (smallest), `e3-ui:schematic.examples.tsx:schematicDataCentre`, `e3-ui:schematic-records.examples.tsx:schematicRecordIndexes` |
+| `<Flowchart>` | States in ordered lanes, transitions and decisions, a record of the app's each, the app's details drawn on the cards and labels | `e3-ui:flowchart.examples.tsx:flowchartDwell` (smallest), `e3-ui:flowchart.examples.tsx:flowchartDepot`, `e3-ui:flowchart.examples.tsx:flowchartDepotEditing`, `e3-ui:flowchart.examples.tsx:flowchartTicketMinutes`, `e3-ui:flowchart.examples.tsx:flowchartDepotTopDown`, `e3-ui:flowchart.examples.tsx:flowchartBakery` |
+| `<Schematic>` | Items, zones, links and nets at world coordinates | `e3-ui:schematic.examples.tsx:schematicFloor` (smallest), `e3-ui:schematic.examples.tsx:schematicDataCentre`, `e3-ui:schematic-records.examples.tsx:schematicRecordIndexes`, `e3-ui:schematic.examples.tsx:schematicBakehouse` |
 
 Field types matter: a `Sheet.column.quantity` sits on a `Float` field, a
 `Sheet.column.date` on a `DateTime`, each `Option` of it allowed; an event's
-start and end are `Option<DateTime>` when it can wait in the backlog.
+start and end are `Option<DateTime>` when it can wait in the backlog. A
+`Record.Types.Change` field is the solution's to write; the Record only reads it.
 
 ## Other surfaces
 
@@ -449,13 +463,10 @@ A deployed `ui()` task renders in a React app through
 requests reach it, `<ReactiveDatasetProvider>` inside it installs the bindings'
 adapters, and `<UITaskPreview task="…">` fetches and renders a task's output.
 
-| `E3Config` | Meaning |
-|---|---|
-| `apiUrl` | **required** — the e3 API's base URL |
-| `repo` | the repository; `"default"` when omitted |
-| `workspace` | the workspace the bindings read and write |
-| `token` | a bearer token, or `null`; read afresh for every request |
-| `fetch` | the `fetch` requests go through; for an e3 running in the page, the one `createWebE3` gives (e3-web, the **e3** skill) |
+`E3Config` names the e3: `apiUrl` (**required**), `repo` (`"default"` when
+omitted), `workspace`, `token` (a bearer token or `null`, read afresh for every
+request) and `fetch` — for an e3 running in the page, the one `createWebE3`
+gives (e3-web, the **e3** skill).
 
 `E3Provider` also takes a `queryClient` to share a TanStack Query cache. Wrap
 the app in `<I18nProvider locale="…">` (re-exported from
@@ -464,47 +475,17 @@ in; dates print in UTC.
 
 ## Key Patterns
 
-### Staged commit / discard
+- **Staged commit / discard**: `Data.bind(d, { mode: 'staged' })`, with Apply
+  calling `commit()` and Discard `discard()`, both off until `pending()`:
+  `e3-ui:data.examples.tsx:dataBindStagedVariants`.
+- **A record's mutation from a button**: `Record.bind(r, ["increment"])`, the
+  button applying `r.mutate.increment(1n)` with `loading={r.mutate.pending()}`:
+  `e3-ui:record.examples.tsx:recordBindMutate`.
+- **Disable controls on stale data**:
 
-```tsx
-<Reactive>{$ => {
-    const t = $.let(Data.bind(threshold, { mode: 'staged' }));
-    const value = $.let(t.read());
-    const commit  = $.const(East.function([], NullType, $ => { $(t.commit()); }));
-    const discard = $.const(East.function([], NullType, $ => { $(t.discard()); }));
-    return (
-        <VStack gap="3">
-            <Slider value={value} min={0} max={100} onChange={t.write} />
-            <HStack gap="2">
-                <Button variant="outline" onClick={discard} disabled={t.pending().not()}>Discard</Button>
-                <Button variant="solid" onClick={commit} disabled={t.pending().not()}>Apply</Button>
-            </HStack>
-        </VStack>
-    );
-}}</Reactive>
-```
-
-### A record's mutation from a button
-
-```tsx
-<Reactive>{$ => {
-    const r = $.let(Record.bind(counter, ["increment"]));
-    const bump = $.const(East.function([], NullType, $ => { $(r.mutate.increment(1n)); }));
-    return (
-        <VStack gap="2">
-            <Stat label="Counter" value={East.print(r.read())} />
-            <Button onClick={bump} loading={r.mutate.pending()}>Increment</Button>
-            <Text>{r.mutate.status().getTag()}</Text>
-        </VStack>
-    );
-}}</Reactive>
-```
-
-### Disable controls on stale data
-
-```tsx
-<Slider value={t.read()} onChangeEnd={t.writeAndStart} disabled={t.status().hasTag('stale')} />
-```
+  ```tsx
+  <Slider value={t.read()} onChangeEnd={t.writeAndStart} disabled={t.status().hasTag('stale')} />
+  ```
 
 ## Related skills
 

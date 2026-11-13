@@ -44,7 +44,7 @@ function source(total: number, opts: { holdWindow?: number; faults?: Faults; inF
             for (let i = Number(offset); i < Math.min(total, Number(offset) + Number(limit)); i++) {
                 rows.push({ id: `r${String(i).padStart(5, "0")}`, owned: false, cells: new Map(), lines: [], band: none, subRows: [] });
             }
-            return some(rows);
+            return some({ rows, entries: [] });
         },
         total: () => {
             if (opts.faults?.total !== undefined) throw new Error(opts.faults.total);
@@ -354,7 +354,7 @@ describe("sheet paging — content revisions", () => {
         const oldVersion = latest!.sizeVersion;
         const page: SheetPagedSourceValue["page"] = (offset, limit) => {
             const window = base.value.page(offset, limit);
-            return window.type === "none" ? none : some(window.value.map(row => ({ ...row, id: `updated-${row.id}` })));
+            return window.type === "none" ? none : some({ ...window.value, rows: window.value.rows.map(row => ({ ...row, id: `updated-${row.id}` })) });
         };
         rerender(<Harness src={{ ...base.value, page, revision: () => some("B") }} />);
         await waitFor(() => expect(latest!.rows[0]!.id).toBe("updated-r00000"));
@@ -380,7 +380,7 @@ function revisioned(total: number) {
             for (let i = Number(offset); i < Math.min(size(), Number(offset) + Number(limit)); i++) {
                 rows.push({ id: `r${String(i).padStart(5, "0")}`, owned: false, cells: new Map([["rev", variant("String", state.revision)]]), lines: [], band: none, subRows: [] } as SheetRowValue);
             }
-            return some(rows);
+            return some({ rows, entries: [] });
         },
         total: () => (state.open.has(state.revision) ? some(BigInt(size())) : none),
         seek: none,
@@ -397,6 +397,7 @@ describe("sheet paging — a new revision keeps the rows (#851)", () => {
         const { value, state } = revisioned(2_000);
         const { rerender } = render(<Harness src={value} />);
         await waitFor(() => expect(text("rows")).toBe("0+600"));
+        expect([latest!.revision, latest!.totalRevision, latest!.standing]).toEqual(["A", "A", []]);
         const before = { first: latest!.rows[0], tail: latest!.tail, sizeVersion: latest!.sizeVersion };
         frames = [];
         // The dataset is written: the source serves revision B, whose windows
@@ -409,10 +410,14 @@ describe("sheet paging — a new revision keeps the rows (#851)", () => {
         expect(latest!.total).toBe(2_000);
         expect(latest!.tail).toEqual(before.tail);
         expect(latest!.exhausted).toBe(false);
+        // Read at B, each window's rows A's while they stand in: what a Save's rows are drawn over as it left them. The
+        // count is A's too, standing in, and says so: what a Save's rows are counted over (#1536).
+        expect([latest!.revision, latest!.totalRevision, latest!.standing]).toEqual(["B", "A", [0, 1, 2]]);
         // B lands: every row takes B's content, in the same place.
         state.open.add("B");
         rerender(<Harness src={{ ...value }} />);
         await waitFor(() => expect(revOf(latest!.rows[0]!)).toBe("B"));
+        expect([latest!.revision, latest!.totalRevision, latest!.standing]).toEqual(["B", "B", []]);
         expect(text("rows")).toBe("0+600");
         expect(latest!.rows.every((row) => revOf(row) === "B")).toBe(true);
         expect(latest!.rows[0]!.id).toBe(before.first!.id);
@@ -458,6 +463,7 @@ describe("sheet paging — a new revision keeps the rows (#851)", () => {
             state.open.add("C");
             rerender(<Harness src={{ ...value }} />);
             await waitFor(() => expect(latest!.total).toBe(2_400));
+            expect(latest!.totalRevision).toBe("C");
             expect(text("tail")).toBe("600-2399");
             expect(latest!.sizeVersion).toBeGreaterThan(sizeVersion);
             expect(warn).not.toHaveBeenCalled();

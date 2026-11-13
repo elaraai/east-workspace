@@ -19,7 +19,8 @@
  *   rename, Duplicate, a handle dragged to a state (the `canConnect` veto, the
  *   in-place drop and a repeat holding as before), and the form's fields. A
  *   move or a handle's drag that the browser takes the pointer back from lands
- *   nothing.
+ *   nothing; each is its own pointer's — another finger's lift neither lands
+ *   it nor ends it — and the window losing the page lets go of it.
  * - **Keys** (R9, D1–D3): a saved state's key is printed, never a field; one
  *   the Flowchart holds is refused in the + STATE editor and in the form; a
  *   new transition's is minted and never drawn; and a new key a state the
@@ -191,8 +192,8 @@ async function renameState(c: HTMLElement, key: string, label: string): Promise<
 
 /** A pointer pressed on an element at a point of the canvas, moved to another, and let go there. */
 async function drag(el: Element, from: { x: number; y: number }, to: { x: number; y: number }): Promise<void> {
-    await act(async () => { fireEvent.pointerDown(el, { pointerId: 1, pointerType: "mouse", button: 0, clientX: from.x, clientY: from.y }); });
-    await act(async () => { fireEvent.pointerMove(window, { pointerId: 1, pointerType: "mouse", clientX: to.x, clientY: to.y }); });
+    await act(async () => { fireEvent.pointerDown(el, { pointerId: 1, pointerType: "mouse", isPrimary: true, button: 0, buttons: 1, clientX: from.x, clientY: from.y }); });
+    await act(async () => { fireEvent.pointerMove(window, { pointerId: 1, pointerType: "mouse", isPrimary: true, buttons: 1, clientX: to.x, clientY: to.y }); });
     await act(async () => { fireEvent.pointerUp(window, { pointerId: 1, pointerType: "mouse", clientX: to.x, clientY: to.y }); });
     await settle();
 }
@@ -202,8 +203,8 @@ async function drag(el: Element, from: { x: number; y: number }, to: { x: number
  * its pointer cancelled, as a touch's scroll or the browser's own drag cancels it — and let go there after.
  */
 async function cancelledDrag(el: Element, from: { x: number; y: number }, to: { x: number; y: number }): Promise<void> {
-    await act(async () => { fireEvent.pointerDown(el, { pointerId: 1, pointerType: "mouse", button: 0, clientX: from.x, clientY: from.y }); });
-    await act(async () => { fireEvent.pointerMove(window, { pointerId: 1, pointerType: "mouse", clientX: to.x, clientY: to.y }); });
+    await act(async () => { fireEvent.pointerDown(el, { pointerId: 1, pointerType: "mouse", isPrimary: true, button: 0, buttons: 1, clientX: from.x, clientY: from.y }); });
+    await act(async () => { fireEvent.pointerMove(window, { pointerId: 1, pointerType: "mouse", isPrimary: true, buttons: 1, clientX: to.x, clientY: to.y }); });
     await act(async () => { fireEvent.pointerCancel(window, { pointerId: 1, pointerType: "mouse" }); });
     await act(async () => { fireEvent.pointerUp(window, { pointerId: 1, pointerType: "mouse", clientX: to.x, clientY: to.y }); });
     await settle();
@@ -313,8 +314,9 @@ describe("each gesture is one step, writing its roles' fields alone in the recor
         const before = await h.read(ex.depotStates);
         const { container: c } = await h.mountExample(ex.flowchartDepotEditing);
         const history = within(c.querySelector<HTMLElement>("[data-toolbar-item='history']")!);
+        // Issues, the four, and Save's chevron: the flowchart keeps a choice of an automatic Save.
         expect(history.getAllByRole("button").map((b) => b.getAttribute("aria-label")))
-            .toEqual([editingMessages.issues({ n: 0, count: "0" }), UNDO, REDO, DISCARD, SAVE]);
+            .toEqual([editingMessages.issues({ n: 0, count: "0" }), UNDO, REDO, DISCARD, SAVE, editingMessages.autosaveButton()]);
         await gesture(() => { fireEvent.pointerEnter(c.querySelector("[data-flowchart-band='hold']")!); });
         const ghost = c.querySelector("[data-flowchart-ghoststate='hold']")!;
         expect([ghost.textContent, ghost.querySelector("svg[data-prefix='fas'][data-icon='plus']") !== null]).toEqual([m.stateWord(), true]);
@@ -354,6 +356,55 @@ describe("each gesture is one step, writing its roles' fields alone in the recor
         expect([pending(c), centre(c, "SRD"), node(c, "SRD")!.style.opacity, linkKeys(c)]).toEqual([pendingText(0), sorted, "1", links]);
         await gesture(() => { fireEvent.click(node(c, "SRD")!); });
         expect(node(c, "SRD")!.hasAttribute("data-selected")).toBe(true);
+    });
+
+    test("a carried state and a transition being drawn are their own pointers': another finger's lift neither lands nor ends one, its own lands it, and the window losing the page — or a mouse moved with its button no longer held — lets go of one, which lands nothing", async () => {
+        const before = await h.read(ex.depotStates);
+        const { container: c } = await h.mountExample(ex.flowchartDepotEditing);
+        const sorted = centre(c, "SRD"), held = centre(c, "HLD"), cleared = centre(c, "CLR");
+        const between = { x: held.x, y: (held.y + cleared.y) / 2 };
+        const links = linkKeys(c);
+        /** A finger's event, as the page hears it wherever the finger is. */
+        const finger = (type: "pointerDown" | "pointerMove" | "pointerUp", on: Element | Window, id: number, at: { x: number; y: number }) =>
+            act(async () => { fireEvent[type](on, { pointerId: id, pointerType: "touch", button: 0, clientX: at.x, clientY: at.y }); });
+        // SRD carried over Hold by one finger; another lifts there: nothing lands, and the card is carried still.
+        await finger("pointerDown", node(c, "SRD")!, 1, sorted);
+        await finger("pointerMove", window, 1, between);
+        await finger("pointerMove", window, 2, centre(c, "IND"));
+        await finger("pointerUp", window, 2, between);
+        await settle();
+        expect([pending(c), node(c, "SRD")!.style.opacity]).toEqual([pendingText(0), "0.3"]);
+        // Its own finger lifts: it lands where that finger left it, between Hold's two cards.
+        await finger("pointerUp", window, 1, between);
+        await settle();
+        expect(pending(c)).toBe(pendingText(1));
+        expect(await save()).toEqual([ex.depotStates.name]);
+        expect(printStates(await h.read(ex.depotStates))).toBe(printStates(changed(before, { SRD: { ...before.get("SRD")!, phase: "hold", seq: 1.5 } })));
+        await waitFor(() => expect(pending(c)).toBe(pendingText(0)));
+        // A transition drawn out of SRD's handle to IND, which none joins yet; another finger lifts on IND: none is drawn.
+        await finger("pointerDown", handle(c, "SRD", "left"), 3, centre(c, "SRD"));
+        await finger("pointerMove", window, 3, centre(c, "IND"));
+        await finger("pointerUp", window, 4, centre(c, "IND"));
+        await settle();
+        expect([pending(c), linkKeys(c)]).toEqual([pendingText(0), links]);
+        // The window loses the page — another app taken up: the transition is let go of, and its finger's lift lands none.
+        await act(async () => { fireEvent.blur(window); });
+        await finger("pointerUp", window, 3, centre(c, "IND"));
+        await settle();
+        expect([pending(c), linkKeys(c)]).toEqual([pendingText(0), links]);
+        // A mouse carries SRD — from Hold, where it stands now, back over where it stood — and lets go of its button where
+        // the window cannot hear it: its next move, no button held, lets go of the carry, and nothing lands — nor at a
+        // release heard after all.
+        const from = centre(c, "SRD");
+        const mouse = (type: "pointerDown" | "pointerMove" | "pointerUp", on: Element | Window, at: { x: number; y: number }, buttons: number) =>
+            act(async () => { fireEvent[type](on, { pointerId: 1, pointerType: "mouse", isPrimary: true, button: type === "pointerMove" ? -1 : 0, buttons, clientX: at.x, clientY: at.y }); });
+        await mouse("pointerDown", node(c, "SRD")!, from, 1);
+        await mouse("pointerMove", window, sorted, 1);
+        expect(node(c, "SRD")!.style.opacity).toBe("0.3");
+        await mouse("pointerMove", window, sorted, 0);
+        await mouse("pointerUp", window, sorted, 0);
+        await settle();
+        expect([pending(c), node(c, "SRD")!.style.opacity]).toEqual([pendingText(0), "1"]);
     });
 
     test("a state double-clicked into its editor shows its key fixed — a saved row's key is printed, never a field — and ⏎ writes its label alone (D1)", async () => {

@@ -116,7 +116,9 @@ const encodePresses = encodeBeast2For(Presses);
 const decodePresses = decodeBeast2For(Presses);
 
 /** The presses' record, as its dataset's requests name it. */
-const PRESSES_DATASET = `records.${records.planPresses.name}`;
+export const PRESSES_DATASET = `records.${records.planPresses.name}`;
+/** The presses' record, as a mutation's request names it. */
+export const PRESSES_RECORD = records.planPresses.name;
 
 /** The e3-ui example module a paged canvas reads: a file's harness deploys it ({@link canvasHarness}, or among its own). */
 export const CANVAS_MODULES = { "plan/plan-records": records } as const;
@@ -315,12 +317,12 @@ export async function mountCanvas(options: CanvasOptions): Promise<EditingCanvas
         onlyPress1: false, ready: false, storageKey: `plan-880-${options.arm}`, wrap: (plan) => plan, ...options,
         seed: new Map(options.seed ?? SEED),
     };
-    // Paged: the windows read after a Save begins are held on their way to e3 until the test lets them land (`confirm`).
+    // Paged: the windows and the rows read after a Save begins are held on their way to e3 until the test lets them land (`confirm`).
     let afterWrite = false;
     const probe: Probe = { patches: [], applies: [], loseAck: false, writing: () => { afterWrite = o.arm === "paged"; } };
     const program = compileCanvas(o);
     const h = o.arm === "paged" ? e3Of() : undefined;
-    const readsBack = h?.e3.hold((request) => afterWrite && request.dataset === PRESSES_DATASET && request.kind === "page");
+    const readsBack = h?.e3.hold((request) => afterWrite && request.dataset === PRESSES_DATASET && (request.kind === "page" || request.kind === "rows"));
     const patchCommits = async () => (await e3Of().history(records.planPresses)).commits.filter((commit) => commit.mutation === "patch").length;
     // Presses of the test's own: another session's write, before the canvas mounts.
     if (h !== undefined && options.seed !== undefined) await h.patch(records.planPresses, new Map(options.seed));

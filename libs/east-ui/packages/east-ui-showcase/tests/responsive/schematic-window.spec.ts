@@ -48,7 +48,7 @@ import { expect, type Locator } from "playwright/test";
 import { test } from "./kept-page";
 import { e3Requests, heldE3, holdE3, installE3Faults, releaseE3 } from "./e3-faults";
 import { recordField } from "./record-slice";
-import { RECORD_INDEXES, cardOverlaps, cardsIn, openSchematic, screenPoint, viewOf, zoomInto, type WorldBox } from "./schematic-page";
+import { RECORD_INDEXES, cardOverlaps, cardsIn, openSchematic, pressZoomIn, screenPoint, viewOf, zoomInto, type WorldBox } from "./schematic-page";
 import { settled } from "./settle";
 
 /** The racks' loads, as the page's reads name them. */
@@ -226,14 +226,21 @@ test("fitted, the floor's density: the footer says how many racks it shades and 
     await expect(minimap(root)).toHaveAttribute("data-minimap-items", "0");
     expect(await minimapShare(root)).toBeLessThanOrEqual(0.25);
     if (!isMobile) return;
-    // On a phone the footer is this band alone, over the pane tabs, the notice whole in it: no legend, no loading line.
+    // On a phone the footer is this band alone, the notice whole in it — no legend, no loading line — laid over main's foot
+    // (ruled 7 Nov 2026): in the flow under main with no height of its own, over the pane tabs, its band standing up over
+    // main's last rows and ending where main does.
     const band = await root.locator("[data-builder-frame]").first().evaluate((frame) => {
-        const foot = frame.querySelector(":scope > [data-frame-slot='footer']")!.getBoundingClientRect();
+        const slot = frame.querySelector(":scope > [data-frame-slot='footer']")!;
+        const foot = slot.getBoundingClientRect();
+        const rail = slot.querySelector("[data-schematic-footer]")!.getBoundingClientRect();
         const strip = frame.querySelector(":scope > [data-frame-slot='paneStrip']")?.getBoundingClientRect();
         const main = frame.querySelector("[data-frame-slot='main']")!.getBoundingClientRect();
-        return { shows: foot.height >= 28, underMain: Math.abs(foot.top - main.bottom) <= 0.5, overTabs: strip === undefined || Math.abs(foot.bottom - strip.top) <= 0.5 };
+        return {
+            shows: rail.height >= 28, overMain: foot.height <= 0.5 && Math.abs(rail.bottom - main.bottom) <= 0.5,
+            underMain: Math.abs(foot.top - main.bottom) <= 0.5, overTabs: strip === undefined || Math.abs(foot.bottom - strip.top) <= 0.5,
+        };
     });
-    expect(band).toEqual({ shows: true, underMain: true, overTabs: true });
+    expect(band).toEqual({ shows: true, overMain: true, underMain: true, overTabs: true });
     await expect(notice(root)).toBeVisible();
 });
 
@@ -262,12 +269,10 @@ test.describe("A tap on the density (#1393)", () => {
         await settled(page);
         await expect(notice(root)).toHaveCount(0);
         // In about the canvas's middle, a press at a time, until the racks there draw as their cards.
-        const zoomIn = root.locator("[data-frame-slot='toolbar']").getByRole("button", { name: "Zoom in" });
         const cards = root.locator("[data-card-key]");
         for (let presses = 0; await cards.count() === 0; presses++) {
             expect(presses, "presses of Zoom in before the racks draw as their cards").toBeLessThan(12);
-            await zoomIn.click();
-            await settled(page);
+            await pressZoomIn(page, root);
         }
         expect(await cardOverlaps(root)).toEqual([]);
         // A pan of 60 × 40px: the cards whose centres stood in the canvas's middle, 150px in from each edge, stand there

@@ -164,7 +164,7 @@ describe("the works on a Plan (#1438)", () => {
         expect(caption()).toBe(spanned);
     });
 
-    test("the horizon's bars are each month's items as e3 keeps them in the span: a month a bar toned by its count, the largest in the meta line, a bar's hover its month and count; a narrower strip counts by quarter", async () => {
+    test("the horizon's bars are each month's items as e3 keeps them in the span: a month a bar as tall as its count, the largest in the meta line, a bar's hover its month and count; a narrower strip counts by quarter", async () => {
         // The strip laid out 1,000px wide: ten years keep some 8px a month.
         const horizonWidth = horizonLaidOut();
         horizonWidth(1000);
@@ -194,7 +194,9 @@ describe("the works on a Plan (#1438)", () => {
         const bars = () => [...band().querySelectorAll<HTMLElement>("[data-brush-bars=''] > [data-brush-bar]")];
         await waitFor(() => expect(meta()).toBe(`max ${max} items / mo`));
         expect(bars().map((b) => Number(b.getAttribute("data-count")))).toEqual(expected.map(([, n]) => n));
-        expect(bars().filter((b) => b.getAttribute("data-step") === "5").map((b) => Number(b.getAttribute("data-count")))).toContain(max);
+        // Its count is its height: the largest month's bar the tallest.
+        const heights = bars().map((b) => parseFloat(b.style.height));
+        expect(Number(bars()[heights.indexOf(Math.max(...heights))]!.getAttribute("data-count"))).toBe(max);
         // A bar's hover: its month, then its count.
         const top = expected.findIndex(([, n]) => n === max);
         const track = band().querySelector<HTMLElement>("[data-brush-track]")!;

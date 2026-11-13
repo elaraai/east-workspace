@@ -64,3 +64,171 @@ for (const theme of LAYOUT_THEMES) {
         }
     });
 }
+
+test("A refused duty gone to — by the warning button, or by its line in the Issues tab — opens the panel on its refusal and its ringed field together, the keyboard in the field (#1585) @desktop", async ({ page }) => {
+    const route = "e3/roster/roster/rosterWarehouse";
+    await page.goto(`/#${route}`);
+    const entry = page.locator('[data-index]', { has: page.locator(`a[href="#${route}"]`) });
+    const frame = entry.locator('[data-roster-frame]').first();
+    await expect(frame).toBeVisible({ timeout: 30_000 });
+    await entry.scrollIntoViewIfNeeded(); await settled(page);
+    // The frame a 1254px window gives the showcase: the inspector a pane over the board, its fields below its fold.
+    await frame.locator('..').evaluate(el => { (el as HTMLElement).style.width = '978px'; });
+    await settled(page);
+    const toolbar = frame.locator('[data-frame-slot="toolbar"]');
+    const end = frame.locator('[data-frame-slot="end"]');
+    const night = frame.locator('[data-roster-slot="(day=4, group=\\"inbound\\", shift=\\"night\\")"]');
+    await night.scrollIntoViewIfNeeded();
+    await night.getByRole('button', { name: 'Request Northside Staffing', exact: true }).click();
+    const expand = frame.getByRole('button', { name: 'Expand Inspector', exact: true });
+    if (await expand.isVisible()) await expand.click();
+    // Its cost centre cleared: the warehouse's check refuses the request, and holds Save.
+    const costCentre = end.locator('[data-field="costCentre"] input');
+    await costCentre.fill(''); await costCentre.press('Enter'); await settled(page);
+    const scrim = frame.locator('[data-scrim]');
+    const close = async () => { if (await scrim.count() > 0) { await scrim.click(); await settled(page); } };
+    // Where the panel shows the refusal's banner and the field it rings, against its own scrolled view, and the keyboard.
+    const shown = () => end.evaluate((pane) => {
+        const field = pane.querySelector('[data-field="costCentre"]');
+        const banner = pane.querySelector('[data-roster-refusals]');
+        let view: Element | null = field?.parentElement ?? null;
+        while (view !== null && !(/(auto|scroll)/.test(getComputedStyle(view).overflowY) && view.scrollHeight > view.clientHeight)) view = view.parentElement;
+        const box = (view ?? document.documentElement).getBoundingClientRect();
+        const within = (el: Element | null) => {
+            const r = el?.getBoundingClientRect();
+            return r !== undefined && r.top >= box.top - 0.5 && r.bottom <= box.bottom + 0.5;
+        };
+        return { banner: within(banner), field: within(field), keyboard: field?.contains(document.activeElement) === true };
+    });
+    // Another duty selected, and the panel closed: the warning button opens it on the request.
+    await close();
+    await frame.locator('[data-roster-assignment="s37"]').click(); await settled(page);
+    await close();
+    await toolbar.getByRole('button', { name: '1 issue', exact: true }).click(); await settled(page);
+    await expect.poll(shown).toEqual({ banner: true, field: true, keyboard: true });
+    // The panel left scrolled to its foot by another duty, as a person reading that one leaves it, and the warning
+    // button pressed with it open: the request's opens from its start all the same, its refusal over its ringed field
+    // — never where the other duty's was left, the field in view there and its refusal out of sight above it (hand
+    // test, 13 Nov 2026).
+    await close();
+    await frame.locator('[data-roster-assignment="s37"]').click(); await settled(page);
+    if (await expand.isVisible()) await expand.click();
+    const left = await end.evaluate((pane) => {
+        const panel = pane.querySelector<HTMLElement>('[role="tabpanel"]:not([hidden])')!;
+        panel.scrollTop = panel.scrollHeight;
+        return panel.scrollTop;
+    });
+    expect(left, "the other duty's panel, scrolled").toBeGreaterThan(0);
+    await toolbar.getByRole('button', { name: '1 issue', exact: true }).click(); await settled(page);
+    await expect.poll(shown).toEqual({ banner: true, field: true, keyboard: true });
+    // And the request's own panel scrolled to its foot, then closed: a browser keeps a closed panel's scroll, and
+    // the warning button opens it from its start.
+    const foot = await end.evaluate((pane) => {
+        const panel = pane.querySelector<HTMLElement>('[role="tabpanel"]:not([hidden])')!;
+        panel.scrollTop = panel.scrollHeight;
+        return panel.scrollTop;
+    });
+    expect(foot, "the request's panel, scrolled").toBeGreaterThan(0);
+    await close();
+    await toolbar.getByRole('button', { name: '1 issue', exact: true }).click(); await settled(page);
+    await expect.poll(shown).toEqual({ banner: true, field: true, keyboard: true });
+    // From the next day, the Issues tab's line goes back to it the same way.
+    await toolbar.getByRole('button', { name: 'Next day', exact: true }).click(); await settled(page);
+    if (await expand.isVisible()) await expand.click();
+    await end.getByRole('tab', { name: /^Issues/ }).click();
+    await end.locator('[data-roster-issue="refusal"] button').first().click(); await settled(page);
+    await expect.poll(shown).toEqual({ banner: true, field: true, keyboard: true });
+});
+
+test("A refused duty gone to whose panel can't hold its refusal's box and its field together — a warning's box stands between them — shows the field with the app's reason under it, the keyboard in it (hand test, 13 Nov 2026) @desktop", async ({ page }) => {
+    const route = "e3/roster/roster/rosterWarehouse";
+    await page.goto(`/#${route}`);
+    const entry = page.locator('[data-index]', { has: page.locator(`a[href="#${route}"]`) });
+    const frame = entry.locator('[data-roster-frame]').first();
+    await expect(frame).toBeVisible({ timeout: 30_000 });
+    await entry.scrollIntoViewIfNeeded(); await settled(page);
+    await frame.locator('..').evaluate(el => { (el as HTMLElement).style.width = '978px'; });
+    await settled(page);
+    const toolbar = frame.locator('[data-frame-slot="toolbar"]');
+    const end = frame.locator('[data-frame-slot="end"]');
+    // C. Clover's Thursday early, which a rest rule warns of: its cost centre cleared — the warehouse's check refuses the
+    // duty, and holds Save — and the duty moved to the late shift, its panel closed.
+    await frame.locator('[data-roster-assignment="s37"]').click(); await settled(page);
+    const expand = frame.getByRole('button', { name: 'Expand Inspector', exact: true });
+    if (await expand.isVisible()) await expand.click();
+    const costCentre = end.locator('[data-field="costCentre"] input');
+    await costCentre.fill(''); await costCentre.press('Enter'); await settled(page);
+    await end.getByRole('radiogroup', { name: 'Duty shift', exact: true }).getByText('Late', { exact: true }).click(); await settled(page);
+    const scrim = frame.locator('[data-scrim]');
+    if (await scrim.count() > 0) { await scrim.click(); await settled(page); }
+    // The warning button goes to it.
+    await toolbar.getByRole('button', { name: '1 issue', exact: true }).click(); await settled(page);
+    // Where the panel shows the field and what it says of its refusal, against its own scrolled view; and whether the
+    // refusal's box, over the warning's, stands further above the field's foot than the panel is tall.
+    const shown = () => end.evaluate((pane) => {
+        const field = pane.querySelector('[data-field="costCentre"]');
+        const reason = field?.querySelector('[data-field-issue]') ?? null;
+        const banner = pane.querySelector('[data-roster-refusals]');
+        let view: Element | null = field?.parentElement ?? null;
+        while (view !== null && !(/(auto|scroll)/.test(getComputedStyle(view).overflowY) && view.scrollHeight > view.clientHeight)) view = view.parentElement;
+        const box = (view ?? document.documentElement).getBoundingClientRect();
+        const within = (el: Element | null) => {
+            const r = el?.getBoundingClientRect();
+            return r !== undefined && r.height > 0 && r.top >= box.top - 0.5 && r.bottom <= box.bottom + 0.5;
+        };
+        const apart = banner !== null && field !== null && field !== undefined
+            && field.getBoundingClientRect().bottom - banner.getBoundingClientRect().top > box.height;
+        return { apart, field: within(field ?? null), reason: within(reason), says: reason?.textContent ?? null, keyboard: field?.contains(document.activeElement) === true };
+    });
+    await expect.poll(shown).toEqual({ apart: true, field: true, reason: true, says: 'Give the duty a cost centre', keyboard: true });
+});
+
+test("A duty's Start twelve hours past its shift's start is refused: its box shows the 6:00 AM the duty holds again, never the 6:00 PM it refused, the reason under it (#1585) @desktop", async ({ page }) => {
+    const route = "e3/roster/roster/rosterWarehouse";
+    await page.goto(`/#${route}`);
+    const entry = page.locator('[data-index]', { has: page.locator(`a[href="#${route}"]`) });
+    const frame = entry.locator('[data-roster-frame]').first();
+    await expect(frame).toBeVisible({ timeout: 30_000 });
+    await entry.scrollIntoViewIfNeeded(); await settled(page);
+    const end = frame.locator('[data-frame-slot="end"]');
+    const segment = (field: string, name: string) => end.locator(`[data-field="${field}"] [role="spinbutton"][aria-label^="${name}"]`);
+    // A. Alder's early on the day the example opens on, Thursday: 6:00 AM to 2:00 PM.
+    await frame.locator('[data-roster-assignment="s1"]').click(); await settled(page);
+    const expand = frame.getByRole('button', { name: 'Expand Inspector', exact: true });
+    if (await expand.isVisible()) { await expand.click(); await settled(page); }
+    await expect(segment('start', 'hour')).toHaveText('6');
+    // Its start on to 6:00 PM, and the keyboard away: refused, the box back at the 6:00 AM the duty holds.
+    await segment('start', 'AM/PM').click();
+    await page.keyboard.press('ArrowUp');
+    await expect(segment('start', 'AM/PM')).toHaveText('PM');
+    await end.locator('[data-inspector-title]').click(); await settled(page);
+    await expect(segment('start', 'hour')).toHaveText('6');
+    await expect(segment('start', 'AM/PM')).toHaveText('AM');
+    await expect(end.locator('[data-field="start"] [data-part="error-text"]')).toHaveText("A duty starts up to 12 hours before its shift's start, or less than 12 hours after it.");
+});
+
+test("A click into a duty's Start just after an edit of its End: the End taken as the keyboard leaves it, the keyboard lands in Start, never on the Details heading (#1585) @desktop", async ({ page }) => {
+    const route = "e3/roster/roster/rosterWarehouse";
+    await page.goto(`/#${route}`);
+    const entry = page.locator('[data-index]', { has: page.locator(`a[href="#${route}"]`) });
+    const frame = entry.locator('[data-roster-frame]').first();
+    await expect(frame).toBeVisible({ timeout: 30_000 });
+    await entry.scrollIntoViewIfNeeded(); await settled(page);
+    const end = frame.locator('[data-frame-slot="end"]');
+    const segment = (field: string, name: string) => end.locator(`[data-field="${field}"] [role="spinbutton"][aria-label^="${name}"]`);
+    // A. Alder's early on the day the example opens on, Thursday: 6:00 AM to 2:00 PM.
+    await frame.locator('[data-roster-assignment="s1"]').click(); await settled(page);
+    const expand = frame.getByRole('button', { name: 'Expand Inspector', exact: true });
+    if (await expand.isVisible()) { await expand.click(); await settled(page); }
+    await expect(segment('end', 'hour')).toHaveText('2');
+    // Its end an hour on, then a click into its start's hour: the end taken as the keyboard goes, the duty drawn again.
+    await segment('end', 'hour').click();
+    await page.keyboard.press('ArrowUp');
+    await segment('start', 'hour').click(); await settled(page);
+    await expect(end.locator('[data-inspector-marks]')).toContainText('Edited · unsaved');
+    await expect(segment('end', 'hour')).toHaveText('3');
+    // The keyboard where the click put it: the next key steps the start, never the heading's.
+    await expect(segment('start', 'hour')).toBeFocused();
+    await page.keyboard.press('ArrowUp');
+    await expect(segment('start', 'hour')).toHaveText('7');
+});

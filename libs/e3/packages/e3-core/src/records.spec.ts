@@ -15,7 +15,7 @@ import { execFileSync } from 'node:child_process';
 import { statSync, writeFileSync } from 'node:fs';
 import assert from 'node:assert';
 import { join, dirname } from 'node:path';
-import { DateTimeType, East, EastTypeValueType, IntegerType, NullType, PatchType, SortedMap, StringType, compareFor, encodeBeast2For, decodeBeast2For, isTypeValueEqual, printFor, readBeast2Type, sha256Hex, toEastTypeValue, ArrayType, BlobType, DictType, StructType, variant, type EastTypeValue, type PatchTypeOf, type ValueTypeOf } from '@elaraai/east';
+import { DateTimeType, East, EastTypeValueType, IntegerType, NullType, PatchType, SortedMap, StringType, compareFor, encodeBeast2For, decodeBeast2For, isTypeValueEqual, printFor, readBeast2Type, sha256Hex, toEastTypeValue, ArrayType, BlobType, DictType, StructType, none, variant, type EastTypeValue, type PatchTypeOf, type ValueTypeOf } from '@elaraai/east';
 import e3, { type MutationBuilder, type PartRunner } from '@elaraai/e3';
 import {
   RecordCommitType, RecordIndexObjectType, RecordStateType, TaskObjectType, decodeCollectionManifest, decodePackageObject, isCollectionManifestType,
@@ -574,16 +574,140 @@ describe('records', () => {
     assert.strictEqual(await workspaceGetDataset(storage, repo, ws, counterPath), 8n);
   });
 
-  it('dedup is best-effort last-commit: a different mutation between two same-key calls is NOT deduped (at-least-once)', async () => {
-    await recordMutate(storage, successRunner(encodeInt(5n)), repo, ws, 'counter', 'increment', [encodeInt(5n)], { actor: 'cli:test', idempotencyKey: 'k1' });
-    // A different keyed mutation commits, overwriting the idempotency slot.
-    await recordMutate(storage, successRunner(encodeInt(6n)), repo, ws, 'counter', 'increment', [encodeInt(1n)], { actor: 'cli:test', idempotencyKey: 'k2' });
-    // k1 is no longer the last commit, so the retry re-applies — documented limit.
-    let calls = 0;
-    const runner = runnerReturning(async () => { calls++; return succeeded(encodeInt(11n)); });
-    const retry = await recordMutate(storage, runner, repo, ws, 'counter', 'increment', [encodeInt(5n)], { actor: 'cli:test', idempotencyKey: 'k1' });
-    assert.strictEqual(retry.kind, 'committed');
-    assert.strictEqual(calls, 1, 'last-commit dedup cannot catch a superseded key, so the reducer re-runs');
+  /** A runner for a retry that must be answered: it fails the test if a unit runs. */
+  const noRunner = runnerReturning(async () => { throw new Error('the retry ran the mutation again'); });
+
+  /** One keyed `increment`, by 1, committed. */
+  const keyed = async (key: string): Promise<MutationOutcome> => {
+    const before = await workspaceGetDataset(storage, repo, ws, counterPath) as bigint;
+    const outcome = await recordMutate(storage, successRunner(encodeInt(before + 1n)), repo, ws, 'counter', 'increment',
+      [encodeInt(1n)], { actor: 'cli:test', idempotencyKey: key });
+    assert.strictEqual(outcome.kind, 'committed', JSON.stringify(outcome));
+    return outcome;
+  };
+
+  /** The record's ref. */
+  const counterRef = async (): Promise<{ hash: string; versions: Map<string, string> }> => {
+    const ref = await storage.datasets.read(repo, ws, 'records/counter');
+    assert.ok(ref && ref.type === 'value');
+    return ref.value;
+  };
+
+  it('a keyed request repeated after other writes is answered with its own commit and the state the record holds now, and runs nothing', async () => {
+    // A client whose answer was lost asks again under the same key, after
+    // other writes have landed: a keyed one, and one with no key.
+    const first = await keyed('k1');
+    const second = await keyed('k2');
+    const plain = await recordMutate(storage, successRunner(encodeInt(3n)), repo, ws, 'counter', 'increment', [encodeInt(1n)], { actor: 'cli:test' });
+    assert.strictEqual(plain.kind, 'committed');
+    const commits = (await recordHistory(storage, repo, ws, 'counter')).length;
+    // The state to read the record at: the one it holds, which the first
+    // write's own no longer is
+    const now = (await counterRef()).hash;
+    assert.strictEqual(now, (plain as { stateHash: string }).stateHash);
+    assert.notStrictEqual(now, (first as { stateHash: string }).stateHash);
+
+    const retry = await recordMutate(storage, noRunner, repo, ws, 'counter', 'increment', [encodeInt(1n)], { actor: 'cli:test', idempotencyKey: 'k1' });
+    assert.deepStrictEqual(retry, { kind: 'committed', commitHash: (first as { commitHash: string }).commitHash, stateHash: now },
+      'the retry is answered with the first attempt\'s commit, and the state the record holds now');
+    assert.deepStrictEqual(await recordMutate(storage, noRunner, repo, ws, 'counter', 'increment', [encodeInt(1n)], { actor: 'cli:test', idempotencyKey: 'k2' }),
+      { kind: 'committed', commitHash: (second as { commitHash: string }).commitHash, stateHash: now },
+      'and so is the keyed write a write with no key followed');
+    assert.strictEqual((await recordHistory(storage, repo, ws, 'counter')).length, commits, 'nothing was committed');
+    assert.strictEqual(await workspaceGetDataset(storage, repo, ws, counterPath), 3n, 'nothing was applied twice');
+  });
+
+  it('a record remembers its last sixteen keyed requests, and no more', async () => {
+    const outcomes: MutationOutcome[] = [];
+    for (let i = 1; i <= 17; i++) outcomes.push(await keyed(`k${i}`));
+
+    // The sixteen newest are each answered with their own commit, the oldest
+    // of them too
+    const now = (await counterRef()).hash;
+    for (const i of [17, 16, 9, 2]) {
+      assert.deepStrictEqual(
+        await recordMutate(storage, noRunner, repo, ws, 'counter', 'increment', [encodeInt(1n)], { actor: 'cli:test', idempotencyKey: `k${i}` }),
+        { kind: 'committed', commitHash: (outcomes[i - 1] as { commitHash: string }).commitHash, stateHash: now }, `k${i} is answered with its commit`);
+    }
+    assert.strictEqual(await workspaceGetDataset(storage, repo, ws, counterPath), 17n);
+
+    // The seventeenth is forgotten: asked again, it is a new request
+    const again = await recordMutate(storage, successRunner(encodeInt(18n)), repo, ws, 'counter', 'increment', [encodeInt(1n)], { actor: 'cli:test', idempotencyKey: 'k1' });
+    assert.strictEqual(again.kind, 'committed');
+    assert.notStrictEqual((again as { commitHash: string }).commitHash, (outcomes[0] as { commitHash: string }).commitHash,
+      'a request the record has forgotten is applied');
+    assert.strictEqual(await workspaceGetDataset(storage, repo, ws, counterPath), 18n);
+  });
+
+  it('what a record remembers of its keyed requests is bounded, whatever the keys\' length', async () => {
+    const long = (i: number): string => `${i}:${'x'.repeat(4096)}`;
+    for (let i = 1; i <= 20; i++) await keyed(long(i));
+    const { versions } = await counterRef();
+    // The last key as it was given, as before; of those before it a digest
+    // each, with the commit that answers it
+    assert.strictEqual(versions.get('$idem'), long(20));
+    const remembered = versions.get('$idem.log');
+    assert.ok(remembered !== undefined, 'the requests before the last are remembered');
+    assert.ok(remembered.length <= 65 + 15 * 130, `fifteen digests and commits, not ${remembered.length} characters`);
+    assert.deepStrictEqual(
+      await recordMutate(storage, noRunner, repo, ws, 'counter', 'increment', [encodeInt(1n)], { actor: 'cli:test', idempotencyKey: long(5) }),
+      { kind: 'committed', commitHash: (await recordHistory(storage, repo, ws, 'counter'))[15]!.hash, stateHash: (await counterRef()).hash },
+      'a long key is answered as a short one is');
+  });
+
+  it('names each remembered request by its key\'s digest and the commit that answers it, under the head it was written at', async () => {
+    const first = await keyed('k1');
+    const second = await keyed('k2');
+    const { versions } = await counterRef();
+    assert.strictEqual(versions.get('$idem'), 'k2');
+    assert.strictEqual(versions.get('$idem.commit'), (second as { commitHash: string }).commitHash);
+    assert.strictEqual(versions.get('$idem.log'),
+      `${(second as { commitHash: string }).commitHash};${sha256Hex(new TextEncoder().encode('k1'))}=${(first as { commitHash: string }).commitHash}`);
+  });
+
+  it('a compaction answers every request the record remembers, whose commits it cuts from the chain', async () => {
+    await keyed('k1');
+    await keyed('k2');
+    const compacted = await recordCompact(storage, repo, ws, 'counter', { actor: 'cli:test' });
+    assert.strictEqual(compacted.kind, 'committed');
+    // The chain the keyed commits were in is swept
+    assert.ok((await repoGc(storage, repo, { minAge: 0 })).deletedObjects > 0);
+    for (const key of ['k1', 'k2']) {
+      assert.deepStrictEqual(
+        await recordMutate(storage, noRunner, repo, ws, 'counter', 'increment', [encodeInt(1n)], { actor: 'cli:test', idempotencyKey: key }),
+        compacted, `the compaction, whose state holds ${key}'s write, answers it`);
+    }
+    assert.strictEqual(await workspaceGetDataset(storage, repo, ws, counterPath), 2n);
+  });
+
+  it('forgets what a release that keeps no such memory carried over a commit of its own', async () => {
+    // A release from before a record remembered more than its last request
+    // carries every reserved slot it does not know, as it stands. Where its
+    // own commit cut the remembered commits from the chain — a compaction —
+    // or dropped the writes they made — a reset — what it carried names
+    // commits that answer nothing: it is told by the head it was written at.
+    await keyed('k1');
+    await keyed('k2');
+    const before = await counterRef();
+    const elsewhere = await storage.objects.write(repo, encodeBeast2For(RecordCommitType)({
+      parent: none, state: before.hash, mutation: '$compact', args: none, actor: 'an earlier release', at: new Date(), delta: none,
+    }));
+    const versions = new Map(before.versions);
+    versions.set('.records.counter', elsewhere);
+    versions.set('$idem.commit', elsewhere);
+    await storage.datasets.write(repo, ws, 'records/counter', variant('value', { hash: before.hash, versions }));
+
+    // The last key is answered as that release answers it; the one before is
+    // a new request
+    assert.deepStrictEqual(
+      await recordMutate(storage, noRunner, repo, ws, 'counter', 'increment', [encodeInt(1n)], { actor: 'cli:test', idempotencyKey: 'k2' }),
+      { kind: 'committed', commitHash: elsewhere, stateHash: before.hash });
+    const again = await recordMutate(storage, successRunner(encodeInt(3n)), repo, ws, 'counter', 'increment', [encodeInt(1n)], { actor: 'cli:test', idempotencyKey: 'k1' });
+    assert.strictEqual(again.kind, 'committed');
+    assert.strictEqual(await workspaceGetDataset(storage, repo, ws, counterPath), 3n, 'applied: the record no longer remembers it');
+    // And the commit that follows keeps none of what was carried
+    assert.strictEqual((await counterRef()).versions.get('$idem.log'),
+      `${(again as { commitHash: string }).commitHash};${sha256Hex(new TextEncoder().encode('k2'))}=${elsewhere}`);
   });
 
   // ---- OPS-1: wall-clock budget (issue #69) ----
@@ -1439,7 +1563,9 @@ describe('record indexes', () => {
   it('a keyed retry after a reindex returns the commit it answers, and applies nothing twice', async () => {
     // A client whose response was lost retries with the same key. A reindex
     // committed in between changed no row, so the key still answers: the
-    // retry gets the first attempt's commit and state, and nothing runs.
+    // retry gets the first attempt's commit, with the state the record holds
+    // — which a reindex of an unchanged record leaves as it was, hash for
+    // hash — and nothing runs.
     const first = await recordMutate(storage, realRunner, repo, ws, 'plans', 'seed', [], { actor: 'cli:test', idempotencyKey: 'k1' });
     assert.strictEqual(first.kind, 'committed', JSON.stringify(first));
     assert.strictEqual((await recordReindex(storage, realRunner, repo, ws, 'plans', { actor: 'cli:test' })).kind, 'committed');
@@ -1449,8 +1575,54 @@ describe('record indexes', () => {
       execute: () => { throw new Error('the retry ran the mutation again'); },
     } as unknown as TaskRunner;
     const retry = await recordMutate(storage, noRunner, repo, ws, 'plans', 'seed', [], { actor: 'cli:test', idempotencyKey: 'k1' });
-    assert.deepStrictEqual(retry, first, 'the retry answers with the first attempt\'s commit and state');
+    assert.deepStrictEqual(retry, first, 'the retry answers with the first attempt\'s commit, and the state the record holds');
     assert.strictEqual((await recordHistory(storage, repo, ws, 'plans')).length, commits, 'nothing was committed');
+  });
+
+  it('a reindex carries every request the record remembers, by hand or by a deploy, each still answered with its own commit', async () => {
+    // Two keyed writes, so the first is remembered beside the last, then a
+    // reindex of each kind: neither changes a row, so both keys still answer.
+    const first = await recordMutate(storage, realRunner, repo, ws, 'plans', 'seed', [], { actor: 'cli:test', idempotencyKey: 'k1' });
+    assert.strictEqual(first.kind, 'committed', JSON.stringify(first));
+    const second = await recordMutate(storage, realRunner, repo, ws, 'plans', 'retitle', [encodeBeast2For(StringType)('p-1')], { actor: 'cli:test', idempotencyKey: 'k2' });
+    assert.strictEqual(second.kind, 'committed', JSON.stringify(second));
+    const noRunner = {
+      execute: () => { throw new Error('the retry ran the mutation again'); },
+    } as unknown as TaskRunner;
+    const answered = async (after: string): Promise<void> => {
+      const ref = await storage.datasets.read(repo, ws, 'records/plans');
+      assert.ok(ref && ref.type === 'value');
+      assert.deepStrictEqual(await recordMutate(storage, noRunner, repo, ws, 'plans', 'seed', [], { actor: 'cli:test', idempotencyKey: 'k1' }),
+        { kind: 'committed', commitHash: (first as { commitHash: string }).commitHash, stateHash: ref.value.hash },
+        `after ${after}, the first request is answered with its commit and the state the record holds`);
+      assert.deepStrictEqual(await recordMutate(storage, noRunner, repo, ws, 'plans', 'retitle', [encodeBeast2For(StringType)('p-1')], { actor: 'cli:test', idempotencyKey: 'k2' }),
+        { kind: 'committed', commitHash: (second as { commitHash: string }).commitHash, stateHash: ref.value.hash },
+        `after ${after}, so is the last`);
+    };
+
+    assert.strictEqual((await recordReindex(storage, realRunner, repo, ws, 'plans', { actor: 'cli:test' })).kind, 'committed');
+    await answered('a reindex');
+
+    // A changed declaration: the deploy reindexes the record itself. The
+    // mutations stay, for the retries to name.
+    const plans = e3.record('plans', PlansType, {
+      initial: new Map(),
+      indexes: (index) => ({
+        by_due: index.key(East.function([StringType, PlanRowType], IntegerType, ($, _k, v) => v.due)),
+      }),
+      mutations: (mutation) => ({
+        seed: mutation.reduce(East.function([PlansType], PlansType, ($, state) => state)),
+        retitle: mutation.reduce(East.function([PlansType, StringType], PlansType, ($, state, _k) => state)),
+      }),
+    });
+    const zip = join(tempDir, 'planrecords-3.zip');
+    await e3.export(e3.package('planrecords', '3.0.0', plans), zip);
+    await packageImport(storage, repo, zip);
+    await workspaceDeploy(storage, repo, ws, 'planrecords', '3.0.0', { runner: realRunner });
+    const [head] = await recordHistory(storage, repo, ws, 'plans', { limit: 1 });
+    assert.strictEqual(head!.commit.mutation, '$reindex');
+    assert.strictEqual(head!.commit.actor, 'system:deploy', 'the deploy wrote the last commit');
+    await answered('a deploy\'s reindex');
   });
 
   it('a deploy that cannot build an owed index leaves the workspace as it was', async () => {

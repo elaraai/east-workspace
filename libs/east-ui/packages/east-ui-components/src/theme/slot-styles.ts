@@ -16,12 +16,19 @@
  * caller as the same object.
  *
  * A part drawn a thousand times at once — the Calendar timeline's event
- * blocks, as a glide mounts them — draws plain elements with its slots'
+ * blocks, as a month of them mounts — draws plain elements with its slots'
  * classes (`useSlotClass`), each made once a theme: Chakra's styled element
  * works its styles out again at every element it draws — its css function
  * keys its cache by the whole style object, printed, and emotion serialises
  * and hashes what that gives — and a class made once costs an element
  * nothing.
+ *
+ * What a gesture draws has its class made before the gesture, for the same
+ * call (#1594): Chakra writes every rule in a cascade layer, and in Chromium a
+ * rule added to a sheet with layers invalidates every font in the page, so the
+ * first ghost of a drag worked out the page's styles and laid all of it out
+ * again in the frame the drag began. A class made as the page mounts costs
+ * only what mounting costs.
  *
  * @packageDocumentation
  */
@@ -102,9 +109,10 @@ function insertClass(cache: EmotionCache, serialized: SerializedStyles): string 
 }
 
 /**
- * The class of a slot's styles — the class Chakra gives an element drawn with them — made and inserted once for the
- * theme, for a part drawn many times at once to draw plain elements by (see the module docs). Its recipe owns every
- * style still; the element sets its class, its data attributes and its geometry.
+ * The class of a slot's styles — the one Chakra gives an element drawn with them, its rules in the emotion cache every
+ * renderer package shares — made and inserted once for the theme: for a part drawn many times at once to draw plain
+ * elements by, and ahead of a gesture for what the gesture first draws, plain or Chakra's (see the module docs). Its
+ * recipe owns every style still; the element sets its class, its data attributes and its geometry.
  *
  * @returns A slot's styles' class: the same string for every caller in the theme; `""` for none
  */

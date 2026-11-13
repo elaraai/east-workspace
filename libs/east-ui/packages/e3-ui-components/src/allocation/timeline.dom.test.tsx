@@ -228,6 +228,20 @@ describe("selection and the focus", () => {
         await key(c, "Escape");
         expect(c.querySelectorAll("[data-allocation-card][data-dim]")).toHaveLength(0);
     });
+
+    test("the Inspector collapsed, a connector's click opens it on its bin's Chooser, and the issues chip on Issues, the keyboard left on the chip (#1585)", async () => {
+        const c = await open();
+        const pane = slot(c, "end");
+        await press(within(pane).getByRole("button", { name: "Collapse Inspector" }));
+        await press(card(c, "3101")!.querySelector("[data-allocation-connector]")!);
+        expect([pane.hasAttribute("data-collapsed"), pane.querySelector("[data-chooser]") !== null]).toEqual([false, true]);
+        await press(within(pane).getByRole("button", { name: "Collapse Inspector" }));
+        const chip = slot(c, "toolbar").querySelector<HTMLElement>("button[data-allocation-issues]")!;
+        await act(async () => { chip.focus(); });
+        await press(chip);
+        expect([pane.hasAttribute("data-collapsed"), within(pane).getByRole("tab", { name: /^Issues/ }).getAttribute("aria-selected"), document.activeElement])
+            .toEqual([false, "true", chip]);
+    });
 });
 
 describe("the day's sessions, through the Timeline (#1325)", () => {

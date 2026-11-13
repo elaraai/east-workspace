@@ -8,13 +8,15 @@
  *
  * Slots:
  *  - `root` — outer container (inline-flex + padding + border).
- *  - `label` — text content (body 12.5 / weight 500).
+ *  - `label` — text content (mono 11.5 / weight 500).
  *  - `closeTrigger` — the trailing dismiss button: Font Awesome's xmark
  *    (#1263), as a chip's remove takes it — 0.8em of the tag's text, its own
  *    width. Chakra's own icon took no size there and drew nothing.
  *
  * Default `variant="outline"` is the spec base chip; `brand` / `dashed`
- * variants follow the spec `.chip.brand` / `.chip.dashed`.
+ * variants follow the spec `.chip.brand` / `.chip.dashed`. A tag is set in the
+ * design system's mono face, as its chip card sets a tag, at most 11.5px, as a
+ * chip is: mono runs larger than the body face at the same size.
  *
  * A tag given no `colorPalette` draws in the chip's own colours, whatever its
  * variant. A tag given one is `colored` — its renderer passes the variant
@@ -40,7 +42,7 @@ export const tagSlotRecipe = defineSlotRecipe({
             display: "inline-flex",
             alignItems: "center",
             gap: "var(--cr-igap, 6px)",
-            fontFamily: "body",
+            fontFamily: "mono",
             fontWeight: "medium",
             lineHeight: "1",
             borderRadius: "var(--cr-radius, {radii.sm})",
@@ -99,17 +101,17 @@ export const tagSlotRecipe = defineSlotRecipe({
             },
             solid: {
                 root: {
-                    background: "{colors.brand.600}",
-                    borderColor: "{colors.brand.600}",
-                    color: "fg.inverse",
+                    background: "brand.solid",
+                    borderColor: "brand.solid",
+                    color: "brand.contrast",
                 },
-                closeTrigger: { color: "fg.inverse", _hover: { color: "fg.inverse" } },
+                closeTrigger: { color: "brand.contrast", _hover: { color: "brand.contrast" } },
             },
         },
         size: {
             sm: { root: { fontSize: "11px", paddingX: "{spacing.2}", paddingY: "2px" } },
-            md: { root: { fontSize: "var(--cr-fs, {fontSizes.body.sm})", paddingX: "var(--cr-px, 10px)", paddingY: "var(--cr-py, {spacing.1})" } },
-            lg: { root: { fontSize: "{fontSizes.body}", paddingX: "{spacing.3}", paddingY: "{spacing.1}" } },
+            md: { root: { fontSize: "min(var(--cr-fs, {fontSizes.body.sm}), 11.5px)", paddingX: "var(--cr-px, 10px)", paddingY: "var(--cr-py, {spacing.1})" } },
+            lg: { root: { fontSize: "11.5px", paddingX: "{spacing.3}", paddingY: "{spacing.1}" } },
         },
         // Density cascade — values mirror the `chipRail` `--cr-*` sets so a
         // tag with an explicit density matches a rail (and a Trace step) at
@@ -118,7 +120,7 @@ export const tagSlotRecipe = defineSlotRecipe({
         density: {
             condensed: { root: { fontSize: "9px", lineHeight: "1", paddingX: "7px", paddingY: "2px", borderRadius: "3px", gap: "4px" } },
             compact: { root: { fontSize: "10px", lineHeight: "1", paddingX: "10px", paddingY: "5px", borderRadius: "4px", gap: "5px" } },
-            comfortable: { root: { fontSize: "12.5px", lineHeight: "1", paddingX: "15px", paddingY: "9.75px", borderRadius: "6px", gap: "7px" } },
+            comfortable: { root: { fontSize: "11.5px", lineHeight: "1", paddingX: "15px", paddingY: "9.75px", borderRadius: "6px", gap: "7px" } },
         },
         // A tag given a `colorPalette`: the compound variants draw it there.
         colored: {

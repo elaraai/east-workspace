@@ -145,8 +145,12 @@ for (const theme of LAYOUT_THEMES) {
                 const b = cell.getBoundingClientRect(); return Math.abs(b.left - ruler.left) < 1 && Math.abs(b.width - ruler.width) < 1;
             });
         })).toBe(true);
-        const before = await timeline.evaluate(el => { el.scrollLeft = 1; return Number(el.querySelector<HTMLElement>('[data-calendar-cell]')!.dataset.calendarFrom); });
-        await expect.poll(async () => Number(await timeline.locator('[data-calendar-cell]').first().getAttribute('data-calendar-from'))).toBeLessThan(before);
+        // A scroll to either end of the period moves no period: the timeline shows the period chosen (ruled 9 Nov 2026).
+        const before = await timeline.locator('[data-calendar-cell]').first().getAttribute('data-calendar-from');
+        for (const end of ['end', 'start'] as const) {
+            await timeline.evaluate((el, to) => { el.scrollLeft = to === 'start' ? 0 : el.scrollWidth; }, end); await settled(page);
+            expect(await timeline.locator('[data-calendar-cell]').first().getAttribute('data-calendar-from'), `scrolled to its ${end}`).toBe(before);
+        }
         await viewChoice(page, frame, "Calendar"); await viewChoice(page, frame, "Month");
         await expect(frame.locator('[data-calendar-month-grid]')).toBeVisible();
         await expect(frame.locator('[data-outside]').first()).toBeVisible();
@@ -393,7 +397,7 @@ for (const theme of LAYOUT_THEMES) {
             return { family: s.fontFamily, size: s.fontSize, weight: s.fontWeight, line: s.lineHeight, tracking: s.letterSpacing, casing: s.textTransform };
         });
         const caption = await typography(frame.locator('[data-calendar-header-caption]'));
-        expect(caption.size).toBe('10px'); expect(caption.family).toContain('JetBrains Mono');
+        expect(caption.size).toBe('10px'); expect(caption.family).toContain('Chivo Mono');
         expect(caption.weight).toBe('600'); expect(caption.casing).toBe('uppercase');
         for (const period of ['Day', 'Week', 'Month']) {
             await viewChoice(page, frame, period);
@@ -580,15 +584,18 @@ for (const theme of LAYOUT_THEMES) {
             const row = [...scroller.querySelectorAll("[data-calendar-resource-row]")].find(r => r.querySelector("[data-calendar-now]") !== null);
             if (row === undefined) return "no today line";
             const head = row.firstElementChild!, line = row.querySelector<HTMLElement>("[data-calendar-now]")!;
-            // Scrolled right until the today line sits under the resource column's middle.
-            const at = line.getBoundingClientRect(), h0 = head.getBoundingClientRect(), room = scroller.scrollWidth - scroller.clientWidth;
-            const want = scroller.scrollLeft + (at.left + at.width / 2) - (h0.left + h0.width / 2);
-            if (want <= scroller.scrollLeft || want > room) return `the timeline does not scroll its today line under its resource column (${Math.round(want)} from ${scroller.scrollLeft} of ${room}px)`;
-            scroller.scrollLeft = want;
-            const h = head.getBoundingClientRect(), l = line.getBoundingClientRect();
+            // Scrolled right as far as the week goes (ruled 9 Nov 2026: the timeline scrolls within its period alone), far
+            // enough for its start to pass under the resource column's middle.
+            const room = scroller.scrollWidth - scroller.clientWidth;
+            if (room < head.getBoundingClientRect().width / 2) return `the timeline does not scroll under its resource column (${room}px)`;
+            scroller.scrollLeft = room;
+            // Today's line is wherever the clock puts it: run along to the resource column's middle, it is where a scroll
+            // would take it.
+            const h = head.getBoundingClientRect(), at = line.getBoundingClientRect(), left = line.style.left;
+            line.style.left = `${parseFloat(getComputedStyle(line).left) + (h.left + h.width / 2) - (at.left + at.width / 2)}px`;
             line.style.pointerEvents = "auto";
-            const hit = document.elementFromPoint(l.left + l.width / 2, h.top + h.height / 2);
-            line.style.pointerEvents = "";
+            const l = line.getBoundingClientRect(), hit = document.elementFromPoint(l.left + l.width / 2, h.top + h.height / 2);
+            line.style.pointerEvents = ""; line.style.left = left;
             return hit !== null && head.contains(hit) ? "under" : `over the resource column: ${hit === null ? "nothing" : hit.closest("[data-calendar-now]") !== null ? "the today line" : hit.tagName}`;
         });
         expect(timeline).toBe("under");
@@ -659,5 +666,96 @@ for (const theme of LAYOUT_THEMES) {
         await page.getByRole("dialog").getByRole("button", { name: "Today", exact: true }).click();
         await settled(page);
         expect(await now()).toBe("in view");
+    });
+}
+
+for (const theme of LAYOUT_THEMES) {
+    test(`a template carried across the timeline's rows and back previews where it lands on the row it rests on alone: a row it left keeps no preview, so a row rested on again never shows first where the drop landed before, and none stays once the drag is let go or dropped (#1594) (${theme}) @desktop`, async ({ page }) => {
+        await page.setViewportSize({ width: 1920, height: 1080 });
+        const entry = await open(page, "calendarOperations", theme); await size(page, entry, 1440);
+        const frame = entry.locator("[data-calendar-frame]").first();
+        await viewChoice(page, frame, "Timeline"); await viewChoice(page, frame, "Week");
+        const timeline = frame.locator("[data-calendar-timeline]");
+        const source = frame.locator("[data-library-item]").filter({ hasText: "Bracket batch" });
+        // The card in view, the frame in the middle of the page and the week's first days in the timeline's view, so
+        // neither the page nor the timeline scrolls under the pointer.
+        await source.scrollIntoViewIfNeeded();
+        await frame.evaluate((el) => el.scrollIntoView({ block: "center" }));
+        await timeline.evaluate((el) => { el.scrollLeft = 0; });
+        await settled(page);
+        // Three machines' rows, which take a job's template, each at 10:00 on the week's first two days, which hold no job.
+        const press1 = '(kind="machines", key="press1")', press2 = '(kind="machines", key="press2")', lathe1 = '(kind="machines", key="lathe1")';
+        const spots = await timeline.evaluate((scroller, rows) => Object.fromEntries(rows.map((row) => {
+            const cell = scroller.querySelector(`[data-calendar-resource-row='${row}'] [data-calendar-cell]`)!;
+            const box = cell.getBoundingClientRect();
+            const span = Number(cell.getAttribute("data-calendar-to")) - Number(cell.getAttribute("data-calendar-from"));
+            const at = (hours: number) => box.left + hours * 3_600_000 / span * box.width;
+            return [row, { y: box.top + box.height / 2, first: at(10), second: at(34) }];
+        })), [press1, press2, lathe1]);
+        const spot = (row: string) => spots[row]!;
+        // Every preview the timeline holds: its row, whether the drag rests on that row, and whether it shows.
+        const landings = () => timeline.evaluate((scroller) => [...scroller.querySelectorAll("[data-calendar-landing]")].map((landing) => {
+            const cell = landing.closest("[data-calendar-cell]")!;
+            return { row: cell.closest("[data-calendar-resource-row]")?.getAttribute("data-calendar-resource-row") ?? "",
+                active: cell.hasAttribute("data-drop-active"), shown: getComputedStyle(landing).display !== "none" && landing.getBoundingClientRect().width > 0 };
+        }));
+        const restsOn = (row: string) => expect.poll(landings, { message: `the previews while the drag rests on ${row}` }).toEqual([{ row, active: true, shown: true }]);
+        // Where a row's preview starts along it.
+        const startOf = (row: string) => timeline.evaluate((scroller, row) => {
+            const cell = scroller.querySelector(`[data-calendar-resource-row='${row}'] [data-calendar-cell]`)!;
+            return Math.round(cell.querySelector("[data-calendar-landing]")!.getBoundingClientRect().left - cell.getBoundingClientRect().left);
+        }, row);
+        // What a row holds the moment the drag comes to rest on it, beside where the pointer is then — each from the row's
+        // start, with the row's snap step: the drag layer marks the row as the drag reaches it, and a preview the row
+        // holds then shows at once, its own drawn now or one left from before.
+        await timeline.evaluate((scroller) => {
+            const seen: { row: string; landing: number | null; pointer: number; snap: number }[] = [];
+            let pointer = 0;
+            const track = (event: PointerEvent) => { pointer = event.clientX; };
+            window.addEventListener("pointermove", track, true);
+            const observer = new MutationObserver((records) => {
+                for (const record of records) {
+                    const cell = record.target as Element;
+                    if (record.oldValue !== null || !cell.hasAttribute("data-drop-active")) continue;
+                    const box = cell.getBoundingClientRect(), landing = cell.querySelector("[data-calendar-landing]");
+                    const span = Number(cell.getAttribute("data-calendar-to")) - Number(cell.getAttribute("data-calendar-from"));
+                    seen.push({ row: cell.closest("[data-calendar-resource-row]")?.getAttribute("data-calendar-resource-row") ?? "",
+                        landing: landing === null ? null : landing.getBoundingClientRect().left - box.left, pointer: pointer - box.left,
+                        snap: Number(cell.getAttribute("data-calendar-snap")) / span * box.width });
+                }
+            });
+            observer.observe(scroller, { subtree: true, attributes: true, attributeOldValue: true, attributeFilter: ["data-drop-active"] });
+            Object.assign(window, { calendarRests: { seen, stop: () => { observer.disconnect(); window.removeEventListener("pointermove", track, true); } } });
+        });
+        type Rests = { calendarRests: { seen: { row: string; landing: number | null; pointer: number; snap: number }[]; stop: () => void } };
+
+        await movePointer(page, source, spot(press1).first, spot(press1).y);
+        await restsOn(press1);
+        const first = await startOf(press1);
+        await page.mouse.move(spot(press2).first, spot(press2).y, { steps: 4 }); await restsOn(press2);
+        await page.mouse.move(spot(lathe1).second, spot(lathe1).y, { steps: 4 }); await restsOn(lathe1);
+        const second = await startOf(lathe1);
+        expect(second, "a day on, the preview starts further along").toBeGreaterThan(first);
+        await page.mouse.move(spot(press1).second, spot(press1).y, { steps: 4 }); await restsOn(press1);
+        expect(await startOf(press1), "back on the first row, its preview starts where the drop lands now").toBe(second);
+        // A row the drag comes to rest on — again, the first and the rows the pointer crossed on its way back — shows no
+        // preview from before: one it holds then starts where the pointer is, a snap step before it at most, never where
+        // the drop landed as the drag last left it.
+        const seen = await page.evaluate(() => (window as unknown as Rests).calendarRests.seen);
+        expect(seen.filter((rest) => rest.row === press1).length, "the drag came back to the first row").toBeGreaterThanOrEqual(2);
+        expect(seen.filter((rest) => rest.landing !== null && (rest.landing > rest.pointer + 1 || rest.pointer - rest.landing > rest.snap + 1))
+            .map((rest) => `${rest.row}: its preview at ${Math.round(rest.landing!)}px, the pointer at ${Math.round(rest.pointer)}px`),
+            "rows showing where the drop landed before as the drag came to rest on them").toEqual([]);
+
+        // Let go with Esc: nothing previews.
+        await page.keyboard.press("Escape"); await page.mouse.up();
+        await expect.poll(landings, { message: "the previews once the drag is let go" }).toEqual([]);
+        // Dropped: the template's job is made, and nothing previews.
+        await movePointer(page, source, spot(press2).second, spot(press2).y);
+        await restsOn(press2);
+        await page.mouse.up();
+        await expect(frame.locator("[data-calendar-event][data-drafted]").filter({ hasText: "Bracket batch" })).toHaveCount(1);
+        await expect.poll(landings, { message: "the previews once the drag is dropped" }).toEqual([]);
+        await page.evaluate(() => (window as unknown as Rests).calendarRests.stop());
     });
 }

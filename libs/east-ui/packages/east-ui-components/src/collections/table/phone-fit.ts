@@ -73,7 +73,12 @@ export type MeasureText = (text: string, font: string) => number;
 let context: CanvasRenderingContext2D | null | undefined;
 
 /**
- * Measures through a canvas, or by its characters where a page has none.
+ * Measures through a canvas, or by its characters where a page has none. The
+ * page joins no letters, and this canvas, never on the page, takes none of its
+ * CSS: a zero-width non-joiner after each f that meets an f, an i or an l keeps
+ * the pair apart on every engine — Safari's canvas has no `textRendering` — so
+ * a word with one measures the cells the page draws it in, never Chivo Mono's
+ * one cell for ff, fi or fl, and keeps the kerning the page keeps.
  *
  * @param text - The text
  * @param font - The CSS font it is drawn in
@@ -85,5 +90,5 @@ export const measureText: MeasureText = (text, font) => {
     }
     if (context === null || context === undefined) return text.length * 7.5;
     context.font = font;
-    return context.measureText(text).width;
+    return context.measureText(text.replace(/f(?=[fil])/gu, "f\u200C")).width;
 };

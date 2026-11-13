@@ -15,8 +15,8 @@
  */
 
 import type { option } from "@elaraai/east";
-import type { PlanBand, PlanRootValue } from "./model.js";
-import { elementsIn, type WindowedSourceValue } from "@elaraai/east-ui-components/internal";
+import type { PlanBand, PlanRootValue, PlanWireBlock } from "./model.js";
+import { elementsIn, type CarriedEntry, type WindowedSourceValue } from "@elaraai/east-ui-components/internal";
 import { PLAN_GEOMETRY } from "./geometry.js";
 
 /**
@@ -32,6 +32,15 @@ import { PLAN_GEOMETRY } from "./geometry.js";
 export type PlanPagedSourceValue = WindowedSourceValue<PlanRootValue["rows"]> & {
     /** The snapshot of the data its windows read, `none` while it resolves; omitted, its revision is that snapshot. */
     readonly snapshot?: (() => option<string>) | undefined;
+    /**
+     * A window's blocks as the source draws them NOW, from the entries the window carried (#1599), reading nothing:
+     * the canvas's unsaved changes, and what a Save landed, in their entries' place, with whatever the source composes
+     * over them. What a window standing in while it is read again is drawn as, so a change made meanwhile is drawn at
+     * once. `undefined` where it cannot — and for a source that draws its windows as they were read, which has none.
+     */
+    readonly redraft?: ((entries: readonly CarriedEntry[]) => readonly PlanWireBlock[] | undefined) | undefined;
+    /** What a redraft draws from, as text that moves when it does: a window standing in is drawn again only then. */
+    readonly redrafted?: (() => string) | undefined;
 };
 
 /**

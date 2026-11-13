@@ -108,7 +108,7 @@ for (const theme of LAYOUT_THEMES) {
         await expect(nav).toHaveAttribute('data-time-anchor', String(anchor + DAY));
         await expect.poll(() => lens.evaluateAll(lines => lines.map(line => line.getAttribute('x1')))).not.toEqual(start);
     });
-    test(`Calendar day/week/month picker and timeline recenter (${theme})`, async ({ page }, info) => {
+    test(`Calendar day/week/month picker and the timeline's Today (${theme})`, async ({ page }, info) => {
         test.skip(info.project.name !== 'desktop', 'The fold/Today contract runs on every touch project above.');
         await page.setViewportSize({ width: 2160, height: 1080 });
         const frame = await open(page, 'calendar', theme); await resize(page, frame, 960);
@@ -134,13 +134,14 @@ for (const theme of LAYOUT_THEMES) {
         await chooseView(page, frame, 'Day'); await chooseView(page, frame, 'Timeline');
         await nav.locator('[data-time-trigger]').click();
         await page.getByRole('dialog').getByRole('button', { name: 'Today', exact: true }).click();
+        // Today brings the now line into view, and again when the date is today already (ruled 9 Nov 2026).
         const timeline = frame.locator('[data-calendar-timeline]');
         await settled(page);
-        const centered = await timeline.evaluate(el => el.scrollLeft);
+        const atNow = await timeline.evaluate(el => el.scrollLeft);
         await timeline.evaluate(el => { el.scrollLeft += 300; });
-        await expect.poll(() => timeline.evaluate(el => el.scrollLeft)).toBeGreaterThan(centered + 250);
+        await expect.poll(() => timeline.evaluate(el => el.scrollLeft)).toBeGreaterThan(atNow + 250);
         await nav.locator('[data-time-trigger]').click();
         await page.getByRole('dialog').getByRole('button', { name: 'Today', exact: true }).click();
-        await expect.poll(() => timeline.evaluate(el => el.scrollLeft)).toBeCloseTo(centered, 0);
+        await expect.poll(() => timeline.evaluate(el => el.scrollLeft)).toBeCloseTo(atNow, 0);
     });
 }

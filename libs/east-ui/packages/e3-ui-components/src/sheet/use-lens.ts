@@ -28,6 +28,13 @@
  *   begun and the segments near the view read — the last layout stands in, so
  *   the sheet never empties between them. Switched off, the lens keeps its
  *   last layout for its host to stand in while the pages are read again.
+ * - **A source read another way** — its id the same, its page no longer
+ *   equivalent to the one that read the rows (#809) — has every row read
+ *   again, and the last layout stands in until they are (#1599), retained
+ *   ({@link RecordLens.reread}): its rows are the last reading's. At rest they
+ *   are read in the same turn; while a read of the record is on its way they
+ *   are not, and the sheet emptied to its bands whenever its author's block
+ *   was evaluated again meanwhile.
  * - **A key search's jump** reads where its row is, beside the view, until
  *   that row is drawn — its host then scrolls to it — or is known to be a row
  *   the narrowing does not hold, when its host clears the filters that hide
@@ -39,12 +46,13 @@
  */
 
 import { useCallback, useMemo, useRef, useState } from "react";
-import { equivalentFor, none, printFor, type option, type ValueTypeOf } from "@elaraai/east";
+import { StringType, equalFor, equivalentFor, none, printFor, type option, type ValueTypeOf } from "@elaraai/east";
 import { Sheet } from "@elaraai/e3-ui/internal";
 import type { SeekQueryType, SeekRangeType } from "@elaraai/east-ui";
 import { RecordSliceWhereType, type RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { useTrackedEvaluation } from "@elaraai/east-ui-components";
-import { recordSlicePlace, recordSliceSeek, recordSliceWithinAt } from "@elaraai/east-ui-components/internal";
+import { entryLookup, recordSlicePlace, recordSliceSeek, recordSliceWithinAt, type EntryLookup } from "@elaraai/east-ui-components/internal";
+import { sourceChange } from "../shared/windowed.js";
 import {
     layoutLens, lensDemand, lensPieces, lensReadInTurns, lensRegions,
     type LensFacts, type LensGeometry, type LensLayout, type LensPiece, type LensPlacement, type LensRow, type LensSegmentState, type LensWords,
@@ -60,6 +68,7 @@ export const LENS_BUDGET = 16;
 const LENS_BEYOND = 2;
 
 const printWhere = printFor(RecordSliceWhereType);
+const stringEqual = equalFor(StringType);
 /** Whether two sources serve the same rows: the same id and equivalent functions, as the paged driver asks (#809). */
 const sourceEquivalent = equivalentFor(Sheet.Types.Root.fields.rows.cases.paged);
 
@@ -87,6 +96,8 @@ function readFailure(err: unknown): string {
 /** What the lens has read of one piece, at one revision. */
 interface LandedPiece {
     rows?: readonly SheetRowValue[] | undefined;
+    /** The stored entries the piece's page carried beside its rows (#1599), by id. */
+    entries?: EntryLookup | undefined;
     hits?: readonly boolean[] | undefined;
     error?: string | undefined;
 }
@@ -101,14 +112,21 @@ interface LensCache {
     query: string | undefined;
     /** Each piece's rows, by its key: a narrowing's choice keeps them. */
     rows: Map<string, readonly SheetRowValue[]>;
+    /** The stored entries each piece's page carried beside those rows (#1599), by the piece's key: kept and let go with its rows. */
+    entries: Map<string, EntryLookup>;
     /** Each piece's answers, by its key: for the narrowing and the revision. */
     hits: Map<string, readonly boolean[]>;
     /** Why each piece's read failed: not asked again until a Retry. */
     failures: Map<string, string>;
+    /**
+     * Whether its rows are read again for a source that reads them another way (#1599): until the rows near the view
+     * have landed so, the layout the last reading drew stands in.
+     */
+    reread: boolean;
 }
 
-function emptyCache(source: SheetPagedSourceValue | undefined): LensCache {
-    return { source, revision: undefined, query: undefined, rows: new Map(), hits: new Map(), failures: new Map() };
+function emptyCache(source: SheetPagedSourceValue | undefined, reread = false): LensCache {
+    return { source, revision: undefined, query: undefined, rows: new Map(), entries: new Map(), hits: new Map(), failures: new Map(), reread };
 }
 
 /** What the lens's evaluation read. */
@@ -126,14 +144,21 @@ interface LensRead {
     loading: boolean;
     /** The segments of matches it is reading, by their first rows, in the order it reads them — a jump's, then the view's. */
     reading: readonly number[];
+    /** Whether the rows are read again for a source that reads them another way, and those near the view have still to land. */
+    reread: boolean;
 }
 
-/** A layout, and the revision and narrowing it laid out. */
+/** A layout, the revision and narrowing it laid out, and the entries its rows were read with. */
 interface Shown {
     layout: LensLayout;
     revision: string | undefined;
     query: string;
+    /** The stored entry the page that read the row at a position carried for an id (#1599): this layout's own reading's. */
+    entryOf: (id: string, at: number) => Uint8Array | undefined;
 }
+
+/** No entry: a lens that draws nothing. */
+const NO_ENTRY = (): undefined => undefined;
 
 /** The view, as the record's rows its first and last items stand for, under the narrowing it was reported under. */
 interface LensView {
@@ -155,6 +180,11 @@ export interface RecordLens {
     matches: number | undefined;
     /** The record's revision the lens reads at, once known: what the answers of which choices hide a row are kept by. */
     revision: string | undefined;
+    /**
+     * Whether the layout drawn was read before that revision: the last one's, standing in while this one's is read —
+     * what a Save's rows are drawn over as it left them, never as they were before it.
+     */
+    readBefore: boolean;
     /** Whether the narrowing's layout is drawn: its placement begun and the segments near the view read. */
     ready: boolean;
     /** Whether a read is still in flight. */
@@ -167,6 +197,11 @@ export interface RecordLens {
     reading: readonly number[];
     /** The last layout stands in while a new narrowing is read. */
     replacing: boolean;
+    /**
+     * The last layout stands in while its rows are read again for a source that reads them another way (#1599):
+     * retained, since its rows are the last reading's, until the rows near the view have landed.
+     */
+    reread: boolean;
     /** Why the placement could not be read, while rows show beside it. */
     sourceError: string | undefined;
     /** Why the placement could not be read, when nothing has been drawn. */
@@ -183,6 +218,12 @@ export interface RecordLens {
     clearJump: () => void;
     /** Ask again: a failed segment, by its first row, or with none everything that failed. */
     retry: (w?: number) => void;
+    /**
+     * The stored entry the page that read the row drawn at a position carried for an id (#1599) — the reading the layout
+     * drawn was made from, the last one's while it stands in: what a gesture on a row the lens shows begins from, and
+     * what its marks are read over. `undefined` where the source's pages carry none.
+     */
+    entryOf: (id: string, at: number) => Uint8Array | undefined;
 }
 
 /** What {@link useRecordLens} lays out over. */
@@ -231,13 +272,17 @@ export function useRecordLens(input: RecordLensInput): RecordLens {
         void retries;
         if (source === undefined || part === undefined || where === undefined) return undefined;
         const held = cacheRef.current;
-        if (held.source === undefined || !sourceEquivalent(held.source, source)) cacheRef.current = emptyCache(source);
+        // A source that is not the one that read the rows reads them all again (#809) — and where it is the same source
+        // reading them another way, the layout the last reading drew stands in until they land (#1599).
+        const change = sourceChange(held.source, source, sourceEquivalent);
+        if (change !== "same") cacheRef.current = emptyCache(source, change === "reread");
         const cache = cacheRef.current;
         const r = source.revision?.();
         const revision = r?.type === "some" ? r.value : undefined;
         if (revision !== cache.revision) {
             cache.revision = revision;
             cache.rows = new Map();
+            cache.entries = new Map();
             cache.hits = new Map();
             cache.failures = new Map();
         }
@@ -286,7 +331,11 @@ export function useRecordLens(input: RecordLensInput): RecordLens {
                 try {
                     if (!cache.rows.has(p.key)) {
                         const page = source.page(BigInt(p.from), BigInt(p.count));
-                        if (page.type === "some") cache.rows.set(p.key, page.value as readonly SheetRowValue[]);
+                        if (page.type === "some") {
+                            // One read: the page's rows, and the entries they were made from.
+                            cache.rows.set(p.key, page.value.rows);
+                            cache.entries.set(p.key, entryLookup(page.value.entries));
+                        }
                     }
                     if (!cache.hits.has(p.key)) {
                         const asked = recordSliceWithinAt(part, where, BigInt(p.from), BigInt(p.count));
@@ -304,7 +353,7 @@ export function useRecordLens(input: RecordLensInput): RecordLens {
                 for (const p of group) {
                     const failed = cache.failures.get(p.key);
                     if (failed !== undefined) { landed.set(p.key, { error: failed }); continue; }
-                    const piece: LandedPiece = { rows: cache.rows.get(p.key), hits: cache.hits.get(p.key) };
+                    const piece: LandedPiece = { rows: cache.rows.get(p.key), entries: cache.entries.get(p.key), hits: cache.hits.get(p.key) };
                     if (piece.rows === undefined || piece.hits === undefined) {
                         pending = true;
                         if (!reading.includes(p.segment)) reading.push(p.segment);
@@ -313,13 +362,15 @@ export function useRecordLens(input: RecordLensInput): RecordLens {
                 }
             }
             // What left the view leaves the cache: the record Slice and the paging runtime keep their own, bounded.
-            for (const key of [...cache.rows.keys()]) if (!landed.has(key)) cache.rows.delete(key);
+            for (const key of [...cache.rows.keys()]) if (!landed.has(key)) { cache.rows.delete(key); cache.entries.delete(key); }
             for (const key of [...cache.hits.keys()]) if (!landed.has(key)) cache.hits.delete(key);
             for (const key of [...cache.failures.keys()]) if (!landed.has(key)) cache.failures.delete(key);
         }
         const ready = placement !== undefined && !pending;
         const loading = placementError === undefined && (placement === undefined || !placement.complete || pending);
-        return { revision, query, placement, placementError, pieces, landed, ready, loading, reading };
+        // Read again for a source that reads them another way: once the rows near the view have landed, they are its own.
+        if (cache.reread && (ready || placementError !== undefined)) cache.reread = false;
+        return { revision, query, placement, placementError, pieces, landed, ready, loading, reading, reread: cache.reread };
     }, [source, part, where, query, viewFrom, viewTo, jumpTarget, retries]);
 
     const { result } = useTrackedEvaluation(read);
@@ -332,7 +383,9 @@ export function useRecordLens(input: RecordLensInput): RecordLens {
     const known = useMemo(() => {
         const rows = new Map<number, LensRow>();
         const segments = new Map<number, LensSegmentState>();
-        if (value === undefined) return { rows, segments };
+        // The entries each row's page carried, by the row's position: its own read's.
+        const entries = new Map<number, EntryLookup>();
+        if (value === undefined) return { rows, segments, entries };
         // A segment is read when every one of its pages has landed whole; one failure fails it.
         const whole = new Map<number, boolean>();
         for (const p of value.pieces) {
@@ -342,10 +395,14 @@ export function useRecordLens(input: RecordLensInput): RecordLens {
             whole.set(p.segment, (whole.get(p.segment) ?? true) && done);
             const pieceRows = piece?.rows;
             if (pieceRows === undefined) continue;
-            pieceRows.forEach((row, i) => rows.set(p.from + i, { row, hit: piece?.hits?.[i] }));
+            const carried = piece?.entries;
+            pieceRows.forEach((row, i) => {
+                rows.set(p.from + i, { row, hit: piece?.hits?.[i] });
+                if (carried !== undefined) entries.set(p.from + i, carried);
+            });
         }
         for (const [segment, done] of whole) if (!segments.has(segment)) segments.set(segment, done ? { kind: "read" } : { kind: "unread" });
-        return { rows, segments };
+        return { rows, segments, entries };
     }, [value]);
 
     const fresh = useMemo((): LensLayout | undefined => {
@@ -358,6 +415,12 @@ export function useRecordLens(input: RecordLensInput): RecordLens {
         return layoutLens(facts, geometry, words);
     }, [value, known, geometry, words]);
 
+    // The entry each row of that layout was read with: its own page's, by the row's place in the record.
+    const readEntry = useMemo(() => {
+        const entries = known.entries;
+        return (id: string, at: number): Uint8Array | undefined => entries.get(at)?.(id);
+    }, [known]);
+
     // The layout shown: the narrowing's once it is ready, the last one standing in until then. A lens switched on
     // anew stands nothing of its own in: the rows its host showed last do. Switched off, it keeps its last layout.
     const displayed = useRef<Shown | undefined>(undefined);
@@ -366,13 +429,15 @@ export function useRecordLens(input: RecordLensInput): RecordLens {
     wasActive.current = active;
     let shown: Shown | undefined = displayed.current;
     let replacing = false;
+    let reread = false;
     if (active && value !== undefined && fresh !== undefined) {
         const previous = displayed.current;
-        const moved = previous !== undefined && (previous.revision !== value.revision || previous.query !== value.query);
+        const moved = previous !== undefined && (previous.revision !== value.revision || previous.query !== value.query || value.reread);
         if (moved && !value.ready) {
             replacing = previous.query !== value.query;
+            reread = value.reread;
         } else {
-            shown = { layout: fresh, revision: value.revision, query: value.query };
+            shown = { layout: fresh, revision: value.revision, query: value.query, entryOf: readEntry };
             displayed.current = shown;
         }
     } else if (active && shown !== undefined) {
@@ -425,6 +490,7 @@ export function useRecordLens(input: RecordLensInput): RecordLens {
                 if (w !== undefined && p.segment !== w) continue;
                 cache.failures.delete(p.key);
                 cache.rows.delete(p.key);
+                cache.entries.delete(p.key);
                 cache.hits.delete(p.key);
             }
             if (w === undefined) cache.failures.clear();
@@ -459,6 +525,11 @@ export function useRecordLens(input: RecordLensInput): RecordLens {
     const readingHeld = useRef(NOT_READING);
     if (readingNow.length !== readingHeld.current.length || readingNow.some((at, i) => at !== readingHeld.current[i])) readingHeld.current = readingNow;
     const reading = readingHeld.current;
+    // The layout drawn is the last revision's while this one's is read — or while the read fails, its revision unknown.
+    const laidOut = shown?.revision;
+    const readNow = value?.revision;
+    const readBefore = active && shown !== undefined && (value === undefined
+        || (laidOut === undefined || readNow === undefined ? laidOut !== readNow : !stringEqual(laidOut, readNow)));
     return {
         layout,
         rows: drawn.rows,
@@ -466,10 +537,12 @@ export function useRecordLens(input: RecordLensInput): RecordLens {
         total: value?.placement?.records,
         matches: value?.placement?.matches,
         revision: active ? value?.revision : undefined,
+        readBefore,
         ready: active && value !== undefined && value.ready && shown !== undefined && shown.query === query && shown.revision === value.revision,
         loading: active && (value === undefined || value.loading),
         reading,
         replacing,
+        reread,
         sourceError: layout === undefined ? undefined : failure,
         error: active && layout === undefined ? failure : undefined,
         sizeVersion,
@@ -478,5 +551,6 @@ export function useRecordLens(input: RecordLensInput): RecordLens {
         jumpToElement,
         clearJump,
         retry,
+        entryOf: shown?.entryOf ?? NO_ENTRY,
     };
 }

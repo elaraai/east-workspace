@@ -5,7 +5,7 @@
 # EAST_EXAMPLES_IR_DIR), which the codegen spec reads back
 include ../../paths.mk
 
-.PHONY: build test test-export export-examples query-corpus query-types query-types-tables query-bench control-bench paged-weights lint example clean help
+.PHONY: build test test-floor test-export export-examples query-corpus query-types query-types-tables query-bench control-bench paged-weights lint example clean help
 
 ## Build the package
 build:
@@ -14,6 +14,13 @@ build:
 ## Run tests (builds first)
 test:
 	pnpm run build && pnpm test
+
+## Run the tests on an engine with nothing newer than ES2023 (builds first):
+## the built-ins later editions added are taken away before anything loads
+## (test/floor/engine.ts), as an iPhone's browsers before iOS 18.4 lack most of
+## them. East runs in those browsers: docs/conventions/BROWSER_FLOOR.md.
+test-floor:
+	pnpm run build && pnpm run test:floor
 
 ## Export test IR to EAST_TEST_IR_DIR (this checkout's tmp/east-test-ir)
 test-export:
@@ -81,6 +88,7 @@ help:
 	@echo ""
 	@echo "  build              - Build the package"
 	@echo "  test               - Run tests"
+	@echo "  test-floor         - Run tests on an engine with nothing newer than ES2023, as East's oldest browsers are"
 	@echo "  test-export        - Export test IR to this checkout's tmp/east-test-ir"
 	@echo "  export-examples    - Export every example as IR to this checkout's tmp/east-examples-ir"
 	@echo "  query-corpus       - Rewrite test/fixtures/query-corpus.beast2 and query-fixture.beast2"

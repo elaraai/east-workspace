@@ -111,7 +111,7 @@ async function findMoveAndSave(page: Page, root: Locator): Promise<void> {
     expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
     await expect.poll(() => bandOf(root, "SCN")).toBe("intake");
     // Nor is a state moved: Scanned carried by the mouse onto Arrived, above it in Intake, stays after it, nothing to save.
-    const save = root.locator("[data-slot='history'] button").last();
+    const save = root.locator("[data-slot='history']").getByRole("button", { name: "Save", exact: true });
     const arrived = root.locator("[data-flowchart-node='ARV']");
     await carry(page, root.locator("[data-flowchart-node='SCN']"), arrived);
     await expect(save).toBeDisabled();
@@ -152,13 +152,21 @@ async function findMoveAndSave(page: Page, root: Locator): Promise<void> {
     // Save, the state still selected: in the toolbar's second row, uncovered once the view is closed.
     await closeLayers(page, root);
     await expect(scanned).toHaveAttribute("data-selected", "true");
-    await save.scrollIntoViewIfNeeded();
     await expect(save).toBeEnabled();
-    expect(await save.evaluate((el) => {
-        const r = el.getBoundingClientRect();
-        const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-        return hit !== null && el.contains(hit);
-    }), "Save is uncovered").toBe(true);
+    // What lies over Save's middle: Save alone, or what does, by its tag and marks. Each look scrolls Save into view
+    // again: the scroll shows the foot of the example above, which renders as it comes into view and, growing, moves
+    // Save down.
+    await expect.poll(async () => {
+        await save.scrollIntoViewIfNeeded();
+        return save.evaluate((el) => {
+            const r = el.getBoundingClientRect();
+            const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+            if (hit === null) return "nothing: out of view";
+            if (el.contains(hit)) return "Save";
+            const marks = [...hit.attributes].filter((a) => a.name.startsWith("data-") || a.name === "role" || a.name === "aria-label").map((a) => `${a.name}="${a.value}"`);
+            return [hit.tagName.toLowerCase(), ...marks].join(" ");
+        });
+    }, { message: "Save is uncovered" }).toBe("Save");
     await save.click();
     await expect(save).toBeDisabled();
 

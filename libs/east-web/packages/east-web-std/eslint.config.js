@@ -1,6 +1,7 @@
 import tseslint from '@typescript-eslint/eslint-plugin';
 import tsparser from '@typescript-eslint/parser';
 import headers from 'eslint-plugin-headers';
+import browserFloor from '../../../east/eslint/browser-floor.js';
 
 export default [
   {
@@ -32,6 +33,14 @@ export default [
         content: 'Copyright (c) 2025 Elara AI Pty Ltd\nDual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.'
       }]
     }
+  },
+  // This package runs in a browser, on iPhones back to iOS 16.4: its source names no built-in newer than ES2023
+  // (docs/conventions/BROWSER_FLOOR.md). The rule reads types, from the project the block above parses with.
+  {
+    files: ['src/**/*.ts'],
+    ignores: ['src/**/*.spec.ts'],
+    plugins: { 'east-floor': { rules: { 'browser-floor': browserFloor } } },
+    rules: { 'east-floor/browser-floor': 'error' }
   },
   {
     files: ['test/**/*.ts'],

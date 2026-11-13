@@ -284,24 +284,24 @@ export interface EastChakraPlanProps {
     library?: PlanLibraryTabs | undefined;
     /** Whether the Plan has its inspector pane (#1197) — the payload carries it; left out, no pane. */
     inspector?: boolean | undefined;
-    /** When the event kinds' drafts go (#1194) — the payload's settings carry it: on Save (`batch`, the default), or as each gesture lands. */
-    applyMode?: "batch" | "auto" | undefined;
     /** The event kinds' drop veto (#1196) — the payload carries it: where a drop would put an event, to the refusal's message. */
     canDrop?: PlanEventCanDrop | undefined;
     /** What each source of the slice the frame follows shows (#1344) — each resource kind's, templates list's and tab's; none, a Plan whose payload follows none. */
     followed?: FollowedSources | undefined;
     /** The app's optimiser (#1409) — the payload carries its binding: what the Elara eye calls by name; none, no eye. */
     optimise?: { readonly name: string } | undefined;
+    /** Whether the Plan's Autosave begins on — the payload carries its author's word; left out, off. */
+    autosave?: boolean | undefined;
 }
 
 /**
  * Renders the Plan in its frame — see the module docs.
  *
- * @param props - The root, its storage key, the event kinds and their rows, the resource kinds, the library's tabs, whether it has its inspector, when the event kinds' drafts go, their drop veto, and what each source the frame follows shows
+ * @param props - The root, its storage key, the event kinds and their rows, the resource kinds, the library's tabs, whether it has its inspector, the event kinds' drop veto, what each source the frame follows shows, and whether its Autosave begins on
  * @returns The Plan, in its frame
  */
 export const EastChakraPlan = memo(function EastChakraPlan({
-    value, storageKey, events, kinds, resources, library: given, inspector, applyMode, canDrop, followed = NONE_FOLLOWED, optimise,
+    value, storageKey, events, kinds, resources, library: given, inspector, canDrop, followed = NONE_FOLLOWED, optimise, autosave,
 }: EastChakraPlanProps) {
     const library = useDataStable(given ?? NO_LIBRARY, libraryEqual);
     const id = getSomeorUndefined(value.id);
@@ -328,8 +328,8 @@ export const EastChakraPlan = memo(function EastChakraPlan({
     // A resource kind's narrowing resolving, or failed: the rows it showed stay, busy.
     const busy = resourceKinds.some((kind) => followed.get(kind.key)?.shown.busy === true);
     const canvas = usePlanCanvas({
-        value, storageKey, events, hidden, rowsHidden, eventKinds, panel, kinds: kinds ?? NO_KINDS, applyMode,
-        resources: resourceKinds, tabs: library, canDrop: veto, shown, busy, optimise,
+        value, storageKey, events, hidden, rowsHidden, eventKinds, panel, kinds: kinds ?? NO_KINDS,
+        resources: resourceKinds, tabs: library, canDrop: veto, shown, busy, optimise, autosave: autosave === true,
     });
     return <>{canvas.provide(
         <PlanFrame canvas={canvas} root={value} kinds={kinds ?? NO_KINDS} resources={resourceKinds} library={library}
@@ -338,7 +338,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({
 }, (prev, next) => planRootEqual(prev.value, next.value) && prev.storageKey === next.storageKey
     && (prev.followed ?? NONE_FOLLOWED) === (next.followed ?? NONE_FOLLOWED)
     && (prev.inspector === true) === (next.inspector === true)
-    && (prev.applyMode ?? "batch") === (next.applyMode ?? "batch")
+    && (prev.autosave === true) === (next.autosave === true)
     && (prev.optimise === undefined ? next.optimise === undefined : next.optimise !== undefined && stringEqual(prev.optimise.name, next.optimise.name))
     && (Object.is(prev.canDrop, next.canDrop) || canDropEquivalent(prev.canDrop ?? NO_VETO, next.canDrop ?? NO_VETO))
     && sameEventRows(prev.events, next.events)
@@ -612,8 +612,9 @@ function PlanPayloadFrame({ value, storageKey }: EastChakraPlanPayloadProps) {
         <FollowSources chrome={chrome} narrowed={value.narrowed} sources={sources} nouns={nouns} said={said}>
             {(followed) => (
                 <EastChakraPlan value={value.plan} storageKey={storageKey} events={events} kinds={value.events}
-                    resources={value.resources} library={value.library} inspector={value.inspector} applyMode={value.settings.applyMode.type}
-                    canDrop={value.canDrop} followed={followed} optimise={value.optimise.type === "some" ? { name: value.optimise.value.name } : undefined} />
+                    resources={value.resources} library={value.library} inspector={value.inspector}
+                    canDrop={value.canDrop} followed={followed} optimise={value.optimise.type === "some" ? { name: value.optimise.value.name } : undefined}
+                    autosave={value.settings.autosave} />
             )}
         </FollowSources>
     );

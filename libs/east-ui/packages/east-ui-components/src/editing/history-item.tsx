@@ -43,8 +43,8 @@ export function historyToolbarItem<W>(props: HistoryBarProps<W>): ToolbarItem {
         // A phone's frame gives the history the toolbar's second row, at touch size (Mobile Builder Frame Spec FR6).
         secondRow: <HistoryBar {...props} phone />,
         rank: HISTORY_RANK,
-        // The full form's width moves with its status line, its issue count and its error, when it shows one; each form's
-        // with the conflicts still to choose, and with what it says of drafts a reload would lose.
-        version: `${session.stale ? "stale" : session.carrying ? "carrying" : session.status}|${issues}|${session.unsettled}|${props.showError === false ? "" : `${session.error ?? ""}|${keeping.state === "kept" ? "" : `${keeping.state}:${keeping.reason}`}`}`,
+        // The full form's width moves with its status line, its issue and warning counts and its error, when it shows one;
+        // each form's with the conflicts still to choose, and with what it says of drafts a reload would lose.
+        version: `${session.stale ? "stale" : session.carrying ? "carrying" : session.status}|${issues}+${props.warnings?.length ?? 0}|${session.unsettled}|${props.showError === false ? "" : `${session.error ?? ""}|${keeping.state === "kept" ? "" : `${keeping.state}:${keeping.reason}`}`}`,
     };
 }

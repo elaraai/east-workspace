@@ -19,6 +19,8 @@
  * take no edit (#1194). Under one event's head, and a row's, the overlaps
  * banner (#1198): the shared `Banner` in its guard tone, a line per event the
  * event overlaps — or per pair on the row — each a button that selects it.
+ * Under it, an event's refusals holding Save (#1525): the `Banner` in its
+ * warning tone.
  *
  * The parts it lays out as the Sheet's inspector does are the inspector's
  * shared parts (`inspector.ts`); this adds the Plan's own. Its words take the
@@ -39,7 +41,7 @@ export const planInspectorSlotRecipe = defineSlotRecipe({
         "facts", "factLabel", "factValue",
         "list", "listItem", "listText", "listTitle", "listWhen",
         "shift", "edits", "custom", "measures",
-        "overlaps", "overlapList", "overlapLine", "overlapItem", "overlapWhen", "overlapTitle",
+        "overlaps", "overlapList", "overlapLine", "overlapItem", "overlapWhen", "overlapTitle", "refusals",
     ],
     base: {
         ...inspectorBase,
@@ -76,7 +78,12 @@ export const planInspectorSlotRecipe = defineSlotRecipe({
             margin: "0",
         },
         factLabel: { textStyle: "caption.eyebrow" },
-        factValue: { textStyle: "body.sm", color: "fg", margin: "0", minWidth: 0, overflowWrap: "anywhere" },
+        /* A value an issue gone to gives the keyboard — a field a role reads, which no control edits here — ringed as an
+         * overlap's line is. */
+        factValue: {
+            textStyle: "body.sm", color: "fg", margin: "0", minWidth: 0, overflowWrap: "anywhere",
+            _focusVisible: { outline: "2px solid", outlineColor: "border.focus", outlineOffset: "2px" },
+        },
         /* Several events: each its kind's icon, its title and when it runs. */
         list: { ...INSPECTOR_SECTION, gap: "{spacing.2}", margin: "0", listStyle: "none" },
         listItem: { display: "flex", alignItems: "flex-start", gap: "{spacing.2}", minWidth: 0, "& > svg": { marginTop: "3px", fontSize: "11px", color: "fg.muted" } },
@@ -126,5 +133,7 @@ export const planInspectorSlotRecipe = defineSlotRecipe({
             textDecorationColor: "border.strong",
             textUnderlineOffset: "2px",
         },
+        /* An event's refusals holding Save (#1525): their banner's section, padded as the overlaps banner's. */
+        refusals: { ...INSPECTOR_SECTION, paddingY: "{spacing.3}" },
     },
 });

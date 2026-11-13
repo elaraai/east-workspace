@@ -45,6 +45,12 @@
  * tile its cell folds has no box to anchor to: its popover — a pick from the
  * cell's `+n` menu opens it — hangs from that chip (#1276).
  *
+ * The tooltip's styles are made as the layer mounts, ahead of the hover that
+ * first opens one (#1594): a tooltip opens a moment into a pointer's rest on a
+ * bar — in the middle of its pick-up, where the pointer rests that long — and a
+ * rule first added to the page's styles then has them worked out again in that
+ * frame.
+ *
  * @packageDocumentation
  */
 
@@ -53,6 +59,7 @@ import { HoverCard, Popover, Portal, Tooltip } from "@chakra-ui/react";
 import { equalFor, variant } from "@elaraai/east";
 import { Plan } from "@elaraai/e3-ui/internal";
 import { EastChakraComponent, useHoverCapable } from "@elaraai/east-ui-components";
+import { useSlotClass, useSlotStyles } from "@elaraai/east-ui-components/internal";
 import type { PlanElementRefValue } from "../context.js";
 import { instantKey, instantOfKey } from "../instant.js";
 import { rowIdOfKey, rowKeyOf } from "../row-key.js";
@@ -441,6 +448,10 @@ export function PlanOverlays({ anchors, styles, storageKey }: {
 }) {
     const controller = usePlanController();
     const { popover, hover, tooltip } = usePlanSelector(selectOverlay);
+    // The tooltip's styles, each part's, made now: none is first made as a hover opens one (see the module docs).
+    const tip = useSlotStyles("tooltip");
+    const made = useSlotClass();
+    useMemo(() => { for (const part of Object.values(tip)) made(part); }, [tip, made]);
     const closePopover = () => { if (popover !== null) controller.overlayIntent("popover", popover.ref, false); };
     const closeHover = () => { if (hover !== null) controller.overlayIntent("hover", hover.ref, false); };
     useAnchorWatch(popover !== null ? anchors.popover : null, popover !== null, closePopover);

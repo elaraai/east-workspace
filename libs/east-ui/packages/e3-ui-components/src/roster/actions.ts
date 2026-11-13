@@ -8,34 +8,42 @@
  * command path for the grid, the library, the inspector and the narrow cards.
  * Each reads the week as drafted, works out the rows it changes — a duty
  * through the duty kind's `write`, and `create` for a new one, its times by
- * §5.5; the week's own row through the periods' `dismiss` and `publish`; a
- * target through `write`, and `create` for a new one — and records them across
- * the records' sessions as one step. A new duty's or target's key is minted
- * unique among every key the Roster has read and drafted
- * (`crypto.randomUUID()`, retried): a record read whole holds every key, and a
- * key a record read a window at a time holds unread is its Save's own
- * conflict, never an overwrite (`shared/schedule/records.ts`). A find edits
- * nothing: it asks the app's fit (#1334). Publish runs Save, then writes the
- * week's status once every record reads back as saved (`publishPeriod`). A
- * pattern dropped on a person's week (#1406, D4) replaces its seven days as
- * one step, `Apply pattern`: a day the pattern leaves as it is keeps its duty,
- * a day it changes runs the pattern's shift in the person's home group at the
- * shift's own times, and an off day removes the person's duties that day.
+ * §5.5; a period's own row — the week's, or by the day the day's (#1550) —
+ * through the periods' `dismiss` and `publish`; a target through `write`, and
+ * `create` for a new one — and records them across the records' sessions as
+ * one step. A gesture on a day whose period takes no edits — a published week,
+ * or by the day a published day — is refused, the week's other days taking
+ * theirs. A new duty's or target's key is its record's session's to make
+ * (#1583, east-ui-components' `keys.ts`, through `ScheduleEditing.mint`): made
+ * up at random, past every key its drafts and its record are known to hold —
+ * a key a record read a window at a time holds unread is its Save's own
+ * conflict, never an overwrite. A duty's own form or a library card that
+ * changes its shift or its team carries what it leaves as it was, as a move
+ * does: its times move with the shift, so it stays on its day, and its
+ * activity clears across teams. A find edits nothing: it asks the app's fit
+ * (#1334). Publish runs Save, then writes the status of each period it
+ * publishes once every record reads back as saved (`publishPeriod`). A pattern
+ * dropped on a person's week (#1406, D4) replaces its seven days as one step,
+ * `Apply pattern`: a day the pattern leaves as it is keeps its duty, a day it
+ * changes runs the pattern's shift in the person's home group at the shift's
+ * own times, an off day removes the person's duties that day, and a day whose
+ * period takes no edits keeps its duties as they are.
  *
  * @packageDocumentation
  */
 
-import { BlobType, OptionType, equalFor, none, some, variant, type option } from "@elaraai/east";
+import { BlobType, OptionType, StringType, equalFor, none, some, variant, type option } from "@elaraai/east";
 import { ScheduleResourceRefType } from "@elaraai/e3-ui/internal";
 import type { Origin } from "@elaraai/east-ui-components";
 import type { ScheduleChange } from "../shared/schedule/editing.js";
-import { fieldChange, mintKey, periodPublishChange } from "../shared/schedule/records.js";
+import { fieldChange, madeFromValues, periodPublishChange } from "../shared/schedule/records.js";
 import { PERIODS, TARGETS, type RosterEditing } from "./editing.js";
 import type { RosterFind } from "./fit.js";
 import {
-    activityOf, availableProposals, compareDate, dayOfSlot, editableStatus, patternOf, patternProblem, positionFor, rosterDomain, rosterTimes, sameSlot, shiftTimes,
-    startReach, startingAt, weekKey, type Assignment, type Context, type Issue, type Pattern, type Person, type PlacedDuties, type PlacedPeriod, type PlacedTargets,
-    type Requirement, type Roles, type RosterPayload, type RosterValue, type Selection, type Slot, type StoredDuty, type Week, type WeekState, type Who,
+    activityOf, availableProposals, compareDate, dayOfSlot, patternOf, patternProblem, periodOn, placeOf, positionFor, rosterDomain, rosterTimes, sameGroup,
+    samePlace, shiftTimes, slotOfPlace, startReach, startingAt, takesEdits, weekKey, type Assignment, type Context, type Issue, type Pattern, type Person, type Place,
+    type PlacedDuties, type PlacedTargets, type Requirement, type Roles, type RosterPayload, type RosterValue, type Selection, type Slot,
+    type Week, type WeekPeriod, type WeekState, type Who,
 } from "./model.js";
 
 /** Where a place command gets its person or request. */
@@ -62,15 +70,15 @@ export interface RosterState {
     readonly previous: PlacedDuties | undefined;
     /** Its targets as drafted: each slot's row. */
     readonly targets: PlacedTargets;
-    /** Its own row as drafted, and as stored. */
-    readonly period: PlacedPeriod;
-    readonly heldPeriod: PlacedPeriod;
+    /** Its periods (#1550): its own, or its seven days', each its row as drafted and as stored. */
+    readonly periods: readonly WeekPeriod[];
+    /**
+     * What Publish publishes now (#1550): the week's own period, or by the day the day in view's in the Shifts layout's
+     * Day, else every day of the week — each one that takes edits.
+     */
+    readonly publishes: readonly WeekPeriod[];
     /** Every week of the span in view, drafts in place (#1406): what a pattern dropped on one of them applies to; the week above among them. */
     readonly weeks?: readonly WeekState[] | undefined;
-    /** Every duty the Roster has read, each read's by key: what a new key is minted unique among. */
-    readonly read: readonly ReadonlyMap<string, StoredDuty>[];
-    /** Every target the Roster has read, by key. */
-    readonly readTargets: ReadonlyMap<string, unknown>;
     /** The editing; `undefined` for a read-only Roster. */
     readonly editing: RosterEditing | undefined;
     /** Whether the week's reads have landed and the rail is not mid-read: a gesture waits for them. */
@@ -84,8 +92,15 @@ export interface RosterState {
 
 /** All mutation paths use these guarded commands, each one step of the history. */
 export interface RosterCommands {
-    /** Whether the week takes a gesture now: editable, its reads landed, its records' sessions writable. */
+    /** Whether the week takes a gesture now: a period of it editable, its reads landed, its records' sessions writable. */
     readonly available: boolean;
+    /**
+     * Whether a day of the week takes a gesture now (#1550): the week does, and the day's period — the week's, or the
+     * day's own where the Roster publishes by the day — is editable. Each day's controls ask it.
+     */
+    readonly availableOn: (day: bigint) => boolean;
+    /** Whether Publish can publish now: the week takes a gesture, and a period it publishes takes edits (#1550). */
+    readonly publishable: boolean;
     /** Whether a week of the span takes a gesture (#1406): the month's cells each ask of their own week. */
     readonly availableIn: (held: WeekState) => boolean;
     /** Whether any week in view takes a gesture: the week, or one of the month's — what registers drag sources and targets (P32). */
@@ -96,7 +111,11 @@ export interface RosterCommands {
      * week's `Off`.
      */
     readonly locked: string | undefined;
-    place(source: RosterSource, slot: Slot, checkOnly?: boolean): string | undefined;
+    /**
+     * Places a person, a request, a duty or a proposal at a place: a group's shift on a day, or the shift in no group,
+     * where the duty kind's group takes none (#1548).
+     */
+    place(source: RosterSource, place: Place, checkOnly?: boolean): string | undefined;
     update(id: string, change: RolesChange, origin?: Origin, checkOnly?: boolean): string | undefined;
     activity(id: string, activity: option<string>, checkOnly?: boolean): string | undefined;
     sets(id: string, writes: readonly FieldWrite[], checkOnly?: boolean): string | undefined;
@@ -148,6 +167,13 @@ export interface PatternPlan {
 
 const sameBytes = equalFor(BlobType);
 const sameResource: (a: Roles["resource"], b: Roles["resource"]) => boolean = equalFor(OptionType(ScheduleResourceRefType));
+const sameActivity: (a: Roles["activity"], b: Roles["activity"]) => boolean = equalFor(OptionType(StringType));
+/** A new duty the app's `values` failed to make, which the console says why — or one its session can make no key for yet. */
+const NO_DUTY = "A new duty could not be made.";
+/** New targets the targets' `values` failed to make, or their session can make no key for yet. */
+const NO_TARGETS = "These targets could not be made.";
+/** A gesture that has made no key yet. */
+const NONE_MADE: ReadonlySet<string> = new Set();
 
 /**
  * The Roster's commands over the week (see the module docs).
@@ -155,7 +181,7 @@ const sameResource: (a: Roles["resource"], b: Roles["resource"]) => boolean = eq
  * @param state - The week, its rows and the editing
  * @param select - Selects what a command made, keeping the panes as they are
  * @param find - Asks the app's fit who fits a find's need
- * @param publish - Publishes the week: Save, then its status
+ * @param publish - Publishes what the state says Publish publishes: Save, then each period's status
  * @returns The commands
  */
 export function rosterCommands(state: RosterState, select: (selection: Selection | undefined) => void, find: (asked: RosterFind) => void,
@@ -164,127 +190,177 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
     const times = rosterTimes();
     const schedule = editing?.schedule;
     const duty = value.duty.kind.key;
-    const weekId = weekKey(start);
-    const available = editing !== undefined && schedule !== undefined && state.ready && !value.settings.readOnly && editableStatus(state.heldPeriod.status)
-        && editableStatus(week.status) && schedule.available(duty);
-    const blocked = () => !available ? "This week is not available to edit." : state.retained === true ? "This week is still being read." : undefined;
+    const available = editing !== undefined && schedule !== undefined && state.ready && !value.settings.readOnly && state.periods.some(takesEdits)
+        && schedule.available(duty);
+    /** Whether a day of the week's period takes edits (#1550): the week's, or the day's own. */
+    const open = (day: bigint) => { const period = periodOn(state.periods, day); return period !== undefined && takesEdits(period); };
+    /** Why a gesture on the week — on each day given — is refused now; `undefined` while it takes one. */
+    const blocked = (...days: readonly bigint[]) => !available ? "This week is not available to edit." : state.retained === true ? "This week is still being read."
+        : days.some(day => !open(day)) ? "This day is not available to edit." : undefined;
     const validSlot = (slot: Slot) => slot.day >= 0n && slot.day < 7n && value.groups.some(g => g.key === slot.group) && value.shifts.some(s => s.key === slot.shift);
-    // Every duty's key the Roster holds: read, drafted, minted by this gesture, or the record's own when it is read whole.
-    const takenDuty = (minted: ReadonlySet<string>) => (key: string) => minted.has(key) || state.read.some(read => read.has(key))
-        || schedule?.draftsOf(duty).has(key) === true || schedule?.held(duty, key) !== undefined;
-    const takenTarget = (key: string) => state.readTargets.has(key) || schedule?.draftsOf(TARGETS).has(key) === true || schedule?.held(TARGETS, key) !== undefined;
+    /** A place of the week: a valid slot, or a configured shift on one of its days in no group, where the duty kind's group takes none (#1548). */
+    const validPlace = (place: Place) => {
+        const slot = slotOfPlace(place);
+        return slot !== undefined ? validSlot(slot) : value.duty.roles.noGroup && place.day >= 0n && place.day < 7n && value.shifts.some(s => s.key === place.shift);
+    };
+    // A new duty's key, and a new target's: their sessions' to make (#1583), past the keys this gesture has made already.
+    // None until the history holds the session.
+    const newDuty = (minted: ReadonlySet<string>): string | undefined => schedule?.mint(duty, "", minted);
+    const newTarget = (): string | undefined => schedule?.mint(TARGETS, "", NONE_MADE);
     const record = (changes: readonly ScheduleChange[], origin: Origin, label: string) => schedule !== undefined && changes.length > 0 && schedule.record(changes, origin, label);
     const rowOf = (id: string) => state.duties.rows.get(id);
     const personDay = (person: string, day: bigint, except?: string) => [...week.assignments].find(([key, a]) =>
-        key !== except && a.who.type === "person" && a.who.value === person && a.slot.day === day);
-    /** A duty's roles, held to §5.5's times and to what its slot takes. */
-    const validRoles = (a: Pick<Assignment, "slot" | "who">, roles: Roles): string | undefined => {
-        const reach = startReach(value, a.slot, start);
+        key !== except && a.who.type === "person" && a.who.value === person && a.place.day === day);
+    /**
+     * A duty's roles, held to its shift's times and to what its place takes: its start to its day by its shift, and its
+     * activity to its team, each as the write drafts it.
+     */
+    const validRoles = (a: Pick<Assignment, "place" | "who">, roles: Roles): string | undefined => {
+        const reach = startReach(value, { ...a.place, shift: roles.shift }, start);
         if (reach === undefined) return "Choose a configured shift.";
-        if (compareDate(roles.start, reach.from) < 0 || compareDate(roles.start, reach.to) > 0) return "A duty starts within 12 hours of its shift's start.";
+        // Its reach is half open, as its day is: a start twelve hours after its shift's is the next day's.
+        if (compareDate(roles.start, reach.from) < 0 || compareDate(roles.start, reach.to) >= 0) return "A duty starts up to 12 hours before its shift's start, or less than 12 hours after it.";
         if (compareDate(roles.end, roles.start) <= 0) return "A duty ends after it starts.";
         if (value.duty.roles.position && roles.position.type === "some" && !value.positions.some(p => p.key === roles.position.value)) return "Choose a configured position.";
         if (a.who.type === "request" && roles.activity.type === "some") return "Assign an activity to a named person.";
         if (roles.activity.type === "some") {
             const activity = activityOf(value, roles.activity.value);
-            if (activity === undefined || (activity.group.type === "some" && activity.group.value !== a.slot.group)) return "Choose an activity for this group, or a shared duty.";
+            // A group's activity is its own duties': a duty in no group takes a shared one alone (#1548).
+            if (activity === undefined || (activity.group.type === "some" && !sameGroup(activity.group, roles.group))) return "Choose an activity for this group, or a shared duty.";
         }
         return undefined;
     };
-    /** A duty moved to a slot: its times kept against the shift's start, its activity cleared off its own group. */
-    const moved = (id: string, slot: Slot): { roles: Roles; bytes: Uint8Array } | string => {
+    /** A duty moved to a place: its times kept against the shift's start, its activity cleared once it leaves its own group. */
+    const moved = (id: string, place: Place): { roles: Roles; bytes: Uint8Array } | string => {
         const row = rowOf(id);
         const a = week.assignments.get(id);
         if (row === undefined || a === undefined) return "This duty is no longer present.";
-        const next = times.move(row.roles, start, slot, context);
+        const next = times.move(row.roles, start, place, context);
         if (next.type !== "some") return "Choose a configured shift.";
-        const roles = a.slot.group === slot.group ? next.value : { ...next.value, activity: none };
+        const roles = sameGroup(a.place.group, place.group) ? next.value : { ...next.value, activity: none };
         const written = value.duty.write(row.bytes, roles);
         return written.type === "some" ? { roles, bytes: written.value } : "This duty cannot be moved there.";
     };
-    /** A new duty on a slot, its key minted. */
-    const created = (who: Who, slot: Slot, minted: Set<string>): { id: string; bytes: Uint8Array } | string => {
-        const roles = times.newDuty(who, slot, start, positionFor(value, who), none, context);
+    /**
+     * A duty's row as a write of its own form or a library card's leaves it, what the write leaves as it was carried
+     * with the shift or the team it changes, as a move carries it: its times, kept where they stood against the
+     * shift's start, so it stays on its day; and its activity, cleared across teams, as a move clears it. Times and an
+     * activity the write gives are its own, and `validRoles` holds them to the day and the team.
+     */
+    const carried = (a: Pick<Assignment, "place">, row: { bytes: Uint8Array; roles: Roles }, roles: Roles, bytes: Uint8Array): { roles: Roles; bytes: Uint8Array } | string => {
+        let kept = roles;
+        if (roles.shift !== row.roles.shift && compareDate(roles.start, row.roles.start) === 0 && compareDate(roles.end, row.roles.end) === 0) {
+            const next = times.move({ ...roles, shift: row.roles.shift }, start, { ...a.place, shift: roles.shift }, context);
+            if (next.type !== "some") return "Choose a configured shift.";
+            kept = { ...kept, start: next.value.start, end: next.value.end };
+        }
+        if (!sameGroup(roles.group, row.roles.group) && roles.activity.type === "some" && sameActivity(roles.activity, row.roles.activity)) kept = { ...kept, activity: none };
+        if (Object.is(kept, roles)) return { roles, bytes };
+        const written = value.duty.write(bytes, kept);
+        return written.type === "some" ? { roles: kept, bytes: written.value } : "This duty cannot take that.";
+    };
+    /** A new duty at a place, its key minted: made by no pattern, its own fields the duty kind's `values` of it (#1526). */
+    const created = (who: Who, place: Place, minted: Set<string>): { id: string; bytes: Uint8Array } | string => {
+        const roles = times.newDuty(who, place, start, positionFor(value, who), none, context);
         if (roles.type !== "some") return "Choose a configured shift.";
-        const bytes = value.duty.create(roles.value);
+        const bytes = madeFromValues("Roster", "a new duty", () => value.duty.create({ ...roles.value, pattern: none }));
+        if (bytes === undefined) return NO_DUTY;
         if (bytes.type !== "some") return who.type === "request" ? "This roster takes no agency requests." : "This roster takes no people.";
-        const id = mintKey(takenDuty(minted));
+        const id = newDuty(minted);
+        if (id === undefined) return NO_DUTY;
         minted.add(id);
         return { id, bytes: bytes.value };
     };
-    /** The week's own row, its dismissed suggestions the set given: `undefined` without a record to keep them in. */
-    const dismissal = (dismissed: ReadonlySet<string>): ScheduleChange | undefined => {
-        if (value.periods.type !== "some" || !value.periods.value.dismissible) return undefined;
-        const held = state.period.bytes;
-        const row = value.periods.value.dismiss(held === undefined ? none : some(held), new Set(dismissed));
-        return { kind: PERIODS, id: weekId, row };
+    /**
+     * The own row of the period holding a day — the week's, or by the day the day's (#1550) — its dismissed suggestions
+     * those it holds and the one given: `undefined` without a record to keep them in, or for a new row the periods'
+     * `values` fail to make.
+     */
+    const dismissal = (day: bigint, key: string): ScheduleChange | undefined => {
+        const period = periodOn(state.periods, day);
+        if (value.periods.type !== "some" || !value.periods.value.dismissible || period === undefined) return undefined;
+        const periods = value.periods.value;
+        const held = period.period.bytes;
+        const row = madeFromValues("Roster", "the period's row",
+            () => periods.dismiss(period.start, held === undefined ? none : some(held), new Set([...period.period.dismissed, key])));
+        return row === undefined ? undefined : { kind: PERIODS, id: weekKey(period.start), row };
     };
-    /** Whether a week of the span takes a gesture now: editable, as the week above is told, by its own status. */
+    /** Whether a week of the span takes a gesture now, as the week above is told: a period of it editable. */
     const availableIn = (held: WeekState) => editing !== undefined && schedule !== undefined && state.ready && !value.settings.readOnly
-        && editableStatus(held.heldPeriod.status) && editableStatus(held.week.status) && schedule.available(duty);
+        && held.periods.some(takesEdits) && schedule.available(duty);
     /** A week of the span by its first day: the week above, or one of the span's. */
     const weekAt = (at: Date): WeekState | undefined => compareDate(at, start) === 0
-        ? { start, week, held: state.held, duties: state.duties, heldDuties: state.heldDuties, targets: state.targets, period: state.period, heldPeriod: state.heldPeriod }
+        ? { start, week, held: state.held, duties: state.duties, heldDuties: state.heldDuties, targets: state.targets, periods: state.periods }
         : state.weeks?.find(held => compareDate(held.start, at) === 0);
+    const proposals = () => availableProposals(value, week, start, state.periods);
+    const publishable = available && state.publishes.some(takesEdits);
     const api: RosterCommands = {
         available,
+        availableOn: day => available && open(day),
+        publishable,
         availableIn,
         editable: available || (state.weeks ?? []).some(held => availableIn(held)),
         locked: undefined,
-        place(source, slot, checkOnly = false) {
+        place(source, place, checkOnly = false) {
             const refused = blocked(); if (refused !== undefined) return refused;
-            if (!validSlot(slot)) return "Choose a configured shift in this week.";
+            if (!validPlace(place)) return "Choose a configured shift in this week.";
+            // A day whose period takes no edits takes no duty, the week's other days theirs (#1550).
+            const closed = blocked(place.day); if (closed !== undefined) return closed;
             const changes: ScheduleChange[] = [];
             const minted = new Set<string>();
             let id: string | undefined;
-            let accepted: string | undefined;
+            let accepted: { readonly key: string; readonly day: bigint } | undefined;
             if (source.type === "assignment") {
                 id = source.key;
                 const held = week.assignments.get(id);
                 if (held === undefined) return "This duty is no longer present.";
-                if (sameSlot(held.slot, slot)) return "Already on this shift.";
-                if (held.who.type === "person" && personDay(held.who.value, slot.day, id) !== undefined) return "This person is already rostered that day.";
-                const next = moved(id, slot);
+                // Nor does a duty leave one.
+                const from = blocked(held.place.day); if (from !== undefined) return from;
+                if (samePlace(held.place, place)) return "Already on this shift.";
+                if (held.who.type === "person" && personDay(held.who.value, place.day, id) !== undefined) return "This person is already rostered that day.";
+                const next = moved(id, place);
                 if (typeof next === "string") return next;
                 changes.push({ kind: duty, id, row: next.bytes });
             } else if (source.type === "agency") {
                 if (!value.agencies.some(a => a.key === source.key)) return "This agency is no longer available.";
-                const next = created(variant("request", source.key), slot, minted);
+                const next = created(variant("request", source.key), place, minted);
                 if (typeof next === "string") return next;
                 id = next.id;
                 changes.push({ kind: duty, id, row: next.bytes, created: true });
             } else {
-                const proposal = source.type === "proposal" ? availableProposals(value, week, start).find(p => p.key === source.key) : undefined;
+                const proposal = source.type === "proposal" ? proposals().find(p => p.key === source.key) : undefined;
                 if (source.type === "proposal" && proposal === undefined) return "This proposal is no longer available.";
                 const person = proposal?.person ?? source.key;
                 if (!value.people.some(p => p.key === person)) return "This person is no longer available.";
-                const existing = personDay(person, slot.day);
+                const existing = personDay(person, place.day);
                 if (existing !== undefined) {
-                    if (sameSlot(existing[1].slot, slot)) return "Already on this shift.";
+                    if (samePlace(existing[1].place, place)) return "Already on this shift.";
                     id = existing[0];
-                    const next = moved(id, slot);
+                    const next = moved(id, place);
                     if (typeof next === "string") return next;
                     changes.push({ kind: duty, id, row: next.bytes });
                 } else {
-                    // A stored duty of theirs this draft removed from the slot comes back as it was.
-                    const removed = [...state.held.assignments].find(([key, a]) => !week.assignments.has(key) && sameSlot(a.slot, slot)
+                    // A stored duty of theirs this draft removed from the place comes back as it was.
+                    const removed = [...state.held.assignments].find(([key, a]) => !week.assignments.has(key) && samePlace(a.place, place)
                         && a.who.type === "person" && a.who.value === person);
                     const original = removed === undefined ? undefined : state.heldDuties.rows.get(removed[0]);
                     if (removed !== undefined && original !== undefined) {
                         id = removed[0];
                         changes.push({ kind: duty, id, row: original.bytes });
                     } else {
-                        const next = created(variant("person", person), slot, minted);
+                        const next = created(variant("person", person), place, minted);
                         if (typeof next === "string") return next;
                         id = next.id;
                         changes.push({ kind: duty, id, row: next.bytes, created: true });
                     }
                 }
-                accepted = proposal?.key ?? availableProposals(value, week, start).find(p => p.person === person && sameSlot(p.slot, slot))?.key;
+                const match = proposal ?? proposals().find(p => p.person === person && samePlace(placeOf(p.slot), place));
+                accepted = match === undefined ? undefined : { key: match.key, day: match.slot.day };
             }
             if (checkOnly) return undefined;
+            // An accepted proposal is dismissed on its own day's period — the week's, or the day's (#1550).
             if (accepted !== undefined) {
-                const dismissed = dismissal(new Set([...week.dismissed, accepted]));
+                const dismissed = dismissal(accepted.day, accepted.key);
                 if (dismissed !== undefined) changes.push(dismissed);
             }
             if (record(changes, "drop", source.type === "assignment" ? "Move duty" : accepted !== undefined ? "Accept proposal" : "Assign to shift") && id !== undefined) {
@@ -296,6 +372,7 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
             const refused = blocked(); if (refused !== undefined) return refused;
             const a = week.assignments.get(id), row = rowOf(id);
             if (a === undefined || row === undefined) return "This duty is no longer present.";
+            const closed = blocked(a.place.day); if (closed !== undefined) return closed;
             const roles: Roles = { ...row.roles, ...change };
             const invalid = validRoles(a, roles); if (invalid !== undefined) return invalid;
             const written = value.duty.write(row.bytes, roles);
@@ -311,6 +388,7 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
             const refused = blocked(); if (refused !== undefined) return refused;
             const a = week.assignments.get(id), row = rowOf(id);
             if (a === undefined || row === undefined || a.who.type !== "person") return "Place this card on a named duty.";
+            const closed = blocked(a.place.day); if (closed !== undefined) return closed;
             // The fields the card sets, written as the kind writes them, and the duty they leave held to its roles.
             let bytes = row.bytes;
             for (const write of writes) {
@@ -318,15 +396,18 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
                 if (written === undefined || written.type !== "some") return "This card has no duty action.";
                 bytes = written.value;
             }
-            const roles = value.duty.read(bytes, id);
-            if (!sameResource(roles.resource, row.roles.resource)) return "A card cannot replace the duty's person.";
-            const invalid = validRoles(a, roles); if (invalid !== undefined) return invalid;
-            if (!checkOnly && !sameBytes(bytes, row.bytes)) record([{ kind: duty, id, row: bytes }], "drop", "Update duty");
+            const read = value.duty.read(bytes, id);
+            if (!sameResource(read.resource, row.roles.resource)) return "A card cannot replace the duty's person.";
+            const next = carried(a, row, read, bytes); if (typeof next === "string") return next;
+            const invalid = validRoles(a, next.roles); if (invalid !== undefined) return invalid;
+            if (!checkOnly && !sameBytes(next.bytes, row.bytes)) record([{ kind: duty, id, row: next.bytes }], "drop", "Update duty");
             return undefined;
         },
         field(id, path, next) {
             const refused = blocked(); if (refused !== undefined) return refused;
-            const row = rowOf(id); if (row === undefined) return "This duty is no longer present.";
+            const a = week.assignments.get(id), row = rowOf(id);
+            if (a === undefined || row === undefined) return "This duty is no longer present.";
+            const closed = blocked(a.place.day); if (closed !== undefined) return closed;
             const change = fieldChange(value.duty.kind, id, path, next);
             if (change === undefined) return "This field cannot be edited.";
             record([change], "typed", "Edit duty");
@@ -336,53 +417,70 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
             const refused = blocked(); if (refused !== undefined) return refused;
             const a = week.assignments.get(id), row = rowOf(id);
             if (a === undefined || row === undefined) return "This duty is no longer present.";
-            const roles = value.duty.read(bytes, id);
-            if (!sameResource(roles.resource, row.roles.resource)) return "A duty's own form cannot replace its person.";
-            const invalid = validRoles(a, roles); if (invalid !== undefined) return invalid;
-            record([{ kind: duty, id, row: bytes }], "typed", "Edit duty");
+            const closed = blocked(a.place.day); if (closed !== undefined) return closed;
+            const read = value.duty.read(bytes, id);
+            if (!sameResource(read.resource, row.roles.resource)) return "A duty's own form cannot replace its person.";
+            const next = carried(a, row, read, bytes); if (typeof next === "string") return next;
+            const invalid = validRoles(a, next.roles); if (invalid !== undefined) return invalid;
+            record([{ kind: duty, id, row: next.bytes }], "typed", "Edit duty");
             return undefined;
         },
         remove(id) {
-            if (blocked() !== undefined || week.assignments.get(id) === undefined) return;
+            const a = week.assignments.get(id);
+            if (a === undefined || blocked(a.place.day) !== undefined) return;
             if (record([{ kind: duty, id, remove: true }], "remove", "Remove duty")) {
                 // A saved duty stays as a restorable tombstone until Save, keeping its identity so another layout reveals it.
                 select(state.held.assignments.has(id) ? { type: "assignment", key: id } : undefined);
             }
         },
         restore(id) {
-            if (blocked() !== undefined) return;
             const original = state.held.assignments.get(id), row = state.heldDuties.rows.get(id);
-            if (original === undefined || row === undefined || week.assignments.has(id)) return;
-            if (original.who.type === "person" && personDay(original.who.value, original.slot.day) !== undefined) return;
+            if (original === undefined || row === undefined || week.assignments.has(id) || blocked(original.place.day) !== undefined) return;
+            if (original.who.type === "person" && personDay(original.who.value, original.place.day) !== undefined) return;
             if (record([{ kind: duty, id, row: row.bytes }], "insert", "Restore duty")) select({ type: "assignment", key: id });
         },
         requirement(slot, target) {
             const refused = blocked(); if (refused !== undefined) return refused;
             if (value.targets.type !== "some") return "This roster has no targets.";
             if (!validSlot(slot) || target.positions < 0n || [...target.hours].some(([, hours]) => !Number.isFinite(hours) || hours < 0)) return "Targets are zero or more.";
+            const closed = blocked(slot.day); if (closed !== undefined) return closed;
             const targets = value.targets.value;
             const hours = new Map([...target.hours].filter(([, h]) => h > 0));
             const roles = { day: dayOfSlot(start, slot), group: slot.group, shift: slot.shift, positions: target.positions, hours };
             const row = state.targets.rows.get(slot);
-            if (row !== undefined) record([{ kind: TARGETS, id: row.key, row: targets.write(row.bytes, roles) }], "typed", "Edit shift targets");
-            else record([{ kind: TARGETS, id: mintKey(takenTarget), row: targets.create(roles), created: true }], "typed", "Edit shift targets");
+            if (row !== undefined) {
+                record([{ kind: TARGETS, id: row.key, row: targets.write(row.bytes, roles) }], "typed", "Edit shift targets");
+                return undefined;
+            }
+            const made = madeFromValues("Roster", "a new shift's targets", () => targets.create(roles));
+            const id = made === undefined ? undefined : newTarget();
+            if (made === undefined || id === undefined) return NO_TARGETS;
+            record([{ kind: TARGETS, id, row: made, created: true }], "typed", "Edit shift targets");
             return undefined;
         },
         targetRow(slot, bytes) {
             const refused = blocked(); if (refused !== undefined) return refused;
             if (value.targets.type !== "some") return "This roster has no targets.";
+            const closed = blocked(slot.day); if (closed !== undefined) return closed;
             const row = state.targets.rows.get(slot);
-            if (row !== undefined) record([{ kind: TARGETS, id: row.key, row: bytes }], "typed", "Edit shift targets");
-            else record([{ kind: TARGETS, id: mintKey(takenTarget), row: bytes, created: true }], "typed", "Edit shift targets");
+            if (row !== undefined) {
+                record([{ kind: TARGETS, id: row.key, row: bytes }], "typed", "Edit shift targets");
+                return undefined;
+            }
+            const id = newTarget();
+            if (id === undefined) return NO_TARGETS;
+            record([{ kind: TARGETS, id, row: bytes, created: true }], "typed", "Edit shift targets");
             return undefined;
         },
         accept(key) {
-            const proposal = availableProposals(value, week, start).find(p => p.key === key);
-            return proposal === undefined ? "This proposal is no longer available." : api.place({ type: "proposal", key }, proposal.slot);
+            const proposal = proposals().find(p => p.key === key);
+            return proposal === undefined ? "This proposal is no longer available." : api.place({ type: "proposal", key }, placeOf(proposal.slot));
         },
         reject(key) {
-            if (blocked() !== undefined) return;
-            const change = dismissal(new Set([...week.dismissed, key]));
+            // Dismissed on its own day's period — the week's, or the day's (#1550).
+            const proposal = proposals().find(p => p.key === key);
+            if (proposal === undefined || blocked(proposal.slot.day) !== undefined) return;
+            const change = dismissal(proposal.slot.day, key);
             if (change !== undefined && record([change], "remove", "Reject proposal")) select(undefined);
         },
         fix(issue) {
@@ -390,11 +488,11 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
             const fix = issue.fix.value;
             if (fix.type === "find") { if (issue.slot.type === "some") find({ need: fix.value, slot: issue.slot.value }); return undefined; }
             if (fix.type === "accept") return api.accept(fix.value);
-            if (fix.type === "request") return issue.slot.type === "some" ? api.place({ type: "agency", key: fix.value }, issue.slot.value) : undefined;
+            if (fix.type === "request") return issue.slot.type === "some" ? api.place({ type: "agency", key: fix.value }, placeOf(issue.slot.value)) : undefined;
             if (issue.assignment.type !== "some") return undefined;
             const id = issue.assignment.value, a = week.assignments.get(id);
             if (a === undefined) return undefined;
-            if (fix.type === "move") return api.place({ type: "assignment", key: id }, { ...a.slot, shift: fix.value });
+            if (fix.type === "move") return api.place({ type: "assignment", key: id }, { ...a.place, shift: fix.value });
             const later = startingAt(a, fix.value);
             return api.update(id, { start: later.start, end: later.end });
         },
@@ -404,18 +502,20 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
             const minted = new Set<string>();
             for (const [key, a] of state.previous.assignments) {
                 const row = state.previous.rows.get(key);
-                const own = shiftTimes(value, a.slot, start);
-                if (row === undefined || own === undefined) continue;
+                const own = shiftTimes(value, a.place, start);
+                // Into the days that take edits alone: a published day keeps its own (#1550).
+                if (row === undefined || own === undefined || !open(a.place.day)) continue;
                 // At its shift's own times, every other field as it was.
                 const written = value.duty.write(row.bytes, { ...row.roles, start: own.from, end: own.to });
                 if (written.type !== "some") continue;
-                const id = mintKey(takenDuty(minted));
+                const id = newDuty(minted);
+                if (id === undefined) continue;
                 minted.add(id);
                 changes.push({ kind: duty, id, row: written.value, created: true });
             }
             record(changes, "insert", "Copy previous week's roster");
         },
-        publish() { if (available && value.periods.type === "some") publish(); },
+        publish() { if (publishable && value.periods.type === "some") publish(); },
         pattern(person, at, key) {
             const held = weekAt(at);
             const who = value.people.find(p => p.key === person);
@@ -435,50 +535,61 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
             const theirs = [...held.week.assignments].filter(([, a]) => a.who.type === "person" && a.who.value === person)
                 .sort(([, a], [, b]) => compareDate(a.start, b.start));
             for (let day = 0; day < 7; day++) {
-                const current = theirs.filter(([, a]) => Number(a.slot.day) === day);
+                const current = theirs.filter(([, a]) => Number(a.place.day) === day);
                 const target = pattern.days[day]!;
+                // A day whose period takes no edits — a published day of a week published by the day — keeps its duties as
+                // they are (#1550): the pattern leaves it.
+                const period = periodOn(held.periods, day);
+                if (period === undefined || !takesEdits(period)) {
+                    for (const [id, a] of current) candidates.set(id, a);
+                    days.push({ day, shift: current[0]?.[1].place.shift, kind: "keep" });
+                    continue;
+                }
                 if (target.type === "none") {
                     // A day off: the person's duties that day go, restorable until Save (B56).
                     for (const [id] of current) { changes.push({ kind: duty, id, remove: true }); removed.push(id); }
                     days.push({ day, shift: undefined, kind: current.length === 0 ? "keep" : "off" });
                     continue;
                 }
-                const slot: Slot = { day: BigInt(day), group: who.group, shift: target.value };
-                const own = shiftTimes(value, slot, at);
+                const place: Place = { day: BigInt(day), group: some(who.group), shift: target.value };
+                const own = shiftTimes(value, place, at);
                 if (own === undefined) return "Choose a configured shift.";
                 const first = current[0];
                 if (first !== undefined) {
                     const [id, a] = first;
                     // The day as the pattern has it already: the shift, in the home group, at the shift's own times.
-                    if (a.slot.group === slot.group && a.slot.shift === slot.shift && compareDate(a.start, own.from) === 0 && compareDate(a.end, own.to) === 0) {
+                    if (samePlace(a.place, place) && compareDate(a.start, own.from) === 0 && compareDate(a.end, own.to) === 0) {
                         candidates.set(id, a);
                         days.push({ day, shift: target.value, kind: "keep" });
                     } else {
                         // Moved to the pattern's shift at the shift's own times, its position kept, its activity kept within the group and cleared across one (B49).
                         const row = held.duties.rows.get(id);
                         if (row === undefined) return "This duty is no longer present.";
-                        const next = times.move(row.roles, at, slot, context);
+                        const next = times.move(row.roles, at, place, context);
                         if (next.type !== "some") return "Choose a configured shift.";
-                        const roles: Roles = { ...next.value, start: own.from, end: own.to, activity: a.slot.group === slot.group ? next.value.activity : none };
+                        const roles: Roles = { ...next.value, start: own.from, end: own.to, activity: sameGroup(a.place.group, place.group) ? next.value.activity : none };
                         const written = value.duty.write(row.bytes, roles);
                         if (written.type !== "some") return "This duty cannot be moved there.";
                         changes.push({ kind: duty, id, row: written.value });
-                        candidates.set(id, { ...a, slot, start: own.from, end: own.to, hours: value.duty.read(written.value, id).hours, activity: roles.activity });
+                        candidates.set(id, { ...a, place, start: own.from, end: own.to, hours: value.duty.read(written.value, id).hours, activity: roles.activity });
                         days.push({ day, shift: target.value, kind: "set" });
                     }
                     // A second duty that day goes: a pattern's day is one shift.
                     for (const [extra] of current.slice(1)) { changes.push({ kind: duty, id: extra, remove: true }); removed.push(extra); }
                     continue;
                 }
-                // A new duty on the pattern's shift, at the shift's start for its hours, in the home group, at the person's position, with no activity.
-                const roles = times.newDuty(whoRef, slot, at, positionFor(value, whoRef), none, context);
+                // A new duty on the pattern's shift, at the shift's start for its hours, in the home group, at the person's position, with no
+                // activity: the pattern's, its own fields the duty kind's `values` of it (#1526).
+                const roles = times.newDuty(whoRef, place, at, positionFor(value, whoRef), none, context);
                 if (roles.type !== "some") return "Choose a configured shift.";
-                const bytes = value.duty.create(roles.value);
+                const bytes = madeFromValues("Roster", "a new duty", () => value.duty.create({ ...roles.value, pattern: some(pattern.key) }));
+                if (bytes === undefined) return NO_DUTY;
                 if (bytes.type !== "some") return "This roster takes no people.";
-                const id = mintKey(takenDuty(minted));
+                const id = newDuty(minted);
+                if (id === undefined) return NO_DUTY;
                 minted.add(id);
                 changes.push({ kind: duty, id, row: bytes.value, created: true });
-                candidates.set(id, { slot, who: whoRef, position: roles.value.position.type === "some" ? roles.value.position.value : "", activity: none,
+                candidates.set(id, { place, who: whoRef, position: roles.value.position.type === "some" ? roles.value.position.value : "", activity: none,
                     start: roles.value.start, end: roles.value.end, hours: roles.value.hours, row: domain.decodeRow(bytes.value) });
                 days.push({ day, shift: target.value, kind: "set" });
             }
@@ -508,17 +619,20 @@ export function rosterCommands(state: RosterState, select: (selection: Selection
 }
 
 /**
- * The week's row as Publish writes it: its status the published case, at the
- * time given (`periodPublishChange`).
+ * The rows Publish writes (#1550): each period given that takes edits — the
+ * week's, or by the day each day's — its status the published case, at the
+ * time given, over its row as the Save left it (`periodPublishChange`). A
+ * period with no row is given one made from the periods' `values` only then,
+ * and one they fail to make records none of the changes, so Publish never
+ * publishes a part of what it was pressed for.
  *
  * @param value - The payload: its periods
- * @param editing - The editing
- * @param start - The week's first day
- * @param stored - The week's row as the Roster read it
- * @param at - When it is published
- * @returns The change; `undefined` without periods
+ * @param periods - The periods Publish publishes
+ * @param at - When they are published
+ * @returns The changes, one a period; none without periods
  */
-export function publishChange(value: RosterPayload, editing: RosterEditing, start: Date, stored: Uint8Array | undefined, at: Date): ScheduleChange | undefined {
-    if (value.periods.type !== "some") return undefined;
-    return periodPublishChange(value.periods.value, editing.schedule, PERIODS, weekKey(start), stored, at);
+export function publishChanges(value: RosterPayload, periods: readonly WeekPeriod[], at: Date): readonly ScheduleChange[] {
+    if (value.periods.type !== "some") return [];
+    const kind = value.periods.value;
+    return periods.filter(takesEdits).map(period => periodPublishChange(kind, PERIODS, weekKey(period.start), period.start, at, "Roster"));
 }

@@ -6,7 +6,8 @@
 /**
  * The drawing's issues (#1391, `Schematic Builder Spec.md` §9, SC16) — pure
  * and React-free: what the inspector's Issues tab lists, each naming what a
- * click on it selects.
+ * click on it selects — and, an issue of a record's row, the row and the field
+ * it names, which the click asks of the row's Details.
  *
  * - **A link or a net naming an item no kind holds** — an end or a member of
  *   a slot no item kind has, or of an item kind read whole that holds no row
@@ -18,12 +19,17 @@
  *   bulges draw (as the painter draws them), and a band's half-width.
  * - **A colour naming no theme colour** (D14) — an item's, a zone's or a
  *   layer's, which draws its tone instead.
- * - **The app's `ready` refusals** — they hold Save.
+ * - **A stored row's number outside its field's bounds** (#1585) — a row the
+ *   drawing draws, or its details row, as its read holds it (`bounds.ts`).
+ * - **The app's `ready` refusals**, and a changed row's number outside its
+ *   field's bounds — they hold Save.
  * - **A Save's conflict or refusal**, while it stands.
  *
- * The last two block, and come first; the rest warn, and Save goes ahead with
- * them. Two items of one key in one kind can't arise: each kind is a record
- * keyed by String.
+ * The last three name a field by its form's label, as every builder's do.
+ *
+ * The last two block, and come first, then the stored rows' bounds; the rest
+ * warn, and Save goes ahead with them. Two items of one key in one kind can't
+ * arise: each kind is a record keyed by String.
  *
  * What is checked is what the drawing holds — a kind read by area's rows read
  * around the view, and the drafts drawn — and every unsaved change it leaves
@@ -38,7 +44,9 @@
 
 import { StringType, equalFor, type ValueTypeOf, type option } from "@elaraai/east";
 import type { Schematic } from "@elaraai/e3-ui/internal";
+import type { FieldSpecValue } from "@elaraai/east-ui/internal";
 import type { EditIssue, EditSession } from "@elaraai/east-ui-components";
+import { fieldLabelOf } from "../shared/schedule/refusals.js";
 import { arcFromBulge } from "./canvas/paint.js";
 import { entityId, refOfId, type SchematicDrawn, type SchematicRef } from "./canvas/drawn.js";
 import { recordSlot } from "./record-keys.js";
@@ -61,9 +69,11 @@ export type SchematicIssueWord =
     | { readonly issue: "geometry" }
     /** A colour naming no theme colour token: it draws its tone. */
     | { readonly issue: "colour"; readonly colour: string }
-    /** The app's check refusing a drafted row, which holds Save — its field, if it names one. */
+    /** A stored row's number its field's bounds don't hold (#1585): its field by its form's label, and the bound in its hint's own words. */
+    | { readonly issue: "bounds"; readonly field: string; readonly message: string }
+    /** The app's check refusing a drafted row, which holds Save — its field by its form's label, if it names one. */
     | { readonly issue: "ready"; readonly field: string | undefined; readonly message: string }
-    /** A Save's conflict or refusal, in the source's own words. */
+    /** A Save's conflict or refusal, in the source's own words — its field by its form's label, if it names one. */
     | { readonly issue: "save"; readonly field: string | undefined; readonly message: string };
 
 /** One issue of the drawing, as the Issues tab lists it. */
@@ -79,6 +89,13 @@ export interface SchematicIssue {
     readonly where: { readonly kind: string | undefined; readonly name: string };
     /** What it says. */
     readonly word: SchematicIssueWord;
+    /**
+     * The row it names, as its record's session names it — the record by its key in the history, its kind's slot or its
+     * details record's, and the row's key — and the field it names, by its form's key: a click on it asks the row's
+     * Details for the field, which takes the keyboard there, as it does for the toolbar's issue gone to. `undefined` for
+     * an issue of the drawing's own, which names no row's field.
+     */
+    readonly row?: { readonly record: string; readonly entry: string; readonly field: string | undefined } | undefined;
 }
 
 /** What the drawing's issues are worked out from. */
@@ -249,18 +266,69 @@ export function drawingIssues(args: SchematicIssueArgs): SchematicIssue[] {
     return out;
 }
 
+/**
+ * A number a row the drawing draws holds outside its field's bounds (#1585): the row's, or its details row's, as its draft
+ * has it, else as its read holds it (`bounds.ts`).
+ */
+export interface SchematicBreach {
+    /** The row's record's key in the history: its kind's slot, or its details record's (`detailsKey`). */
+    readonly record: string;
+    /** The row's key. */
+    readonly key: string;
+    /** The field, by its form's label. */
+    readonly field: string;
+    /** The field, by its form's key: what a click on its issue asks of its row's Details. */
+    readonly fieldKey: string;
+    /** The bound it breaks, in its hint's own words — `at most 10` — as its session's readiness says it of a changed row. */
+    readonly message: string;
+    /** Whether a draft changed the row: its session's readiness raises the breach then, holding Save. */
+    readonly changed: boolean;
+}
+
+/** The breaches of the rows the drawing draws, by the id of the entity each row is drawn as: one whose rows break none is absent. */
+export type SchematicBreaches = ReadonlyMap<string, readonly SchematicBreach[]>;
+
+/**
+ * The stored rows' breaches, as Issues lists them (see the module docs): each a warning naming its entity and the field
+ * by its form's label, in the drawing's order. A changed row's is its session's readiness's, which blocks: never here.
+ *
+ * @param breaches - The breaches of the rows the drawing draws, by entity
+ * @param names - Each kind's name, by its slot
+ * @param nameOf - Each entity's name, by its id, as the Schematic names it everywhere
+ * @returns The issues
+ */
+export function boundsIssues(breaches: SchematicBreaches, names: ReadonlyMap<string, string>, nameOf: (id: string) => string): SchematicIssue[] {
+    const out: SchematicIssue[] = [];
+    for (const [id, found] of breaches) {
+        for (const breach of found) {
+            if (breach.changed) continue;
+            const slot = recordSlot(breach.record);
+            out.push({
+                at: id, blocking: false, where: { kind: names.get(slot) ?? slot, name: nameOf(id) },
+                word: { issue: "bounds", field: breach.field, message: breach.message },
+                row: { record: breach.record, entry: breach.key, field: breach.fieldKey },
+            });
+        }
+    }
+    return out;
+}
+
 /** A record's session as Issues reads it: the kind or the details record it is, and where its Save stands. */
 export interface SchematicIssueSession {
     /** The record's key in the history: a kind's slot, or its details record's (`detailsKey`). */
     readonly kind: string;
     /** Its session: where its latest Save stands, its source's words, and its drafts' readiness. */
     readonly session: Pick<EditSession<unknown>, "status" | "issues" | "readiness">;
+    /** Its row's form: what an issue names a field by. */
+    readonly fields: readonly FieldSpecValue[];
 }
 
 /**
  * The issues each record's session raises (see the module docs): the app's
  * check refusing its drafted rows, and its latest Save's conflict or refusal
- * while it stands — each blocking, naming the entity of its row.
+ * while it stands — each blocking, naming the entity of its row and a field
+ * by its form's label, and the row and the field by its key, which a click
+ * asks of the row's Details.
  *
  * @param sessions - Each record's session
  * @param names - Each kind's name, by its slot
@@ -274,7 +342,7 @@ export function sessionIssues(sessions: readonly SchematicIssueSession[], names:
         const slot = recordSlot(part.kind);
         const kind = names.get(slot) ?? slot;
         const raise = (issue: EditIssue, word: "ready" | "save") => {
-            const field = issue.field.type === "some" ? issue.field.value : undefined;
+            const field = issue.field.type === "some" ? fieldLabelOf(part.fields, issue.field.value) : undefined;
             // The source's own words name no row: they stand for the kind's record.
             const named = !stringEqual(issue.entry, "");
             const id = named ? entityId({ kind: slot, key: issue.entry }) : undefined;
@@ -282,6 +350,7 @@ export function sessionIssues(sessions: readonly SchematicIssueSession[], names:
                 at: id, blocking: true,
                 where: { kind, name: id === undefined ? kind : labelOf(id) ?? issue.entry },
                 word: { issue: word, field, message: issue.message },
+                row: named ? { record: part.kind, entry: issue.entry, field: issue.field.type === "some" ? issue.field.value : undefined } : undefined,
             });
         };
         const readiness = part.session.readiness;

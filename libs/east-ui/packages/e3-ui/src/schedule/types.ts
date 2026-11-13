@@ -286,12 +286,14 @@ export type ScheduleReadyEntryType = typeof ScheduleReadyEntryType;
  * @property refresh - Moves every read of the record to a revision, or to the one it holds now
  * @property entry - One event by its key's text: `none` while its read is in flight, `some(none)` for a key the record does not hold, else its row as bytes at the record's entry type
  * @property last - The record's largest key's text — how a new Integer key is made past every key it holds: `none` while its read is in flight, `some(none)` for an empty record
+ * @property paged - The `id` of the paged read of the record's own entries: what a Save reads back many entries through in one request (#1596)
  */
 export const ScheduleEntriesType = StructType({
     revision: FunctionType([], OptionType(StringType)),
     refresh: FunctionType([OptionType(StringType)], NullType),
     entry: FunctionType([StringType], OptionType(OptionType(BlobType))),
     last: FunctionType([], OptionType(OptionType(StringType))),
+    paged: StringType,
 });
 
 /** Type representing {@link ScheduleEntriesType}. */
@@ -316,7 +318,7 @@ export type ScheduleReadType = typeof ScheduleReadType;
 /**
  * The fields whose edits are owned by the schedule section of an inspector.
  *
- * @property title - The field of an event's title
+ * @property title - The field of an event's title; empty for a title worked out from the row, or a kind with none
  * @property start - The field of its start
  * @property end - The field of its end
  * @property resource - The field naming its resource, if it is on one
@@ -379,6 +381,7 @@ export const ScheduleRolesType = StructType({
  * @property inspector - The author's form in place of the default fields
  * @property seriesKey - The `.east` text of the value its resource field holds for a resource, or for no resource (#1039): what a series or a summary index of its record files that resource's events under, the key a reader's cells search for; `none` where the field cannot hold it — a resource of a kind it does not take, or no resource for a field that must name one
  * @property cellsType - What a reader encodes the entries it read by cells in for `items`, `unscheduled` and `event` (#1039): an Array of `{ key, row }`, at the record's key and row types
+ * @property stored - The stored rows its window's read holds over `[from, to)`, as a reader holds a kind's cells (#1599): one beast2 of `cellsType`, each row once by its key, no draft in place — the rows `items` draws its drafts over: the window's, and its backlog's where the kind reads the two as one (a kind narrowed by its builder's slice that does not page its backlog itself). What a builder keeps standing of a kind read a window at a time while that window is read again: the rows `items` and `event` are then given, so a draft made meanwhile draws at once and a gesture begins from the row shown. `none` while a read is in flight, and past the cap its window is read under; a record read whole is every row it holds
  * @property count - How many of its stored events overlap `[from, to)`, counted before one is read (#1039) — every kind's are: a kind read through its source of the slice counted through the source's interval index — the count its window's read asks first, so asking it costs no request of its own; a kind read through its day index (`window`) by the entries it files under the days of `[from, to)`, the search its window's read asks first — an event under each day it runs on, so an upper bound on the events, never their number (`countExact`); and a kind whose record is read whole counted in memory. `none` while the count is in flight
  * @property countExact - Whether `count` counts its events themselves (#1039): `false` for a kind read through its day index, whose count is the days its events run on — what a builder's figures never take for its events, saying they are not counted
  */
@@ -405,6 +408,7 @@ export const ScheduleKindType = StructType({
     inspector: OptionType(RowInspectorType),
     seriesKey: FunctionType([OptionType(ScheduleResourceRefType)], OptionType(StringType)),
     cellsType: EastTypeType,
+    stored: FunctionType([DateTimeType, DateTimeType], OptionType(BlobType)),
     count: FunctionType([DateTimeType, DateTimeType], OptionType(IntegerType)),
     countExact: BooleanType,
 });
@@ -608,7 +612,7 @@ export type PlanResourcesType = typeof PlanResourcesType;
  * @property end - When it ends
  * @property resource - Who: a person, or an agency asked to send someone, by the resource kind its field's case names
  * @property shift - Its shift's key
- * @property group - The group it is rostered in
+ * @property group - The group it is rostered in; `none` for a duty in no group yet, of a kind whose `group` is an `Option<String>` field (#1548)
  * @property position - The position held; `none` for a kind with no `position` role
  * @property activity - Its activity; `none` when it has none, or the kind has no `activity` role
  * @property hours - The hours it counts: its kind's `hours` accessor's, or its length
@@ -618,7 +622,7 @@ export const ScheduleRosterRolesType = StructType({
     end: DateTimeType,
     resource: OptionType(ScheduleResourceRefType),
     shift: StringType,
-    group: StringType,
+    group: OptionType(StringType),
     position: OptionType(StringType),
     activity: OptionType(StringType),
     hours: FloatType,
@@ -626,6 +630,18 @@ export const ScheduleRosterRolesType = StructType({
 
 /** Type representing {@link ScheduleRosterRolesType}. */
 export type ScheduleRosterRolesType = typeof ScheduleRosterRolesType;
+
+/**
+ * A new duty, as the Roster makes it (#1526): its roles, and the pattern whose
+ * day made it — what a duty kind's `values` gives the duty's own fields from,
+ * the fields no role maps.
+ *
+ * @property pattern - The key of the pattern whose day made it; `none` for a duty assigned, requested or a Find fix's
+ */
+export const ScheduleRosterNewDutyType = StructType({ ...ScheduleRosterRolesType.fields, pattern: OptionType(StringType) });
+
+/** Type representing {@link ScheduleRosterNewDutyType}. */
+export type ScheduleRosterNewDutyType = typeof ScheduleRosterNewDutyType;
 
 /**
  * One stored duty, as a Roster kind's `rows` gives it: its roles, read in the
@@ -648,9 +664,9 @@ export type ScheduleRosterEntryType = typeof ScheduleRosterEntryType;
  * @property kind - The Calendar's closed kind: its `editing`, `entries`, `history`, `ready`, `fields` and `inspector`
  * @property rows - Its stored duties overlapping `[from, to)`, by key, each its roles and its row; `none` while a read is in flight
  * @property read - A drafted row's roles, from its bytes and its key: what `rows` gives a stored one
- * @property write - The row with every mapped field written from the roles and every other field as it was; `none` for a resource of a kind it does not take
- * @property create - A new row from the roles, every other field its type's default; `none` as `write` refuses
- * @property roles - Which of the optional roles the kind maps
+ * @property write - The row with every mapped field written from the roles and every other field as it was; `none` for a resource of a kind it does not take, or a duty in no group of a kind whose `group` is a String field
+ * @property create - A new row from a new duty: its roles written, every other field the kind's `values` of it (#1526), or its type's default; `none` as `write` refuses
+ * @property roles - Which of the optional roles the kind maps, and whether a duty may stand in no group: its `group` an `Option<String>` field (#1548)
  * @property rowType - The row type
  */
 export const ScheduleRosterKindType = StructType({
@@ -658,8 +674,8 @@ export const ScheduleRosterKindType = StructType({
     rows: FunctionType([DateTimeType, DateTimeType], OptionType(DictType(StringType, ScheduleRosterEntryType))),
     read: FunctionType([BlobType, StringType], ScheduleRosterRolesType),
     write: FunctionType([BlobType, ScheduleRosterRolesType], OptionType(BlobType)),
-    create: FunctionType([ScheduleRosterRolesType], OptionType(BlobType)),
-    roles: StructType({ position: BooleanType, activity: BooleanType }),
+    create: FunctionType([ScheduleRosterNewDutyType], OptionType(BlobType)),
+    roles: StructType({ position: BooleanType, activity: BooleanType, noGroup: BooleanType }),
     rowType: EastTypeType,
 });
 
@@ -692,6 +708,31 @@ export const ScheduleAllocationRolesType = StructType({
 export type ScheduleAllocationRolesType = typeof ScheduleAllocationRolesType;
 
 /**
+ * A reservation, as the Allocation makes it (#1526): a bin's roles but the
+ * arrival it books, which a reservation has none of — what a bin kind's
+ * `values` gives the reservation's own fields from, the fields no role maps.
+ * A bin booked from an arrival takes the arrival's `values` instead.
+ *
+ * @property at - Its time
+ * @property lane - Its lane's key
+ * @property quantity - Its quantity
+ * @property parts - The quantity on each resource, by key: the resource it is reserved on
+ * @property hold - How long a resource holds it
+ * @property kind - What it goes with; `none` when it has none, or the kind has no `kind` role
+ */
+export const ScheduleAllocationNewBinType = StructType({
+    at: DateTimeType,
+    lane: StringType,
+    quantity: FloatType,
+    parts: DictType(StringType, FloatType),
+    hold: TimeStepType,
+    kind: OptionType(StringType),
+});
+
+/** Type representing {@link ScheduleAllocationNewBinType}. */
+export type ScheduleAllocationNewBinType = typeof ScheduleAllocationNewBinType;
+
+/**
  * One stored bin, as an Allocation kind's `rows` gives it: its roles, read in
  * the same pass that reads the row, and the row as bytes at the row type.
  *
@@ -707,11 +748,11 @@ export type ScheduleAllocationEntryType = typeof ScheduleAllocationEntryType;
  * One event kind as the Allocation takes it (#1367): the Calendar's closed
  * kind, with its rows, and its roles read from a row and written into one.
  *
- * @property kind - The Calendar's closed kind: its `editing`, `entries`, `history`, `ready`, `fields` and `inspector`
+ * @property kind - The Calendar's closed kind: its `editing`, `entries`, `history`, `ready`, `fields` — its quantity's among them, as Plan's are, which the board draws in its Bin section (#1585) — and `inspector`
  * @property rows - Its stored bins of `[from, to)`, by key, each its roles and its row; `none` while a read is in flight
  * @property read - A drafted row's roles, from its bytes: what `rows` gives a stored one
  * @property write - The row with every mapped field written from the roles and every other field as it was
- * @property create - A new row from the roles, and an arrival's values — the fields no role maps, as bytes at `values` — or, with none, every such field its type's default
+ * @property create - A new row from the roles, and an arrival's values — the fields no role maps, as bytes at `values` — or, with none, a reservation's the kind's `values` of it (#1526) and a booked bin's every such field its type's default
  * @property lanes - The resource slot its lanes are: what its `resource.of` names
  * @property parts - The resource slot its parts are on: what its `parts.of` names
  * @property kinded - Whether it maps a `kind`
@@ -754,18 +795,32 @@ export const SchedulePeriodStatusType = VariantType({
 export type SchedulePeriodStatusType = typeof SchedulePeriodStatusType;
 
 /**
+ * A period's new row, as a builder makes it at its first save or Publish
+ * (#1526): what the periods' `values` gives the row's own fields from, every
+ * field but its status and its dismissals.
+ *
+ * @property start - The period's first instant: its key
+ */
+export const ScheduleNewPeriodType = StructType({ start: DateTimeType });
+
+/** Type representing {@link ScheduleNewPeriodType}. */
+export type ScheduleNewPeriodType = typeof ScheduleNewPeriodType;
+
+/**
  * What a builder publishes, closed (`Schedule.periods`, #1367): the app's
- * record of periods, a row each, keyed by its start.
+ * record of periods, a row each, keyed by its start. A new row holds the
+ * periods' `values` of its start (#1526) in every field but its status and its
+ * dismissals, or each field's default without them.
  *
  * @property every - What a period is: a week from the builder's week start, or a UTC day
  * @property editing - The shared session over the record: whole rows by their start, its patch door
  * @property entries - The record read by key, when it is given `entries`; `none` for a record read whole
  * @property rows - The periods starting in `[from, to)`, by their start, as bytes at the row type; `none` while a read is in flight
  * @property status - A row's status
- * @property publish - The row, or a new one, with its status the published case at the time given
+ * @property publish - The period starting at the first time given: its row, or a new one, with its status the published case at the second
  * @property dismissible - Whether the builder maps `dismissed`
  * @property dismissed - The proposals a row dismissed; empty when the builder maps none
- * @property dismiss - The row, or a new one, with its dismissed proposals the set given
+ * @property dismiss - The period starting at the time given: its row, or a new one, with its dismissed proposals the set given
  * @property history - The record's commits, newest first
  * @property rowType - The row type
  */
@@ -775,10 +830,10 @@ export const SchedulePeriodsKindType = StructType({
     entries: OptionType(ScheduleEntriesType),
     rows: FunctionType([DateTimeType, DateTimeType], OptionType(DictType(DateTimeType, BlobType))),
     status: FunctionType([BlobType], SchedulePeriodStatusType),
-    publish: FunctionType([OptionType(BlobType), DateTimeType], BlobType),
+    publish: FunctionType([DateTimeType, OptionType(BlobType), DateTimeType], BlobType),
     dismissible: BooleanType,
     dismissed: FunctionType([BlobType], SetType(StringType)),
-    dismiss: FunctionType([OptionType(BlobType), SetType(StringType)], BlobType),
+    dismiss: FunctionType([DateTimeType, OptionType(BlobType), SetType(StringType)], BlobType),
     history: FunctionType([], OptionType(ArrayType(RecordCommitInfoType))),
     rowType: EastTypeType,
 });

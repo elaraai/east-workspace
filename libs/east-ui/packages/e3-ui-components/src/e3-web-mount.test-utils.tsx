@@ -21,18 +21,23 @@
  * harness measures what the builders' virtualizers and frames read: main and
  * a Library's viewport, their rows, and the widths a resize sets
  * ({@link width}) — and, for a test that asks, a toolbar row too narrow for
- * what it holds, at its floor ({@link toolbarAtFloor}).
+ * what it holds, at its floor ({@link toolbarAtFloor}). {@link evaluateAgain}
+ * hands every builder mounted its payload again, made anew with nothing in it
+ * changed, as a page evaluated again hands it one whenever a value in it moves
+ * — in a file that says its tests do ({@link evaluatesAgain}).
  *
  * @packageDocumentation
  */
 
-import { useLayoutEffect, useMemo, type ReactNode } from "react";
+import { useLayoutEffect, useMemo, useReducer, type ReactNode } from "react";
 import { afterAll, afterEach, beforeAll, beforeEach, vi } from "vitest";
 import { cleanup, render, waitFor, type RenderResult } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import type { EastIR, EastType, ValueTypeOf } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui/internal";
-import { DragLayerProvider, EastChakraComponent, StateRuntime, UIStore, getRegisteredPlatformImplementations, system } from "@elaraai/east-ui-components";
+import {
+    DragLayerProvider, EastChakraComponent, StateRuntime, UIStore, getExtensionEntry, getRegisteredPlatformImplementations, registerReactiveTracker, system,
+} from "@elaraai/east-ui-components";
 import { resetKept } from "@elaraai/east-ui-components/internal";
 import { deriveManifest } from "@elaraai/e3-ui";
 import type { TreePath } from "@elaraai/e3-types";
@@ -185,8 +190,10 @@ export interface E3Harness {
      *
      * @param record - The record, which declares a patch mutation
      * @param next - Its new state
+     * @param key - The request's key, as a session's Save carries one: a record remembers its last keyed requests, and
+     *   forgets the oldest as another is committed. None unless given
      */
-    patch<T extends EastType>(record: E3Record<T>, next: ValueTypeOf<T>): Promise<void>;
+    patch<T extends EastType>(record: E3Record<T>, next: ValueTypeOf<T>, key?: string): Promise<void>;
     /**
      * A Save another session's write overtakes: the record's next mutation is
      * held on its way to e3 while the other session commits the record's new
@@ -211,6 +218,20 @@ export interface E3Harness {
      * @param next - The record's state as the other session leaves it, from its state once the Save has committed
      */
     followed<T extends EastType>(record: E3Record<T>, save: () => void, next: (now: ValueTypeOf<T>) => ValueTypeOf<T>): Promise<void>;
+    /**
+     * A Save whose answer comes late: the record's next mutation commits and
+     * its answer is held on its way back; another session's write commits
+     * after it, and what is mounted hears of that write and reads it; only
+     * then does the Save's answer arrive — naming the state the Save
+     * committed, which the page has passed. Then settles.
+     *
+     * @param record - The record both write, which declares a patch mutation
+     * @param save - What sends the Save: a press of its button, say
+     * @param next - The record's state as the other session leaves it, from its state once the Save has committed
+     */
+    late<T extends EastType>(record: E3Record<T>, save: () => void, next: (now: ValueTypeOf<T>) => ValueTypeOf<T>): Promise<void>;
+    /** What is mounted polls the workspace's status now, as its next poll would, and what that leads to settles. */
+    poll(): Promise<void>;
     /**
      * Writes a dataset as another session would, then settles.
      *
@@ -364,6 +385,8 @@ export function e3Harness(modules: Readonly<Record<string, Readonly<Record<strin
         get workspace() { return workspace(); },
         async mount(example, mountOptions = {}) {
             const ws = mountOptions.workspace ?? workspace();
+            // Before anything renders: a renderer swapped under a mounted builder would mount it again.
+            if (handsAgain) for (const kind of BUILDERS) decodesAgain(kind);
             const view = mountOptions.view ?? <Program example={example} program={mountOptions.program} storageKey={mountOptions.storageKey ?? "builder-test"} />;
             const surface = (
                 <QueryPlanOptionsProvider pieceBytes={EXAMPLES_PIECE_MIN}>
@@ -403,8 +426,8 @@ export function e3Harness(modules: Readonly<Record<string, Readonly<Record<strin
             return () => mounted.unmount();
         },
         read: (dataset) => readDataset(e3(), workspace(), dataset),
-        async patch(record, next) {
-            await patchRecord(e3(), workspace(), record, next);
+        async patch(record, next, key) {
+            await patchRecord(e3(), workspace(), record, next, "patch", key);
             await refreshMounted(workspace());
         },
         async race(record, save, next) {
@@ -428,6 +451,17 @@ export function e3Harness(modules: Readonly<Record<string, Readonly<Record<strin
             await act(async () => { reading.release(); });
             await settle();
         },
+        async late(record, save, next) {
+            const answer = e3().holdAnswers((request) => request.kind === "mutate" && request.record === record.name);
+            await act(async () => { save(); });
+            await answer.holding;
+            await patchRecord(e3(), workspace(), record, next(await readDataset(e3(), workspace(), record)));
+            // What is mounted hears of the other session's write, and reads it, while the Save's answer is still out.
+            await refreshMounted(workspace());
+            await act(async () => { answer.release(); });
+            await settle();
+        },
+        poll: () => refreshMounted(workspace()),
         async write(dataset, value) {
             await writeDataset(e3(), workspace(), dataset, value);
             await refreshMounted(workspace());
@@ -498,6 +532,140 @@ function PolledReads({ datasets }: { datasets: readonly { workspace: string; pat
         };
     }, [cache, datasets]);
     return null;
+}
+
+/** What builds each payload a test's own view draws again ({@link evaluateAgain}). */
+const evaluations = new Set<() => void>();
+
+/** What decodes each mounted builder's payload again ({@link evaluateAgain}). */
+const redecodes = new Set<() => void>();
+
+/** How many payloads {@link evaluateAgain} has handed a builder again, built or decoded anew. */
+let handedAgain = 0;
+
+/** What a tracker that reads nothing read. */
+const NO_KEYS: ReadonlyMap<string, number> = new Map();
+
+/**
+ * The builders' extensions, by the names their components register under: the ones whose payload
+ * {@link evaluateAgain} decodes again. A builder mounted under another name is handed nothing, and
+ * {@link evaluateAgain} says so.
+ */
+const BUILDERS = ["Allocation", "Calendar", "Flowchart", "Plan", "Record", "Roster", "Schematic", "Sheet"] as const;
+
+/** A builder's extension, as the dispatcher's registry holds it. */
+type ExtensionEntry = NonNullable<ReturnType<typeof getExtensionEntry>>;
+
+/** Whether the file's tests may evaluate what they mount again ({@link evaluatesAgain}). */
+let handsAgain = false;
+
+/**
+ * Lets the file's tests evaluate what they mount again ({@link evaluateAgain}): called as the file is collected,
+ * beside its harness. From then on each builder a test mounts through the harness is drawn through a renderer that
+ * decodes its payload again when asked — and is handed what the dispatcher decoded, as it always is, until then.
+ */
+export function evaluatesAgain(): void {
+    handsAgain = true;
+}
+
+/** The bytes each decoded payload arrived as. */
+const arrivedAs = new WeakMap<object, Uint8Array>();
+
+/** Each extension's decode that notes what a payload arrived as: put back where a test's own spy on it, restored, took it off. */
+const noting = new WeakMap<ExtensionEntry, ExtensionEntry["decode"]>();
+
+/** The extensions whose renderer decodes its payload again. */
+const redecoding = new WeakSet<ExtensionEntry>();
+
+/**
+ * Has a builder's extension decode its payload again at each {@link evaluateAgain}: its decode notes the bytes each
+ * payload arrived as, and its renderer is drawn through one that decodes those bytes again when asked. Until it is
+ * asked, the renderer is handed what the dispatcher decoded, as it always is.
+ *
+ * @param kind - The extension's name
+ */
+function decodesAgain(kind: string): void {
+    const entry = getExtensionEntry(kind);
+    if (entry === undefined) return;
+    if (noting.get(entry) !== entry.decode) {
+        const decode = entry.decode;
+        const noted: ExtensionEntry["decode"] = (bytes) => {
+            const payload = decode(bytes);
+            // A builder's payload is a struct.
+            arrivedAs.set(payload as object, bytes);
+            return payload;
+        };
+        entry.decode = noted;
+        noting.set(entry, noted);
+    }
+    if (redecoding.has(entry)) return;
+    redecoding.add(entry);
+    const Renderer = entry.renderer;
+    entry.renderer = function DecodedAgain({ value, storageKey }: { value: unknown; storageKey: string }) {
+        const [asked, again] = useReducer((count: number) => count + 1, 0);
+        useLayoutEffect(() => {
+            redecodes.add(again);
+            return () => { redecodes.delete(again); };
+        }, [again]);
+        const payload = useMemo(() => {
+            const bytes = arrivedAs.get(value as object);
+            if (asked === 0 || bytes === undefined) return value;
+            handedAgain += 1;
+            return entry.decode(bytes);
+        }, [value, asked]);
+        return <Renderer value={payload} storageKey={storageKey} />;
+    };
+}
+
+/**
+ * A payload a test's own view draws: built as its component mounts, and again at each {@link evaluateAgain} — as the
+ * dispatcher's builders are handed theirs decoded again.
+ *
+ * @param build - What builds the payload; the same function from one render to the next
+ * @returns The payload it built last
+ */
+export function useEvaluated<T>(build: () => T): T {
+    const [asked, again] = useReducer((count: number) => count + 1, 0);
+    useLayoutEffect(() => {
+        evaluations.add(again);
+        return () => { evaluations.delete(again); };
+    }, [again]);
+    return useMemo(() => {
+        if (asked > 0) handedAgain += 1;
+        return build();
+    }, [build, asked]);
+}
+
+/**
+ * Hands every builder mounted its payload again, made anew with nothing in it changed, and settles.
+ *
+ * A page's host evaluates its body again whenever something it reads moves — a State the app keeps, a dataset it
+ * reads whole. A builder in it is drawn from its payload's bytes: while they are the same the dispatcher draws
+ * nothing again, and once any value in them differs — a title, a count, a column's header — the whole payload is
+ * decoded again, every function in it made anew over handles bound anew, whatever the value that moved. This is that,
+ * with no value moved, so that nothing a builder draws may move:
+ *
+ * - each builder the dispatcher draws ({@link BUILDERS}) is handed its payload decoded again from the bytes it
+ *   arrived as;
+ * - each payload a test's own view draws is built again ({@link useEvaluated});
+ * - and every tracked evaluation on the page runs again — each Reactive body, each builder's own tracked reads — as
+ *   each does when a tracker registers, a provider mounting: with a tracker that reads nothing, registered and let
+ *   go at once.
+ *
+ * @throws {Error} When the file has not said its tests evaluate again ({@link evaluatesAgain}), or no builder mounted
+ *   was handed a payload again: the check it serves would hold nothing
+ */
+export async function evaluateAgain(): Promise<void> {
+    if (!handsAgain) throw new Error("evaluateAgain: the file has not called evaluatesAgain(), beside its harness, so no builder it mounted decodes its payload again");
+    const before = handedAgain;
+    await act(async () => {
+        for (const again of [...evaluations, ...redecodes]) again();
+        registerReactiveTracker({ id: "evaluate-again", enableTracking() {}, disableTracking: () => NO_KEYS, getStore: () => null })();
+    });
+    await settle();
+    if (handedAgain === before) {
+        throw new Error("evaluateAgain handed no builder its payload again: mount the builder through the harness, and name its extension among BUILDERS");
+    }
 }
 
 /** The example's program, compiled once its reads have loaded, rendered through the dispatcher. */

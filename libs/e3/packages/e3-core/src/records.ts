@@ -104,6 +104,120 @@ const IDEM_SLOT = '$idem';
  *  which stops being the head once a reindex commits; a retry returns it. */
 const IDEM_COMMIT_SLOT = '$idem.commit';
 
+/** Reserved slot naming the keyed requests the record remembers before the
+ *  one {@link IDEM_SLOT} names: `head;key=commit,…`, newest first — the head
+ *  commit the slot was written at, then each request's key, as its SHA-256,
+ *  and the commit that answers it. See {@link rememberedRequests}. */
+const IDEM_LOG_SLOT = '$idem.log';
+
+/**
+ * How many keyed requests a record remembers, its last among them.
+ *
+ * @remarks
+ * A request repeated under one of their keys is answered with the commit that
+ * answered it first, never applied again, whatever was written since — so a
+ * client whose answer was lost may ask again after other writes have landed.
+ * One the record has forgotten is a new request. The number bounds what a
+ * record's ref carries: a digest and a commit for each request before the
+ * last.
+ */
+export const RECORD_KEYS_REMEMBERED = 16;
+
+/** A keyed request a record remembers before its last. */
+interface RememberedRequest {
+  /** The request's idempotency key, as its SHA-256: a client's key may be of
+   *  any length, and a ref is read at every write. */
+  key: string;
+  /** The commit a repeat of the request is answered with. */
+  commit: string;
+}
+
+/** A request's key as {@link IDEM_LOG_SLOT} names it. */
+function keyDigest(key: string): string {
+  return computeHash(new TextEncoder().encode(key));
+}
+
+/**
+ * The keyed requests a record remembers before its last, newest first.
+ *
+ * @remarks
+ * The slot is trusted only under the head it was written at. Every commit of
+ * this e3 writes it again under its own head; an e3 from before records kept
+ * it carries it as it stands, as it carries any reserved slot it does not
+ * know, past commits of its own that cut the remembered commits from the
+ * chain or drop the writes they made. Carried so, it names another head, and
+ * the record remembers none of it: a request it named is a new request, as it
+ * was before records remembered more than their last.
+ *
+ * @param versions - The record ref's version vector, when it has one
+ * @param selfKeypath - The record's own keypath, which names its head
+ * @returns The requests; none when the ref names none, or names them under
+ *   another head. An entry this cannot read is left out
+ */
+function rememberedRequests(versions: ReadonlyMap<string, string> | undefined, selfKeypath: string): RememberedRequest[] {
+  const slot = versions?.get(IDEM_LOG_SLOT);
+  if (slot === undefined) return [];
+  const head = slot.indexOf(';');
+  if (head < 0 || slot.slice(0, head) !== versions!.get(selfKeypath)) return [];
+  const requests: RememberedRequest[] = [];
+  for (const entry of slot.slice(head + 1).split(',')) {
+    const commit = entry.indexOf('=');
+    if (commit <= 0 || commit === entry.length - 1) continue;
+    requests.push({ key: entry.slice(0, commit), commit: entry.slice(commit + 1) });
+  }
+  return requests;
+}
+
+/**
+ * The {@link IDEM_LOG_SLOT} naming these requests under a head.
+ *
+ * @param head - The commit the slot is written at
+ * @param requests - The requests, newest first
+ * @returns The slot, or `undefined` for none, which drops it
+ */
+function rememberedSlot(head: string, requests: readonly RememberedRequest[]): string | undefined {
+  return requests.length === 0 ? undefined : `${head};${requests.map(({ key, commit }) => `${key}=${commit}`).join(',')}`;
+}
+
+/**
+ * The requests a record remembers before its last once a mutation commits:
+ * the one its ref named last, then those it remembered before that, as many
+ * as leave the record {@link RECORD_KEYS_REMEMBERED} in all.
+ *
+ * @param versions - The vector on the ref being replaced
+ * @param selfKeypath - The record's own keypath
+ * @param keyed - Whether the mutation carries a key, which the ref then names
+ *   as its last
+ * @returns The requests, newest first
+ */
+function rememberedAfter(versions: ReadonlyMap<string, string>, selfKeypath: string, keyed: boolean): RememberedRequest[] {
+  const before = rememberedRequests(versions, selfKeypath);
+  const last = versions.get(IDEM_SLOT);
+  const answered = versions.get(IDEM_COMMIT_SLOT);
+  if (last !== undefined && answered !== undefined) {
+    const key = keyDigest(last);
+    // The newest of a key stands: a release that keeps no memory may have
+    // applied again a request this one remembered
+    const older = before.filter((request) => request.key !== key);
+    before.length = 0;
+    before.push({ key, commit: answered }, ...older);
+  }
+  return before.slice(0, RECORD_KEYS_REMEMBERED - (keyed ? 1 : 0));
+}
+
+/**
+ * The requests a record remembers, each answered by one commit: what a commit
+ * that cuts the remembered commits from the chain, or whose state holds their
+ * writes in another type, leaves of them.
+ *
+ * @param commit - The commit that answers them all from here on
+ * @param requests - The requests, newest first
+ * @returns The same requests, each naming `commit`
+ */
+function answeredBy(commit: string, requests: readonly RememberedRequest[]): RememberedRequest[] {
+  return requests.map(({ key }) => ({ key, commit }));
+}
+
 /** Reserved slot naming the migrations a record's state has had applied, in
  *  order, separated by commas, and absent when none has. Only a deploy writes
  *  it. A step is known by its name, an identifier, and never by its object's
@@ -242,10 +356,15 @@ export interface RecordMutateOptions {
    *  deadline and each reducer run's `timeoutMs` is clamped to the time
    *  remaining. Omit for the unbounded local behaviour. */
   budgetMs?: number;
-  /** Optional client idempotency key. When the record's last mutation carried
-   *  this same key, the reducer is NOT re-run and that mutation's commit and
-   *  state are returned, whatever reindex has committed since — so a client
-   *  retrying after a gateway timeout cannot double-apply. */
+  /** Optional client idempotency key. When a mutation the record remembers
+   *  carried this same key — its last keyed one, or one of the
+   *  {@link RECORD_KEYS_REMEMBERED} − 1 before it — the reducer is NOT re-run:
+   *  that mutation's commit is returned, with the state the record holds as
+   *  the retry is answered, whatever has been committed since. So a client
+   *  retrying after a gateway timeout cannot double-apply, though other
+   *  writes landed meanwhile, and reads the record at the state it is given.
+   *  A compaction or a migration committed since answers in the mutation's
+   *  place, with its own commit, whose state holds the write. */
   idempotencyKey?: string;
   /** Optional hard cap on CAS attempts (mainly for tests forcing a conflict). */
   maxAttempts?: number;
@@ -392,15 +511,21 @@ export async function readRecordState(storage: StorageBackend, repo: string, has
 }
 
 /**
- * The commit a keyed retry is answered with (OPS-3): the one the record's last
- * mutation committed under the same idempotency key.
+ * The commit a keyed retry is answered with (OPS-3): the one a mutation
+ * committed under the same idempotency key, while the record remembers it —
+ * its last keyed mutation, or one of the {@link RECORD_KEYS_REMEMBERED} − 1
+ * before it — or the commit that has answered for it since.
  *
  * @param versions - The record ref's version vector
+ * @param selfKeypath - The record's own keypath
  * @param key - The mutation's idempotency key, when it has one
  * @returns The commit, or `undefined` when the ref answers no such key
  */
-function keyedCommit(versions: ReadonlyMap<string, string>, key: string | undefined): string | undefined {
-  return key !== undefined && versions.get(IDEM_SLOT) === key ? versions.get(IDEM_COMMIT_SLOT) : undefined;
+function keyedCommit(versions: ReadonlyMap<string, string>, selfKeypath: string, key: string | undefined): string | undefined {
+  if (key === undefined) return undefined;
+  if (versions.get(IDEM_SLOT) === key) return versions.get(IDEM_COMMIT_SLOT);
+  const digest = keyDigest(key);
+  return rememberedRequests(versions, selfKeypath).find((request) => request.key === digest)?.commit;
 }
 
 /**
@@ -760,12 +885,15 @@ export async function recordMutate(
         const existing = attempt === 1 ? await firstRef : await storage.datasets.readVersioned(repo, ws, resolved.refPath);
         if (!existing || existing.ref.type !== 'value') return noStateYet(recordName);
 
-        // Idempotent retry (OPS-3): if the record's last mutation already committed
-        // under this key, return that commit, and the state it wrote, without
-        // re-running the reducer — or reading the state it would run over.
-        const keyed = keyedCommit(existing.ref.value.versions, opts.idempotencyKey);
+        // Idempotent retry (OPS-3): if a mutation the record remembers already
+        // committed under this key, return that commit, and the state the
+        // record holds now, without re-running the reducer — or reading the
+        // state it would run over. The state is the one to read the record at:
+        // the commit's own is one the record has left once anything was
+        // written since, which a read pinned to it is refused.
+        const keyed = keyedCommit(existing.ref.value.versions, resolved.selfKeypath, opts.idempotencyKey);
         if (keyed !== undefined) {
-          return { kind: 'committed', commitHash: keyed, stateHash: decodeRecordCommit(await storage.objects.read(repo, keyed)).state };
+          return { kind: 'committed', commitHash: keyed, stateHash: existing.ref.value.hash };
         }
         // The call runs: its program is stored beside the state's read
         if (program === undefined && !ownDelta) {
@@ -806,12 +934,13 @@ export async function recordMutate(
 
         // Self-vector carries the head commit; the idempotency slots (when keyed)
         // let the next retry short-circuit. Every mutation rewrites them — one
-        // with no key drops them — so the map stays bounded; any other reserved
-        // slot rides along untouched.
+        // with no key drops them — and the request they named joins those the
+        // record remembers before its last, the oldest of which it forgets, so
+        // the map stays bounded; any other reserved slot rides along untouched.
         const versions = nextVersions(existing.ref.value.versions, resolved.selfKeypath, commitHash, {
           [IDEM_SLOT]: opts.idempotencyKey,
           [IDEM_COMMIT_SLOT]: opts.idempotencyKey !== undefined ? commitHash : undefined,
-        });
+        }, rememberedAfter(existing.ref.value.versions, resolved.selfKeypath, opts.idempotencyKey !== undefined));
 
         try {
           await storage.datasets.writeIf(
@@ -851,11 +980,22 @@ export async function recordMutate(
  * The self-entry is always rewritten to the new commit, which is what makes
  * change detection commit-granular rather than state-granular.
  *
+ * The requests the record remembers before its last are every commit's to
+ * say, since their slot is written under the head it stands at
+ * ({@link rememberedRequests}): a commit that changes no row a retry could
+ * apply twice carries them, which is the default; one that commits a mutation
+ * gives them with the request the ref named last among them; one that cuts
+ * their commits from the chain, or holds their writes in another type, gives
+ * them answered by itself; and one that drops their writes gives none.
+ *
  * @param previous - the vector on the ref being replaced
  * @param selfKeypath - the record's own keypath
  * @param commitHash - the commit this write appends
  * @param owned - reserved slots this writer owns: a value writes it, `undefined`
  *   drops it
+ * @param remembered - the keyed requests the record remembers before its last
+ *   once this commit is its head, newest first: those the ref being replaced
+ *   remembers, unless given
  * @returns the vector to write
  */
 function nextVersions(
@@ -863,15 +1003,18 @@ function nextVersions(
   selfKeypath: string,
   commitHash: string,
   owned: Record<string, string | undefined> = {},
+  remembered: readonly RememberedRequest[] = rememberedRequests(previous, selfKeypath),
 ): Map<string, string> {
   const versions = new Map<string, string>();
   for (const [slot, value] of previous ?? []) {
-    if (slot.startsWith('$') && !(slot in owned)) versions.set(slot, value);
+    if (slot.startsWith('$') && slot !== IDEM_LOG_SLOT && !(slot in owned)) versions.set(slot, value);
   }
   versions.set(selfKeypath, commitHash);
   for (const [slot, value] of Object.entries(owned)) {
     if (value !== undefined) versions.set(slot, value);
   }
+  const log = rememberedSlot(commitHash, remembered);
+  if (log !== undefined) versions.set(IDEM_LOG_SLOT, log);
   return versions;
 }
 
@@ -1153,7 +1296,8 @@ async function buildRecordIndexes(
  * Of a mutation's options, a reindex takes the ones it honours. It runs no
  * mutation program, so it takes no `limits` and no `budgetMs`: its builds run
  * until they finish or `signal` stops them. It writes no keyed commit, so it
- * takes no `idempotencyKey`, and carries the record's last key forward.
+ * takes no `idempotencyKey`, and carries the keys the record remembers
+ * forward.
  */
 export interface RecordReindexOptions {
   /** Caller identity recorded on the `$reindex` commit. */
@@ -1249,7 +1393,8 @@ export async function recordReindex(
 
       try {
         // A reindex changes no row a retry could apply twice, so it carries
-        // the last idempotency key and the commit that key answers.
+        // the last idempotency key and the commit that key answers, and the
+        // requests remembered before it.
         await storage.datasets.writeIf(
           repo, ws, resolved.refPath,
           variant('value', {
@@ -1464,13 +1609,14 @@ export type DeployRecordCommit =
  * - `$init` writes `$schema`, and `$migrations` naming itself as the commit
  *   that applied every step, and there is no key to answer;
  * - `$deploy` carries every slot, since it changes no row;
- * - `$migrate` points `$idem.commit` at itself, since its state holds the
- *   keyed write in the type the record now has, and the last one writes
- *   `$schema`, and `$migrations` naming each step's own commit beside the
- *   steps applied before;
- * - `$reset` drops the idempotency slots, since the keyed write went with the
- *   state, and writes `$schema`, and `$migrations` naming itself as the commit
- *   that applied every step;
+ * - `$migrate` points `$idem.commit` at itself, and every request the record
+ *   remembers before its last, since its state holds the keyed writes in the
+ *   type the record now has, and the last one writes `$schema`, and
+ *   `$migrations` naming each step's own commit beside the steps applied
+ *   before;
+ * - `$reset` drops the idempotency slots, and the requests remembered before
+ *   them, since the keyed writes went with the state, and writes `$schema`,
+ *   and `$migrations` naming itself as the commit that applied every step;
  * - an `unassign` writes no commit: the ref goes back to unassigned, and the
  *   chain and every slot go with it, as a `$reset` drops them, for the
  *   record's first state to be committed again.
@@ -1542,7 +1688,7 @@ export async function commitDeployRecords(
               return known === undefined ? [] : [[name, known] as const];
             })),
             ...(commit.prior.versions.has(IDEM_SLOT) && { [IDEM_COMMIT_SLOT]: head }),
-          }),
+          }, answeredBy(head!, rememberedRequests(commit.prior.versions, selfKeypath))),
         }));
         break;
       }
@@ -1555,7 +1701,7 @@ export async function commitDeployRecords(
             [IDEM_COMMIT_SLOT]: undefined,
             [SCHEMA_SLOT]: schema,
             [MIGRATIONS_SLOT]: migrationsSlot(commit.applied.map((name) => [name, { at, commit: head }] as const)),
-          }),
+          }, []),
         }));
         break;
       }
@@ -1803,7 +1949,8 @@ export async function recordCompact(
       try {
         // A compaction cuts the keyed commit out of the chain, and its state
         // holds the keyed write, so it answers the key: a retry arriving after
-        // it is answered, not applied again.
+        // it is answered, not applied again. So with every keyed commit the
+        // record remembers before its last.
         const owned: Record<string, string | undefined> = existing.ref.value.versions.has(IDEM_SLOT)
           ? { [IDEM_COMMIT_SLOT]: commitHash }
           : {};
@@ -1817,7 +1964,8 @@ export async function recordCompact(
           repo, ws, resolved.refPath,
           variant('value', {
             hash: stateHash,
-            versions: nextVersions(existing.ref.value.versions, resolved.selfKeypath, commitHash, owned),
+            versions: nextVersions(existing.ref.value.versions, resolved.selfKeypath, commitHash, owned,
+              answeredBy(commitHash, rememberedRequests(existing.ref.value.versions, resolved.selfKeypath))),
           }),
           existing.revision,
         );
@@ -1894,9 +2042,10 @@ export interface RecordSystemCommitOptions {
  * `$rollback` and `$restore`, so that what the commit does to the reserved
  * slots is the commit protocol's, as every other commit's is. It carries every
  * one: `$schema`, since the state it commits is at the migrations the record
- * has applied, and the idempotency key, whose commit stays in the chain under
- * this one, so a keyed retry after a rollback is answered by the write the
- * operator rolled back rather than applied again.
+ * has applied, and the idempotency key and the requests remembered before it,
+ * whose commits stay in the chain under this one, so a keyed retry after a
+ * rollback is answered by the write the operator rolled back rather than
+ * applied again.
  *
  * Migrations run forward only. A rollback past a `$migrate` or `$reset` commit
  * is refused: the state it would go back to is not at the migrations the

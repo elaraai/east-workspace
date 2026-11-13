@@ -26,7 +26,7 @@ import { usePlanScale, type PlanElementRefValue } from "../context.js";
 import { runStateKey, type PlanRowMove } from "./SpanRow.js";
 import { usePlanElementSelect } from "./element-select.js";
 import { usePlanElementOverlap } from "./element-overlap.js";
-import { usePlanElementConflicted, usePlanElementDrafted } from "./element-draft.js";
+import { usePlanElementBounded, usePlanElementConflicted, usePlanElementDrafted } from "./element-draft.js";
 import { usePlanElementOp } from "./element-optimise.js";
 import { chipName } from "../a11y.js";
 import type { PlanRowId } from "../model.js";
@@ -72,6 +72,8 @@ function CardChip({ chip, left, width, rowKey, rowId, styles, ctx, move }: {
     // An event its drafts changed wears the brand tint in a brand border (#1196).
     const drafted = usePlanElementDrafted(chip.key);
     const conflict = usePlanElementConflicted(chip.key);
+    // An event whose row breaks its kind's bounds wears the warn ring too, stored or changed (#1585).
+    const bounds = usePlanElementBounded(chip.key);
     // What a run of the optimiser did to its event (#1409, R17), while it is still the run's draft.
     const op = usePlanElementOp(chip.key);
     const optimised = drafted ? op : undefined;
@@ -84,6 +86,7 @@ function CardChip({ chip, left, width, rowKey, rowId, styles, ctx, move }: {
             data-overlap={overlap ? "" : undefined}
             data-draft={drafted ? "" : undefined}
             data-conflict={conflict ? "" : undefined}
+            data-bounds={bounds ? "" : undefined}
             data-op={optimised?.op}
             data-fill={optimised !== undefined ? "own" : undefined}
             title={optimised?.provenance}

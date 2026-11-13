@@ -423,8 +423,9 @@ export const schematicDataCentre = example({
         "Schematic.layers", "Schematic.library", "Schematic.library.tab", "Schematic.patch", "Record.bind", "Data.bindPaged", "Slice.bindRecords", "records",
         "details", "templates", "backlog", "layers", "narrowed", "inspector", "accessor", "id", "onSelect", "canConnect", "Schematic.Types.Ref",
         "Schematic.Types.Candidate", "veto", "editing", "Save", "undo", "Move", "Connect", "nets", "drag and drop", "drop",
+        "values", "Schematic.Types.Ends", "Schematic.Types.Sides",
     ],
-    description: "A data centre floor over the app's records, each holding its own fields: racks read through their source of the slice, editable with their patch door, their loads as details on each card, editable in the inspector; network frames, round cooling units with their own Details and power distribution units; halls, cages and aisles, outlined or hatched by what they are; fibre runs between racks and frames, solid or dashed by their cable, a run between two frames refused in the veto's words; power feeds, and fibre trunks a Shift-connect gathers runs into, none onto the core; every gesture a step of one history, Save writing each record through its patch door; the inspector; the whole selection kept by the host; and in the library every kind's templates, dropped on the canvas or on a fibre run, the racks with no position, a drop placing one, the zones' index, the layers, a systems record, and the floor's owners, an owner's card dropped on a rack making it the rack's owner",
+    description: "A data centre floor over the app's records, each holding its own fields: racks read through their source of the slice, editable with their patch door, their loads as details on each card, editable in the inspector; network frames, round cooling units with their own Details and power distribution units; halls, cages and aisles, outlined or hatched by what they are; fibre runs between racks and frames, solid or dashed by their cable, a run between two frames refused in the veto's words; power feeds, and fibre trunks a Shift-connect gathers runs into, none onto the core; a run or a trunk drawn with no template selected on the network layer, its kind's `values`; every gesture a step of one history, Save writing each record through its patch door; the inspector; the whole selection kept by the host; and in the library every kind's templates, dropped on the canvas or on a fibre run, the racks with no position, a drop placing one, the zones' index, the layers, a systems record, and the floor's owners, an owner's card dropped on a rack making it the rack's owner",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const racks = $.let(Record.bind(schematicRacks));
@@ -548,6 +549,8 @@ export const schematicDataCentre = example({
                                 to: { field: "to", of: { rack: "racks", frame: "network" } },
                                 label: (f) => f.label, metric: (f) => f.speed,
                                 style: (f) => f.cable.match({ fibre: (_$2) => Schematic.solid(), logical: (_$2) => Schematic.dashed() }),
+                                // A run drawn with no template selected: a fibre run on the network layer, every field but its ends.
+                                values: (_ends) => ({ path: [], label: none, speed: none, cable: variant("fibre", null), system: "network" }),
                                 templates: Schematic.templates(fibreTemplates.read(), {
                                     name: (t) => t.name, group: (t) => some(t.system), values: (t) => t.values, source: "fibreTemplates",
                                 }),
@@ -564,6 +567,8 @@ export const schematicDataCentre = example({
                                 name: "Fibre trunk", icon: "diagram-project", layer: "system",
                                 sources: { field: "racks", of: "racks" }, destinations: { field: "frames", of: "network" },
                                 label: (t) => t.label,
+                                // A trunk a Shift-connect grows: on the network layer, every field but its sides.
+                                values: (_sides) => ({ label: none, system: "network" }),
                             }),
                         }}
                         layers={Schematic.layers(systems.read(), {
@@ -822,6 +827,92 @@ export const schematicConflicts = example({
                         />
                     </Box>
                 </VStack>
+            );
+        }}</Reactive>
+    )),
+    inputs: [],
+});
+
+// ----------------------------------------------------------------------------
+// The bakehouse: records keyed by number
+// ----------------------------------------------------------------------------
+
+/** An oven on the bakehouse floor, placed by its centre. */
+export const BakeryOven = StructType({ name: StringType, x: FloatType, y: FloatType, w: FloatType, h: FloatType });
+/** A duct between two ovens: each end an oven's number. */
+export const BakeryDuct = StructType({ from: IntegerType, to: IntegerType });
+/** What an oven template gives a new oven: every field of an oven but its centre, which the drop places. */
+export const BakeryOvenValues = StructType({ name: StringType, w: FloatType, h: FloatType });
+/** An oven template: its card's name and group, and the oven it creates. */
+export const BakeryOvenTemplate = StructType({ name: StringType, group: StringType, values: BakeryOvenValues });
+
+export const schematicBakeryOvens = e3.record("schematic_bakery_ovens", DictType(IntegerType, BakeryOven), {
+    initial: new Map([
+        [1n, { name: "Deck oven", x: 4, y: 3, w: 3, h: 2 }],
+        [2n, { name: "Convection oven", x: 12, y: 3, w: 3, h: 2 }],
+    ]),
+    mutations: (mutation) => ({
+        // The ovens' patch door: Save writes each oven through it, a new one under the number one past the largest.
+        patch: mutation.patch(),
+    }),
+});
+export const schematicBakeryDucts = e3.record("schematic_bakery_ducts", DictType(IntegerType, BakeryDuct), {
+    initial: new Map([[1n, { from: 1n, to: 2n }]]),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
+export const schematicBakeryOvenTemplates = e3.record("schematic_bakery_oven_templates", DictType(StringType, BakeryOvenTemplate), {
+    initial: new Map([
+        ["deck", { name: "Deck oven", group: "Ovens", values: { name: "Deck oven", w: 3, h: 2 } }],
+        ["rack", { name: "Rack oven", group: "Ovens", values: { name: "Rack oven", w: 2, h: 2 } }],
+    ]),
+    indexes: (index) => ({
+        schematic_bakery_oven_templates_by_group: index.on(["group"]),
+    }),
+});
+
+export const schematicBakehouse = example({
+    keywords: [
+        "Schematic", "Schematic.items", "Schematic.links", "Schematic.templates", "Record.bind", "records", "IntegerType", "Integer key", "key type",
+        "keyed by number", "new key", "one past the largest", "Connect", "drop", "templates", "inspector",
+    ],
+    description: "A bakehouse's ovens and the ducts between them, each record keyed by number: a duct's ends hold its ovens' numbers, checked against the ovens' key type when the Schematic is built; an oven dropped from the library is numbered one past the largest, and a duct drawn with Connect is numbered the same way; the inspector names each by its number",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const ovens = $.let(Record.bind(schematicBakeryOvens));
+            const ducts = $.let(Record.bind(schematicBakeryDucts));
+            const templates = $.let(Data.bind(schematicBakeryOvenTemplates));
+            // The oven templates by their group: the library's cards follow the rail.
+            const slice = $.let(Slice.bindRecords("ex.schematicBakehouse", {
+                ovenTemplates: {
+                    source: Data.bindPaged(schematicBakeryOvenTemplates, { indexes: ["schematic_bakery_oven_templates_by_group"] }),
+                    fields: { group: { label: "Group", hints: ["Ovens"] } },
+                },
+            }));
+            return (
+                <Box height="440px">
+                    <Schematic
+                        id="bakehouse"
+                        inspector
+                        extent={{ width: 20, height: 12 }}
+                        scaleUnit="m"
+                        slice={{ slice }}
+                        items={{
+                            ovens: Schematic.items(ovens, {
+                                name: "Oven", icon: "fire-burner", x: "x", y: "y", width: "w", height: "h", label: "name",
+                                templates: Schematic.templates(templates.read(), {
+                                    name: (t) => t.name, group: (t) => some(t.group), values: (t) => t.values, source: "ovenTemplates",
+                                }),
+                            }),
+                        }}
+                        links={{
+                            // Each end an Integer field, holding an oven's number: the ovens' key type.
+                            ducts: Schematic.links(ducts, { name: "Duct", icon: "wind", from: { field: "from", of: "ovens" }, to: { field: "to", of: "ovens" } }),
+                        }}
+                        library={[Schematic.library.templates()]}
+                    />
+                </Box>
             );
         }}</Reactive>
     )),

@@ -4,7 +4,8 @@
  */
 
 /**
- * RadioGroup slot recipe — brand-tinted control dot when selected.
+ * RadioGroup slot recipe — brand-tinted control dot when selected: the
+ * design system's selected mark, `brand.solid` in either theme.
  *
  * @packageDocumentation
  */
@@ -56,9 +57,9 @@ export const radioGroupSlotRecipe = defineSlotRecipe({
                 background: "currentColor",
             },
             _checked: {
-                borderColor: "{colors.brand.600}",
+                borderColor: "brand.solid",
                 background: "bg.surface",
-                color: "{colors.brand.600}",
+                color: "brand.solid",
             },
             _disabled: {
                 background: "bg.subtle",
@@ -89,8 +90,8 @@ export const radioGroupSlotRecipe = defineSlotRecipe({
                 itemControl: {
                     "&:is([data-state=checked])": {
                         background: "bg.surface",
-                        borderColor: "{colors.brand.600}",
-                        color: "{colors.brand.600}",
+                        borderColor: "brand.solid",
+                        color: "brand.solid",
                     },
                 },
             },

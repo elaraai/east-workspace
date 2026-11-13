@@ -15,10 +15,9 @@
  * Followed, storage moved the page's date alone: another page writing it — a
  * second tab on the same Calendar, the browser's own storage editor — reached
  * this page's view and never its window, which lives in the page's UI store.
- * The window then put the date back at its own first day (`useCalendarWindow`),
- * the timeline centred there and, at its window's start, re-centred a window
- * back, writing a date the other page heard in turn: a board stepped on in one
- * tab ran back a window at a time in both.
+ * The window then put the date back at its own first day (`useCalendarWindow`):
+ * the day the viewer stood on, and every step from it, moved to the window's
+ * start.
  *
  * @packageDocumentation
  */

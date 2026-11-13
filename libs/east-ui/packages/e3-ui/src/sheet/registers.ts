@@ -42,8 +42,8 @@ export type SheetRegisterValue = ExprType<ArrayType<SheetRegisterMemberType>>;
  *
  * @typeParam T - The data's element type
  * @property kind - The member kind (`"machine"`, `"bay"`, `"family"`)
- * @property key - What the grammar resolves — accessor
- * @property label - What a chip prints — accessor
+ * @property key - What a cell holds and the grammar resolves — accessor
+ * @property label - What a cell, a chip and the menu show, and typed text resolves too — accessor
  * @property aliases - Alternative spellings — accessor returning the field's array
  * @property meta - Chip meta — accessor returning the field's `Option`
  * @property parent - The parent key — accessor returning the field's `Option`
@@ -52,11 +52,14 @@ export type SheetRegisterValue = ExprType<ArrayType<SheetRegisterMemberType>>;
 export interface SheetMembersConfig<T extends EastType> {
     /** The member kind. */
     kind: string;
-    /** What the grammar resolves. */
+    /** What a cell holds and the grammar resolves — the member's identity. */
     key: (value: ExprType<T>, key: ExprType<StringType>) => SubtypeExprOrValue<StringType>;
-    /** What a chip prints. */
+    /**
+     * What a cell, a chip and the menu show — and a spelling typed text resolves, beside the key and the aliases.
+     * Two members may show one label: typed, the first is meant; a pick from the menu or the strip tells them apart.
+     */
     label: (value: ExprType<T>, key: ExprType<StringType>) => SubtypeExprOrValue<StringType>;
-    /** Alternative spellings the grammar also resolves. */
+    /** Alternative spellings the grammar and typed text also resolve. */
     aliases?: (value: ExprType<T>, key: ExprType<StringType>) => SubtypeExprOrValue<ArrayType<StringType>>;
     /** Chip meta — return the field's `Option`. */
     meta?: (value: ExprType<T>, key: ExprType<StringType>) => SubtypeExprOrValue<OptionType<StringType>>;
@@ -66,8 +69,14 @@ export interface SheetMembersConfig<T extends EastType> {
     tone?: (value: ExprType<T>, key: ExprType<StringType>) => SubtypeExprOrValue<OptionType<StatusValueType>>;
 }
 
-/** Fold duplicate keys, keeping the FIRST occurrence in declaration order. */
-const dedupeMembers = East.function([SheetRegisterMembersType], SheetRegisterMembersType, ($, ms) => {
+/**
+ * Fold duplicate keys, keeping the FIRST occurrence in declaration order — a
+ * register's members as `Sheet.register.members` gives them, and a column from
+ * data's columns, one per key.
+ *
+ * @internal
+ */
+export const dedupeMembers = East.function([SheetRegisterMembersType], SheetRegisterMembersType, ($, ms) => {
     const out = $.let([], SheetRegisterMembersType);
     const seen = $.let(new Set<string>(), SetType(StringType));
     $.for(ms, ($2, m, _i, _label) => {
@@ -76,6 +85,39 @@ const dedupeMembers = East.function([SheetRegisterMembersType], SheetRegisterMem
             $3(out.pushLast(m));
         });
     });
+    return out;
+});
+
+/**
+ * A column from data's members in their groups, by its `groups` register:
+ * each label, and the members under it, in their columns' order.
+ *
+ * @internal
+ */
+export const SheetMemberGroupsType = ArrayType(StructType({ label: StringType, members: SheetRegisterMembersType }));
+
+/**
+ * A column from data's members under the members of its `groups` register:
+ * each group in that register's order, with the members whose `parent` is its
+ * key, in their own order; then, unlabelled, the members with no parent or
+ * one the groups lack. A group with no members is left out, and a key met
+ * twice — a member's or a group's — stands for its first. The columns follow
+ * these groups, so each group is a run of adjacent columns.
+ *
+ * @internal
+ */
+export const groupMembers = East.function([SheetRegisterMembersType, SheetRegisterMembersType], SheetMemberGroupsType, ($, members, groups) => {
+    const dedupe = $.const(dedupeMembers);
+    const all = $.const(dedupe(members));
+    const heads = $.const(dedupe(groups));
+    const known = $.const(heads.toSet((_$, group) => group.key));
+    const out = $.let([], SheetMemberGroupsType);
+    $.for(heads, ($2, group) => {
+        const under = $2.const(all.filter((_$3, member) => member.parent.match({ some: (_$4, parent) => parent.equal(group.key), none: () => false })));
+        $2.if(under.size().greater(0n), ($3) => { $3(out.pushLast({ label: group.label, members: under })); });
+    });
+    const loose = $.const(all.filter((_$2, member) => member.parent.match({ some: (_$3, parent) => known.has(parent).not(), none: () => true })));
+    $.if(loose.size().greater(0n), ($2) => { $2(out.pushLast({ label: "", members: loose })); });
     return out;
 });
 
@@ -249,7 +291,7 @@ export function concatMembers(parts: SheetRegisterValue[]): SheetRegisterValue {
 export interface SheetDriverConfig<D extends StructType> {
     /** The member key — what the driver column's cell stores. */
     key: (row: ExprType<D>) => SubtypeExprOrValue<StringType>;
-    /** What a chip / candidate prints. */
+    /** What the driver column's cell, a chip and a candidate show — and a spelling typed text resolves, beside the key and the aliases. */
     label: (row: ExprType<D>) => SubtypeExprOrValue<StringType>;
     /** Alternative spellings. */
     aliases?: (row: ExprType<D>) => SubtypeExprOrValue<ArrayType<StringType>>;

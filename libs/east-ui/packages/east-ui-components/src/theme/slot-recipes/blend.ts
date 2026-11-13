@@ -98,7 +98,9 @@ export const blendSlotRecipe = defineSlotRecipe({
         },
         segment: {
             height: "100%",
-            "&[data-state=committed]": { background: "{colors.brand.500}" },
+            // A stacked bar's first part, as a chart's (charts.md): the brand's solid, which lifts with the theme as the
+            // raw scale's teal did not.
+            "&[data-state=committed]": { background: "brand.solid" },
             "&[data-state=added]": {
                 background: "{colors.brand.200}",
                 backgroundImage: "repeating-linear-gradient(135deg, transparent 0 4px, {colors.brand.300} 4px 6px)",
@@ -147,7 +149,7 @@ export const blendSlotRecipe = defineSlotRecipe({
             borderWidth: "1px",
             borderColor: "border.subtle",
             borderRadius: "{radii.sm}",
-            "&[data-state=added]": { borderStyle: "dashed", borderColor: "{colors.brand.600}" },
+            "&[data-state=added]": { borderStyle: "dashed", borderColor: "brand.solid" },
             "&[data-state=removed]": { opacity: "0.55", textDecoration: "line-through" },
             "&[data-draggable]": { cursor: "grab" },
             "&[data-dragging]": { opacity: "0.4" },

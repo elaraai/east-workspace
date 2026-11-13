@@ -1,0 +1,80 @@
+/**
+ * Copyright (c) 2025 Elara AI Pty Ltd
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
+ * @vitest-environment jsdom
+ *
+ * The Allocation through a Save whose reads come back late — the check every
+ * builder runs (`shared/save-held.test-utils.ts`): a bin a gesture removed
+ * stays off the board from the press of Save until the day's bins are read
+ * again, never drawn again while its record's reads are on their way. And a
+ * Save never stops the editing: another stored bin removed while the bins are
+ * read again — the board's rows standing in from before the Save — is taken
+ * and drawn at once, and the next Save writes it. The same with the page
+ * evaluated again at every step: no bin leaves the board for it, and none
+ * comes back.
+ */
+import { expect, test } from "vitest";
+import { fireEvent } from "@testing-library/react";
+import * as ex from "@elaraai/e3-ui/examples/allocation/allocation";
+import { editedThroughReload, redrawnThroughReload, savedThroughReload } from "../shared/save-held.test-utils.js";
+import { evaluatesAgain } from "../e3-web-mount.test-utils.js";
+import { act, allocationHarness, settle, slot } from "./harness.test-utils.js";
+
+const h = allocationHarness();
+evaluatesAgain();
+
+/** The bins' record, as its dataset's requests name it. */
+const BINS = `records.${ex.kilnBins.name}`;
+
+/** The bins the board draws a card of, by their keys, in the board's order. */
+const cards = (c: HTMLElement) => [...c.querySelectorAll<HTMLElement>("[data-allocation-card]")].map((el) => el.getAttribute("data-allocation-card"));
+
+test("a bin Save removed stays off the board while the day's bins are read again, and once they are", async () => {
+    const { container: c } = await h.mount(ex.allocationKilnYard);
+    expect(cards(c)).toContain("3101");
+    // Bin 3101 selected and removed with Delete: a draft.
+    await act(async () => { fireEvent.click(c.querySelector<HTMLElement>('[data-allocation-card="3101"]')!); });
+    await settle();
+    await act(async () => { fireEvent.keyDown(slot(c, "main"), { key: "Delete" }); });
+    await settle();
+    expect(cards(c)).not.toContain("3101");
+    await savedThroughReload({
+        e3: h.e3,
+        container: c,
+        // Every read of the bins: the board's own, which its Save's confirmation reads through too.
+        reads: (request) => request.dataset === BINS,
+        look: () => cards(c),
+    });
+    // Saved: the record holds no such bin.
+    expect((await h.read(ex.kilnBins)).has("3101")).toBe(false);
+});
+
+test.each([
+    ["a stored bin removed while the day's bins are read again after a Save is taken at once — from the board's rows as they stand — stays off the board as the reads land, and the next Save writes it", editedThroughReload],
+    ["the page evaluated again while the day's bins are read again after a Save takes no bin off the board, and puts none back: a stored bin removed meanwhile is taken at once, stays off as the page is evaluated again and the reads land, and the next Save writes it", redrawnThroughReload],
+])("%s", async (_name, through) => {
+    const { container: c } = await h.mount(ex.allocationKilnYard);
+    await act(async () => { fireEvent.click(c.querySelector<HTMLElement>('[data-allocation-card="3101"]')!); });
+    await settle();
+    await act(async () => { fireEvent.keyDown(slot(c, "main"), { key: "Delete" }); });
+    await settle();
+    let removed: string | undefined;
+    await through({
+        e3: h.e3,
+        container: c,
+        reads: (request) => request.dataset === BINS,
+        look: () => cards(c),
+        // A bin the record holds, which the Save did not: its original is the board's own row of it.
+        again: async () => {
+            removed = cards(c)[0]!;
+            await act(async () => { fireEvent.click(c.querySelector<HTMLElement>(`[data-allocation-card="${removed}"]`)!); });
+            await settle();
+            await act(async () => { fireEvent.keyDown(slot(c, "main"), { key: "Delete" }); });
+            await settle();
+        },
+    });
+    // Both saved: the record holds neither bin.
+    const bins = await h.read(ex.kilnBins);
+    expect(removed).toBeDefined();
+    expect([bins.has("3101"), bins.has(removed!)]).toEqual([false, false]);
+});

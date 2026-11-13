@@ -32,7 +32,7 @@ import { expect, type Locator, type Page } from "playwright/test";
 import { test } from "./kept-page";
 import { leaveBuilder } from "./builder-page";
 import {
-    RECORD_INDEXES, RECORD_INDEXES_MOBILE, card, centred, discard, openSchematic, restsOn, save, screenPoint, zoomInto, type Point, type WorldBox,
+    RECORD_INDEXES, RECORD_INDEXES_MOBILE, card, centred, discard, openSchematic, pressZoomIn, restsOn, save, screenPoint, zoomInto, type Point, type WorldBox,
 } from "./schematic-page";
 import { settled } from "./settle";
 
@@ -73,8 +73,7 @@ async function toHall1(page: Page, root: Locator): Promise<void> {
     await zoomInto(page, root, HALL_1_CORNER);
     for (let presses = 0; await card(root, "racks", "R100000").count() === 0; presses++) {
         expect(presses, "presses of Zoom in before R100000 draws as its card").toBeLessThan(12);
-        await toolbarButton(root, "Zoom in").click();
-        await settled(page);
+        await pressZoomIn(page, root);
     }
 }
 

@@ -40,6 +40,7 @@ describeEast("Schematic", (test) => {
         schematicDataCentre: ex.schematicDataCentre,
         schematicWording: ex.schematicWording,
         schematicConflicts: ex.schematicConflicts,
+        schematicBakehouse: ex.schematicBakehouse,
     });
 }, { platformFns: TestImpl });
 
@@ -265,8 +266,8 @@ describe("each role is a field of the app's row, named and checked (SC1)", () =>
         assert.throws(() => zones({ templates: [] }), /zones take no templates/);
     });
 
-    hostTest("a link's ends are a String field or a variant of String cases — never an Option — and two fields; each `of` names an item slot", () => {
-        const Link = StructType({ a: StringType, b: OptionType(StringType), c: FloatType });
+    hostTest("a link's ends are fields of a type a Dict may be keyed by, or variants holding one per case — never an Option — and two fields; each `of` names an item slot", () => {
+        const Link = StructType({ a: StringType, b: OptionType(StringType), c: FloatType, d: ArrayType(StringType) });
         const linkRecord = recordHandle(DictType(StringType, Link), new Map(), "links");
         const links = (config: object) => built(($) => {
             const racks = $.let(racksRecord());
@@ -278,12 +279,17 @@ describe("each role is a field of the app's row, named and checked (SC1)", () =>
             });
         });
         assert.throws(() => links({}), /Schematic\.links: "Run": `from` and `to` both name "a" — a link's ends are two fields/);
-        assert.throws(() => links({ to: { field: "b", of: "racks" } }), /a link has both its ends — `to\.field` names a String field or a variant of String cases, and "b" holds an Option of \.String/);
-        assert.throws(() => links({ to: { field: "c", of: "racks" } }), /`to\.field` names a field holding a item's key — a String, a variant of String cases, or an Option of either — and "c" holds \.Float/);
+        assert.throws(() => links({ to: { field: "b", of: "racks" } }),
+            /a link has both its ends — `to\.field` names a field holding an item's key, or a variant holding one per case, never an Option — and "b" holds an Option of \.String/);
+        assert.throws(() => links({ to: { field: "d", of: "racks" } }),
+            /`to\.field` names a field holding an item's key — of a type a Dict may be keyed by, a variant holding one per case, or an Option of either — and "d" holds \.Array \.String/);
+        // A Float may key a Dict: the end is checked against its slot's key type where the Schematic is built (#1549).
+        assert.throws(() => links({ to: { field: "c", of: "racks" } }),
+            /Schematic: the link kind "runs"'s `to`, "c", holds \.Float — and the item kind "racks" is keyed by \.String: key "racks" by \.Float, or name a field holding \.String/);
         assert.throws(() => links({ to: { field: "a", of: "frames" }, from: { field: "a", of: "racks" } }), /two fields/);
     });
 
-    hostTest("a net's sides are Set or Array of String fields, two of them", () => {
+    hostTest("a net's sides are Set or Array fields of keys, two of them", () => {
         const Net = StructType({ s: SetType(StringType), d: ArrayType(StringType), n: StringType });
         const netRecord = recordHandle(DictType(StringType, Net), new Map(), "nets");
         const nets = (config: object) => built(($) => {
@@ -296,7 +302,8 @@ describe("each role is a field of the app's row, named and checked (SC1)", () =>
             });
         });
         assert.doesNotThrow(() => nets({}));
-        assert.throws(() => nets({ destinations: { field: "n", of: "racks" } }), /Schematic\.nets: "Feed": `destinations\.field` names a Set or an Array of String field, its items' keys — "n" holds \.String/);
+        assert.throws(() => nets({ destinations: { field: "n", of: "racks" } }),
+            /Schematic\.nets: "Feed": `destinations\.field` names a Set or an Array field of its items' keys, of a type a Dict may be keyed by — "n" holds \.String/);
         assert.throws(() => nets({ destinations: { field: "s", of: "racks" } }), /`sources` and `destinations` both name "s" — a net's sides are two fields/);
     });
 
@@ -413,9 +420,11 @@ describe("a kind's binding follows its read: every other form is refused, naming
             /`entries` reads the details by key beside a kind read through its source — this kind is read whole/);
     });
 
-    hostTest("a kind's record holds its entities by String key, each a struct", () => {
+    hostTest("a kind's record holds its entities by key, each a struct: keyed by any type a Dict may be keyed by (#1549)", () => {
         const byNumber = recordHandle(DictType(FloatType, Rack), new Map(), "racks");
-        assert.throws(() => whole(($) => $.let(byNumber())), /a Schematic kind's record holds its entities by String key, each a struct — and this one holds \.Dict/);
+        assert.doesNotThrow(() => whole(($) => $.let(byNumber())));
+        const names = recordHandle(DictType(StringType, StringType), new Map(), "racks");
+        assert.throws(() => whole(($) => $.let(names())), /a Schematic kind's record holds its entities by key, each a struct — and this one holds \.Dict/);
         assert.throws(() => whole(() => "racks"), /`record` is the app's record, bound — Record\.bind\(record\), its record declaring patch: mutation\.patch\(\) to edit it, or Data\.bind\(record\) or Data\.bindPaged\(record\) to read it only/);
     });
 });
@@ -690,7 +699,7 @@ describe("an item kind's closed functions, over decoded bytes (SC2, SC35)", () =
         assert.ok(boxEqual(racks.box, { x: "x", y: "y", width: some("w"), height: some("h") }));
     });
 
-    hostTest("the kind on the wire: its slot, its name and icon, its status table, editable with its session and history, its form over the fields no role writes", () => {
+    hostTest("the kind on the wire: its slot, its name and icon, its status table, editable with its session and history, its form over the fields no role writes and over its centre and box (#1585)", () => {
         assert.equal(racks.key, "racks");
         assert.equal(racks.name, "Rack");
         assert.equal(racks.icon, "server");
@@ -700,7 +709,8 @@ describe("an item kind's closed functions, over decoded bytes (SC2, SC35)", () =
         assert.equal(racks.history.type, "some");
         assert.equal(racks.entries.type, "none", "a record read whole is read by key from its snapshot");
         assert.equal(racks.paged.type, "none", "and through no paged read: a far end of a kind read whole is in its rows (#1393)");
-        assert.deepEqual(racks.fields.map((f) => f.path), [["model"], ["corners"], ["hall"], ["owner"], ["notes"]], "the row's own corners among them: no role writes them");
+        assert.deepEqual(racks.fields.map((f) => f.path), [["x"], ["y"], ["w"], ["h"], ["model"], ["corners"], ["hall"], ["owner"], ["notes"]],
+            "its centre and box among them, which a hint holds to its bounds, and the row's own corners: no role writes them");
         assert.ok(isTypeEqual(fromEastTypeValue(racks.rowType), Rack), "its row type, which the renderer decodes a row at");
     });
 
@@ -815,6 +825,7 @@ describe("a link kind's, a net kind's, a zone kind's and a details record's clos
         const made = zones.rowsOf(readOf(Area, [{ key: "hall-1", row: AREAS.get("hall-1")! }]));
         assert.ok(equalFor(Schematic.Types.Zone)(made.get("hall-1")!.roles, hall));
         assert.ok(boxEqual(zones.box, { x: "x", y: "y", width: some("w"), height: some("h") }));
+        assert.deepEqual(zones.fields.map((f) => f.path), [["x"], ["y"], ["w"], ["h"], ["radius"]], "its form over its box too, which a hint holds to its bounds (#1585)");
     });
 
     hostTest("a kind's details give its cards' status, bar and figure, read whole beside a kind read whole", () => {
@@ -866,6 +877,74 @@ describe("a link kind's, a net kind's, a zone kind's and a details record's clos
         if (feed.type !== "some") assert.fail("name is the feed's");
         assert.ok(equalFor(Feed)(decodeBeast2For(Feed)(feed.value), { ...f1, name: "Feed A" }));
     });
+
+    hostTest("a link or a net drawn with no template selected takes its kind's `values` of its ends or its sides; a template's values stand in their place (#1526)", () => {
+        const valued = kindOf(Schematic.Types.LinkKind, ($) => {
+            const record = $.let(fibreRecord());
+            return Schematic.links(record, {
+                name: "Fibre run", icon: "bolt", via: "path",
+                from: { field: "from", of: { rack: "racks", frame: "network" } }, to: { field: "to", of: { rack: "racks", frame: "network" } },
+                values: (ends) => ({ path: [], speed: "10G", colour: East.str`${ends.from.key} to ${ends.to.key}` }),
+            }).build("fibre");
+        });
+        const drawn = valued.create({ from: refOf("racks", "A01"), to: refOf("network", "ODF-1") }, none);
+        if (drawn.type !== "some") assert.fail("Connect records a link");
+        assert.ok(equalFor(FibreType)(fibreOf(drawn.value), { from: variant("rack", "A01"), to: variant("frame", "ODF-1"), path: [], speed: "10G", colour: "A01 to ODF-1" }),
+            "its ends written over the kind's values of them");
+        const Values = StructType({ path: ArrayType(Corner), speed: StringType, colour: StringType });
+        const templated = valued.create({ from: refOf("racks", "A01"), to: refOf("racks", "A02") }, some(encodeBeast2For(Values)({ path: [], speed: "400G", colour: "yellow" })));
+        if (templated.type !== "some") assert.fail("a template's link");
+        assert.ok(equalFor(FibreType)(fibreOf(templated.value), { from: variant("rack", "A01"), to: variant("rack", "A02"), path: [], speed: "400G", colour: "yellow" }),
+            "a template selected: its values, never the kind's");
+        const nets = kindOf(Schematic.Types.NetKind, ($) => {
+            const record = $.let(feedsRecord());
+            return Schematic.nets(record, {
+                name: "Feed", icon: "plug", sources: { field: "supply", of: "racks" }, destinations: { field: "racks", of: "racks" },
+                values: (sides) => ({ name: East.str`Feed to ${East.print(sides.destinations.size())}` }),
+            }).build("feeds");
+        });
+        const feed = nets.create({ sources: [refOf("racks", "A01")], destinations: [refOf("racks", "A02"), refOf("racks", "A03")] }, none);
+        if (feed.type !== "some") assert.fail("a net drawn");
+        assert.ok(equalFor(Feed)(decodeBeast2For(Feed)(feed.value), { supply: new Set(["A01"]), racks: ["A02", "A03"], name: "Feed to 2" }));
+        // Held at build to every field but the ends, as the kind's templates are.
+        const links = (values: unknown) => built(($) => {
+            const fibre = $.let(fibreRecord());
+            return floor($, { links: { fibre: Schematic.links(fibre, {
+                name: "Fibre run", icon: "bolt", from: { field: "from", of: { rack: "racks", frame: "network" } }, to: { field: "to", of: { rack: "racks", frame: "network" } },
+                values: values as never,
+            }) } });
+        });
+        assert.throws(() => links(() => ({ speed: "10G", colour: "" })),
+            /Schematic\.links: "Fibre run": `values` gives every one of a new row's own fields \(path, speed, colour\) — and it leaves out "path"/);
+        assert.throws(() => links((ends: ExprType<typeof Schematic.Types.Ends>) => ({ from: variant("rack", ends.from.key), path: [], speed: "", colour: "" })),
+            /`values` gives "from", which the builder writes itself — it gives a new row's own fields \(path, speed, colour\)/);
+    });
+});
+
+describe("the bakehouse's kinds, keyed by number (#1549)", () => {
+    const OVENS = new Map([[1n, { name: "Deck oven", x: 4, y: 3, w: 3, h: 2 }], [2n, { name: "Convection oven", x: 12, y: 3, w: 3, h: 2 }]]);
+
+    hostTest("each kind says its record's key type; its rows, and a duct's ends, name the ovens by their numbers' text; Connect writes the ends as numbers", () => {
+        const ovens = kindOf(Schematic.Types.ItemKind, ($) => Schematic.items($.let(recordHandle(DictType(IntegerType, ex.BakeryOven), OVENS, "ovens")()), {
+            name: "Oven", icon: "fire-burner", x: "x", y: "y", width: "w", height: "h", label: "name",
+        }).build("ovens"));
+        assert.ok(isTypeEqual(fromEastTypeValue(ovens.keyType), IntegerType));
+        const ovenRows = ovens.rows();
+        if (ovenRows.type !== "some") assert.fail("a record read whole holds its rows");
+        assert.equal(ovenRows.value.get("2")!.roles.label, "Convection oven", "an oven by its number as East prints it");
+        const ducts = kindOf(Schematic.Types.LinkKind, ($) => Schematic.links($.let(recordHandle(DictType(IntegerType, ex.BakeryDuct), new Map([[1n, { from: 1n, to: 2n }]]), "ducts")()), {
+            name: "Duct", icon: "wind", from: { field: "from", of: "ovens" }, to: { field: "to", of: "ovens" },
+        }).build("ducts"));
+        assert.ok(isTypeEqual(fromEastTypeValue(ducts.keyType), IntegerType));
+        const ductRows = ducts.rows();
+        if (ductRows.type !== "some") assert.fail("a record read whole holds its rows");
+        const duct = ductRows.value.get("1")!.roles;
+        assert.ok(equalFor(Schematic.Types.Ref)(duct.from, refOf("ovens", "1")));
+        assert.ok(equalFor(Schematic.Types.Ref)(duct.to, refOf("ovens", "2")));
+        const drawn = ducts.create({ from: refOf("ovens", "2"), to: refOf("ovens", "1") }, none);
+        if (drawn.type !== "some") assert.fail("Connect records a duct");
+        assert.ok(equalFor(ex.BakeryDuct)(decodeBeast2For(ex.BakeryDuct)(drawn.value), { from: 2n, to: 1n }), "each end an oven's number, read back from its text");
+    });
 });
 
 // ============================================================================
@@ -886,11 +965,14 @@ describe("<Schematic>'s payload, through its carrier", () => {
             });
         });
         assert.deepEqual(payload.items.map((kind) => kind.key), ["racks", "network"]);
+        // Keyed by String, each kind says so: all a String-keyed Schematic's payload gains (#1549).
+        for (const kind of payload.items) assert.ok(isTypeEqual(fromEastTypeValue(kind.keyType), StringType));
         assert.deepEqual(payload.extent, { width: 28, height: 12 });
         assert.ok(equalFor(OptionType(StringType))(payload.scaleUnit, some("m")));
         assert.deepEqual([payload.zones.length, payload.links.length, payload.nets.length, payload.layers.length, payload.library.length], [0, 0, 0, 0, 0]);
         assert.equal(payload.inspector, false, "the inspector is opted into, as the Plan's, the Roster's and the Calendar's");
         assert.equal(payload.readOnly, false);
+        assert.equal(payload.autosave, false, "Autosave begins off unless its author says otherwise");
         assert.equal(payload.slice.type, "none");
         assert.equal(payload.shown.size, 0);
         assert.equal(payload.narrowed.show.type, "hide", "a narrowed-out row is hidden by default");
@@ -902,12 +984,13 @@ describe("<Schematic>'s payload, through its carrier", () => {
         }
     });
 
-    hostTest("`narrowed`, `inspector`, `readOnly`, `id`, the layers and the host's callbacks cross as given", () => {
+    hostTest("`narrowed`, `inspector`, `readOnly`, `autosave`, `id`, the layers and the host's callbacks cross as given", () => {
         const payload = carried(($) => {
             const systems = $.const(SYSTEMS, DictType(StringType, System));
             return floor($, {
                 narrowed: { show: "dim", opacity: 0.2, dot: true, emphasis: "pulse", frame: true, fit: true },
-                inspector: true, readOnly: true, id: "hall-1",
+                // Where Autosave begins is data's to drive: an expression, as a literal.
+                inspector: true, readOnly: true, autosave: systems.size().greater(0n), id: "hall-1",
                 layers: Schematic.layers(systems, { label: (s) => s.label, color: (s) => some(s.colour), order: (s) => s.order, locked: (s) => s.fixed }),
                 onSelect: East.function([ArrayType(Schematic.Types.Ref)], NullType, (_$, _selected) => null),
                 canConnect: East.function([Schematic.Types.Candidate], OptionType(StringType), (_$, c) =>
@@ -920,6 +1003,7 @@ describe("<Schematic>'s payload, through its carrier", () => {
         assert.ok(equalFor(OptionType(Schematic.Types.Emphasis))(payload.narrowed.emphasis, some(variant("pulse", null))));
         assert.equal(payload.inspector, true);
         assert.equal(payload.readOnly, true);
+        assert.equal(payload.autosave, true, "Autosave begins on, as the expression its author gave says");
         assert.ok(equalFor(OptionType(StringType))(payload.id, some("hall-1")));
         assert.ok(equalFor(ArrayType(Schematic.Types.Layer))(payload.layers, [
             { key: "structure", label: "Structure", visible: none, locked: some(true), opacity: none, tone: none, color: some("fg.muted") },

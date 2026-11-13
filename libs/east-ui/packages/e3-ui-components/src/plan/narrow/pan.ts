@@ -10,62 +10,75 @@
  * width crossed — the same `pan` the `[` / `]` keys emit, so the write goes
  * through the slice like every other window change.
  *
- * Pure geometry here, no React: the hook below feeds it pointer events.
+ * Which fingers the list holds, and when two of them pan, are the shared
+ * pointer core's (east-ui-components' `src/pointer/`): the list is a surface
+ * of it, and its two fingers' pinch is the pan. A finger is held only while it
+ * is down — one whose lift is never heard is let go of as the page's next first
+ * finger lands, or the window loses the page — so none is counted into a pan
+ * that never ends, nor against the two that pan. What is here is what the
+ * list's gestures do ({@link twoFingerPan}), and the arithmetic under it
+ * ({@link panPeriods}): pure, no React.
  */
 
-/** The gesture's running state — one per list element. */
+import type { GestureHost } from "@elaraai/east-ui-components/internal";
+
+/** A pan's running state — one a list. */
 export interface TwoFingerPan {
-    /** Active pointer x positions by pointer id. */
-    pointers: Map<number, number>;
-    /** The two-finger centroid at the last move (undefined until two fingers are down). */
-    centroid: number | undefined;
-    /** Horizontal travel since the last period edge crossed, in px. */
-    acc: number;
+    /** Horizontal travel of the point midway between the two fingers since the last period edge crossed, in px. */
+    travel: number;
 }
 
-/** A fresh gesture state. */
+/** A pan at rest. */
 export function newTwoFingerPan(): TwoFingerPan {
-    return { pointers: new Map(), centroid: undefined, acc: 0 };
+    return { travel: 0 };
 }
 
 /**
- * Feed one pointer sample; returns the number of WHOLE periods the window
- * should pan (positive = later in time, i.e. the content was dragged LEFT),
- * or 0.
+ * Adds a move to a pan's travel, and takes out of it the whole periods it has
+ * crossed.
  *
- * @param g - the gesture state (mutated)
- * @param kind - the pointer event kind
- * @param id - the pointer id
- * @param x - the pointer's client x
- * @param periodPx - one period's width in px (≤ 0 disables)
+ * @param travel - The travel since the last period edge crossed, in px
+ * @param moved - How far the point midway between the two fingers moved, in px: negative, to the left
+ * @param periodPx - One period's width in px (≤ 0 crosses none)
+ * @returns The travel left, and the whole periods crossed: positive, later in time — the content was dragged LEFT
  */
-export function feedTwoFingerPan(
-    g: TwoFingerPan,
-    kind: "down" | "move" | "up",
-    id: number,
-    x: number,
-    periodPx: number,
-): number {
-    if (kind === "up") {
-        g.pointers.delete(id);
-        if (g.pointers.size < 2) { g.centroid = undefined; g.acc = 0; }
-        return 0;
-    }
-    g.pointers.set(id, x);
-    if (g.pointers.size !== 2) { g.centroid = undefined; g.acc = 0; return 0; }
-    let sum = 0;
-    for (const px of g.pointers.values()) sum += px;
-    const c = sum / 2;
-    if (kind === "down" || g.centroid === undefined) { g.centroid = c; g.acc = 0; return 0; }
-    g.acc += c - g.centroid;
-    g.centroid = c;
-    if (periodPx <= 0) return 0;
+export function panPeriods(travel: number, moved: number, periodPx: number): { travel: number; periods: number } {
+    let left = travel + moved;
+    if (periodPx <= 0) return { travel: left, periods: 0 };
     // Dragging the content left (negative travel) reveals later time.
     let periods = 0;
-    while (Math.abs(g.acc) >= periodPx) {
-        const step = g.acc < 0 ? 1 : -1;
+    while (Math.abs(left) >= periodPx) {
+        const step = left < 0 ? 1 : -1;
         periods += step;
-        g.acc += step * periodPx;
+        left += step * periodPx;
     }
-    return periods;
+    return { travel: left, periods };
+}
+
+/**
+ * What the list's gestures do: one finger nothing — the page's scroll is its —
+ * and two a pan, the point midway between them carrying the window a whole
+ * period per period width it crosses. A pan begins afresh as a second finger
+ * lands, and what it had travelled short of a period is forgotten as it ends.
+ *
+ * @param pan - The pan's running state (mutated)
+ * @param periodPx - One period's width in px, as the list stands
+ * @param onPan - Told the whole periods to pan by: positive, later in time
+ * @returns The gestures' host, for the list's surface
+ */
+export function twoFingerPan(pan: TwoFingerPan, periodPx: () => number, onPan: (periods: number) => void): GestureHost<unknown> {
+    const nothing = (): void => undefined;
+    return {
+        press: nothing,
+        drag: nothing,
+        release: nothing,
+        drop: nothing,
+        pinchStart: () => { pan.travel = 0; },
+        pinch: (step) => {
+            const moved = panPeriods(pan.travel, step.to.x - step.from.x, periodPx());
+            pan.travel = moved.travel;
+            if (moved.periods !== 0) onPan(moved.periods);
+        },
+        pinchEnd: () => { pan.travel = 0; },
+    };
 }

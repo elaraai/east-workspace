@@ -1450,3 +1450,59 @@ describe("retained content takes no drag (#1398, CL8)", () => {
         if (e.type === "add") expect(e.value.into.row).toBe("kim");
     });
 });
+
+describe("a cell that comes to take drops, and a drag the page has not drawn yet", () => {
+    /**
+     * A cell that takes no drop until what it shows is read — its coordinate `null` until then, as a builder's cells
+     * are while its period is read (the Calendar's lanes, as a month changes).
+     */
+    function LateCell({ on }: { on: boolean }) {
+        const ref = useDropCell(on ? { surface: "roster", row: "kim", slot: "fri" } : null, !on);
+        return <div ref={ref} data-testid="cell-late" />;
+    }
+    function Page({ on, events }: { on: boolean; events: DragEventValue[] }) {
+        return (
+            <DragLayerProvider>
+                <Target config={{ id: "roster", sources: ["people"], kinds: KINDS_ALL, onDrag: e => events.push(e) }} />
+                <Card library="people" itemKey="patel" />
+                <Cell surface="roster" row="patel" slot="thu" />
+                <LateCell on={on} />
+            </DragLayerProvider>
+        );
+    }
+
+    test("a cell that comes to take drops mid-drag registers with its own settings: the drag finds it a destination, and a drop on it is delivered", () => {
+        const events: DragEventValue[] = [];
+        const { getByTestId, rerender } = render(<Page on={false} events={events} />);
+        engage(getByTestId("card-patel"), null);
+        expect(getByTestId("card-patel").hasAttribute("data-dragging")).toBe(true);
+        // What it shows lands while the drag is in flight: it takes drops from now on.
+        rerender(<Page on events={events} />);
+        const late = getByTestId("cell-late");
+        expect(late.hasAttribute("data-drop-valid")).toBe(true);
+        pointAt(late);
+        fireEvent.pointerUp(document, { pointerId: 1, clientX: 10, clientY: 10 });
+        const e = sole(events);
+        expect(e.type === "add" ? [e.value.into.row, e.value.into.slot] : undefined).toEqual(["kim", "fri"]);
+    });
+
+    test("a drag picked up and let go before the page draws it — a press that slips its 4px and lifts in one go — ends as any drag does, and leaves the layer holding none", () => {
+        const events: DragEventValue[] = [];
+        const { getByTestId, rerender } = render(<Page on={false} events={events} />);
+        const card = getByTestId("card-patel");
+        const cell = getByTestId("cell-patel-thu");
+        // Pressed, moved past the threshold and let go with no frame drawn between.
+        act(() => {
+            fireEvent.pointerDown(card, { pointerId: 1, clientX: 0, clientY: 0 });
+            pointAt(cell);
+            fireEvent.pointerMove(document, { pointerId: 1, clientX: 10, clientY: 10 });
+            fireEvent.pointerUp(document, { pointerId: 1, clientX: 10, clientY: 10 });
+        });
+        const e = sole(events);
+        expect(e.type === "add" ? [e.value.into.row, e.value.into.slot] : undefined).toEqual(["patel", "thu"]);
+        expect([card.hasAttribute("data-dragging"), cell.hasAttribute("data-drop-valid")]).toEqual([false, false]);
+        // No drag is in flight: a cell that comes to take drops now is no destination of one.
+        rerender(<Page on events={events} />);
+        expect(getByTestId("cell-late").hasAttribute("data-drop-valid")).toBe(false);
+    });
+});

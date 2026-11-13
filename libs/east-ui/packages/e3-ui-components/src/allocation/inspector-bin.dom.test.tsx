@@ -9,15 +9,15 @@
  * every fit is the yard's answer. The rest of the Inspector's specs are
  * `inspector.dom.test.tsx`'s, their helpers `inspector.test-utils.tsx`'s.
  */
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { SortedMap, StringType, compareFor, none, some } from "@elaraai/east";
 import { editingMessages } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/allocation/allocation";
 import { conflictCards } from "../e3-web-mount.test-utils.js";
-import { allocationHarness, offering, settle, slot } from "./harness.test-utils.js";
-import { pane, details, tabs, activeTab, card, connector, row, tableRow, undo, save, text, headOf, actions, banners, rowsOf, mates, keyField, press, key, tab, button, revealRow, hover, over, cancel, placing, bestOf, whyOf, hour, inspectorKit } from "./inspector.test-utils.js";
+import { allocationHarness, kilnYard, offering, settle, slot } from "./harness.test-utils.js";
+import { pane, details, issuesTab, tabs, activeTab, card, connector, row, tableRow, libraryCard, toolbar, undo, save, text, headOf, actions, banners, rowsOf, mates, keyField, press, key, tab, button, revealRow, hover, over, release, cancel, placing, bestOf, whyOf, hour, inspectorKit } from "./inspector.test-utils.js";
 
 const h = allocationHarness();
 const { open, answerTo } = inspectorKit(h);
@@ -316,5 +316,92 @@ describe("a bin (A56–A59)", () => {
         const c = await open();
         await press(card(c, "3113"));
         expect(rowsOf(details(c).querySelector("[data-allocation-details] dl"))).toEqual([["Settings", "Schedule KS-7 · 80 °C · equalise 12 h · direct", null]]);
+    });
+});
+
+describe("the refusals holding Save (#1525)", () => {
+    test("the yard's check refusing a bin is listed first in Issues, by its code, and reachable: the warning button and Show select it, its banner over its form and its field ringed, taking the keyboard, and a grade clears it", async () => {
+        const c = (await h.mount(kilnYard({ ready: true }))).container;
+        const user = userEvent.setup();
+        const issueCount = () => Number(tabs(c).find(t => t.textContent!.startsWith("Issues"))!.textContent!.replace(/\D/g, "") || "0");
+        const counted = issueCount();
+        await press(card(c, "3113"));
+        const grade = () => within(details(c).querySelector<HTMLElement>('[data-field="gradeMeasured"]')!).getByRole("textbox");
+        await user.clear(grade());
+        await user.keyboard("{Enter}");
+        await settle();
+        expect(save(c)).toHaveProperty("disabled", true);
+        // Its panel: the refusal over its form, the field it names ringed.
+        expect(banners(c)[0]).toEqual(["Not saved yet", "Not saved yetGrade measured: Measure the grade"]);
+        expect([...details(c).querySelectorAll("[data-issue]")].map(f => f.getAttribute("data-field"))).toEqual(["gradeMeasured"]);
+        // And the field says why under it, in the yard's words: where the keyboard is, whatever of the banner is in view.
+        expect([...details(c).querySelectorAll("[data-field-issue]")].map(f => [f.closest("[data-field]")?.getAttribute("data-field"), f.textContent]))
+            .toEqual([["gradeMeasured", "Measure the grade"]]);
+        // With nothing selected, the history's warning button selects it again.
+        await key(c, "Escape");
+        expect(headOf(c).kind).toBe("Plan · Tue 11 May");
+        await press(toolbar(c).getByRole("button", { name: editingMessages.issues({ n: 1, count: "1" }) }));
+        expect(headOf(c).kind).toBe("Bin 3113");
+        // The field it names takes the keyboard, so it is in view in its pane, ready to be set right (#1585).
+        expect(document.activeElement).toBe(grade());
+        // The Issues tab: the refusal first, by its bin's code, counted with the issues.
+        await tab(c, "Issues");
+        expect(issueCount()).toBe(counted + 1);
+        const group = issuesTab(c).querySelector<HTMLElement>("[data-allocation-issue-group]")!;
+        expect([group.getAttribute("data-allocation-issue-group"), group.firstElementChild!.textContent]).toEqual(["refusals", "Not saved yet1"]);
+        const line = group.querySelector<HTMLElement>('[data-allocation-issue="refusal"]')!;
+        expect([line.querySelector("[title]")!.textContent, line.lastElementChild!.textContent]).toEqual(["LD-2210", "Grade measured: Measure the grade"]);
+        await press(button(line, "Show"));
+        expect([activeTab(c), headOf(c).kind]).toEqual(["Details", "Bin 3113"]);
+        await waitFor(() => expect(document.activeElement).toBe(grade()));
+        // A grade clears it, and Save is on.
+        await user.type(grade(), "R3{Enter}");
+        await settle();
+        expect(save(c)).toHaveProperty("disabled", false);
+        expect(banners(c)).toEqual([]);
+        expect(issueCount()).toBe(counted);
+    });
+
+    test("a reservation the yard's check refuses is set right in its own panel: its fields a bin's, the one the refusal names ringed, and a grade clears it", async () => {
+        const c = (await h.mount(kilnYard({ ready: true }))).container;
+        const user = userEvent.setup();
+        // K-305, free today, dropped from the Library on B-1 00:15: a new reservation, its grade empty.
+        await press(within(slot(c, "start")).getAllByRole("tab").find(t => t.textContent!.startsWith("Resources")));
+        await hover(libraryCard(c, "K-305"), c.querySelector(`[data-allocation-cell="B-1|${hour(0, 15).getTime()}"]`)!);
+        offering(["V1"]);
+        await release();
+        await press(card(c, "V1"));
+        expect(headOf(c).kind).toBe("New reservation");
+        expect(save(c)).toHaveProperty("disabled", true);
+        expect(banners(c)[0]).toEqual(["Not saved yet", "Not saved yetGrade measured: Measure the grade"]);
+        const section = details(c).querySelector<HTMLElement>("[data-allocation-reservation]")!;
+        expect([...section.querySelectorAll("[data-issue]")].map(f => f.getAttribute("data-field"))).toEqual(["gradeMeasured"]);
+        expect([...section.querySelectorAll("[data-field-issue]")].map(f => f.textContent)).toEqual(["Measure the grade"]);
+        await user.type(within(section.querySelector<HTMLElement>('[data-field="gradeMeasured"]')!).getByRole("textbox"), "R3{Enter}");
+        await settle();
+        expect(save(c)).toHaveProperty("disabled", false);
+        expect(banners(c)).toEqual([]);
+        expect(details(c).querySelector("[data-field-issue]")).toBeNull();
+    });
+});
+
+describe("the app's values failing (#1526)", () => {
+    test("a reservation the yard's values fail to make is none: the drop records nothing, the board stands, and the console says why", async () => {
+        const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+        try {
+            const c = (await h.mount(kilnYard({ failingValues: true }))).container;
+            const before = c.querySelectorAll("[data-allocation-card]").length;
+            await press(within(slot(c, "start")).getAllByRole("tab").find(t => t.textContent!.startsWith("Resources")));
+            await hover(libraryCard(c, "K-305"), c.querySelector(`[data-allocation-cell="B-1|${hour(0, 15).getTime()}"]`)!);
+            await release();
+            expect(c.querySelectorAll("[data-allocation-card]")).toHaveLength(before);
+            expect(undo(c)).toHaveProperty("disabled", true);
+            expect(logged).toHaveBeenCalledWith(expect.stringMatching(/^\[Allocation\] a new .+ could not be made from the app's values:$/), expect.anything());
+            // The board still takes a gesture: a bin pressed opens in Details.
+            await press(card(c, "3113"));
+            expect(headOf(c).kind).toBe("Bin 3113");
+        } finally {
+            logged.mockRestore();
+        }
     });
 });

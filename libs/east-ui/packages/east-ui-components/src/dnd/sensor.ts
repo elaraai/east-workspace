@@ -29,6 +29,12 @@
  * with never reaches the element it began on. Neither sensor picks a drag up in
  * retained content (`aria-disabled`, #1398, CL8: {@link inRetained}).
  *
+ * The pointer sensor has React draw a drag's start before it goes on
+ * (`flushSync`): dnd-kit hears a drag's end only once it has drawn its start,
+ * so a press that travelled its `distance` and lifted before the page drew
+ * again — a click that slips — ended unheard, the layer left holding a drag
+ * no one could see, which every cell coming to take drops then joined.
+ *
  * The keyboard sensor picks a focused draggable up with a start key, drops it
  * with an end key and cancels it with a cancel key (the layer's: Space or
  * Enter, Space or Enter, Escape or Tab). The arrow keys are the drag's while
@@ -52,6 +58,7 @@
  */
 
 import type { KeyboardEvent as ReactKeyboardEvent } from "react";
+import { flushSync } from "react-dom";
 import type {
     Activators, DraggableNode, KeyboardCodes, KeyboardCoordinateGetter, SensorInstance, SensorProps,
 } from "@dnd-kit/core";
@@ -174,7 +181,7 @@ export class DragPointerSensor implements SensorInstance {
         handler: ({ nativeEvent }: { nativeEvent: PointerEvent }) => nativeEvent.button === 0 && !inRetained(nativeEvent.target),
     }];
 
-    /** Engage the drag. */
+    /** Engage the drag, drawn before the press can lift (see the module docs). */
     private readonly start = (): void => {
         if (this.activated) return;
         this.activated = true;
@@ -186,7 +193,7 @@ export class DragPointerSensor implements SensorInstance {
         this.listeners.push(listen(this.doc, "selectionchange", this.clearSelection));
         // An engaged touch drag owns the gesture: the page must not pan under it.
         if (this.touch) this.listeners.push(listen(this.doc, "touchmove", preventDefault, { passive: false }));
-        this.props.onStart(this.initial);
+        flushSync(() => { this.props.onStart(this.initial); });
     };
 
     private readonly handleMove = (event: PointerEvent): void => {

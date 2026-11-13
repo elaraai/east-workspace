@@ -8,11 +8,13 @@
  * `Slice.rows(recordSlice)` over an indexed record, projected to those keys —
  * never a row predicate. `recordSources` reads each source of a builder's
  * `Slice.bindRecords` through it (#1340); the complete rows stay a separate
- * input, for the calculations a narrowing never changes.
+ * input, for the calculations a narrowing never changes. A builder that takes
+ * records keyed by any type is shown each key's text — a String key as itself,
+ * any other as East prints it (#1549).
  *
  * @packageDocumentation
  */
-import { ArrayType, SetType, StringType, isTypeEqual, type ExprType, type StructType } from "@elaraai/east";
+import { ArrayType, East, SetType, StringType, isTypeEqual, type EastType, type ExprType, type StructType } from "@elaraai/east";
 import { buildRowSource, resolveRowSource } from "@elaraai/east-ui/internal";
 
 /**
@@ -21,18 +23,22 @@ import { buildRowSource, resolveRowSource } from "@elaraai/east-ui/internal";
  *
  * @param input - Original row keys, or indexed record windows
  * @param prop - What it was given as, for the refusal (`Roster.slice's people`)
- * @returns The inline Set, or a source of original keys
- * @throws {Error} Naming `prop`, when it is neither a Set of String keys nor `Slice.rows` of a record Slice with String keys
+ * @param anyKey - Whether a record Slice may be keyed by any type, each key shown as its text (#1549); by default, String keys alone
+ * @returns The inline Set, or a source of original keys, each its text
+ * @throws {Error} Naming `prop`, when it is neither a Set of String keys nor `Slice.rows` of a record Slice with String
+ *   keys — or, `anyKey`, with keys of any type
  */
-export function keyVisibility(input: unknown, prop: string) {
+export function keyVisibility(input: unknown, prop: string, anyKey = false) {
     const resolved = resolveRowSource(input, prop);
     if (resolved.kind === "inline" && isTypeEqual(resolved.collectionType, SetType(StringType))) {
         return { inline: resolved.rows as ExprType<SetType<StringType>> };
     }
-    if (resolved.kind !== "ordered" || !resolved.pinned || !isTypeEqual(resolved.keyType, StringType)) {
-        throw new Error(`${prop} requires a Set of String keys or Slice.rows of a record Slice with String primary keys`);
+    if (resolved.kind !== "ordered" || !resolved.pinned || !(anyKey || isTypeEqual(resolved.keyType, StringType))) {
+        throw new Error(`${prop} requires a Set of String keys or Slice.rows of a record Slice with ${anyKey ? "" : "String "}primary keys`);
     }
+    // Each key as its text: a String key as itself, any other as East prints it.
+    const printed = !isTypeEqual(resolved.keyType, StringType);
     const source = buildRowSource(resolved, ArrayType(StringType), rows =>
-        (rows as ExprType<ArrayType<StructType>>).map((_$, entry) => entry.key as ExprType<StringType>));
+        (rows as ExprType<ArrayType<StructType>>).map((_$, entry) => printed ? East.print(entry.key as ExprType<EastType>) : entry.key as ExprType<StringType>));
     return { source };
 }

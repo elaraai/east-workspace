@@ -106,12 +106,12 @@ export const set_builtins = {
     s2.forEach(v => s1.add(v));
     return null;
   },
-  SetUnion: (_loc_id: bigint, _source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue) => (s1: Set<any>, s2: Set<any>) => s1.union(s2),
-  SetIntersect: (_loc_id: bigint, _source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue) => (s1: Set<any>, s2: Set<any>) => s1.intersection(s2),
-  SetDiff: (_loc_id: bigint, _source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue) => (s1: Set<any>, s2: Set<any>) => s1.difference(s2),
-  SetSymDiff: (_loc_id: bigint, _source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue) => (s1: Set<any>, s2: Set<any>) => s1.symmetricDifference(s2),
-  SetIsSubset: (_loc_id: bigint, _source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue) => (s1: Set<any>, s2: Set<any>) => s1.isSubsetOf(s2),
-  SetIsDisjoint: (_loc_id: bigint, _source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue) => (s1: Set<any>, s2: Set<any>) => s1.isDisjointFrom(s2),
+  SetUnion: (_loc_id: bigint, _source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue) => (s1: SortedSet<any>, s2: SortedSet<any>) => s1.union(s2),
+  SetIntersect: (_loc_id: bigint, _source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue) => (s1: SortedSet<any>, s2: SortedSet<any>) => s1.intersection(s2),
+  SetDiff: (_loc_id: bigint, _source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue) => (s1: SortedSet<any>, s2: SortedSet<any>) => s1.difference(s2),
+  SetSymDiff: (_loc_id: bigint, _source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue) => (s1: SortedSet<any>, s2: SortedSet<any>) => s1.symmetricDifference(s2),
+  SetIsSubset: (_loc_id: bigint, _source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue) => (s1: SortedSet<any>, s2: SortedSet<any>) => s1.isSubsetOf(s2),
+  SetIsDisjoint: (_loc_id: bigint, _source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue) => (s1: SortedSet<any>, s2: SortedSet<any>) => s1.isDisjointFrom(s2),
   SetCopy: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], K: EastTypeValue) => {
     const compare = compareFor(K);
     return (s: SortedSet<any>) => {

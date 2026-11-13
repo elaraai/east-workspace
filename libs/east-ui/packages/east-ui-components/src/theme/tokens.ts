@@ -28,7 +28,7 @@ export const FONT_BRAND =
 export const FONT_BODY =
     '"Inter Tight Variable", "Inter Tight", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
 export const FONT_MONO =
-    '"JetBrains Mono Variable", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace';
+    '"Chivo Mono Variable", "Chivo Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace';
 
 /* ─── Colour scales ────────────────────────────────────────────────────── */
 
@@ -143,6 +143,14 @@ export const tokens = defineTokens({
         density: {
             header: { sm: { value: "27px" }, md: { value: "36px" }, lg: { value: "42px" } },
             row:    { sm: { value: "27px" }, md: { value: "36px" }, lg: { value: "42px" } },
+        },
+        // The design system's Row card, by density: a row's height, its rule
+        // included, and the header row's the same. The Record's rows stand at
+        // them; the Table's `density` heights above have drifted from them.
+        row: {
+            comfortable: { value: "36px" },
+            compact:     { value: "32px" },
+            condensed:   { value: "28px" },
         },
     },
     /* The shadows — the focus rings, and nothing else — are semantic tokens

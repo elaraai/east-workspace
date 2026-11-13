@@ -11,15 +11,20 @@ import { Fields } from "@elaraai/east-ui";
 import { FieldForm, SliceEditPopover, useFormatters } from "@elaraai/east-ui-components";
 import { Chooser, type ChooserSection } from "@elaraai/east-ui-components/internal";
 import {
-    activityChoices, compareString, DAY, duties, groupSkills, patternProblem, patternSummary, requirementOf, type Assignment, type Person, type RosterStyles, type RosterValue,
-    type Slot, type Week,
+    activityChoices, compareString, DAY, duties, groupOf, groupSkills, patternProblem, patternSummary, requirementOf, type Assignment, type Person, type Place, type RosterStyles,
+    type RosterValue, type Slot, type Week,
 } from "./model.js";
 import type { RolesChange, RosterCommands, RosterSource } from "./actions.js";
 
 const parseDay = parseFor(IntegerType);
 const printDay = printFor(IntegerType);
-const SlotForm = StructType({ day: StringType, group: StringType, shift: StringType });
-const SLOT_FIELDS = Fields.specs(SlotForm, { day: Fields.reference({ of: "days" }), group: Fields.reference({ of: "groups" }), shift: Fields.reference({ of: "shifts" }) });
+/** A group as the place's form keys its choice (#1548): the `Option<String>` printed, so No group stands beside the groups. */
+const printGroup = printFor(OptionType(StringType));
+const parseGroup = parseFor(OptionType(StringType));
+const PlaceForm = StructType({ day: StringType, group: StringType, shift: StringType });
+const PLACE_FIELDS = Fields.specs(PlaceForm, { day: Fields.reference({ of: "days" }), group: Fields.reference({ of: "groups" }), shift: Fields.reference({ of: "shifts" }) });
+const GroupForm = StructType({ group: StringType });
+const GROUP_FIELDS = Fields.specs(GroupForm, { group: Fields.reference({ of: "groups" }) });
 const PersonForm = StructType({ person: OptionType(StringType) });
 const PERSON_FIELDS = Fields.specs(PersonForm, { person: Fields.reference({ of: "people" }) });
 /** What the Roster's own form edits of a duty beside its times: the position held and the activity. */
@@ -34,20 +39,49 @@ const HOUR_FIELDS = Fields.specs(Hours, { hours: Fields.number({ min: 0, step: 0
 const AddLine = StructType({ activity: OptionType(StringType), hours: FloatType });
 const ADD_FIELDS = Fields.specs(AddLine, { activity: Fields.reference({ of: "activities" }), hours: Fields.number({ min: 0, step: 0.5, unit: "h" }) });
 
-/** Shared typed destination form for desktop inspector and narrow actions. */
-export function SlotFields({ value, start, slot, onChange }: { value: RosterValue; start: Date; slot: Slot; onChange: (next: Slot) => void }) {
+/**
+ * The groups a duty can stand in, keyed as the place's form keys them: each group, then No group where the duty kind's
+ * group takes none (#1548), in the vocabulary's word.
+ */
+function groupOptions(value: RosterValue): { key: string; label: string }[] {
+    const groups = value.groups.map(g => ({ key: printGroup(some(g.key)), label: g.label }));
+    return value.duty.roles.noGroup ? [...groups, { key: printGroup(none), label: value.vocabulary.noGroup }] : groups;
+}
+/**
+ * Shared typed destination form for desktop inspector and narrow actions: the day, the group — or No group, where the
+ * duty kind's group takes none (#1548) — and the shift.
+ */
+export function PlaceFields({ value, start, place, onChange }: { value: RosterValue; start: Date; place: Place; onChange: (next: Place) => void }) {
     const format = useFormatters();
-    const options = { days: Array.from({ length: 7 }, (_, day) => ({ key: String(day), label: format.weekdayDate(new Date(start.getTime() + day * DAY)) })),
-        groups: value.groups.map(g => ({ key: g.key, label: g.label })), shifts: value.shifts.map(s => ({ key: s.key, label: s.label })) };
-    return <FieldForm specs={SLOT_FIELDS} value={{ ...slot, day: printDay(slot.day) }} options={options} onChange={(path, next) => {
+    const options = { days: Array.from({ length: 7 }, (_, day) => ({ key: printDay(BigInt(day)), label: format.weekdayDate(new Date(start.getTime() + day * DAY)) })),
+        groups: groupOptions(value), shifts: value.shifts.map(s => ({ key: s.key, label: s.label })) };
+    return <FieldForm specs={PLACE_FIELDS} value={{ day: printDay(place.day), group: printGroup(place.group), shift: place.shift }} options={options} onChange={(path, next) => {
         const key = path[0];
-        if (key === "day" && typeof next === "string") { const parsed = parseDay(next); if (parsed.success && parsed.value >= 0n && parsed.value <= 6n) onChange({ ...slot, day: parsed.value }); }
-        else if (key === "group" && typeof next === "string") onChange({ ...slot, group: next });
-        else if (key === "shift" && typeof next === "string") onChange({ ...slot, shift: next });
+        if (key === "day" && typeof next === "string") {
+            const parsed = parseDay(next);
+            if (parsed.success && parsed.value >= 0n && parsed.value <= 6n) onChange({ day: parsed.value, group: place.group, shift: place.shift });
+        } else if (key === "group" && typeof next === "string") {
+            const parsed = parseGroup(next);
+            if (parsed.success) onChange({ day: place.day, group: parsed.value, shift: place.shift });
+        } else if (key === "shift" && typeof next === "string") onChange({ day: place.day, group: place.group, shift: next });
     }} />;
 }
+/**
+ * A duty's group in the inspector, where the duty kind's group takes none (#1548): the groups and No group, a choice
+ * moving the duty there on its day and shift. `baseline` is the group as stored, marking a draft's change.
+ */
+export function GroupField({ value, group, baseline, onChange, readOnly = false }: {
+    value: RosterValue; group: option<string>; baseline?: option<string> | undefined; onChange: (next: option<string>) => void; readOnly?: boolean;
+}) {
+    return <FieldForm specs={GROUP_FIELDS} value={{ group: printGroup(group) }} baseline={baseline === undefined ? undefined : { group: printGroup(baseline) }} readOnly={readOnly}
+        options={{ groups: groupOptions(value) }} onChange={(_path, next) => {
+            if (typeof next !== "string") return;
+            const parsed = parseGroup(next);
+            if (parsed.success) onChange(parsed.value);
+        }} />;
+}
 /** What a place action places, and where; `onClose` is told as its popover closes, for a host that mounts it in place (#1406, D9: `Elsewhere…`). */
-interface PlaceActionProps { label: string; source?: RosterSource; slot: Slot; value: RosterValue; start: Date; commands: RosterCommands; styles: RosterStyles; onClose?: (() => void) | undefined }
+interface PlaceActionProps { label: string; source?: RosterSource; place: Place; value: RosterValue; start: Date; commands: RosterCommands; styles: RosterStyles; onClose?: (() => void) | undefined }
 /**
  * One anchored place action; absent source offers a staff picker. Until it is first pressed it is its trigger alone
  * (#1398, CL9): every day off in the People grid holds one, and a popover mounted for each made each row coming into
@@ -56,7 +90,9 @@ interface PlaceActionProps { label: string; source?: RosterSource; slot: Slot; v
  */
 export function PlaceAction(props: PlaceActionProps) {
     const [armed, setArmed] = useState(false);
-    const { available, locked } = props.commands;
+    const { locked } = props.commands;
+    // Its day's, which a published day takes away (#1550).
+    const available = props.commands.availableOn(props.place.day);
     useEffect(() => { if (locked !== undefined) setArmed(false); }, [locked]);
     if (!available && locked === undefined) return null;
     if (!armed || locked !== undefined) {
@@ -68,23 +104,23 @@ export function PlaceAction(props: PlaceActionProps) {
  * A place action's popover, mounted by its first press: it opens as it mounts, as a press of its own trigger opens it.
  * The off day's `Elsewhere…` mounts it in place (#1406, D9), and is told as it closes.
  */
-export function PlacePopover({ label, source, slot: initial, value, start, commands, styles, onClose }: PlaceActionProps) {
+export function PlacePopover({ label, source, place: initial, value, start, commands, styles, onClose }: PlaceActionProps) {
     const [open, setOpen] = useState(false);
-    const [slot, setSlot] = useState(initial);
+    const [place, setPlace] = useState(initial);
     const [person, setPerson] = useState<ValueTypeOf<typeof PersonForm>>({ person: none });
     const [error, setError] = useState<string>();
     // Opened once its trigger is in place, so the popover hangs from it and takes the focus as any opening does.
     useLayoutEffect(() => { setOpen(true); }, []);
-    if (!commands.available) return null;
-    return <SliceEditPopover open={open} onOpenChange={next => { setOpen(next); if (next) { setSlot(initial); setError(undefined); } else onClose?.(); }} label={label}
+    if (!commands.availableOn(initial.day)) return null;
+    return <SliceEditPopover open={open} onOpenChange={next => { setOpen(next); if (next) { setPlace(initial); setError(undefined); } else onClose?.(); }} label={label}
         trigger={<Button size="xs" variant="outline" data-roster-action={label.toLowerCase()}>{label}</Button>}
         footActions={<><Button size="xs" variant="outline" onClick={() => setOpen(false)}>Cancel</Button><Button size="xs" variant="outline" disabled={source === undefined && person.person.type === "none"} onClick={() => {
             const from = source ?? (person.person.type === "some" ? { type: "person" as const, key: person.person.value } : undefined);
             if (from === undefined) return;
-            const refusal = commands.place(from, slot); setError(refusal); if (refusal === undefined) setOpen(false);
+            const refusal = commands.place(from, place); setError(refusal); if (refusal === undefined) setOpen(false);
         }}>{label}</Button></>}>
         {source === undefined && <FieldForm specs={PERSON_FIELDS} value={person} options={{ people: value.people.filter(p => value.visiblePeople.type === "none" || value.visiblePeople.value.has(p.key)).map(p => ({ key: p.key, label: p.name })) }} onChange={(_path, next) => setPerson({ person: next as typeof person.person })} />}
-        <SlotFields value={value} start={start} slot={slot} onChange={setSlot} />
+        <PlaceFields value={value} start={start} place={place} onChange={setPlace} />
         {error !== undefined && <Box role="alert" css={styles.error}>{error}</Box>}
     </SliceEditPopover>;
 }
@@ -119,15 +155,17 @@ export function dutyForm(a: Assignment): DutyFormValue { return { position: a.po
 
 /**
  * The Roster's own form over a duty's roles: the position held — where the
- * kind maps one — and, for a named person, the activity; each choice one edit.
+ * kind maps one — and, for a named person, the activity; each choice one edit,
+ * and one the duty refuses (`onChange` saying why) put back, the reason under
+ * its field.
  */
 export function AssignmentFields({ assignment, form, baseline, value, onChange, readOnly = false }: {
-    assignment: Assignment; form: DutyFormValue; baseline?: DutyFormValue | undefined; value: RosterValue; onChange: (change: RolesChange) => void; readOnly?: boolean;
+    assignment: Assignment; form: DutyFormValue; baseline?: DutyFormValue | undefined; value: RosterValue; onChange: (change: RolesChange) => string | void; readOnly?: boolean;
 }) {
     // The group's skills and the duties the slice shows, and the duty's own — as stored and as the edit has it — so a
     // stored activity the rail hides can be picked again after choosing another (#1342).
     const own = [form.activity, baseline?.activity].flatMap(activity => activity?.type === "some" ? [activity.value] : []);
-    const activities = activityChoices(value, assignment.slot.group, own);
+    const activities = activityChoices(value, groupOf(assignment), own);
     const specs = DUTY_FIELDS.filter(field => field.path[0] === "position" ? value.duty.roles.position : value.duty.roles.activity && assignment.who.type === "person");
     if (specs.length === 0) return null;
     const shown = { position: form.position.type === "some" ? form.position.value : "", activity: form.activity };
@@ -136,9 +174,13 @@ export function AssignmentFields({ assignment, form, baseline, value, onChange, 
         options={{ positions: value.positions.map(p => ({ key: p.key, label: p.label })), activities: activities.map(a => ({ key: a.key, label: a.label })) }}
         onChange={(path, next) => onChange(path[0] === "position" ? { position: some(next as string) } : { activity: next as option<string> })} />;
 }
-/** A duty's own times (§5.5, rule 4): each one an edit, held within twelve hours of its shift's start, its end after its start. */
+/**
+ * A duty's own times: each one an edit, held to its day — its start from twelve hours before its shift's to less than
+ * twelve after — its end after its start; a time the duty refuses (`onChange` saying why) put back, the reason under
+ * its field.
+ */
 export function TimesFields({ form, baseline, onChange, readOnly = false }: {
-    form: DutyFormValue; baseline?: DutyFormValue | undefined; onChange: (change: RolesChange) => void; readOnly?: boolean;
+    form: DutyFormValue; baseline?: DutyFormValue | undefined; onChange: (change: RolesChange) => string | void; readOnly?: boolean;
 }) {
     return <FieldForm specs={TIME_FIELDS} value={{ start: form.start, end: form.end }} baseline={baseline === undefined ? undefined : { start: baseline.start, end: baseline.end }}
         readOnly={readOnly} onChange={(path, next) => onChange(path[0] === "start" ? { start: next as Date } : { end: next as Date })} />;
@@ -152,7 +194,7 @@ export function AssignmentActions({ id, assignment, value, start, commands, styl
     const [error, setError] = useState<string>();
     // While a run of the optimiser holds the week (#1409, R2) the actions stay in place, inert.
     const locked = commands.locked !== undefined;
-    if (!commands.available && !locked) return null;
+    if (!commands.availableOn(assignment.place.day) && !locked) return null;
     if (removed) return <Button size="xs" variant="outline" disabled={locked} title={commands.locked} onClick={() => commands.restore(id)}>Restore</Button>;
     const change = (next: RolesChange) => setForm(before => ({ ...before, ...next }));
     return <><Box css={styles.actions} data-roster-assignment-actions="">
@@ -167,11 +209,11 @@ export function AssignmentActions({ id, assignment, value, start, commands, styl
             <TimesFields form={form} baseline={dutyForm(assignment)} onChange={change} />
             {error !== undefined && <Box role="alert" css={styles.error}>{error}</Box>}
         </SliceEditPopover>
-        <PlaceAction label="Move" source={{ type: "assignment", key: id }} slot={assignment.slot} value={value} start={start} commands={commands} styles={styles} />
+        <PlaceAction label="Move" source={{ type: "assignment", key: id }} place={assignment.place} value={value} start={start} commands={commands} styles={styles} />
         <Button size="xs" variant="outline" disabled={locked} title={commands.locked} onClick={() => commands.remove(id)}>Remove</Button>
     </Box>{error !== undefined && !open && <Box role="alert" css={styles.error}>{error}</Box>}</>;
 }
-/** Targets use FieldForm for the headcount, every activity line, and adding a line. */
+/** Targets use FieldForm for the headcount, every activity line, and adding a line: a target the week refuses put back, the reason under its field. */
 export function RequirementFields({ slot, week, held, value, commands, styles }: { slot: Slot; week: Week; held: Week; value: RosterValue; commands: RosterCommands; styles: RosterStyles }) {
     const target = requirementOf(week, slot);
     const baseline = held.requirements.get(slot);
@@ -179,9 +221,9 @@ export function RequirementFields({ slot, week, held, value, commands, styles }:
     const activities = [...groupSkills(value, slot.group), ...duties(value)];
     const choices = activityChoices(value, slot.group).filter(a => !target.hours.has(a.key));
     const [line, setLine] = useState<ValueTypeOf<typeof AddLine>>({ activity: none, hours: 8 });
-    const editable = commands.available && value.targets.type === "some";
+    const editable = commands.availableOn(slot.day) && value.targets.type === "some";
     const changeHours = (key: string, hours: number) => {
-        const next = { ...target, hours: new SortedMap(target.hours, compareString) }; next.hours.set(key, hours); commands.requirement(slot, next);
+        const next = { ...target, hours: new SortedMap(target.hours, compareString) }; next.hours.set(key, hours); return commands.requirement(slot, next);
     };
     return <>
         <FieldForm specs={TARGET_FIELDS} value={target} baseline={baseline} readOnly={!editable} onChange={(_path, next) => commands.requirement(slot, { ...target, positions: next as bigint })} />
@@ -203,7 +245,7 @@ export function RequirementFields({ slot, week, held, value, commands, styles }:
 export function RequirementAction(props: Parameters<typeof RequirementFields>[0]) {
     const [open, setOpen] = useState(false);
     const locked = props.commands.locked !== undefined;
-    if ((!props.commands.available && !locked) || props.value.targets.type !== "some") return null;
+    if ((!props.commands.availableOn(props.slot.day) && !locked) || props.value.targets.type !== "some") return null;
     return <SliceEditPopover open={open} onOpenChange={setOpen} label="Shift targets" trigger={<Button size="xs" variant="outline" disabled={locked} title={props.commands.locked}>Edit targets</Button>}
         footActions={<Button size="xs" variant="outline" onClick={() => setOpen(false)}>Done</Button>}><RequirementFields {...props} /></SliceEditPopover>;
 }

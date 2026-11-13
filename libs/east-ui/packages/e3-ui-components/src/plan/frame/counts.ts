@@ -202,7 +202,9 @@ export function usePlanEventCounts(
                 const items = kind.planItems(new Date(from), new Date(to), drafted, read);
                 if (items.type === "none") return READING;
                 if (kind.overlaps.type === "warn") warned.push(items.value);
-                if (held === undefined) {
+                // Read over the window — by its host, or, a kind read a window at a time, from its window's own rows as
+                // the reader holds them (#1599): every event of the window, its drafts in place.
+                if (held === undefined || cells!.windowed.has(kind.key)) {
                     events += items.value.length;
                     counted = true;
                     for (const item of items.value) minutes += Number(item.minutes);

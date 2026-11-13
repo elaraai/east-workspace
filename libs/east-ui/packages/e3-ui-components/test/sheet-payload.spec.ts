@@ -103,8 +103,9 @@ describe("one entry's rows", () => {
     test("an entry the record does not hold is named for the banner, its sheet empty and read-only (SB15)", async () => {
         StateRuntime.initializeStore(new UIStore());
         const { runtime, handle } = await plans();
+        // A week's rows hold fields no column here sets (#1536): the sheet adds no rows.
         const payloadOf = East.compile(East.function([PlansHandle, StringType], SheetPayloadType, ($, record, week) =>
-            Sheet.Payload({ record, entry: { key: week, rows: "rows", id: "id" }, columns: COLUMNS })),
+            Sheet.Payload({ record, entry: { key: week, rows: "rows", id: "id" }, columns: COLUMNS, edits: { insertRows: false } })),
         [...runtime.buildPrimitives(), ...StateImpl]) as unknown as (h: unknown, week: string) => Payload;
         const held = payloadOf(handle, "2026-W42");
         assert.deepEqual(ids(held), ["w42-1", "w42-2", "w42-3"]);
@@ -119,6 +120,7 @@ describe("one entry's rows", () => {
     test("the author's readOnly holds whether or not the record holds the entry", async () => {
         StateRuntime.initializeStore(new UIStore());
         const { runtime, handle } = await plans();
+        // Read only, the sheet adds no rows, and so needs no `newRow` for the fields no column sets (#1536).
         const payloadOf = East.compile(East.function([PlansHandle], SheetPayloadType, ($, record) =>
             Sheet.Payload({ record, entry: { key: "2026-W42", rows: "rows", id: "id" }, columns: COLUMNS, readOnly: true })),
         [...runtime.buildPrimitives(), ...StateImpl]) as unknown as (h: unknown) => Payload;

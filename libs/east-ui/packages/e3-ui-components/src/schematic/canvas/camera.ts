@@ -204,6 +204,43 @@ export function zoomAbout(prev: Viewport, factor: number, px: number, py: number
     return { zoom, tx: px - k * (px - prev.tx), ty: py - k * (py - prev.ty) };
 }
 
+/**
+ * Apply one step of a pinch: zoom by its factor about the point the fingers'
+ * midpoint stood at, and carry what the drawing shows there to where the
+ * midpoint stands now — so each finger stays on the point of the drawing it
+ * touched, and two fingers carried together, their distance kept, pan.
+ *
+ * The zoom is held to `[min, max]`, and what the fingers ask for past a limit
+ * is remembered, not lost (`over`): drawn together past the least zoom and
+ * apart again, the drawing zooms only once they stand further apart than where
+ * the limit held it. Without that a limit is a ratchet — two fingers carried
+ * together arrive one move at a time, the first changing their distance and the
+ * second putting it back, and at the least zoom the first would be dropped and
+ * the second zoom in. At a limit the step carries the drawing by the midpoint's
+ * move alone. It never snaps to Fit's camera as {@link zoomAbout} does — a
+ * camera that jumped under the fingers would leave them — so a pinch in that
+ * comes to rest at `min` is settled there by its caller, as it ends.
+ *
+ * @param prev - the current camera
+ * @param factor - the fingers' distance now over their distance before the move
+ * @param from - where the fingers' midpoint stood, in px from the canvas's corner
+ * @param to - where it stands now
+ * @param min - minimum zoom
+ * @param max - maximum zoom
+ * @param over - how far past a limit the fingers stood before the move: the zoom they asked for over the zoom the
+ *   limits allowed, 1 within them
+ * @returns the next camera, and how far past a limit the fingers stand now
+ */
+export function pinchAbout(
+    prev: Viewport, factor: number, from: { readonly x: number; readonly y: number }, to: { readonly x: number; readonly y: number }, min: number, max: number,
+    over = 1,
+): { camera: Viewport; over: number } {
+    const asked = prev.zoom * over * factor;
+    const zoom = Math.max(min, Math.min(max, asked));
+    const k = zoom / prev.zoom;
+    return { camera: { zoom, tx: to.x - k * (from.x - prev.tx), ty: to.y - k * (from.y - prev.ty) }, over: asked / zoom };
+}
+
 /** Moving slower than a viewport each this many ms, the canvas tells its reader where its view stands as it moves (#1398, CL6). */
 export const SLOW_READ_MS = 200;
 

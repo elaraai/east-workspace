@@ -8,20 +8,25 @@
  * `<Flowchart>` hands the renderer through its `Flowchart` carrier — its
  * canvas, its kinds, its narrowing and how a narrowed-out row draws, its
  * library's tabs, whether it has an inspector, the app's own words for a
- * transition's kinds (#1516), whether it is read only, and its name — and
- * every refusal of its props, made when the surface is built. A kind's noun
+ * transition's kinds (#1516), whether it is read only, whether its Autosave
+ * begins on, and its name — and every refusal of its props, made when the
+ * surface is built. A kind's noun
  * is its own `name`, wherever the Flowchart says it.
  *
  * Its kinds are the app's records (R1, `kinds.ts`): `states`, and beside them
  * `transitions`, `lanes` and `decisions`, each closed over its record behind
  * East functions over beast2 bytes, so the payload is one type whatever the
- * rows hold.
+ * rows hold. A record may be keyed by any type a Dict takes (#1549), and a
+ * role naming another kind's row holds that kind's key: the payload checks
+ * each against the kind it names, and a mismatch is refused naming the role,
+ * the field, both kinds and both types.
  *
  * Its narrowing is one `Slice.bindRecords` (R4): a source named `states` or
  * `transitions` narrows that kind, read complete through it — or, under
  * `narrowed="dim"`, every row read through it and what the narrowing leaves
  * out drawn as context — and each other source the cards list, the author's
- * tab or the details whose picks it weighs name (#1522). A source named
+ * tab or the details whose picks it weighs name (#1522). Each may narrow a
+ * record keyed by any type, its shown keys their text (#1549). A source named
  * `lanes` or `decisions` is
  * refused: they are read whole. The payload's block binds each source once
  * (`recordSources(…).bind($)`), and each kind reads its own source inside its
@@ -41,7 +46,7 @@ import {
 } from "@elaraai/east";
 import { EastUI, RowSourceType } from "@elaraai/east-ui";
 import { RecordSlicesChromeType, isRecordSlices, type RecordSlicesChromeOptions } from "@elaraai/east-ui/internal";
-import { typeText } from "../schedule/window.js";
+import { optionOf, typeText } from "../schedule/window.js";
 import { recordSources, sliceSourceNames, templatesSource } from "../utils/record-sources.js";
 import { vocabularyWord } from "../utils/vocabulary.js";
 import { FlowchartCanvasType, buildCanvas, type FlowchartCanvasOptions } from "./canvas.js";
@@ -85,6 +90,7 @@ export const FlowchartVocabularyType = StructType({ planned: StringType, observe
  * @property inspector - Whether the inspector pane shows: on unless `inspector={false}`
  * @property vocabulary - The app's words for a transition's kinds (#1516)
  * @property readOnly - No gesture, drop or inspector edit; selection stays
+ * @property autosave - Whether its Autosave begins on
  * @property name - Keeps the Flowchart's state apart, when a surface holds two
  */
 export const FlowchartPayloadType = StructType({
@@ -100,6 +106,7 @@ export const FlowchartPayloadType = StructType({
     inspector: BooleanType,
     vocabulary: FlowchartVocabularyType,
     readOnly: BooleanType,
+    autosave: BooleanType,
     name: OptionType(StringType),
 });
 
@@ -191,6 +198,13 @@ export interface FlowchartProps extends FlowchartCanvasOptions {
     vocabulary?: FlowchartVocabularyProp;
     /** No gesture, drop or inspector edit; selection stays. */
     readOnly?: SubtypeExprOrValue<BooleanType> | boolean;
+    /**
+     * Whether Autosave — the switch in Save's menu — begins on; off by default. On, the Flowchart's changes are saved by
+     * themselves a pause after the viewer's last act: never an Undo or a Redo, which wait for a press of Save. A
+     * literal, or an expression data drives. The viewer's own choice, once made, is kept in their browser for the data
+     * set and the Flowchart, and stands over it.
+     */
+    autosave?: SubtypeExprOrValue<BooleanType> | boolean;
     /** Keeps this Flowchart's panes, library and orientation apart when one surface holds two (`flowchartKeys(name)`). */
     name?: string;
 }
@@ -252,7 +266,7 @@ const REMOVED: Readonly<Record<string, string>> = {
 
 /** Every prop `<Flowchart>` takes. */
 const PROPS: ReadonlySet<string> = new Set([
-    "states", "transitions", "lanes", "decisions", "slice", "narrowed", "library", "inspector", "vocabulary", "readOnly", "name",
+    "states", "transitions", "lanes", "decisions", "slice", "narrowed", "library", "inspector", "vocabulary", "readOnly", "autosave", "name",
     "orientation", "freshness", "minimap", "legend", "onSelectState", "onSelectLink", "onSelectTrigger", "onTracePath", "canConnect", "narrow",
 ]);
 
@@ -388,8 +402,10 @@ function sliceSourceRows(narrowing: RecordSlicesChromeOptions, source: string): 
  *   kind's own; details naming no source of the slice, a kind's own, or one over rows of another type than theirs
  *   (#1522); a `narrowed` of another form; an `inspector` that is no Boolean, and `inspector={false}` beside a
  *   details' read shown in the inspector alone; each of `vocabulary`'s refusals ({@link flowchartVocabulary}); a
- *   `name` that is no string; each of the library's refusals (`library.ts`); and each kind's refusals of its binding
- *   and its details (`kinds.ts`, `details.ts`)
+ *   `name` that is no string; each of the library's refusals (`library.ts`); each kind's refusals of its binding and
+ *   its details (`kinds.ts`, `details.ts`); and a role naming another kind's row holding another type than that kind's
+ *   key (#1549) — a state's lane, a transition's ends and its decision, a decision's queue — naming the role, the field,
+ *   both kinds and both types
  * @internal
  */
 export function createFlowchartPayload(props: object): ExprType<FlowchartPayloadType> {
@@ -410,14 +426,40 @@ export function createFlowchartPayload(props: object): ExprType<FlowchartPayload
     const lanes = kindOf<FlowchartLanes>("lanes", given.lanes);
     const decisions = kindOf<FlowchartDecisions>("decisions", given.decisions);
     // A role naming another kind's key needs that kind (R3).
-    if (states.lane && lanes === undefined) {
+    if (states.lane !== undefined && lanes === undefined) {
         throw new Error("Flowchart: a state's lane names a lane — give lanes={Flowchart.lanes(…)}, or drop lane");
     }
-    if (lanes !== undefined && !states.lane) {
+    if (lanes !== undefined && states.lane === undefined) {
         throw new Error("Flowchart: the lanes are columns: give the states their lane — Flowchart.states(record, { label, lane })");
     }
-    if (transitions?.decision === true && decisions === undefined) {
+    if (transitions?.decision !== undefined && decisions === undefined) {
         throw new Error("Flowchart: a transition's decision names a decision — give decisions={Flowchart.decisions(…)}, or drop decision");
+    }
+    // A role naming another kind's row holds that kind's key (#1549): each checked against the kind it names.
+    if (states.lane !== undefined && lanes !== undefined && !isTypeEqual(states.lane.type, lanes.keyType)) {
+        throw new Error(`Flowchart: a state's lane, "${states.lane.field}", holds ${typeText(states.lane.type)} — and the lanes are keyed by ` +
+            `${typeText(lanes.keyType)}: key the lanes by ${typeText(states.lane.type)}, or name a field holding ${typeText(lanes.keyType)}`);
+    }
+    if (transitions !== undefined && !isTypeEqual(transitions.ends.type, states.keyType)) {
+        const { from, to, type } = transitions.ends;
+        throw new Error(`Flowchart: a transition's ends, "${from}" and "${to}", hold ${typeText(type)} — and the states are keyed by ` +
+            `${typeText(states.keyType)}: key the states by ${typeText(type)}, or name fields holding ${typeText(states.keyType)}`);
+    }
+    const decision = transitions?.decision;
+    if (decision !== undefined && decisions !== undefined) {
+        // An Option of the decisions' key; a String, empty for none, where they are keyed by String.
+        const fits = isTypeEqual(decision.type, OptionType(decisions.keyType))
+            || (isTypeEqual(decision.type, StringType) && isTypeEqual(decisions.keyType, StringType));
+        if (!fits) {
+            throw new Error(`Flowchart: a transition's decision, "${decision.field}", holds ${typeText(decision.type)} — and the decisions are keyed by ` +
+                `${typeText(decisions.keyType)}: key the decisions by ${typeText(optionOf(decision.type) ?? decision.type)}, or name a field holding ` +
+                `${typeText(OptionType(decisions.keyType))}`);
+        }
+    }
+    const queue = decisions?.queue;
+    if (queue !== undefined && !isTypeEqual(queue.type, states.keyType)) {
+        throw new Error(`Flowchart: a decision's queue, "${queue.field}", holds the states' keys as ${typeText(queue.type)} — and the states are keyed by ` +
+            `${typeText(states.keyType)}: key the states by ${typeText(queue.type)}, or name an Array or a Set field of ${typeText(states.keyType)}`);
     }
     const kinds = [
         { sort: "states" as const, kind: states },
@@ -479,8 +521,9 @@ export function createFlowchartPayload(props: object): ExprType<FlowchartPayload
     }
     const tabSources = flowchartTabSources(given.library);
     const names = [...new Set(["states", ...(transitions === undefined ? [] : ["transitions"]), ...cardSources, ...tabSources, ...weighing])];
+    // Each source may narrow a record keyed by any type, its shown keys their text (#1549).
     const sources = recordSources(narrowing, {
-        builder: "Flowchart", names,
+        builder: "Flowchart", names, anyKey: true,
         what: "its states and its transitions, each by the source named after it, and the cards lists, tabs and details that name a source",
     });
     const library = buildFlowchartLibrary(given.library, {
@@ -518,6 +561,7 @@ export function createFlowchartPayload(props: object): ExprType<FlowchartPayload
             inspector,
             vocabulary,
             readOnly: given.readOnly ?? false,
+            autosave: given.autosave ?? false,
             name: name === undefined ? none : some(name),
         } as never, FlowchartPayloadType);
     });

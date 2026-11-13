@@ -9,7 +9,7 @@
  * through their series index, and past 10,000 of them shaded from their
  * summary. What each request asked is read from the harness's request log;
  * another planner's write is a real commit. The timeline's scroll box is laid
- * out as a browser lays it — 400px tall, each line 42px and a run of places not
+ * out as a browser lays it — 400px tall, each line 43px and a run of places not
  * read as tall as its rows, 900px wide — and the Resources view's 900px wide,
  * its content as wide as its columns, which jsdom does not.
  *
@@ -19,8 +19,8 @@
  *   entries in one more — never a page of the window through the interval
  *   index, which reads the backlog alone.
  * - A scroll down reads the presses' windows and the cells it brings into
- *   view alone; a scroll on to the window's end re-centres, and reads the cells
- *   of the weeks it brings in alone.
+ *   view alone; a scroll along to the week's end moves no period and reads
+ *   nothing: the timeline shows the period chosen (ruled 9 Nov 2026).
  * - Fifty thousand presses: the timeline lays them out in as many lines as the
  *   windows it holds, the places between one run each, and the Resources view
  *   places the columns it draws at their own offsets — no line, column or grid
@@ -59,14 +59,41 @@ import * as cw from "@elaraai/e3-ui/examples/calendar/calendar-windows";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-windows";
 import * as pe from "@elaraai/e3-ui/examples/plan/plan-events";
 import type { TreePath } from "@elaraai/e3-types";
-import { act, e3Harness, settle, slot } from "../e3-web-mount.test-utils.js";
+import { act, e3Harness, evaluatesAgain, settle, slot } from "../e3-web-mount.test-utils.js";
 import type { E3Request } from "../e3-web.test-utils.js";
-import { eventKey, resourceKey, DAY } from "./model.js";
+import { editedThroughReload, redrawnThroughReload, savedThroughReload } from "../shared/save-held.test-utils.js";
+import { eventKey, parseResourceKey, resourceKey, DAY } from "./model.js";
 import { TIMELINE_GUTTER, timelinePixels } from "./timeline.js";
-import "./index.js";
+import type { CalendarCommands } from "./actions.js";
+import { setCalendarReadAheadProbe } from "./data.js";
+import { setCalendarFrameRenderProbe } from "./index.js";
+import { setCalendarDetailsRenderProbe } from "./inspector.js";
+import { setEventFaceRenderProbe, setTimelineRowRenderProbe } from "./views.js";
+
+/** The placements the Calendar's commands were asked for: each a drag checked where it rests, and each one made. */
+const placed = vi.hoisted(() => ({ checks: 0, made: 0 }));
+
+vi.mock("./actions", async (importOriginal) => {
+    const real = await importOriginal<typeof import("./actions.js")>();
+    return {
+        ...real,
+        // The real commands, each placement counted as it is asked: checked only, or made.
+        calendarCommands: (...args: Parameters<typeof real.calendarCommands>): CalendarCommands => {
+            const commands = real.calendarCommands(...args);
+            return {
+                ...commands,
+                place: (source, placement, origin, checkOnly) => {
+                    if (checkOnly === true) placed.checks++; else placed.made++;
+                    return commands.place(source, placement, origin, checkOnly);
+                },
+            };
+        },
+    };
+});
 
 // The print works' module beside the windows': its job templates are what a job made on a paged press is made from.
 const h = e3Harness({ "calendar/calendar-windows": cw, "plan/plan-windows": ex, "plan/plan-events": pe }, { main: "data-calendar-main" });
+evaluatesAgain();
 
 type Job = ValueTypeOf<typeof pe.PrintJob>;
 
@@ -146,10 +173,10 @@ let errors: MockInstance<typeof console.error>;
 
 // ── The timeline's scroll box, laid out ──────────────────────────────────────
 
-/** The timeline's view: 400px tall, 900px wide, each line of it 42px. */
+/** The timeline's view: 400px tall, 900px wide, each line of it 43px — a row of one lane, 42px, and its rule. */
 const VIEW_HEIGHT = 400;
 const VIEW_WIDTH = 900;
-const LINE = 42;
+const LINE = 43;
 /** The Resources view's hour column, and the least width of each column beside it, px. */
 const HOUR_COLUMN = 56;
 const RESOURCE_COLUMN = 104;
@@ -189,7 +216,7 @@ beforeEach(() => {
             return (shown.to.getTime() - shown.from.getTime()) / DAY * timelinePixels("week") + TIMELINE_GUTTER;
         },
     });
-    // Each line of the timeline as a browser lays it: 42px — and a run of places not read as tall as its rows.
+    // Each line of the timeline as a browser lays it: 43px — and a run of places not read as tall as its rows.
     harnessRect = Element.prototype.getBoundingClientRect;
     Element.prototype.getBoundingClientRect = function (this: Element): DOMRect {
         if (!isLine(this)) return harnessRect.call(this);
@@ -267,7 +294,7 @@ describe("a Calendar over 2,000 presses paged, the jobs on them read a cell at a
         for (const job of ["W-0001", "W-0002", "W-0003", "W-0004"]) expect(jobEvent(c, job), job).not.toBeNull();
     });
 
-    test("a scroll down reads the presses' windows and the cells it brings into view alone; a scroll on to the window's end re-centres and reads the tiles it brings in alone", async () => {
+    test("a scroll down reads the presses' windows and the cells it brings into view alone; a scroll along to the week's end moves no period and reads nothing", async () => {
         const { container: c } = await h.mount(cw.calendarWindows, { storageKey: "windows-scroll" });
         await settle();
         // Down to Press 1201, the first of the second window, held already: the window after it read ahead, and the blocks
@@ -286,17 +313,17 @@ describe("a Calendar over 2,000 presses paged, the jobs on them read a cell at a
         expect(askedOf(PRESSES, since)).toEqual([]);
         expect(searchedPresses(since)).toEqual(pressesFrom(300, 399));
         expect(pressRows(c)).toContain("Press 1333");
-        // Along the timeline to its window's end: it re-centres four weeks on, and reads the tiles it brings in alone.
+        // Along the timeline to the week's end: the timeline shows the week chosen, so the scroll moves no period and reads
+        // nothing more — no press, no cell, no page of the window (ruled 9 Nov 2026).
         const was = windowOf(timelineOf(c));
         since = h.requests().length;
-        await scrollTimeline(c, { left: timelineOf(c).scrollWidth - VIEW_WIDTH - 100 });
-        await waitFor(() => expect(windowOf(timelineOf(c)).from.getTime()).toBe(was.from.getTime() + 28 * DAY));
-        await settle();
-        const tiles = [...new Set(cellSearches(since).flatMap(({ tile }) => (tile === undefined ? [] : [tile])))];
-        expect(tiles.length).toBeGreaterThan(0);
-        // Each level's tiles were read before through the one after the tile after the window's last: none is read again.
-        expect(tiles.every((tile) => tile >= was.to.getTime() + 7 * DAY), tiles.map((tile) => new Date(tile).toISOString()).join(", ")).toBe(true);
-        expect(searchedPresses(since)).toEqual(pressesFrom(300, 399));
+        await scrollTimeline(c, { left: timelineOf(c).scrollWidth - VIEW_WIDTH });
+        const now = windowOf(timelineOf(c));
+        expect([now.from.getTime(), now.to.getTime()], "the week shown").toEqual([was.from.getTime(), was.to.getTime()]);
+        expect(askedOf(PRESSES, since)).toEqual([]);
+        expect(indexAsked(SERIES, since)).toEqual([]);
+        expect(windowReads(since)).toEqual([]);
+        expect(pressRows(c)).toContain("Press 1333");
     });
 });
 
@@ -862,5 +889,304 @@ describe("a job made on a paged press from a template (#1424)", () => {
             { title: "Board run", press: some("P-1460"), start: some(new Date("2026-10-05T09:00:00Z")) },
             { title: "Brochure run", press: some("P-1004"), start: some(new Date("2026-10-08T06:00:00Z")) },
         ]);
+    });
+});
+
+describe("a template carried over the timeline of 2,000 paged presses (#1594)", () => {
+    const pointer = { pointerId: 1, pointerType: "mouse", button: 0, buttons: 1 };
+    /** The brochure run's template card, laid out below the timeline, and the plots of the presses' rows given, one under another from 100px down, 40px each, a day 100px. */
+    function layOutRows(c: HTMLElement, presses: readonly string[]) {
+        const card = slot(c, "start").querySelector<HTMLElement>(`[data-library-item=${JSON.stringify(eventKey({ kind: "job", key: "brochure" }))}]`)!;
+        const plots = presses.map((press) => pressRow(c, press)!.querySelector<HTMLElement>("[data-calendar-cell]")!);
+        const from = Number(plots[0]!.dataset["calendarFrom"]), to = Number(plots[0]!.dataset["calendarTo"]);
+        const width = (to - from) / DAY * 100;
+        layOut(new Map<Element, { left: number; top: number; width: number; height: number }>([
+            [card, { left: 0, top: 880, width: 240, height: 40 }], ...plots.map((plot, i) => [plot, { left: 0, top: 100 + i * 40, width, height: 40 }] as const)]));
+        /** Where an instant is along a row, a pixel past it. */
+        const x = (at: string) => (new Date(at).getTime() - from) / (to - from) * width + 1;
+        return { card, x };
+    }
+    /** Picks the card up, as a mouse does past its few pixels of travel. */
+    async function pickUp(card: HTMLElement) {
+        await act(async () => {
+            fireEvent.pointerDown(card, { ...pointer, clientX: 10, clientY: 900 });
+            fireEvent.pointerMove(document, { ...pointer, clientX: 20, clientY: 900 });
+        });
+        await settle();
+    }
+    async function moveTo(clientX: number, clientY: number) {
+        await act(async () => { fireEvent.pointerMove(document, { ...pointer, clientX, clientY }); });
+        await settle();
+    }
+    async function letGo(clientX: number, clientY: number) {
+        await act(async () => { fireEvent.pointerUp(document, { ...pointer, buttons: 0, clientX, clientY }); });
+        await settle();
+    }
+
+    test("is checked once a place it rests on: moving within the place asks nothing more and the next place once; its drop is made through the commands, and a drag after it is checked afresh, of what the drop changed", async () => {
+        const { container: c } = await h.mount(windowsTemplates, { storageKey: "windows-checks" });
+        await settle();
+        const { card, x } = layOutRows(c, ["P-1004"]);
+        await pickUp(card);
+        const thursday = x("2026-10-08T06:00:00Z"), friday = x("2026-10-09T06:00:00Z");
+        await moveTo(thursday, 110);
+        const rested = placed.checks;
+        // Ten moves down the row at six on Thursday: the same place, the same drop.
+        for (let i = 1; i <= 10; i++) await moveTo(thursday, 110 + i * 2);
+        expect(placed.checks - rested, "checks as the pointer moves within one place").toBe(0);
+        // Six on Friday: another place, asked once.
+        await moveTo(friday, 112);
+        expect(placed.checks - rested, "checks at the next place").toBe(1);
+        // A check drafts nothing.
+        expect(c.querySelectorAll("[data-calendar-event][data-drafted]")).toHaveLength(0);
+        // Let go: made through the commands, once.
+        const made = placed.made;
+        await letGo(friday, 112);
+        expect(placed.made - made, "placements the drop made").toBe(1);
+        await waitFor(() => expect(c.querySelectorAll("[data-calendar-event][data-drafted]")).toHaveLength(1));
+        // The drop drafted a job: a place checked before it is checked again, of the data as the drop left it.
+        await pickUp(card);
+        const again = placed.checks;
+        await moveTo(thursday, 110);
+        expect(placed.checks - again, "checks at a place checked before the drop").toBe(1);
+        await act(async () => { fireEvent.keyDown(document, { key: "Escape", code: "Escape" }); });
+        await settle();
+    });
+
+    test("previews where it would land on the row it rests on alone — the row it leaves lets its preview go — and on none once let go", async () => {
+        const { container: c } = await h.mount(windowsTemplates, { storageKey: "windows-landing" });
+        await settle();
+        const { card, x } = layOutRows(c, ["P-1003", "P-1004"]);
+        /** The rows that preview where the drop would land: each a press's key. */
+        const landing = () => [...c.querySelectorAll("[data-calendar-landing]")].map((ghost) => ghost.closest("[data-calendar-resource-row]")?.getAttribute("data-calendar-resource-row"));
+        const row = (press: string) => resourceKey({ kind: "presses", key: press });
+        await pickUp(card);
+        const thursday = x("2026-10-08T06:00:00Z");
+        await moveTo(thursday, 110);
+        expect(landing(), "resting on Press 1003's row").toEqual([row("P-1003")]);
+        await moveTo(thursday, 150);
+        expect(landing(), "resting on Press 1004's row").toEqual([row("P-1004")]);
+        await letGo(thursday, 150);
+        expect(landing(), "let go").toEqual([]);
+    });
+
+    test("picking a card up and carrying it over a row draw no event's face again", async () => {
+        const { container: c } = await h.mount(windowsTemplates, { storageKey: "windows-lift" });
+        await settle();
+        const { card, x } = layOutRows(c, ["P-1003", "P-1004"]);
+        expect(c.querySelectorAll("[data-calendar-event]").length, "events drawn").toBeGreaterThan(0);
+        let faces = 0;
+        setEventFaceRenderProbe(() => { faces += 1; });
+        try {
+            await pickUp(card);
+            expect([document.querySelector("[data-drag-ghost]") !== null, faces], "as it is picked up").toEqual([true, 0]);
+            await moveTo(x("2026-10-08T06:00:00Z"), 150);
+            expect([c.querySelectorAll("[data-calendar-landing]").length, faces], "resting on a row").toEqual([1, 0]);
+        } finally {
+            setEventFaceRenderProbe(undefined);
+        }
+        await letGo(x("2026-10-08T06:00:00Z"), 150);
+    });
+
+    test("a drop draws again the row it lands on and no other, draws the frame twice — its gesture, then what it changed read — and an event's Details only once that has been drawn", async () => {
+        const { container: c } = await h.mount(windowsTemplates, { storageKey: "windows-drop-draws" });
+        await settle();
+        const { card, x } = layOutRows(c, ["P-1003", "P-1004"]);
+        await pickUp(card);
+        const thursday = x("2026-10-08T06:00:00Z");
+        await moveTo(thursday, 150);
+        const rows = new Set<string>();
+        let frames = 0;
+        /** The jobs drawn as drafted at each drawing of the Details: nothing yet, had they been drawn in the drop's own pass. */
+        const draftedAtDetails: number[] = [];
+        setTimelineRowRenderProbe((row) => { rows.add(row); });
+        setCalendarFrameRenderProbe(() => { frames += 1; });
+        setCalendarDetailsRenderProbe(() => { draftedAtDetails.push(c.querySelectorAll("[data-calendar-event][data-drafted]").length); });
+        try {
+            await letGo(thursday, 150);
+            await waitFor(() => expect(draftedAtDetails.length).toBeGreaterThan(0));
+        } finally {
+            setTimelineRowRenderProbe(undefined);
+            setCalendarFrameRenderProbe(undefined);
+            setCalendarDetailsRenderProbe(undefined);
+        }
+        expect(c.querySelectorAll("[data-calendar-event][data-drafted]")).toHaveLength(1);
+        expect([...rows], "the rows drawn again").toEqual([resourceKey({ kind: "presses", key: "P-1004" })]);
+        expect(frames, "the frame's renders").toBe(2);
+        expect(draftedAtDetails[0], "drafted jobs drawn as the Details first draw").toBe(1);
+    });
+
+    test("a drop draws the face of the job it makes and of the job it overlaps, and no other: a job its row's new lane only moves keeps its face", async () => {
+        const { container: c } = await h.mount(windowsTemplates, { storageKey: "windows-drop-faces" });
+        await settle();
+        // The first job drawn: the drop lands on it, so its row takes a second lane, and the row's next job moves with it.
+        const held = c.querySelector<HTMLElement>("[data-calendar-event]")!;
+        const rowElement = held.closest("[data-calendar-resource-row]")!;
+        const beside = [...rowElement.querySelectorAll<HTMLElement>("[data-calendar-event]")].find((job) => job !== held)!;
+        const row = parseResourceKey(rowElement.getAttribute("data-calendar-resource-row")!);
+        if (!row.success) throw new Error("the first job drawn is on no press's row");
+        const plot = held.closest<HTMLElement>("[data-calendar-cell]")!;
+        const from = Number(plot.dataset["calendarFrom"]), to = Number(plot.dataset["calendarTo"]);
+        const besideTop = beside.style.top;
+        const { card, x } = layOutRows(c, [row.value.key]);
+        await pickUp(card);
+        const onIt = x(new Date(from + Number.parseFloat(held.style.left) / 100 * (to - from)).toISOString());
+        await moveTo(onIt, 110);
+        const faces: string[] = [];
+        setEventFaceRenderProbe((id) => { faces.push(id); });
+        try {
+            await letGo(onIt, 110);
+            await waitFor(() => expect(c.querySelectorAll("[data-calendar-event][data-drafted]")).toHaveLength(1));
+            await settle();
+        } finally {
+            setEventFaceRenderProbe(undefined);
+        }
+        const made = c.querySelector("[data-calendar-event][data-drafted]")!.getAttribute("data-calendar-event")!;
+        expect(held.hasAttribute("data-overlap"), "the job the drop landed on, overlapped").toBe(true);
+        expect(beside.style.top, "the row's other job, moved by its new lane").not.toBe(besideTop);
+        expect(new Set(faces), "the faces drawn again").toEqual(new Set([made, held.getAttribute("data-calendar-event")!]));
+    });
+
+    test("a drop works out the periods either side no more, and a step reads ahead what it goes to", async () => {
+        const { container: c } = await h.mount(windowsTemplates, { storageKey: "windows-drop-ahead" });
+        await settle();
+        const { card, x } = layOutRows(c, ["P-1003", "P-1004"]);
+        await pickUp(card);
+        const thursday = x("2026-10-08T06:00:00Z");
+        await moveTo(thursday, 150);
+        let ahead = 0;
+        setCalendarReadAheadProbe(() => { ahead += 1; });
+        try {
+            await letGo(thursday, 150);
+            await settle();
+            expect(c.querySelectorAll("[data-calendar-event][data-drafted]"), "the job the drop made").toHaveLength(1);
+            expect(ahead, "the periods either side, worked out as the drop landed").toBe(0);
+            await act(async () => { fireEvent.keyDown(c.querySelector("[data-calendar-main]")!, { key: "]" }); });
+            await settle();
+            expect(ahead, "the periods either side of the one stepped to").toBeGreaterThan(0);
+        } finally {
+            setCalendarReadAheadProbe(undefined);
+        }
+    });
+});
+
+// ============================================================================
+// A Save: what it landed, as it left it, while the jobs' cells are read again
+// ============================================================================
+
+describe("a Save over the paged presses: what it landed, as it left it, while the jobs' cells are read again", () => {
+    /** The jobs' cells — the searches of their series index and its runs' entries — which a Save's own confirmation, a key's search and its row, is none of. */
+    const jobCells = (request: E3Request) => request.dataset === JOBS && (request.query.get("index") ?? undefined) === SERIES.name;
+    /** Saves through the history's Save with the jobs' cells held: its commit confirmed and its drafts gone, the cells not read again yet. */
+    async function saveHeld(c: HTMLElement) {
+        const held = h.e3.hold(jobCells);
+        await act(async () => { fireEvent.click(within(slot(c, "toolbar")).getByRole("button", { name: editingMessages.apply() })); });
+        await held.holding;
+        await settle();
+        expect(within(slot(c, "toolbar")).getByRole<HTMLButtonElement>("button", { name: editingMessages.discard() }).disabled).toBe(true);
+        expect(slot(c, "toolbar").textContent).not.toContain(editingMessages.historyStatus({ status: "reconciling" }));
+        return held;
+    }
+    /** Lets the held reads go, and waits for them to land. */
+    async function release(held: { release(): void }) {
+        await act(async () => { held.release(); });
+        await settle();
+    }
+    /** The brochure run, on Press 1001, selected on the timeline. */
+    async function selectBrochure(storageKey: string) {
+        const { container: c } = await h.mount(cw.calendarWindows, { storageKey });
+        await settle();
+        await act(async () => { fireEvent.click(jobEvent(c, "W-0001")!); });
+        await settle();
+        return c;
+    }
+
+    test("a job Save returned to the backlog draws on no press's row while the cells are read again, and so once read", async () => {
+        const c = await selectBrochure("windows-save-backlog");
+        await act(async () => { fireEvent.click(within(slot(c, "end")).getByRole("button", { name: "Return to backlog" })); });
+        await settle();
+        expect(jobEvent(c, "W-0001")).toBeNull();
+        // Saved, the cells' read again held: the brochure run has no block back on Press 1001's row.
+        const held = await saveHeld(c);
+        expect((await readJobs()).get("W-0001")!.start.type).toBe("none");
+        expect(jobEvent(c, "W-0001")).toBeNull();
+        await release(held);
+        expect(jobEvent(c, "W-0001")).toBeNull();
+    });
+
+    test("the check every builder runs: a job Save returned to the backlog draws on no press's row at any change of the page, from the press of Save until the cells are read again", async () => {
+        const c = await selectBrochure("windows-save-check");
+        await act(async () => { fireEvent.click(within(slot(c, "end")).getByRole("button", { name: "Return to backlog" })); });
+        await settle();
+        expect(jobEvent(c, "W-0001")).toBeNull();
+        await savedThroughReload({
+            e3: h.e3,
+            container: c,
+            reads: jobCells,
+            // The events the timeline draws a block of, by their keys.
+            look: () => [...c.querySelectorAll("[data-calendar-event]")].map((el) => el.getAttribute("data-calendar-event")),
+        });
+    });
+
+    test.each([
+        ["a Save never stops the editing: another job returned to the backlog while the cells are read again after a Save is taken at once — from its block as it stands — stays off its press's row as the reads land, and the next Save writes it", editedThroughReload, "windows-save-again"],
+        ["the page evaluated again while the cells are read again after a Save takes no job off a press's row, and puts none back: another job returned to the backlog meanwhile is taken at once, stays off its row as the page is evaluated again and the reads land, and the next Save writes it", redrawnThroughReload, "windows-save-redrawn"],
+    ])("%s", async (_name, through, storageKey) => {
+        const c = await selectBrochure(storageKey);
+        await act(async () => { fireEvent.click(within(slot(c, "end")).getByRole("button", { name: "Return to backlog" })); });
+        await settle();
+        expect(jobEvent(c, "W-0001")).toBeNull();
+        await through({
+            e3: h.e3,
+            container: c,
+            reads: jobCells,
+            look: () => [...c.querySelectorAll("[data-calendar-event]")].map((el) => el.getAttribute("data-calendar-event")),
+            // W-0002, which the Save did not hold: its original is the timeline's own row of it. Picked, then — its Details
+            // drawn from the row its block was drawn from — returned to the backlog.
+            again: [
+                () => { fireEvent.click(jobEvent(c, "W-0002")!); },
+                () => { fireEvent.click(within(slot(c, "end")).getByRole("button", { name: "Return to backlog" })); },
+            ],
+        });
+        const jobs = await readJobs();
+        expect([jobs.get("W-0001")!.start.type, jobs.get("W-0002")!.start.type]).toEqual(["none", "none"]);
+    });
+
+    test("Details shows a job's field as Save wrote it while the cells are read again, never its old value, nor marked a change", async () => {
+        const c = await selectBrochure("windows-save-details");
+        const field = () => slot(c, "end").querySelector<HTMLElement>('[data-field="customer"]')!;
+        const value = () => field().querySelector<HTMLInputElement>("input")!.value;
+        const user = userEvent.setup();
+        await user.clear(field().querySelector("input")!); await user.type(field().querySelector("input")!, "Harbour Arts{Enter}"); await settle();
+        expect([value(), field().hasAttribute("data-dirty")]).toEqual(["Harbour Arts", true]);
+        // Saved, the cells' read again held: the customer as typed, no change of the stored row.
+        const held = await saveHeld(c);
+        expect((await readJobs()).get("W-0001")!.customer).toBe("Harbour Arts");
+        expect([value(), field().hasAttribute("data-dirty")]).toEqual(["Harbour Arts", false]);
+        await release(held);
+        expect([value(), field().hasAttribute("data-dirty")]).toEqual(["Harbour Arts", false]);
+    });
+
+    test("two Saves of a job before its cells are read again: Details shows what the second wrote, never the first's value nor the stored one, and so once read", async () => {
+        const c = await selectBrochure("windows-save-twice");
+        const field = () => slot(c, "end").querySelector<HTMLElement>('[data-field="customer"]')!;
+        const value = () => field().querySelector<HTMLInputElement>("input")!.value;
+        const user = userEvent.setup();
+        const type = async (text: string) => {
+            await user.clear(field().querySelector("input")!); await user.type(field().querySelector("input")!, `${text}{Enter}`); await settle();
+        };
+        await type("Harbour Arts");
+        const held = await saveHeld(c);
+        expect([value(), field().hasAttribute("data-dirty")]).toEqual(["Harbour Arts", false]);
+        // Typed again and saved again, the cells' read again still held: the customer as the second Save wrote it.
+        await type("Kestrel Print");
+        expect([value(), field().hasAttribute("data-dirty")]).toEqual(["Kestrel Print", true]);
+        await act(async () => { fireEvent.click(within(slot(c, "toolbar")).getByRole("button", { name: editingMessages.apply() })); });
+        await settle();
+        expect(within(slot(c, "toolbar")).getByRole<HTMLButtonElement>("button", { name: editingMessages.discard() }).disabled).toBe(true);
+        expect((await readJobs()).get("W-0001")!.customer).toBe("Kestrel Print");
+        expect([value(), field().hasAttribute("data-dirty")]).toEqual(["Kestrel Print", false]);
+        await release(held);
+        expect([value(), field().hasAttribute("data-dirty")]).toEqual(["Kestrel Print", false]);
     });
 });

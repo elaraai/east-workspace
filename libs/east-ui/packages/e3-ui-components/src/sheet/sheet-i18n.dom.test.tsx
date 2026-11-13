@@ -98,6 +98,8 @@ const TABS = East.function([], SheetPayloadType, ($) => {
         slice: { slice }, group: Sheet.group(ex.WorkshopOrder, "ops", { title: "name" }),
         columns: { activity: Sheet.column.text(ex.WorkshopOperation, { header: "Activity" }) },
         views, activeView: some("planned"), onApply: Record.onApply(orders, { keyed: true }),
+        // No column sets an operation's machines, nor a band cell an order's customer (#1536): the sheet adds neither.
+        edits: { insertRows: false, insertGroups: false },
     });
 });
 

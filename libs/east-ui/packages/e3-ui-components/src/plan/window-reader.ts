@@ -41,7 +41,7 @@
  * @packageDocumentation
  */
 
-import type { WindowReader } from "../shared/windowed.js";
+import { carriedOf, type WindowReader } from "../shared/windowed.js";
 import { toCanvasRows, type PlanRowValue, type PlanWireBlock } from "./model.js";
 import { rowKeyOf } from "./row-key.js";
 import type { RowKey } from "./plan-state.js";
@@ -98,13 +98,45 @@ export function readWindow(blocks: readonly PlanWireBlock[]): WindowRead {
     };
 }
 
+/** One window of a paged source, as it serves it: its blocks, and the stored entries they were made from (#1599, east-ui's `CarriedWindowType`). */
+export type PlanWindowValue = Extract<ReturnType<PlanPagedSourceValue["page"]>, { type: "some" }>["value"];
+
 /**
  * How the canvas's driver reads a window of a paged source: the derived
- * source's page, each landed window its blocks ({@link readWindow}).
+ * source's page, each landed window its blocks ({@link readWindow}) — kept
+ * with the entries it carried beside them (#1599), which an edit of one of its
+ * rows begins from.
  *
  * @param source - The decoded `paged` arm, at the canvas's blocks
  * @returns Its window reader, for the shared windowed read (`readWindows`, `WindowStore`)
  */
-export function planWindowReader(source: PlanPagedSourceValue): WindowReader<readonly PlanWireBlock[], WindowRead> {
-    return { page: (offset, limit) => source.page(offset, limit), decode: readWindow, label: "[Plan]" };
+export function planWindowReader(source: PlanPagedSourceValue): WindowReader<PlanWindowValue, WindowRead> {
+    const { redraft, redrafted } = source;
+    return {
+        page: (offset, limit) => source.page(offset, limit),
+        decode: (window) => readWindow(window.rows),
+        entries: (window) => window.entries,
+        label: "[Plan]",
+        // A window standing in while it is read again is drawn as the source draws it now (#1599): its unsaved changes,
+        // and what a Save landed, laid over the entries it carried — once for each state of them, not once a settle.
+        standIn: redraft === undefined || redrafted === undefined ? undefined : (previous) => {
+            const entries = carriedOf(previous);
+            if (entries === undefined || entries.length === 0) return previous;
+            const state = redrafted();
+            const known = redrawn.get(previous);
+            if (known !== undefined && known.state === state) return known.read;
+            let read = previous;
+            try {
+                const blocks = redraft(entries);
+                if (blocks !== undefined) read = readWindow(blocks);
+            } catch (err) {
+                console.error("[Plan] a window standing in could not be drawn with the changes in place:", err);
+            }
+            redrawn.set(previous, { state, read });
+            return read;
+        },
+    };
 }
+
+/** Each window standing in as it was last drawn again, by the window read: drawn again once what a redraft draws from moves. */
+const redrawn = new WeakMap<WindowRead, { readonly state: string; readonly read: WindowRead }>();

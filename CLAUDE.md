@@ -47,6 +47,23 @@ builder and the query builder are — is laid out with east-ui-components'
 `BuilderFrame`, never by hand. See
 [`docs/conventions/EAST_UI_PROP_PATTERNS.md`](docs/conventions/EAST_UI_PROP_PATTERNS.md).
 
+## HARD RULE: no one-kind special cases in shared machinery
+
+Shared machinery — the path every kind, column or component goes through,
+such as the Sheet's editor, candidates, parse, menu and state machine —
+never gains a branch that changes what it returns or accepts for one kind
+(`meta.kind === "person"` inside a shared path), and never round-trips an
+identity through display text (key → label → member: two members may show
+one label). When a new kind needs behaviour the shared path lacks,
+generalise the shared path for **every** kind; where it is app logic the
+data cannot express, add a developer `FunctionType` prop (a custom kind's
+`parse` / `print`, an `options` rule, `newKey`) — never when the data
+already says it (a register's `label` and `aliases`); otherwise stop and
+ask. An arm per kind in a dispatch that is by kind by design (the parse,
+the text a kind prints, the editor a kind mounts) is fine. Before every
+commit, grep the diff for `kind === "` and justify each hit. See
+[`docs/conventions/EAST_UI_PROP_PATTERNS.md`](docs/conventions/EAST_UI_PROP_PATTERNS.md).
+
 ## What this repo is
 
 The **East monorepo** — a pnpm + uv + cmake workspace containing all
@@ -181,6 +198,11 @@ naming convention, they use `SCREAMING_SNAKE_CASE.md` to signal
   — `find_spec` + lazy import guard pattern.
 - [`docs/conventions/MAKEFILE_TARGETS.md`](docs/conventions/MAKEFILE_TARGETS.md)
   — canonical `make` targets.
+- [`docs/conventions/BROWSER_FLOOR.md`](docs/conventions/BROWSER_FLOOR.md)
+  — code a browser runs names no built-in newer than ES2023, for iPhones
+  back to iOS 16.4: what is newer, the lint rule and East's suite on an
+  engine without them that hold it, and how to read one where the engine
+  has it.
 - [`docs/conventions/BEAST2_WIRE_VERSION.md`](docs/conventions/BEAST2_WIRE_VERSION.md)
   — where the beast2 container version is declared, what it guarantees
   (readers accept every released version; writers are lockstep), and why the

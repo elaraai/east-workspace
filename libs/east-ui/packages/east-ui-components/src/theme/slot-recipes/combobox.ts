@@ -170,6 +170,8 @@ export const comboboxSlotRecipe = defineSlotRecipe({
             _hover: { background: "bg.subtle" },
             _highlighted: { background: "bg.subtle" },
             _selected: { color: "brand.fg" },
+            /* A keyed item's key (a key search's line), in the design system's mono face. */
+            "& [data-item-key]": { fontFamily: "mono", fontVariantNumeric: "tabular-nums" },
         },
         itemGroupLabel: { textStyle: "caption.eyebrow", paddingX: "{spacing.3}", paddingY: "{spacing.2}" },
         label: { textStyle: "caption.eyebrow", marginBottom: "{spacing.1}" },

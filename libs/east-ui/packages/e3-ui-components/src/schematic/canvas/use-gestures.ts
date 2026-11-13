@@ -15,6 +15,23 @@
  * invariant 12). Every gesture that writes is one step of the editing's
  * history (`../edits.ts`, #1388).
  *
+ * Which pointer a gesture is, the fingers the canvas holds and each way a
+ * gesture ends are not this hook's: the canvas is a surface of the shared
+ * pointer core (east-ui-components' `src/pointer/`, `useSurfaceGestures`),
+ * which holds every surface's gestures to one rule (invariants 33, 34). A
+ * finger is gone as it lifts, as the browser takes it back and as the canvas
+ * loses its capture, and one whose end is never heard is let go of as the next
+ * first finger lands or the window loses the page — so no finger is remembered
+ * into a pinch that never ends. One gesture is in flight at a time, its
+ * pointer's: another pointer's moves and release are not its, and a second
+ * finger, a new press, a lost pointer and the window losing the page each let
+ * go of it. What the hook holds is what the canvas's gestures do: what a press
+ * begins under the tool in force, what its drag draws, what its release
+ * records, and what letting go puts back, recording nothing (`drop`). Two
+ * fingers pinch: the drawing zooms by how far apart they are drawn and is
+ * carried with them, each finger staying on the point of the drawing it
+ * touched (`camera.ts`' `pinchAbout`).
+ *
  * The commit-phase snapshot reads the gestures' state (`use-paint.ts`,
  * invariant 1), and the handlers read the snapshot: {@link useGestureState}
  * holds the state — the tool in force, a Move's preview, Connect's draft and
@@ -29,16 +46,20 @@ import type RBush from "rbush";
 import { StringType, equalFor, type option } from "@elaraai/east";
 import { SCHEMATIC_WINDOW_ROWS } from "@elaraai/e3-ui/internal";
 import { getSomeorUndefined, takeKey, typedInto, type Origin } from "@elaraai/east-ui-components";
+import { useSurfaceGestures, type PinchStep } from "@elaraai/east-ui-components/internal";
 import { keepsSpace, keyFromPage, keyInFrame } from "../../shared/frame-keys.js";
+import { unjoined } from "../../shared/links/canvas.js";
 import { densityInView } from "../area.js";
 import type { SchematicValue } from "../data.js";
+import type { SchematicMove } from "../editing.js";
 import {
-    clampDelta, connectCandidate, connectStep, connectVeto, deleteEdits, editKinds, extendEdits, extendPairs, linkRefusal, moveEdits, retargetEdits, vetoOfPairs,
+    clampDelta, connectCandidate, connectStep, connectVeto, deleteEdits, editKinds, extendEdits, extendPairs, followSession, linkRefusal, moveEdits,
+    placeholderRefusal, retargetEdits, vetoOfPairs,
     type ConnectDragArgs, type ConnectSession, type EditRefusal, type Mover, type NetLeg, type SchematicEdit, type SessionDrawn,
 } from "../edits.js";
 import type { SchematicStep, SchematicWords } from "../messages.js";
 import type { SchematicTool } from "../tools.js";
-import { zoomAbout } from "./camera";
+import { pinchAbout } from "./camera";
 import { entityId, refOfId, type DrawnItem, type DrawnLink, type DrawnNet, type DrawnZone, type SchematicDrawn, type SchematicRef } from "./drawn";
 import type { SchematicLayerState } from "./layers";
 import { markerHit, markerHitbox } from "./markers";
@@ -88,24 +109,6 @@ function keyIsCanvas(canvas: Element | null, target: EventTarget | null): boolea
  * draws.
  */
 const DENSITY_TAP_ROWS = SCHEMATIC_WINDOW_ROWS * 0.6;
-
-/**
- * Captures a pointer for a gesture where it can be (#1393): a pointer no longer active — one the browser cancelled
- * before the handler ran, or one an automation made up — takes no capture, and its gesture runs uncaptured rather than
- * throw out of the handler (`setPointerCapture`'s `NotFoundError`, or `InvalidStateError`).
- */
-export function capturePointer(el: Element, pointerId: number): void {
-    try {
-        el.setPointerCapture(pointerId);
-    } catch (err) {
-        if (!(err instanceof DOMException)) throw err;
-    }
-}
-
-/** Lets go of a pointer the element holds: one it never captured, or no longer active, it lets be. */
-export function releasePointer(el: Element, pointerId: number): void {
-    if (el.hasPointerCapture(pointerId)) el.releasePointerCapture(pointerId);
-}
 
 /** Even–odd point-in-polygon test in world coords (footprint hit-testing). */
 function pointInPolygon(x: number, y: number, pts: readonly Pt[]): boolean {
@@ -295,7 +298,7 @@ export interface GesturesProps {
  *   extent and what the hit-tests search, what is selected and its funnels, the camera and what moves it, the snapshot,
  *   and the gestures' state
  * @returns Whether the pointer is over the canvas, the canvas's keys, the hit-tests of an item, a zone and a link or a
- *   net under a point, and the pointer's handlers
+ *   net under a point, the pointer handlers the canvas's element carries (`surface`), and the double-click's
  */
 export function useGestures({
     value, data, layers, tool, linkKind, words, editing, onRefused, onOpen, connectValues, W, H, canvasRef, refById, labelById, inertKeys, narrowedOut,
@@ -366,9 +369,13 @@ export function useGestures({
         return ref === undefined ? undefined : { ref, label: labelById.get(id) ?? ref.key };
     }, [refById, labelById]);
     /** A refusal's words. */
-    const refusalWords = useCallback((refusal: EditRefusal): string => (refusal.why === "end"
-        ? words.m.endRefused({ kind: refusal.kind, end: refusal.end, item: refusal.item })
-        : words.m.deleteRefused({ item: refusal.item, kind: refusal.kind, key: refusal.key })), [words]);
+    const refusalWords = useCallback((refusal: EditRefusal): string => {
+        switch (refusal.why) {
+            case "end": return words.m.endRefused({ kind: refusal.kind, end: refusal.end, item: refusal.item });
+            case "named": return words.m.deleteRefused({ item: refusal.item, kind: refusal.kind, key: refusal.key });
+            case "placeholder": return words.m.placeholderRefused({ kind: refusal.kind.toLocaleLowerCase(words.locale) });
+        }
+    }, [words]);
     /** A connect drag onto a target, as the edits read it: the open session, Shift, the Connect tool's kind and its items. */
     const dragArgs = useCallback((cd: Pick<ConnectDrag, "from" | "additive">, target: string): ConnectDragArgs | undefined => {
         const from = itemOf(cd.from), to = itemOf(target);
@@ -379,7 +386,8 @@ export function useGestures({
         };
     }, [itemOf, linkKind, sessionDrawn, labelById]);
     // Why a connect drag can't land on a target (SC9, #1401 D34): the end of its
-    // kind that holds no item of the target's slot, else the veto's words of a
+    // kind that holds no item of the target's slot, or a target held under a
+    // placeholder, its key still to be typed (#1549), else the veto's words of a
     // pair the drag newly joins. A re-target writes its link, vetted in the
     // link's REAL direction — the fixed end may be either side; an Extend its net,
     // each source with the item it adds, whichever member the drag began at; a
@@ -394,7 +402,7 @@ export function useGestures({
             const link = slot === undefined ? undefined : kinds.links.get(slot);
             if (slot === undefined || link === undefined) return undefined;
             const toFrom = cd.retarget.movingEnd === "from";
-            const refusal = toFrom ? linkRefusal(link, moving, fixed) : linkRefusal(link, fixed, moving);
+            const refusal = placeholderRefusal(kinds, moving) ?? (toFrom ? linkRefusal(link, moving, fixed) : linkRefusal(link, fixed, moving));
             if (refusal !== undefined) return refusalWords(refusal);
             return toFrom ? connectRefusal(slot, target, cd.from) : connectRefusal(slot, cd.from, target);
         }
@@ -404,6 +412,8 @@ export function useGestures({
             const sides = net === undefined ? undefined : sessionDrawn.sides(net.ref);
             if (net === undefined || kind === undefined || sides === undefined) return undefined;
             if (!stringEqual(moving.ref.kind, kind.destinations)) return refusalWords({ why: "end", kind: kind.name, end: "end", item: moving.label });
+            const waiting = placeholderRefusal(kinds, moving);
+            if (waiting !== undefined) return refusalWords(waiting);
             return vetoOfPairs(connectRefusal, net.ref.kind, extendPairs(sides, moving.ref));
         }
         const args = dragArgs(cd, target);
@@ -464,7 +474,8 @@ export function useGestures({
     // A link's or a net's drawing as the painter draws it, worked out over a camera (#1403): its runs from the edges of
     // the items it joins where they draw at the zoom — a card's side as the page lays it out, a pin's edge, a dot's rim
     // — its heads, and a link's handles. What a tap, a hover, a drop and a selected link's handles meet: hit-testing is
-    // the drawing (invariant 9). A pin's label is measured in the painter's font, else reckoned at 6px a letter.
+    // the drawing (invariant 9). A pin's label is measured in the painter's font, its letters unjoined as the painter
+    // draws them (`textRendering`, `unjoined`), else reckoned at 6px a letter.
     const routesAt = useCallback((cam: { ppu: number; tx: number; ty: number }) => {
         const snap = renderSnapRef.current;
         const ctx = drawRef.current?.getContext("2d") ?? null;
@@ -473,7 +484,8 @@ export function useGestures({
             if (ctx === null || labelFont === undefined) return text.length * 6;
             ctx.save();
             ctx.font = labelFont;
-            const w = ctx.measureText(text).width;
+            ctx.textRendering = "optimizeSpeed";
+            const w = ctx.measureText(unjoined(text)).width;
             ctx.restore();
             return w;
         };
@@ -553,35 +565,38 @@ export function useGestures({
      * Records one gesture's edits as one step of the editing's history (#1388),
      * labelled for it; one recorded says no refusal any more.
      *
-     * @returns Whether anything was recorded
+     * @returns The rows it moved under the keys their fields build (#1549); `undefined` where nothing was recorded
      */
-    const recordStep = useCallback((edits: readonly SchematicEdit[], origin: Origin, step: SchematicStep, name: string, n: number): boolean => {
-        if (editing === undefined || edits.length === 0) return false;
-        const recorded = editing.record(edits, origin, words.m.step({ step, name: name.toLocaleLowerCase(words.locale), n }));
-        if (recorded) onRefused(undefined);
-        return recorded;
+    const recordStep = useCallback((edits: readonly SchematicEdit[], origin: Origin, step: SchematicStep, name: string, n: number): readonly SchematicMove[] | undefined => {
+        if (editing === undefined || edits.length === 0) return undefined;
+        const moved = editing.record(edits, origin, words.m.step({ step, name: name.toLocaleLowerCase(words.locale), n }));
+        if (moved !== undefined) onRefused(undefined);
+        return moved;
     }, [editing, words, onRefused]);
     // Commit a connect gesture (SC9): a link of the Connect tool's kind — or,
     // Shift held in an open session, the net the session grows into, absorbing
-    // its links — each new row's key minted, its other fields the template of
-    // its kind the library has selected (§4.3), one step; then the flash.
+    // its links — each new row keyed as its kind makes one (#1549), its other
+    // fields the template of its kind the library has selected (§4.3), one
+    // step; then the flash. A key its kind refuses records nothing, the footer
+    // saying why. The session follows its net under the key its sides move it
+    // to, so the next Shift-drag grows it there.
     const commitConnect = useCallback((from: string, to: string, shift: boolean) => {
         if (editing === undefined) return;
         const args = dragArgs({ from, additive: shift }, to);
         if (args === undefined) return;
-        const minted = new Set<string>();
-        const step = connectStep(kinds, args, (slot) => {
-            const key = editing.mint(slot, minted);
-            minted.add(key);
-            return key;
-        }, connectValues);
+        const step = connectStep(kinds, args, (made) => editing.newKey(made), connectValues);
         if (step === undefined) return;
+        if ("refused" in step) {
+            editing.keyRefused(step.refused);
+            return;
+        }
         const grown = step.edits.find((edit) => edit.op === "net" || edit.op === "sides");
         const slot = (grown ?? step.edits.find((edit) => edit.op === "link"))?.ref.kind;
         if (slot === undefined) return;
         const name = (grown !== undefined ? kinds.nets.get(slot)?.name : kinds.links.get(slot)?.name) ?? slot;
-        if (!recordStep(step.edits, "insert", grown !== undefined ? "net" : "connect", name, 1)) return;
-        linkSessionRef.current = step.session;
+        const moved = recordStep(step.edits, "insert", grown !== undefined ? "net" : "connect", name, 1);
+        if (moved === undefined) return;
+        linkSessionRef.current = followSession(step.session, moved);
         connectFlashRef.current = { from, to, t0: performance.now() };
         startConnectFlash();
     }, [editing, dragArgs, kinds, recordStep, startConnectFlash, connectValues, connectFlashRef]);
@@ -594,7 +609,7 @@ export function useGestures({
         const onto = refById.get(target);
         if (link === undefined || from === undefined || to === undefined || onto === undefined) return;
         const edits = retargetEdits({ ref: link.ref, ends: { from, to } }, movingEnd, onto);
-        if (!recordStep(edits, "move", "retarget", kinds.links.get(link.ref.kind)?.name ?? link.ref.kind, 1)) return;
+        if (recordStep(edits, "move", "retarget", kinds.links.get(link.ref.kind)?.name ?? link.ref.kind, 1) === undefined) return;
         endLinkSession();
         connectFlashRef.current = { from: movingEnd === "from" ? target : link.from, to: movingEnd === "to" ? target : link.to, t0: performance.now() };
         startConnectFlash();
@@ -609,7 +624,7 @@ export function useGestures({
         const sides = sessionDrawn.sides(net.ref);
         if (sides === undefined) return;
         const edits = extendEdits({ ref: net.ref, sides }, onto);
-        if (!recordStep(edits, "insert", "extend", kinds.nets.get(net.ref.kind)?.name ?? net.ref.kind, 1)) return;
+        if (recordStep(edits, "insert", "extend", kinds.nets.get(net.ref.kind)?.name ?? net.ref.kind, 1) === undefined) return;
         endLinkSession();
         connectFlashRef.current = { from, to, t0: performance.now() };
         startConnectFlash();
@@ -630,7 +645,7 @@ export function useGestures({
             onRefused(refusalWords(result.refusal));
             return true;
         }
-        if (!recordStep(result.edits, "remove", "delete", "", result.edits.length)) return false;
+        if (recordStep(result.edits, "remove", "delete", "", result.edits.length) === undefined) return false;
         endLinkSession();
         return true;
     }, [editing, kinds, data, standing, onRefused, refusalWords, recordStep, endLinkSession, renderSnapRef]);
@@ -657,17 +672,26 @@ export function useGestures({
         }
     }, [stepSelection, deleteSelection, onOpen, renderSnapRef]);
 
-    // Drag-pan + tap-to-pick on the canvas. The pick runs on POINTERUP, not the
-    // `click` event: onCanvasPointerDown captures the pointer for the drag, and
-    // a captured pointer's click is delivered to the capturing box — not the
-    // inner <canvas> — so a click handler there never fires for a marker /
-    // footprint tap (issue #57, P11). `moved` distinguishes a pan from a tap.
+    // Drag-pan + tap-to-pick on the canvas. The pick runs on the press's RELEASE,
+    // not the `click` event: the canvas captures the pointer of every press it
+    // takes (`useSurfaceGestures`), and a captured pointer's click is delivered
+    // to the capturing box — not the inner <canvas> — so a click handler there
+    // never fires for a marker / footprint tap (issue #57, P11). `moved`
+    // distinguishes a pan from a tap.
     const panRef = useRef<{ x: number; y: number; tx: number; ty: number } | null>(null);
-    // Pinch-zoom (#353): live touch points on the canvas; two concurrent
-    // touches zoom about their midpoint (the wheel-zoom math reused).
-    const touchesRef = useRef(new Map<number, { x: number; y: number }>());
-    const pinchRef = useRef<{ dist: number } | null>(null);
+    // The pinch under way (#353, invariant 33): the zoom it began at, and how far past a limit of the zoom its fingers
+    // stand (`pinchAbout`'s `over`), so a limit is no ratchet; `null` while none is. A pinch in from a closer zoom that
+    // ends at the least zoom is a full zoom out, and lands on Fit's camera as it ends (invariant 23).
+    const pinchRef = useRef<{ readonly from: number; over: number } | null>(null);
     const movedRef = useRef(false);
+    // End an in-progress canvas drag-pan (panning → idle). Returns whether a pan
+    // was active; never disturbs a running fly.
+    const endPan = useCallback(() => {
+        if (panRef.current === null) return false;
+        panRef.current = null;
+        transition("pointerUp");
+        return true;
+    }, [transition]);
 
     // The order the markers not drawn as cards paint in, as the last commit drew them (`paint.ts`' `planMarkers`): what
     // a tap where markers overlap picks the one drawn on top by (invariant 9). Made again only as a commit or the reveal
@@ -736,10 +760,11 @@ export function useGestures({
         // rendered extent, its touch slop among it (P11).
         const ctx = drawRef.current?.getContext("2d") ?? null;
         const labelFont = renderSnapRef.current.palette?.labelFont;
-        // Measure label widths with the painter's font so the hitbox matches the
-        // drawn pill; save/restore so the pick never leaks font state.
+        // Measure label widths with the painter's font, its letters unjoined as the
+        // painter draws them, so the hitbox matches the drawn pill; save/restore so
+        // the pick never leaks font state.
         const measuring = ctx !== null && labelFont !== undefined;
-        if (measuring) { ctx.save(); ctx.font = labelFont; }
+        if (measuring) { ctx.save(); ctx.font = labelFont; ctx.textRendering = "optimizeSpeed"; }
         const camScreen = { ppu: ppuLive, tx: cam.tx, ty: cam.ty };
         let best: DrawnItem | null = null, bestD = Infinity;
         const drawnUnder = new Set<string>();
@@ -748,7 +773,7 @@ export function useGestures({
             if (accept !== undefined && !accept(it.key)) continue;
             const tier = tiers.get(it.key) ?? lod;
             if (tier === "card") continue;
-            const box = markerHitbox(it, tier, camScreen, t => measuring ? ctx.measureText(t).width : t.length * 6);
+            const box = markerHitbox(it, tier, camScreen, t => measuring ? ctx.measureText(unjoined(t)).width : t.length * 6);
             if (!markerHit(box, sx, sy)) continue;
             const d = Math.hypot(it.x * ppuLive + cam.tx - sx, it.y * ppuLive + cam.ty - sy);
             if (d < bestD) { best = it; bestD = d; }
@@ -838,32 +863,16 @@ export function useGestures({
         marqueeHits(index, region, layers.locked, narrowedOut),
     [index, layers.locked, narrowedOut]);
 
-    const onCanvasPointerDown = useCallback((e: React.PointerEvent) => {
-        if (e.button !== 0) return;
+    // What the canvas's gestures do (`useSurfaceGestures`, east-ui-components' `src/pointer/`). Which pointer a gesture
+    // is, the fingers held and each way a gesture ends are that rule's (invariants 33, 34), told here as a press, its
+    // drags, and then its release or its being let go of — never both, and each once — and a pinch's start, steps and
+    // end. They read the commit-phase snapshot and the live refs, as every handler does (invariant 1).
+    /** A press: the gesture the tool in force begins where it lands. */
+    const press = (e: React.PointerEvent): void => {
         // What the press hit-tests is what the canvas draws: a camera move waiting on its frame is drawn first.
         drawPending();
         // A press is a gesture: the link lit goes out until no button is held again (#1403).
         setLit(undefined);
-        // Pinch-zoom (#353): the second touch starts a pinch — cancel any
-        // pan/press in flight; moves are consumed by the pinch until a
-        // finger lifts.
-        if (e.pointerType === "touch") {
-            touchesRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-            if (touchesRef.current.size === 2) {
-                const [a, b] = [...touchesRef.current.values()];
-                pinchRef.current = { dist: Math.hypot(a!.x - b!.x, a!.y - b!.y) };
-                panRef.current = null;
-                moveDragRef.current = null;
-                handlePressRef.current = null;
-                movedRef.current = true;
-                return;
-            }
-        }
-        // Presses on the canvas's own buttons are theirs. Cards are NOT
-        // excluded — a drag-pan can start anywhere, including over a card; a
-        // tap (no drag) over the card is resolved by pickAt on pointerup.
-        if ((e.target as HTMLElement).closest("button") !== null) return;
-        capturePointer(e.currentTarget as HTMLElement, e.pointerId);
         movedRef.current = false;
         // Move tool (#179): a press ON AN ITEM of a kind bound with its patch door
         // starts a reposition drag; when the pressed item is part of the selection
@@ -911,7 +920,7 @@ export function useGestures({
                 const movingEnd = near(handles?.from) ? "from" as const : near(handles?.to) ? "to" as const : undefined;
                 if (movingEnd !== undefined) {
                     transition("cancel");
-                    // A tap until it moves: its first move past the threshold starts the drag (onCanvasPointerMove).
+                    // A tap until it moves: its first move past the threshold starts the drag (`drag`).
                     handlePressRef.current = { key: lk2.key, movingEnd, fixed: movingEnd === "from" ? lk2.to : lk2.from, x: e.clientX, y: e.clientY };
                     return;
                 }
@@ -976,30 +985,9 @@ export function useGestures({
         if (linkSessionRef.current !== null) endLinkSession();
         transition("pointerDown");
         panRef.current = { x: e.clientX, y: e.clientY, tx: cameraRef.current.tx, ty: cameraRef.current.ty };
-    }, [drawPending, transition, itemKeyAt, data.links, data.nets, endLinkSession, refById, movableKinds, kinds, routesAt, setLit, renderSnapRef, cameraRef,
-        setConnectDraft, setBoxDrag]);
-    const onCanvasPointerMove = useCallback((e: React.PointerEvent) => {
-        // Pinch-zoom (#353): with two live touches the gesture owns the
-        // canvas — zoom about the midpoint, ratio of successive distances.
-        if (e.pointerType === "touch" && touchesRef.current.has(e.pointerId)) {
-            touchesRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
-            const pinch = pinchRef.current;
-            if (pinch && touchesRef.current.size >= 2) {
-                const [a, b] = [...touchesRef.current.values()];
-                const dist = Math.hypot(a!.x - b!.x, a!.y - b!.y);
-                if (dist > 0 && pinch.dist > 0) {
-                    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-                    const mx = (a!.x + b!.x) / 2 - rect.left;
-                    const my = (a!.y + b!.y) / 2 - rect.top;
-                    transition("wheel");
-                    const snap = renderSnapRef.current;
-                    cameraRef.current = zoomAbout(cameraRef.current, dist / pinch.dist, mx, my, 1, snap.maxZoom, snap.home);
-                    requestRender();
-                }
-                pinch.dist = dist;
-                return;
-            }
-        }
+    };
+    /** The pressing pointer's move: what the gesture in flight draws. */
+    const drag = (e: React.PointerEvent): void => {
         // Move drag (#179, SC8): every mover follows the shared world delta,
         // clamped so each stays within the extent — rigidly, the movers keeping
         // their places to one another — previewed until the release records it.
@@ -1088,38 +1076,26 @@ export function useGestures({
             }
             return;
         }
+        // A gesture Esc let go of goes on to its release with nothing to draw.
         const pan = panRef.current;
-        if (!pan) {
-            // No gesture under way, no button held and no card dragged over the canvas: the link or the net under the
-            // pointer lights (#1403), found through the links' R-tree — as a tap would find it, an item over it first, so
-            // nothing lights under a card, a pin or a dot; and nothing under the minimap.
-            if (e.buttons === 0 && !dragging) {
-                const host = e.currentTarget as HTMLElement;
-                const overMinimap = e.target instanceof Element && e.target.closest("[data-schematic-minimap]") !== null;
-                setLit(overMinimap || itemKeyAt(host, e.clientX, e.clientY) !== undefined ? undefined : linkKeyAt(host, e.clientX, e.clientY)?.key);
-            }
-            return;
-        }
+        if (pan === null) return;
         if (Math.abs(e.clientX - pan.x) > DRAG_THRESHOLD_PX || Math.abs(e.clientY - pan.y) > DRAG_THRESHOLD_PX) movedRef.current = true;
         cameraRef.current = { ...cameraRef.current, tx: pan.tx + e.clientX - pan.x, ty: pan.ty + e.clientY - pan.y };
         requestRender();
-    }, [requestRender, collectMarquee, itemKeyAt, W, H, candidateRefusal, transition, linkKeyAt, dragging, renderSnapRef, cameraRef, setDragMoves,
-        setConnectDraft, setBoxDrag, setLit]);
-    // End an in-progress canvas drag-pan (panning → idle). Returns whether a pan
-    // was active; never disturbs a running fly.
-    const endPan = useCallback(() => {
-        if (panRef.current === null) return false;
-        panRef.current = null;
-        transition("pointerUp");
-        return true;
-    }, [transition]);
-    const onCanvasPointerUp = useCallback((e: React.PointerEvent) => {
-        // Pinch-zoom (#353): a lifted finger ends the pinch; the remaining
-        // touch resumes ordinary pan/tap handling.
-        if (e.pointerType === "touch") {
-            touchesRef.current.delete(e.pointerId);
-            if (touchesRef.current.size < 2) pinchRef.current = null;
-        }
+    };
+    /**
+     * A move with no gesture in flight. No button held and no card dragged over the canvas: the link or the net under
+     * the pointer lights (#1403), found through the links' R-tree — as a tap would find it, an item over it first, so
+     * nothing lights under a card, a pin or a dot; and nothing under the minimap.
+     */
+    const hover = (e: React.PointerEvent): void => {
+        if (e.buttons !== 0 || dragging) return;
+        const host = e.currentTarget as HTMLElement;
+        const overMinimap = e.target instanceof Element && e.target.closest("[data-schematic-minimap]") !== null;
+        setLit(overMinimap || itemKeyAt(host, e.clientX, e.clientY) !== undefined ? undefined : linkKeyAt(host, e.clientX, e.clientY)?.key);
+    };
+    /** The pressing pointer's release: the gesture lands where it stands. */
+    const release = (e: React.PointerEvent): void => {
         // A press on a handle let go where it began (SC10): a tap, which selects what is under it.
         if (handlePressRef.current !== null) {
             handlePressRef.current = null;
@@ -1131,7 +1107,7 @@ export function useGestures({
         const md = moveDragRef.current;
         if (md !== null) {
             moveDragRef.current = null;
-            if (recordStep(moveEdits(md.movers, md.delta), "move", "move", "", md.movers.length)) endLinkSession();
+            if (recordStep(moveEdits(md.movers, md.delta), "move", "move", "", md.movers.length) !== undefined) endLinkSession();
             setDragMoves(NO_MOVES);
             return;
         }
@@ -1194,13 +1170,14 @@ export function useGestures({
         // Select-tool tap: what is under it selects (Shift extends); a tap on empty background clears (unless Shift).
         // The host hears the whole selection after each change, through the funnels' one report.
         tapAt(e.currentTarget as HTMLElement, e.clientX, e.clientY, e.shiftKey);
-    }, [endPan, pickAt, tapAt, flyTo, collectMarquee, commitSelection, clearSelection, itemKeyAt, commitConnect, commitRetarget, candidateRefusal, commitNetExtend, recordStep, endLinkSession,
-        setDragMoves, setConnectDraft, setBoxDrag, cameraRef, renderSnapRef]);
-    // pointercancel / lost capture: a pan OR select-drag that loses its grip
-    // mid-gesture must still end (issue #57, P10). After a normal release the
-    // pan is already ended (panRef null) so this is a no-op then, and it never
-    // cancels a fly the tap may have just started.
-    const onCanvasPointerCancel = useCallback(() => {
+    };
+    /**
+     * The gesture in flight is let go of, recording nothing (invariants 4, 34): a Move's preview, Connect's draft and
+     * a handle's press, the box, and the pan. What a second finger, a new press, a lost pointer, a mouse moved with its
+     * button no longer held and the window losing the page each do, in this one place: a new state a press begins is
+     * put back here.
+     */
+    const drop = (): void => {
         movedRef.current = false;
         // A move that loses its pointer records nothing: its items stay where they were (SC8).
         if (moveDragRef.current !== null) {
@@ -1213,7 +1190,43 @@ export function useGestures({
         selStartRef.current = null;
         setBoxDrag(null);
         endPan();
-    }, [endPan, setDragMoves, setConnectDraft, setBoxDrag]);
+    };
+    /** A second finger landed (#353): the two own the canvas until one is gone. */
+    const pinchStart = (): void => {
+        pinchRef.current = { from: cameraRef.current.zoom, over: 1 };
+    };
+    /**
+     * One of a pinch's two fingers moved: the drawing zooms by how much further apart they stand, about the point midway
+     * between them, and is carried as that point moves, so each finger stays on the point of the drawing it touched.
+     */
+    const pinch = (step: PinchStep, e: React.PointerEvent): void => {
+        const under = pinchRef.current;
+        if (under === null) return;
+        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+        transition("wheel");
+        const next = pinchAbout(cameraRef.current, step.factor, { x: step.from.x - rect.left, y: step.from.y - rect.top },
+            { x: step.to.x - rect.left, y: step.to.y - rect.top }, 1, renderSnapRef.current.maxZoom, under.over);
+        pinchRef.current = { from: under.from, over: next.over };
+        cameraRef.current = next.camera;
+        requestRender();
+    };
+    /** The pinch is over: fewer than two fingers are held — one lifted, taken back or lost. */
+    const pinchEnd = (): void => {
+        const under = pinchRef.current;
+        pinchRef.current = null;
+        // Zoomed all the way out: Fit's camera, as the wheel's and the toolbar's zoom out land on it. A pinch that began
+        // at the least zoom stays where its fingers carried the drawing, as a one-finger pan there does.
+        if (under !== null && under.from > 1 && cameraRef.current.zoom <= 1) {
+            cameraRef.current = renderSnapRef.current.home;
+            requestRender();
+        }
+    };
+    const surface = useSurfaceGestures({ press, drag, hover, release, drop, pinchStart, pinch, pinchEnd }, {
+        // Presses on the canvas's own buttons are theirs — a finger's among them, which is then no finger of the
+        // canvas's. Cards are NOT excluded — a drag-pan can start anywhere, including over a card; a tap (no drag) over
+        // the card is resolved by pickAt on its release.
+        accepts: (e) => (e.target as HTMLElement).closest("button") === null,
+    });
     // Double-click: on an entity it opens the selection in the inspector's
     // Details (#1391) — the first click of the pair has already selected it; on
     // the background it fits the view. Locked entities never resolve.
@@ -1302,8 +1315,7 @@ export function useGestures({
         };
     }, [canvasHears, hoverKey, setTempTool]);
     return {
-        hoveredRef, onCanvasKeyDown, onFrameKeyDown, itemKeyAt, zoneKeyAt, linkKeyAt, onCanvasPointerDown, onCanvasPointerMove, onCanvasPointerUp,
-        onCanvasPointerCancel, onCanvasDoubleClick,
+        hoveredRef, onCanvasKeyDown, onFrameKeyDown, itemKeyAt, zoneKeyAt, linkKeyAt, surface, onCanvasDoubleClick,
     };
 }
 

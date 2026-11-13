@@ -180,7 +180,7 @@ const WORDS: EditingWords = { ...formatters("en-US"), m: editingMessages };
 
 function editSession(): EditSession<string> {
     const session = new EditSession<string>({
-        sourceId: "runs", entryType: Run, draftType: Editing.Types.Draft(Run), idField: "id", auto: false,
+        sourceId: "runs", entryType: Run, draftType: Editing.Types.Draft(Run), idField: "id",
         apply: () => variant("applied", { revision: none }), patch: undefined, refresh: undefined,
     });
     session.observeBase(variant("snapshot", [{ id: "a", end: 1n }]));

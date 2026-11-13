@@ -10,8 +10,12 @@
  *     `border.strong` bottom rule.
  *   - Cell: body 13/normal, 1 px `border.subtle` bottom rule, 14/10
  *     padding. A column that prints numbers sets them in mono, aligned
- *     right, and its header's controls come before its label.
+ *     right, and its header's controls come before its label; one that
+ *     prints dates sets them in mono at their start.
  *   - Total row: 1 px `border.strong` top, `bg.panel` fill, weight 600.
+ *   - Page band (`pagination`, under the rows): `Page 2 of 5 (120 total)` in
+ *     mono 10.5 `fg.muted` — the phone pager's range voice — then its ‹ ›
+ *     steps, a 1 px `border.subtle` top rule.
  *   - Header controls (#951): the label, then one row of 24 px pin / sort
  *     buttons, shown while the header is hovered or holds focus, and a
  *     resize grip on its right edge.
@@ -23,7 +27,7 @@
  *     Phone Spec.md` QP8–QP12): the pager band, 44 tall, padded 0 4 0 16, its
  *     range mono 10.5 and its ‹ › 44 ghosts, listing the columns in place; a
  *     32 header on `--paper-2`; cells padded 8 12, the pinned column's 16 before
- *     it, the last in view's 16 after it; values wrapping, numbers mono 13/500,
+ *     it, the last in view's 16 after it; values wrapping, numbers and dates mono 13/500,
  *     an absent value `no data` in mono italic `--ink-4`.
  *
  * @packageDocumentation
@@ -31,6 +35,7 @@
 
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { coarseHitArea } from "../../style/hit-area.js";
+import { fontAwesomeSize } from "../icon-size.js";
 
 export const tableSlotRecipe = defineSlotRecipe({
     className: "elara-table",
@@ -39,6 +44,7 @@ export const tableSlotRecipe = defineSlotRecipe({
         "columnHeaderContent", "columnHeaderLabel", "columnControls",
         "columnControl", "columnSortIndex", "columnResizer",
         "footer", "caption", "scrollArea", "treeIndent", "treeToggle",
+        "pageBand", "pageBandText", "pageBandStep",
         "phoneGroupRow", "phoneGroup", "phonePager", "phonePagerBand", "phonePagerRange", "phonePagerStep", "phoneColumns", "phoneColumn", "phoneColumnMark", "phoneColumnText", "phoneColumnName", "phoneColumnKind", "phoneColumnCheck", "phoneHeaderSort", "phoneAbsent", "phoneBar",
         "phoneView", "phoneViewHead", "phoneViewBack", "phoneViewTitle", "phoneViewContext", "phoneViewFoot",
     ],
@@ -228,9 +234,21 @@ export const tableSlotRecipe = defineSlotRecipe({
             whiteSpace: "nowrap",
             overflow: "hidden",
             textOverflow: "ellipsis",
-            "&[data-numeric]": { fontFamily: "mono", fontSize: "12px", textAlign: "right" },
+            "&[data-numeric], &[data-date]": { fontFamily: "mono", fontSize: "12px" },
+            "&[data-numeric]": { textAlign: "right" },
             /* A phone's: whole, a value too wide for its column wrapping at its spaces. */
-            "[data-table-phone] &": { whiteSpace: "normal", overflow: "visible", overflowWrap: "anywhere", "&[data-numeric]": { fontSize: "13px", fontWeight: "500", fontVariantNumeric: "tabular-nums" } },
+            "[data-table-phone] &": { whiteSpace: "normal", overflow: "visible", overflowWrap: "anywhere", "&[data-numeric], &[data-date]": { fontSize: "13px", fontWeight: "500", fontVariantNumeric: "tabular-nums" } },
+        },
+        /* The page band under the rows: its words, then its ‹ ›. */
+        pageBand: {
+            display: "flex", alignItems: "center", justifyContent: "flex-end", gap: "{spacing.2}", paddingX: "{spacing.3}", paddingY: "{spacing.2}",
+            borderTopWidth: "1px", borderTopStyle: "solid", borderTopColor: "border.subtle",
+        },
+        pageBandText: { fontFamily: "mono", fontSize: "label.md", fontVariantNumeric: "tabular-nums", color: "fg.muted", whiteSpace: "nowrap" },
+        pageBandStep: {
+            display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "4px 8px", border: "none", borderRadius: "4px", background: "transparent", cursor: "pointer",
+            "& svg": fontAwesomeSize("10px"),
+            _disabled: { cursor: "not-allowed", opacity: "0.4" },
         },
         /* The pager: over the rows as they scroll under it. */
         phonePager: { position: "sticky", top: 0, left: 0, zIndex: 3, background: "bg.surface", borderBottomWidth: "1px", borderBottomStyle: "solid", borderBottomColor: "border.subtle" },

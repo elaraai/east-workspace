@@ -15,8 +15,9 @@
  *   `Dict<String, Float>`. An edit writes only those fields; every other field
  *   of the row reads back as it was.
  * - **New rows.** A slot with no row has no target. A target edit on such a
- *   slot inserts one, keyed by a key the Roster mints, its unmapped fields
- *   their type's default.
+ *   slot inserts one, keyed by a key the Roster mints, its unmapped fields the
+ *   targets' `values` of its roles (#1526) — or, without them, their type's
+ *   default.
  * - **Reads.** Through the Roster's slice, by its `targets` source — an
  *   interval index from the day to the day, its `range` the day field — and
  *   then `entries` reads one target by its key; or the record whole.
@@ -31,13 +32,14 @@
  */
 
 import {
-    BlobType, DateTimeType, DictType, East, Expr, FloatType, IntegerType, NullType, OptionType, StringType, defaultValue, isTypeEqual, none, some,
-    toEastTypeValue, type EastType, type ExprType, type FunctionType, type StructType, type SubtypeExprOrValue,
+    BlobType, DateTimeType, DictType, East, Expr, FloatType, IntegerType, NullType, OptionType, StringType, StructType, defaultValue, isTypeEqual, none,
+    some, toEastTypeValue, type EastType, type ExprType, type FunctionType, type SubtypeExprOrValue,
 } from "@elaraai/east";
 import type { UIComponentType } from "@elaraai/east-ui";
 import type { ScheduleAtField, ScheduleDictFloatField, ScheduleIntegerField, ScheduleRecordHandle, ScheduleStringField } from "../schedule/events.js";
 import { scheduleRecordWindow, type ScheduleKindPart } from "../schedule/record-window.js";
 import { scheduleRecordSession } from "../schedule/session.js";
+import { scheduleNewValues, type ScheduleNewValues } from "../schedule/values.js";
 import { checkEntries, typeText } from "../schedule/window.js";
 import { RowInspectorType, rowInspector } from "../utils/row-inspector.js";
 import { RosterTargetEntryType, RosterTargetRolesType, RosterTargetsKindType } from "./types.js";
@@ -58,6 +60,12 @@ export interface RosterTargetsConfig<R extends StructType> {
     positions: ScheduleIntegerField<R>;
     /** The `Dict<String, Float>` field holding the hours each activity needs, by its key. */
     hours: ScheduleDictFloatField<R>;
+    /**
+     * A new target's own fields — the row's fields no role maps — from its roles (`Roster.Types.NewTarget`): the slot
+     * and what the planner set it to ask (#1526). Held at build to those fields, a field missing or extra refused, naming
+     * it. Omitted, each its type's default.
+     */
+    values?: (target: ExprType<RosterTargetRolesType>) => ScheduleNewValues<R>;
     /**
      * The app's own form for one target, in place of the Roster's — an East function over the row and a writer of the
      * edited row, `(row, update) => UIComponentType`, passed through untouched (never called at build).
@@ -102,9 +110,10 @@ function fieldOf(row: unknown, name: string): ExprType<EastType> {
  * @param config - The fields its roles name, the app's own form, and its read by key
  * @returns The targets, for the Roster's `targets`
  * @throws {Error} Naming the option: a record not bound with its patch mutation, not keyed by String, or whose rows are no
- *   structs; a role naming a field the row lacks, or a field of another type; two roles naming one field; `entries`
- *   that is not a paged read of the record's own entries; and an `inspector` that is no East function `(row, update) =>
- *   UIComponentType` over the row
+ *   structs; a role naming a field the row lacks, or a field of another type; two roles naming one field; a `values`
+ *   giving other fields than the ones no role maps, or one of another type, naming it; `entries` that is not a paged
+ *   read of the record's own entries; and an `inspector` that is no East function `(row, update) => UIComponentType`
+ *   over the row
  * @example
  * ```tsx
  * import { DateTimeType, DictType, FloatType, IntegerType, StringType, StructType } from "@elaraai/east";
@@ -126,7 +135,7 @@ function fieldOf(row: unknown, name: string): ExprType<EastType> {
 export function rosterTargets<R extends StructType>(record: ScheduleRecordHandle<StringType, R>, config: RosterTargetsConfig<R>): RosterTargets {
     const where = "Roster.targets";
     const c = config as unknown as {
-        day: string; group: string; shift: string; positions: string; hours: string; inspector?: unknown; entries?: unknown;
+        day: string; group: string; shift: string; positions: string; hours: string; values?: unknown; inspector?: unknown; entries?: unknown;
     };
     const handleType = Expr.type(record as unknown as Expr) as EastType;
     const read = handleType.type === "Struct" ? (handleType.fields as Record<string, EastType>)["read"] : undefined;
@@ -163,6 +172,9 @@ export function rosterTargets<R extends StructType>(record: ScheduleRecordHandle
         if (prior !== undefined) throw new Error(`${where}: \`${prior}\` and \`${prop}\` both name "${name}" — the Roster writes each of its roles into a field of its own`);
         named.set(name, prop);
     }
+    // A new target's own fields, the ones no role maps (#1526): the targets' `values` of its roles.
+    const own = StructType(Object.entries(fields).filter(([name]) => !named.has(name)));
+    const valuesOf = scheduleNewValues(RosterTargetRolesType, rowType, own, c.values, where);
     const inspector = c.inspector === undefined ? undefined : rowInspector(c.inspector, rowType,
         `${where}: \`inspector\` is the app's own form for one target — an East.function over the target's row and its writer: ` +
         "East.function([RowType, FunctionType([RowType], NullType)], UIComponentType, ($, row, update) => …), RowType the record's row");
@@ -237,11 +249,18 @@ export function rosterTargets<R extends StructType>(record: ScheduleRecordHandle
                 const row = $.const(bytes.decodeBeast(rowType, "v2"));
                 return East.Blob.encodeBeast(rowWith(row as ExprType<EastType>, roles), "v2");
             });
-            // A new target: its roles written, and every other field its type's default.
+            // A new target: its roles written, and every other field the targets' `values` of them — or, without them, its
+            // type's default.
             const blank = East.value(defaultValue(rowType) as never, rowType) as ExprType<EastType>;
             const create = East.function([Roles], BlobType, ($, roles) => {
-                const row = $.const(blank);
-                return East.Blob.encodeBeast(rowWith(row as ExprType<EastType>, roles), "v2");
+                let row: ExprType<EastType>;
+                if (valuesOf === undefined) {
+                    row = $.const(blank);
+                } else {
+                    const ownOf = $.const(valuesOf);
+                    row = $.const(ownOf(roles as never));
+                }
+                return East.Blob.encodeBeast(rowWith(row, roles), "v2");
             });
             return East.value({
                 editing,

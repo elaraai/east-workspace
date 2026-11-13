@@ -4,7 +4,7 @@
  */
 /** @jsxImportSource @elaraai/e3-ui */
 
-import { ArrayType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType, example, none, some, variant } from "@elaraai/east";
+import { ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType, example, none, some, variant } from "@elaraai/east";
 import { Box, Button, HStack, Input, Reactive, Select, Slice, State, Text, UIComponentType, VStack } from "@elaraai/east-ui";
 import { Calendar, Data, Record } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
@@ -150,8 +150,8 @@ export const calendarShiftTemplates = e3.record("calendar_shift_templates", Dict
 
 export const calendarOperations = example({
     inputs: [],
-    description: "A metal fabrication calendar over three event records and bound machines, people and templates: Calendar, Resources and Timeline share one frame, one Slice.bindRecords rail — a source per event kind, resource kind and template record — and Save history. Its library schedules the event record's backlog and assigns technicians; overlapping production and maintenance warn without blocking Save.",
-    keywords: ["Calendar", "Record.bind", "Data.bind", "Calendar.templates", "Schedule", "Slice", "Slice.bindRecords", "Data.bindPaged", "indexes", "interval", "BuilderFrame", "library", "backlog", "inspector", "overlaps", "Save"],
+    description: "A metal fabrication calendar over three event records and bound machines, people and templates: Calendar, Resources and Timeline share one frame, one Slice.bindRecords rail — a source per event kind, resource kind and template record — and Save history. Its library schedules the event record's backlog and assigns technicians; overlapping production and maintenance warn without blocking Save, and a stored job booked past the four hours a run takes is a warning beside the toolbar's issues, holding no Save.",
+    keywords: ["Calendar", "Record.bind", "Data.bind", "Calendar.templates", "Schedule", "Slice", "Slice.bindRecords", "Data.bindPaged", "indexes", "interval", "BuilderFrame", "library", "backlog", "inspector", "overlaps", "Save", "Calendar.field", "max", "bounds", "warning", "out of range"],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         // What the Calendar reads whole binds with Data.bind, which keeps it loaded beside its pages; the event records
         // it writes bind with Record.bind, and it reads their events through their pages alone.
@@ -206,6 +206,9 @@ export const calendarOperations = example({
                     entries: jobEntries,
                     status: { field: "status", cases: { planned: { label: "Planned", tone: variant("neutral", null), ring: true }, active: { label: "Active", tone: variant("info", null), ring: false }, done: { label: "Done", tone: variant("success", null), ring: false } } },
                     backlog: { duration: row => variant("hours", row.hours), due: row => row.due },
+                    // The shop books a machine for at most four hours at a time, half a shift, so a longer job is split
+                    // into runs: the pump housings' five hours are booked as one.
+                    fields: { hours: Calendar.field.number({ label: "Hours", max: 4.0 }) },
                     ready: row => row.hours.lessEqual(0).ifElse(() => variant("incomplete", [{ field: "hours", message: "Duration must be positive" }]), () => variant("ready", null)),
                     templates: Calendar.templates(jobTemplates.read(), { name: row => row.name, group: row => some(row.group), duration: row => variant("hours", row.hours), values: row => row.values, source: "jobTemplates" }),
                 }),
@@ -489,6 +492,54 @@ export const calendarViews = example({
     }}</Reactive>),
 });
 
+/** What a machine's booking is for: a variant, so no String field of the row says it. */
+export const CalendarBookingKind = VariantType({ preventive: NullType, calibration: NullType, repair: NullType });
+/** A machine's booking: which machine and what for. */
+export const CalendarBooking = StructType({ machine: StringType, kind: CalendarBookingKind, start: DateTimeType, end: DateTimeType });
+export const calendarBookings = e3.record("calendar_bookings", DictType(StringType, CalendarBooking), {
+    initial: new Map([
+        ["b1", { machine: "press1", kind: variant("preventive", null), start: new Date("2026-09-29T08:00:00Z"), end: new Date("2026-09-29T12:00:00Z") }],
+        ["b2", { machine: "lathe1", kind: variant("calibration", null), start: new Date("2026-10-01T09:00:00Z"), end: new Date("2026-10-01T11:00:00Z") }],
+        ["b3", { machine: "press2", kind: variant("repair", null), start: new Date("2026-10-01T13:00:00Z"), end: new Date("2026-10-01T17:00:00Z") }],
+        ["b4", { machine: "lathe2", kind: variant("preventive", null), start: new Date("2026-10-02T07:00:00Z"), end: new Date("2026-10-02T10:00:00Z") }],
+    ]),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
+
+export const calendarEventTitles = example({
+    inputs: [],
+    description: "Events titled by what they are, where no String field of the row says it: a machine's bookings hold their kind as a variant, so `title` is a function of the row, a word per case. Its value is the event's title wherever one is drawn or read: the grids, the Timeline, the agenda, the inspector and a search. The title is a String field's name everywhere else.",
+    keywords: ["Calendar", "Calendar.events", "Schedule.events", "title", "function of the row", "accessor", "variant", "match", "status", "Timeline", "Record.bind"],
+    fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
+        const machines = $.let(Record.bind(calendarMachines, []));
+        const bookings = $.let(Record.bind(calendarBookings));
+        return <Box height="560px"><Calendar id="bookings" inspector view={{ layout: "timeline", period: "week", date: new Date("2026-10-01T00:00:00Z") }} now={new Date("2026-10-01T10:15:00Z")}
+            resources={{ machines: Calendar.resources(machines.read(), { name: "Machines", icon: "gears", label: row => row.name }) }}
+            events={{ booking: Calendar.events(bookings, { name: "Maintenance", icon: "screwdriver-wrench",
+                title: row => row.kind.match({ preventive: () => "Preventive", calibration: () => "Calibration", repair: () => "Repair" }),
+                start: "start", end: "end", resource: { field: "machine", of: "machines" },
+                status: { field: "kind", cases: { preventive: { label: "Preventive", tone: variant("info", null), ring: false }, calibration: { label: "Calibration", tone: variant("neutral", null), ring: false }, repair: { label: "Repair", tone: variant("success", null), ring: false } } },
+            }) }} />
+        </Box>;
+    }}</Reactive>),
+});
+
+export const calendarTimelineAlone = example({
+    inputs: [],
+    description: "A Calendar offering the Timeline alone, over two of its periods: `views` lists the layouts it offers and `viewPeriods` the periods, by the names `view.layout` and `view.period` take. One layout listed, no layout switch shows, and events laid out by resource never pile into a day's cell. A `view` outside either list is refused as the page is built, naming both.",
+    keywords: ["Calendar", "views", "viewPeriods", "Timeline", "layout", "period", "view", "resources", "no switch", "Record.bind"],
+    fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
+        const machines = $.let(Record.bind(calendarMachines, []));
+        const jobs = $.let(Record.bind(calendarJobs));
+        return <Box height="560px"><Calendar id="timelineAlone" views={["timeline"]} viewPeriods={["week", "month"]} view={{ layout: "timeline", period: "week", date: new Date("2026-10-01T00:00:00Z") }} now={new Date("2026-10-01T10:15:00Z")}
+            resources={{ machines: Calendar.resources(machines.read(), { name: "Machines", icon: "gears", label: row => row.name }) }}
+            events={{ job: Calendar.events(jobs, { name: "Production", icon: "industry", title: "title", start: "start", end: "end", resource: { field: "machine", of: "machines" } }) }} />
+        </Box>;
+    }}</Reactive>),
+});
+
 export const calendarWindowed = example({
     inputs: [],
     description: "The jobs calendar read by its day and backlog indexes, with by-key reads for the inspector and checked saves. The calendar's own navigation picks the days read. Counts describe the loaded window. The same mobile agenda and explicit actions work over the paged record.",
@@ -545,6 +596,34 @@ export const calendarCustomInspector = example({
         }));
         return <Box height="640px"><Calendar inspector view={{ period: "day", date: new Date("2026-10-01T00:00:00Z") }}
             events={{ appointment: Calendar.events(appointments, { name: "Appointment", icon: "calendar", title: "title", start: "start", end: "end", inspector: inspect }) }} />
+        </Box>;
+    }}</Reactive>),
+});
+
+/** Where the visits' Autosave begins: the app's own setting — a Boolean a settings screen or a task writes. */
+export const calendarAutosaveSetting = e3.input("calendar_autosave_setting", BooleanType, variant("value", true));
+/** The visits the Autosave example edits, in a record of their own: what it saves by itself meets no other example's rows. */
+export const calendarVisits = e3.record("calendar_visits", DictType(StringType, CalendarAppointment), {
+    initial: new Map([
+        ["intake", { title: "Intake call", start: new Date("2026-10-01T09:00:00Z"), end: new Date("2026-10-01T10:00:00Z") }],
+        ["survey", { title: "Site survey", start: new Date("2026-10-01T13:00:00Z"), end: new Date("2026-10-01T14:30:00Z") }],
+    ]),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
+/** The author says where Autosave begins — here from the app's own data. */
+export const calendarAutosave = example({
+    inputs: [],
+    description: "Where Autosave begins is the author's to say: `autosave` takes a literal (`autosave`, `autosave={false}`) or an expression — here an input of the app's, so its data decides. The switch in Save's menu starts on, and each change is saved by itself a pause after the viewer's last act; an Undo or a Redo waits for a press of Save. A viewer's own flick of the switch is kept in their browser, and stands over what the author says.",
+    keywords: ["Calendar", "autosave", "Autosave", "Save", "default", "Data.bind", "input", "Record.bind", "editing", "history"],
+    fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
+        const visits = $.let(Record.bind(calendarVisits));
+        // The app's own setting: whoever writes the input decides where every viewer's switch begins.
+        const setting = $.let(Data.bind(calendarAutosaveSetting));
+        const begins = $.let(setting.read());
+        return <Box height="640px"><Calendar id="autosave" autosave={begins} view={{ period: "day", date: new Date("2026-10-01T00:00:00Z") }}
+            events={{ visit: Calendar.events(visits, { name: "Visit", icon: "calendar", title: "title", start: "start", end: "end" }) }} />
         </Box>;
     }}</Reactive>),
 });

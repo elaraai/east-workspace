@@ -9,11 +9,12 @@
  * inspector collapsed to its rail, an item's card, a world point of its drawing
  * on the screen, the cards that overlap and those standing in a box, a box of
  * the drawing zoomed into, the box the canvas shows and its camera at rest on
- * one, its library's tabs and cards, a card picked up from it and carried onto the
- * canvas, with what the drag's ghost says, the history's Discard and Save — and
- * whether each of its buttons stays inside the toolbar and takes a click — an
- * item found by Find and picked, what Find's box shows wherever the row holds
- * it, and the drawing's counts as the inspector says them.
+ * one, a press of Zoom in once it takes one, its library's tabs and cards, a
+ * card picked up from it and carried onto the canvas, with what the drag's
+ * ghost says, the history's Discard and Save — and whether each of its buttons
+ * stays inside the toolbar and takes a click — an item found by Find and
+ * picked, what Find's box shows wherever the row holds it, and the drawing's
+ * counts as the inspector says them.
  */
 
 import { expect, type Locator, type Page } from "playwright/test";
@@ -255,6 +256,23 @@ export async function zoomInto(page: Page, root: Locator, box: WorldBox): Promis
     await settled(page);
 }
 
+/**
+ * Presses the toolbar's Zoom in once it takes a press, and waits for the page to be at rest. It takes none at the zoom's
+ * limit, which the view's items raise as they land (#1393), and the canvas tells its reader where it rests only once it
+ * has rested a moment, so a page at rest can still be about to read the view. A press while the button is off is
+ * retried, and Playwright scrolls the button into view before it tries again: the page moves, and the canvas with it,
+ * out from under the gesture that follows.
+ *
+ * @param page - The page
+ * @param root - The Schematic's root
+ */
+export async function pressZoomIn(page: Page, root: Locator): Promise<void> {
+    const zoomIn = root.locator("[data-frame-slot='toolbar']").getByRole("button", { name: "Zoom in", exact: true });
+    await expect(zoomIn).toBeEnabled();
+    await zoomIn.click();
+    await settled(page);
+}
+
 /** The library pane. */
 export const pane = (root: Locator): Locator => root.locator("[data-frame-slot='start']");
 
@@ -343,11 +361,16 @@ export function captionOf(page: Page): Promise<{ text: string; refused: boolean 
  * The history's Discard, which drops the changes waiting on Save: on while any wait (#1388). The footer says nothing of
  * them (ruled 23 Oct 2026).
  *
+ * A phone's row too short for Discard shows More in its place, which holds it (ruled 11 Nov 2026): there the row's
+ * control that is on while a change waits is Save, and this is it.
+ *
  * @param root - The Schematic's root
  * @returns The button
  */
 export function discard(root: Locator): Locator {
-    return root.locator("[data-frame-slot='toolbar'], [data-frame-slot='sessionRow']").getByRole("button", { name: editingMessages.discard(), exact: true });
+    const row = root.locator("[data-frame-slot='toolbar'], [data-frame-slot='sessionRow']");
+    const short = row.locator("[data-slot='history']:has([data-history-more]:visible)").getByRole("button", { name: editingMessages.apply(), exact: true });
+    return row.getByRole("button", { name: editingMessages.discard(), exact: true }).or(short);
 }
 
 /**

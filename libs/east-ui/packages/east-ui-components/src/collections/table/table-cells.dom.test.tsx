@@ -156,3 +156,15 @@ describe("a cell that is no number or string prints as East prints it (#874)", (
         }
     });
 });
+
+describe("a cell's face (#1585)", () => {
+    test("a date column's cells are marked for the mono face, as a number column's are; a text column's are not", () => {
+        const { container } = renderIn("en-US");
+        const cells = [...container.querySelectorAll('tbody tr[data-depth="1"]')[0]!.querySelectorAll("td")];
+        // Region, Year, Id, Qty, Whole, Revenue, Fee, Shipped, At.
+        expect(cells[0]!.querySelector("[data-numeric], [data-date]")).toBeNull();
+        expect(cells[1]!.querySelector("[data-numeric]")).not.toBeNull();
+        expect(cells[8]!.querySelector("[data-date]")).not.toBeNull();
+        expect(cells[8]!.querySelector("[data-numeric]")).toBeNull();
+    });
+});

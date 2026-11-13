@@ -128,7 +128,6 @@ export function useQuerySession(options: QuerySessionOptions): QuerySessionState
         readEntry: (entry: string) => (base === undefined ? none : readBaseEntry(base, entry)),
         onPatch: none,
         onApply: onApply === undefined ? none : some(variant("async", onApply)),
-        mode: variant("batch", null),
     }), [sourceId, snapshot, base, onApply]);
     const rows = useMemo(() => base?.entries ?? [], [base]);
     const positions = useMemo(() => rows.map((_, i) => i), [rows]);
@@ -142,7 +141,9 @@ export function useQuerySession(options: QuerySessionOptions): QuerySessionState
     // A query's steps are parsed afresh from its saved program each time it is read, so their identities do not survive
     // a re-read: a query another session saved under these drafts is out of date — saved under another name, or the
     // drafts discarded (#936) — never carried over.
-    const edit = useEditSession<QueryEntry>(editing, undefined, rows, positions, storageKey, { idOf: entryId, ready, carryOver: false });
+    // Every Save of a query is a person's: one never saved asks its name first, and a saved one is a program others run —
+    // so the builder keeps no choice of an automatic Save.
+    const edit = useEditSession<QueryEntry>(editing, undefined, rows, positions, storageKey, { idOf: entryId, ready, carryOver: false, manualSave: true });
     session.current = edit.session;
     const { version, available, original } = edit;
 

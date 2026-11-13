@@ -1,6 +1,7 @@
 import tseslint from '@typescript-eslint/eslint-plugin';
 import tsparser from '@typescript-eslint/parser';
 import headers from 'eslint-plugin-headers';
+import browserFloor from './eslint/browser-floor.js';
 
 // Doc comments are never compiled, so nothing else notices when an example
 // stops matching the API. `East.compile` takes the function built by
@@ -106,6 +107,15 @@ export default [
         content: 'Copyright (c) 2025 Elara AI Pty Ltd\nDual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.'
       }]
     }
+  },
+  // East runs in a browser, on iPhones back to iOS 16.4: its source names no built-in newer than ES2023
+  // (docs/conventions/BROWSER_FLOOR.md). The specs run in Node alone; `make test-floor` runs them all on an engine
+  // without the newer built-ins, which is what holds a value typed `any`, where no rule can see.
+  {
+    files: ['src/**/*.ts'],
+    ignores: ['src/**/*.spec.ts'],
+    plugins: { 'east-floor': { rules: { 'browser-floor': browserFloor } } },
+    rules: { 'east-floor/browser-floor': 'error' }
   },
   {
     files: ['src/**/*.spec.ts'],

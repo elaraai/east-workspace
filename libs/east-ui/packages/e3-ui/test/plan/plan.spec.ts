@@ -523,7 +523,7 @@ describeEast("Plan", (test) => {
         }))), 'Plan.children: "runs" is an Integer — child rows are a Dict, keyed by an id'));
     });
 
-    test("editing is checked at build — one apply, a live handle for onUpdate, an apply for auto, a revision for a paged apply, and every callback's signature (#880)", $ => {
+    test("editing is checked at build — one apply, a live handle for onUpdate, a revision for a paged apply, and every callback's signature (#880)", $ => {
         const Job = StructType({ start: DateTimeType, end: DateTimeType });
         const Row = StructType({ jobs: DictType(StringType, Job) });
         const Rows = DictType(StringType, Row);
@@ -542,7 +542,6 @@ describeEast("Plan", (test) => {
         const onUpdate = East.function([Rows], NullType, () => null);
         $(Assert.equal(East.value(refusal({ onApply, onUpdate }).includes("not both")), true));
         $(Assert.equal(East.value(refusal({ onUpdate }).includes("editing.onUpdate requires data={liveHandle}")), true));
-        $(Assert.equal(East.value(refusal({ mode: "auto" }).includes("it needs onApply or onUpdate")), true));
         // A paged source without revision and refresh — the shape that
         // predates them — cannot check a batch.
         const paged = East.value({
@@ -563,12 +562,11 @@ describeEast("Plan", (test) => {
         // The right signatures build, and the wire carries them.
         const onPatch = East.function([Plan.Types.PatchEvent(Row)], NullType, () => null);
         const ready = East.function([Row, StringType], Editing.Types.Readiness, () => variant("ready", null));
-        const p = $.let(Plan.Root({ axis, data, series, editing: { onApply, onPatch, ready, mode: "auto" } }));
+        const p = $.let(Plan.Root({ axis, data, series, editing: { onApply, onPatch, ready } }));
         const wire = $.let(p.editing.unwrap("some"));
         $(Assert.equal(wire.onApply.unwrap("some").hasTag("sync"), true));
         $(Assert.equal(wire.onPatch.hasTag("some"), true));
         $(Assert.equal(wire.ready.hasTag("some"), true));
-        $(Assert.equal(wire.mode.hasTag("auto"), true));
         $(Assert.equal(wire.snapshot.unwrap("some").decodeBeast(Rows, "v2"), data));
     });
 
@@ -586,6 +584,20 @@ describeEast("Plan", (test) => {
         const review = refusal({ review: { columnLabel: "Decision", onRerun: noop } });
         $(Assert.equal(East.value(review), "Plan: `review` is removed (#1260) — a Plan approves and rejects nothing: its changes are drafts of the " +
             "`editing` session, undone, redone, discarded or saved together"));
+    });
+
+    test("the removed applyMode and editing.mode fail by name: every edit waits for Save (#1536, #1584)", $ => {
+        const Row = StructType({ v: FloatType });
+        const data = $.const(new Map(), DictType(StringType, Row));
+        const axis = Plan.axis({ window: { min: W27, max: END }, resolution: "week" });
+        const refusal = (build: () => unknown): string => {
+            try { build(); return ""; } catch (e) { return e instanceof Error ? e.message : String(e); }
+        };
+        // `applyMode` was `<Plan>`'s; `editing.mode` the canvas's session's.
+        $(Assert.equal(East.value(refusal(() => Plan.Payload({ axis, data, series: [], applyMode: "auto" } as Parameters<typeof Plan.Payload>[0]))),
+            "Plan: `applyMode` is removed (#1536) — every edit waits for Save: the Plan's changes are drafts, undone, redone, discarded or saved together"));
+        $(Assert.equal(East.value(refusal(() => Plan.Root({ axis, data, series: [], editing: { mode: "batch" } as never }))),
+            "Plan: `editing.mode` is removed (#1536) — every edit waits for Save: the session's drafts are undone, redone, discarded or saved together"));
     });
 
     test("Plan.Types.PatchEvent(R) is the shared patch event over whole-entry drafts (#880)", $ => {
@@ -1533,7 +1545,7 @@ describeEast("Plan", (test) => {
         // header is one row, not one per window.
         const source = $.let(LOADS_SOURCE, Paged.Types.Source(Loads));
         const paged = $.let(Plan.Root({ axis, data: source, series }).rows.unwrap("paged"));
-        const w1 = $.let(paged.page(1n, 1n).unwrap("some"));
+        const w1 = $.let(paged.page(1n, 1n).unwrap("some").rows);
         $(Assert.equal(w1.map((_$, b) => b.fixed), [true, false, false, true]));
         $(Assert.equal(w1.get(0n).rows.map((_$, r) => r.id), [Plan.sectionRef("ops")]));
         $(Assert.equal(w1.get(1n).rows.map((_$, r) => r.id), [Plan.ref("load", "b")]));
@@ -1600,7 +1612,7 @@ describeEast("Plan", (test) => {
             Plan.series.chart(LoadRow, { key: "load-chart", title: "Load", label: (_r, k) => k, layers: () => [] }),
             Plan.series.heat(LoadRow, { key: "load-heat", title: "Load heat", label: (_r, k) => k, cells: (r) => Plan.heatCells([{ at: Plan.at.time(W27), value: some(r.v), label: none }]) }),
         ];
-        const w0 = $.let(Plan.Root({ axis, data: source, series: loads }).rows.unwrap("paged").page(0n, 2n).unwrap("some"));
+        const w0 = $.let(Plan.Root({ axis, data: source, series: loads }).rows.unwrap("paged").page(0n, 2n).unwrap("some").rows);
         $(Assert.equal(w0.map((_$, b) => b.charts), [some(1n), some(0n)]));
     });
 
@@ -2062,7 +2074,7 @@ describeEast("Plan", (test) => {
         $(Assert.equal(src.total().unwrap("some"), 1n));
         // A window is every block's share of its entries, from ONE read (#823):
         // one block per data series, each its entries' rows in order.
-        const w0 = $.let(src.page(0n, 100n).unwrap("some"));
+        const w0 = $.let(src.page(0n, 100n).unwrap("some").rows);
         $(Assert.equal(w0.size(), 2n));
         $(Assert.equal(w0.get(0n).rows.size(), 1n));
         $(Assert.equal(w0.get(0n).rows.get(0n).id, Plan.ref("presses", "m1")));

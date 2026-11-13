@@ -11,7 +11,7 @@
  * pick clears (the hidden pick); and where the rows rest comes back after a
  * remount.
  */
-import { afterEach, expect, test, vi } from "vitest";
+import { afterEach, expect, test } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { StringType, decodeBeast2For, equalFor, printFor, variant } from "@elaraai/east";
@@ -21,7 +21,7 @@ import * as ex from "@elaraai/e3-ui/examples/roster/roster";
 import type { E3Request } from "../e3-web.test-utils.js";
 import { setRosterPeopleCardsProbe } from "./library.js";
 import { setPeopleDrawProbe } from "./views.js";
-import { act, narrow, narrowing, open, press, rosterHarness, settle, slot, type Choice } from "./harness.test-utils.js";
+import { act, narrow, narrowing, open, press, rosterHarness, scrollsAsAPageDoes, settle, slot, type Choice } from "./harness.test-utils.js";
 const h = rosterHarness();
 const text = printFor(StringType);
 
@@ -93,7 +93,7 @@ async function toSecondBand(c: HTMLElement): Promise<HTMLElement> {
 /** The key of the person whose name holds the focus. */
 const focusedPerson = () => document.activeElement?.getAttribute("data-roster-person-head") ?? null;
 
-test("↑ and ↓ on a person's name step to the next person and the one before, past a group's band and its agency requests, selecting them and focusing their name (#1398)", async () => {
+test("↑ and ↓ on a person's name step to the next person and the one before, past a group's band, its work requirement and its agency requests, selecting them and focusing their name (#1398, #1568)", async () => {
     const { container } = await open(ex.rosterWarehouse);
     await press(within(slot(container, "toolbar")).getByRole("radio", { name: "People" }));
     // Down the first group, a person at a time.
@@ -104,20 +104,32 @@ test("↑ and ↓ on a person's name step to the next person and the one before,
     await settle();
     expect(focusedPerson()).toBe(next!.getAttribute("data-roster-person-head"));
     expect(within(slot(container, "end")).getByText(next!.textContent!, { selector: "[data-inspector-title]" })).toBeTruthy();
-    // Across the boundary: the first person of the next group, ↑ — the first group's agency requests and the band passed
-    // over — the last person of the group before; ↓ back again.
+    // Across the boundary: the first person of the next group, ↑ — its band's work requirement, the band and the first
+    // group's agency requests passed over — the last person of the group before; ↓ back again.
     const band = await toSecondBand(container);
     const bandAt = Number(band.closest("[data-index]")!.getAttribute("data-index"));
     /** The row at a place of the grid, mounted. */
     const row = (i: number) => slot(container, "main").querySelector<HTMLElement>(`[data-index="${i}"]`);
-    for (let step = 1; step <= 5 && row(bandAt + 1) === null; step++) {
+    /** The first place past the band holding a person's name, once the rows down to it are mounted. */
+    const personAt = (): number | undefined => {
+        for (let i = bandAt + 1; row(i) !== null; i++) if (row(i)!.querySelector("[data-roster-person-head]") !== null) return i;
+        return undefined;
+    };
+    for (let step = 1; step <= 10 && personAt() === undefined; step++) {
         await act(async () => { scroller(container).scrollTop += 62; fireEvent.scroll(scroller(container)); });
         await settle();
     }
-    // The rows about the band: the first group's last person, its agency requests, the band, the next group's first person.
+    // The rows about the band: the first group's last person, its agency requests, the band, the band's work requirement
+    // (#1568) — its heading, a lane a shift its targets name, the assignment's heading — and the next group's first person.
     expect(row(bandAt - 1)!.querySelector("[data-roster-person-row]")!.getAttribute("data-roster-person-row")).toMatch(/^requests:/);
     const last = row(bandAt - 2)!.querySelector<HTMLElement>("[data-roster-person-head]")!.getAttribute("data-roster-person-head");
-    const opening = row(bandAt + 1)!.querySelector<HTMLElement>("[data-roster-person-head]")!;
+    const openingAt = personAt()!;
+    const between = Array.from({ length: openingAt - bandAt - 1 }, (_, k) => row(bandAt + 1 + k)!);
+    expect(between.length).toBeGreaterThan(2);
+    expect(between[0]!.querySelector("[data-roster-demand]")).not.toBeNull();
+    expect(between.slice(1, -1).every(el => el.querySelector("[data-roster-lane]") !== null)).toBe(true);
+    expect(between.at(-1)!.querySelector("[data-roster-assign-head]")).not.toBeNull();
+    const opening = row(openingAt)!.querySelector<HTMLElement>("[data-roster-person-head]")!;
     opening.focus();
     await act(async () => { fireEvent.keyDown(opening, { key: "ArrowUp" }); });
     await settle();
@@ -126,30 +138,6 @@ test("↑ and ↓ on a person's name step to the next person and the one before,
     await settle();
     expect(focusedPerson()).toBe(opening.getAttribute("data-roster-person-head"));
 });
-
-/**
- * jsdom scrolls nothing a frame asks it to — the harness's `scrollTo` does nothing, and a scroll box has no extent to
- * scroll through — so a row a pick brings into view, or a place a remount restores, would never be seen: here the
- * grid's scroll box has room, and it scrolls as a page does, and says so. Its rows and bands measure themselves as the
- * harness measures the boxes the virtualizer places them in, so the grid's floors are what it places the rows by.
- */
-function scrollsAsAPageDoes() {
-    const rect = vi.mocked(Element.prototype.getBoundingClientRect);
-    const harness = rect.getMockImplementation()!;
-    rect.mockImplementation(function (this: Element) {
-        const height = this.hasAttribute("data-roster-person-row") ? 62 : this.hasAttribute("data-roster-group") ? 38 : undefined;
-        return height === undefined ? harness.call(this) : { x: 0, y: 0, top: 0, left: 0, right: 900, bottom: height, width: 900, height, toJSON() {} };
-    });
-    vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(function (this: HTMLElement) {
-        return this.hasAttribute("data-virtual-rows") ? 1_000_000 : 0;
-    });
-    vi.spyOn(Element.prototype, "scrollTo").mockImplementation(function (this: Element, options?: ScrollToOptions | number) {
-        if (typeof options !== "object") return;
-        if (options.top !== undefined) this.scrollTop = options.top;
-        if (options.left !== undefined) this.scrollLeft = options.left;
-        this.dispatchEvent(new Event("scroll"));
-    } as Element["scrollTo"]);
-}
 
 /** Search Records' box, in the toolbar's row. */
 const searchBox = (c: HTMLElement) => slot(c, "toolbar").querySelector<HTMLElement>("[data-toolbar-item='seek'] [data-part='dataset-key-search']")!;
@@ -261,10 +249,16 @@ test("a person the rail's narrowing hides is named by the people's choice that h
     await waitFor(() => expect(focusedPerson()).toBe("tkelp"));
 });
 
-/** The row at the top of the People grid's view — the mounted row its scroll offset falls in — and the px scrolled into it. */
+/**
+ * The row at the top of the People grid's view — the mounted row its scroll offset falls in, where its place puts it
+ * (the row's own box sits in its place: a top where the grid's sections stick, #1568, else a translation) — and the px
+ * scrolled into it.
+ */
 function topRow(c: HTMLElement): { key: string | null; into: number } {
     const top = scroller(c).scrollTop;
-    const placed = [...slot(c, "main").querySelectorAll<HTMLElement>("[data-index]")].map(el => ({ el, at: Number(/translateY\((-?[\d.]+)px\)/.exec(el.style.transform)?.[1] ?? NaN) }))
+    const placeOf = (box: HTMLElement) => box.style.top !== "" ? Number.parseFloat(box.style.top) : Number(/translateY\((-?[\d.]+)px\)/.exec(box.style.transform)?.[1] ?? NaN);
+    const placed = [...slot(c, "main").querySelectorAll<HTMLElement>("[data-index]")]
+        .map(el => ({ el, at: placeOf(el.closest<HTMLElement>("[data-slot=virtualRow]")!) }))
         .filter(row => row.at <= top).sort((a, b) => b.at - a.at);
     const row = placed[0];
     if (row === undefined) return { key: null, into: 0 };

@@ -3,7 +3,7 @@
   East — decision-platform placemat. Editorial infographic (not an app mock):
   grouping uses a few zone-frames + one dark "model" band, never a card per item.
   Visual language follows libs/east-ui/design (colors_and_type.css + spec.css):
-    type   DM Sans (display) · Inter Tight (body) · JetBrains Mono (eyebrow/label)
+    type   DM Sans (display) · Inter Tight (body) · Chivo Mono (eyebrow/label)
     ink    #111b22 .. #9bb0b0   paper #fff/#f8fafa/#f1f5f5
     brand  teal #488e97/#3a7780/#2b4b55, used sparingly as accent; brand-tint #e8f6f7
   Two actors bracket the stack (business users consume, top · developers build, base).
@@ -13,14 +13,14 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1500" height="1441.5" viewBox="0 0 1000 961" font-family="'Inter Tight', system-ui, sans-serif">
   <defs>
     <style>
-      .eyebrow { font-family:'JetBrains Mono', ui-monospace, monospace; font-size:11px; font-weight:600; letter-spacing:0.18em; }
-      .label   { font-family:'JetBrains Mono', ui-monospace, monospace; font-size:11px; font-weight:500; letter-spacing:0.1em; }
-      .pkg     { font-family:'JetBrains Mono', ui-monospace, monospace; font-size:11px; font-weight:500; letter-spacing:0.04em; fill:#3a7780; }
+      .eyebrow { font-family:'Chivo Mono', ui-monospace, monospace; font-size:11px; font-weight:600; letter-spacing:0.18em; }
+      .label   { font-family:'Chivo Mono', ui-monospace, monospace; font-size:11px; font-weight:500; letter-spacing:0.1em; }
+      .pkg     { font-family:'Chivo Mono', ui-monospace, monospace; font-size:11px; font-weight:500; letter-spacing:0.04em; fill:#3a7780; }
       .display { font-family:'DM Sans', system-ui, sans-serif; font-weight:700; letter-spacing:-0.015em; }
       .h       { font-family:'DM Sans', system-ui, sans-serif; font-size:17px; font-weight:600; letter-spacing:-0.01em; fill:#111b22; }
       .b       { font-size:12.5px; fill:#4a5f5f; }
       .bw      { font-size:11.5px; fill:#7d9a98; }
-      .step    { font-family:'JetBrains Mono', ui-monospace, monospace; font-size:11px; font-weight:600; fill:#9bb0b0; letter-spacing:0.06em; }
+      .step    { font-family:'Chivo Mono', ui-monospace, monospace; font-size:11px; font-weight:600; fill:#9bb0b0; letter-spacing:0.06em; }
     </style>
     <marker id="chev" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="8" markerHeight="8" orient="auto">
       <path d="M1,1 L6,5 L1,9" fill="none" stroke="#9bb0b0" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>

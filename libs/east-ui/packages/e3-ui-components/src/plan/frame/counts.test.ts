@@ -92,6 +92,7 @@ function cellsOf(reads: [string, Uint8Array][], capped: readonly string[] = [], 
         shading: new SortedMap([], compareFor(StringType)),
         drafts: new SortedMap([], compareFor(StringType)),
         held: new Map(landed ? reads.map(([key]) => [key, new Map()] as const) : []), notices: [], capped: new Set(capped), reading: false, drawn: undefined,
+        windowed: new Set(), view: landed ? "current" : "cold", error: undefined,
     } as ScheduleCellsRead;
 }
 

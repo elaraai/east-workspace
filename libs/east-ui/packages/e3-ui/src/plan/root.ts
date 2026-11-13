@@ -55,9 +55,11 @@ import {
     EditingPatchEventTypeWith,
     EditingReadinessType,
     EditingWireApplyType,
+    CarriedEntryType,
+    CarriedWindowType,
+    buildCarriedRowSource,
     buildKeyedInlineApply,
     buildPagedWindow,
-    buildRowSource,
     checkedEditingCallback,
     pickActive,
     resolveRowSource,
@@ -127,7 +129,6 @@ import { applySeries, checkSeries, seriesWriteFn, PlanCarriedType, PlanSeriesTyp
  * @property onApply - Commit one checked batch (sync or async)
  * @property onUpdate - The inline adapter's writer — the whole collection with the batch applied (requires `data={liveHandle}`)
  * @property onPatch - Observe every gesture
- * @property mode - `"batch"` (Save sends) or `"auto"` (each ready gesture goes at once)
  * @property ready - The author's readiness check over a drafted entry
  */
 export interface PlanEditingConfig {
@@ -137,8 +138,6 @@ export interface PlanEditingConfig {
     onUpdate?: ExprType<EastType>;
     /** Observe every gesture — `Fn(Plan.Types.PatchEvent(R)) → Null`. */
     onPatch?: ExprType<EastType>;
-    /** When a ready batch goes: on Save (`"batch"`, the default), or at once (`"auto"`). */
-    mode?: "batch" | "auto";
     /** The author's check over one drafted entry — `Fn(R, K) → Editing.Types.Readiness`. */
     ready?: ExprType<EastType>;
 }
@@ -393,8 +392,8 @@ export function buildPlanRoot(config: PlanCanvasOptions, extra: ExprType<PlanBlo
     if (config.data === undefined && extra === undefined) {
         throw new Error("Plan: `data` is required — a canvas is its data plus the series over it");
     }
-    // The removed callbacks, named (#880) — a plain JS caller would otherwise
-    // lose them silently.
+    // The removed callbacks and options, named (#880, #1260, #1536) — a plain JS
+    // caller would otherwise lose them silently.
     if ("onDrag" in (config as object)) {
         throw new Error(
             "Plan: `onDrag` is removed (#880) — a card dropped on a row is a draft of the `editing` session: declare " +
@@ -404,6 +403,14 @@ export function buildPlanRoot(config: PlanCanvasOptions, extra: ExprType<PlanBlo
         throw new Error(
             "Plan: `review` is removed (#1260) — a Plan approves and rejects nothing: its changes are drafts of the " +
             "`editing` session, undone, redone, discarded or saved together");
+    }
+    if ("applyMode" in (config as object)) {
+        throw new Error("Plan: `applyMode` is removed (#1536) — every edit waits for Save: the Plan's changes are drafts, undone, " +
+            "redone, discarded or saved together");
+    }
+    if (typeof config.editing === "object" && "mode" in config.editing) {
+        throw new Error("Plan: `editing.mode` is removed (#1536) — every edit waits for Save: the session's drafts are undone, " +
+            "redone, discarded or saved together");
     }
     if (config.data === undefined) {
         for (const prop of ["series", "pick", "editing"] as const) {
@@ -496,16 +503,25 @@ export function buildPlanRoot(config: PlanCanvasOptions, extra: ExprType<PlanBlo
             );
         }
     }
+    // Whether a window carries the stored entries its rows were made from (#1599): where the canvas edits rows it pages
+    // whole. Its rows stand at the revision they were read at while their windows are read again — after a Save, or
+    // another session's write — and an entry read as a gesture runs is read at the revision now, on its way: arriving
+    // with its window, it is at hand. Rows read lean beside their nested series index (#1438) hold no whole entry — a
+    // gesture reads its row whole, by key — and rows held whole are read from as they are: neither carries any.
+    const carries = config.editing !== undefined && resolved.kind === "paged" && planNestedIndex(nested) === undefined;
+    const entryId = planEntryId((resolved.collectionType as DictType<EastType, EastType>).key);
     // The canvas's BLOCKS, in layout order (#823): inline, the whole source's;
     // paged, each window's share of every block — one read serves them all.
     // A Plan's `rows` follow as fixed blocks, which every window serves alike.
-    const rowsValue = buildRowSource(
+    const rowsValue = buildCarriedRowSource(
         incoming,
         PlanBlocksType,
         (source) => {
             const blocks = ordered === undefined ? applySeries(seriesInput, source) : ordered.make(seriesInput, source);
             return extra === undefined ? blocks : blocks.concat(extra);
         },
+        !carries ? undefined : ordered !== undefined ? ordered.carried
+            : (source) => (source as unknown as ExprType<DictType<EastType, EastType>>).toArray((_$, value, key) => ({ id: entryId(key), entry: East.Blob.encodeBeast(value, "v2") })),
     ) as unknown as ExprType<PlanRowsType>;
     const editing = config.editing === undefined ? undefined : buildPlanEditing(resolved, editSeries, config.editing, planNestedIndex(nested));
     // Paged beside their nested series index (#1438): the seam the reader reads the index's cells through, and the window
@@ -597,6 +613,19 @@ function rootOf(config: PlanCanvasOptions, rowsValue: ExprType<PlanRowsType>, ed
 // ============================================================================
 
 /**
+ * An entry's id from its key: its key's text — a String key as it is, any other key its `.east` text — the first
+ * segment of its rows' paths, and what the editing session's drafts and a window's carried entries are named by.
+ *
+ * @param keyType - The source's key type
+ * @returns The function, on the wire
+ */
+function planEntryId(keyType: EastType): ExprType<FunctionType<[EastType], StringType>> {
+    return ((keyType as { type: string }).type === "String"
+        ? East.function([StringType], StringType, (_$, key) => key)
+        : East.function([keyType], StringType, (_$, key) => East.print(key))) as unknown as ExprType<FunctionType<[EastType], StringType>>;
+}
+
+/**
  * The canvas's editing declaration (#880) — the shared session's fields over
  * the source's top-level entries, and the canvas's own: its blocks with the
  * drafted entries in place, one entry's blocks, the gestures written into
@@ -630,9 +659,6 @@ function buildPlanEditing(resolved: ResolvedRowSource, series: PlanSeriesInput, 
             "Plan: editing.onUpdate requires data={liveHandle}, so each batch reads the latest entries — pass the bound " +
             "handle itself, or commit with onApply");
     }
-    if (input.mode === "auto" && input.onApply === undefined && input.onUpdate === undefined) {
-        throw new Error("Plan: editing.mode \"auto\" applies each ready gesture at once — it needs onApply or onUpdate to apply it with");
-    }
     if (resolved.kind !== "inline" && !resolved.pinned && input.onApply !== undefined) {
         throw new Error(
             "Plan: editing a paged source needs its revision and refresh — a pinned source (Data.bindPaged's handle): " +
@@ -645,9 +671,7 @@ function buildPlanEditing(resolved: ResolvedRowSource, series: PlanSeriesInput, 
     const keyOf = ((keyType as { type: string }).type === "String"
         ? East.function([StringType], StringType, (_$, id) => id)
         : East.function([StringType], keyType, (_$, id) => id.parse(keyType))) as unknown as ExprType<FunctionType<[StringType], EastType>>;
-    const idOf = ((keyType as { type: string }).type === "String"
-        ? East.function([StringType], StringType, (_$, key) => key)
-        : East.function([keyType], StringType, (_$, key) => East.print(key))) as unknown as ExprType<FunctionType<[EastType], StringType>>;
+    const idOf = planEntryId(keyType);
 
     // Where the entries are read: the inline Dict, or the canvas's own windows.
     const inline = resolved.kind === "inline" ? resolved.rows as unknown as ExprType<DictType<EastType, EastType>> : undefined;
@@ -692,24 +716,45 @@ function buildPlanEditing(resolved: ResolvedRowSource, series: PlanSeriesInput, 
             return drafts.has(id).ifElse(() => drafts.get(id).decodeBeast(entryType, "v2"), () => value);
         });
     });
-    const derive = East.function([IntegerType, IntegerType, DraftsType], OptionType(PlanBlocksType), ($, offset, limit, drafts) => {
+    const WindowType = CarriedWindowType(PlanBlocksType);
+    // A window's stored entries, each under its id, in the source's order: what it carries beside its blocks (#1599).
+    const carried = East.function([sourceType], ArrayType(CarriedEntryType), ($, entries) => {
+        const idText = $.const(idOf);
+        return entries.toArray(($2, value, key) => ({ id: idText(key), entry: East.Blob.encodeBeast(value, "v2") }));
+    });
+    const derive = East.function([IntegerType, IntegerType, DraftsType], OptionType(WindowType), ($, offset, limit, drafts) => {
         const draft = $.const(withDrafts);
-        const result = $.let(none, OptionType(PlanBlocksType));
+        const result = $.let(none, OptionType(WindowType));
         if (inline !== undefined) {
             const all = $.const(inline);
             const drafted = $.let(draft(all, drafts));
-            $.assign(result, some(applySeries(series, drafted)));
+            // Held whole, the source is read from as it is: nothing is carried.
+            $.assign(result, some({ rows: applySeries(series, drafted), entries: East.value([], ArrayType(CarriedEntryType)) }));
         } else {
             const read = $.const(window!);
+            const stored = $.const(carried);
             const piece = $.let(read(offset, limit));
             $.match(piece, {
                 some: ($2, entries) => {
                     const drafted = $2.let(draft(entries, drafts));
-                    $2.assign(result, some(applySeries(series, drafted)));
+                    // One read: the blocks with the drafts in place, and the entries as the source holds them.
+                    $2.assign(result, some({ rows: applySeries(series, drafted), entries: stored(entries) }));
                 },
             });
         }
         return result;
+    });
+
+    // A window's blocks from the entries it carried, the drafted ones in their place, reading nothing (#1599): what a
+    // window standing in while it is read again draws a draft made meanwhile from.
+    const deriveWindow = East.function([ArrayType(CarriedEntryType), DraftsType], PlanBlocksType, ($, entries, drafts) => {
+        const parse = $.const(keyOf);
+        const held = $.let(new Map(), sourceType);
+        $.for(entries, ($2, carriedEntry) => {
+            const bytes = $2.let(drafts.has(carriedEntry.id).ifElse(() => drafts.get(carriedEntry.id), () => carriedEntry.entry));
+            $2(held.insert(parse(carriedEntry.id), bytes.decodeBeast(entryType, "v2")));
+        });
+        return applySeries(series, held);
     });
 
     // One entry's blocks — what a draft is compared by, row by row.
@@ -851,8 +896,8 @@ function buildPlanEditing(resolved: ResolvedRowSource, series: PlanSeriesInput, 
         readEntry,
         onPatch: onPatch !== undefined ? some(onPatch) : none,
         onApply: onApply !== undefined ? some(onApply) : none,
-        mode: variant(input.mode ?? "batch", null),
         derive,
+        deriveWindow,
         deriveEntry,
         write,
         entryIds,

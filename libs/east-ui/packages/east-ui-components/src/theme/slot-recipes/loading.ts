@@ -118,6 +118,22 @@ export const heldToolbarSlot = {
     minHeight: "24px",
 } satisfies SystemStyleObject;
 
+/**
+ * A toolbar slot as wide as the widest of what it may say (#1595): each word unseen in a box styled as what is said, all
+ * stacked in one grid cell with it, so a period's status or its count of issues changing never moves the controls beside
+ * it nor folds the row. A word is drawn from its `data-widest-word`, a width and no text of the page. What is said
+ * stands at the slot's start, or with `data-end`, for the row's end cluster, at its end. The Roster's and the
+ * Allocation's toolbars take it as a slot of their own.
+ */
+export const widestToolbarSlot = {
+    display: "inline-grid",
+    alignItems: "center",
+    justifyItems: "start",
+    "&[data-end]": { justifyItems: "end" },
+    "& > *": { gridArea: "1 / 1" },
+    "& > [data-widest-word]": { visibility: "hidden", "&::before": { content: "attr(data-widest-word)" } },
+} satisfies SystemStyleObject;
+
 export const loadingSlotRecipe = defineSlotRecipe({
     className: "elara-loading",
     slots: [

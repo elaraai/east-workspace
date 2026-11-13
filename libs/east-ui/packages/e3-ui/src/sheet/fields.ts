@@ -16,20 +16,29 @@
  * | `date` | The date field, at the row's date level (the renderer sets its precision) |
  * | `quantity`, `integer` | The number field — a quantity in the driver's unit |
  * | `lookup`, `reference`, `enum` | A select over the register's members (`reference` of the register) |
+ * | `person`, `cycle` | A select over the register's members — a Record draws a cycle's as one line of radios |
+ * | `cycle` over a variant's `steps` | A choice among its cases, in its steps' order and words — a Record draws it as one line of radios |
+ * | `title` | Text |
+ * | `boolean`, `toggle` | A checkbox — a Record draws a toggle's as one line of radios |
  * | `set`, `link` | Read only here: the renderer draws the members, and edits them in the grid |
- * | `stamped`, a `value` projection, `editable: false` | Read only |
+ * | `stamped`, `audit`, a `value` projection, `editable: false` | Read only |
+ * | `age` | None: it shows no field — the renderer draws its count among the row's facts |
  * | `action` | Its state and summary, its actions taken in the pane (#1474) |
+ * | Columns from data | None: the renderer draws each member's cell as a line of its own (#1561) |
  * | No column | By its type, as `Fields.specs` resolves it |
  *
  * A field with a column is read and written through it: its spec names the
  * column (or the band cell, on a group), and an edit in the inspector is the
  * cell's write, as typing in it is (SB52). A field with none is the draft's
- * own. A hint may label a column's field, give it a help line, make it read
- * only or hide it; an editor hint must fit the field's type, and a read-only
- * column takes none. Each form carries the cells a patch of its struct sets
- * (`encode`) — the projection the copilot's proposals and the templates go
- * through — so a whole-row write (a custom inspector's `update`, SB58) lands
- * on the cells as the grid would write them.
+ * own. The field columns from data write is no field of the form: by its type
+ * it would be set on the draft past the columns' `write` and their locks, so
+ * the inspector shows each of its members' cells instead, as the grid does,
+ * and a hint naming it is refused. A hint may label a column's field, give it
+ * a help line, make it read only or hide it; an editor hint must fit the
+ * field's type, and a read-only column takes none. Each form carries the
+ * cells a patch of its struct sets (`encode`) — the projection the copilot's
+ * proposals and the templates go through — so a whole-row write (a custom
+ * inspector's `update`, SB58) lands on the cells as the grid would write them.
  *
  * @packageDocumentation
  */
@@ -51,8 +60,9 @@ import {
     type ExprType,
     type SubtypeExprOrValue,
 } from "@elaraai/east";
-import { FIELD_HINT, FieldSpecType, Fields, fieldSpecs, spellOut, type FieldEditorValue, type FieldHints } from "@elaraai/east-ui/internal";
-import { SheetCellsType, buildPatchCells, type SheetBridge, type SheetColumnMeta } from "./bridge.js";
+import { FIELD_HINT, FieldEditorType, FieldSpecType, Fields, fieldSpecs, spellOut, type FieldEditorValue, type FieldHints } from "@elaraai/east-ui/internal";
+import { SheetCellsType, buildPatchCells, optionPayload, type SheetBridge, type SheetColumnMeta } from "./bridge.js";
+import type { SheetUnsettableInput } from "./editing-bridge.js";
 import { SheetPatchTypeFor } from "./types.js";
 
 // ============================================================================
@@ -80,7 +90,7 @@ export type SheetFieldType = typeof SheetFieldType;
  * @property type - The struct the form edits — the row (a grouped sheet's line), or the group
  * @property fields - Its fields: the hinted first, in hint order, then the rest in declared order
  * @property columns - The struct's fields its editable columns write — a column's own, a link's other half — whatever the form shows: a whole-row write sets these through `encode`
- * @property readonly - The struct's fields its read-only columns show — a stamped code, a `value` projection, a column `editable: false` — which a whole-row write leaves as they are, as the grid does; every other field a whole-row write sets on the draft
+ * @property readonly - The struct's fields its read-only columns show — a stamped code, a `value` projection, a column `editable: false` — and the fields columns from data write, through their members' cells alone: a whole-row write leaves these as they are, as the grid does; every other field a whole-row write sets on the draft
  * @property encode - A `Sheet.Types.Patch` of the struct, encoded (beast2) → the cells it sets through the sheet's editable columns (or the band's cells)
  */
 export const SheetFormType = StructType({
@@ -122,6 +132,7 @@ function isHint(value: unknown): value is AnyHint {
 
 /** Why a column's field takes no editor hint, or `undefined` when it does. */
 function readOnlyReason(meta: SheetColumnMeta): string | undefined {
+    if (meta.kind === "audit") return "is an audit column, which shows the change the app keeps";
     if (meta.derived !== undefined) return "is a `value` projection, a derived read";
     if (meta.kind === "stamped") return "is stamped — a code an upstream system owns";
     if (meta.kind === "set" || meta.kind === "link") return `is a ${meta.kind} column, whose members are edited in the sheet`;
@@ -148,7 +159,12 @@ function kindEditor(meta: SheetColumnMeta): FieldEditorValue {
         case "integer": return variant("number", { unit: none, step: none, min: none, max: none });
         case "lookup":
         case "reference":
-        case "enum": return variant("reference", { of: meta.register! });
+        case "enum":
+        case "person":
+        case "cycle": return variant("reference", { of: meta.register! });
+        case "title": return variant("text", { placeholder: none });
+        case "boolean":
+        case "toggle": return variant("checkbox", null);
         default: return variant("readonly", null);
     }
 }
@@ -160,7 +176,7 @@ function kindEditor(meta: SheetColumnMeta): FieldEditorValue {
  */
 function columnField(name: string, meta: SheetColumnMeta, hint: AnyHint | undefined, where: string, registers: ReadonlySet<string>): ExprType<SheetFieldType> {
     const kind = hint?.[FIELD_HINT];
-    let editor: FieldEditorValue;
+    let editor: FieldEditorValue | ExprType<typeof FieldEditorType>;
     let type: EastType;
     if (meta.derived !== undefined) {
         // A projection's value is the cell's, never the field's.
@@ -171,7 +187,11 @@ function columnField(name: string, meta: SheetColumnMeta, hint: AnyHint | undefi
     } else {
         type = meta.fieldType;
     }
-    if (kind === undefined || kind === "readonly") {
+    if (kind === undefined && meta.steps !== undefined && meta.editable) {
+        // A cycle over a variant: its field chosen among the cases, in the order and the words of its steps — East keeps
+        // the cases in name order, and a status reads best in its own, as `Fields.select` offers it.
+        editor = East.value(variant("select", meta.steps.members.map((_$, step) => ({ case: step.key, label: step.label }))), FieldEditorType);
+    } else if (kind === undefined || kind === "readonly") {
         editor = kind === "readonly" ? variant("readonly", null) : kindEditor(meta);
     } else {
         const reason = readOnlyReason(meta);
@@ -207,8 +227,9 @@ function columnField(name: string, meta: SheetColumnMeta, hint: AnyHint | undefi
  * @param leave - The fields the form leaves out: an identity field, a group's lines field
  * @param where - The prop the hints came from, for a refusal (`fields`, `groupFields`)
  * @param registers - The sheet's registers, by name: what a `reference` hint may name
+ * @param fromData - The fields columns from data write, each with those columns' keys: the form leaves them out too, as the inspector shows their members' cells
  * @returns The form's fields
- * @throws Error naming the field: a hint for a field the struct does not have, one that does not fit it, or a reference to a register the sheet does not declare
+ * @throws Error naming the field: a hint for a field the struct does not have, one that does not fit it, one the form leaves out, or a reference to a register the sheet does not declare
  */
 function formFields(
     struct: StructType,
@@ -217,6 +238,7 @@ function formFields(
     leave: ReadonlySet<string>,
     where: string,
     registers: ReadonlySet<string>,
+    fromData: ReadonlyMap<string, readonly string[]>,
 ): ExprType<SheetFieldType>[] {
     const fields = struct.fields as Record<string, EastType>;
     // A link column's other half is written through that column, never on its own.
@@ -225,6 +247,10 @@ function formFields(
         if (!(name in fields)) {
             throw new Error(`Sheet: \`${where}\` names "${name}", which is not a field of ${where === "groupFields" ? "the group type" : "the row type"} (${Object.keys(fields).join(", ")})`);
         }
+        const columns = fromData.get(name);
+        if (columns !== undefined) {
+            throw new Error(`Sheet: \`${where}\` names "${name}", which the inspector does not show as a field of its own — the column${columns.length === 1 ? "" : "s"} ${columns.map((key) => `"${key}"`).join(" and ")} from data write${columns.length === 1 ? "s" : ""} it, and each member shows as a line of its own, labelled by its header`);
+        }
         if (leave.has(name) || halves.has(name)) {
             throw new Error(`Sheet: \`${where}\` names "${name}", which the inspector does not show as a field of its own — ${halves.has(name) ? "it is a link column's other half, shown with that column" : "it is the row's identity, or the group's rows"}`);
         }
@@ -232,7 +258,7 @@ function formFields(
     const order = [...Object.keys(hints), ...Object.keys(fields).filter((name) => !(name in hints))];
     const out: ExprType<SheetFieldType>[] = [];
     for (const name of order) {
-        if (leave.has(name) || halves.has(name)) continue;
+        if (leave.has(name) || halves.has(name) || fromData.has(name)) continue;
         const hint = hints[name];
         if (isHint(hint) && hint[FIELD_HINT] === "hidden") continue;
         const meta = metas.get(name);
@@ -256,12 +282,15 @@ function formFields(
 /**
  * The fields a whole-row write sets through the columns — the fields `encode`
  * writes: an editable column's own and a link's other half — and the fields
- * it leaves, under the read-only columns.
+ * it leaves: those under the read-only columns, and those columns from data
+ * write, whose members' cells alone write them, through the columns' `write`
+ * and past their marks' locks.
  */
-function columnFields(metas: readonly SheetColumnMeta[]): { columns: string[]; readonly: string[] } {
+function columnFields(metas: readonly SheetColumnMeta[], data: readonly SheetColumnMeta[] = []): { columns: string[]; readonly: string[] } {
     const writes = (m: SheetColumnMeta) => m.editable && m.derived === undefined;
     const columns = new Set(metas.filter(writes).flatMap((m) => (m.otherField !== undefined ? [m.field, m.otherField] : [m.field])));
-    const readonly = new Set(metas.filter((m) => !writes(m) && !columns.has(m.field)).map((m) => m.field));
+    // An age column shows no field of the struct: nothing of it to leave as it is.
+    const readonly = new Set([...metas.filter((m) => !writes(m) && m.kind !== "age" && !columns.has(m.field)).map((m) => m.field), ...data.map((m) => m.field)]);
     return { columns: [...columns], readonly: [...readonly] };
 }
 
@@ -282,8 +311,9 @@ function encodeOf(patchType: StructType, cells: SheetBridge["encodePatch"]): Exp
  * @param metas - The declared columns, described against the row (or line) type
  * @param hints - `fields`: the author's hints for the row's fields
  * @param groupHints - `groupFields`: the author's hints for the group's own fields
- * @param idField - The rows' identity field, which the form leaves to the header
+ * @param idField - The rows' identity field, which the form leaves to the header: a flat row's, a loose row's and a group's — a group's line has none
  * @param registers - The sheet's registers' names, the driver's among them: what a `reference` hint may name
+ * @param data - The columns from data, described against the row type: the fields they write, which the form leaves out (#1561)
  * @returns The forms on the wire
  * @throws Error naming the prop: `groupFields` on a flat sheet, and each refusal of a hint
  * @internal
@@ -295,6 +325,7 @@ export function buildForms(
     groupHints: Readonly<Record<string, unknown>> | undefined,
     idField: string | undefined,
     registers: readonly string[],
+    data: readonly SheetColumnMeta[],
 ): ExprType<SheetFormsType> {
     const named = new Set(registers);
     const groupHalf = bridge.group;
@@ -302,11 +333,15 @@ export function buildForms(
         throw new Error("Sheet: `groupFields` hints a group's fields, and this sheet declares no group — pass `group={Sheet.group(…)}`, or hint the rows with `fields`");
     }
     // A row's identity is its header's, never a field to edit: a flat row's, and a loose row's line beside the groups (#846).
-    const lineLeave = new Set(idField !== undefined && idField in bridge.lineType.fields ? [idField] : []);
+    // A group's line is its place among the lines, so a field of it named as the id is the line's own, to set here.
+    const lineLeave = new Set(idField !== undefined && (groupHalf === undefined || groupHalf.loose) && idField in bridge.lineType.fields ? [idField] : []);
+    // The fields columns from data write — two columns may write one — each with those columns' keys.
+    const fromData = new Map<string, string[]>();
+    for (const m of data) fromData.set(m.field, [...(fromData.get(m.field) ?? []), m.key]);
     const row = East.value({
         type: toEastTypeValue(bridge.lineType),
-        fields: formFields(bridge.lineType, new Map(metas.map((m) => [m.field, m])), hints ?? {}, lineLeave, "fields", named),
-        ...columnFields(metas),
+        fields: formFields(bridge.lineType, new Map(metas.map((m) => [m.field, m])), hints ?? {}, lineLeave, "fields", named, fromData),
+        ...columnFields(metas, data),
         encode: encodeOf(bridge.patchType, bridge.encodePatch),
     }, SheetFormType);
     if (groupHalf === undefined) return East.value({ row, group: none }, SheetFormsType);
@@ -314,11 +349,55 @@ export function buildForms(
     const groupLeave = new Set([groupHalf.linesField, ...(idField !== undefined && idField in groupType.fields ? [idField] : [])]);
     const group = East.value({
         type: toEastTypeValue(groupType),
-        fields: formFields(groupType, new Map(groupHalf.cellMetas.map((m) => [m.field, m])), groupHints ?? {}, groupLeave, "groupFields", named),
+        fields: formFields(groupType, new Map(groupHalf.cellMetas.map((m) => [m.field, m])), groupHints ?? {}, groupLeave, "groupFields", named, new Map()),
         ...columnFields(groupHalf.cellMetas),
         encode: encodeOf(SheetPatchTypeFor(groupType) as unknown as StructType, buildPatchCells(groupType, groupHalf.cellMetas, {})),
     }, SheetFormType);
     return East.value({ row, group: some(group) }, SheetFormsType);
+}
+
+/**
+ * The fields a new entry of a struct needs that no person can set in the
+ * sheet (#1536): required — not an `Option`, which a missing draft field
+ * becomes `none` of — and set by no column a person writes, nor, with an
+ * inspector, by its form. A column's actions are not one: a row takes an
+ * action only once its draft is complete, the action's own field among it. A
+ * field no column shows is the form's when the form shows any part of it to
+ * edit — a nested struct is set from its type's default the moment one of its
+ * fields is. Each is named as the form labels it.
+ *
+ * @param struct - The struct a new entry drafts: the row (a grouped sheet's line), or the group
+ * @param metas - The columns its fields are read through: the sheet's, or the band's cells
+ * @param hints - The inspector's hints for the struct (`fields`, `groupFields`); `undefined` with no inspector
+ * @param leave - The fields the session sets itself: an identity field, a group's lines
+ * @returns Each such field and its label, in declared order
+ * @throws Error naming the field, for a hint that does not fit a field no column shows, as the form refuses it
+ * @internal
+ */
+export function unsettableFields(
+    struct: StructType,
+    metas: readonly SheetColumnMeta[],
+    hints: Readonly<Record<string, unknown>> | undefined,
+    leave: ReadonlySet<string>,
+): SheetUnsettableInput[] {
+    const fields = struct.fields as Record<string, EastType>;
+    const byField = new Map(metas.map((m) => [m.field, m]));
+    // A link column's other half is written through that column, never on its own.
+    const halves = new Set(metas.flatMap((m) => (m.otherField !== undefined ? [m.otherField] : [])));
+    const typed = new Set(metas.filter((m) => m.editable && m.derived === undefined && m.action === undefined)
+        .flatMap((m) => (m.otherField !== undefined ? [m.field, m.otherField] : [m.field])));
+    const out: SheetUnsettableInput[] = [];
+    for (const [name, type] of Object.entries(fields)) {
+        if (leave.has(name) || optionPayload(type) !== undefined || typed.has(name)) continue;
+        const hint = hints?.[name];
+        if (hints !== undefined && !byField.has(name) && !halves.has(name)) {
+            const others = Object.keys(fields).filter((f) => f !== name);
+            const specs = fieldSpecs(struct, (hint === undefined ? {} : { [name]: hint }) as FieldHints<Record<string, EastType>>, others);
+            if (specs.some((spec) => spec.editor.type !== "readonly")) continue;
+        }
+        out.push({ field: name, label: (isHint(hint) ? hint.label : undefined) ?? byField.get(name)?.config.header ?? spellOut(name) });
+    }
+    return out;
 }
 
 /**

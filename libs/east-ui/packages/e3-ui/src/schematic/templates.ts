@@ -8,8 +8,9 @@
  * §4.6): the presets a kind's library tab lists. Templates are records
  * (#1340, ruling 9), as Schedule's are: the rows are a record of the app's,
  * usually read whole through `Data.bind(record).read()`, and each card is one
- * of its rows, its key the record's key. A list names its source of the
- * Schematic's `Slice.bindRecords`, whose shown keys filter its cards.
+ * of its rows, its key the record's key — of any type a Dict takes, as its
+ * text (#1549). A list names its source of the Schematic's
+ * `Slice.bindRecords`, whose shown keys filter its cards.
  *
  * - An item kind's template gives every field of the row but `x` and `y`:
  *   dropped on the canvas, it adds an item at the drop point, its key minted.
@@ -26,6 +27,7 @@ import {
     ArrayType, East, Expr, OptionType, StringType, isTypeEqual, none, printType,
     type DictType, type EastType, type ExprType, type FunctionType, type StructType, type SubtypeExprOrValue,
 } from "@elaraai/east";
+import { keyTextOf } from "../schedule/window.js";
 import { SchematicTemplateType } from "./types.js";
 
 /** Identifies a declaration of templates read from a record. */
@@ -48,7 +50,8 @@ export interface SchematicTemplates<V extends StructType> {
 }
 
 /**
- * How each row of a templates record shows, and what it creates.
+ * How each row of a templates record shows, and what it creates: each
+ * callback hears the card's key at the record's key type.
  *
  * @typeParam K - The templates record's key type
  * @typeParam R - Its row type
@@ -75,31 +78,34 @@ export interface SchematicTemplatesConfig<K extends EastType, R extends EastType
 /**
  * Declares a kind's templates over a record's rows (see the module docs).
  *
- * @typeParam K - The templates record's key type
+ * @typeParam K - The templates record's key type: any a Dict may be keyed by (#1549)
  * @typeParam R - Its row type
  * @typeParam V - The values' struct type
- * @param rows - The templates, keyed: a record's rows, usually `Data.bind(record).read()`
+ * @param rows - The templates, keyed: a record's rows, usually `Data.bind(record).read()`, each card's key its row's key, as its text
  * @param config - Each card's name, group and icon, its values, and its source of the slice
  * @returns The templates, which a kind's `templates` takes
- * @throws {Error} When the rows are not a Dict keyed by String, or `values` returns no struct
+ * @throws {Error} When the rows are not a Dict, or `values` returns no struct
  */
 export function schematicTemplates<K extends EastType, R extends EastType, V extends StructType>(
     rows: SubtypeExprOrValue<DictType<K, R>>, config: SchematicTemplatesConfig<K, R, V>,
 ): SchematicTemplates<V> {
     const source = East.value(rows) as ExprType<DictType<K, R>>;
     const type = Expr.type(source as unknown as Expr) as EastType;
-    if (type.type !== "Dict" || !isTypeEqual(type.key as EastType, StringType)) {
-        throw new Error(`Schematic.templates: the templates are a record's rows, keyed by String — a Dict, usually Data.bind(record).read() — and these are ${printType(type)}`);
+    if (type.type !== "Dict") {
+        throw new Error(`Schematic.templates: the templates are a record's rows — a Dict, usually Data.bind(record).read() — and these are ${printType(type)}`);
     }
     const keyType = type.key as K;
     const rowType = type.value as R;
     const values = East.function([rowType, keyType], undefined, (_$, row, key) => config.values(row, key));
     const valuesType = (Expr.type(values as unknown as Expr) as FunctionType).output as V;
     if (valuesType.type !== "Struct") throw new Error("Schematic.templates: `values` returns a struct, every field of the row the template creates but what a drop places");
+    // A card's key, its row's key as its text: what its source's shown keys name it by.
+    const textOf = keyTextOf(keyType);
     const describe = East.function([rowType, keyType], SchematicTemplateType, ($, row, key) => {
         const initial = $.const(values);
+        const text = $.const(textOf);
         return {
-            key: key as ExprType<StringType>,
+            key: text(key),
             name: config.name(row, key),
             group: config.group === undefined ? East.value(none, OptionType(StringType)) : config.group(row, key),
             icon: config.icon === undefined ? East.value(none, OptionType(StringType)) : config.icon(row, key),

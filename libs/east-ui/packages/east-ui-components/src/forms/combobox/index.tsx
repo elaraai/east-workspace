@@ -65,6 +65,9 @@ export interface EastChakraComboboxProps {
     indicators?: ReactNode;
     /** The empty popup's explanation; a host search can state pending or case-sensitive lookup. */
     emptyText?: string;
+    /** Each item's label opens with a key, up to its first ` · `, as a key search's lines do: the key is set in the
+     *  design system's mono face, the rest as the label's. */
+    keyed?: boolean;
     /** Text the host puts in the input, each time its `seq` moves — a key search showing the match it jumped to. It is
      *  the host's own, so the host is not told it back as typed text. */
     text?: { readonly value: string; readonly seq: number } | undefined;
@@ -84,7 +87,7 @@ export interface EastChakraComboboxProps {
  * Zag's controlled value, which Zag tells no one of, so it reaches the host as
  * no typing.
  */
-export const EastChakraCombobox = memo(function EastChakraCombobox({ value, selectionBehavior, filterItems = true, indicators, emptyText, openOnClick, text }: EastChakraComboboxProps) {
+export const EastChakraCombobox = memo(function EastChakraCombobox({ value, selectionBehavior, filterItems = true, indicators, emptyText, keyed, openOnClick, text }: EastChakraComboboxProps) {
     const [props, setProps] = useState(toChakraCombobox(value));
     const placeholder = useMemo(() => getSomeorUndefined(value.placeholder), [value.placeholder]);
     const onChangeFn = useMemo(() => getSomeorUndefined(value.onChange), [value.onChange]);
@@ -181,7 +184,10 @@ export const EastChakraCombobox = memo(function EastChakraCombobox({ value, sele
                         <ChakraCombobox.Empty>{emptyText ?? "No results found"}</ChakraCombobox.Empty>
                         {collection.items.map((item) => (
                             <ChakraCombobox.Item key={item.value} item={item}>
-                                {item.label}
+                                {keyed === true ? (() => {
+                                    const at = item.label.indexOf(" · ");
+                                    return <span><span data-item-key="">{at < 0 ? item.label : item.label.slice(0, at)}</span>{at < 0 ? null : item.label.slice(at)}</span>;
+                                })() : item.label}
                                 <ChakraCombobox.ItemIndicator><FontAwesomeIcon icon={faCheck} /></ChakraCombobox.ItemIndicator>
                             </ChakraCombobox.Item>
                         ))}
@@ -191,5 +197,5 @@ export const EastChakraCombobox = memo(function EastChakraCombobox({ value, sele
         </ChakraCombobox.Root>
     );
 }, (prev, next) => comboboxRootEqual(prev.value, next.value) && prev.selectionBehavior === next.selectionBehavior
-    && prev.filterItems === next.filterItems && prev.indicators === next.indicators && prev.emptyText === next.emptyText && prev.openOnClick === next.openOnClick
+    && prev.filterItems === next.filterItems && prev.indicators === next.indicators && prev.emptyText === next.emptyText && prev.keyed === next.keyed && prev.openOnClick === next.openOnClick
     && prev.text?.seq === next.text?.seq);

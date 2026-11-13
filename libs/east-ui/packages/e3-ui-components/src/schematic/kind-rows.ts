@@ -59,7 +59,7 @@ export class KindRows<R> {
      *
      * @param kind - The kind
      * @param revision - The record's revision the rows were read at
-     * @param rows - The rows, each its key and its row
+     * @param rows - The rows, each its key's text (`kind-keys.ts`) and its row
      * @returns Each row's roles and bytes, by key — every row made at the revision, these among them
      */
     rowsOf(kind: ItemKind, revision: string, rows: readonly { readonly key: string; readonly row: unknown }[]): ReadonlyMap<string, KindRow<R>> {

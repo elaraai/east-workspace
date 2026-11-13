@@ -35,6 +35,17 @@ export const RosterSlotType = StructType({ day: IntegerType, group: StringType, 
 export type RosterSlotType = typeof RosterSlotType;
 
 /**
+ * Where a duty stands in the week (#1548): its day, its shift, and its group —
+ * the slot of that group's shift on that day — or none, a duty in no group yet.
+ * @remarks Place keys compare by East value, as slots do. A duty in no group counts in its person's hours, contract, rest and pay, and in no group's targets or coverage. Only a kind whose `group` is an `Option<String>` field holds one.
+ * @property day - Day within the week, from zero to six, as a slot's
+ * @property group - Its group's key; `none` for a duty in no group yet
+ * @property shift - Its shift's key
+ */
+export const RosterPlaceType = StructType({ day: IntegerType, group: OptionType(StringType), shift: StringType });
+export type RosterPlaceType = typeof RosterPlaceType;
+
+/**
  * Who a duty is: a person, or an agency asked to send someone.
  * @remarks Requests reserve positions without pretending an agency has supplied a named person.
  * @property person - The person's key, of the `people` resource kind
@@ -44,17 +55,17 @@ export const RosterWhoType = VariantType({ person: StringType, request: StringTy
 export type RosterWhoType = typeof RosterWhoType;
 
 /**
- * One duty, as the Roster reads it from the app's row (`R`): its slot, who it
+ * One duty, as the Roster reads it from the app's row (`R`): its place, who it
  * is, and its roles, beside the row itself, every field of it.
  *
  * @typeParam R - The app's duty row type
  * @param row - The app's duty row type
  * @returns The assignment type over it
- * @remarks Its times are the duty's own; the Roster gives them no name and no worth (§5.5). Its `hours` are what the duty counts.
+ * @remarks Its `place` is its day, its shift and its group, none for a duty in no group yet (#1548). Its times are the duty's own; the Roster gives them no name and no worth (§5.5). Its `hours` are what the duty counts.
  */
 export function RosterAssignmentTypeFor<R extends EastType>(row: R) {
     return StructType({
-        slot: RosterSlotType, who: RosterWhoType, position: StringType, activity: OptionType(StringType),
+        place: RosterPlaceType, who: RosterWhoType, position: StringType, activity: OptionType(StringType),
         start: DateTimeType, end: DateTimeType, hours: FloatType, row,
     });
 }
@@ -324,6 +335,15 @@ export function RosterPayRequestTypeFor<R extends EastType>(row: R) {
 }
 /** Type representing {@link RosterPayRequestTypeFor}. */
 export type RosterPayRequestTypeFor<R extends EastType> = ReturnType<typeof RosterPayRequestTypeFor<R>>;
+/** Type representing {@link RosterCheckContextTypeFor} over the duties alone. */
+export type RosterCheckContextTypeFor<R extends EastType> = StructType<{
+    start: DateTimeType; week: RosterWeekTypeFor<R>; context: RosterContextType; coverage: DictType<RosterSlotType, RosterCoverageType>; pay: RosterPayType;
+}>;
+/** Type representing {@link RosterCheckContextTypeFor} over the duties and a reference record's rows (#1551). */
+export type RosterReferenceCheckContextTypeFor<R extends EastType, P extends EastType> = StructType<{
+    start: DateTimeType; week: RosterWeekTypeFor<R>; context: RosterContextType; coverage: DictType<RosterSlotType, RosterCoverageType>; pay: RosterPayType;
+    reference: DictType<StringType, P>;
+}>;
 /**
  * Input to an application's additional roster checks.
  *
@@ -332,14 +352,26 @@ export type RosterPayRequestTypeFor<R extends EastType> = ReturnType<typeof Rost
  * @returns The check's context over it
  * @remarks The built-in coverage has already been calculated for the same draft, and so have the pay's costs: `start` the week's first day, `week` the drafted week, `context` the complete reference data, `coverage` every configured slot's, `pay` each duty's costs by code.
  */
-export function RosterCheckContextTypeFor<R extends EastType>(row: R) {
-    return StructType({
-        start: DateTimeType, week: RosterWeekTypeFor(row), context: RosterContextType,
-        coverage: DictType(RosterSlotType, RosterCoverageType), pay: RosterPayType,
-    });
+export function RosterCheckContextTypeFor<R extends EastType>(row: R): RosterCheckContextTypeFor<R>;
+/**
+ * Input to an application's additional roster checks over a reference record
+ * of the app's (#1551) — a rota the duties carry out — read through the
+ * slice's `reference` source, which the Roster windows as it does its duties.
+ *
+ * @typeParam R - The app's duty row type
+ * @typeParam P - The reference record's row type
+ * @param row - The app's duty row type
+ * @param reference - The reference record's row type
+ * @returns The check's context over them
+ * @remarks As the duties' context, and `reference` the record's rows overlapping the week checked and the twelve hours either side — the window its duties are read over — by key: every one, whatever the rail shows, never the record whole. A row at the window's edge may be one the week either side carries out: a check scopes by `start`.
+ */
+export function RosterCheckContextTypeFor<R extends EastType, P extends EastType>(row: R, reference: P): RosterReferenceCheckContextTypeFor<R, P>;
+export function RosterCheckContextTypeFor<R extends EastType, P extends EastType>(row: R, reference?: P): RosterCheckContextTypeFor<R> | RosterReferenceCheckContextTypeFor<R, P> {
+    const week = RosterWeekTypeFor(row), coverage = DictType(RosterSlotType, RosterCoverageType);
+    return reference === undefined
+        ? StructType({ start: DateTimeType, week, context: RosterContextType, coverage, pay: RosterPayType })
+        : StructType({ start: DateTimeType, week, context: RosterContextType, coverage, pay: RosterPayType, reference: DictType(StringType, reference) });
 }
-/** Type representing {@link RosterCheckContextTypeFor}. */
-export type RosterCheckContextTypeFor<R extends EastType> = ReturnType<typeof RosterCheckContextTypeFor<R>>;
 /** Why someone does not fit a need: Schedule's, shared with the Allocation (#1334). */
 export const RosterRefusalType = ScheduleRefusalType;
 export type RosterRefusalType = typeof RosterRefusalType;
@@ -436,6 +468,26 @@ export type RosterTargetsKindType = typeof RosterTargetsKindType;
 export const RosterFitResultType = StructType({ need: RosterNeedType, slot: RosterSlotType, people: DictType(StringType, RosterFitType) });
 export type RosterFitResultType = typeof RosterFitResultType;
 /**
+ * What an optimiser takes beyond the week (#1553): `{ edges: true }` gives its
+ * request and its answer the duties at the week's edges — for a business whose
+ * week runs by when its shifts end, say, where the night before the week is
+ * the week's first shift.
+ *
+ * @property edges - The duties at the week's edges: in the request, the window's duties the Roster places in another week and which of them are fixed; in the answer, those duties as the optimiser leaves them
+ */
+export interface RosterOptimiseOptions {
+    readonly edges: true;
+}
+/** Type representing {@link RosterOptimiseRequestTypeFor} over the week alone. */
+export type RosterOptimiseRequestTypeFor<R extends EastType> = StructType<{
+    from: DateTimeType; to: DateTimeType; run: IntegerType; duties: DictType<StringType, R>; requirements: RosterRequirementsType; context: RosterContextType;
+}>;
+/** Type representing {@link RosterOptimiseRequestTypeFor} given `{ edges: true }` (#1553): the week, and the duties at its edges. */
+export type RosterOptimiseEdgesRequestTypeFor<R extends EastType> = StructType<{
+    from: DateTimeType; to: DateTimeType; run: IntegerType; duties: DictType<StringType, R>; edges: DictType<StringType, R>; fixed: SetType<StringType>;
+    requirements: RosterRequirementsType; context: RosterContextType;
+}>;
+/**
  * One request to the app's optimiser (#1409, `Optimise Spec.md` §5.1): the
  * week in view and its duties, as drafted, for the optimiser to fill or
  * improve — the Elara eye's one call.
@@ -445,13 +497,30 @@ export type RosterFitResultType = typeof RosterFitResultType;
  * @returns The request type over it
  * @remarks `from` and `to` the week, half open; `run` the run's number, from 1 per Roster per browser; `duties` the week's duties by key, the app's own rows as the session holds them — the base with every unapplied draft in place, every row whatever the rail shows; `requirements` the week's targets by slot; `context` the complete staff and configuration — every person, shift, group, position and agency, and the rules.
  */
-export function RosterOptimiseRequestTypeFor<R extends EastType>(row: R) {
-    return StructType({
-        from: DateTimeType, to: DateTimeType, run: IntegerType, duties: DictType(StringType, row), requirements: RosterRequirementsType, context: RosterContextType,
-    });
+export function RosterOptimiseRequestTypeFor<R extends EastType>(row: R): RosterOptimiseRequestTypeFor<R>;
+/**
+ * One request to the app's optimiser that takes the duties at the week's
+ * edges (#1553): the week's request, and beside its duties the duties the
+ * window holds outside the week, as drafted, with the keys of those it must
+ * leave as they are.
+ *
+ * @typeParam R - The app's duty row type
+ * @param row - The app's duty row type
+ * @param options - `{ edges: true }`
+ * @returns The request type over it
+ * @remarks As the week's request, and: `edges` every duty the window holds — the week and the twelve hours either side — that the Roster places in another week, by key, as the session holds it: drafts in place, one a draft removes absent; `fixed` the keys of those whose week takes no edit — published, or closed — or, where the periods are days, whose day takes none.
+ */
+export function RosterOptimiseRequestTypeFor<R extends EastType>(row: R, options: RosterOptimiseOptions): RosterOptimiseEdgesRequestTypeFor<R>;
+export function RosterOptimiseRequestTypeFor<R extends EastType>(row: R, options?: RosterOptimiseOptions): RosterOptimiseRequestTypeFor<R> | RosterOptimiseEdgesRequestTypeFor<R> {
+    const duties = DictType(StringType, row);
+    return options?.edges === true
+        ? StructType({ from: DateTimeType, to: DateTimeType, run: IntegerType, duties, edges: duties, fixed: SetType(StringType), requirements: RosterRequirementsType, context: RosterContextType })
+        : StructType({ from: DateTimeType, to: DateTimeType, run: IntegerType, duties, requirements: RosterRequirementsType, context: RosterContextType });
 }
-/** Type representing {@link RosterOptimiseRequestTypeFor}. */
-export type RosterOptimiseRequestTypeFor<R extends EastType> = ReturnType<typeof RosterOptimiseRequestTypeFor<R>>;
+/** Type representing {@link RosterOptimiseResultTypeFor} over the week alone. */
+export type RosterOptimiseResultTypeFor<R extends EastType> = StructType<{ duties: DictType<StringType, R> }>;
+/** Type representing {@link RosterOptimiseResultTypeFor} given `{ edges: true }` (#1553): the week's duties, and the duties at its edges. */
+export type RosterOptimiseEdgesResultTypeFor<R extends EastType> = StructType<{ duties: DictType<StringType, R>; edges: DictType<StringType, R> }>;
 /**
  * The app's optimiser's answer (#1409): the week's duties, complete, by key.
  * The Roster diffs it against the request by key — a key the request did not
@@ -463,8 +532,23 @@ export type RosterOptimiseRequestTypeFor<R extends EastType> = ReturnType<typeof
  * @returns The result type over it
  * @remarks A new duty's key is the optimiser's own; a result equal to the request records nothing.
  */
-export function RosterOptimiseResultTypeFor<R extends EastType>(row: R) {
-    return StructType({ duties: DictType(StringType, row) });
+export function RosterOptimiseResultTypeFor<R extends EastType>(row: R): RosterOptimiseResultTypeFor<R>;
+/**
+ * The answer of an optimiser that takes the duties at the week's edges
+ * (#1553): the week's duties, complete, and the edge duties as it leaves
+ * them. The Roster diffs both against the request's duties and edges by key,
+ * as one: an edge duty the answer leaves out is removed, one with another row
+ * changed, and a key new to both a duty added, in whichever week its day
+ * falls — every change in the run's one step.
+ *
+ * @typeParam R - The app's duty row type
+ * @param row - The app's duty row type
+ * @param options - `{ edges: true }`
+ * @returns The result type over it
+ * @remarks A published week stays read only: an answer that changes or removes one of the request's `fixed` duties, puts a duty in a week that takes no edit (a day, where the periods are days) or beyond the weeks either side, or gives one key among both `duties` and `edges`, is refused, naming the duty, and changes nothing.
+ */
+export function RosterOptimiseResultTypeFor<R extends EastType>(row: R, options: RosterOptimiseOptions): RosterOptimiseEdgesResultTypeFor<R>;
+export function RosterOptimiseResultTypeFor<R extends EastType>(row: R, options?: RosterOptimiseOptions): RosterOptimiseResultTypeFor<R> | RosterOptimiseEdgesResultTypeFor<R> {
+    const duties = DictType(StringType, row);
+    return options?.edges === true ? StructType({ duties, edges: duties }) : StructType({ duties });
 }
-/** Type representing {@link RosterOptimiseResultTypeFor}. */
-export type RosterOptimiseResultTypeFor<R extends EastType> = ReturnType<typeof RosterOptimiseResultTypeFor<R>>;

@@ -14,8 +14,9 @@
  * position, another session's change moving it, and a narrowing that empties
  * it saying so (SC4); the Index nesting the zones, flying to a zone, selecting
  * it and listing its items, one zone open at a time, following the zone the
- * viewport is in — opening it, and keeping one the viewer closed shut until the
- * view moves on — and its keys;
+ * viewport is in once the camera rests, never during a fly — opening it, Fit
+ * closing it, and keeping one the viewer closed shut until the view moves on,
+ * to another zone or to Fit (#1570) — and its keys;
  * the Layers tab's Isolate, Lock, Hide and Show all, which the canvas obeys —
  * a locked layer's entities never select — persisting under the Schematic's
  * `id` (SC27); a click selecting a card and a second letting it go; and each
@@ -35,7 +36,7 @@ import { e3Harness, settle, slot } from "../e3-web-mount.test-utils.js";
 import { entityId } from "./canvas/drawn.js";
 import { SchematicLayerViewType } from "./layers-view.js";
 import { schematicMessages as m } from "./messages.js";
-import { card, fitted, layOutCanvas, near, tap, zoomInto } from "./schematic.test-utils.js";
+import { at as atPoint, card, fitted, layOutCanvas, near, tap, zoomInto } from "./schematic.test-utils.js";
 import "./index.js";
 
 const h = e3Harness({ "schematic/schematic": ex }, { main: "data-schematic-canvas" });
@@ -337,6 +338,13 @@ const activeRow = (container: HTMLElement) => {
     return at === null ? undefined : panel(container).ownerDocument.getElementById(at)?.querySelector("[data-index-name]")?.textContent;
 };
 
+/** The zone the Index marks as the one the viewport is in, by its name; `undefined` for none. */
+const currentRow = (container: HTMLElement) => panel(container).querySelector("[data-current] [data-index-name]")?.textContent ?? undefined;
+
+/** The zones the Index has open, by their names. */
+const openRows = (container: HTMLElement) => [...panel(container).querySelectorAll('[role="treeitem"][aria-expanded="true"] [data-index-name]')]
+    .map((name) => name.textContent);
+
 /** Runs a test's camera on a clock of its own: the fly and each paint land as it moves on. */
 async function onTheTestsClock(run: (frames: (ms: number) => Promise<void>) => Promise<void>) {
     vi.useFakeTimers({ toFake: ["requestAnimationFrame", "cancelAnimationFrame", "performance"] });
@@ -393,7 +401,8 @@ test("a zone's row flies to the zone, selects it and lists its items, and the zo
         await settle();
         await waitFor(() => expect(keptSelection()).toBe(printRefs([{ kind: "areas", key: "mmr" }])));
         await waitFor(() => expect(indexRow(container, "Meet-me room").hasAttribute("data-selected")).toBe(true));
-        expect(indexRow(container, "Meet-me room").hasAttribute("data-current")).toBe(true);
+        // Marked once the camera rests there (#1570).
+        await waitFor(() => expect(indexRow(container, "Meet-me room").hasAttribute("data-current")).toBe(true));
         expect(indexRow(container, "Cage A").hasAttribute("data-current")).toBe(false);
         expect(indexRows(container)).toEqual([
             "Cage A ▸ 7", "Cold aisle A · 1.2 m", "Hot aisle A · 1.0 m", "Meet-me room ▾ 1", "  MMR-1", "Network room ▸ 1", "CRAH-1", "CRAH-2", "CRAH-3", "ODF-1",
@@ -404,15 +413,69 @@ test("a zone's row flies to the zone, selects it and lists its items, and the zo
         await settle();
         await waitFor(() => expect(keptSelection()).toBe(printRefs([{ kind: "network", key: "MMR-1" }])));
         expect(card(container, "network", "MMR-1")?.hasAttribute("data-selected")).toBe(true);
-        // Fit, the whole floor in view: no zone is.
+        // Fit, the whole floor in view: no zone is, and the meet-me room the view opened closes (#1570).
         await act(async () => { fireEvent.click(getByRole("button", { name: "Fit" })); });
         await frames(FRAME_MS);
         await settle();
         await waitFor(() => expect(panel(container).querySelector("[data-current]")).toBeNull());
+        await waitFor(() => expect(openRows(container)).toEqual([]));
     });
 });
 
-test("one zone is open at a time, and the Index follows the view: the zone the viewport is in opens, the one before closes, and a zone closed while the view is in it stays closed until the view moves on", async () => {
+test("the Index follows the view once the camera rests, never during a fly: a zone's row clicked keeps its zone open as the camera flies there, and the zone the view left stays the one in view until it lands (#1570)", async () => {
+    const { container } = await dataCentre();
+    await openTab(container, "Index");
+    // In the network room: the Index opens it and marks it.
+    await zoomInto(container.querySelector<HTMLElement>("[data-schematic-canvas]")!, CAM, { minX: 19.5, minY: 8.2, maxX: 26.9, maxY: 11.2 });
+    await settle();
+    await waitFor(() => expect(currentRow(container)).toBe("Network room"));
+    expect(openRows(container)).toEqual(["Network room"]);
+    // A click on Cage A's row opens it and flies there: at every frame of the fly Cage A alone is open, and the network
+    // room is still the zone in view — the view crossing into Cage A tells the Index nothing until the camera rests.
+    const frames: string[] = [];
+    await onTheTestsClock(async (advance) => {
+        await act(async () => { fireEvent.click(indexRow(container, "Cage A")); });
+        for (let ms = 0; ms < FLY_MS; ms += FRAME_MS) {
+            await advance(FRAME_MS);
+            frames.push(`${openRows(container).join(", ")} · ${currentRow(container) ?? "none"}`);
+        }
+    });
+    expect([...new Set(frames)]).toEqual(["Cage A · Network room"]);
+    // At rest, the view is in Cage A: marked, and still open.
+    await waitFor(() => expect(currentRow(container)).toBe("Cage A"));
+    expect(openRows(container)).toEqual(["Cage A"]);
+});
+
+test("a fast wheel zoom tells the Index nothing as it zooms: the zone the camera rests in is marked and opens only once it has rested 100 ms (#1570)", async () => {
+    const { container } = await dataCentre();
+    await openTab(container, "Index");
+    const canvas = container.querySelector<HTMLElement>("[data-schematic-canvas]")!;
+    const state = () => `${openRows(container).join(", ")} · ${currentRow(container) ?? "none"}`;
+    expect(state()).toBe(" · none");
+    // Eight notches of the wheel about the network room's middle, a frame apart, each zooming in by a quarter — faster
+    // than the rest rule's quarter in 200 ms — on the test's clock, its timers among it, so the rest is the clock's and
+    // never the machine's: the view crosses into the room at the fifth notch, and at no notch, nor in the 100 ms after
+    // the last, does the Index hear of it.
+    const states: string[] = [];
+    vi.useFakeTimers({ toFake: ["requestAnimationFrame", "cancelAnimationFrame", "performance", "setTimeout", "clearTimeout"] });
+    try {
+        for (let notch = 0; notch < 8; notch++) {
+            await act(async () => { fireEvent.wheel(canvas, { deltaY: -150, ...atPoint(CAM, 23.2, 9.7) }); });
+            await act(async () => { vi.advanceTimersByTime(FRAME_MS); });
+            states.push(state());
+        }
+        await act(async () => { vi.advanceTimersByTime(60); });
+        states.push(state());
+        expect([...new Set(states)]).toEqual([" · none"]);
+        // At rest: the network room is the zone in view, marked and open.
+        await act(async () => { vi.advanceTimersByTime(400); });
+        expect(state()).toBe("Network room · Network room");
+    } finally {
+        vi.useRealTimers();
+    }
+});
+
+test("one zone is open at a time, and the Index follows the view: the zone the viewport is in opens, the one before closes, Fit closes it, and a zone closed while the view is in it stays closed until the view moves on — to another zone, or to Fit (#1570)", async () => {
     const { container, getByRole } = await dataCentre();
     await openTab(container, "Index");
     const chevron = async (name: string) => { await act(async () => { fireEvent.click(indexRow(container, name).querySelector("button")!); }); await settle(); };
@@ -431,12 +494,14 @@ test("one zone is open at a time, and the Index follows the view: the zone the v
     });
     expect(indexRows(container)[3]).toBe("Meet-me room ▸ 1");
     const canvas = container.querySelector<HTMLElement>("[data-schematic-canvas]")!;
+    // Fit, once the camera rests there: only then does the Index hear that no zone is in view (#1570).
     const fit = async () => {
         await onTheTestsClock(async (frames) => {
             await act(async () => { fireEvent.click(getByRole("button", { name: "Fit" })); });
             await frames(FRAME_MS);
             await settle();
         });
+        await waitFor(() => expect(currentRow(container)).toBeUndefined());
     };
     // Zoomed into Cage A, the Index opens it and marks it; the meet-me room stays closed.
     await fit();
@@ -444,10 +509,24 @@ test("one zone is open at a time, and the Index follows the view: the zone the v
     await settle();
     await waitFor(() => expect(indexRows(container)[0]).toBe("Cage A ▾ 7"));
     expect(indexRow(container, "Cage A").hasAttribute("data-current")).toBe(true);
-    // Closed while the view is in it, it stays closed.
+    // At Fit no zone is in view: Cage A, which the view opened, closes, and nothing is marked.
+    await fit();
+    await waitFor(() => expect(indexRows(container)[0]).toBe("Cage A ▸ 7"));
+    expect(currentRow(container)).toBeUndefined();
+    // Back in Cage A it opens again; closed while the view is in it, it stays closed.
+    await zoomInto(canvas, CAM, { minX: 1.0, minY: 1.0, maxX: 10.0, maxY: 4.8 });
+    await settle();
+    await waitFor(() => expect(indexRows(container)[0]).toBe("Cage A ▾ 7"));
     await chevron("Cage A");
     expect(indexRows(container)[0]).toBe("Cage A ▸ 7");
-    // Zoomed into the network room, the Index opens it and Cage A stays closed.
+    // The view gone to Fit and back into Cage A has moved on: the Index opens it again.
+    await fit();
+    await zoomInto(canvas, CAM, { minX: 1.0, minY: 1.0, maxX: 10.0, maxY: 4.8 });
+    await settle();
+    await waitFor(() => expect(indexRows(container)[0]).toBe("Cage A ▾ 7"));
+    // Closed again while the view is in it, then zoomed into the network room: the Index opens it, and Cage A stays closed.
+    await chevron("Cage A");
+    expect(indexRows(container)[0]).toBe("Cage A ▸ 7");
     await fit();
     await zoomInto(canvas, CAM, { minX: 19.5, minY: 8.2, maxX: 26.9, maxY: 11.2 });
     await settle();

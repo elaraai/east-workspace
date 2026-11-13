@@ -6,8 +6,9 @@
 /**
  * The Sheet model (`Sheet Spec.md` §6) — the decoded value turned into what
  * the renderer walks: the column index, the body (real rows in sheet order,
- * the paged arm's unloaded bands, the blank padding rows), the driver lookup
- * and the cell display helpers.
+ * the paged arm's unloaded bands, the blank padding rows), the driver lookup,
+ * the cell display helpers, and a cell's mark with the one check of whether
+ * a cell takes an edit (#1560).
  *
  * On a GROUPED sheet (#740) the body is the groups' BANDS with their lines
  * under them: a line is a `real` item whose row is a pseudo wire row over
@@ -39,15 +40,17 @@ import { actionColumnOf } from "./actions/model.js";
 
 // ── Columns ───────────────────────────────────────────────────────────────
 
-/** The column kinds (the arms of `SheetColumnKindType`). */
+/** The column kinds (the arms of `SheetColumnKindType`); the last seven only a Record draws (#1528). */
 export type SheetKind =
     | "text" | "date" | "quantity" | "integer" | "lookup" | "reference" | "enum"
-    | "set" | "link" | "stamped" | "custom" | "action";
+    | "set" | "link" | "stamped" | "custom" | "action"
+    | "title" | "person" | "boolean" | "toggle" | "cycle" | "age" | "audit";
 
 /** Default column widths per kind (px) when the author declares none. */
 const DEFAULT_WIDTH: Record<SheetKind, number> = {
     text: 200, date: 96, quantity: 112, integer: 72, lookup: 200, reference: 120, enum: 124,
     set: 240, link: 352, stamped: 104, custom: 140, action: 304,
+    title: 184, person: 160, boolean: 72, toggle: 80, cycle: 72, age: 92, audit: 232,
 };
 
 /** The copilot latency class of a kind (B§3): deterministic kinds are instant. */
@@ -72,7 +75,7 @@ export interface SheetColumnMeta {
     kind: SheetKind;
     /** Whether the sheet writes the column. */
     editable: boolean;
-    /** The register the column resolves against (lookup · reference · enum · set · link). */
+    /** The register the column resolves against (lookup · reference · enum · set · link · person · cycle). */
     register: string | undefined;
     /** An enum, lookup or link column's options rule (#844): the member keys a row is OFFERED (`undefined` = the whole register). Typed text still resolves against the whole register. */
     options: ((ctx: SheetContextValue) => readonly string[] | undefined) | undefined;
@@ -88,8 +91,12 @@ export interface SheetColumnMeta {
     dateFormat: string | undefined;
     /** A quantity column's unit per driver key. */
     uom: ReadonlyMap<string, string> | undefined;
+    /** A quantity column's one unit for every row, after the value. */
+    unit: string | undefined;
     /** A quantity column's display format. */
     format: TickFormatOpt;
+    /** A toggle column's words for its two states: what a cell shows, and typed text sets. */
+    states: { on: string; off: string } | undefined;
     /** A stamped column's owner. */
     owner: string | undefined;
     /** A custom kind's "accepts" line. */
@@ -148,7 +155,9 @@ export function indexColumns(columns: readonly SheetColumnValue[]): SheetColumnI
             base: undefined,
             dateFormat: undefined,
             uom: undefined,
+            unit: undefined,
             format: undefined,
+            states: undefined,
             owner: undefined,
             accepts: undefined,
             customParse: undefined,
@@ -165,6 +174,7 @@ export function indexColumns(columns: readonly SheetColumnValue[]): SheetColumnI
                 break;
             case "quantity":
                 meta.uom = getSomeorUndefined(kind.value.uom);
+                meta.unit = getSomeorUndefined(kind.value.unit);
                 meta.format = getSomeorUndefined(kind.value.format);
                 break;
             case "lookup":
@@ -175,7 +185,12 @@ export function indexColumns(columns: readonly SheetColumnValue[]): SheetColumnI
                 break;
             case "reference":
             case "set":
+            case "person":
+            case "cycle":
                 meta.register = kind.value.register;
+                break;
+            case "toggle":
+                meta.states = { on: kind.value.on, off: kind.value.off };
                 break;
             case "stamped":
                 meta.owner = getSomeorUndefined(kind.value.owner);
@@ -274,6 +289,7 @@ export function indexGroup(group: SheetGroupValue, columns: SheetColumnIndex, ti
         const meta = indexColumns([{
             key: cell.key, header: cell.key === TITLE_KEY ? titleHeader : columns.byKey.get(cell.key)?.header ?? cell.key,
             sub: none, width: none, kind: cell.kind, dataType: cell.dataType, payloadType: cell.payloadType, editable: cell.editable, fill: [], detailCell: none,
+            from: none, mark: none,
         }]).list[0]!;
         cells.set(cell.key, meta);
     }
@@ -350,37 +366,74 @@ export function groupBandPx(size: "sm" | "md" | "lg"): number {
 
 // ── Registers and the driver ───────────────────────────────────────────────
 
-/** The registers by name, with each member indexed by key and by lower-cased alias. */
+/**
+ * The registers by name, with each member indexed by its key, by lower-cased
+ * key or alias, and by the label it shows. A key names its own member before
+ * anything else does — exactly, then case-insensitively before any alias — so
+ * a member a gesture chooses, committed and shown by its key, is never found
+ * again as another member whose alias or key's case its key shares (#1583).
+ */
 export interface SheetRegisterIndex {
     byName: ReadonlyMap<string, readonly SheetRegisterMemberValue[]>;
-    /** Register name → lower-cased key or alias → member. */
+    /** Register name → key → member. */
+    keys: ReadonlyMap<string, ReadonlyMap<string, SheetRegisterMemberValue>>;
+    /** Register name → lower-cased key or alias → member: every member's key first, then the aliases. */
     lookup: ReadonlyMap<string, ReadonlyMap<string, SheetRegisterMemberValue>>;
+    /** Register name → lower-cased label → the first member to show it. */
+    labels: ReadonlyMap<string, ReadonlyMap<string, SheetRegisterMemberValue>>;
 }
 
 /** Index the decoded registers. */
 export function indexRegisters(registers: ReadonlyMap<string, { members: readonly SheetRegisterMemberValue[] }>): SheetRegisterIndex {
     const byName = new Map<string, readonly SheetRegisterMemberValue[]>();
+    const keys = new Map<string, ReadonlyMap<string, SheetRegisterMemberValue>>();
     const lookup = new Map<string, ReadonlyMap<string, SheetRegisterMemberValue>>();
+    const labels = new Map<string, ReadonlyMap<string, SheetRegisterMemberValue>>();
     for (const [name, reg] of registers) {
         byName.set(name, reg.members);
+        const exact = new Map<string, SheetRegisterMemberValue>();
         const idx = new Map<string, SheetRegisterMemberValue>();
+        const shown = new Map<string, SheetRegisterMemberValue>();
         for (const m of reg.members) {
+            if (!exact.has(m.key)) exact.set(m.key, m);
             const k = m.key.toLowerCase();
             if (!idx.has(k)) idx.set(k, m);
+        }
+        for (const m of reg.members) {
             for (const a of m.aliases) {
                 const al = a.toLowerCase();
                 if (!idx.has(al)) idx.set(al, m);
             }
+            const l = m.label.toLowerCase();
+            if (l !== "" && !shown.has(l)) shown.set(l, m);
         }
+        keys.set(name, exact);
         lookup.set(name, idx);
+        labels.set(name, shown);
     }
-    return { byName, lookup };
+    return { byName, keys, lookup, labels };
 }
 
-/** The member a register resolves `text` to — by key or alias, case-insensitively. */
+/** The member a register resolves `text` to — by its key, else by key or alias case-insensitively: what a cell's value names. */
 export function resolveMember(index: SheetRegisterIndex, register: string | undefined, text: string): SheetRegisterMemberValue | undefined {
     if (register === undefined) return undefined;
-    return index.lookup.get(register)?.get(text.trim().toLowerCase());
+    return index.keys.get(register)?.get(text) ?? index.lookup.get(register)?.get(text.trim().toLowerCase());
+}
+
+/**
+ * The member typed text names whole — by its key, else by key or alias
+ * case-insensitively, else by the label it shows, the first member to show
+ * it: a register column is typed in the words its cells show.
+ *
+ * @param index - The registers
+ * @param register - The column's register
+ * @param text - What was typed
+ * @returns The member, or `undefined` where the text names none whole
+ */
+export function resolveTyped(index: SheetRegisterIndex, register: string | undefined, text: string): SheetRegisterMemberValue | undefined {
+    if (register === undefined) return undefined;
+    const t = text.trim();
+    return index.keys.get(register)?.get(t) ?? index.lookup.get(register)?.get(t.toLowerCase()) ?? index.labels.get(register)?.get(t.toLowerCase());
 }
 
 /** The driver member key a row resolves to — its driver column's String cell. */
@@ -389,6 +442,18 @@ export function driverKeyOf(row: SheetRowValue | undefined, driverColumn: string
     const cell = row.cells.get(driverColumn);
     if (cell === undefined || cell.type !== "String") return undefined;
     return cell.value === "" ? undefined : cell.value;
+}
+
+/**
+ * The unit a quantity cell prints after its value: its row's driver member's,
+ * else the one unit the column gives every row.
+ *
+ * @param meta - The column
+ * @param driverKey - The row's driver member key, if it names one
+ * @returns The unit, or `undefined` for a column with none
+ */
+export function unitOf(meta: SheetColumnMeta, driverKey: string | undefined): string | undefined {
+    return (driverKey !== undefined ? meta.uom?.get(driverKey) : undefined) ?? meta.unit;
 }
 
 // ── Cells ─────────────────────────────────────────────────────────────────
@@ -504,6 +569,9 @@ export function cellText(cell: SheetCellValue | undefined, meta: SheetColumnMeta
         case "action":
             // An action cell reads as its state's word (S4); its summary is a rule cell of its own.
             return cell.type === "Action" ? actionColumnOf(meta)?.cases.get(cell.value.case)?.state ?? cell.value.case : rawCellText(cell);
+        case "toggle":
+            // A toggle reads as its state's word, the word typed back sets it.
+            return cell.type === "Boolean" && meta.states !== undefined ? (cell.value ? meta.states.on : meta.states.off) : rawCellText(cell);
         default:
             return rawCellText(cell);
     }
@@ -528,6 +596,60 @@ export function rawCellText(cell: SheetCellValue): string {
 /** A sub row's printed text — its lead, detail and id, what a search matches it by. */
 export function subRowText(s: SheetSubRowValue): string {
     return [s.code, s.name, ...s.chips, ...s.facets.map((f) => `${f.label} ${f.value}`), s.id].filter((t) => t !== "").join(" ");
+}
+
+// ── Marks and locks (#1560) ───────────────────────────────────────────────
+
+/** A cell's mark: the words drawn in it, and whether it locks the cell. */
+export interface SheetCellMark {
+    /** The mark's words — a note, or why the cell is locked. */
+    words: string;
+    /** Whether the mark locks the cell, so no gesture writes it. */
+    lock: boolean;
+}
+
+/**
+ * The mark on a column's cell, read off its row's cells where the column's
+ * marks cross (`SheetMarkCellsType`): the root writes both cells for a mark,
+ * and neither where the row has none.
+ *
+ * @param meta - The column
+ * @param cells - The row's cells, read at the sheet's day; `undefined` for a row that holds none
+ * @returns The mark, or `undefined` where the cell has none
+ */
+export function markOf(meta: Pick<SheetColumnMeta, "raw">, cells: ReadonlyMap<string, SheetCellValue> | undefined): SheetCellMark | undefined {
+    const at = getSomeorUndefined(meta.raw.mark);
+    if (at === undefined || cells === undefined) return undefined;
+    const words = cells.get(at.words);
+    if (words?.type !== "String") return undefined;
+    const lock = cells.get(at.lock);
+    return { words: words.value, lock: lock?.type === "Boolean" && lock.value };
+}
+
+/**
+ * Whether a cell takes an edit — the one check every gesture asks, so none
+ * can miss a lock: a step, typing, a paste, a clear, a fill and a drop. Its
+ * column writes, and no mark locks it.
+ *
+ * @param meta - The column
+ * @param cells - The row's cells; `undefined` for a row that holds none
+ * @returns `true` when the cell can be edited
+ */
+export function cellWritable(meta: Pick<SheetColumnMeta, "editable" | "raw">, cells: ReadonlyMap<string, SheetCellValue> | undefined): boolean {
+    return meta.editable && markOf(meta, cells)?.lock !== true;
+}
+
+/**
+ * Whether a column's cells take a clear. Every column's do but a column from
+ * data's whose value isn't an option (its `from.clears`): there a blank is
+ * nothing it can write.
+ *
+ * @param meta - The column
+ * @returns `true` when a clear writes the cell blank
+ */
+export function takesClear(meta: Pick<SheetColumnMeta, "raw">): boolean {
+    const from = getSomeorUndefined(meta.raw.from);
+    return from === undefined || from.clears;
 }
 
 // ── The body ──────────────────────────────────────────────────────────────

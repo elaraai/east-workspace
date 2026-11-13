@@ -12,7 +12,16 @@
  * nowhere, a draft the hidden narrowing leaves out, its line saying which
  * choice hides it, as the shared hidden pick words it, and Go to issue
  * clearing that choice and selecting it once it draws (ruled 27 Oct 2026,
- * "Checked in view, said so"). Each test fails on the code under review.
+ * "Checked in view, said so"). What a Save moved, unplaced or wrote draws as
+ * the Save left it — on the canvas, in the Index and in Details — while the
+ * reads of its window and of the Index's zone are still from before it, never
+ * where it stood, and as its record holds it once they are read again — a rack
+ * saved twice before its window is read again as the second Save left it,
+ * never as it stood before either. Each test fails on the code under review.
+ * And the checks every builder runs of a rack another session removes or
+ * changes under a draft of it here (#1599, `shared/remote-rows.test-utils.ts`),
+ * over the racks read by area: whichever lands first, the window's own reads
+ * or the session's read of the rack by its key.
  *
  * jsdom lays nothing out: the canvas is given the box a page would give it,
  * 1080 × 540 px at the client origin, and each card the tests press answers at
@@ -24,15 +33,19 @@ import { act, fireEvent, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { East, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, printFor, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Reactive, RecordSliceStateType, Slice, UIComponentType } from "@elaraai/east-ui/internal";
-import { StateRuntime } from "@elaraai/east-ui-components";
+import { StateRuntime, editingMessages } from "@elaraai/east-ui-components";
 import { Data, Record, Schematic } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/schematic/schematic";
-import { e3Harness, settle, slot } from "../e3-web-mount.test-utils.js";
+import type { E3Hold, E3Request } from "../e3-web.test-utils.js";
+import { e3Harness, evaluatesAgain, settle, slot } from "../e3-web-mount.test-utils.js";
+import { removedHere, removedOnBothSides, removedThere } from "../shared/remote-rows.test-utils.js";
+import { editedThroughReload, redrawnThroughReload, savedThroughReload } from "../shared/save-held.test-utils.js";
 import { entityId } from "./canvas/drawn.js";
 import { at, cameraOf, card, fitted, layOutCanvas, near, tap, unsaved, zoomInto } from "./schematic.test-utils.js";
 import "./index.js";
 
 const h = e3Harness({ "schematic/schematic": ex }, { main: "data-schematic-canvas" });
+evaluatesAgain();
 
 // jsdom lays nothing out: the canvas is given the box a page would give it, 1080 × 540 px.
 const canvasLayout = layOutCanvas();
@@ -534,4 +547,284 @@ test("hidden, a run a draft re-targeted that a choice of its own source leaves o
     await waitFor(() => expect(whereOf(`${RUNS}.fibre`).size).toBe(0));
     await waitFor(() => expect(detailsHead(container)).toEqual(["link", "A03 → MMR-1"]), { timeout: 5_000 });
     expect(unsaved(container)).toBe(true);
+});
+
+// ============================================================================
+// Save: what it landed, as it left it, until the reads drawing it read it again
+// ============================================================================
+
+/** The racks' reads through their area index — the window's searches and its runs' rows, and the Index's zone's — which a Save's own confirmation, by key, is none of. */
+const areaRead = (request: E3Request) => request.dataset === RACKS_DATASET
+    && ((request.kind === "find" && request.query.get("index") === "schematic_racks_by_area") || request.kind === "runs");
+
+/** Saves through the history's Save with the racks' reads through their area index held: its commit confirmed and its drafts gone, those reads not answered yet. */
+async function saveHeld(c: HTMLElement): Promise<E3Hold> {
+    const held = h.e3.hold(areaRead);
+    await act(async () => { fireEvent.click(within(slot(c, "toolbar")).getByRole("button", { name: editingMessages.apply() })); });
+    await waitFor(() => expect(unsaved(c)).toBe(false), { timeout: 5_000 });
+    await held.holding;
+    await settle();
+    return held;
+}
+
+/** Lets the held reads go, and waits for them to land. */
+async function release(held: E3Hold) {
+    await act(async () => { held.release(); });
+    await settle();
+}
+
+/** Moves A01 with the Move tool from where it stands to a point of the floor: a draft. */
+async function moveA01(c: HTMLElement, x: number, y: number) {
+    const canvas = canvasOf(c);
+    await act(async () => { fireEvent.click(within(slot(c, "toolbar")).getByRole("radio", { name: "Move" })); });
+    await act(async () => {
+        fireEvent.pointerDown(canvas, { pointerId: 1, pointerType: "mouse", button: 0, buttons: 1, ...at(CAM, 2.4, 2.9) });
+        fireEvent.pointerMove(canvas, { pointerId: 1, pointerType: "mouse", button: 0, buttons: 1, ...at(CAM, x, y) });
+        fireEvent.pointerUp(canvas, { pointerId: 1, pointerType: "mouse", button: 0, buttons: 0, ...at(CAM, x, y) });
+    });
+    await settle();
+    expect(unsaved(c)).toBe(true);
+}
+
+test("a rack Save moved draws where the Save left it while its window is read again, never back where it stood, and as its record holds it once read", async () => {
+    const { container } = await open();
+    const stood = card(container, "racks", "A01")!.style.transform;
+    await moveA01(container, 2.4, 5.0);
+    const moved = card(container, "racks", "A01")!.style.transform;
+    expect(moved).not.toBe(stood);
+    // Saved, the window's read again held: A01 stays where the Save left it.
+    const held = await saveHeld(container);
+    expect(card(container, "racks", "A01")!.style.transform).toBe(moved);
+    // The window read again: A01 where its record holds it now — the same place.
+    await release(held);
+    expect(card(container, "racks", "A01")!.style.transform).toBe(moved);
+    // What the Save landed is let go once read: another session deleting A01 takes its card away.
+    const racks = await h.read(ex.schematicRacks);
+    await h.patch(ex.schematicRacks, new Map([...racks].filter(([key]) => !stringEqual(key, "A01"))));
+    await waitFor(() => expect(card(container, "racks", "A01")).toBeNull(), { timeout: 5_000 });
+});
+
+test("the check every builder runs: a rack Save moved stands where the Save left it at every change of the page, from the press of Save until its window is read again", async () => {
+    const { container } = await open();
+    await moveA01(container, 2.4, 5.0);
+    await savedThroughReload({
+        e3: h.e3,
+        container,
+        reads: areaRead,
+        // Where each rack's card stands.
+        look: () => CENTRES.map(([key]) => [key, card(container, "racks", key)?.style.transform ?? null]),
+    });
+});
+
+test("the check every builder runs, over racks read whole: a rack Save moved stands where the Save left it at every change of the page, until its record is read again", async () => {
+    const { container } = await open(runsFloor);
+    await moveA01(container, 2.4, 5.0);
+    await savedThroughReload({
+        e3: h.e3,
+        container,
+        // Every read of the racks: the drawing's own, which its Save's confirmation reads through too.
+        reads: (request) => request.dataset === RACKS_DATASET,
+        look: () => CENTRES.map(([key]) => [key, card(container, "racks", key)?.style.transform ?? null]),
+    });
+});
+
+/** Moves a rack with the Move tool, already chosen, from a point of the floor to another. */
+async function moveFrom(c: HTMLElement, from: readonly [number, number], to: readonly [number, number]) {
+    const canvas = canvasOf(c);
+    await act(async () => {
+        fireEvent.pointerDown(canvas, { pointerId: 1, pointerType: "mouse", button: 0, buttons: 1, ...at(CAM, from[0], from[1]) });
+        fireEvent.pointerMove(canvas, { pointerId: 1, pointerType: "mouse", button: 0, buttons: 1, ...at(CAM, to[0], to[1]) });
+        fireEvent.pointerUp(canvas, { pointerId: 1, pointerType: "mouse", button: 0, buttons: 0, ...at(CAM, to[0], to[1]) });
+    });
+    await settle();
+}
+
+test.each([
+    ["a Save never stops the editing: another rack moved while its window is read again after a Save is taken at once — from the card as it stands — stays where it was put as the reads land, and the next Save writes it", editedThroughReload],
+    ["the page evaluated again while the racks' window is read again after a Save moves no rack's card, and takes none off the drawing: another rack moved meanwhile is taken at once, stays where it was put as the page is evaluated again and the reads land, and the next Save writes it", redrawnThroughReload],
+])("%s", async (_name, through) => {
+    const { container } = await open();
+    await moveA01(container, 2.4, 5.0);
+    await through({
+        e3: h.e3,
+        container,
+        reads: areaRead,
+        look: () => CENTRES.map(([key]) => [key, card(container, "racks", key)?.style.transform ?? null]),
+        // A02, which the Save did not hold: its original is the drawing's own row of it.
+        again: () => moveFrom(container, [6.0, 2.9], [6.0, 5.0]),
+    });
+});
+
+test.each([
+    ["a Save never stops the editing, over racks read whole: another rack moved while its record is read again is taken at once, and the next Save writes it", editedThroughReload],
+    ["the page evaluated again, over racks read whole, while their record is read again after a Save moves no rack's card, and takes none off the drawing: another rack moved meanwhile is taken at once, and the next Save writes it", redrawnThroughReload],
+])("%s", async (_name, through) => {
+    const { container } = await open(runsFloor);
+    await moveA01(container, 2.4, 5.0);
+    await through({
+        e3: h.e3,
+        container,
+        reads: (request) => request.dataset === RACKS_DATASET,
+        look: () => CENTRES.map(([key]) => [key, card(container, "racks", key)?.style.transform ?? null]),
+        again: () => moveFrom(container, [6.0, 2.9], [6.0, 5.0]),
+    });
+});
+
+test("a rack Save unplaced draws nowhere while its window is read again, the Backlog listing it, and so once read", async () => {
+    const { container } = await open();
+    await tap(canvasOf(container), CAM, 2.4, 2.9);
+    await waitFor(() => expect(inspector(container).querySelector('[data-inspector-action="unplace"]')).not.toBeNull());
+    await act(async () => { fireEvent.click(inspector(container).querySelector<HTMLElement>('[data-inspector-action="unplace"]')!); });
+    await settle();
+    await waitFor(() => expect(backlogKeys(container)).toEqual([rack("A01"), rack("A06"), rack("A07")]));
+    expect(card(container, "racks", "A01")).toBeNull();
+    // Saved, the window's read again held: A01 has no card back where it stood, and the Backlog lists it still.
+    const held = await saveHeld(container);
+    expect(card(container, "racks", "A01")).toBeNull();
+    expect(backlogKeys(container)).toEqual([rack("A01"), rack("A06"), rack("A07")]);
+    await release(held);
+    expect(card(container, "racks", "A01")).toBeNull();
+    await waitFor(() => expect(backlogKeys(container)).toEqual([rack("A01"), rack("A06"), rack("A07")]));
+});
+
+test("the Index lists a rack Save moved where the Save left it while its zone is read again, never back in the zone it left, and so once read", async () => {
+    const { container } = await open();
+    // A01 moved out of Cage A into the Network room, and Cage A opened: A02 to A05.
+    await moveA01(container, 23.0, 9.6);
+    await openTab(container, "Index");
+    await openZone(container, "Cage A");
+    const cageA = ["Cage A ▾ 4", "  A02", "  A03", "  A04", "  A05", "Cold aisle A · 1.2 m ▸", "Hot aisle A · 1.0 m ▸", "Meet-me room ▸", "Network room ▸"];
+    await waitFor(() => expect(indexRows(container)).toEqual(cageA), { timeout: 5_000 });
+    // Saved, Cage A's read again held, and the window's: Cage A lists A02 to A05 still.
+    const held = await saveHeld(container);
+    expect(indexRows(container)).toEqual(cageA);
+    await release(held);
+    await waitFor(() => expect(indexRows(container)).toEqual(cageA));
+    // The Network room holds A01, as its record does now.
+    await openZone(container, "Network room");
+    await waitFor(() => expect(indexRows(container)).toEqual([
+        "Cage A ▸", "Cold aisle A · 1.2 m ▸", "Hot aisle A · 1.0 m ▸", "Meet-me room ▸", "Network room ▾ 1", "  A01",
+    ]), { timeout: 5_000 });
+});
+
+test("Details shows a rack's field as Save wrote it while its window is read again, never its old value, nor marked a change", async () => {
+    const { container } = await open();
+    await tap(canvasOf(container), CAM, 2.4, 2.9);
+    await waitFor(() => expect(detailsHead(container)).toEqual(["item", "A01"]));
+    await retypeNumber(container, "position", "x", "4");
+    expect(unsaved(container)).toBe(true);
+    const field = () => inspector(container).querySelector<HTMLElement>('[data-inspector-fields="position"] [data-field="x"]')!;
+    const value = () => within(field()).getByRole<HTMLInputElement>("spinbutton").value;
+    const typed = value();
+    expect(field().hasAttribute("data-dirty")).toBe(true);
+    // Saved, the window's read again held: x reads as typed, no change of the stored row.
+    const held = await saveHeld(container);
+    expect(detailsHead(container)).toEqual(["item", "A01"]);
+    expect(value()).toBe(typed);
+    expect(field().hasAttribute("data-dirty")).toBe(false);
+    await release(held);
+    expect(value()).toBe(typed);
+    expect(field().hasAttribute("data-dirty")).toBe(false);
+});
+
+test("a rack saved twice before its window is read again draws where the second Save left it, Details showing it as that Save wrote it — never as it stood before either Save", async () => {
+    const { container } = await open();
+    await tap(canvasOf(container), CAM, 2.4, 2.9);
+    await waitFor(() => expect(detailsHead(container)).toEqual(["item", "A01"]));
+    const stood = card(container, "racks", "A01")!.style.transform;
+    const field = () => inspector(container).querySelector<HTMLElement>('[data-inspector-fields="position"] [data-field="x"]')!;
+    const value = () => within(field()).getByRole<HTMLInputElement>("spinbutton").value;
+    // Moved in Details and saved, the window's read again held.
+    await retypeNumber(container, "position", "x", "4");
+    const first = card(container, "racks", "A01")!.style.transform;
+    expect(first).not.toBe(stood);
+    const held = await saveHeld(container);
+    expect(card(container, "racks", "A01")!.style.transform).toBe(first);
+    // Moved again and saved again, the window still as it was read before the first Save.
+    await retypeNumber(container, "position", "x", "6");
+    expect(unsaved(container)).toBe(true);
+    const typed = value();
+    const second = card(container, "racks", "A01")!.style.transform;
+    expect(second).not.toBe(first);
+    await act(async () => { fireEvent.click(within(slot(container, "toolbar")).getByRole("button", { name: editingMessages.apply() })); });
+    await waitFor(() => expect(unsaved(container)).toBe(false), { timeout: 5_000 });
+    await settle();
+    expect(card(container, "racks", "A01")!.style.transform).toBe(second);
+    expect(value()).toBe(typed);
+    expect(field().hasAttribute("data-dirty")).toBe(false);
+    // The window read again: A01 where its record holds it now — the same place.
+    await release(held);
+    expect(card(container, "racks", "A01")!.style.transform).toBe(second);
+    expect(value()).toBe(typed);
+    expect(field().hasAttribute("data-dirty")).toBe(false);
+});
+
+// ============================================================================
+// Another session's removal or change of a rack read by area, under a draft of it here (#1599)
+// ============================================================================
+
+/** What the shared checks take of the floor, over rack A03, read by area. */
+const remoteRack = (c: HTMLElement) => ({
+    e3: h.e3, container: c,
+    // The canvas's own reads of the racks: its window's searches and its runs' rows, never the reads a session makes by key.
+    reads: areaRead,
+    // The session's reads of the racks its drafts hold, by their keys.
+    byKey: (request: E3Request) => request.dataset === RACKS_DATASET && request.kind === "rows",
+    drawn: () => card(c, "racks", "A03") !== null,
+    theirRemoval: async () => {
+        const racks = await h.read(ex.schematicRacks);
+        await h.patch(ex.schematicRacks, new Map([...racks].filter(([key]) => !stringEqual(key, "A03"))));
+        await settle();
+    },
+    held: async () => (await h.read(ex.schematicRacks)).has("A03"),
+    name: "A03",
+});
+
+/** A tool picked from the toolbar. */
+const pick = (c: HTMLElement, name: string) => () => { fireEvent.click(within(slot(c, "toolbar")).getByRole("radio", { name })); };
+/** Rack A03 moved here, down into the clear floor below its row: a draft. */
+const moveA03 = (c: HTMLElement) => [pick(c, "Move"), () => moveFrom(c, [9.6, 2.9], [9.6, 5.0])];
+/** Rack A03 removed here: selected, then Del with the pointer over the canvas. */
+const removeA03 = (c: HTMLElement) => [
+    pick(c, "Select"),
+    () => {
+        const canvas = canvasOf(c);
+        fireEvent.pointerDown(canvas, { pointerId: 1, pointerType: "mouse", button: 0, buttons: 1, ...at(CAM, 9.6, 2.9) });
+        fireEvent.pointerUp(canvas, { pointerId: 1, pointerType: "mouse", button: 0, buttons: 0, ...at(CAM, 9.6, 2.9) });
+    },
+    () => { fireEvent.keyDown(window, { key: "Delete" }); },
+];
+/** Where the canvas places rack A03's card, and what the card says. */
+const lookA03 = (c: HTMLElement) => () => {
+    const el = card(c, "racks", "A03");
+    return el === null ? null : [el.style.transform, el.textContent];
+};
+
+test.each([
+    ["its session's read of it landing first, kept: the next Save puts it back as drafted", "draft", "session"],
+    ["its session's read of it landing first, let go: the rack leaves and nothing is left to save", "source", "session"],
+    ["its window read again without it first, kept: the next Save puts it back as drafted", "draft", "rows"],
+    ["its window read again without it first, let go: the rack leaves and nothing is left to save", "source", "rows"],
+] as const)("read by area, a rack moved here that another session removes stands as drafted, a conflict to choose — %s", async (_ends, choice, first) => {
+    const { container } = await open();
+    await removedThere({ ...remoteRack(container), change: moveA03(container), look: lookA03(container) }, choice, first);
+});
+
+test.each([["kept, the next Save removes it", "draft"], ["let go, the rack is back as the other session left it", "source"]] as const)(
+    "read by area, a rack removed here that another session changed stays off the canvas while its window is read again, a conflict to choose, its card naming the rack: %s", async (_ends, choice) => {
+        const { container } = await open();
+        await removedHere({
+            ...remoteRack(container), remove: removeA03(container),
+            // Its model read again by another session: no part of where it stands.
+            theirChange: async () => {
+                const racks = await h.read(ex.schematicRacks);
+                await h.patch(ex.schematicRacks, new Map([...racks, ["A03", { ...racks.get("A03")!, model: "42U · 10 kW" }]]));
+                await settle();
+            },
+        }, choice);
+    });
+
+test("read by area, a rack removed here and by another session is nothing to choose and nothing to save, and the canvas never draws it again — nor while its window, standing from before the other session's write, is read again", async () => {
+    const { container } = await open();
+    await removedOnBothSides({ ...remoteRack(container), remove: removeA03(container) });
 });

@@ -8,7 +8,9 @@
  * main always; a described pane drawn as a `DockPane` — its tabs and its rail,
  * its collapsed state and open tab the host's or its own — and an element
  * pane placed as it is; an overlay pane closed by Esc, the focus back on its
- * rail, and one open at a time, never so wide that less than 48px of main
+ * rail; a pane opened from code — by its host, or by what it holds — and
+ * closed by what it holds, and what of main the panes leave in view, as the
+ * host asks; one overlay open at a time, never so wide that less than 48px of main
  * shows beside it; the scrim exactly when the rule says, and a tap on it
  * closing the pane; an overlay pane on a wide frame over a live main; and an
  * open overlay pane stepping aside while a drag is under way.
@@ -20,12 +22,12 @@
 import { describe, test, expect, beforeEach, afterEach, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
-import { useState, type ReactNode } from "react";
+import { Profiler, createRef, useContext, useEffect, useState, type ReactNode } from "react";
 import { system } from "../../theme/index.js";
 import { DragLayerProvider, useDragSourceItem } from "../../dnd/drag-layer";
 import { pointAt } from "../../testing/drag-layer.js";
 import type { ToolbarItem } from "../../toolbar/index.js";
-import { BuilderFrame, type BuilderFrameDock, type BuilderFrameProps } from "./index.js";
+import { BuilderFrame, FramePane, type BuilderFrameDock, type BuilderFramePanes, type BuilderFrameProps, type FramePaneHandle } from "./index.js";
 import { LoadingLine, type LoadingLineValue } from "./loading-line.js";
 import { keptName } from "../../platform/kept.js";
 
@@ -134,9 +136,10 @@ const scrim = (): HTMLElement | null => frame().querySelector<HTMLElement>("[dat
 const openTab = (side: "start" | "end") =>
     [...slot(side).querySelectorAll("[role=tab]")].filter((tab) => tab.getAttribute("aria-selected") === "true").map((tab) => tab.textContent);
 
-/** Press a pane's collapse or expand control, as a pointer does. */
+/** Press a pane's collapse or expand control, as a pointer does: the focus on it, then its click. */
 async function press(name: string): Promise<void> {
-    await act(async () => { fireEvent.click(screen.getByRole("button", { name })); });
+    const control = screen.getByRole("button", { name });
+    await act(async () => { control.focus(); fireEvent.click(control); });
 }
 
 /** Let the microtasks a change is told through land: the pane's to the frame, and the frame's to its host. */
@@ -368,6 +371,90 @@ describe("BuilderFrame — auto, overlay and the scrim (#1125 F1)", () => {
         expect(heard).toEqual(["Escape", "z"]);
     });
 
+    test("an overlay pane opened from its rail takes the focus — its open tab, or its first control — so Esc, pressed next, closes it and lifts the scrim (#1584)", async () => {
+        mount({ start: library(), end: properties({ mode: "overlay", defaultCollapsed: true }) });
+        frameAt(700);
+        await press("Expand Library");
+        expect([paneOf("start"), document.activeElement]).toEqual([["overlay", false], screen.getByRole("tab", { name: "Cards" })]);
+        fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+        expect([paneOf("start"), scrim(), document.activeElement]).toEqual([["overlay", true], null, screen.getByRole("button", { name: "Expand Library" })]);
+        // A pane of one body: its first control.
+        await press("Expand Properties");
+        expect([paneOf("end"), document.activeElement]).toEqual([["overlay", false], screen.getByRole("button", { name: "Collapse Properties" })]);
+    });
+
+    test("an overlay pane closed by its own collapse gives the focus back to its rail, as Esc's close does — floating over a live main or over the scrim (#1584)", async () => {
+        mount({ start: library({ mode: "overlay" }), end: properties() });
+        frameAt(1200);
+        expect(paneOf("start")).toEqual(["overlay", false]);
+        await press("Collapse Library");
+        expect([paneOf("start"), document.activeElement]).toEqual([["overlay", true], screen.getByRole("button", { name: "Expand Library" })]);
+        // An auto pane overlaying for lack of room, its scrim over main.
+        frameAt(700);
+        await press("Expand Properties");
+        await press("Collapse Properties");
+        expect([paneOf("end"), scrim(), document.activeElement]).toEqual([["overlay", true], null, screen.getByRole("button", { name: "Expand Properties" })]);
+    });
+
+    test("an overlay pane opened by a press on its rail's tile — no control, and taking no focus of its own — takes the focus, so Esc reaches it (#1584)", async () => {
+        mount({ start: library(), end: properties({ mode: "overlay", defaultCollapsed: true }), children: <button type="button">IN MAIN</button> });
+        frameAt(1200);
+        act(() => { screen.getByRole("button", { name: "IN MAIN" }).focus(); });
+        await act(async () => { fireEvent.click(slot("end").querySelector<HTMLElement>('[data-surface] > [title="Properties"]')!); });
+        await told();
+        expect([paneOf("end"), document.activeElement]).toEqual([["overlay", false], screen.getByRole("button", { name: "Collapse Properties" })]);
+    });
+
+    test("a pane its host opens from code (`panesRef`) — the Inspector a selection in main reveals, the Issues the issues chip asks for — opens as its rail opens it, kept where it persists, and leaves the focus where the viewer has it (#1584, #1585)", async () => {
+        const panes = createRef<BuilderFramePanes>();
+        mount({
+            start: library({ defaultCollapsed: true }), end: properties({ mode: "overlay", defaultCollapsed: true, persist: "local" }),
+            panesRef: panes, children: <button type="button">IN MAIN</button>,
+        });
+        frameAt(1200);
+        const inMain = screen.getByRole("button", { name: "IN MAIN" });
+        act(() => { inMain.focus(); });
+        await act(async () => { panes.current!.reveal("end"); });
+        await told();
+        expect([paneOf("end"), document.activeElement, localStorage.getItem(keptName("frame-test.end.dock.collapsed"))]).toEqual([["overlay", false], inMain, "false"]);
+        // A pinned pane, asked for.
+        await act(async () => { panes.current!.open("start"); });
+        await told();
+        expect([paneOf("start"), document.activeElement]).toEqual([["pinned", false], inMain]);
+    });
+
+    test("what of main the panes leave in view, as their host asks (`panesRef`): main's box, less the overlay pane open over it at either side — a closed one takes nothing (#1585)", async () => {
+        const panes = createRef<BuilderFramePanes>();
+        mount({ start: library({ mode: "overlay", defaultCollapsed: true }), end: properties({ mode: "overlay", defaultCollapsed: true }), panesRef: panes });
+        frameAt(1200);
+        /** A box laid out across the page from `left` to `right`, the frame's height. */
+        const span = (left: number, right: number) => ({ ...rect(right - left), x: left, left, right }) as DOMRect;
+        // Main between the two rails; each pane's sheet over main from its edge — what the sheet covers once it is open.
+        vi.spyOn(slot("main"), "getBoundingClientRect").mockReturnValue(span(44, 1156));
+        vi.spyOn(sheet("start"), "getBoundingClientRect").mockReturnValue(span(44, 308));
+        vi.spyOn(sheet("end"), "getBoundingClientRect").mockReturnValue(span(856, 1156));
+        expect(panes.current!.mainShown()).toEqual({ left: 44, top: 0, right: 1156, bottom: 600 });
+        await act(async () => { panes.current!.open("start"); });
+        await told();
+        expect([paneOf("start"), panes.current!.mainShown()]).toEqual([["overlay", false], { left: 308, top: 0, right: 1156, bottom: 600 }]);
+        // The other opened, the first closes — one overlay pane is open at a time — and main shows up to the other's edge.
+        await act(async () => { panes.current!.reveal("end"); });
+        await told();
+        expect([paneOf("start"), paneOf("end"), panes.current!.mainShown()]).toEqual([["overlay", true], ["overlay", false], { left: 44, top: 0, right: 856, bottom: 600 }]);
+    });
+
+    test("an overlay pane whose body takes the focus as it opens keeps it there — a field an issue gone to names: the pane takes it only where nothing in it has (#1585)", async () => {
+        mount({ start: library(), end: properties({ mode: "overlay", defaultCollapsed: true, body: <input aria-label="COST CENTRE" /> }) });
+        frameAt(700);
+        // The pane shows its body as it is pressed, and tells the frame a microtask later: the field a form gives the
+        // keyboard as it shows — the one an issue gone to names — takes it in between.
+        const expand = screen.getByRole("button", { name: "Expand Properties" });
+        const field = screen.getByRole("textbox", { name: "COST CENTRE", hidden: true });
+        await act(async () => { expand.focus(); fireEvent.click(expand); field.focus(); });
+        await told();
+        expect([paneOf("end"), document.activeElement]).toEqual([["overlay", false], field]);
+    });
+
     test("Esc in a layer laid in the open overlay pane that takes Esc itself (`data-escape-layer`) is the layer's; anywhere else in the pane it closes the pane", () => {
         const closed: string[] = [];
         const layer = (
@@ -526,7 +613,55 @@ describe("BuilderFrame — a drag (#1125 F1)", () => {
         await act(async () => { fireEvent.pointerUp(document, { clientX: 10, clientY: 10 }); });
         expect(sheet("end").style.transform).toBe("");
     });
+
+    test("a frame with no overlay pane open draws nothing as a drag starts or ends: only an open overlay moves for it (#1594)", async () => {
+        const commits: string[] = [];
+        render(
+            <ChakraProvider value={system}>
+                <DragLayerProvider>
+                    <Card />
+                    <Profiler id="frame" onRender={(_id, phase) => { commits.push(phase); }}>
+                        <BuilderFrame storageKey="frame-test" start={library()}>{MAIN}</BuilderFrame>
+                    </Profiler>
+                </DragLayerProvider>
+            </ChakraProvider>,
+        );
+        frameAt(1440);
+        expect(paneOf("start")).toEqual(["pinned", false]);
+        await act(async () => { await Promise.resolve(); });
+        commits.length = 0;
+        await act(async () => {
+            fireEvent.pointerDown(screen.getByTestId("card"), { clientX: 0, clientY: 0 });
+            pointAt(null);
+            fireEvent.pointerMove(document, { clientX: 10, clientY: 10 });
+        });
+        expect(commits, "the frame's commits as the drag starts").toEqual([]);
+        await act(async () => { fireEvent.pointerUp(document, { clientX: 10, clientY: 10 }); });
+        expect(commits, "the frame's commits as it ends").toEqual([]);
+    });
+
+    test("a pane a phone draws as a drawer steps aside while a drag is under way, whatever its mode: a pinned one too", async () => {
+        mount({ start: library({ mode: "pinned", tabs: [{ key: "cards", label: "Cards", body: <Card /> }] }) });
+        frameAt(390);
+        // A pinned pane opens expanded: on a phone it is a drawer, open over main.
+        expect([drawerOf("start").hasAttribute("data-open"), drawerOf("start").hasAttribute("data-aside")]).toEqual([true, false]);
+        await act(async () => {
+            fireEvent.pointerDown(screen.getByTestId("card"), { clientX: 0, clientY: 0 });
+            pointAt(null);
+            fireEvent.pointerMove(document, { clientX: 10, clientY: 10 });
+        });
+        expect(drawerOf("start").hasAttribute("data-aside"), "while the drag is under way").toBe(true);
+        await act(async () => { fireEvent.pointerUp(document, { clientX: 10, clientY: 10 }); });
+        expect(drawerOf("start").hasAttribute("data-aside"), "once it has ended").toBe(false);
+    });
 });
+
+/** What a pane holds that opens and closes it from inside (`FramePane`): its handle, handed out, and a press sending the viewer to main. */
+function PaneParts({ onHandle }: { onHandle: (pane: FramePaneHandle | undefined) => void }) {
+    const pane = useContext(FramePane);
+    useEffect(() => { onHandle(pane); }, [onHandle, pane]);
+    return <button type="button" onClick={() => pane?.close()}>TO MAIN</button>;
+}
 
 // ── A phone's frame (Mobile Builder Frame Spec.md, ruled 3 Nov 2026) ──────────
 
@@ -552,8 +687,8 @@ describe("BuilderFrame — a phone's frame (Mobile Builder Frame Spec.md FR1, FR
         expect([...slot("toolbar").querySelectorAll("[data-toolbar-item]")].map((el) => el.getAttribute("data-toolbar-item"))).toEqual(["name", "optimise", "history"]);
         frameAt(560);
         expect(frame().hasAttribute("data-phone")).toBe(true);
-        // No status given: the footer stays, its loading line has no other home. Each pane is a view over the whole
-        // builder, at the frame's root, and the overlay slot over every region.
+        // The footer keeps its place: a phone's lays only what speaks over main's foot (its CSS). Each pane is a view over
+        // the whole builder, at the frame's root, and the overlay slot over every region.
         expect([regions(), across()]).toEqual([["toolbar", "sessionRow", "sessionBand", "body", "bottomPanel", "paneStrip", "footer", "start", "end", "overlay"], ["main"]]);
         expect([...slot("toolbar").querySelectorAll("[data-toolbar-item]")].map((el) => el.getAttribute("data-toolbar-item"))).toEqual(["name"]);
         expect(slot("sessionRow").textContent).toBe("EYE ROWHISTORY ROW");
@@ -561,23 +696,32 @@ describe("BuilderFrame — a phone's frame (Mobile Builder Frame Spec.md FR1, FR
         expect([regions(), frame().hasAttribute("data-phone")]).toEqual([["toolbar", "body", "footer"], false]);
     });
 
-    test("the footer's loading line is the second row's start on a phone, in its short form, leaving a marker the frame hides the footer by; on a wider frame it is the footer's", () => {
+    test("the footer's loading line stays the footer's on a phone, in the form its fit gives it, and the second row holds the items' own alone (ruled 7 Nov 2026)", () => {
         const line: LoadingLineValue = { kind: "failed", text: "Couldn't read rows 1–40", short: "Couldn't read", onRetry: () => undefined };
         mount({ toolbar: phoneItems, start: library(), footer: <div><span>LEGEND</span><LoadingLine value={line} shown form="full" /></div> });
         frameAt(1440);
-        expect([slot("footer").querySelector("[data-footer-line]")?.getAttribute("data-form"), slot("footer").querySelector("[data-footer-line-moved]")]).toEqual(["full", null]);
+        expect(slot("footer").querySelector("[data-footer-line]")?.getAttribute("data-form")).toBe("full");
         frameAt(390);
-        const status = slot("sessionRow").querySelector("[data-session-status]")!;
-        expect([status.querySelector("[data-footer-line]")?.getAttribute("data-form"), slot("sessionRow").firstElementChild]).toEqual(["short", status]);
-        expect([slot("footer").querySelector("[data-footer-line]"), slot("footer").querySelector("[data-footer-line-moved]") !== null, slot("footer").textContent]).toEqual([null, true, "LEGEND"]);
+        expect([slot("footer").querySelector("[data-footer-line]")?.getAttribute("data-form"), slot("sessionRow").querySelector("[data-footer-line]"), slot("sessionRow").textContent])
+            .toEqual(["full", null, "EYE ROWHISTORY ROW"]);
         frameAt(1440);
         expect([slot("footer").querySelector("[data-footer-line]") !== null, regions()]).toEqual([true, ["toolbar", "body", "footer"]]);
     });
 
-    test("a footer with no loading line stays a phone's, and the row is drawn for the footer's line even with no item of its own", () => {
-        mount({ footer: <div>STATUS</div> });
+    test("a builder with no item of the second row's draws no second row on a phone: a read never adds one over main, its line the footer's", () => {
+        const line: LoadingLineValue = { kind: "loading", text: "Loading rows 41–80", short: "Loading…" };
+        mount({ footer: <div><LoadingLine value={line} shown form="full" /></div> });
         frameAt(390);
-        expect([regions(), slot("footer").querySelector("[data-footer-line-moved]")]).toEqual([["sessionRow", "sessionBand", "body", "bottomPanel", "footer", "overlay"], null]);
+        expect([regions(), slot("footer").querySelector("[data-footer-line]")?.textContent]).toEqual([["body", "bottomPanel", "footer", "overlay"], expect.stringContaining("Loading rows 41–80")]);
+    });
+
+    test("a phone's footer that speaks is laid over main's foot, with no height of its own in the flow, so main never resizes for it; one with a pane's view open says over the view only what a gesture there was refused for", () => {
+        // jsdom lays nothing out: the recipe says it, and the showcase's phone specs measure it.
+        const footer = (system.getSlotRecipe("builderFrame") as { base: { footer: Record<string, Record<string, Record<string, unknown>>> } }).base.footer;
+        const speaks = footer["[data-phone] > &"]!["&:has([data-footer-line], [data-footer-live])"]!;
+        expect([speaks.height, speaks.justifyContent, speaks.position]).toEqual(["0", "flex-end", "relative"]);
+        const overView = footer["[data-phone]:has(> [data-frame-drawer][data-open]) > &"]!["&:has([data-footer-live]:not([data-footer-ambient]))"]!;
+        expect([overView.position, overView["& [data-footer-line], & [data-footer-ambient]"]]).toEqual(["absolute", { display: "none" }]);
     });
 
     test("each described pane is a tab of the strip — its icon, its label and its detail or badge — and opens as a drawer from it; again, it closes, the focus back on the tab", async () => {
@@ -616,6 +760,56 @@ describe("BuilderFrame — a phone's frame (Mobile Builder Frame Spec.md FR1, FR
         await act(async () => { fireEvent.click(collapse); });
         await told();
         expect([drawersOpen(), document.activeElement]).toEqual([[false, false], stripTab("start")]);
+    });
+
+    test("a pane its host opens from code (`panesRef`) opens its view as its strip tab does, the focus moved in; one only revealed — the Inspector a selection in main reveals — stays closed, main in view (#1585)", async () => {
+        const panes = createRef<BuilderFramePanes>();
+        mount({ start: library(), end: properties(), panesRef: panes, children: <button type="button">IN MAIN</button> });
+        frameAt(390);
+        const inMain = screen.getByRole("button", { name: "IN MAIN" });
+        act(() => { inMain.focus(); });
+        await act(async () => { panes.current!.reveal("end"); });
+        await told();
+        expect([drawersOpen(), document.activeElement]).toEqual([[false, false], inMain]);
+        await act(async () => { panes.current!.open("start"); });
+        await told();
+        expect([drawersOpen(), stripTab("start").getAttribute("aria-selected"), document.activeElement]).toEqual([[true, false], "true", screen.getByRole("tab", { name: "Cards" })]);
+    });
+
+    test("a phone's pane open — a view over the whole builder, not a pane beside main — takes nothing of what of main its host asks after (`panesRef`) (#1585)", async () => {
+        const panes = createRef<BuilderFramePanes>();
+        mount({ start: library(), end: properties(), panesRef: panes });
+        frameAt(390);
+        vi.spyOn(slot("main"), "getBoundingClientRect").mockReturnValue(rect(390));
+        await act(async () => { panes.current!.open("end"); });
+        await told();
+        vi.spyOn(drawerOf("end"), "getBoundingClientRect").mockReturnValue(rect(390));
+        expect([drawersOpen(), panes.current!.mainShown()]).toEqual([[false, true], { left: 0, top: 0, right: 390, bottom: 600 }]);
+    });
+
+    test("what a pane holds opens it from inside (`FramePane`) — a form an issue gone to asks a field of — as its strip tab does, the focus moved in, and closes it — a list sending the viewer to main — the focus back on its tab; on a wider frame, back on its rail (#1585)", async () => {
+        let handle: FramePaneHandle | undefined;
+        mount({ start: library({ tabs: [{ key: "cards", label: "Cards", body: <PaneParts onHandle={(pane) => { handle = pane; }} /> }] }), children: <button type="button">IN MAIN</button> });
+        frameAt(390);
+        const inMain = screen.getByRole("button", { name: "IN MAIN" });
+        act(() => { inMain.focus(); });
+        await act(async () => { handle!.open(); });
+        await told();
+        expect([drawerOf("start").hasAttribute("data-open"), document.activeElement]).toEqual([true, screen.getByRole("tab", { name: "Cards" })]);
+        const toMain = () => screen.getByRole("button", { name: "TO MAIN" });
+        await act(async () => { toMain().focus(); fireEvent.click(toMain()); });
+        await told();
+        expect([drawerOf("start").hasAttribute("data-open"), document.activeElement]).toEqual([false, stripTab("start")]);
+        // On a wider frame the pane is pinned: opened from inside, the focus stays where the viewer has it; closed from
+        // inside, it goes back to its rail.
+        frameAt(1440);
+        act(() => { inMain.focus(); });
+        await act(async () => { handle!.open(); });
+        await told();
+        expect([paneOf("start"), document.activeElement]).toEqual([["pinned", false], inMain]);
+        await act(async () => { toMain().focus(); fireEvent.click(toMain()); });
+        await told();
+        expect([paneOf("start"), document.activeElement]).toEqual([["pinned", true], screen.getByRole("button", { name: "Expand Library" })]);
     });
 
     test("a drawer keeps the pane's open tab across the width, under the same storage key", async () => {

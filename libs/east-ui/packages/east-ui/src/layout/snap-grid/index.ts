@@ -332,7 +332,6 @@ export interface SnapGridEditConfig<R extends EastType> {
  * @property onUpdate - The inline adapter's writer (requires `data={liveHandle}`)
  * @property onPatch - Observe every gesture
  * @property onDrafted - Hear the rows the canvas draws, whenever they change
- * @property mode - `"batch"` (Apply sends) or `"auto"` (each ready gesture goes at once)
  * @property ready - The author's readiness check over a drafted row
  */
 export interface SnapGridEditingConfig {
@@ -344,8 +343,6 @@ export interface SnapGridEditingConfig {
     onPatch?: ExprType<EastType>;
     /** Hear the rows the canvas draws, the drafts in place, as it mounts and whenever they change — `Fn(Array<R>) → Null` (#996). */
     onDrafted?: ExprType<EastType>;
-    /** When a ready batch goes: on Apply (`"batch"`, the default), or at once (`"auto"`). */
-    mode?: "batch" | "auto";
     /** The author's check over one drafted row — `Fn(R) → Editing.Types.Readiness`. */
     ready?: ExprType<EastType>;
 }
@@ -747,9 +744,6 @@ function buildSnapGridEditing(
             "SnapGrid: editing.onUpdate requires data={liveHandle}, so each batch reads the latest rows — pass the bound " +
             "handle itself, or commit with onApply");
     }
-    if (input.mode === "auto" && input.onApply === undefined && input.onUpdate === undefined) {
-        throw new Error("SnapGrid: editing.mode \"auto\" applies each ready gesture at once — it needs onApply or onUpdate to apply it with");
-    }
 
     const rowsType = ArrayType(entryType);
     const draftType = EditingDraftFieldType(entryType);
@@ -858,7 +852,6 @@ function buildSnapGridEditing(
         readEntry,
         onPatch: onPatch !== undefined ? some(onPatch) : none,
         onApply: onApply !== undefined ? some(onApply) : none,
-        mode: variant(input.mode ?? "batch", null),
         fields: {
             key: keyField, row: edit.row, span: edit.span,
             height: edit.height !== undefined ? some(edit.height) : none,

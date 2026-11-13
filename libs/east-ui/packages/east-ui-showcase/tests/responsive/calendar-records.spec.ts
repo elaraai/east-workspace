@@ -37,8 +37,10 @@ for (const theme of LAYOUT_THEMES) {
         await expect(events).toContainText("Completed proof");
         await expect(page.getByRole("dialog")).toHaveCount(1);
         expect(await page.getByRole("dialog").evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
+        // A value's chip is set in the mono face, as the design system's chip card sets one; a phone lists the values as
+        // checkboxes, in the body face.
         const font = await editor.getByRole(mobile ? "checkbox" : "button", { name: /^Ready/ }).evaluate(el => getComputedStyle(el).fontFamily);
-        expect(font).toContain("Inter Tight");
+        expect(font).toContain(mobile ? "Inter Tight" : "Chivo Mono");
         // Return to Ready and close the one editor using the keyboard.
         await editor.getByRole(mobile ? "checkbox" : "button", { name: /^Ready/ }).click();
         await editor.getByRole(mobile ? "checkbox" : "button", { name: /^Done/ }).click();

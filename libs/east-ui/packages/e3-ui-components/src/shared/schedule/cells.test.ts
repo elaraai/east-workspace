@@ -14,8 +14,14 @@
  * within the cap, and a window of the paged kind's resources — its keys, in
  * flight, or a read that failed, which only the paging runtime's
  * `PagedReadError` is. The runs a range wants are east-ui's (`levelRuns`,
- * `summaryRun`, #1433). The Plan's DOM tests carry the reader through e3
- * (`plan/plan-series.dom.test.tsx`, `plan/plan-cap.dom.test.tsx`).
+ * `summaryRun`, #1433). And which kinds' cells stand from before what Saves
+ * landed of them: those read at another revision than the one their record
+ * reads at now. And which drafts a kind that draws a draft only of an event
+ * its window holds, or of a new one, leaves out — never one it last drew,
+ * while its session has yet to judge it where its record reads now (#1599).
+ * The Plan's DOM tests carry the reader through e3
+ * (`plan/plan-series.dom.test.tsx`, `plan/plan-cap.dom.test.tsx`,
+ * `plan/frame/plan-remote-rows.dom.test.tsx`).
  */
 
 import { describe, test, expect } from "vitest";
@@ -23,9 +29,11 @@ import { none, some, type option } from "@elaraai/east";
 import { SCHEDULE_EVENT_CAP } from "@elaraai/e3-ui/internal";
 import { PagedReadError, isPagedReadError } from "../../platform/paged-read-error.js";
 import {
-    SCHEDULE_CELL_BLOCK, SCHEDULE_CELL_MARGIN, SCHEDULE_CELL_OPENING, SCHEDULE_WINDOW_FAILED, dividingTiles, scheduleWindowKeys, scheduleWithinCap, shadesOf,
-    wantedBlocks, type ScheduleCellPaged,
+    SCHEDULE_CELL_BLOCK, SCHEDULE_CELL_MARGIN, SCHEDULE_CELL_OPENING, SCHEDULE_WINDOW_FAILED, dividingTiles, draftsNotHeld, landedBefore, scheduleWindowKeys,
+    scheduleWithinCap, shadesOf, wantedBlocks, type ScheduleCellPaged,
 } from "./cells.js";
+import { DraftedStanding } from "./drafted-rows.js";
+import type { ScheduleLanded } from "./editing.js";
 
 const day = (text: string) => new Date(`${text}T00:00:00Z`);
 const HOUR = 3_600_000;
@@ -147,5 +155,83 @@ describe("a window of a paged kind's resources, as the reader reads it (#1039)",
         expect(isPagedReadError(new Error("failed"))).toBe(false);
         expect(isPagedReadError("failed")).toBe(false);
         expect(isPagedReadError(undefined)).toBe(false);
+    });
+});
+
+describe("what Saves landed, over a kind's cells read before them", () => {
+    /** What Saves landed of the jobs: one event, their requests drafted at these revisions. */
+    const jobs = (...from: string[]): ScheduleLanded => new Map([["jobs", {
+        rows: new Map([["J-1041", { draft: new Uint8Array([1]), row: new Uint8Array([2]) }]]), from: new Set(from),
+    }]]);
+    /** The jobs at a revision: the one their standing cells were read at, or the one their record reads at now. */
+    const at = (revision: string): ReadonlyMap<string, string> => new Map([["jobs", revision]]);
+
+    test("cells read at another revision than the one their record reads at now stand from before the Saves, whichever revision each was drafted at: what they landed is laid", () => {
+        const landed = jobs("r0");
+        expect(landedBefore(landed, at("r0"), at("r1")).get("jobs")).toBe(landed.get("jobs"));
+        // Two revisions behind: another session's write, then a Save drafted over it, the cells still as read before both.
+        const behind = jobs("r1");
+        expect(landedBefore(behind, at("r0"), at("r2")).get("jobs")).toBe(behind.get("jobs"));
+    });
+
+    test("cells read at the revision their record reads at now hold the Saves, and nothing is laid — but while the record still reads at a revision one was drafted at, or names none", () => {
+        expect(landedBefore(jobs("r0"), at("r1"), at("r1")).size).toBe(0);
+        expect(landedBefore(jobs("r0", "r1"), at("r2"), at("r2")).size).toBe(0);
+        // Its move to the commit not heard yet.
+        expect(landedBefore(jobs("r0"), at("r0"), at("r0")).size).toBe(1);
+        expect(landedBefore(jobs("r0"), at("r0"), new Map()).size).toBe(1);
+    });
+
+    test("a kind none of whose cells is read is laid nothing, and nothing landed lays nothing", () => {
+        expect(landedBefore(jobs("r0"), new Map(), at("r1")).size).toBe(0);
+        expect(landedBefore(undefined, at("r0"), at("r1")).size).toBe(0);
+        expect(landedBefore(new Map(), at("r0"), at("r1")).size).toBe(0);
+    });
+});
+
+describe("the drafts a kind leaves out: those of events its window does not hold that are no new ones (#1343, #1599)", () => {
+    /** The jobs drafted: each by its key, its draft's bytes no matter here. */
+    const drafted = (...ids: string[]): ReadonlyMap<string, Uint8Array> => new Map(ids.map((id) => [id, new Uint8Array([1])]));
+    /** A window holding the jobs given. */
+    const window = (...ids: string[]) => new Set(ids);
+    /** No job a new one, or those given. */
+    const fresh = (...ids: string[]) => (id: string): boolean => ids.includes(id);
+
+    test("a draft of a job the window holds, and of a new one, draws; one of a job the narrowing leaves out is left out", () => {
+        const standing = new DraftedStanding();
+        expect([...draftsNotHeld("job", drafted("J-1", "J-2", "J-3"), window("J-1"), fresh("J-2"), false, standing)]).toEqual(["J-3"]);
+    });
+
+    test("a job changed here that the window, read again, holds no more stays drawn while its session has yet to judge it — another session removed it — and is left out once judged a job its record holds", () => {
+        const standing = new DraftedStanding();
+        // Drawn: its window holds it.
+        expect(draftsNotHeld("job", drafted("J-1"), window("J-1"), fresh(), false, standing).size).toBe(0);
+        // Its record moved: the window read again without it, its session still to read it by its key.
+        expect(draftsNotHeld("job", drafted("J-1"), window(), fresh(), true, standing).size).toBe(0);
+        expect(draftsNotHeld("job", drafted("J-1"), window(), fresh(), true, standing).size).toBe(0);
+        // Judged, and still a job its record holds: the narrowing leaves it out.
+        expect([...draftsNotHeld("job", drafted("J-1"), window(), fresh(), false, standing)]).toEqual(["J-1"]);
+        // And left out through the next carry-over: it was not drawn last.
+        expect([...draftsNotHeld("job", drafted("J-1"), window(), fresh(), true, standing)]).toEqual(["J-1"]);
+    });
+
+    test("judged a job its draft adds — its session found none of it where the record is — it draws as a new one does", () => {
+        const standing = new DraftedStanding();
+        draftsNotHeld("job", drafted("J-1"), window("J-1"), fresh(), false, standing);
+        draftsNotHeld("job", drafted("J-1"), window(), fresh(), true, standing);
+        expect(draftsNotHeld("job", drafted("J-1"), window(), fresh("J-1"), false, standing).size).toBe(0);
+    });
+
+    test("a draft left out before the carry-over is left out through it, and each kind stands by its own drafts", () => {
+        const standing = new DraftedStanding();
+        expect([...draftsNotHeld("job", drafted("J-1"), window(), fresh(), false, standing)]).toEqual(["J-1"]);
+        expect([...draftsNotHeld("job", drafted("J-1"), window(), fresh(), true, standing)]).toEqual(["J-1"]);
+        // Another kind drew a draft under the same key: it says nothing of the jobs'.
+        draftsNotHeld("service", drafted("J-1"), window("J-1"), fresh(), false, standing);
+        expect([...draftsNotHeld("job", drafted("J-1"), window(), fresh(), true, standing)]).toEqual(["J-1"]);
+        // And the jobs with no draft left forget what they drew.
+        draftsNotHeld("job", drafted("J-2"), window("J-2"), fresh(), false, standing);
+        expect(draftsNotHeld("job", undefined, window(), fresh(), false, standing).size).toBe(0);
+        expect([...draftsNotHeld("job", drafted("J-2"), window(), fresh(), true, standing)]).toEqual(["J-2"]);
     });
 });

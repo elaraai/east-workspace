@@ -248,7 +248,7 @@ export const EastChakraSliceRange = memo(function EastChakraSliceRange({ value }
             footActions={<chakra.button type="button" css={btn({ variant: "outline", size: "xs" })} onClick={() => setOpen(false)}>Done</chakra.button>}
             trigger={
                 // A button the keyboard reaches; a 44px touch target on a coarse pointer, by its halo (#1231).
-                <chakra.button type="button" css={[chip({ tone: range !== undefined ? "brand" : "neutral", numeric: true }), coarseHitArea({ position: true })]} cursor="pointer"
+                <chakra.button type="button" css={[chip({ tone: range !== undefined ? "brand" : "neutral" }), coarseHitArea({ position: true })]} cursor="pointer"
                     data-slice-range="">
                     {!framed && <FontAwesomeIcon icon={faCalendar} data-chip-icon="" />}
                     {/* The range's own bounds — both inclusive, as a slice

@@ -84,6 +84,14 @@ runs on multiple backends (TS reference compiler, Python, C, future Julia).
   decoded weight `src/serialization/beast2/v5/SPEC.md` ("The pager's cache")
   gives it, which every runtime's pager cache is held to (#1129); `make
   paged-weights` rewrites it, and its spec fails while it is stale.
+- `eslint/browser-floor.js` — the lint rule `east-floor/browser-floor`,
+  which this package and every other a browser runs lint with: East runs on
+  iPhones back to iOS 16.4, so its source names no built-in newer than ES2023
+  (`../../docs/conventions/BROWSER_FLOOR.md`). `src/containers/iterators.ts`
+  is how the containers return the engine's own iterators where it has them.
+  `test/floor/` is an engine with the newer built-ins taken away, which `make
+  test-floor` runs the whole suite on (CI does, on Linux); its spec fails
+  while TypeScript's library declares a built-in it does not account for.
 - `devdocs/` — living design docs (start with `SERIALIZATION.md`).
 - `example/`, `contrib/` — experiments and scratch (per
   `[Scratch files in contrib/]` rule).
@@ -91,7 +99,8 @@ runs on multiple backends (TS reference compiler, Python, C, future Julia).
 ## Commands
 
 `make build`, `make test`, `make lint` from this directory; `make
-test-export` and `make export-examples` export the compliance corpus and the
+test-floor` runs the tests again on an engine with nothing newer than ES2023;
+`make test-export` and `make export-examples` export the compliance corpus and the
 examples as IR, into `EAST_TEST_IR_DIR` and `EAST_EXAMPLES_IR_DIR` — the
 checkout's `tmp/east-test-ir` and `tmp/east-examples-ir`, which the root
 `paths.mk` sets for every gate that reads them. See

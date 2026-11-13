@@ -24,12 +24,21 @@
  * | `Integer`, `Float` | Number, with its steppers | `Fields.number` (bigints for an Integer field, numbers for a Float) |
  * | `Boolean` | Checkbox | — |
  * | `DateTime` | Date and time | `Fields.date` — a date, a time, or both |
- * | A variant of empty cases | Select, each case's name spelled out | `Fields.select` |
+ * | A variant | A choice of its cases, each case's name spelled out; a case holding data, its value's fields under the choice | `Fields.select`, its `cases` a hint for a case's value |
  * | `Set<String>`, `Array<String>` | Tags, typed freely | `Fields.tags` |
  * | `Array` of a struct with one String and one Boolean field | Checklist | `Fields.checklist` |
  * | A struct | Its fields, grouped under its name | a hint per nested field |
- * | `Option<T>` | `T`'s editor, which can be cleared | `T`'s hint |
+ * | `Option<T>` | `T`'s editor, which can be cleared — an Option of a struct, or of a variant whose cases hold data, printed whole | `T`'s hint |
  * | Anything else | Printed, read-only | `Fields.readonly`; `Fields.hidden` hides any field |
+ *
+ * A variant's case holding data has its value's specs after the variant's, at
+ * paths through the case's name (#1549): a struct case's fields, any other
+ * case's one spec at the case's own path, an empty case none — as deep as the
+ * type goes. A recursive type is printed whole, and so is a variant with a
+ * case holding one, which no default starts. `Fields.reference` names a keyed
+ * set's key in a field of any type a Dict may be keyed by, or an Option of
+ * one: its choices are the keys' text, in their keys' order at the field's
+ * type — a String field's in the host's.
  *
  * A field's type is told by East's own `isTypeEqual`.
  *
@@ -38,8 +47,8 @@
 
 import {
     ArrayType, BooleanType, DateTimeType, EastTypeType, FloatType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType,
-    isTypeEqual, none, some, toEastTypeValue, variant,
-    type EastType, type ValueTypeOf,
+    isImmutableType, isTypeEqual, none, some, toEastTypeValue, variant,
+    type BlobType, type EastType, type ValueTypeOf,
 } from "@elaraai/east";
 import { DateTimePrecisionType, type DateTimePrecisionLiteral } from "../forms/input/types.js";
 
@@ -64,10 +73,10 @@ export const FieldOptionType = StructType({ case: StringType, label: StringType 
  * @property number - A number with its steppers, moved by `step`, clamped to `min` and `max`; its `unit` and bounds in the line under it
  * @property checkbox - A checkbox
  * @property datetime - A date and a time — or, at `precision`, a date or a time alone (a host's choice: the Sheet's inspector picks a date at a date column's level, #1188)
- * @property select - A choice of the variant's cases, each with its words
+ * @property select - A choice of the variant's cases, each with its words: a case holding data has its value's specs after the select's, under the case's name
  * @property tags - Values typed freely, `options` suggested as they are typed
  * @property checklist - Items each with its done box: the item struct's `text` and `done` fields
- * @property reference - A key of the keyed set the host lists under `of`
+ * @property reference - A key of the keyed set the host lists under `of`, chosen by its text and held at the field's type
  * @property readonly - Printed, never edited
  */
 export const FieldEditorType = VariantType({
@@ -86,10 +95,10 @@ export const FieldEditorType = VariantType({
  * One field of a form, resolved: where it is, what it is called, how it is
  * edited, and its type, to read and write its value.
  *
- * @property path - The field's names from the struct down — one name, or a nested struct's field under its own
+ * @property path - The field's names from the struct down — one name, a nested struct's field under its own, or a case's value under its variant's, through the case's name
  * @property label - Its label
  * @property help - A line under it, the hint's
- * @property group - The nested struct it sits in, as its heading names it (`Address`, `Address · Geo`)
+ * @property group - The nested struct it sits in, as its heading names it (`Address`, `Address · Geo`) — a case's value its variant's
  * @property type - The field's East type, an `Option` included: what its value is read and written as
  * @property optional - Whether it is an `Option`, which its editor can clear
  * @property editor - How it is edited
@@ -163,10 +172,13 @@ export interface NumberFieldHint<N extends bigint | number> extends FieldHintOf<
  * A variant field's select ({@link fieldSelect}).
  *
  * @typeParam C - The variant's cases
+ * @typeParam H - The hints for the cases' values
  */
-export interface SelectFieldHint<C extends string> extends FieldHintOf<"select">, FieldHintOptions {
+export interface SelectFieldHint<C extends string, H extends object = Record<never, never>> extends FieldHintOf<"select">, FieldHintOptions {
     /** The words for a case, where its name spelled out will not do. */
     readonly labels?: { readonly [K in C]?: string };
+    /** A hint for a case's value, as a field of its type takes — a struct case's a hint per field. */
+    readonly cases?: H;
 }
 
 /** A string collection's tags ({@link fieldTags}). */
@@ -183,7 +195,7 @@ export interface ChecklistFieldHint extends FieldHintOf<"checklist">, FieldHintO
     readonly done?: string;
 }
 
-/** A String field holding a key of a keyed set the host lists ({@link fieldReference}). */
+/** A field holding a key of a keyed set the host lists ({@link fieldReference}). */
 export interface ReferenceFieldHint extends FieldHintOf<"reference">, FieldHintOptions {
     /** The keyed set's name: the host's choices for it are what the select offers. */
     readonly of: string;
@@ -203,26 +215,50 @@ type IsOption<C> = [Exclude<keyof C, "none" | "some">] extends [never] ? ("none"
 
 /**
  * The hints a field of type `T` takes: its editor's own, `readonly` and
- * `hidden`; an `Option`'s are its value's — but an `Option` of a struct,
- * printed whole, takes only those two — and a struct's a hint per field.
+ * `hidden`, and, for a type a key may be, `reference`; an `Option`'s are its
+ * value's — but an `Option` of a struct, or of a variant whose cases hold
+ * data, printed whole, takes only `reference`, `readonly` and `hidden`; a
+ * struct's a hint per field; and a variant's select a hint per case's value.
  *
  * @typeParam T - The field's East type
  */
 export type FieldHint<T> =
     T extends VariantType<infer C>
         ? IsOption<C> extends true
-            ? C["some" & keyof C] extends StructType ? AnyFieldHint : FieldHint<C["some" & keyof C]>
-            : C[keyof C] extends NullType ? SelectFieldHint<keyof C & string> | AnyFieldHint : AnyFieldHint
+            ? OptionFieldHint<C["some" & keyof C]>
+            : SelectFieldHint<keyof C & string, FieldCaseHints<C>> | ReferenceFieldHint | AnyFieldHint
         : T extends StringType ? TextFieldHint | ReferenceFieldHint | AnyFieldHint
-        : T extends IntegerType ? NumberFieldHint<bigint> | AnyFieldHint
-        : T extends FloatType ? NumberFieldHint<number> | AnyFieldHint
+        : T extends IntegerType ? NumberFieldHint<bigint> | ReferenceFieldHint | AnyFieldHint
+        : T extends FloatType ? NumberFieldHint<number> | ReferenceFieldHint | AnyFieldHint
         : T extends SetType<StringType> ? TagsFieldHint | AnyFieldHint
         : T extends ArrayType<StringType> ? TagsFieldHint | AnyFieldHint
         : T extends ArrayType<StructType> ? ChecklistFieldHint | AnyFieldHint
-        : T extends StructType<infer F extends { [K in string]: unknown }> ? FieldHints<F> | AnyFieldHint
-        : T extends DateTimeType ? DateFieldHint | AnyFieldHint
-        : T extends BooleanType ? AnyFieldHint
+        : T extends StructType<infer F extends { [K in string]: unknown }> ? FieldHints<F> | ReferenceFieldHint | AnyFieldHint
+        : T extends DateTimeType ? DateFieldHint | ReferenceFieldHint | AnyFieldHint
+        : T extends BooleanType ? ReferenceFieldHint | AnyFieldHint
+        : T extends BlobType ? ReferenceFieldHint | AnyFieldHint
         : AnyFieldHint;
+
+/**
+ * The hints an `Option` field takes, by its value's type: its value's — but an
+ * `Option` of a struct, or of a variant whose cases hold data, is printed
+ * whole, and takes only `reference`, `readonly` and `hidden`.
+ *
+ * @typeParam T - The `Option`'s value's type
+ */
+type OptionFieldHint<T> =
+    T extends StructType ? ReferenceFieldHint | AnyFieldHint
+    : T extends VariantType<infer C>
+        ? IsOption<C> extends true ? FieldHint<T> : C[keyof C] extends NullType ? FieldHint<T> : ReferenceFieldHint | AnyFieldHint
+    : FieldHint<T>;
+
+/**
+ * A variant's select's hints for its cases' values: for any case holding
+ * data, a hint that fits its value's type — a struct case's a hint per field.
+ *
+ * @typeParam C - The variant's cases
+ */
+export type FieldCaseHints<C> = { readonly [K in keyof C as C[K] extends NullType ? never : K]?: FieldHint<C[K]> };
 
 /**
  * A struct's hints: for any of its fields, a hint that fits the field's type.
@@ -281,12 +317,15 @@ export function fieldNumber<N extends bigint | number = never>(
 
 /**
  * A variant field's select, with words for the cases whose names, spelled
- * out, will not do. The select offers the cases it labels first, in its
- * order, then the rest in the variant's: East keeps a variant's cases in name
- * order, and a status reads best in its own.
+ * out, will not do, and hints for the values its cases hold. The select
+ * offers the cases it labels first, in its order, then the rest in the
+ * variant's: East keeps a variant's cases in name order, and a status reads
+ * best in its own. A case holding data has its value's fields under the
+ * select while it is the case chosen, each hinted as a field of its type is.
  *
  * @typeParam C - The cases it labels
- * @param options - Its label, a line under it, and the words for its cases
+ * @typeParam H - The hints for the cases' values
+ * @param options - Its label, a line under it, the words for its cases, and a hint for any case's value — a struct case's a hint per field
  * @returns The hint
  * @example
  * ```ts
@@ -303,9 +342,9 @@ export function fieldNumber<N extends bigint | number = never>(
  * });
  * ```
  */
-export function fieldSelect<C extends string = never>(
-    options: FieldHintOptions & { readonly labels?: { readonly [K in C]?: string } } = {},
-): SelectFieldHint<C> {
+export function fieldSelect<C extends string = never, H extends object = Record<never, never>>(
+    options: FieldHintOptions & { readonly labels?: { readonly [K in C]?: string }; readonly cases?: H } = {},
+): SelectFieldHint<C, H> {
     return { ...options, [FIELD_HINT]: "select" };
 }
 
@@ -333,8 +372,13 @@ export function fieldChecklist(options: FieldHintOptions & { readonly text?: str
 }
 
 /**
- * A String field holding a key of a keyed set the host lists: a select of the
- * host's choices for `of`, with Unassigned first for an `Option`.
+ * A field holding a key of a keyed set the host lists, of any type a Dict may
+ * be keyed by: a select of the host's choices for `of`, each a key's text,
+ * with Unassigned first for an `Option`. The key chosen is held at the
+ * field's type, read from its text. A String field offers the choices in the
+ * host's order; a field of any other type in its keys' order at that type,
+ * never their text's — a choice whose text reads as none of its values last,
+ * and, chosen, no edit: the field says why under it.
  *
  * @param options - The keyed set's name, the field's label and a line under it
  * @returns The hint
@@ -371,6 +415,7 @@ type AnyHint = { readonly [FIELD_HINT]: string } & FieldHintOptions & {
     readonly placeholder?: string;
     readonly unit?: string; readonly step?: unknown; readonly min?: unknown; readonly max?: unknown;
     readonly labels?: Readonly<Record<string, string | undefined>>;
+    readonly cases?: Readonly<Record<string, unknown>>;
     readonly options?: readonly unknown[];
     readonly text?: string; readonly done?: string;
     readonly of?: string;
@@ -408,11 +453,32 @@ function isOptionType(type: EastType): type is OptionType<EastType> {
     return some !== undefined && isTypeEqual(type, OptionType(some));
 }
 
-/** Whether a type is a variant whose every case is empty — what a select chooses among. */
-function isEmptyCases(type: EastType): type is VariantType {
-    if (type.type !== "Variant" || isOptionType(type)) return false;
-    const cases = Object.values(type.cases as Record<string, EastType>);
-    return cases.length > 0 && cases.every((t) => isTypeEqual(t, NullType));
+/** Whether a type is a variant a select chooses among: one with a case, and not an `Option`. */
+function isChoice(type: EastType): type is VariantType {
+    return type.type === "Variant" && !isOptionType(type) && Object.keys(type.cases).length > 0;
+}
+
+/** Whether any of a variant's cases holds data: a value other than an empty one (NullType). */
+function holdsData(type: VariantType): boolean {
+    return Object.values(type.cases as Record<string, EastType>).some((t) => !isTypeEqual(t, NullType));
+}
+
+/**
+ * Whether East has a default for a type, which a case's value starts from when
+ * the case is chosen: none for a recursive type, a function or Never, nor for
+ * a struct holding one or a variant whose first case is one.
+ */
+function hasDefault(type: EastType): boolean {
+    switch (type.type) {
+        case "Recursive": case "Function": case "AsyncFunction": case "Never": return false;
+        case "Struct": return Object.values(type.fields as Record<string, EastType>).every(hasDefault);
+        case "Variant": {
+            const first = Object.values(type.cases as Record<string, EastType>)[0];
+            return first !== undefined && hasDefault(first);
+        }
+        case "Ref": return hasDefault(type.value as EastType);
+        default: return true;
+    }
 }
 
 /** Whether a type is a Set or an Array of String — what tags edit. */
@@ -477,15 +543,21 @@ function bound(value: unknown, integer: boolean, what: string, at: string): numb
  * @param type - The field's type, an `Option`'s value's type
  * @param hint - Its hint
  * @param at - Its path, for a refusal
+ * @param optional - Whether the field is an `Option` of `type`
  * @returns Its editor
  * @throws {Error} Naming the field, for a hint that does not fit its type
  */
-function editorOf(type: EastType, hint: AnyHint | undefined, at: string): FieldEditorValue {
+function editorOf(type: EastType, hint: AnyHint | undefined, at: string, optional: boolean): FieldEditorValue {
     const kind = hint?.[FIELD_HINT];
     // A declaration, so a refusal ends the path it is on for the checker too.
     function refuse(what: string): never {
         throw new Error(`Fields: "${at}" is ${kindOf(type)} field — ${what}`);
     }
+    // A variant printed whole: an Option of one whose cases hold data — a
+    // case's value under its choice is at a path through the case, and an
+    // Option's value one step further in — or one with a case whose value has
+    // no default to start from when it is chosen.
+    const whole = isChoice(type) && ((optional && holdsData(type)) || Object.values(type.cases as Record<string, EastType>).some((t) => !hasDefault(t)));
     switch (kind) {
         case undefined: break;
         case "readonly": return variant("readonly", null);
@@ -501,7 +573,7 @@ function editorOf(type: EastType, hint: AnyHint | undefined, at: string): FieldE
             return variant("datetime", { precision: precision === undefined ? none : some(variant(precision, null)) });
         }
         case "reference":
-            if (!isTypeEqual(type, StringType)) refuse("Fields.reference names a keyed set's key, a String field");
+            if (!isImmutableType(type)) refuse("Fields.reference names a keyed set's key, a field of a type a Dict may be keyed by");
             if (hint!.of === undefined || hint!.of === "") refuse("Fields.reference names the keyed set its key is of: Fields.reference({ of: \"…\" })");
             return variant("reference", { of: hint!.of! });
         case "number": {
@@ -518,12 +590,22 @@ function editorOf(type: EastType, hint: AnyHint | undefined, at: string): FieldE
             });
         }
         case "select": {
-            if (!isEmptyCases(type)) refuse("Fields.select chooses among a variant's cases, each of them empty (NullType)");
-            const cases = Object.keys((type as VariantType).cases);
+            if (!isChoice(type)) refuse("Fields.select chooses among a variant's cases");
+            if (optional && holdsData(type)) {
+                throw new Error(`Fields: "${at}" is ${kindOf(OptionType(type))} field whose cases hold data, printed whole — Fields.select chooses among a variant's cases, or an Option's whose cases are each empty (NullType)`);
+            }
+            if (whole) refuse("a case of it holds a value East has no default for (a recursive type), so it is printed whole — Fields.select chooses among cases whose values can start");
+            const types = (type as VariantType).cases as Record<string, EastType>;
+            const cases = Object.keys(types);
             const labels = hint!.labels ?? {};
             const named = Object.keys(labels);
             const stray = named.filter((c) => !cases.includes(c));
             if (stray.length > 0) refuse(`its select hint labels ${stray.map((c) => `"${c}"`).join(", ")}, ${stray.length === 1 ? "a case" : "cases"} the variant does not have (${cases.join(", ")})`);
+            const hinted = Object.keys(hint!.cases ?? {});
+            const unknown = hinted.filter((c) => !cases.includes(c));
+            if (unknown.length > 0) refuse(`its select hint gives a hint to ${unknown.map((c) => `"${c}"`).join(", ")}, ${unknown.length === 1 ? "a case" : "cases"} the variant does not have (${cases.join(", ")})`);
+            const empty = hinted.filter((c) => isTypeEqual(types[c]!, NullType));
+            if (empty.length > 0) refuse(`its select hint gives a hint to ${empty.map((c) => `"${c}"`).join(", ")}, ${empty.length === 1 ? "an empty case" : "empty cases"} (NullType), with no value to edit`);
             // The cases the hint labels, in its order, then the rest in the variant's.
             const order = [...named, ...cases.filter((c) => !named.includes(c))];
             return variant("select", order.map((c) => ({ case: c, label: labels[c] ?? spellOut(c) })));
@@ -551,21 +633,23 @@ function editorOf(type: EastType, hint: AnyHint | undefined, at: string): FieldE
         const found = checklistOf(type.value, undefined, at);
         if (found !== undefined) return variant("checklist", found);
     }
-    if (isEmptyCases(type)) return variant("select", Object.keys(type.cases).map((c) => ({ case: c, label: spellOut(c) })));
+    if (isChoice(type) && !whole) return variant("select", Object.keys(type.cases).map((c) => ({ case: c, label: spellOut(c) })));
     return variant("readonly", null);
 }
 
 /**
  * Resolves a struct's fields under `path`, appending their specs in order: the
- * hinted fields in hint order, then the rest in declared order.
+ * hinted fields in hint order, then the rest in declared order, `omit`'s left
+ * out.
  */
 function specsOf(
     struct: StructType,
     hints: Readonly<Record<string, unknown>>,
     path: readonly string[],
     group: string | undefined,
-    omit: ReadonlySet<string>,
+    nest: boolean,
     out: FieldSpecValue[],
+    omit: ReadonlySet<string> = new Set(),
 ): void {
     const fields = struct.fields as Record<string, EastType>;
     for (const name of Object.keys(hints)) {
@@ -573,32 +657,57 @@ function specsOf(
     }
     const order = [...Object.keys(hints), ...Object.keys(fields).filter((name) => !(name in hints))];
     for (const name of order) {
-        if (path.length === 0 && omit.has(name)) continue;
-        const type = fields[name]!;
-        const hint = hints[name];
-        const at = [...path, name];
-        const where = at.join(".");
-        if (hint !== undefined && !isHint(hint) && (hint === null || typeof hint !== "object" || type.type !== "Struct")) {
-            throw new Error(`Fields: "${where}" is ${kindOf(type)} field — its hint is one of Fields' hints${type.type === "Struct" ? ", or a hint per field of its struct" : ""}`);
-        }
-        if (isHint(hint) && hint[FIELD_HINT] === "hidden") continue;
-        // A nested struct: its own fields, grouped under its name.
-        if (type.type === "Struct" && !isHint(hint)) {
-            const heading = spellOut(name);
-            specsOf(type, (hint ?? {}) as Readonly<Record<string, unknown>>, at, group === undefined ? heading : `${group} · ${heading}`, omit, out);
-            continue;
-        }
-        const typed = isHint(hint) ? hint : undefined;
-        const optional = isOptionType(type);
-        out.push({
-            path: at,
-            label: typed?.label ?? spellOut(name),
-            help: typed?.help === undefined ? none : some(typed.help),
-            group: group === undefined ? none : some(group),
-            type: toEastTypeValue(type),
-            optional,
-            editor: editorOf(optional ? type.cases.some : type, typed, where),
-        });
+        if (!omit.has(name)) specOf(fields[name]!, hints[name], [...path, name], spellOut(name), group, nest, out);
+    }
+}
+
+/**
+ * Resolves one field, or one case's value, at `at`, appending its specs: a
+ * struct's fields — grouped under `label` where `nest` says so, and among the
+ * specs around them in a case's block — or its own spec, then, after a
+ * variant's select, each case's value's, in the select's order.
+ */
+function specOf(
+    type: EastType,
+    hint: unknown,
+    at: string[],
+    label: string,
+    group: string | undefined,
+    nest: boolean,
+    out: FieldSpecValue[],
+): void {
+    const where = at.join(".");
+    if (hint !== undefined && !isHint(hint) && (hint === null || typeof hint !== "object" || type.type !== "Struct")) {
+        throw new Error(`Fields: "${where}" is ${kindOf(type)} field — its hint is one of Fields' hints${type.type === "Struct" ? ", or a hint per field of its struct" : ""}`);
+    }
+    if (isHint(hint) && hint[FIELD_HINT] === "hidden") return;
+    // A nested struct: its own fields, grouped under its name.
+    if (type.type === "Struct" && !isHint(hint)) {
+        const heading = !nest ? group : group === undefined ? label : `${group} · ${label}`;
+        specsOf(type, (hint ?? {}) as Readonly<Record<string, unknown>>, at, heading, nest, out);
+        return;
+    }
+    const typed = isHint(hint) ? hint : undefined;
+    const optional = isOptionType(type);
+    const editor = editorOf(optional ? type.cases.some : type, typed, where, optional);
+    out.push({
+        path: at,
+        label: typed?.label ?? label,
+        help: typed?.help === undefined ? none : some(typed.help),
+        group: group === undefined ? none : some(group),
+        type: toEastTypeValue(type),
+        optional,
+        editor,
+    });
+    // A variant chosen among: each case's value at a path through the case's
+    // name, labelled with the case's words — a struct case's fields among the
+    // block's, never under a heading of their own.
+    if (optional || editor.type !== "select") return;
+    const cases = (type as VariantType).cases as Record<string, EastType>;
+    const hints = typed?.cases ?? {};
+    for (const option of editor.value) {
+        const value = cases[option.case]!;
+        if (!isTypeEqual(value, NullType)) specOf(value, hints[option.case], [...at, option.case], option.label, group, false, out);
     }
 }
 
@@ -606,15 +715,16 @@ function specsOf(
  * Resolves a struct's fields and hints into the specs a form draws: each
  * field's editor from its type, or from its hint, checked against the type;
  * the hinted fields first, in hint order, then the rest in declared order; a
- * nested struct's fields flattened by path, under its name; `omit`'s and the
- * hidden fields left out.
+ * nested struct's fields flattened by path, under its name; a variant's
+ * cases' values after its select, at paths through the case's name; `omit`'s
+ * and the hidden fields left out.
  *
  * @typeParam R - The struct
  * @param rowType - The struct the form edits
  * @param hints - A hint for any of its fields, a nested struct's a hint per field
  * @param omit - Fields of the struct the form leaves out — a host's own (the Calendar's title, start and end)
  * @returns The specs, in the form's order
- * @throws {Error} Naming the field, for a hint that does not fit its field's type, a select labelling a case its variant does not have, a checklist whose text and done fields cannot be found, or a name the struct does not have
+ * @throws {Error} Naming the field, for a hint that does not fit its field's type, a select labelling or hinting a case its variant does not have or hinting an empty one, a select over an Option of a variant whose cases hold data, a reference in a field no Dict may be keyed by, a checklist whose text and done fields cannot be found, or a name the struct does not have
  * @example
  * ```ts
  * import { ArrayType, BooleanType, East, IntegerType, OptionType, StringType, StructType, VariantType, NullType } from "@elaraai/east";
@@ -648,7 +758,7 @@ export function fieldSpecs<R extends StructType>(
         if (!(name in fields)) throw new Error(`Fields: omit names "${name}", a field the struct does not have (${Object.keys(fields).join(", ")})`);
     }
     const out: FieldSpecValue[] = [];
-    specsOf(rowType, hints as Readonly<Record<string, unknown>>, [], undefined, new Set(omit), out);
+    specsOf(rowType, hints as Readonly<Record<string, unknown>>, [], undefined, true, out, new Set(omit));
     return out;
 }
 
@@ -667,13 +777,13 @@ export interface FieldsNamespace {
     date: typeof fieldDate;
     /** A number field's stepper — bigints for an Integer field, numbers for a Float. */
     number: typeof fieldNumber;
-    /** A variant field's select, with words for its cases. */
+    /** A variant field's select, with words for its cases and hints for their values. */
     select: typeof fieldSelect;
     /** A string collection's tags, with the values offered. */
     tags: typeof fieldTags;
     /** An item list's checklist, naming its items' text and done fields. */
     checklist: typeof fieldChecklist;
-    /** A String field holding a key of a keyed set the host lists. */
+    /** A field holding a key of a keyed set the host lists, of any type a Dict may be keyed by. */
     reference: typeof fieldReference;
     /** A field printed, never edited. */
     readonly: typeof fieldReadonly;

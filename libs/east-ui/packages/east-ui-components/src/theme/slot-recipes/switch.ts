@@ -33,7 +33,7 @@ export const switchSlotRecipe = defineSlotRecipe({
             transitionProperty: "background",
             transitionDuration: "{durations.fast}",
             _checked: {
-                background: "{colors.brand.600}",
+                background: "brand.solid",
             },
             _disabled: {
                 opacity: 0.5,

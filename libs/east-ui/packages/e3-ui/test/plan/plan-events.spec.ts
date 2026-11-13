@@ -131,6 +131,22 @@ describe("the payload (PB8, PB11)", () => {
         const payload = decodeBeast2For(PlanPayloadType)(ui.value.payload);
         assert.deepEqual(payload.plan.rows.type === "inline" ? payload.plan.rows.value.map((b) => b.rows.length) : [], [1]);
         assert.deepEqual([payload.resources.length, payload.events.length], [0, 0]);
+        assert.equal(payload.settings.autosave, false, "Autosave begins off unless its author says otherwise");
+    });
+
+    test("`autosave` says where Autosave begins: a literal, or an expression data drives", () => {
+        const begins = (autosave: unknown): boolean => {
+            const ui = East.compile(East.function([], UIComponentType, (_$) => PublicPlan({
+                axis: Plan.axis({ window: WINDOW, resolution: "day" }),
+                rows: [Plan.events({ key: "ms", label: "Milestones", marks: [Plan.mark({ key: "go", at: FIRST, kind: "milestone" })] })],
+                autosave,
+            } as never)), [])();
+            if (ui.type !== "Extension") assert.fail(`expected the Plan extension, got the ${ui.type} arm`);
+            return decodeBeast2For(PlanPayloadType)(ui.value.payload).settings.autosave;
+        };
+        assert.equal(begins(true), true);
+        assert.equal(begins(false), false);
+        assert.equal(begins(East.value(1n).greater(0n)), true, "an expression: the app's data decides");
     });
 
     test("the keys a Plan keeps its viewer's state under follow its `id`", () => {
@@ -188,13 +204,6 @@ describe("the Plan's refusals (PB8)", () => {
         const candidate = East.function([Schedule.Types.Candidate], OptionType(StringType), () => none);
         assert.match(refusal(($) => Plan.Payload({ axis, data: $.const(ROWS, Rows), series: [MARKS], canDrop: candidate })),
             /^Plan: `canDrop` over Schedule\.Types\.Candidate vets an event kind's drop, and this Plan has no event kinds$/);
-    });
-
-    test("an `applyMode` that is neither batch nor auto, or with no event kinds", () => {
-        assert.match(refusal(($) => Plan.Payload({ axis, resources: { presses: pressesOf($) }, events: { job: jobsOf($) }, applyMode: "sometimes" as never })),
-            /^Plan: `applyMode` is "batch" or "auto" — and it is "sometimes"$/);
-        assert.match(refusal(($) => Plan.Payload({ axis, data: $.const(ROWS, Rows), series: [MARKS], applyMode: "auto" })),
-            /^Plan: `applyMode` says when the event kinds' drafts go, and this Plan has none — `data`'s session takes `editing\.mode`$/);
     });
 });
 

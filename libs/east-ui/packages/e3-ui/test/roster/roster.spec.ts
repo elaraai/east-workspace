@@ -26,9 +26,9 @@ import * as ex from "./roster.examples.js";
 
 describeEast("Roster — inline bound examples", test => {
     Assert.examples(test, { rosterWarehouse: ex.rosterWarehouse, rosterMobile: ex.rosterMobile, rosterPeople: ex.rosterPeople,
-        rosterPeopleMonth: ex.rosterPeopleMonth,
-        rosterWeek: ex.rosterWeek, rosterWindowed: ex.rosterWindowed, rosterMinimal: ex.rosterMinimal, rosterViews: ex.rosterViews, rosterVocabulary: ex.rosterVocabulary, rosterPublished: ex.rosterPublished,
-        rosterCustomInspector: ex.rosterCustomInspector, rosterConflicts: ex.rosterConflicts });
+        rosterPeopleMonth: ex.rosterPeopleMonth, rosterPeopleNoBands: ex.rosterPeopleNoBands, rosterWorkRequirement: ex.rosterWorkRequirement,
+        rosterWeek: ex.rosterWeek, rosterWindowed: ex.rosterWindowed, rosterMinimal: ex.rosterMinimal, rosterViews: ex.rosterViews, rosterVocabulary: ex.rosterVocabulary, rosterPublished: ex.rosterPublished, rosterDaily: ex.rosterDaily,
+        rosterCustomInspector: ex.rosterCustomInspector, rosterConflicts: ex.rosterConflicts, rosterNoGroup: ex.rosterNoGroup, rosterRota: ex.rosterRota });
 }, { platformFns: TestImpl });
 
 /** What the props over the warehouse's records hold before a test changes them: the duties, the staff and agencies, the shifts and the teams. */
@@ -200,7 +200,7 @@ describe("the narrowing and the library", () => {
         assert.throws(() => payload(() => ({ slice: { slice: Slice.bind("spec.local", [{ name: "A. Alder" }], { fields: { name: { label: "Name" } } }) } as never })),
             /Roster: `slice` is Slice\.bindRecords\(key, \{ duty, people, activities.* — name each source after what it narrows/);
         assert.throws(() => payload(() => ({ slice: { slice: Slice.bindRecords("spec.staff", { staff: { source: staffSource() } }) } })),
-            /Roster: `slice` narrows its duties \(duty\), its targets, its people and its activities, and the tabs that name a source — its source 'staff' is none of them/);
+            /Roster: `slice` narrows its duties \(duty\), its targets, its people and its activities, the tabs that name a source, and the reference record its check reads — its source 'staff' is none of them/);
         // The duties' source reads them through their interval index; without `entries` beside it, a duty is never read by its key.
         assert.throws(() => payload(() => ({ slice: { slice: Slice.bindRecords("spec.duty", { duty: { source: dutySource(), range: "start" } }) } })),
             /the builder's source "duty" reads only its narrowing — and one event, the inspector's or its editing's, is read by its key: give `entries` beside it/);
@@ -217,6 +217,52 @@ describe("the narrowing and the library", () => {
         assert.throws(() => payload(() => ({ library: [Roster.library.tab(roles, { name: "Positions", label: p => p.label,
             drop: () => Schedule.patch(StructType({ label: StringType }), { label: "x" }) })] })),
         /Roster: the "Positions" tab's `drop` returns a patch over no event kind's row type — build it with Schedule\.patch\(RowType, \{ … \}\)/);
+    });
+});
+
+describe("the reference record the check reads beside the duties (#1551)", () => {
+    const dutySource = () => Data.bindPaged(ex.rosterDuties, { indexes: ["roster_duties_by_time"] });
+    const rotaSource = () => Data.bindPaged(ex.rosterRotaLines, { indexes: ["roster_rota_lines_by_time"] });
+    /** The duties read through their source, `entries` beside it, under a slice with the rota as its `reference` source — or without it. */
+    const over = (base: Base, reference = true): Partial<RosterProps> => ({
+        events: { duty: Schedule.events(base.rota as never, {
+            name: "Duty", icon: "user-clock", entries: Data.bindPaged(ex.rosterDuties), start: "start", end: "end",
+            resource: { field: "who", of: { staff: "people", agency: "agencies" } }, shift: "shift", group: "team", position: "role", activity: "task",
+        } as never) },
+        slice: { slice: reference
+            ? Slice.bindRecords("spec.rota", { duty: { source: dutySource(), range: "start" }, reference: { source: rotaSource(), range: "start" } })
+            : Slice.bindRecords("spec.rota", { duty: { source: dutySource(), range: "start" } }) },
+    });
+    const dutiesAlone = East.function([Roster.Types.CheckContext(WarehouseDuty)], ArrayType(Roster.Types.Issue), () => []);
+    const overRota = East.function([Roster.Types.CheckContext(WarehouseDuty, ex.RotaLine)], ArrayType(Roster.Types.Issue), () => []);
+
+    test("a check from CheckContext(R, P) reads the slice's `reference` source, P its rows; without the source, the duties' check is as it was", () => {
+        assert.doesNotThrow(() => payload((base) => ({ ...over(base), check: overRota })));
+        assert.doesNotThrow(() => payload((base) => ({ ...over(base, false), check: dutiesAlone })));
+    });
+
+    test("a reference source with no check, or beside a check of the duties alone, is refused", () => {
+        assert.throws(() => payload((base) => over(base)),
+            /Roster: the slice's `reference` source is read for the check alone — give the Roster a `check` from Roster\.Types\.CheckContext\(\.Struct.*, \.Struct.*\), or leave the source out/);
+        assert.throws(() => payload((base) => ({ ...over(base), check: dutiesAlone })),
+            /Roster: the slice's `reference` source gives the check its rows, and `check` is from Roster\.Types\.CheckContext\(\.Struct.*\) — make it from Roster\.Types\.CheckContext\(/);
+    });
+
+    test("a check over reference rows the slice gives none of, or rows of another type, is refused", () => {
+        assert.throws(() => payload((base) => ({ ...over(base, false), check: overRota })),
+            /Roster: `check` reads a reference record's rows, Roster\.Types\.CheckContext\(.*\), and the slice holds no `reference` source — bind the record as one: Slice\.bindRecords/);
+        const otherRows = East.function([Roster.Types.CheckContext(WarehouseDuty, StructType({ person: StringType }))], ArrayType(Roster.Types.Issue), () => []);
+        assert.throws(() => payload((base) => ({ ...over(base), check: otherRows })),
+            /Roster: `check` reads reference rows of \.Struct.*, and the slice's `reference` source reads \.Struct.* — make it from Roster\.Types\.CheckContext\(/);
+    });
+
+    test("a duty kind in the slot `reference` is refused, naming the slice's source — before the slice is read", () => {
+        const named = /Roster: events\.reference names the slice's `reference` source, the record the check reads beside the duties — name the duty kind otherwise: events=\{\{ duty: … \}\}/;
+        assert.throws(() => payload((base) => ({ events: { reference: base.props.events.duty! } })), named);
+        // Its source named after it, as each source of a builder is: the slot's name is what is refused, never the duties
+        // read as the check's reference record, whose refusal would ask for a check the app never meant to give.
+        assert.throws(() => payload((base) => ({ events: { reference: base.props.events.duty! },
+            slice: { slice: Slice.bindRecords("spec.rota", { reference: { source: dutySource(), range: "start" } }) } })), named);
     });
 });
 
@@ -240,7 +286,7 @@ describe("the People layout's periods, its patterns and its display props (#1406
         assert.doesNotThrow(() => payload(() => ({ views: ["people"], viewPeriods: ["month"] })));
         assert.throws(() => payload(() => ({ viewPeriods: ["month"] })), /Roster: `viewPeriods` leaves the Shifts layout no period — it takes "day" or "week"/);
         assert.throws(() => payload(() => ({ views: ["people"], viewPeriods: ["day"] })), /Roster: `viewPeriods` leaves the People layout no period — it takes "week" or "month"/);
-        assert.throws(() => payload(() => ({ viewPeriods: ["week"], view: { period: "day" } })), /Roster: it opens on "day", and `viewPeriods` leaves it out/);
+        assert.throws(() => payload(() => ({ viewPeriods: ["week"], view: { period: "day" } })), /Roster: `view\.period` is "day", and `viewPeriods` leaves it out/);
     });
 
     test("Roster.library.patterns() lists the app's patterns: refused without `patterns`, naming it; with them, a tab under their name; listed twice, refused", () => {
@@ -251,10 +297,17 @@ describe("the People layout's periods, its patterns and its display props (#1406
         assert.throws(() => payload(() => ({ patterns: patterns(), library: [Roster.library.patterns(), Roster.library.patterns()] })), /Roster: library tab patterns is listed twice/);
     });
 
-    test("`tileTimes` is \"always\" or \"different\", and `letters` a boolean", () => {
-        assert.doesNotThrow(() => payload(() => ({ tileTimes: "different", letters: false })));
+    test("`tileTimes` is \"always\" or \"different\", `letters` a boolean, and `peopleBands` a boolean (#1567)", () => {
+        assert.doesNotThrow(() => payload(() => ({ tileTimes: "different", letters: false, peopleBands: false })));
         assert.throws(() => payload(() => ({ tileTimes: "sometimes" } as never)), /Roster: `tileTimes` is "always" or "different" — .* — and it is sometimes/);
         assert.throws(() => payload(() => ({ letters: "yes" } as never)), /Roster: `letters` is true or false — .* — and it is yes/);
+    });
+
+    test("`autosave` says where Autosave begins: left out, a literal, or an expression data drives — a Boolean, and nothing else", () => {
+        assert.doesNotThrow(() => payload(() => ({ autosave: true })));
+        assert.doesNotThrow(() => payload(() => ({ autosave: East.value(1n).greater(0n) })));
+        assert.throws(() => payload(() => ({ autosave: "on" } as never)));
+        assert.throws(() => payload(() => ({ autosave: East.value(1n) } as never)));
     });
 });
 

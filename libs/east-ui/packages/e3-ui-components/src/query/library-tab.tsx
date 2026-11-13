@@ -38,8 +38,8 @@ const nameEqual = equalFor(StringType);
 const runEqual = equalFor(SavedQueryType);
 
 /** Props of {@link LibraryTab}. */
-/** What a card takes of a phone's width beside its description: the list's 16 each side, the card's 12 each side and its rule, the tile and its gap, the trailing glyph and its gap. */
-const PHONE_CARD_INSET = 32 + 24 + 2 + 36 + 12 + 24;
+/** What a card takes of a phone's width beside its description: the list's 16 each side, the card's 12 each side and its rule, the tile and its gap, the trailing glyph at Font Awesome's fixed width and its gap. */
+const PHONE_CARD_INSET = 32 + 24 + 2 + 36 + 12 + 17.5 + 12;
 
 let measuring: CanvasRenderingContext2D | null | undefined;
 

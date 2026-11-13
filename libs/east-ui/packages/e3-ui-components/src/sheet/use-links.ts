@@ -23,6 +23,7 @@ import { linkCandidates, linkCandidateAt, resolveBuffer, predictedMembers } from
 import { checksOf, checkLink, NO_FLAGS, type CheckDecl, type LinkFlags } from "./link/checks.js";
 import type { LinkCellContext } from "./cells/Cell.js";
 import type { LinkEditCtx, LinkGroups } from "./sheet-types.js";
+import type { ShownDrafts } from "./shown-drafts.js";
 import type { SheetArityValue, SheetCellValue, SheetDriverValue, SheetLinkValue, SheetRowValue } from "./values.js";
 import type { SheetWords } from "./words.js";
 
@@ -36,7 +37,10 @@ export interface LinkColumn {
 }
 
 export interface UseSheetLinksArgs {
+    /** Each drafted entry's draft, and each one a Save landed that the rows have still to read. */
     drafts: Map<string, Uint8Array>;
+    /** Each row's own draft, for a row those hold none of (#1599): what its checks read it over. */
+    shown: ShownDrafts;
     columns: SheetColumnIndex;
     registers: SheetRegisterIndex;
     driver: SheetDriverValue | undefined;
@@ -61,7 +65,7 @@ export interface SheetLinks {
 }
 
 /** The link columns' vocabularies, halves, checks and editor contexts. */
-export function useSheetLinks({ drafts, columns, registers, driver, driverColumn, body, rowAt, predictedLink, allowedFor, words }: UseSheetLinksArgs): SheetLinks {
+export function useSheetLinks({ drafts, shown, columns, registers, driver, driverColumn, body, rowAt, predictedLink, allowedFor, words }: UseSheetLinksArgs): SheetLinks {
     const linkVocabularies = useMemo(() => {
         const out = new Map<string, LinkVocabulary>();
         for (const meta of columns.list) {
@@ -108,9 +112,11 @@ export function useSheetLinks({ drafts, columns, registers, driver, driverColumn
         const known = byKey.get(meta.key);
         if (known !== undefined) return known;
         // A line's check context names its GROUP and its line key (#740); a
-        // loose row's (#846) its place among the loose rows.
+        // loose row's (#846) its place among the loose rows. The row is read as the grid shows it (#1599): over its
+        // draft, else over the entry it — a line's group — was read with.
+        const over = shown.of(item.group !== undefined ? item.group.row.id : item.row.id, item.position, drafts);
         const flags = checkLink(cell.value, lc.checks, lc.vocab, (half, member) => ({
-            drafts, group: item.group !== undefined ? some(item.group.row) : none,
+            drafts: over, group: item.group !== undefined ? some(item.group.row) : none,
             rowIndex: BigInt(item.group !== undefined ? item.group.index : item.loose ?? item.residentIndex),
             rowId: item.group !== undefined ? item.group.row.id : item.row.id,
             offset: BigInt(item.position),
@@ -119,7 +125,7 @@ export function useSheetLinks({ drafts, columns, registers, driver, driverColumn
         }), messages);
         byKey.set(meta.key, flags);
         return flags;
-    }, [linkColumns, drafts, flagCache, messages]);
+    }, [linkColumns, drafts, shown, flagCache, messages]);
     // The body as it is now, and its real items by their rows, made once a body as a cell first asks: what a cell's link
     // context finds its row's item in. Read through a ref, so the context is the same function while what it is made
     // of holds — a window landing draws no row again for it (#1398, CL9); a row that moves is drawn again for its

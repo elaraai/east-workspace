@@ -15,7 +15,9 @@
  * and the frame's accessible names; and its editing's
  * (#1388): what a Save's notice counts a kind's
  * rows in, a details record's banners, why a connection's draft doesn't snap
- * or a Delete is refused, and each gesture's step in the history; and its
+ * or a Delete is refused, and each gesture's step in the history — and of a
+ * new row's key (#1549): a kind that adds none, a placeholder waiting on its
+ * key, and a key a gesture builds that a row holds; and its
  * library's (#1389): the pane and its tabs, their cards' lines and nouns, what
  * an empty tab and a tab the rail empties say, the Index's search, its zones'
  * and the zone in view, the Layers tab's controls, and a followed source's
@@ -44,6 +46,7 @@
 import { none, some, variant } from "@elaraai/east";
 import type { Formatters } from "@elaraai/east-ui-components";
 import type { LoadingLineText } from "@elaraai/east-ui-components/internal";
+import { articleOf as article } from "../shared/article.js";
 import { pagedLoadingMessages, type PagedLoadingMessages } from "../shared/loading.js";
 import { hiddenByText, joinedWords, lowerWord, type HiddenWords } from "../shared/schedule/words.js";
 import type { SchematicValue } from "./data.js";
@@ -156,6 +159,28 @@ export interface SchematicMessages extends PagedLoadingMessages, HiddenWords {
     endRefused: (p: { kind: string; end: "start" | "end"; item: string }) => string;
     /** Why a Delete was refused: a link or a net bound read only names an item it would delete. */
     deleteRefused: (p: { item: string; kind: string; key: string }) => string;
+    /**
+     * Why a connection's draft doesn't snap, or a gesture names no item, where the item is held under a placeholder, its
+     * key still to be typed (#1549) — `Type the new rack's key first`: `kind` is its kind's name, as running text writes it.
+     */
+    placeholderRefused: (p: { kind: string }) => string;
+    /**
+     * Why a kind adds no row (#1549) — on a template's card, a drop's ghost and the footer: `Racks are keyed by Blob,
+     * which can't be typed — give the kind `key` to add them`; `name` is the kind's, as running text writes it, `type` its
+     * key type's name.
+     */
+    keysUntyped: (p: { name: string; type: string }) => string;
+    /**
+     * A new row held under a placeholder, its key still to be typed (#1549) — `Type this rack's key: Save waits for it`;
+     * `name` is its kind's, as running text writes it.
+     */
+    keyPlaceholder: (p: { name: string }) => string;
+    /**
+     * Why a gesture records nothing (#1549), in the footer — `A fibre run A01 → ODF-1 is there already`, `A01 isn't changed:
+     * the filters hide some fibre runs that may name it — clear them, then try again` (#1580), `A01 isn't changed: the
+     * fibre runs naming it take no edit now — try again in a moment` (#1584).
+     */
+    keyRefused: (p: SchematicKeyRefusalWord) => string;
     /** A gesture's label in the history: what it did, and to how many. */
     step: (p: { step: SchematicStep; name: string; n: number }) => string;
     /** The library pane's name, on its rail and its head (#1389). */
@@ -242,8 +267,19 @@ export interface SchematicMessages extends PagedLoadingMessages, HiddenWords {
      * main `Connect to` (#1394): `name` is the kind's.
      */
     inspectorSection: (p: { section: SchematicInspectorSection; name: string }) => string;
-    /** A field of Details' own — an item's `x` and `y`, a link's ends, a net's sides, and Connect to…'s link kind (#1394). */
-    inspectorField: (p: { field: "x" | "y" | "from" | "to" | "sources" | "destinations" | "kind" }) => string;
+    /**
+     * A field of Details' own — an item's `x` and `y`, a link's ends, a net's sides, Connect to…'s link kind (#1394), and a
+     * new item's key while it waits under a placeholder (#1549).
+     */
+    inspectorField: (p: { field: "x" | "y" | "from" | "to" | "sources" | "destinations" | "kind" | "key" }) => string;
+    /** The line under a new item's key field, while it waits under a placeholder (#1549). */
+    inspectorKeyHelp: () => string;
+    /** The line under a new item's key of several parts — a struct's fields, a variant's case and its value (#1581). */
+    inspectorKeyPartsHelp: () => string;
+    /** A key of several parts' Set, which takes it whole (#1581). */
+    inspectorKeySet: () => string;
+    /** Why a key typed in the inspector is refused, in the footer (#1549) — `A rack is keyed 2026-11-07T06:00:00.000 already`; `name` as running text writes it. */
+    inspectorKeyRefused: (p: { name: string; key: string }) => string;
     /** A gesture's button: Delete, Unplace, Remove, and below 480px of main an item with no position's Place (#1394). */
     inspectorAction: (p: { action: "delete" | "unplace" | "remove" | "place" }) => string;
     /** What an item with no position says under its name, below 480px of main (#1394) — `Not placed`. */
@@ -277,8 +313,11 @@ export interface SchematicMessages extends PagedLoadingMessages, HiddenWords {
     inspectorJoin: (p: { kind: string; end: "source" | "destination" | undefined }) => string;
     /** A record's last save in the drawing's Details — `Rack saved 14:02 by alice`, or `Rack saved 14:02` where it names no one: `when` is its time today, else its date and time. */
     inspectorSaved: (p: { name: string; when: string; by: string | undefined }) => string;
-    /** An edit's step in the history — `Edit A03`, `Unplace A06`, `Delete A03`, `Remove A05 from PDU-B · A side`. */
-    inspectorStep: (p: { edit: "edit" | "unplace" | "delete" | "remove"; name: string; from?: string }) => string;
+    /**
+     * An edit's step in the history — `Edit A03`, `Unplace A06`, `Delete A03`, `Remove A05 from PDU-B · A side`, and a new
+     * item's key typed (#1549), `Type A03's key`.
+     */
+    inspectorStep: (p: { edit: "edit" | "unplace" | "delete" | "remove" | "key"; name: string; from?: string }) => string;
     /** Why a net's side can't be emptied in its tags: a Delete takes the net. */
     inspectorSideEmpty: (p: { side: "sources" | "destinations" }) => string;
     /** What an issue names, in its row — `Rack · A03`; a layer's when `kind` is `undefined`. */
@@ -319,13 +358,30 @@ export type SchematicInspectorSection = "fields" | "details" | "position" | "joi
  * Why a drop is refused, as its words say it (#1390): outside the drawing; the
  * view's centre, where a card's ⏎ and Details' Place land, off the drawing
  * (#1394), which no pointer moves; no entity of the card's kind under the
- * drag; its kind read only; or its kind's session taking no edit now — `kind`
- * is the kind's name, as running text writes it.
+ * drag; its kind read only; its kind's session taking no edit now; or its kind
+ * adding no item, its keys of a type the form can't type, by the type's name
+ * (#1549) — `kind` is the kind's name, as running text writes it.
  */
 export type SchematicDropRefusalWord =
     | { readonly why: "outside" }
     | { readonly why: "offView" }
-    | { readonly why: "onto" | "readOnly" | "busy"; readonly kind: string };
+    | { readonly why: "onto" | "readOnly" | "busy"; readonly kind: string }
+    | { readonly why: "untyped"; readonly kind: string; readonly type: string };
+
+/**
+ * Why a gesture records nothing (#1549), as the footer says it: the row holding
+ * the key a row builds, by its kind's name and its own, as running text writes
+ * them; a kind adding no row, its keys of a type the form can't type; an item
+ * whose key would move, by its name, while some rows of a link or net kind that
+ * may name it — by its name, as running text writes it — the filters hide or
+ * aren't read (#1580), or those naming it take no edit now (#1584); or a row
+ * whose key would move while its kind's details take no edit now (#1584).
+ */
+export type SchematicKeyRefusalWord =
+    | { readonly refusal: "taken"; readonly kind: string; readonly name: string }
+    | { readonly refusal: "untyped"; readonly kind: string; readonly type: string }
+    | { readonly refusal: "unheld"; readonly name: string; readonly kind: string; readonly why: "filtered" | "unread" | "busy" }
+    | { readonly refusal: "details"; readonly name: string; readonly kind: string };
 
 /** A tab of the library, as its words name it: its own, or an author's (`tab`). */
 export type SchematicLibraryTabWord = "templates" | "backlog" | "index" | "layers" | "tab";
@@ -341,8 +397,8 @@ const membersOf = ({ names, more }: SchematicMembers): string => (more === undef
 /** Words as a sentence starts them. */
 const capital = (text: string): string => text.charAt(0).toUpperCase() + text.slice(1);
 
-/** The article a noun takes, by the sound English spelling gives its first letter. */
-const article = (noun: string): string => (/^[aeiou]/i.test(noun) ? "an" : "a");
+/** Why a kind adds no row (#1549): its name as running text writes it, and its key type's name. */
+const keysUntyped = (name: string, type: string): string => `${capital(name)}s are keyed by ${type}, which can't be typed — give the kind \`key\` to add them`;
 
 /** What an issue says, in English. */
 function issueText(p: SchematicIssueWord): string {
@@ -351,6 +407,7 @@ function issueText(p: SchematicIssueWord): string {
         case "outside": return "Outside the drawing";
         case "geometry": return "Its shape reaches past its box";
         case "colour": return `Its colour, ${p.colour}, is no theme colour: it draws its tone`;
+        case "bounds":
         case "ready":
         case "save": return p.field === undefined ? p.message : `${p.field}: ${p.message}`;
     }
@@ -378,6 +435,7 @@ function dropRefused(p: SchematicDropRefusalWord): string {
         case "onto": return `Drop onto ${article(p.kind)} ${p.kind}`;
         case "readOnly": return `${capital(p.kind)}s are read only`;
         case "busy": return `${capital(p.kind)}s take no edit now`;
+        case "untyped": return keysUntyped(p.kind, p.type);
     }
 }
 
@@ -454,6 +512,21 @@ export function schematicMessagesOf(v: SchematicVocabulary): SchematicMessages {
         detailsName: ({ name }) => `${name} details`,
         endRefused: ({ kind, end, item }) => `${kind} can't ${end === "start" ? "start" : "end"} at ${item}`,
         deleteRefused: ({ item, kind, key }) => `${item} isn't deleted: ${kind} ${key} names it, and is read only`,
+        placeholderRefused: ({ kind }) => `Type the new ${kind}'s key first`,
+        keysUntyped: ({ name, type }) => keysUntyped(name, type),
+        keyPlaceholder: ({ name }) => `Type this ${name}'s key: Save waits for it`,
+        keyRefused: (p) => {
+            switch (p.refusal) {
+                case "taken": return `${capital(article(p.kind))} ${p.kind} ${p.name} is there already`;
+                case "untyped": return keysUntyped(p.kind, p.type);
+                case "unheld": return `${p.name} isn't changed: ${({
+                    filtered: `the filters hide some ${p.kind}s that may name it — clear them, then try again`,
+                    unread: `some ${p.kind}s that may name it aren't read — try again once they are`,
+                    busy: `the ${p.kind}s naming it take no edit now — try again in a moment`,
+                })[p.why]}`;
+                case "details": return `${p.name} isn't changed: its ${p.kind} details take no edit now — try again in a moment`;
+            }
+        },
         step: ({ step, name, n }) => ({
             move: `Move ${n} ${plural(n, "item", "items")}`,
             connect: `Connect a ${name}`,
@@ -506,7 +579,13 @@ export function schematicMessagesOf(v: SchematicVocabulary): SchematicMessages {
         inspectorTab: ({ tab }) => (tab === "details" ? "Details" : "Issues"),
         inspectorDrawing: () => "Drawing",
         inspectorSection,
-        inspectorField: ({ field }) => ({ x: "x", y: "y", from: "From", to: "To", sources: v.source.other, destinations: v.destination.other, kind: `${v.link.one} kind` })[field],
+        inspectorField: ({ field }) => ({
+            x: "x", y: "y", from: "From", to: "To", sources: v.source.other, destinations: v.destination.other, kind: `${v.link.one} kind`, key: "Key",
+        })[field],
+        inspectorKeyHelp: () => "Its kind makes no key of its own: Save waits for this one, and nothing joins the item until it is typed.",
+        inspectorKeyPartsHelp: () => "Its kind makes no key of its own: type each part, then Set key. Save waits for it, and nothing joins the item until it is set.",
+        inspectorKeySet: () => "Set key",
+        inspectorKeyRefused: ({ name, key }) => `${capital(article(name))} ${name} is keyed ${key} already`,
         inspectorAction: ({ action }) => ({ delete: "Delete", unplace: "Unplace", remove: "Remove", place: "Place" })[action],
         inspectorUnplaced: () => "Not placed",
         inspectorAt: ({ zone, x, y, unit }) => `${zone === undefined ? "" : `${zone} · `}${x}, ${y}${unit === undefined ? "" : ` ${unit}`}`,
@@ -525,7 +604,7 @@ export function schematicMessagesOf(v: SchematicVocabulary): SchematicMessages {
         inspectorJoin: ({ kind, end }) => (end === undefined ? kind : `${kind} · ${word(end === "source" ? v.source.one : v.destination.one)}`),
         inspectorSaved: ({ name, when, by }) => (by === undefined ? `${name} saved ${when}` : `${name} saved ${when} by ${by}`),
         inspectorStep: ({ edit, name, from }) => ({
-            edit: `Edit ${name}`, unplace: `Unplace ${name}`, delete: `Delete ${name}`, remove: `Remove ${name} from ${from ?? ""}`,
+            edit: `Edit ${name}`, unplace: `Unplace ${name}`, delete: `Delete ${name}`, remove: `Remove ${name} from ${from ?? ""}`, key: `Type ${name}'s key`,
         })[edit],
         inspectorSideEmpty: ({ side }) => `${capital(article(v.net.one))} ${word(v.net.one)} keeps one ${word(side === "sources" ? v.source.one : v.destination.one)} at least: Delete takes the ${word(v.net.one)}`,
         issueWhere: ({ kind, name }) => `${kind ?? v.layer.one} · ${name}`,

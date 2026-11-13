@@ -32,7 +32,7 @@ import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
 import { getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import { Flowchart } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/flowchart/flowchart";
-import { act, e3Harness, settle, type E3Harness, type Example } from "../e3-web-mount.test-utils.js";
+import { act, e3Harness, settle, useEvaluated, type E3Harness, type Example } from "../e3-web-mount.test-utils.js";
 // The flowchart is an extension: its renderer registers as it loads.
 import { EastChakraFlowchart } from "./index.js";
 
@@ -121,9 +121,10 @@ export interface FlowchartHarness extends E3Harness {
     mountPayload(payload: PayloadFunction, options?: FlowchartMountOptions): Promise<RenderResult>;
 }
 
-/** A payload, built under the runtimes a surface installs, rendered by the Flowchart's renderer as given. */
+/** A payload, built under the runtimes a surface installs — and again at each `evaluateAgain` — rendered by the Flowchart's renderer as given. */
 function PayloadFlowchart({ payload, storageKey }: { payload: PayloadFunction; storageKey: string }) {
-    const value = useMemo(() => payload.toIR().compile(getRegisteredPlatformImplementations())(), [payload]);
+    const run = useMemo(() => payload.toIR().compile(getRegisteredPlatformImplementations()), [payload]);
+    const value = useEvaluated(run);
     return <EastChakraFlowchart value={value} storageKey={storageKey} />;
 }
 

@@ -171,7 +171,7 @@ export function createSeekDriver(options: SeekDriverOptions): SeekDriver {
                 const page = current.page(BigInt(row), 1n);
                 if (page.type !== "some") continue;
                 let key: string | undefined;
-                for (const block of page.value) {
+                for (const block of page.value.rows) {
                     if (block.fixed) continue;
                     for (const item of block.rows) {
                         if (item.id.type === "entry") key = item.id.value.path[0];

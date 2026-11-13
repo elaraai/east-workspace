@@ -11,11 +11,13 @@
  * changed bin's row written through the bin kind's `write`, every field no
  * role maps as it was (B1); a bin gone removed; a new one's row the kind's
  * `create`, a booking's with its arrival's `values` or the fields' defaults, a
- * reservation's with the defaults (B13), under a key minted unique among every
- * key the board holds (B15, `shared/schedule/records.ts`). The inspector's
+ * reservation's with the bin kind's `values` of it (#1526) or the defaults
+ * (B13), under a key its record's session makes (B15, #1583: made up at
+ * random, through `ScheduleEditing.mint`). The inspector's
  * form edits the row's own fields through the kind's `write` of a field, and
  * the kind's own form writes the row whole. Publish runs Save, then writes the
- * day's status once every record reads back as saved (B7, `publishPeriod`).
+ * status of the period holding the day — the day's, or its week's (#1550) —
+ * once every record reads back as saved (B7, `publishPeriod`).
  *
  * @packageDocumentation
  */
@@ -23,7 +25,7 @@
 import { SortedMap, none, some, variant, type option } from "@elaraai/east";
 import type { Origin } from "@elaraai/east-ui-components";
 import type { ScheduleChange } from "../shared/schedule/editing.js";
-import { fieldChange, mintKey, periodPublishChange } from "../shared/schedule/records.js";
+import { fieldChange, madeFromValues, periodPublishChange } from "../shared/schedule/records.js";
 import { PERIODS, type AllocationEditing } from "./editing.js";
 import { one } from "./nouns.js";
 import {
@@ -105,10 +107,10 @@ export interface AllocationState {
     /** The day as drafted, and as the records hold it. */
     readonly plan: Day;
     readonly held: Day;
-    /** The day's own row as drafted, and as stored. */
+    /** The own row of the period holding the day — the day's, or its week's (#1550) — as drafted, and as stored. */
     readonly period: PlacedPeriod;
     readonly heldPeriod: PlacedPeriod;
-    /** The bins the day's window read, by key: each stored bin's bytes, and what a new key is minted unique among. */
+    /** The bins the day's window read, by key: each stored bin's bytes. */
     readonly read: ReadonlyMap<string, StoredBin>;
     /** The editing; `undefined` for a read-only board. */
     readonly editing: AllocationEditing | undefined;
@@ -174,7 +176,7 @@ export interface AllocationCommands {
     replace(id: string, arrival: string): boolean;
     /** Books an arrival into a reservation (A38, A49): its bin takes the reservation's lane, time and resource, and the reservation goes. */
     fillWith(reservation: string, arrival: string): boolean;
-    /** Reserves a lane slot on a resource (A49): a bin with no arrival, no quantity and no hold, its row's other fields their defaults. */
+    /** Reserves a lane slot on a resource (A49): a bin with no arrival, no quantity and no hold, its row's other fields the bin kind's `values` of it, or their defaults. */
     reserve(lane: string, at: Date, resource: string): boolean;
     /** Books a committed bin the drafts removed again (A51), as the day holds it, into a lane slot: on a resource, or not linked yet. */
     restore(id: string, lane: string, at: Date, resource: string | undefined): boolean;
@@ -182,7 +184,7 @@ export interface AllocationCommands {
     restoreInto(id: string, reservation: string): boolean;
     /** Returns a draft booking's arrival to Arrivals (A51): every bin of it the day does not hold yet goes. */
     unbook(arrival: string): void;
-    /** Publishes the day (A4, B7): Save, then its status. */
+    /** Publishes the period holding the day, the day or its week (A4, B7, #1550): Save, then its status. */
     publish(): void;
 }
 
@@ -191,7 +193,7 @@ export interface AllocationCommands {
  *
  * @param state - The day, its rows and the editing
  * @param select - Sets what is selected, keeping the panes as they are
- * @param publish - Publishes the day: Save, then its status
+ * @param publish - Publishes the period holding the day: Save, then its status
  * @returns The commands
  */
 export function allocationCommands(state: AllocationState, select: (next: Selection | undefined, soft?: boolean) => void, publish: () => void): AllocationCommands {
@@ -202,9 +204,6 @@ export function allocationCommands(state: AllocationState, select: (next: Select
         && editableStatus(state.heldPeriod.status) && editableStatus(state.period.status) && schedule.available(bins);
     // Retained, the board keeps its controls and takes no gesture (#1398, CL8).
     const takes = available && state.retained !== true;
-    // Every bin key the board holds: read, drafted, the day's as drafted and as stored, the record's own when it is read whole, or this gesture's.
-    const taken = (minted: ReadonlySet<string>) => (key: string) => minted.has(key) || state.read.has(key) || plan.bins.has(key) || held.bins.has(key)
-        || schedule?.draftsOf(bins).has(key) === true || schedule?.held(bins, key) !== undefined;
     const record = (changes: readonly ScheduleChange[], origin: Origin, label: string) => schedule !== undefined && changes.length > 0 && schedule.record(changes, origin, label);
     /**
      * The rows a day as it leaves a gesture changes, from the day as drafted: each bin gone removed; each new or changed one's
@@ -231,12 +230,18 @@ export function allocationCommands(state: AllocationState, select: (next: Select
         change(next);
         return record(changesOf(next), origin, label);
     };
-    /** A new bin of the day: its row the kind's `create` of its roles and the values given, its roles as the kind reads them back; its key minted. */
+    /**
+     * A new bin of the day: its row the kind's `create` of its roles and the values given, its roles as the kind reads
+     * them back; its key its session's to make (#1583), past those this gesture has made. `undefined` where the app's
+     * `values` fail to make it, or the history holds no session to make its key yet.
+     */
     const created = (roles: Roles, values: option<Uint8Array>, minted: Set<string>): { id: string; bin: Bin } | undefined => {
-        const bytes = value.bin.create(roles, values);
+        const bytes = madeFromValues("Allocation", `a new ${one(value.labels.bin)}`, () => value.bin.create(roles, values));
+        if (bytes === undefined) return undefined;
         const bin = domain.binOf(value.bin.read(bytes), domain.decodeRow(bytes), day);
         if (bin.type !== "some") return undefined;
-        const id = mintKey(taken(minted));
+        const id = schedule?.mint(bins, "", minted);
+        if (id === undefined) return undefined;
         minted.add(id);
         return { id, bin: bin.value };
     };
@@ -321,7 +326,7 @@ export function allocationCommands(state: AllocationState, select: (next: Select
             return done;
         },
         reserve(lane, at, resource) {
-            // A reservation's row: no arrival, no quantity, no hold, its other fields their defaults (B13).
+            // A reservation's row: no arrival, no quantity, no hold, its other fields the bin kind's `values` of it, or their defaults (B13, #1526).
             const made = created({ at, lane, arrival: none, quantity: 0, kind: none, hold: variant("days", 0), parts: new SortedMap<string, number>([[resource, 0]], compareString) },
                 none, new Set());
             if (made === undefined) return false;
@@ -418,17 +423,16 @@ export function allocationCommands(state: AllocationState, select: (next: Select
 }
 
 /**
- * The day's row as Publish writes it: its status the published case, at the
- * time given (`periodPublishChange`).
+ * The row of the period holding the day as Publish writes it — the day's, or
+ * its week's (#1550): its status the published case, at the time given, over
+ * its row as the Save left it (`periodPublishChange`).
  *
  * @param value - The payload: its periods
- * @param editing - The editing
- * @param day - The plan day
- * @param stored - The day's row as the board read it
+ * @param start - The period's first day: the plan day, or its week's first
  * @param at - When it is published
  * @returns The change; `undefined` without periods
  */
-export function publishChange(value: AllocationValue, editing: AllocationEditing, day: Date, stored: Uint8Array | undefined, at: Date): ScheduleChange | undefined {
+export function publishChange(value: AllocationValue, start: Date, at: Date): ScheduleChange | undefined {
     if (value.periods.type !== "some") return undefined;
-    return periodPublishChange(value.periods.value, editing.schedule, PERIODS, dayKey(day), stored, at);
+    return periodPublishChange(value.periods.value, PERIODS, dayKey(start), start, at, "Allocation");
 }

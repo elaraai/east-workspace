@@ -95,6 +95,15 @@ stop. A stop is the same colour in both modes, and the valence palettes
 have none, so the brand's would be inherited from `html`.
 `test/theme/palette.spec.ts` holds every palette to those roles.
 
+**A tooltip takes no pointer.** It says something of its trigger and holds
+nothing to press, so what lies under it stays live: the `tooltip` recipe's
+positioner, the box that places the chip, takes no pointer events, as the
+chip itself takes none. Left to take them, a button a tooltip opened over
+needed a second press, once the tooltip had gone — Save's `Choose 1 conflict
+to save` over the banner's Choose (hand test, 13 Nov 2026; the showcase's
+`sheet-conflicts.spec.ts`). A tooltip whose content is to be hovered
+(`interactive`) keeps its content's own pointer events.
+
 ## Stack
 
 - **React 19.2** with `react-dom` 19
@@ -384,15 +393,20 @@ component, nothing in east-ui.
   The other pane's rail stays out from under it. A pane its host sets to
   `overlay` on a wider frame floats over a live main. While a drag is under
   way an open overlay pane slides off main and its scrim lifts, so it never
-  hides a drop target.
+  hides a drop target; the frame hears of a drag only while one is open
+  (`OverlayDragWatch`), so a frame with none draws nothing as a drag starts
+  and ends (#1594).
 - **A phone's frame** (560px or narrower, `data-phone`; `Mobile Builder
   Frame Spec.md` in `libs/east-ui/docs/proposals`, ruled 3 Nov 2026) stacks
   its regions and gives main the frame's whole width. The items that draw a
   `secondRow` (`ToolbarItem.secondRow`: the history's phone form,
-  `HistoryBar`'s `phone` — the drafts' count, Issues off at none, the four
-  buttons at 44px, Discard asking first in a band under the row
-  (`FrameSessionBand`), its conflicts in the bottom panel — and the
-  Elara eye before it) leave the first row for the toolbar's second row,
+  `HistoryBar`'s `phone` — the drafts' count, its number whole or not there,
+  Issues off at none, the four buttons at 44px, Discard asking first in a
+  band under the row (`FrameSessionBand`) — or, in a row short of Discard and
+  Save's chevron both, More in its place, holding the two — and no conflicts button: the row
+  holds its five squares whatever waits, Issues counting the conflicts and
+  opening them in the bottom panel, the focus back on it as they close — and
+  the Elara eye before it) leave the first row for the toolbar's second row,
   44px, always shown. The footer's `LoadingLine` draws itself at that row's
   start in its short form (`SessionRowSlot`), the count stepping aside while
   it shows, and a footer whose line it so takes is not shown, mounted still;
@@ -435,13 +449,22 @@ component, nothing in east-ui.
   is; a test walking a toolbar's ladder tells the row's observer of each
   width, as the browser does (`toolbar.dom.test.tsx`' `resize`), never draws
   its host again for it. A part drawn a thousand times at once — the
-  Calendar timeline's event blocks, as a glide mounts them — draws plain
+  Calendar timeline's event blocks, as a month of them mounts — draws plain
   elements of its slots' classes (`useSlotClass`, `./internal`): each slot's
-  styles made a class once for the theme, the class Chakra gives an element
-  drawn with them, its rules inserted in the page's emotion cache once.
+  styles made a class once for the theme, with the rules Chakra gives an
+  element drawn with them, inserted in the page's emotion cache once.
   Chakra's styled element works its styles out again at every element it
   draws — its css function keys its cache by the whole style object, printed,
-  and emotion serialises and hashes what that gives.
+  and emotion serialises and hashes what that gives. The class is the one
+  Chakra gives an element drawn with those styles, in the one emotion cache
+  every renderer package shares (`@emotion/react` is external to each bundle,
+  e3-ui-components' `test/one-emotion.spec.ts`), so a class made ahead serves
+  any element drawn with them, plain or Chakra's. What a gesture draws — a
+  drag's ghost, a drop's preview — has its class made as the page is drawn (the
+  Library's `useCardGhost`, `useSlotClass`'s module docs, #1594): a
+  rule added as a drag starts invalidates every font in the page in Chromium,
+  since Chakra writes each in a cascade layer, and a first drag worked out
+  the whole page's styles and laid all of it out again.
 - **Retained content** (#1398, CL8). What a builder keeps on screen while it
   reads again — a period stepped to, a narrowing, a new revision — is
   `aria-disabled`, never `inert`, in an `aria-busy` region: readable,
@@ -561,22 +584,510 @@ component, nothing in east-ui.
   a gesture, an Undo, a Redo, a Discard or a confirmed Save replaces one; a
   draft not yet complete is none of them. e3-ui-components' record drafts
   (`shared/records/drafts.ts`) preview each one's Save from it.
-- **Drafts carried over a source that moved** (`EditSession.rebase`, #1438).
-  A session never moves its drafts by itself: a source moving under pending
-  drafts makes it stale, Save off. A builder that can read each drafted
-  entry whole at the new base — the Plan over rows read beside their nested
-  series index — hands them to `rebase`, which carries each entry's change
-  over to the entry as it now stands where the change still applies (the
-  session's keyed apply, a `ConflictError` where it does not), so another
-  write's change of what no draft changed stands beside the drafts and Save
-  sends only the drafts' changes. One that does not apply leaves the session
-  stale; a rebase starts the history over at the drafts.
+- **Drafts carried over a source that moved** (`EditSession.merge`,
+  `src/editing/merge.ts`). A source moving under pending drafts carries them
+  over to its new base, once each drafted entry is read there (`readIdsAt`, a
+  bounded batch a pass): each merged three ways — what both began from, the
+  draft, and the source's value now — by East's own patch merge
+  (`EntryMerger`). A change of the source's to another part stands beside the
+  draft's, and Save sends only what the drafts changed; a part both changed is
+  a conflict, the draft's value standing there until a person chooses
+  (`settle`), Save waiting; a draft the source now holds whole is a draft no
+  more. A conflict the draft leaves by a gesture — its part put at the
+  source's value by hand, or the row removed as the source removed it, no
+  choice made — began from the source's value once the drafts are carried
+  over again (`EntryMerger.began`): the source's next change there is the
+  source's to make, never a conflict over a change the person no longer has.
+  A gesture that leaves a conflict the other way — the draft put back, there,
+  at what both began from: a value typed back, a new row removed again, a
+  removed one put back as it was — makes no choice either, and leaves its
+  person no change there (hardened 12 Nov 2026, `EditSession.overConflicts`).
+  The draft is carried over again as the gesture ends (`EntryMerger.merge`):
+  the other side's value stands wherever the draft holds what both began
+  from — at the conflict, and at each place that goes with it, so times put
+  at the other side's by hand take the other side's shift with them — and
+  each conflict left so is settled for the other side, one step with the
+  gesture: Undo takes both back, and the conflicts popover settles it the
+  other way. Left as the gesture had it, the three values read no conflict
+  while the draft still differed from the source's, so Save was on and wrote
+  it over the other side's: a value its person was never asked about; a row
+  another session added, removed by the removal of one's own new row under
+  its key; a row another session removed, added again. What both began from
+  follows the conflicts an entry still reads from then on (kept in the step,
+  for Undo), so a later change where one was left is a change of the value
+  shown there.
+  A choice a Save has taken is no conflict to bring back: Undo past it puts
+  back the versions its step moved, nothing of the conflict. A Save takes the
+  choices of the steps done as it was sent (`Submission.took`), and no
+  other's: read back, it once forgot every step's choice with its own — one
+  made while it was out among them, after an Undo back past the first — and
+  an automatic Save then offered to send a row as it stood before an
+  optimiser's result, in a conflict no Save had taken. A session bound
+  `carryOver: false` goes out of date instead (`stale`, Save off). The
+  carry-over starts the history over at the drafts — unless it moves none of
+  them (`EditSession.unmoved`, 12 Nov 2026): a source that moved by another
+  write of other entries holds every entry the session knows of as the
+  session's original has it, so no draft, no conflict that waits and no step
+  moves, and Undo and Redo stand, with what a person's Save has taken and
+  what an automatic Save may send. Started over regardless, the history went
+  whenever anyone saved anything. (Still to close: a write of an entry the
+  session holds, whose steps' versions are to be carried over as the draft
+  is; and a source that moves while nothing waits to be saved, where the
+  session reads no entry and starts the history over still.) A keyed source's entry
+  stands in its key's order whatever version the session makes of it, so the
+  other side taken of a row both sessions added is no change of its place
+  still to save. A conflict chosen before that reads again — the other side
+  taken at one part of an entry that still holds another conflict, then the
+  part changed again by a gesture — is chosen as an open one is, over the
+  draft as it stands (`settleEach`): put back as it stood before its first
+  choice, the draft would lose the change made since. Every conflict chosen
+  one way (`settleAll`) turns the earlier choices too, and never brings back
+  a row its person removed since: the draft is put back at a part only while
+  it still holds the other side there, as its choice left it, and the other
+  side is taken at a part of an entry only while the entry is there. A
+  conflict of a whole entry — one side removed it while the other changed it,
+  or both added it — reads on its card as what was changed
+  (`conflict-view.ts`): the side that holds the entry, each field it changed
+  (`Hours: 450`, the first three, then that there are more) against
+  `Removed`, with what those fields began as; both added, the fields the two
+  hold otherwise — never the entry's first fields, which may hold nothing of
+  the change. A collection's own words for a value (`conflictValue` — a date
+  as its column writes it, a lane by its label) are asked the same for a
+  part's conflict and for each field of a whole entry's: over the value
+  itself and its own type, at its place in the entry's draft — under its
+  draft's `value` case, never the draft's wrapper, which no collection reads
+  — and never of a field its draft holds no value for. What is written in
+  full, because two readings were alike, is written as the card reads it: a
+  collection's words have no fuller form to tell two values apart. A whole
+  entry's field is written in full where its own two readings are alike, the
+  fields beside it as they read. Discard
+  while the drafts are being carried over — kept drafts restored as a page
+  loads, not yet read at the page's revision — leaves the session holding no
+  row: put back as they began, they would be the rows of the page before,
+  held as the session's own, and a row saved since would show as it stood.
+- **What a Save landed, until its rows are read again** (`EditSession.landed`,
+  `src/editing/landed.ts`). A Save's confirmation reads its entries by their
+  keys. A host whose rows are read apart from it — a paged source's pages, a
+  window, a kind's cells — holds them as they stood until they are read again
+  at the commit, a round trip a deployed server makes long. Such a host binds
+  with `drawsLanded`, draws each landed entry as the Save left it over rows
+  read before the Save, and lets it go (`shown`) in the commit that draws rows
+  read since, so no frame draws the entry as it stood. Which rows are from
+  before a Save is one rule, `readBeforeSave` (`./internal`): read at another
+  revision than the one their source reads at now, or their source still at
+  the revision the Save was drafted at. A host keeps no rule of its own: a
+  revision names content and has no order, and a rule keyed on the revision a
+  Save was drafted at lost a rack saved twice before its window was read
+  again, drawing it where it stood before either Save. e3-ui-components'
+  Schematic windows (`schematic/drafted.ts`) and schedule cells
+  (`shared/schedule/cells.ts`) read by it. A host that knows of its rows only
+  whether they stand from before the revision their source reads at now — the
+  Sheet's pages (`sheet/use-editing.ts`' `awaiting`), the Plan's windows
+  (`plan/use-plan-editing.ts`) — asks the same rule by that,
+  `standingBeforeSave`: `readBeforeSave` is it, over rows read at another
+  revision. What the session reads as it carries its drafts over to a source
+  that moved (`merge`) is held the same way, each drafted entry as the source
+  holds it there, from the revision they were carried from: a draft the
+  source came to hold whole — a row removed here and by another write — is
+  the session's no more, and one whose draft stands may be taken back, and
+  either, drawn from rows read before, would show as it stood before the
+  other write: a removed row back on the grid until its window was read
+  again. Carried over at the revision the session was at already — a Save
+  refused there — an entry is held from none (`from` `undefined`): only rows
+  read at another revision than the one their source reads at now are from
+  before it, and a count read at a revision holds it already
+  (`sheet/local-rows.ts`' `layerCounts`).
+- **A new entry's key is the session's to make** (`src/editing/keys.ts`,
+  `EditSession.mint`; ruled 12 Nov 2026: in the session, never in the
+  builders). A session is bound to a rule (`EditSessionBinding.keys`, an
+  `EntryKeys`) and makes every new entry's key by it, past every key it knows
+  taken: those its drafts hold — one they remove among them, the source's
+  until that is saved — those a Save landed that its host has yet to show,
+  those it has learned are another write's, every key of a source held whole
+  as it was last observed — never the base its drafts stand at alone, an
+  older collection while a request is unresolved — and what the gesture says
+  it has made already. A new entry under a key a row stands under would begin
+  from that row and be saved over it. A key is handled as its id, its text (a
+  String key itself, any other as East prints it), so a rule keys a source of
+  any key type. The shared rules:
+  - `randomKeys`: a UUID.
+  - `madeFromKeys`: `<from>-2`, from a template's key or a copied entry's —
+    for a source the session holds whole.
+  - `drawnFromKeys`: `<from>-` and eight hex digits drawn at random — for a
+    source read a window at a time, where the next in a row is as often as
+    not an earlier copy's out of view: the session knows none of the source's
+    keys but those it has met.
+  - `nextIntegerKeys`: one past the largest, the host adding the largest key
+    of a source read a window at a time.
+  - `placeholderKeys`: a text no key prints as, for a key a person types.
+  - `pastKeys`: any of them, past the keys its host shows rows under — what
+    a session over a source read a window at a time is bound to, so a new
+    entry is never drawn over a row on the page.
+  - `onceKeys`: any of them, made once (below).
+
+  A builder whose app gives its own rule binds that (the Sheet's `newKey`,
+  given the keys of the rows the Sheet has read). The key is the session's
+  own once a gesture records its entry — one asked for and never used, a
+  drop refused or a check of whether a copy can be made, is no one's — and
+  while its drafts add the entry and no request holds it (`ownKeys`): kept
+  through a reload beside the drafts (keep.ts, under a key of its own, so
+  kept drafts read as every release wrote them). Where the source comes to
+  hold it as another's — added meanwhile by another write, or held all along
+  out of view and refused at Save — the session makes the entry another by
+  the same rule (`merge`), and never again one it has learned is taken: two
+  sessions that each add an entry may be given the same key, and the two are
+  two new entries, never one changed both ways — a choice between them would
+  lose one. The entry goes on under the new key as its builder says it stands
+  there (`underKey`: its projection's id, an identity field its draft
+  carries), and the session says so once (`renumbered`), for its builder to
+  tell its person, and to move on what it holds by the old key — a selection
+  left there would open the other write's entry. These leave the two a
+  conflict — or no draft, where the source holds the entry whole: a key the
+  session did not make (one a person typed, one an app built from the entry
+  itself, a draft's kept by a release that kept none); a key a request not
+  yet resolved held as the page reloaded, since the source may hold the entry
+  as that request left it, which nothing tells from another write's — made
+  another key, an entry whose Save landed would be saved twice; a row saved,
+  removed and put back by Undo under its key, which another write took once
+  the removal was saved; and a rule that can make no other. `onceKeys` makes
+  a key and never another: for entries other drafts name by key (a transition
+  its states), whose names a new key would leave on the other write's entry.
+- **Where a gesture begins** (`EditSession.startOf`, ruled 11 Nov 2026). An edit starts from the row its person is
+  looking at, captured at the entry's first change: the session's own version of it; else what its last Save left of
+  it, while its host has yet to show that Save (`landed`) — the host's rows are from before the commit then; else the
+  row its host shows. One rule, in the session: a host says only where its rows are (`useEditHistory`'s `original`,
+  e3-ui-components' `useScheduleEditing`'s `standing`; `useEditSession`'s `entryOf`, where a collection's windows
+  arrive with the stored entries their rows were made from (east-ui's `CarriedWindowType`), as a sheet's and a Plan's
+  do — asked by the row's id and its position, the entry a gesture begins from; a Save is read back from the window
+  that read holds its entry in (`EditSource.page`'s `EditWindow`, `carried.ts`' `editWindow` and `entryLookup`) —
+  never one read on its own at the revision now, on its way while the rows are read again). A start newer than the screen would let an edit overwrite a
+  change its author never saw; begun from the row shown, another write's change of another part merges at Save, and
+  of the same part is a conflict to choose. The harness's sessions ask the same rule.
+- **A Save never stops the editing** (`EditSession`, `src/editing/session.ts`). A session takes gestures, Undo and
+  Redo while its request is on its way, while what it saved is read back, while a write has no answer and while its
+  drafts are carried over to a source that moved; another view's request for the source holds its Save, never its
+  gestures (`writable` says a gesture is taken, `canApply` that a Save can be sent). The request keeps the bytes it
+  was sent with. Confirmed, what it left is the original of each entry it held, so what was drafted since is what is
+  left to save, each change from what the Save left. A read back that differs — another write beside the Save's —
+  keeps those drafts, each merged over the source's value from the version the request sent, a part both changed a
+  conflict to choose; what was not drafted since goes with the history, as when the source moves under no drafts.
+  Discard stays off until the request resolves. A host that tells a Save's own entries from those drafted since it
+  was sent asks `sends(id)` (the Sheet's counts). Over several sessions (`EditHistory`), a session whose drafts fail
+  their checks, or that holds a conflict still to choose, holds back its own changes alone: Save sends the others',
+  and waits, saying why, only once nothing else can be sent. An entry first drafted while a Save was out began from
+  a version read before the revision that Save made: where another write changed the same part of it meanwhile, the
+  source refuses the next Save with nothing newer to move to. The session reads a refused Save's entries at its own
+  revision too, once (`nameConflicts`), and where a change no longer applies there carries its drafts over at that
+  revision, as to one the source moves to — the part both changed a conflict to choose — rather than wait for a
+  revision that never comes. A Save refused once its every draft was taken back — Undo while the request was out, or
+  while its drafts were carried over — says nothing: no draft is left for a refusal to stand over. A Save the source
+  acknowledged is read back at the revision the source answered with — the one it committed, or, for a request the
+  source took before and answers again, the one it is at — or a later one; once the source has read at that revision,
+  there or after, an entry it holds as its edit began was put back by another write — a row the Save added, removed
+  since — and is acknowledged so, never waited on for a read that would not come (`Submission.reached`). An answer that
+  comes after its source has moved on — the page heard of another write while the request was out, and reads it —
+  installs no revision (`EditSessionBinding.reads`, hardened 12 Nov 2026): the source may read past the one the answer
+  names, and revisions name content, with no order to tell by. Installed, the source was put back at a state its record
+  had left. e3 refuses a read pinned to such a state and names the one the record holds, and the page moved on — each
+  such read refused (the Calendar's six of its period), every row the page shows read a second time, and what the Save
+  landed laid meanwhile over rows read after it. But e3 marks a read pinned to a state as one to keep for good, and a
+  browser that holds it answers by itself: where the Save had put the record back at a state the page read before — a
+  change taken back by hand, and saved — nothing was refused, and the page showed that past state, the other write
+  gone from it (e3-ui-components' `record/remote-edits.dom.test.tsx`, over a browser's cache). The session asks its
+  source to follow its state instead (`refresh` given none), as it does when asked again, a Retry; and that source has
+  read at or after the commit
+  once its host says it has read its state since the answer (`EditSource.followed`, handed to `reconcile` as `settled`
+  by `settledRevision`), wherever it then reads — until then only an entry that reads as the request left it is
+  acknowledged. That word is taken of any source read a revision at a time, asked to follow or not: e3's paging layer
+  installs no revision over a source that moved in the very turn it was asked (`PagedRuntime`'s `refresh`), and the
+  session is not told — left to a read at the revision it had asked for, a row another write put back exactly
+  meanwhile left its Save saving for good (the harness's `deliverPast`). A source asked to follow whose host says
+  nothing any more has the Save's revision installed after all. e3's hosts say it of every record read a window at a
+  time (e3-ui-components' `readSinceAnswerOf`); a host that says nothing (`reads` undefined) installs as before. A
+  session takes its
+  snapshot apply (`Editing.apply`) when a snapshot is first applied — one over a source at a revision, as every
+  paged record's is, takes none — and an apply is compiled once for the types it applies over, East's own equality
+  telling two alike, and kept for every session over them (`transformOver`). What the tab keeps of the drafts through a reload (`keptEntries`, `keep.ts`) counts a
+  Save the source has acknowledged as saved, whatever of it is still to be read back: an entry it held began from
+  what it left, so one unchanged since is no draft to keep, and one changed since — put back by Undo among them — is
+  kept as a change from it. Kept from its original, a saved entry another write then changed came back as a conflict
+  over a change already saved, and an Undo made meanwhile was not kept at all. A record slice's Save is prepared
+  before it is sent (`prepare`): the request is made as Save is pressed and sent once the preparation is done, so
+  nothing done meanwhile goes with it, and one that fails sends nothing and keeps every draft. Over a source read
+  whole — its base the collection, with no revision to read at — a Save is read back once any entry of its shows the
+  collection was read after it landed (`landedIn`): one commit lands whole, so an entry as the request left it, or as
+  neither side of its change — the same part changed again by another write, or the entry removed — says it for
+  them all, each acknowledged as the collection holds it. Waited on until every entry read as the request left it, a
+  Save another write overtook on the same part before the source was read again waited for good, Save and Discard
+  off. And a draft made while that Save was read back, from a row the collection it is acknowledged at no longer
+  holds so, is carried over to that collection there and then (`draftedBehind`) — a part both changed a conflict to
+  choose — where left as it began its Save was refused over the session's own base, nothing newer to move to and
+  nothing to choose. A collection does not say which state of its source it is: every part a Save wrote put back
+  exactly as it was by another write, before the source is read again, reads as one from before the Save, and waited
+  until the page was reloaded. Only when it was read tells the two apart, and a host that knows says so
+  (`platform/settled-source.ts`, hardened 12 Nov 2026): its runtime registers what its sources hold, by their ids
+  (`registerSettledSources`) — the collection, once the host has read the source since it last answered a Save of the
+  page's. The hooks hand the session that collection while a Save is read back (`settledCollection`, a tracked read),
+  and the session acknowledges the Save at a collection that is the one its host holds (`reconcile`'s `settled`) —
+  each entry as it reads there, one put back among them — or at one that holds the Save's every entry as it was left,
+  which says for certain that it was read after the Save whenever its host says so; never at any other. e3's record
+  runtime says it of every record a page reads whole (e3-ui-components' `record-runtime.ts`, `settledOf`). A host that
+  cannot — a collection of the page's own, held at another type than the session's, or one entry's rows of a record
+  (the Sheet's `entry`) — leaves the Save to what the collection's entries show, as before.
+- **A Save with no answer** (`EditSession.unconfirmed`, `keptRequest`; hardened 12 Nov 2026). A write that throws, or
+  answers with no revision, leaves its request unresolved (`unknown`), and Retry sends the same bytes, so the same
+  request id. A source answers a request again while it remembers it — e3 remembers a record's last sixteen keyed
+  requests (`e3-core`'s `records.ts`, `RECORD_KEYS_REMEMBERED`) — with `applied` and the revision it is at as it
+  answers, nothing applied twice: Retry after other writes is then the source's own word that the Save landed, and
+  it is read back as any Save is. That revision is at or after the Save's commit, so an entry read there as its edit
+  began was put back by another write, and is acknowledged so (`Submission.reached`) — at that very revision too, where
+  a row the Save added may be gone again. And a revision names content, as an e3 record's state hash does: a record
+  put back exactly is at the revision it was at before, so a source that answers with the very revision the Save was
+  drafted at, or reads there once it has read at the one it answered with, holds that content again, and the Save is
+  read there (`EditSession.putBack`) — waited on for the source to move, it stayed saving for good. A request the
+  source has forgotten — sixteen others since — or never took is checked afresh when sent again, and one that had
+  landed is refused over what its own first sending wrote. That refusal is never
+  taken at its word. Taken so, a new row the first sending saved read as another write's under the session's key, was
+  made another key and saved twice, and a row it removed, put back by Undo since, was gone. Each entry of such a
+  request is judged by what the source holds of it as the drafts are carried over (`merge`), a part at a time
+  (`EntryMerger.eitherBegan`): held as the request left it, it began from what was sent, and a draft made since is a
+  change from that; held as the edit began, from that; held as neither — another write's value — from whichever makes
+  the draft's difference a conflict to choose, never given up for the other write unasked. Where a conflict already
+  waits on the entry, the candidate beside what was sent is what both sides began from (`beganOf`), never the entry's
+  original alone: a later Save of the entry, read back beside another write, leaves the source's value for its
+  original, and judged from that the conflict went — after a Save lost, retried and refused, an Undo, a Save and a
+  Redo, the next Save wrote the person's value over the other session's (the every-state walk of a source read whole
+  found it; its replays are `session-model.test.ts`'s). A whole new row or a
+  removal is judged whole, never merged with another row a part at a time. A new entry of the request's is made no
+  other key, and a key a request leaves a row under is known taken. The tab keeps the request beside the drafts, under
+  a key of its own (`keep.ts`, `<key>:request`): the page that loads puts the session back as it stood and sends the
+  request again — over a source read whole it judges the request at once, by the collection it has read afresh — so a
+  reload while a Save has no answer loses nothing drafted since and asks of nothing the Save had saved. A later Save
+  that lands says nothing of an earlier request still to be judged — a source checks a row's change against that row
+  alone — so the earlier one's rows stay as their person has them and are read once it has. Its tests: the harness's
+  named replays (`model/`), `session.test.ts`, `merge.test.ts`, `keep.dom.test.ts`, and on e3 itself, e3's answers
+  lost at the harness's fetch, e3-ui-components' `record/unanswered-save.dom.test.tsx` — a Save e3 remembers,
+  answered: saved once, an Undo since still to save, another session's change of the same part no conflict; and one
+  it has forgotten, sixteen other Saves on, refused and judged by evidence: taken out, the Record there saves a new
+  crew member twice — and `record/remote-edits.dom.test.tsx`, a Save whose row another session put back exactly
+  before Retry. What stays, by design: a request the source refuses when sent again is one it never took, or has
+  forgotten, and nothing it holds tells which — so a row another write changed meanwhile may be asked of where its
+  person has nothing to save. Still to close: read whole, a page that reloads judges a kept request by the collection
+  at once, and never asks the source again.
+- **The editing core's proof harness** (`src/editing/model/`, in the unit suite). It runs the code itself through
+  what can happen to it, never examples (`explore.test-utils.ts`):
+  - **Every ordering to a depth** (`everyOrdering`): each from a fresh model, two operations whose order is no matter
+    in one order only, and seeded random runs past the depth — each checked after every operation and again once
+    brought to rest (`session-model.test.ts`, `history-model.test.ts`).
+  - **Every state** (`everyState`, `states-model.test.ts`): a model whose people are budgeted — so many gestures and
+    choices, so many requests, so many of another session's writes — can be in finitely many states. Each is told by
+    its print (`fingerprint`): every field the record, the sessions, the history and their people's steps hold,
+    private ones too, each object once and what is shared read as shared, ids drawn at random named by their order.
+    Every operation is run from every state until none is new, so what the harness holds then holds of every state
+    the code can reach under those budgets, however many operations away. A field added to `EditSession` or
+    `EditHistory` is in the print unless it is named as no state (`SESSION_NO_STATE`): a cache, or a counter that
+    only counts.
+  - **One session** (`world.test-utils.ts`, run by `session-model.test.ts`). `record.test-utils.ts` is a small record
+    that checks a Save's batch as `Record.onApply` does — East's patch apply a row, a revision a commit, a request id
+    answered again while the record remembers it, at the revision it is at, as e3 answers one (`remembers`: as many as
+    e3 by default; 0 for a record that has forgotten every request, which the families of a Save with no answer are
+    run over too) — and the world is sessions over it, each with a screen of its own, driven as `useEditSession`
+    drives one, with every operation that can meet in one: gestures — a row changed, removed and added, a removed key
+    added again and an added row changed and removed, by its person and by another session alike — an optimiser's
+    result, Undo, Redo, Discard, a
+    conflict's choice — one at a time, or every one — a Save prepared before it is sent, its preparation failing, its
+    answer, an answer lost and asked again, an automatic Save, the page reloaded with its drafts kept, another
+    session's write, a revision heard of before its rows are read, reads landing a row at a time, a screen redrawn
+    late — over a source read a revision at a time, or read whole (`inline`), its base the collection itself. It
+    holds, of every ordering: a gesture is taken and changes what it names alone; a Save writes what its
+    person's screen showed as it was pressed, and changes a field only from a value they had been shown; an automatic
+    Save writes the screen as it stood before an optimiser's result no person's Save has taken, and nothing from
+    where Undo or Redo left the steps, and is there exactly while it has something it may send; a Save changes a
+    field only from a value its person's screen showed, or the card of a conflict they chose at — a conflict that
+    waits shows nothing by itself, so a change taken back by hand while one waits (`revert`, `restore`, a new row
+    removed again) leaves nothing of the other side's to be written over; no change is lost,
+    and none is sent twice; while a conflict waits no Save is
+    offered and no request made, a person's or an automatic one, of the row in conflict or any other of its record;
+    a conflict is asked only of a change still to save, and never again once chosen; Undo then Redo is where it was; and answered, read and
+    chosen, every session is idle with its screen the record.
+  - **One history over a session a record** (`desk.test-utils.ts`, run by `history-model.test.ts`): one person over
+    two records, as the Roster's duties and weeks are — a gesture in one record or across both, an optimiser's
+    result in either, Undo, Redo, Discard (the history's, or one record's banner's), Save, an automatic Save, each
+    record's request answered, unanswered or lost and asked again, and each record's reads landing late. No one else
+    writes there, so what the person should see is known exactly. It holds: one step a gesture, taken back and
+    replayed whole, and each session's own steps the history's steps' parts in it; the screen the person's steps,
+    through every Save; each record's request what its person saw; an automatic Save stopping at the first result
+    that waits in any record, in the order the gestures were made, and there exactly while it has something it may
+    send; one request a record at a time; and at rest each record holding what its screen shows.
+  - **A screen never goes back**, held of every ordering and state since 11 Nov 2026: a field never shows a value
+    the record held before the one the screen last showed there — which of the record's writes a shown value is,
+    read no later than the newest revision its source has read at, or its own Save.
+  - **What it only counts**, and holds nothing of yet: the orderings in which a session's steps went under its
+    person as the source moved, those in which a person was asked
+    to choose, with nothing to save, over a row of a request that had no answer and was refused when sent again
+    (above: one the record never took, or has forgotten — never one it took and remembers, which it answers: held of
+    every world read a revision at a time), those in which a Save over a
+    source read whole whose host cannot say what it read (`says` false) waited for good, every part it wrote put back
+    exactly, and those in which a Save's late answer put its source back at the revision the Save committed, its rows
+    drawn there (`lateAnswer`, `readEarly`: counted only of a host that cannot say, `says` false). Each is a fault
+    still to close, never a behaviour to keep. A source whose host says when it has read since an answer — every world
+    but those run with `says` false, as e3's record runtime and its paging runtime say it of a record — has its Saves
+    read back once its host has read the record since the answer, and is never put back at a revision it has passed:
+    a Save that still waits then, or an answer that takes a screen back, is a fault the harness holds. The read a
+    host makes after an answer is an operation of its own (`see`, there whatever the record's revision: a request
+    answered again leaves it where it was), and so is the record taking a Save apart from the answer's arrival
+    (`land`, then `deliver`), so another session's write and the page's read of it fall between the two — or the
+    answer arrives in the very turn its source is told of the record's state now (`deliverPast`): the revision the
+    session asks for is installed no more, as e3's paging layer installs none over a source that has moved since it
+    was asked, and the session is not told.
+  - **A new entry's key** (`keys-world.test-utils.ts`, run by `keys-model.test.ts`): sessions that each make their new
+    rows' keys by one rule — the next in a row, or the next Integer — beside another session that saves rows of its own
+    under the very keys that rule makes, over a source read a revision at a time — where such a row may stand out of
+    view, shown by no page, found taken only as a Save is refused — or whole: rows made, changed and removed, Undo,
+    Redo, Save and every way its request can go, and the page reloaded with its drafts and its keys kept. Every row carries a tag nothing changes, so it is followed whatever key it comes to stand under. It holds: a
+    key made is free — never one the session holds a row under, one its last Save landed, one the page shows a row
+    under, nor, read whole, one the collection as last read holds; no row is saved over one someone keeps, and none
+    twice; a key the session made for a row still to save is never a conflict to choose; each row a person made is on
+    their screen under one key, at the value they put it at; and at rest every row made and kept is in the record
+    once, every row another session added there as it was added. A person is asked to choose only over a key their
+    session does not hold as its own — after a page reloaded with a Save unresolved, and where a row saved, removed
+    and put back by Undo finds its key taken — and a world where someone was is held to this alone: no row is saved
+    twice, and it converges.
+  - **What it does not model yet:** a source that is an ordered list (an Array with an identity field, its entries
+    placed before and after one another), ranges settled together, and revisions that name content — its record's
+    are a count, where an e3 record's is its state's hash, so a record put back exactly is at the revision it was at
+    before: held by `session.test.ts` and on e3 itself (e3-ui-components' `record/remote-edits.dom.test.tsx`).
+  - **Using it.** A change to what the harness loads — `session.ts`, `history.ts`, `merge.ts`, `keys.ts`, `landed.ts`,
+    `draft.ts`, the harness itself: `model/proof.json`'s `reads`, which `test/editing/proof-reads.spec.ts` holds to
+    the harness's own imports — is proved before it lands. The proof is `make proof-editing` from `libs/east-ui`: the
+    harness past the budgets the unit suite runs it at, some hours of a core's time, in four parts (`PART=` runs one).
+    `orderings` is every ordering an operation deeper with twenty times the random runs, of one session and of one
+    history over two records (`EDITING_MODEL_DEPTH=1 EDITING_MODEL_RUNS=20`, some twenty minutes); `keys` the same of
+    new rows' keys, with their every-state walks; `states-fields` and `states-whole` every state under each family's
+    larger budgets, a draft shape each (`EDITING_MODEL_STATES=1`). It runs with `--silent=false --reporter=verbose`,
+    which shows what each exploration covered. CI runs it, a part a job, for a pull request labelled `proof:editing`,
+    nightly on main and by hand (`.github/workflows/proof-editing.yml`), never at every push: a proof that passed is
+    recorded against the content it read — the git ids of the paths `proof.json` names, what the harness loads and
+    what it is run on — so the same content is proved once, and the workflow's `editing proof` check, seconds on every
+    pull request, fails one that changes any of `reads` until the proof has passed on what it holds, saying to label
+    it. A fault the harness finds is added to its replays, by name, each proved to fail over the code as it stood. A
+    check added to it is proved to bite: the code broken by hand where the check should catch it, the harness run,
+    the break put back.
+- **An automatic Save** (`src/editing/autosave.ts`, `use-autosave.ts`, `autosave-choice.ts`). Where a builder keeps a
+  session or a history (`useEditSession`, `useEditHistory`), the history bar's Save is a split button: its chevron opens
+  the choice — one switch, Autosave (ruled 11 Nov 2026: the theme's switch and its one word, never a pair of choices to
+  read). It begins where the builder's author says — `useEditSession`'s and `useEditHistory`'s `autosave`, which each
+  builder gives its payload's (ruled 11 Nov 2026: a Boolean the author writes or data drives); off, said nothing — and
+  follows the author's word as it moves, until its viewer flicks it: the viewer's own choice is then kept for the
+  builder in the browser, by its data set (`EditingScope`) and its view, and stands over the author's, so a choice made
+  over one data set never saves another's (`autosave-choice.ts`' `beginAutosave`; kept state's `useKeptValue` reads a
+  choice as kept, nothing while none is). The switch is within reach in every form of the bar, so an author's on is
+  never one nobody can turn off: a phone's row shows the buttons themselves where they fit — Discard, and Save's chevron
+  a square on Save's edge — and where it is short of them (ruled 11 Nov 2026) More, an ellipsis square in Discard's
+  place, which opens the switch and Discard changes in the frame's bottom panel; the row is its five squares either way
+  (`HistoryBar.tsx`' `MoreControl`, the `editHistory` recipe's `whereRowIsShort`). On, the changes are sent a pause (two seconds) after
+  the person's last act — a gesture, a key pressed, a pointer let go — one request at a time; never under a held
+  pointer, a drag, an open editor (the bar's `editing`) or a run of the optimiser (`locked`); at once as the tab is
+  hidden; and what fails is tried again, each wait twice the last up to a minute. One timer a session or history, shared
+  by every form of the bar its toolbar draws, there while a bar shows it. It sends through the session itself, never the
+  bar's `onAction`, so it commits no open editor. An optimiser's result is never sent by itself
+  (`EditSession.heldFrom`): what was changed before it goes, and the result and every change made after it — in any
+  session of a history, in the order the gestures were made — wait for a person's Save, which takes every step done so
+  far; an Undo of the result ends the wait too. While one waits, the split button — Save and its chevron, one outline —
+  wears the Elara ring (`theme/elara-ring.ts`), and Save's tooltip and the panel say why. Nor is an Undo or a Redo
+  ever sent by itself (ruled 11 Nov 2026, `EditSession.stepped`): an automatic Save sends only from where the last
+  change left the steps, so a person who steps back to look has saved nothing, and one who wants an earlier state
+  saved presses Save, which takes where the steps stand as theirs — Save's tooltip says so meanwhile. Back where the
+  last change left them nothing waits; the next change is saved with what stands under it; over several sessions the
+  step is the history's; and where the history goes, or the page reloads, what Undo left waits as it did. Where the history that held a result goes — a carry-over, a read back beside
+  another write, a reload — every draft waits. An automatic Save shows on Save alone, its live dot: its words in the row
+  would come and go every few seconds. A collection whose every Save is a person's keeps no choice
+  (`useEditSession`'s `manualSave`): the query builder, whose Save asks a new query its name, which an automatic Save
+  would pass by — so a host whose Save asks the person something first opts out, never the bar. The chevron draws
+  in Save's own ink (ruled 11 Nov 2026: one button, one ink): the bar's while Save would save or shows a Save out,
+  the tick's quiet ink — at full strength, the chevron live still — while there is nothing to save, and no colour of
+  its own while Autosave is on, which the switch says. The chevron is named
+  `Automatic saving`: beside Save, no second button holds `Save` in its name, so whoever asks the page for Save by a
+  part of its name — a script's `getByRole("button", { name: "Save" })`, a voice — finds Save alone. The two parts
+  stand edge to edge, the edge between them the chevron's, and the bar is no wider for the chevron: with the split
+  its five squares stand 4 apart in place of 8 and the chevron takes the 16 that leaves (12 where the bar is its
+  buttons alone), so no toolbar's row folds sooner than it did — a row may have a few pixels to spare at a width
+  that matters, as the Calendar's has at 768. Under a touch pointer each square, and the chevron, takes its target's
+  height alone, none a tap meant for the one beside it (`editHistory`). In a phone's frame the chevron is a square of the second row on Save's edge, there
+  where the row holds its six squares whole — the recipe's rule over the row's own width (`ROW_HOLDS`: 280px of the
+  row's content, the five squares and its own, the eye's 48 more while it is in the row; so from a 308px frame, 356px
+  with the eye) — and its choice opens in the frame's bottom panel, as the row's conflicts do. The drafts' count gives
+  way to the six until the row holds its room too (`ROW_COUNTS`: 310px; a 338px frame, 386px with the eye): between
+  the two widths it is a pixel wide, its words wrapped under its clip, and takes none of the row. Short of the six
+  (ruled 11 Nov 2026: the buttons themselves wherever they fit, More only where they do not) there is no room for a
+  sixth square of any kind: the chevron is not there, Save is a whole square
+  and More stands in Discard's place: one press opens the Autosave switch and Discard changes in the bottom panel, and
+  Discard changes discards at its one press — the press of More came first, as the row's own Discard asks first in its
+  band. Both forms are in the page and the recipe shows one (`whereRowIsShort`, the exact other side of the chevron's
+  width); a bar no row asks its width — outside a frame, or in a page that lays nothing out — draws the buttons
+  themselves. Each square's icon stands at its middle on whole pixels: the `iconButton` recipe's glyph is an even 14px
+  in its 28px square, and Save's tick and its chevron stand higher by what Font Awesome draws them below their boxes'
+  middles. The browser suite holds all of it on the page's e3 (`autosave.spec.ts`, `builder-frame-phone.spec.ts`).
 - **The data set editing belongs to** (`EditingScope`, `src/editing/scope.ts`).
   A host whose sources are one data set's names it — e3-ui-components'
   `E3Provider` names the server, repository and workspace — and each
   session, history and draft kept through a reload is held under it, so the
   same view over another data set in the tab, its sources of the same names,
   never takes them. With none named, a page's sources are its own.
+
+## A part's own pointers
+
+A part that takes pointers of its own, off the shared drag layer, takes them
+through `src/pointer/` (exported from `./internal`) — never pointer handlers
+or window listeners of its own, and never an owner, a finger count or a
+"pressed" flag kept in the component (ruled 12 Nov 2026, after a phone's
+canvas was left zooming under one finger). One rule holds every such gesture,
+in one place:
+
+- `gestures.ts` (`makeGestures`, pure): one gesture in flight on a surface,
+  and whose it is. A press begins it and its pointer owns it — that pointer's
+  moves alone drive it — and it ends once: released by its own pointer, when
+  it lands, or let go of, landing nothing — a second finger put down, a new
+  press while it is in flight, its pointer taken back by the browser or its
+  capture lost, a mouse moved with its button no longer held, the window
+  losing the page. Two fingers pinch, between a start and an end; a third
+  does nothing. Its tests walk every state two fingers and a mouse can bring
+  a surface to — each event heard or never heard, in every order.
+- `touches.ts` (`makeTouches`, pure): the fingers a surface holds and the
+  pinch between two of them. A finger is gone as it lifts, is taken back or
+  loses its capture, and one whose end is never heard is let go of as the
+  page's next first finger lands or the window loses the page.
+- `surface.ts` (`useSurfaceGestures`): the handlers a surface's element
+  carries, over that rule — every pointer it takes captured, the window
+  listened to only while it holds one, and a surface inside another keeping
+  its own pointers' events (`contained`). A surface whose children are
+  pressed in their own right — a list of cards — captures none
+  (`capture: false`): a captured pointer's click is the capturing element's,
+  never the child's it pressed. A part says only what a press begins, what
+  its drag draws, what its release lands and what letting go puts back.
+- `follow-pointer.ts` (`followPointer`): a drag begun on one of many
+  elements — a resize handle, a line drawn out of a port, a card carried
+  across a canvas — handed its press and followed at the window, by the same
+  rule.
+
+The drag layer's sensor holds its drags to the same (`src/dnd/sensor.ts`).
+Two parts here follow a pointer of their own: the Matrix's slice resize
+(`collections/matrix/`) — left on window listeners with no cancel, a touch
+the browser took back left every later pointer resizing the slice — and the
+SnapGrid's three resize handles (`layout/snap-grid/editor.tsx`): left on
+listeners of the handle's own, another pointer's move over a handle snapped
+the tile and its lift landed the resize, and a resize whose handle went under
+it — the selection let go mid-drag — never ended, its preview left standing.
+Esc lets go of a resize in flight, landing nothing, before it lets go of the
+selection.
+
+The page's held pointers are read through the same record. The automatic
+Save waits while a pointer is down (`editing/use-autosave.ts`), and counts
+the fingers down by `makeTouches`: counted by hand, one finger whose lift a
+phone never said held every Save back until the page was left.
+
+Which of e3-ui-components' builders are surfaces, and what a test of one
+fires, is in its CLAUDE.md › A part's own pointers.
 
 ## Field form
 
@@ -603,6 +1114,31 @@ field. A text, a choice or a printed value longer than its box ends in an
 ellipsis, its control titled with the whole (#1250). The showcase's
 `inspector-form.spec.ts` measures it in the Sheet's, the Plan's, the
 Flowchart's and the Schematic's inspectors.
+
+The field a host names (`focus`: an issue gone to, a new row's title) takes
+the keyboard and comes into view whole by the least scroll that shows it —
+in a pane's body from the pane's start, as a pane opened afresh shows it.
+`DockPane` marks its bodies (`data-dock-body`): a body shows a subject at a
+time and keeps its scroll from one to the next, and begun from where the
+subject before left it, a field already in view scrolled nothing — the
+banner of the issue that named it left out of sight above its ringed field
+(hand test, 13 Nov 2026). What scrolls outside the pane, the page, begins
+where it stands. One rule, in the form (`scrolledFrom`), for every builder's
+inspector: `field-form.dom.test.tsx`, and in a browser the showcase's
+`roster-inspector.spec.ts`.
+
+A field an issue names (`issues`) takes the warn wash; given the issue's words
+with it — a map from the field's key to what its issues say — it says them
+under it, after its help, on a line of its own in the warn's ink
+(`data-field-issue`, ruled 13 Nov 2026). The reason is then where the
+keyboard is when the issue is gone to, whatever of a banner over the form is
+in view: a panel too short to hold a refusal's banner and its field together
+showed the field and cut the banner, and nothing by the field said why it was
+ringed (hand re-test, 13 Nov 2026). A bound the field's number breaks is said
+once, by its help line: an issue that only repeats the bound — a builder's
+readiness raises a breach in the bound's own words — is dropped.
+`field-form.dom.test.tsx`, `field-form-bounds.dom.test.tsx`, and in a browser
+the showcase's `roster-inspector.spec.ts`.
 
 The shared inputs' sizes are one line each — `theme/field-chrome.ts` ›
 `fieldHeights`: `sm` 26px, `md` 32px, `lg` 44px — set on each control's
@@ -964,6 +1500,18 @@ Row virtualization via `@tanstack/react-virtual`:
   the browser anchors on the focused element first, and a window landing that
   moved it — a Plan's run not read that a click focused, its rows replacing
   it — moved the view by itself, by as much as the run (#1398).
+- An anchoring frame told to stay on its start (`startStays`: the Sheet's,
+  and the Record's through it) does so at the rows' very start — nothing
+  scrolled past, its anchor the first row — as a browser's own anchoring does
+  at the top of a page: a row landing above the anchor is the rows' new first
+  row, and is shown. Kept in place, the anchor took the view past it, and a
+  row put back first, or added there, stood under the pinned header (hand
+  test, 13 Nov 2026: `virtual-rows.dom.test.tsx`, and in a browser the
+  showcase's `sheet-conflicts.spec.ts`). Past the start its anchor keeps its
+  place. A frame not told so keeps its anchor at the start too: a block of
+  rows shown again above it — a Plan's hidden series — leaves the view on what
+  it showed, and its cells are read once, beside the view
+  (e3-ui-components' `plan/frame/plan-nested.dom.test.tsx`).
 - A collection that draws the rows it has not read as one run — keyed by the
   rows it stands for, so a window landing in it makes other items — names
   where its rows stand in its runs (`runs`, `RowRuns`; the Calendar's timeline
@@ -972,6 +1520,39 @@ Row virtualization via `@tanstack/react-virtual`:
   read, found again on its own line once its window lands, or in the run that
   then holds it — so the rows landing around it never move it, however their
   heights part from the run's pitch.
+- A bounded frame of measured rows sticks the first rows of each of its
+  sections under its header (`sections`, `StickySection`, #1568: the Roster's
+  People bands with the work requirement under each). Each head row sticks
+  under the stuck rows above it, in a rail of its own from its place to where
+  the stuck head, whole, meets its section's end (`stuckRows`, pure), so the
+  next section's start pushes the head out at once and CSS alone holds it: a
+  scroll draws nothing again. A head taller than half the view keeps only its
+  rows that do not `yield`, in order, while they fit in that half; the rest
+  scroll with the section. The head of the section the view is in stays
+  mounted however far in the view goes — the range extractor puts it first,
+  so the rows stay in index order — and the next section's head carries its
+  rails as soon as it mounts. A row a request brings in at its start lands
+  under a stuck head, as it lands under the header — a head row that yields
+  too — and so does an element the focus or a scroll into view brings in:
+  each place names what covers its row (`--virtual-cover`: the header and the
+  stuck rows over it, or above a stuck row), its elements' scroll margin, so
+  the keyboard never lands under the head (WCAG 2.4.11) and a stuck row takes
+  the focus where it stands. Each row there is two boxes, its place, which the
+  frame moves by its `top` — never a transform: a browser sticks a row where
+  layout puts it, before its place's transform, which doubled each stuck
+  row's offset — and the row, the one measured (`data-index`), so a row that
+  comes to head a section, or ceases to, keeps its element. The host's recipe
+  paints a stuck row (`[data-virtual-stuck] > [data-index]`), opaque as its
+  header is: the Roster's `scroll` slot. An anchoring frame whose anchor went with its section's rows
+  keeps the head's first row where it showed: a band folded from its stuck
+  place stays at the view's top, the focus on it.
+- A row an anchoring commit mounts above the view, measured off its estimate —
+  a stuck head's, an overscan row — moves the virtualizer's offset on by as
+  much as it grew, and the offset the commit writes is the anchored one with
+  that correction (`virtualizer.scrollOffset ?? anchored`), never the render's
+  alone, which took the view back by as much as a remount drew it (#1568).
+  Every anchoring frame takes it: the Roster's, the Sheet's, the Calendar's and
+  the Plan's.
 
 **Persist scroll as a clamped ROW INDEX, never a pixel `scrollTop`.** The
 top visible row index survives data changes (restore clamps to the current

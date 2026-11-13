@@ -18,12 +18,14 @@
  * - **Publish** writes the published case, with the time in `at` when the
  *   case holds one. A builder saves the period's drafts first, and writes the
  *   status only once every session reads back confirmed (§7).
- * - **Dismissed**, the Roster's: a `Set<String>` field, the proposals a week
- *   dismissed. Without it the builder dismisses none.
- * - **New rows.** A row the builder creates holds its type's default
- *   (`defaultValue`) in every field it doesn't map: its status the published
- *   case when it publishes, else the draft case, holding its payload's
- *   default.
+ * - **Dismissed**, the Roster's: a `Set<String>` field, the proposals a
+ *   period dismissed, each on the period of its day (#1550). Without it the
+ *   builder dismisses none.
+ * - **New rows.** A row the builder creates holds the periods' `values` of
+ *   its start (#1526) in every field it doesn't map — or, without them, the
+ *   field's type's default (`defaultValue`) — its status the published case
+ *   when it publishes, else the draft case, holding its payload's default, and
+ *   its dismissals the set it dismisses, else none.
  * - **Reads.** By key through `entries`, a paged read of the record's own
  *   entries — each span the builder reads (its period, the one before it, the
  *   open picker's) one key search and one page — or the record whole.
@@ -44,7 +46,8 @@ import { SeekQueryType, type SeekRangeType } from "@elaraai/east-ui";
 import type { ScheduleCaseOf, ScheduleRecordHandle, ScheduleSetStringField, ScheduleStatusField } from "./events.js";
 import { SCHEDULE_DEF } from "./resources.js";
 import { scheduleRecordSession } from "./session.js";
-import { SchedulePeriodStatusType, SchedulePeriodsKindType } from "./types.js";
+import { ScheduleNewPeriodType, SchedulePeriodStatusType, SchedulePeriodsKindType } from "./types.js";
+import { scheduleNewValues, type ScheduleNewValues } from "./values.js";
 import { checkEntries, optionOf, typeText } from "./window.js";
 
 /**
@@ -66,8 +69,15 @@ export interface SchedulePeriodsConfig<R extends StructType, SF extends string> 
         /** The case Publish writes, read-only: it holds Null, or `{ at: DateTime }`, the time it was published. */
         published: ScheduleCaseOf<R["fields"][SF]>;
     };
-    /** The Roster's: the `Set<String>` field holding the proposals a week dismissed. Omitted, the builder dismisses none. */
+    /** The Roster's: the `Set<String>` field holding the proposals a period dismissed, each on its day's. Omitted, the builder dismisses none. */
     dismissed?: ScheduleSetStringField<R>;
+    /**
+     * A new period's own fields — every field of the row but its status and its dismissals — from its start
+     * (`Schedule.Types.NewPeriod`), at its first save or Publish (#1526). The builder writes the status over what it
+     * returns; held at build to those fields, a field missing or extra refused, naming it. Omitted, each its type's
+     * default.
+     */
+    values?: (period: ExprType<ScheduleNewPeriodType>) => ScheduleNewValues<R>;
     /**
      * A paged read of the record's own entries (`Data.bindPaged(record)`): the periods read by key — the period, the
      * one before it, the open picker's span — never the record whole. Omitted, the record is read whole.
@@ -96,6 +106,7 @@ interface AnyPeriodsConfig {
     every: string;
     status?: { field: string; draft: string; published: string };
     dismissed?: string;
+    values?: unknown;
     entries?: unknown;
 }
 
@@ -124,8 +135,9 @@ const StampType = StructType({ at: DateTimeType });
  * @throws {Error} Naming the option: a record not bound with its patch mutation, not keyed by DateTime, or whose rows
  *   are no structs; an `every` that is neither "week" nor "day"; a `status.field` the row lacks, or that is no variant
  *   or is an Option; a `status.draft` or `status.published` that is no case of it, or both naming one; a published case
- *   holding anything but Null or `{ at: DateTime }`; a `dismissed` that is no `Set<String>` field; and `entries` that is
- *   not a paged read of the record's own entries naming its snapshot
+ *   holding anything but Null or `{ at: DateTime }`; a `dismissed` that is no `Set<String>` field; a `values` giving
+ *   other fields than the row's but its status and its dismissals, or one of another type, naming it; and `entries`
+ *   that is not a paged read of the record's own entries naming its snapshot
  * @example
  * ```tsx
  * import { DateTimeType, DictType, NullType, SetType, StringType, StructType, VariantType } from "@elaraai/east";
@@ -212,6 +224,9 @@ export function schedulePeriods(record: unknown, input: unknown): SchedulePeriod
             throw new Error(`${where}: \`dismissed\` names a Set of String field — "${dismissedField}" holds ${typeText(type)}`);
         }
     }
+    // A new row's own fields, every one but its status and its dismissals (#1526): the periods' `values` of its start.
+    const own = StructType(Object.entries(fields).filter(([name]) => name !== status.field && name !== dismissedField));
+    const valuesOf = scheduleNewValues(ScheduleNewPeriodType, rowType, own, config.values, where);
     // The periods read by key, or whole; and their session, declared now, so a record bound without its patch door is
     // refused here.
     const entries = config.entries === undefined ? undefined : checkEntries(config.entries, DateTimeType, rowType, `${where}: \`entries\``);
@@ -226,14 +241,23 @@ export function schedulePeriods(record: unknown, input: unknown): SchedulePeriod
             // The row with one field replaced, and every other as it was.
             const withField = (row: ExprType<EastType>, field: string, value: ExprType<EastType>): ExprType<EastType> =>
                 East.value(Object.fromEntries(Object.keys(fields).map((f) => [f, f === field ? value : fieldOf(row, f)])) as never, rowType) as ExprType<EastType>;
-            // A period's new row: every field its type's default, its status the draft case.
+            // A period's new row: every field its type's default, its status the draft case — and, given the periods'
+            // `values`, their fields of the period's start.
             const blank = East.value({
                 ...(defaultValue(rowType) as object),
                 [status.field]: variant(status.draft, defaultValue(cases[status.draft]!)),
             } as never, rowType) as ExprType<EastType>;
-            const rowOf = (held: ExprType<OptionType<BlobType>>): ExprType<EastType> => held.match({
+            const rowOf = (start: ExprType<DateTimeType>, held: ExprType<OptionType<BlobType>>): ExprType<EastType> => held.match({
                 some: (_$, bytes) => bytes.decodeBeast(rowType, "v2") as ExprType<EastType>,
-                none: (_$) => blank,
+                none: ($) => {
+                    if (valuesOf === undefined) return blank;
+                    const ownOf = $.const(valuesOf);
+                    const given = $.const(ownOf({ start } as never));
+                    return East.value(Object.fromEntries(Object.entries(fields).map(([f, type]) => [f,
+                        Object.hasOwn(own.fields, f) ? fieldOf(given, f)
+                            : f === status.field ? East.value(variant(status.draft, defaultValue(cases[status.draft]!)) as never, statusType)
+                                : East.value(defaultValue(type) as never, type)])) as never, rowType) as ExprType<EastType>;
+                },
             }) as ExprType<EastType>;
 
             // The periods starting in [from, to), by their start: one key search and one page of the record's own
@@ -286,20 +310,20 @@ export function schedulePeriods(record: unknown, input: unknown): SchedulePeriod
                         : c === status.published ? East.value(variant("published", { at: stamped ? some(payload.at) : none }), SchedulePeriodStatusType)
                             : East.value(variant("other", c), SchedulePeriodStatusType)])));
             });
-            // The row, or a new one, with its status the published case at the time given.
-            const publish = East.function([OptionType(BlobType), DateTimeType], BlobType, ($, held, at) => {
-                const row = $.const(rowOf(held));
+            // The period's row, or a new one, with its status the published case at the time given.
+            const publish = East.function([DateTimeType, OptionType(BlobType), DateTimeType], BlobType, ($, start, held, at) => {
+                const row = $.const(rowOf(start, held));
                 const published = $.const(East.value(variant(status.published, stamped ? { at } : null) as never, statusType) as ExprType<EastType>);
                 return East.Blob.encodeBeast(withField(row, status.field, published), "v2");
             });
-            // The proposals a row dismissed, and the row, or a new one, dismissing the set given: the Roster's.
+            // The proposals a row dismissed, and the period's row, or a new one, dismissing the set given: the Roster's.
             const dismissedOf = East.function([BlobType], SetType(StringType), ($, bytes) => {
                 if (dismissedField === undefined) return East.value(new Set<string>(), SetType(StringType));
                 const row = $.const(bytes.decodeBeast(rowType, "v2"));
                 return fieldOf(row, dismissedField) as ExprType<SetType<StringType>>;
             });
-            const dismiss = East.function([OptionType(BlobType), SetType(StringType)], BlobType, ($, held, keys) => {
-                const row = $.const(rowOf(held));
+            const dismiss = East.function([DateTimeType, OptionType(BlobType), SetType(StringType)], BlobType, ($, start, held, keys) => {
+                const row = $.const(rowOf(start, held));
                 if (dismissedField === undefined) {
                     // The builder offers no Reject without `dismissed` (`dismissible`), so nothing asks this.
                     $.error(`${where}: the builder maps no \`dismissed\` field — give \`dismissed\` to keep the proposals a period dismissed`);

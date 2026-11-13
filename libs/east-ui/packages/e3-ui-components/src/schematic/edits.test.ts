@@ -13,18 +13,29 @@
  * veto that throws allowing — of every pair a gesture newly joins: a link's
  * one, a session's net's every pair, the run it gathers among them, and the
  * pairs a change of a net's sides newly joins — an open net's new member's, an
- * Extend's (#1394). Fixtures are real East values typed from the Schematic's
- * East types; each gesture's edits are compared as East prints them.
+ * Extend's (#1394); and a new row's key as its kind makes it, a gesture
+ * naming an item still waiting for its key refused, and a row whose key its
+ * fields build following them, what names it with it — and what names a new
+ * item following the key typed for it (#1549) — a swap or a shift passing, a
+ * key a row moves off free once the gesture is made (#1581) — and a Shift
+ * session following its net as its sides move it, and a move refused while
+ * what follows it takes no edit now (#1584). Fixtures are
+ * real East values typed from the Schematic's East types; each gesture's
+ * edits are compared as East prints them.
  */
 
 import { describe, expect, test, vi } from "vitest";
-import { ArrayType, BlobType, East, OptionType, StringType, StructType, defaultValue, equalFor, none, printFor, some, type option } from "@elaraai/east";
-import { Schematic } from "@elaraai/e3-ui/internal";
-import { drawnItem, drawnLink, drawnNet, entityId, refOfId, type SchematicDrawn, type SchematicRef } from "./canvas/drawn.js";
 import {
-    clampDelta, connectCandidate, connectStep, connectVeto, deleteEdits, editKinds, extendEdits, extendPairs, foldPair, foldSession, joinedPairs, linkRefusal,
-    moveEdits, netKindFor, netRefusal, retargetEdits, vetoOfPairs, type ConnectCandidate, type ConnectDragArgs, type ConnectPair, type ConnectSession,
-    type EditKinds, type SchematicEdit, type SessionDrawn,
+    ArrayType, BlobType, East, IntegerType, OptionType, StringType, StructType, defaultValue, equalFor, none, printFor, some, toEastTypeValue, type option,
+} from "@elaraai/east";
+import { Schematic } from "@elaraai/e3-ui/internal";
+import { STRING_KEYS, kindKeys } from "../shared/schedule/kind-keys.js";
+import { drawnItem, drawnLink, drawnNet, entityId, refOfId, type SchematicDrawn, type SchematicRef } from "./canvas/drawn.js";
+import type { SchematicMove, SchematicNewKey } from "./editing.js";
+import {
+    clampDelta, connectCandidate, connectStep, connectVeto, deleteEdits, editKinds, extendEdits, extendPairs, foldPair, foldSession, followBuiltKeys, followSession,
+    joinedPairs, linkRefusal, moveEdits, netKindFor, netRefusal, placeholderRefusal, retargetEdits, vetoOfPairs, type ConnectCandidate, type ConnectDragArgs, type ConnectPair,
+    type ConnectSession, type ConnectStep, type EditKinds, type SchematicEdit, type SchematicKeyHolding, type SessionDrawn,
 } from "./edits.js";
 
 const T = Schematic.Types;
@@ -35,6 +46,7 @@ const printEnds = printFor(T.Ends);
 const printSides = printFor(T.Sides);
 const printValues = printFor(OptionType(BlobType));
 const printBlob = printFor(BlobType);
+const printString = printFor(StringType);
 /** A field an author's card sets, as an author's tab's card carries it. */
 const FieldWriteType = StructType({ path: ArrayType(StringType), value: BlobType });
 const printWrites = printFor(ArrayType(FieldWriteType));
@@ -51,6 +63,7 @@ function printed(edit: SchematicEdit): string {
         case "retype": return `retype ${printRef(edit.ref)} ${printBlob(edit.values)}`;
         case "set": return `set${edit.details === true ? " details" : ""} ${printRef(edit.ref)} ${printWrites([...edit.sets])}`;
         case "row": return `row${edit.details === true ? " details" : ""} ${printRef(edit.ref)} ${printBlob(edit.row)}`;
+        case "move": return `move${edit.details === true ? " details" : ""} ${printRef(edit.ref)} ${printString(edit.to)}${edit.replaces === true ? " replacing" : ""}${edit.refilled === true ? " refilled" : ""}`;
         case "remove": return `remove ${printRef(edit.ref)}`;
     }
 }
@@ -72,6 +85,10 @@ const read = (candidate: ConnectCandidate) => ({ kind: candidate.kind, refusal: 
 /** A data centre's kinds: racks and cooling written, frames and power units read only; fibre runs written, between racks and frames; trunks of racks into a frame, and power feeds, written. */
 const KINDS: EditKinds = {
     items: new Set(["racks", "cooling"]),
+    itemKeys: new Map([
+        ["racks", { name: "Rack", keys: STRING_KEYS }], ["cooling", { name: "Cooling unit", keys: STRING_KEYS }],
+        ["network", { name: "Network frame", keys: STRING_KEYS }], ["pdus", { name: "Power unit", keys: STRING_KEYS }],
+    ]),
     links: new Map([["fibre", { name: "Fibre run", editable: true, from: ["racks", "network"], to: ["racks", "network"] }]]),
     nets: new Map([
         ["feeds", { name: "Power feed", editable: true, sources: "pdus", destinations: "racks" }],
@@ -125,15 +142,21 @@ function drag(from: SchematicRef, to: SchematicRef, options: { session?: Connect
     };
 }
 
-/** Keys minted in order: each kind's `new-1`, `new-2`, … */
-function minter() {
+/** A new row's key as a kind keyed by String makes one, in order: each kind's `<slot>-new-1`, `<slot>-new-2`, … */
+function keyer() {
     let n = 0;
-    return (slot: string) => `${slot}-new-${++n}`;
+    return (made: SchematicEdit): SchematicNewKey => ({ key: `${made.ref.kind}-new-${++n}` });
+}
+
+/** A drag's step, landed: one that refuses, or writes nothing, fails the test. */
+function landed(step: ReturnType<typeof connectStep>): ConnectStep {
+    if (step === undefined || "refused" in step) throw new Error(`the drag records nothing: ${JSON.stringify(step)}`);
+    return step;
 }
 
 describe("editKinds", () => {
-    test("a kind writes when it is bound with its patch door, and none does while the Schematic is read only (SC14)", () => {
-        const kind = (key: string, editable: boolean) => ({ key, name: key, editable });
+    test("a kind writes when it is bound with its patch door, and none does while the Schematic is read only (SC14); every item kind's keys are read, written or not (#1549)", () => {
+        const kind = (key: string, editable: boolean) => ({ key, name: key, editable, keyType: toEastTypeValue(StringType) });
         const value = {
             items: [kind("racks", true), kind("network", false)],
             links: [{ ...kind("fibre", true), ends: { from: ["racks"], to: ["network"] } }],
@@ -146,6 +169,8 @@ describe("editKinds", () => {
         const none = editKinds({ ...value, readOnly: true });
         expect([...none.items]).toEqual([]);
         expect(none.links.get("fibre")?.editable).toBe(false);
+        expect([...none.itemKeys.keys()]).toEqual(["racks", "network"]);
+        expect(none.itemKeys.get("network")?.keys.text).toBe(true);
     });
 });
 
@@ -207,7 +232,7 @@ describe("a session's fold", () => {
 
 describe("Connect and its Shift session (SC9)", () => {
     test("a plain drag records a link of the Connect tool's kind, its key minted, and opens a session of it", () => {
-        const step = connectStep(KINDS, drag(A02, ODF), minter(), DEFAULTS)!;
+        const step = landed(connectStep(KINDS, drag(A02, ODF), keyer(), DEFAULTS));
         expect(step.edits.map(printed)).toEqual([`link ${printRef(ref("fibre", "fibre-new-1"))} ${printEnds({ from: A02, to: ODF })}`]);
         expect(step.session.links.map((at) => printRef(at))).toEqual([printRef(ref("fibre", "fibre-new-1"))]);
         expect(step.session.net).toBeUndefined();
@@ -218,19 +243,19 @@ describe("Connect and its Shift session (SC9)", () => {
             kind: "fibre", refusal: { why: "end", kind: "Fibre run", end: "end", item: "PDU-A" }, pairs: printPairs([{ from: A01, to: PDU }]),
         });
         expect(connectCandidate(KINDS, drag(PDU, A01)).refusal).toEqual({ why: "end", kind: "Fibre run", end: "start", item: "PDU-A" });
-        expect(connectStep(KINDS, drag(A01, PDU), minter(), DEFAULTS)).toBeUndefined();
+        expect(connectStep(KINDS, drag(A01, PDU), keyer(), DEFAULTS)).toBeUndefined();
         expect(linkRefusal(KINDS.links.get("fibre")!, { ref: A01, label: "A01" }, { ref: ODF, label: "ODF-1" })).toBeUndefined();
     });
 
     test("the first Shift-drag grows the session into a net of the kind that holds it, deleting the link it absorbs — one step", () => {
-        const first = connectStep(KINDS, drag(A02, ODF), minter(), DEFAULTS)!;
+        const first = landed(connectStep(KINDS, drag(A02, ODF), keyer(), DEFAULTS));
         // The drawing holds the new run as its first step left it.
         const drawn = { links: [...DRAWN.links, link(first.session.links[0]!, A02, ODF)], nets: DRAWN.nets };
-        const mint = minter();
+        const mint = keyer();
         const args = drag(A03, ODF, { session: first.session, shift: true, drawn });
         // The veto hears each of the trunk's legs: the run it gathers, a leg of the trunk now, and the new one.
         expect(read(connectCandidate(KINDS, args))).toEqual({ kind: "trunks", refusal: undefined, pairs: printPairs([{ from: A02, to: ODF }, { from: A03, to: ODF }]) });
-        const grown = connectStep(KINDS, args, mint, DEFAULTS)!;
+        const grown = landed(connectStep(KINDS, args, mint, DEFAULTS));
         expect(grown.edits.map(printed)).toEqual([
             `remove ${printRef(first.session.links[0]!)}`,
             `net ${printRef(ref("trunks", "trunks-new-1"))} ${printSides({ sources: [A02, A03], destinations: [ODF] })}`,
@@ -243,9 +268,9 @@ describe("Connect and its Shift session (SC9)", () => {
         const trunk = ref("trunks", "t1");
         const drawn = { links: DRAWN.links, nets: [...DRAWN.nets, net(trunk, [A02, A03], [ODF])] };
         const session: ConnectSession = { links: [], net: trunk };
-        const step = connectStep(KINDS, drag(A01, ODF, { session, shift: true, drawn }), minter(), DEFAULTS)!;
+        const step = landed(connectStep(KINDS, drag(A01, ODF, { session, shift: true, drawn }), keyer(), DEFAULTS));
         expect(step.edits.map(printed)).toEqual([`sides ${printRef(trunk)} ${printSides({ sources: [A02, A03, A01], destinations: [ODF] })}`]);
-        expect(connectStep(KINDS, drag(A02, ODF, { session, shift: true, drawn }), minter(), DEFAULTS)).toBeUndefined();
+        expect(connectStep(KINDS, drag(A02, ODF, { session, shift: true, drawn }), keyer(), DEFAULTS)).toBeUndefined();
         // From the frame to a rack: the rack would join downstream, among the frames, where the trunk holds none — the
         // draft names it.
         expect(connectCandidate(KINDS, drag(ODF, A01, { session, shift: true, drawn })).refusal)
@@ -253,11 +278,28 @@ describe("Connect and its Shift session (SC9)", () => {
         expect(netRefusal(KINDS.nets.get("trunks")!, { sources: [A01], destinations: [ODF] }, (at) => at.key)).toBeUndefined();
     });
 
+    test("a net keyed by its sides moves as a Shift-drag writes them, and the session follows it there: the next Shift-drag grows it under its new key, never a run of its own (#1584)", () => {
+        const trunk = ref("trunks", "A02+A03"), moved = ref("trunks", "A02+A03+A01");
+        const before = { links: DRAWN.links, nets: [...DRAWN.nets, net(trunk, [A02, A03], [ODF])] };
+        const step = landed(connectStep(KINDS, drag(A01, ODF, { session: { links: [], net: trunk }, shift: true, drawn: before }), keyer(), DEFAULTS));
+        // Recording the step moved the trunk under the key its sides build: the session follows it; another row's move leaves it be.
+        const followed = followSession(step.session, [{ ref: trunk, to: moved.key }]);
+        expect(printRef(followed.net!)).toBe(printRef(moved));
+        expect(printRef(followSession(step.session, [{ ref: A02, to: "A09" }]).net!)).toBe(printRef(trunk));
+        // The drawing holds the trunk under its new key: the next Shift-drag writes its sides there.
+        const after = { links: DRAWN.links, nets: [...DRAWN.nets, net(moved, [A02, A03, A01], [ODF])] };
+        expect(landed(connectStep(KINDS, drag(A01, MMR, { session: followed, shift: true, drawn: after }), keyer(), DEFAULTS)).edits.map(printed))
+            .toEqual([`sides ${printRef(moved)} ${printSides({ sources: [A02, A03, A01], destinations: [ODF, MMR] })}`]);
+        // The session as the step left it names the key the trunk moved off: the drag draws a run of its own.
+        expect(landed(connectStep(KINDS, drag(A01, MMR, { session: step.session, shift: true, drawn: after }), keyer(), DEFAULTS)).edits.map((edit) => edit.op))
+            .toEqual(["link"]);
+    });
+
     test("a session no net kind holds adds a link a drag, each absorbed if a later fold is held", () => {
-        const first = connectStep(KINDS, drag(A01, ODF), minter(), DEFAULTS)!;
+        const first = landed(connectStep(KINDS, drag(A01, ODF), keyer(), DEFAULTS));
         const drawn = { links: [...DRAWN.links, link(first.session.links[0]!, A01, ODF)], nets: DRAWN.nets };
         // A01 → A02 folds a rack onto the frames' side: no net kind holds it, so a second run.
-        const second = connectStep(KINDS, drag(A01, A02, { session: first.session, shift: true, drawn }), minter(), DEFAULTS)!;
+        const second = landed(connectStep(KINDS, drag(A01, A02, { session: first.session, shift: true, drawn }), keyer(), DEFAULTS));
         expect(second.edits.map((edit) => edit.op)).toEqual(["link"]);
         expect(second.session.links).toHaveLength(2);
     });
@@ -265,7 +307,7 @@ describe("Connect and its Shift session (SC9)", () => {
     test("a session the drawing no longer holds — taken back by Undo — is over: the drag records a plain link", () => {
         const session: ConnectSession = { links: [ref("fibre", "gone")], net: undefined };
         expect(read(connectCandidate(KINDS, drag(A03, ODF, { session, shift: true })))).toEqual({ kind: "fibre", refusal: undefined, pairs: printPairs([{ from: A03, to: ODF }]) });
-        const step = connectStep(KINDS, drag(A03, ODF, { session, shift: true }), minter(), DEFAULTS)!;
+        const step = landed(connectStep(KINDS, drag(A03, ODF, { session, shift: true }), keyer(), DEFAULTS));
         expect(step.edits.map((edit) => edit.op)).toEqual(["link"]);
     });
 
@@ -274,11 +316,56 @@ describe("Connect and its Shift session (SC9)", () => {
         const uplink = new Uint8Array([1, 2, 3]);
         const fibreTemplate = (slot: string): option<Uint8Array> => (stringEqual(slot, "fibre") ? some(uplink) : none);
         const values = (edit: SchematicEdit | undefined) => (edit !== undefined && (edit.op === "link" || edit.op === "net") ? printValues(edit.values) : "no new row");
-        const first = connectStep(KINDS, drag(A02, ODF), minter(), fibreTemplate)!;
+        const first = landed(connectStep(KINDS, drag(A02, ODF), keyer(), fibreTemplate));
         expect(values(first.edits[0])).toBe(printValues(some(uplink)));
         const drawn = { links: [...DRAWN.links, link(first.session.links[0]!, A02, ODF)], nets: DRAWN.nets };
-        const grown = connectStep(KINDS, drag(A03, ODF, { session: first.session, shift: true, drawn }), minter(), fibreTemplate)!;
+        const grown = landed(connectStep(KINDS, drag(A03, ODF, { session: first.session, shift: true, drawn }), keyer(), fibreTemplate));
         expect(values(grown.edits.find((edit) => edit.op === "net"))).toBe(printValues(none));
+    });
+});
+
+describe("a new link's or net's key, as its kind makes it (#1549)", () => {
+    test("its kind is asked of the row the drag makes — a link's ends, a session's net's sides — under no key yet, and the row takes the key it makes", () => {
+        const asked: string[] = [];
+        const ask = (made: SchematicEdit): SchematicNewKey => { asked.push(printed(made)); return { key: "7" }; };
+        const step = landed(connectStep(KINDS, drag(A02, ODF), ask, DEFAULTS));
+        expect(step.edits.map(printed)).toEqual([`link ${printRef(ref("fibre", "7"))} ${printEnds({ from: A02, to: ODF })}`]);
+        const drawn = { links: [...DRAWN.links, link(step.session.links[0]!, A02, ODF)], nets: DRAWN.nets };
+        landed(connectStep(KINDS, drag(A03, ODF, { session: step.session, shift: true, drawn }), ask, DEFAULTS));
+        expect(asked).toEqual([
+            `link ${printRef(ref("fibre", ""))} ${printEnds({ from: A02, to: ODF })}`,
+            `net ${printRef(ref("trunks", ""))} ${printSides({ sources: [A02, A03], destinations: [ODF] })}`,
+        ]);
+    });
+
+    test("a key a row holds already refuses the drag, naming the row; a kind that makes none refuses it, naming its key type; a largest key still read records nothing yet", () => {
+        expect(connectStep(KINDS, drag(A02, ODF), () => ({ taken: "A02 to ODF-1" }), DEFAULTS))
+            .toEqual({ refused: { refusal: "taken", ref: ref("fibre", "A02 to ODF-1") } });
+        expect(connectStep(KINDS, drag(A02, ODF), () => ({ untyped: "Blob" }), DEFAULTS))
+            .toEqual({ refused: { refusal: "untyped", kind: "fibre", type: "Blob" } });
+        expect(connectStep(KINDS, drag(A02, ODF), () => undefined, DEFAULTS)).toBeUndefined();
+    });
+
+    test("an item waiting under a placeholder — a text no key of its kind prints as — joins nothing until its key is typed, at either end, the draft naming its kind", () => {
+        const numbered = kindKeys(toEastTypeValue(IntegerType));
+        const kinds: EditKinds = {
+            ...KINDS,
+            itemKeys: new Map([...KINDS.itemKeys, ["racks", { name: "Rack", keys: numbered }], ["network", { name: "Network frame", keys: numbered }]]),
+        };
+        const waiting = ref("racks", "new-rack"), rack = ref("racks", "7"), frame = ref("network", "3");
+        expect(connectCandidate(kinds, drag(waiting, frame)).refusal).toEqual({ why: "placeholder", kind: "Rack", item: "new-rack" });
+        expect(connectCandidate(kinds, drag(rack, ref("network", "new-frame"))).refusal).toEqual({ why: "placeholder", kind: "Network frame", item: "new-frame" });
+        expect(connectStep(kinds, drag(waiting, frame), keyer(), DEFAULTS)).toBeUndefined();
+        // Its key typed, it joins.
+        expect(connectCandidate(kinds, drag(rack, frame)).refusal).toBeUndefined();
+        expect(placeholderRefusal(kinds, { ref: rack, label: "7" })).toBeUndefined();
+        // In an open net too: the member it would add waits on its key.
+        const trunk = ref("trunks", "t1");
+        const open: ConnectDragArgs = {
+            ...drag(waiting, frame), session: { links: [], net: trunk }, shift: true,
+            drawn: { ends: () => undefined, sides: () => ({ sources: [rack], destinations: [frame] }) },
+        };
+        expect(connectCandidate(kinds, open).refusal).toEqual({ why: "placeholder", kind: "Rack", item: "new-rack" });
     });
 });
 
@@ -370,7 +457,7 @@ describe("the host's veto (#1401, D34, #1394)", () => {
     test("a session's net is asked of every leg it would leave: a run onto the core gathered into a trunk is refused in the veto's words, though the pair dragged lands", () => {
         const veto = connectVeto(dataCentre, refOfId);
         // A03 to the core: a run, which the veto allows.
-        const first = connectStep(KINDS, drag(A03, CORE), minter(), DEFAULTS)!;
+        const first = landed(connectStep(KINDS, drag(A03, CORE), keyer(), DEFAULTS));
         expect(vetoOfPairs(veto, "fibre", [{ from: A03, to: CORE }])).toBeUndefined();
         // Shift-dragged on to the fibre frame: the trunk it grows into would land on the core — refused, though A03 → ODF-1
         // alone would land.
@@ -436,5 +523,143 @@ describe("Delete (SC5, SC10, D7)", () => {
         // A read-only link merely selected stays, and refuses nothing.
         const fixed: EditKinds = { ...KINDS, links: new Map([["fibre", { ...KINDS.links.get("fibre")!, editable: false }]]) };
         expect(edits(deleteEdits(fixed, DRAWN, select([], { key: entityId(ref("fibre", "u1")), leg: null })))).toEqual([]);
+    });
+});
+
+describe("a key built from the row follows the row (#1549)", () => {
+    const U1 = ref("fibre", "u1"), FEED = ref("feeds", "feed-a");
+    const refEqual = (a: SchematicRef, b: SchematicRef) => stringEqual(printRef(a), printRef(b));
+    /** A gesture's edits as the editing finds them moving rows: a rack keyed by its fields moves where an edit sets them; a run keyed by its ends, where its ends are written. */
+    const moves = (edits: readonly SchematicEdit[]): SchematicMove[] => {
+        const moved = new Set(edits.flatMap((edit) => (edit.op === "move" ? [printRef(edit.ref)] : [])));
+        if (!moved.has(printRef(A01)) && edits.some((edit) => edit.op === "set" && refEqual(edit.ref, A01))) return [{ ref: A01, to: "A01-b" }];
+        if (!moved.has(printRef(U1)) && edits.some((edit) => edit.op === "ends" && refEqual(edit.ref, U1))) return [{ ref: U1, to: "u1-b" }];
+        return [];
+    };
+    const holding = (over: Partial<SchematicKeyHolding> = {}): SchematicKeyHolding => ({
+        kinds: KINDS, moves, stands: () => false, edited: () => false, drawn: DRAWN, unheld: () => undefined, takes: () => true, ...over,
+    });
+    const SET_A01: SchematicEdit = { op: "set", ref: A01, sets: [] };
+
+    test("a gesture moving no row is its edits as they are", () => {
+        const place: SchematicEdit[] = [{ op: "place", ref: A02, at: some({ x: 1, y: 2 }) }];
+        expect(followBuiltKeys(holding(), place)).toEqual({ edits: place, moved: [] });
+    });
+
+    test("the row moves under the key its fields build before the gesture's edits, which write it there; its details row with it where they are edited; the run and the feed naming it follow", () => {
+        const followed = followBuiltKeys(holding({ edited: (record) => stringEqual(record, "racks\u0000details") }), [SET_A01]);
+        if ("refused" in followed) throw new Error("refused");
+        const moved = ref("racks", "A01-b");
+        // The run, keyed by its ends, follows in turn: the second pass moves it ahead of the first's edits, its ends written
+        // under its new key.
+        expect(followed.edits.map(printed)).toEqual([
+            `move ${printRef(U1)} ${printString("u1-b")}`,
+            `move ${printRef(A01)} ${printString("A01-b")}`,
+            `move details ${printRef(A01)} ${printString("A01-b")}`,
+            `set ${printRef(moved)} ${printWrites([])}`,
+            `ends ${printRef(ref("fibre", "u1-b"))} ${printEnds({ from: moved, to: ODF })}`,
+            `sides ${printRef(FEED)} ${printSides({ sources: [PDU], destinations: [moved, A02] })}`,
+        ]);
+        expect(followed.moved.map((move) => `${printRef(move.ref)} ${printString(move.to)}`)).toEqual([
+            `${printRef(A01)} ${printString("A01-b")}`, `${printRef(U1)} ${printString("u1-b")}`,
+        ]);
+    });
+
+    test("a new item's key typed in the inspector — a move the gesture makes itself — is followed by the run and the feed naming it, the run moving in turn", () => {
+        const typed = ref("racks", "A07");
+        const followed = followBuiltKeys(holding(), [{ op: "move", ref: A01, to: "A07" }]);
+        if ("refused" in followed) throw new Error("refused");
+        expect(followed.edits.map(printed)).toEqual([
+            `move ${printRef(U1)} ${printString("u1-b")}`,
+            `move ${printRef(A01)} ${printString("A07")}`,
+            `ends ${printRef(ref("fibre", "u1-b"))} ${printEnds({ from: typed, to: ODF })}`,
+            `sides ${printRef(FEED)} ${printSides({ sources: [PDU], destinations: [typed, A02] })}`,
+        ]);
+        // The rows moved by the keys they build: the run's, never the typed one, which the gesture moved itself.
+        expect(followed.moved.map((move) => `${printRef(move.ref)} ${printString(move.to)}`)).toEqual([`${printRef(U1)} ${printString("u1-b")}`]);
+    });
+
+    test("a link or a net bound read only naming the row is left as it is, and its details row stays where they are not edited", () => {
+        const fixed: EditKinds = {
+            ...KINDS,
+            links: new Map([["fibre", { ...KINDS.links.get("fibre")!, editable: false }]]),
+            nets: new Map([["feeds", { ...KINDS.nets.get("feeds")!, editable: false }]]),
+        };
+        const followed = followBuiltKeys(holding({ kinds: fixed }), [SET_A01]);
+        if ("refused" in followed) throw new Error("refused");
+        expect(followed.edits.map(printed)).toEqual([`move ${printRef(A01)} ${printString("A01-b")}`, `set ${printRef(ref("racks", "A01-b"))} ${printWrites([])}`]);
+    });
+
+    test("a key a row stands under refuses the gesture, naming it; so does one two moving rows would both take", () => {
+        expect(followBuiltKeys(holding({ stands: (slot, key) => stringEqual(slot, "racks") && stringEqual(key, "A01-b") }), [SET_A01]))
+            .toEqual({ refused: { refusal: "taken", ref: ref("racks", "A01-b") } });
+        const both = holding({ moves: () => [{ ref: A01, to: "A09" }, { ref: A02, to: "A09" }] });
+        expect(followBuiltKeys(both, [SET_A01])).toEqual({ refused: { refusal: "taken", ref: ref("racks", "A09") } });
+    });
+
+    test("a shift and a swap pass (#1581): a key a rack moves off is free once the gesture is made — the rack moving onto it replacing the one moving off, whose key it leaves standing — and a key a rack stays under still refuses", () => {
+        const standing = new Set(["A01", "A02", "A03"]);
+        const stands = (slot: string, key: string) => stringEqual(slot, "racks") && standing.has(key);
+        // The racks the gesture moves, the first time it is asked; none once they have moved.
+        const once = (moved: readonly SchematicMove[]) => {
+            let asked = false;
+            return (): SchematicMove[] => {
+                if (asked) return [];
+                asked = true;
+                return [...moved];
+            };
+        };
+        const SET_A02: SchematicEdit = { op: "set", ref: A02, sets: [] };
+        const at = (key: string) => ref("racks", key);
+        // A01 onto A02's key, A02 onto a free one: the run and the feed follow both.
+        const shifted = followBuiltKeys(holding({ stands, moves: once([{ ref: A01, to: "A02" }, { ref: A02, to: "A04" }]) }), [SET_A01, SET_A02]);
+        if ("refused" in shifted) throw new Error("refused");
+        expect(shifted.edits.map(printed)).toEqual([
+            `move ${printRef(A01)} ${printString("A02")} replacing`,
+            `move ${printRef(A02)} ${printString("A04")} refilled`,
+            `set ${printRef(at("A02"))} ${printWrites([])}`, `set ${printRef(at("A04"))} ${printWrites([])}`,
+            `ends ${printRef(U1)} ${printEnds({ from: at("A02"), to: ODF })}`,
+            `sides ${printRef(FEED)} ${printSides({ sources: [PDU], destinations: [at("A02"), at("A04")] })}`,
+        ]);
+        // A01 and A02 swapping keys: each replaces the other, and neither key is deleted.
+        const swapped = followBuiltKeys(holding({ stands, moves: once([{ ref: A01, to: "A02" }, { ref: A02, to: "A01" }]) }), [SET_A01, SET_A02]);
+        if ("refused" in swapped) throw new Error("refused");
+        expect(swapped.edits.map(printed).slice(0, 2)).toEqual([
+            `move ${printRef(A01)} ${printString("A02")} replacing refilled`, `move ${printRef(A02)} ${printString("A01")} replacing refilled`,
+        ]);
+        // A02 onto A03's key, which A03 stays under: refused, naming it.
+        expect(followBuiltKeys(holding({ stands, moves: once([{ ref: A01, to: "A02" }, { ref: A02, to: "A03" }]) }), [SET_A01, SET_A02]))
+            .toEqual({ refused: { refusal: "taken", ref: at("A03") } });
+    });
+
+    test("an item's key moving while a link or a net kind that writes and may name it isn't held whole — the filters hide some, or it isn't read — refuses the gesture, naming the item and the kind; a kind that can't name it, one read only, and a new item under a placeholder refuse nothing (#1580)", () => {
+        const only = (slot: string, why: "filtered" | "unread") => (at: string) => (stringEqual(at, slot) ? why : undefined);
+        // A rack: fibre runs end at racks, power feeds feed them and trunks start at them.
+        expect(followBuiltKeys(holding({ unheld: only("fibre", "filtered") }), [SET_A01])).toEqual({ refused: { refusal: "unheld", ref: A01, kind: "fibre", why: "filtered" } });
+        expect(followBuiltKeys(holding({ unheld: only("feeds", "unread") }), [SET_A01])).toEqual({ refused: { refusal: "unheld", ref: A01, kind: "feeds", why: "unread" } });
+        expect(followBuiltKeys(holding({ unheld: only("trunks", "filtered") }), [{ op: "move", ref: A01, to: "A07" }]))
+            .toEqual({ refused: { refusal: "unheld", ref: A01, kind: "trunks", why: "filtered" } });
+        // A frame: no power feed names one.
+        const frameMoves = (edits: readonly SchematicEdit[]): SchematicMove[] => (edits.some((edit) => edit.op === "set" && refEqual(edit.ref, ODF)) ? [{ ref: ODF, to: "ODF-2" }] : []);
+        expect("refused" in followBuiltKeys(holding({ moves: frameMoves, unheld: only("feeds", "filtered") }), [{ op: "set", ref: ODF, sets: [] }])).toBe(false);
+        // A run bound read only is left naming the key it named, held or not.
+        const fixed: EditKinds = { ...KINDS, links: new Map([["fibre", { ...KINDS.links.get("fibre")!, editable: false }]]) };
+        expect("refused" in followBuiltKeys(holding({ kinds: fixed, unheld: only("fibre", "filtered") }), [SET_A01])).toBe(false);
+        // A new rack's key typed, where racks are keyed by number: no stored row names its placeholder.
+        const numbered: EditKinds = { ...KINDS, itemKeys: new Map([...KINDS.itemKeys, ["racks", { name: "Rack", keys: kindKeys(toEastTypeValue(IntegerType)) }]]) };
+        expect("refused" in followBuiltKeys(holding({ kinds: numbered, unheld: only("fibre", "filtered") }), [{ op: "move", ref: ref("racks", "new-rack"), to: "7" }])).toBe(false);
+    });
+
+    test("what follows a moving row taking no edit now — a Save of it in flight — refuses the gesture, naming the row: the rows naming it, by their kind, and its details where they are edited; a kind naming nothing that moves, and details not edited, refuse nothing (#1584)", () => {
+        const busy = (record: string) => (at: string) => !stringEqual(at, record);
+        const details = "racks\u0000details";
+        // A01: the run u1 and the feed feed-a name it.
+        expect(followBuiltKeys(holding({ takes: busy("fibre") }), [SET_A01])).toEqual({ refused: { refusal: "unheld", ref: A01, kind: "fibre", why: "busy" } });
+        expect(followBuiltKeys(holding({ takes: busy("feeds") }), [SET_A01])).toEqual({ refused: { refusal: "unheld", ref: A01, kind: "feeds", why: "busy" } });
+        expect(followBuiltKeys(holding({ takes: busy(details), edited: (record) => stringEqual(record, details) }), [SET_A01]))
+            .toEqual({ refused: { refusal: "details", ref: A01 } });
+        // No trunk names A01, and its details not edited stay where they are.
+        expect("refused" in followBuiltKeys(holding({ takes: busy("trunks") }), [SET_A01])).toBe(false);
+        expect("refused" in followBuiltKeys(holding({ takes: busy(details) }), [SET_A01])).toBe(false);
     });
 });

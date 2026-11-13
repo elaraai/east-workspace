@@ -47,8 +47,13 @@ describe("the views prop", () => {
     test("a literal tag that is no view is refused, naming the views", () => {
         assert.throws(() => viewsProp("Roster", Layout, ["month"] as never), /Roster: `views` holds "month", which is none of/);
     });
-    test("a list in the code that leaves out the view it opens on is refused", () => {
-        assert.throws(() => viewsProp<typeof Layout, "shifts" | "people">("Roster", Layout, ["people"], "shifts"), /Roster: it opens on "shifts", and `views` leaves it out/);
+    test("a list in the code that leaves out the view it opens on is refused, naming both the prop that opens it and the list", () => {
+        assert.throws(() => viewsProp<typeof Layout, "shifts" | "people">("Roster", Layout, ["people"], "shifts"),
+            /Roster: `view\.layout` is "shifts", and `views` leaves it out — list it, or open on one of "people"/);
+        assert.throws(() => viewsProp<typeof Layout, "shifts" | "people">("Roster", Layout, ["people"], "shifts", "viewPeriods"),
+            /Roster: `view\.period` is "shifts", and `viewPeriods` leaves it out/);
+        assert.throws(() => viewsProp<typeof Layout, "shifts" | "people">("Ontology", Layout, ["people"], "shifts", "views", "defaultView"),
+            /Ontology: `defaultView` is "shifts", and `views` leaves it out/);
         assert.ok(viewsProp<typeof Layout, "shifts" | "people">("Roster", Layout, ["people"], "people") instanceof Expr);
     });
     test("with no view named, a component opens on the first of its own order the code lists", () => {

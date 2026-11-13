@@ -73,7 +73,7 @@ import { fontAwesomeSize } from "../icon-size.js";
 import { CONFLICT_RING, conflictRing } from "../conflict-ring.js";
 import { builderFooter, builderFooterItem } from "./builder-footer.js";
 import { INSPECTOR_STATUS } from "./inspector.js";
-import { heldToolbarSlot, retainedColumn, retainedRow } from "./loading.js";
+import { heldToolbarSlot, retainedColumn, retainedRow, widestToolbarSlot } from "./loading.js";
 import { linkRibbons } from "./links/ribbons.js";
 import { planElementConflict, planElementFocus, planRowFocus } from "./plan/focus.js";
 import { moveGhostBase, moveGhostSlots } from "./time/move-ghost.js";
@@ -81,6 +81,7 @@ import { nowBase, nowSlots } from "./time/now.js";
 import { scheduleAgenda, scheduleCard, scheduleCardActions, scheduleCardHead, scheduleCardTitle } from "./schedule-agenda.js";
 import { scheduleGroupBase, scheduleGroupSlots } from "./schedule-group.js";
 import { schedulePaneBase, schedulePaneSlots } from "./schedule-pane.js";
+import { schedulePickerBase, schedulePickerSlots } from "./schedule-picker.js";
 import { timeRulerBase } from "./time/axis.js";
 
 /** A head's caption (`LANE`, `HOUR`, `WEEK`, `RESOURCE`, a week): mono 10 / 600, tracked 0.16em, uppercase, `--ink-4`. */
@@ -131,7 +132,7 @@ const statusWord = { fontSize: "label.md", fontWeight: "semibold", letterSpacing
 export const allocationBuilderSlotRecipe = defineSlotRecipe({
     className: "east-allocation-builder",
     slots: [
-        "root", "main", "status", "pickerDot", "controls", "footer", "footerItem", "legendItem", "legendSwatch", "error", "empty", "narrowedEmpty",
+        "root", "main", "status", ...schedulePickerSlots, "controls", "footer", "footerItem", "legendItem", "legendSwatch", "error", "empty", "narrowedEmpty",
         "timeline", "head", "headCaption", "lanePane", "laneContent", "laneHead", "laneHeadCell", "laneName", "laneOffset", "laneMeta",
         "laneGrid", "laneBand", "laneHour", "laneCell", "card", "cardTop", "cardCode", "cardQty", "cardLine", "cardTo", "cardLeft", "cardMark",
         "connector", "connectorMark", "channel", "channelHead", "resourcePane", "resourceHead", "resourceCaption", "ruler",
@@ -142,22 +143,17 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
         "tableResourceSpan", "tableUnits", "tableValue", "tableLoad", "tableStatus", "tableStatusDot", "tableChip", "tableChipIcon", "tableChipCode",
         "tableChipMeta", "tableChipButton", "tablePlaceholder", "tablePlaceholderText", "tableParts", "tablePart", "tablePartFace", "tableChipQty",
         "cards", "agenda", "agendaItem", "agendaCard", "agendaCardHead", "agendaCardTitle", "agendaLine", "agendaActions", "agendaBin", "agendaBinHead", "agendaStatus",
-        "heldSlot", "readLine", "tableReadLine", "tableUnreadCell",
+        "heldSlot", "widestSlot", "readLine", "tableReadLine", "tableUnreadCell",
     ],
     base: {
         ...nowBase,
         ...moveGhostBase,
         ...scheduleGroupBase,
         ...schedulePaneBase,
+        ...schedulePickerBase,
         root: { height: "100%", minHeight: 0, minWidth: 0, display: "flex", flexDirection: "column", background: "bg.surface", color: "fg" },
         main: { flex: 1, minHeight: 0, minWidth: 0, overflow: "hidden", display: "flex", flexDirection: "column" },
         status: INSPECTOR_STATUS,
-        // A day's mark under its number in the date picker: published, draft, or not started.
-        pickerDot: {
-            width: "6px", height: "6px", borderRadius: "50%", border: "1px solid", borderColor: "fg.subtle",
-            "&[data-state=published]": { background: "fg.success", borderColor: "fg.success" },
-            "&[data-state=draft]": { background: "brand.solid", borderColor: "brand.solid" },
-        },
         controls: { display: "flex", flexDirection: "column", gap: "8px", minWidth: 0 },
         footer: builderFooter,
         footerItem: builderFooterItem,
@@ -265,7 +261,7 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
             "&[data-selected][data-draft]": { borderStyle: "dashed" },
             // Outside the focus: the rule border and ink-4 words, unless the pointer is on it (A13).
             "&[data-dim]:not(:hover)": { borderColor: "border.subtle", background: "bg.surface" },
-            // A conflict not yet chosen: the warn ring at the bin's edge, over the bins beside it.
+            // A conflict not yet chosen, or a number outside its bounds: the warn ring at the bin's edge, over the bins beside it.
             ...planElementConflict,
             // Hovered or selected, it rises over the link layer with its connector (A21).
             "&:hover, &[data-selected], &:focus-within": { zIndex: 6 },
@@ -585,8 +581,9 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
             background: "bg.surface", cursor: "default",
             "&:hover": { background: "bg.canvas" },
             "&[data-selected]": { background: "bg.subtle" },
-            // A conflict not yet chosen: the warn ring, inside the row's edge — it runs the table's width.
-            "&[data-conflict]": { outline: "1px solid {colors.status.warn}", outlineOffset: "-1px" },
+            // A conflict not yet chosen, or a number outside its bounds: the warn ring, inside the row's edge — it runs the
+            // table's width.
+            "&:is([data-conflict], [data-bounds])": { outline: "1px solid {colors.status.warn}", outlineOffset: "-1px" },
             // Retained while a narrowing is read (#1398, CL5): the shared retained row.
             "[data-allocation-stale] &": retainedRow,
         },
@@ -716,7 +713,7 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
             "&[data-tone=warning]": { color: "fg.warning", fontWeight: "semibold" },
         },
         // A bin on a resource's card: its line over its actions, under the rule; a draft's in the brand, the selected one in the ink;
-        // one holding a conflict not yet chosen in the warn ring at its edge.
+        // one holding a conflict not yet chosen, or a number outside its bounds, in the warn ring at its edge.
         agendaBin: {
             display: "flex", flexDirection: "column", gap: "8px", minWidth: 0, paddingTop: "8px", borderTopWidth: "1px", borderColor: "border.subtle",
             ...conflictRing,
@@ -735,6 +732,8 @@ export const allocationBuilderSlotRecipe = defineSlotRecipe({
         },
         // ── A day's read (#1398) ── the toolbar's status, issues and Publish held from cold load (CL1).
         heldSlot: heldToolbarSlot,
+        // The status's and the issues' slots, each the widest of what it may say, so the toolbar holds still as they change (#1595).
+        widestSlot: widestToolbarSlot,
         // Said once across the lane cells of the first row in view (CL11, CL13): from the hour column's rule over every lane,
         // a row high but its rule; the paper over the lanes' rules, so they never cross its words. It takes no pointer but its
         // Retry, and steps aside while a drag or a pick marks the cells under it.

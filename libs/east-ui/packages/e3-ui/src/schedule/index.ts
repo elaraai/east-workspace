@@ -19,6 +19,9 @@
  *   Allocation's roles beside them (#1367).
  * - `Schedule.periods(record, config)`: what a builder publishes, the app's
  *   own record of periods, its status a variant field of the app's (#1367).
+ * - A new row's own fields, the ones no role maps, from the app's `values`
+ *   (#1526): a Roster's duties and an Allocation's reservations take it on
+ *   `Schedule.events`, a builder's periods on `Schedule.periods`.
  * - `Schedule.field`: the inspector's typed form, east-ui's `Fields`.
  * - `Schedule.patch`: what a library card dropped on an event sets, a patch
  *   over an event kind's row type (#1195).
@@ -46,7 +49,7 @@ import {
     PlanEventItemType, PlanEventKindType, PlanEventReadType, PlanEventRolesType, PlanResourceRowType, PlanResourcesType,
     ScheduleAllocationEntryType, ScheduleAllocationKindType, ScheduleAllocationRolesType, ScheduleCandidateType, ScheduleClockType,
     ScheduleDraftsType, ScheduleDurationType, ScheduleEventRefType, ScheduleFitType, ScheduleGestureType, ScheduleItemType, ScheduleKindType,
-    ScheduleOverlapsType, SchedulePeriodStatusType, SchedulePeriodsKindType, ScheduleReadyEntryType, ScheduleResourceRefType, ScheduleResourceRowType,
+    ScheduleNewPeriodType, ScheduleOverlapsType, SchedulePeriodStatusType, SchedulePeriodsKindType, ScheduleReadyEntryType, ScheduleResourceRefType, ScheduleResourceRowType,
     ScheduleRefusalType, ScheduleResourcesType, ScheduleRosterEntryType, ScheduleRosterKindType, ScheduleRosterRolesType, ScheduleStatusCasesFor,
     ScheduleStatusType, ScheduleTemplateType, ScheduleWriteType,
 } from "./types.js";
@@ -63,6 +66,7 @@ export {
     type ScheduleValuesOf,
 } from "./events.js";
 export { schedulePeriods, type SchedulePeriods, type SchedulePeriodsConfig } from "./periods.js";
+export { type ScheduleNewValues } from "./values.js";
 export {
     SCHEDULE_DEF, scheduleResources, type ScheduleResourceAccessor, type ScheduleResourceAccessors, type ScheduleResourceKind,
     type ScheduleResourcesConfig,
@@ -113,8 +117,8 @@ export function scheduleCheck(
 
 /**
  * The check a builder that draws each event's title makes (#1367): every
- * event kind names its `title`, which `Schedule.events` takes as optional for
- * the builders that draw none.
+ * event kind gives its `title`, a String field of its row or a function of
+ * it, which `Schedule.events` takes as optional for the builders that draw none.
  *
  * @param events - The builder's event kinds, by slot
  * @param builder - The builder, for the refusal (`Calendar`, `Plan`)
@@ -122,8 +126,8 @@ export function scheduleCheck(
  */
 export function scheduleTitled(events: Readonly<Record<string, ScheduleEventKind<EastType, EastType>>>, builder: string): void {
     for (const [slot, kind] of Object.entries(events)) {
-        if (kind.title === undefined) {
-            throw new Error(`${builder}: events.${slot} has no title — the ${builder} draws each event's title: give the kind a \`title\`, a String field of its row`);
+        if (!kind.titled) {
+            throw new Error(`${builder}: events.${slot} has no title — the ${builder} draws each event's title: give the kind a \`title\`, a String field of its row or a function of it`);
         }
     }
 }
@@ -171,6 +175,8 @@ export interface ScheduleNamespace {
         Fit: typeof ScheduleFitType;
         /** Why something does not fit, and what a run of refusals gathers into its label. */
         Refusal: typeof ScheduleRefusalType;
+        /** A period's new row, its start: what the periods' `values` gives its own fields from (#1526). */
+        NewPeriod: typeof ScheduleNewPeriodType;
     };
 }
 
@@ -198,6 +204,7 @@ export const Schedule: ScheduleNamespace = {
         Patch: SchedulePatchTypeFor,
         Fit: ScheduleFitType,
         Refusal: ScheduleRefusalType,
+        NewPeriod: ScheduleNewPeriodType,
     },
 };
 

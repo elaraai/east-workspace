@@ -41,9 +41,10 @@ export interface OptimiseHandle {
  * @property builder - The builder, as the refusals name it (`Roster`)
  * @property request - The request type the function must ask: the builder's `OptimiseRequest` over its rows
  * @property result - The result type it must answer: the builder's `OptimiseResult` over its rows
- * @property signature - The signature in words, for a value that is no `Func.bind` handle (`from Roster.Types.OptimiseRequest(R) to Roster.Types.OptimiseResult(R), R the duties' row type`)
+ * @property signature - The signature in words, for a value that is no `Func.bind` handle (`from Roster.Types.OptimiseRequest(R) to Roster.Types.OptimiseResult(R), or from and to both given { edges: true }, R the duties' row type`)
  * @property names - The constructors, as the refusals spell them (`Roster.Types.OptimiseRequest`, `Roster.Types.OptimiseResult`)
  * @property rows - The builder's rows, printed, as each constructor takes them (`.Struct […]`)
+ * @property options - What each constructor takes after the rows, as the refusals spell it (`, { edges: true }`, #1553); none, nothing
  * @property noun - What rows are called when a function is bound over others (`duty rows`), and whose the builder's are (`the duty kind's rows`)
  * @property of - What the remedy binds a request over (`the duties' row type`)
  * @property otherRows - The rows a request of the request's shape over other rows was built over, printed, when `asked` is one; `undefined` otherwise
@@ -55,6 +56,7 @@ export interface OptimiseContract {
     signature: string;
     names: { request: string; result: string };
     rows: { request: string; result: string };
+    options?: string;
     noun: { theirs: string; ours: string };
     of: string;
     otherRows: (asked: EastType) => string | undefined;
@@ -83,10 +85,10 @@ export function optimiseBinding(optimise: unknown, contract: OptimiseContract): 
         throw new Error(theirs !== undefined
             ? `${builder}: \`optimise\` is bound over ${contract.noun.theirs} ${theirs}, and ${contract.noun.ours} are ${contract.rows.request} — ` +
                 `bind an optimiser over ${names.request} of ${contract.of}`
-            : `${builder}: \`optimise\` asks ${printType(asked)}, not ${names.request}(${contract.rows.request})`);
+            : `${builder}: \`optimise\` asks ${printType(asked)}, not ${names.request}(${contract.rows.request}${contract.options ?? ""})`);
     }
     if (!isTypeEqual(signature.answers, contract.result)) {
-        throw new Error(`${builder}: \`optimise\` answers ${printType(signature.answers)}, not ${names.result}(${contract.rows.result})`);
+        throw new Error(`${builder}: \`optimise\` answers ${printType(signature.answers)}, not ${names.result}(${contract.rows.result}${contract.options ?? ""})`);
     }
     return (optimise as ExprType<StructType<{ binding: typeof FuncBindingType }>>).binding;
 }

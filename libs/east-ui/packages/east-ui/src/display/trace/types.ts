@@ -23,7 +23,7 @@ import { PlotGutterType, type PlotGutter } from "../../shared/plot-gutter.js";
  * Colour encoding for a Trace's heat fills.
  *
  * @property brand - Sequential brand-tint ramp; one hue, intensity scales with value
- * @property diverge - Two-sided ramp centred on each track's midpoint (cool below, warm above)
+ * @property diverge - Two-sided about each track's midpoint, cool below and warm above, intensity scaling with a value's distance from it: above, three steps of the warning hue built as the heat ramp is; below, three of the brand's heat ramp, or of a `brandColor`'s built the same way. Each side's strongest step is its deepest colour, and a predicted step is paler
  * @property categorical - One hue per track, intensity scales with value within the track
  */
 export const TraceScaleType = VariantType({
@@ -66,8 +66,8 @@ export type TraceTrackType = typeof TraceTrackType;
 /**
  * Visual escape hatches for a Trace.
  *
- * @property brandColor - Override the heat hue used by the `brand` / `diverge` scales
- * @property nowLineColor - Override the colour of the now-line
+ * @property brandColor - Override the heat hue of the `brand` scale and of the `diverge` scale's cool side, below each track's midpoint: a theme colour's name (`"accent.purple"`) or a CSS colour. Its steps are built from it as the theme's own series hues are, its lightness held where the theme's inks read on every step, so their values read in both themes whatever the colour
+ * @property nowLineColor - Override the colour of the now-line: a theme colour's name (`"fg.muted"`) or a CSS colour
  * @property labelWidth - Width of the left-hand track-name gutter (any CSS length); omit for the density default
  * @property plotGutter - Shared plot gutter (#147): pins the lane to `[left, W−right]` so a stacked Chart/Trace line up. `left` supersedes `labelWidth`; presence makes the lane fill the container (flexible steps)
  */
@@ -124,8 +124,8 @@ export interface TraceTrack {
  * @property scale - Heat-fill colour encoding
  * @property future - How predicted steps are distinguished
  * @property axis - Optional per-step labels (ruler at `comfortable`, step tooltips at every density)
- * @property brandColor - Override the heat hue used by the `brand` / `diverge` scales
- * @property nowLineColor - Override the colour of the now-line
+ * @property brandColor - Override the heat hue of the `brand` scale and of the `diverge` scale's cool side, below each track's midpoint: a theme colour's name (`"accent.purple"`) or a CSS colour. Its steps are built from it as the theme's own series hues are, its lightness held where the theme's inks read on every step, so their values read in both themes whatever the colour
+ * @property nowLineColor - Override the colour of the now-line: a theme colour's name (`"fg.muted"`) or a CSS colour
  */
 export interface TraceOptions {
     /** Step index of the continuous now-line; `[0, now)` measured, `[now, end)` predicted. Omit for measured-only. */
@@ -138,9 +138,9 @@ export interface TraceOptions {
     future?: SubtypeExprOrValue<TraceFutureType> | TraceFutureLiteral;
     /** Optional per-step labels (ruler at `comfortable`, step tooltips always). */
     axis?: SubtypeExprOrValue<ArrayType<StringType>>;
-    /** Override the heat hue used by the `brand` / `diverge` scales. */
+    /** Override the heat hue of the `brand` scale and of the `diverge` scale's cool side, below each track's midpoint: a theme colour's name (`"accent.purple"`) or a CSS colour. Its steps are built from it as the theme's own series hues are, its lightness held where the theme's inks read on every step, so their values read in both themes whatever the colour. */
     brandColor?: SubtypeExprOrValue<StringType>;
-    /** Override the colour of the now-line. */
+    /** Override the colour of the now-line: a theme colour's name (`"fg.muted"`) or a CSS colour. */
     nowLineColor?: SubtypeExprOrValue<StringType>;
     /** Width of the left-hand track-name gutter (any CSS length, e.g. `"120px"`); omit for the density default. */
     labelWidth?: SubtypeExprOrValue<StringType>;

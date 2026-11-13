@@ -8,8 +8,9 @@
  * (#1367, `Builder Interfaces Spec.md` §4) over Schedule's example records on
  * e3 itself (#1379): the Roster's and the Allocation's roles on
  * `Schedule.events`, read and written through a kind's `buildRoster` and
- * `buildAllocation`; an optional `title`; and `Schedule.periods`, what a
- * builder publishes. Each is built against the platform a UI task's preview
+ * `buildAllocation`; an optional `title`; `Schedule.periods`, what a builder
+ * publishes; and a new row's own fields from the app's `values` (#1526), held
+ * at build to the fields no role maps. Each is built against the platform a UI task's preview
  * gives it, so the record it reads is e3's and an Apply commits through its
  * patch door; a record read a period at a time is paged by e3, its searches
  * and pages counted from the harness's request log, and never read whole
@@ -61,6 +62,34 @@ const dutyProgram = East.function([], Schedule.Types.RosterKind, ($) => {
         start: "start", end: "end", resource: { field: "who", of: { staff: "people", agency: "agencies" } },
         shift: "shift", group: "team", position: "role", activity: "task",
         hours: (d) => d.start.durationMinutes(d.end).subtract(d.unpaidBreak).divide(60.0),
+    }).buildRoster("duty");
+});
+
+/** The warehouse's duty kind with the app's `values`: a new duty's break by its hours, its cost centre by its team, and the pattern that made it. */
+const valuesProgram = East.function([], Schedule.Types.RosterKind, ($) => {
+    const duties = $.let(Record.bind(sx.scheduleDuties, ["patch"]));
+    return Schedule.events(duties, {
+        name: "Duty", icon: "user-clock",
+        start: "start", end: "end", resource: { field: "who", of: { staff: "people", agency: "agencies" } },
+        shift: "shift", group: "team", position: "role", activity: "task",
+        values: (d) => ({
+            unpaidBreak: d.hours.greaterThan(6.0).ifElse(() => 30.0, () => 0.0),
+            costCentre: d.group.match({ some: (_$, team) => East.str`CC-${team}`, none: () => "" }),
+            note: d.pattern.match({ some: (_$, key) => East.str`pattern ${key}`, none: () => "" }),
+        }),
+    }).buildRoster("duty");
+});
+
+/**
+ * A duty kind whose group is an Option field (#1548), its `none` a duty in no group yet: the duty's task here, which no
+ * other role maps, the team left to the row.
+ */
+const looseProgram = East.function([], Schedule.Types.RosterKind, ($) => {
+    const duties = $.let(Record.bind(sx.scheduleDuties, ["patch"]));
+    return Schedule.events(duties, {
+        name: "Duty", icon: "user-clock",
+        start: "start", end: "end", resource: { field: "who", of: { staff: "people", agency: "agencies" } },
+        shift: "shift", group: "task",
     }).buildRoster("duty");
 });
 
@@ -123,7 +152,7 @@ describe("Schedule.events — the Roster's roles (buildRoster)", () => {
         const [D1, D2] = [await duty("d1"), await duty("d2")];
         assert.ok(rosterRolesEqual(dutyKind.read(encodeDuty(D1), "d1"), {
             start: D1.start, end: D1.end, resource: some({ kind: "people", key: "w-01" }),
-            shift: "early", group: "inbound", position: some("lead"), activity: some("unloading"), hours: 9.5,
+            shift: "early", group: some("inbound"), position: some("lead"), activity: some("unloading"), hours: 9.5,
         }));
         const agency = dutyKind.read(encodeDuty(D2), "d2");
         assert.ok(equalFor(OptionType(Schedule.Types.ResourceRef))(agency.resource, some({ kind: "agencies", key: "a-1" })), "an agency's request, by the variant's case");
@@ -136,7 +165,7 @@ describe("Schedule.events — the Roster's roles (buildRoster)", () => {
         const D1 = await duty("d1");
         const moved = dutyKind.write(encodeDuty(D1), {
             start: at("2027-03-08T14:00:00Z"), end: at("2027-03-08T22:00:00Z"), resource: some({ kind: "agencies", key: "a-2" }),
-            shift: "late", group: "picking", position: some("crew"), activity: none, hours: 0,
+            shift: "late", group: some("picking"), position: some("crew"), activity: none, hours: 0,
         });
         if (moved.type !== "some") assert.fail("expected the duty written");
         assert.ok(dutyEqual(decodeDuty(moved.value), {
@@ -147,16 +176,85 @@ describe("Schedule.events — the Roster's roles (buildRoster)", () => {
             "a resource of a kind the duty kind does not take is refused");
     });
 
+    test("a group of an Option field (#1548): `some` for a duty in a group and `none` for one in no group yet, each written as the field holds it; a String group refuses `none`", async () => {
+        const looseKind = await builtRoster(looseProgram);
+        assert.equal(looseKind.roles.noGroup, true);
+        const D1 = await duty("d1");
+        const roles = looseKind.read(encodeDuty(D1), "d1");
+        assert.ok(equalFor(OptionType(StringType))(roles.group, D1.task), "the field as the row holds it");
+        const unplaced = looseKind.write(encodeDuty(D1), { ...roles, group: none });
+        if (unplaced.type !== "some") assert.fail("expected the duty written in no group");
+        assert.ok(dutyEqual(decodeDuty(unplaced.value), { ...D1, task: none }), "in no group: none, every other field the row's own");
+        const placed = looseKind.write(unplaced.value, { ...looseKind.read(unplaced.value, "d1"), group: some("picking") });
+        if (placed.type !== "some") assert.fail("expected the duty placed");
+        assert.ok(dutyEqual(decodeDuty(placed.value), { ...D1, task: some("picking") }), "placed in a group");
+        const created = looseKind.create({ ...roles, group: none, pattern: none });
+        if (created.type !== "some") assert.fail("expected a duty created in no group");
+        assert.ok(equalFor(OptionType(StringType))(decodeDuty(created.value).task, none));
+        // A kind whose group is a String field holds every duty in a group: a write or a new duty in none is refused.
+        const dutyKind = await builtRoster(dutyProgram);
+        assert.equal(dutyKind.roles.noGroup, false);
+        const held = dutyKind.read(encodeDuty(D1), "d1");
+        assert.equal(dutyKind.write(encodeDuty(D1), { ...held, group: none }).type, "none");
+        assert.equal(dutyKind.create({ ...held, group: none, pattern: none }).type, "none");
+    });
+
     test("creates a new duty from its roles: every other field its type's default", async () => {
         const created = (await builtRoster(dutyProgram)).create({
             start: at("2027-03-10T06:00:00Z"), end: at("2027-03-10T14:00:00Z"), resource: some({ kind: "people", key: "w-03" }),
-            shift: "early", group: "inbound", position: some("crew"), activity: none, hours: 0,
+            shift: "early", group: some("inbound"), position: some("crew"), activity: none, hours: 0, pattern: none,
         });
         if (created.type !== "some") assert.fail("expected the duty created");
         assert.ok(dutyEqual(decodeDuty(created.value), {
             who: variant("staff", "w-03"), start: at("2027-03-10T06:00:00Z"), end: at("2027-03-10T14:00:00Z"),
             shift: "early", team: "inbound", role: "crew", task: none, unpaidBreak: 0, costCentre: "", note: "",
         }));
+    });
+
+    test("a new duty's own fields are the kind's `values` of it: its roles and the pattern whose day made it, its roles written over them (#1526)", async () => {
+        const dutyKind = await builtRoster(valuesProgram);
+        const created = dutyKind.create({
+            start: at("2027-03-10T06:00:00Z"), end: at("2027-03-10T14:00:00Z"), resource: some({ kind: "people", key: "w-03" }),
+            shift: "early", group: some("inbound"), position: some("crew"), activity: none, hours: 8, pattern: none,
+        });
+        if (created.type !== "some") assert.fail("expected the duty created");
+        assert.ok(dutyEqual(decodeDuty(created.value), {
+            who: variant("staff", "w-03"), start: at("2027-03-10T06:00:00Z"), end: at("2027-03-10T14:00:00Z"),
+            shift: "early", team: "inbound", role: "crew", task: none, unpaidBreak: 30, costCentre: "CC-inbound", note: "",
+        }), "an eight-hour duty's break, and its team's cost centre");
+        const patterned = dutyKind.create({
+            start: at("2027-03-11T14:00:00Z"), end: at("2027-03-11T18:00:00Z"), resource: some({ kind: "people", key: "w-03" }),
+            shift: "late", group: some("dispatch"), position: none, activity: none, hours: 4, pattern: some("late-4"),
+        });
+        if (patterned.type !== "some") assert.fail("expected the duty created");
+        assert.ok(dutyEqual(decodeDuty(patterned.value), {
+            who: variant("staff", "w-03"), start: at("2027-03-11T14:00:00Z"), end: at("2027-03-11T18:00:00Z"),
+            shift: "late", team: "dispatch", role: "", task: none, unpaidBreak: 0, costCentre: "CC-dispatch", note: "pattern late-4",
+        }), "a pattern's four-hour duty: no break, and the pattern named; a duty holding no position keeps the field's default");
+        // A stored duty is written by its roles alone: its own fields are its own, whatever `values` gives a new one.
+        const D1 = await duty("d1");
+        const moved = dutyKind.write(encodeDuty(D1), { ...dutyKind.read(encodeDuty(D1), "d1"), shift: "late" });
+        if (moved.type !== "some") assert.fail("expected the duty written");
+        assert.ok(dutyEqual(decodeDuty(moved.value), { ...D1, shift: "late" }));
+    });
+
+    test("refuses at build a `values` giving other fields than the ones no role maps, or one of another type, naming it (#1526)", () => {
+        const refused = (values: unknown) => East.function([], Schedule.Types.RosterKind, ($) => {
+            const duties = $.let(Record.bind(sx.scheduleDuties, ["patch"]));
+            return Schedule.events(duties, {
+                name: "Duty", icon: "user-clock", start: "start", end: "end", resource: { field: "who", of: { staff: "people", agency: "agencies" } },
+                shift: "shift", group: "team", position: "role", activity: "task", values: values as never,
+            }).buildRoster("duty");
+        });
+        assert.throws(() => refused(() => ({ unpaidBreak: 0.0, costCentre: "" })),
+            /Schedule\.events: "Duty": `values` gives every one of a new row's own fields \(unpaidBreak, costCentre, note\) — and it leaves out "note"/);
+        assert.throws(() => refused(() => ({ unpaidBreak: 0.0, costCentre: "", note: "", shift: "late" })),
+            /`values` gives "shift", which the builder writes itself — it gives a new row's own fields \(unpaidBreak, costCentre, note\)/);
+        assert.throws(() => refused(() => ({ unpaidBreak: 0.0, costCentre: "", note: "", agreed: true })), /`values` gives "agreed", a field the row does not have/);
+        assert.throws(() => refused(() => ({ unpaidBreak: 0.0, costCentre: "", note: 1.0 })), /`values` gives "note" \.Float — and the row's "note" holds \.String/);
+        assert.throws(() => refused("CC-10"), /`values` is a function giving a new row's own fields \(unpaidBreak, costCentre, note\)/);
+        // Written in any order, the fields are the row's.
+        assert.doesNotThrow(() => refused(() => ({ note: "", costCentre: "", unpaidBreak: 0.0 })));
     });
 
     test("a kind without the optional roles reads none for them, and counts a duty's length in hours", async () => {
@@ -215,6 +313,35 @@ describe("Schedule.events — the Allocation's roles (buildAllocation)", () => {
         assert.ok(binEqual(decodeBin(moved), { ...B1, bay: "B-2", at: at("2027-05-11T06:35:00Z"), kilns: new SortedMap([["K-109", 12], ["K-110", 12]], byString) }));
     });
 
+    test("a reservation's own fields are the kind's `values` of it; a booked bin's are its arrival's, or their defaults (#1526)", async () => {
+        const program = East.function([], Schedule.Types.AllocationKind, ($) => {
+            const bins = $.let(Record.bind(sx.scheduleBins, ["patch"]));
+            return Schedule.events(bins, {
+                name: "Bin", icon: "box", at: "at", resource: { field: "bay", of: "bays" }, arrival: "load",
+                quantity: { field: "m3", unit: "m³" }, parts: { field: "kilns", of: "kilns" }, hold: "dryFor", kind: "spec",
+                values: (b) => ({ specMeasured: "unmeasured", instruction: some(East.str`Reserved in ${b.lane}`) }),
+            }).buildAllocation("bin");
+        });
+        const binKind = await builtAllocation(program);
+        const roles: ValueTypeOf<typeof Schedule.Types.AllocationRoles> = { at: at("2027-05-11T00:15:00Z"), lane: "B-1", arrival: none, quantity: 0,
+            parts: new SortedMap([["K-109", 0]], byString), hold: variant("days", 0), kind: none };
+        assert.ok(binEqual(decodeBin(binKind.create(roles, none)), {
+            bay: "B-1", at: roles.at, load: none, m3: 0, kilns: roles.parts, dryFor: variant("days", 0), spec: none,
+            specMeasured: "unmeasured", instruction: some("Reserved in B-1"),
+        }), "a reservation: the kind's values of it, its roles written over them");
+        assert.ok(binEqual(decodeBin(binKind.create({ ...roles, arrival: some("LD-2235"), quantity: 8 }, none)), {
+            bay: "B-1", at: roles.at, load: some("LD-2235"), m3: 8, kilns: roles.parts, dryFor: variant("days", 0), spec: none, specMeasured: "", instruction: none,
+        }), "a bin booked from an arrival with no values: their defaults, never a reservation's");
+        assert.throws(() => East.function([], Schedule.Types.AllocationKind, ($) => {
+            const bins = $.let(Record.bind(sx.scheduleBins, ["patch"]));
+            return Schedule.events(bins, {
+                name: "Bin", icon: "box", at: "at", resource: { field: "bay", of: "bays" }, arrival: "load",
+                quantity: { field: "m3", unit: "m³" }, parts: { field: "kilns", of: "kilns" }, hold: "dryFor", kind: "spec",
+                values: () => ({ specMeasured: "" }),
+            }).buildAllocation("bin");
+        }), /Schedule\.events: "Bin": `values` gives every one of a new row's own fields \(specMeasured, instruction\) — and it leaves out "instruction"/);
+    });
+
     test("books a new bin from its roles and an arrival's values; a reservation's own fields are their type's default (B13)", async () => {
         const binKind = await builtAllocation(binProgram);
         const roles: ValueTypeOf<typeof Schedule.Types.AllocationRoles> = { at: at("2027-05-11T00:15:00Z"), lane: "B-1", arrival: some("LD-2235"), quantity: 8,
@@ -252,20 +379,74 @@ describe("Schedule.events — the Allocation's roles (buildAllocation)", () => {
 });
 
 // ============================================================================
-// An optional title (B3)
+// An event's title: optional (B3), a field or a function of its row (#1588)
 // ============================================================================
 
-describe("Schedule.events — `title` is optional (B3)", () => {
+describe("Schedule.events — `title`, optional (B3), a field of the row or a function of it (#1588)", () => {
+    /** A kind with no title. */
+    const untitled = East.function([], Schedule.Types.Kind, ($) => {
+        const duties = $.let(Record.bind(sx.schedulePlainDuties, ["patch"]));
+        return Schedule.events(duties, { name: "Duty", icon: "i", start: "start", end: "end" }).build("duty");
+    });
+    /** A kind built over e3, as a UI task's preview builds it. */
+    async function built(program: typeof untitled): Promise<Kind> {
+        const { platform } = await h.platform(program);
+        return East.compile(program, platform)();
+    }
+    /** Each event of a kind overlapping [from, to), by its key and its title, as every view reads it. */
+    async function titles(program: typeof untitled, from: string, to: string): Promise<(readonly [string, string])[]> {
+        const items = (await built(program)).items(at(from), at(to), new SortedMap([], byString), none);
+        if (items.type !== "some") assert.fail("expected the items");
+        return items.value.map((i) => [i.key, i.title] as const);
+    }
+    const MARCH_8 = ["2027-03-08T00:00:00Z", "2027-03-09T00:00:00Z"] as const;
+
     test("a kind with no title builds, its events titled with nothing", async () => {
+        assert.deepEqual(await titles(untitled, ...MARCH_8), [["p1", ""]]);
+    });
+
+    test("a title from a variant's case: a function of the row, worked out for each event", async () => {
+        const program = East.function([], Schedule.Types.Kind, ($) => {
+            const shifts = $.let(Record.bind(sx.scheduleShifts, ["patch"]));
+            return Schedule.events(shifts, {
+                name: "Shift", icon: "i", start: "start", end: "end",
+                title: (shift) => shift.status.match({ tentative: () => "To confirm", confirmed: () => "Confirmed", in_progress: () => "Running", done: () => "Finished" }),
+            }).build("shift");
+        });
+        assert.deepEqual(await titles(program, "2026-10-01T00:00:00Z", "2026-10-02T00:00:00Z"), [["s1", "Confirmed"], ["s2", "To confirm"]]);
+    });
+
+    test("a title from two fields, the row's key beside them", async () => {
         const program = East.function([], Schedule.Types.Kind, ($) => {
             const duties = $.let(Record.bind(sx.schedulePlainDuties, ["patch"]));
-            return Schedule.events(duties, { name: "Duty", icon: "i", start: "start", end: "end" }).build("duty");
+            return Schedule.events(duties, { name: "Duty", icon: "i", start: "start", end: "end", title: (duty, key) => East.str`${key}: ${duty.team} · ${duty.shift}` }).build("duty");
         });
-        const { platform } = await h.platform(program);
-        const kind: Kind = East.compile(program, platform)();
-        const items = kind.items(at("2027-03-08T00:00:00Z"), at("2027-03-09T00:00:00Z"), new SortedMap([], byString), none);
-        if (items.type !== "some") assert.fail("expected the items");
-        assert.deepEqual(items.value.map((i) => [i.key, i.title]), [["p1", ""]]);
+        assert.deepEqual(await titles(program, ...MARCH_8), [["p1", "p1: inbound · early"]]);
+    });
+
+    test("a function names no field: every field it reads stays in the form, and the inspector holds none as the title's", async () => {
+        const program = East.function([], Schedule.Types.Kind, ($) => {
+            const duties = $.let(Record.bind(sx.schedulePlainDuties, ["patch"]));
+            return Schedule.events(duties, { name: "Duty", icon: "i", start: "start", end: "end", title: (duty) => duty.shift }).build("duty");
+        });
+        const kind = await built(program);
+        assert.deepEqual(kind.fields.map((f) => f.path.join(".")), ["person", "shift", "team"]);
+        assert.equal(kind.schedule.title, "");
+        // A field is the form's no longer, and the inspector's title.
+        const named = East.function([], Schedule.Types.Kind, ($) => {
+            const duties = $.let(Record.bind(sx.schedulePlainDuties, ["patch"]));
+            return Schedule.events(duties, { name: "Duty", icon: "i", start: "start", end: "end", title: "shift" }).build("duty");
+        });
+        const fielded = await built(named);
+        assert.deepEqual(fielded.fields.map((f) => f.path.join(".")), ["person", "team"]);
+        assert.equal(fielded.schedule.title, "shift");
+    });
+
+    test("a function returning another type is refused at build, naming what it returns", () => {
+        assert.throws(() => East.function([], Schedule.Types.Kind, ($) => {
+            const duties = $.let(Record.bind(sx.schedulePlainDuties, ["patch"]));
+            return Schedule.events(duties, { name: "Duty", icon: "i", start: "start", end: "end", title: ((duty: { start: unknown }) => duty.start) as never }).build("duty");
+        }), /Schedule\.events: "Duty": `title` returns a String, the event's title — and this one returns \.DateTime/);
     });
 });
 
@@ -290,19 +471,46 @@ describe("Schedule.periods — what a builder publishes", () => {
     test("publishes a period: its status the published case at the time given, its own fields as they were", async () => {
         const [weekPeriods, dayPeriods] = [await builtPeriods(weekProgram), await builtPeriods(dayProgram)];
         const draft = await week("2027-03-14T00:00:00Z");
-        assert.ok(weekEqual(decodeWeek(weekPeriods.publish(some(encodeWeek({ ...draft, approver: some("Ops") })), ISSUED)),
+        assert.ok(weekEqual(decodeWeek(weekPeriods.publish(at("2027-03-14T00:00:00Z"), some(encodeWeek({ ...draft, approver: some("Ops") })), ISSUED)),
             { ...draft, approver: some("Ops"), state: variant("issued", { at: ISSUED }) }));
         const days = decodeBeast2For(sx.ScheduleDay);
-        assert.ok(equalFor(sx.ScheduleDay)(days(dayPeriods.publish(some(encodeBeast2For(sx.ScheduleDay)({ state: variant("draft", null), notes: "wet" })), ISSUED)),
+        assert.ok(equalFor(sx.ScheduleDay)(days(dayPeriods.publish(at("2027-05-11T00:00:00Z"),
+            some(encodeBeast2For(sx.ScheduleDay)({ state: variant("draft", null), notes: "wet" })), ISSUED)),
             { state: variant("issued", null), notes: "wet" }), "a published case holding nothing");
     });
 
     test("creates a period's row when it has none: the published or the draft case, every other field its type's default", async () => {
         const weekPeriods = await builtPeriods(weekProgram);
-        assert.ok(weekEqual(decodeWeek(weekPeriods.publish(none, ISSUED)),
+        assert.ok(weekEqual(decodeWeek(weekPeriods.publish(at("2027-03-28T00:00:00Z"), none, ISSUED)),
             { state: variant("issued", { at: ISSUED }), dismissed: new SortedSet([], byString), approver: none }));
-        assert.ok(weekEqual(decodeWeek(weekPeriods.dismiss(none, new SortedSet(["pr-7"], byString))),
+        assert.ok(weekEqual(decodeWeek(weekPeriods.dismiss(at("2027-03-28T00:00:00Z"), none, new SortedSet(["pr-7"], byString))),
             { state: variant("open", null), dismissed: new SortedSet(["pr-7"], byString), approver: none }));
+    });
+
+    test("a period's new row takes the periods' `values` of its start in every field but its status and its dismissals (#1526)", async () => {
+        const program = East.function([], Schedule.Types.PeriodsKind, ($) => {
+            const weeks = $.let(Record.bind(sx.scheduleWeeks, ["patch"]));
+            return Schedule.periods(weeks, {
+                every: "week", status: { field: "state", draft: "open", published: "issued" }, dismissed: "dismissed",
+                values: (p) => ({ approver: some(East.str`Ops · ${East.print(p.start)}`) }),
+            }).build();
+        });
+        const weekPeriods = await builtPeriods(program);
+        const start = at("2027-03-28T00:00:00Z");
+        const approver = some(`Ops · ${printFor(DateTimeType)(start)}`);
+        assert.ok(weekEqual(decodeWeek(weekPeriods.publish(start, none, ISSUED)), { state: variant("issued", { at: ISSUED }), dismissed: new SortedSet([], byString), approver }));
+        assert.ok(weekEqual(decodeWeek(weekPeriods.dismiss(start, none, new SortedSet(["pr-7"], byString))),
+            { state: variant("open", null), dismissed: new SortedSet(["pr-7"], byString), approver }), "its status the draft case, its dismissals the set");
+        const draft = await week("2027-03-14T00:00:00Z");
+        assert.ok(weekEqual(decodeWeek(weekPeriods.publish(at("2027-03-14T00:00:00Z"), some(encodeWeek(draft)), ISSUED)), { ...draft, state: variant("issued", { at: ISSUED }) }),
+            "a period with a row keeps its own fields");
+        assert.throws(() => East.function([], Schedule.Types.PeriodsKind, ($) => {
+            const weeks = $.let(Record.bind(sx.scheduleWeeks, ["patch"]));
+            return Schedule.periods(weeks, {
+                every: "week", status: { field: "state", draft: "open", published: "issued" }, dismissed: "dismissed",
+                values: () => ({ approver: none, dismissed: East.value(new Set<string>(), SetType(StringType)) }) as never,
+            }).build();
+        }), /Schedule\.periods: `values` gives "dismissed", which the builder writes itself — it gives a new row's own fields \(approver\)/);
     });
 
     test("reads and writes the proposals a week dismissed; a builder with no `dismissed` has none to read", async () => {
@@ -310,7 +518,7 @@ describe("Schedule.periods — what a builder publishes", () => {
         const issued = await week("2027-03-07T00:00:00Z");
         assert.equal(weekPeriods.dismissible, true);
         assert.ok(equalFor(SetType(StringType))(weekPeriods.dismissed(encodeWeek(issued)), new SortedSet(["pr-1"], byString)));
-        assert.ok(weekEqual(decodeWeek(weekPeriods.dismiss(some(encodeWeek(issued)), new SortedSet(["pr-1", "pr-2"], byString))),
+        assert.ok(weekEqual(decodeWeek(weekPeriods.dismiss(at("2027-03-07T00:00:00Z"), some(encodeWeek(issued)), new SortedSet(["pr-1", "pr-2"], byString))),
             { ...issued, dismissed: new SortedSet(["pr-1", "pr-2"], byString) }));
         assert.equal(dayPeriods.dismissible, false);
         assert.equal(dayPeriods.dismissed(encodeBeast2For(sx.ScheduleDay)({ state: variant("draft", null), notes: "" })).size, 0);

@@ -7,9 +7,10 @@
 import { describe, expect, test } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { East, OptionType, StringType, some } from "@elaraai/east";
+import { East, OptionType, StringType, some, variant } from "@elaraai/east";
+import { Slice } from "@elaraai/east-ui";
 import { editingMessages } from "@elaraai/east-ui-components";
-import { Calendar, Record } from "@elaraai/e3-ui";
+import { Calendar, Data, Record } from "@elaraai/e3-ui";
 import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/calendar/calendar";
 import { act, calendarHarness, card, event, settle, slot, width } from "./harness.test-utils.js";
@@ -205,6 +206,43 @@ describe("the board keeps the keyboard (retest C4 and C5, 27 Oct 2026)", () => {
         expect(slot(container, "end").textContent).toContain("Mounting brackets");
         expect(heard).toEqual([]);
     });
+
+    test("a pick of Search Records, the Inspector folded, opens it on the event, which takes the keyboard and keeps it through every frame after — the frame taking none of it; a second pick at once takes it to its own event, and a pick of an event drawn nowhere leaves it in the box, which lists only the rows what is typed finds (#1585)", async () => {
+        const { container } = await h.mount(ex.calendarOperations);
+        await press(within(slot(container, "end")).getByRole("button", { name: "Collapse Inspector" }));
+        const input = slot(container, "toolbar").querySelector<HTMLInputElement>("[data-toolbar-item='seek'] [data-part='dataset-key-search'] input")!;
+        // Every line the box lists while the test runs, by its key.
+        const listed = new Set<string>();
+        const lines = new MutationObserver(() => { for (const key of document.querySelectorAll('[role="option"] [data-item-key]')) listed.add(key.textContent ?? ""); });
+        lines.observe(document.body, { childList: true, subtree: true, characterData: true });
+        /** Types a key into the box and presses Enter as soon as a line shows, as a quick hand does. */
+        const pick = async (text: string) => {
+            await act(async () => { input.focus(); fireEvent.input(input, { target: { value: text } }); }); await settle();
+            await waitFor(() => expect(document.getElementById(input.getAttribute("aria-controls") ?? "")?.querySelector('[role="option"]')).not.toBeNull(), { timeout: 10_000 });
+            await act(async () => { fireEvent.keyDown(input, { key: "Enter" }); }); await settle();
+        };
+        /** Runs every frame, and every turn after one, that the combobox could give the focus back to its input in. */
+        const frames = () => act(async () => { for (let i = 0; i < 4; i++) await new Promise<void>(resolve => requestAnimationFrame(() => setTimeout(resolve, 0))); });
+        try {
+            await pick("job1");
+            await waitFor(() => expect(document.activeElement).toBe(event(container, "job", "job1")));
+            await frames();
+            expect(document.activeElement).toBe(event(container, "job", "job1"));
+            expect([slot(container, "end").hasAttribute("data-collapsed"), slot(container, "end").textContent?.includes("Mounting brackets")]).toEqual([false, true]);
+            await pick("service1");
+            await waitFor(() => expect(document.activeElement).toBe(event(container, "service", "service1")));
+            await frames();
+            expect(document.activeElement).toBe(event(container, "service", "service1"));
+            // One waiting in the backlog: the keyboard stays in the box, the event's key shown there.
+            await pick("backlog1");
+            await frames();
+            expect([document.activeElement, input.value]).toEqual([input, "backlog1"]);
+        } finally {
+            lines.disconnect();
+        }
+        // Never the rows an empty box browses, under what is typed: Enter would pick the first of them.
+        expect([...listed].filter(key => !["job1", "service1", "backlog1"].some(typed => key.startsWith(typed)))).toEqual([]);
+    });
 });
 
 describe("Calendar explicit action forms", () => {
@@ -294,8 +332,22 @@ describe("Calendar explicit action forms", () => {
         expect(history(container, editingMessages.apply()).hasAttribute("disabled")).toBe(true);
         expect(event(container, "job", "job1").hasAttribute("data-drafted")).toBe(true);
         expect(container.textContent).toContain("Duration must be positive");
+        // The inspector's banner names the field by its form's label, never its key.
+        expect(slot(container, "end").textContent).toContain("Hours: Duration must be positive");
+        expect(slot(container, "end").textContent).not.toContain("hours: ");
+        // In its section of the pane, as the Plan's: never a banner alone in the pane's column, which squeezed it to its
+        // least height, its refusal run out under it over the Schedule fields.
+        const inspector = slot(container, "end").querySelector("[data-calendar-inspector]")!;
+        expect(inspector.querySelector(":scope > [data-calendar-inspector-refusals] > [data-banner-tone]")?.textContent).toContain("Hours: Duration must be positive");
+        expect(inspector.querySelector(":scope > [data-banner-tone]")).toBeNull();
+        // The field the issue names is ringed in the form that draws it, the issue's words under it (ruled 13 Nov 2026):
+        // where the keyboard is when it is gone to, whatever of the banner over the forms is in view.
+        const hours = slot(container, "end").querySelector<HTMLElement>('[data-field="hours"]')!;
+        expect([hours.hasAttribute("data-issue"), [...slot(container, "end").querySelectorAll("[data-field-issue]")].map(el => [el.closest("[data-field]")?.getAttribute("data-field"), el.textContent])])
+            .toEqual([true, [["hours", "Duration must be positive"]]]);
         await act(async () => { fireEvent.keyDown(event(container, "job", "job1"), { key: "Escape" }); }); await settle();
-        await press(history(container, editingMessages.issues({ n: 1, count: "1" })));
+        // The issue goes before the warning beside it, the pump housings' stored hours over a run's most.
+        await press(history(container, editingMessages.issuesAndWarnings({ issues: editingMessages.issues({ n: 1, count: "1" }), warnings: editingMessages.warnings({ n: 1, count: "1" }) })));
         expect(event(container, "job", "job1").hasAttribute("data-selected")).toBe(true);
         expect((await jobs()).get("job1")!.hours).toBeGreaterThan(0);
     });
@@ -321,7 +373,8 @@ describe("Calendar explicit action forms", () => {
         expect(history(container, editingMessages.apply()).getAttribute("aria-disabled")).toBe("true");
         const [conflict, ...more] = await conflictCards(container);
         expect(more).toEqual([]);
-        expect([conflict!.item, conflict!.yours]).toEqual(["job1", "Yours, Removed"]);
+        // The job is off the board, and its card names it by its title all the same, never by its key.
+        expect([conflict!.item, conflict!.yours]).toEqual(["Mounting brackets · batch 42", "Yours, Removed"]);
         expect((await jobs()).get("job1")!.customer).toBe("Changed elsewhere");
         expect((await h.read(ex.calendarServices)).has("service1")).toBe(false);
         expect(event(container, "job", "job1")).toBeNull();
@@ -424,6 +477,66 @@ describe("Calendar explicit action forms", () => {
         expect(await commits(ex.calendarServices)).toEqual(["patch", ...deployed.services]);
     });
 
+});
+
+describe("an event's title worked out from its row (#1588)", () => {
+    const title = (el: HTMLElement) => el.querySelector("[data-calendar-event-title]")?.textContent;
+    const inspected = (c: HTMLElement) => slot(c, "end").querySelector("[data-inspector-title]")?.textContent;
+    /** The jobs titled by two of their fields, with the Backlog and the job templates in the library. */
+    const twoFields = { fn: East.function([], UIComponentType, _$ => Reactive.Root(East.function([], UIComponentType, $ => {
+        const machines = $.let(Record.bind(ex.calendarMachines, []));
+        const jobs = $.let(Record.bind(ex.calendarJobs, ["patch"]));
+        const templates = $.let(Data.bind(ex.calendarJobTemplates));
+        const templateIndex = $.let(Data.bindPaged(ex.calendarJobTemplates, { indexes: ["calendar_job_templates_by_group"] }));
+        const slice = $.let(Slice.bindRecords("spec.titles", { jobTemplates: { source: templateIndex, fields: { group: { label: "Job template", hints: ["Fabrication", "Machining"] } } } }));
+        return Calendar({ inspector: true, view: { date: new Date("2026-10-01T00:00:00Z") }, slice: { slice },
+            resources: { machines: Calendar.resources(machines.read(), { name: "Machines", icon: "gears", label: row => row.name }) },
+            library: [Calendar.library.templates(), Calendar.library.backlog()],
+            events: { job: Calendar.events(jobs, { name: "Production", icon: "industry", title: row => East.str`${row.customer} · ${row.title}`, start: "start", end: "end", resource: { field: "machine", of: "machines" },
+                backlog: { duration: row => variant("hours", row.hours), due: row => row.due },
+                templates: Calendar.templates(templates.read(), { name: row => row.name, group: row => some(row.group), duration: row => variant("hours", row.hours), values: row => row.values, source: "jobTemplates" }) }) },
+        });
+    }))) };
+
+    test("a variant's case titles each event: on its block on the Timeline, in the inspector and on the agenda's card", async () => {
+        const { container } = await h.mount(ex.calendarEventTitles);
+        expect(["b1", "b2", "b3", "b4"].map(key => title(event(container, "booking", key)))).toEqual(["Preventive", "Calibration", "Repair", "Preventive"]);
+        await press(event(container, "booking", "b3"));
+        expect(inspected(container)).toBe("Repair");
+        await width(390);
+        expect(card(container, "booking", "b3").textContent).toContain("Repair");
+    });
+
+    test("two fields title an event: on its block and in the inspector, a Backlog card and a template's new event; an edit of either retitles it", async () => {
+        const { container } = await h.mount(twoFields);
+        expect(title(event(container, "job", "job1"))).toBe("Alder Works · Mounting brackets · batch 42");
+        // A template's new event, as soon as its row exists: the template holds its title and no customer.
+        await press(within(slot(container, "start")).getByRole("button", { name: "Create" }));
+        await press(within(document.body).getByRole("dialog").querySelector<HTMLButtonElement>('[data-part="footer"] button:last-child')
+            ?? within(within(document.body).getByRole("dialog")).getByRole("button", { name: "Create" }));
+        expect([...container.querySelectorAll<HTMLElement>("[data-calendar-event][data-drafted]")].map(title)).toEqual([" · Bracket batch"]);
+        await press(within(slot(container, "start")).getByRole("tab", { name: /Backlog/ }));
+        expect([...slot(container, "start").querySelectorAll("[data-library-item]")].some(item => item.textContent?.includes("Alder Works · Torque-test fixtures"))).toBe(true);
+        await press(event(container, "job", "job1"));
+        expect(inspected(container)).toBe("Alder Works · Mounting brackets · batch 42");
+        // Both fields stay in the form, and an edit of one retitles the event at once, as a draft.
+        const input = slot(container, "end").querySelector<HTMLInputElement>('[data-field="customer"] input')!;
+        expect(slot(container, "end").querySelector('[data-field="title"] input')).not.toBeNull();
+        const user = userEvent.setup(); await user.clear(input); await user.type(input, "Elm Yard{Enter}"); await settle();
+        expect(title(event(container, "job", "job1"))).toBe("Elm Yard · Mounting brackets · batch 42");
+        expect(inspected(container)).toBe("Elm Yard · Mounting brackets · batch 42");
+        expect((await jobs()).get("job1")!.customer).toBe("Alder Works");
+    });
+});
+
+describe("the layouts and periods an app offers (#1589)", () => {
+    test("`views` the Timeline alone and `viewPeriods` two periods: the Timeline drawn, no layout switch, those two periods offered", async () => {
+        const { container } = await h.mount(ex.calendarTimelineAlone);
+        const bar = slot(container, "toolbar");
+        expect(container.querySelector("[data-calendar-timeline]")).not.toBeNull();
+        expect(bar.querySelector('[data-calendar-seg="layout"], [data-calendar-seg="compact-layout"]')).toBeNull();
+        expect(within(bar.querySelector<HTMLElement>('[data-calendar-seg="period"]')!).getAllByRole("radio").map(radio => radio.textContent)).toEqual(["Week", "Month"]);
+    });
 });
 
 describe("the conflicts example (calendarConflicts)", () => {
@@ -552,5 +665,57 @@ describe("the inspector keeps the keyboard as a control goes with its view (#139
         const focused = await pressFocused(within(slot(container, "end")).getByRole("button", { name: "Delete selected" }));
         expect(focused).not.toBe(document.body);
         expect([focused.hasAttribute("data-focus-home"), focused.textContent]).toEqual([true, "Nothing selectedSelect an event to inspect its schedule and fields."]);
+    });
+});
+
+describe("an inspector's edit the Calendar refuses goes back to what its field holds, saying why under it (#1585)", () => {
+    /** The jobs on their machines, a day in view, every placement refused: the shop closed for maintenance. */
+    const closed = { fn: East.function([], UIComponentType, _$ => Reactive.Root(East.function([], UIComponentType, $ => {
+        const machines = $.let(Record.bind(ex.calendarMachines, []));
+        const jobs = $.let(Record.bind(ex.calendarJobs, ["patch"]));
+        return Calendar({ inspector: true, view: { period: "day", date: new Date("2026-10-01T00:00:00Z") },
+            resources: { machines: Calendar.resources(machines.read(), { name: "Machines", icon: "gears", label: row => row.name }) },
+            events: { job: Calendar.events(jobs, { name: "Production", icon: "industry", title: "title", start: "start", end: "end", resource: { field: "machine", of: "machines" } }) },
+            canDrop: East.function([Calendar.Types.Candidate], OptionType(StringType), () => some("Closed for maintenance")),
+        });
+    }))) };
+    /** What a field says under it of an edit it shows what it holds in place of. */
+    const refusalOf = (field: Element) => field.querySelector("[data-scope=field][data-part=error-text]")?.textContent;
+    /** How many times the inspector says a refusal: once, under the field. */
+    const said = (c: HTMLElement) => slot(c, "end").textContent!.split("Closed for maintenance").length - 1;
+
+    test("a start it refuses, as the keyboard moves on: the box shows the start the event holds, the reason under it once, and no draft", async () => {
+        const { container } = await h.mount(closed);
+        await press(event(container, "job", "job1"));
+        const start = slot(container, "end").querySelector<HTMLElement>('[data-field="start"]')!;
+        const hour = () => start.querySelector<HTMLElement>('[role="spinbutton"][aria-label^="hour"]')!;
+        const held = hour().textContent;
+        // An hour later, taken as the focus leaves the field.
+        const user = userEvent.setup();
+        await user.click(hour());
+        await user.keyboard("{ArrowUp}");
+        await settle();
+        expect(hour().textContent).not.toBe(held);
+        while (start.contains(document.activeElement)) await user.tab();
+        await settle();
+        expect(hour().textContent).toBe(held);
+        expect(refusalOf(start)).toBe("Closed for maintenance");
+        expect(said(container)).toBe(1);
+        expect(event(container, "job", "job1").hasAttribute("data-drafted")).toBe(false);
+    });
+
+    test("a bulk resource it refuses: the select shows none chosen again, the reason under it once, and no draft", async () => {
+        const { container } = await h.mount(closed);
+        await press(event(container, "job", "job1"));
+        await act(async () => { fireEvent.click(event(container, "job", "job2"), { ctrlKey: true }); }); await settle();
+        const resource = slot(container, "end").querySelector<HTMLElement>('[data-field="resource"]')!;
+        const trigger = () => resource.querySelector<HTMLElement>("[data-scope=select][data-part=trigger]")!;
+        expect(trigger().textContent).toBe("Unassigned");
+        await press(trigger());
+        await press(within(within(document.body).getByRole("listbox")).getByRole("option", { name: "Lathe 2" }));
+        expect(trigger().textContent).toBe("Unassigned");
+        expect(refusalOf(resource)).toBe("Closed for maintenance");
+        expect(said(container)).toBe(1);
+        expect(container.querySelectorAll("[data-calendar-event][data-drafted]")).toHaveLength(0);
     });
 });

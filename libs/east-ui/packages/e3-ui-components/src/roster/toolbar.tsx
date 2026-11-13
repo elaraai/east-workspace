@@ -13,14 +13,16 @@ import {
 } from "@elaraai/east-ui-components";
 import { HOST_RANK, PlaceholderShape, coarseHitArea, useRecordSlicesToolbarItems } from "@elaraai/east-ui-components/internal";
 import { ROSTER_LAYOUT_PERIODS } from "@elaraai/e3-ui/internal";
+import { useRailSources } from "../shared/schedule/reference.js";
 import { SEARCH_BOX_RANK } from "../shared/schedule/search-rank.js";
 import { shownViews } from "../shared/views.js";
+import { PickerDot, PickerLegend, StatusWords } from "../shared/schedule/period-status.js";
 import { Seg } from "../shared/schedule/segments.js";
 import { shiftCalendar } from "../shared/time/scale.js";
 import { TimeNavigator } from "../shared/time/navigation.js";
 import type { RosterCommands } from "./actions.js";
 import type { RosterEditing } from "./editing.js";
-import { DAY, monthWords, weekNumber, type Issue, type RosterPeriod, type RosterStyles, type RosterValue, type Status } from "./model.js";
+import { DAY, byDay, issuesSaid, monthWords, weekNumber, type Issue, type RosterPeriod, type RosterStyles, type RosterValue, type Status } from "./model.js";
 import type { RosterWindow } from "./window.js";
 
 const LAYOUTS = [{ key: "shifts", label: "Shifts" }, { key: "people", label: "People" }] as const;
@@ -28,6 +30,8 @@ const LAYOUTS = [{ key: "shifts", label: "Shifts" }, { key: "people", label: "Pe
 const SHIFT_PERIODS = [{ key: "day", label: "Day" }, { key: "week", label: "Week" }] as const;
 const PEOPLE_PERIODS = [{ key: "week", label: "Week" }, { key: "month", label: "Month" }] as const;
 const PEOPLE_NARROW_PERIODS = [{ key: "week", label: "Week" }] as const;
+/** What a week over its days may say of them, beside what any status may (#1595). */
+const WEEK_OVER_DAYS = ["7 of 7 published"] as const;
 /** The eye's step into the View and the View's step that draws its entry (ruled 27 Oct 2026, "Into the View menu"): one bundle, applied together. */
 const EYE_INTO_VIEW = "roster.optimise";
 interface ToolbarArgs extends RosterWindow {
@@ -36,8 +40,10 @@ interface ToolbarArgs extends RosterWindow {
     narrow: boolean;
     /** The selected person-week's week, which Month → Week opens (#1406, P3). */
     selectedWeek: Date | undefined;
-    /** The week's status chip's words; `undefined` without periods. */
+    /** The status chip's words — the week's, or by the day the day in view's or its week's days' (#1550); `undefined` without periods. */
     status: string | undefined;
+    /** What Publish publishes, in its words (#1550): the week, or by the day in Shifts' Day the day in view. */
+    publishUnit: "day" | "week";
     /**
      * Whether the week is not read yet (#1398, CL1): its status, its issues and Publish keep their slots, the status a
      * placeholder — never "Not started" before its row is read — and the issues one too, each unseen at its footprint
@@ -46,10 +52,14 @@ interface ToolbarArgs extends RosterWindow {
     unread: boolean;
     /** Whether Publish is under way. */
     publishing: boolean;
-    /** The open picker's weeks' statuses, by their start. */
+    /** The open picker's periods' statuses, by their start: its weeks', or by the day its days' (#1550). */
     picker: SortedMap<Date, Status>;
     onDisplay: (value: Partial<{ density: "compact" | "comfortable"; chipSkills: boolean; requirements: boolean }>) => void;
     issues: readonly Issue[]; onIssues: () => void; onAction: (action: HistoryAction) => void; onPickerDates: (dates: readonly Date[]) => void;
+    /** How many refusals hold Save (#1525): the issues chip counts them with the breaches and the gaps. */
+    refused: number;
+    /** The history's warning button pressed: its first issue's duty shown and selected (#1525). */
+    onIssue: (issue: EditIssue) => void;
     /** Where an issue of the history's is, in the Roster's words — its banners' — what the history item's conflicts name their items by. */
     where?: ((issue: EditIssue) => string) | undefined;
     /** A conflict's Go to: its item shown and selected. */
@@ -75,11 +85,13 @@ export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem |
     const layouts = LAYOUTS.filter(item => args.layouts.includes(item.key));
     const switches = layouts.length > 1;
     // The narrowing: one rail over the week's duties, the people and the activities, each source counted in its own noun
-    // (#1342); the duties' range is the Roster's own navigation, never a chip of the rail (#1369).
+    // (#1342); the duties' range is the Roster's own navigation, never a chip of the rail (#1369), and the reference record
+    // the check reads narrows nothing, so the rail leaves its source out (#1551).
     const chrome = value.slice.type === "some" ? value.slice.value : undefined;
     const duty = value.duty.kind;
     const dutyRange = chrome?.slice.parts.find(part => part.source === duty.key)?.slice.config.range;
-    const rail = useRecordSlicesToolbarItems(chrome?.slice, { nouns: { [duty.key]: `${duty.name.toLocaleLowerCase(words.locale)} events`, people: "people", activities: "activities", patterns: "patterns" },
+    const railSources = useRailSources(chrome?.slice);
+    const rail = useRecordSlicesToolbarItems(railSources, { nouns: { [duty.key]: `${duty.name.toLocaleLowerCase(words.locale)} events`, people: "people", activities: "activities", patterns: "patterns" },
         ...(dutyRange?.type === "some" ? { excludeFields: [`${duty.key}.${dutyRange.value}`] } : {}),
         ...(chrome === undefined ? {} : { affordances: chrome.affordances.map(a => a.type) }),
         ...(chrome?.persist.type === "some" ? { persist: chrome.persist.value.type } : {}),
@@ -89,7 +101,8 @@ export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem |
     // folds, to its icon, before the rail and the week's steps (ruled 25 Oct 2026); at the row's last step it goes into the
     // View, beside the week and the view controls.
     const search = useKeySearchToolbarItem(args.search, { side: "end", rank: SEARCH_BOX_RANK });
-    const count = issues.filter(issue => issue.kind.type === "breach" || issue.kind.type === "gap").length;
+    // The breaches and the gaps, and the refusals holding Save (#1525).
+    const count = issues.filter(issue => issue.kind.type === "breach" || issue.kind.type === "gap").length + args.refused;
     // The layout's own periods (P1), each layout keeping its own as the window does; Month → Week opens the selected
     // person-week's week (P3).
     // Those this Roster offers: its switch, in every form, only where there is a choice to make.
@@ -103,9 +116,11 @@ export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem |
     const navigate = (step: number) => setView({ ...view, date: shiftCalendar(new Date(view.date), unit, step).getTime() });
     const status = args.publishing ? "Publishing" : args.status;
     const unread = args.unread;
-    // Publish: only over periods, on a week that takes edits; its slot held wherever the Roster publishes and edits at all.
-    const publishable = value.periods.type === "some" && commands.available && !args.publishing;
+    // Publish: only over periods, while a period it publishes takes edits — the week, or by the day the day in view or a
+    // day of the week (#1550); its slot held wherever the Roster publishes and edits at all.
+    const publishable = value.periods.type === "some" && commands.publishable && !args.publishing;
     const heldPublish = value.periods.type === "some" && !value.settings.readOnly;
+    const publishWords = `Publish ${args.publishUnit}`;
     // The history: wherever the week takes edits, and wherever a draft of another week waits to be saved. A week not read
     // yet keeps it as the last week read had it, so a read landing never shifts the toolbar nor folds it again (#1398, CL1).
     const history = editing?.history;
@@ -129,8 +144,8 @@ export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem |
     }}>
         {switches && <>{layouts.map(item => <ChakraMenu.Item key={item.key} value={item.key}>{item.label}</ChakraMenu.Item>)}<ChakraMenu.Separator /></>}
         {picksPeriod && <>{periods.map(item => <ChakraMenu.Item key={item.key} value={item.key}>{item.label}</ChakraMenu.Item>)}<ChakraMenu.Separator /></>}
-        <ChakraMenu.Item value="previous">Previous {unit}</ChakraMenu.Item><ChakraMenu.Item value="next">Next {unit}</ChakraMenu.Item>{value.inspector && <ChakraMenu.Item value="issues">{count} issues</ChakraMenu.Item>}<ChakraMenu.Separator />{displayItems}
-        {heldPublish && <><ChakraMenu.Separator /><ChakraMenu.Item value="publish" disabled={!publishable}>Publish week</ChakraMenu.Item></>}
+        <ChakraMenu.Item value="previous">Previous {unit}</ChakraMenu.Item><ChakraMenu.Item value="next">Next {unit}</ChakraMenu.Item>{value.inspector && <ChakraMenu.Item value="issues">{issuesSaid(count)}</ChakraMenu.Item>}<ChakraMenu.Separator />{displayItems}
+        {heldPublish && <><ChakraMenu.Separator /><ChakraMenu.Item value="publish" disabled={!publishable}>{publishWords}</ChakraMenu.Item></>}
     </ChipMenu>;
     // The Elara eye (#1409) and its entry: at the row's floor the eye goes into the View, which lists it in its place
     // (ruled 27 Oct 2026, "Into the View menu"); an eye with no entry keeps to the row.
@@ -143,20 +158,33 @@ export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem |
         {switches && <Seg label="Layout" scope="roster" name="compact-layout" items={layouts} active={view.layout} onPick={args.setLayout} />}
         {picksPeriod && <Seg label="Period" scope="roster" name="compact-period" items={periods} active={view.period} onPick={period} />}
         <ChipMenu label="Display" icon={faSliders} onSelect={displayChoice}>{displayItems}</ChipMenu>
-        {value.inspector && <Button size="xs" variant="ghost" onClick={args.onIssues}>{count} issues</Button>}
+        {value.inspector && <Button size="xs" variant="ghost" onClick={args.onIssues}>{issuesSaid(count)}</Button>}
         {withEye && eye?.entry}
-        {heldPublish && <Button size="xs" variant="solid" disabled={!publishable} loading={args.publishing} aria-label="Publish week" aria-busy={args.publishing ? true : undefined}
-            onClick={() => commands.publish()}>Publish week</Button>}
+        {heldPublish && <Button size="xs" variant="solid" disabled={!publishable} loading={args.publishing} aria-label={publishWords} aria-busy={args.publishing ? true : undefined}
+            onClick={() => commands.publish()}>{publishWords}</Button>}
     </Box>;
     // The People layout's labels (#1406, P2): the week and its number — `Mar 12 – 18, 2028 · W11` — or the month, its weeks
     // and its range — `March 2028 · W10–W14 · Mar 5 – Apr 1`. Shifts keeps the shared navigator's own words.
     const rangeLabel = view.period === "month" ? monthWords(words, span)
         : view.layout === "people" ? `${words.range(span.start, new Date(span.start.getTime() + 6 * DAY))} · W${words.number(weekNumber(span.start))}` : undefined;
+    // The picker's marks: each week's status — or where the periods are days (#1550) each day's, a week's then published
+    // once its seven days are and a draft once one is started — the app's own cases a draft's mark. Where the day in view
+    // is what publishes, in Shifts' Day, it opens on the days.
+    const days = byDay(value);
+    const dayPicked = days && view.layout === "shifts" && view.period === "day";
+    const markOf = (held: Status | undefined) => held === undefined ? "empty" : held.type === "published" ? "published" : "draft";
+    const weekMark = (date: Date) => {
+        if (!days) return markOf(args.picker.get(date));
+        const held = Array.from({ length: 7 }, (_, day) => args.picker.get(new Date(date.getTime() + day * DAY)));
+        return held.every(status => status?.type === "published") ? "published" : held.some(status => status !== undefined) ? "draft" : "empty";
+    };
+    const dot = (mark: string) => <PickerDot styles={styles} mark={mark} />;
+    const legend = <PickerLegend styles={styles} scope="roster" />;
     const navigation = (compact = false, combined = false, withEye = false) => <TimeNavigator scope="roster" date={view.date} period={unit} rangeLabel={rangeLabel}
         sunday={value.settings.weekStart.type === "sunday"} onChange={date => setView({ ...view, date })}
-        compact={compact} label={combined ? "View" : "Choose roster week"} initialPanel="week" onWeeks={args.onPickerDates}
-        weekMarker={date => { const held = args.picker.get(date); return <Box as="span" css={styles.pickerDot} data-state={held === undefined ? "empty" : held.type === "other" ? "draft" : held.type} />; }}
-        legend="Published · Draft · Not started" controls={combined ? controls(withEye) : undefined} />;
+        compact={compact} label={combined ? "View" : dayPicked ? "Choose roster day" : "Choose roster week"} initialPanel={dayPicked ? "day" : "week"} onWeeks={args.onPickerDates}
+        weekMarker={date => dot(weekMark(date))} {...(days ? { dayMarker: (date: Date) => dot(markOf(args.picker.get(date))) } : {})}
+        legend={legend} controls={combined ? controls(withEye) : undefined} />;
     const daySelect = <Seg label="Day of week" scope="roster" name="days" active={String(args.day)} onPick={day => setView({ ...view, date: start.getTime() + Number(day) * DAY })}
         items={Array.from({ length: 7 }, (_, day) => ({ key: String(day), label: words.weekday(new Date(start.getTime() + day * DAY)) }))} />;
     return [
@@ -173,22 +201,29 @@ export function useRosterToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem |
         view.layout === "shifts" && view.period === "day" && { key: "roster.days", side: "start", rank: HOST_RANK + 2, forms: [daySelect, null] },
         // The status, the issues and Publish keep their slots from cold load, whatever the week's read (#1398, CL1): a read
         // landing never shifts the toolbar nor folds it again. Unread, the status and the issues are placeholders.
-        status !== undefined && { key: "roster.status", side: "start", rank: HOST_RANK, forms: [unread
-            ? <Box css={[styles.status, styles.heldSlot]} data-roster-status="" data-pending=""><PlaceholderShape kind="enum" index={0} /></Box>
-            : <Box css={styles.status} data-tone={status === "Published" ? "success" : "neutral"} data-roster-status="">{status}</Box>, null] },
-        value.inspector && { key: "roster.issues", side: "end", rank: HOST_RANK + 3, forms: [unread
-            ? <Box css={styles.heldSlot} data-roster-issues="" data-pending=""><PlaceholderShape kind="count" index={0} /></Box>
-            : count > 0 ? <chakra.button type="button" css={[chip({ tone: "warn", numeric: true }), coarseHitArea({ position: true })]} data-roster-issues="" data-opn={args.issuesFlash === true ? "" : undefined} onClick={args.onIssues} aria-label={`${count} roster issues`}><FontAwesomeIcon icon={faTriangleExclamation} /><span data-chip-label="">{count} issues</span></chakra.button>
-                : <Box css={styles.heldSlot} data-roster-issues="" aria-hidden="true" />, null] },
+        status !== undefined && { key: "roster.status", side: "start", rank: HOST_RANK, forms: [<Box css={styles.widestSlot}>
+            <StatusWords styles={styles} status={status} more={days && !dayPicked ? WEEK_OVER_DAYS : undefined} />
+            {unread
+                ? <Box css={[styles.status, styles.heldSlot]} data-roster-status="" data-pending=""><PlaceholderShape kind="enum" index={0} /></Box>
+                : <Box css={styles.status} data-tone={status === "Published" ? "success" : "neutral"} data-roster-status="">{status}</Box>}
+        </Box>, null] },
+        // The issues' slot is as wide as a count of two figures, at any count or none (#1595).
+        value.inspector && { key: "roster.issues", side: "end", rank: HOST_RANK + 3, forms: [<Box css={styles.widestSlot} data-end="">
+            <chakra.span css={chip({ tone: "warn" })} data-widest-word={issuesSaid(99)} aria-hidden="true"><FontAwesomeIcon icon={faTriangleExclamation} /></chakra.span>
+            {unread
+                ? <Box css={styles.heldSlot} data-roster-issues="" data-pending=""><PlaceholderShape kind="count" index={0} /></Box>
+                : count > 0 ? <chakra.button type="button" css={[chip({ tone: "warn" }), coarseHitArea({ position: true })]} data-roster-issues="" data-opn={args.issuesFlash === true ? "" : undefined} onClick={args.onIssues} aria-label={`${count} roster ${count === 1 ? "issue" : "issues"}`}><FontAwesomeIcon icon={faTriangleExclamation} /><span data-chip-label="">{issuesSaid(count)}</span></chakra.button>
+                    : <Box css={styles.heldSlot} data-roster-issues="" aria-hidden="true" />}
+        </Box>, null] },
         search !== undefined && { ...search, forms: [...search.forms, null], rank: [SEARCH_BOX_RANK, HOST_RANK + 6], bundle: [undefined, "roster.controls"] },
         // The Elara eye (#1409), between the issues item and the history item, whose actions a run out locks (R2): in the row
         // at every width the ladder and the rail's caret leave it room, and else the View's entry, never out of the toolbar.
         eye === undefined ? args.optimise : { ...eye.item, forms: [...eye.item.forms, null], rank: OPTIMISE_RANK, bundle: EYE_INTO_VIEW },
-        showHistory && historyToolbarItem({ session: history, words, editing: false, showError: false, onIssue: args.onIssues, onConflict: args.onConflict, where: args.where, onAction: args.onAction, locked: args.locked === true }),
+        showHistory && historyToolbarItem({ session: history, words, editing: false, showError: false, onIssue: args.onIssue, onConflict: args.onConflict, where: args.where, onAction: args.onAction, locked: args.locked === true }),
         // As tall as every control in the row (`sm`, 28px, ruled 23 Oct 2026), its slot held while the week can't publish, and
         // its spinner while it publishes, until every record reads back as saved (#1573) — named as it is, `aria-busy`: the
         // spinner hides its words.
         heldPublish && { key: "roster.publish", side: "end", rank: HOST_RANK + 5, forms: [<Button size="sm" variant="solid" disabled={!publishable} loading={args.publishing}
-            aria-label="Publish" aria-busy={args.publishing ? true : undefined} onClick={() => commands.publish()}>Publish</Button>, null] },
+            aria-label={publishWords} aria-busy={args.publishing ? true : undefined} onClick={() => commands.publish()}>{publishWords}</Button>, null] },
     ];
 }

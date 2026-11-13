@@ -11,8 +11,9 @@
  * Not an API for apps. They need React's `act` and a DOM — jsdom in a test
  * run — and nothing of a test framework. It also hands a browser spec the
  * editing session's words (`editingMessages`, #1194), which it names the
- * history item's controls by: this entry loads in Node, where the package's
- * own needs a DOM.
+ * history item's controls by, and the pause an automatic Save waits
+ * (`AUTOSAVE_PAUSE_MS`): this entry loads in Node, where the package's own
+ * needs a DOM.
  *
  * @packageDocumentation
  */
@@ -23,6 +24,8 @@ export { declaredStyle } from "./testing/styles.js";
 export { integerField, sliceConfig, stringField, type SliceFieldSpec } from "./testing/slice.js";
 export { setVirtualRowsMeasureProbe } from "./collections/virtual-rows.js";
 export { editingMessages } from "./editing/messages.js";
+// How long an automatic Save waits after the person's last act: what a test of one waits out.
+export { AUTOSAVE_PAUSE_MS } from "./editing/autosave.js";
 // Browser cascade checks can render Chakra parts in Node before focusing
 // them in Chromium, without importing renderers that need a document.
 export { system } from "./theme/index.js";

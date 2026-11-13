@@ -14,15 +14,23 @@
  * - **one row or line** (SB47): its number and id, a Pending or New chip,
  *   the lock of a row owned upstream, its issues, every field of its type
  *   through `FieldForm` (the payload's form: a column's kind its field's
- *   editor, a field with no column by its type), its sub rows read only, then
+ *   editor, a field with no column by its type — and each member of a column
+ *   from data a line of its own, its cell, #1561), its sub rows read only, then
  *   Duplicate and Delete. A link or set field shows its halves as the grid
  *   draws them, with Edit in sheet, which puts the ring on its cell (SB48). An
  *   edit is one transaction, as typing in the cell is: a field with a column
  *   is written through its cell — the cells a patch of it sets, or a custom
  *   column's text read by its own parse — and asks the copilot again when its
  *   column is a trigger; a field with none is set on the draft (SB52). A
- *   field the drafts changed is tinted against what the source holds. With
- *   the author's own Details (SB58), a complete row shows what they return in
+ *   number's box emptied is its cell emptied, as emptying the cell is: blank,
+ *   the field then not set, where its column takes a clear. An edit its cell
+ *   refuses — a clear of a value that is never empty — leaves the field
+ *   showing what the row holds, the reason under it as the footer's line says
+ *   it. A field the drafts changed is tinted against what the source holds.
+ *   A number its field's bounds don't hold is said once, in its help line —
+ *   a phone's stepper's too — in the tone the row's Save stands in (#1585): a
+ *   warning while the row is as stored, an error once its change holds Save.
+ *   With the author's own Details (SB58), a complete row shows what they return in
  *   place of the form, and their `update` is one transaction; a row still
  *   missing a field, or holding one unreadable, shows the form until it is
  *   complete;
@@ -44,36 +52,53 @@
  * link cell's the `sheet` recipe's; the pane — its tab row, its collapse
  * control and its rail — is the Dock's.
  *
+ * A host with a view of its own (#1534) — the Record's — draws Details for one
+ * row and for nothing in the Sheet's place ({@link SheetInspectorHost}), a
+ * phone's drawer's among them, over the same reads and writes, the form's own
+ * (`useTargetForm`) among them, and names an issue's row in the Issues tab in
+ * its own words. Several rows stay the Sheet's; so does a complete row given
+ * the author's own Details.
+ *
  * @packageDocumentation
  */
 
-import { memo, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { memo, useCallback, useContext, useEffect, useMemo, useState, type ComponentType, type ReactNode } from "react";
 import { Box, chakra, useRecipe, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faChevronDown, faLock, faMinus, faPlus } from "@fortawesome/free-solid-svg-icons";
 import {
-    FloatType, IntegerType, NullType, StringType, VariantType, compareFor, decodeBeast2For, defaultValue, encodeBeast2For, equalFor, fromEastTypeValue, isTypeEqual, none, printFor, some,
+    ArrayType, FloatType, IntegerType, NullType, OptionType, StringType, VariantType, compareFor, decodeBeast2For, defaultValue, encodeBeast2For, equalFor, fromEastTypeValue, isTypeEqual, none, printFor, some,
     toEastTypeValue, variant, type EastType, type StructType, type ValueTypeOf, type option,
 } from "@elaraai/east";
-import type { FieldSpecValue } from "@elaraai/east-ui/internal";
+import type { FieldEditorValue, FieldSpecValue } from "@elaraai/east-ui/internal";
 import { Sheet, type sheetKeys } from "@elaraai/e3-ui/internal";
 import {
-    EastChakraComponent, FieldForm, fieldFormMessages, getSomeorUndefined, useDataStable, type BuilderFrameDock, type EditIssue, type FieldOption,
+    EastChakraComponent, FieldForm, fieldBreaches, fieldFormMessages, getSomeorUndefined, useDataStable, type BuilderFrameDock, type EditIssue,
+    type FieldOption,
 } from "@elaraai/east-ui-components";
 import { FrameDrawer, useSlotStyles } from "@elaraai/east-ui-components/internal";
-import { useSheetInspect, type SheetCellEditorAt, type SheetInspect, type SheetInspectPlace, type SheetInspectTarget, type SheetInspectWrite } from "../index.js";
+import { useSheetInspect, type SheetCellEditorAt, type SheetInspect, type SheetInspectPlace, type SheetInspectTarget, type SheetInspectWrite, type SheetSelected } from "../index.js";
 import { formatTime, splitTimeToken, todayUtc, withTime } from "../parse/date.js";
-import { NULL_CELL, cellText, indexRegisters, type SheetColumnMeta } from "../model.js";
+import { NULL_CELL, cellText, indexRegisters, takesClear, type SheetColumnMeta } from "../model.js";
 import type { SheetCellValue } from "../values.js";
 import { issueText, type SheetWords } from "../words.js";
 import { actionColumnOf } from "../actions/model.js";
+import { setAt } from "../actions/form-check.js";
 import { namesMember } from "../Rows.js";
 import type { SheetValue } from "./index.js";
 
+/**
+ * What the inspector reads of its payload: the grid's root, the inspector pane and the record's history — a Sheet's,
+ * or a Record's (#1531), which mounts it over the same parts.
+ */
+export type SheetInspectorValue = Pick<SheetValue, "sheet" | "inspector" | "history">;
+
 /** The inspector pane, decoded: its forms, and the author's own Details. */
-type PaneValue = Extract<SheetValue["inspector"], { type: "some" }>["value"];
+export type PaneValue = Extract<SheetValue["inspector"], { type: "some" }>["value"];
 /** One inspector form, decoded: its struct, its fields, the fields its columns write and show, and `encode`. */
-type FormValue = PaneValue["forms"]["row"];
+export type FormValue = PaneValue["forms"]["row"];
+/** What the author's own Details return for a complete row (SB58): the UI drawn in the form's place. */
+export type AuthorDetails = ReturnType<Extract<PaneValue["custom"], { type: "some" }>["value"]>;
 /** One field of a form, decoded. */
 type FormField = FormValue["fields"][number];
 /** The names the sheet keeps its viewer's state under. */
@@ -81,6 +106,7 @@ type SheetKeys = ReturnType<typeof sheetKeys>;
 type Styles = Record<string, SystemStyleObject>;
 
 const stringEqual = equalFor(StringType);
+const pathEqual = equalFor(ArrayType(StringType));
 
 /** The inspector open: the Calendar's 320px (§8). */
 const INSPECTOR_SIZE = "320px";
@@ -101,8 +127,8 @@ export interface SheetLastCommit {
 
 /** Props of {@link useSheetInspector}. */
 export interface SheetInspectorProps {
-    /** The sheet's payload: its inspector pane, the sheet's registers and editing, and whether it is over a record. */
-    value: SheetValue;
+    /** The payload: its inspector pane, the sheet's registers and editing, and whether it is over a record. */
+    value: SheetInspectorValue;
     /** The names the sheet keeps its viewer's state under. */
     keys: SheetKeys;
     /** The sheet's words. */
@@ -111,26 +137,71 @@ export interface SheetInspectorProps {
     hidden: ReadonlySet<string>;
     /** The record's last commit, when it has one. */
     lastCommit: SheetLastCommit | undefined;
+    /** What a host draws in the Sheet's place (#1534): its own Details, and its words for an issue's row; absent, the Sheet's. */
+    host?: SheetInspectorHost | undefined;
+}
+
+/**
+ * What a host draws in the inspector in the Sheet's place (#1534) — the Record's: Details for one row and for nothing,
+ * and the words an issue's line names its row by.
+ */
+export interface SheetInspectorHost {
+    /**
+     * Details while the ring selects one place — a row, a line or a band — or nothing: in a phone's drawer too, where
+     * they draw at touch size, as the Sheet's own do there (SH12). Several rows are the Sheet's. A complete row given
+     * the author's own Details shows them in the form's place ({@link useAuthorDetails}).
+     */
+    Details: ComponentType<SheetInspectorDetailsProps>;
+    /**
+     * How an issue's line in the Issues tab names its row, given where the row stands among the rows drawn —
+     * `undefined` for one the sheet does not draw; absent, by its entry, a line by its place in its group.
+     */
+    where?: ((issue: EditIssue, place: SheetInspectPlace | undefined) => string) | undefined;
+}
+
+/** What a host's Details is given ({@link SheetInspectorHost.Details}). */
+export interface SheetInspectorDetailsProps {
+    /** The payload: the grid's root, the inspector pane and the record's history. */
+    value: SheetInspectorValue;
+    /** The pane: its forms, and the author's own Details. */
+    pane: PaneValue;
+    /** The names the sheet keeps its viewer's state under. */
+    keys: SheetKeys;
+    /** The sheet's words. */
+    words: SheetWords;
+    /** The columns this viewer hides. */
+    hidden: ReadonlySet<string>;
+    /** The host's word for a group. */
+    noun: string;
+    /** What the ring selects: one row's place, or nothing. */
+    selected: Exclude<SheetSelected, { kind: "several" }>;
 }
 
 /** The host's word for a group, or the sheet's. */
-function nounOf(value: SheetValue, words: SheetWords): string {
+function nounOf(value: SheetInspectorValue, words: SheetWords): string {
     const group = getSomeorUndefined(value.sheet.group);
     return (group !== undefined ? getSomeorUndefined(group.noun)?.singular : undefined) ?? words.m.groupNoun();
 }
 
-/** What the inspector shows, as its head and its rail name it — `row 3`, `line 2 of WO-2201`, `order 4`. */
-function whatOf(place: SheetInspectPlace, words: SheetWords, noun: string): string {
+/**
+ * What the inspector shows, as its head and its rail name it — `row 3`, `line 2 of WO-2201`, `order 4`.
+ *
+ * @param place - Where it stands
+ * @param words - The sheet's words
+ * @param noun - The host's word for a group
+ * @returns Its name
+ */
+export function whatOf(place: SheetInspectPlace, words: SheetWords, noun: string): string {
     return words.m.inspectorWhat({ what: place.kind, number: words.number(place.number), title: place.group?.title, noun });
 }
 
 /**
  * The inspector pane, as `BuilderFrame` draws it — see the module docs.
  *
- * @param props - The payload, the sheet's keys, the words, the columns hidden and the last commit
+ * @param props - The payload, the sheet's keys, the words, the columns hidden, the last commit, and what a host draws in the Sheet's place
  * @returns The pane — its tabs Details and Issues, 320px wide, its collapsed state kept per viewer (SB24) — or `undefined`, no pane, when the sheet is given no inspector
  */
-export function useSheetInspector({ value, keys, words, hidden, lastCommit }: SheetInspectorProps): BuilderFrameDock | undefined {
+export function useSheetInspector({ value, keys, words, hidden, lastCommit, host }: SheetInspectorProps): BuilderFrameDock | undefined {
     const { m } = words;
     const inspect = useSheetInspect();
     const pane = getSomeorUndefined(value.inspector);
@@ -152,9 +223,9 @@ export function useSheetInspector({ value, keys, words, hidden, lastCommit }: Sh
         detail,
         tabs: [
             { key: "details", label: m.inspectorTab({ tab: "details" }),
-                body: <SheetInspectorDetails value={value} pane={pane} keys={keys} words={words} hidden={hidden} lastCommit={lastCommit} noun={noun} /> },
+                body: <SheetInspectorDetails value={value} pane={pane} keys={keys} words={words} hidden={hidden} lastCommit={lastCommit} host={host} noun={noun} /> },
             { key: "issues", label: m.inspectorTab({ tab: "issues" }), count: words.number(issues),
-                body: <SheetInspectorIssues forms={pane.forms} words={words} noun={noun} /> },
+                body: <SheetInspectorIssues forms={pane.forms} columns={value.sheet.columns} words={words} noun={noun} where={host?.where} /> },
         ],
     };
 }
@@ -172,6 +243,11 @@ const SheetInspectorDetails = memo(function SheetInspectorDetails(props: Details
     const inspect = useSheetInspect();
     const styles = useSlotRecipe({ key: "sheetInspector" })() as Styles;
     const selected = inspect.selected;
+    // A host's own Details for one place and for nothing (#1534), a phone's drawer's too, at touch size (#1536).
+    const Host = props.host?.Details;
+    if (Host !== undefined && selected.kind !== "several") {
+        return <Host value={props.value} pane={props.pane} keys={props.keys} words={props.words} hidden={props.hidden} noun={props.noun} selected={selected} />;
+    }
     if (selected.kind === "none") {
         return <NothingSelected styles={styles} inspect={inspect} words={props.words} record={props.value.history.type === "some"} lastCommit={props.lastCommit} />;
     }
@@ -216,6 +292,55 @@ function patchOne(struct: StructType, name: string, next: unknown): Record<strin
     return Object.fromEntries(Object.keys(struct.fields).map((field) => [field, stringEqual(field, name) ? some(next) : none]));
 }
 
+/**
+ * A member's line's editor (#1561): its kind's, as the inspector's form gives a column's field its kind's — read only
+ * where its column writes nothing, and for a stamped code, a link and a set, which the grid edits — at the cell's
+ * value: a quantity in its unit at the row, a date at its level there.
+ *
+ * @param meta - The column made for the member
+ * @param unit - A quantity's unit at the row
+ * @param level - A date's level at the row
+ * @returns The editor
+ */
+function memberEditor(meta: SheetColumnMeta, unit: string | undefined, level: "week" | "day" | "range" | "time" | undefined): FieldEditorValue {
+    if (!meta.editable) return variant("readonly", null);
+    switch (meta.kind) {
+        case "text":
+        case "title":
+        case "custom": return variant("text", { placeholder: none });
+        // A date at a week, a day or a range is a date alone, as the grid reads it; at the time level, a date and its time.
+        case "date": return variant("datetime", { precision: level === "time" ? none : some(variant("date", null)) });
+        case "quantity":
+        case "integer": return variant("number", { unit: unit === undefined ? none : some(unit), step: none, min: none, max: none });
+        // Its members at the row, by its key: a select's offered the column's own.
+        case "enum":
+        case "reference":
+        case "person":
+        case "cycle": return variant("reference", { of: meta.key });
+        case "boolean":
+        case "toggle": return variant("checkbox", null);
+        default: return variant("readonly", null);
+    }
+}
+
+/**
+ * A member's line (#1561): the cell a column from data shows for its member, as a field of the form at the column's
+ * key — of the value the cell holds, a custom column's its text, an Option where a clear writes none — labelled by
+ * the member's header, its column's second line its help.
+ *
+ * @param meta - The column made for the member
+ * @param editor - Its editor at the row ({@link memberEditor})
+ * @returns The field's spec
+ */
+function memberSpec(meta: SheetColumnMeta, editor: FieldEditorValue): FieldSpecValue {
+    const held = meta.kind === "custom" ? StringType : fromEastTypeValue(meta.raw.payloadType) as EastType;
+    const optional = takesClear(meta);
+    return {
+        path: [meta.key], label: meta.header, help: meta.sub === undefined ? none : some(meta.sub), group: none,
+        type: toEastTypeValue(optional ? OptionType(held) : held), optional, editor,
+    };
+}
+
 /** Props of {@link TargetDetails}. */
 interface PlaceProps extends DetailsProps {
     styles: Styles;
@@ -236,6 +361,26 @@ function TargetDetails({ place, ...props }: PlaceProps) {
     return target === undefined ? null : <TargetView {...props} target={target} />;
 }
 
+/** One target's form, as {@link useTargetForm} reads it: what `FieldForm` draws it with. */
+export interface TargetForm {
+    /** The specs at this row: the form's fields, then each member of a column from data a line of its own (#1561). */
+    specs: FieldSpecValue[];
+    /** The column each spec is read and written through, in the specs' order, by key — a member's line its column's; `undefined` for a field the draft holds alone. */
+    columns: (string | undefined)[];
+    /** Each select's members at this row, by the field's path. */
+    options: Record<string, FieldOption[]>;
+    /** The form's value: the draft's fields. */
+    formValue: Record<string, unknown>;
+    /** What the record holds, as the value holds the draft: a field that differs is tinted. */
+    baseline: Record<string, unknown>;
+    /** An edit of a field, written as typing in the grid writes it: why its cell refused it, in the Sheet's words, where it did. */
+    onChange: (path: readonly string[], next: unknown) => string | void;
+    /** The controls the form takes from the grid: a link's or a set's halves, an action's state, a member's label. */
+    renderControl: (spec: FieldSpecValue) => ReactNode | undefined;
+    /** The form's struct. */
+    struct: StructType;
+}
+
 /**
  * The form's specs, values and edits for one target — the payload's form at
  * this row: a quantity's unit and a date's level from its row, a select's
@@ -243,13 +388,27 @@ function TargetDetails({ place, ...props }: PlaceProps) {
  * by its print and a read-only column's value from its cell, and each edit
  * written as typing in the grid writes it — each one step of the history, or,
  * given `joins`, one step with the edits before it under that key (a phone's
- * cell editor, SH10.1).
+ * cell editor, SH10.1). A host's Details draws its form from it (#1534).
+ *
+ * Each member of a column from data is a line of its own after the form's
+ * fields (#1561), whose field the form leaves out: the member's cell at the
+ * column's key, read as the grid reads it at the day, tinted where it differs
+ * from the cell the record holds, and written as typing in the cell writes it
+ * — through the column's `write`, over the field as drafted so far. An age's
+ * shows no line, as a column's age shows no field.
+ *
+ * @param input - The payload, the words, the columns hidden, the `sheetInspector` styles, the sheet's reads and writes, the target and its form — and the key its edits join under, if they are one step
+ * @returns The form, as `FieldForm` draws it
  */
-function useTargetForm({ value, words, hidden, styles, inspect, target, form, joins }: Pick<TargetProps, "value" | "words" | "hidden" | "styles" | "inspect" | "target" | "form"> & { joins?: string | undefined }) {
+export function useTargetForm({ value, words, hidden, styles, inspect, target, form, joins }: Pick<TargetProps, "value" | "words" | "hidden" | "styles" | "inspect" | "target" | "form"> & { joins?: string | undefined }): TargetForm {
     const { m } = words;
     const button = useRecipe({ key: "button" });
     const r = target.r;
-    const write = useCallback((writes: readonly SheetInspectWrite[]) => inspect.write(writes, joins), [inspect, joins]);
+    // A write, and why its cell refused it in the Sheet's words — what the field says under it.
+    const write = useCallback((writes: readonly SheetInspectWrite[]): string | undefined => {
+        const refused = inspect.write(writes, joins);
+        return refused === undefined ? undefined : m.cellRefused(refused);
+    }, [inspect, joins, m]);
     const struct = useMemo(() => fromEastTypeValue(form.type) as StructType, [form.type]);
     const encodePatch = useMemo(() => encodeBeast2For(Sheet.Types.Patch(struct)), [struct]);
     const registers = useMemo(() => indexRegisters(value.sheet.registers), [value.sheet.registers]);
@@ -258,9 +417,20 @@ function useTargetForm({ value, words, hidden, styles, inspect, target, form, jo
         const key = getSomeorUndefined(f.column);
         return key === undefined ? undefined : inspect.columnAt(r, key);
     }, [inspect, r]);
+    // The members of the columns from data at this row, each a line of its own (#1561) — but an age's, which shows no field.
+    const members = useMemo(() => value.sheet.columns.flatMap((column): SheetColumnMeta[] => {
+        if (getSomeorUndefined(column.from) === undefined) return [];
+        const meta = inspect.columnAt(r, column.key);
+        return meta === undefined || meta.kind === "age" ? [] : [meta];
+    }), [value.sheet.columns, inspect, r]);
+    const memberOf = useMemo(() => new Map(members.map((meta) => [meta.key, meta] as const)), [members]);
+    // A member's line's editor at this row: a quantity's unit, a date's level, its own.
+    const editorOf = useCallback((meta: SheetColumnMeta) => memberEditor(meta, meta.kind === "quantity" ? inspect.unitAt(r, meta.key) : undefined,
+        meta.kind === "date" ? inspect.levelAt(r, meta.key) : undefined), [inspect, r]);
 
-    // The specs at this row: a select's own members, a quantity's unit, a date's level, a stamped code's owner.
-    const specs = useMemo(() => form.fields.map((f): FieldSpecValue => {
+    // The specs at this row: a select's own members, a quantity's unit, a date's level, a stamped code's owner — and each
+    // member's line.
+    const specs = useMemo(() => [...form.fields.map((f): FieldSpecValue => {
         const meta = metaOf(f);
         const editor = f.spec.editor;
         // Each select its own members at this row, by its path: two fields over one register may be offered different ones.
@@ -275,24 +445,30 @@ function useTargetForm({ value, words, hidden, styles, inspect, target, form, jo
         }
         if (meta?.kind === "stamped" && meta.owner !== undefined && f.spec.help.type === "none") return { ...f.spec, help: some(meta.owner) };
         return f.spec;
-    }), [form.fields, metaOf, inspect, r]);
+    }), ...members.map((meta) => memberSpec(meta, editorOf(meta)))], [form.fields, metaOf, inspect, r, members, editorOf]);
+    const columns = useMemo(() => [...form.fields.map((f) => getSomeorUndefined(f.column)), ...members.map((meta) => meta.key)], [form.fields, members]);
 
-    // A select's members: its register's, as its column's options rule offers them at this row.
+    // A select's members: its register's, as its column's options rule offers them at this row — a member's line's, its column's.
     const options = useMemo(() => {
         const out: Record<string, FieldOption[]> = {};
-        for (const f of form.fields) {
-            if (f.spec.editor.type !== "reference") continue;
-            const key = getSomeorUndefined(f.column);
+        const offered = (register: string, key: string | undefined): FieldOption[] => {
             const allowed = key !== undefined ? inspect.allowedAt(r, key) : undefined;
-            out[pathKey(f.spec.path)] = (registers.byName.get(f.spec.editor.value.of) ?? [])
+            return (registers.byName.get(register) ?? [])
                 .filter((member) => allowed === undefined || allowed.has(member.key))
                 .map((member) => {
                     const meta = getSomeorUndefined(member.meta);
                     return { key: member.key, label: meta === undefined ? member.label : `${member.label} · ${meta}` };
                 });
+        };
+        for (const f of form.fields) {
+            if (f.spec.editor.type !== "reference") continue;
+            out[pathKey(f.spec.path)] = offered(f.spec.editor.value.of, getSomeorUndefined(f.column));
+        }
+        for (const meta of members) {
+            if (meta.register !== undefined && editorOf(meta).type === "reference") out[pathKey([meta.key])] = offered(meta.register, meta.key);
         }
         return out;
-    }, [form.fields, registers, inspect, r]);
+    }, [form.fields, registers, inspect, r, members, editorOf]);
 
     // The form's value and baseline: the draft's fields — a custom column's text by its print, a read-only column's from its cell.
     const { formValue, baseline } = useMemo(() => {
@@ -320,46 +496,59 @@ function useTargetForm({ value, words, hidden, styles, inspect, target, form, jo
                 began[name] = current[name];
             }
         }
+        // A member's line: its cell as the grid shows it, against the cell the record holds — as it stands on a row no
+        // gesture has touched, and none on a new row, whose every value is a change.
+        const changes = inspect.changesAt(r);
+        for (const meta of members) {
+            const optional = takesClear(meta);
+            const valueOf = (cell: SheetCellValue | undefined) => (meta.kind === "custom" ? textValue(cellText(cell, meta, words), optional) : cellValue(cell, optional));
+            current[meta.key] = valueOf(inspect.cellAt(r, meta.key));
+            if (changes === undefined) began[meta.key] = current[meta.key];
+            else if (!changes.added) began[meta.key] = valueOf(changes.held?.get(meta.key));
+        }
         return { formValue: current, baseline: began };
-    }, [target, form.fields, metaOf, inspect, r, words]);
+    }, [target, form.fields, metaOf, inspect, r, words, members]);
 
-    const onChange = useCallback((path: readonly string[], next: unknown) => {
+    const onChange = useCallback((path: readonly string[], next: unknown): string | undefined => {
+        // A member's line: its cell, written as typing in it writes it — the column's `write` over the field as drafted
+        // so far; emptied, the blank cell, which the write refuses where a clear writes nothing.
+        const member = path.length === 1 ? memberOf.get(path[0]!) : undefined;
+        if (member !== undefined) {
+            const held = takesClear(member) ? getSomeorUndefined(next as option<unknown>) : next;
+            if (member.kind === "custom") return write([{ r, texts: new Map([[member.key, held === undefined ? "" : held as string]]) }]);
+            const blank = held === undefined || (editorOf(member).type === "text" && stringEqual(held as string, ""));
+            return write([{ r, cells: new Map([[member.key, blank ? NULL_CELL : cellOfPayload(fromEastTypeValue(member.raw.payloadType) as EastType, held)]]) }]);
+        }
         const f = byPath.get(pathKey(path));
-        if (f === undefined) return;
+        if (f === undefined) return undefined;
         const key = getSomeorUndefined(f.column);
         const name = path[0]!;
         if (key !== undefined) {
             const meta = inspect.columnAt(r, key);
-            if (meta === undefined) return;
+            if (meta === undefined) return undefined;
             // A custom column reads its text with its own parse, as typing in its cell does.
             if (meta.kind === "custom") {
                 const text = f.spec.optional ? getSomeorUndefined(next as option<string>) ?? "" : next as string;
-                write([{ r, texts: new Map([[key, text]]) }]);
-                return;
+                return write([{ r, texts: new Map([[key, text]]) }]);
             }
             // Emptied, a field is the blank cell, as typing nothing in the cell is.
             const held = f.spec.optional ? getSomeorUndefined(next as option<unknown>) : next;
-            if (held === undefined || (f.spec.editor.type === "text" && stringEqual(held as string, ""))) {
-                write([{ r, cells: new Map([[key, NULL_CELL]]) }]);
-                return;
-            }
+            if (held === undefined || (f.spec.editor.type === "text" && stringEqual(held as string, ""))) return write([{ r, cells: new Map([[key, NULL_CELL]]) }]);
             // The cells a patch of the one field sets, through the column's projection.
-            write([{ r, cells: form.encode(encodePatch(patchOne(struct, name, next) as never)) }]);
-            return;
+            return write([{ r, cells: form.encode(encodePatch(patchOne(struct, name, next) as never)) }]);
         }
-        // No column: the field on the draft — a nested field rebuilt under its struct, from its type's default when the struct has none yet.
-        if (path.length === 1) { write([{ r, fields: new Map([[name, next]]) }]); return; }
+        // No column: the field on the draft — a nested field rebuilt under its struct, and a case's value under its
+        // variant while it holds that case (#1549), from its type's default when the field has none yet.
+        if (path.length === 1) return write([{ r, fields: new Map([[name, next]]) }]);
         const fieldType = (struct.fields as Record<string, EastType>)[name]!;
         const top = target.value?.[name] ?? defaultValue(fieldType);
-        const rebuild = (at: Record<string, unknown>, rest: readonly string[]): Record<string, unknown> =>
-            ({ ...at, [rest[0]!]: rest.length === 1 ? next : rebuild(at[rest[0]!] as Record<string, unknown>, rest.slice(1)) });
-        write([{ r, fields: new Map([[name, rebuild(top as Record<string, unknown>, path.slice(1))]]) }]);
-    }, [byPath, inspect, r, struct, form, encodePatch, target.value, write]);
+        return write([{ r, fields: new Map([[name, setAt(top, path.slice(1), next)]]) }]);
+    }, [byPath, inspect, r, struct, form, encodePatch, target.value, write, memberOf, editorOf]);
 
-    // A link or set field: its halves as the grid draws them, and Edit in sheet (SB48).
+    // A link or set field: its halves as the grid draws them, and Edit in sheet (SB48) — a member's line's too.
     const renderControl = useCallback((spec: FieldSpecValue): ReactNode | undefined => {
         const f = byPath.get(pathKey(spec.path));
-        const key = f === undefined ? undefined : getSomeorUndefined(f.column);
+        const key = f !== undefined ? getSomeorUndefined(f.column) : spec.path.length === 1 && memberOf.has(spec.path[0]!) ? spec.path[0] : undefined;
         const meta = key === undefined ? undefined : inspect.columnAt(r, key);
         // An action field: its state, the cases its row is offered, and a choice's or a form's inline (#1478).
         if (key !== undefined && meta?.kind === "action") return inspect.drawAction(r, key);
@@ -379,22 +568,52 @@ function useTargetForm({ value, words, hidden, styles, inspect, target, form, jo
                 </chakra.button>
             </Box>
         );
-    }, [byPath, inspect, r, hidden, styles, button, m]);
+    }, [byPath, inspect, r, hidden, styles, button, m, memberOf]);
 
-    return { specs, options, formValue, baseline, onChange, renderControl, struct };
+    return { specs, columns, options, formValue, baseline, onChange, renderControl, struct };
 }
 
 /** One issue of a target, as Details lists it. */
-interface TargetIssue {
+export interface TargetIssue {
+    /** Its place among the batch's issues: the list's key. */
     key: string;
+    /** The field it names, by its label — a member's cell of a column from data by its column's header — else its name; `undefined` for an issue of the whole row. */
     field: string | undefined;
+    /** The field's name, as the form keys it; `undefined` for an issue of the whole row. */
+    name: string | undefined;
+    /** What is wrong, in the sheet's words. */
     text: string;
-    kind: "incomplete" | "invalid";
+    /** A field still missing, or one refused; or a stored row's number outside its bounds, which warns (#1585). */
+    kind: "incomplete" | "invalid" | "warning";
 }
 
-/** A target's issues, by field: each its field's label (else its name) and its text in the sheet's words. */
-function targetIssues(target: SheetInspectTarget, inspect: SheetInspect, form: FormValue, words: SheetWords): TargetIssue[] {
-    const labels = new Map(form.fields.map((f) => [f.spec.path[0]!, f.spec.label]));
+/**
+ * A form's fields' words by their names, as an issue names a field: a field's own spec's label — a variant's, never
+ * one of its cases' fields' (#1549) — else, under a nested struct's name, the last of its fields'; and a nested field —
+ * a case's among them — by its path joined by ".", as a number its bounds don't hold is named (#1585).
+ *
+ * @param fields - The form's fields
+ * @returns Each name and its words, as a `Map` takes them: a field's own after its nested fields', which it overrides
+ */
+function labelsOf(fields: readonly FormField[]): (readonly [string, string])[] {
+    const own = (f: FormField) => f.spec.path.length === 1;
+    return [...fields.filter((f) => !own(f)), ...fields.filter(own)].flatMap((f) => (own(f) ? [[f.spec.path[0]!, f.spec.label] as const]
+        : [[f.spec.path[0]!, f.spec.label] as const, [f.spec.path.join("."), f.spec.label] as const]));
+}
+
+/**
+ * A target's issues, by field: each its field's label — else the header of the column it names, as one of a column
+ * from data's cells is named by its column key, which no form field holds — else its name, and its text in the sheet's
+ * words.
+ *
+ * @param target - The row, line or band
+ * @param inspect - The sheet's reads: the batch's issues, and the columns at the target's row
+ * @param form - The target's form: its fields' labels
+ * @param words - The sheet's words
+ * @returns Its issues, in the batch's order
+ */
+export function targetIssues(target: SheetInspectTarget, inspect: SheetInspect, form: FormValue, words: SheetWords): TargetIssue[] {
+    const labels = new Map(labelsOf(form.fields));
     const out: TargetIssue[] = [];
     inspect.issues.forEach((issue, i) => {
         if (!stringEqual(issue.entry, target.entry)) return;
@@ -402,27 +621,46 @@ function targetIssues(target: SheetInspectTarget, inspect: SheetInspect, form: F
         // A line's issues are addressed to its place in the group; a row's and a band's to none.
         if (target.index === undefined ? row !== undefined : row === undefined || Number(row) !== target.index) return;
         const field = getSomeorUndefined(issue.field);
-        out.push({ key: `${i}`, field: field === undefined ? undefined : labels.get(field) ?? field, text: issueText(issue.message, words), kind: inspect.kindOf(issue) });
+        const label = field === undefined ? undefined : labels.get(field) ?? inspect.columnAt(target.r, field)?.header ?? field;
+        out.push({ key: `${i}`, field: label, name: field, text: issueText(issue.message, words), kind: inspect.kindOf(issue) });
     });
     return out;
 }
 
-/** One row, line or band: its head, its issues, its fields, its sub rows and its gestures (SB47, SB49). */
-function TargetView(props: TargetProps) {
-    const { value, keys, words, styles, inspect, target, form, noun } = props;
-    const { m } = words;
-    const button = useRecipe({ key: "button" });
-    const edit = useTargetForm(props);
-    const band = target.kind === "band";
-    const issues = targetIssues(target, inspect, form, words);
-    const isNew = target.baseline === undefined && target.value !== undefined;
-    const idField = getSomeorUndefined(value.sheet.editing.idField);
-    // Its id: a line's own where it has one (beside loose rows), else its entry's.
-    const ownId = target.kind === "line" && idField !== undefined ? target.value?.[idField] : undefined;
+/**
+ * A target's issues by the field each names, as its form keys it, each field with what its issues say of it, in their
+ * order: what a host that washes the fields its issues name hands the form (`FieldForm`'s `issues`), which then says
+ * each field's words under it (ruled 13 Nov 2026) — the Record's Details (IN3). An issue of the whole row names none.
+ *
+ * @param issues - The target's issues ({@link targetIssues})
+ * @returns Each field they name, and the words under it
+ */
+export function issuesByField(issues: readonly TargetIssue[]): ReadonlyMap<string, readonly string[]> {
+    const out = new Map<string, string[]>();
+    for (const issue of issues) {
+        if (issue.name === undefined) continue;
+        const said = out.get(issue.name);
+        if (said === undefined) out.set(issue.name, [issue.text]);
+        else said.push(issue.text);
+    }
+    return out;
+}
 
-    // The author's own Details for a complete row (SB58): its row as bytes, its edit back as one transaction.
-    const author = getSomeorUndefined(props.pane.custom);
-    const struct = edit.struct;
+/**
+ * The author's own Details for a complete row (SB58): what their function returns for the row as bytes, its edit
+ * written back as one transaction — every field its columns write through them at once, a field with none on the
+ * draft. `undefined` for a band, for a row still missing a field or holding one unreadable, for a pane with no Details
+ * of the author's, and where their function fails: the form shows there. A host's Details draws them too (#1534).
+ *
+ * @param input - The payload, the pane, the sheet's reads and writes, the target, its form and the form's struct
+ * @returns What the author's function returns, drawn in the form's place
+ */
+export function useAuthorDetails({ value, pane, inspect, target, form, struct }: {
+    value: SheetInspectorValue; pane: PaneValue; inspect: SheetInspect; target: SheetInspectTarget; form: FormValue; struct: StructType;
+}): AuthorDetails | undefined {
+    const band = target.kind === "band";
+    const idField = getSomeorUndefined(value.sheet.editing.idField);
+    const author = getSomeorUndefined(pane.custom);
     const codec = useMemo(() => ({ encode: encodeBeast2For(struct), decode: decodeBeast2For(struct), patch: encodeBeast2For(Sheet.Types.Patch(struct)) }), [struct]);
     const equals = useMemo(() => new Map(Object.entries(struct.fields as Record<string, EastType>).map(([k, t]) => [k, equalFor(t)])), [struct]);
     const rowEqual = useMemo(() => {
@@ -453,7 +691,7 @@ function TargetView(props: TargetProps) {
         inspect.write([write]);
         return null;
     }, [complete, codec, equals, form, idField, inspect, target.r]);
-    const own = useMemo(() => {
+    return useMemo(() => {
         if (band || author === undefined || complete === undefined) return undefined;
         try {
             return author(codec.encode(complete as Record<string, unknown>), update);
@@ -462,20 +700,40 @@ function TargetView(props: TargetProps) {
             return undefined;
         }
     }, [band, author, complete, codec, update]);
+}
+
+/** One row, line or band: its head, its issues, its fields, its sub rows and its gestures (SB47, SB49). */
+function TargetView(props: TargetProps) {
+    const { value, keys, words, styles, inspect, target, form, noun } = props;
+    const { m } = words;
+    const button = useRecipe({ key: "button" });
+    const edit = useTargetForm(props);
+    const band = target.kind === "band";
+    const issues = targetIssues(target, inspect, form, words);
+    // A bound the row breaks (#1585), said in the tone its Save stands in: as stored it warns; its change held, an error.
+    const breaches = issues.some((issue) => issue.kind !== "warning") ? "error" : "warn";
+    const isNew = target.baseline === undefined && target.value !== undefined;
+    const idField = getSomeorUndefined(value.sheet.editing.idField);
+    // Its id: a line's own where it has one (beside loose rows), else its entry's.
+    const ownId = target.kind === "line" && idField !== undefined ? target.value?.[idField] : undefined;
+    // The author's own Details for a complete row (SB58): its row as bytes, its edit back as one transaction.
+    const own = useAuthorDetails({ value, pane: props.pane, inspect, target, form, struct: edit.struct });
 
     const subRows = target.subRows;
     const can = inspect.can;
+    // A sheet that takes edits keeps its chip's row while there is none (#1584): the first edit's chip moves nothing.
+    const writes = !(getSomeorUndefined(value.sheet.readOnly) ?? false) && value.sheet.editing.onApply.type === "some";
     // In a phone's drawer (SH12): its head, each field a section of its own at touch size, and its gestures at 44.
     const phone = useContext(FrameDrawer);
     if (phone && own === undefined && target.value !== undefined) {
-        return <PhoneTarget {...props} edit={edit} issues={issues} isNew={isNew} ownId={ownId as string | undefined} />;
+        return <PhoneTarget {...props} edit={edit} issues={issues} breaches={breaches} isNew={isNew} ownId={ownId as string | undefined} writes={writes} />;
     }
     return (
         <Box css={styles.root} data-sheet-inspector={target.kind}>
             <Box css={styles.head}>
                 <Box css={styles.eyebrow} data-inspector-what="">{whatOf(target, words, noun)}</Box>
                 <Box css={styles.name} data-inspector-id="">{ownId !== undefined ? ownId as string : target.entry}</Box>
-                <Box css={styles.marks}>
+                <Box css={styles.marks} data-writes={writes ? "" : undefined}>
                     {isNew ? <Box as="span" css={styles.chip} data-state="new">{m.inspectorChip({ state: "new" })}</Box>
                         : target.presentation.pending ? <Box as="span" css={styles.chip} data-state="pending">{m.inspectorChip({ state: "pending" })}</Box>
                             : null}
@@ -508,7 +766,7 @@ function TargetView(props: TargetProps) {
                     : own !== undefined
                         ? <EastChakraComponent value={own} storageKey={`${keys.frame}.inspector`} />
                         : <FieldForm specs={edit.specs} value={edit.formValue} baseline={edit.baseline} options={edit.options}
-                            onChange={edit.onChange} readOnly={!inspect.writable} renderControl={edit.renderControl} />}
+                            onChange={edit.onChange} takesUnset readOnly={!inspect.writable} renderControl={edit.renderControl} breaches={breaches} />}
             </Box>
             {subRows.length > 0 && (
                 <Box css={styles.subRows} data-inspector-sub-rows="">
@@ -550,8 +808,12 @@ function TargetView(props: TargetProps) {
 interface PhoneTargetProps extends TargetProps {
     edit: ReturnType<typeof useTargetForm>;
     issues: TargetIssue[];
+    /** The tone a bound the row breaks is said in (#1585): a warning as stored, an error once its change holds Save. */
+    breaches: "warn" | "error";
     isNew: boolean;
     ownId: string | undefined;
+    /** Whether the sheet takes edits: its head keeps its chip's row. */
+    writes: boolean;
 }
 
 /**
@@ -564,7 +826,7 @@ interface PhoneTargetProps extends TargetProps {
  * every other kind its form's own input at touch size), its sub rows, and its
  * gestures as Default 44 buttons.
  */
-function PhoneTarget({ value, words, hidden, styles, inspect, target, form, noun, edit, issues, isNew, ownId }: PhoneTargetProps) {
+function PhoneTarget({ value, words, hidden, styles, inspect, target, form, noun, edit, issues, breaches, isNew, ownId, writes }: PhoneTargetProps) {
     const { m } = words;
     const button = useRecipe({ key: "button" });
     const bar = useSlotStyles("sheetAction");
@@ -585,15 +847,26 @@ function PhoneTarget({ value, words, hidden, styles, inspect, target, form, noun
     const eyebrow = [where, actionName, stringEqual(id, title ?? "") ? undefined : id].filter((t): t is string => t !== undefined && t !== "").join(" · ");
     const chip = isNew ? "new" : target.presentation.pending ? "pending" : undefined;
     // The fields it edits: every field but those the grid alone shows — an action's, which its cases write, among them.
-    const specs = edit.specs.filter((spec) => {
+    const specs = useMemo(() => edit.specs.filter((spec) => {
         if (spec.editor.type !== "readonly") return true;
         const key = getSomeorUndefined(byPath.get(pathKey(spec.path))?.column ?? none);
         return key !== undefined && inspect.columnAt(r, key)?.kind === "action";
-    });
+    }), [edit.specs, byPath, inspect, r]);
+    // Each field a section of its own: a variant's with the fields of its cases, which its form draws in a block under
+    // its choice (#1549) — the fields after it at paths through it.
+    const sections = useMemo(() => {
+        const out: FieldSpecValue[][] = [];
+        for (const spec of specs) {
+            const head = out[out.length - 1]?.[0];
+            if (head !== undefined && spec.path.length > head.path.length && pathEqual(spec.path.slice(0, head.path.length), head.path)) out[out.length - 1]!.push(spec);
+            else out.push([spec]);
+        }
+        return out;
+    }, [specs]);
     const can = inspect.can;
     return (
         <Box css={styles.root} data-sheet-inspector={target.kind} data-phone="">
-            <Box css={styles.phoneHead}>
+            <Box css={styles.phoneHead} data-writes={writes ? "" : undefined}>
                 <Box as="span" css={styles.phoneEyebrow} data-inspector-what="">{eyebrow}</Box>
                 <Box as="span" css={styles.phoneName} data-inspector-id="">{title ?? id}</Box>
                 {chip !== undefined && <Box as="span" css={styles.phoneChip} data-state={chip}>{m.inspectorChip({ state: chip })}</Box>}
@@ -613,10 +886,12 @@ function PhoneTarget({ value, words, hidden, styles, inspect, target, form, noun
                 </Box>
             )}
             <Box data-inspector-fields="phone">
-                {specs.map((spec) => {
+                {sections.map((section) => {
+                    const spec = section[0]!;
                     const f = byPath.get(pathKey(spec.path));
                     const key = f === undefined ? undefined : getSomeorUndefined(f.column);
-                    return <PhoneField key={pathKey(spec.path)} words={words} hidden={hidden} styles={styles} bar={bar} inspect={inspect} r={r} columnKey={key} spec={spec} edit={edit} value={value} />;
+                    return <PhoneField key={pathKey(spec.path)} words={words} hidden={hidden} styles={styles} bar={bar} inspect={inspect} r={r} columnKey={key} spec={spec} section={section} edit={edit} value={value}
+                        breaches={breaches} />;
                 })}
             </Box>
             {target.subRows.length > 0 && (
@@ -652,7 +927,7 @@ function PhoneTarget({ value, words, hidden, styles, inspect, target, form, noun
 
 /** Props of {@link PhoneField}. */
 interface PhoneFieldProps {
-    value: SheetValue;
+    value: SheetInspectorValue;
     words: SheetWords;
     hidden: ReadonlySet<string>;
     styles: Styles;
@@ -661,12 +936,15 @@ interface PhoneFieldProps {
     r: number;
     columnKey: string | undefined;
     spec: FieldSpecValue;
+    /** The field's specs: its own, then — a variant's — the fields of its cases, drawn in its block (#1549). */
+    section: readonly FieldSpecValue[];
     edit: ReturnType<typeof useTargetForm>;
+    /** The tone a bound the row breaks is said in (#1585). */
+    breaches: "warn" | "error";
 }
 
 /** One field of a phone's Details (SH12): a section of its own, its label over its name, then its control at touch size. */
-function PhoneField({ words, styles, bar, inspect, r, columnKey, spec, edit }: PhoneFieldProps) {
-    const specs = useMemo(() => [spec], [spec]);
+function PhoneField({ words, styles, bar, inspect, r, columnKey, spec, section, edit, breaches }: PhoneFieldProps) {
     const dirty = useDirty(spec, edit.formValue, edit.baseline);
     const meta = columnKey === undefined ? undefined : inspect.columnAt(r, columnKey);
     const header = meta?.header ?? spec.label;
@@ -683,9 +961,10 @@ function PhoneField({ words, styles, bar, inspect, r, columnKey, spec, edit }: P
             {columnKey !== undefined && meta?.kind === "action"
                 ? inspect.drawAction(r, columnKey)
                 : columnKey !== undefined && touch !== undefined
-                    ? <TouchControl inspect={inspect} words={words} bar={bar} r={r} columnKey={columnKey} spec={spec} header={header} dirty={dirty} joins={undefined} />
-                    : <FieldForm specs={specs} value={edit.formValue} baseline={edit.baseline} options={edit.options}
-                        onChange={edit.onChange} readOnly={!inspect.writable} renderControl={edit.renderControl} />}
+                    ? <TouchControl inspect={inspect} words={words} bar={bar} r={r} columnKey={columnKey} spec={spec} header={header} dirty={dirty} joins={undefined}
+                        breaches={breaches} />
+                    : <FieldForm specs={section} value={edit.formValue} baseline={edit.baseline} options={edit.options}
+                        onChange={edit.onChange} takesUnset readOnly={!inspect.writable} renderControl={edit.renderControl} breaches={breaches} />}
         </Box>
     );
 }
@@ -714,7 +993,7 @@ const compareFloats = compareFor(FloatType);
  * @param hidden - The columns this viewer hides
  * @returns The editor for a cell, as `SheetHost.cellEditor` takes it
  */
-export function sheetCellEditor(value: SheetValue, words: SheetWords, hidden: ReadonlySet<string>): (at: SheetCellEditorAt) => ReactNode | undefined {
+export function sheetCellEditor(value: SheetInspectorValue, words: SheetWords, hidden: ReadonlySet<string>): (at: SheetCellEditorAt) => ReactNode | undefined {
     const pane = getSomeorUndefined(value.inspector);
     const noun = nounOf(value, words);
     return (at) => {
@@ -722,13 +1001,15 @@ export function sheetCellEditor(value: SheetValue, words: SheetWords, hidden: Re
         const form = at.band ? getSomeorUndefined(pane.forms.group) : pane.forms.row;
         const field = form?.fields.find((f) => { const key = getSomeorUndefined(f.column); return key !== undefined && stringEqual(key, at.columnKey); });
         if (form === undefined || field === undefined || field.spec.editor.type === "readonly") return undefined;
-        return <SheetCellEditor key={`${at.r}\u001f${at.columnKey}`} value={value} words={words} hidden={hidden} at={at} form={form} field={field} noun={noun} />;
+        // Its row's by its id, never its place: the rows moving under it — a window landing above, another session's
+        // row — never draw it afresh, and what is typed in it stays.
+        return <SheetCellEditor key={`${at.id}\u001f${at.columnKey}`} value={value} words={words} hidden={hidden} at={at} form={form} field={field} noun={noun} />;
     };
 }
 
 /** Props of {@link SheetCellEditor}. */
 interface CellEditorProps {
-    value: SheetValue;
+    value: SheetInspectorValue;
     words: SheetWords;
     hidden: ReadonlySet<string>;
     at: SheetCellEditorAt;
@@ -777,7 +1058,7 @@ function SheetCellEditor({ value, words, hidden, at, form, field, noun }: CellEd
 
 /** Props of {@link CellEditorField}. */
 interface CellEditorFieldProps {
-    value: SheetValue;
+    value: SheetInspectorValue;
     words: SheetWords;
     hidden: ReadonlySet<string>;
     styles: Styles;
@@ -799,14 +1080,17 @@ function CellEditorField({ value, words, hidden, styles, bar, inspect, target, f
     const specs = useMemo(() => [spec], [spec]);
     const writable = inspect.writable;
     const dirty = useDirty(spec, edit.formValue, edit.baseline);
+    // A bound the row breaks (#1585), said in the tone its Save stands in, as Details says it.
+    const breaches = targetIssues(target, inspect, form, words).some((issue) => issue.kind !== "warning") ? "error" : "warn";
     if (touchKind(inspect, at.r, at.columnKey, spec) !== undefined) {
-        return <TouchControl inspect={inspect} words={words} bar={bar} r={at.r} columnKey={at.columnKey} spec={spec} header={header} dirty={dirty} joins={joins} />;
+        return <TouchControl inspect={inspect} words={words} bar={bar} r={at.r} columnKey={at.columnKey} spec={spec} header={header} dirty={dirty} joins={joins}
+            breaches={breaches} />;
     }
     // Every other kind (R9): the form's own input, at touch size.
     return (
         <chakra.div css={bar.cellForm} data-cell-form="">
             <FieldForm specs={specs} value={edit.formValue} baseline={edit.baseline} options={edit.options}
-                onChange={edit.onChange} readOnly={!writable} renderControl={edit.renderControl} live />
+                onChange={edit.onChange} readOnly={!writable} renderControl={edit.renderControl} live breaches={breaches} />
         </chakra.div>
     );
 }
@@ -841,15 +1125,20 @@ interface TouchControlProps {
     dirty: boolean;
     /** The key a run of edits joins under as one step, if it is one (SH10.1). */
     joins: string | undefined;
+    /** The tone a bound the row breaks is said in (#1585): a warning as stored, an error once its change holds Save. */
+    breaches: "warn" | "error";
 }
 
 /**
  * A field's touch control, as a phone's cell editor and a phone's Details draw
- * it (SH10, SH12): a number − · the field · its unit · + (digits only), a time
- * of day its `hh:mm` field, filled as digits are typed, and Clear — or `null`
- * for every other kind, which its form's own input edits.
+ * it (SH10, SH12): a number − · the field · its unit · + (digits only), and
+ * under it its help, its bounds as the form words them — a value they don't
+ * hold said there once, as the form says it, in the tone the row's Save stands
+ * in, the field's edge with it (#1585); a time of day its `hh:mm` field,
+ * filled as digits are typed, and Clear — or `null` for every other kind,
+ * which its form's own input edits.
  */
-function TouchControl({ inspect, words, bar, r, columnKey, spec, header, dirty, joins }: TouchControlProps) {
+function TouchControl({ inspect, words, bar, r, columnKey, spec, header, dirty, joins, breaches }: TouchControlProps) {
     const { m } = words;
     const kind = touchKind(inspect, r, columnKey, spec);
     const cell = inspect.cellAt(r, columnKey);
@@ -888,6 +1177,10 @@ function TouchControl({ inspect, words, bar, r, columnKey, spec, header, dirty, 
             min: min === undefined ? undefined : words.number(min), max: max === undefined ? undefined : words.number(max), unit: undefined, step: undefined,
         });
         const help = [bounds, getSomeorUndefined(spec.help)].filter((part): part is string => part !== undefined && part !== "");
+        // A value its bounds don't hold: its help line, which names them, in the row's tone, as Details says it (#1585).
+        const breach = held === undefined ? undefined
+            : fieldBreaches([spec], spec.path.reduceRight<unknown>((inner, name) => ({ [name]: inner }), spec.optional ? some(held) : held))[0];
+        const tone = breach === undefined ? undefined : breaches;
         return (
             <>
                 <chakra.div css={bar.cellLine}>
@@ -895,13 +1188,13 @@ function TouchControl({ inspect, words, bar, r, columnKey, spec, header, dirty, 
                         <FontAwesomeIcon icon={faMinus} aria-hidden />
                     </chakra.button>
                     <TypedInput css={bar.cellInput} printed={printed} dirty={dirty} label={header} disabled={!writable} inputMode={integer ? "numeric" : "decimal"}
-                        accept={(typed) => (integer ? typed.replace(/[^\d-]/g, "") : typed.replace(/[^\d.,-]/g, ""))} onTyped={writeText} />
+                        accept={(typed) => (integer ? typed.replace(/[^\d-]/g, "") : typed.replace(/[^\d.,-]/g, ""))} onTyped={writeText} breach={tone} />
                     {unit !== undefined && <chakra.span css={bar.cellUnit} data-cell-unit="">{unit}</chakra.span>}
                     <chakra.button type="button" css={bar.cellStep} aria-label={m.cellEditorStep({ header, more: true })} disabled={!writable} data-cell-step="more" onClick={() => stepBy(true)}>
                         <FontAwesomeIcon icon={faPlus} aria-hidden />
                     </chakra.button>
                 </chakra.div>
-                {help.length > 0 && <chakra.span css={bar.cellHelp} data-cell-help="">{help.join(" · ")}</chakra.span>}
+                {help.length > 0 && <chakra.span css={bar.cellHelp} data-cell-help="" data-breach={tone}>{help.join(" · ")}</chakra.span>}
             </>
         );
     }
@@ -947,14 +1240,16 @@ interface TypedInputProps {
     accept: (typed: string) => string;
     /** Told what the field holds after each keystroke. */
     onTyped: (text: string) => void;
+    /** The tone of a bound its value breaks (#1585): its edge, and — an error — invalid; `undefined` while it breaks none. */
+    breach?: "warn" | "error" | undefined;
 }
 
 /** A phone's cell editor's field: what is typed into it stands while it is typed, and the cell's value otherwise. */
-function TypedInput({ css, printed, dirty, label, disabled, inputMode, placeholder, accept, onTyped }: TypedInputProps) {
+function TypedInput({ css, printed, dirty, label, disabled, inputMode, placeholder, accept, onTyped, breach }: TypedInputProps) {
     const [typed, setTyped] = useState<string | undefined>(undefined);
     return (
         <chakra.input css={css} value={typed ?? printed} aria-label={label} disabled={disabled} inputMode={inputMode} placeholder={placeholder}
-            data-dirty={dirty ? "" : undefined} data-cell-input=""
+            aria-invalid={breach === "error" ? true : undefined} data-dirty={dirty ? "" : undefined} data-breach={breach} data-cell-input=""
             onChange={(e) => { const next = accept(e.currentTarget.value); setTyped(next); onTyped(next); }}
             onBlur={() => setTyped(undefined)} />
     );
@@ -979,11 +1274,14 @@ function SeveralRows({ value, pane, words, styles, inspect, rs, r0, r1 }: Severa
     const button = useRecipe({ key: "button" });
     const form = pane.forms.row;
     const lines = getSomeorUndefined(value.sheet.group) !== undefined;
-    // The columns a bulk edit sets: the editable ones the form edits — never a stamped, a link or a set column, which the grid edits.
+    // The columns a bulk edit sets: the editable ones the form edits — never a stamped, a link or a set column, which the grid
+    // edits — and of those only one a cell of the rows takes: a column every row's mark locks is no input at all.
     const editable = useMemo(() => form.fields.filter((f) => {
         const key = getSomeorUndefined(f.column);
-        const meta = key === undefined ? undefined : inspect.columnAt(rs[0]!, key);
-        return meta !== undefined && meta.editable && meta.kind !== "stamped" && meta.kind !== "link" && meta.kind !== "set" && f.spec.editor.type !== "readonly";
+        if (key === undefined) return false;
+        const meta = inspect.columnAt(rs[0]!, key);
+        return meta !== undefined && meta.editable && meta.kind !== "stamped" && meta.kind !== "link" && meta.kind !== "set" && f.spec.editor.type !== "readonly"
+            && rs.some((r) => inspect.writableAt(r, key));
     }), [form.fields, inspect, rs]);
     const [column, setColumn] = useState<string | undefined>(undefined);
     const [held, setHeld] = useState<unknown>(undefined);
@@ -1045,7 +1343,7 @@ function SeveralRows({ value, pane, words, styles, inspect, rs, r0, r1 }: Severa
             {chosen !== undefined && chosenKey !== undefined && (
                 <Box css={styles.bulk} data-inspector-bulk="">
                     <Box css={styles.sectionHead}>{m.inspectorBulk({ part: "column" })}</Box>
-                    <FieldForm specs={specs} value={formValue} options={options} onChange={onChange} readOnly={!inspect.writable} />
+                    <FieldForm specs={specs} value={formValue} options={options} onChange={onChange} takesUnset readOnly={!inspect.writable} />
                     <Box css={styles.marks}>
                         <chakra.button type="button" css={button({ variant: "outline", size: "xs" })} disabled={!inspect.writable} data-inspector-action="clear"
                             onClick={() => { setHeld(undefined); writeAcross((r) => ({ r, cells: new Map([[chosenKey, NULL_CELL]]) })); }}>
@@ -1105,20 +1403,26 @@ function NothingSelected({ styles, inspect, words, record, lastCommit }: {
 // ============================================================================
 
 /** The Issues tab: every issue of the batch by row, each a control that goes to its cell. */
-const SheetInspectorIssues = memo(function SheetInspectorIssues({ forms, words, noun }: { forms: PaneValue["forms"]; words: SheetWords; noun: string }) {
+const SheetInspectorIssues = memo(function SheetInspectorIssues({ forms, columns, words, noun, where: hostWhere }: {
+    forms: PaneValue["forms"]; columns: SheetInspectorValue["sheet"]["columns"]; words: SheetWords; noun: string; where?: SheetInspectorHost["where"];
+}) {
     const { m } = words;
     const inspect = useSheetInspect();
     const styles = useSlotRecipe({ key: "sheetInspector" })() as Styles;
-    // A field's words: its label in the row's form or the group's, else its name.
+    // A field's words: its label in the row's form or the group's — else the header of the column it names, as one of a
+    // column from data's cells is named by its column key, which no form field holds — else its name.
     const labels = useMemo(() => new Map([
-        ...(getSomeorUndefined(forms.group)?.fields ?? []).map((f) => [f.spec.path[0]!, f.spec.label] as const),
-        ...forms.row.fields.map((f) => [f.spec.path[0]!, f.spec.label] as const),
-    ]), [forms]);
-    // An issue's place: its entry, or a line of its group.
+        ...columns.map((column) => [column.key, column.header] as const),
+        ...labelsOf(getSomeorUndefined(forms.group)?.fields ?? []), ...labelsOf(forms.row.fields),
+    ]), [forms, columns]);
+    // An issue's place: a host's words for it, given where its row stands among the rows drawn (#1534) — else its entry,
+    // or a line of its group.
+    const placeOf = inspect.placeOf;
     const where = useCallback((issue: EditIssue) => {
+        if (hostWhere !== undefined) return hostWhere(issue, placeOf(issue));
         const row = getSomeorUndefined(issue.row);
         return row === undefined ? issue.entry : m.rowRef({ line: true, number: words.number(Number(row) + 1), title: issue.entry, noun });
-    }, [m, words, noun]);
+    }, [m, words, noun, hostWhere, placeOf]);
     // Whether the rail's filters hide the rows of the issues the sheet does not draw, and by which, asked of e3 while the
     // tab lists them (the hidden pick).
     const { issues, askHidden } = inspect;

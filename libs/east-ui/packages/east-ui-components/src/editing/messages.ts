@@ -44,6 +44,14 @@ export interface EditingMessages {
     issues: (p: { n: number; count: string }) => string;
     /** Its tooltip. */
     issuesTip: (p: { n: number; count: string }) => string;
+    /** The issues button's words for the entries beside the issues that hold no Save (#1585) — `1 warning`. */
+    warnings: (p: { n: number; count: string }) => string;
+    /** Its tooltip with warnings alone: how many, that Save still works, and the first's words, which a press goes to. */
+    warningsTip: (p: { n: number; count: string; first: string }) => string;
+    /** The issues button with both — `2 issues · 1 warning`. */
+    issuesAndWarnings: (p: { issues: string; warnings: string }) => string;
+    /** Its tooltip: a press goes to the first issue. */
+    issuesAndWarningsTip: (p: { issues: string; warnings: string }) => string;
     /** Undo. */
     undo: () => string;
     /** Undo's tooltip. */
@@ -78,6 +86,26 @@ export interface EditingMessages {
     applyNoRevision: () => string;
     /** Save's tooltip while conflicts wait to be chosen — `Choose 2 conflicts to save`. */
     applySettleFirst: (p: { n: number; count: string }) => string;
+    /** Save's tooltip while an optimiser's result waits for a person's Save, the automatic Save on. */
+    applyHeld: () => string;
+    /** Save's tooltip while what Undo or Redo left waits for a person's Save, the automatic Save on. */
+    applyStepped: () => string;
+    /** The automatic Save's switch, by its one word — `Autosave`: on, changes are saved by themselves; off, on a press alone. */
+    autosave: () => string;
+    /**
+     * The control beside Save that opens the choice, by name — `Automatic saving`. Its words hold no `Save`: beside
+     * Save, a second button named with it would answer whoever asks the page for Save by a part of its name, as a
+     * script or a voice does.
+     */
+    autosaveButton: () => string;
+    /** The control's tooltip, saying how the choice stands — `Autosave is on`. */
+    autosaveTip: (p: { on: boolean }) => string;
+    /** Why changes wait while it is on: an optimiser's result is among them, which only a person's Save sends. */
+    autosaveHeld: () => string;
+    /** A phone's More, by name: the square that holds Discard and the automatic Save's switch where its row is short of them. */
+    more: () => string;
+    /** Its tooltip, saying how the automatic Save stands — `More · Autosave is on`. */
+    moreTip: (p: { on: boolean }) => string;
     /** The conflicts button — `2 conflicts`. */
     conflicts: (p: { n: number; count: string }) => string;
     /** Its tooltip. */
@@ -92,13 +120,13 @@ export interface EditingMessages {
     conflictShowAll: () => string;
     /** Folds it again. */
     conflictShowLess: () => string;
-    /** Its first words: what happened, and what to do. */
+    /** Its first words: what happened, what to do, and that these changes wait for it — another record's still save. */
     conflictsIntro: () => string;
     /** Every conflict chosen — `All 2 conflicts chosen. Save is on.` */
     conflictsSettled: (p: { n: number; count: string }) => string;
     /** Every conflict chosen, and nothing left to save: each choice took the newer value. */
     conflictsSettledNothing: (p: { n: number; count: string }) => string;
-    /** Said as conflicts appear, to a screen reader. */
+    /** Said as conflicts appear, to a screen reader: how many, and that they are not saved until chosen. */
     conflictsAppeared: (p: { n: number; count: string }) => string;
     /** Keep every one's draft value. */
     conflictsKeepAll: () => string;
@@ -209,6 +237,10 @@ export const editingMessages: EditingMessages = {
     },
     issues: ({ n, count }) => `${count} ${plural(n, "issue", "issues")}`,
     issuesTip: ({ n, count }) => `${count} ${plural(n, "issue", "issues")} · Go to first issue`,
+    warnings: ({ n, count }) => `${count} ${plural(n, "warning", "warnings")}`,
+    warningsTip: ({ n, count, first }) => `${count} ${plural(n, "warning", "warnings")} · Save still works · Go to ${first}`,
+    issuesAndWarnings: ({ issues, warnings }) => `${issues} · ${warnings}`,
+    issuesAndWarningsTip: ({ issues, warnings }) => `${issues} · ${warnings} · Go to first issue`,
     undo: () => "Undo",
     undoTip: () => "Undo · Ctrl+Z / ⌘Z",
     redo: () => "Redo",
@@ -226,6 +258,14 @@ export const editingMessages: EditingMessages = {
     apply: () => "Save",
     applyNoRevision: () => "Saved, but it could not be confirmed — reload to see the newest",
     applySettleFirst: ({ n, count }) => `Choose ${count} ${plural(n, "conflict", "conflicts")} to save`,
+    applyHeld: () => "Save · Elara's changes wait for you",
+    applyStepped: () => "Save · Undo and Redo are not saved automatically",
+    autosave: () => "Autosave",
+    autosaveButton: () => "Automatic saving",
+    autosaveTip: ({ on }) => (on ? "Autosave is on" : "Autosave is off"),
+    autosaveHeld: () => "Elara's changes, and what you changed after them, are saved when you press Save.",
+    more: () => "More",
+    moreTip: ({ on }) => (on ? "More · Autosave is on" : "More · Autosave is off"),
     conflicts: ({ n, count }) => `${count} ${plural(n, "conflict", "conflicts")}`,
     conflictsTip: ({ n, count }) => `${count} ${plural(n, "conflict", "conflicts")} · Choose which changes to keep`,
     conflictsHead: ({ count }) => `Conflicts · ${count}`,
@@ -233,10 +273,10 @@ export const editingMessages: EditingMessages = {
     conflictsLockedTip: ({ n, count }) => `${count} ${plural(n, "conflict", "conflicts")} · Choices are off while the optimiser runs`,
     conflictShowAll: () => "Show all",
     conflictShowLess: () => "Show less",
-    conflictsIntro: () => "Someone else changed these while you were editing. Choose which version to keep. Save is off until every one is chosen.",
+    conflictsIntro: () => "Someone else changed these while you were editing. Choose which version to keep. These changes are not saved until every one is chosen.",
     conflictsSettled: ({ n, count }) => (n === 1 ? "The conflict is chosen. Save is on." : `All ${count} conflicts chosen. Save is on.`),
     conflictsSettledNothing: ({ n, count }) => (n === 1 ? "The conflict is chosen. Nothing is left to save." : `All ${count} conflicts chosen. Nothing is left to save.`),
-    conflictsAppeared: ({ n, count }) => `${count} of your ${plural(n, "changes conflicts", "changes conflict")} with newer changes. Save is off until you choose.`,
+    conflictsAppeared: ({ n, count }) => `${count} of your ${plural(n, "changes conflicts", "changes conflict")} with newer changes. ${plural(n, "It is", "They are")} not saved until you choose.`,
     conflictsKeepAll: () => "Keep all mine",
     conflictsTakeAll: () => "Use all theirs",
     conflictYours: () => "Yours",

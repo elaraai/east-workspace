@@ -44,7 +44,7 @@ const issue = (entry: string, message: string): EditIssue => ({ entry, row: none
 /** A session over one run, its first gesture drafted, its Save answering as given. */
 function drafted(overrides: Partial<EditSessionBinding<string>> = {}): EditSession<string> {
     const session = new EditSession<string>({
-        sourceId: "runs", entryType: Run, draftType: Draft, idField: "id", auto: false,
+        sourceId: "runs", entryType: Run, draftType: Draft, idField: "id",
         apply: () => variant("applied", { revision: none }), patch: undefined, refresh: () => null, ...overrides,
     });
     session.observeBase(variant("snapshot", [a]));
@@ -199,7 +199,7 @@ test("drafts a reload would lose say so, and why; drafts a reload kept but could
     const key = keptDraftsKey("", "runs", "runs.view");
     const kept = (): EditSession<string> => {
         const session = new EditSession<string>({
-            sourceId: "runs", entryType: Run, draftType: Draft, idField: "id", auto: false,
+            sourceId: "runs", entryType: Run, draftType: Draft, idField: "id",
             apply: () => variant("applied", { revision: none }), patch: undefined, refresh: undefined,
         });
         keepDrafts(session, key, StringType);

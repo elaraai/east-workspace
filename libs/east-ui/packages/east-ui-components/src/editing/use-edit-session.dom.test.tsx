@@ -11,8 +11,10 @@ import { afterEach, expect, test } from "vitest";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { ArrayType, DictType, IntegerType, StringType, StructType, encodeBeast2For, equalFor, none, printFor, some, toEastTypeValue, variant } from "@elaraai/east";
 import { Editing } from "@elaraai/east-ui/internal";
+import { registerSettledSources } from "../platform/settled-source.js";
 import { initializeStore } from "../platform/state-runtime.js";
 import { UIStore } from "../platform/state-store.js";
+import { autosaveChoiceKey, autosaveChoiceOf } from "./autosave-choice.js";
 import { useEditSession, type EditingValue, type EditSource } from "./use-edit-session.js";
 
 afterEach(cleanup);
@@ -41,7 +43,7 @@ const editingOf = (keyed: boolean): EditingValue => ({
     snapshot: some(keyed
         ? encodeBeast2For(RunsByKey)(new Map(RUNS.map((run) => [run.id, run])))
         : encodeBeast2For(ArrayType(Run))(RUNS)),
-    readEntry, onPatch: none, onApply: some(variant("sync", () => variant("applied", { revision: none }))), mode: variant("batch", null),
+    readEntry, onPatch: none, onApply: some(variant("sync", () => variant("applied", { revision: none }))),
 });
 
 test("an entry's place among the collection's rows, and its original version, are read by the collection's own ids", () => {
@@ -57,6 +59,56 @@ test("an entry's place among the collection's rows, and its original version, ar
     expect(hook.result.current.available).toBe(true);
 });
 
+test("a gesture on a row the collection draws begins from the entry its window read with the row — never a read at the revision now, which is on its way while the row's page is read again (#1599)", () => {
+    initializeStore(new UIStore());
+    // The source's entries are on their way: a read as a gesture runs has none to give.
+    const reading: EditingValue = { ...editingOf(false), sourceId: "bars-kept", readEntry: () => none };
+    // The windows the collection holds carried each bar's entry, by its id.
+    const carried = new Map(BARS.map((bar, i) => [bar.key, encodeRun(RUNS[i]!)]));
+    const hook = renderHook(() => useEditSession<Bar>(reading, undefined, BARS, POSITIONS, "bars-kept", { idOf, entryOf: (id) => carried.get(id) }));
+    const b = hook.result.current.original("b");
+    expect(b.wire).toEqual({ key: "b", end: 2n });
+    expect(b.draft).toEqual({ id: variant("value", "b"), end: variant("value", 2n) });
+    // A row it holds none for is read as the gesture runs — and, on its way, the gesture is refused, saying why.
+    carried.delete("c");
+    expect(() => hook.result.current.original("c")).toThrow("wait for its page before editing");
+});
+
+test("a session's builder keeps its choice of an automatic Save by its view — but a collection whose every Save is a person's keeps none, so no Save of it goes by itself", () => {
+    initializeStore(new UIStore());
+    const kept = renderHook(() => useEditSession<Bar>(editingOf(false), undefined, BARS, POSITIONS, "bars", { idOf }));
+    expect(autosaveChoiceOf(kept.result.current.session)?.key).toBe(autosaveChoiceKey("", "bars"));
+    // One whose Save asks the person something first — a query never saved asks its name.
+    const manual = renderHook(() => useEditSession<Bar>(editingOf(false), undefined, BARS, POSITIONS, "bars-by-hand", { idOf, manualSave: true }));
+    expect(autosaveChoiceOf(manual.result.current.session)).toBeUndefined();
+});
+
+test("a session's builder's choice begins where its author says — off, said nothing — from the session's first render, and moves as the author's word does", () => {
+    initializeStore(new UIStore());
+    const silent = renderHook(() => useEditSession<Bar>(editingOf(false), undefined, BARS, POSITIONS, "bars-silent", { idOf }));
+    expect(autosaveChoiceOf(silent.result.current.session)?.begins()).toBe(false);
+    const begins: boolean[] = [];
+    const hook = renderHook(({ autosave }: { autosave: boolean }) => {
+        const edit = useEditSession<Bar>(editingOf(false), undefined, BARS, POSITIONS, "bars-begun", { idOf, autosave });
+        // As the session's bar reads it, in the render that makes the session.
+        begins.push(autosaveChoiceOf(edit.session)!.begins());
+        return edit;
+    }, { initialProps: { autosave: true } });
+    expect(begins[0]).toBe(true);
+    const choice = autosaveChoiceOf(hook.result.current.session)!;
+    let heard = 0;
+    const stop = choice.subscribe(() => { heard++; });
+    hook.rerender({ autosave: false });
+    expect([choice.begins(), heard]).toEqual([false, 1]);
+    // Said again as it stands, nobody is told.
+    hook.rerender({ autosave: false });
+    expect([choice.begins(), heard]).toEqual([false, 1]);
+    stop();
+    // A collection whose every Save is a person's has no choice to begin.
+    const manual = renderHook(() => useEditSession<Bar>(editingOf(false), undefined, BARS, POSITIONS, "bars-by-hand-begun", { idOf, manualSave: true, autosave: true }));
+    expect(autosaveChoiceOf(manual.result.current.session)).toBeUndefined();
+});
+
 test("a keyed source places every entry in key order, and its base is its Dict snapshot", () => {
     initializeStore(new UIStore());
     const hook = renderHook(() => useEditSession<Bar>(editingOf(true), undefined, BARS, POSITIONS, "bars", { idOf }));
@@ -68,12 +120,67 @@ test("a keyed source places every entry in key order, and its base is its Dict s
     expect(hook.result.current.available).toBe(true);
 });
 
+test("a Save over a source read whole is read back at the collection its host says the source holds, once the host has read it since the Save was answered: every part put back exactly, the Save is acknowledged, never waited on (#1599)", async () => {
+    initializeStore(new UIStore());
+    // What the source's host says it holds: nothing until it has read the source since the Save's answer.
+    let held: Uint8Array | undefined;
+    registerSettledSources((sourceId) => (sourceId === "bars-settled" ? () => held : undefined));
+    try {
+        const editing = (): EditingValue => ({ ...editingOf(true), sourceId: "bars-settled" });
+        const hook = renderHook(({ value }) => useEditSession<Bar>(value, undefined, BARS, POSITIONS, "bars-settled", { idOf }), { initialProps: { value: editing() } });
+        act(() => {
+            const { session, original } = hook.result.current;
+            const before = original("b");
+            session.record([{ id: "b", before, after: { ...before, draft: { id: variant("value", "b"), end: variant("value", 5n) } } }], "typed", "Edit b");
+        });
+        await act(async () => { await hook.result.current.session.apply(); });
+        const session = () => hook.result.current.session;
+        // The page draws the source again as it stood before the Save — put back by another write, or not yet read.
+        hook.rerender({ value: editing() });
+        expect([session().status, session().locked]).toEqual(["reconciling", true]);
+        // Its host has read the source since the answer, and holds the rows as they were: the change was put back.
+        held = editing().snapshot.value as Uint8Array;
+        hook.rerender({ value: editing() });
+        expect([session().status, session().locked, session().pending]).toEqual(["idle", false, 0]);
+    } finally {
+        registerSettledSources(() => undefined);
+    }
+});
+
+test("a host that holds the source at another type than the session's collection says nothing the session can read: the Save is left to what the collection's entries show (#1599)", async () => {
+    initializeStore(new UIStore());
+    // The keyed session's collection is a Dict; its host holds an Array.
+    registerSettledSources((sourceId) => (sourceId === "bars-mistyped" ? () => encodeBeast2For(ArrayType(Run))(RUNS) : undefined));
+    try {
+        const editing = (end: bigint): EditingValue => ({
+            ...editingOf(true), sourceId: "bars-mistyped",
+            snapshot: some(encodeBeast2For(RunsByKey)(new Map(RUNS.map((run) => [run.id, run.id === "b" ? { ...run, end } : run])))),
+        });
+        const hook = renderHook(({ value }) => useEditSession<Bar>(value, undefined, BARS, POSITIONS, "bars-mistyped", { idOf }), { initialProps: { value: editing(2n) } });
+        act(() => {
+            const { session, original } = hook.result.current;
+            const before = original("b");
+            session.record([{ id: "b", before, after: { ...before, draft: { id: variant("value", "b"), end: variant("value", 5n) } } }], "typed", "Edit b");
+        });
+        await act(async () => { await hook.result.current.session.apply(); });
+        const session = () => hook.result.current.session;
+        // As the edit began: nothing of the Save in it, and no host to say when it was read.
+        hook.rerender({ value: editing(2n) });
+        expect(session().status).toBe("reconciling");
+        // The collection holds the Save: read back by its own entry.
+        hook.rerender({ value: editing(5n) });
+        expect([session().status, session().pending]).toEqual(["idle", 0]);
+    } finally {
+        registerSettledSources(() => undefined);
+    }
+});
+
 test("a keyed paged source's reconcile seeks each entry by its key's `.east` literal — a String key quoted (#880)", async () => {
     initializeStore(new UIStore());
     const queries: string[] = [];
     let revision = "r1";
     const source: EditSource<Bar> = {
-        page: (offset, count) => some(BARS.slice(Number(offset), Number(offset + count))),
+        page: (offset, count) => some({ rows: BARS.slice(Number(offset), Number(offset + count)) }),
         revision: () => some(revision),
         refresh: () => { revision = "r2"; return null; },
         seek: some((query) => {
@@ -94,10 +201,100 @@ test("a keyed paged source's reconcile seeks each entry by its key's `.east` lit
         session.record([{ id: "b", before, after: { ...before, draft: { id: variant("value", "b"), end: variant("value", 5n) } } }], "typed", "Edit b");
     });
     await act(async () => { await hook.result.current.session.apply(); });
-    expect(hook.result.current.session.status).toBe("reconciling");
+    // This source holds "b" at the revision it answered with as the edit began — put back since, for all the session
+    // can tell — so the Save is acknowledged there with the row as the source holds it.
+    expect(hook.result.current.session.status).toBe("idle");
     // The read after the Apply found "b" by its literal — `"b"`, not the raw id.
     expect(queries).toContain("\"b\"");
     expect(queries).not.toContain("b");
+});
+
+/**
+ * A keyed paged source whose record takes a Save as `r2`, and what happens to it besides before the Save's answer
+ * arrives: each revision the session asks its source for, in order — `null` where it asks it to follow its state.
+ */
+function lateAnswered(sourceId: string, during: (held: { revision: string; runs: typeof RUNS }) => void) {
+    const held = { revision: "r1", runs: RUNS, followed: false };
+    const asked: (string | null)[] = [];
+    const sourceAt = (): EditSource<Bar> => ({
+        page: (offset, count) => some({ rows: held.runs.slice(Number(offset), Number(offset + count)).map((run) => ({ key: run.id, end: run.end })) }),
+        revision: () => some(held.revision),
+        // Installed, the source reads there; asked to follow, it reads on where it is.
+        refresh: (target) => { asked.push(target.type === "some" ? target.value : null); if (target.type === "some") held.revision = target.value; return null; },
+        seek: some((query) => {
+            const at = query.type === "key" ? held.runs.findIndex((run) => printString(run.id) === query.value) : -1;
+            return some({ found: at >= 0, row: BigInt(Math.max(at, 0)), count: at >= 0 ? 1n : 0n });
+        }),
+        followed: () => held.followed,
+    });
+    const editing: EditingValue = {
+        ...editingOf(true), sourceId, snapshot: none,
+        readEntry: (id, offset) => {
+            const run = held.runs[Number(offset)];
+            return run?.id === id ? some(encodeRun(run)) : none;
+        },
+        onApply: some(variant("sync", () => {
+            held.runs = held.runs.map((run) => (run.id === "b" ? { ...run, end: 5n } : run));
+            during(held);
+            return variant("applied", { revision: some("r2") });
+        })),
+    };
+    return { held, asked, sourceAt, editing };
+}
+
+/** The Save of `b`'s end, drafted and applied through the hook. */
+async function saveEnd(hook: { result: { current: ReturnType<typeof useEditSession<Bar>> } }): Promise<void> {
+    act(() => {
+        const { session, original } = hook.result.current;
+        const before = original("b");
+        session.record([{ id: "b", before, after: { ...before, draft: { id: variant("value", "b"), end: variant("value", 5n) } } }], "typed", "Edit b");
+    });
+    await act(async () => { await hook.result.current.session.apply(); });
+}
+
+test("a Save's answer installs the revision it names while its source still reads where the Save was drafted (#1599)", async () => {
+    initializeStore(new UIStore());
+    const { asked, sourceAt, editing } = lateAnswered("bars-on-time", () => undefined);
+    const hook = renderHook(({ source }) => useEditSession<Bar>(editing, source, BARS, POSITIONS, "bars-on-time", { idOf }), { initialProps: { source: sourceAt() } });
+    await saveEnd(hook);
+    hook.rerender({ source: sourceAt() });
+    await act(async () => { await Promise.resolve(); });
+    expect([asked, hook.result.current.session.status]).toEqual([["r2"], "idle"]);
+});
+
+test("a Save's answer that comes after its source has moved on installs no revision: the source is asked to follow its state, never put back at the one the Save committed, and the Save is read back where it reads (#1599)", async () => {
+    initializeStore(new UIStore());
+    // Another session's write to c lands after the Save, and the source hears of it before the Save's answer arrives.
+    const { held, asked, sourceAt, editing } = lateAnswered("bars-late", (now) => {
+        now.runs = now.runs.map((run) => (run.id === "c" ? { ...run, end: 9n } : run));
+        now.revision = "r3";
+    });
+    const hook = renderHook(({ source }) => useEditSession<Bar>(editing, source, BARS, POSITIONS, "bars-late", { idOf }), { initialProps: { source: sourceAt() } });
+    await saveEnd(hook);
+    hook.rerender({ source: sourceAt() });
+    await act(async () => { await Promise.resolve(); });
+    // Never asked for r2: the source reads at r3 still, where b reads as the Save left it.
+    expect([asked, held.revision, hook.result.current.session.status, hook.result.current.session.pending]).toEqual([[null], "r3", "idle", 0]);
+});
+
+test("where the write that moved its source on put the Save's own entry back exactly, the Save is read back as put back once its host says the source has read its state since the answer — never before, and never left saving (#1599)", async () => {
+    initializeStore(new UIStore());
+    const { held, asked, sourceAt, editing } = lateAnswered("bars-late-put-back", (now) => {
+        now.runs = RUNS.map((run) => (run.id === "c" ? { ...run, end: 9n } : run));
+        now.revision = "r3";
+    });
+    const hook = renderHook(({ source }) => useEditSession<Bar>(editing, source, BARS, POSITIONS, "bars-late-put-back", { idOf }), { initialProps: { source: sourceAt() } });
+    await saveEnd(hook);
+    hook.rerender({ source: sourceAt() });
+    await act(async () => { await Promise.resolve(); });
+    // b reads as its edit began at r3, which the source may have read before the Save landed: it waits for its host's word.
+    expect([asked, hook.result.current.session.status]).toEqual([[null], "reconciling"]);
+    held.followed = true;
+    hook.rerender({ source: sourceAt() });
+    await act(async () => { await Promise.resolve(); });
+    hook.rerender({ source: sourceAt() });
+    await act(async () => { await Promise.resolve(); });
+    expect([asked, hook.result.current.session.status, hook.result.current.session.pending]).toEqual([[null], "idle", 0]);
 });
 
 test("a keyed paged source's conflicting Save carries its drafts over to the revision it moves to — each entry sought by its key and read from a one-row page, a part another write changed differently a conflict (#1199)", async () => {
@@ -109,7 +306,7 @@ test("a keyed paged source's conflicting Save carries its drafts over to the rev
     const sourceAt = (): EditSource<Bar> => ({
         page: (offset, count) => {
             pages.push(`${held.revision} ${offset}+${count}`);
-            return some(held.runs.slice(Number(offset), Number(offset + count)).map((run) => ({ key: run.id, end: run.end })));
+            return some({ rows: held.runs.slice(Number(offset), Number(offset + count)).map((run) => ({ key: run.id, end: run.end })) });
         },
         revision: () => some(held.revision),
         refresh: () => null,
@@ -160,6 +357,115 @@ test("a keyed paged source's conflicting Save carries its drafts over to the rev
     expect([...session().conflicts.keys()]).toEqual(["b"]);
 });
 
+test("a positional source's entries are read back from the windows its rows are read in, at most eight still to land at a time: an entry of a window the pass has read is judged from it, and a window it has not read waits for a later pass (#1596)", async () => {
+    initializeStore(new UIStore());
+    // Twenty runs in windows of two. A Save changes two runs of the first window and one of each other; read back, the
+    // first window lands at once and the others only once the test says so.
+    const stored = Array.from({ length: 20 }, (_, i) => ({ id: `r${String(i).padStart(2, "0")}`, end: BigInt(i) }));
+    const edited = ["r00", "r02", "r04", "r06", "r08", "r10", "r12", "r14", "r16", "r01", "r18"];
+    const held = { revision: "r1", runs: stored, landed: (start: number): boolean => start === 0 };
+    const asked: number[] = [];
+    const sourceAt = (): EditSource<Bar> => ({
+        pageSize: 2,
+        page: (offset, count) => {
+            const start = Number(offset);
+            asked.push(start);
+            return held.landed(start) ? some({ rows: held.runs.slice(start, start + Number(count)).map((run) => ({ key: run.id, end: run.end })) }) : none;
+        },
+        revision: () => some(held.revision),
+        refresh: () => null,
+        seek: none,
+    });
+    const editing: EditingValue = {
+        ...editingOf(false), sourceId: "bars-windows", snapshot: none,
+        readEntry: (id, offset) => {
+            const run = held.runs[Number(offset)];
+            return run?.id === id ? some(encodeRun(run)) : none;
+        },
+        onApply: some(variant("sync", () => {
+            held.runs = stored.map((run) => (edited.includes(run.id) ? { id: run.id, end: run.end + 100n } : run));
+            held.revision = "r2";
+            return variant("applied", { revision: some("r2") });
+        })),
+    };
+    const bars = stored.map((run) => ({ key: run.id, end: run.end }));
+    const positions = stored.map((_, i) => i);
+    const hook = renderHook(({ source }) => useEditSession<Bar>(editing, source, bars, positions, "bars-windows", { idOf }), { initialProps: { source: sourceAt() } });
+    act(() => {
+        const { session, original } = hook.result.current;
+        session.record(edited.map((id) => {
+            const before = original(id);
+            const run = stored.find((one) => one.id === id)!;
+            return { id, before, after: { ...before, draft: { id: variant("value", id), end: variant("value", run.end + 100n) } } };
+        }), "typed", "Edit runs");
+    });
+    asked.length = 0;
+    await act(async () => { await hook.result.current.session.apply(); });
+    hook.rerender({ source: sourceAt() });
+    await act(async () => { await Promise.resolve(); });
+    const session = () => hook.result.current.session;
+    expect(session().status).toBe("reconciling");
+    // The first window landed: both its entries are judged from it, the second after eight other windows were asked for.
+    expect(session().unresolvedIdsAt("r2")).toEqual(["r02", "r04", "r06", "r08", "r10", "r12", "r14", "r16", "r18"]);
+    // Eight windows are in flight, and the tenth, which no pass has read, waits for one of them.
+    expect([...new Set(asked)].sort((a, b) => a - b)).toEqual([0, 2, 4, 6, 8, 10, 12, 14, 16]);
+    // They land: the tenth is read, and every entry is confirmed.
+    held.landed = () => true;
+    hook.rerender({ source: sourceAt() });
+    await act(async () => { await Promise.resolve(); });
+    hook.rerender({ source: sourceAt() });
+    await act(async () => { await Promise.resolve(); });
+    expect(asked).toContain(18);
+    expect([session().status, session().pending]).toEqual(["idle", 0]);
+});
+
+test("a Save's entries are read back from the entry each window read with its row, where the source's windows carry theirs — never an entry read on its own, which may be on its way though its window has landed (#1599)", async () => {
+    initializeStore(new UIStore());
+    const stored = [{ id: "a", end: 1n }, { id: "b", end: 2n }, { id: "c", end: 3n }, { id: "d", end: 4n }];
+    const held = { revision: "r1", runs: stored };
+    const barOf = (run: (typeof stored)[number]): Bar => ({ key: run.id, end: run.end });
+    // Each window arrives with the entries its bars were made from: one read, the bars and their entries.
+    const sourceAt = (): EditSource<Bar> => ({
+        pageSize: 2,
+        page: (offset, count) => {
+            const runs = held.runs.slice(Number(offset), Number(offset + count));
+            const entries = new Map(runs.map((run) => [run.id, encodeRun(run)]));
+            return some({ rows: runs.map(barOf), entry: (id) => entries.get(id) });
+        },
+        revision: () => some(held.revision),
+        refresh: () => null,
+        seek: none,
+    });
+    // An entry read on its own: asked, it has none to give.
+    const alone: string[] = [];
+    const editing: EditingValue = {
+        ...editingOf(false), sourceId: "bars-carried", snapshot: none,
+        readEntry: (id) => { alone.push(id); return none; },
+        onApply: some(variant("sync", () => {
+            held.runs = stored.map((run) => (run.id === "b" ? { id: "b", end: 20n } : run));
+            held.revision = "r2";
+            return variant("applied", { revision: some("r2") });
+        })),
+    };
+    const bars = stored.map(barOf);
+    // What the collection shows: the windows it read at r1, each bar's entry with it.
+    const shown = new Map(stored.map((run) => [run.id, encodeRun(run)]));
+    const hook = renderHook(({ source }) => useEditSession<Bar>(editing, source, bars, [0, 1, 2, 3], "bars-carried", { idOf, entryOf: (id) => shown.get(id) }),
+        { initialProps: { source: sourceAt() } });
+    act(() => {
+        const { session, original } = hook.result.current;
+        const before = original("b");
+        session.record([{ id: "b", before, after: { ...before, draft: { id: variant("value", "b"), end: variant("value", 20n) } } }], "typed", "Edit b");
+    });
+    await act(async () => { await hook.result.current.session.apply(); });
+    hook.rerender({ source: sourceAt() });
+    await act(async () => { await Promise.resolve(); });
+    hook.rerender({ source: sourceAt() });
+    await act(async () => { await Promise.resolve(); });
+    // Read back from the window that holds b, as that window read it: confirmed, and nothing asked on its own.
+    expect([hook.result.current.session.status, hook.result.current.session.pending]).toEqual(["idle", 0]);
+    expect(alone).toEqual([]);
+});
 
 test("hidden and paged-out drafts retain history and Save confirms them by primary identity", async () => {
     initializeStore(new UIStore());

@@ -109,13 +109,20 @@ test("R1 — Roster.fit: the need held, not rostered that day, rest kept — eac
     // A night on Dispatch the day before, to 06:00 Thursday, leaves no rest before the early shift: refused, its measure the rest.
     const week = fresh();
     const start = new Date("2028-03-08T22:00:00Z"), end = new Date("2028-03-09T06:00:00Z");
-    week.assignments.set("x-night", { slot: { day: 3n, group: "dispatch", shift: "night" }, who: variant("person", "jquartz"), position: "deputy",
+    week.assignments.set("x-night", { place: { day: 3n, group: some("dispatch"), shift: "night" }, who: variant("person", "jquartz"), position: "deputy",
         activity: none, start, end, hours: 8, row: { who: variant("staff", "jquartz"), start, end, shift: "night", team: "dispatch", role: "deputy",
             task: none, unpaidBreak: 0, agreed: none, costCentre: "CC-DS", note: "" } });
     assert.deepEqual(builtIn(ask(LEAD(), week)).people.get("jquartz"),
         variant("refused", { group: "Rest too short", reason: "0 h rest · minimum 10 h", measure: variant("amount", { lead: "rest", value: 0 }) }));
     // With no minimum rest, the night refuses nothing.
     assert.equal(builtIn(ask(LEAD(), week, { ...context, rules: { ...context.rules, rest: 0 } })).people.get("jquartz")?.type, "fits");
+    // A duty of theirs that day in no group yet (#1548) rosters them too: refused, rostered on its shift, which names no group.
+    const placed = fresh();
+    const noon = new Date("2028-03-09T06:00:00Z"), after = new Date("2028-03-09T14:00:00Z");
+    placed.assignments.set("x-none", { place: { day: 4n, group: none, shift: "early" }, who: variant("person", "jquartz"), position: "deputy",
+        activity: none, start: noon, end: after, hours: 8, row: { who: variant("staff", "jquartz"), start: noon, end: after, shift: "early", team: "dispatch", role: "deputy",
+            task: none, unpaidBreak: 0, agreed: none, costCentre: "CC-DS", note: "" } });
+    assert.deepEqual(builtIn(ask(LEAD(), placed)).people.get("jquartz"), refusal("Rostered", "rostered on Early"));
 });
 
 test("R1 — Roster.fit: a skill's holders and a trainee's trainers — the skill held, every trainer rostered on Thursday", () => {

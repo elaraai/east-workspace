@@ -26,7 +26,10 @@
  *   ({@link TestE3.hold}, {@link TestE3.fail}) — a fault at the network's
  *   boundary, over e3's real answer to everything else — its answer held on
  *   its way back where the test says ({@link TestE3.holdAnswers}), and kept
- *   where the test asks ({@link TestE3.answers}).
+ *   where the test asks ({@link TestE3.answers}). A test may have it answer
+ *   as a browser's cache does ({@link TestE3.browserCache}): what e3 marks to
+ *   keep for good — a read pinned to a state — answered again from what was
+ *   kept, e3 never asked.
  * - **Every unit** e3 runs — a task, a piece of a split call, a one-shot — runs
  *   in this thread (`inProcessUnits`), and may be held before it starts
  *   ({@link TestE3.holdUnits}): a split call caught with some of its pieces
@@ -292,6 +295,15 @@ export interface TestE3 {
      * @returns Their answers, in the order they came, as they come
      */
     answers(match: E3Match): readonly E3Answer[];
+    /**
+     * Answers as a browser's cache does, from now until the test ends. e3 marks a read pinned to a state as one to
+     * keep and never ask again (`Cache-Control: immutable`), and a browser does: each such answer is kept by its
+     * request's URL, and a later GET of that URL is answered from there — e3 never asked, so it refuses nothing, and
+     * the request in no log, hold, fault or tap.
+     *
+     * @returns Each request it answered, in order, as they come
+     */
+    browserCache(): readonly E3Request[];
     /** Holds each unit e3 starts from now — a task, a piece, a one-shot — before it runs, until released. */
     holdUnits(): E3UnitHold;
     /**
@@ -409,6 +421,28 @@ export function searched(request: E3Request, index: string | undefined, text: st
     if (request.kind !== "find" || (request.query.get("index") ?? undefined) !== index) return false;
     const keys = request.searches.flatMap((search) => ["key" in search ? [search.key] : [], "from" in search ? search.from ?? [] : []].flat());
     return keys.some((key) => key.startsWith(text));
+}
+
+/**
+ * Whether a read of rows by key (`rows`, #1351) asks for a key, as East prints it.
+ *
+ * @param request - The request
+ * @param key - The key's `.east` text
+ * @returns Whether it reads that key's row
+ */
+export function readsRow(request: E3Request, key: string): boolean {
+    return rowKeysOf(request).includes(key);
+}
+
+/**
+ * The keys a read of rows by key (`rows`, #1351) asks for, each as East prints it, in the order asked.
+ *
+ * @param request - The request
+ * @returns Its keys; none for any other request
+ */
+export function rowKeysOf(request: E3Request): readonly string[] {
+    if (request.kind !== "rows") return [];
+    return (JSON.parse(new TextDecoder().decode(request.body)) as { keys?: string[] }).keys ?? [];
 }
 
 /** A single key search, as its query names it. */
@@ -635,6 +669,8 @@ function testE3Over(web: WebE3, units: HeldUnits, packageRef: string): TestE3 {
     /** Each tap a test set: what it matches, and the answers it keeps. */
     const taps: { match: E3Match; answers: E3Answer[] }[] = [];
     const idlers = new Set<() => void>();
+    /** A browser's cache, while a test keeps one: each answer e3 marked to keep, by its request's URL, and the requests answered from it. */
+    let browser: { readonly kept: Map<string, { readonly status: number; readonly statusText: string; readonly headers: [string, string][]; readonly body: Uint8Array }>; readonly served: E3Request[] } | undefined;
     let inFlight = 0;
     let parked = 0;
     let started = 0;
@@ -694,6 +730,12 @@ function testE3Over(web: WebE3, units: HeldUnits, packageRef: string): TestE3 {
     const fetch: typeof globalThis.fetch = async (input, init) => {
         const request = new Request(input, init);
         const entry = e3RequestOf(request.method, new URL(request.url), request.headers, bodyBytes(init?.body), request.signal);
+        // What a browser's cache holds it answers itself: e3 hears nothing of the request.
+        const held = request.method === "GET" ? browser?.kept.get(request.url) : undefined;
+        if (browser !== undefined && held !== undefined) {
+            browser.served.push(entry);
+            return new Response(held.body.slice(), { status: held.status, statusText: held.statusText, headers: held.headers });
+        }
         requests.push(entry);
         started++;
         inFlight++;
@@ -728,6 +770,10 @@ function testE3Over(web: WebE3, units: HeldUnits, packageRef: string): TestE3 {
                 return await kept(entry, failureResponse(failure, entry));
             }
             const answer = await web.fetch(request);
+            // An answer e3 marks to keep and never ask again, a browser keeps.
+            if (browser !== undefined && request.method === "GET" && answer.ok && /(^|,)\s*immutable\s*(,|$)/i.test(answer.headers.get("Cache-Control") ?? "")) {
+                browser.kept.set(request.url, { status: answer.status, statusText: answer.statusText, headers: [...answer.headers], body: new Uint8Array(await answer.clone().arrayBuffer()) });
+            }
             // e3 has answered: an answer the test holds is slow on its way back.
             const answerHold = answerHolds.find((candidate) => candidate.live && candidate.match(entry));
             if (answerHold !== undefined) await parkOn(answerHold, request.signal);
@@ -777,6 +823,10 @@ function testE3Over(web: WebE3, units: HeldUnits, packageRef: string): TestE3 {
             taps.push(tap);
             return tap.answers;
         },
+        browserCache() {
+            browser ??= { kept: new Map(), served: [] };
+            return browser.served;
+        },
         holdUnits: () => units.hold(),
         background(work) {
             inFlight++;
@@ -798,6 +848,7 @@ function testE3Over(web: WebE3, units: HeldUnits, packageRef: string): TestE3 {
             faults.splice(0);
             taps.splice(0);
             requests.splice(0);
+            browser = undefined;
         },
         close() {
             for (const hold of [...holds.splice(0), ...answerHolds.splice(0)]) letGo(hold);
@@ -877,17 +928,18 @@ export async function writeDataset<T extends EastType>(e3: TestE3, workspace: st
  * @param record - The record, which declares a patch mutation (`mutation.patch()`)
  * @param next - Its new state
  * @param mutation - The patch mutation's name; `patch` unless given
+ * @param key - The request's key (`Idempotency-Key`), as a session's Save carries one; none unless given
  * @returns What e3 answered
  * @throws {Error} When e3 does not commit it, naming what it answered
  */
 export async function patchRecord<T extends EastType>(
-    e3: TestE3, workspace: string, record: E3Record<T>, next: ValueTypeOf<T>, mutation = "patch",
+    e3: TestE3, workspace: string, record: E3Record<T>, next: ValueTypeOf<T>, mutation = "patch", key?: string,
 ): Promise<MutationResult> {
     const before = await readDataset(e3, workspace, record);
     const patch: unknown = diffFor(record.type)(before, next);
     const args = [encodeBeast2For(PatchType(record.type))(patch as never)];
     const result = await workspaceRecordMutate(e3.apiUrl, e3.repo, workspace, record.name, mutation,
-        { args, actor: some("another session"), limits: none }, e3.direct);
+        { args, actor: some("another session"), limits: none }, e3.direct, key);
     if (result.outcome.type !== "committed") throw new Error(`e3 did not commit the patch to ${record.name}: ${result.outcome.type}`);
     return result;
 }

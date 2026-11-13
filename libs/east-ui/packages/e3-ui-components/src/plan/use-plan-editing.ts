@@ -40,15 +40,15 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
-    DateTimeType, NullType, StringType, decodeBeast2For, encodeBeast2For, equalFor, equivalentFor, none, parseFor, printFor, some, toEastTypeValue,
-    variant, type PatchPath, type ValueTypeOf,
+    DateTimeType, NullType, StringType, decodeBeast2For, encodeBeast2For, equalFor, equivalentFor, fromEastTypeValue, none, parseFor, printFor, some,
+    toEastTypeValue, variant, type PatchPath, type ValueTypeOf,
 } from "@elaraai/east";
 import { Plan } from "@elaraai/e3-ui/internal";
 import {
     EntryRefType, historyKeyOf, useEditSession, useTrackedEvaluation, type EditHistory, type EditingValue, type EditSession, type EditSessionBinding, type EntryUpdate, type EntryVersion,
     type Origin, type HistoryAction, type DragEventValue,
 } from "@elaraai/east-ui-components";
-import { type EditSource, kindOfIssue, wholeEntryReadiness, windowedSourceOf, prepareRecordSliceSave } from "@elaraai/east-ui-components/internal";
+import { type EditSource, kindOfIssue, standingBeforeSave, wholeEntryReadiness, windowedSourceOf, prepareRecordSliceSave, recordSliceReadEntries } from "@elaraai/east-ui-components/internal";
 import { fromPlanSlot } from "./slot.js";
 import type { PlanMoveRequest } from "./edit/use-carry.js";
 import { PLAN_PAGE_SIZE, windowedArm, type PlanPagedSourceValue } from "./use-plan-paging.js";
@@ -56,6 +56,7 @@ import { rowIdOfKey, rowKeyOf, type PlanRootValue, type PlanRowId, type PlanRowV
 import type { RowKey } from "./plan-state.js";
 import { planPart, planSlices, ROWS_SOURCE } from "./root/sources.js";
 import { mintKey } from "../shared/schedule/records.js";
+import { entriesByKeyOf, readSinceAnswerOf } from "../platform/paged-runtime.js";
 import type { PlanWholeRows } from "./root/nested.js";
 import type { PlanTypedValue } from "./edit/typing.js";
 
@@ -158,6 +159,18 @@ export interface PlanEditingArgs {
      * its. Without it — or before it holds the session — the session's own.
      */
     history?: { readonly current: EditHistory<PlanEntryRef> | undefined } | undefined;
+    /**
+     * The stored entry the window the canvas draws at a source position read with the entry of an id (#1599, the
+     * paging driver's): what a gesture on a row the canvas shows begins from while its window is read again — after a
+     * Save, or another session's write — never a read at the revision the source reads at now, which is on its way.
+     */
+    entryOf?: ((id: string, at: number) => Uint8Array | undefined) | undefined;
+    /**
+     * Whether the window the canvas draws at a source position has landed at the revision it reads at (#1599, the
+     * paging driver's): what a Save landed of an entry there is drawn over its window until then, and is the window's
+     * own to draw from then on.
+     */
+    landedAt?: ((at: number) => boolean) | undefined;
 }
 
 /**
@@ -190,7 +203,7 @@ function elementKeysOf(rows: readonly PlanRowValue[]): Set<string> {
 const INERT: EditingValue = {
     sourceId: "plan:no-editing", entryType: toEastTypeValue(NullType), idField: none,
     draftType: toEastTypeValue(NullType), children: none, keyType: none, snapshot: none,
-    readEntry: () => none, onPatch: none, onApply: none, mode: variant("batch", null),
+    readEntry: () => none, onPatch: none, onApply: none,
 };
 
 /** Whether two paged sources derive the same rows — the paging driver's test (#809). */
@@ -283,6 +296,9 @@ function entryValueOf(version: EntryVersion<PlanEntryRef> | undefined): { value:
  */
 export function usePlanEditing(args: PlanEditingArgs): PlanEditing {
     const { value, data, rows, origin, storageKey, whole } = args;
+    // Over rows read lean (#1438) a window holds no whole entry: a gesture reads its row whole, by key.
+    const shownEntry = whole === undefined ? args.entryOf : undefined;
+    const landedAt = args.landedAt;
     const declared = value.editing.type === "some" ? value.editing.value : undefined;
     // The `rows` source's part, when the slice gives the canvas its rows (#1344).
     const recordSlice = useMemo(() => planPart(planSlices(value), ROWS_SOURCE), [value]);
@@ -348,30 +364,49 @@ export function usePlanEditing(args: PlanEditingArgs): PlanEditing {
     }, [editing, codec]);
 
     // ── The paged source a reconcile reads ───────────────────────────────
+    // Where no slice gives the rows, a Save's entries are read by key from the source's own rows (#1596).
+    const pagedId = paged?.id;
+    const entriesKeyType = editing?.keyType;
+    const entriesByKey = useMemo(() => pagedId === undefined || entriesKeyType?.type !== "some" || entryTypeValue === undefined ? undefined
+        : entriesByKeyOf(pagedId, fromEastTypeValue(entriesKeyType.value), fromEastTypeValue(entryTypeValue)), [pagedId, entriesKeyType, entryTypeValue]);
     // Only a PINNED source names the revision a session's base is (#880): an
     // unpinned one leaves the session without a base, so no gesture drafts —
     // and the factory refuses editing over such a source.
     const source = useMemo<EditSource<PlanEntryRef> | undefined>(() => {
-        if (editing === undefined || paged === undefined) return undefined;
+        if (editing === undefined || paged === undefined || codec === undefined) return undefined;
         const { revision, refresh } = paged;
         if (revision === undefined || refresh === undefined) return undefined;
         return {
             page: (offset, count) => {
                 const ids = editing.entryIds(offset, count);
-                return ids.type === "some" ? some(ids.value.map((id): PlanEntryRef => ({ id }))) : none;
+                return ids.type === "some" ? some({ rows: ids.value.map((id): PlanEntryRef => ({ id })) }) : none;
             },
             revision: () => revision(),
             refresh: (target) => refresh(target),
+            // Whether the workspace has read the rows' record since its last write from here was answered: a Save's
+            // answer that comes after its pages have moved on never puts them back at the revision it names (#1599).
+            followed: readSinceAnswerOf(paged.id),
             seek: paged.seek,
             // A Save's entries read back by key outside every narrowing: over rows read lean, whole (#1438) — a lean binding
             // pages no row whole, so its slice's read of one would be refused — else through the slice, when it gives the rows.
             readCurrent: whole !== undefined ? (id: string) => whole.read(id) : recordSlice?.readEntry,
+            // Every entry a Save wrote, in one read (#1596), each decoded: over rows read lean, the rows read whole are held as bytes.
+            readCurrentAll: whole !== undefined ? (ids: readonly string[]) => {
+                const read = whole.readAll(ids);
+                return read.type !== "some" ? none
+                    : some(new Map([...read.value].map(([id, row]) => [id, row.type === "some" ? some(codec.decode(row.value)) : none] as const)));
+            } : recordSlice === undefined ? entriesByKey : (ids: readonly string[]) => recordSliceReadEntries(recordSlice, ids),
         };
-    }, [editing, paged, recordSlice, whole]);
+    }, [editing, paged, recordSlice, whole, entriesByKey, codec]);
 
     const prepare = useMemo(() => prepareRecordSliceSave(recordSlice, source?.revision), [recordSlice, source]);
-    const { session, observed, original, available, version } = useEditSession<PlanEntryRef>(
-        editing ?? INERT, source, resident.refs, resident.positions, storageKey, { idOf: idOfRef, ready, prepare, wireType: EntryRefType });
+    // The canvas's windows are read apart from a Save's confirmation, which reads its entries by key: what a Save landed
+    // is drawn over the windows read before it until they are read again (`EditSession.landed`), and a gesture on an
+    // entry a Save has just written begins from what the Save left.
+    const carries = paged !== undefined && whole === undefined;
+    const { session, observed, original, available, version, rowIndex } = useEditSession<PlanEntryRef>(
+        editing ?? INERT, source, resident.refs, resident.positions, storageKey,
+        { idOf: idOfRef, ready, prepare, wireType: EntryRefType, entryOf: shownEntry, drawsLanded: carries });
     sessionRef.current = session;
     // The session's key in the Plan's one history (#1194): its source, the view and its schema.
     const historyKey = useMemo(() => historyKeyOf(storageKey, editing ?? INERT), [storageKey, editing]);
@@ -407,6 +442,43 @@ export function usePlanEditing(args: PlanEditingArgs): PlanEditing {
         held.current = next;
         return next;
     }, [fresh]);
+    // What the canvas's windows are drawn with (#1599): the drafts, and — under them — each entry a Save landed that its
+    // window has still to read, as the Save left it. A window read before the Save holds the entry as it stood before.
+    const landedDrafts = useMemo(() => {
+        if (!carries || codec === undefined || session.landed.size === 0) return NO_DRAFTS;
+        const out = new Map<string, Uint8Array>();
+        for (const [id, saved] of session.landed) {
+            const left = entryValueOf(saved.after);
+            if (left !== undefined) out.set(id, codec.encode(left.value));
+        }
+        return out;
+        // The session's maps are mutable; its version records each change.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [carries, codec, session, version]);
+    const heldDrawn = useRef<{ drafts: ReadonlyMap<string, Uint8Array>; version: number }>({ drafts: NO_DRAFTS, version: 0 });
+    const drawn = useMemo(() => {
+        const next = landedDrafts.size === 0 ? fresh : new Map([...landedDrafts, ...fresh]);
+        const previous = heldDrawn.current;
+        if (sameDrafts(previous.drafts, next)) return previous;
+        const out = { drafts: next, version: previous.version + 1 };
+        heldDrawn.current = out;
+        return out;
+    }, [fresh, landedDrafts]);
+    // A landed entry its window has read again is the source's to draw: the session lets it go — in the commit that
+    // draws the window, so no frame draws the entry as it stood before its Save. One the canvas holds no row of any
+    // longer is read afresh when it does.
+    useLayoutEffect(() => {
+        if (!carries || session.landed.size === 0) return;
+        const now = observed?.base.type === "revision" ? observed.base.value : undefined;
+        const read: string[] = [];
+        for (const [id, saved] of session.landed) {
+            const index = rowIndex.get(id);
+            const at = index === undefined ? undefined : resident.positions[index];
+            const landedNow = at === undefined || landedAt?.(at) === true;
+            if (!standingBeforeSave(!landedNow, now, saved.from)) read.push(id);
+        }
+        if (read.length > 0) session.shown(read);
+    });
 
     // ── The canvas with the drafts in place ──────────────────────────────
     // Inline: the whole canvas derived with the drafts in their entries' place.
@@ -414,15 +486,15 @@ export function usePlanEditing(args: PlanEditingArgs): PlanEditing {
         if (editing === undefined || data.rows.type !== "inline" || drafts.drafts.size === 0) return undefined;
         try {
             const out = editing.derive(0n, 0n, new Map(drafts.drafts));
-            return out.type === "some" ? out.value : undefined;
+            return out.type === "some" ? out.value.rows : undefined;
         } catch (err) {
             console.error("[Plan] the drafted canvas could not be derived:", err);
             return undefined;
         }
     }, [editing, data.rows, drafts]);
-    // Paged: one wrapper per source, reading the latest source and drafts.
-    const latest = useRef({ src: paged, editing, drafts });
-    latest.current = { src: paged, editing, drafts };
+    // Paged: one wrapper per source, reading the latest source and what its windows are drawn with.
+    const latest = useRef({ src: paged, editing, drafts: drawn });
+    latest.current = { src: paged, editing, drafts: drawn };
     const wrapperOf = useRef<{ src: PlanPagedSourceValue; wrapped: PlanPagedSourceValue } | undefined>(undefined);
     const wrapped = useMemo((): PlanPagedSourceValue | undefined => {
         if (paged === undefined || editing === undefined) return undefined;
@@ -455,6 +527,13 @@ export function usePlanEditing(args: PlanEditingArgs): PlanEditing {
                 : none,
             // A live source's narrowing, as it stands: the driver reads its windows again when it moves (#1354).
             ...(paged.query !== undefined ? { query: () => latest.current.src?.query?.() ?? "" } : {}),
+            // A window standing in while it is read again is drawn from the entries it carried, the drafts and what a Save
+            // landed in their place (#1599), reading nothing: a change made meanwhile is drawn at once.
+            redraft: (entries) => {
+                const l = latest.current;
+                return l.editing === undefined ? undefined : l.editing.deriveWindow([...entries], new Map(l.drafts.drafts));
+            },
+            redrafted: () => String(latest.current.drafts.version),
         };
         wrapperOf.current = { src: paged, wrapped: next };
         return next;

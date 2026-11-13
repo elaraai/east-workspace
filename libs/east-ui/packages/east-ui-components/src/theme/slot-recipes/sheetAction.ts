@@ -121,17 +121,6 @@ export const sheetActionSlotRecipe = defineSlotRecipe({
             flex: "none",
             borderRadius: "full",
             background: "var(--action-dot)",
-            position: "relative",
-            /* While an auto save is in flight, an echo of the dot (N2). */
-            "&[data-live]::after": {
-                content: '""',
-                position: "absolute",
-                inset: 0,
-                borderRadius: "full",
-                background: "var(--action-dot)",
-                animation: "elara-live-pulse calc({durations.slow} * 4) {easings.out} infinite",
-                _motionReduce: { animation: "none" },
-            },
         },
         /* What follows the state (S7). */
         summary: {
@@ -438,7 +427,8 @@ export const sheetActionSlotRecipe = defineSlotRecipe({
             _focusVisible: { outline: "2px solid {colors.brand.solid}", outlineOffset: "2px" },
             _disabled: { color: "fg.faint", borderColor: "border.subtle", cursor: "default", _hover: { background: "bg.surface" } },
         },
-        /* The field: 44 tall, padded 0 12, mono 13/500 in tabular figures at its end; a drafted value on the brand's tint. */
+        /* The field: 44 tall, padded 0 12, mono 13/500 in tabular figures at its end; a drafted value on the brand's tint;
+         * a value its bounds don't hold, its edge in the tone its row's Save stands in, as the form's is (#1585). */
         cellInput: {
             flex: "1", minWidth: 0, height: "44px", boxSizing: "border-box", paddingX: "12px",
             borderWidth: "1px", borderStyle: "solid", borderColor: "border.strong", borderRadius: "md",
@@ -446,13 +436,20 @@ export const sheetActionSlotRecipe = defineSlotRecipe({
             fontFamily: "mono", fontSize: "body", fontWeight: 500, fontVariantNumeric: "tabular-nums", textAlign: "right",
             outline: "none",
             "&[data-dirty]": { background: "brandTint", color: "brandPressed" },
+            "&[data-breach=warn]": { borderColor: "status.warn" },
+            "&[data-breach=error]": { borderColor: "status.neg" },
             _focusVisible: { borderColor: "brand.solid", boxShadow: "inset 0 0 0 1px {colors.brand.solid}" },
             _placeholder: { color: "fg.faint" },
         },
         /* A number's unit after the field: mono 10.5/500 in `--ink-4`. */
         cellUnit: { flex: "none", fontFamily: "mono", fontSize: "label.md", fontWeight: 500, lineHeight: "1.4", color: "fg.subtle" },
-        /* The help line under the field: mono 10.5 in `--ink-4`. */
-        cellHelp: { fontFamily: "mono", fontSize: "label.md", lineHeight: "1.4", color: "fg.subtle" },
+        /* The help line under the field: mono 10.5 in `--ink-4` — naming bounds its value doesn't hold, in the tone its row's
+         * Save stands in, as the form says it (#1585): a warning as stored, an error once its change holds Save. */
+        cellHelp: {
+            fontFamily: "mono", fontSize: "label.md", lineHeight: "1.4", color: "fg.subtle",
+            "&[data-breach=warn]": { color: "fg.warning" },
+            "&[data-breach=error]": { color: "fg.danger" },
+        },
         /* A time's Clear: a Default 44 button, padded 0 16, 12.5/500 in ink. */
         cellClear: {
             flex: "none", height: "44px", boxSizing: "border-box", paddingX: "16px",

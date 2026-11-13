@@ -41,6 +41,7 @@ import { entityId, type ItemRoles } from "./canvas/drawn.js";
 import type { SchematicValue } from "./data.js";
 import type { SortDrafts } from "./drafted.js";
 import type { SchematicDropCard } from "./drop.js";
+import { kindKeys } from "../shared/schedule/kind-keys.js";
 import { entryRow, type KindRows } from "./kind-rows.js";
 
 /** A kind's source of the slice. */
@@ -247,11 +248,13 @@ export class SchematicBacklogPages implements LibraryPageSource<BacklogPageRow> 
         const got = recordSlicePage(kind.part, plan.read, offset, limit);
         if (got.type !== "some") return none;
         const entries = got.value as RecordSliceEntry[];
-        const read = entries.map((entry) => ({ key: entry.key as string, row: entryRow(entry) }));
-        // The narrowing's choices the index doesn't lead, asked of the page's rows in one request (D28).
+        // Each row by its key's text (#1549).
+        const keys = kindKeys(kind.kind.keyType);
+        const read = entries.map((entry) => ({ key: keys.textOf(entry.key), row: entryRow(entry) }));
+        // The narrowing's choices the index doesn't lead, asked of the page's rows in one request (D28), each by its key.
         let held: readonly boolean[] | undefined;
         if (plan.residual.length > 0) {
-            const answer = recordSliceWithin(kind.part, kind.part.read().where, read);
+            const answer = recordSliceWithin(kind.part, kind.part.read().where, entries.map((entry) => ({ key: entry.key, row: entryRow(entry) })));
             if (answer.type !== "some") return none;
             held = answer.value;
         }

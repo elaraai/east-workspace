@@ -5,8 +5,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-    ArrayType, DictType, East, FloatType, IntegerType, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, isTypeEqual, none, some, variant,
-    type ValueTypeOf,
+    ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, OptionType, SortedMap, StringType, StructType, compareFor, decodeBeast2For, encodeBeast2For,
+    equalFor, isTypeEqual, none, some, variant, type EastType, type ValueTypeOf,
 } from "@elaraai/east";
 import { Assert, TestImpl, describeEast } from "@elaraai/east-node-std";
 import { Roster } from "@elaraai/e3-ui";
@@ -14,7 +14,8 @@ import * as ex from "./domain.examples.js";
 
 describeEast("Roster — pure domain", test => {
     Assert.examples(test, { rosterCoverage: ex.rosterCoverage, rosterChecks: ex.rosterChecks, rosterWeeklyHours: ex.rosterWeeklyHours, rosterRest: ex.rosterRest,
-        rosterFitTrainer: ex.rosterFitTrainer, rosterAnswerLeads: ex.rosterAnswerLeads });
+        rosterFitTrainer: ex.rosterFitTrainer, rosterAnswerLeads: ex.rosterAnswerLeads, rosterSlotOfPlaces: ex.rosterSlotOfPlaces,
+        rosterNoGroupHours: ex.rosterNoGroupHours });
 }, { platformFns: TestImpl });
 
 type Week = ValueTypeOf<typeof ex.DomainWeek>;
@@ -74,7 +75,7 @@ test("empty targets produce open-position fixes only when an agency is configure
 test("double booking and a trainee without a trainer are independent warnings", () => {
     const week = fresh(); week.assignments.delete("a");
     const b = week.assignments.get("b")!;
-    week.assignments.set("duplicate", { ...b, slot: { ...b.slot, shift: "night" } });
+    week.assignments.set("duplicate", { ...b, place: { ...b.place, shift: "night" } });
     const people = new Map(context.people); people.set("agency", { ...people.get("agency")!, trainee: true });
     const issues = check(week, { ...context, people });
     assert.equal(issues.filter(i => i.flag.type === "some" && i.flag.value === "double").length, 2);
@@ -97,11 +98,11 @@ test("the rest fix moves a duty to another shift of its day that keeps the rest,
     const week = fresh();
     const lead = week.assignments.get("a")!;
     /** A duty of the lead's on a slot, from and to the times given: its row's times its own. */
-    const duty = (slot: typeof lead.slot, from: string, to: string, hours: number) => ({
-        ...lead, slot, activity: none, start: new Date(from), end: new Date(to), hours, row: { ...lead.row, start: new Date(from), end: new Date(to), note: "" },
+    const duty = (place: typeof lead.place, from: string, to: string, hours: number) => ({
+        ...lead, place, activity: none, start: new Date(from), end: new Date(to), hours, row: { ...lead.row, start: new Date(from), end: new Date(to), note: "" },
     });
-    week.assignments.set("night", duty({ day: 0n, group: "goods", shift: "night" }, "2028-03-05T22:00:00Z", "2028-03-06T08:00:00Z", 10));
-    week.assignments.set("monday", duty({ day: 1n, group: "goods", shift: "late" }, "2028-03-06T14:00:00Z", "2028-03-06T22:00:00Z", 8));
+    week.assignments.set("night", duty({ day: 0n, group: some("goods"), shift: "night" }, "2028-03-05T22:00:00Z", "2028-03-06T08:00:00Z", 10));
+    week.assignments.set("monday", duty({ day: 1n, group: some("goods"), shift: "late" }, "2028-03-06T14:00:00Z", "2028-03-06T22:00:00Z", 8));
     const restOf = (issues: ReturnType<typeof check>) => issues.find(i => i.assignment.type === "some" && i.assignment.value === "monday" && i.title.endsWith("h rest"))!;
     const rest = restOf(check(week, context));
     // Its words print whole hours as the fit's do (`6 h rest · minimum 10 h`): no decimal point.
@@ -113,6 +114,33 @@ test("the rest fix moves a duty to another shift of its day that keeps the rest,
     // With no night shift, no other shift of the day keeps ten hours, so the fix is a later start: four hours on, at 18:00.
     const later = restOf(check(week, { ...context, shifts: context.shifts.filter(shift => shift.key !== "night") }));
     assert.deepEqual(later.fix, some(variant("start", new Date("2028-03-06T18:00:00Z"))));
+});
+
+// ============================================================================
+// A duty in no group yet (#1548)
+// ============================================================================
+
+test("a duty in no group counts in its person's hours and in no slot's coverage, and is checked as its person's, its issue in no slot", () => {
+    const week = fresh();
+    const lead = week.assignments.get("a")!;
+    // The lead's Sunday duty, and a Sunday night of theirs in no group: double booked, and six hours short of the next.
+    week.assignments.set("n", { ...lead, place: { day: 0n, group: none, shift: "night" }, activity: some("reach"),
+        start: new Date("2028-03-05T21:00:00Z"), end: new Date("2028-03-06T05:00:00Z"), hours: 8,
+        row: { ...lead.row, start: new Date("2028-03-05T21:00:00Z"), end: new Date("2028-03-06T05:00:00Z") } });
+    assert.equal(hours(week, context).get("lead"), 18, "the lead's ten and eight");
+    const slots = coverage(week, context, pay);
+    assert.equal(slots.get({ day: 0n, group: "goods", shift: "night" })!.filled, 0n, "Goods' Sunday night holds none of it");
+    assert.equal(slots.get(ex.slot)!.filled, 3n, "nor does Goods' Sunday early gain it");
+    const ofN = check(week, context).filter(i => i.assignment.type === "some" && i.assignment.value === "n");
+    assert.deepEqual(ofN.map(i => i.flag), [some("double"), some("4h rest")], "double booked, and four hours after the early");
+    assert.ok(ofN.every(i => i.slot.type === "none"), "in no slot");
+    // Its words name its shift alone: no group's word is the app's (#1566), and the check has none of its own.
+    assert.equal(ofN[0]!.detail, "Night · on 2 shifts this day");
+    assert.equal(ofN[1]!.detail, "Night · minimum 10 h since the previous shift");
+    // The lead holds Reach truck: a skill in no group is held to every group's, and they hold it.
+    const unskilled = new Map(context.people); unskilled.set("lead", { ...unskilled.get("lead")!, skills: new Set<string>() });
+    assert.ok(check(week, { ...context, people: unskilled }).some(i => i.assignment.type === "some" && i.assignment.value === "n"
+        && i.flag.type === "some" && i.flag.value === "not skilled"), "and without it, not skilled");
 });
 
 // ============================================================================
@@ -136,16 +164,18 @@ test("the pay, the check and the fit are asked over the app's rows: each request
     const Context = Roster.Types.CheckContext(ex.DomainDuty);
     const checked = East.compile(East.function([Context], ArrayType(Roster.Types.Issue), ($, cx) => {
         const issues = $.let([], ArrayType(Roster.Types.Issue));
+        const slotOf = $.const(Roster.slotOf);
         $.for(cx.week.assignments, ($2, a, id) => {
             $2.if(East.notEqual(a.row.note, "").and(() => cx.pay.has(id)), ($3) => {
                 $3(issues.pushLast({ kind: variant("breach", null), tone: variant("info", null), title: a.row.note, detail: "",
-                    slot: some(a.slot), assignment: some(id), flag: none, fix: none }));
+                    slot: slotOf(a.place), assignment: some(id), flag: none, fix: none }));
             });
         });
         return issues;
     }), []);
     const cx = decodeBeast2For(Context)(encodeBeast2For(Context)({ start: ex.start, week, context, coverage: coverage(week, context, pay), pay }));
     assert.deepEqual(checked(cx).map(i => [i.assignment, i.title]), [[some("a"), "in late, stays on"]]);
+    assert.ok(equalFor(OptionType(Roster.Types.Slot))(checked(cx)[0]!.slot, some(ex.slot)), "the issue names the duty's slot");
     // The fit's request carries the rows too.
     const Fit = Roster.Types.FitRequest(ex.DomainDuty);
     const noteOf = East.compile(East.function([Fit], StringType, (_$, req) => req.week.assignments.get("a").row.note), []);
@@ -155,10 +185,19 @@ test("the pay, the check and the fit are asked over the app's rows: each request
 
 test("each type over a week is a constructor of the row type: the same row the same type, another row another", () => {
     const Other = Roster.Types.Assignment(IntegerType);
-    for (const make of [Roster.Types.Assignment, Roster.Types.Week, Roster.Types.PayRequest, Roster.Types.CheckContext, Roster.Types.FitRequest] as const) {
+    const makers: readonly ((row: EastType) => EastType)[] = [Roster.Types.Assignment, Roster.Types.Week, Roster.Types.PayRequest, Roster.Types.CheckContext, Roster.Types.FitRequest];
+    for (const make of makers) {
         assert.ok(isTypeEqual(make(ex.DomainDuty), make(ex.DomainDuty)), make.name);
         assert.ok(!isTypeEqual(make(ex.DomainDuty), make(IntegerType)), make.name);
     }
+    // Over a reference record (#1551), the check's context holds its rows by key: a constructor of both row types.
+    const Rota = StructType({ person: StringType, shift: StringType, start: DateTimeType, end: DateTimeType });
+    const over = Roster.Types.CheckContext(ex.DomainDuty, Rota);
+    assert.ok(isTypeEqual(over, Roster.Types.CheckContext(ex.DomainDuty, Rota)));
+    assert.ok(!isTypeEqual(over, Roster.Types.CheckContext(ex.DomainDuty, IntegerType)), "another reference row, another type");
+    assert.ok(!isTypeEqual(over, Roster.Types.CheckContext(ex.DomainDuty)), "the duties' rows alone, another type");
+    assert.ok(isTypeEqual(over.fields.reference, DictType(StringType, Rota)));
+    assert.ok(isTypeEqual(over.fields.week, Roster.Types.CheckContext(ex.DomainDuty).fields.week), "beside the duties' context as it is");
     assert.ok(isTypeEqual(Other.fields.row, IntegerType));
     assert.ok(isTypeEqual(Roster.Types.Status, Roster.Types.Week(IntegerType).fields.status), "a week's status is Schedule's period status");
 });

@@ -42,11 +42,11 @@
  *   same presses, and a new snapshot of the presses asks it again there, its
  *   text kept and its matches the new snapshot's.
  *
- * The handles are bound with `$.const`, as a Reactive body that never binds
- * them again may: the payload's seams are then the same from one evaluation
- * to the next, and the canvas keeps one wrapper over the paged kind's
- * windows, which a new revision of it reads again. Nothing fails to read,
- * not even for a moment.
+ * The handles are bound with `$.let`, as an app binds them. Nothing fails to
+ * read, not even for a moment — and where the app's block is evaluated again
+ * while the presses are read again, a record it reads whole having moved, no
+ * row leaves the canvas: the view the last evaluation drew stands in until the
+ * window under it has landed (#1599).
  */
 
 import { describe, test, expect, beforeEach, afterEach, vi, type MockInstance } from "vitest";
@@ -65,15 +65,17 @@ import * as rowDrop from "@elaraai/e3-ui/examples/plan/plan";
 import * as events from "@elaraai/e3-ui/examples/plan/plan-events";
 import { PrintJob, PrintStock, planLinkStock, planPrintJobTemplates } from "@elaraai/e3-ui/examples/plan/plan-events";
 import type { TreePath } from "@elaraai/e3-types";
-import type { E3Request } from "../../e3-web.test-utils.js";
+import { rowKeysOf, type E3Request } from "../../e3-web.test-utils.js";
 import { boundFrame } from "../../sheet/frame.test-utils.js";
 import { PLAN_GEOMETRY } from "../geometry.js";
 import { carry, carrySaid, dragTo, keyOn } from "../plan-move.test-utils.js";
 import { emulateWindowScroll } from "../window-scroll.test-utils.js";
-import { act, el, elementKey, entry, planHarness, rowAt, settle, slot, tabs } from "./harness.test-utils.js";
-import { conflictCards } from "../../e3-web-mount.test-utils.js";
+import { act, drawnFrom, el, elementKey, entry, madeFrom, planHarness, rowAt, settle, slot, tabs } from "./harness.test-utils.js";
+import { conflictCards, evaluatesAgain } from "../../e3-web-mount.test-utils.js";
+import { editedThroughReload, redrawnThroughReload, savedThroughReload } from "../../shared/save-held.test-utils.js";
 
 const h = planHarness({ "plan/plan-windows": ex, "plan/plan": rowDrop, "plan/plan-events": events });
+evaluatesAgain();
 // A select scrolls its open listbox to the chosen option; jsdom does not scroll.
 Element.prototype.scrollTo ??= function scrollTo() { /* jsdom lays nothing out */ };
 
@@ -92,6 +94,8 @@ const pathText = (path: TreePath) => path.map((step) => step.value).join(".");
 const JOBS = pathText(ex.planWindowJobs.path as TreePath);
 const TEMPLATES = pathText(planPrintJobTemplates.path as TreePath);
 const PRESSES = pathText(ex.planWindowPresses.output.path as TreePath);
+/** The paper in stock, as e3's requests name it. */
+const STOCK = pathText(planLinkStock.path as TreePath);
 
 /**
  * Which collection a request reads: the jobs through the interval index the
@@ -101,9 +105,9 @@ const PRESSES = pathText(ex.planWindowPresses.output.path as TreePath);
  */
 type Served = "interval" | "days" | "backlog" | "entries" | "templates" | "presses";
 
-/** The collection a page or a key search reads; none for any other request. */
+/** The collection a page, a key search or a read of rows by key reads; none for any other request. */
 function servedOf(request: E3Request): Served | undefined {
-    if (request.kind !== "page" && request.kind !== "find") return undefined;
+    if (request.kind !== "page" && request.kind !== "find" && request.kind !== "rows") return undefined;
     const index = request.query.get("index") ?? undefined;
     if (request.dataset === PRESSES && index === undefined) return "presses";
     if (request.dataset === TEMPLATES) return "templates";
@@ -116,13 +120,15 @@ function servedOf(request: E3Request): Served | undefined {
 }
 
 /**
- * What a request asked: a page's `offset+limit`; a key search's key text, an
- * index's exact fields then the prefix after them, a key's first letters, or a
- * range from its bound — each field its literal, space apart.
+ * What a request asked: a page's `offset+limit`; a read of rows' keys; a key
+ * search's key text, an index's exact fields then the prefix after them, a
+ * key's first letters, or a range from its bound — each field its literal,
+ * space apart.
  */
 function askedOf(request: E3Request): string {
     const query = request.query;
     if (request.kind === "page") return `page ${query.get("offset")}+${query.get("limit")}`;
+    if (request.kind === "rows") return `rows ${rowKeysOf(request).join(" ")}`;
     const key = query.get("key");
     if (key !== null) return `seek ${key}`;
     const fields = query.getAll("field");
@@ -187,16 +193,16 @@ async function writeJob(key: string, change: Partial<Job>) {
  * stock).
  */
 const windowsPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-    const pressPages = $.const(Data.bindPaged(ex.planWindowPresses));
-    const jobs = $.const(Record.bind(ex.planWindowJobs, ["patch"]));
-    const jobEntries = $.const(Data.bindPaged(ex.planWindowJobs));
-    const slice = $.const(Slice.bindRecords("plan.windows.dom", {
+    const pressPages = $.let(Data.bindPaged(ex.planWindowPresses));
+    const jobs = $.let(Record.bind(ex.planWindowJobs, ["patch"]));
+    const jobEntries = $.let(Data.bindPaged(ex.planWindowJobs));
+    const slice = $.let(Slice.bindRecords("plan.windows.dom", {
         job: {
             source: Data.bindPaged(ex.planWindowJobs, { indexes: ["plan_window_jobs_by_time", "plan_window_jobs_by_press_week", "plan_window_jobs_by_press_month"] }),
             fields: { start: { label: "Dates" } }, range: "start",
         },
     }));
-    const paper = $.const(Data.bind(planLinkStock));
+    const paper = $.let(Data.bind(planLinkStock));
     const axis = $.let(Plan.axis({ window: { min: FIRST, max: TWO_WEEKS }, resolution: "day", now: NOW }));
     return Plan({
         axis, inspector: true, slice: { slice },
@@ -226,10 +232,10 @@ const windowsPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Ro
  * draws — with the inspector, whose bulk edit moves the drafts.
  */
 const jobsPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-    const presses = $.const(Data.bind(ex.planWindowPresses));
-    const jobs = $.const(Record.bind(ex.planWindowJobs, ["patch"]));
-    const jobEntries = $.const(Data.bindPaged(ex.planWindowJobs));
-    const slice = $.const(Slice.bindRecords("plan.windows.jobs.dom", {
+    const presses = $.let(Data.bind(ex.planWindowPresses));
+    const jobs = $.let(Record.bind(ex.planWindowJobs, ["patch"]));
+    const jobEntries = $.let(Data.bindPaged(ex.planWindowJobs));
+    const slice = $.let(Slice.bindRecords("plan.windows.jobs.dom", {
         job: { source: Data.bindPaged(ex.planWindowJobs, { indexes: ["plan_window_jobs_by_time"] }), fields: { start: { label: "Dates" } }, range: "start" },
     }));
     return Plan({
@@ -258,6 +264,11 @@ const pressRow = (key: string) => entry("presses.span", key);
 const bars = (c: HTMLElement, key: string) => [...slot(c, "main")!.querySelectorAll<HTMLElement>(el("data-run", "job", key))];
 /** A job's bar on a press's row. */
 const bar = (c: HTMLElement, key: string, press: string) => c.querySelector<HTMLElement>(`${rowAt(pressRow(press))} ${el("data-run", "job", key)}`);
+/**
+ * The keys of the jobs a press's row draws that were made from another's key — a template's, a copied job's: the jobs
+ * are read a window at a time, so each is that key and a suffix drawn at random, read here rather than named.
+ */
+const jobsFrom = (c: HTMLElement, from: string, press: string) => madeFrom(c.querySelector<HTMLElement>(rowAt(pressRow(press)))!, "data-run", "job", from);
 /** Whether the canvas draws a press's row. */
 const draws = (c: HTMLElement, press: string) => c.querySelector(rowAt(pressRow(press))) !== null;
 /** The footer's count of the events in the window. */
@@ -546,6 +557,43 @@ describe("the Plan's own rows after a paged kind's (PB55)", () => {
         // The presses' window read again from the runtime, not from e3.
         expect(of("presses").length).toBe(reads);
     });
+
+    test("their dataset moving while the presses are read again takes no press off the canvas: the app's block is evaluated again, and the rows stand until their windows land (#1599)", async () => {
+        await pressCount(30n);
+        const { container } = await h.mount(windowsPlan);
+        await settle();
+        const drawn = () => ["P-1001", "P-1015", "P-1029"].map((press) => draws(container, press));
+        expect(drawn()).toEqual([true, true, true]);
+        // The works are cut to twenty-nine presses: their windows are read again, and held on their way.
+        const held = h.e3.hold((request) => servedOf(request) === "presses" && request.kind === "page");
+        try {
+            await pressCount(29n);
+            await waitFor(() => expect(held.held, "the presses' windows are read again").toBeGreaterThan(0), { timeout: 10_000 });
+            await settle();
+            // The rows read before stand in.
+            expect(drawn()).toEqual([true, true, true]);
+            // The paper is counted again meanwhile: the Plan's own rows are read with their dataset, the app's block
+            // evaluated again over the new value.
+            const source = planLinkStock.source;
+            if (source?.type !== "value") throw new Error("the stock is a value");
+            const recounted = new Map(source.value as ReadonlyMap<string, ValueTypeOf<typeof PrintStock>>);
+            recounted.set("board", { name: "Board", weekly: new SortedMap([[FIRST, 77.0]], compareFor(DateTimeType)) });
+            const stockReads = () => h.requests().filter((request) => request.dataset === STOCK).length;
+            const before = stockReads();
+            await h.write(planLinkStock, recounted as unknown as Stock);
+            await waitFor(() => expect(stockReads(), "the page reads the paper again").toBeGreaterThan(before), { timeout: 10_000 });
+            await settle();
+            // Every press is on the canvas still.
+            expect(drawn()).toEqual([true, true, true]);
+        } finally {
+            await act(async () => { held.release(); });
+        }
+        await settle();
+        // The windows land: twenty-nine presses, the paper as counted.
+        await waitFor(() => expect(draws(container, "P-1030")).toBe(false));
+        expect(drawn()).toEqual([true, true, true]);
+        await waitFor(() => expect(container.querySelector<HTMLElement>(rowAt(entry("stock", "board")))!.textContent).toContain("77"));
+    });
 });
 
 // ============================================================================
@@ -565,11 +613,11 @@ const Customer = StructType({ name: StringType });
  * whole.
  */
 const editedPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-    const pressPages = $.const(Data.bindPaged(ex.planWindowPresses));
-    const jobs = $.const(Record.bind(ex.planWindowJobs, ["patch"]));
-    const jobEntries = $.const(Data.bindPaged(ex.planWindowJobs));
-    const jobTemplates = $.const(Data.bind(planPrintJobTemplates));
-    const slice = $.const(Slice.bindRecords("plan.windows.edited", {
+    const pressPages = $.let(Data.bindPaged(ex.planWindowPresses));
+    const jobs = $.let(Record.bind(ex.planWindowJobs, ["patch"]));
+    const jobEntries = $.let(Data.bindPaged(ex.planWindowJobs));
+    const jobTemplates = $.let(Data.bind(planPrintJobTemplates));
+    const slice = $.let(Slice.bindRecords("plan.windows.edited", {
         job: {
             source: Data.bindPaged(ex.planWindowJobs, { indexes: ["plan_window_jobs_by_time", "plan_window_jobs_by_press_week", "plan_window_jobs_by_press_month"] }),
             range: "start",
@@ -701,7 +749,9 @@ describe("the jobs edited, their record never read whole (#1199)", () => {
         expect(caption()).toBe("Brochure run · Press 1004 · Thu, Oct 8, 2026");
         await letGo();
         await settle();
-        expect(named(bar(c, "brochure-2", "P-1004"))).toMatch(/^Brochure run, Oct 8, 2026 – Oct 8, 2026, 06:00/);
+        const [dropped, ...more] = jobsFrom(c, "brochure", "P-1004");
+        expect([more, dropped]).toEqual([[], expect.stringMatching(drawnFrom("brochure"))]);
+        expect(named(bar(c, dropped!, "P-1004"))).toMatch(/^Brochure run, Oct 8, 2026 – Oct 8, 2026, 06:00/);
         // A move across presses: the brochure run (W-0001) from Press 1001 onto Press 1002, the same day.
         y = layOutPlots(c, ["P-1001", "P-1002", "P-1003", "P-1004"]);
         await dragTo(bar(c, "W-0001", "P-1001")!, { x: xAt(0, 9), y: y("P-1001") }, { x: xAt(0, 9), y: y("P-1002") });
@@ -787,11 +837,13 @@ describe("the jobs edited, their record never read whole (#1199)", () => {
         expect(inspectorField(c, "sheets").hasAttribute("data-dirty")).toBe(false);
         // Duplicate: a copy under a new key, selected, every field tinted; Delete takes it away.
         await press(action(c, "duplicate"));
-        expect(bar(c, "W-0001-2", "P-1001")!.getAttribute("aria-pressed")).toBe("true");
+        const [copy, ...more] = jobsFrom(c, "W-0001", "P-1001");
+        expect([more, copy]).toEqual([[], expect.stringMatching(drawnFrom("W-0001"))]);
+        expect(bar(c, copy!, "P-1001")!.getAttribute("aria-pressed")).toBe("true");
         expect(inspectorField(c, "customer").hasAttribute("data-dirty")).toBe(true);
         expect(inspectorField(c, "sheets").hasAttribute("data-dirty")).toBe(true);
         await press(action(c, "delete"));
-        expect(bar(c, "W-0001-2", "P-1001")).toBeNull();
+        expect(bar(c, copy!, "P-1001")).toBeNull();
         // The bulk edit over two jobs: an hour on, one step.
         await select(bar(c, "W-0001", "P-1001")!);
         await select(bar(c, "W-0003", "P-1002")!, true);
@@ -829,7 +881,7 @@ describe("the jobs edited, their record never read whole (#1199)", () => {
         await settle();
         expect(bannerTexts(c)).toEqual([]);
         expect((await readJobs()).get("W-0001")!.customer).toBe("Alder & Finch Ltd");
-        expect(of("entries").slice(before)).toContain(`seek "W-0001"`);
+        expect(of("entries").slice(before)).toContain(`rows "W-0001"`);
         expect(customerOf(c)).toBe("Alder & Finch Ltd");
         expect(inspectorField(c, "customer").hasAttribute("data-dirty")).toBe(false);
         expect(h.requests("read", JOBS)).toEqual([]);
@@ -853,7 +905,7 @@ describe("the jobs edited, their record never read whole (#1199)", () => {
         const cards = await conflictCards(c);
         expect(cards.map((card) => card.item)).toEqual(["Brochure run"]);
         expect(cards[0]!.theirs).toContain("Changed since this edit began — last changed by another session");
-        expect(of("entries")).toEqual(expect.arrayContaining([`seek "W-0001"`, `seek "W-0003"`]));
+        expect(of("entries")).toEqual(expect.arrayContaining([`rows "W-0001" "W-0003"`]));
         // Nothing of the job's draft was written; the other planner's stands, and each draft stands over it.
         expect((await readJobs()).get("W-0001")!.customer).toBe("Alder & Finch Group");
         await select(bar(c, "W-0001", "P-1001")!);
@@ -943,6 +995,79 @@ describe("the key search standing (#1199)", () => {
 // ============================================================================
 
 describe("planRowDrop's data session, its record read a window at a time (#1199)", () => {
+    test("the check every builder runs: a run a Save carried draws where the Save left it at every change of the page, from the press of Save until the Plan's windows are read again (#1599)", async () => {
+        const ops = rowDrop.planDropOps;
+        const opsPath = pathText(ops.path as TreePath);
+        // Its canvas is bounded: laid out, its rows mount.
+        const restore = boundFrame(2000);
+        try {
+            const { container } = await h.mount(rowDrop.planRowDrop, DRAG);
+            await settle();
+            const run = (press: string, key: string) => container.querySelector<HTMLElement>(`${rowAt(entry("press", press))} [data-run="${key}"]`);
+            // H1-P03's run carried a week on, by the keyboard: a draft of its entry.
+            run("p03", "j4642")!.focus();
+            await keyOn({ key: " " });
+            await keyOn({ key: "ArrowRight" });
+            await keyOn({ key: " " });
+            expect(pending(container)).toBe("1 pending");
+            await savedThroughReload({
+                e3: h.e3,
+                container,
+                // The Plan's own windows of the presses, which the Save's confirmation, by key, is none of.
+                reads: (request) => request.kind === "page" && request.dataset === opsPath,
+                // Where each of the two runs stands, as it says it.
+                look: () => [run("p03", "j4642")?.getAttribute("aria-label") ?? null, run("p04", "j4624")?.getAttribute("aria-label") ?? null],
+                unsaved: () => pending(container) !== "0 pending",
+            });
+            expect([...(await h.read(ops)).get("p03")!.jobs.values()][0]!.start).toEqual(new Date("2026-07-13T00:00:00Z"));
+        } finally {
+            restore();
+        }
+    });
+
+    test.each([
+        ["a Save never stops the editing: another press's run carried while the Plan's windows are read again after a Save is taken at once — from the entry its window was read with — stays as carried as the windows land, and the next Save writes it (#1599)", editedThroughReload],
+        ["the page evaluated again while the Plan's windows are read again after a Save takes no press off the canvas, and moves no run: another press's run carried meanwhile is taken at once, stays as carried as the page is evaluated again and the windows land, and the next Save writes it (#1599)", redrawnThroughReload],
+    ])("%s", async (_name, check) => {
+        const ops = rowDrop.planDropOps;
+        const opsPath = pathText(ops.path as TreePath);
+        // Its canvas is bounded: laid out, its rows mount.
+        const restore = boundFrame(2000);
+        try {
+            const { container } = await h.mount(rowDrop.planRowDrop, DRAG);
+            await settle();
+            const run = (press: string, key: string) => container.querySelector<HTMLElement>(`${rowAt(entry("press", press))} [data-run="${key}"]`);
+            /** Where each of the two runs stands, as it says it. */
+            const look = () => [run("p03", "j4642")?.getAttribute("aria-label") ?? null, run("p04", "j4624")?.getAttribute("aria-label") ?? null];
+            expect(look()).toEqual([expect.stringMatching(/J-4642, Jul 6, 2026 – Jul 27, 2026/), expect.stringMatching(/J-4624, Jun 29, 2026 – Jul 20, 2026/)]);
+            // H1-P03's run carried a week on, by the keyboard: a draft of its entry.
+            run("p03", "j4642")!.focus();
+            await keyOn({ key: " " });
+            await keyOn({ key: "ArrowRight" });
+            await keyOn({ key: " " });
+            expect(pending(container)).toBe("1 pending");
+            await check({
+                e3: h.e3,
+                container,
+                // The Plan's own windows of the presses, which the Save's confirmation, by key, is none of.
+                reads: (request) => request.kind === "page" && request.dataset === opsPath,
+                look,
+                // H1-P04's run, which the Save did not hold: its entry came with its window.
+                again: [
+                    () => { run("p04", "j4624")!.focus(); },
+                    () => keyOn({ key: " " }),
+                    () => keyOn({ key: "ArrowRight" }),
+                    () => keyOn({ key: " " }),
+                ],
+            });
+            const stored = await h.read(ops);
+            expect([[...stored.get("p03")!.jobs.values()][0]!.start, [...stored.get("p04")!.jobs.values()][0]!.start])
+                .toEqual([new Date("2026-07-13T00:00:00Z"), new Date("2026-07-06T00:00:00Z")]);
+        } finally {
+            restore();
+        }
+    });
+
     test("a Save another write beat carries the entry's draft over — read by its key at the record's new revision, never the record whole: the run both moved waits in the conflicts, by its row", async () => {
         const ops = rowDrop.planDropOps;
         const opsPath = pathText(ops.path as TreePath);
@@ -960,27 +1085,38 @@ describe("planRowDrop's data session, its record read a window at a time (#1199)
             await keyOn({ key: " " });
             expect(carrySaid(container)).toMatch(/^Dropped RUN · J-4642 on H1-P03/);
             expect(pending(container)).toBe("1 pending");
-            // Another write moves the same run two weeks on, just as Save goes: the Save's write reaches e3 after it.
-            await h.race(ops, () => {
-                fireEvent.mouseDown(historyButton(container, SAVE), { button: 0 });
-                fireEvent.click(historyButton(container, SAVE));
-            }, (now) => {
-                const p03 = now.get("p03")!;
-                const [id, job] = [...p03.jobs][0]!;
-                const next = new Map(now);
-                next.set("p03", { ...p03, jobs: new Map([[id, { ...job, start: new Date(job.start.getTime() + 14 * 86_400_000), end: new Date(job.end.getTime() + 14 * 86_400_000) }]]) });
-                return next;
-            });
-            await carriedOver(container, ["conflicts"]);
-            // The draft stands where both moved the run — its start and its end — and Save waits for them to be chosen.
-            const cards = await conflictCards(container);
-            expect(cards.map((card) => card.item?.split(" / ")[0])).toEqual(["H1-P03", "H1-P03"]);
-            expect(cards.every((card) => card.theirs?.includes("last changed by another session") === true)).toBe(true);
-            // Save waits aria-disabled while a conflict does, never disabled: it keeps the focus, and its tooltip says why.
-            expect(historyButton(container, SAVE).getAttribute("aria-disabled")).toBe("true");
-            expect(pending(container)).toBe("1 pending");
-            expect(h.requests("find", opsPath).some((request) => request.query.get("key") === '"p03"')).toBe(true);
-            expect(h.requests("read", opsPath)).toEqual([]);
+            // The Plan's own windows of the presses are held on the wire from here. Read again at the record's new revision,
+            // a window that has landed answers for the row it holds with no read by key (#1596), and which of the two lands
+            // first is the network's to say: held, the row is read by its key, every time.
+            const windows = h.e3.hold((request) => request.kind === "page" && request.dataset === opsPath);
+            try {
+                // Another write moves the same run two weeks on, just as Save goes: the Save's write reaches e3 after it.
+                await h.race(ops, () => {
+                    fireEvent.mouseDown(historyButton(container, SAVE), { button: 0 });
+                    fireEvent.click(historyButton(container, SAVE));
+                }, (now) => {
+                    const p03 = now.get("p03")!;
+                    const [id, job] = [...p03.jobs][0]!;
+                    const next = new Map(now);
+                    next.set("p03", { ...p03, jobs: new Map([[id, { ...job, start: new Date(job.start.getTime() + 14 * 86_400_000), end: new Date(job.end.getTime() + 14 * 86_400_000) }]]) });
+                    return next;
+                });
+                await carriedOver(container, ["conflicts"]);
+                // The draft stands where both moved the run — its start and its end — and Save waits for them to be chosen.
+                const cards = await conflictCards(container);
+                expect(cards.map((card) => card.item?.split(" / ")[0])).toEqual(["H1-P03", "H1-P03"]);
+                expect(cards.every((card) => card.theirs?.includes("last changed by another session") === true)).toBe(true);
+                // Save waits aria-disabled while a conflict does, never disabled: it keeps the focus, and its tooltip says why.
+                expect(historyButton(container, SAVE).getAttribute("aria-disabled")).toBe("true");
+                expect(pending(container)).toBe("1 pending");
+                // Read by its key at the record's new revision, in a read of rows, and never searched for alone (#1596).
+                expect(h.requests("rows", opsPath).flatMap(rowKeysOf)).toContain('"p03"');
+                expect(h.requests("find", opsPath).filter((request) => request.query.get("key") === '"p03"')).toEqual([]);
+                expect(h.requests("read", opsPath)).toEqual([]);
+            } finally {
+                await act(async () => { windows.release(); });
+                await settle();
+            }
         } finally {
             restore();
         }

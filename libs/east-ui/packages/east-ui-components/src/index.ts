@@ -95,7 +95,8 @@ export {
     type DockPaneProps,
     type DockRailMark,
     // The one frame of a builder-style component (#1125): the toolbar, the
-    // banners, the panes either side of main, and the footer
+    // banners, the panes either side of main, and the footer — and its panes
+    // as the host's code opens them (#1585)
     BuilderFrame,
     placePanes,
     paneWidths,
@@ -105,6 +106,7 @@ export {
     type BuilderFrameProps,
     type BuilderFramePane,
     type BuilderFrameDock,
+    type BuilderFramePanes,
     type PaneMode,
     type PanePlacement,
     type PanePlacements,
@@ -309,8 +311,13 @@ export {
     // FieldForm — a builder inspector's typed form (#1147)
     FieldForm,
     fieldFormMessages,
+    fieldBreaches,
+    fieldBreachText,
+    fieldBreachIssue,
+    type FieldBreach,
     type FieldFormProps,
     type FieldOption,
+    type FieldLineChoice,
     type FieldFormMessages,
     type FieldFormWords,
     // ClauseBuilder
@@ -608,7 +615,10 @@ export {
 // whose entries live in several sources keeps a session per source and one
 // history over them (#1194): the Plan's event kinds, the Calendar's. A session's
 // drafts are kept through a reload of the tab where its builder says how its
-// projection of an entry is typed (`wireType`): a ref's, `EntryRefType`.
+// projection of an entry is typed (`wireType`): a ref's, `EntryRefType`. A
+// new entry's key is its session's to make (`EditSession.mint`), by the rule
+// its builder binds — the shared ones here (`keys.ts`) — and to make again
+// where another write takes it (#1583).
 export {
     EditSession,
     EditHistory,
@@ -617,6 +627,13 @@ export {
     useEditHistory,
     historyKeyOf,
     EntryRefType,
+    drawnFromKeys,
+    madeFromKeys,
+    nextIntegerKeys,
+    onceKeys,
+    pastKeys,
+    placeholderKeys,
+    randomKeys,
     liftDraft,
     historyToolbarItem,
     historyShortcut,
@@ -629,6 +646,7 @@ export {
     type BatchReadiness,
     type DraftedEntry,
     type EditHistoryJoined,
+    type EditHistoryOptions,
     type EditHistoryPaged,
     type EditHistoryPart,
     type EditHistorySource,
@@ -639,11 +657,14 @@ export {
     type EditingWords,
     type EditSessionBinding,
     type EditSessionOptions,
+    type EntryKeys,
     type EntryUpdate,
     type EntryVersion,
+    type KnownKeys,
     type HeldRows,
     type HistoryAction,
     type HistoryBarProps,
+    type LandedEntry,
     type Origin,
     type Placement,
     type SessionBannersProps,

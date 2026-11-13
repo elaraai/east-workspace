@@ -12,14 +12,11 @@
  * box at their top-left in view, the timeline and the agenda in a line in their
  * first row (CL11).
  *
- * The timeline continues what it shows (#1398): its view nearing an end of its
- * window moves on to the next window of its grid (`timeline.ts`), and every
- * step of its dates moves it as that does (ruled 25 Oct 2026). While the window
- * is read the held read's events stay drawn at their real dates — in the lanes
- * the period they were drawn at gave them (`lanesPeriod`), so every row keeps
- * its height and the view its place, and their booked hours — only the days the
- * held read does not cover washed, its counts over the days shown placeholders
- * only where the view has passed beyond it (`covered`).
+ * The timeline shows the period chosen and scrolls only within it (ruled 9 Nov
+ * 2026), as the Roster's grid does (`timeline.ts`): a scroll never moves the
+ * period. It opens its period on the working hours at Day and on the view's
+ * date at Week and Month, keeps its place along the period across a step, and
+ * brings the now line into view as Today is pressed.
  *
  * A kind past the cap draws none of its events but its drafts (#1424): a
  * resource's row on the timeline, or its column in the Resources view, of a
@@ -60,7 +57,7 @@ import { tileNext } from "@elaraai/east-ui/internal";
 import { optimiseMessages, takeKey, useDragEventChip, useDragEventEdge, useDragMessages, useDropCell, type CellCoord, type DragPayload, type Formatters } from "@elaraai/east-ui-components";
 import {
     LoadingFailedBox, LoadingFailedLine, LoadingWash, PlaceholderShape, UnloadedRun, VirtualRows, devicePixels, loadingLineText, useRowsTop, useSlotClass,
-    type RowRuns, type RunCell, type RunFailure, keptRead
+    useSurfaceGestures, type RowRuns, type RunCell, type RunFailure, keptRead
 } from "@elaraai/east-ui-components/internal";
 import { pagedLoadingMessages, type PeriodRead } from "../shared/loading.js";
 import type { ScheduleCellShade, ScheduleCellShading } from "../shared/schedule/cells.js";
@@ -74,10 +71,9 @@ import { packLanes } from "../shared/time/lanes.js";
 import { shadeBands } from "../shared/time/shading.js";
 import type { ScheduleOverlaps } from "../shared/schedule/overlaps.js";
 import type { ScheduleEditing } from "../shared/schedule/editing.js";
-import { TIMELINE_GUTTER, recentredView, shiftedScroll, timelinePixels, timelineRange, timelineVisible } from "./timeline.js";
-import { coversShown, useVisibleDays, type TravelStore, type VisibleDaysStore } from "./visible.js";
+import { TIMELINE_GUTTER, timelineDayWidth, timelineDays, timelineLanes, timelineOpensAt, timelinePixels, timelineScrollTo, timelineVisible, type TimelineLanes } from "./timeline.js";
 import { GroupHeading, useGroupCollapse } from "../shared/schedule/group-heading.js";
-import { MoveGhost } from "../shared/schedule/move-ghost.js";
+import { MoveGhost, useMoveGhostClasses } from "../shared/schedule/move-ghost.js";
 import { readRowAnchor, useRowAnchor, type RowAnchor } from "../shared/schedule/row-anchor.js";
 import { useAgendaLanding } from "./agenda-focus.js";
 import { EventActions, type CalendarShownResources } from "./controls.js";
@@ -96,12 +92,7 @@ import { DAY, NOTHING_UNCOUNTED, QUARTER, chronological, dateText, dayStart, eve
  * names; `shownRows` are the ones the rail shows (#1343), each layout's columns and rows, and `shown` each kind's.
  */
 export interface CalendarViewsProps {
-    navigationRevision?: number;
     value: CalendarValue; view: CalendarView; setView: (view: CalendarView) => void; range: CalendarRange; format: Formatters;
-    /** Hears what the timeline shows as it scrolls, exactly. */
-    onVisible: (range: CalendarRange) => void;
-    /** The days the timeline shows, read by what says them (#1398, CL9): its rows' booked hours. */
-    visible?: VisibleDaysStore | undefined;
     items: readonly CalendarItem[]; rows: readonly CalendarRow[]; shownRows: readonly CalendarRow[]; shown: CalendarShownResources;
     now: Date; narrow: boolean; styles: CalendarStyles;
     selected: ReadonlySet<string>; select: (item: CalendarItem, additive?: boolean) => void; clear: () => void;
@@ -112,22 +103,7 @@ export interface CalendarViewsProps {
      * failure said once, its cells blank.
      */
     read: PeriodRead;
-    /**
-     * The span `items` were read over (#1398): the window itself once read; while a continuation's window is read — a
-     * re-centre's, or a step's on the timeline — the held read's: the timeline washes what of its window that leaves
-     * out, and says a figure over the days shown only where it covers them; `undefined` while nothing is drawn.
-     */
-    covered?: CalendarRange | undefined;
-    /**
-     * The period the timeline lays `items` out at (#1398): the view's own, or while a continuation's window is read the
-     * period the held read was drawn at, so every row keeps the height its lanes gave it until the new lanes land.
-     */
-    lanesPeriod?: CalendarView["period"] | undefined;
-    /** Told where the timeline re-centres (#1398): a continuation of the window, as every step of it is. */
-    onRecentre?: ((next: CalendarView) => void) | undefined;
-    /** Which way the timeline's view travels along time, set as it scrolls: what the window's read reads ahead. */
-    travel?: TravelStore | undefined;
-    /** Moves each time Today is pressed: the time grid brings the now line into view (#1398). */
+    /** Moves each time Today is pressed: the time grid and the timeline bring the now line into view (#1398). */
     nowRevision?: number | undefined;
     /** Where each layout's view last rested (#1398): what it comes back to as it mounts. */
     anchor?: CalendarAnchor | undefined;
@@ -174,10 +150,15 @@ export interface CalendarViewsProps {
      */
     editing?: ScheduleEditing | undefined;
     /**
+     * The events whose rows break their kind's bounds (#1585), by their element keys: each wears the warn ring, stored or
+     * changed, as one holding a conflict does.
+     */
+    bounded?: ReadonlySet<string> | undefined;
+    /**
      * Whether the events carry their drag handles and edges (#1398, CL9): wherever the board takes edits — an editing, no
      * run of the optimiser out, its read not failed — through a read in flight too. Retained content refuses the gesture
      * itself — the shared drag sensors pick nothing up inside the `aria-disabled` main (CL8) — and its `commands` are
-     * withheld meanwhile, so an event draws the same through a read: a re-centre's, or a window's landing.
+     * withheld meanwhile, so an event draws the same through a read and as it lands.
      */
     grips?: boolean | undefined;
 }
@@ -346,8 +327,8 @@ function rowDrawn(row: CalendarRow, pagedKind: string | undefined, drawnRows: Re
 }
 
 /**
- * Test-only probe — lets "a day crossed on the timeline sums none of a row's events again" be asserted as the sums of a
- * row's events, event by event, run (#1398, CL9). `undefined` outside tests.
+ * Test-only probe — lets "a scroll of the timeline sums none of a row's events again" be asserted as the sums of a row's
+ * events run (#1398, CL9). `undefined` outside tests.
  */
 let bookedProbe: (() => void) | undefined;
 /**
@@ -364,82 +345,6 @@ function booked(items: readonly CalendarItem[], row: CalendarRow, from: Date, to
     bookedProbe?.();
     return items.reduce((hours, item) => item.start.type === "some" && item.end.type === "some" && onResource(item, row)
         ? hours + Math.max(0, Math.min(item.end.value.getTime(), to.getTime()) - Math.max(item.start.value.getTime(), from.getTime())) / 3_600_000 : hours, 0);
-}
-
-/**
- * A row's booked time up to each instant one of its events starts or ends at, in order: the booked ms up to it, and how
- * many of its events run on from it — what its booked time over any span is read off.
- */
-interface BookedMarks {
-    readonly at: readonly number[];
-    readonly upTo: readonly number[];
-    readonly running: readonly number[];
-}
-
-/**
- * A row's {@link BookedMarks}: its events summed once, event by event.
- *
- * @param items - The row's events
- * @param row - The row
- * @returns Its marks
- */
-function bookedMarks(items: readonly CalendarItem[], row: CalendarRow): BookedMarks {
-    bookedProbe?.();
-    const edges: { readonly at: number; readonly step: 1 | -1 }[] = [];
-    for (const item of items) {
-        if (item.start.type !== "some" || item.end.type !== "some" || !onResource(item, row)) continue;
-        const start = item.start.value.getTime(), end = item.end.value.getTime();
-        if (end > start) edges.push({ at: start, step: 1 }, { at: end, step: -1 });
-    }
-    edges.sort((a, b) => a.at - b.at);
-    const at: number[] = [], upTo: number[] = [], running: number[] = [];
-    let ms = 0, now = 0;
-    for (const edge of edges) {
-        const last = at.length - 1;
-        if (last < 0 || at[last] !== edge.at) {
-            if (last >= 0) ms += now * (edge.at - at[last]!);
-            at.push(edge.at); upTo.push(ms); running.push(now);
-        }
-        now += edge.step;
-        running[running.length - 1] = now;
-    }
-    return { at, upTo, running };
-}
-
-/**
- * A timeline row's booked hours over a span (#1398, CL9), as {@link booked} measures them, read off the row's booked time
- * up to the span's ends ({@link BookedMarks}): its events summed once, as the first span is asked, so a day crossed sums
- * none of them again.
- *
- * @param items - The row's events
- * @param row - The row
- * @returns Its booked hours over a span
- */
-function bookedHours(items: readonly CalendarItem[], row: CalendarRow): (from: Date, to: Date) => number {
-    let marks: BookedMarks | undefined;
-    return (from, to) => {
-        marks ??= bookedMarks(items, row);
-        return Math.max(0, bookedUpTo(marks, to.getTime()) - bookedUpTo(marks, from.getTime())) / 3_600_000;
-    };
-}
-
-/**
- * A row's booked ms up to an instant, read off its {@link BookedMarks}: the last mark at or before it, and the events
- * running on from there.
- *
- * @param marks - The row's marks
- * @param t - The instant, as an epoch
- * @returns The booked ms up to it
- */
-function bookedUpTo(marks: BookedMarks, t: number): number {
-    const { at, upTo, running } = marks;
-    let low = 0, high = at.length;
-    while (low < high) {
-        const mid = (low + high) >> 1;
-        if (at[mid]! <= t) low = mid + 1;
-        else high = mid;
-    }
-    return low === 0 ? 0 : upTo[low - 1]! + running[low - 1]! * (t - at[low - 1]!);
 }
 
 /**
@@ -508,15 +413,15 @@ function ShadeMarks({ shades, bucket, from, to, along, styles, format }: {
 
 /**
  * What an event and a cell read of the views' props: the same object, in the timeline, while what they draw holds (#1398,
- * CL9) — so a scroll, or a day crossed, draws none of them again.
+ * CL9) — so a scroll draws none of them again.
  */
 type EventView = Pick<CalendarViewsProps, "styles" | "drag" | "selected" | "overlaps" | "commands" | "range" | "view" | "value" | "format" | "rows" | "select" | "clear"
-    | "reveal" | "onRevealed" | "onOpen" | "optimised" | "lit" | "editing" | "grips">;
+    | "reveal" | "onRevealed" | "onOpen" | "optimised" | "lit" | "editing" | "bounded" | "grips">;
 
 /**
- * Test-only render probe — lets "a re-centre, or a move of the timeline's mounted span, draws no event again" be asserted
- * as the events' blocks' own renders (#1398, CL9), as `setCalendarFrameRenderProbe` asserts the frame's. `undefined`
- * outside tests.
+ * Test-only render probe — lets "a scroll of the timeline draws no event again, and a step draws each event of the period
+ * once" be asserted as the events' blocks' own renders (#1398, CL9), as `setCalendarFrameRenderProbe` asserts the frame's.
+ * `undefined` outside tests.
  */
 let eventBlockRenderProbe: ((id: string) => void) | undefined;
 /**
@@ -526,6 +431,34 @@ let eventBlockRenderProbe: ((id: string) => void) | undefined;
  */
 export function setEventBlockRenderProbe(fn: ((id: string) => void) | undefined): void {
     eventBlockRenderProbe = fn;
+}
+
+/**
+ * Test-only render probe — lets "a drag starting or ending draws no event's face again" be asserted as the faces' own
+ * renders (#1594), the block around each hearing the drag. `undefined` outside tests.
+ */
+let eventFaceRenderProbe: ((id: string) => void) | undefined;
+/**
+ * Install (or clear) the event face render probe. Test use only.
+ *
+ * @param fn - Called with an event's key each time its face renders; `undefined` clears it
+ */
+export function setEventFaceRenderProbe(fn: ((id: string) => void) | undefined): void {
+    eventFaceRenderProbe = fn;
+}
+
+/**
+ * Test-only render probe — lets "a drop draws again the row it lands on and no other" be asserted as the timeline's rows'
+ * own renders (#1594). `undefined` outside tests.
+ */
+let timelineRowRenderProbe: ((row: string) => void) | undefined;
+/**
+ * Install (or clear) the timeline row render probe. Test use only.
+ *
+ * @param fn - Called with a resource row's key each time its row renders; `undefined` clears it
+ */
+export function setTimelineRowRenderProbe(fn: ((row: string) => void) | undefined): void {
+    timelineRowRenderProbe = fn;
 }
 
 /**
@@ -561,8 +494,8 @@ function keyOf(item: CalendarItem): string {
 
 /**
  * What an event's block draws (#1398, CL9), read of the views and of the window it is drawn in: every fact it shows and
- * the handlers it calls. A block draws again only as one of them, its event or where it stands moves: a scroll, a move of
- * the timeline's mounted span, a re-centre and a window landing that leave them as they were draw no event again.
+ * the handlers it calls. A block draws again only as one of them, its event or where it stands moves: a scroll and a window
+ * landing that leave them as they were draw no event again.
  */
 interface EventFacts {
     /** Its element's key: the text East prints of its `Schedule.Types.EventRef`. */
@@ -585,6 +518,8 @@ interface EventFacts {
     readonly drafted: boolean;
     /** Whether it holds a conflict not yet chosen: the warn ring. */
     readonly conflict: boolean;
+    /** Whether its row breaks its kind's bounds (#1585): the warn ring too. */
+    readonly bounds: boolean;
     /** What a run of the optimiser did to it while it is the run's draft (#1409, R7, R17): its mark, and its provenance on hover. */
     readonly op: "add" | "chg" | undefined;
     readonly provenance: string | undefined;
@@ -626,7 +561,7 @@ function eventFacts(view: EventView, item: CalendarItem, window: { readonly from
         layout: view.view.layout, period: view.view.period, resource: resourceLabel(item, view.rows),
         surface: view.drag.surface, draggable: view.grips === true && view.editing?.available(item.kind) === true,
         selected: view.selected.has(id), overlap: view.overlaps.peers.has(id), drafted, op: marked,
-        conflict: view.editing?.conflicted(item.kind, item.key) === true,
+        conflict: view.editing?.conflicted(item.kind, item.key) === true, bounds: view.bounded?.has(id) === true,
         provenance: marked === "add" ? optimiseMessages.entryAdded({ run })
             : marked === "chg" && was !== undefined ? optimiseMessages.entryChanged({ previous: previousWords(was, view), run }) : undefined,
         revealing: view.reveal !== undefined && view.reveal === id, onRevealed: view.onRevealed,
@@ -757,6 +692,57 @@ function sameEventBlock(a: EventBlockProps, b: EventBlockProps): boolean {
     return a.along === b.along && a.chip === b.chip && sameFields(a.facts, b.facts) && sameFields(a.geometry, b.geometry) && sameFields(a.size, b.size)
         && (Object.is(a.item, b.item) || itemEqual(a.item, b.item));
 }
+/** What an event's face draws. */
+interface EventFaceProps {
+    readonly item: EventBlockProps["item"];
+    readonly facts: EventBlockProps["facts"];
+    readonly fits: EventFits;
+    readonly timeText: string;
+    readonly resourceText: string;
+    readonly coord: Required<CellCoord>;
+    readonly along: "x" | "y";
+    readonly chip: boolean;
+    readonly enabled: boolean;
+    readonly time: RefObject<HTMLDivElement | null>;
+    readonly title: RefObject<HTMLDivElement | null>;
+    readonly resource: RefObject<HTMLDivElement | null>;
+}
+/** A face's props kept as they are, each the same value or object while it holds. */
+const FACE_HELD = ["fits", "timeText", "resourceText", "along", "chip", "enabled", "time", "title", "resource"] as const;
+/**
+ * Whether an event's face draws as it did (#1594), as {@link sameEventBlock} holds its block: its facts and its handle's
+ * place field by field, and its event as East compares it. A block whose bar has moved draws again, a lane taken beside
+ * it — a row of hundreds, as a drop lands among them — and its row hands it its event and its facts anew: what its face
+ * shows has not moved.
+ */
+function sameEventFace(a: EventFaceProps, b: EventFaceProps): boolean {
+    return FACE_HELD.every(prop => Object.is(a[prop], b[prop])) && sameFields(a.coord, b.coord) && sameFields(a.facts, b.facts)
+        && (Object.is(a.item, b.item) || itemEqual(a.item, b.item));
+}
+/**
+ * What an event's block shows inside it, apart from the block itself, which is its drag handle. Every draggable draws
+ * again as any drag starts or ends (dnd-kit's `useDraggable` reads the drag in flight), and a busy timeline has a
+ * thousand of them: so the block alone does (#1594), nothing here hearing the drag and its props holding across those
+ * draws.
+ */
+const EventBlockFace = memo(function EventBlockFace({ item, facts, fits, timeText, resourceText, coord, along, chip, enabled, time, title, resource }: EventFaceProps) {
+    const { styles, kind, id } = facts;
+    eventFaceRenderProbe?.(id);
+    const slot = useSlotClass();
+    return <>
+        <div className={slot(styles.eventTop)}>
+            {fits.icon && kind !== undefined && <span className={slot(styles.eventIcon)} data-calendar-event-icon=""><FontAwesomeIcon icon={["fas", kind.icon as IconName]} /></span>}
+            <div ref={time} className={slot(styles.eventDetail)} data-calendar-event-detail="" data-calendar-event-time="" data-measure={!fits.time ? "" : undefined}>{timeText}</div>
+            {fits.icon && facts.overlap && <div className={slot(styles.eventWarning)}><FontAwesomeIcon icon={faTriangleExclamation} /></div>}
+        </div>
+        <div ref={title} className={slot(styles.eventTitle)} data-calendar-event-title="" data-wrap={fits.wrap ? "" : undefined} data-measure={!fits.title ? "" : undefined}>{item.title}</div>
+        <div ref={resource} className={slot(styles.eventResource)} data-calendar-event-detail="" data-calendar-event-resource="" data-measure={!fits.resource ? "" : undefined}>{resourceText}</div>
+        {enabled && !chip && !(along === "x" && facts.period === "month") && <>
+            {facts.startEdge && <EventEdge coord={coord} edge="start" label={item.title} styles={styles} along={along} />}
+            {facts.endEdge && <EventEdge coord={coord} edge="end" label={item.title} styles={styles} along={along} />}
+        </>}
+    </>;
+}, sameEventFace);
 /**
  * The same full event facts, in a card, a block, a month chip or a timeline bar — drawn again only as what it shows
  * moves (#1398, CL9: `sameEventBlock`), its handle, its edges, its fit measured again as it resizes, its ring, its marks,
@@ -766,9 +752,11 @@ const EventBlock = memo(function EventBlock({ item, facts, geometry, size, along
     const { styles, format, id } = facts;
     eventBlockRenderProbe?.(id);
     const start = new Date(facts.start);
-    const coord = { ...calendarCoord(facts.surface, start, facts.layout === "calendar" ? none : item.resource), event: id } as Required<CellCoord>;
+    const coord = useMemo(() => ({ ...calendarCoord(facts.surface, new Date(facts.start), facts.layout === "calendar" ? none : item.resource), event: id }) as Required<CellCoord>,
+        [facts.surface, facts.start, facts.layout, item.resource, id]);
     const enabled = facts.draggable;
-    const handle = useDragEventChip(enabled ? coord : null, <MoveGhost styles={styles} label={item.title} />, !enabled, item.title);
+    const ghost = useMemo(() => <MoveGhost styles={styles} label={item.title} />, [styles, item.title]);
+    const handle = useDragEventChip(enabled ? coord : null, ghost, !enabled, item.title);
     const block = useRef<HTMLDivElement>(null);
     // It takes the keyboard a pick in Search Records gives its event (#1398): where its ring is drawn.
     useEventFocus(id, block);
@@ -786,9 +774,8 @@ const EventBlock = memo(function EventBlock({ item, facts, geometry, size, along
             ? { title: true, time: false, resource: false, icon: true, wrap: false, compact: chip || along === "x" }
             : fitsIn(Math.round(size.width) - chrome.width, size.height - chrome.height, chip, along, UNMEASURED);
     });
-    const kind = facts.kind;
     const timeText = `${facts.continued ? "↳ " : ""}${format.time(start)}${item.end.type === "some" ? `–${format.time(item.end.value)}` : ""}`;
-    const resourceText = facts.layout === "resources" ? kind?.name ?? item.kind : facts.resource;
+    const resourceText = facts.layout === "resources" ? facts.kind?.name ?? item.kind : facts.resource;
     // Measure whole secondary lines — again as they or the block's size move — as the browser hands its box over, once it
     // has laid the frame out (CL9): never in the commit that mounts it. Hidden measurement spans never change the event's
     // geometry.
@@ -814,13 +801,13 @@ const EventBlock = memo(function EventBlock({ item, facts, geometry, size, along
     const label = `${item.title}, ${format.weekdayDate(start)} ${timeText}, ${facts.resource}${item.status.type === "some" ? `, ${item.status.value.label}` : ""}`;
     const { selected, drafted, provenance, select, grab, open } = facts;
     const choose = (event: MouseEvent) => { event.stopPropagation(); select(item, event.shiftKey || event.metaKey || event.ctrlKey); };
-    // Plain elements of its slots' classes, each made once a theme (#1398, CL9): a glide mounts a thousand blocks, and
-    // Chakra's styled element works its styles out again at each element it draws.
+    // Plain elements of its slots' classes, each made once a theme (#1398, CL9): a month of a busy timeline mounts a
+    // thousand blocks, and Chakra's styled element works its styles out again at each element it draws.
     const slot = useSlotClass();
     return <div {...handle} ref={attachEvent} className={slot(styles.event)} style={geometry} data-along={along} data-chip={chip ? "" : undefined} data-compact={fits.compact ? "" : undefined}
         tabIndex={0} role="button" aria-label={provenance === undefined ? label : `${label}. ${provenance}`} title={provenance === undefined ? label : `${provenance} · ${label}`} aria-pressed={selected}
         data-calendar-event={id} data-selected={selected ? "" : undefined} data-overlap={facts.overlap ? "" : undefined} data-op={facts.op}
-        data-draft={drafted ? "" : undefined} data-drafted={drafted ? "" : undefined} data-conflict={facts.conflict ? "" : undefined} data-draggable={enabled ? "" : undefined}
+        data-draft={drafted ? "" : undefined} data-drafted={drafted ? "" : undefined} data-conflict={facts.conflict ? "" : undefined} data-bounds={facts.bounds ? "" : undefined} data-draggable={enabled ? "" : undefined}
         onPointerDown={event => {
             const cell = event.currentTarget.closest<HTMLElement>("[data-calendar-cell]");
             if (cell !== null) {
@@ -847,17 +834,7 @@ const EventBlock = memo(function EventBlock({ item, facts, geometry, size, along
                 handle?.onKeyDown?.(event);
             }
         }}>
-        <div className={slot(styles.eventTop)}>
-            {fits.icon && kind !== undefined && <span className={slot(styles.eventIcon)} data-calendar-event-icon=""><FontAwesomeIcon icon={["fas", kind.icon as IconName]} /></span>}
-            <div ref={time} className={slot(styles.eventDetail)} data-calendar-event-detail="" data-calendar-event-time="" data-measure={!fits.time ? "" : undefined}>{timeText}</div>
-            {fits.icon && facts.overlap && <div className={slot(styles.eventWarning)}><FontAwesomeIcon icon={faTriangleExclamation} /></div>}
-        </div>
-        <div ref={title} className={slot(styles.eventTitle)} data-calendar-event-title="" data-wrap={fits.wrap ? "" : undefined} data-measure={!fits.title ? "" : undefined}>{item.title}</div>
-        <div ref={resource} className={slot(styles.eventResource)} data-calendar-event-detail="" data-calendar-event-resource="" data-measure={!fits.resource ? "" : undefined}>{resourceText}</div>
-        {enabled && !chip && !(along === "x" && facts.period === "month") && <>
-            {facts.startEdge && <EventEdge coord={coord} edge="start" label={item.title} styles={styles} along={along} />}
-            {facts.endEdge && <EventEdge coord={coord} edge="end" label={item.title} styles={styles} along={along} />}
-        </>}
+        <EventBlockFace item={item} facts={facts} fits={fits} timeText={timeText} resourceText={resourceText} coord={coord} along={along} chip={chip} enabled={enabled} time={time} title={title} resource={resource} />
     </div>;
 }, sameEventBlock);
 function EventEdge({ coord, edge, label, styles, along }: { coord: Required<CellCoord>; edge: "start" | "end"; label: string; styles: CalendarStyles; along: "x" | "y" }) {
@@ -882,7 +859,13 @@ function DropLane({ props, from, to, resource, along = "y", wholeDay = false, ch
     const snap = scale.fineUnit ?? QUARTER;
     const [drawing, setDrawing] = useState<{ start: Date; end: Date }>();
     const [landing, setLanding] = useState<CalendarPlacement>();
+    // Its preview's class, made as the lane is drawn, ahead of the drag that first shows it (see `useSlotClass`).
+    const ghostClass = useSlotClass()(props.styles.ghost);
     const down = useRef<{ start: Date; x: number; y: number } | undefined>(undefined);
+    // The span a draw stands at: what its release creates, whether or not the render that shows it has committed.
+    const drawn = useRef<{ start: Date; end: Date } | undefined>(undefined);
+    /** Lets go of a press on the lane and of what it drew. */
+    const letGo = () => { down.current = undefined; drawn.current = undefined; setDrawing(undefined); };
     const coordinate = (x: number, y: number, payload?: DragPayload) => {
         const rect = ref.current?.getBoundingClientRect();
         const fraction = rect === undefined ? 0 : along === "x" ? (x - rect.left) / rect.width : (y - rect.top) / rect.height;
@@ -909,6 +892,9 @@ function DropLane({ props, from, to, resource, along = "y", wholeDay = false, ch
                 const next = props.drag.preview(coordinate(x, y, payload), payload);
                 setLanding(before => before?.start.getTime() === next?.start.getTime() && before?.end.getTime() === next?.end.getTime() ? before : next);
             },
+            // A drag resting elsewhere, or let go or cancelled, leaves no preview behind: a lane rested on again shows
+            // where the drop lands now, never first where it landed before (#1594).
+            onLeave: () => setLanding(undefined),
             stopAxis: along,
             stops: () => {
                 const rect = ref.current?.getBoundingClientRect();
@@ -923,33 +909,41 @@ function DropLane({ props, from, to, resource, along = "y", wholeDay = false, ch
         // The slot is produced here from an instant; the shared reader uses the same codec.
         const parsed = props.drag.readTime(offset); return parsed ?? from;
     };
+    // A new event drawn on the lane, a surface of the shared pointer core (`useSurfaceGestures`): a press off an event
+    // begins it, the pressing pointer's drag past 4px draws its span, and that pointer's release creates it — a
+    // release with nothing drawn a click on the lane, which lets go of the selection. The draw is its pointer's: no
+    // other pointer's move draws it and no other's lift creates it, and a second finger, the browser taking the
+    // pointer back, the lane losing its capture and the window losing the page each let go of it, creating nothing.
+    const drawGestures = useSurfaceGestures({
+        press: event => { down.current = { start: timeAt(event), x: event.clientX, y: event.clientY }; },
+        drag: event => {
+            const pressed = down.current; if (pressed === undefined || Math.hypot(event.clientX - pressed.x, event.clientY - pressed.y) < 4) return;
+            const span = drawSpan(scale, scale.fracOf(pressed.start), scale.fracOf(timeAt(event)), true);
+            drawn.current = span; setDrawing(span);
+        },
+        release: () => {
+            const span = drawn.current;
+            if (span !== undefined) props.drag.create(span.start, span.end, resource); else if (down.current !== undefined) props.clear();
+            letGo();
+        },
+        drop: letGo,
+    }, { accepts: event => (event.target as Element).closest("[data-calendar-event]") === null });
     return <Box ref={attach} css={css} style={style} data-calendar-cell="" data-calendar-column={column} data-outside={outside ? "" : undefined} data-calendar-from={from.getTime()} data-calendar-to={to.getTime()} data-calendar-snap={snap}
         onClick={event => { if (!(event.target as Element).closest("[data-calendar-event], button")) props.clear(); }}
         // Esc lets a draw under way go, the key going no further (#1398); with none, it goes on to the frame.
-        onKeyDown={event => { if (event.key === "Escape" && (down.current !== undefined || drawing !== undefined)) { takeKey(event); down.current = undefined; setDrawing(undefined); } }}
-        onPointerDown={props.drag.enabled && draw && !wholeDay ? event => {
-            if (event.button !== 0 || (event.target as Element).closest("[data-calendar-event]")) return;
-            down.current = { start: timeAt(event), x: event.clientX, y: event.clientY }; event.currentTarget.setPointerCapture(event.pointerId);
-        } : undefined}
-        onPointerMove={props.drag.enabled && draw ? event => {
-            const pressed = down.current; if (pressed === undefined || Math.hypot(event.clientX - pressed.x, event.clientY - pressed.y) < 4) return;
-            const time = timeAt(event); setDrawing(drawSpan(scale, scale.fracOf(pressed.start), scale.fracOf(time), true));
-        } : undefined}
-        onPointerUp={props.drag.enabled && draw ? () => {
-            if (drawing !== undefined) props.drag.create(drawing.start, drawing.end, resource); else if (down.current !== undefined) props.clear();
-            down.current = undefined; setDrawing(undefined);
-        } : undefined} onPointerCancel={() => { down.current = undefined; setDrawing(undefined); }}>
+        onKeyDown={event => { if (event.key === "Escape" && (down.current !== undefined || drawing !== undefined)) { takeKey(event); letGo(); } }}
+        {...(props.drag.enabled && draw && !wholeDay ? drawGestures : {})}>
         {children}
         {[{ span: drawing, ghost: false }, { span: landing, ghost: true }].map(({ span, ghost }, i) => {
             if (span === undefined) return null;
             const first = Math.max(from.getTime(), span.start.getTime());
             const last = Math.min(to.getTime(), span.end.getTime());
-            return <Box key={i} css={props.styles.ghost} data-calendar-landing={ghost ? "" : undefined} data-calendar-draw={!ghost ? "" : undefined} data-along={along} data-whole-day={wholeDay ? "" : undefined}
+            return <div key={i} className={ghostClass} data-calendar-landing={ghost ? "" : undefined} data-calendar-draw={!ghost ? "" : undefined} data-along={along} data-whole-day={wholeDay ? "" : undefined}
                 style={wholeDay ? undefined : along === "x"
                     ? { left: `${(first - from.getTime()) / (to.getTime() - from.getTime()) * 100}%`, width: `${(last - first) / (to.getTime() - from.getTime()) * 100}%` }
                     : { top: `${(first - from.getTime()) / (to.getTime() - from.getTime()) * 100}%`, height: `${(last - first) / (to.getTime() - from.getTime()) * 100}%` }}>
                 {props.format.time(span.start)}–{props.format.time(span.end)}
-            </Box>;
+            </div>;
         })}
     </Box>;
 }
@@ -1261,28 +1255,24 @@ function placeOfKey(key: string, result: number | undefined): number | undefined
     return Number.isSafeInteger(at) && at >= 0 ? at : undefined;
 }
 /**
- * A resource row's events laid out once a read (#1398, CL9): the events, their spans, their lanes, the plot's height, and
- * its booked hours over a span, its events summed once ({@link bookedHours}).
+ * A resource row's events laid out once a read (#1398, CL9): the events, their spans, their lanes, the plot's least
+ * height and where each lane's bars stand in it (`timelineLanes`), and its booked hours over the period, its events summed
+ * once, as they are first said.
  */
 interface TimelineLayout {
     readonly items: readonly CalendarItem[];
     readonly spans: readonly { readonly start: number; readonly end: number }[];
     readonly lanes: ReturnType<typeof packLanes>;
-    readonly height: number;
-    readonly hours: (from: Date, to: Date) => number;
+    /** The plot's least height, and each lane's bars' place in it: their block in its middle. */
+    readonly geometry: TimelineLanes;
+    readonly hours: () => number;
 }
 /** What a timeline row reads, the same object while what the rows draw holds (CL9). */
 interface TimelineContext {
     readonly view: EventView;
     readonly read: PeriodRead;
-    /** The span the events drawn were read over: the window, or while a continuation's is read, the held read's. */
-    readonly covered: CalendarRange | undefined;
-    /** What of the window the events drawn leave out while it is read: a continuation's days the held read does not cover. */
-    readonly unread: readonly { readonly left: string; readonly width: string }[];
-    readonly visible: VisibleDaysStore | undefined;
-    readonly laneHeight: number;
     readonly duration: number;
-    /** The plot's width, px: its window's days at the period's day. */
+    /** The plot's width, px: the period's days at the day's width (`timelineDayWidth`). */
     readonly plotWidth: number;
     readonly now: Date;
     readonly shades: ReturnType<typeof shadeBands>;
@@ -1297,44 +1287,15 @@ interface TimelineContext {
     readonly pagedKind: string | undefined;
     /** Its resources whose cells the reader holds: any other's row draws the wash under what it holds. */
     readonly drawnRows: ReadonlySet<string> | undefined;
-    /**
-     * The instant the events are placed from, as an epoch (#1398, CL9): one a re-centre never moves, so a re-centre moves
-     * each plot by its `--calendar-origin` alone and draws no event again.
-     */
-    readonly origin: number;
-    /** Each event's facts, made once while what they read holds: a move of the mounted span makes none again. */
+    /** Each event's facts, made once while what they read holds: a row drawn again makes none again. */
     readonly facts: (item: CalendarItem) => EventFacts;
 }
 /**
- * What of a window the events drawn leave out (#1398): while a continuation's window is read — a re-centre's, a step's
- * — the held read stands in, and the days of the window it was not read over — at one end, both, or all of them for a
- * step far from it — are washed, each a share of the plot.
- *
- * @param range - The window shown
- * @param covered - The span the events drawn were read over
- * @returns Each such span, as its left and its width in the plot
- */
-function unreadSpans(range: CalendarRange, covered: CalendarRange | undefined): { left: string; width: string }[] {
-    if (covered === undefined) return [];
-    const from = range.from.getTime(), to = range.to.getTime(), duration = to - from;
-    const held = { from: Math.min(to, Math.max(from, covered.from.getTime())), to: Math.max(from, Math.min(to, covered.to.getTime())) };
-    const spans = held.from >= held.to ? [{ from, to }] : [{ from, to: held.from }, { from: held.to, to }];
-    return spans.filter(span => span.to > span.from)
-        .map(span => ({ left: `${(span.from - from) / duration * 100}%`, width: `${(span.to - span.from) / duration * 100}%` }));
-}
-/** The elements of the timeline mounted either side of what it shows, in views: a scroll of up to half a view mounts nothing. */
-const TIMELINE_AHEAD = 1;
-/**
- * How far the window may lie from where the timeline's events are placed from before that is placed again, in windows
- * (#1398, CL9): at a day's 1,920px, still far within what a layout measures.
- */
-const ORIGIN_REACH = 64;
-/**
- * The timeline's events' facts, each made once while what they read holds (#1398, CL9): a move of the mounted span, or a
- * day crossed, makes none of them again.
+ * The timeline's events' facts, each made once while what they read holds (#1398, CL9): a row drawn again — its group
+ * folded and opened, a row of the paged kind mounted again — makes none of them again.
  *
  * @param view - What the events read of the views
- * @returns Each event's facts, in the timeline's window
+ * @returns Each event's facts, in the timeline's period
  */
 function timelineFacts(view: EventView): (item: CalendarItem) => EventFacts {
     const made = new WeakMap<CalendarItem, EventFacts>();
@@ -1364,53 +1325,89 @@ function firstRowInView(lines: readonly TimelineLine[], top: number | undefined)
     for (let i = Math.min(from, lines.length) - 1; i >= 0; i--) if (isRow(lines[i]!)) return i;
     return undefined;
 }
+/** What a resource row's plot is drawn from. */
+interface TimelinePlotProps {
+    readonly ctx: TimelineContext;
+    readonly row: CalendarRow;
+    readonly layout: TimelineLayout;
+    readonly index: number;
+}
+/** What a resource's row is drawn from: its plot's, what measures it and its place among the resources. */
+interface TimelineRowProps extends TimelinePlotProps {
+    readonly r: number;
+    readonly measure: (el: HTMLElement | null) => void;
+}
+/** A resource's shading in place of the events of a kind past the cap (#1424), if it has one. */
+function shadesOfRow(ctx: TimelineContext, row: CalendarRow): readonly ScheduleCellShade[] | undefined {
+    return row.resource.type === "some" ? ctx.shading?.get(row.resource.value.kind)?.get(row.resource.value.key) : undefined;
+}
+/** Whether a row's events are laid out alike: the same events, as East compares them, at the same places in its plot. */
+function sameLayout(a: TimelineLayout, b: TimelineLayout): boolean {
+    return a === b || (a.geometry.height === b.geometry.height && a.geometry.bar === b.geometry.bar && a.items.length === b.items.length && a.items.every((item, i) => {
+        const other = b.items[i]!, was = a.spans[i]!, now = b.spans[i]!;
+        return (Object.is(item, other) || itemEqual(item, other)) && was.start === now.start && was.end === now.end && a.lanes[i]!.lane === b.lanes[i]!.lane;
+    }));
+}
 /**
- * A resource's booked hours over the days the timeline shows, read as they move (CL9) off its booked time, its events
- * summed once a read (`bookedHours`); while the days shown are read —
- * a period not read yet, or a continuation's days the held read does not cover — or a paged kind's resource whose cells
- * have not landed (#1424), its meta and a placeholder, never 0.
+ * Whether a resource's plot draws as it did (#1594): what it reads of the views and the period, its own events laid out
+ * alike and each drawn from the same facts — so a drop draws the row it lands on again, and no other, whatever else the
+ * views' objects moved. The drag it hands its lane is the same object throughout, answering from the verdicts of now.
+ */
+function sameTimelinePlot(a: TimelinePlotProps, b: TimelinePlotProps): boolean {
+    const before = a.ctx, after = b.ctx, drew = before.view, draws = after.view;
+    return Object.is(a.row, b.row) && sameLayout(a.layout, b.layout)
+        && before.read.state === after.read.state && (after.read.state !== "failed" || (Object.is(before.read, after.read) && a.index === b.index && Object.is(before.lines, after.lines)))
+        && before.duration === after.duration && before.plotWidth === after.plotWidth && Object.is(before.now, after.now) && Object.is(before.shades, after.shades)
+        && before.bucket === after.bucket && before.pagedKind === after.pagedKind
+        && rowDrawn(a.row, before.pagedKind, before.drawnRows) === rowDrawn(b.row, after.pagedKind, after.drawnRows)
+        && Object.is(shadesOfRow(before, a.row), shadesOfRow(after, b.row))
+        && Object.is(drew.styles, draws.styles) && Object.is(drew.range, draws.range) && drew.view.period === draws.view.period && Object.is(drew.format, draws.format)
+        && Object.is(drew.value, draws.value) && Object.is(drew.rows, draws.rows) && Object.is(drew.drag, draws.drag) && Object.is(drew.clear, draws.clear)
+        && Object.is(drew.optimised, draws.optimised) && drew.lit === draws.lit && (draws.optimised === undefined || draws.lit !== true || Object.is(drew.editing, draws.editing))
+        && a.layout.items.every((item, i) => sameFields(before.facts(item), after.facts(b.layout.items[i]!)));
+}
+/** Whether a resource's row draws as it did: its plot, and what its head says beside it. */
+function sameTimelineRow(a: TimelineRowProps, b: TimelineRowProps): boolean {
+    return a.r === b.r && Object.is(a.measure, b.measure) && Object.is(a.ctx.uncounted, b.ctx.uncounted) && sameTimelinePlot(a, b);
+}
+/**
+ * A resource's booked hours over the period, its events summed once a read (CL9); while the period is read, or a paged
+ * kind's resource whose cells have not landed (#1424), its meta and a placeholder, never 0.
  */
 function TimelineRowMeta({ ctx, row, layout, r }: { ctx: TimelineContext; row: CalendarRow; layout: TimelineLayout; r: number }) {
-    const shown = useVisibleDays(ctx.visible);
-    const { styles, format, range } = ctx.view;
-    if (ctx.read.state !== "held" || !coversShown(ctx.covered, range, shown) || !rowDrawn(row, ctx.pagedKind, ctx.drawnRows)) {
+    const { styles, format } = ctx.view;
+    if (ctx.read.state !== "held" || !rowDrawn(row, ctx.pagedKind, ctx.drawnRows)) {
         return <Box css={styles.columnMeta} data-calendar-booked=""><Box as="span" css={styles.unreadMeta}>{row.meta}{ctx.read.state !== "failed" && <PlaceholderShape kind="aggregate" index={r} />}</Box></Box>;
     }
-    const from = shown?.from ?? range.from, to = shown?.to ?? range.to;
-    return <Box css={styles.columnMeta} data-calendar-booked="">{bookedWords({ uncounted: ctx.uncounted, format }, row, () => layout.hours(from, to))}</Box>;
+    return <Box css={styles.columnMeta} data-calendar-booked="">{bookedWords({ uncounted: ctx.uncounted, format }, row, layout.hours)}</Box>;
 }
 /**
  * A row's plot's shading — its weekends, or at Day its hours off — drawn once while its bands and the styles hold, plain
- * elements of the shade slot's class (#1398, CL9): a move of the span the timeline mounts, which draws the plot again,
- * draws none of it again.
+ * elements of the shade slot's class (#1398, CL9): a plot drawn again as its events move draws none of it again.
  */
 const PlotShading = memo(function PlotShading({ shades, styles }: { shades: ReturnType<typeof shadeBands>; styles: CalendarStyles }) {
     const shade = useSlotClass()(styles.shade);
     return <>{shades.map((band, i) => <div key={i} className={shade} data-along="x" style={{ left: `${band.start * 100}%`, width: `${band.width * 100}%` }} />)}</>;
 });
 /**
- * A resource row's plot: its events in the timeline's mounted span — every one while the timeline has not laid out — its
- * wash while the period is read, or over the days a continuation's held read does not cover, its shading and its now line;
- * and, the first row in view of a failed period, the failure, which it reads itself (#1398, CL9, CL11). Drawn again only
- * as its events or that span move; and each event, placed from the timeline's origin, drawn again only as what it shows
- * moves — a re-centre moves the plot by `--calendar-origin`, never an event.
+ * A resource row's plot: its events in the period — every one of them, as the Roster's week draws its duties (ruled 9 Nov
+ * 2026) — its wash while the period is read, its shading and its now line; and, the first row in view of a failed period,
+ * the failure, which it reads itself (#1398, CL9, CL11). Drawn again only as its events move, never by a scroll, and each
+ * event only as what it shows moves (`sameTimelinePlot`). It fills its row, as tall as its lanes or its head makes it, and
+ * its lanes' bars — and a shade bar, a lane's bars' height (`--calendar-bar`) — are a block in its middle (`timelineLanes`).
  */
-const TimelinePlot = memo(function TimelinePlot({ ctx, row, layout, span, index }: {
-    ctx: TimelineContext; row: CalendarRow; layout: TimelineLayout; span: { readonly from: number; readonly to: number } | undefined; index: number;
-}) {
-    const { view, read, unread, laneHeight, duration, plotWidth, now, shades, lines, shading, bucket, origin, facts } = ctx;
+const TimelinePlot = memo(function TimelinePlot({ ctx, row, layout, index }: TimelinePlotProps) {
+    const { view, read, duration, plotWidth, now, shades, lines, bucket, facts } = ctx;
     const { styles, range } = view;
+    const { geometry } = layout;
     const from = range.from.getTime(), to = range.to.getTime();
     const says = useRowsTop(top => read.state === "failed" && index === firstRowInView(lines, top));
     // A resource's row of a kind past the cap: its shading in place of those events (#1424).
-    const rowShades = row.resource.type === "some" ? shading?.get(row.resource.value.kind)?.get(row.resource.value.key) : undefined;
-    // Where the events are placed from, as a share of the window from its start: what a re-centre moves.
-    const plot = { height: layout.height, "--calendar-origin": `${(origin - from) / duration * 100}%` } as CSSProperties;
-    return <DropLane props={view} from={range.from} to={range.to} resource={row.resource} unassigned={row.resource.type === "none"} along="x" css={styles.rowPlot} style={plot} draw={view.view.period !== "month"}>
-        {/* A period not read yet: the row's plot washed, under its shading and its now line (#1398); a continuation's window
-            read, the days its held read does not cover. */}
+    const rowShades = shadesOfRow(ctx, row);
+    return <DropLane props={view} from={range.from} to={range.to} resource={row.resource} unassigned={row.resource.type === "none"} along="x" css={styles.rowPlot}
+        style={{ minHeight: geometry.height, "--calendar-bar": `${geometry.bar}px` } as CSSProperties} draw={view.view.period !== "month"}>
+        {/* A period not read yet: the row's plot washed, under its shading and its now line (#1398). */}
         {read.state === "pending" && <LoadingWash />}
-        {read.state === "held" && unread.map((at, i) => <LoadingWash key={i} geometry={at} />)}
         {/* A paged kind's resource whose cells have not landed (#1424): washed under what it holds, until they do. */}
         {read.state === "held" && !rowDrawn(row, ctx.pagedKind, ctx.drawnRows) && <LoadingWash />}
         {read.state === "held" && rowShades !== undefined && bucket !== undefined
@@ -1420,36 +1417,32 @@ const TimelinePlot = memo(function TimelinePlot({ ctx, row, layout, span, index 
         <PlotShading shades={shades} styles={styles} />
         {layout.items.map((item, i) => {
             const at = layout.spans[i]!;
-            // Out of the mounted span, or — a continuation's held read — out of the window shown, by the window's own rule.
-            if (span !== undefined && (at.end <= span.from || at.start >= span.to)) return null;
+            // Out of the period, by the period's own rule.
             if (!(at.start < to && (at.end > from || at.start >= from))) return null;
-            // Clipped to the window, and placed from the origin: an event the window holds whole stands where it stood
-            // through a re-centre, and draws nothing again.
+            // Clipped to the period.
             const first = Math.max(from, at.start), last = Math.min(to, at.end);
-            return <EventBlock key={keyOf(item)} item={item} facts={facts(item)} along="x" geometry={{ top: 4 + layout.lanes[i]!.lane * laneHeight, height: laneHeight - 4,
-                left: `calc(var(--calendar-origin) + ${(first - origin) / duration * 100}%)`, width: `${(last - first) / duration * 100}%` }}
-                size={{ width: (last - first) / duration * plotWidth, height: laneHeight - 4 }} />;
+            return <EventBlock key={keyOf(item)} item={item} facts={facts(item)} along="x" geometry={{ top: geometry.top(layout.lanes[i]!.lane), height: geometry.bar,
+                left: `${(first - from) / duration * 100}%`, width: `${(last - first) / duration * 100}%` }}
+                size={{ width: (last - first) / duration * plotWidth, height: geometry.bar }} />;
         })}
         {ghostsOf({ ...view, items: layout.items }).filter(ghost => onResource(ghost.item, row)).map(ghost => {
             const gs = ghost.item.start.type === "some" ? ghost.item.start.value.getTime() : range.from.getTime();
             const ge = ghost.item.end.type === "some" ? ghost.item.end.value.getTime() : gs;
-            return <GhostBlock key={`ghost:${eventKey(ghost.item)}`} ghost={ghost} props={view} along="x" geometry={{ top: 4, height: laneHeight - 4,
+            return <GhostBlock key={`ghost:${eventKey(ghost.item)}`} ghost={ghost} props={view} along="x" geometry={{ top: geometry.top(0), height: geometry.bar,
                 left: `${Math.max(0, gs - range.from.getTime()) / duration * 100}%`, width: `${Math.max(0, Math.min(range.to.getTime(), ge) - Math.max(range.from.getTime(), gs)) / duration * 100}%` }} />;
         })}
         {now >= range.from && now < range.to && <NowLine styles={styles} at={(now.getTime() - range.from.getTime()) / duration} data-calendar-now="" />}
     </DropLane>;
-});
-/** A resource's row: its head, its booked hours and its plot — drawn again only as what it shows moves (CL9). */
-const TimelineRow = memo(function TimelineRow({ ctx, row, layout, span, index, r, measure }: {
-    ctx: TimelineContext; row: CalendarRow; layout: TimelineLayout; span: { readonly from: number; readonly to: number } | undefined; index: number; r: number;
-    measure: (el: HTMLElement | null) => void;
-}) {
+}, sameTimelinePlot);
+/** A resource's row: its head, its booked hours and its plot — drawn again only as what it shows moves (CL9, `sameTimelineRow`). */
+const TimelineRow = memo(function TimelineRow({ ctx, row, layout, index, r, measure }: TimelineRowProps) {
+    timelineRowRenderProbe?.(row.key);
     const { styles } = ctx.view;
     return <Box ref={measure} css={styles.timelineRow} data-calendar-resource-row={row.key} data-calendar-row-group={row.group}>
         <Box css={styles.rowHead} data-calendar-row-head=""><Box css={styles.rowTitle} data-calendar-resource-title="">{row.label}</Box><TimelineRowMeta ctx={ctx} row={row} layout={layout} r={r} /></Box>
-        <TimelinePlot ctx={ctx} row={row} layout={layout} span={span} index={index} />
+        <TimelinePlot ctx={ctx} row={row} layout={layout} index={index} />
     </Box>;
-});
+}, sameTimelineRow);
 /** A recipe slot's styles, as the shared run merges them over its own. */
 const slotOf = (styles: CalendarStyles, name: string): SystemStyleObject | undefined => styles[name] as SystemStyleObject | undefined;
 /** A run's rows' tracks: the resource column, as wide as its cell's recipe makes it, then the plot. */
@@ -1478,24 +1471,30 @@ const BAND_FLOOR = 38;
  * lands in is another line, keyed by the places it then stands for, and the view rests in a run on the place there.
  */
 const ANCHOR_EVERY_LINE = () => true;
-/** No span of the window left out: all of it read, or none of it drawn. */
-const NO_SPANS: readonly { readonly left: string; readonly width: string }[] = [];
 
 /**
- * The timeline (#1398, CL9): its resources' rows virtualised in their groups — only those in view mounted, each drawn
- * again only as what it shows moves — and their events by what the view shows of the period, one view either side; a
- * scroll publishes only the days it shows, to what says them, and which way it travels, to what reads ahead. Nearing an
- * end of its window it re-centres on the next window of its grid (`timeline.ts`), every instant where it was on screen.
+ * The timeline (#1398, CL9; ruled 9 Nov 2026): its resources' rows virtualised in their groups — only those in view
+ * mounted, each drawn again only as what it shows moves — and on each its events in the period, every one, so a scroll
+ * draws none of them again. It draws its period and scrolls only within it (`timeline.ts`), a day at least the period's
+ * own width and wider where the view leaves room, so a period narrower than the view fills it. Its view opens the period
+ * on the working hours at Day and on the view's date at Week and Month, as it mounts and as its period changes; keeps
+ * where it is along the period across a step, a date picked and a resize; and brings the now line a third of the way
+ * across as Today is pressed.
  */
 function Timeline(props: CalendarViewsProps) {
     const { collapsed, toggle } = useGroupCollapse(props.drag.surface);
     const { styles, range, view } = props;
     const laneHeight = props.value.settings.density.type === "compact" ? 26 : props.value.settings.density.type === "spacious" ? 40 : 32;
-    const pixelsPerDay = timelinePixels(view.period);
-    const duration = range.to.getTime() - range.from.getTime();
-    const width = duration / DAY * pixelsPerDay;
     const scroll = useRef<HTMLDivElement | null>(null);
-    const shifted = useRef<number | undefined>(undefined);
+    // The view's width as the browser lays it out, heard as it changes: a day takes the view beside the resource column
+    // where that is wider than the period's own (`timelineDayWidth`).
+    const [viewWidth, setViewWidth] = useState(0);
+    const pixelsPerDay = timelineDayWidth(range, view.period, viewWidth);
+    const duration = range.to.getTime() - range.from.getTime();
+    const width = timelineDays(range) * pixelsPerDay;
+    // What the rows and the ruler take at least: the period's days at their own width, the view stretching them further
+    // where it is wider — one of a few widths, never one a resize makes (a style prop's class each).
+    const leastWidth = timelineDays(range) * timelinePixels(view.period);
     // Each resource's events, the read's events indexed by resource once — never a search of every event a row.
     const byResource = useMemo(() => {
         const by = new Map<string, CalendarItem[]>();
@@ -1521,22 +1520,25 @@ function Timeline(props: CalendarViewsProps) {
     const [bandFloor, setBandFloor] = useState(BAND_FLOOR);
     // A place not read yet's pitch: a row of one lane — or as tall as a row's head, if that is taller — and its rule. A run
     // of places is as tall as its places at it.
-    const pitch = Math.max(laneHeight + 9, rowFloor) + 1;
+    const oneLane = timelineLanes(1, laneHeight).height;
+    const pitch = Math.max(oneLane, rowFloor) + 1;
     // Each row's events laid out once a read: their spans, their lanes and the plot's height — however its events fall —
-    // at the period they were drawn at: a continuation's held read keeps its lanes, and every row its height (#1398).
-    const lanesPeriod = props.lanesPeriod ?? view.period;
+    // and its booked hours over the period, summed as they are first said.
+    const periodFrom = range.from, periodTo = range.to;
     const layouts = useMemo(() => new Map([...props.shownRows, ...pagedRows].map(row => {
         const items = byResource.get(rowResource(row)) ?? [];
         const spans = items.map(item => {
             const start = item.start.type === "some" ? item.start.value.getTime() : 0;
             const end = item.end.type === "some" ? item.end.value.getTime() : 0;
-            return lanesPeriod === "month" ? { start: Math.floor(start / DAY) * DAY, end: Math.ceil(end / DAY) * DAY } : { start, end };
+            return view.period === "month" ? { start: Math.floor(start / DAY) * DAY, end: Math.ceil(end / DAY) * DAY } : { start, end };
         });
         // A period not read yet: one lane a row, which grows below the row in view as its events land.
         const lanes = packLanes(spans);
-        const layout: TimelineLayout = { items, spans, lanes, height: lanes.reduce((n, lane) => Math.max(n, lane.lanes), 1) * laneHeight + 9, hours: bookedHours(items, row) };
+        let hours: number | undefined;
+        const layout: TimelineLayout = { items, spans, lanes, geometry: timelineLanes(lanes.reduce((n, lane) => Math.max(n, lane.lanes), 1), laneHeight),
+            hours: () => (hours ??= booked(items, row, periodFrom, periodTo)) };
         return [row.key, layout] as const;
-    })), [props.shownRows, pagedRows, byResource, lanesPeriod, laneHeight]);
+    })), [props.shownRows, pagedRows, byResource, view.period, laneHeight, periodFrom, periodTo]);
     // The lines: each group's band, and its rows unless it is folded — the paged kind's, among the groups in the kinds'
     // order (#1424), the stretches of its places: a row each of the windows held, keyed by its place under the result its
     // places are of, and a run each of the places between not read yet or of a window that failed, keyed by the places it
@@ -1569,83 +1571,65 @@ function Timeline(props: CalendarViewsProps) {
     const shades = useMemo(() => shadeBands({ min: range.from, max: range.to }, { hours: view.period === "day" ? { from: Number(props.value.settings.hours.from), to: Number(props.value.settings.hours.to) } : undefined }),
         [range.from, range.to, view.period, props.value.settings.hours]);
     // What an event and a cell read, held while it holds.
-    const { drag, selected, overlaps, commands, value, format, rows, select, clear, reveal, onRevealed, onOpen, optimised, lit, editing, grips } = props;
+    const { drag, selected, overlaps, commands, value, format, rows, select, clear, reveal, onRevealed, onOpen, optimised, lit, editing, bounded, grips } = props;
     const eventView = useMemo((): EventView => ({ styles, drag, selected, overlaps, commands, range, view, value, format, rows, select, clear, reveal, onRevealed, onOpen,
-        optimised, lit, editing, grips }),
-    [styles, drag, selected, overlaps, commands, range, view, value, format, rows, select, clear, reveal, onRevealed, onOpen, optimised, lit, editing, grips]);
-    // Each event's facts, made once while what they read holds: a move of the mounted span makes none again (CL9).
+        optimised, lit, editing, bounded, grips }),
+    [styles, drag, selected, overlaps, commands, range, view, value, format, rows, select, clear, reveal, onRevealed, onOpen, optimised, lit, editing, bounded, grips]);
+    // Each event's facts, made once while what they read holds: a row drawn again makes none again (CL9).
     const facts = useMemo(() => timelineFacts(eventView), [eventView]);
-    // Where the events are placed from (CL9): an instant a re-centre never moves — the window first shown at the period —
-    // so a re-centre moves each plot by one variable and draws no event again. A period, or a window more than
-    // `ORIGIN_REACH` windows from it, places it again.
-    const originAt = useRef<{ readonly period: CalendarView["period"]; readonly at: number } | undefined>(undefined);
-    const heldOrigin = originAt.current;
-    const origin = heldOrigin !== undefined && heldOrigin.period === view.period && Math.abs(range.from.getTime() - heldOrigin.at) <= ORIGIN_REACH * duration
-        ? heldOrigin.at : range.from.getTime();
-    useLayoutEffect(() => { originAt.current = { period: view.period, at: origin }; }, [view.period, origin]);
-    // A continuation's window, read while the held read stands in: the days of it that read leaves out (#1398).
-    const unread = useMemo(() => props.covered === undefined || (props.covered.from.getTime() === range.from.getTime() && props.covered.to.getTime() === range.to.getTime())
-        ? NO_SPANS : unreadSpans(range, props.covered), [props.covered, range]);
     const uncounted = props.uncounted ?? NOTHING_UNCOUNTED;
-    const ctx = useMemo((): TimelineContext => ({ view: eventView, read: props.read, covered: props.covered, unread, visible: props.visible, laneHeight, duration, plotWidth: width,
-        now: props.now, shades, lines, uncounted, shading: props.shading, bucket: props.bucket, pagedKind: pagedKey, drawnRows: props.drawnRows, origin, facts }),
-    [eventView, props.read, props.covered, unread, props.visible, laneHeight, duration, width, props.now, shades, lines, uncounted, props.shading, props.bucket, pagedKey,
-        props.drawnRows, origin, facts]);
-    // The span of the period whose events are mounted (CL9): what the view shows, one view either side, moved as the view
-    // nears its edge; every event while the timeline has not laid out.
-    const [span, setSpan] = useState<{ from: number; to: number } | undefined>(undefined);
-    const spanRef = useRef(span);
-    spanRef.current = span;
-    // Where the view's middle was, exactly, as it was last published: which way a scroll moves it is the way it travels.
-    const middle = useRef<number | undefined>(undefined);
+    const ctx = useMemo((): TimelineContext => ({ view: eventView, read: props.read, duration, plotWidth: width,
+        now: props.now, shades, lines, uncounted, shading: props.shading, bucket: props.bucket, pagedKind: pagedKey, drawnRows: props.drawnRows, facts }),
+    [eventView, props.read, duration, width, props.now, shades, lines, uncounted, props.shading, props.bucket, pagedKey, props.drawnRows, facts]);
     // Where the view starts, published as it scrolls to the ruler's bands alone (CL9): the caption of the period it starts
-    // in sticks beside the resource column, and only that one and its neighbours are sticky.
+    // in sticks beside the resource column, and only that one and its neighbours are sticky. Nothing else hears a scroll.
     const [viewStart] = useState(createViewStart);
-    const publish = (scrolled: boolean) => {
+    const publish = () => {
         const element = scroll.current;
         if (element === null || element.clientWidth <= 0) return;
-        const visible = timelineVisible(range, element.scrollLeft, element.clientWidth, view.period);
-        viewStart.set(visible.from.getTime());
-        const at = (visible.from.getTime() + visible.to.getTime()) / 2;
-        // A scroll of a pixel or more travels; a step, a re-centre or a resize places the view, and moves the mark alone.
-        if (scrolled && middle.current !== undefined && Math.abs(at - middle.current) >= DAY / pixelsPerDay) props.travel?.set(at > middle.current ? 1 : -1);
-        middle.current = at;
-        props.onVisible(visible);
-        const shows = visible.to.getTime() - visible.from.getTime();
-        const held = spanRef.current;
-        if (held !== undefined && visible.from.getTime() - held.from >= shows / 2 && held.to - visible.to.getTime() >= shows / 2) return;
-        const next = { from: visible.from.getTime() - shows * TIMELINE_AHEAD, to: visible.to.getTime() + shows * TIMELINE_AHEAD };
-        spanRef.current = next;
-        setSpan(next);
+        viewStart.set(timelineVisible(range, element.scrollLeft, element.clientWidth, timelineDayWidth(range, view.period, element.clientWidth)).from.getTime());
+    };
+    // Where the view opens its period (ruled 9 Nov 2026): as the timeline mounts — a layout switched to it, a remount — and
+    // as its period changes, on the working hours at Day and on the view's date at Week and Month (`timelineOpensAt`),
+    // once the view is laid out. A step, a date picked and a resize place nothing: the view keeps where it is along the
+    // period, as the Roster's does, the browser holding it within a shorter period.
+    const opened = useRef<CalendarView["period"] | undefined>(undefined);
+    const hours = props.value.settings.hours;
+    const open = () => {
+        const element = scroll.current;
+        if (element === null || element.clientWidth <= 0 || opened.current === view.period) return;
+        opened.current = view.period;
+        const at = timelineOpensAt(view, range, { from: Number(hours.from), to: Number(hours.to) });
+        element.scrollLeft = timelineScrollTo(range, at, 1 / 2, timelineDayWidth(range, view.period, element.clientWidth), element.clientWidth);
     };
     useLayoutEffect(() => {
         const element = scroll.current; if (element === null) return;
-        // A re-centre keeps every instant where it was; a step, a period or a mount places the view on its date. Which
-        // way it went is the frame's to say, as it asks: a step's way, which the next window read ahead follows, or none.
-        element.scrollLeft = shifted.current ?? Math.max(0, (view.date + DAY / 2 - range.from.getTime()) / DAY * pixelsPerDay - Math.max(0, element.clientWidth - TIMELINE_GUTTER) / 2);
-        shifted.current = undefined; publish(false);
-        // View changes and edge replacement are the only recentering operations.
+        setViewWidth(element.clientWidth);
+        open(); publish();
+        // A period drawn, or another of them, is the trigger.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [range.from.getTime(), view.period, view.date, props.navigationRevision]);
+    }, [range.from.getTime(), range.to.getTime(), view.period]);
     useLayoutEffect(() => {
         const element = scroll.current; if (element === null) return;
-        const observer = new ResizeObserver(() => publish(false)); observer.observe(element); return () => observer.disconnect();
-        // Rebind to the current window when it moves.
+        const observer = new ResizeObserver(() => { setViewWidth(element.clientWidth); open(); publish(); });
+        observer.observe(element); return () => observer.disconnect();
+        // Rebound as the period moves, so it publishes what the view shows of the period drawn.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [range.from.getTime(), view.period]);
-    // Gone — a narrow frame, another layout — the view travels no more: mounted again, it is placed on its date.
-    const { travel } = props;
-    useEffect(() => () => travel?.set(0), [travel]);
-    // Nearing an end of its window, the timeline re-centres on the next window of its grid that way: its scroll moved by
-    // what the window moved, so every instant stays where it was — a continuation of what it shows, never a step.
-    const onScroll = () => {
-        const element = scroll.current; if (element === null || element.clientWidth <= 0) return;
-        publish(true);
-        const next = recentredView(view, range, element.scrollLeft, element.clientWidth, element.scrollWidth);
-        if (next === undefined) return;
-        shifted.current = shiftedScroll(element.scrollLeft, range, timelineRange(next), view.period);
-        (props.onRecentre ?? props.setView)(next);
-    };
+    }, [range.from.getTime(), range.to.getTime(), view.period]);
+    // Today pressed (#1398): the now line brought into view a third of the way across, as the time grid brings it a third
+    // of the way down — once the period drawn holds it.
+    const seenNow = useRef(props.nowRevision);
+    useLayoutEffect(() => {
+        const element = scroll.current;
+        const at = props.now.getTime();
+        if (props.nowRevision === seenNow.current || element === null || element.clientWidth <= 0 || at < range.from.getTime() || at >= range.to.getTime()) return;
+        seenNow.current = props.nowRevision;
+        element.scrollLeft = timelineScrollTo(range, at, 1 / 3, timelineDayWidth(range, view.period, element.clientWidth), element.clientWidth);
+        publish();
+        // Today pressed, or the period it went to drawn, is the trigger.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [props.nowRevision, range.from.getTime(), range.to.getTime()]);
+    const onScroll = () => publish();
     const measured = useRef({ band: false, row: false });
     const measureBand = useCallback((el: HTMLElement | null) => {
         if (el === null || measured.current.band) return;
@@ -1673,8 +1657,8 @@ function Timeline(props: CalendarViewsProps) {
         if (line.kind === "run") return (line.to - line.from + 1) * pitch;
         // A row as tall as its plot or its head, whichever is taller, and its rule.
         const row = rowOf(line);
-        return Math.max((row === undefined ? undefined : layouts.get(row.key)?.height) ?? laneHeight + 9, rowFloor) + 1;
-    }, [lines, rowOf, layouts, laneHeight, rowFloor, bandFloor, pitch]);
+        return Math.max((row === undefined ? undefined : layouts.get(row.key)?.geometry.height) ?? oneLane, rowFloor) + 1;
+    }, [lines, rowOf, layouts, oneLane, rowFloor, bandFloor, pitch]);
     // A paged kind's window that could not be read, as its run's first row in view says it (#1398, CL11), its Retry named
     // by what it asks again.
     const noun = pagedGroup?.toLocaleLowerCase(format.locale);
@@ -1695,8 +1679,8 @@ function Timeline(props: CalendarViewsProps) {
                 retryName={failed === undefined ? undefined : pagedLoadingMessages.retryRange(failed)} />;
         }
         const row = rowOf(line);
-        return row === undefined ? null : <TimelineRow ctx={ctx} row={row} layout={layouts.get(row.key)!} span={span} index={i} r={line.r} measure={measureRow} />;
-    }, [lines, styles, collapsed, toggle, measureBand, ctx, layouts, span, measureRow, rowOf, failedRange, pagedRetry, pitch, format, value.vocabulary]);
+        return row === undefined ? null : <TimelineRow ctx={ctx} row={row} layout={layouts.get(row.key)!} index={i} r={line.r} measure={measureRow} />;
+    }, [lines, styles, collapsed, toggle, measureBand, ctx, layouts, measureRow, rowOf, failedRange, pagedRetry, pitch, format, value.vocabulary]);
     // The paged kind's places the view shows, reported as its scroll rests (#1424, CL6): what its windows and the cells of
     // the events on it are read around — each row of it shown, and of a run under the view's centre the places from the
     // view's top to its foot, read from the px of it the centre is at; of a run beside that one, the place it meets the
@@ -1775,9 +1759,8 @@ function Timeline(props: CalendarViewsProps) {
         }
         const element = scroll.current;
         if (element !== null && element.clientWidth > 0) {
-            const x = (item.start.value.getTime() - range.from.getTime()) / DAY * pixelsPerDay;
-            element.scrollLeft = Math.max(0, x - Math.max(0, element.clientWidth - TIMELINE_GUTTER) / 2);
-            publish(false);
+            element.scrollLeft = timelineScrollTo(range, item.start.value.getTime(), 1 / 2, timelineDayWidth(range, view.period, element.clientWidth), element.clientWidth);
+            publish();
         }
         setScrollTo(was => ({ index: at, nonce: (was?.nonce ?? 0) + 1 }));
         // A reveal asked, or the events and the lines it is found among landing, is the trigger.
@@ -1792,7 +1775,7 @@ function Timeline(props: CalendarViewsProps) {
     </Box></Box>;
     return <VirtualRows fillParent height={undefined} maxHeight={undefined} rootCss={styles.scroll} scrollElRef={scroll} onScroll={onScroll}
         rootProps={{ "data-calendar-timeline": "", "data-calendar-unread": props.read.state === "held" ? undefined : props.read.state } as Record<string, string | undefined>}
-        minWidth={`${width + TIMELINE_GUTTER}px`} headerZIndex={5} header={header} count={lines.length} getItemKey={getItemKey} estimateSize={estimateSize}
+        minWidth={`${leastWidth + TIMELINE_GUTTER}px`} headerZIndex={5} header={header} count={lines.length} getItemKey={getItemKey} estimateSize={estimateSize}
         anchorable={ANCHOR_EVERY_LINE} runs={runs} renderRow={renderRow} onAnchorChange={onAnchorChange} restoreAnchor={restore}
         onRangeChange={demand === undefined || pages === undefined ? undefined : onRangeChange}
         scrollToIndex={scrollTo?.index} scrollNonce={scrollTo?.nonce} scrollAlign="center" />;
@@ -1855,7 +1838,7 @@ function AgendaCard({ props, item, day }: { props: CalendarViewsProps; item: Cal
     const provenance = marked === "add" ? optimiseMessages.entryAdded({ run }) : marked === "chg" && was !== undefined ? optimiseMessages.entryChanged({ previous: previousWords(was, props), run }) : undefined;
     return <Box css={props.styles.card} data-calendar-card={id} data-selected={props.selected.has(id) ? "" : undefined} data-op={marked} title={provenance}
         data-draft={drafted ? "" : undefined} data-drafted={drafted ? "" : undefined} data-overlap={props.overlaps.peers.has(id) ? "" : undefined}
-        data-conflict={props.editing?.conflicted(item.kind, item.key) === true ? "" : undefined}>
+        data-conflict={props.editing?.conflicted(item.kind, item.key) === true ? "" : undefined} data-bounds={props.bounded?.has(id) === true ? "" : undefined}>
         <chakra.button ref={head} type="button" css={props.styles.cardHead} onClick={event => props.select(item, event.shiftKey || event.metaKey || event.ctrlKey)} aria-pressed={props.selected.has(id)}>
             <Box css={props.styles.cardTitle}>{item.title}</Box>
             <Box css={props.styles.detail}>{item.start.type === "some" && props.format.time(item.start.value)}–{item.end.type === "some" && props.format.time(item.end.value)} · {resourceLabel(item, props.rows)}</Box>
@@ -1867,6 +1850,7 @@ function AgendaCard({ props, item, day }: { props: CalendarViewsProps; item: Cal
 }
 /** Calendar's main view; the narrow branch contains no drag hooks. Its event blocks are measured by one observer of its own. */
 export function CalendarViews(props: CalendarViewsProps) {
+    useMoveGhostClasses(props.styles);
     const [boxes] = useState(createBlockBoxes);
     useEffect(() => () => boxes.disconnect(), [boxes]);
     return <BlockBoxesContext.Provider value={boxes}>{props.narrow ? <Agenda {...props} />

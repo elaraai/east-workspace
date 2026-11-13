@@ -34,7 +34,8 @@ export const codeRecipe = defineRecipe({
             outline: { background: "transparent", borderWidth: "1px", borderColor: "border.strong", color: "fg" },
             plain:   { background: "transparent", color: "fg" },
             surface: { background: "bg.muted", color: "fg" },
-            solid:   { background: "{colors.brand.700}", color: "fg.inverse" },
+            // The deep brand at rest, in each theme's own shade of it.
+            solid:   { background: "brand.solidHover", color: "brand.contrast" },
         },
     },
     defaultVariants: {

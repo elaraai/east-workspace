@@ -9,7 +9,8 @@
  *
  * The clipboard matrix (B§10 — Sheet Spec §5 row 20): dates `d/m/yyyy`,
  * numbers bare in the viewer's language (#852), a link cell as two columns;
- * paste lays two cells over a link column and skips a stamped one.
+ * paste lays two cells over a link column, and a stamped one's for the paste
+ * to say it left it.
  */
 
 import { describe, test, expect } from "vitest";
@@ -72,8 +73,8 @@ describe("paste", () => {
         expect(joinHalves("S1104", "")).toBe("S1104 >");
         expect(joinHalves("S1104 > bay", undefined)).toBe("S1104 > bay");
         const laid = layoutPaste([["16/2/2026", "1200", "S1104", "bay", "STAMP", "note"]], columns.list, 0);
-        // The link consumed two cells; the stamped column was consumed but not written.
-        expect(laid.cells.map((c) => [c.c, c.text])).toEqual([[0, "16/2/2026"], [1, "1200"], [2, "S1104 > bay"], [4, "note"]]);
+        // The link consumed two cells; the stamped column's is laid, for the paste to say it left it (#1585).
+        expect(laid.cells.map((c) => [c.c, c.text])).toEqual([[0, "16/2/2026"], [1, "1200"], [2, "S1104 > bay"], [3, "STAMP"], [4, "note"]]);
         expect(laid.width).toBe(5);
     });
 
@@ -82,7 +83,7 @@ describe("paste", () => {
         ["de-DE", de, "1.234,5\t1234,5\r\n-0,5\t2,5k\r\n"],
         ["fr-FR", fr, "1\u202f234,5\t1234,5\r\n-0,5\t2,5k\r\n"],
     ] as const)("%s: a spreadsheet's clipboard in the viewer's language reads as the numbers it showed (#852)", (_locale, words, text) => {
-        const read = parseMatrix(text).map((line) => line.map((t) => parseQuantity(t, words.separators, false)));
+        const read = parseMatrix(text).map((line) => line.map((t) => parseQuantity(t, words.separators)));
         expect(read).toEqual([[1234.5, 1234.5], [-0.5, 2500]]);
     });
 });

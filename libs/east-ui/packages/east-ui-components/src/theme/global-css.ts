@@ -8,7 +8,7 @@
  * element styles (`app_design_system/_ds_bundle.css`).
  *
  *  - Sets the html/body baseline (Inter Tight, `--ink`, `--paper-2`, tabular
- *    figures).
+ *    figures, no letters joined).
  *  - Makes brand the default colour palette; text selection stays neutral.
  *  - `h1` … `h6` take the design system's title styles (24 / 20 / 18 / 16 /
  *    15, then Inter Tight 14), keeping the text colour of their surface; a
@@ -19,13 +19,20 @@
  *    inherits from its parent. The text classes are text styles
  *    (`text-styles.ts`) instead.
  *  - Honours `prefers-reduced-motion: reduce`.
+ *  - Keeps every field one types in at the touch floor on a coarse pointer
+ *    (`TOUCH_FONT_FLOOR`, #346): iOS Safari zooms the page into a focused
+ *    field set under 16px and leaves it zoomed once the keyboard goes. The
+ *    shared field recipes hold the floor themselves; this holds it for every
+ *    field a part draws on its own too, a key search's or a library's search
+ *    say. Recipes sit in a later cascade layer than these styles, so it is
+ *    `!important`.
  *  - Universal focus-visible — the browser's outline gives way to the one
  *    focus ring, `--shadow-focus` (3px of `--brand` at 35%; of the lifted
  *    `--brand-d` at 80% in dark). A recipe's own `_focusVisible` (an inset
  *    ring on a cell, `none` inside a field's chrome) still wins: recipes
  *    sit in a later cascade layer than these global styles.
  *
- * Brand fonts (DM Sans, Inter Tight, JetBrains Mono) are self-hosted via
+ * Brand fonts (DM Sans, Inter Tight, Chivo Mono) are self-hosted via
  * the `@fontsource-variable/*` stylesheets that an app registers with one
  * import of `@elaraai/east-ui-components/fonts` (`src/fonts.ts`). No CDN
  * @import here — the VS Code extension webview's CSP
@@ -43,6 +50,7 @@ import { defineGlobalStyles, type SystemStyleObject } from "@chakra-ui/react";
 import { faBan } from "@fortawesome/free-solid-svg-icons";
 import { headingStyles } from "./text-styles.js";
 import { iconMask } from "./icon-mask.js";
+import { TOUCH_FONT_FLOOR } from "./field-chrome.js";
 
 /* Reduced-motion reset. Built via `Record<string, SystemStyleObject>` and
  * then narrowed to `SystemStyleObject`. Chakra v3's `SystemStyleObject` is
@@ -69,6 +77,16 @@ const reducedMotionStep: Record<string, SystemStyleObject> = {
 };
 const reducedMotionRules = reducedMotionStep as SystemStyleObject;
 
+/* The touch floor, built as the reduced-motion reset is: every field one
+ * types in — a text input of any kind, a text area, a native select and
+ * editable text — at 16px or more. */
+const touchFloorStep: Record<string, SystemStyleObject> = {
+    "input:not([type=checkbox], [type=radio], [type=range], [type=color], [type=file], [type=button], [type=submit], [type=reset], [type=image], [type=hidden]), textarea, select, [contenteditable]:not([contenteditable=false])": {
+        fontSize: `${TOUCH_FONT_FLOOR} !important`,
+    },
+};
+const touchFloorRules = touchFloorStep as SystemStyleObject;
+
 export const globalCss = defineGlobalStyles({
     "html, body": {
         margin: 0,
@@ -79,6 +97,13 @@ export const globalCss = defineGlobalStyles({
         textRendering: "optimizeLegibility",
         /* Every numeral tabular (component-rules §2). */
         fontFeatureSettings: '"tnum" 1',
+        /* No letters joined: a mono face's letters each take one cell, and a
+         * join — Chivo Mono's ff, fi, fl, ffi and ffl — draws two or three in
+         * one, which breaks its columns. Inherited, so a field, an SVG's text
+         * and a portaled layer take it too; a canvas's text need not — one off
+         * the page never does — so a canvas that draws text sets its own
+         * `textRendering`. */
+        fontVariantLigatures: "no-common-ligatures",
         /* Mobile hygiene (#346): keep the browser from inflating text on
          * orientation change, and drop the grey tap flash — components give
          * their own pressed/selected feedback. */
@@ -378,6 +403,11 @@ export const globalCss = defineGlobalStyles({
     /* Reduced motion — replace transitions with instant.
      * See `reducedMotionRules` above for why this is extracted. */
     "@media (prefers-reduced-motion: reduce)": reducedMotionRules,
+
+    /* The touch floor (#346): on a coarse pointer no field one types in is
+     * set under 16px, or iOS Safari zooms the page into it as it takes the
+     * focus. See `touchFloorRules` above. */
+    "@media (pointer: coarse)": touchFloorRules,
 
     /* Universal focus-visible: no browser outline — the focus ring, the one
      * shadow the design system allows (tokens/layout.css › --shadow-focus). */

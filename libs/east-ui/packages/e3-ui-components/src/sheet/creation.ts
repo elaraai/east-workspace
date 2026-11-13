@@ -6,8 +6,26 @@
 /** Seed new entries and children at the single gesture boundary. @packageDocumentation */
 import { decodeBeast2For, equalFor, variant, type EastType, type ValueTypeOf } from "@elaraai/east";
 import { Sheet, type SheetEditingType } from "@elaraai/e3-ui/internal";
+import type { SheetNotice } from "./sheet-types.js";
 import type { EntryVersion, Placement } from "./transactions.js";
 import type { SheetCellValue, SheetRowValue } from "./values.js";
+
+/**
+ * A gesture the sheet refuses, and why, in the footer's words (#1536): a new entry whose key the app's `newKey` gives
+ * taken already, a `newKey` that throws, or a new entry the app left a field of empty that no person can set. Thrown
+ * where the gesture is built, before anything is drafted, so the gesture drafts nothing; the sheet says the notice,
+ * and logs nothing.
+ */
+export class SheetRefused extends Error {
+    /** What the footer says. */
+    readonly notice: SheetNotice;
+
+    constructor(notice: SheetNotice) {
+        super(notice.id);
+        this.name = "SheetRefused";
+        this.notice = notice;
+    }
+}
 
 const decodeWire = decodeBeast2For(Sheet.Types.Row);
 const sameCell = equalFor(Sheet.Types.Cell);
@@ -73,6 +91,41 @@ export function prepareCreation(
     const inner = current.draft === undefined ? undefined : (current.draft as variant).value;
     const prepared = prepareOf(input, { ...current, draft: inner }, previousInput, place, editing, armType, arm === "group" ? field : undefined, mint);
     return { ...prepared, draft: prepared.draft === undefined ? undefined : variant(arm, prepared.draft) };
+}
+
+/**
+ * What a gesture's new entry — a row, a group, or a line of one — lacks that no person can set in the sheet (#1536):
+ * the first of the declaration's `unsettable` fields its draft leaves missing, read as the gesture leaves it, so a
+ * duplicate has its source's values. A new entry is one the gesture made, its lines new with it; a new line, one its
+ * group did not hold before the gesture — a line moved in from another group brings its own draft.
+ *
+ * @param before - The entry's version before the gesture
+ * @param after - Its version after it
+ * @param editing - The decoded editing declaration
+ * @param draftType - The entry's draft type
+ * @returns What the new entry would have been, and the field's label — `undefined` when it lacks none
+ */
+export function unsetField(before: EntryVersion, after: EntryVersion, editing: Editing, draftType: EastType): { what: "row" | "line" | "group"; label: string } | undefined {
+    if (after.draft === undefined) return undefined;
+    const created = before.draft === undefined;
+    const missing = (draft: unknown, fields: Editing["unsettable"]["row"]) => fields.find(({ field }) => (draft as Record<string, variant | undefined>)[field]?.type === "missing");
+    // An entry of groups and loose rows: its arm says which it is.
+    const arm = draftType.type === "Variant" ? (after.draft as variant) : undefined;
+    const draft = arm === undefined ? after.draft : arm.value;
+    const field = editing.children.type === "some" && arm?.type !== "row" ? editing.children.value : undefined;
+    if (field === undefined) {
+        const unset = created ? missing(draft, editing.unsettable.row) : undefined;
+        return unset === undefined ? undefined : { what: "row", label: unset.label };
+    }
+    const unset = created ? missing(draft, editing.unsettable.group) : undefined;
+    if (unset !== undefined) return { what: "group", label: unset.label };
+    const held = new Set(created ? [] : before.wire?.lines.map((line) => line.key));
+    const children = (draft as Record<string, unknown>)[field] as readonly unknown[];
+    for (const [i, line] of (after.wire?.lines ?? []).entries()) {
+        const lacks = held.has(line.key) ? undefined : missing(children[i], editing.unsettable.row);
+        if (lacks !== undefined) return { what: "line", label: lacks.label };
+    }
+    return undefined;
 }
 
 /** {@link prepareCreation} for one struct draft: a flat row, a loose row, or a group with its children. */

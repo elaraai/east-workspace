@@ -20,10 +20,10 @@ const PKG = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 /** Every face the entry registers, as `<family> <style>`. */
 const FACES = [
+    'Chivo Mono Variable italic',
+    'Chivo Mono Variable normal',
     'DM Sans Variable normal',
     'Inter Tight Variable normal',
-    'JetBrains Mono Variable italic',
-    'JetBrains Mono Variable normal',
 ];
 
 /** The family and style of each `@font-face` rule in `css` — distinct, sorted. */

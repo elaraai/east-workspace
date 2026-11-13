@@ -64,13 +64,13 @@
  * @packageDocumentation
  */
 
-import { memo, useCallback, useMemo, type KeyboardEvent } from "react";
+import { memo, useCallback, useMemo, useRef, type KeyboardEvent, type RefObject } from "react";
 import { Box, Button } from "@chakra-ui/react";
 import { StringType, equalFor, equivalentFor, none, some, type ValueTypeOf } from "@elaraai/east";
 import { SheetComponent, SheetPayloadType, sheetKeys } from "@elaraai/e3-ui/internal";
 import {
-    BannerView, BuilderFrame, SessionBanners, getSomeorUndefined, historyShortcut, implementUIComponent, takeKey, typedInto, useDataStable, usePersistedState, useTrackedEvaluation,
-    type EditIssue,
+    BannerView, BuilderFrame, NARROW_FRAME, SessionBanners, getSomeorUndefined, historyShortcut, implementUIComponent, takeKey, typedInto, useContainerWidth, useDataStable,
+    usePersistedState, useTrackedEvaluation, type EditIssue,
 } from "@elaraai/east-ui-components";
 import { LoadingReveal, keptRead } from "@elaraai/east-ui-components/internal";
 import { FollowSources, type FollowedSources } from "../../shared/schedule/follow-sources.js";
@@ -154,13 +154,14 @@ export interface EastChakraSheetProps {
 
 /**
  * The record's last commit (SB22, SB51): its newest commit's time, as the
- * day's time when it was today and in full otherwise, and who made it.
+ * day's time when it was today and in full otherwise, and who made it — what
+ * a Sheet's footer and inspector say, and a Record's (#1531).
  *
  * @param history - The payload's `history`: over a record, its commits, newest first; `none` over `data`
  * @param words - The sheet's words
  * @returns The last commit, or `undefined` over `data`, while the commits are unread, or when there are none
  */
-function useLastCommit(history: SheetValue["history"], words: SheetWords): SheetLastCommit | undefined {
+export function useLastCommit(history: SheetValue["history"], words: SheetWords): SheetLastCommit | undefined {
     const commits = getSomeorUndefined(history);
     // Read where the sheet renders, and again when the record moves.
     const read = useCallback(() => (commits === undefined ? none : commits()), [commits]);
@@ -212,12 +213,22 @@ const SheetPayloadFrame = memo(function SheetPayloadFrame({ value, storageKey }:
     const optimise = value.optimise.type === "some" ? value.optimise.value.name : undefined;
     // A phone's cell editor (`Mobile Sheet Spec.md` SH10, R9): the inspector's form at touch size, in the bottom container.
     const cellEditor = useMemo(() => sheetCellEditor(value, words, hidden), [value, words, hidden]);
+    // The grid is a phone's as the frame is, 560 wide or less — never as main is, which a pane's rail beside it leaves
+    // narrower than the frame. Until the frame is laid out, the grid's own width decides.
+    const frameRef = useRef<HTMLDivElement | null>(null);
+    const frameWidth = useContainerWidth(frameRef);
+    const phone = frameWidth > 0 ? frameWidth <= NARROW_FRAME : undefined;
+    // The inspector's forms: the bounds a row's numbers are held to (#1585).
+    const forms = getSomeorUndefined(value.inspector)?.forms;
     // What the frame hands the parts: the columns the viewer hid, the drops the sheet takes, the sources' nouns, the
-    // optimiser, and a phone's cell editor.
-    const host = useMemo((): SheetHost => ({ hidden, drop, nouns, optimise: optimise === undefined ? undefined : { name: optimise }, cellEditor }), [hidden, drop, nouns, optimise, cellEditor]);
+    // optimiser, a phone's cell editor, whether the grid is a phone's, the inspector's forms, and whether its Autosave
+    // begins on.
+    const autosave = value.autosave;
+    const host = useMemo((): SheetHost => ({ hidden, drop, nouns, optimise: optimise === undefined ? undefined : { name: optimise }, cellEditor, phone, forms, autosave }),
+        [hidden, drop, nouns, optimise, cellEditor, phone, forms, autosave]);
     return (
         <SheetProvider value={value.sheet} storageKey={storageKey} host={host}>
-            <SheetFrame value={value} keys={keys} hidden={hidden} onToggleColumn={onToggleColumn} nouns={nouns} />
+            <SheetFrame value={value} keys={keys} hidden={hidden} onToggleColumn={onToggleColumn} nouns={nouns} frameRef={frameRef} />
         </SheetProvider>
     );
 }, (prev, next) => payloadEquivalent(prev.value, next.value) && prev.storageKey === next.storageKey);
@@ -234,6 +245,8 @@ interface SheetFrameProps {
     onToggleColumn: (key: string) => void;
     /** What the rail counts each source the library follows in. */
     nouns: ReadonlyMap<string, string>;
+    /** The frame's root: what the frame's width, and so whether the grid is a phone's, is measured on. */
+    frameRef: RefObject<HTMLDivElement | null>;
 }
 
 /**
@@ -256,7 +269,7 @@ function SheetFrame(props: SheetFrameProps) {
 }
 
 /** The frame, its regions holding the sheet's parts. */
-function SheetFrameBody({ value, keys, hidden, onToggleColumn, followed }: SheetFrameProps & { followed: FollowedSources }) {
+function SheetFrameBody({ value, keys, hidden, onToggleColumn, frameRef, followed }: SheetFrameProps & { followed: FollowedSources }) {
     const words = useSheetWords();
     const { m } = words;
     const items = useSheetToolbarItems();
@@ -310,11 +323,16 @@ function SheetFrameBody({ value, keys, hidden, onToggleColumn, followed }: Sheet
     const waiting = footer.loading !== undefined && footer.loading.kind !== "failed";
     // The run's landing (#1409) is measured and drawn over the whole frame — the cells and the counts alike — on the
     // frame's own root: the sheet has no root of its own around its frame, and a wrapper there would be the box a host
-    // sizes and measures the sheet through.
+    // sizes and measures the sheet through. The frame's width is measured on it too.
+    const landingRef = optimise.landing.ref;
+    const rootRef = useCallback((root: HTMLDivElement | null) => {
+        landingRef.current = root;
+        frameRef.current = root;
+    }, [landingRef, frameRef]);
     return (
         <LoadingReveal waiting={waiting}>
             <BuilderFrame
-                ref={optimise.landing.ref}
+                ref={rootRef}
                 rootCss={optimise.landing.css}
                 rootProps={optimise.landing.attributes}
                 storageKey={keys.frame}

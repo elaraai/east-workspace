@@ -109,6 +109,7 @@ export function noticeText(notice: SheetNotice, w: SheetWords): string {
         case "predictedTaken": return m.noticePredictedTaken({ n: notice.n, count: w.number(notice.n) });
         case "lockedHalf": return m.noticeLockedHalf({ driver: notice.driver ?? m.thisRow() });
         case "rowLeft": return m.noticeRowLeft();
+        case "columnLeft": return m.noticeColumnLeft();
         case "tabSaved": return m.noticeTabSaved({ name: notice.name, query: notice.query });
         case "tabClosed": return m.noticeTabClosed({ name: notice.name, active: notice.active });
         case "tabUpdated": return m.noticeTabUpdated({ name: notice.name });
@@ -126,13 +127,22 @@ export function noticeText(notice: SheetNotice, w: SheetWords): string {
         case "pasted": return m.noticePasted({
             rows: w.number(notice.rows), cols: w.number(notice.cols), n: notice.skipped, skipped: w.number(notice.skipped),
             wrote: notice.wrote ?? true, nActions: notice.actions ?? 0, actions: w.number(notice.actions ?? 0),
+            why: notice.refused === undefined ? undefined : m.cellRefused(notice.refused),
         });
+        case "clearRefused": return m.noticeClearRefused({
+            n: notice.n, count: w.number(notice.n), nCleared: notice.cleared, cleared: w.number(notice.cleared), why: m.cellRefused(notice.word),
+        });
+        case "editRefused": return m.noticeEditRefused({ why: m.cellRefused(notice.word) });
         case "copied": return m.noticeCopied({ rows: w.number(notice.rows), cols: w.number(notice.cols) });
         case "discarded": return m.noticeDiscarded();
         case "newRow": return m.noticeNewRow();
         case "newGroup": return m.noticeNewGroup({ noun: noun(notice.noun) });
         case "issue": return m.issueAt({ where: notice.where, message: issueText(notice.issue.message, w) });
         case "dropRefused": return m.dropRefused(notice.word);
+        case "keyTaken": return m.noticeKeyTaken({ key: notice.key });
+        case "keyFailed": return m.noticeKeyFailed({ reason: notice.reason });
+        case "renumbered": return m.noticeRenumbered({ from: notice.from, to: notice.to, n: notice.n, count: w.number(notice.n) });
+        case "cantAdd": return m.noticeCantAdd({ what: notice.what, noun: noun(notice.noun), label: notice.label });
         case "text": return notice.text;
     }
 }

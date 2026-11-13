@@ -71,6 +71,13 @@ describe("Schedule.events — the builders' roles refused at build (B2)", () => 
         assert.throws(() => duties({ shift: "shift", group: "nope" }), /`group` names "nope", a field the row does not have/);
     });
 
+    test("a Roster's group names a String field, or an Option of one (#1548): any other is refused, naming both", () => {
+        assert.throws(() => duties({ shift: "shift", group: "unpaidBreak" }), /`group` names a String field, or an Option of a String field — "unpaidBreak" holds \.Float/);
+        const resource = { field: "who", of: { staff: "people", agency: "agencies" } };
+        assert.doesNotThrow(() => duties({ shift: "shift", group: "team", resource }), "a String field");
+        assert.doesNotThrow(() => duties({ shift: "shift", group: "task", resource }), "an Option of one, a duty in no group yet when it is none");
+    });
+
     test("an Allocation role naming a field of another type", () => {
         assert.throws(() => bins({ arrival: "bay" }), /`arrival` names an Option of a String field — "bay" holds \.String/);
         assert.throws(() => bins({ parts: { field: "m3", of: "kilns" } }), /`parts\.field` names a Dict of String to Float field — "m3" holds \.Float/);
@@ -259,6 +266,10 @@ export function builderTypeChecks(): void {
     Schedule.events(bins, { name: "Bin", icon: "i", at: "at", parts: { field: "m3", of: "kilns" } });
     // @ts-expect-error — `arrival` is an Option of a String field, and "bay" is a String one
     Schedule.events(bins, { name: "Bin", icon: "i", at: "at", arrival: "bay" });
+    // @ts-expect-error — `title` is a String field or a function of the row, and "unpaidBreak" is a Float field
+    Schedule.events(duties, { name: "Duty", icon: "i", start: "start", end: "end", title: "unpaidBreak" });
+    // @ts-expect-error — a `title` function returns a String, and this one a Float
+    Schedule.events(duties, { name: "Duty", icon: "i", start: "start", end: "end", title: (duty) => duty.unpaidBreak });
     // @ts-expect-error — `status.published` names a case of the status field, and "sent" is none of them
     Schedule.periods(Record.bind(weeksRecord, ["patch"]), { every: "week", status: { field: "state", draft: "open", published: "sent" } });
 }

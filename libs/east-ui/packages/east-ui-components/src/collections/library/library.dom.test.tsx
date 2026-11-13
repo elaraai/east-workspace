@@ -18,12 +18,13 @@
  * gets it, while Space still picks the card up — in retained content (#1398,
  * CL8) neither, nor a card's × or the add, while a click still selects. A
  * compact Library's add action is Font Awesome's plus beside its words (#1263).
+ * A drag picked up and put down draws no card's face again (#1594).
  */
 
 import { describe, test, expect, afterEach, beforeEach } from "vitest";
 import { render, cleanup, act, fireEvent, screen, within } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
-import { East, NullType, StringType, none, some, type ValueTypeOf } from "@elaraai/east";
+import { East, NullType, StringType, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Library, Reactive, State, Stack, Text, UIComponentType } from "@elaraai/east-ui/internal";
 import { system } from "../../theme/index.js";
 import { EastChakraComponent } from "../../component.js";
@@ -33,7 +34,7 @@ import { UIStore } from "../../platform/state-store.js";
 import { DragLayerProvider } from "../../dnd/drag-layer.js";
 import { announced, pointAt, press, stubScrollIntoView, tick } from "../../testing/drag-layer.js";
 import { faIcons, loneGlyphs, markOf } from "../../testing/icons.js";
-import { EastChakraLibrary, type LibraryItemValue, type LibraryValue } from "./index.js";
+import { EastChakraLibrary, setLibraryFaceRenderProbe, type LibraryItemValue, type LibraryValue } from "./index.js";
 
 // jsdom lacks the ResizeObserver the menu's positioner reaches for, and the
 // CSS.escape the menu finds its items with.
@@ -617,4 +618,51 @@ describe("Library — a host's ⏎ (#1187)", () => {
         await tick();
         expect(edge.hasAttribute("data-dragging")).toBe(false);
     });
+});
+
+describe("Library — a drag picked up and put down (#1594)", () => {
+    stubScrollIntoView();
+    // No drop target lies anywhere: the layer hit-tests through `elementFromPoint`, which jsdom lacks.
+    beforeEach(() => { pointAt(null); });
+
+    /** A template card, which a drag can pick up. */
+    const card = (key: string): LibraryItemValue => ({
+        key, label: key, sublabel: none, icon: none, status: none, trailing: none, draggable: true, filtered: false, placed: false,
+        media: none, avatar: none, byline: none, action: none, search: some(key), groups: new Map(), facets: new Map(), dims: new Map(),
+    });
+    /** A palette of three cards, drawn as it says. */
+    const palette = (drawn: LibraryValue["variant"]): LibraryValue => ({
+        id: "templates", hint: none, items: [card("edge"), card("spray"), card("coat")],
+        groupOptions: [], groupSummaries: new Map(), dimOptions: [], defaultDimensions: [], filterOptions: [], searchable: false, noun: none,
+        addLabel: none, onAdd: none, onCardClick: none, slice: none, style: none, variant: drawn, layout: none, toolbar: false,
+    });
+
+    /** Picks the card up by the pointer and puts it down again, holding every card's face to drawing nothing, the carried card's among them. */
+    async function holdsFaces(drawn: LibraryValue["variant"], attribute: string) {
+        const { container } = render(
+            <ChakraProvider value={system}>
+                <DragLayerProvider>
+                    <EastChakraLibrary value={palette(drawn)} storageKey="library-test" />
+                </DragLayerProvider>
+            </ChakraProvider>,
+        );
+        const edge = () => container.querySelector<HTMLElement>(`[${attribute}="edge"]`)!;
+        await tick();
+        let faces = 0;
+        setLibraryFaceRenderProbe(() => { faces += 1; });
+        try {
+            await act(async () => {
+                fireEvent.pointerDown(edge(), { clientX: 0, clientY: 0 });
+                fireEvent.pointerMove(document, { clientX: 10, clientY: 10 });
+            });
+            expect([edge().hasAttribute("data-dragging"), container.ownerDocument.querySelector("[data-drag-ghost]")?.textContent, faces], "as the drag starts").toEqual([true, "edge", 0]);
+            await act(async () => { fireEvent.pointerUp(document, { clientX: 10, clientY: 10 }); });
+            expect([edge().hasAttribute("data-dragging"), faces], "as it ends").toEqual([false, 0]);
+        } finally {
+            setLibraryFaceRenderProbe(undefined);
+        }
+    }
+
+    test("a compact card's face draws nothing as a drag starts or ends", () => holdsFaces(none, "data-library-item"));
+    test("a gallery card's face draws nothing as a drag starts or ends", () => holdsFaces(some(variant("gallery", null)), "data-library-card"));
 });

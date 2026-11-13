@@ -273,9 +273,9 @@ describe("one message table (#820)", () => {
     for (const arm of ["inline", "paged"] as const) {
         test(`${arm} editing: the history bar's words, its commit Save (#1260)`, async () => {
             const { container } = await mountCanvas({ arm, wrap: marked });
-            // The history bar speaks through its buttons' names.
+            // The history bar speaks through its buttons' names: Save's chevron, which opens the Autosave switch, among them.
             const names = [...container.querySelectorAll("[data-slot='history'] button")].map((b) => b.getAttribute("aria-label") ?? "");
-            expect(names).toEqual(["⟦0 issues", "⟦Undo", "⟦Redo", "⟦Discard", "⟦Save"]);
+            expect(names).toEqual(["⟦0 issues", "⟦Undo", "⟦Redo", "⟦Discard", "⟦Save", "⟦Automatic saving"]);
         });
     }
 

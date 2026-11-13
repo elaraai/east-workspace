@@ -8,7 +8,9 @@
  * held in a real touch browser at 390 × 844: a builder's example stands whole
  * under the showcase's one-row header; a card's actions, a Library's search and
  * its menus take a finger by their boxes, and its search counts what it searches;
- * the drafts' count shows its number however little room the row leaves it;
+ * the drafts' count shows its number however little room the row leaves it —
+ * but where the row holds its six squares and no more, where it gives way to
+ * them (ruled 11 Nov 2026);
  * Search Records' lines are read whole; a row the Plan's search finds is selected
  * in the list's middle; and a Select's view is headed with its field's name.
  *
@@ -71,25 +73,36 @@ test.describe("A phone's hand test", () => {
         expect([menu!.width >= 43.5, menu!.height >= 43.5]).toEqual([true, true]);
     });
 
-    test("a draft's count shows its number in the room the history row leaves, the noun going whole", async ({ page }) => {
+    test("a draft's count shows its number in the room the history row leaves, the noun going whole — and gives way whole to the row's six squares where the row holds them and no more", async ({ page }) => {
         const frame = await open(page, "e3/allocation/allocation/allocationMobile");
         const unlink = frame.locator("[data-frame-slot='main']").getByRole("button", { name: "Unlink", exact: true }).first();
         await unlink.tap();
-        const count = frame.locator("[data-frame-slot='sessionRow'] [data-changes]");
+        const row = frame.locator("[data-frame-slot='sessionRow']");
+        const count = row.locator("[data-changes]");
         await expect(count).toHaveText("1 change");
-        // At a phone's width, and at 360, where the row leaves a box too narrow for the noun.
+        // Whether the count's number is drawn: inside its chip, and inside every box that clips it up to the row.
         const shown = () => count.evaluate((el) => {
-            const box = el.getBoundingClientRect();
             const number = el.children[0]!.getBoundingClientRect();
-            return [number.top >= box.top - 0.5 && number.bottom <= box.bottom + 0.5, number.left >= box.left - 0.5 && number.right <= box.right + 0.5, number.width > 0];
+            for (let at: Element | null = el; at !== null && at.getAttribute("data-frame-slot") !== "sessionRow"; at = at.parentElement) {
+                const look = getComputedStyle(at);
+                if (look.overflowX === "visible" && look.overflowY === "visible") continue;
+                const clip = at.getBoundingClientRect();
+                if (number.left < clip.left - 0.5 || number.right > clip.right + 0.5 || number.top < clip.top - 0.5 || number.bottom > clip.bottom + 0.5) return false;
+            }
+            return number.width > 0;
         });
-        expect(await shown()).toEqual([true, true, true]);
+        /** The row's last three buttons as drawn, by name. */
+        const ends = () => row.locator("button").evaluateAll((buttons) => buttons.filter((b) => b.getBoundingClientRect().width > 0).map((b) => b.getAttribute("aria-label")).slice(-3));
+        // A 390px phone in the showcase's card, a 324px frame: the row holds its six squares and no more, so the count
+        // gives way to Discard and Save's chevron (ruled 11 Nov 2026: the buttons themselves wherever they fit).
+        expect([await shown(), await ends()]).toEqual([false, ["Discard", "Save", "Automatic saving"]]);
+        // At 360, a 294px frame short of a sixth square: More in Discard's place, and the number in the room the row leaves.
         await page.setViewportSize({ width: 360, height: 844 });
         await settled(page);
-        expect(await shown()).toEqual([true, true, true]);
+        expect([await shown(), await ends()]).toEqual([true, ["Redo", "More", "Save"]]);
         await page.setViewportSize({ width: 390, height: 844 });
         await settled(page);
-        await frame.locator("[data-frame-slot='sessionRow']").getByRole("button", { name: "Undo", exact: true }).tap();
+        await row.getByRole("button", { name: "Undo", exact: true }).tap();
         await expect(count).toHaveCount(0);
     });
 

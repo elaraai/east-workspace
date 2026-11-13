@@ -4,21 +4,22 @@
  */
 
 /**
- * The timeline's window (#1398): a bounded span of days around where the view
- * is — 15 on Day, 56 on Week, 154 on Month — on a fixed grid. Every window
- * starts a whole number of grid steps from the epoch, a step half a window in
- * whole days (`timelineStep`: 7, 28 and 77), so the window a date opens is
- * always the same one, and the window a re-centre or a step that way goes to is
- * known before the view gets there: it is read ahead (`timelineAhead`). A date opens the window
- * whose middle is nearest it (`timelineRange`), so it sits at least a quarter
- * of a window in from either end.
+ * The timeline's geometry (ruled 9 Nov 2026): the timeline draws the period
+ * its view shows — Day a day, Week a week, Month a month, as `calendarRange`
+ * gives them — and scrolls only within it, as the Roster's grid does. A scroll
+ * never moves the period: only Previous and Next, Today, the date picker and a
+ * pick of Search Records do.
  *
- * As the view comes within {@link RECENTRE_PX} of an end of its window, the
- * timeline re-centres on the next window of the grid that way
- * (`recentredView`), its scroll moved by what the window moved
- * (`shiftedScroll`), so every instant stays where it was on screen. The view's
- * date becomes the day under its middle, so a reload opens that window again
- * where the view was.
+ * A day is at least {@link timelinePixels} wide, and as wide as the view
+ * leaves it beside the resource column where that is wider
+ * ({@link timelineDayWidth}): a period narrower than the view is drawn across
+ * the whole of it. The view opens on its period where
+ * {@link timelineOpensAt} says — at Day the working hours, at Week and Month
+ * the view's date — and keeps its place along the period across a step.
+ *
+ * A row's events stack in lanes, and its lanes' bars are a block in the
+ * middle of its plot, as far from its top as from its bottom, however tall
+ * its head makes the row ({@link timelineLanes}).
  *
  * @packageDocumentation
  */
@@ -26,131 +27,104 @@ import { DAY, dayStart, type CalendarRange, type CalendarView } from "./model.js
 
 /** The width of the sticky resource column every row starts with, px. */
 export const TIMELINE_GUTTER = 184;
-/** How near an end of its window the view comes before the timeline re-centres, px. */
-export const RECENTRE_PX = 240;
-/** A day's width on the timeline, px, by its period. */
+/** The room between a row's lanes, px: a lane's bars are its height less this. */
+const LANE_GAP = 4;
+/** The room above a row's first lane's bars and below its last's, px, where its lanes decide the row's height. */
+const LANE_INSET = 7;
+
+/** A row's lanes on the timeline: the least height its plot takes, and where each lane's bars stand in it. */
+export interface TimelineLanes {
+    /** The plot's least height, px: its lanes' bars and the room above and below them. */
+    readonly height: number;
+    /** A lane's bars' height, px. */
+    readonly bar: number;
+    /** A lane's bars' top in the plot, as CSS: their block in the plot's middle, whatever its height. */
+    readonly top: (lane: number) => string;
+}
+
+/**
+ * A row's lanes on the timeline: the least height its plot takes — the lanes' bars, the room between them, and as much
+ * room above the first as below the last — and where each lane's bars stand, their block in the plot's middle however
+ * tall the row's head makes it.
+ *
+ * @param count - How many lanes the row's events stack in; 1 with none
+ * @param lane - A lane's height, px, by the Calendar's density
+ * @returns The plot's least height, a lane's bars' height and each lane's bars' top
+ */
+export function timelineLanes(count: number, lane: number): TimelineLanes {
+    const block = count * lane - LANE_GAP;
+    return { height: block + 2 * LANE_INSET, bar: lane - LANE_GAP, top: at => `calc(50% - ${block / 2}px + ${at * lane}px)` };
+}
+/** An hour, ms. */
+const HOUR = DAY / 24;
+/** A day's least width on the timeline, px, by its period. */
 export const timelinePixels = (period: CalendarView["period"]): number => period === "day" ? 1920 : period === "week" ? 216 : 40;
 
 /**
- * How many days a timeline's window holds.
+ * How many days a period holds, as the timeline draws them: its time whole, weekends included.
  *
- * @param period - The timeline's period
- * @returns Its window's days: 15 on Day, 56 on Week, 154 on Month
+ * @param range - The period
+ * @returns Its days
  */
-export function timelineDays(period: CalendarView["period"]): number {
-    return period === "day" ? 15 : period === "week" ? 56 : 154;
+export function timelineDays(range: CalendarRange): number {
+    return (range.to.getTime() - range.from.getTime()) / DAY;
 }
 
 /**
- * The grid's step: half a window, in whole days — what a re-centre moves the window by.
+ * A day's width on the timeline: the period's own least width a day, or as wide as the view leaves it beside the
+ * resource column where that is wider, so a period narrower than the view is drawn across the whole of it.
  *
- * @param period - The timeline's period
- * @returns The step's days: 7 on Day, 28 on Week, 77 on Month
+ * @param range - The period drawn
+ * @param period - The view's period
+ * @param width - The view's width, px; 0 before it is laid out
+ * @returns The day's width, px
  */
-export function timelineStep(period: CalendarView["period"]): number {
-    return Math.floor(timelineDays(period) / 2);
-}
-
-/** A day's number: whole days from the epoch to the UTC day an instant falls in. */
-function dayNumber(at: number): number {
-    return Math.round(dayStart(at).getTime() / DAY);
-}
-
-/** The window of the grid `k` steps from the epoch. */
-function windowAt(k: number, period: CalendarView["period"]): CalendarRange {
-    const count = timelineDays(period);
-    const from = new Date(k * timelineStep(period) * DAY);
-    return { from, to: new Date(from.getTime() + count * DAY), days: Array.from({ length: count }, (_, i) => new Date(from.getTime() + i * DAY)) };
-}
-
-/** The window a day opens: the one whose middle is nearest the day's own. */
-function windowOf(day: number, period: CalendarView["period"]): number {
-    return Math.round((day + 0.5 - timelineDays(period) / 2) / timelineStep(period));
+export function timelineDayWidth(range: CalendarRange, period: CalendarView["period"], width: number): number {
+    return Math.max(timelinePixels(period), (width - TIMELINE_GUTTER) / timelineDays(range));
 }
 
 /**
- * The days that open a window of the grid: the first and the last, by number.
+ * What the timeline's view shows of its period, beside the sticky resource column.
  *
- * @param k - The window's place on the grid
- * @param period - The timeline's period
- * @returns Its first and last such days
- */
-function openers(k: number, period: CalendarView["period"]): { first: number; last: number } {
-    const step = timelineStep(period), half = timelineDays(period) / 2;
-    // A day opens window k while k - ½ ≤ (day + ½ − half) / step < k + ½, as `Math.round` rounds a half up.
-    return { first: Math.ceil(step * (k - 0.5) + half - 0.5), last: Math.ceil(step * (k + 0.5) + half - 0.5) - 1 };
-}
-
-/**
- * The window a view's date opens (see the module docs).
- *
- * @param view - The view: its period and its date
- * @returns The window, its days whole
- */
-export function timelineRange(view: CalendarView): CalendarRange {
-    return windowAt(windowOf(dayNumber(view.date), view.period), view.period);
-}
-
-/** A window's place on the grid; `undefined` for a range no window of the grid is (one the slice's Range panel wrote). */
-function placeOf(range: CalendarRange, period: CalendarView["period"]): number | undefined {
-    const k = windowOf(dayNumber((range.from.getTime() + range.to.getTime()) / 2), period);
-    const at = windowAt(k, period);
-    return at.from.getTime() === range.from.getTime() && at.to.getTime() === range.to.getTime() ? k : undefined;
-}
-
-/**
- * The window the view goes to next the way it moves (#1398, CL7): the next
- * window of the grid the way its scroll travels or its last step went (ruled
- * 25 Oct 2026), read ahead once the window shown has landed, so a re-centre or
- * a step on normally finds it read.
- *
- * @param range - The window shown
- * @param toward - Which way the view moves along time: back (-1), on (1), or not yet (0)
- * @param period - The timeline's period
- * @returns The window, or none: before the view has moved, or for a range no window of the grid is
- */
-export function timelineAhead(range: CalendarRange, toward: -1 | 0 | 1, period: CalendarView["period"]): readonly CalendarRange[] {
-    const k = toward === 0 ? undefined : placeOf(range, period);
-    return k === undefined ? [] : [windowAt(k + toward, period)];
-}
-
-/**
- * Where a re-centre takes the timeline (see the module docs): within
- * {@link RECENTRE_PX} of an end of its window, the next window of the grid
- * that way — the one the day under the view's middle opens, or, where that is
- * the window shown (a view wider than half a window), the grid's next one
- * toward the end the view nears. The view's date is the day under its middle,
- * or the nearest day that opens the new window, so a reload opens it again.
- *
- * @param view - The view
- * @param range - The window shown
+ * @param range - The period drawn
  * @param left - The scroll's left offset, px
- * @param width - The scroll element's width, px
- * @param scrollWidth - The scroll's whole width, px
- * @returns The view the re-centre goes to; `undefined` while the view is away from both ends, or the window cannot move
+ * @param width - The view's width, px
+ * @param dayWidth - A day's width, px ({@link timelineDayWidth})
+ * @returns The span shown
  */
-export function recentredView(view: CalendarView, range: CalendarRange, left: number, width: number, scrollWidth: number): CalendarView | undefined {
-    const toStart = left, toEnd = scrollWidth - width - left;
-    if (toStart > RECENTRE_PX && toEnd > RECENTRE_PX) return undefined;
-    const visible = timelineVisible(range, left, width, view.period);
-    const middle = dayNumber((visible.from.getTime() + visible.to.getTime()) / 2);
-    let k = windowOf(middle, view.period);
-    const place = placeOf(range, view.period);
-    if (place === k) k += toStart <= toEnd ? -1 : 1;
-    const next = windowAt(k, view.period);
-    if (next.from.getTime() === range.from.getTime() && next.to.getTime() === range.to.getTime()) return undefined;
-    const { first, last } = openers(k, view.period);
-    return { ...view, date: Math.min(Math.max(middle, first), last) * DAY };
-}
-
-/** The scroll translation which keeps every absolute time at its old screen position. */
-export function shiftedScroll(left: number, before: CalendarRange, after: CalendarRange, period: CalendarView["period"]): number {
-    return left - (after.from.getTime() - before.from.getTime()) / DAY * timelinePixels(period);
-}
-/** The visible span of a timeline, excluding the sticky resource gutter. */
-export function timelineVisible(range: CalendarRange, left: number, width: number, period: CalendarView["period"]): CalendarRange {
-    const msPerPixel = DAY / timelinePixels(period);
+export function timelineVisible(range: CalendarRange, left: number, width: number, dayWidth: number): CalendarRange {
+    const msPerPixel = DAY / dayWidth;
     const from = new Date(range.from.getTime() + left * msPerPixel);
     const to = new Date(from.getTime() + Math.max(1, width - TIMELINE_GUTTER) * msPerPixel);
     return { from, to, days: [] };
+}
+
+/**
+ * The instant the view opens its period on: at Day the middle of the working hours, at Week and Month the middle of
+ * the view's date.
+ *
+ * @param view - The view
+ * @param range - The period drawn
+ * @param hours - The working hours: their first hour and the hour they end at
+ * @returns The instant, as an epoch
+ */
+export function timelineOpensAt(view: CalendarView, range: CalendarRange, hours: { readonly from: number; readonly to: number }): number {
+    return view.period === "day" ? range.from.getTime() + (hours.from + hours.to) / 2 * HOUR : dayStart(view.date).getTime() + DAY / 2;
+}
+
+/**
+ * The scroll that puts an instant a share of the way across the view beside the resource column — its middle at ½,
+ * the now line at ⅓ — as near as the period's ends allow.
+ *
+ * @param range - The period drawn
+ * @param at - The instant, as an epoch
+ * @param share - How far across the view it goes
+ * @param dayWidth - A day's width, px ({@link timelineDayWidth})
+ * @param width - The view's width, px
+ * @returns The scroll's left offset, px
+ */
+export function timelineScrollTo(range: CalendarRange, at: number, share: number, dayWidth: number, width: number): number {
+    const plot = Math.max(0, width - TIMELINE_GUTTER);
+    const most = Math.max(0, timelineDays(range) * dayWidth + TIMELINE_GUTTER - width);
+    return Math.min(most, Math.max(0, (at - range.from.getTime()) / DAY * dayWidth - plot * share));
 }

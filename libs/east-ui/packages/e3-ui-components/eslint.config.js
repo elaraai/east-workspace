@@ -3,6 +3,7 @@ import tsparser from '@typescript-eslint/parser';
 import headers from 'eslint-plugin-headers';
 import reactHooks from 'eslint-plugin-react-hooks';
 import east, { hostValueRules } from '@elaraai/eslint-plugin-east';
+import browserFloor from '../../../east/eslint/browser-floor.js';
 import inlinePlaces from '../east-ui-components/eslint/inline-places.js';
 
 // East values through East (#963): source and tests run the rules over host code
@@ -173,6 +174,14 @@ export default [
     rules: {
       'no-restricted-syntax': ['error', ...ONE_FORMATTER, ...SHEET_NO_SPREAD]
     }
+  },
+  {
+    // The renderers run in a browser, on iPhones back to iOS 16.4: their source names no built-in newer than ES2023
+    // (docs/conventions/BROWSER_FLOOR.md). The rule reads types, from the project the source block parses with.
+    files: ['src/**/*.ts', 'src/**/*.tsx'],
+    ignores: TESTS,
+    plugins: { 'east-floor': { rules: { 'browser-floor': browserFloor } } },
+    rules: { 'east-floor/browser-floor': 'error' }
   },
   {
     // The tests hold decoded East values: the host-value rules (#963).

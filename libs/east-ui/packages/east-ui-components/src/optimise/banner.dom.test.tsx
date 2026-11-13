@@ -6,7 +6,8 @@
  * The banner a run lands with (#1409; `Optimise Spec.md` §8, R16, R21), the
  * legend's `Elara change` and the footer line's words: the three banners'
  * words verbatim, their roles and tones, the eye in two of them and the
- * exclamation mark in the third, dismiss; the collapse over `--dur-base` once
+ * exclamation mark in the third, a refusal's reason in the failure's line
+ * (#1553), dismiss; the collapse over `--dur-base` once
  * the outcome goes; the legend unit; and the busy line's seconds, padded.
  */
 
@@ -59,6 +60,12 @@ describe("the banner", () => {
         expect(words(live())).toEqual(["Couldn't optimise Wed 12 May", "Nothing changed. Run it again from the eye."]);
         expect(live().querySelector("[data-banner-mark] [data-eye]")).toBeNull();
         expect(live().querySelector("[data-banner-mark] svg")).not.toBeNull();
+    });
+
+    test("fail with the builder's reason (#1553): its line says why, then that nothing changed, an alert still", () => {
+        const { banner, live } = mount({ kind: "fail", period: "W10", reason: "Elara's answer removes M. Hart · Sun Mar 5 Night · Inbound, in a week not available to edit." });
+        expect([banner()!.getAttribute("data-optimise-banner"), live().getAttribute("role")]).toEqual(["fail", "alert"]);
+        expect(words(live())).toEqual(["Couldn't optimise W10", "Elara's answer removes M. Hart · Sun Mar 5 Night · Inbound, in a week not available to edit. Nothing changed."]);
     });
 
     test("a close shows only with something to dismiss, and dismisses", () => {

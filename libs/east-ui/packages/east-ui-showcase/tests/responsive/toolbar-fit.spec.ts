@@ -19,7 +19,9 @@
  * In a phone's frame — 560px or narrower (`Mobile Builder Frame Spec.md`, ruled
  * 3 Nov 2026) — the history is the toolbar's second row, and the Elara eye
  * before it: held there the same way, each item inside the row and each of
- * Undo, Redo, Discard and Save taking the pointer at its centre.
+ * Undo, Redo, Discard and Save taking the pointer at its centre — More in
+ * Discard's place where the row is too short for Discard and Save's chevron
+ * (ruled 11 Nov 2026), which holds it.
  *
  * Measured at the page's widths — 1440, 1024, 768, 390 and 360, where the
  * showcase's own chrome takes its share — and in a 294px parent, in both
@@ -70,7 +72,8 @@ const ROOT = "[data-builder-frame]";
 
 /**
  * What is wrong with the toolbar row of an entry's builder: an item past the row's content box, the history item gone
- * from the row where it showed, or one of its controls that does not take the pointer at its centre.
+ * from the row where it showed, or one of its controls — Undo, Redo, Discard or More in its place, and Save — that does
+ * not take the pointer at its centre.
  *
  * @param entry - The example's entry
  * @param history - Whether the history item showed at the widest width: it must stay in the row at every width
@@ -109,9 +112,14 @@ function rowFaults(entry: Locator, history: boolean): Promise<string[]> {
             if (wanted) faults.push(phone ? "the history left a phone's second row" : "the history item left the row");
             return faults;
         }
-        const names = ["Undo", "Redo", "Discard", "Save"];
-        for (const name of names) {
-            const button = item.querySelector<HTMLElement>(`button[aria-label='${name}']`);
+        const named = (name: string) => item.querySelector<HTMLElement>(`button[aria-label='${name}']`);
+        const shows = (button: HTMLElement | null) => button !== null && button.getBoundingClientRect().width > 0;
+        // Discard — or, in a phone's row short of it and Save's chevron, More in its place, which holds it: one of the two.
+        const more = item.querySelector<HTMLElement>("button[data-history-more]");
+        const short = shows(more);
+        if (short && shows(named("Discard"))) faults.push("Discard and More are both in the history item");
+        const controls: [string, HTMLElement | null][] = [["Undo", named("Undo")], ["Redo", named("Redo")], short ? ["More", more] : ["Discard", named("Discard")], ["Save", named("Save")]];
+        for (const [name, button] of controls) {
             if (button === null) { faults.push(`no ${name} in the history item`); continue; }
             const b = button.getBoundingClientRect();
             const hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
@@ -173,8 +181,9 @@ function eyeInRowFaults(entry: Locator): Promise<string[]> {
 /**
  * The eye in a phone's frame: no button of it in the first row and no entry of it in the View, a button in the second
  * row before Issues, the history and Save in that row taking the pointer; named as the eye was; a run from it — its
- * call held on its way to e3, so the run stays out while the checks look — the loading line at the row's start saying
- * so and the eye its Stop; and Stop from it, the run over, the eye named for the period again, and nothing recorded.
+ * call held on its way to e3, so the run stays out while the checks look — the footer's loading line, laid over main's
+ * foot, saying so and the eye its Stop; and Stop from it, the run over, the eye named for the period again, and nothing
+ * recorded.
  *
  * @param page - The page
  * @param entry - The example's entry
@@ -209,8 +218,8 @@ async function checkPhoneEye(page: Page, entry: Locator, named: string, at: stri
     expect(before, `${at}: the eye before Issues`).toBe(true);
     const hold = await holdE3(page, { kinds: ["call"] });
     await eye.click();
-    const line = second.locator("[data-footer-line]");
-    await expect(line, `${at}: the row's line says the run`).toHaveAttribute("data-loading-line", "busy");
+    const line = frame.locator("[data-frame-slot='footer'] [data-footer-line]");
+    await expect(line, `${at}: the footer's line says the run`).toHaveAttribute("data-loading-line", "busy");
     await expect(line.locator("[data-line-text]"), at).toHaveText(/^Optimising /);
     await expect(eye, `${at}: the eye is the run's Stop`).toHaveAccessibleName("Stop optimising");
     await eye.click();
@@ -286,8 +295,8 @@ async function checkViewEye(page: Page, entry: Locator, named: string, at: strin
     expect([rest.inside, rest.mark], `${at}: the entry whole in the View, its mark 14px`).toEqual([true, [14, 14]]);
     const hold = await holdE3(page, { kinds: ["call"] });
     await eye.click();
-    // The loading line: a phone's is the second row's start, else the footer's.
-    const line = frame.locator("[data-frame-slot='sessionRow'] [data-footer-line], [data-frame-slot='footer'] [data-footer-line]").first();
+    // The loading line: the footer's at every width, a phone's laid over main's foot.
+    const line = frame.locator("[data-frame-slot='footer'] [data-footer-line]").first();
     await expect(line, `${at}: the loading line says the run`).toHaveAttribute("data-loading-line", "busy");
     await expect(line.locator("[data-line-text]"), at).toHaveText(/^Optimising /);
     await expect(eye, `${at}: the entry is the run's Stop`).toHaveText("Stop optimising");
@@ -325,7 +334,7 @@ async function checkNarrowEye(page: Page, entry: Locator, named: string, at: str
     await expect(button, at).toHaveAccessibleName(named);
     const hold = await holdE3(page, { kinds: ["call"] });
     await button.click();
-    const line = frame.locator("[data-frame-slot='sessionRow'] [data-footer-line], [data-frame-slot='footer'] [data-footer-line]").first();
+    const line = frame.locator("[data-frame-slot='footer'] [data-footer-line]").first();
     await expect(line, `${at}: the loading line says the run`).toHaveAttribute("data-loading-line", "busy");
     await expect(button, `${at}: the eye is the run's Stop`).toHaveAccessibleName("Stop optimising");
     await button.click();

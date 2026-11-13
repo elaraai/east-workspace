@@ -23,15 +23,15 @@ import { Slice, TimeStepType } from "@elaraai/east-ui";
 import e3 from "@elaraai/e3";
 import { Allocation, Data, Schedule } from "@elaraai/e3-ui";
 import { AllocationPayloadType, Func, Record, allocationBands, allocationLabels, createAllocationPayload, type AllocationProps } from "@elaraai/e3-ui/internal";
-import { Kiln, KilnBin } from "./kiln-yard.js";
+import { Delivery, Kiln, KilnBin } from "./kiln-yard.js";
 import * as ex from "./allocation.examples.js";
 
 describeEast("Allocation — inline bound examples", test => {
     Assert.examples(test, {
         allocationMinimal: ex.allocationMinimal, allocationViews: ex.allocationViews, allocationKilnYard: ex.allocationKilnYard, allocationTable: ex.allocationTable, allocationLabels: ex.allocationLabels, allocationWording: ex.allocationWording,
-        allocationPublished: ex.allocationPublished, allocationNoPublish: ex.allocationNoPublish, allocationSplit: ex.allocationSplit,
+        allocationPublished: ex.allocationPublished, allocationWeekly: ex.allocationWeekly, allocationNoPublish: ex.allocationNoPublish, allocationSplit: ex.allocationSplit,
         allocationWindowed: ex.allocationWindowed, allocationMobile: ex.allocationMobile, allocationCustomBin: ex.allocationCustomBin,
-        allocationFitRule: ex.allocationFitRule, allocationConflicts: ex.allocationConflicts,
+        allocationFitRule: ex.allocationFitRule, allocationConflicts: ex.allocationConflicts, allocationDeliveries: ex.allocationDeliveries,
     });
 }, { platformFns: TestImpl });
 
@@ -123,6 +123,15 @@ describe("the props §2 removed, each refused naming its replacement (B4)", () =
         assert.throws(() => payload(() => ({ labels: { event: "Load" } as never })), /Allocation: `labels\.event` is gone — the board's noun for what it books is `labels\.arrival`, "Arrival" by default/);
         assert.throws(() => (Allocation.library.events as () => never)(), /Allocation\.library\.events is gone — the Arrivals tab is Allocation\.library\.arrivals\(\)/);
         assert.doesNotThrow(() => payload(() => ({ labels: { arrival: "Load" }, library: [Allocation.library.arrivals(), Allocation.library.resources()] })));
+    });
+});
+
+describe("the board's settings", () => {
+    test("`autosave` says where Autosave begins: left out, a literal, or an expression data drives — a Boolean, and nothing else", () => {
+        assert.doesNotThrow(() => payload(() => ({ autosave: true })));
+        assert.doesNotThrow(() => payload(() => ({ autosave: East.value(1n).greater(0n) })));
+        assert.throws(() => payload(() => ({ autosave: "on" } as never)));
+        assert.throws(() => payload(() => ({ autosave: East.value(1n) } as never)));
     });
 });
 
@@ -252,11 +261,11 @@ describe("the narrowing, the library and the columns", () => {
         quantity: { field: "m3", unit: "m³" }, parts: { field: "kilns", of: "kilns" }, hold: "dryFor",
     } as never) });
 
-    test("`slice` is Slice.bindRecords, a source named after the bin kind's slot, the lanes', the resources' and `arrivals`", () => {
+    test("`slice` is Slice.bindRecords, a source named after the bin kind's slot, the lanes', the resources', `arrivals` and `reference`", () => {
         assert.throws(() => payload(() => ({ slice: { slice: Slice.bind("spec.local", [{ name: "B-1" }], { fields: { name: { label: "Name" } } }) } as never })),
-            /Allocation: `slice` is Slice\.bindRecords\(key, \{ bin, bays, kilns, arrivals \}\) — name each source after what it narrows/);
+            /Allocation: `slice` is Slice\.bindRecords\(key, \{ bin, bays, kilns, arrivals, reference \}\) — name each source after what it narrows/);
         assert.throws(() => payload(() => ({ slice: { slice: Slice.bindRecords("spec.lanes", { lanes: { source: baySource() } }) } })),
-            /Allocation: `slice` narrows its bins \(bin\), its lanes \(bays\), its resources \(kilns\) and its arrivals — its source 'lanes' is none of them; name the sources `bin`, `bays`, `kilns` and `arrivals`/);
+            /Allocation: `slice` narrows its bins \(bin\), its lanes \(bays\), its resources \(kilns\), its arrivals and the reference record its check reads — its source 'lanes' is none of them; name the sources `bin`, `bays`, `kilns`, `arrivals` and `reference`/);
         // The bins' source reads them through their interval index; without `entries` beside it, a bin is never read by its key.
         assert.throws(() => payload(() => ({ slice: { slice: Slice.bindRecords("spec.bin", { bin: { source: binSource(), range: "at" } }) } })),
             /the builder's source "bin" reads only its narrowing — and one event, the inspector's or its editing's, is read by its key: give `entries` beside it/);
@@ -277,11 +286,15 @@ describe("the narrowing, the library and the columns", () => {
         assert.doesNotThrow(() => payload(() => ({ columns: [{ key: "spec", label: "Spec", text: (b: { specBooked: never }) => b.specBooked }] as never })));
     });
 
-    test("`periods` is Schedule.periods over the app's days, and a library tab one of the board's two", () => {
+    test("`periods` is Schedule.periods over the app's days or weeks, and a library tab one of the board's two", () => {
         assert.throws(() => payload(() => ({ periods: {} as never })),
-            /Allocation: `periods` is what the board publishes, the app's days — periods=\{Schedule\.periods\(Record\.bind\(days\), \{ every: "day", status \}\)\}/);
+            /Allocation: `periods` is what the board publishes, the app's days or weeks — periods=\{Schedule\.periods\(Record\.bind\(days\), \{ every: "day", status \}\)\}, or \{ every: "week", … \} over its weeks/);
         assert.doesNotThrow(() => payload(() => ({ periods: Schedule.periods(Record.bind(ex.yardDays), {
             every: "day", status: { field: "state", draft: "draft", published: "issued" },
+        }) })));
+        // A week at a time (#1550): its rows keyed by each week's first day, the week starting where `week` says.
+        assert.doesNotThrow(() => payload(() => ({ week: { start: "sunday" }, periods: Schedule.periods(Record.bind(ex.yardDays), {
+            every: "week", status: { field: "state", draft: "draft", published: "issued" },
         }) })));
         assert.throws(() => payload(() => ({ library: [{ kind: "events" }] as never })),
             /Allocation: a library tab is Allocation\.library\.arrivals\(\) or Allocation\.library\.resources\(\) — and this one is events/);
@@ -291,6 +304,48 @@ describe("the narrowing, the library and the columns", () => {
         assert.throws(() => payload(() => ({ table: { bands: [] } })), /needs at least one band, from 0/);
         assert.throws(() => payload(() => ({ table: { bands: [{ from: 6 }] } })), /first band starts at 0/);
         assert.throws(() => payload(() => ({ labels: { arrival: " " } })), /`labels\.arrival` must not be empty/);
+    });
+});
+
+describe("the reference record the check reads beside the bins (#1551)", () => {
+    const binSource = () => Data.bindPaged(ex.kilnBins, { indexes: ["kiln_bins_by_time"] });
+    const deliverySource = () => Data.bindPaged(ex.yardDeliveries, { indexes: ["yard_deliveries_by_time"] });
+    /** The bins read through their source of the slice, with `entries` beside it, and the mills' schedule as its `reference` source — or none. */
+    const over = (base: Base, reference = true): Partial<Props> => ({
+        events: { bin: Schedule.events(base.bins as never, {
+            name: "Bin", icon: "box", entries: Data.bindPaged(ex.kilnBins), at: "at", resource: { field: "bay", of: "bays" }, arrival: "load",
+            quantity: { field: "m3", unit: "m³" }, parts: { field: "kilns", of: "kilns" }, hold: "dryFor",
+        } as never) },
+        slice: { slice: reference
+            ? Slice.bindRecords("spec.deliveries", { bin: { source: binSource(), range: "at" }, reference: { source: deliverySource(), range: "from" } })
+            : Slice.bindRecords("spec.deliveries", { bin: { source: binSource(), range: "at" } }) },
+    });
+    const binsAlone = East.function([Allocation.Types.CheckContext(KilnBin)], ArrayType(Allocation.Types.Issue), () => []);
+    const overDeliveries = East.function([Allocation.Types.CheckContext(KilnBin, Delivery)], ArrayType(Allocation.Types.Issue), () => []);
+
+    test("a check from CheckContext(R, P) reads the slice's `reference` source, P its rows; one from CheckContext(R) the bins alone", () => {
+        assert.doesNotThrow(() => payload((base) => ({ ...over(base), check: overDeliveries })));
+        assert.doesNotThrow(() => payload((base) => ({ ...over(base, false), check: binsAlone })));
+    });
+
+    test("the `reference` source is read for the check alone: beside no check, or a check of the bins alone, it is refused", () => {
+        assert.throws(() => payload((base) => over(base)),
+            /Allocation: the slice's `reference` source is read for the check alone — give the Allocation a `check` from Allocation\.Types\.CheckContext\(\.Struct.*, \.Struct.*\), or leave the source out/);
+        assert.throws(() => payload((base) => ({ ...over(base), check: binsAlone })),
+            /Allocation: the slice's `reference` source gives the check its rows, and `check` is from Allocation\.Types\.CheckContext\(\.Struct.*\) — make it from Allocation\.Types\.CheckContext\(/);
+    });
+
+    test("a check reading reference rows is refused without the source, and over rows of another type", () => {
+        assert.throws(() => payload((base) => ({ ...over(base, false), check: overDeliveries })),
+            /Allocation: `check` reads a reference record's rows, Allocation\.Types\.CheckContext\(\.Struct.*, \.Struct.*\), and the slice holds no `reference` source — bind the record as one: Slice\.bindRecords/);
+        const otherRows = East.function([Allocation.Types.CheckContext(KilnBin, StructType({ bay: StringType }))], ArrayType(Allocation.Types.Issue), () => []);
+        assert.throws(() => payload((base) => ({ ...over(base), check: otherRows })),
+            /Allocation: `check` reads reference rows of \.Struct.*, and the slice's `reference` source reads \.Struct.* — make it from Allocation\.Types\.CheckContext\(/);
+    });
+
+    test("no kind takes the reference source's name", () => {
+        assert.throws(() => payload((base) => ({ events: { reference: base.props.events.bin! } as never })),
+            /Allocation: the slice's `reference` source is the record the check reads beside the bins — name the bins' slot \("reference"\), the lanes' \("bays"\) and the resources' \("kilns"\) otherwise/);
     });
 });
 

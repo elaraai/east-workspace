@@ -37,8 +37,8 @@ const RAIL = '[data-frame-slot="toolbar"] [data-slice-rail="record-slices"]';
 /** The warehouse rail's fields, as `source.field`, in source order. */
 const ROSTER_FIELDS = ['people.team', 'people.position', 'people.trainer', 'people.agency', 'people.skills', 'people.name', 'activities.group'];
 /** A frame wide enough for every chip of the rail live, its presets and its summary; and a page wide enough for it. */
-const WIDE = 2400;
-const WIDE_PAGE = 2800;
+const WIDE = 2480;
+const WIDE_PAGE = 2880;
 /**
  * Every source's field as the rail shows it at its width: a live chip, a
  * folded summary chip (`field:source.field`), or past those its one trigger,
@@ -58,6 +58,21 @@ async function remount(page: Page, name: string) {
     const entry = page.locator('[data-index]', { has: page.locator(`a[href="#${FILE}/${name}"]`) });
     await entry.scrollIntoViewIfNeeded(); await expect(entry.locator('[data-roster-frame]').first()).toBeVisible();
     return entry.locator('[data-roster-frame]').first();
+}
+/** Main's rows: the People grid's, or a phone's cards. */
+const mainRows = (frame: Locator) => frame.locator('[data-roster-main] [data-virtual-rows]').first();
+/**
+ * A phone's person card, brought into view: main's cards scrolled down a step at a time until it is drawn, since an open
+ * band's work requirement — a card a day — stands before its people's cards (#1568).
+ */
+async function revealCard(page: Page, frame: Locator, key: string): Promise<Locator> {
+    const card = frame.locator(`[data-roster-person-card="${key}"]`);
+    for (let step = 1; step <= 40 && await card.count() === 0; step++) {
+        await mainRows(frame).evaluate((el, top) => { el.scrollTop = top; }, step * 240);
+        await settled(page);
+    }
+    await card.scrollIntoViewIfNeeded();
+    return card;
 }
 /** Each source a summary names, and what it says of it, by source name: `people: 22 of 69 people`. */
 const namedSources = (summary: Locator) => summary.locator('[data-record-slice-source]').evaluateAll(els => els
@@ -207,27 +222,42 @@ for (const theme of LAYOUT_THEMES) {
         const entry = await open(page, 'rosterMobile', theme), frame = entry.locator('[data-roster-frame]').first();
         const card = frame.locator('[data-roster-card="s37"]');
         await card.getByRole('button', { name: 'Remove', exact: true }).click();
-        // Discard asks in the band under the session row (FR8), main giving way, no popover: Esc and Cancel keep the drafts.
         const discard = frame.getByRole('button', { name: 'Discard', exact: true });
-        await discard.click();
-        const ask = frame.locator('[data-frame-slot="sessionBand"] [data-history-discard-ask]');
-        await expect(ask).toBeVisible();
-        await expect(discard).toHaveAttribute('aria-expanded', 'true');
-        await expect(page.locator('[data-scope="popover"][data-part="content"][data-state="open"]')).toHaveCount(0);
-        expect(await ask.evaluate(el => {
-            const a = el.getBoundingClientRect(), row = document.querySelector('[data-frame-slot="sessionRow"]')!.getBoundingClientRect();
-            const body = el.closest('[data-builder-frame]')!.querySelector('[data-frame-slot="body"]')!.getBoundingClientRect();
-            const halves = [...el.querySelectorAll('button')].map(b => b.getBoundingClientRect());
-            return { under: Math.abs(a.top - row.bottom) < 1, gives: body.top >= a.bottom - 1, tall: halves.every(b => b.height >= 44), equal: Math.abs(halves[0]!.width - halves[1]!.width) < 1 };
-        })).toEqual({ under: true, gives: true, tall: true, equal: true });
-        await page.keyboard.press('Escape');
-        await expect(ask).toHaveCount(0);
-        await expect(discard).toBeFocused();
-        await expect(card).toHaveAttribute('data-drafted', '');
-        await discard.click();
-        await ask.getByRole('button', { name: 'Cancel', exact: true }).click();
-        await expect(ask).toHaveCount(0);
-        await expect(card).toHaveAttribute('data-drafted', '');
+        const more = frame.locator('[data-frame-slot="sessionRow"] [data-history-more]');
+        if (await more.isVisible()) {
+            // A row too short for Discard — a 360px page's frame — shows More in its place, which holds it (ruled 11 Nov
+            // 2026): Discard changes in the frame's bottom panel, no popover, and closed again the drafts stand.
+            await expect(discard).toHaveCount(0);
+            await more.click();
+            const panel = frame.locator('[data-frame-slot="bottomPanel"] [data-frame-panel]');
+            await expect(panel.getByRole('button', { name: 'Discard changes', exact: true })).toBeEnabled();
+            await expect(page.locator('[data-scope="popover"][data-part="content"][data-state="open"]')).toHaveCount(0);
+            await panel.locator('[data-frame-panel-close]').click();
+            await expect(panel).toHaveCount(0);
+            await expect(more).toBeFocused();
+            await expect(card).toHaveAttribute('data-drafted', '');
+        } else {
+            // Discard asks in the band under the session row (FR8), main giving way, no popover: Esc and Cancel keep the drafts.
+            await discard.click();
+            const ask = frame.locator('[data-frame-slot="sessionBand"] [data-history-discard-ask]');
+            await expect(ask).toBeVisible();
+            await expect(discard).toHaveAttribute('aria-expanded', 'true');
+            await expect(page.locator('[data-scope="popover"][data-part="content"][data-state="open"]')).toHaveCount(0);
+            expect(await ask.evaluate(el => {
+                const a = el.getBoundingClientRect(), row = document.querySelector('[data-frame-slot="sessionRow"]')!.getBoundingClientRect();
+                const body = el.closest('[data-builder-frame]')!.querySelector('[data-frame-slot="body"]')!.getBoundingClientRect();
+                const halves = [...el.querySelectorAll('button')].map(b => b.getBoundingClientRect());
+                return { under: Math.abs(a.top - row.bottom) < 1, gives: body.top >= a.bottom - 1, tall: halves.every(b => b.height >= 44), equal: Math.abs(halves[0]!.width - halves[1]!.width) < 1 };
+            })).toEqual({ under: true, gives: true, tall: true, equal: true });
+            await page.keyboard.press('Escape');
+            await expect(ask).toHaveCount(0);
+            await expect(discard).toBeFocused();
+            await expect(card).toHaveAttribute('data-drafted', '');
+            await discard.click();
+            await ask.getByRole('button', { name: 'Cancel', exact: true }).click();
+            await expect(ask).toHaveCount(0);
+            await expect(card).toHaveAttribute('data-drafted', '');
+        }
         await view(page, frame, 'People');
         await expect(frame.locator('[data-roster-agenda="people"]')).toBeVisible();
         await expect(card).toHaveAttribute('data-drafted', '');
@@ -340,12 +370,11 @@ for (const theme of LAYOUT_THEMES) {
         const assignment = frame.locator('[data-roster-assignment="s37"]');
         await assignment.scrollIntoViewIfNeeded(); await drag(activity, assignment);
         await expect(assignment.getByTitle('Unloading', { exact: true })).toBeVisible();
-        // The warehouse's check holds Save until N. Ochre's new duty has a cost centre: given in the inspector, it saves.
+        // N. Ochre's new duty takes its team's cost centre from the app's `values` (#1526), so the warehouse's check holds
+        // nothing: its inspector shows Inbound's, and it saves at once.
         const save = frame.getByRole('button', { name: 'Save', exact: true });
-        await expect(save).toBeDisabled();
         await frame.locator('[data-roster-assignment][data-drafted]').filter({ hasText: 'N. Ochre' }).click();
-        const centre = frame.locator('[data-frame-slot="end"] [data-field="costCentre"]').getByRole('textbox');
-        await centre.fill('CC-IN'); await centre.press('Enter');
+        await expect(frame.locator('[data-frame-slot="end"] [data-field="costCentre"]').getByRole('textbox')).toHaveValue('CC-IN');
         await expect(save).toBeEnabled();
         await save.click();
         await expect(frame.locator('[data-roster-assignment][data-drafted]')).toHaveCount(0, { timeout: 15_000 });
@@ -486,7 +515,8 @@ for (const theme of LAYOUT_THEMES) {
             await group.click();
             await expect(group).toHaveAttribute('aria-expanded', 'false');
         }
-        await expect(frame.locator('[data-roster-person-row]')).toHaveCount(0);
+        // Each band's people and its work requirement's lanes fold with it.
+        await expect(frame.locator('[data-roster-person-row], [data-roster-lane]')).toHaveCount(0);
         await view(page, frame, 'Shifts');
         await expect(frame.locator('[data-roster-group][aria-expanded="false"]')).toHaveCount(3);
         await expect(frame.locator('[data-roster-slot], [data-roster-requirement]')).toHaveCount(0);
@@ -498,15 +528,17 @@ for (const theme of LAYOUT_THEMES) {
         await expect(inbound).toHaveAttribute('aria-expanded', 'true');
         await expect(frame.locator(`[data-roster-person-row="${firstPerson}"]`)).toBeVisible();
         await size(page, entry, 360);
-        await expect(frame.locator(`[data-roster-person-card="${firstPerson}"]`)).toBeVisible();
+        await expect(await revealCard(page, frame, firstPerson!)).toBeVisible();
+        await mainRows(frame).evaluate(el => { el.scrollTop = 0; }); await settled(page);
         await inbound.click();
-        await expect(frame.locator('[data-roster-person-card]')).toHaveCount(0);
+        // Folded, the band's people's cards go, and its work requirement's cards with them.
+        await expect(frame.locator('[data-roster-person-card], [data-roster-demand-cards]')).toHaveCount(0);
         const again = await remount(page, 'rosterWarehouse'); await size(page, entry, 360);
         await expect(again.locator('[data-roster-group][aria-expanded="false"]')).toHaveCount(3);
         const reopen = again.locator('[data-roster-group="inbound"]');
         await reopen.focus(); await page.keyboard.press('Space');
         await expect(reopen).toHaveAttribute('aria-expanded', 'true');
-        await expect(again.locator(`[data-roster-person-card="${firstPerson}"]`)).toBeVisible();
+        await expect(await revealCard(page, again, firstPerson!)).toBeVisible();
         expect(await again.locator('[data-roster-person-card]').count()).toBeLessThan(10);
         await expect(again.locator('[aria-roledescription="draggable"], [data-roster-person-day]')).toHaveCount(0);
     });

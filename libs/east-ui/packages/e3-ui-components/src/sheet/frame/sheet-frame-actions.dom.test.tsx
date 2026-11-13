@@ -19,7 +19,7 @@
 import { test, expect } from "vitest";
 import { fireEvent, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { some, variant } from "@elaraai/east";
+import { none, some, variant } from "@elaraai/east";
 import * as ex from "@elaraai/e3-ui/examples/sheet/sheet-actions";
 import { act, sheetHarness, settle, slot } from "./harness.test-utils.js";
 import { touchFrame } from "../frame.test-utils.js";
@@ -219,23 +219,6 @@ test("a range down the action column takes a case on every row of it, as one tra
     expect(stateOf(cellOf(container, "T-302", "action"))).toBe("acknowledged");
 });
 
-test("in auto mode an action is saved as it is taken: its dot's echo runs until e3 has the commit, then the tint clears (T5, N2)", async () => {
-    const { container } = await h.mount(ex.sheetActionsTickets);
-    const saving = h.e3.hold((request) => request.kind === "mutate");
-    await press(nextOf(cellOf(container, "T-301", "action"))!);
-    await act(async () => { await saving.holding; });
-    await settle();
-    const dot = () => cellOf(container, "T-301", "action").querySelector('[data-slot="actionDot"]');
-    expect(dot()?.getAttribute("data-live")).toBe("");
-    saving.release();
-    await settle();
-    await act(async () => { await h.e3.idle(); });
-    await settle();
-    expect(dot()?.getAttribute("data-live")).toBeNull();
-    const tickets = await h.read(ex.sheetTickets);
-    expect(tickets.get("T-301")!.action).toEqual(some(variant("acknowledged", null)));
-});
-
 test("a taken action's words tint as a draft until Save (ST3, ST6)", async () => {
     const { container } = await h.mount(ex.sheetActionsBasic);
     const state = () => cellOf(container, "J-0003", "state").querySelector('[data-slot="actionState"]');
@@ -377,6 +360,42 @@ test("on a phone a tap on Done edits its time in the bottom container: digits fi
     } finally { restore(); }
 });
 
+/** The orders as another session leaves them: one more, which sorts first — or, given `false`, without it. */
+async function orderFirst(add: boolean) {
+    const orders = new Map(await h.read(ex.sheetWorkOrders));
+    if (add) orders.set("WO-1000", { id: "WO-1000", name: "Base plate", status: "in_progress", steps: [{ op: "10", step: "Saw blank", plan: 4n, good: none, done: none, action: none }] });
+    else orders.delete("WO-1000");
+    await h.patch(ex.sheetWorkOrders, orders);
+}
+
+test("on a phone the bottom container stays with its row as another session's order moves the rows under it: the same editor, its steps on its own row, and ⌄ closed stays closed (SH10)", async () => {
+    const restore = touchFrame(390);
+    try {
+        const { container } = await h.mount(ex.sheetActionsWorkOrders);
+        fireEvent.mouseDown(lineCell(container, "WO-1042", "1", "good"), { button: 0 });
+        await settle();
+        const editor = cellEditor(container)!;
+        const more = editor.querySelector('[data-cell-step="more"]')!;
+        const goodText = () => lineCell(container, "WO-1042", "1", "good").textContent;
+        await press(more);
+        expect(goodText()).toBe("1");
+        // Its band and its line land above: every row moves down under the open editor, which is not drawn again.
+        await orderFirst(true);
+        expect(slot(container, "main")!.querySelector("[data-band-row]")?.getAttribute("data-row-id")).toBe("WO-1000");
+        expect(cellEditor(container)).toBe(editor);
+        expect(editor.querySelector('[data-cell-step="more"]')).toBe(more);
+        await press(more);
+        expect(goodText()).toBe("2");
+        expect(lineCell(container, "WO-1000", "0", "good").textContent).toBe("");
+        // ⌄ closed, it stays closed as the rows move back up under the ring.
+        await press(cellEditor(container)!.querySelector("[data-cell-editor-close]")!);
+        expect(cellEditor(container)).toBeNull();
+        await orderFirst(false);
+        expect(slot(container, "main")!.querySelector("[data-band-row]")?.getAttribute("data-row-id")).toBe("WO-1042");
+        expect(cellEditor(container)).toBeNull();
+    } finally { restore(); }
+});
+
 /** Opens WO-1042 step 20's Report… form from its ▾, and waits for its focus. */
 async function openReport(container: HTMLElement) {
     await press(lineCell(container, "WO-1042", "1", "action").querySelector('[data-slot="actionMore"]')!);
@@ -497,6 +516,25 @@ test("a paste over an action cell says so, never that it pasted (hand test F18)"
     expect(slot(container, "footer")!.textContent).toContain("Nothing pasted — an action cell takes no paste");
 });
 
+test("⌫ on an action cell says why it is left, as a paste does — nothing taken on it yet, or a case (#1585)", async () => {
+    const { container } = await h.mount(ex.sheetActionsBasic);
+    const footer = () => slot(container, "footer")!.textContent;
+    fireEvent.mouseDown(cellOf(container, "J-0003", "state"), { button: 0 });
+    await settle();
+    fireEvent.keyDown(card(container), { key: "Backspace" });
+    await settle();
+    expect(footer()).toContain("Nothing cleared — State changes only through its actions");
+    // A paste between, so the next words are the next ⌫'s own.
+    await act(async () => { fireEvent.paste(card(container), { clipboardData: { getData: () => "finished" } }); });
+    await settle();
+    expect(footer()).not.toContain("Nothing cleared");
+    fireEvent.mouseDown(cellOf(container, "J-0002", "state"), { button: 0 });
+    await settle();
+    fireEvent.keyDown(card(container), { key: "Delete" });
+    await settle();
+    expect([stateOf(cellOf(container, "J-0002", "state")), footer()?.includes("Nothing cleared — State changes only through its actions")]).toEqual(["started", true]);
+});
+
 test("▾ on a range whose rows share no further case opens no Menu, and the footer says why (T8, hand test F12)", async () => {
     const { container } = await h.mount(ex.sheetActionsWorkOrders);
     // WO-1044: step 20 is alerted, offered Start and Complete; step 10 is verified, offered nothing.
@@ -515,6 +553,22 @@ test("handed over to a crew, the cell's summary names the crew by its label (han
     const cell = cellOf(container, "T-302", "action");
     expect(stateOf(cell)).toBe("handed_over");
     expect(cell.querySelector('[data-slot="actionSummary"]')?.textContent).toBe("Night crew");
+});
+
+/** The flat rows, by their keys, in order. */
+const rowIds = (container: HTMLElement) => [...slot(container, "main")!.querySelectorAll<HTMLElement>('[data-slot="row"][data-row-id]')].map((row) => row.getAttribute("data-row-id"));
+
+test("a Menu open on a row goes with it as another session's ticket moves the rows under it: its pick is taken on that row, never the one now in its place", async () => {
+    const { container } = await h.mount(ex.sheetActionsTickets);
+    await press(cellOf(container, "T-302", "action").querySelector('[data-slot="actionMore"]')!);
+    // A ticket that sorts first: every row moves down one under the open Menu.
+    const tickets = new Map(await h.read(ex.sheetTickets));
+    tickets.set("T-300", { title: "Belt slip", crew: "day", due: none, action: none });
+    await h.patch(ex.sheetTickets, tickets);
+    expect(rowIds(container)).toEqual(["T-300", "T-301", "T-302", "T-303"]);
+    await pick(within(document.querySelector<HTMLElement>("[data-sheet-action-menu]")!).getByRole("menuitem", { name: /Close/ }));
+    expect(stateOf(cellOf(container, "T-302", "action"))).toBe("closed");
+    expect(stateOf(cellOf(container, "T-301", "action"))).toBeUndefined();
 });
 
 test("the inspector's read-only Status says the member's label, as the band's cell does (hand test F7)", async () => {

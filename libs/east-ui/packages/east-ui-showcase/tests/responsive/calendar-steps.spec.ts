@@ -7,12 +7,12 @@
  * The Calendar's timeline steps (#1398) on the real in-page e3, with the
  * Calendar open in a second tab of the same browser, as a viewer keeps one:
  * the two tabs share the browser's storage, where the Calendar keeps its view
- * for a reload, and nothing else — each holds its own window. Each press of
- * Next moves the view's date exactly a period on, the timeline is never sent
- * to its window's start, and the date kept is always inside the window the
- * view's source holds; the other tab never moves. Day, Week and Month alike.
- * A view another tab keeps — as the browser's storage editor keeps one — moves
- * nothing until a reload, which opens on it.
+ * for a reload, and nothing else — each holds its own period. Each press of
+ * Next moves the view's date exactly a period on and draws that period, the
+ * date kept inside it, and tells the timeline to scroll nowhere: the view keeps
+ * its place along the period (ruled 9 Nov 2026). The other tab never moves.
+ * Day, Week and Month alike. A view another tab keeps — as the browser's
+ * storage editor keeps one — moves nothing until a reload, which opens on it.
  *
  * Every scroll a timeline is told to make is recorded as it is written (an
  * init script over `scrollLeft`), so what is measured is the commits' order,
@@ -29,7 +29,7 @@ const DAY = 86_400_000;
 
 type Period = "day" | "week" | "month";
 const LABELS: Record<Period, string> = { day: "Day", week: "Week", month: "Month" };
-/** The presses of Next that re-centre the timeline's window twice — half a window is 7, 28 and 77 days — or, at Day, past its one re-centre. */
+/** How many times Next is pressed at each period: past a week's end at Day, a month's at Week and a quarter's at Month. */
 const PRESSES: Record<Period, number> = { day: 12, week: 8, month: 6 };
 
 /** Records every scroll a Calendar timeline in the page is told to make, as it is written. Call before the page loads. */
@@ -52,7 +52,7 @@ async function recordScrolls(page: Page): Promise<void> {
 const scrollsOf = (page: Page) => page.evaluate(() => (window as unknown as { __calendarScrolls: number[] }).__calendarScrolls.slice());
 const forgetScrolls = (page: Page) => page.evaluate(() => { (window as unknown as { __calendarScrolls: number[] }).__calendarScrolls.length = 0; });
 
-/** What a tab's Calendar shows: the day its navigator steps from, the window its timeline's rows carry, and the view kept. */
+/** What a tab's Calendar shows: the day its navigator steps from, the period its timeline's rows carry, and the view kept. */
 function shown(frame: Locator) {
     return frame.evaluate((root) => {
         const navigation = root.querySelector<HTMLElement>("[data-time-navigation=calendar]")!;
@@ -101,7 +101,7 @@ async function twoTabs(page: Page, period: Period) {
     return { first, second, other, toolbar };
 }
 
-/** Presses Next in the first tab, each a period on, past a re-centre of its window ({@link PRESSES}), and holds both tabs to it after each. */
+/** Presses Next in the first tab, each a period on ({@link PRESSES}), and holds both tabs to it after each. */
 async function stepOn(page: Page, period: Period) {
     const { first, second, other, toolbar } = await twoTabs(page, period);
     const theirs = await shown(second);
@@ -112,22 +112,22 @@ async function stepOn(page: Page, period: Period) {
         await settled(other);
         const now = await shown(first);
         const where = `press ${press} of Next ${period}`;
-        // A period on, from the day it stepped from; the date kept is that day, inside the window the source holds.
+        // A period on, from the day it stepped from; the date kept is that day, inside the period drawn.
         expect(now.anchor, `${where}: the date a period on`).toBe(stepOf(at.anchor, period));
         expect(now.kept?.date, `${where}: the date kept`).toBe(now.anchor);
-        expect(now.from <= now.anchor && now.anchor < now.to, `${where}: the date kept inside the window its source holds`).toBe(true);
-        // Neither tab sent to its window's start.
-        expect([await scrollsOf(page), await scrollsOf(other)].map(scrolls => scrolls.filter(left => left === 0)), `${where}: no scroll to the window's start`).toEqual([[], []]);
+        expect(now.from <= now.anchor && now.anchor < now.to, `${where}: the date kept inside the period drawn`).toBe(true);
+        // Neither tab's timeline told to scroll: a step keeps the view where it is along the period.
+        expect([await scrollsOf(page), await scrollsOf(other)], `${where}: no scroll written`).toEqual([[], []]);
         at = now;
     }
-    // The other tab's view is its own: where it was, its window and its date, all along.
+    // The other tab's view is its own: where it was, its period and its date, all along.
     const after = await shown(second);
     expect({ anchor: after.anchor, from: after.from, to: after.to }, "the other tab where it was").toEqual({ anchor: theirs.anchor, from: theirs.from, to: theirs.to });
     return { first, second, other, at };
 }
 
 test.describe("the Calendar's timeline steps, open in two tabs (#1398) @desktop", () => {
-    test("Week: each press of Next a week on, its date kept inside its window, never sent to the window's start; another tab's kept view moves nothing until a reload opens on it", async ({ page }) => {
+    test("Week: each press of Next a week on, its date inside the week drawn, the timeline scrolled nowhere; another tab's kept view moves nothing until a reload opens on it", async ({ page }) => {
         test.setTimeout(240_000);
         const { first, other, at } = await stepOn(page, "week");
         // The other tab keeps a view three weeks on, as the browser's storage editor would: the first tab hears it, and moves nothing.
@@ -137,7 +137,7 @@ test.describe("the Calendar's timeline steps, open in two tabs (#1398) @desktop"
         await settled(page);
         expect({ anchor: (await shown(first)).anchor, scrolls: await scrollsOf(page) }, "the first tab, the other's view kept").toEqual({ anchor: at.anchor, scrolls: [] });
         expect((await shown(first)).kept, "nothing written over the view kept").toEqual(edited);
-        // A reload opens on the view kept: the date edited, inside its window.
+        // A reload opens on the view kept: the date edited, inside its period.
         await other.close();
         await page.reload();
         const entry = await visitBuilder(page, ROUTE, ROOT, undefined);
@@ -147,12 +147,12 @@ test.describe("the Calendar's timeline steps, open in two tabs (#1398) @desktop"
             .toEqual({ anchor: edited.date, kept: edited, inside: true });
     });
 
-    test("Day: each press of Next a day on, its date kept inside its window, never sent to the window's start, the other tab where it was", async ({ page }) => {
+    test("Day: each press of Next a day on, its date inside the day drawn, the timeline scrolled nowhere, the other tab where it was", async ({ page }) => {
         test.setTimeout(240_000);
         await stepOn(page, "day");
     });
 
-    test("Month: each press of Next a month on, its date kept inside its window, never sent to the window's start, the other tab where it was", async ({ page }) => {
+    test("Month: each press of Next a month on, its date inside the month drawn, the timeline scrolled nowhere, the other tab where it was", async ({ page }) => {
         test.setTimeout(240_000);
         await stepOn(page, "month");
     });

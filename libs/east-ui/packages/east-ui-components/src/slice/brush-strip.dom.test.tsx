@@ -6,8 +6,8 @@
 
 /**
  * The horizon brush (#1438) as the strip draws it: its layers — the band,
- * the baseline, the bars on the heat ramp dimmed outside the window and whole
- * inside it — its states, its three stops and their keys, the hover's
+ * the baseline, the bars drawn as outside the window under it and as inside
+ * it on a layer clipped to it — its states, its three stops and their keys, the hover's
  * Tooltip, and a narrow window's zones. Geometry is the brush-math's (its own
  * tests); what lands on the page is checked in a browser by the showcase's
  * `plan-geometry.spec.ts`.
@@ -64,27 +64,28 @@ describe("the horizon brush's layers (#1438)", () => {
         expect(declaredStyle(q("[data-brush-now]")[0]!, "left")).toBe("40%");
     });
 
-    test("each bucket counting anything a bar, toned on the heat ramp by its count, at 0.45 outside the window and whole on a layer clipped to it", () => {
+    test("each bucket counting anything a bar, its count its height, drawn as outside the window on the track's layer and again as inside it on a layer clipped to it", () => {
         const { q } = strip();
         const [all, inside] = [...q("[data-brush-bars]")];
-        expect(all!.hasAttribute("data-dim")).toBe(true);
+        expect(all!.hasAttribute("data-outside")).toBe(true);
         expect(inside!.getAttribute("data-brush-bars")).toBe("in");
+        expect(inside!.hasAttribute("data-outside")).toBe(false);
         expect(declaredStyle(inside!, "clip-path")).toBe("inset(0 50% 0 25%)");
         // Seven buckets count something; the third counts nothing and draws no bar.
         const bars = [...all!.querySelectorAll<HTMLElement>("[data-brush-bar]")];
-        expect(bars.map((b) => b.getAttribute("data-step"))).toEqual(["2", "3", "5", "4", "3", "2", "1"]);
+        expect(bars.map((b) => b.getAttribute("data-count"))).toEqual(["10", "20", "40", "30", "20", "10", "5"]);
         expect(bars.map((b) => declaredStyle(b, "left"))).toEqual(["0px", "50px", "150px", "200px", "250px", "300px", "350px"]);
         expect(bars.map((b) => declaredStyle(b, "width"))).toEqual(Array.from({ length: 7 }, () => "48px"));
         expect(bars.map((b) => declaredStyle(b, "height"))).toEqual(["7px", "14px", "28px", "21px", "14px", "7px", "4px"]);
         expect(inside!.querySelectorAll("[data-brush-bar]")).toHaveLength(7);
     });
 
-    test("with no window: no band, no handles, and every bar at full strength on one layer", () => {
+    test("with no window: no band, no handles, and every bar drawn as inside on one layer", () => {
         const { q } = strip({ window: undefined });
         expect(q("[data-brush-band]")).toHaveLength(0);
         expect(q("[data-brush-handle]")).toHaveLength(0);
         expect(q("[data-brush-bars]")).toHaveLength(1);
-        expect(q("[data-brush-bars]")[0]!.hasAttribute("data-dim")).toBe(false);
+        expect(q("[data-brush-bars]")[0]!.hasAttribute("data-outside")).toBe(false);
     });
 
     test("while the counts are read, the baseline alone, the window and its handles live", () => {

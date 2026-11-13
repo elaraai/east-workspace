@@ -172,7 +172,7 @@ export function useSheetSeek(
         // The snapshot it lists at: a new one keeps nothing this listing learns.
         const listing = hiddenAt.current;
         if (from === undefined || limit <= 0) return [];
-        const rows = await awaitTracked(() => from.page(BigInt(row), BigInt(limit))) as readonly SheetRowValue[];
+        const rows: readonly SheetRowValue[] = (await awaitTracked(() => from.page(BigInt(row), BigInt(limit)))).rows;
         const shown = narrowing === undefined || rows.length === 0 ? undefined : await awaitTracked(() => narrowing.held(row, rows.length));
         // Those the narrowing hides: e3 is asked which of its filters hide each — the box listing them again as it says
         // (`relist`) — and a pick of one clears them (the hidden pick).

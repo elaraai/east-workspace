@@ -77,6 +77,9 @@
  *   Go to issue clears them, then flies to where its draft stands and selects
  *   it once it draws — the frame's one hidden pick, Find's too. Enter, or a
  *   double-click on an entity, opens Details, its open tab kept per viewer.
+ *   An issue gone to, from the toolbar or from its line in Issues, asks its
+ *   row's Details for the field it names, which takes the keyboard there, the
+ *   inspector opened at Details where it is collapsed or at Issues.
  *   A selected row of a kind read by area its window no longer holds stays
  *   selected, and Details shows it as its stored row reads, by its key
  *   (`selected-rows.ts`, §4.5): a pan or a zoom lets go of nothing, and only a
@@ -120,9 +123,24 @@
  * Every gesture is one step of one history over a session per record the
  * Schematic writes (`editing.ts`, #1388): the canvas records each gesture's
  * edits (`edits.ts`), and draws the stored rows with the drafts in place
- * (`drafted.ts`). The history item ends the toolbar while a record is edited —
+ * (`drafted.ts`), and what a Save landed of a kind read by area as the Save
+ * left it — on the canvas, in the Index and in Details — until the kind's
+ * window and the Index's read of it are read since. A new row is keyed as its
+ * kind makes one (#1549), and a row
+ * whose kind builds its key from its fields follows the key a gesture's edit
+ * of them builds, the links and nets naming it with it — every route's edits,
+ * the canvas's, a drop's and the inspector's, recorded so — refused, the
+ * footer naming the row that holds the key, or saying the filters hide, or no
+ * read holds, rows of a link or net kind that may name it (#1580), or that its
+ * details or the rows naming it take no edit now (#1584); a lone selected entity that moves
+ * stays selected under its new key. The history item ends the toolbar while a record is edited —
  * Undo, Redo, Discard and Save — and ⌘Z, ⇧⌘Z and ⌘Y take it anywhere in the
  * frame but a field typed into.
+ *
+ * An item whose row, or its details row, holds a number outside its field's
+ * bounds (#1585) wears the warn ring, stored or changed, as one holding a
+ * conflict does — the rows read in a component of their own (`bounds.ts`) —
+ * and Issues lists a stored row's as a warning; a changed row's holds Save.
  *
  * The layers hide, lock and dim the entities on them as their author defaults
  * say (`canvas/layers.ts`), and the viewer's choices in the Layers tab over
@@ -134,7 +152,7 @@
  * @packageDocumentation
  */
 
-import { memo, useCallback, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Box, Button, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { ArrayType, StringType, compareFor, equalFor, equivalentFor, none, printFor, some, type EastType, type PatchPath, type option } from "@elaraai/east";
 import { RecordSliceWhereType } from "@elaraai/east-ui/internal";
@@ -142,13 +160,15 @@ import { Schematic, schematicAreaIndexes, schematicKeys } from "@elaraai/e3-ui/i
 import {
     BannerView, BuilderFrame, SessionBanners, editingMessages, focusKeySearch, getSomeorUndefined, historyShortcut, historyToolbarItem,
     implementUIComponent, takeKey, typedInto, useContainerBelow, useDataStable, useFormatters, usePersistedState, useSlicesReactivity,
-    type EditIssue, type EditingWords, type HistoryAction,
+    type BuilderFramePanes, type EditIssue, type EditingWords, type HistoryAction, type Origin,
 } from "@elaraai/east-ui-components";
 import { LoadingReveal, loadingLineText, schematicColorTokens, type LoadingLineText, type LoadingLineValue, keptRead } from "@elaraai/east-ui-components/internal";
+import { DraftedStanding } from "../shared/schedule/drafted-rows.js";
+import { FieldAskProvider, useFieldAsks } from "../shared/schedule/field-ask.js";
 import { FollowSources, type FollowedSources } from "../shared/schedule/follow-sources.js";
 import type { SourceHiding } from "../shared/schedule/hidden.js";
 import { HideSources, useHiddenPick, type HiddenPicks, type HiddenSource } from "../shared/schedule/hidden-pick.js";
-import { openFramePane } from "../shared/schedule/open-pane.js";
+import { kindKeys as keysOfType } from "../shared/schedule/kind-keys.js";
 import { rowCodec } from "../shared/schedule/records.js";
 import { sourcePart, type KeyVisibilityWords, type SourcesChrome } from "../shared/schedule/visibility.js";
 import { kindPlural } from "../shared/schedule/words.js";
@@ -157,6 +177,7 @@ import type { ZoomRange } from "../shared/schedule/zoom.js";
 import { createViewportStore, type SchematicViewportStore } from "./area.js";
 import { backlogEntries } from "./backlog.js";
 import { SchematicBacklogPages, type BacklogAreaKind, type BacklogPageCount } from "./backlog-pages.js";
+import { NO_BREACHES, SchematicBoundsReader } from "./bounds.js";
 import {
     SchematicCanvas, type SchematicCanvasEditing, type SchematicCanvasFailure, type SchematicCanvasFit, type SchematicCanvasHandle, type SchematicCanvasNarrowing,
 } from "./canvas/view.js";
@@ -167,17 +188,17 @@ import { hostZones, zoneHolding, type WorldBox } from "./canvas/model.js";
 import { INITIAL_SCHEMATIC_DATA, SchematicDataReader, areaSlots, type SchematicData, type SchematicValue } from "./data.js";
 import { SchematicAreaCountsReader, NO_AREA_COUNTS } from "./area-counts.js";
 import { draftedAreaCounts, savedRecords, schematicCounts, type SchematicDrawingCount } from "./counts.js";
-import { draftedDrawing, waitingDrafts, waitingPoint, withWaiting, type DraftedCache } from "./drafted.js";
+import { draftedDrawing, landedDrafts, landedRead, landedWindows, waitingDrafts, waitingPoint, withWaiting, type DraftedCache } from "./drafted.js";
 import { NO_DRAFTS_NARROWING, SchematicDraftsReader, draftHeld, type SchematicDraftsNarrowing } from "./drafts-narrowing.js";
 import type { SchematicDropContext, SchematicDropKind } from "./drop.js";
-import { connectVeto, type NetLeg, type SchematicEdit } from "./edits.js";
-import { recordSlot, useSchematicEditing } from "./editing.js";
+import { connectVeto, editKinds, followBuiltKeys, type NetLeg, type SchematicEdit, type SchematicKeyRefusal, type SchematicUnheld } from "./edits.js";
+import { recordSlot, useSchematicEditing, type SchematicKeyWords, type SchematicMove } from "./editing.js";
 import { foundMark, useSchematicFind, type FindKind, type FoundItem } from "./find.js";
 import { SchematicFooter, type SchematicNotice } from "./footer.js";
 import { drawnEntities, entityNames, inspectedEqual, inspectedOf, nameOfEntity, type SchematicInspected, type SchematicUnplaced } from "./inspect.js";
-import { schematicInspectorPane } from "./inspector.js";
+import { schematicInspectorPane, type SchematicInspectorEditing } from "./inspector.js";
 import { NO_INSPECTED_ROWS, SchematicInspectedReader, type SchematicInspectedRows } from "./inspector-rows.js";
-import { drawingIssues, sessionIssues } from "./issues.js";
+import { boundsIssues, drawingIssues, sessionIssues, type SchematicBreaches } from "./issues.js";
 import { SchematicIndexArea, type IndexAreaKind } from "./index-area.js";
 import { KindRows } from "./kind-rows.js";
 import { layersInForce, useSchematicLayerView } from "./layers-view.js";
@@ -323,10 +344,11 @@ function SchematicFollows(props: SchematicFrameProps) {
     const { sources, nouns } = useMemo(() => followedSources(value, words, chrome, look), [value, words, chrome, look]);
     // What a source's failed narrowing says, in the Schematic's words.
     const said = useCallback((name: string): KeyVisibilityWords => ({ changed: words.m.sourceChanged({ name }), failed: words.m.sourceFailed({ name }) }), [words]);
-    // Every kind read through its source of the rail, in the Schematic's order of its kinds: each one's hidden pick.
+    // Every kind read through its source of the rail, in the Schematic's order of its kinds: each one's hidden pick, which
+    // asks e3 of a row at its kind's key type (#1549).
     const hidden = useMemo(() => [...value.items, ...value.zones, ...value.links, ...value.nets].flatMap((kind): HiddenSource[] => {
         const part = sourcePart(chrome, kind.key);
-        return part === undefined ? [] : [{ key: kind.key, part }];
+        return part === undefined ? [] : [{ key: kind.key, part, keyType: kind.keyType }];
     }), [value.items, value.zones, value.links, value.nets, chrome]);
     return (
         <FollowSources chrome={chrome} narrowed={value.shown} sources={sources} nouns={nouns} said={said}>
@@ -344,6 +366,25 @@ const NOTHING_SELECTED: ReadonlySet<string> = new Set();
 
 /** No card of the library selected. */
 const NO_PICKS: ReadonlyMap<string, string> = new Map();
+
+/** No kind the Index reads by area. */
+const NO_INDEX_REVISIONS: ReadonlyMap<string, string> = new Map();
+
+/**
+ * Whether two reports of the revision the Index read each kind at say the same.
+ *
+ * @param a - One, by slot
+ * @param b - The other
+ * @returns Whether they do
+ */
+function sameRevisions(a: ReadonlyMap<string, string>, b: ReadonlyMap<string, string>): boolean {
+    if (a.size !== b.size) return false;
+    for (const [slot, revision] of a) {
+        const other = b.get(slot);
+        if (other === undefined || !stringEqual(other, revision)) return false;
+    }
+    return true;
+}
 
 /** The zoom as the canvas opens: at Fit. */
 const AT_FIT: ZoomRange = { atFit: true, atLimit: false };
@@ -403,23 +444,34 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     // kept, and no record takes an edit by any route until the new one lands; the history stays live.
     const stale = data.ready && (data.filtering || narrowingBusy);
     const retained = stale || [...sourced].some((slot) => followed.get(slot)?.error !== undefined);
-    const editing = useSchematicEditing(value, `${storageKey}.${id ?? "schematic"}`, recordSlices, data.held, areas, data.windows, pagedRow, retained);
+    // What the editing says of a new row's key (#1549): its kind's name as running text writes it.
+    const keyWords = useMemo((): SchematicKeyWords => ({ placeholder: ({ name }) => words.m.keyPlaceholder({ name: name.toLocaleLowerCase(words.locale) }) }), [words]);
+    const editing = useSchematicEditing(value, `${storageKey}.${id ?? "schematic"}`, recordSlices, data.held, areas, data.windows, keyWords, pagedRow, retained);
     const editingWords = useMemo((): EditingWords => ({ ...formatters, m: editingMessages }), [formatters]);
     // What the canvas draws: the stored rows, the drafts in place, each drafted row drawn once.
     const draftedCache = useRef<DraftedCache>(new WeakMap());
+    // Which drafted rows draw, and what the canvas last drew of them: what stands through a carry-over (`drafted.ts`).
+    const [draftsStanding] = useState(() => new DraftedStanding());
     // A kind read by area holds only its window: a drafted row of it off the window draws where its draft places it while its
     // narrowing holds it — the hidden narrowing's leaving it waiting in its session (#1393).
     const dim = look.dim;
     const drafted = useCallback((ref: SchematicRef) => draftHeld(draftsNarrowing, ref), [draftsNarrowing]);
     const leftOut = useCallback((ref: SchematicRef) => !dim && drafted(ref) === false, [dim, drafted]);
-    const drawing = useMemo(() => draftedDrawing(data.drawn, data.held, editing.drafts, draftedCache.current, areas, leftOut),
-        [data.drawn, data.held, editing.drafts, areas, leftOut]);
-    // The drafted rows the drawing leaves out — each waiting in its session, the narrowing leaving out the row it drafts —
-    // as their kinds draw them, never drawn: Issues checks and names every unsaved change, drawn or not (ruled 27 Oct 2026,
-    // "Checked in view, said so").
-    const waiting = useMemo(() => waitingDrafts(data.held, editing.drafts, areas, leftOut), [data.held, editing.drafts, areas, leftOut]);
-    const canvasEditing = useMemo((): SchematicCanvasEditing | undefined => (editing.edits ? { record: editing.record, mint: editing.mint } : undefined),
-        [editing.edits, editing.record, editing.mint]);
+    // A kind read by area draws from its window, which a Save's confirmation doesn't read again: what the Save landed draws
+    // as the Save left it over a window read before the commit — at another revision than the one its record reads at now
+    // — until the window is read again: drawn from the window alone, a moved rack showed where it was meanwhile. Details
+    // reads the windows so; the drafts unsaved stay the drafts.
+    const canvasDrafts = useMemo(() => landedDrafts(editing.drafts, editing.landed, data.windows, data.revisions),
+        [editing.drafts, editing.landed, data.windows, data.revisions]);
+    const inspectedWindows = useMemo(() => landedWindows(data.windows, editing.landed, data.revisions), [data.windows, editing.landed, data.revisions]);
+    // And the drafted rows the drawing leaves out — each waiting in its session, the narrowing leaving out the row it
+    // drafts — as their kinds draw them, never drawn: Issues checks and names every unsaved change, drawn or not (ruled
+    // 27 Oct 2026, "Checked in view, said so"). Made with the drawing, and after it: the rule is asked of them once the
+    // drawing has told it what it drew, so a row that stands through a carry-over waits nowhere.
+    const { drawing, waiting } = useMemo(() => {
+        const drawn = draftedDrawing(data.drawn, data.held, canvasDrafts, draftedCache.current, areas, leftOut, draftsStanding);
+        return { drawing: drawn, waiting: waitingDrafts(data.held, editing.drafts, areas, leftOut, draftsStanding) };
+    }, [data.drawn, data.held, canvasDrafts, editing.drafts, areas, leftOut, draftsStanding]);
 
     // ── The narrowing (#1392, §10.2, §10.3): what each kind's source of the rail leaves out, hidden or dimmed ──
     // Each kind read through its source: its shown keys once they have resolved — a pending one is not empty — `none`
@@ -534,6 +586,9 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
         }
     }, []);
     const selected = selection.size > 0;
+    // The selection as a gesture records itself: a lone selected entity that moves follows its key (#1549).
+    const selectionNow = useRef(selection);
+    selectionNow.current = selection;
     // Where the zoom stands, as the canvas tells it: the toolbar's Zoom out and Zoom in take no press past either end (#1393).
     const [zoomRange, setZoomRange] = useState<ZoomRange>(AT_FIT);
     const zoomBy = useCallback((factor: number) => canvasRef.current?.zoomBy(factor), []);
@@ -592,6 +647,7 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     // ── Find (§6.1, #1404): every item kind's record, by key — one read through its source sought through e3 ─────
     const findKinds = useMemo((): FindKind[] => value.items.map((kind) => ({
         slot: kind.key, name: kind.name, part: sourcePart(chrome, kind.key), rows: kind.rows, read: kind.read, codec: rowCodec(kind.rowType),
+        keys: keysOfType(kind.keyType),
     })), [value.items, chrome]);
     const reveal = useCallback((entity: string, avoid?: DOMRectReadOnly) => canvasRef.current?.reveal(entity, undefined, avoid), []);
     const hiddenLayers = useMemo(() => new Set(layersNow.flatMap((layer) => (getSomeorUndefined(layer.visible) === false ? [layer.key] : []))), [layersNow]);
@@ -647,14 +703,18 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
         history.act(action);
     }, [history]);
     // An issue a Save raised: the canvas flies to the item it names, and selects it — a conflict's Go to, beside the
-    // conflicts popover open over the canvas, which stays open.
+    // conflicts popover open over the canvas, which stays open and says where it lies. The field it names, asked of its
+    // row's Details as an issue's line in Issues asks it, takes the keyboard there, the inspector opened where it is
+    // collapsed (`../shared/schedule/field-ask.tsx`) — a conflict's Go to, which names its path, asks none.
     const sessions = editing.schedule.sessions;
-    const onIssue = useCallback((issue: EditIssue) => {
+    const { asks: fieldAsks, request: askField } = useFieldAsks();
+    const onIssue = useCallback((issue: EditIssue, at?: PatchPath, popover?: DOMRectReadOnly) => {
         const key = history.sourceOf(issue);
         const part = key === undefined ? undefined : sessions.find((held) => stringEqual(held.key, key));
-        const popover = document.querySelector("[data-conflict-card]")?.closest("[data-part='content']")?.getBoundingClientRect();
-        if (part !== undefined) reveal(entityId({ kind: recordSlot(part.kind), key: issue.entry }), popover);
-    }, [history, sessions, reveal]);
+        if (part === undefined) return;
+        askField(part.kind, issue.entry, at === undefined ? issue.field : none);
+        reveal(entityId({ kind: recordSlot(part.kind), key: issue.entry }), popover);
+    }, [history, sessions, reveal, askField]);
     // A conflict's item in the history bar's popover, named as its session's banners name its issues — by the names this
     // render draws, read as the popover draws.
     const namesNow = useRef<ReadonlyMap<string, string>>(new Map());
@@ -683,7 +743,7 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
         return unit === undefined ? text : `${text} ${unit}`;
     }, [history, sessions, value.items, unit, words]);
     const historyItem = editing.edits
-        ? historyToolbarItem({ session: history, words: editingWords, editing: false, showError: false, onIssue, where, conflictValue, onAction })
+        ? historyToolbarItem({ session: history, words: editingWords, editing: false, showError: false, onIssue, onConflict: onIssue, where, conflictValue, onAction })
         : undefined;
     const items = useSchematicToolbarItems({
         styles, words, chrome, nouns, tools, held, links: narrow ? NO_LINK_CHOICES : linkChoices, onTools: pickTools, find,
@@ -779,11 +839,30 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
                 if (row?.created === true) created.add(id);
             }
         }
+        // What a Save landed is listed as the canvas draws it, whatever its window holds: the Index's read may be older.
+        for (const [slot, rows] of editing.landed.items) {
+            for (const [key, row] of rows) {
+                const id = entityId({ kind: slot, key });
+                drafted.add(id);
+                if (row.drawn?.created === true) created.add(id);
+            }
+        }
         return { drafted, created };
-    }, [editing.drafts.items, areas]);
+    }, [editing.drafts.items, editing.landed.items, areas]);
+    // The revision the Index read each kind by area at: what a Save landed of a kind is listed so until it has read it since.
+    const [indexRevisions, setIndexRevisions] = useState<ReadonlyMap<string, string>>(NO_INDEX_REVISIONS);
+    const onIndexRead = useCallback((revisions: ReadonlyMap<string, string>) => {
+        setIndexRevisions((was) => (sameRevisions(was, revisions) ? was : revisions));
+    }, []);
     const indexArea = useMemo(() => (!listsIndex || areaItemKinds.length === 0 ? undefined
-        : { kinds: areaItemKinds, reader: indexReader, hiddenLayers, drafted: areaDrafts.drafted, created: areaDrafts.created }),
-    [listsIndex, areaItemKinds, indexReader, hiddenLayers, areaDrafts]);
+        : { kinds: areaItemKinds, reader: indexReader, hiddenLayers, drafted: areaDrafts.drafted, created: areaDrafts.created, onRead: onIndexRead }),
+    [listsIndex, areaItemKinds, indexReader, hiddenLayers, areaDrafts, onIndexRead]);
+    // What a Save landed is let go once its kind's window, and the Index's read of it, are read at the revision its record
+    // reads at now: before paint, so the frame never draws both.
+    const landed = editing.landed, shownLanded = editing.shown;
+    useLayoutEffect(() => {
+        for (const [slot, keys] of landedRead(landed, data.windows, indexRevisions, data.revisions)) shownLanded(slot, keys);
+    }, [landed, data.windows, indexRevisions, data.revisions, shownLanded]);
 
     // ── What a selection keeps of a row of a kind read by area its window no longer holds (#1393, §4.5) ──
     // Each selected entity of such a kind, read by its key once its window lets it go: it stays selected and Details shows
@@ -793,11 +872,11 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     const [selectedRows, setSelectedRows] = useState<SchematicSelectedRows>(NO_SELECTED_ROWS);
     const draftedArea = useMemo(() => {
         const out = new Set<string>();
-        for (const sort of [editing.drafts.items, editing.drafts.zones]) {
+        for (const sort of [canvasDrafts.items, canvasDrafts.zones]) {
             for (const [slot, rows] of sort) if (areas.has(slot)) for (const key of rows.keys()) out.add(entityId({ kind: slot, key }));
         }
         return out;
-    }, [editing.drafts.items, editing.drafts.zones, areas]);
+    }, [canvasDrafts.items, canvasDrafts.zones, areas]);
     const standing = useMemo((): SchematicStanding => {
         if (selectedArea.length === 0) return { items: new Map(), zones: new Map() };
         const drawnIds = new Set([...drawing.items.map((item) => item.key), ...drawing.zones.map((zone) => zone.key)]);
@@ -840,19 +919,85 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     // unsaved change the drawing leaves out is named so too, as its draft has it.
     const names = useMemo(() => entityNames(withWaiting(inspectorDrawn, waiting), words), [inspectorDrawn, waiting, words]);
     namesNow.current = names;
+    // Each kind's name, by its slot: what a refusal, a banner and the footer's line name it by.
+    const kindName = useMemo(() => new Map([...value.items, ...value.zones, ...value.links, ...value.nets].map((kind) => [kind.key, kind.name] as const)),
+        [value.items, value.zones, value.links, value.nets]);
+
+    // ── A key built from a row's fields follows the row (#1549) ──────────
+    // What names an item a gesture moves: the links and nets drawn and waiting, the drafts in place.
+    const editsKinds = useMemo(() => editKinds(value), [value]);
+    const heldDrawing = useMemo(() => withWaiting(drawing, waiting), [drawing, waiting]);
+    // Why a gesture records nothing, its new row's key refused: in the footer, the row holding the key by its name — the
+    // words handed back, which Details says under the field an edit of it was made in too.
+    const keyRefused = useCallback((refusal: SchematicKeyRefusal): string => {
+        const named = (slot: string) => (kindName.get(slot) ?? slot).toLocaleLowerCase(words.locale);
+        const nameOf = (ref: SchematicRef) => namesNow.current.get(entityId(ref)) ?? ref.key;
+        const said = ((): string => {
+            switch (refusal.refusal) {
+                case "untyped": return words.m.keyRefused({ refusal: "untyped", kind: named(refusal.kind), type: refusal.type });
+                case "taken": return words.m.keyRefused({ refusal: "taken", kind: named(refusal.ref.kind), name: nameOf(refusal.ref) });
+                case "unheld": return words.m.keyRefused({ refusal: "unheld", kind: named(refusal.kind), name: nameOf(refusal.ref), why: refusal.why });
+                case "details": return words.m.keyRefused({ refusal: "details", kind: named(refusal.ref.kind), name: nameOf(refusal.ref) });
+            }
+        })();
+        setRefusal(said);
+        return said;
+    }, [kindName, words]);
+    // Why the Schematic may not hold every row of a link or net kind (#1580): the rail's filters leave some out — under
+    // `narrowed="dim"` its source reads every row — or its read hasn't landed, or failed.
+    const ready = data.ready, failures = data.failures;
+    const unheld = useCallback((slot: string): SchematicUnheld | undefined => {
+        if (!dim && (sourcePart(chrome, slot)?.read().where.size ?? 0) > 0) return "filtered";
+        return !ready || failures.has(slot) ? "unread" : undefined;
+    }, [dim, chrome, ready, failures]);
+    // Every route's edits recorded with each row whose key its fields build following them: refused where a row holds a
+    // key one builds, a link or net kind that may name a moving item isn't held whole, or what follows a moving row — its
+    // details, the rows naming it — takes no edit now (#1584), the footer saying why, and the words handed back; recorded,
+    // a lone selected entity that moves selected under its new key, and the rows moved handed back — a Shift session's net
+    // among them (#1584).
+    const recordEdits = editing.record;
+    const moves = editing.moves, stands = editing.stands, edited = editing.edited, takes = editing.available;
+    const recordFollowing = useCallback((edits: readonly SchematicEdit[], origin: Origin, label: string):
+        { readonly moved: readonly SchematicMove[] } | { readonly refused: string } | undefined => {
+        const followed = followBuiltKeys({ kinds: editsKinds, moves, stands, edited, drawn: heldDrawing, unheld, takes }, edits);
+        if ("refused" in followed) return { refused: keyRefused(followed.refused) };
+        if (!recordEdits(followed.edits, origin, label)) return undefined;
+        const now = selectionNow.current;
+        const lone = now.size === 1 ? [...now][0]! : undefined;
+        const moved = lone === undefined ? undefined : followed.moved.find((move) => stringEqual(entityId(move.ref), lone));
+        if (moved !== undefined) canvasRef.current?.select(entityId({ kind: moved.ref.kind, key: moved.to }));
+        return { moved: followed.moved };
+    }, [editsKinds, moves, stands, edited, heldDrawing, unheld, takes, keyRefused, recordEdits]);
+    // The canvas's and a drop's: the rows moved, or nothing recorded.
+    const recordMoves = useCallback((edits: readonly SchematicEdit[], origin: Origin, label: string): readonly SchematicMove[] | undefined => {
+        const done = recordFollowing(edits, origin, label);
+        return done === undefined || "refused" in done ? undefined : done.moved;
+    }, [recordFollowing]);
+    const newKey = editing.newKey;
+    const canvasEditing = useMemo((): SchematicCanvasEditing | undefined => (editing.edits ? { record: recordMoves, newKey, keyRefused } : undefined),
+        [editing.edits, recordMoves, newKey, keyRefused]);
+    // The inspector's edits are recorded so too: one refused for its key hands Details why, which it says under the field.
+    const inspectorEditing = useMemo((): SchematicInspectorEditing => ({
+        ...editing,
+        record: (edits, origin, label) => {
+            const done = recordFollowing(edits, origin, label);
+            return done === undefined ? false : "refused" in done ? done.refused : true;
+        },
+    }), [editing, recordFollowing]);
     // The zones a point lands in, smallest first, as the Index files an item: what a drop's words name.
     const hosts = useMemo(() => hostZones(shownZones), [shownZones]);
     // A kind takes a drop while its session takes an edit and nothing the canvas draws is retained (#1398, CL8).
     const takesEdit = editing.available;
+    const untyped = editing.untyped;
     const dropContext = useCallback((): SchematicDropContext => ({
         extent: value.extent,
         kinds: dropKinds,
         available: (slot) => takesEdit(slot),
+        untyped,
         nameOf: (ref) => names.get(entityId(ref)),
         zoneAt: (point) => zoneHolding(hosts, point.x, point.y)?.label,
-    }), [value.extent, dropKinds, takesEdit, names, hosts]);
-    const recordEdits = editing.record;
-    const recordDrop = useCallback((edits: readonly SchematicEdit[], label: string) => recordEdits(edits, "drop", label), [recordEdits]);
+    }), [value.extent, dropKinds, takesEdit, untyped, names, hosts]);
+    const recordDrop = useCallback((edits: readonly SchematicEdit[], label: string) => recordMoves(edits, "drop", label) !== undefined, [recordMoves]);
     // What the canvas has selected, each entity by its reference: what a card's ⏎ drops on.
     const selectedRefs = useCallback((): SchematicRef[] => [...selection].flatMap((id) => { const ref = refOfId(id); return ref === undefined ? [] : [ref]; }), [selection]);
     const viewCentre = useCallback(() => canvasRef.current?.centre(), []);
@@ -863,14 +1008,19 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
         setPlacingId((was) => (was !== undefined && stringEqual(was, id) ? undefined : was));
     }, []);
     const drop = useSchematicDrop({
-        value, backlog, pagedBacklog, keys, context: dropContext, record: recordDrop, mint: editing.mint, selection: selectedRefs, centre: viewCentre,
+        value, backlog, pagedBacklog, keys, context: dropContext, record: recordDrop, newKey, keyRefused, selection: selectedRefs, centre: viewCentre,
         select: selectDropped, notice: setRefusal, words, unit: getSomeorUndefined(value.scaleUnit), drags: !narrow,
     });
+    // Each item kind that writes and adds no item, its keys of a type the form can't type (#1549): why, on its templates' cards.
+    const offKinds = useMemo(() => new Map(value.items.flatMap((kind): [string, string][] => {
+        const type = kind.editable && !value.readOnly ? untyped(kind.key) : undefined;
+        return type === undefined ? [] : [[kind.key, words.m.keysUntyped({ name: kind.name.toLocaleLowerCase(words.locale), type })]];
+    })), [value.items, value.readOnly, untyped, words]);
 
     const library = useSchematicLibrary({
         value, zones: shownZones, items: shownItems, backlog, backlogNarrowing, backlogPages: backlogPaged, indexArea, layers: layerValues, layerCounts, layerView,
         onLayerView: setLayerView,
-        inView, selected: selection, onReveal: reveal, keys, words, followed, picked, onPick, enter: drop.enter, narrow,
+        inView, selected: selection, onReveal: reveal, keys, words, followed, picked, onPick, enter: drop.enter, narrow, off: offKinds,
     });
 
     // ── The drawing's counts and saves: the inspector's Details, with nothing selected (#1391) ──
@@ -912,8 +1062,6 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     }), [value.items, value.zones, value.links, value.nets, value.readOnly, chrome, words]);
 
     // ── A read that failed, said once where it happened (#1398, CL11) ──
-    const kindName = useMemo(() => new Map([...value.items, ...value.zones, ...value.links, ...value.nets].map((kind) => [kind.key, kind.name] as const)),
-        [value.items, value.zones, value.links, value.nets]);
     // A kind read through its source asks its source again; one read whole is read again.
     const retry = useCallback((slot: string | undefined) => {
         const part = slot === undefined ? undefined : sourcePart(chrome, slot);
@@ -1018,18 +1166,18 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     // Its open tab, kept per viewer; Enter, or a double-click on an entity, opens Details — the pane too, collapsed.
     const { state: inspectorTab, setState: setInspectorTab } = usePersistedState<{ tab: string }>(`${keys.frame}.inspector.tab`, { tab: "details" }, keptRead.record({ tab: keptRead.string }));
     const onInspectorTab = useCallback((tab: string) => setInspectorTab({ tab }), [setInspectorTab]);
-    const frameRef = useRef<HTMLDivElement>(null);
-    const inspectorName = words.m.inspectorPane();
+    // The frame's panes, as the Schematic's own code opens them: Enter's Details.
+    const panes = useRef<BuilderFramePanes>(null);
     const openDetails = useCallback(() => {
         setInspectorTab({ tab: "details" });
-        openFramePane(frameRef.current, inspectorName, "end");
-    }, [setInspectorTab, inspectorName]);
+        panes.current?.open("end");
+    }, [setInspectorTab]);
     // What Details and Issues name, selected through the canvas — and flown to.
     const revealEntity = useCallback((id: string | undefined, at?: NetLeg) => canvasRef.current?.reveal(id, at), []);
     const zoneAt = useCallback((x: number, y: number) => zoneHolding(hosts, x, y)?.label, [hosts]);
-    // The issues: each record's session's first — they block — then the drawing's, every unsaved change the drawing leaves
-    // out checked beside it as its draft has it. Whether an item is held is known for an item kind read whole: its drawn
-    // rows and its backlog, the drafts in place.
+    // The issues: each record's session's first — they block — then the stored rows' numbers outside their bounds, then the
+    // drawing's, every unsaved change the drawing leaves out checked beside it as its draft has it. Whether an item is held
+    // is known for an item kind read whole: its drawn rows and its backlog, the drafts in place.
     const itemSlots = useMemo(() => new Set(value.items.map((kind) => kind.key)), [value.items]);
     const wholeItems = useMemo(() => new Set(value.items.filter((kind) => kind.entries.type === "none").map((kind) => kind.key)), [value.items]);
     const heldItems = useMemo(() => new Set([...drawing.items.map((item) => item.key), ...backlog.map((entry) => entry.id)]), [drawing.items, backlog]);
@@ -1042,15 +1190,20 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
         return out;
         // eslint-disable-next-line react-hooks/exhaustive-deps -- the sessions are mutable: the history's version says they moved
     }, [sessions, historyVersion]);
+    // The rows drawn whose numbers their fields' bounds don't hold (#1585), by entity, read in a component of their own:
+    // each wears the conflicts' warn ring, stored or changed, and a stored one's breach warns in Issues, after what blocks.
+    const [breaches, setBreaches] = useState<SchematicBreaches>(NO_BREACHES);
+    const bounded = useMemo(() => new Set(breaches.keys()), [breaches]);
     const issues = useMemo(() => [
         ...sessionIssues(sessions, kindName, (id) => names.get(id)),
+        ...boundsIssues(breaches, kindName, (id) => nameOfEntity(names, id)),
         ...drawingIssues({
             drawn: withWaiting(drawing, waiting), extent: value.extent, names: kindName, nameOf: (id) => nameOfEntity(names, id), layers: layerValues,
             colours: THEME_COLOURS, holds: (ref) => (!itemSlots.has(ref.kind) ? false : wholeItems.has(ref.kind) ? heldItems.has(entityId(ref)) : undefined),
         }),
         // A session's readiness and its Save's issues move with the history's version.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    ], [sessions, historyVersion, kindName, names, drawing, waiting, value.extent, layerValues, itemSlots, wholeItems, heldItems]);
+    ], [sessions, historyVersion, kindName, names, breaches, drawing, waiting, value.extent, layerValues, itemSlots, wholeItems, heldItems]);
     // Each unsaved change the drawing leaves out, its reference by its id: an issue of one says which of the rail's choices
     // hide it. Go to issue on one is the frame's hidden pick, as Find's is: those choices cleared, it flies to where its
     // draft stands, and selects it once the narrowing they leave draws it.
@@ -1073,27 +1226,30 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     // Details' Place: the Backlog's card, dropped as its ⏎ drops it — at the canvas's centre, selected (#1394).
     const enterCard = drop.enter;
     const place = useCallback((id: string) => enterCard(schematicLibraryId(keys, "backlog"), id), [enterCard, keys]);
+    const selectEntity = useCallback((entity: string) => canvasRef.current?.select(entity), []);
     const end = schematicInspectorPane({
-        value, inspected, rows: inspectedRows, drawn: inspectorDrawn, names, listed, editing, counts, records, issues, unchecked, waiting: waitingRefs, picks,
-        goToWaiting, zoneAt, reveal: revealEntity, refuse: setRefusal,
+        value, inspected, rows: inspectedRows, drawn: inspectorDrawn, names, listed, editing: inspectorEditing, counts, records, issues, unchecked,
+        waiting: waitingRefs, picks, goToWaiting, ask: askField, zoneAt, reveal: revealEntity, refuse: setRefusal, keyRefused, select: selectEntity,
         tab: inspectorTab.tab, onTab: onInspectorTab, storageKey: keys.frame, words,
         narrow, veto, linkKind: connectKind, onLinkKind: pickConnectKind, connectValues, place,
     });
 
     return (
-        <Box css={styles.root} data-schematic="" data-schematic-layout={narrow ? "narrow" : "wide"}>
-            {value.inspector && <SchematicInspectedReader value={value} inspected={inspectedRef} areas={areas} windows={data.windows} onRows={setInspectedRows} />}
+        <FieldAskProvider value={fieldAsks}><Box css={styles.root} data-schematic="" data-schematic-layout={narrow ? "narrow" : "wide"}>
+            {value.inspector && <SchematicInspectedReader value={value} inspected={inspectedRef} areas={areas} windows={inspectedWindows} onRows={setInspectedRows} />}
             {areas.size > 0 && editing.edits && (
-                <SchematicDraftsReader value={value} areas={areas} drafts={editing.drafts} original={editing.schedule.held} onRead={setDraftsNarrowing} />
+                <SchematicDraftsReader value={value} areas={areas} drafts={canvasDrafts} original={editing.schedule.held} onRead={setDraftsNarrowing} />
             )}
             {areas.size > 0 && <SchematicSelectedReader value={value} areas={areas} selected={selectedArea} windows={data.windows} onRead={setSelectedRows} />}
             {value.inspector && areas.size > 0 && <SchematicAreaCountsReader value={value} areas={areas} onRead={setAreaCounts} />}
             {backlogPages !== undefined && <SchematicBacklogCountReader source={backlogPages} parts={backlogPartKeys} onCount={setBacklogCount} />}
+            <SchematicBoundsReader value={value} areas={areas} windows={data.windows} drawing={drawing} schedule={editing.schedule} version={historyVersion}
+                onBreaches={setBreaches} />
             {/* The frame's one reveal clock (CL4): the footer's line, the canvas's wash and placeholders and the inspector's show a
                 read in flight after 150 ms, held 300 ms once shown. */}
             <LoadingReveal waiting={line?.kind === "loading" || inspectorReading}>
                 <BuilderFrame
-                    ref={frameRef}
+                    panesRef={panes}
                     storageKey={keys.frame}
                     label={words.m.frameLabel()}
                     loading={!data.ready && data.error === undefined}
@@ -1108,7 +1264,7 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
                     liveFooter
                     onKeyDown={onKeyDown}
                 >
-                    <SchematicCanvas ref={canvasRef} value={value} data={drawing} layers={layers} narrowing={canvasNarrowing} conflicted={conflicted} tool={held.tool} linkKind={held.link}
+                    <SchematicCanvas ref={canvasRef} value={value} data={drawing} layers={layers} narrowing={canvasNarrowing} conflicted={conflicted} bounded={bounded} tool={held.tool} linkKind={held.link}
                         words={words} editing={canvasEditing} onRefused={setRefusal} onAction={refusal === undefined ? undefined : dropRefusal}
                         onSelection={onSelection} onOpen={value.inspector ? openDetails : undefined}
                         onZoneInView={listsIndex ? setInView : undefined} drop={drop.canvas} connectValues={connectValues}
@@ -1117,7 +1273,7 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
                         standing={standing} fit={canvasFit} onElement={onCanvasElement} />
                 </BuilderFrame>
             </LoadingReveal>
-        </Box>
+        </Box></FieldAskProvider>
     );
 }
 

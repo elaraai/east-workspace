@@ -11,7 +11,13 @@
  * names it) follows it in mono, in its own case. Short of room, the key
  * wraps under the label and either breaks where it must, so a label never
  * runs past its field — a phone's narrow pane included. Helper is mono
- * tabular muted; error is fg.danger.
+ * tabular muted; error is fg.danger. A help line that says a number its
+ * bounds don't hold (#1585) — marked `data-breach`, or the part of it marked
+ * so — takes the tone its host says it in: a value as stored, which holds no
+ * Save, the warn ink (`warn`); a changed row's, which holds Save, the danger
+ * ink (`error`). What an issue says of a field a form names for it
+ * (`data-field-issue`, ruled 13 Nov 2026) takes the warn ink too, the ink of
+ * the wash its field wears.
  *
  * @packageDocumentation
  */
@@ -37,6 +43,9 @@ export const fieldSlotRecipe = defineSlotRecipe({
             fontSize: "11px",
             color: "fg.muted",
             marginTop: "{spacing.1}",
+            "&[data-breach=warn], & [data-breach=warn]": { color: "fg.warning" },
+            "&[data-breach=error], & [data-breach=error]": { color: "fg.danger" },
+            "&[data-field-issue], & [data-field-issue]": { color: "fg.warning" },
         },
         errorText: {
             fontFamily: "mono",

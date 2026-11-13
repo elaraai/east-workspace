@@ -15,6 +15,11 @@
  * bridging happen in the root, which has the driver, the registers and the
  * source in hand (`root.ts`, `bridge.ts`).
  *
+ * Each builder but an action column's also makes a column from data — a
+ * column per member of a register, or per field of a struct — given `each`
+ * ({@link SheetFromDataInput}), and every one takes a `mark`: words on its
+ * cells, or a lock. A Record draws both; a Sheet refuses them.
+ *
  * @packageDocumentation
  */
 
@@ -24,16 +29,19 @@ import {
     type SubtypeExprOrValue,
     type ArrayType,
     type AsyncFunctionType,
+    type BooleanType,
     type DateTimeType,
     type FloatType,
     type FunctionType,
     type IntegerType,
+    type NullType,
     type OptionType,
     type StringType,
     type StructType,
     type VariantType,
 } from "@elaraai/east";
 
+import type { StatusValueLiteral, StatusValueType } from "@elaraai/east-ui";
 import type { TickFormatType } from "@elaraai/east-ui/internal";
 import type {
     SheetLinkType,
@@ -46,6 +54,11 @@ import type {
     SheetFillOf,
     SheetDateLevelType,
     SheetDateLevelLiteral,
+    RecordChangeType,
+    RecordMarkType,
+    SheetLookLiteral,
+    SheetAgeUnitLiteral,
+    SheetAuditModeLiteral,
 } from "./types.js";
 import type { SheetArityInput, SheetCheckInput, SheetLocksInput } from "./link.js";
 import type { SheetAnyActionConfig } from "./actions.js";
@@ -78,8 +91,10 @@ export interface SheetColumn<R extends StructType, A extends EastType> {
     readonly register?: string;
     /** The row type the column was built over — checked against the sheet's at build time. @internal */
     readonly rowType?: StructType;
-    /** An action column's variant (#1474). @internal */
+    /** An action column's variant (#1474), or the variant a cycle steps through. @internal */
     readonly variantType?: VariantType;
+    /** A column from data keyed by a name of its own: the field it reads and writes. @internal */
+    readonly field?: string;
     /** Phantom — the row type. @internal */
     readonly __row?: (r: R) => void;
     /** Phantom — the accepted field types. @internal */
@@ -151,6 +166,7 @@ export type SheetOptionsInput<R extends StructType> =
  * @property editable - `false` makes the column read-only
  * @property fill - Fill providers; the first that yields wins
  * @property detail - The cell's detail — text the hover and the strip show beyond the value (#844); `""` or `none` shows none
+ * @property mark - Words on the cell, or a lock, over the row and the Record's day ({@link SheetMarkInput}); a Record's
  */
 export interface SheetColumnBaseConfig<R extends StructType, T extends EastType> {
     /** The header line. */
@@ -165,7 +181,120 @@ export interface SheetColumnBaseConfig<R extends StructType, T extends EastType>
     fill?: SheetFillInput<R, T>[];
     /** The cell's detail, over the row — projected into an unrendered cell. */
     detail?: (row: ExprType<R>) => SubtypeExprOrValue<StringType | OptionType<StringType>>;
+    /** Words on the cell, or a lock: over the row and the Record's day. */
+    mark?: SheetMarkInput<R>;
 }
+
+// ============================================================================
+// Columns from data
+// ============================================================================
+
+/**
+ * A column's `mark`: words drawn in its cell, or a lock the grid then won't
+ * edit through — an East function over the row and the Record's day to an
+ * optional `Record.Types.Mark`. A column from data takes its member's instead
+ * ({@link SheetFromDataInput}).
+ *
+ * @remarks
+ * The day is the Record's clock: the browser's local calendar date, at UTC
+ * midnight, which turns over without a rebuild.
+ *
+ * @typeParam R - The host's row type
+ */
+export type SheetMarkInput<R extends StructType> = SubtypeExprOrValue<FunctionType<[R, DateTimeType], OptionType<RecordMarkType>>>;
+
+/**
+ * The options that make a column from data: one column per member of a
+ * register, or per field of a struct, each cell one value of the column's
+ * field, read and written through the solution's East functions — or through
+ * the defaults the field's shape makes obvious.
+ *
+ * @remarks
+ * Over a register (`each: "projects"`) the columns are its members, in its
+ * order, each headed by its member's label, and the functions take the
+ * member's key; with `groups`, each column sits under its member's `parent`,
+ * the groups in their own register's order. Over a struct's fields
+ * (`each: { mon: "Mon", … }`) the columns are fixed, in the order given and
+ * headed as given, and the functions take the struct. A column from data
+ * takes no `header` of its own.
+ *
+ * With no `read` and no `write`, a `Dict` keyed by the member reads its
+ * entry, sets it, and removes it on a clear; the struct `each` names reads
+ * itself and writes the new one. A field of any other shape takes a `read`,
+ * and a `write` unless the column is read only. A clear writes `none` where
+ * a cell's value is an `Option` — a `Dict`'s entry, a struct's optional
+ * field, a `write` taking an `Option` — and is refused where it isn't.
+ *
+ * Each of its columns is keyed by the column's key and its member's — the
+ * member's key, or the struct's field: `hours:P-100`, `week:mon`. An issue the
+ * app's `ready` raises about one member's cell names that key as its `field`,
+ * and the cell is marked as any cell's issue marks it, Details and the Issues
+ * tab naming it by its member. An issue naming the field the columns write
+ * (`hours`) holds Apply, and marks no cell.
+ *
+ * The day each function takes is the Record's clock: the browser's local
+ * calendar date, at UTC midnight. A Record draws columns from data; a Sheet
+ * refuses them.
+ *
+ * @typeParam T - The kind's value: what one cell holds
+ * @property each - A register's name — a column per member — or `{ field: "Header", … }`, a column per field of the struct the column reads
+ * @property groups - With `each` over a register: the register whose members head the columns' groups, through each member's `parent`
+ * @property read - How a cell reads the field: `(field, member, day) → value or Option<value>`, or `(field, day) → struct` over a struct's fields
+ * @property write - How an edit writes the field: `(field, member, value, day) → field`, or `(field, struct, day) → field` — the field's new value
+ * @property mark - Words on a cell, or a lock: `(field, member, day)`, or `(field, day)` over a struct's fields, to an optional `Record.Types.Mark`
+ */
+export interface SheetFromDataInput<T extends EastType> {
+    /** A register's name, or `{ field: "Header", … }` over the struct the column reads. */
+    each: string | { readonly [field: string]: string };
+    /** With `each` over a register: the register heading the columns' groups. */
+    groups?: string;
+    /** How a cell reads the field. */
+    read?: SubtypeExprOrValue<FunctionType<[EastType, StringType, DateTimeType], T | OptionType<T>>> | SubtypeExprOrValue<FunctionType<[EastType, DateTimeType], StructType>>;
+    /** How an edit writes the field. */
+    write?: SubtypeExprOrValue<FunctionType<[EastType, StringType, T | OptionType<T>, DateTimeType], EastType>> | SubtypeExprOrValue<FunctionType<[EastType, StructType, DateTimeType], EastType>>;
+    /** Words on a cell, or a lock. */
+    mark?: SubtypeExprOrValue<FunctionType<[EastType, StringType, DateTimeType], OptionType<RecordMarkType>>> | SubtypeExprOrValue<FunctionType<[EastType, DateTimeType], OptionType<RecordMarkType>>>;
+}
+
+/**
+ * A builder's config as a column from data: its own options, less those a
+ * column from data does not take — `fill`, `options`, the row's `mark`, and
+ * `header`, since a member's name heads each of its columns — and the options
+ * that make it ({@link SheetFromDataInput}), with `field` where the column is
+ * keyed by a name of its own.
+ *
+ * @typeParam C - The builder's own config
+ * @typeParam T - The kind's value: what one cell holds
+ * @typeParam F - The field the column reads and writes, where it is keyed by a name of its own
+ */
+export type SheetFromDataConfig<C, T extends EastType, F extends string | undefined> =
+    Omit<C, "fill" | "options" | "mark" | "header"> & SheetFromDataInput<T> & {
+        /** The field the column reads and writes, where the column is keyed by a name of its own. */
+        field?: F;
+    };
+
+/**
+ * A column from data keyed by a name of its own, naming with `field` the field
+ * it reads and writes — so two families of columns may read one field. A
+ * Record's columns map takes it under a key that is no field of the row.
+ *
+ * @typeParam R - The host's row type
+ */
+export interface RecordNamedColumn<R extends StructType> extends SheetColumn<R, EastType> {
+    /** The field the column reads and writes. */
+    readonly field: string;
+}
+
+/**
+ * What a builder returns as a column from data: keyed by its field, a column
+ * that may sit on a field of any type, which the build checks against its
+ * functions and its shape; given `field`, one keyed by a name of its own.
+ *
+ * @typeParam R - The host's row type
+ * @typeParam F - The field named by `field`, if any
+ */
+export type SheetFromDataColumn<R extends StructType, F extends string | undefined> =
+    [F] extends [string] ? RecordNamedColumn<R> : SheetColumn<R, EastType>;
 
 /**
  * A derived read — the column displays the projection and is read-only;
@@ -214,11 +343,14 @@ export interface SheetDateConfig<R extends StructType> extends SheetColumnBaseCo
  *
  * @typeParam D - The driver's row type
  * @property uom - The unit, read off the DRIVER's row (`d => d.uom`)
+ * @property unit - One unit for every row (`"hrs"`), where no driver gives one
  * @property format - A display format (`Format.Number({ … })`)
  */
 export interface SheetQuantityConfig<R extends StructType, D extends StructType> extends SheetColumnBaseConfig<R, FloatType> {
     /** The unit, read off the driver's row. */
     uom?: (driver: ExprType<D>) => SubtypeExprOrValue<StringType>;
+    /** One unit for every row, where no driver gives one. */
+    unit?: SubtypeExprOrValue<StringType>;
     /** A display format. */
     format?: SubtypeExprOrValue<TickFormatType>;
 }
@@ -367,12 +499,14 @@ export interface SheetLinkConfig<R extends StructType, D extends StructType> ext
  * Config for `Sheet.column.stamped` — a read-only code an upstream system
  * owns; never editable, skipped by paste and clear.
  *
+ * @typeParam R - The host's row type
  * @property header - The header line
  * @property sub - The second header line
  * @property width - CSS width
  * @property owner - The owning system, for the strip
+ * @property mark - Words on the cell, or a lock, over the row and the Record's day ({@link SheetMarkInput}); a Record's
  */
-export interface SheetStampedConfig {
+export interface SheetStampedConfig<R extends StructType = StructType> {
     /** The header line. */
     header?: SubtypeExprOrValue<StringType>;
     /** The second header line. */
@@ -381,6 +515,8 @@ export interface SheetStampedConfig {
     width?: SubtypeExprOrValue<StringType>;
     /** The owning system. */
     owner?: SubtypeExprOrValue<StringType>;
+    /** Words on the cell, or a lock: over the row and the Record's day. */
+    mark?: SheetMarkInput<R>;
 }
 
 /**
@@ -402,6 +538,178 @@ export interface SheetCustomConfig<R extends StructType, P extends EastType> ext
     print: SubtypeExprOrValue<FunctionType<[P], StringType>>;
 }
 
+/**
+ * Config for `Record.column.title` — a record's title, on a `String` field.
+ *
+ * @property avatar - Neutral initials before the title, drawn from it (`A. Morgan` → `AM`)
+ */
+export interface RecordTitleConfig<R extends StructType> extends SheetColumnBaseConfig<R, StringType> {
+    /** Neutral initials before the title, drawn from it. */
+    avatar?: boolean;
+}
+
+/**
+ * Config for `Record.column.person` — a person, by a register's key.
+ *
+ * @property unassigned - The words for no one, beside a dashed ring (default "Unassigned")
+ */
+export interface RecordPersonConfig<R extends StructType> extends SheetColumnBaseConfig<R, StringType> {
+    /** The words for no one. */
+    unassigned?: SubtypeExprOrValue<StringType>;
+}
+
+/** Config for `Record.column.boolean` — a checkbox on a `Boolean` field. */
+export type RecordBooleanConfig<R extends StructType> = SheetColumnBaseConfig<R, BooleanType>;
+
+/**
+ * Config for `Record.column.toggle` — two states on a `Boolean` field.
+ *
+ * @property on - The word for true ("yes")
+ * @property off - The word for false ("no")
+ * @property look - A chip (the default), or a mark
+ */
+export interface RecordToggleConfig<R extends StructType> extends SheetColumnBaseConfig<R, BooleanType> {
+    /** The word for true. */
+    on: SubtypeExprOrValue<StringType>;
+    /** The word for false. */
+    off: SubtypeExprOrValue<StringType>;
+    /** A chip (the default), or a mark. */
+    look?: SheetLookLiteral;
+}
+
+/**
+ * Config for `Record.column.cycle` — a register's members, stepped by a
+ * click, on a `String` field holding a member's key.
+ *
+ * @remarks
+ * The register's members, in order, are the cycle's states: their labels its
+ * chips, their `meta` their names, their `tone` their colours, and a member's
+ * label or alias typed in the cell sets it.
+ *
+ * @property scale - The first member draws empty and the rest step up the heat ramp in order; without it each member's `tone` colours it
+ * @property look - A chip (the default), or a mark
+ */
+export interface RecordCycleConfig<R extends StructType> extends SheetColumnBaseConfig<R, StringType> {
+    /** The members step up the heat ramp, the first empty. */
+    scale?: boolean;
+    /** A chip (the default), or a mark. */
+    look?: SheetLookLiteral;
+}
+
+/**
+ * One step of a cycle over a variant: a case, and the chip it draws as.
+ *
+ * @typeParam V - The variant the field holds
+ * @property case - The case, by its name
+ * @property label - What the chip prints, and a spelling typed text resolves
+ * @property meta - The case in words, beside the chip
+ * @property aliases - Other spellings typed text resolves
+ * @property tone - The chip's colour, where the cycle is no `scale`
+ */
+export interface RecordCycleStep<V extends VariantType> {
+    /** The case, by its name. */
+    case: Extract<keyof V["cases"], string>;
+    /** What the chip prints. */
+    label: SubtypeExprOrValue<StringType>;
+    /** The case in words. */
+    meta?: SubtypeExprOrValue<StringType>;
+    /** Other spellings typed text resolves. */
+    aliases?: SubtypeExprOrValue<ArrayType<StringType>>;
+    /** The chip's colour. */
+    tone?: StatusValueLiteral | SubtypeExprOrValue<StatusValueType>;
+}
+
+/**
+ * Config for `Record.column.cycle(R, V, { steps })` — a variant's cases,
+ * stepped by a click, on a field holding the variant.
+ *
+ * @remarks
+ * East keeps a variant's cases in alphabetical order, so `steps` gives the
+ * order a click steps through them in: every case once, each with its chip.
+ * A step has no value to give a case, so no case of the variant holds data.
+ *
+ * @typeParam V - The variant the field holds
+ * @property steps - The cases in stepping order, each with its chip
+ * @property scale - The first step draws empty and the rest step up the heat ramp in order; without it each step's `tone` colours it
+ * @property look - A chip (the default), or a mark
+ */
+export interface RecordCycleStepsConfig<R extends StructType, V extends VariantType> extends Omit<SheetColumnBaseConfig<R, StringType>, "fill"> {
+    /** The cases in stepping order. */
+    steps: RecordCycleStep<V>[];
+    /** The steps go up the heat ramp, the first empty. */
+    scale?: boolean;
+    /** A chip (the default), or a mark. */
+    look?: SheetLookLiteral;
+}
+
+/**
+ * Config for `Record.column.age` — the time since a moment the row holds,
+ * keyed by a name of its own.
+ *
+ * @remarks
+ * `since` reads the row; the count is taken as the cell is drawn. Hours run to
+ * the browser's clock. Days and weeks are the calendar's: from the moment's
+ * date to the viewer's own day — the Record's day, as a column read at the
+ * day has it — so a count turns over at the viewer's midnight, without a
+ * rebuild, whatever time of day the moment holds. As a column from data
+ * ({@link SheetFromDataInput}) it names its `field`, and each member's value
+ * is the moment its count starts from, in place of `since`.
+ *
+ * @property header - The header line
+ * @property sub - The second header line
+ * @property width - CSS width
+ * @property since - When the clock started, over the row: a DateTime, a `Record.Types.Change` (its `at`), or an Option of either; `none` draws `absent`
+ * @property unit - What one counts (default `"days"`)
+ * @property stale - At or past this many, the cell warns and the row counts as stale
+ * @property absent - The words when `since` is none (default "—")
+ * @property mark - Words on the cell, or a lock, over the row and the Record's day ({@link SheetMarkInput})
+ */
+export interface RecordAgeConfig<R extends StructType> {
+    /** Words on the cell, or a lock: over the row and the Record's day. */
+    mark?: SheetMarkInput<R>;
+    /** The header line. */
+    header?: SubtypeExprOrValue<StringType>;
+    /** The second header line. */
+    sub?: SubtypeExprOrValue<StringType>;
+    /** CSS width. */
+    width?: SubtypeExprOrValue<StringType>;
+    /** When the clock started, over the row. */
+    since: (row: ExprType<R>) => SubtypeExprOrValue<DateTimeType | OptionType<DateTimeType> | RecordChangeType | OptionType<RecordChangeType>>;
+    /** What one counts. */
+    unit?: SheetAgeUnitLiteral;
+    /** At or past this many, the cell warns. */
+    stale?: SubtypeExprOrValue<IntegerType> | bigint;
+    /** The words when `since` is none. */
+    absent?: SubtypeExprOrValue<StringType>;
+}
+
+/**
+ * Config for `Record.column.audit` — the last change the app kept, on a
+ * `Record.Types.Change` field or its Option. Read only.
+ *
+ * @property header - The header line
+ * @property sub - The second header line
+ * @property width - CSS width
+ * @typeParam R - The host's row type
+ * @property mode - `date` (the default): the date, its verb and who in the tooltip · `blame`: the date, then the verb and who
+ * @property absent - The words when the field is none (default "—")
+ * @property mark - Words on the cell, or a lock, over the row and the Record's day ({@link SheetMarkInput})
+ */
+export interface RecordAuditConfig<R extends StructType = StructType> {
+    /** Words on the cell, or a lock: over the row and the Record's day. */
+    mark?: SheetMarkInput<R>;
+    /** The header line. */
+    header?: SubtypeExprOrValue<StringType>;
+    /** The second header line. */
+    sub?: SubtypeExprOrValue<StringType>;
+    /** CSS width. */
+    width?: SubtypeExprOrValue<StringType>;
+    /** How the change reads. */
+    mode?: SheetAuditModeLiteral;
+    /** The words when the field is none. */
+    absent?: SubtypeExprOrValue<StringType>;
+}
+
 /** Every column config, erased — what a built column carries. @internal */
 export type SheetAnyColumnConfig =
     & SheetColumnBaseConfig<StructType, EastType>
@@ -412,20 +720,32 @@ export type SheetAnyColumnConfig =
     & Partial<SheetLinkConfig<StructType, StructType>>
     & Partial<SheetStampedConfig>
     & Partial<SheetCustomConfig<StructType, EastType>>
-    & Partial<Pick<SheetAnyActionConfig, "cases" | "start" | "blocked" | "name" | "title">>;
+    & Partial<Pick<SheetAnyActionConfig, "cases" | "start" | "blocked" | "name" | "title">>
+    & Partial<Pick<RecordTitleConfig<StructType>, "avatar">>
+    & Partial<Pick<RecordPersonConfig<StructType>, "unassigned">>
+    & Partial<Pick<RecordToggleConfig<StructType>, "on" | "off" | "look">>
+    & Partial<Pick<RecordCycleConfig<StructType>, "scale">>
+    & Partial<Pick<RecordCycleStepsConfig<StructType, VariantType>, "steps">>
+    // An age's `unit` names what it counts, a quantity's the unit it prints: the age's is read by its own name.
+    & Partial<Omit<RecordAgeConfig<StructType>, "header" | "sub" | "width" | "unit">>
+    & Partial<Pick<RecordAuditConfig, "mode">>
+    // A column from data's `mark` is the member's, read by the build as the function it is given.
+    & Partial<Omit<SheetFromDataInput<EastType>, "mark">>
+    & { field?: string };
 
 // ============================================================================
 // Builders
 // ============================================================================
 
-/** Build one column value. */
+/** Build one column value — a column from data keyed by a name of its own carrying the field it names. */
 function column<R extends StructType, A extends EastType>(
     rowType: R,
     kind: SheetColumnKindLiteral,
     config: object,
-    extra: { driverType?: StructType; register?: string } = {},
+    extra: { driverType?: StructType; register?: string; variantType?: VariantType } = {},
 ): SheetColumn<R, A> {
-    return { kind, config: config as SheetAnyColumnConfig, rowType, ...extra };
+    const field = (config as { field?: unknown }).field;
+    return { kind, config: config as SheetAnyColumnConfig, rowType, ...extra, ...(typeof field === "string" ? { field } : {}) };
 }
 
 /** Whether a builder's second positional argument is a driver row type. */
@@ -435,8 +755,11 @@ function isStructType(v: unknown): v is StructType {
 
 /**
  * A free-text column — `Sheet.column.text(R, cfg)`. Sits on a `String` /
- * `Option<String>` field; with `value`, a read-only projection on any field.
+ * `Option<String>` field; with `value`, a read-only projection on any field;
+ * with `each`, a column per member of a register or per field of a struct
+ * ({@link SheetFromDataInput}).
  */
+export function text<R extends StructType, F extends SheetFieldKey<R> | undefined = undefined>(rowType: R, config: SheetFromDataConfig<SheetTextConfig<R>, StringType, F>): SheetFromDataColumn<R, F>;
 export function text<R extends StructType>(rowType: R, config: SheetTextConfig<R> & SheetValueConfig<R, StringType>): SheetColumn<R, EastType>;
 export function text<R extends StructType>(rowType: R, config?: SheetTextConfig<R>): SheetColumn<R, StringType | OptionType<StringType>>;
 export function text<R extends StructType>(rowType: R, config: object = {}): SheetColumn<R, EastType> {
@@ -446,8 +769,10 @@ export function text<R extends StructType>(rowType: R, config: object = {}): She
 /**
  * A date column — `Sheet.column.date(R, cfg)`: UTC midnight, the B§3 date
  * grammar (`+3d`, `4d` from `base`, weekdays, ISO, `d/m[/yy]`). Sits on a
- * `DateTime` / `Option<DateTime>` field.
+ * `DateTime` / `Option<DateTime>` field; with `each`, a column per member of
+ * a register or per field of a struct ({@link SheetFromDataInput}).
  */
+export function date<R extends StructType, F extends SheetFieldKey<R> | undefined = undefined>(rowType: R, config: SheetFromDataConfig<SheetDateConfig<R>, DateTimeType, F>): SheetFromDataColumn<R, F>;
 export function date<R extends StructType>(rowType: R, config: SheetDateConfig<R> & SheetValueConfig<R, DateTimeType>): SheetColumn<R, EastType>;
 export function date<R extends StructType>(rowType: R, config?: SheetDateConfig<R>): SheetColumn<R, DateTimeType | OptionType<DateTimeType>>;
 export function date<R extends StructType>(rowType: R, config: object = {}): SheetColumn<R, EastType> {
@@ -457,8 +782,11 @@ export function date<R extends StructType>(rowType: R, config: object = {}): She
 /**
  * A quantity column — `Sheet.column.quantity(R, cfg)` on a sheet without a
  * driver, `Sheet.column.quantity(R, D, cfg)` when the unit is read off the
- * driver's row (`uom: d => d.uom`). Sits on a `Float` / `Option<Float>` field.
+ * driver's row (`uom: d => d.uom`). Sits on a `Float` / `Option<Float>` field;
+ * with `each` and one `unit` for every row, a column per member of a register
+ * or per field of a struct ({@link SheetFromDataInput}).
  */
+export function quantity<R extends StructType, F extends SheetFieldKey<R> | undefined = undefined>(rowType: R, config: SheetFromDataConfig<Omit<SheetQuantityConfig<R, StructType>, "uom">, FloatType, F>): SheetFromDataColumn<R, F>;
 export function quantity<R extends StructType, D extends StructType>(rowType: R, driverType: D, config: SheetQuantityConfig<R, D> & SheetValueConfig<R, FloatType>): SheetColumn<R, EastType>;
 export function quantity<R extends StructType, D extends StructType>(rowType: R, driverType: D, config?: SheetQuantityConfig<R, D>): SheetColumn<R, FloatType | OptionType<FloatType>>;
 export function quantity<R extends StructType>(rowType: R, config: Omit<SheetQuantityConfig<R, StructType>, "uom"> & SheetValueConfig<R, FloatType>): SheetColumn<R, EastType>;
@@ -470,8 +798,10 @@ export function quantity<R extends StructType>(rowType: R, second?: unknown, thi
 
 /**
  * An integer column — `Sheet.column.integer(R, cfg)`. Sits on an `Integer` /
- * `Option<Integer>` field.
+ * `Option<Integer>` field; with `each`, a column per member of a register or
+ * per field of a struct ({@link SheetFromDataInput}).
  */
+export function integer<R extends StructType, F extends SheetFieldKey<R> | undefined = undefined>(rowType: R, config: SheetFromDataConfig<SheetIntegerConfig<R>, IntegerType, F>): SheetFromDataColumn<R, F>;
 export function integer<R extends StructType>(rowType: R, config: SheetIntegerConfig<R> & SheetValueConfig<R, IntegerType>): SheetColumn<R, EastType>;
 export function integer<R extends StructType>(rowType: R, config?: SheetIntegerConfig<R>): SheetColumn<R, IntegerType | OptionType<IntegerType>>;
 export function integer<R extends StructType>(rowType: R, config: object = {}): SheetColumn<R, EastType> {
@@ -489,52 +819,199 @@ export function lookup<R extends StructType>(rowType: R, config: SheetLookupConf
 
 /**
  * A reference column — `Sheet.column.reference(R, register, cfg)`: a lookup
- * over a flat member list. Sits on a `String` / `Option<String>` field.
+ * over a flat member list. Sits on a `String` / `Option<String>` field; with
+ * `each`, a column per member of a register or per field of a struct
+ * ({@link SheetFromDataInput}).
  */
-export function reference<R extends StructType>(rowType: R, register: string, config: SheetReferenceConfig<R> = {}): SheetColumn<R, StringType | OptionType<StringType>> {
+export function reference<R extends StructType, F extends SheetFieldKey<R> | undefined = undefined>(rowType: R, register: string, config: SheetFromDataConfig<SheetReferenceConfig<R>, StringType, F>): SheetFromDataColumn<R, F>;
+export function reference<R extends StructType>(rowType: R, register: string, config?: SheetReferenceConfig<R>): SheetColumn<R, StringType | OptionType<StringType>>;
+export function reference<R extends StructType>(rowType: R, register: string, config: object = {}): SheetColumn<R, EastType> {
     return column(rowType, "reference", config, { register });
 }
 
 /**
  * An enum column — `Sheet.column.enum(R, register, cfg)`: an upper-cased
  * register word with the member's valence dot. Sits on a `String` /
- * `Option<String>` field.
+ * `Option<String>` field; with `each`, a column per member of a register or
+ * per field of a struct ({@link SheetFromDataInput}).
  */
-export function enumColumn<R extends StructType>(rowType: R, register: string, config: SheetEnumConfig<R> = {}): SheetColumn<R, StringType | OptionType<StringType>> {
+export function enumColumn<R extends StructType, F extends SheetFieldKey<R> | undefined = undefined>(rowType: R, register: string, config: SheetFromDataConfig<SheetEnumConfig<R>, StringType, F>): SheetFromDataColumn<R, F>;
+export function enumColumn<R extends StructType>(rowType: R, register: string, config?: SheetEnumConfig<R>): SheetColumn<R, StringType | OptionType<StringType>>;
+export function enumColumn<R extends StructType>(rowType: R, register: string, config: object = {}): SheetColumn<R, EastType> {
     return column(rowType, "enum", config, { register });
 }
 
 /**
  * A set column — `Sheet.column.set(R, register, cfg)`: comma members, the
  * link grammar without an arrow. Sits on a `Sheet.Types.Link`,
- * `Array<Sheet.Types.Member>` or `String` field.
+ * `Array<Sheet.Types.Member>` or `String` field; with `each`, a column per
+ * member of a register or per field of a struct, each cell a
+ * `Sheet.Types.Link` ({@link SheetFromDataInput}).
  */
-export function set<R extends StructType>(rowType: R, register: string, config: SheetSetConfig<R> = {}): SheetColumn<R, SheetLinkType | ArrayType<SheetMemberType> | StringType | OptionType<StringType>> {
+export function set<R extends StructType, F extends SheetFieldKey<R> | undefined = undefined>(rowType: R, register: string, config: SheetFromDataConfig<SheetSetConfig<R>, SheetLinkType, F>): SheetFromDataColumn<R, F>;
+export function set<R extends StructType>(rowType: R, register: string, config?: SheetSetConfig<R>): SheetColumn<R, SheetLinkType | ArrayType<SheetMemberType> | StringType | OptionType<StringType>>;
+export function set<R extends StructType>(rowType: R, register: string, config: object = {}): SheetColumn<R, EastType> {
     return column(rowType, "set", config, { register });
 }
 
 /**
  * A link column — `Sheet.column.link(R, D, register, cfg)`: `from > to`, the
  * split cell with sides, arity and checks (§3.4). Sits on a
- * `Sheet.Types.Link`, `Array<Sheet.Types.Member>` or `String` field.
+ * `Sheet.Types.Link`, `Array<Sheet.Types.Member>` or `String` field; with
+ * `each`, a column per member of a register or per field of a struct, each
+ * cell a `Sheet.Types.Link` ({@link SheetFromDataInput}).
  */
-export function link<R extends StructType, D extends StructType>(rowType: R, driverType: D, register: string, config: SheetLinkConfig<R, D> = {}): SheetColumn<R, SheetLinkType | ArrayType<SheetMemberType> | StringType | OptionType<StringType>> {
+export function link<R extends StructType, D extends StructType, F extends SheetFieldKey<R> | undefined = undefined>(rowType: R, driverType: D, register: string, config: SheetFromDataConfig<SheetLinkConfig<R, D>, SheetLinkType, F>): SheetFromDataColumn<R, F>;
+export function link<R extends StructType, D extends StructType>(rowType: R, driverType: D, register: string, config?: SheetLinkConfig<R, D>): SheetColumn<R, SheetLinkType | ArrayType<SheetMemberType> | StringType | OptionType<StringType>>;
+export function link<R extends StructType, D extends StructType>(rowType: R, driverType: D, register: string, config: object = {}): SheetColumn<R, EastType> {
     return column(rowType, "link", config, { driverType, register });
 }
 
 /**
  * A stamped column — `Sheet.column.stamped(R, cfg)`: a read-only code an
- * upstream system owns. Sits on a `String` / `Option<String>` field.
+ * upstream system owns. Sits on a `String` / `Option<String>` field; with
+ * `each`, a column per member of a register or per field of a struct, read
+ * only ({@link SheetFromDataInput}).
  */
-export function stamped<R extends StructType>(rowType: R, config: SheetStampedConfig = {}): SheetColumn<R, StringType | OptionType<StringType>> {
+export function stamped<R extends StructType, F extends SheetFieldKey<R> | undefined = undefined>(rowType: R, config: SheetFromDataConfig<SheetStampedConfig<R>, StringType, F>): SheetFromDataColumn<R, F>;
+export function stamped<R extends StructType>(rowType: R, config?: SheetStampedConfig<R>): SheetColumn<R, StringType | OptionType<StringType>>;
+export function stamped<R extends StructType>(rowType: R, config: object = {}): SheetColumn<R, EastType> {
     return column(rowType, "stamped", config);
 }
 
 /**
  * A custom column — `Sheet.column.custom(R, cfg)`: an author parse / print
  * pair over the field's own payload (§3.9). Sits on a field of the payload
- * type or its `Option`.
+ * type or its `Option`; with `each`, a column per member of a register or
+ * per field of a struct, each cell a payload ({@link SheetFromDataInput}).
  */
-export function custom<R extends StructType, P extends EastType>(rowType: R, config: SheetCustomConfig<R, P>): SheetColumn<R, P | OptionType<P>> {
+export function custom<R extends StructType, P extends EastType, F extends SheetFieldKey<R> | undefined = undefined>(rowType: R, config: SheetFromDataConfig<SheetCustomConfig<R, P>, P, F>): SheetFromDataColumn<R, F>;
+export function custom<R extends StructType, P extends EastType>(rowType: R, config: SheetCustomConfig<R, P>): SheetColumn<R, P | OptionType<P>>;
+export function custom<R extends StructType>(rowType: R, config: object): SheetColumn<R, EastType> {
     return column(rowType, "custom", config);
+}
+
+// ============================================================================
+// The Record's kinds
+// ============================================================================
+
+/**
+ * The kinds a Record draws and a Sheet refuses: one wire, one bridge and one
+ * cell part per kind, shared, with only the Record's grid drawing them.
+ *
+ * @internal
+ */
+export const RECORD_COLUMN_KINDS: ReadonlySet<SheetColumnKindLiteral> = new Set<SheetColumnKindLiteral>(["title", "person", "boolean", "toggle", "cycle", "age", "audit"]);
+
+/**
+ * An age column — what `Record.column.age` returns. It shows no field, so it
+ * is keyed by a name of its own, and only it may be: the `"age"` kind is how
+ * a Record's columns map tells it from a column over a field.
+ *
+ * @typeParam R - The host's row type
+ */
+export interface RecordAgeColumn<R extends StructType> extends SheetColumn<R, never> {
+    /** The column kind. */
+    readonly kind: "age";
+}
+
+/**
+ * A title column — `Record.column.title(R, cfg)`: a record's title, its
+ * initials before it with `avatar`. Sits on a `String` field. A click selects
+ * the row and opens it in the inspector; it is edited there. With `value`, a
+ * read-only projection on any field — a name that falls back to the row's id;
+ * with `each`, a column per member of a register or per field of a struct
+ * ({@link SheetFromDataInput}).
+ */
+export function title<R extends StructType, F extends SheetFieldKey<R> | undefined = undefined>(rowType: R, config: SheetFromDataConfig<RecordTitleConfig<R>, StringType, F>): SheetFromDataColumn<R, F>;
+export function title<R extends StructType>(rowType: R, config: RecordTitleConfig<R> & SheetValueConfig<R, StringType>): SheetColumn<R, EastType>;
+export function title<R extends StructType>(rowType: R, config?: RecordTitleConfig<R>): SheetColumn<R, StringType>;
+export function title<R extends StructType>(rowType: R, config: object = {}): SheetColumn<R, EastType> {
+    return column(rowType, "title", config);
+}
+
+/**
+ * A person column — `Record.column.person(R, register, cfg)`: a register's
+ * member by its key, with neutral initials, or no one. Sits on a `String` /
+ * `Option<String>` field; with `each`, a column per member of a register or
+ * per field of a struct, each cell a person's key ({@link SheetFromDataInput}).
+ */
+export function person<R extends StructType, F extends SheetFieldKey<R> | undefined = undefined>(rowType: R, register: string, config: SheetFromDataConfig<RecordPersonConfig<R>, StringType, F>): SheetFromDataColumn<R, F>;
+export function person<R extends StructType>(rowType: R, register: string, config?: RecordPersonConfig<R>): SheetColumn<R, StringType | OptionType<StringType>>;
+export function person<R extends StructType>(rowType: R, register: string, config: object = {}): SheetColumn<R, EastType> {
+    return column(rowType, "person", config, { register });
+}
+
+/**
+ * A boolean column — `Record.column.boolean(R, cfg)`: a checkbox, a click or
+ * space flipping it. Sits on a `Boolean` field; with `each`, a column per
+ * member of a register or per field of a struct ({@link SheetFromDataInput}).
+ */
+export function booleanColumn<R extends StructType, F extends SheetFieldKey<R> | undefined = undefined>(rowType: R, config: SheetFromDataConfig<RecordBooleanConfig<R>, BooleanType, F>): SheetFromDataColumn<R, F>;
+export function booleanColumn<R extends StructType>(rowType: R, config?: RecordBooleanConfig<R>): SheetColumn<R, BooleanType>;
+export function booleanColumn<R extends StructType>(rowType: R, config: object = {}): SheetColumn<R, EastType> {
+    return column(rowType, "boolean", config);
+}
+
+/**
+ * A toggle column — `Record.column.toggle(R, { on, off })`: two states on a
+ * `Boolean` field, each a word, a click or space flipping it; with `each`, a
+ * column per member of a register or per field of a struct
+ * ({@link SheetFromDataInput}).
+ */
+export function toggle<R extends StructType, F extends SheetFieldKey<R> | undefined = undefined>(rowType: R, config: SheetFromDataConfig<RecordToggleConfig<R>, BooleanType, F>): SheetFromDataColumn<R, F>;
+export function toggle<R extends StructType>(rowType: R, config: RecordToggleConfig<R>): SheetColumn<R, BooleanType>;
+export function toggle<R extends StructType>(rowType: R, config: object): SheetColumn<R, EastType> {
+    return column(rowType, "toggle", config);
+}
+
+/**
+ * A cycle column — `Record.column.cycle(R, register, cfg)`: a register's
+ * members, stepped by a click (⇧-click steps back), a member's label or alias
+ * typed in the cell setting it. Sits on a `String` field holding a member's
+ * key.
+ *
+ * `Record.column.cycle(R, V, { steps })` steps a variant's cases instead, in
+ * the order `steps` gives, on a field holding the variant. Either, with
+ * `each`, makes a column per member of a register or per field of a struct
+ * ({@link SheetFromDataInput}).
+ */
+export function cycle<R extends StructType, V extends VariantType<{ [K in string]: NullType }>, F extends SheetFieldKey<R> | undefined = undefined>(rowType: R, variantType: V, config: SheetFromDataConfig<RecordCycleStepsConfig<R, V>, V, F>): SheetFromDataColumn<R, F>;
+export function cycle<R extends StructType, V extends VariantType<{ [K in string]: NullType }>>(rowType: R, variantType: V, config: RecordCycleStepsConfig<R, V>): SheetColumn<R, V>;
+export function cycle<R extends StructType, F extends SheetFieldKey<R> | undefined = undefined>(rowType: R, register: string, config: SheetFromDataConfig<RecordCycleConfig<R>, StringType, F>): SheetFromDataColumn<R, F>;
+export function cycle<R extends StructType>(rowType: R, register: string, config?: RecordCycleConfig<R>): SheetColumn<R, StringType>;
+export function cycle<R extends StructType>(rowType: R, over: string | VariantType, config: object = {}): SheetColumn<R, EastType> {
+    if (typeof over === "string") return column(rowType, "cycle", config, { register: over });
+    return column(rowType, "cycle", config, { variantType: over });
+}
+
+/**
+ * An age column — `Record.column.age(R, { since })`: the hours since a moment
+ * the row holds, or the days or weeks since its date, to the viewer's own day.
+ * Keyed by a name of its own; read only.
+ * With `each` and the `field` it reads, a column per member of a register or
+ * per field of a struct, each member's value the moment its count starts from
+ * ({@link SheetFromDataInput}).
+ */
+export function age<R extends StructType>(rowType: R, config: Omit<RecordAgeConfig<R>, "since" | "mark" | "header"> & SheetFromDataInput<DateTimeType | RecordChangeType> & {
+    /** The field the columns read. */
+    field: SheetFieldKey<R>;
+}): RecordAgeColumn<R>;
+export function age<R extends StructType>(rowType: R, config: RecordAgeConfig<R>): RecordAgeColumn<R>;
+export function age<R extends StructType>(rowType: R, config: object): RecordAgeColumn<R> {
+    return column(rowType, "age", config) as RecordAgeColumn<R>;
+}
+
+/**
+ * An audit column — `Record.column.audit(R, cfg)`: the last change the app
+ * kept, its date and, in `blame` mode, who and what beside it; Pending while
+ * the row holds drafts. Sits on a `Record.Types.Change` /
+ * `Option<Record.Types.Change>` field; read only. With `each`, a column per
+ * member of a register or per field of a struct, each member's value a change
+ * ({@link SheetFromDataInput}).
+ */
+export function audit<R extends StructType, F extends SheetFieldKey<R> | undefined = undefined>(rowType: R, config: SheetFromDataConfig<RecordAuditConfig<R>, RecordChangeType, F>): SheetFromDataColumn<R, F>;
+export function audit<R extends StructType>(rowType: R, config?: RecordAuditConfig<R>): SheetColumn<R, RecordChangeType | OptionType<RecordChangeType>>;
+export function audit<R extends StructType>(rowType: R, config: object = {}): SheetColumn<R, EastType> {
+    return column(rowType, "audit", config);
 }

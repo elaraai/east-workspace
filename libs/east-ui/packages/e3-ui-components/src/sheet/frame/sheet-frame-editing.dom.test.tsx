@@ -5,15 +5,14 @@
  * @vitest-environment jsdom
  *
  * `<Sheet>`'s editing, undo and Save (#1185, #1216, `Sheet Builder Spec.md`
- * SB25–SB31), over the Sheet's records on e3 itself (`harness.test-utils.tsx`,
+ * SB25–SB30), over the Sheet's records on e3 itself (`harness.test-utils.tsx`,
  * #1376): each gesture one transaction, undone and redone from the history
  * item and from the keys anywhere in the frame, never while typing in a field;
  * Save one commit through the record's patch door, the history item naming
  * each state on the way; a conflict and a refusal keeping the drafts; a write
  * with no answer retried under its own request id; the drafts retiring once
  * the rows read back — whatever another write did beside them — and going out
- * of date when the record moves under them; each week its own drafts; and
- * auto mode.
+ * of date when the record moves under them; and each week its own drafts.
  */
 
 import { test, expect } from "vitest";
@@ -24,6 +23,7 @@ import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
 import { Record, Sheet } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/sheet/sheet";
 import { patchRecord } from "../../e3-web.test-utils.js";
+import { offering } from "../../shared/schedule/keys.test-utils.js";
 import { act, sheetHarness, settle, slot } from "./harness.test-utils.js";
 import { conflictCards, reloadPage } from "../../e3-web-mount.test-utils.js";
 
@@ -34,14 +34,6 @@ const PLANS = ex.sheetWeekPlans;
 const JOBS_DATASET = `records.${JOBS.name}`;
 type Jobs = ValueTypeOf<typeof JOBS.type>;
 type Job = ValueTypeOf<typeof ex.SheetJob>;
-
-/** The jobs, saved as each gesture lands (SB31). */
-const autoJobs = {
-    fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-        const jobs = $.let(Record.bind(ex.sheetJobs, ["patch"]));
-        return Sheet({ record: jobs, columns: { task: Sheet.column.text(ex.SheetJob, { header: "Task" }) }, applyMode: "auto", name: "auto" });
-    }))),
-};
 
 /** The jobs, given both panes: a library of the columns, with its search, and the inspector. */
 const panedJobs = {
@@ -147,7 +139,8 @@ test("each gesture is one transaction — typing, a paste across rows, an insert
     fireEvent.mouseDown(cells(container, "task")[2]!, { button: 0 });
     await act(async () => { fireEvent.paste(card(container), { clipboardData: { getData: () => "CNC routing, oak\nSpray finish, matt" } }); });
     await settle();
-    // A new job, typed on the blank tail: its minted key sorts after the record's.
+    // A new job, typed on the blank tail, under a key minted where a UUID is — offered here, so it sorts after the record's.
+    offering(["J-0005"]);
     await typeInto(slot(container, "main")!.querySelector('[data-slot="row"][data-blank] [data-key="task"]')!, "Sanding");
     // J-0002 picked by its number and deleted.
     fireEvent.mouseDown(cells(container, "task")[1]!.closest('[data-slot="row"]')!.querySelector('[data-slot="gutter"]')!, { button: 0 });
@@ -286,6 +279,37 @@ test("sheetConflicts: Go to from a conflict's card notes it in the footer, its c
     expect(note()).toBe("");
 });
 
+test("sheetConflicts: a Qty typed here, then Someone else removes Panel cutting, is a conflict of the whole job — it stands as drafted, ringed whole, the card reading what was typed against Removed — and their removal taken, the job leaves with nothing left to save", async () => {
+    const { container } = await h.mount(ex.sheetConflicts);
+    await typeInto(cells(container, "qty")[0]!, "70");
+    await press(within(container).getByRole("button", { name: "Someone else removes Panel cutting" }));
+    const [conflict, ...more] = await conflictCards(container);
+    expect(more).toEqual([]);
+    expect([conflict!.item, conflict!.yours, conflict!.theirs]).toEqual(["Panel cutting", "Yours, Qty: 70", "Theirs, Removed, Changed since you started editing · was Qty: 48"]);
+    // The job stands as drafted, its row ringed whole, until a person chooses.
+    const row = cells(container, "qty")[0]!.closest('[data-slot="row"]')!;
+    expect([tasks(container)[0], cells(container, "qty")[0]!.textContent, row.hasAttribute("data-conflict")]).toEqual(["Panel cutting", "70", true]);
+    expect(toolbar(container).getByRole("button", { name: "Save" }).getAttribute("aria-disabled")).toBe("true");
+    await press(conflict!.radio("source"));
+    await waitFor(() => expect(tasks(container)).toEqual(["Edge banding", "CNC routing", "Spray finish"]));
+    expect(drafted(container)).toBe(0);
+    expect((await h.read(ex.sheetConflictJobs)).has("J-0001")).toBe(false);
+});
+
+test("sheetConflicts: a job typed here on the blank row takes the key Someone else adds a job under; theirs heard, it goes on under the next key, the footer saying so — nothing to choose, and Save keeps both", async () => {
+    const { container } = await h.mount(ex.sheetConflicts);
+    await typeInto(slot(container, "main")!.querySelector('[data-slot="row"][data-blank] [data-key="task"]')!, "Sanding");
+    await press(within(container).getByRole("button", { name: "Someone else adds a job" }));
+    const note = () => container.querySelector('[data-slot="footerMessage"]')?.textContent ?? "";
+    await waitFor(() => expect(note()).toBe("J-0005 was taken by another save — the new row is J-0006"));
+    expect(container.querySelector("[data-conflicts]")).toBeNull();
+    expect(tasks(container)).toEqual(["Panel cutting", "Edge banding", "CNC routing", "Spray finish", "Assembly", "Sanding"]);
+    await press(toolbar(container).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(drafted(container)).toBe(0));
+    const jobs = await h.read(ex.sheetConflictJobs);
+    expect([jobs.get("J-0005")!.task, jobs.get("J-0006")!.task]).toEqual(["Assembly", "Sanding"]);
+});
+
 test("a refusal keeps every draft, with its banner and the reason; a revised draft may be saved again (SB28)", async () => {
     // The edge bander is booked that week: its jobs' patch door refuses a job that bands both edges.
     const { container } = await h.mount(bookedJobs);
@@ -319,8 +343,8 @@ test("a write with no answer leaves the session unknown: Save turns into Retry, 
     await waitFor(() => expect(banners(container)).toEqual(["unknown"]), { timeout: 15_000 });
     expect(statusLine(container)).toBe(editingMessages.historyStatus({ status: "unknown" }));
     expect(toolbar(container).queryByRole("button", { name: "Save" })).toBeNull();
-    // No gesture while the request is unresolved.
-    expect(disabled(toolbar(container).getByRole("button", { name: "Undo" }))).toBe(true);
+    // The write stands unanswered, and the editing goes on: Undo is there for the change it sent.
+    expect(disabled(toolbar(container).getByRole("button", { name: "Undo" }))).toBe(false);
     losing();
     await press(toolbar(container).getByRole("button", { name: "Retry request" }));
     const keys = h.requests("mutate", JOBS.name).map((request) => request.idempotencyKey);
@@ -422,21 +446,11 @@ test("each week keeps its own drafts across a switch of the entry, and a remount
     expect(drafted(again.container)).toBe(0);
 });
 
-test("auto mode sends each ready gesture as it lands, through the same protocol; Undo then commits the inverse (SB31)", async () => {
-    const { container } = await h.mount(autoJobs);
-    const deployed = await commits(JOBS);
-    await typeInto(cells(container, "task")[3]!, "Spray finish, matt");
-    expect((await readJobs()).get("J-0004")!.task).toBe("Spray finish, matt");
-    expect(drafted(container)).toBe(0);
-    await press(toolbar(container).getByRole("button", { name: "Undo" }));
-    expect((await readJobs()).get("J-0004")!.task).toBe("Spray finish");
-    expect(await commits(JOBS)).toEqual(["patch", "patch", ...deployed]);
-    expect(tasks(container)[3]).toBe("Spray finish");
-});
-
 test("a reload keeps the drafts in this tab: the task typed and the job added are drawn as they were, still to save, and Save saves them", async () => {
     const first = await h.mount(ex.sheetBasic);
     await typeInto(cells(first.container, "task")[0]!, "Panel cutting, maple");
+    // The job added, under a key minted where a UUID is — offered here, so it sorts after the four.
+    offering(["J-0005"]);
     await typeInto(slot(first.container, "main")!.querySelector('[data-slot="row"][data-blank] [data-key="task"]')!, "Sanding");
     expect(drafted(first.container)).toBe(2);
     reloadPage();
@@ -516,4 +530,31 @@ test("a conflict's card names its row as the sheet shows it — by its task — 
     const [card, ...more] = await conflictCards(container);
     expect(more).toEqual([]);
     expect(card!.item).toBe("Panel cutting");
+});
+
+test("a job removed here that another session changed is a conflict whose card names the job by its task — never its key, though the sheet draws it no more — and reads what they changed as each column writes it; the footer's note of the removal goes once the other side is taken", async () => {
+    const { container } = await h.mount(ex.sheetBasic);
+    // J-0001 picked by its number and deleted.
+    fireEvent.mouseDown(cells(container, "task")[0]!.closest('[data-slot="row"]')!.querySelector('[data-slot="gutter"]')!, { button: 0 });
+    fireEvent.keyDown(card(container), { key: "Backspace" });
+    await settle();
+    expect(tasks(container)).toEqual(["Edge banding", "CNC routing", "Spray finish"]);
+    const note = () => container.querySelector('[data-slot="footerMessage"]')?.textContent ?? "";
+    const deleted = note();
+    expect(deleted).toContain("Deleted 1");
+    // Another planner moves the job a day on, and sets its quantity.
+    await writeJob("J-0001", { start: some(new Date("2026-10-13T00:00:00Z")), qty: some(60.0) });
+    await waitFor(() => expect(banners(container)).toEqual(["conflicts"]));
+    expect(tasks(container)).toEqual(["Edge banding", "CNC routing", "Spray finish"]);
+    const [conflict, ...more] = await conflictCards(container);
+    expect(more).toEqual([]);
+    expect([conflict!.item, conflict!.yours, conflict!.theirs]).toEqual([
+        "Panel cutting", "Yours, Removed", "Theirs, Start: 13 Oct 26 · Qty: 60, Changed since you started editing · was Start: 12 Oct 26 · Qty: 48",
+    ]);
+    // The note of the removal stands while the removal does; their job taken, it is back and the note is gone.
+    expect(note()).toBe(deleted);
+    await press(conflict!.radio("source"));
+    await waitFor(() => expect(tasks(container)).toEqual(["Panel cutting", "Edge banding", "CNC routing", "Spray finish"]));
+    expect(note()).toBe("");
+    expect(drafted(container)).toBe(0);
 });

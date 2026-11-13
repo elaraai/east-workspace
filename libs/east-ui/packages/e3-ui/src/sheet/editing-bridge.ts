@@ -5,7 +5,7 @@
 
 /** Typed author callbacks behind a closed renderer transport. @packageDocumentation */
 import {
-    ArrayType, AsyncFunctionType, BlobType, East, Expr, FunctionType, IntegerType,
+    ArrayType, AsyncFunctionType, BlobType, DateTimeType, East, Expr, FunctionType, IntegerType,
     NullType, OptionType, StringType, StructType, isTypeEqual, none, some, toEastTypeValue, variant,
     type DictType, type EastType, type ExprType, type SubtypeExprOrValue, type VariantType,
 } from "@elaraai/east";
@@ -27,11 +27,25 @@ export interface SheetEditingInput {
     onPatch?: unknown;
     onApply?: unknown;
     onUpdate?: unknown;
-    applyMode?: "batch" | "auto";
     /** The Apply over the session's keyed batches as they come — e3-ui's record forms only (#1182). */
     applyKeyed?: unknown;
     /** The session's source identity, when e3-ui's record forms name it (#1182). */
     sourceId?: unknown;
+    /** A new row's (a line's) and a new group's required fields no person can set, each with its label (#1536). */
+    unsettable?: { row: readonly SheetUnsettableInput[]; group: readonly SheetUnsettableInput[] };
+}
+
+/**
+ * One field only the app gives a new entry, as the root finds it (#1536) — what
+ * crosses as a `SheetUnsettableType`.
+ *
+ * @internal
+ */
+export interface SheetUnsettableInput {
+    /** The field's name. */
+    field: string;
+    /** What the sheet calls it: a hint's label, a column's header (a literal or an expression), or the name spelled out. */
+    label: SubtypeExprOrValue<StringType>;
 }
 
 /** Validate a behavior prop against its exact East signature. */
@@ -95,7 +109,6 @@ export function buildSheetEditing(source: ResolvedRowSource, bridge: SheetBridge
     if (input.onUpdate !== undefined && (source.kind !== "inline" || source.live === undefined)) {
         throw new Error("Sheet: onUpdate requires data={liveHandle} so each batch reads the latest collection — pass the handle itself or provide onApply");
     }
-    if (input.applyMode === "auto" && input.onApply === undefined && input.onUpdate === undefined && input.applyKeyed === undefined) throw new Error("Sheet: applyMode auto requires onApply or a live onUpdate binding");
     if (source.kind !== "inline" && !source.pinned && (input.onApply !== undefined || input.applyKeyed !== undefined)) {
         throw new Error("Sheet: editing paged rows needs a pinned source — one that names its snapshot with revision and refresh " +
             "(Data.bindPaged's handle): a batch is checked against the snapshot it was drafted on, and the drafts " +
@@ -116,12 +129,16 @@ export function buildSheetEditing(source: ResolvedRowSource, bridge: SheetBridge
             some: ($, row) => $.const(some(East.Blob.encodeBeast(row, "v2")), OptionType(BlobType)),
         });
     });
-    const decode = East.function([BlobType, OptionType(BlobType), OptionType(BlobType)], BlobType, ($, rowBlob, payload, previousBlob) => {
+    // A gesture's cells over the draft so far — and, on a sheet with columns from data, each cell of theirs it changed
+    // written through its column at the day (#1559).
+    const decode = East.function([BlobType, OptionType(BlobType), OptionType(BlobType), DateTimeType], BlobType, ($, rowBlob, payload, previousBlob, day) => {
         const row = $.const(rowBlob.decodeBeast(SheetRowType, "v2"));
         const base = $.const(payload.match({ none: () => none, some: (_$, blob) => some(blob.decodeBeast(draftType, "v2")) }), OptionType(draftType));
         const previous = $.const(previousBlob.match({ none: () => none, some: (_$, blob) => some(blob.decodeBeast(SheetRowType, "v2")) }), OptionType(SheetRowType));
         const decoder = $.const(bridge.draftDecode);
-        return East.Blob.encodeBeast(decoder(row, base, previous), "v2");
+        if (bridge.writeData === undefined) return East.Blob.encodeBeast(decoder(row, base, previous), "v2");
+        const write = $.const(bridge.writeData);
+        return East.Blob.encodeBeast(write(row.cells, base as never, decoder(row, base, previous) as never, day), "v2");
     });
     // An entry's wire row (#1409): the row the source would show for it, as the optimiser's answer lands in the session.
     const project = East.function([BlobType, StringType], BlobType, ($, entryBlob, id) => {
@@ -236,6 +253,7 @@ export function buildSheetEditing(source: ResolvedRowSource, bridge: SheetBridge
         driverColumn: driverColumn === undefined ? none : some(driverColumn),
         newRow: newRow === undefined ? none : some(newRow),
         newGroup: newGroup === undefined ? none : some(newGroup),
+        unsettable: { row: [...input.unsettable?.row ?? []], group: [...input.unsettable?.group ?? []] },
         sourceId, entryType: toEastTypeValue(rowType), draftType: toEastTypeValue(draftType),
         idField: idField !== undefined ? some(idField) : none,
         children: field !== undefined ? some(field) : none,
@@ -246,6 +264,5 @@ export function buildSheetEditing(source: ResolvedRowSource, bridge: SheetBridge
         snapshot: source.kind === "inline" ? some(East.Blob.encodeBeast(source.rows, "v2")) : none,
         readEntry, decode, project, onApply: onApply !== undefined ? some(onApply) : none,
         onPatch: onPatch !== undefined ? some(onPatch) : none,
-        mode: variant(input.applyMode ?? "batch", null),
     }, SheetEditingType);
 }

@@ -174,6 +174,9 @@ export const librarySlotRecipe = defineSlotRecipe({
             flexShrink: "0",
             fontSize: "11px",
             color: "fg.subtle",
+            /* A phone's: the magnifier the key search's field row draws, at the touch size its box takes (QP35). */
+            "[data-library-phone] &": { fontSize: "14px" },
+            "[data-frame-drawer] &": { _coarse: { fontSize: "14px" } },
         },
         searchInput: {
             ...fieldInRingedControl,
@@ -203,6 +206,10 @@ export const librarySlotRecipe = defineSlotRecipe({
             fontSize: "10px",
             cursor: "pointer",
             _hover: { color: "fg", background: "bg.subtle" },
+            /* A phone's ×: a touch target by its halo, its mark the magnifier's size (QP35). */
+            ...coarseHitArea({ position: true }),
+            "[data-library-phone] &": { fontSize: "14px" },
+            "[data-frame-drawer] &": { _coarse: { fontSize: "14px" } },
         },
         /* The key cap; a device without a keyboard has no shortcut to show,
          * and a narrow box has no room for it. */
@@ -215,8 +222,9 @@ export const librarySlotRecipe = defineSlotRecipe({
             ...CAPS,
             display: "inline-flex",
             alignItems: "center",
-            "[data-library-phone] &": { minWidth: "44px", height: "44px", justifyContent: "center" },
-            "[data-frame-drawer] &": { _coarse: { minWidth: "44px", height: "44px", justifyContent: "center" } },
+            /* A phone's: a touch target, its icon — the folded trigger's whole mark — the second row's size (FR6). */
+            "[data-library-phone] &": { minWidth: "44px", height: "44px", justifyContent: "center", "& svg": { fontSize: "16px" } },
+            "[data-frame-drawer] &": { _coarse: { minWidth: "44px", height: "44px", justifyContent: "center", "& svg": { fontSize: "16px" } } },
             gap: "6px",
             padding: "0",
             background: "transparent",
@@ -238,8 +246,9 @@ export const librarySlotRecipe = defineSlotRecipe({
             color: "brand.solid",
             cursor: "pointer",
             whiteSpace: "nowrap",
-            "[data-frame-drawer] &": { _coarse: { minWidth: "44px", height: "44px", justifyContent: "center" } },
             "& svg": { fontSize: "9px" },
+            /* A phone's: a touch target; folded to its icon alone, named by its label, the icon the second row's size (FR6). */
+            "[data-frame-drawer] &": { _coarse: { minWidth: "44px", height: "44px", justifyContent: "center", "&[aria-label] svg": { fontSize: "16px" } } },
             _hover: { color: "brand.fg" },
         },
         /* The mark beside the checked option in a control's menu. */
@@ -461,6 +470,9 @@ export const librarySlotRecipe = defineSlotRecipe({
             display: "inline-flex",
             flexShrink: "0",
             fontSize: "9.5px",
+            /* A phone's library tabs: the trailing glyph the item's tile carries, play for the source, the arrows for a lookup (QP36),
+             * a touch icon beside words (#1547). */
+            "[data-library-phone] &": { fontSize: "14px" },
             color: "fg.faint",
             "[data-placed] &": { color: "brand.solid" },
             "&[data-tone=success]": { color: "fg.success" },

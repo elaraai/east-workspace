@@ -110,6 +110,17 @@ describe("the footer's fit (CL3)", () => {
         expect(fitFooter(rail(652, { fixed: [100] }))).toEqual({ kept: 5, form: "dot" });
     });
 
+    test("a rail that folds its legend ends it at its … alone where not even its first item fits beside what the rail keeps whole", () => {
+        // A 300px count, the first item and the …: 300 + 80 + 12 + 2·14 = 420 > 400; the … alone: 300 + 12 + 14 = 326.
+        expect(fitFooter(rail(400, { line: undefined, fixed: [300], fold: true }))).toEqual({ kept: 0, form: "full" });
+        // A rail that does not fold keeps the first item, as the design's legend, alone on its rail, does.
+        expect(fitFooter(rail(400, { line: undefined, fixed: [300] }))).toEqual({ kept: 1, form: "full" });
+        // With the line in flight it folds where even the dot leaves no room, the line short: 300 + 12 + 70 + 2·14 = 410.
+        expect(fitFooter(rail(420, { fixed: [300], fold: true }))).toEqual({ kept: 0, form: "short" });
+        // Where the first item fits, a fold changes nothing.
+        expect(fitFooter(rail(420, { line: undefined, fixed: [300], fold: true }))).toEqual({ kept: 1, form: "full" });
+    });
+
     test("a measure a px over, a rounding, still fits", () => {
         expect(fitFooter(rail(689.2))).toEqual({ kept: 5, form: "full" });
     });

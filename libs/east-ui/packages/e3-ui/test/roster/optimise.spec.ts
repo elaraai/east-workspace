@@ -15,7 +15,8 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
-    DateTimeType, DictType, East, IntegerType, OptionType, SortedMap, StringType, StructType, compareFor, equalFor, isTypeEqual, type ValueTypeOf,
+    BooleanType, DateTimeType, DictType, East, IntegerType, OptionType, SetType, SortedMap, SortedSet, StringType, StructType, compareFor, equalFor, isTypeEqual, none,
+    printFor, some, type ValueTypeOf,
 } from "@elaraai/east";
 import { Assert, TestImpl, describeEast } from "@elaraai/east-node-std";
 import e3 from "@elaraai/e3";
@@ -29,8 +30,8 @@ import {
 import * as base from "./roster.examples.js";
 import * as ex from "./optimise.examples.js";
 
-describeEast("Roster — the optimiser's example (#1409)", test => {
-    Assert.examples(test, { rosterOptimise: ex.rosterOptimise });
+describeEast("Roster — the optimiser's examples (#1409, #1553)", test => {
+    Assert.examples(test, { rosterOptimise: ex.rosterOptimise, rosterOptimiseEdges: ex.rosterOptimiseEdges });
 }, { platformFns: TestImpl });
 
 const Request = Roster.Types.OptimiseRequest(WarehouseDuty);
@@ -81,8 +82,20 @@ describe("the types (§5.1)", () => {
         assert.equal(isTypeEqual(Roster.Types.OptimiseResult(base.MinimalDuty), Result), false);
     });
 
-    test("the payload carries the optimiser's binding, or none (§5.2)", () => {
-        assert.ok(isTypeEqual(RosterPayloadType.fields.optimise, OptionType(FuncBindingType)));
+    test("given { edges: true } (#1553), OptimiseRequest(R) is the week's request with the duties at its edges and which of them are fixed; OptimiseResult(R) the duties and the edges", () => {
+        assert.ok(isTypeEqual(Roster.Types.OptimiseRequest(WarehouseDuty, { edges: true }), StructType({
+            from: DateTimeType, to: DateTimeType, run: IntegerType, duties: DictType(StringType, WarehouseDuty), edges: DictType(StringType, WarehouseDuty),
+            fixed: SetType(StringType), requirements: Roster.Types.Requirements, context: Roster.Types.Context,
+        })));
+        assert.ok(isTypeEqual(Roster.Types.OptimiseResult(WarehouseDuty, { edges: true }), StructType({
+            duties: DictType(StringType, WarehouseDuty), edges: DictType(StringType, WarehouseDuty),
+        })));
+        assert.equal(isTypeEqual(Roster.Types.OptimiseRequest(WarehouseDuty, { edges: true }), Request), false);
+        assert.equal(isTypeEqual(Roster.Types.OptimiseResult(WarehouseDuty, { edges: true }), Result), false);
+    });
+
+    test("the payload carries the optimiser's binding and whether it takes the edges, or none (§5.2)", () => {
+        assert.ok(isTypeEqual(RosterPayloadType.fields.optimise, OptionType(StructType({ binding: FuncBindingType, edges: BooleanType }))));
     });
 });
 
@@ -104,9 +117,20 @@ describe("`optimise` (§4): Func.bind of an e3.function from OptimiseRequest(R) 
         assert.throws(() => payload({ optimise: Func.bind(answersText) as never }), /^Error: Roster: `optimise` answers \.String, not Roster\.Types\.OptimiseResult\(\.Struct \[/);
         const asksText = e3.function("roster_optimise_spec_asks_text", East.function([StringType], Result, () => ({ duties: new Map() })));
         assert.throws(() => payload({ optimise: Func.bind(asksText) as never }), /^Error: Roster: `optimise` asks \.String, not Roster\.Types\.OptimiseRequest\(\.Struct \[/);
-        const notBound = /^Error: Roster: `optimise` is Func\.bind of the app's e3\.function from Roster\.Types\.OptimiseRequest\(R\) to Roster\.Types\.OptimiseResult\(R\), R the duties' row type — the period's rows in, the same rows out, complete$/;
+        const notBound = /^Error: Roster: `optimise` is Func\.bind of the app's e3\.function from Roster\.Types\.OptimiseRequest\(R\) to Roster\.Types\.OptimiseResult\(R\), or from and to both given \{ edges: true \}, R the duties' row type — the period's rows in, the same rows out, complete$/;
         assert.throws(() => payload({ optimise: East.value("rota_optimise") as never }), notBound);
         assert.throws(() => payload({ optimise: East.function([Request], Result, (_$, req) => ({ duties: req.duties })) as never }), notBound);
+    });
+
+    test("one taking the edges (#1553) is taken given { edges: true } both ways; answering the week alone it is refused naming the edges' result, and bound over other rows naming the edges' form", () => {
+        const EdgesRequest = Roster.Types.OptimiseRequest(WarehouseDuty, { edges: true });
+        const edges = e3.function("roster_optimise_spec_edges", East.function([EdgesRequest], Roster.Types.OptimiseResult(WarehouseDuty, { edges: true }), (_$, req) => ({ duties: req.duties, edges: req.edges })));
+        assert.doesNotThrow(() => payload({ optimise: Func.bind(edges) }));
+        const weekAlone = e3.function("roster_optimise_spec_edges_week_alone", East.function([EdgesRequest], Result, (_$, req) => ({ duties: req.duties })));
+        assert.throws(() => payload({ optimise: Func.bind(weekAlone) as never }),
+            /^Error: Roster: `optimise` answers \.Struct \[.*\], not Roster\.Types\.OptimiseResult\(\.Struct \[.*costCentre.*\], \{ edges: true \}\)$/);
+        assert.throws(() => payload({ optimise: Func.bind(ex.rotaPlanNights) as never }),
+            /^Error: Roster: `optimise` is bound over duty rows \.Struct \[.*who.*\], and the duty kind's rows are \.Struct \[.*costCentre.*\] — bind an optimiser over Roster\.Types\.OptimiseRequest of the duties' row type, given \{ edges: true \}$/);
     });
 });
 
@@ -233,5 +257,165 @@ describe("the warehouse's optimiser over its own week (§3.1)", () => {
             filled += theirs.length;
         }
         assert.ok(filled > 100, "the week fills");
+    });
+});
+
+describe("the second step's optimiser over the first step's week, every duty in no group (#1548)", () => {
+    type Loose = ValueTypeOf<typeof base.NoGroupDuty>;
+    type Slot = ValueTypeOf<typeof RosterSlotType>;
+    const sameLoose = equalFor(base.NoGroupDuty);
+    const sameTeam = equalFor(OptionType(StringType));
+    const bySlot = compareFor(RosterSlotType);
+    const slotText = printFor(RosterSlotType);
+    const monday = new Date("2028-03-06T00:00:00Z");
+    const dayOf = (at: Date) => Math.floor((at.getTime() - monday.getTime()) / DAY);
+    // The context the Roster sends, through its own adapters: the staff, and the example's shifts and teams.
+    const contextOf = East.compile(East.function(
+        [DictType(StringType, base.NoGroupWorker), DictType(StringType, base.MinimalShiftTime), DictType(StringType, base.MinimalTeam)],
+        Roster.Types.Context, ($, staff, shifts, teams) => {
+            const people = $.const(rosterPeopleOf(Schedule.resources(staff, {
+                name: "People", icon: "user", label: w => w.name, group: w => w.team, contract: w => w.contract,
+            })));
+            return {
+                people: people.toDict((_$2, p) => p.key, (_$2, p) => p),
+                groups: Roster.groups(teams, { label: t => t.name }).rows,
+                activities: [],
+                shifts: Roster.shifts(shifts, { label: s => s.name, code: s => s.code, start: s => s.starts, hours: s => s.hours, order: s => s.order }).rows,
+                positions: [],
+                agencies: [],
+                rules: { rest: 10, lead: false, trainer: true, skill: true },
+            };
+        }), []);
+    const context = contextOf(base.noGroupStaffRows,
+        new Map([["early", { name: "Early", code: "E", starts: { hour: 6n, minute: 0n }, hours: 8.0, order: 1n }],
+            ["late", { name: "Late", code: "L", starts: { hour: 14n, minute: 0n }, hours: 8.0, order: 2n }]]),
+        new Map([["inbound", { name: "Inbound" }], ["dispatch", { name: "Dispatch" }]]));
+    // The week's targets by slot, from the example's own rows.
+    const requirements = new SortedMap([...base.noGroupCoverRows.values()].map((row) => [
+        { day: BigInt(dayOf(row.day)), group: row.team, shift: row.shift }, { positions: row.heads, hours: row.hours },
+    ] as const), bySlot);
+    const place = East.compile(base.rosterPlaceShiftsBody, []);
+    // The request the Roster sends it: `Roster.Types.OptimiseRequest` of the duties' row type, as `place` takes it.
+    const request: Parameters<typeof place>[0] = {
+        from: monday, to: new Date(monday.getTime() + 7 * DAY), run: 1n, duties: new SortedMap<string, Loose>([...base.noGroupShifts], byString), requirements, context,
+    };
+    const teamOf = (duties: ReadonlyMap<string, Loose>, key: string) => duties.get(key)!.team;
+
+    test("each duty in no group goes to its person's own team where a head is open, then to any team with one; one no team needs stays in none", () => {
+        const result = place(request);
+        assert.deepEqual([...result.duties.keys()], [...request.duties.keys()], "no duty added or removed");
+        for (const [key, duty] of result.duties) {
+            assert.ok(sameLoose({ ...duty, team: none }, request.duties.get(key)!), `${key}: its person, times and shift as they were`);
+        }
+        // Monday: everyone in their own team.
+        for (const [person, worker] of base.noGroupStaffRows) assert.ok(sameTeam(teamOf(result.duties, `mon-${person}`), some(worker.team)), person);
+        // Wednesday: Mia's late takes Inbound's one late, and Lea's, the one late too many, stays in no group.
+        assert.ok(sameTeam(teamOf(result.duties, "wed-w-03"), some("inbound")));
+        assert.ok(sameTeam(teamOf(result.duties, "wed-w-05"), none));
+        // Thursday, with Ben off: Lea's late goes to Dispatch, the team with a late open.
+        assert.ok(sameTeam(teamOf(result.duties, "thu-w-05"), some("dispatch")));
+    });
+
+    test("no slot holds more duties than its heads", () => {
+        const result = place(request);
+        const held = new SortedMap<Slot, number>([], bySlot);
+        for (const duty of result.duties.values()) {
+            if (duty.team.type !== "some") continue;
+            const slot: Slot = { day: BigInt(dayOf(duty.start)), group: duty.team.value, shift: duty.shift };
+            held.set(slot, (held.get(slot) ?? 0) + 1);
+        }
+        for (const [slot, count] of held) assert.ok(count <= Number(requirements.get(slot)?.positions ?? 0n), slotText(slot));
+    });
+
+    test("a duty in a team stays where it is and holds its head: run again on the answer, nothing moves; a duty moved by hand keeps its team", () => {
+        const once = place(request);
+        const again = place({ ...request, run: 2n, duties: once.duties });
+        for (const [key, duty] of once.duties) assert.ok(sameLoose(again.duties.get(key)!, duty), key);
+        // Ada's Monday early moved to Dispatch by hand, and Tom's taken out to no group.
+        const moved = new SortedMap<string, Loose>([...once.duties], byString);
+        moved.set("mon-w-01", { ...once.duties.get("mon-w-01")!, team: some("dispatch") });
+        moved.set("mon-w-02", { ...once.duties.get("mon-w-02")!, team: none });
+        const after = place({ ...request, run: 3n, duties: moved });
+        assert.ok(sameTeam(teamOf(after.duties, "mon-w-01"), some("dispatch")), "a duty in a team stays there");
+        assert.ok(sameTeam(teamOf(after.duties, "mon-w-02"), some("inbound")), "Ada holds Dispatch's one early, so Tom's goes to Inbound's open one");
+    });
+});
+
+describe("the night warehouse's optimiser, its week by when its shifts end (#1553)", () => {
+    type Shift = ValueTypeOf<typeof ex.NightsShift>;
+    const sameShift = equalFor(ex.NightsShift);
+    const monday = new Date("2028-03-06T00:00:00Z");
+    // The context the Roster sends, through its own adapters: the staff with their usual shifts, the shift times and the teams.
+    const contextOf = East.compile(East.function(
+        [DictType(StringType, ex.NightsWorker), DictType(StringType, base.MinimalShiftTime), DictType(StringType, base.MinimalTeam)],
+        Roster.Types.Context, ($, staff, shifts, teams) => {
+            const people = $.const(rosterPeopleOf(Schedule.resources(staff, {
+                name: "People", icon: "user", label: w => w.name, group: w => w.team, usual: w => w.usual,
+            })));
+            return {
+                people: people.toDict((_$2, p) => p.key, (_$2, p) => p),
+                groups: Roster.groups(teams, { label: t => t.name }).rows,
+                activities: [],
+                shifts: Roster.shifts(shifts, { label: s => s.name, code: s => s.code, start: s => s.starts, hours: s => s.hours, order: s => s.order }).rows,
+                positions: [],
+                agencies: [],
+                rules: { rest: 10, lead: false, trainer: true, skill: true },
+            };
+        }), []);
+    const context = contextOf(ex.nightsWorkerRows, ex.nightsShiftTimeRows, new Map([["inbound", { name: "Inbound" }], ["dispatch", { name: "Dispatch" }]]));
+    const plan = East.compile(ex.rosterPlanNightsBody, []);
+    // The window's duties the Roster places in another week — the Sunday nights before the week, and Ada's next Monday —
+    // and the week's own, each placed on the day its shift starts nearest: Tom's last night, from the week's Sunday, among them.
+    const edgeKeys = new SortedSet<string>(["ada-next-mon", "mia-sun-before", "tom-sun-before"], byString);
+    const rowsWhere = (edge: boolean) => new SortedMap<string, Shift>([...ex.nightsShiftRows].filter(([key]) => edgeKeys.has(key) === edge), byString);
+    const request: Parameters<typeof plan>[0] = {
+        from: monday, to: new Date(monday.getTime() + 7 * DAY), run: 1n, duties: rowsWhere(false), edges: rowsWhere(true),
+        fixed: new SortedSet<string>([], byString), requirements: new SortedMap([], compareFor(RosterSlotType)), context,
+    };
+    /** The duties of an answer not in the request's, by key. */
+    const addedTo = (answer: ReadonlyMap<string, Shift>, asked: ReadonlyMap<string, Shift>) => [...answer].filter(([key]) => !asked.has(key));
+
+    test("the night before the week is kept at the shift's own times and taken away from a person off nights, and the Monday left is added; the week's last night and the next week's early stand as they are", () => {
+        const result = plan(request);
+        assert.deepEqual([...result.edges.keys()], ["ada-next-mon", "tom-sun-before"], "Mia's night before the week taken away");
+        assert.ok(sameShift(result.edges.get("tom-sun-before")!, {
+            ...ex.nightsShiftRows.get("tom-sun-before")!, start: new Date("2028-03-05T22:00:00Z"), end: new Date("2028-03-06T06:00:00Z"),
+        }), "Tom's night before the week at the night's own times");
+        assert.ok(sameShift(result.edges.get("ada-next-mon")!, ex.nightsShiftRows.get("ada-next-mon")!), "the next week's early as it was");
+        for (const [key, duty] of request.duties) assert.ok(sameShift(result.duties.get(key)!, duty), key);
+        const added = addedTo(result.duties, request.duties);
+        assert.equal(added.length, 1);
+        assert.match(added[0]![0], /^elara-1-\d+$/);
+        assert.ok(sameShift(added[0]![1], { who: "w-03", shift: "early", team: "inbound", start: new Date("2028-03-06T06:00:00Z"), end: new Date("2028-03-06T14:00:00Z") }),
+            "Mia's Monday early");
+    });
+
+    test("with the week before published, its duties among `fixed` stand as they are and hold their people's Monday: nothing changes", () => {
+        const result = plan({ ...request, fixed: new SortedSet<string>(["mia-sun-before", "tom-sun-before"], byString) });
+        for (const [asked, answered] of [[request.duties, result.duties], [request.edges, result.edges]] as const) {
+            assert.deepEqual([...answered.keys()], [...asked.keys()]);
+            for (const [key, duty] of asked) assert.ok(sameShift(answered.get(key)!, duty), key);
+        }
+    });
+
+    test("a night before the week the plan adds goes among the edges, under a key of the run's own", () => {
+        const edges = new SortedMap<string, Shift>(request.edges, byString);
+        edges.delete("tom-sun-before");
+        const result = plan({ ...request, edges });
+        const added = addedTo(result.edges, edges);
+        assert.equal(added.length, 1);
+        assert.match(added[0]![0], /^elara-1-\d+$/);
+        assert.ok(sameShift(added[0]![1], { who: "w-02", shift: "night", team: "dispatch", start: new Date("2028-03-05T22:00:00Z"), end: new Date("2028-03-06T06:00:00Z") }),
+            "Tom's night from the Sunday before the week");
+        assert.equal(addedTo(result.duties, request.duties).length, 1, "and Mia's Monday early among the week's own");
+    });
+
+    test("run again on its answer, nothing moves", () => {
+        const once = plan(request);
+        const again = plan({ ...request, run: 2n, duties: once.duties, edges: once.edges });
+        for (const [before, after] of [[once.duties, again.duties], [once.edges, again.edges]] as const) {
+            assert.deepEqual([...after.keys()], [...before.keys()]);
+            for (const [key, duty] of before) assert.ok(sameShift(after.get(key)!, duty), key);
+        }
     });
 });

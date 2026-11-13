@@ -129,19 +129,24 @@ describe("its rows' two sources (#1216)", () => {
             assert.ok(isTypeEqual(typeOf(Sheet.Payload({ record: jobs, columns: JOB_COLUMNS })), SheetPayloadType), "the entries");
             const page = $.let(Data.bindPaged(ex.sheetJobs));
             assert.ok(isTypeEqual(typeOf(Sheet.Payload({ record: jobs, window: page, columns: JOB_COLUMNS })), SheetPayloadType), "a window of them");
+            // A week's rows, a batch's steps and a package's tasks hold fields no column here sets (#1536): these sheets add
+            // no rows.
             const plans = $.let(Record.bind(ex.sheetWeekPlans));
             assert.ok(isTypeEqual(typeOf(Sheet.Payload({
                 record: plans, entry: { key: "2026-W42", rows: "rows", id: "id" }, columns: { task: Sheet.column.text(ex.WeekRow, { header: "Task" }) },
+                edits: { insertRows: false },
             })), SheetPayloadType), "one entry's rows");
             const days = $.let(Record.bind(ex.sheetBatchDays));
             assert.ok(isTypeEqual(typeOf(Sheet.Payload({
                 record: days, entry: { key: "2026-10-12", rows: "batches", id: "id" },
                 group: Sheet.group(ex.Batch, "steps", { title: "name" }), columns: { task: Sheet.column.text(ex.BatchStep, { header: "Step" }) },
+                edits: { insertRows: false },
             })), SheetPayloadType), "one entry's groups");
             const work = $.let(Record.bind(ex.sheetLooseWork));
             assert.ok(isTypeEqual(typeOf(Sheet.Payload({
                 record: work, entry: { key: "2026-W42", rows: "entries", id: "id" },
                 group: Sheet.group(ex.LoosePackage, "tasks", { title: "name" }), columns: { task: Sheet.column.text(ex.LooseTask, { header: "Task" }) },
+                edits: { insertRows: false },
             })), SheetPayloadType), "groups with loose rows between them");
         });
     });
@@ -149,9 +154,11 @@ describe("its rows' two sources (#1216)", () => {
     test("over a record's entries as groups: the record's entries are the groups, in key order", () => {
         inBlock(($) => {
             const orders = $.let(Record.bind(ex.sheetWorkshopOrders));
+            // An operation's fields and an order's beside its title, which nothing here sets (#1536): the sheet adds neither.
             assert.ok(isTypeEqual(typeOf(Sheet.Payload({
                 record: orders, group: Sheet.group(ex.WorkshopOrder, "ops", { title: "name" }),
                 columns: { notes: Sheet.column.text(ex.WorkshopOperation, { header: "Notes" }) },
+                edits: { insertRows: false, insertGroups: false },
             })), SheetPayloadType));
         });
     });
@@ -164,6 +171,10 @@ describe("its rows' two sources (#1216)", () => {
         assert.deepEqual(payload.history, none, "no record: no commits to read a last save from");
         assert.deepEqual(payload.missing, none);
         assert.deepEqual(payload.name, none);
+        // Where Autosave begins: off unless its author says, by a literal or an expression data drives.
+        assert.equal(payload.autosave, false);
+        assert.equal(overJobs(() => ({ autosave: true })).autosave, true);
+        assert.equal(overJobs(() => ({ autosave: East.value(1n).greater(0n) })).autosave, true);
         inBlock(($) => {
             const bound = $.let(State.bind([Jobs], "sheet.payload.spec.jobs", JOBS));
             assert.ok(isTypeEqual(typeOf(Sheet.Payload({ data: bound, id: "id", columns: DATA_COLUMNS, onUpdate: bound.write })), SheetPayloadType), "a bind handle");
@@ -692,6 +703,8 @@ describe("its narrowing (#1345)", () => {
                 group: Sheet.group(ex.WorkshopOrder, "ops", { title: "name" }),
                 columns: { notes: Sheet.column.text(ex.WorkshopOperation, { header: "Notes" }) },
                 onApply: Record.onApply(orders, { keyed: true }),
+                // An operation's fields and an order's beside its title, which nothing here sets (#1536): the sheet adds neither.
+                edits: { insertRows: false, insertGroups: false },
             });
             assert.ok(isTypeEqual(typeOf(grouped), SheetPayloadType), "grouped: the orders the rail narrows to, their operations the lines");
             const flat = Sheet.Payload({ ...stressSlice(), columns: STRESS_COLUMNS, readOnly: true });

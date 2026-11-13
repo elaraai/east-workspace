@@ -17,28 +17,56 @@
  * | Editor | Input |
  * |---|---|
  * | `text` | `StringInput` |
- * | `number` | `IntegerInput` or `FloatInput`, by the field's type: moved by its step, clamped to its bounds, its unit and bounds in the help line |
+ * | `number` | `IntegerInput` or `FloatInput`, by the field's type: moved by its step within its bounds, and never clamped to them; its unit and bounds in the help line; a value they don't hold said once, in the tone its host says it in (`breaches`) — the help line, or where the field prints its value the bound in their words, on a line of its own in it (`fieldBreaches`, #1585) |
  * | `checkbox` | `Checkbox` |
  * | `datetime` | `DateTimeInput` |
- * | `select` | `RadioGroup` of the variant's cases while it has up to four, Not set first for an Option (#1473); `Select` past four |
- * | `reference` | `Select` of the host's choices for its keyed set, Unassigned first for an Option |
+ * | `select` | `RadioGroup` of the variant's cases while it has up to four, Not set first for an Option (#1473); `Select` past four; a case holding data, its fields in a block under the choice |
+ * | `reference` | `Select` of the host's choices for its keyed set, Unassigned first for an Option — a String field's in the order the host gives them, any other field's in its keys' order at its type, never their text's (#1584); a key held as its text — a String as itself, any other key as East prints it, read back at the field's type — and a choice that reads as none of the field's values, chosen, saying so under the field |
  * | `tags` | `TagsInput`, its options suggested; a Set field's values held once, in East's order |
  * | `checklist` | a `StringInput` adding an item on Enter, the items done of all in the help line, and a `Checkbox` per item, labelled with its text, each with its remove |
  * | `readonly` | the value printed, in a read-only `StringInput` |
  *
  * What is typed — a text, a number, a date — is one edit when the focus
  * leaves the field, or on Enter, as typing in a cell is; Esc puts it back. A
- * choice is an edit at once. An Option's text is emptied to none, and its
- * select or reference set to none by choosing Not set or Unassigned; any other
- * Option has a Clear beside it, and a Set while it holds none. A field with
+ * choice is an edit at once. An Option's text or number is emptied to none,
+ * and its select or reference set to none by choosing Not set or Unassigned;
+ * any other Option has a Clear beside it, and a Set while it holds none. Any
+ * other number's box emptied leaves its field no value: a host that takes one
+ * (`takesUnset`) is told it as `undefined`, and the form refuses it for any
+ * other, saying the field can't be left empty. A number is held to its bounds
+ * by its box's steps alone: a stored one the keyboard passes through stays as
+ * stored, and one typed past them is told as typed, for the host to flag and
+ * hold its Save on — or, where what the form edits can't stand outside them
+ * (`refusesBreaches`), refused, the field saying the bound. A field with
  * no value yet — a draft's field not given, whatever its type — shows Not
  * set: a text empty, a select or a reference with nothing chosen, any other
- * with a Set beside it (#1188). A date's input takes its editor's precision.
+ * with a Set beside it (#1188). Set gives the box it makes the keyboard, its
+ * start selected, so what is typed next replaces it. A date's input takes its
+ * editor's precision.
+ * An edit the host refuses — `onChange` returning why — leaves the field
+ * showing what it holds, its control drawn afresh, and its words under the
+ * field until its next edit or a new value from the host, as a reference's
+ * choice its field can't hold does: the keyboard stays where the edit left it,
+ * back on the field's control after Enter or a choice. Typed into a `live`
+ * form, the words come at once, and the box shows what the field holds once
+ * the keyboard leaves it, never under the keys typing into it.
  * A field that differs from `baseline` — what the drafts began from — is
  * tinted. A nested struct's fields sit under its name. Read-only, every field
  * is printed, and tags and a checklist keep their shape without their
  * controls. A host may draw a field's control itself (`renderControl`), what
- * no input shows — the field keeps its label and help line.
+ * no input shows — the field keeps its label and help line, and takes an edit
+ * the control hands it as one of its own, said under it where the host
+ * refuses it.
+ *
+ * A variant whose cases hold data has a block under its choice (#1549): the
+ * fields of the case it holds, which `Fields.specs` puts after the variant's
+ * at paths through the case, drawn as the form's own — a block inside it for
+ * a case holding a variant of its own; an empty case, the choice alone.
+ * Choosing a case starts its value as an empty Option's starts when it is set,
+ * a struct's fields each their own; choosing the case it holds is no edit. Its
+ * choice is tinted when its case differs from the baseline's, and each of the
+ * block's fields when it does. Read only, the choice prints its case's words
+ * and the block its fields.
  *
  * Every field is one column (#1220): its label, its control's line and its
  * help line, the control filling the line and an Option's Set or Clear at its
@@ -48,33 +76,64 @@
  * pane — ends in an ellipsis where the box cuts it, and its control carries
  * the whole as its title (#1250).
  *
+ * A host may draw a field on one line instead (`lines`, #1534): its label at
+ * the start, cut with an ellipsis and whole in its tooltip, and its choices at
+ * the end as one line of radios, none checked while it holds no value — a
+ * Record's cycle, toggle and boolean. A choice is an edit at once; read only,
+ * the choice made is printed there. Its help line, where it has one — a
+ * Record's mark's words (#1561) — sits under it, as a field's does, in the
+ * shared `Field`'s style for help. Lines that follow one another sit closer
+ * than fields do, rows of choices. A field an issue names (`issues`) takes the
+ * warn wash around it, as a changed one takes the brand's — and, where its
+ * host gives the issue's words with it, says them under it, after its help on
+ * a line of its own in the warn's ink (ruled 13 Nov 2026), so a field gone to
+ * says why it is named whatever of the banner over its form is in view — as
+ * does a number
+ * its bounds don't hold, whatever gave it; and the field a
+ * host names (`focus`) takes the keyboard as it is named — a new row's title —
+ * or, where a tab or a fold still hides the form, once it shows, kept in view
+ * while a pane sliding open widens the form under it. In a pane's body
+ * (`DockPane`'s, `data-dock-body`) it comes into view as a pane opened afresh
+ * shows it, whatever the subject before left the pane scrolled to: by the
+ * least scroll from the pane's start, so what stands over the field — an
+ * issue's banner — shows with it.
+ *
  * It is a React part for renderers, as `BuilderFrame` is: no East component.
  * Each input's payload is East's `defaultValue` of its type with the field's
  * parts set; the `fieldForm` recipe lays the fields out and tints a changed
  * one; the form sets data attributes (`data-field`, `data-editor`,
- * `data-dirty`, `data-field-line`, `data-field-side`), a text's or a choice's
- * title and geometry only.
+ * `data-layout`, `data-dirty`, `data-issue`, `data-breach`,
+ * `data-field-line`, `data-field-side`, `data-field-block`,
+ * `data-field-help`, `data-field-error`, `data-field-breach`,
+ * `data-field-issue`), a text's or a
+ * choice's title and geometry only; a line's help takes the `field` recipe's
+ * help style, and why its choice was refused the recipe's error style. A
+ * bound broken is said in the `field` recipe's help line, toned by its
+ * `data-breach`.
  *
  * @packageDocumentation
  */
 
-import { memo, useCallback, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent, type ReactNode } from "react";
 import { Box, chakra, useRecipe, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faXmark } from "@fortawesome/free-solid-svg-icons";
 import {
     ArrayType, BooleanType, DateTimeType, FloatType, IntegerType, NullType, SetType, StringType,
-    SortedSet, compareFor, defaultValue, equalFor, fromEastTypeValue, isTypeEqual, none, printFor, some, variant,
-    type EastType, type StructType, type ValueTypeOf, type option,
+    SortedSet, compareFor, defaultValue, equalFor, fromEastTypeValue, isTypeEqual, isVariant, none, parseFor, printFor, some, variant,
+    type EastType, type StructType, type ValueTypeOf, type VariantType, type option,
 } from "@elaraai/east";
 import {
     Checkbox, Field, FieldEditorType, Input, RadioGroup, Select, TagsInput, spellOut, type FieldEditorValue, type FieldSpecValue,
 } from "@elaraai/east-ui/internal";
+import { EastChakraFloatInput, EastChakraIntegerInput } from "../input/index.js";
 import { EastChakraRadioGroup, type RadioGroupValue } from "../radio-group/index.js";
 import { getSomeorUndefined } from "../../utils";
 import { EastChakraComponent } from "../../component";
-import { useFormatters } from "../../format/index.js";
+import { formatters as formattersIn, useFormatters } from "../../format/index.js";
 import { useValueSync } from "../../hooks/useValueSync.js";
+import { raiseIssue } from "../../editing/draft.js";
+import type { EditIssue } from "../../editing/session.js";
 import { EastChakraField, type FieldValue } from "../field/index.js";
 import { EastChakraCheckbox } from "../checkbox/index.js";
 import { fieldFormMessages, type FieldFormWords } from "./messages.js";
@@ -97,6 +156,14 @@ export interface FieldOption {
     readonly label: string;
 }
 
+/** One choice of a field drawn on one line ({@link FieldFormProps.lines}): a value of the field, and what its radio reads. */
+export interface FieldLineChoice {
+    /** The value it sets, of the field's type — an Option's, of its value's: a String field's key, a Boolean field's `true`. */
+    readonly value: unknown;
+    /** What its radio reads. */
+    readonly label: string;
+}
+
 /** Props of {@link FieldForm}. */
 export interface FieldFormProps {
     /** The fields, as `Fields.specs` resolved them. */
@@ -105,10 +172,30 @@ export interface FieldFormProps {
     value: unknown;
     /** What the drafts began from: a field that differs from it is tinted. */
     baseline?: unknown;
-    /** The host's choices for each `reference` editor, by the keyed set it names (`of`). */
+    /**
+     * The host's choices for each `reference` editor, by the keyed set it names (`of`): a String field offers them in
+     * the order given — a register's in its app's order, a kind's keys in their order at its key type, the host's to
+     * order — and a field of any other type in its keys' order at that type, each key read once.
+     */
     options?: Readonly<Record<string, readonly FieldOption[]>> | undefined;
-    /** Told each edit: the field's path, and its new value, typed as the field — an Option's `some` or `none`. */
-    onChange: (path: readonly string[], value: unknown) => void;
+    /**
+     * Told each edit: the field's path, and its new value, typed as the field — an Option's `some` or `none`. Returns why
+     * the host refuses it, where it does: the field shows what it holds again, and says so under it.
+     */
+    onChange: (path: readonly string[], value: unknown) => string | void;
+    /**
+     * Whether the host takes a field left with no value, as a draft's field not given holds none (a Sheet's): a number's
+     * box emptied, which no number reads from, is told it as `undefined`, for the host to leave unset or refuse. Absent,
+     * the form refuses it, the field showing what it holds and saying it can't be left empty. An Option's emptied box is
+     * none either way.
+     */
+    takesUnset?: boolean | undefined;
+    /**
+     * Whether what the form edits can't stand outside its fields' bounds — an Allocation's parts, an action's values: a
+     * number typed past them is refused, the field showing what it holds and saying the bound, as an edit the host
+     * refuses is. Absent, it is told the host as typed, for the host to flag and to hold its Save on (`fieldBreaches`).
+     */
+    refusesBreaches?: boolean | undefined;
     /** Prints every value, and takes no edit. */
     readOnly?: boolean | undefined;
     /** The form's words: the host's, else English in the app's locale. */
@@ -116,16 +203,53 @@ export interface FieldFormProps {
     /**
      * Draws a field's control itself, in place of the input its editor takes —
      * what no input shows (a sheet's link chips, #1188); the field keeps its
-     * label and help line. `undefined` for a field the form draws. Keep it
-     * stable (`useCallback`): each field's memo compares it.
+     * label and help line. `undefined` for a field the form draws. An edit the
+     * control hands the field (`change`: its value — an Option's, `undefined`
+     * for none) is one of the field's own, told the host as `onChange`, and
+     * one the host refuses said under the field. Keep it stable
+     * (`useCallback`): each field's memo compares it.
      */
-    renderControl?: ((spec: FieldSpecValue) => ReactNode | undefined) | undefined;
+    renderControl?: ((spec: FieldSpecValue, change: (value: unknown) => void) => ReactNode | undefined) | undefined;
     /**
      * Tell each typed edit as it is typed, not once the focus leaves the field or on Enter: for a form whose host
      * shows what the values as they stand would do (a Sheet action's consequence, #1477). Esc still puts it back only
      * as far as the last edit told.
      */
     live?: boolean | undefined;
+    /**
+     * The fields drawn on one line (#1534), by key — the field's path, joined by "." — each with its choices in order:
+     * the label at the start, the choices at the end as one line of radios, none checked while the field holds no
+     * value. A field a host draws itself (`renderControl`) keeps its column. Keep it stable: each field's memo
+     * compares it.
+     */
+    lines?: ReadonlyMap<string, readonly FieldLineChoice[]> | undefined;
+    /**
+     * The fields an issue names, by key: each takes the warn wash around it. Given as a map, each with what its issues
+     * say of it — an app's refusal, `Give the duty a cost centre`; several, each in turn — the field says those words
+     * under it, after its help (ruled 13 Nov 2026): the reason is where the keyboard is, whatever of a banner over the
+     * form is in view. A bound the field's number breaks is said by its help line already, and never again here: a
+     * builder's readiness raises a breach as an issue in the bound's own words ({@link fieldBreachIssue}).
+     */
+    issues?: ReadonlySet<string> | ReadonlyMap<string, string | readonly string[]> | undefined;
+    /**
+     * How the form says a number its field's bounds don't hold (#1585), as the host's Save stands on what the form
+     * edits. Either way the field takes the warn wash, and says the bound once: in its help line, which names the
+     * field's bounds, or — where the field prints its value, its help line its host's own words or none — on a line of
+     * its own in it, under them.
+     *
+     * - `"warn"` — what the form edits stands as stored, so no Save waits on it: the help line, or the bound's line, in
+     *   the warn ink, and the box the warn's edge; the field is not invalid.
+     * - `"error"` — what the form edits is changed, so its Save waits on the bound: the help line, or the bound's line,
+     *   in the danger ink, and the field invalid, its box the danger's edge.
+     *
+     * An edit the host refuses is said on a line of its own, the field invalid, whichever it is. `"error"` by default.
+     */
+    breaches?: "warn" | "error" | undefined;
+    /**
+     * The field that takes the keyboard, by key, as it is named: the first control in it that takes it — or, where a
+     * tab or a fold still hides the form, once it shows. A later name takes its place; naming none leaves it to take it.
+     */
+    focus?: string | undefined;
 }
 
 // Each shared input's payload with nothing set: East's default for its type.
@@ -151,6 +275,7 @@ const SELECT_STYLE = some({ ...defaultValue<typeof Select.Types.Root.fields.styl
 const TAGS_STYLE = some({ ...defaultValue<typeof TagsInput.Types.Style>(TagsInput.Types.Style), size: SIZE });
 
 const stringEqual = equalFor(StringType);
+const pathEqual = equalFor(ArrayType(StringType));
 const compareStrings = compareFor(StringType);
 const compareIntegers = compareFor(IntegerType);
 const compareFloats = compareFor(FloatType);
@@ -159,18 +284,147 @@ const compareFloats = compareFor(FloatType);
 const NONE_CHOICE = "\u0000none";
 
 const NO_OPTIONS: Readonly<Record<string, readonly FieldOption[]>> = {};
+const NO_CHOICES: readonly FieldOption[] = [];
+const NO_SPECS: readonly FieldSpecValue[] = [];
+
+/** What takes the keyboard in a field: the first control in it that takes it. */
+const FOCUSABLE = "input:not([type=hidden]):not([disabled]), textarea:not([disabled]), button:not([disabled]), [tabindex]:not([tabindex='-1'])";
+
+/** A pane's scrolling body, as `DockPane` marks its own: what shows a form's subject, one at a time. */
+const PANE_BODY = "[data-dock-body]";
+
+/** Each element around a field, and where it is scrolled from as the field comes into view: its top, then its left. */
+type ScrolledFrom = readonly (readonly [Element, number, number])[];
 
 /**
- * A field's value, read along its path from the struct the form edits.
+ * Where each element around a field is scrolled from as the field comes into view: where it stands — but the field's
+ * pane, and whatever scrolls inside it, from its start. A pane shows a subject at a time and keeps its scroll from one
+ * to the next, so where the subject before left it says nothing of this one: begun from there, a field already in view
+ * scrolled nothing, and what stands over it — the banner of the issue that named it — stayed out of sight above (hand
+ * test, 13 Nov 2026). Begun from its start, the pane shows the field as one opened afresh does. What scrolls outside
+ * the pane — the page — begins where it stands: nothing a form does moves a page further than it must.
+ *
+ * @param field - The field
+ * @returns Each element around it, innermost first, and where it begins from
+ */
+function scrolledFrom(field: HTMLElement): ScrolledFrom {
+    const pane = field.closest(PANE_BODY);
+    const from: (readonly [Element, number, number])[] = [];
+    for (let el = field.parentElement; el !== null; el = el.parentElement) {
+        const inPane = pane !== null && pane.contains(el);
+        from.push([el, inPane ? 0 : el.scrollTop, inPane ? 0 : el.scrollLeft]);
+    }
+    return from;
+}
+
+/**
+ * Brings a field into view whole — its label and help with its control — by the least scroll from where each element
+ * around it begins.
+ *
+ * @param field - The field
+ * @param from - Each element around it, and where it begins from ({@link scrolledFrom})
+ */
+function bringIntoView(field: HTMLElement, from: ScrolledFrom): void {
+    for (const [el, top, left] of from) {
+        if (el.scrollTop !== top) el.scrollTop = top;
+        if (el.scrollLeft !== left) el.scrollLeft = left;
+    }
+    field.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+}
+
+/**
+ * Keeps the field whose control took the keyboard in view — its label with it — while its form changes width, until
+ * the control loses the keyboard: a pane sliding open shows the form narrow first, where the field sits far lower,
+ * and widens it under the scroll that brought the control into view. Each width brings it into view again from where
+ * the elements around it began as it took the keyboard, scrolled no further than a form already that wide would have
+ * scrolled them — never left as far down as the narrow form needed.
+ *
+ * @param root - The form
+ * @param field - The field
+ * @param control - Its control that took the keyboard
+ * @param from - Each element around the field, and where it began from as the control took the keyboard
+ */
+function keepInView(root: HTMLElement, field: HTMLElement, control: HTMLElement, from: ScrolledFrom): void {
+    if (typeof ResizeObserver !== "function") return;
+    let width = root.getBoundingClientRect().width;
+    const observer = new ResizeObserver(() => {
+        if (control.ownerDocument.activeElement !== control) { observer.disconnect(); return; }
+        const now = root.getBoundingClientRect().width;
+        if (Math.abs(now - width) < 0.5) return;
+        width = now;
+        bringIntoView(field, from);
+    });
+    observer.observe(root);
+}
+
+/**
+ * Gives the keyboard to a field of a form — the first control in it that takes it — at once where it shows, else once
+ * it does: the browser gives it to nothing hidden, and a change of an element around the form (a tab's panel shown, a
+ * fold opened) is when it may show. The field comes into view whole, its label and help with its control, scrolled no
+ * further than it must be — what stands over it in its pane, an issue's banner, stays in view where there is room,
+ * wherever the subject before left the pane ({@link scrolledFrom}) — and stays in view while the form settles.
+ *
+ * @param root - The form
+ * @param key - The field, by key
+ * @returns What stops the wait, while it waits; `undefined` once the field has the keyboard, or where it has nothing to take it
+ */
+function takeWhenShown(root: HTMLElement | null, key: string): (() => void) | undefined {
+    if (root === null) return undefined;
+    // Whether the wait is over: the keyboard given, or nothing in the field to take it.
+    const take = (): boolean => {
+        const field = [...root.querySelectorAll<HTMLElement>("[data-field]")].find((el) => stringEqual(el.getAttribute("data-field") ?? "", key));
+        const control = field?.querySelector<HTMLElement>(FOCUSABLE);
+        if (field === undefined || control === undefined || control === null) return true;
+        if (typeof control.checkVisibility === "function" && !control.checkVisibility()) return false;
+        const from = scrolledFrom(field);
+        control.focus({ preventScroll: true });
+        bringIntoView(field, from);
+        keepInView(root, field, control, from);
+        return true;
+    };
+    if (take()) return undefined;
+    const observer = new MutationObserver((records) => {
+        if (records.some((record) => record.target.contains(root)) && take()) observer.disconnect();
+    });
+    observer.observe(root.ownerDocument.documentElement, { attributes: true, subtree: true });
+    return () => observer.disconnect();
+}
+
+/**
+ * A field's value, read along its path from the struct the form edits: a step
+ * into a struct its field, a step into a variant its case's value while it
+ * holds that case.
  *
  * @param value - The struct
- * @param path - The field's names, from the struct down
- * @returns The field's value, or `undefined` where the struct holds none
+ * @param path - The field's names, from the struct down, and the cases it is under
+ * @returns The field's value, or `undefined` where the struct holds none, or its variant another case
  */
 function valueAt(value: unknown, path: readonly string[]): unknown {
     let at: unknown = value;
-    for (const name of path) at = at === undefined || at === null ? undefined : (at as Record<string, unknown>)[name];
+    for (const name of path) {
+        if (at === undefined || at === null) return undefined;
+        at = isVariant(at) ? (stringEqual(at.type, name) ? at.value : undefined) : (at as Record<string, unknown>)[name];
+    }
     return at;
+}
+
+/** Whether a field's path runs through another's: a case's value's, under its variant's. */
+function isUnder(path: readonly string[], parent: readonly string[]): boolean {
+    return path.length > parent.length && pathEqual(path.slice(0, parent.length), [...parent]);
+}
+
+/**
+ * The specs under each variant's, by its spec's path: those after it at paths
+ * through its cases, as `Fields.specs` puts them, which its block draws.
+ */
+function underOf(specs: readonly FieldSpecValue[]): ReadonlyMap<string, readonly FieldSpecValue[]> {
+    const out = new Map<string, readonly FieldSpecValue[]>();
+    specs.forEach((spec, i) => {
+        let end = i + 1;
+        while (end < specs.length && isUnder(specs[end]!.path, spec.path)) end += 1;
+        if (end > i + 1) out.set(spec.path.join("\u001f"), specs.slice(i + 1, end));
+    });
+    return out;
 }
 
 /** The specs in runs of one group, in order. */
@@ -219,6 +473,94 @@ function clampOf(editor: NumberEditor, integer: boolean): (n: bigint | number) =
     };
 }
 
+/**
+ * A number its field's bounds don't hold (#1585): under its least, or over its most. The form holds to them only what
+ * it makes itself — a Set's start, a step of its box — never a value typed into it or given it — a new row's default,
+ * stored data, a card's values, an app's write — which is held as it is and flagged, as a field still missing is: here
+ * and in the host's issues.
+ */
+export interface FieldBreach {
+    /** The field's path, as its spec's. */
+    readonly path: readonly string[];
+    /** Its key: the path joined by ".". */
+    readonly key: string;
+    /** The bound it breaks: the field's least, or its most. */
+    readonly side: "min" | "max";
+    /** That bound, at the field's type: an Integer's a bigint. */
+    readonly bound: bigint | number;
+}
+
+/** Where a number stands against its editor's bounds: the one it breaks, or none — an Integer's as bigints, a Float's as numbers, compared by East. */
+function breachOf(editor: NumberEditor, n: bigint | number, integer: boolean): Pick<FieldBreach, "side" | "bound"> | undefined {
+    const min = getSomeorUndefined(editor.min);
+    const max = getSomeorUndefined(editor.max);
+    if (integer) {
+        const lo = min === undefined ? undefined : BigInt(Math.ceil(min));
+        const hi = max === undefined ? undefined : BigInt(Math.floor(max));
+        if (lo !== undefined && compareIntegers(n as bigint, lo) < 0) return { side: "min", bound: lo };
+        if (hi !== undefined && compareIntegers(n as bigint, hi) > 0) return { side: "max", bound: hi };
+        return undefined;
+    }
+    if (min !== undefined && compareFloats(n as number, min) < 0) return { side: "min", bound: min };
+    if (max !== undefined && compareFloats(n as number, max) > 0) return { side: "max", bound: max };
+    return undefined;
+}
+
+/**
+ * The fields of a struct whose numbers their bounds don't hold (#1585): what every builder flags as it flags a field
+ * still missing — a warning on the cell, a line under the field, an entry in Issues, and Save waiting while a changed
+ * row has one. A field under a case its variant doesn't hold, or holding no value, breaks none.
+ *
+ * @param specs - The fields, as `Fields.specs` resolved them
+ * @param value - The struct, as the form edits it
+ * @returns Each field outside its bounds, in the specs' order
+ */
+export function fieldBreaches(specs: readonly FieldSpecValue[], value: unknown): FieldBreach[] {
+    const out: FieldBreach[] = [];
+    for (const spec of specs) {
+        if (spec.editor.type !== "number") continue;
+        const at = valueAt(value, spec.path);
+        const held = spec.optional ? getSomeorUndefined(at as option<unknown>) : at;
+        if (held === undefined) continue;
+        const type = fromEastTypeValue(spec.type) as EastType;
+        const inner = spec.optional && type.type === "Variant" ? (type.cases as Record<string, EastType>)["some"]! : type;
+        const breach = breachOf(spec.editor.value, held as bigint | number, isTypeEqual(inner, IntegerType));
+        if (breach !== undefined) out.push({ path: spec.path, key: spec.path.join("."), ...breach });
+    }
+    return out;
+}
+
+/**
+ * A breach in its field's hint's own words — `at least 1`, `at most 12` — and the locale's figures: the line under the
+ * field, and what a host's issue says of it.
+ *
+ * @param breach - The bound broken
+ * @param words - The form's words: the host's, or English in the app's locale
+ * @returns The words
+ */
+export function fieldBreachText(breach: Pick<FieldBreach, "side" | "bound">, words: FieldFormWords): string {
+    const bound = words.number(breach.bound);
+    return words.m.numberHelp({ min: breach.side === "min" ? bound : undefined, max: breach.side === "max" ? bound : undefined, unit: undefined, step: undefined });
+}
+
+/** The words a breach's issue says: canonical English, as every issue a patch event carries. */
+const ISSUE_WORDS: FieldFormWords = { ...formattersIn("en-US"), m: fieldFormMessages };
+
+/**
+ * A breach as an issue of a builder's readiness (#1585): raised as a field still missing is, so the row it names reads
+ * incomplete and a changed row's Save waits, naming the entry, its line and the field, and the bound in its hint's own
+ * words — canonical English, as every issue a patch event carries, which a surface shows as written.
+ *
+ * @param breach - The bound broken
+ * @param at - The entry; its line in its group, none by default; and the field as the builder's issues name it, the breach's key by default
+ * @returns The issue
+ */
+export function fieldBreachIssue(breach: FieldBreach, at: { readonly entry: string; readonly row?: bigint | undefined; readonly field?: string | undefined }): EditIssue {
+    return raiseIssue("incomplete", {
+        entry: at.entry, row: at.row === undefined ? none : some(at.row), field: some(at.field ?? breach.key), message: fieldBreachText(breach, ISSUE_WORDS),
+    });
+}
+
 /** A number editor's help line — `1–20 people · step 1` — in the form's words and its locale's figures, or none for a bare number. */
 function numberLine(editor: NumberEditor, words: FieldFormWords): string | undefined {
     const min = getSomeorUndefined(editor.min);
@@ -238,11 +580,33 @@ function numberLine(editor: NumberEditor, words: FieldFormWords): string | undef
  * What an empty Option starts from when it is set: East's default for its
  * type, held to a number's bounds — and for a date, this minute.
  */
-function startOf(inner: EastType, editor: FieldEditorValue): unknown {
+function startOf(inner: EastType, editor: FieldEditorValue | undefined): unknown {
     if (isTypeEqual(inner, DateTimeType)) return new Date(Math.floor(Date.now() / 60_000) * 60_000);
     const start = defaultValue<EastType>(inner) as unknown;
-    if (editor.type === "number") return clampOf(editor.value, isTypeEqual(inner, IntegerType))(start as bigint | number);
+    if (editor?.type === "number") return clampOf(editor.value, isTypeEqual(inner, IntegerType))(start as bigint | number);
     return start;
+}
+
+/**
+ * What a case's value starts from when the case is chosen: a field's start, as
+ * an empty Option's when it is set; a struct's fields each their own; a
+ * variant chosen among, East's default case, its value started the same way.
+ *
+ * @param type - The value's type
+ * @param path - Its path, through the case
+ * @param under - The specs under the variant's, by which the value's fields are edited
+ * @returns The value
+ */
+function startAt(type: EastType, path: readonly string[], under: readonly FieldSpecValue[]): unknown {
+    const spec = under.find((s) => pathEqual(s.path, [...path]));
+    if (spec === undefined && type.type === "Struct") {
+        return Object.fromEntries(Object.entries(type.fields as Record<string, EastType>).map(([name, field]) => [name, startAt(field, [...path, name], under)]));
+    }
+    if (spec !== undefined && !spec.optional && spec.editor.type === "select" && type.type === "Variant") {
+        const first = (defaultValue<EastType>(type) as variant).type;
+        return variant(first, startAt((type.cases as Record<string, EastType>)[first]!, [...path, first], under));
+    }
+    return startOf(type, spec === undefined || spec.optional ? undefined : spec.editor);
 }
 
 /**
@@ -257,7 +621,9 @@ function printOf(
 ): string {
     if (value === undefined) return words.m.noValue();
     if (editor.type === "reference") {
-        return options[editor.value.of]?.find((o) => stringEqual(o.key, value as string))?.label ?? (value as string);
+        // A key by its text: a String as itself, any other as East prints it.
+        const text = isTypeEqual(type, StringType) ? value as string : printFor(type)(value as never);
+        return options[editor.value.of]?.find((o) => stringEqual(o.key, text))?.label ?? text;
     }
     if (editor.type === "select") {
         const tag = (value as variant).type as string;
@@ -296,48 +662,134 @@ function printOf(
  * />
  * ```
  */
-export const FieldForm = memo(function FieldForm({ specs, value, baseline, options = NO_OPTIONS, onChange, readOnly = false, words, renderControl, live = false }: FieldFormProps) {
+export const FieldForm = memo(function FieldForm({
+    specs, value, baseline, options = NO_OPTIONS, onChange, takesUnset = false, refusesBreaches = false, readOnly = false, words, renderControl, live = false,
+    lines, issues, focus, breaches = "error",
+}: FieldFormProps) {
     const styles = useSlotRecipe({ key: "fieldForm" })() as Styles;
     const formatters = useFormatters();
     const said = useMemo((): FieldFormWords => words ?? { ...formatters, m: fieldFormMessages }, [words, formatters]);
     const sections = useMemo(() => sectionsOf(specs), [specs]);
-    const row = (spec: FieldSpecValue) => (
-        <FieldRow key={spec.path.join("\u001f")} spec={spec} current={valueAt(value, spec.path)}
-            base={baseline === undefined ? undefined : valueAt(baseline, spec.path)} hasBaseline={baseline !== undefined}
-            options={options} onChange={onChange} readOnly={readOnly} words={said} styles={styles} renderControl={renderControl} live={live} />
-    );
+    const unders = useMemo(() => underOf(specs), [specs]);
+    // The field named takes the keyboard (`focus`), once it shows: a later name stops the wait for the one before.
+    const rootRef = useRef<HTMLDivElement | null>(null);
+    const taking = useRef<(() => void) | undefined>(undefined);
+    useEffect(() => {
+        if (focus === undefined) return;
+        taking.current?.();
+        taking.current = takeWhenShown(rootRef.current, focus);
+    }, [focus]);
+    useEffect(() => () => taking.current?.(), []);
+    // A field, and the specs under it where it is a variant's choice — never drawn on one line.
+    const row = (spec: FieldSpecValue, under: readonly FieldSpecValue[] | undefined) => {
+        const key = spec.path.join(".");
+        return (
+            <FieldRow key={spec.path.join("\u001f")} spec={spec} under={under} current={valueAt(value, spec.path)}
+                base={baseline === undefined ? undefined : valueAt(baseline, spec.path)} hasBaseline={baseline !== undefined}
+                options={options} onChange={onChange} takesUnset={takesUnset} refusesBreaches={refusesBreaches} readOnly={readOnly} words={said} styles={styles}
+                renderControl={renderControl} live={live}
+                choices={under === undefined ? lines?.get(key) : undefined} issue={issues?.has(key) === true} reason={reasonOf(issues, key)} breaches={breaches} />
+        );
+    };
+    // A section's fields in order, each run of fields drawn on one line together, and under a variant's choice its
+    // block: the fields of the case it holds.
+    const draw = (run: readonly FieldSpecValue[]): ReactNode[] => {
+        const out: ReactNode[] = [];
+        let together: FieldSpecValue[] = [];
+        const close = () => {
+            if (together.length === 0) return;
+            out.push(<Box key={`lines\u001f${together[0]!.path.join("\u001f")}`} css={styles.lines} data-field-lines="">{together.map((spec) => row(spec, undefined))}</Box>);
+            together = [];
+        };
+        for (let i = 0; i < run.length; i += 1) {
+            const spec = run[i]!;
+            const under = unders.get(spec.path.join("\u001f"));
+            if (under === undefined) {
+                if (lines?.has(spec.path.join(".")) === true) together.push(spec);
+                else { close(); out.push(row(spec, undefined)); }
+                continue;
+            }
+            close();
+            out.push(row(spec, under));
+            let end = i + 1;
+            while (end < run.length && isUnder(run[end]!.path, spec.path)) end += 1;
+            const held = valueAt(value, spec.path);
+            const shown = isVariant(held) ? run.slice(i + 1, end).filter((s) => stringEqual(s.path[spec.path.length]!, held.type)) : [];
+            if (shown.length > 0) {
+                out.push(<Box key={`block\u001f${spec.path.join("\u001f")}`} css={styles.block} data-field-block={spec.path.join(".")}>{draw(shown)}</Box>);
+            }
+            i = end - 1;
+        }
+        close();
+        return out;
+    };
     return (
-        <Box css={styles.root} data-field-form="">
-            {sections.map((section) => (section.group === undefined ? section.specs.map(row) : (
-                <Box key={`group\u001f${section.group}`} css={styles.group} role="group" aria-label={section.group} data-field-group={section.group}>
+        <Box ref={rootRef} css={styles.root} data-field-form="">
+            {/* A section keyed by its first field: two runs of one group apart — `Other` twice — are two sections. */}
+            {sections.map((section) => (section.group === undefined ? draw(section.specs) : (
+                <Box key={`group\u001f${section.specs[0]!.path.join("\u001f")}`} css={styles.group} role="group" aria-label={section.group} data-field-group={section.group}>
                     <Box as="span" css={styles.groupHead}>{section.group}</Box>
-                    <Box css={styles.groupFields}>{section.specs.map(row)}</Box>
+                    <Box css={styles.groupFields}>{draw(section.specs)}</Box>
                 </Box>
             )))}
         </Box>
     );
 });
 
+/** What parts each issue's words of a field in the one text a row is handed: no words hold it. */
+const REASONS = "\u001f";
+
+/**
+ * What its issues say of a field, where its host gave the issues with their words — each issue's in turn, in one text
+ * a row's memo compares ({@link REASONS} between them); none for a set of keys, or no words.
+ */
+function reasonOf(issues: FieldFormProps["issues"], key: string): string | undefined {
+    const said = issues !== undefined && "get" in issues ? issues.get(key) : undefined;
+    const lines = (said === undefined ? [] : typeof said === "string" ? [said] : said).filter((line) => line.length > 0);
+    return lines.length === 0 ? undefined : lines.join(REASONS);
+}
+
 /** Props of {@link FieldRow}. */
 interface FieldRowProps {
     spec: FieldSpecValue;
+    /** The specs under it, where it is a variant's choice: what a case chosen starts from. */
+    under: readonly FieldSpecValue[] | undefined;
     current: unknown;
     base: unknown;
     hasBaseline: boolean;
     options: Readonly<Record<string, readonly FieldOption[]>>;
-    onChange: (path: readonly string[], value: unknown) => void;
+    onChange: FieldFormProps["onChange"];
+    takesUnset: boolean;
+    /** A number typed past its bounds is refused, in their words. */
+    refusesBreaches: boolean;
     readOnly: boolean;
     words: FieldFormWords;
     styles: Styles;
     renderControl: FieldFormProps["renderControl"];
     live: boolean;
+    /** Its choices, where it is drawn on one line. */
+    choices: readonly FieldLineChoice[] | undefined;
+    /** An issue names it. */
+    issue: boolean;
+    /** What its issues say of it, each in turn ({@link REASONS} between them), said under it; none where its host gave no words. */
+    reason: string | undefined;
+    /** How it says a number its bounds don't hold: as a warning, or as an error. */
+    breaches: "warn" | "error";
 }
 
-/** One field: the shared `Field` around its control's line — its input, and an Option's Set or Clear — and a checklist's items. */
-const FieldRow = memo(function FieldRow({ spec, current, base, hasBaseline, options, onChange, readOnly, words, styles, renderControl, live }: FieldRowProps) {
+/**
+ * One field: the shared `Field` around its control's line — its input, and an Option's Set or Clear — and a
+ * checklist's items; or, drawn on one line, its label and its choices.
+ */
+const FieldRow = memo(function FieldRow({
+    spec, under, current, base, hasBaseline, options, onChange, takesUnset, refusesBreaches, readOnly, words, styles, renderControl, live, choices, issue,
+    reason, breaches,
+}: FieldRowProps) {
     const { m } = words;
     const button = useRecipe({ key: "button" });
     const iconButton = useRecipe({ key: "iconButton" });
+    // A line's help, in the shared Field's style for it: what the Field draws a column's in.
+    const fieldStyles = useSlotRecipe({ key: "field" })() as Styles;
     const type = useMemo(() => fromEastTypeValue(spec.type) as EastType, [spec.type]);
     // Two values of the field, either of them none yet (a draft's field not given).
     const same = useMemo(() => {
@@ -346,42 +798,194 @@ const FieldRow = memo(function FieldRow({ spec, current, base, hasBaseline, opti
     }, [type]);
     // An Option's input edits its value's type; `none` is no value.
     const inner = useMemo(() => (spec.optional && type.type === "Variant" ? (type.cases as Record<string, EastType>)["some"]! : type), [spec.optional, type]);
+    // Two values of what the input edits: a line's choice against the value the field holds.
+    const sameInner = useMemo(() => equalFor(inner), [inner]);
     const held = spec.optional ? getSomeorUndefined(current as option<unknown>) : current;
-    const dirty = hasBaseline && !same(current, base);
+    // A variant's choice differs where its case does: what the case holds is its block's fields' to tint.
+    const dirty = hasBaseline && (under === undefined ? !same(current, base)
+        : current === undefined || base === undefined ? current !== base : !stringEqual((current as variant).type, (base as variant).type));
     const key = spec.path.join(".");
     const editor = spec.editor;
-    // A control the host draws itself, in the field.
-    const own = renderControl?.(spec);
+    // A reference's key by its text: a String as itself, a key of any other type as East prints it, reads it back and
+    // orders it.
+    const keyText = useMemo(() => (editor.type !== "reference" || isTypeEqual(inner, StringType) ? undefined
+        : { print: printFor(inner), parse: parseFor(inner), compare: compareFor(inner) as (a: unknown, b: unknown) => number }), [editor.type, inner]);
+    // A reference's choices as its select offers them: a String field's in the host's order; any other field's each read
+    // at its type once and in its keys' order there — never their text's, where 10 comes before 9 — a choice that reads as
+    // none of its values after every one that does, in its text's order.
+    const listed = editor.type === "reference" ? options[editor.value.of] : undefined;
+    const offered = useMemo((): readonly FieldOption[] => {
+        if (listed === undefined || keyText === undefined) return listed ?? NO_CHOICES;
+        return listed.map((choice) => {
+            const read = keyText.parse(choice.key);
+            return read.success ? { choice, reads: true, key: read.value as unknown } : { choice, reads: false, key: undefined };
+        }).sort((a, b) => (a.reads && b.reads ? keyText.compare(a.key, b.key) : a.reads ? -1 : b.reads ? 1 : compareStrings(a.choice.key, b.choice.key)))
+            .map(({ choice }) => choice);
+    }, [listed, keyText]);
+    // Why the field shows what it holds, not the edit last made — a reference's choice whose key reads as none of the
+    // field's values, or an edit the host refused, in its words — said under it until its next edit, or a new value
+    // from the host.
+    const [refusal, setRefusal] = useState<string | undefined>(undefined);
     // Read-only, a value is printed; tags and a checklist keep their shape.
     const printed = editor.type === "readonly" || (readOnly && editor.type !== "tags" && editor.type !== "checklist");
-
-    // One edit of the field: its value, `undefined` being an Option's none.
-    const emit = useCallback((next: unknown) => {
-        const out = spec.optional ? (next === undefined ? none : some(next)) : next;
-        if (same(out, current)) return;
-        onChange(spec.path, out);
-    }, [spec.optional, spec.path, same, current, onChange]);
 
     // A typed edit waits for the focus to leave the field, or Enter; Esc drops
     // it. A new value from the host drops it too: the input shows that one.
     const pending = useRef<{ value: unknown } | undefined>(undefined);
     const [revision, setRevision] = useState(0);
-    useValueSync(current, same, () => { pending.current = undefined; });
+    // The field, its control's box, and — in a `live` form — whether the box holds what was typed past a refusal.
+    const rowRef = useRef<HTMLDivElement | null>(null);
+    const fieldRef = useRef<HTMLDivElement | null>(null);
+    const stale = useRef(false);
+    // Set pressed: the box it makes takes the keyboard, its start selected, once the host holds the value — the button
+    // under the keyboard is Clear by then. Focus leaving for anything outside the field first ends the wait.
+    const setting = useRef(false);
+    // A refusal: its words under the field, and the field drawn afresh — a select, a radio and a box each keep the edit
+    // last made — showing what it holds, the keyboard back on its control where the edit left it in the field.
+    const refocus = useRef(false);
+    const refuse = useCallback((words: string, keep: boolean) => {
+        setRefusal(words);
+        stale.current = false;
+        setting.current = false;
+        refocus.current = keep;
+        setRevision((r) => r + 1);
+    }, []);
+    // A number's box emptied, as its control last told the field its text: an empty box hands on no number — none reads
+    // from it — so the field keeps what the control told it, never reading the box back from the page. A new value from
+    // the host, Esc and each commit end it.
+    const blank = useRef(false);
+    const typedText = useCallback((text: string) => { blank.current = text.trim().length === 0; }, []);
+    useValueSync(current, same, () => {
+        pending.current = undefined;
+        blank.current = false;
+        stale.current = false;
+        setRefusal(undefined);
+    });
+
+    // One edit of the field: its value, `undefined` being an Option's none — a choice's at once, a typed one's as it is
+    // committed, or in a `live` form as it is typed. One the host refuses is put back: a choice's and a committed one's at
+    // once, the keyboard kept where the edit left it in the field; one typed into a live form's box once the keyboard
+    // leaves it, its words at once.
+    const emit = useCallback((next: unknown, how: "choice" | "typed" | "typing" = "choice") => {
+        const out = spec.optional ? (next === undefined ? none : some(next)) : next;
+        // A number typed past its bounds, where what the form edits can't stand outside them: refused, in their words.
+        const breach = refusesBreaches && how !== "choice" && editor.type === "number" && next !== undefined
+            ? breachOf(editor.value, next as bigint | number, isTypeEqual(inner, IntegerType)) : undefined;
+        const refused = same(out, current) ? undefined : breach !== undefined ? fieldBreachText(breach, words) : onChange(spec.path, out);
+        if (refused === undefined) {
+            stale.current = false;
+            setRefusal(undefined);
+        } else if (how === "typing") {
+            stale.current = true;
+            setRefusal(refused);
+        } else {
+            const row = rowRef.current;
+            refuse(refused, how === "choice" || (row !== null && row.contains(row.ownerDocument.activeElement)));
+        }
+    }, [spec.optional, spec.path, same, current, onChange, refuse, refusesBreaches, editor, inner, words]);
     // Live, each typed edit is told at once (`FieldFormProps.live`).
-    const hold = useCallback((next: unknown) => { if (live) emit(next); else pending.current = { value: next }; }, [live, emit]);
+    const hold = useCallback((next: unknown) => { if (live) emit(next, "typing"); else pending.current = { value: next }; }, [live, emit]);
     const commit = useCallback(() => {
+        // Emptied, the number typed before it is no edit: an Option's box is none, any other field's no value — the
+        // host's, where it takes a field unset; else refused, the keyboard kept where the edit left it in the field.
+        if (blank.current) {
+            blank.current = false;
+            pending.current = undefined;
+            if (spec.optional || takesUnset) emit(undefined, "typed");
+            else {
+                const row = rowRef.current;
+                refuse(m.noEmpty({ label: spec.label }), row !== null && row.contains(row.ownerDocument.activeElement));
+            }
+            return;
+        }
         const edit = pending.current;
         if (edit === undefined) return;
         pending.current = undefined;
-        emit(edit.value);
-    }, [emit]);
+        emit(edit.value, "typed");
+    }, [emit, spec.optional, spec.label, takesUnset, refuse, m]);
+    // A control the host draws itself, in the field: an edit it hands the field is a choice of the field's own.
+    const own = renderControl?.(spec, emit);
 
     // A checklist: its items, and the item typed into its box.
     const checklist = own === undefined && editor.type === "checklist" ? editor.value : undefined;
     const items = (checklist === undefined || held === undefined ? [] : held) as readonly Record<string, unknown>[];
     const done = checklist === undefined ? 0 : items.filter((item) => item[checklist.done] as boolean).length;
     const typed = useRef("");
-    const fieldRef = useRef<HTMLDivElement | null>(null);
+    useEffect(() => {
+        if (!setting.current || held === undefined) return;
+        setting.current = false;
+        const box = fieldRef.current?.querySelector<HTMLElement>("input:not([type=hidden]):not([disabled]), textarea:not([disabled])")
+            ?? fieldRef.current?.querySelector<HTMLElement>(FOCUSABLE);
+        box?.focus();
+        if (box instanceof HTMLInputElement || box instanceof HTMLTextAreaElement) box.select();
+    }, [held]);
+    // Drawn afresh after a refusal that left the keyboard in the field: back on its control — a line's choices, drawn on
+    // one line; past a Set's disabled box, its Set.
+    useLayoutEffect(() => {
+        if (!refocus.current) return;
+        refocus.current = false;
+        (fieldRef.current?.querySelector<HTMLElement>(FOCUSABLE) ?? rowRef.current?.querySelector<HTMLElement>(FOCUSABLE))?.focus();
+    }, [revision]);
+    // What its issues say of it, as it says them under it: each in turn — but the bound its number breaks, which its help
+    // line says already, in whichever words the issue came in (a readiness's canonical English, or the form's own).
+    const issueWords = (bound: Pick<FieldBreach, "side" | "bound"> | undefined): string | undefined => {
+        if (reason === undefined) return undefined;
+        const bounds = bound === undefined ? [] : [fieldBreachText(bound, ISSUE_WORDS), fieldBreachText(bound, words)];
+        const said = reason.split(REASONS).filter((line) => !bounds.some((text) => stringEqual(text, line)));
+        return said.length === 0 ? undefined : said.join(" · ");
+    };
+    // An Option's Clear, beside a line's choices or an input that cannot show none.
+    const clear = (
+        <chakra.button type="button" css={iconButton({ variant: "ghost", size: "xs" })} aria-label={m.clear({ label: spec.label })}
+            title={m.clear({ label: spec.label })} data-field-clear="" onClick={() => emit(undefined)}>
+            <FontAwesomeIcon icon={faXmark} />
+        </chakra.button>
+    );
+
+    // Drawn on one line: its label at the start, cut where the line is short and whole in its tooltip, and its choices
+    // at the end as one line of radios, none checked while it holds no value — or, read only, the choice made — and its
+    // help under it, then why a choice was refused, in the shared Field's style for it.
+    if (choices !== undefined && own === undefined) {
+        const chosen = held === undefined ? -1 : choices.findIndex((choice) => sameInner(choice.value, held));
+        const printedLine = editor.type === "readonly" || readOnly;
+        const lineHelp = getSomeorUndefined(spec.help);
+        const lineRefusal = printedLine ? undefined : refusal;
+        const lineIssue = issueWords(undefined);
+        return (
+            <Box ref={rowRef} css={styles.field} data-field={key} data-editor={printedLine ? "readonly" : editor.type} data-layout="line"
+                data-dirty={dirty ? "" : undefined} data-issue={issue ? "" : undefined} title={spec.label}>
+                <Box as="span" css={styles.lineLabel}>{spec.label}</Box>
+                {printedLine
+                    ? <Box as="span" css={styles.lineValue} data-field-value="">{chosen < 0 ? m.notSet() : choices[chosen]!.label}</Box>
+                    : (
+                        <Box css={styles.lineChoices} data-field-choice="radio">
+                            <EastChakraRadioGroup key={revision} label={spec.label} value={{
+                                ...RADIO,
+                                value: chosen < 0 ? "" : String(chosen),
+                                items: choices.map((choice, i) => ({ value: String(i), label: some(choice.label), disabled: none })),
+                                name: some(`fieldForm.${key}`),
+                                onChange: some((next: string) => {
+                                    const choice = choices[Number(next)];
+                                    if (choice !== undefined) emit(choice.value);
+                                    return null;
+                                }),
+                                style: RADIO_STYLE,
+                            }} />
+                        </Box>
+                    )}
+                {!printedLine && spec.optional && held !== undefined && <Box css={styles.side} data-field-side="clear">{clear}</Box>}
+                {lineHelp !== undefined && lineHelp.length > 0 && (
+                    <Box as="span" css={[fieldStyles.helperText, styles.lineHelp]} data-field-help="">{lineHelp}</Box>
+                )}
+                {/* What an issue says of it, under the line. */}
+                {lineIssue !== undefined && <Box as="span" css={[fieldStyles.helperText, styles.lineHelp]} data-field-issue="">{lineIssue}</Box>}
+                {lineRefusal !== undefined && (
+                    <Box as="span" css={[fieldStyles.errorText, styles.lineHelp]} aria-live="polite" data-field-error="">{lineRefusal}</Box>
+                )}
+            </Box>
+        );
+    }
+
     const addItem = () => {
         if (checklist === undefined || inner.type !== "Array") return;
         const text = typed.current.trim();
@@ -402,16 +1006,32 @@ const FieldRow = memo(function FieldRow({ spec, current, base, hasBaseline, opti
                 }
                 return;
             }
-            if (pending.current !== undefined) queueMicrotask(commit);
-        } else if (e.key === "Escape" && pending.current !== undefined) {
+            if (pending.current !== undefined || blank.current) queueMicrotask(commit);
+        } else if (e.key === "Escape" && (pending.current !== undefined || blank.current)) {
             pending.current = undefined;
+            blank.current = false;
             setRevision((r) => r + 1);
         }
     };
     const onBlur = (e: FocusEvent<HTMLDivElement>) => {
         const to = e.relatedTarget;
         if (to !== null && e.currentTarget.contains(to as Node)) return;
+        if (to !== null) setting.current = false;
+        // A live form's typed edit refused: its box shows what the field holds, now the keyboard has left it.
+        if (stale.current) {
+            stale.current = false;
+            setRevision((r) => r + 1);
+        }
         queueMicrotask(commit);
+    };
+
+    // A case chosen: its value starts as an empty Option's does when it is set, and the case the variant holds is no
+    // edit, keeping its value.
+    const choose = (next: string) => {
+        if (stringEqual(next, NONE_CHOICE)) { emit(undefined); return; }
+        if (isVariant(held) && stringEqual(held.type, next)) return;
+        const value = ((inner as VariantType).cases as Record<string, EastType>)[next];
+        if (value !== undefined) emit(variant(next, startAt(value, [...spec.path, next], under ?? NO_SPECS)));
     };
 
     // A value printed for a person: read only, or under the host's own control.
@@ -440,26 +1060,26 @@ const FieldRow = memo(function FieldRow({ spec, current, base, hasBaseline, opti
                 const min = getSomeorUndefined(number.min);
                 const max = getSomeorUndefined(number.max);
                 const step = getSomeorUndefined(number.step);
+                // What is typed is told as typed — never held to its bounds, a number nobody typed: the field says one
+                // past them, or refuses it where what the form edits can't stand outside them (`emit`).
                 if (isTypeEqual(inner, IntegerType)) {
-                    const clamp = clampOf(number, true);
                     return variant("IntegerInput", {
                         ...INTEGER_INPUT,
                         value: held as bigint,
                         min: min === undefined ? none : some(BigInt(Math.ceil(min))),
                         max: max === undefined ? none : some(BigInt(Math.floor(max))),
                         step: step === undefined ? none : some(BigInt(Math.max(1, Math.round(step)))),
-                        onChange: some((next: bigint) => { hold(clamp(next)); return null; }),
+                        onChange: some((next: bigint) => { hold(next); return null; }),
                         style: INPUT_STYLE,
                     });
                 }
-                const clamp = clampOf(number, false);
                 return variant("FloatInput", {
                     ...FLOAT_INPUT,
                     value: held as number,
                     min: min === undefined ? none : some(min),
                     max: max === undefined ? none : some(max),
                     step: step === undefined ? none : some(step),
-                    onChange: some((next: number) => { hold(clamp(next)); return null; }),
+                    onChange: some((next: number) => { hold(next); return null; }),
                     style: INPUT_STYLE,
                 });
             }
@@ -478,23 +1098,37 @@ const FieldRow = memo(function FieldRow({ spec, current, base, hasBaseline, opti
                         ...(spec.optional ? [{ value: NONE_CHOICE, label: m.notSet(), disabled: none }] : []),
                         ...editor.value.map((o) => ({ value: o.case, label: o.label, disabled: none })),
                     ],
-                    onChange: some((next: string) => { emit(stringEqual(next, NONE_CHOICE) ? undefined : variant(next, null)); return null; }),
+                    onChange: some((next: string) => { choose(next); return null; }),
                     style: SELECT_STYLE,
                 });
             case "reference": {
-                const listed = options[editor.value.of] ?? [];
-                const at = held as string | undefined;
+                const at = held === undefined ? undefined : keyText === undefined ? held as string : keyText.print(held);
                 // A key the host does not list still shows, as itself.
-                const unlisted = at !== undefined && !listed.some((o) => stringEqual(o.key, at));
+                const unlisted = at !== undefined && !offered.some((o) => stringEqual(o.key, at));
                 return variant("Select", {
                     ...SELECT,
                     value: at !== undefined ? some(at) : spec.optional ? some(NONE_CHOICE) : none,
                     items: [
                         ...(spec.optional ? [{ value: NONE_CHOICE, label: m.unassigned(), disabled: none }] : []),
-                        ...listed.map((o) => ({ value: o.key, label: o.label, disabled: none })),
+                        ...offered.map((o) => ({ value: o.key, label: o.label, disabled: none })),
                         ...(unlisted ? [{ value: at, label: at.length === 0 ? m.noValue() : at, disabled: none }] : []),
                     ],
-                    onChange: some((next: string) => { emit(stringEqual(next, NONE_CHOICE) ? undefined : next); return null; }),
+                    // The key chosen, read back at the field's type from its text: one that does not read is no edit, and
+                    // the field says why — what it holds, in words.
+                    onChange: some((next: string) => {
+                        const read = stringEqual(next, NONE_CHOICE) || keyText === undefined ? undefined : keyText.parse(next);
+                        if (read !== undefined && !read.success) {
+                            refuse(m.unheld({
+                                choice: offered.find((o) => stringEqual(o.key, next))?.label ?? next,
+                                label: spec.label,
+                                holds: isTypeEqual(inner, IntegerType) ? "integer" : isTypeEqual(inner, FloatType) ? "float" : isTypeEqual(inner, DateTimeType) ? "datetime"
+                                    : isTypeEqual(inner, BooleanType) ? "boolean" : "other",
+                            }), true);
+                            return null;
+                        }
+                        emit(stringEqual(next, NONE_CHOICE) ? undefined : read === undefined ? next : read.value);
+                        return null;
+                    }),
                     style: SELECT_STYLE,
                 });
             }
@@ -521,6 +1155,12 @@ const FieldRow = memo(function FieldRow({ spec, current, base, hasBaseline, opti
                 });
         }
     })();
+    // Its input: a number's drawn here, its box telling the field its text as each change lands — but in a live form,
+    // whose host reads the box itself — and keeping a number its bounds don't hold as the keyboard leaves it, for the
+    // field to say: a stored one the keyboard only passes through is no edit. Any other through the dispatcher.
+    const input = control.type === "IntegerInput" ? <EastChakraIntegerInput value={control.value} onText={live ? undefined : typedText} clampOnBlur={false} />
+        : control.type === "FloatInput" ? <EastChakraFloatInput value={control.value} onText={live ? undefined : typedText} clampOnBlur={false} />
+            : <EastChakraComponent value={control} storageKey={`fieldForm.${key}.control`} />;
 
     // A choice of up to four cases is a radio group, each in view, chosen at once; past four, the select above.
     const radio = ((): RadioGroupValue | undefined => {
@@ -533,21 +1173,45 @@ const FieldRow = memo(function FieldRow({ spec, current, base, hasBaseline, opti
                 ...editor.value.map((o) => ({ value: o.case, label: some(o.label), disabled: none })),
             ],
             name: some(`fieldForm.${key}`),
-            onChange: some((next: string) => { emit(stringEqual(next, NONE_CHOICE) ? undefined : variant(next, null)); return null; }),
+            onChange: some((next: string) => { choose(next); return null; }),
             style: RADIO_STYLE,
         };
     })();
 
+    // A number's help names its bounds — never where it prints its value.
+    const bounds = editor.type === "number" && !printed ? numberLine(editor.value, words) : undefined;
     const help = [
         getSomeorUndefined(spec.help),
-        editor.type === "number" && !printed ? numberLine(editor.value, words) : undefined,
+        bounds,
         checklist !== undefined && !readOnly && held !== undefined ? m.checklistCount({ done: words.number(done), total: words.number(items.length) }) : undefined,
     ].filter((part): part is string => part !== undefined && part.length > 0);
+    // A number its bounds don't hold (#1585), given it from anywhere: the field takes the warn wash, and says the bound
+    // once, in the tone the host says it in (`breaches`) — the help line, which names the bounds; where the field prints
+    // its value, the bound in its hint's own words on a line of its own in it, under any help the host gives the field.
+    const breach = editor.type === "number" && held !== undefined ? breachOf(editor.value, held as bigint | number, isTypeEqual(inner, IntegerType)) : undefined;
+    const tone = breach === undefined ? undefined : breaches;
+    const helped = breach === undefined ? undefined : bounds !== undefined ? <Box as="span" data-breach={tone}>{help.join(" · ")}</Box> : <>
+        {help.length > 0 && `${help.join(" · ")} `}
+        <Box as="span" data-breach={tone} data-field-breach="">{fieldBreachText(breach, words)}</Box>
+    </>;
+    // What an issue says of the field (ruled 13 Nov 2026): in its help line, after its help and any bound, on a line of its
+    // own — what its control is described by, so the reason is where the keyboard is.
+    const issueSaid = issueWords(breach);
+    const helper = issueSaid === undefined ? helped : <>
+        {helped ?? (help.length > 0 ? `${help.join(" · ")} ` : null)}
+        {helped !== undefined && " "}
+        <Box as="span" data-field-issue="">{issueSaid}</Box>
+    </>;
+    // Why it shows what it holds — never where it prints its value — a line of its own under it, the field invalid; as
+    // is a bound a changed row's Save waits on.
+    const said = printed ? undefined : refusal;
     const field: FieldValue = {
         ...FIELD,
         label: spec.label,
         control,
         helperText: help.length === 0 ? none : some(help.join(" · ")),
+        errorText: said === undefined ? none : some(said),
+        invalid: said !== undefined || tone === "error" ? some(true) : none,
         readOnly: printed || readOnly ? some(true) : none,
         style: some(FIELD_STYLE),
     };
@@ -565,38 +1229,32 @@ const FieldRow = memo(function FieldRow({ spec, current, base, hasBaseline, opti
         <Box css={styles.line} data-field-line="">
             <Box ref={fieldRef} css={styles.control} title={radio !== undefined || whole === undefined || whole.length === 0 ? undefined : whole}
                 data-field-choice={radio !== undefined ? "radio" : undefined}>
-                {own ?? (radio !== undefined
-                    ? <EastChakraRadioGroup value={radio} />
-                    : <EastChakraComponent value={control} storageKey={`fieldForm.${key}.control`} />)}
+                {own ?? (radio !== undefined ? <EastChakraRadioGroup value={radio} /> : input)}
             </Box>
             {side !== undefined && (
                 <Box css={styles.side} data-field-side={side}>
                     {side === "set" ? (
                         <chakra.button type="button" css={button({ variant: "outline", size: "xs" })} data-field-set=""
-                            onClick={() => emit(startOf(inner, editor))}>
+                            onClick={() => { setting.current = true; emit(startOf(inner, editor)); }}>
                             {m.set()}
                         </chakra.button>
-                    ) : (
-                        <chakra.button type="button" css={iconButton({ variant: "ghost", size: "xs" })} aria-label={m.clear({ label: spec.label })}
-                            title={m.clear({ label: spec.label })} data-field-clear="" onClick={() => emit(undefined)}>
-                            <FontAwesomeIcon icon={faXmark} />
-                        </chakra.button>
-                    )}
+                    ) : clear}
                 </Box>
             )}
         </Box>
     );
 
     return (
-        <Box css={styles.field} data-field={key} data-editor={own !== undefined ? "custom" : printed ? "readonly" : editor.type} data-dirty={dirty ? "" : undefined}
-            onBlur={onBlur} onKeyDown={onKeyDown}>
-            <EastChakraField key={revision} value={field} storageKey={`fieldForm.${key}`} controlNode={line} />
+        <Box ref={rowRef} css={styles.field} data-field={key} data-editor={own !== undefined ? "custom" : printed ? "readonly" : editor.type} data-dirty={dirty ? "" : undefined}
+            data-issue={issue || breach !== undefined ? "" : undefined} data-breach={tone} onBlur={onBlur} onKeyDown={onKeyDown}>
+            <EastChakraField key={revision} value={field} storageKey={`fieldForm.${key}`} controlNode={line} helperNode={helper} />
             {checklist !== undefined && items.length > 0 && (
                 <Box css={styles.items} data-checklist-items="">
+                    {/* Drawn afresh with the field, after a refusal: an item's checkbox keeps the toggle last made. */}
                     {items.map((item, i) => {
                         const text = item[checklist.text] as string;
                         return (
-                            <Box key={i} css={styles.item} data-checklist-item="">
+                            <Box key={`${revision}\u001f${i}`} css={styles.item} data-checklist-item="">
                                 <EastChakraCheckbox value={{
                                     ...CHECKBOX,
                                     checked: item[checklist.done] as boolean,

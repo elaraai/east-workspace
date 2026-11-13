@@ -33,6 +33,7 @@ import {
     ChipMenu, OPTIMISE_RANK, historyToolbarItem, useKeySearchToolbarItem, type EditIssue, type HistoryAction, type KeySearchSource, type ToolbarItem,
 } from "@elaraai/east-ui-components";
 import { HOST_RANK, PlaceholderShape, coarseHitArea, useRecordSlicesToolbarItems } from "@elaraai/east-ui-components/internal";
+import { useRailSources } from "../shared/schedule/reference.js";
 import { SEARCH_BOX_RANK } from "../shared/schedule/search-rank.js";
 import { Seg } from "../shared/schedule/segments.js";
 import { TimeNavigator } from "../shared/time/navigation.js";
@@ -40,14 +41,13 @@ import type { AllocationCommands } from "./actions.js";
 import type { AllocationEditing } from "./editing.js";
 import type { AllocationWords } from "./messages.js";
 import type { AllocationWindow } from "./window.js";
-import { DAY, allocationWords, type AllocationStyles, type AllocationValue, type Day, type Issue, type Load, type ResourceRow } from "./model.js";
+import { DAY, allocationWords, byWeek, type AllocationStyles, type AllocationValue, type Day, type Issue, type Load, type ResourceRow } from "./model.js";
 import { counted, other, type Nouns } from "./nouns.js";
+import { PickerDot, PickerLegend, StatusWords } from "../shared/schedule/period-status.js";
+import { plural } from "../shared/schedule/words.js";
 
 /** Table, then Timeline, as the mock orders them. */
 const LAYOUTS = [{ key: "table", label: "Table", icon: faTable }, { key: "timeline", label: "Timeline", icon: faChartGantt }] as const;
-
-/** `1 issue`, `3 issues`. */
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 /** The eye's step into the View and the View's step that draws its entry (ruled 27 Oct 2026, "Into the View menu"): one bundle, applied together. */
 const EYE_INTO_VIEW = "allocation.optimise";
@@ -57,12 +57,16 @@ export function countedIssues(issues: readonly Issue[]): Issue[] {
     return issues.filter(i => i.tone.type === "warning" || i.tone.type === "danger");
 }
 
-/** What the counted issues are, each kind's count (A63, A81): `2 overlaps`, `1 over max`; the app's, `N more`. */
-export function issueParts(issues: readonly Issue[]): string[] {
+/**
+ * What the counted issues are, each kind's count (A63, A81): the refusals holding Save first (#1525), `1 not saved
+ * yet`, then `2 overlaps`, `1 over max`; the app's, `N more`.
+ */
+export function issueParts(issues: readonly Issue[], refused = 0): string[] {
     const counted = countedIssues(issues);
     const n = (kind: Issue["kind"]["type"]) => counted.filter(i => i.kind.type === kind).length;
     const custom = counted.filter(i => i.kind.type === "custom");
     return [
+        refused > 0 ? `${refused} not saved yet` : "",
         n("unlinked") > 0 ? `${n("unlinked")} not linked` : "",
         n("unallocated") > 0 ? `${n("unallocated")} partly allocated` : "",
         n("overlap") > 0 ? plural(n("overlap"), "overlap") : "",
@@ -74,17 +78,19 @@ export function issueParts(issues: readonly Issue[]): string[] {
 
 /**
  * The issues the chip counts — warning and danger, never neutral or info
- * (A64) — and its words (A81): `2 overlaps · 1 over max · show them`, with
- * `· warnings only, Save still works` when every one is an under-min warning.
+ * (A64), and the refusals holding Save (#1525) — and its words (A81): `2
+ * overlaps · 1 over max · show them`, with `· warnings only, Save still works`
+ * when every one is an under-min warning.
  */
-export function issueSummary(issues: readonly Issue[]): { count: number; label: string; tip: string; aria: string } {
+export function issueSummary(issues: readonly Issue[], refused = 0): { count: number; label: string; tip: string; aria: string } {
     const counted = countedIssues(issues);
-    const parts = issueParts(issues);
-    const warningsOnly = counted.length > 0 && counted.every(i => i.kind.type === "under");
+    const parts = issueParts(issues, refused);
+    const count = counted.length + refused;
+    const warningsOnly = refused === 0 && counted.length > 0 && counted.every(i => i.kind.type === "under");
     return {
-        count: counted.length, label: plural(counted.length, "issue"),
+        count, label: plural(count, "issue"),
         tip: `${parts.join(" · ")}${warningsOnly ? " · warnings only, Save still works" : ""} · show them`,
-        aria: `${plural(counted.length, "issue")}, show them`,
+        aria: `${plural(count, "issue")}, show them`,
     };
 }
 
@@ -96,9 +102,9 @@ interface ToolbarArgs extends AllocationWindow {
     editing: AllocationEditing | undefined;
     /** The board's words: its message table, the editing session's among them, and the app's formatters. */
     words: AllocationWords;
-    /** The day's status chip's words (A3): Not started, Draft, Published, or the app's own case; `undefined` without periods. */
+    /** The day's status chip's words (A3) — its period's, the day's or its week's (#1550): Not started, Draft, Published, or the app's own case; `undefined` without periods. */
     status: string | undefined;
-    /** Whether the day is published: its chip's tone, whatever its words. */
+    /** Whether the day's period is published: its chip's tone, whatever its words. */
     published: boolean;
     /**
      * Whether the day is not read yet (#1398, CL1): its status, its issues and Publish keep their slots, the status a
@@ -108,10 +114,14 @@ interface ToolbarArgs extends AllocationWindow {
     unread: boolean;
     /** Whether Publish is under way. */
     publishing: boolean;
-    /** The open picker's days' statuses, by day: their marks. */
+    /** The open picker's days' statuses, by day — each day of a week its week's (#1550): their marks, and each week's. */
     picker: SortedMap<Date, Day["status"]>;
     issues: readonly Issue[];
     onIssues: () => void;
+    /** How many refusals hold Save (#1525): the issues chip counts them with the counted issues. */
+    refused: number;
+    /** The history's warning button pressed: its first issue's bin shown and selected (#1525). */
+    onIssue: (issue: EditIssue) => void;
     /** Where an issue of the history's is, in the board's words — its banners' — what the history item's conflicts name their items by. */
     where?: ((issue: EditIssue) => string) | undefined;
     /** A conflict's Go to: its item shown and selected. */
@@ -146,11 +156,13 @@ export function useAllocationToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarIt
     const layouts = LAYOUTS.filter(item => args.layouts.includes(item.key));
     const switches = layouts.length > 1;
     // The narrowing: one rail over the bins, the lanes, the resources and the arrivals, in both layouts, each source counted in the board's noun
-    // under the slot the app names it by (#1336, #1339); the bins' range is the board's own navigation, never a chip of the rail (#1372).
+    // under the slot the app names it by (#1336, #1339); the bins' range is the board's own navigation, never a chip of the rail (#1372),
+    // and the reference record the check reads narrows nothing, so the rail leaves its source out (#1551).
     const chrome = value.slice.type === "some" ? value.slice.value : undefined;
     const bins = value.bin.kind;
     const binRange = chrome?.slice.parts.find(part => part.source === bins.key)?.slice.config.range;
-    const rail = useRecordSlicesToolbarItems(chrome?.slice, {
+    const railSources = useRailSources(chrome?.slice);
+    const rail = useRecordSlicesToolbarItems(railSources, {
         nouns: { [bins.key]: `${bins.name.toLocaleLowerCase(words.locale)} events`, [value.bin.lanes]: other(args.nouns.lane),
             [value.bin.parts]: other(args.nouns.resource), arrivals: other(args.nouns.arrival) },
         ...(binRange?.type === "some" ? { excludeFields: [`${bins.key}.${binRange.value}`] } : {}),
@@ -162,7 +174,7 @@ export function useAllocationToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarIt
     // bins by key`. Its box is the first thing the row folds, to its icon, before the rail and the day's steps (ruled 25 Oct
     // 2026); at the row's last step it goes into the View, beside the date and the controls.
     const search = useKeySearchToolbarItem(args.search, { side: "end", rank: SEARCH_BOX_RANK, label: words.m.keySearch({ bins: other(value.labels.bin) }) });
-    const summary = issueSummary(issues);
+    const summary = issueSummary(issues, args.refused);
     const status = args.publishing ? "Publishing" : args.status;
     const unread = args.unread;
     // Publish: only over periods, on a day that takes edits; its slot held wherever the board publishes and edits at all.
@@ -208,17 +220,21 @@ export function useAllocationToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarIt
         if (focus === undefined) return null;
         const unit = value.bin.unit.type === "some" ? value.bin.unit.value : "";
         const meta = `${counted(Number(focus.load.bins), value.labels.bin)} · ${allocationWords().quantity(focus.load.fill, unit)}${focus.hidden ? " · hidden by Filters" : ""}`;
-        return <chakra.span css={chip({ tone: "brand", numeric: true })} title="The focus: its links are drawn · Esc returns to all" data-allocation-focus=""
+        return <chakra.span css={chip({ tone: "brand" })} title="The focus: its links are drawn · Esc returns to all" data-allocation-focus=""
             aria-label={`Focus ${focus.resource.label}, ${meta}`}>
             <span data-chip-icon=""><FontAwesomeIcon icon={faLink} /></span>
             {!compact && <><span>{focus.resource.label}</span><span data-chip-meta="">{meta}</span></>}
             <chakra.button type="button" css={styles.focusClear} aria-label="Show all" title="Show all · Esc" onClick={args.onClearFocus}><FontAwesomeIcon icon={faXmark} /></chakra.button>
         </chakra.span>;
     }
-    const navigation = (compact = false, combined = false, withEye = false) => <TimeNavigator scope="allocation" date={view.date} period="day" sunday={false}
-        onChange={date => setView({ ...view, date })} compact={compact} label={combined ? "View" : "Choose plan day"} initialPanel="day"
-        onWeeks={args.onPickerWeeks} legend="Published · Draft · Not started"
-        dayMarker={date => { const held = args.picker.get(date); return <Box as="span" css={styles.pickerDot} data-state={held === undefined ? "empty" : held.type === "other" ? "draft" : held.type} />; }}
+    // The picker's marks: each day's status, its period's — and, publishing a week at a time (#1550), each week's too, the
+    // picker's weeks starting where the board's do.
+    const marker = (date: Date) => { const held = args.picker.get(date); return <PickerDot styles={styles} mark={held === undefined ? "empty" : held.type === "other" ? "draft" : held.type} />; };
+    const weekly = byWeek(value);
+    const legend = <PickerLegend styles={styles} scope="allocation" />;
+    const navigation = (compact = false, combined = false, withEye = false) => <TimeNavigator scope="allocation" date={view.date} period="day"
+        sunday={value.settings.weekStart.type === "sunday"} onChange={date => setView({ ...view, date })} compact={compact} label={combined ? "View" : "Choose plan day"}
+        initialPanel="day" onWeeks={args.onPickerWeeks} legend={legend} dayMarker={marker} {...(weekly ? { weekMarker: marker } : {})}
         controls={combined ? controls(withEye) : undefined} />;
     return [
         ...rail,
@@ -235,22 +251,29 @@ export function useAllocationToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarIt
             forms: [focusChip(false), focusChip(true), null] },
         // The status, the issues and Publish keep their slots from cold load, whatever the day's read (#1398, CL1): a read
         // landing never shifts the toolbar nor folds it again. Unread, the status and the issues are placeholders.
-        status !== undefined && { key: "allocation.status", side: "start", rank: HOST_RANK, forms: [unread
-            ? <Box css={[styles.status, styles.heldSlot]} data-allocation-status="" data-pending="" title="Plan status">
-                <PlaceholderShape kind="enum" index={0} /></Box>
-            : <Box css={styles.status} data-tone={args.published && !args.publishing ? "success" : "neutral"} data-allocation-status="" title="Plan status">{status}</Box>, null] },
-        value.inspector && { key: "allocation.issues", side: "end", rank: HOST_RANK + 3, forms: [unread
-            ? <Box css={styles.heldSlot} data-allocation-issues="" data-pending=""><PlaceholderShape kind="count" index={0} /></Box>
-            : summary.count > 0 ? <chakra.button type="button" css={[chip({ tone: "warn", numeric: true }), coarseHitArea({ position: true })]} onClick={args.onIssues}
-                aria-label={summary.aria} title={summary.tip} data-allocation-issues="" data-opn={args.issuesFlash === true ? "" : undefined}>
-                <FontAwesomeIcon icon={faTriangleExclamation} /><span data-chip-label="">{summary.label}</span>
-            </chakra.button>
-                : <Box css={styles.heldSlot} data-allocation-issues="" aria-hidden="true" />, null] },
+        status !== undefined && { key: "allocation.status", side: "start", rank: HOST_RANK, forms: [<Box css={styles.widestSlot}>
+            <StatusWords styles={styles} status={status} />
+            {unread
+                ? <Box css={[styles.status, styles.heldSlot]} data-allocation-status="" data-pending="" title="Plan status">
+                    <PlaceholderShape kind="enum" index={0} /></Box>
+                : <Box css={styles.status} data-tone={args.published && !args.publishing ? "success" : "neutral"} data-allocation-status="" title="Plan status">{status}</Box>}
+        </Box>, null] },
+        // The issues' slot is as wide as a count of two figures, at any count or none (#1595).
+        value.inspector && { key: "allocation.issues", side: "end", rank: HOST_RANK + 3, forms: [<Box css={styles.widestSlot} data-end="">
+            <chakra.span css={chip({ tone: "warn" })} data-widest-word={plural(99, "issue")} aria-hidden="true"><FontAwesomeIcon icon={faTriangleExclamation} /></chakra.span>
+            {unread
+                ? <Box css={styles.heldSlot} data-allocation-issues="" data-pending=""><PlaceholderShape kind="count" index={0} /></Box>
+                : summary.count > 0 ? <chakra.button type="button" css={[chip({ tone: "warn" }), coarseHitArea({ position: true })]} onClick={args.onIssues}
+                    aria-label={summary.aria} title={summary.tip} data-allocation-issues="" data-opn={args.issuesFlash === true ? "" : undefined}>
+                    <FontAwesomeIcon icon={faTriangleExclamation} /><span data-chip-label="">{summary.label}</span>
+                </chakra.button>
+                    : <Box css={styles.heldSlot} data-allocation-issues="" aria-hidden="true" />}
+        </Box>, null] },
         search !== undefined && { ...search, forms: [...search.forms, null], rank: [SEARCH_BOX_RANK, HOST_RANK + 6], bundle: [undefined, "allocation.controls"] },
         // The Elara eye (#1409), immediately before the history item, whose actions a run out locks (R2): in the row at every
         // width the ladder and the rail's caret leave it room, and else the View's entry, never out of the toolbar.
         eye === undefined ? args.optimise : { ...eye.item, forms: [...eye.item.forms, null], rank: OPTIMISE_RANK, bundle: EYE_INTO_VIEW },
-        showHistory && historyToolbarItem({ session: history, words, editing: false, showError: false, onIssue: args.onIssues, onConflict: args.onConflict, where: args.where, onAction: args.onAction, locked: args.locked === true }),
+        showHistory && historyToolbarItem({ session: history, words, editing: false, showError: false, onIssue: args.onIssue, onConflict: args.onConflict, where: args.where, onAction: args.onAction, locked: args.locked === true }),
         // As tall as every control in the row (`sm`, 28px, ruled 23 Oct 2026), its slot held while the day can't publish, and
         // its spinner while it publishes, until every record reads back as saved (#1573) — named as it is, `aria-busy`: the
         // spinner hides its words.

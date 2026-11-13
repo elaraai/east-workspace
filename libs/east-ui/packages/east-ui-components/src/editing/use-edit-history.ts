@@ -20,16 +20,17 @@
  * @packageDocumentation
  */
 import { useCallback, useLayoutEffect, useMemo, useSyncExternalStore } from "react";
-import { DictType, decodeBeast2For, fromEastTypeValue, none, some, variant, type EastType, type option } from "@elaraai/east";
+import { DictType, StringType, decodeBeast2For, equalFor, fromEastTypeValue, none, some, variant, type EastType, type option } from "@elaraai/east";
 import { getStore } from "../platform/state-runtime.js";
 import { useTrackedEvaluation } from "../reactive/index.js";
 import { liftDraft } from "./draft.js";
+import { beginAutosave } from "./autosave-choice.js";
 import type { EditHistory } from "./history.js";
 import { bindingOf, gateOf, historyKeyOf, keptHistory, keptSession, sessionKeyOf, sourceSessionsOf, type SourceSessions } from "./kept.js";
 import { keepDrafts, keptDraftsKey } from "./keep.js";
 import { useEditingScope } from "./scope.js";
 import { EditSession, keyReader, type ConflictRange, type ConflictTogether, type EditSessionBinding, type EntryVersion } from "./session.js";
-import type { EditingValue } from "./use-edit-session.js";
+import { readsOf, settledCollection, settledRevision, type EditingValue } from "./use-edit-session.js";
 
 /**
  * A keyed source read a window at a time, as a history's session reads it
@@ -40,8 +41,23 @@ export interface EditHistoryPaged {
     readonly revision: () => option<string>;
     /** Install a committed revision, or discover the current one. */
     readonly refresh: (revision: option<string>) => unknown;
+    /**
+     * Whether the source's host has read the source's state since its last write from here was answered (#1599) —
+     * tracked; `undefined` where nothing says (`EditSource.followed`): a Save's answer then installs its revision only
+     * while the source still reads where the Save was drafted, and is read back wherever the source reads once this
+     * says it has read since.
+     */
+    readonly followed?: (() => boolean | undefined) | undefined;
     /** An entry by its id, read by its key at the source's revision — tracked: `none` while the read is in flight, `some(none)` for an entry the source does not hold. */
     readonly entry: (id: string) => option<option<unknown>>;
+    /**
+     * Several entries by their ids in one read (#1596), each as
+     * {@link EditHistoryPaged.entry} answers it: what a Save reads back the
+     * entries {@link EditHistoryPaged.held} does not hold by, however many.
+     * `none` while it is in flight; `undefined` for a source that cannot read
+     * several at once, whose entries are read a bounded batch at a time.
+     */
+    readonly entriesAll?: ((ids: readonly string[]) => option<ReadonlyMap<string, option<unknown>>> | undefined) | undefined;
     /**
      * An entry as the collection's own reads hold it at the source's revision,
      * read with no request — tracked: `undefined` for one they do not hold,
@@ -77,6 +93,20 @@ export interface EditHistorySource<W> {
     readonly ranges?: readonly ConflictRange[] | undefined;
     /** Its entries' fields that change together, each a value and those that follow it (the session's `together`). */
     readonly together?: readonly ConflictTogether[] | undefined;
+    /**
+     * Whether its host draws what a confirmed Save landed over rows it read before the commit, until they are read again
+     * (the session's `drawsLanded`): a source read a window at a time whose windows its host reads apart from the
+     * confirmation. `false` by default.
+     */
+    readonly drawsLanded?: boolean | undefined;
+    /**
+     * How its new entries are keyed (keys.ts, the session's `keys`): its session makes each new entry's key by it
+     * (`EditSession.mint`), and makes it another where another write adds its own entry under it meanwhile (#1583) —
+     * both entries kept, nothing to choose. Not given, its session makes no key.
+     */
+    readonly keys?: EditSessionBinding<W>["keys"];
+    /** A new entry's version as it stands under another id, where its session makes it another key (the session's `underKey`). */
+    readonly underKey?: EditSessionBinding<W>["underKey"];
 }
 
 /**
@@ -90,6 +120,17 @@ export interface EditHistoryJoined<W> {
     readonly key: string;
     /** The session. */
     readonly session: EditSession<W>;
+}
+
+/** What a builder adds to its history over several sessions. */
+export interface EditHistoryOptions {
+    /**
+     * What the builder's author begins its choice of an automatic Save at
+     * (`autosave-choice.ts`' `beginAutosave`): on, or — the default — off. It
+     * may move, as data drives it; the viewer's own choice, once made, stands
+     * over it.
+     */
+    readonly autosave?: boolean | undefined;
 }
 
 /**
@@ -135,10 +176,11 @@ interface Part<W> {
 /** The base a session observes: a source's whole snapshot, or a paged source's revision. */
 type Base = Parameters<EditSession<unknown>["observeBase"]>[0];
 
-/** One read of every source: each session's base, and a paged source's entries read at it, by the history's keys. */
+/** One read of every source: each session's base, a paged source's entries read at it, and what a source read whole holds now where its host says, by the history's keys. */
 interface Observed {
     readonly bases: ReadonlyMap<string, Base>;
     readonly reads: ReadonlyMap<string, ReadonlyMap<string, option<unknown>>>;
+    readonly settled: ReadonlyMap<string, { readonly value: unknown }>;
 }
 
 /** An entry the session holds no version of: absent, nowhere. */
@@ -148,6 +190,61 @@ const KEY_ORDER = some(variant("keyOrder", null));
 const NO_JOINED: readonly EditHistoryJoined<unknown>[] = [];
 /** Each snapshot decoded once, by its bytes: a new snapshot is new bytes. */
 const decodedSnapshots = new WeakMap<Uint8Array, unknown>();
+const sameRevision = equalFor(StringType);
+
+/** A read of several of a source's entries by their keys, in flight: the revision it reads at, and the entries it asks. */
+interface ReadingByKeys {
+    readonly revision: string;
+    readonly ids: readonly string[];
+}
+
+/** Each session's read of several entries by their keys in flight, until it lands ({@link readByKeys}). */
+const readingByKeys = new WeakMap<object, ReadingByKeys>();
+
+/**
+ * Several of a source's entries by their keys, one read at a time (#1596). A
+ * read in flight is asked again as it was until it lands, whichever of its
+ * entries the collection's own reads have come to hold since, and whichever
+ * others they have let go: a read is named by the entries it asks, so asked
+ * for the entries left now it would be let go for another — its request
+ * aborted, and one more sent — at each move of the collection's view while a
+ * Save is confirmed. An entry it does not ask is asked once it has landed.
+ *
+ * @param session - The source's session, which its read in flight is kept by
+ * @param revision - The source's revision
+ * @param ids - The entries left to read by their keys now
+ * @param entriesAll - The source's read of several entries at once
+ * @returns The entries read, by id, none of them while a read is in flight;
+ *   `undefined` for a source that cannot read several at once
+ */
+function readByKeys(
+    session: object, revision: string, ids: readonly string[], entriesAll: NonNullable<EditHistoryPaged["entriesAll"]>,
+): ReadonlyMap<string, option<unknown>> | undefined {
+    const got = new Map<string, option<unknown>>();
+    let left = ids;
+    const flying = readingByKeys.get(session);
+    if (flying !== undefined) {
+        readingByKeys.delete(session);
+        const wanted = new Set(ids);
+        // A read at this revision that an entry left waits on: asked again, as it was.
+        if (sameRevision(flying.revision, revision) && flying.ids.some((id) => wanted.has(id))) {
+            const landed = entriesAll(flying.ids);
+            if (landed === undefined) return undefined;
+            if (landed.type === "none") {
+                readingByKeys.set(session, flying);
+                return got;
+            }
+            for (const [id, entry] of landed.value) got.set(id, entry);
+            left = ids.filter((id) => !landed.value.has(id));
+            if (left.length === 0) return got;
+        }
+    }
+    const read = entriesAll(left);
+    if (read === undefined) return undefined;
+    if (read.type === "some") for (const [id, entry] of read.value) got.set(id, entry);
+    else if (left.length > 0) readingByKeys.set(session, { revision, ids: left });
+    return got;
+}
 
 /**
  * Keep a session per source and one history over them — see the module docs.
@@ -156,6 +253,7 @@ const decodedSnapshots = new WeakMap<Uint8Array, unknown>();
  * @param sources - The sources, in order: each a keyed source, read whole or a window at a time
  * @param storageKey - The view's key: the sessions and their history are kept under it
  * @param joined - Sessions made elsewhere that join the history, ahead of the sources'
+ * @param options - What the builder adds: where its author begins its choice of an automatic Save
  * @returns The history, each source's key and entries as last read, an entry's original version, and whether a source takes a gesture now
  * @throws {Error} When a source is not keyed, or is read neither whole (an inline snapshot) nor a window at a time (`paged`, and no snapshot)
  */
@@ -163,11 +261,18 @@ export function useEditHistory<W>(
     sources: readonly EditHistorySource<W>[],
     storageKey: string,
     joined: readonly EditHistoryJoined<W>[] = NO_JOINED as readonly EditHistoryJoined<W>[],
+    options?: EditHistoryOptions,
 ): EditHistoryState<W> {
     const store = getStore();
     // The data set its host names: another's sources of the same names hold sessions, drafts and a history of their own.
     const scope = useEditingScope();
-    const history = useMemo(() => keptHistory<W>(store, scope, storageKey), [store, scope, storageKey]);
+    const autosave = options?.autosave === true;
+    const history = useMemo(() => keptHistory<W>(store, scope, storageKey, autosave),
+        // What its author begins its choice at makes no other history: the effect below says it as it moves.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [store, scope, storageKey]);
+    // The author's word as it moves, and for a history found again as it was kept: told once drawn, never while drawing.
+    useLayoutEffect(() => { beginAutosave(history, autosave); }, [history, autosave]);
     // Each source's session, kept by its source, the view and its schema, as
     // `useEditSession` keeps one: sources that share a session share its key.
     const parts = useMemo(() => sources.map((source): Part<W> => {
@@ -179,7 +284,11 @@ export function useEditHistory<W>(
         const entryType = fromEastTypeValue(editing.entryType);
         const draftType = fromEastTypeValue(editing.draftType);
         const keyType = fromEastTypeValue(editing.keyType.value);
-        const binding = { ...bindingOf<W>(editing, { entryType, draftType, keyType }, source.ready, paged?.refresh), prepare: source.prepare, ranges: source.ranges, together: source.together };
+        const binding = {
+            ...bindingOf<W>(editing, { entryType, draftType, keyType }, source.ready, paged?.refresh), prepare: source.prepare, ranges: source.ranges,
+            together: source.together, drawsLanded: source.drawsLanded, keys: source.keys, underKey: source.underKey,
+            reads: paged === undefined ? undefined : readsOf(paged.revision, paged.followed),
+        };
         const kept = sourceSessionsOf(store, scope, editing.sourceId);
         const session = keptSession<W>(kept, sessionKeyOf(storageKey, editing.entryType, editing.draftType), () => {
             const next = new EditSession<W>(binding);
@@ -212,6 +321,7 @@ export function useEditHistory<W>(
     const read = useCallback((): Observed => {
         const bases = new Map<string, Base>();
         const reads = new Map<string, Map<string, option<unknown>>>();
+        const settled = new Map<string, { readonly value: unknown }>();
         for (const part of parts) {
             part.session.recheck(part.binding.ready, part.binding.ready?.(part.session.entries));
             if (part.paged !== undefined) {
@@ -220,21 +330,31 @@ export function useEditHistory<W>(
                 const { session } = part;
                 const got = new Map<string, option<unknown>>();
                 // What the collection's own reads hold costs no request: every entry still to judge that they hold, at once.
+                // One they are still reading waits on that read (#1596): only those they do not hold are read by their keys.
                 const held = part.paged.held;
-                if (held !== undefined) {
-                    for (const id of session.unresolvedIdsAt(revision.value)) {
-                        const entry = held(id);
-                        if (entry !== undefined && entry.type === "some") got.set(id, entry.value);
-                    }
+                const byKey: string[] = [];
+                for (const id of session.unresolvedIdsAt(revision.value)) {
+                    const entry = held?.(id);
+                    if (entry === undefined) byKey.push(id);
+                    else if (entry.type === "some") got.set(id, entry.value);
                 }
-                // The rest by their keys, a bounded batch at a time.
-                for (const id of session.readIdsAt(revision.value)) {
-                    if (got.has(id)) continue;
-                    const entry = part.paged.entry(id);
-                    if (entry.type === "some") got.set(id, entry.value);
+                // The rest by their keys: in one read where the source reads several at once (#1596), else a bounded batch at a time.
+                const all = part.paged.entriesAll === undefined ? undefined : readByKeys(session, revision.value, byKey, part.paged.entriesAll);
+                if (all !== undefined) {
+                    for (const [id, entry] of all) got.set(id, entry);
+                } else {
+                    const unheld = held === undefined ? undefined : new Set(byKey);
+                    for (const id of session.readIdsAt(revision.value)) {
+                        if (got.has(id) || unheld?.has(id) === false) continue;
+                        const entry = part.paged.entry(id);
+                        if (entry.type === "some") got.set(id, entry.value);
+                    }
                 }
                 bases.set(part.key, variant("revision", revision.value) as Base);
                 reads.set(part.key, got);
+                // Where its host says it has read the source's state since the Save being read back was answered.
+                const followed = settledRevision(part.paged.followed, session.status === "reconciling", revision.value);
+                if (followed !== undefined) settled.set(part.key, followed);
                 continue;
             }
             const snapshot = part.editing.snapshot;
@@ -245,8 +365,11 @@ export function useEditHistory<W>(
                 decodedSnapshots.set(snapshot.value, held);
             }
             bases.set(part.key, variant("snapshot", held) as Base);
+            // What the source holds now, where its host says: what a Save of it is taken as read back at.
+            const now = settledCollection(part.editing.sourceId, part.session.status === "reconciling", part.decodeSnapshot);
+            if (now !== undefined) settled.set(part.key, now);
         }
-        return { bases, reads };
+        return { bases, reads, settled };
         // The sessions' entries move under the history's version.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [parts, version]);
@@ -263,7 +386,7 @@ export function useEditHistory<W>(
             // paged source, by the entries read at the revision it committed.
             const got = observed?.reads.get(part.key);
             const readOf = (id: string): option<unknown> | undefined => got?.get(id);
-            part.session.reconcile(base, readOf);
+            part.session.reconcile(base, readOf, observed?.settled.get(part.key));
             part.session.nameConflicts(base, readOf);
             part.session.observeBase(base);
             // A source that moved under the drafts carries them over, once each is read at its new revision.
@@ -280,14 +403,16 @@ export function useEditHistory<W>(
     const original = useCallback((key: string, id: string): EntryVersion<W> | undefined => {
         const part = byKey.get(key);
         if (part === undefined) return ABSENT;
-        const existing = part.session.entries.get(id);
-        if (existing !== undefined) return existing;
-        // A paged source's entry is the collection's to read where it holds it (#1199).
-        if (part.paged !== undefined) return undefined;
-        const entries = snapshotOf(key);
-        const at = part.keyOf(id);
-        const entry = entries === undefined || at === undefined ? undefined : entries.get(at);
-        return entry === undefined ? ABSENT : { draft: liftDraft(part.draftType, entry), wire: undefined, place: KEY_ORDER };
+        // The session's own version, else what its last Save left while the collection has yet to show it, else the
+        // entry as the source shows it (`EditSession.startOf`).
+        return part.session.startOf(id, () => {
+            // A paged source's entry is the collection's to read where it holds it (#1199).
+            if (part.paged !== undefined) return undefined;
+            const entries = snapshotOf(key);
+            const at = part.keyOf(id);
+            const entry = entries === undefined || at === undefined ? undefined : entries.get(at);
+            return entry === undefined ? ABSENT : { draft: liftDraft(part.draftType, entry), wire: undefined, place: KEY_ORDER };
+        });
     }, [byKey, snapshotOf]);
     const available = useCallback((key: string): boolean =>
         observed?.bases.has(key) === true && byKey.get(key)?.session.writable === true, [observed, byKey]);

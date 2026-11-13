@@ -114,8 +114,8 @@ export const calendarSlotRecipe = defineSlotRecipe({
             "&[data-compact]": { flexDirection: "row", alignItems: "center", paddingY: 0, gap: "5px" },
             "&[data-chip]": { height: "21px", flexShrink: 0 },
             "&[data-overlap]": { boxShadow: PLAN_OVERLAP_RING },
-            // An event in an overlap holding a conflict: the conflict's ring in the overlap's place.
-            "&[data-overlap][data-conflict]": { boxShadow: CONFLICT_RING },
+            // An event in an overlap holding a conflict, or a number outside its bounds: the conflict's ring in the overlap's place.
+            "&[data-overlap]:is([data-conflict], [data-bounds])": { boxShadow: CONFLICT_RING },
             "&[data-dragging]": { zIndex: 10 },
             // Retained while a newer read of its period is in flight (#1398, CL5, CL8): its words in the third ink, its own edge
             // kept, and inert to the pointer — the default cursor over it and its edges, which take no gesture meanwhile.
@@ -190,7 +190,7 @@ export const calendarSlotRecipe = defineSlotRecipe({
         // A day with no card: its words on the line of its heading, not inset as a card's.
         agendaGroup: { ...scheduleAgendaGroup, "& > :not([data-calendar-card]):not(:first-child)": { paddingInline: "0" } },
         // Its select action lined up with the card's words and its other actions, not centred across it.
-        card: { ...scheduleCard, "& > button + button": { alignSelf: "flex-start", paddingInline: "0" }, "&[data-overlap]": { boxShadow: PLAN_OVERLAP_RING }, "&[data-overlap][data-conflict]": { boxShadow: CONFLICT_RING }, "[data-calendar-stale] &": { color: "fg.muted", "& *": { color: "inherit" } } },
+        card: { ...scheduleCard, "& > button + button": { alignSelf: "flex-start", paddingInline: "0" }, "&[data-overlap]": { boxShadow: PLAN_OVERLAP_RING }, "&[data-overlap]:is([data-conflict], [data-bounds])": { boxShadow: CONFLICT_RING }, "[data-calendar-stale] &": { color: "fg.muted", "& *": { color: "inherit" } } },
         cardHead: scheduleCardHead, cardTitle: scheduleCardTitle, actions: scheduleCardActions,
         section: { display: "flex", flexDirection: "column", gap: "12px", padding: "16px", borderBottomWidth: "1px", borderColor: "border.subtle", minWidth: 0 },
         status: INSPECTOR_STATUS,
@@ -212,10 +212,11 @@ export const calendarSlotRecipe = defineSlotRecipe({
             position: "sticky", left: "184px", zIndex: 3, display: "flex", alignItems: "center", width: "max-content", height: "100%",
             padding: "0 12px", background: "bg.surface",
         },
-        // ── A resource's shading past the cap (#1424) ── each period's share booked, a bar along it from its start, inset as
-        // an event's block is in a row or a column; and the no-data hatch across a period no summary shades.
+        // ── A resource's shading past the cap (#1424) ── each period's share booked, a bar along it from its start, as an
+        // event's block is in a column, or on the timeline a lane's bars' height (`--calendar-bar`, its row's) in the middle
+        // of its row, as its events' are; and the no-data hatch across a period no summary shades.
         shadeBar: { position: "absolute", borderRadius: "2px", background: BOOKED_FILL, zIndex: 1,
-            "&[data-along=x]": { top: "4px", bottom: "5px" }, "&[data-along=y]": { left: "2px", right: "2px" } },
+            "&[data-along=x]": { top: "calc(50% - var(--calendar-bar) / 2)", height: "var(--calendar-bar)" }, "&[data-along=y]": { left: "2px", right: "2px" } },
         shadeHatch: { position: "absolute", pointerEvents: "none", backgroundImage: NO_DATA_HATCH,
             "&[data-along=x]": { top: 0, bottom: 0 }, "&[data-along=y]": { left: 0, right: 0 } },
     },

@@ -11,16 +11,17 @@
  * that clears it, and asks again when the drafts change, one question in
  * flight (R1). Without a fit no Find fix is offered (R2). While its answer is
  * on its way the fix reads `Finding…`, and a failure is a warning banner with
- * Retry (R4). The warehouse's example asks its greedy fit (R5).
+ * Retry (R4). The warehouse's example asks its greedy fit (R5). Whom a find
+ * found, assigned, is a new duty of the app's `values` (#1526).
  */
 import { describe, expect, test } from "vitest";
 import { fireEvent, render, waitFor, within } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import { StringType, none, printFor, variant } from "@elaraai/east";
-import { BannerView, system } from "@elaraai/east-ui-components";
+import { BannerView, editingMessages, system } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/roster/roster";
 import { readRosterSource } from "./identity.js";
-import { START, act, assignment, narrow, narrowing, open, rosterHarness, settle, slot, warehouseRoster, weekDuties, type Choice } from "./harness.test-utils.js";
+import { START, act, assignment, cell, drop, history, narrow, narrowing, open, rosterHarness, settle, slot, warehouseRoster, weekDuties, type Choice } from "./harness.test-utils.js";
 
 const h = rosterHarness();
 const text = printFor(StringType);
@@ -162,7 +163,7 @@ describe("without a fit, no Find fix is offered (R2)", () => {
         expect(within(slot(c, "end")).getByText("No lead on Dispatch · Early")).toBeTruthy();
         expect(within(slot(c, "end")).getByText("B. Swale · trainee without trainer")).toBeTruthy();
         expect(finds(c)).toEqual([]);
-        expect(within(slot(c, "end")).getAllByRole("button", { name: "Request agency" }).length).toBeGreaterThan(0);
+        expect(within(slot(c, "end")).getAllByRole("button", { name: "Request from Northside Staffing" }).length).toBeGreaterThan(0);
         expect(h.fits.requests()).toHaveLength(0);
     });
 
@@ -248,5 +249,20 @@ describe("the warehouse's example asks its greedy fit (R5)", () => {
             variant("fits", { score: 14, why: "from Inbound · 14 h spare", warn: none }),
             variant("fits", { score: 14, why: "Dispatch · 14 h spare", warn: none }),
         ]);
+    });
+});
+
+describe("whom a find found, assigned (#1526)", () => {
+    test("dropped on the find's slot from the People tab, the new duty saves with the duty kind's `values` of it: half an hour's break on the eight-hour shift, and its team's cost centre", async () => {
+        const { container: c } = await open(ex.rosterWarehouse);
+        const before = await h.read(ex.rosterDuties);
+        await issues(c);
+        await press(fix(c, LEAD_ISSUE));
+        await waitFor(() => expect(found(c)).toEqual([["jquartz", "Dispatch · 14 h spare"]]));
+        await drop(card(c, "jquartz")!, cell(c, 4, "dispatch", "early"));
+        await press(history(c, editingMessages.apply()));
+        const added = [...(await h.read(ex.rosterDuties))].filter(([key]) => !before.has(key))
+            .map(([, duty]) => [duty.who, duty.team, duty.shift, duty.unpaidBreak, duty.agreed, duty.costCentre, duty.note]);
+        expect(added).toEqual([[variant("staff", "jquartz"), "dispatch", "early", 30, none, "CC-DS", ""]]);
     });
 });

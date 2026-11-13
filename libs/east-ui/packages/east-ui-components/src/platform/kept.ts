@@ -277,15 +277,7 @@ export function kept<T>(key: string, codec: KeptCodec<T>, options?: KeptOptions)
  * @returns The value, its setter (a value or an update of the current one), and what removes it
  */
 export function useKept<T>(key: string, codec: KeptCodec<T>, initial: T, options?: KeptOptions): readonly [T, (next: T | ((current: T) => T)) => void, () => void] {
-    const where = options?.where ?? "browser";
-    const scoped = options?.scoped ?? true;
-    const serial = useSyncExternalStore(subscribeScope, readScopeSerial, readScopeSerial);
-    // The key's first codec stands, as a key holds one shape: a codec made each render is not a new key.
-    const codecRef = useRef(codec);
-    const handle = useMemo(() => kept(key, codecRef.current, { where, scoped }),
-        // A scope set again reads its own keys.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-        [key, where, scoped, serial]);
+    const handle = useKeptHandle(key, codec, options);
     const stored = useSyncExternalStore(handle.subscribe, handle.read, handle.read);
     const [first] = useState(initial);
     const set = useCallback((next: T | ((current: T) => T)) => {
@@ -295,6 +287,36 @@ export function useKept<T>(key: string, codec: KeptCodec<T>, initial: T, options
     }, [handle, first]);
     const remove = useCallback(() => { handle.remove(); }, [handle]);
     return [stored === undefined ? first : stored, set, remove] as const;
+}
+
+/**
+ * A kept value as it is kept — see the module docs — for a component that
+ * says itself what stands while nothing is: a default that moves, as an
+ * author's does, where {@link useKept}'s is its first render's for its life.
+ *
+ * @typeParam T - The value
+ * @param key - The key
+ * @param codec - How it is stored: the key's first codec stands
+ * @param options - Where, and for whom
+ * @returns The value, `undefined` while nothing is kept; what keeps one; and what removes it
+ */
+export function useKeptValue<T>(key: string, codec: KeptCodec<T>, options?: KeptOptions): readonly [T | undefined, (next: T) => void, () => void] {
+    const handle = useKeptHandle(key, codec, options);
+    const stored = useSyncExternalStore(handle.subscribe, handle.read, handle.read);
+    return [stored, handle.write, handle.remove] as const;
+}
+
+/** A key's handle for a component: the same one while its key, its place and the host's scope hold. */
+function useKeptHandle<T>(key: string, codec: KeptCodec<T>, options: KeptOptions | undefined): Kept<T> {
+    const where = options?.where ?? "browser";
+    const scoped = options?.scoped ?? true;
+    const serial = useSyncExternalStore(subscribeScope, readScopeSerial, readScopeSerial);
+    // The key's first codec stands, as a key holds one shape: a codec made each render is not a new key.
+    const codecRef = useRef(codec);
+    return useMemo(() => kept(key, codecRef.current, { where, scoped }),
+        // A scope set again reads its own keys.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [key, where, scoped, serial]);
 }
 
 // ── Codecs ────────────────────────────────────────────────────────────────

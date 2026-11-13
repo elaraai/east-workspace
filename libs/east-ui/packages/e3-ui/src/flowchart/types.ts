@@ -9,14 +9,17 @@
  * — an app's records hold their own types, which the kinds map — and the
  * kinds' wire: each kind closed over the app's record behind East functions
  * over beast2 bytes, as the Schematic's are, so the payload is one type
- * whatever the rows hold.
+ * whatever the rows hold. A record may be keyed by any type a Dict takes
+ * (#1549), and every key on the wire is its text — a String key as itself,
+ * any other as East prints it — so the payload is one type whatever the rows
+ * are keyed by too; each kind says its record's key type.
  *
  * @packageDocumentation
  */
 
 import {
-    ArrayType, BlobType, BooleanType, DateTimeType, DictType, FloatType, FunctionType, IntegerType, NullType, OptionType, StringType, StructType,
-    VariantType,
+    ArrayType, BlobType, BooleanType, DateTimeType, DictType, EastTypeType, FloatType, FunctionType, IntegerType, NullType, OptionType, StringType,
+    StructType, VariantType,
 } from "@elaraai/east";
 import { ColorSchemeType, StyleVariantType } from "@elaraai/east-ui/internal";
 import { KindSideFields } from "../utils/record-kind.js";
@@ -129,7 +132,7 @@ export type FlowchartFreshnessType = typeof FlowchartFreshnessType;
  * A state's roles, as its kind reads them from the app's row (R2).
  *
  * @property label - Its card's name: its `label` field, empty for an Option field holding none
- * @property lane - The lane it stands in, by the lane's key: its `lane` field; `none` for a kind with no `lane`
+ * @property lane - The lane it stands in, by its key's text: its `lane` field, printed; `none` for a kind with no `lane`
  * @property order - Its place in its lane: its `order` field; `none` for a kind with no `order`, whose states stand by key
  * @property members - A class of interchangeable states: the ×N badge, its `members` accessor's
  */
@@ -146,10 +149,11 @@ export type FlowchartStateRolesType = typeof FlowchartStateRolesType;
 /**
  * What a gesture writes into a state's row (R8): each role's field, `none`
  * leaving it as it was — or, for a new row, as a card's values give it, else
- * its type's default.
+ * the kind's `values` of this, else its type's default. A new state's is what
+ * its kind's `values` hears the gesture decided of it.
  *
  * @property label - Its label: a rename; an empty label is `none` in an Option field
- * @property lane - Its lane's key: a move across lanes
+ * @property lane - Its lane's key, as its text: a move across lanes, read back at the lane field's type
  * @property order - Its place in its lane: a move between two cards
  */
 export const FlowchartStateWriteType = StructType({
@@ -164,9 +168,9 @@ export type FlowchartStateWriteType = typeof FlowchartStateWriteType;
 /**
  * A transition's roles, as its kind reads them from the app's row (R2).
  *
- * @property from - The state it leaves, by key
- * @property to - The state it enters, by key
- * @property decision - The decision that governs it, by key; `none` for none, an empty String field among them
+ * @property from - The state it leaves, by its key's text
+ * @property to - The state it enters, by its key's text
+ * @property decision - The decision that governs it, by its key's text; `none` for none, an empty String field among them
  * @property kind - Planned or observed: its `kind` accessor's, planned unless given
  * @property evidence - The label's evidence line and the stroke's weight: its `evidence` accessor's
  */
@@ -184,10 +188,11 @@ export type FlowchartTransitionRolesType = typeof FlowchartTransitionRolesType;
 /**
  * What a gesture writes into a transition's row (R8): its ends — Connect and
  * a retarget — and its decision, each `none` leaving it as it was, or for a
- * new row as a card's values give it, else its type's default.
+ * new row as a card's values give it, else the kind's `values` of this, else
+ * its type's default. Each key is its text, read back at its field's type.
  *
- * @property from - The state it leaves, by key
- * @property to - The state it enters, by key
+ * @property from - The state it leaves, by its key's text
+ * @property to - The state it enters, by its key's text
  * @property decision - The decision that governs it: `some(none)` clears it — a decision's Del — and `some(some(key))` names one
  */
 export const FlowchartTransitionWriteType = StructType({
@@ -216,7 +221,8 @@ export type FlowchartLaneRolesType = typeof FlowchartLaneRolesType;
 /**
  * What a gesture writes into a lane's row (R8): + LANE, a rename and a card
  * dropped between two lanes — each role's field, `none` leaving it as it was,
- * or for a new row as a card's values give it, else its type's default. An
+ * or for a new row as a card's values give it, else the kind's `values` of
+ * this, else its type's default. An
  * `order` an Integer field can't hold — between two whole numbers — is refused
  * (`none` from the write), and the renderer moves the lanes after it on.
  *
@@ -238,7 +244,7 @@ export type FlowchartLaneWriteType = typeof FlowchartLaneWriteType;
  * @property letter - The diamond's letter: its `letter` accessor's; `none`, the label's first
  * @property owner - Who owns it: its `owner` accessor's
  * @property outcomes - Its outcomes' summary line: its `outcomes` accessor's
- * @property queue - The states queued at it, by key: its `queue` field, a Set's in its order; empty for a kind with no `queue`
+ * @property queue - The states queued at it, by their keys' text: its `queue` field, a Set's in its order; empty for a kind with no `queue`
  */
 export const FlowchartDecisionRolesType = StructType({
     label: StringType,
@@ -277,7 +283,7 @@ export const FlowchartDecisionEntryType = FlowchartEntryType(FlowchartDecisionRo
  * One card a kind's library tab lists, read from a record the app keeps
  * (R14): dropped, it makes a row of its kind from its values.
  *
- * @property key - Its key: its record's key
+ * @property key - Its key: its record's key, as its text
  * @property name - Its card's name
  * @property group - The tab's group it sits under
  * @property values - Every field of the row but those a drop writes — a state's lane and order, a transition's ends, a lane's order — as bytes
@@ -418,8 +424,8 @@ export type FlowchartWeighedType = typeof FlowchartWeighedType;
  * payload: `values` turns a row into one value a read.
  *
  * @property reads - Every read, in the details' order, each where it shows
- * @property rows - The details read whole, beside a kind read whole: `()` → each row's bytes, by key, `none` while the read
- *   is in flight; `none` beside a kind read through its source
+ * @property rows - The details read whole, beside a kind read whole: `()` → each row's bytes, by its key's text, `none`
+ *   while the read is in flight; `none` beside a kind read through its source
  * @property paged - The paged read the details are read by key through, beside a kind read through its source: the drawn
  *   rows' keys, every key in one request; `none` beside a kind read whole
  * @property values - A row's values, from its bytes: one a read, in the reads' order
@@ -454,16 +460,16 @@ const FlowchartKindFields = {
     ...KindSideFields,
 } as const;
 
-/** A kind's stored rows a read holds, by key: each its roles and its row; `none` while the read is in flight. */
+/** A kind's stored rows a read holds, by their keys' text: each its roles and its row; `none` while the read is in flight. */
 const RowsOf = <E extends StructType>(entry: E) => FunctionType([], OptionType(DictType(StringType, entry)));
 
 /**
  * The states, closed (§3): a record of the app's, read whole or complete
  * through their source of the slice.
  *
- * @property rows - Its stored states a read holds, by key, each its roles and its row: its record read whole, or its narrowing read complete through its source
- * @property rowsOf - Rows a reader read by key through the states' source of the slice, as beast2 bytes of an `Array` of `{ key, row }`, made its stored states: a hidden end's, and Find's
- * @property read - A drafted row's roles, from its bytes and its key
+ * @property rows - Its stored states a read holds, by their keys' text, each its roles and its row: its record read whole, or its narrowing read complete through its source
+ * @property rowsOf - Rows a reader read by key through the states' source of the slice, as beast2 bytes of an `Array` of `{ key, row }`, each key its text, made its stored states: a hidden end's, and Find's
+ * @property read - A drafted row's roles, from its bytes and its key's text
  * @property write - The row with a gesture's roles written and every other field as it was
  * @property create - A new row from a gesture's roles, every other field a card's values, or its type's default
  * @property laneField - The field naming a state's lane by the lane's key, `none` without lanes: a conflict on it named by the lane's label
@@ -471,6 +477,9 @@ const RowsOf = <E extends StructType>(entry: E) => FunctionType([], OptionType(D
  * @property templatesSource - The slice's source its cards follow
  * @property details - Its details over the app's rows keyed as the states are, read only, drawn on each card and in the
  *   inspector (#1507); `none` for states with none, which keep today's cards
+ * @property rowKey - A new state's key's text, from its row's bytes — the kind's `key` (#1549): what a drop, Duplicate and
+ *   "+ STATE" make one under, and what a state moves to as an edit changes what it reads; `none` without `key`
+ * @property keyType - Its record's key type: what each key's text is printed from and read back at (#1549)
  */
 export const FlowchartStateKindType = StructType({
     ...FlowchartKindFields,
@@ -483,6 +492,8 @@ export const FlowchartStateKindType = StructType({
     templates: ArrayType(FlowchartTemplateType),
     templatesSource: OptionType(StringType),
     details: OptionType(FlowchartDetailsType),
+    rowKey: OptionType(FunctionType([BlobType], StringType)),
+    keyType: EastTypeType,
 });
 
 /** Type representing the states, closed. */
@@ -492,8 +503,8 @@ export type FlowchartStateKindType = typeof FlowchartStateKindType;
  * The transitions, closed (§3): a record of the app's, read whole or
  * complete through their source of the slice.
  *
- * @property rows - Its stored transitions a read holds, by key, each its roles and its row
- * @property read - A drafted row's roles, from its bytes and its key
+ * @property rows - Its stored transitions a read holds, by their keys' text, each its roles and its row
+ * @property read - A drafted row's roles, from its bytes and its key's text
  * @property write - The row with its ends and its decision written, each where given, and every other field as it was
  * @property create - A new transition between two states — Connect — every other field a card's values, or its type's default
  * @property fromField - The field naming its start by its state's key: a conflict on it named by the state's label
@@ -503,6 +514,9 @@ export type FlowchartStateKindType = typeof FlowchartStateKindType;
  * @property templatesSource - The slice's source its cards follow
  * @property details - Its details over the app's rows keyed as the transitions are, read only, drawn as lines under each
  *   label's evidence and in the inspector (#1507); `none` for transitions with none
+ * @property rowKey - A new transition's key's text, from its row's bytes — the kind's `key` (#1549): what Connect makes one
+ *   under, and what a transition moves to as an edit of its ends changes what it reads; `none` without `key`
+ * @property keyType - Its record's key type (#1549)
  */
 export const FlowchartTransitionKindType = StructType({
     ...FlowchartKindFields,
@@ -516,6 +530,8 @@ export const FlowchartTransitionKindType = StructType({
     templates: ArrayType(FlowchartTemplateType),
     templatesSource: OptionType(StringType),
     details: OptionType(FlowchartDetailsType),
+    rowKey: OptionType(FunctionType([BlobType], StringType)),
+    keyType: EastTypeType,
 });
 
 /** Type representing the transitions, closed. */
@@ -524,12 +540,15 @@ export type FlowchartTransitionKindType = typeof FlowchartTransitionKindType;
 /**
  * The lanes, closed (§3): a small record of the app's, read whole.
  *
- * @property rows - Its lanes, by key, each its roles and its row; `none` while the read is in flight
- * @property read - A drafted row's roles, from its bytes and its key
+ * @property rows - Its lanes, by their keys' text, each its roles and its row; `none` while the read is in flight
+ * @property read - A drafted row's roles, from its bytes and its key's text
  * @property write - The row with its label and its order written, each where given, and every other field as it was; `none` for an order an Integer field can't hold
  * @property create - A new lane from its label and its order, every other field a card's values, or its type's default; `none` as `write` refuses
  * @property templates - Its cards, the Lanes tab's
  * @property templatesSource - The slice's source its cards follow
+ * @property rowKey - A new lane's key's text, from its row's bytes — the kind's `key` (#1549): what + LANE and a card dropped
+ *   on the band row make one under, and what a lane moves to as an edit changes what it reads; `none` without `key`
+ * @property keyType - Its record's key type (#1549)
  */
 export const FlowchartLaneKindType = StructType({
     ...FlowchartKindFields,
@@ -539,6 +558,8 @@ export const FlowchartLaneKindType = StructType({
     create: FunctionType([FlowchartLaneWriteType, OptionType(BlobType)], OptionType(BlobType)),
     templates: ArrayType(FlowchartTemplateType),
     templatesSource: OptionType(StringType),
+    rowKey: OptionType(FunctionType([BlobType], StringType)),
+    keyType: EastTypeType,
 });
 
 /** Type representing the lanes, closed. */
@@ -547,15 +568,20 @@ export type FlowchartLaneKindType = typeof FlowchartLaneKindType;
 /**
  * The decisions, closed (§3): a small record of the app's, read whole.
  *
- * @property rows - Its decisions, by key, each its roles and its row; `none` while the read is in flight
- * @property read - A drafted row's roles, from its bytes and its key
- * @property unqueue - The row with a state's key taken out of its queue — a state's Del; `none` for a kind with no `queue`
+ * @property rows - Its decisions, by their keys' text, each its roles and its row; `none` while the read is in flight
+ * @property read - A drafted row's roles, from its bytes and its key's text
+ * @property unqueue - The row with a state's key, from its text, taken out of its queue — a state's Del; `none` for a kind with no `queue`
+ * @property requeue - The row with a state's new key, from its text, in its old key's place in its queue — its key
+ *   retyped; `none` from it for a queue without the old key, and `none` for a kind with no `queue`
+ * @property keyType - Its record's key type (#1549)
  */
 export const FlowchartDecisionKindType = StructType({
     ...FlowchartKindFields,
     rows: RowsOf(FlowchartDecisionEntryType),
     read: FunctionType([BlobType, StringType], FlowchartDecisionRolesType),
     unqueue: OptionType(FunctionType([BlobType, StringType], OptionType(BlobType))),
+    requeue: OptionType(FunctionType([BlobType, StringType, StringType], OptionType(BlobType))),
+    keyType: EastTypeType,
 });
 
 /** Type representing the decisions, closed. */

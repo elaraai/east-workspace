@@ -83,12 +83,14 @@
  * @packageDocumentation
  */
 
-import { memo, useCallback, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type Ref } from "react";
+import {
+    memo, useCallback, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type Ref,
+} from "react";
 import { Box, chakra, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import RBush from "rbush";
 import { StringType, equalFor, type option } from "@elaraai/east";
 import { getSomeorUndefined, type Origin } from "@elaraai/east-ui-components";
-import { LoadingFailedBox, LoadingWash } from "@elaraai/east-ui-components/internal";
+import { LoadingFailedBox, LoadingWash, useSurfaceGestures } from "@elaraai/east-ui-components/internal";
 import { placedVertices, type SchematicPaintEffect } from "./paint";
 import { parallelLanes as paintParallelLanes } from "./routes";
 import { EMPTY_STRING_SET, type ItemBox, linkIndex } from "./selection";
@@ -102,12 +104,13 @@ import { minimapSize } from "./minimap";
 import { itemFrame, pointFrame, useCamera, useCameraMoves } from "./use-camera";
 import { useCanvasDrop, useCanvasDropMark } from "./use-canvas-drop";
 import { NO_STANDING, useCanvasSelection, useSelectionSteps, type SchematicStanding } from "./use-canvas-selection";
-import { capturePointer, releasePointer, useGestureState, useGestures } from "./use-gestures";
+import { useGestureState, useGestures } from "./use-gestures";
 import { RevealTell, niceScaleLength, usePaint } from "./use-paint";
 import type { SchematicDensity, SchematicViewportStore } from "../area.js";
 import { areaSlots, type SchematicValue } from "../data.js";
 import { dropPoint, type SchematicCanvasDrop, type SchematicDropPoint } from "../drop.js";
-import type { NetLeg, SchematicEdit } from "../edits.js";
+import type { SchematicMove, SchematicNewKey } from "../editing.js";
+import type { NetLeg, SchematicEdit, SchematicKeyRefusal } from "../edits.js";
 import type { SchematicWords } from "../messages.js";
 import type { SchematicNarrowedLook } from "../narrowing.js";
 import type { SchematicTool } from "../tools.js";
@@ -144,17 +147,24 @@ export interface SchematicCanvasEditing {
      * @param edits - The rows it changes, and how
      * @param origin - The gesture
      * @param label - Its label in the history
-     * @returns Whether anything was recorded
+     * @returns The rows it moved under the keys their fields build (#1549) — none for a step that moves none; `undefined`
+     *   where nothing was recorded
      */
-    readonly record: (edits: readonly SchematicEdit[], origin: Origin, label: string) => boolean;
+    readonly record: (edits: readonly SchematicEdit[], origin: Origin, label: string) => readonly SchematicMove[] | undefined;
     /**
-     * A new row's key: unique among every key the Schematic has read and drafted of the kind, and those given.
+     * A new row's key, as its kind makes one from the edit making it (`editing.ts`' `newKey`, #1549).
      *
-     * @param slot - The kind's slot
-     * @param minted - The keys the gesture has minted already
-     * @returns The key
+     * @param made - The edit making the row, under any key
+     * @param minted - The keys the gesture has made already
+     * @returns The key, or why there is none; `undefined` while it is still to be read
      */
-    readonly mint: (slot: string, minted: ReadonlySet<string>) => string;
+    readonly newKey: (made: SchematicEdit, minted?: ReadonlySet<string>) => SchematicNewKey | undefined;
+    /**
+     * Says why a gesture records nothing, its new row's key refused (#1549), in the footer.
+     *
+     * @param refusal - Why
+     */
+    readonly keyRefused: (refusal: SchematicKeyRefusal) => void;
 }
 
 /** LOD thresholds in px per world unit: card ⇢ labelled dot ⇢ dot. */
@@ -219,6 +229,8 @@ export interface SchematicCanvasProps {
     readonly narrowing: SchematicCanvasNarrowing;
     /** The items holding a conflict not yet chosen, by key: each wears the conflicts' warn ring. None by default. */
     readonly conflicted?: ReadonlySet<string> | undefined;
+    /** The items whose rows break their fields' bounds (#1585), stored or changed, by key: each wears the same warn ring. None by default. */
+    readonly bounded?: ReadonlySet<string> | undefined;
     /** The tool held. */
     readonly tool: SchematicTool;
     /** The link kind Connect draws; `undefined` where no link kind is editable. */
@@ -337,7 +349,8 @@ const NO_FIT: SchematicCanvasFit = { key: undefined, reading: false, box: undefi
  * the editing's history.
  */
 export const SchematicCanvas = memo(function SchematicCanvas({
-    value, data, layers, narrowing, conflicted = EMPTY_STRING_SET, tool, linkKind, words, editing, onRefused, onAction, onSelection, onOpen, onZoneInView, drop, connectValues,
+    value, data, layers, narrowing, conflicted = EMPTY_STRING_SET, bounded = EMPTY_STRING_SET, tool, linkKind, words, editing, onRefused, onAction, onSelection, onOpen,
+    onZoneInView, drop, connectValues,
     viewport, density = NO_DENSITY, overview = NO_DENSITY, reading = false, standing = NO_STANDING, fit = NO_FIT, unread = NO_UNREAD, failure, stale = false,
     retained = false, onZoomRange, narrow = false, onElement, ref,
 }: SchematicCanvasProps) {
@@ -578,10 +591,15 @@ export const SchematicCanvas = memo(function SchematicCanvas({
 
     const scaleLen = ppu > 0 ? niceScaleLength(ppu, 100) : 0;
 
+    // A marker's warn ring is one, a conflict's or a broken bound's (#1585): the painter rings each item either names, the
+    // set kept while both are, as its short-circuit compares it.
+    const warned = useMemo(() => (bounded.size === 0 ? conflicted : conflicted.size === 0 ? bounded : new Set([...conflicted, ...bounded])),
+        [conflicted, bounded]);
     // The commit-phase snapshot, the paint's identity short-circuit and the painter's call (`use-paint.ts`).
     const paint = usePaint({
         value, data, paintValue, visibleItems, tiers, centers, layerHiddenKeys, layerAlpha, connectDraftWorld, litShown, wasLink, dropMark, paintEffect, fitBox,
-        density, stale, retained, showMinimap, minimapBox, shownZones, minimapDensities, minimapItems, look, matches, conflicted, camera, canvasSelection, gestureState,
+        density, stale, retained, showMinimap, minimapBox, shownZones, minimapDensities, minimapItems, look, matches, conflicted: warned, camera, canvasSelection,
+        gestureState,
     });
     const {
         drawRef, cardSizesRef, applyCardSizes, cardLayerRef, gridRef, washLayerRef, tintIndex, probeRef, renderSelected, renderSnapRef, onReveal,
@@ -589,14 +607,13 @@ export const SchematicCanvas = memo(function SchematicCanvas({
     } = paint;
     // What moves the camera, and what the camera tells as it moves (`use-camera.ts`).
     const cameraMoves = useCameraMoves({ canvasRef, W, H, lod, shownZones, narrowedOut, onZoneInView, viewport, onZoomRange, onAction, narrowingFit: fit, fitBox, camera, paint });
-    const { transition, flyTo, resetView, zoomBy, minimapDragRef, minimapJump } = cameraMoves;
+    const { transition, flyTo, resetView, zoomBy, minimapJump } = cameraMoves;
     // What keeps the selection to the drawing, and the steps through its items (`use-canvas-selection.ts`).
     const selectionSteps = useSelectionSteps({ data, layers, inertKeys, narrowedOut, items, shownZones, standing, reading, canvasSelection, renderSnapRef, flyTo });
     const { clearZoneSelection, flyToItem, stepSelection, pendingSelectRef, setSelectAsked } = selectionSteps;
     // The gestures' handlers (`use-gestures.ts`): the pointer's over the mode machine, the keys and the taps.
     const {
-        hoveredRef, onCanvasKeyDown, onFrameKeyDown, itemKeyAt, zoneKeyAt, linkKeyAt, onCanvasPointerDown, onCanvasPointerMove, onCanvasPointerUp,
-        onCanvasPointerCancel, onCanvasDoubleClick,
+        hoveredRef, onCanvasKeyDown, onFrameKeyDown, itemKeyAt, zoneKeyAt, linkKeyAt, surface, onCanvasDoubleClick,
     } = useGestures({
         value, data, layers, tool, linkKind, words, editing, onRefused, onOpen, connectValues, W, H, canvasRef, refById, labelById, inertKeys, narrowedOut,
         shownZones, standing, visibleItems, tiers, lod, index, itemById, lanes, linkTree, linkById, netById, dragging, canvasSelection, selectionSteps, camera,
@@ -604,6 +621,20 @@ export const SchematicCanvas = memo(function SchematicCanvas({
     });
     // The canvas's drop cell: where a library card's drag rests over it, marked (`use-canvas-drop.ts`).
     const dropCell = useCanvasDrop({ value, drop, canvasRef, refById, inertKeys, size, cameraRef, renderSnapRef, itemKeyAt, zoneKeyAt, linkKeyAt, setDropMark });
+    // The minimap is a surface of its own inside the canvas (invariant 34): a press jumps the camera to where it lands
+    // and its drag follows, the pointer that pressed alone — over as that pointer lifts, is taken back by the browser or
+    // loses its capture, so no drag is left standing to follow every later pointer over the minimap. The canvas hears
+    // none of a pointer the minimap holds (`contained`).
+    const minimapSurface = useSurfaceGestures({
+        press: (e) => {
+            transition("cancel");   // cancels a running fly via the mode machine
+            minimapJump(e.currentTarget as HTMLElement, e.clientX, e.clientY);
+        },
+        drag: (e) => minimapJump(e.currentTarget as HTMLElement, e.clientX, e.clientY),
+        // Each move has already jumped the camera: neither end has more to do.
+        release: () => undefined,
+        drop: () => undefined,
+    }, { contained: true });
     const setCanvasElement = useCallback((el: HTMLDivElement | null) => {
         canvasRef.current = el;
         dropCell(el);
@@ -706,11 +737,8 @@ export const SchematicCanvas = memo(function SchematicCanvas({
             onKeyDown={onCanvasKeyDown}
             onPointerEnter={() => { hoveredRef.current = true; }}
             onPointerLeave={() => { hoveredRef.current = false; setTempTool(null); setLit(undefined); }}
-            onPointerDown={onCanvasPointerDown}
-            onPointerMove={onCanvasPointerMove}
-            onPointerUp={onCanvasPointerUp}
-            onPointerCancel={onCanvasPointerCancel}
-            onLostPointerCapture={onCanvasPointerCancel}
+            // Its pointers' handlers: a press, its drags and its end, a pinch, and the link lit under a pointer at rest.
+            {...surface}
             onDoubleClick={onCanvasDoubleClick}
         >
             {/* The theme bridge's probe: what the canvas reads its colours and fonts from (#1387). */}
@@ -736,7 +764,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({
                         per-card React re-layout (issue #57, invariant 6). It
                         holds the widest card too, which the recipe reads. */}
                     <SchematicCardLayer cardLayerRef={cardLayerRef} styles={styles} visibleItems={visibleItems} tiers={tiers} lod={lod} context={context}
-                        look={look} matches={matches} conflicted={conflicted} renderSelected={renderSelected} lockedKeys={lockedKeys} layerAlpha={layerAlpha}
+                        look={look} matches={matches} conflicted={conflicted} bounded={bounded} renderSelected={renderSelected} lockedKeys={lockedKeys} layerAlpha={layerAlpha}
                         connectDraft={connectDraft} dropMark={dropMark} centers={centers} cardSizesRef={cardSizesRef} applyCamera={applyCardSizes} />
                     {/* Drag box overlay — zoom (#153) or marquee (#159). The marquee
                         carries a live hit-count badge. Screen-space, host-relative. */}
@@ -782,23 +810,7 @@ export const SchematicCanvas = memo(function SchematicCanvas({
                             data-minimap-items={minimapItems.length}
                             title={words.m.minimapHint()}
                             style={{ width: minimapBox.w, height: minimapBox.h }}
-                            onPointerDown={e => {
-                                e.stopPropagation();
-                                const el = e.currentTarget as HTMLElement;
-                                capturePointer(el, e.pointerId);
-                                transition("cancel");   // cancels a running fly via the mode machine
-                                minimapDragRef.current = true;
-                                minimapJump(el, e.clientX, e.clientY);
-                            }}
-                            onPointerMove={e => {
-                                if (!minimapDragRef.current) return;
-                                e.stopPropagation();
-                                minimapJump(e.currentTarget as HTMLElement, e.clientX, e.clientY);
-                            }}
-                            onPointerUp={e => {
-                                minimapDragRef.current = false;
-                                releasePointer(e.currentTarget as HTMLElement, e.pointerId);
-                            }}
+                            {...minimapSurface}
                         >
                             {/* The zones, each kind read by area's whole drawing's density and the items' dots, painted (`minimap.ts`). */}
                             <chakra.canvas ref={minimapPaintRef} css={styles.minimapPaint} />

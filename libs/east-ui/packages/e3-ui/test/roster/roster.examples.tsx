@@ -4,8 +4,8 @@
  */
 /** @jsxImportSource @elaraai/e3-ui */
 import {
-    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, PatchType, StringType, StructType,
-    example, none, some, variant,
+    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, PatchType, SetType, SortedMap,
+    SortedSet, StringType, StructType, VariantType, compareFor, example, none, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import e3 from "@elaraai/e3";
 import { Box, Button, Field, HStack, Reactive, Select, Slice, State, Text, UIComponentType, VStack } from "@elaraai/east-ui";
@@ -13,7 +13,8 @@ import { Data, Func, Record, Roster, Schedule } from "@elaraai/e3-ui";
 import {
     WarehouseActivity, WarehouseAgency, WarehouseCover, WarehouseDuty, WarehousePattern, WarehousePerson, WarehousePosition, WarehouseShift,
     WarehouseSuggestion, WarehouseTeam, WarehouseWeek, warehouseActivities, warehouseAgencies, warehouseCover, warehouseDuties, warehousePatterns,
-    warehousePayRates, warehousePeople, warehousePositions, warehouseShifts, warehouseSuggestions, warehouseTeams, warehouseWeeks,
+    warehousePayRates, warehousePeople, warehousePositions, warehousePreviousStart, warehouseShifts, warehouseStart, warehouseSuggestions, warehouseTeams,
+    warehouseWeeks,
 } from "./warehouse.js";
 
 // The warehouse's row types, and its seeded weeks as the Roster reads them, for the renderer's specs on e3 (#1368).
@@ -39,6 +40,31 @@ export const rosterDuties = e3.record("roster_duties", DictType(StringType, Ware
 /** The weeks of the rota: the one before issued, this one open. */
 export const rosterWeeks = e3.record("roster_rota_weeks", DictType(DateTimeType, WarehouseWeek), {
     initial: warehouseWeeks,
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
+/** A day of the rota, for a Roster publishing a day at a time (#1550): open, or issued and when; the suggestions it dismissed. */
+export const WarehouseDay = StructType({
+    state: VariantType({ open: NullType, issued: StructType({ at: DateTimeType }) }),
+    dismissed: SetType(StringType),
+});
+const ROTA_DAY = 86_400_000, ROTA_HOUR = 3_600_000;
+const byName = compareFor(StringType);
+/**
+ * The rota's days as rows, each keyed by its UTC day: every day of the week before and this week's Sunday to Wednesday
+ * issued, each at 17:00 the evening before; Thursday open; Friday and Saturday not started, with no row.
+ */
+export const rosterDayRows: SortedMap<Date, ValueTypeOf<typeof WarehouseDay>> = new SortedMap<Date, ValueTypeOf<typeof WarehouseDay>>([
+    ...Array.from({ length: 11 }, (_, day): [Date, ValueTypeOf<typeof WarehouseDay>] => {
+        const start = new Date(warehousePreviousStart.getTime() + day * ROTA_DAY);
+        return [start, { state: variant("issued", { at: new Date(start.getTime() - 7 * ROTA_HOUR) }), dismissed: new SortedSet<string>([], byName) }];
+    }),
+    [new Date(warehouseStart.getTime() + 4 * ROTA_DAY), { state: variant("open", null), dismissed: new SortedSet<string>([], byName) }],
+], compareFor(DateTimeType));
+/** The days of the rota, which a Roster publishing a day at a time writes (#1550): each day's status and its dismissals. */
+export const rosterDays = e3.record("roster_rota_days", DictType(DateTimeType, WarehouseDay), {
+    initial: rosterDayRows,
     mutations: (mutation) => ({
         patch: mutation.patch(),
     }),
@@ -176,8 +202,8 @@ export const rosterContractFitBody = East.function([Roster.Types.FitRequest(Ware
 export const rosterContractFit = e3.function("roster_contract_fit", rosterContractFitBody);
 
 export const rosterWarehouse = example({
-    inputs: [], description: "The mock warehouse roster over its own records: its duties, the weeks of its rota, its cover targets and suggestions, 69 staff and an agency, its shift times, teams, positions and activities. One Slice.bindRecords rail over the week's duties, the staff and the activities; the warehouse's pay in its own codes and its check over the pay; Publish; a Positions tab; the inspector; and the warehouse's greedy fit on e3, which a Find fix asks who fits.",
-    keywords: ["Roster", "Schedule.events", "Schedule.resources", "Schedule.periods", "Roster.targets", "Roster.shifts", "Roster.groups", "Roster.positions", "Roster.activities", "Roster.proposals", "pay", "check", "Slice", "Slice.bindRecords", "Data.bindPaged", "Func.bind", "e3.function", "fit", "Find", "BuilderFrame", "Save", "Publish", "FieldForm"],
+    inputs: [], description: "The mock warehouse roster over its own records: its duties, the weeks of its rota, its cover targets and suggestions, 69 staff and an agency, its shift times, teams, positions and activities. One Slice.bindRecords rail over the week's duties, the staff and the activities; the warehouse's pay in its own codes and its check over the pay; a new duty's own fields, a new target's basis and a new week's approver from the app's `values`; Publish; a Positions tab; the inspector; and the warehouse's greedy fit on e3, which a Find fix asks who fits.",
+    keywords: ["Roster", "Schedule.events", "Schedule.resources", "Schedule.periods", "Roster.targets", "Roster.shifts", "Roster.groups", "Roster.positions", "Roster.activities", "Roster.proposals", "pay", "check", "values", "new row", "Roster.Types.NewDuty", "Roster.Types.NewTarget", "Slice", "Slice.bindRecords", "Data.bindPaged", "Func.bind", "e3.function", "fit", "Find", "BuilderFrame", "Save", "Publish", "FieldForm"],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         // What the Roster writes: the duties, the weeks of the rota and the cover targets, each through its patch door.
         const rota = $.let(Record.bind(rosterDuties));
@@ -201,6 +227,8 @@ export const rosterWarehouse = example({
         const firms = $.let(Data.bind(rosterAgencies));
         const times = $.let(Data.bind(rosterShiftTimes));
         const teams = $.let(Data.bind(rosterTeams));
+        // Each team's cost centre: what a new duty of the team is booked to.
+        const centres = $.const(teams.read().map((_$2, team) => team.costCentre));
         const roles = $.let(Data.bind(rosterPositions));
         const ideas = $.let(Data.bind(rosterSuggestions));
         const rateRows = $.let(Data.bind(rosterPayRates));
@@ -243,12 +271,13 @@ export const rosterWarehouse = example({
         // The warehouse's check sees the pay too (§5.8): overtime on a duty nobody has agreed.
         const check = $.const(East.function([Roster.Types.CheckContext(WarehouseDuty)], ArrayType(Roster.Types.Issue), ($2, cx) => {
             const issues = $2.let([], ArrayType(Roster.Types.Issue));
+            const slotOf = $2.const(Roster.slotOf);
             $2.for(cx.week.assignments, ($3, a, id) => {
                 const costs = $3.const(cx.pay.get(id, () => East.value(new Map(), DictType(StringType, FloatType))));
                 $3.if(costs.has("OT1").and(() => East.notEqual(a.row.agreed, some(true))), ($4) => {
                     $4(issues.pushLast({ kind: variant("breach", null), tone: variant("info", null),
                         title: "Overtime not agreed", detail: East.str`${a.row.team} · ${a.row.shift}`,
-                        slot: some(a.slot), assignment: some(id), flag: some("OT"), fix: none }));
+                        slot: slotOf(a.place), assignment: some(id), flag: some("OT"), fix: none }));
                 });
             });
             return issues;
@@ -263,7 +292,14 @@ export const rosterWarehouse = example({
                 hours: d => d.start.durationMinutes(d.end).subtract(d.unpaidBreak).divide(60.0),
                 fields: { unpaidBreak: Schedule.field.number({ label: "Unpaid break", unit: "min", step: 15.0, min: 0.0 }),
                     costCentre: Schedule.field.text({ label: "Cost centre" }), note: Schedule.field.text({ label: "Note" }) },
-                // The app's check on a draft: Save waits until every duty has a cost centre.
+                // A new duty's own fields, the app's: half an hour's break on a shift over six hours, and its team's cost centre.
+                values: d => ({
+                    unpaidBreak: d.hours.greaterThan(6.0).ifElse(() => 30.0, () => 0.0),
+                    agreed: none,
+                    costCentre: d.group.match({ some: (_$2, team) => centres.get(team, () => ""), none: () => "" }),
+                    note: "",
+                }),
+                // The app's check on a draft: Save waits while a duty has no cost centre — one a person cleared, or a team's with none.
                 ready: d => East.equal(d.costCentre, "").ifElse(
                     () => variant("invalid", [{ field: "costCentre", message: "Give the duty a cost centre" }]),
                     () => variant("ready", null)),
@@ -274,8 +310,11 @@ export const rosterWarehouse = example({
                     trainer: p => p.trainer, trainee: p => p.trainee, usual: p => p.usual }),
                 agencies: Schedule.resources(firms.read(), { name: "Agencies", icon: "building", label: a => a.name }),
             }}
-            periods={Schedule.periods(weeks, { every: "week", status: { field: "state", draft: "open", published: "issued" }, dismissed: "dismissed" })}
-            targets={Roster.targets(cover, { day: "day", group: "team", shift: "shift", positions: "heads", hours: "hours" })}
+            // A week's row the Roster makes, at its first Save or its Publish: Ops approves the warehouse's weeks.
+            periods={Schedule.periods(weeks, { every: "week", status: { field: "state", draft: "open", published: "issued" }, dismissed: "dismissed",
+                values: _week => ({ approver: some("Ops") }) })}
+            // A target added here is the planner's own, where the forecast's rest on its run.
+            targets={Roster.targets(cover, { day: "day", group: "team", shift: "shift", positions: "heads", hours: "hours", values: _t => ({ basis: "planner" }) })}
             shifts={Roster.shifts(times.read(), { label: s => s.label, code: s => s.code, start: s => s.start, hours: s => s.hours, order: s => s.order })}
             groups={Roster.groups(teams.read(), { label: t => t.label, order: t => t.order })}
             positions={Roster.positions(roles.read(), { label: p => p.label, code: p => p.code, lead: p => p.lead, order: p => p.order })}
@@ -347,7 +386,7 @@ export const rosterMobile = example({
 });
 
 export const rosterVocabulary = example({
-    inputs: [], description: "The app's own words for who is on the Roster (#1516): `vocabulary` replaces Permanent, Agency staff, Leads, Associates, Trainers and Off Mon · available wherever the Roster draws them, its coverage detail's short forms too, and the People tab keeps its groups' order whatever they are called.",
+    inputs: [], description: "The app's own words for who is on the Roster (#1516): `vocabulary` replaces Permanent, Agency staff, Leads, Associates, Trainers and Off Mon · available wherever the Roster draws them, its coverage detail's short forms too, and the People tab keeps its groups' order whatever they are called; the badge beside an agency person's name — in the People layout, and on a Shifts chip, a request's too — is its `agencyShort`, each group's row of agency requests its `requests` (#1566), and the People layout's work requirement heading its `demand` (#1568).",
     keywords: ["Roster", "vocabulary", "words", "rename", "Employees", "Contractors", "labels", "Slice", "Slice.bindRecords", "Data.bindPaged"],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         const rota = $.let(Record.bind(rosterDuties));
@@ -367,7 +406,8 @@ export const rosterVocabulary = example({
         return <Box width="100%" height="760px"><Roster id="rosterVocabulary" week={{ start: "sunday" }} slice={{ slice }} inspector fit={fit}
             vocabulary={{
                 permanent: "Employees", permanentShort: "empl", agency: "Contractors", agencyShort: "contr", leads: "Supervisors", others: "Colleagues", trainers: "Mentors",
-                available: East.function([StringType], StringType, (_$2, weekday) => East.str`Not rostered ${weekday}`),
+                available: East.function([StringType], StringType, (_$2, weekday) => East.str`Not rostered ${weekday}`), requests: "Contractor requests",
+                demand: "Hours needed",
             }}
             view={{ layout: "shifts", period: "day", date: new Date("2028-03-09T00:00:00Z") }}
             events={{ duty: Schedule.events(rota, {
@@ -396,8 +436,8 @@ export const rosterVocabulary = example({
 });
 
 export const rosterPeople = example({
-    inputs: [], description: "The People layout by week over the same records (#1406): a row per person under their group's band, a tile per duty in each day cell in the shift's colour token — its hours only where a duty's own times differ (tileTimes=\"different\") — the week's hours and a meter in the name cell, `+ Assign` on an off day opening a menu of the home group's shifts, and the warehouse's week patterns in a Patterns tab, each dropped on a person's week as one undo step; the agency's requests their own row.",
-    keywords: ["Roster", "Schedule.events", "Schedule.resources", "Schedule.periods", "Roster.targets", "Roster.shifts", "color", "ColorToken", "Roster.patterns", "Roster.library.patterns", "tileTimes", "Slice", "Slice.bindRecords", "Data.bindPaged", "BuilderFrame", "people", "week", "Save", "Publish", "FieldForm"],
+    inputs: [], description: "The People layout by week over the same records (#1406): a row per person under their group's band, a tile per duty in each day cell in the shift's colour token — its hours only where a duty's own times differ (tileTimes=\"different\") — the week's hours and a meter in the name cell, `+ Assign` on an off day opening a menu of the home group's shifts, and the warehouse's week patterns in a Patterns tab, each dropped on a person's week as one undo step, a day it makes a duty of taking the app's `values` — the pattern named in its note; the agency's requests their own row.",
+    keywords: ["Roster", "Schedule.events", "Schedule.resources", "Schedule.periods", "Roster.targets", "Roster.shifts", "color", "ColorToken", "Roster.patterns", "Roster.library.patterns", "tileTimes", "values", "Roster.Types.NewDuty", "pattern", "Slice", "Slice.bindRecords", "Data.bindPaged", "BuilderFrame", "people", "week", "Save", "Publish", "FieldForm"],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         const rota = $.let(Record.bind(rosterDuties));
         const entries = $.let(Data.bindPaged(rosterDuties));
@@ -419,10 +459,14 @@ export const rosterPeople = example({
         const firms = $.let(Data.bind(rosterAgencies));
         const times = $.let(Data.bind(rosterShiftTimes));
         const teams = $.let(Data.bind(rosterTeams));
+        // Each team's cost centre: what a new duty of the team is booked to.
+        const centres = $.const(teams.read().map((_$2, team) => team.costCentre));
         const roles = $.let(Data.bind(rosterPositions));
         const ideas = $.let(Data.bind(rosterSuggestions));
         // The warehouse's week patterns: the cards of the Patterns tab, each dropped on a person's week.
         const weekPatterns = $.let(Data.bind(rosterPatterns));
+        // The patterns by key: what a duty a pattern made is noted with.
+        const named = $.const(weekPatterns.read());
         return <Box width="100%" height="760px"><Roster id="rosterPeople" week={{ start: "sunday" }} slice={{ slice }} inspector
             view={{ layout: "people", period: "week", date: new Date("2028-03-09T00:00:00Z") }}
             tileTimes="different"
@@ -431,6 +475,14 @@ export const rosterPeople = example({
                 start: "start", end: "end", resource: { field: "who", of: { staff: "people", agency: "agencies" } },
                 shift: "shift", group: "team", position: "role", activity: "task",
                 hours: d => d.start.durationMinutes(d.end).subtract(d.unpaidBreak).divide(60.0),
+                // A new duty's own fields, the app's: half an hour's break on a shift over six hours, its team's cost centre, and
+                // the name of the pattern that made it, where one did.
+                values: d => ({
+                    unpaidBreak: d.hours.greaterThan(6.0).ifElse(() => 30.0, () => 0.0),
+                    agreed: none,
+                    costCentre: d.group.match({ some: (_$2, team) => centres.get(team, () => ""), none: () => "" }),
+                    note: d.pattern.match({ some: (_$2, key) => named.get(key).label, none: () => "" }),
+                }),
             }) }}
             resources={{
                 people: Schedule.resources(people.read(), { name: "People", icon: "user", label: p => p.name, group: p => p.team,
@@ -507,6 +559,113 @@ export const rosterPeopleMonth = example({
             patterns={Roster.patterns(weekPatterns.read(), { name: "Patterns", icon: "calendar-week", label: w => w.label, days: w => w.days, order: w => w.order })}
             rules={{ rest: 10.0 }}
             library={[Roster.library.people(), Roster.library.patterns(), Roster.library.activities()]} />
+        </Box>;
+    }}</Reactive>),
+});
+
+export const rosterPeopleNoBands = example({
+    inputs: [], description: "The People layout by week without its groups' bands (peopleBands={false}, #1567): every person the rail shows in one list — the leads, then the rest, then agency staff — with no band to fold, and every group's agency requests in one row at its foot, each request naming its group. A person keeps their home group: `+ Assign` offers its shifts, and a Find's needs, the fit and the optimiser read it. Shifts keeps its bands, which are its slots.",
+    keywords: ["Roster", "peopleBands", "people", "week", "list", "bands", "Schedule.events", "Schedule.resources", "Schedule.periods", "Roster.targets", "Roster.shifts", "Slice", "Slice.bindRecords", "Data.bindPaged", "BuilderFrame", "Save", "Publish"],
+    fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
+        const rota = $.let(Record.bind(rosterDuties));
+        const entries = $.let(Data.bindPaged(rosterDuties));
+        const byTime = $.let(Data.bindPaged(rosterDuties, { indexes: ["roster_duties_by_time"] }));
+        const weeks = $.let(Record.bind(rosterWeeks));
+        const cover = $.let(Record.bind(rosterCover));
+        // Every person and activity is the calculation scope; the narrowing only chooses which show (#1342).
+        const people = $.let(Data.bind(rosterStaff));
+        const acts = $.let(Data.bind(rosterActivities));
+        const staffIndex = $.let(Data.bindPaged(rosterStaff, { indexes: ["roster_staff_by_team_name", "roster_staff_by_position", "roster_staff_by_trainer", "roster_staff_by_agency", "roster_staff_by_skill", "roster_staff_by_name"] }));
+        const actIndex = $.let(Data.bindPaged(rosterActivities, { indexes: ["roster_activities_by_group"] }));
+        const slice = $.let(Slice.bindRecords("ex.rosterPeopleNoBands", {
+            duty: { source: byTime, range: "start" },
+            people: { source: staffIndex, icon: { prefix: "fas", name: "user" }, search: ["name", "skills"],
+                fields: { team: { label: "Group", hints: [{ value: "inbound", label: "Inbound" }, { value: "picking", label: "Picking" }, { value: "dispatch", label: "Dispatch" }] }, position: { label: "Position", hints: [{ value: "lead", label: "Lead" }, { value: "deputy", label: "Deputy" }, { value: "acting", label: "Acting" }, { value: "crew", label: "Crew" }] },
+                    trainer: { label: "Trainer" }, agency: { label: "Agency" }, skills: { label: "Skill" }, name: { label: "Name" } } },
+            activities: { source: actIndex, icon: { prefix: "fas", name: "list-check" }, fields: { group: { label: "Group", hints: [{ value: "inbound", label: "Inbound" }, { value: "picking", label: "Picking" }, { value: "dispatch", label: "Dispatch" }, null] } } },
+        }, { presets: [{ id: "leads", name: "Leads", where: { people: { position: ["lead", "deputy", "acting"] } } }] }));
+        const firms = $.let(Data.bind(rosterAgencies));
+        const times = $.let(Data.bind(rosterShiftTimes));
+        const teams = $.let(Data.bind(rosterTeams));
+        const roles = $.let(Data.bind(rosterPositions));
+        const ideas = $.let(Data.bind(rosterSuggestions));
+        return <Box width="100%" height="760px"><Roster id="rosterPeopleNoBands" week={{ start: "sunday" }} slice={{ slice }} inspector
+            view={{ layout: "people", period: "week", date: new Date("2028-03-09T00:00:00Z") }}
+            // Everyone in one list: no group's band over its people.
+            peopleBands={false}
+            events={{ duty: Schedule.events(rota, {
+                name: "Duty", icon: "user-clock", entries,
+                start: "start", end: "end", resource: { field: "who", of: { staff: "people", agency: "agencies" } },
+                shift: "shift", group: "team", position: "role", activity: "task",
+                hours: d => d.start.durationMinutes(d.end).subtract(d.unpaidBreak).divide(60.0),
+            }) }}
+            resources={{
+                people: Schedule.resources(people.read(), { name: "People", icon: "user", label: p => p.name, group: p => p.team,
+                    position: p => p.position, skills: p => p.skills, contract: p => p.contract, agency: p => p.agency,
+                    trainer: p => p.trainer, trainee: p => p.trainee, usual: p => p.usual }),
+                agencies: Schedule.resources(firms.read(), { name: "Agencies", icon: "building", label: a => a.name }),
+            }}
+            periods={Schedule.periods(weeks, { every: "week", status: { field: "state", draft: "open", published: "issued" }, dismissed: "dismissed" })}
+            targets={Roster.targets(cover, { day: "day", group: "team", shift: "shift", positions: "heads", hours: "hours" })}
+            shifts={Roster.shifts(times.read(), { label: s => s.label, code: s => s.code, start: s => s.start, hours: s => s.hours, order: s => s.order, color: s => s.colour })}
+            groups={Roster.groups(teams.read(), { label: t => t.label, order: t => t.order })}
+            positions={Roster.positions(roles.read(), { label: p => p.label, code: p => p.code, lead: p => p.lead, order: p => p.order })}
+            activities={Roster.activities(acts.read(), { label: a => a.label, code: a => a.code, group: a => a.group, order: a => a.order })}
+            proposals={Roster.proposals(ideas.read(), { person: s => s.person, day: s => s.day, group: s => s.team, shift: s => s.shift, reason: s => s.why })}
+            rules={{ rest: 10.0 }}
+            library={[Roster.library.people(), Roster.library.activities()]} />
+        </Box>;
+    }}</Reactive>),
+});
+
+export const rosterWorkRequirement = example({
+    inputs: [], description: "The People layout by week with the warehouse's cover targets (#1568): under each group's band, its work requirement — a lane a shift with a target, its week's hours rostered against those needed, and each day's figures over a bar in the coverage marks, `no target` where none of the day's slots has one — each lane opening to its skill rows, then its people. Deep in a group's people, its band and its work requirement stay under the header until the next group's band pushes them out, an open lane's skill rows scrolling with the people once the block passes half the view. A lane's day opens its slot in the inspector. By month (the Period's Month), the eyebrow says each week's hours and a lane's day is a cup on the person marks' columns, filled to its hours rostered of needed in its bar's colours — the requests on top, what a short day lacks dashed above them, empty with no target — a cup opening its slot in its week. On a phone, before each group's people's cards, a card a day holds each shift's hours rostered of needed over its bar, a line opening its slot. Rostered counts every duty, agency requests included; the band sums its group's week, or the month's weeks. The heading is `vocabulary.demand`; `requirements={false}` draws the People layout without it.",
+    keywords: ["Roster", "requirements", "work requirement", "demand", "targets", "cover", "lanes", "skills", "hours", "people", "week", "month", "marks", "phone", "cards", "Roster.targets", "Schedule.events", "Schedule.resources", "Schedule.periods", "Roster.shifts", "Slice", "Slice.bindRecords", "Data.bindPaged", "BuilderFrame", "Save", "Publish"],
+    fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
+        const rota = $.let(Record.bind(rosterDuties));
+        const entries = $.let(Data.bindPaged(rosterDuties));
+        const byTime = $.let(Data.bindPaged(rosterDuties, { indexes: ["roster_duties_by_time"] }));
+        const weeks = $.let(Record.bind(rosterWeeks));
+        // The warehouse's cover targets: what each lane's hours needed, and its skill rows, are summed from.
+        const cover = $.let(Record.bind(rosterCover));
+        // Every person and activity is the calculation scope; the narrowing only chooses which show (#1342).
+        const people = $.let(Data.bind(rosterStaff));
+        const acts = $.let(Data.bind(rosterActivities));
+        const staffIndex = $.let(Data.bindPaged(rosterStaff, { indexes: ["roster_staff_by_team_name", "roster_staff_by_position", "roster_staff_by_trainer", "roster_staff_by_agency", "roster_staff_by_skill", "roster_staff_by_name"] }));
+        const slice = $.let(Slice.bindRecords("ex.rosterWorkRequirement", {
+            duty: { source: byTime, range: "start" },
+            people: { source: staffIndex, icon: { prefix: "fas", name: "user" }, search: ["name", "skills"],
+                fields: { team: { label: "Group", hints: [{ value: "inbound", label: "Inbound" }, { value: "picking", label: "Picking" }, { value: "dispatch", label: "Dispatch" }] }, position: { label: "Position", hints: [{ value: "lead", label: "Lead" }, { value: "deputy", label: "Deputy" }, { value: "acting", label: "Acting" }, { value: "crew", label: "Crew" }] },
+                    trainer: { label: "Trainer" }, agency: { label: "Agency" }, skills: { label: "Skill" }, name: { label: "Name" } } },
+        }));
+        const firms = $.let(Data.bind(rosterAgencies));
+        const times = $.let(Data.bind(rosterShiftTimes));
+        const teams = $.let(Data.bind(rosterTeams));
+        const roles = $.let(Data.bind(rosterPositions));
+        return <Box width="100%" height="760px"><Roster id="rosterWorkRequirement" week={{ start: "sunday" }} slice={{ slice }} inspector
+            view={{ layout: "people", period: "week", date: new Date("2028-03-09T00:00:00Z") }}
+            // The targets against what is rostered: on by default, said here as the layout's work requirement.
+            requirements
+            events={{ duty: Schedule.events(rota, {
+                name: "Duty", icon: "user-clock", entries,
+                start: "start", end: "end", resource: { field: "who", of: { staff: "people", agency: "agencies" } },
+                shift: "shift", group: "team", position: "role", activity: "task",
+                hours: d => d.start.durationMinutes(d.end).subtract(d.unpaidBreak).divide(60.0),
+            }) }}
+            resources={{
+                people: Schedule.resources(people.read(), { name: "People", icon: "user", label: p => p.name, group: p => p.team,
+                    position: p => p.position, skills: p => p.skills, contract: p => p.contract, agency: p => p.agency,
+                    trainer: p => p.trainer, trainee: p => p.trainee, usual: p => p.usual }),
+                agencies: Schedule.resources(firms.read(), { name: "Agencies", icon: "building", label: a => a.name }),
+            }}
+            periods={Schedule.periods(weeks, { every: "week", status: { field: "state", draft: "open", published: "issued" }, dismissed: "dismissed" })}
+            targets={Roster.targets(cover, { day: "day", group: "team", shift: "shift", positions: "heads", hours: "hours" })}
+            shifts={Roster.shifts(times.read(), { label: s => s.label, code: s => s.code, start: s => s.start, hours: s => s.hours, order: s => s.order, color: s => s.colour })}
+            groups={Roster.groups(teams.read(), { label: t => t.label, order: t => t.order })}
+            positions={Roster.positions(roles.read(), { label: p => p.label, code: p => p.code, lead: p => p.lead, order: p => p.order })}
+            activities={Roster.activities(acts.read(), { label: a => a.label, code: a => a.code, group: a => a.group, order: a => a.order })}
+            rules={{ rest: 10.0 }}
+            library={[Roster.library.people(), Roster.library.activities()]} />
         </Box>;
     }}</Reactive>),
 });
@@ -715,6 +874,131 @@ export const rosterViews = example({
     }}</Reactive>),
 });
 
+// A roster made in two steps (#1548): first who works when — each person's shifts for the week, told before anyone knows
+// which team each will work in — then where, each shift placed in a team against the teams' targets. The duty's team is
+// an Option field, none until the second step places it.
+
+/** A duty of a roster made in two steps: who, when and on which shift — and its team, none until it is placed in one. */
+export const NoGroupDuty = StructType({ person: StringType, start: DateTimeType, end: DateTimeType, shift: StringType, team: OptionType(StringType) });
+/** One of its staff: a name, their own team and their contracted hours a week. */
+export const NoGroupWorker = StructType({ name: StringType, team: StringType, contract: FloatType });
+/** One of its targets: a team's heads on a shift of a day, and the hours each activity needs. */
+export const NoGroupCover = StructType({ day: DateTimeType, team: StringType, shift: StringType, heads: IntegerType, hours: DictType(StringType, FloatType) });
+
+const NO_GROUP_MONDAY = new Date("2028-03-06T00:00:00Z").getTime();
+const NO_GROUP_HOUR = 3_600_000;
+const NO_GROUP_DAYS = ["mon", "tue", "wed", "thu", "fri"];
+/** The first step's answer, Monday to Friday: each person's shift a day, an early from 6:00 or a late from 14:00, or a day off. */
+const noGroupWeek: readonly (readonly [string, readonly ("early" | "late" | undefined)[]])[] = [
+    ["w-01", ["early", "early", "early", "early", "early"]],
+    ["w-02", ["early", "early", "early", "early", "early"]],
+    ["w-03", ["early", "early", "late", "late", undefined]],
+    ["w-04", ["late", "late", "late", "late", "late"]],
+    ["w-05", ["late", "late", "late", "late", "late"]],
+    ["w-06", ["late", "late", "late", undefined, "late"]],
+];
+/** The first step's week as rows, by key: the day and the person, every one in no team. */
+export const noGroupShifts: Map<string, ValueTypeOf<typeof NoGroupDuty>> = new Map();
+noGroupWeek.forEach(([person, days]) => days.forEach((shift, day) => {
+    if (shift === undefined) return;
+    const start = NO_GROUP_MONDAY + (day * 24 + (shift === "early" ? 6 : 14)) * NO_GROUP_HOUR;
+    noGroupShifts.set(`${NO_GROUP_DAYS[day]}-${person}`, { person, start: new Date(start), end: new Date(start + 8 * NO_GROUP_HOUR), shift, team: none });
+}));
+/** The duties, every one in no team yet: the first step's week. */
+export const noGroupDuties = e3.record("rota_no_group_duties", DictType(StringType, NoGroupDuty), {
+    initial: noGroupShifts,
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
+/** The staff as rows, by key: three of Inbound's and three of Dispatch's. */
+export const noGroupStaffRows: Map<string, ValueTypeOf<typeof NoGroupWorker>> = new Map([
+    ["w-01", { name: "Ada Brook", team: "inbound", contract: 40.0 }], ["w-02", { name: "Tom Vale", team: "dispatch", contract: 40.0 }],
+    ["w-03", { name: "Mia Hart", team: "inbound", contract: 40.0 }], ["w-04", { name: "Sam Reed", team: "dispatch", contract: 40.0 }],
+    ["w-05", { name: "Lea Fox", team: "inbound", contract: 40.0 }], ["w-06", { name: "Ben Moss", team: "dispatch", contract: 40.0 }],
+]);
+export const noGroupWorkers = e3.record("rota_no_group_staff", DictType(StringType, NoGroupWorker), { initial: noGroupStaffRows });
+/** Each weekday's targets: Inbound two on the early and one on the late, Dispatch one on the early and two on the late. */
+const noGroupTargets = [["inbound", "early", 2n], ["inbound", "late", 1n], ["dispatch", "early", 1n], ["dispatch", "late", 2n]] as const;
+/** The targets as rows, by key: the day, the team and the shift. */
+export const noGroupCoverRows: Map<string, ValueTypeOf<typeof NoGroupCover>> = new Map(NO_GROUP_DAYS.flatMap((name, day) => noGroupTargets.map(([team, shift, heads]) => [
+    `${name}-${team}-${shift}`, { day: new Date(NO_GROUP_MONDAY + day * 24 * NO_GROUP_HOUR), team, shift, heads, hours: new Map<string, number>() },
+] as const)));
+export const noGroupCover = e3.record("rota_no_group_cover", DictType(StringType, NoGroupCover), {
+    initial: noGroupCoverRows,
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
+
+const NoGroupRequest = Roster.Types.OptimiseRequest(NoGroupDuty), NoGroupResult = Roster.Types.OptimiseResult(NoGroupDuty);
+/**
+ * The second step's optimiser: each duty in no team placed in one, against the targets, in two passes over the week as
+ * drafted. First each goes to its person's own team, where that team's target has a head open on its day and shift; then
+ * each still in none to the first team, in the teams' order, with one open. A duty no team needs stays in none, and every
+ * duty already in a team stays where it is.
+ */
+export const rosterPlaceShiftsBody = East.function([NoGroupRequest], NoGroupResult, ($, req) => {
+    // Each slot's open heads: its target, less the duties in its team already.
+    const open = $.let(req.requirements.map(($2, need) => need.positions));
+    $.for(req.duties, ($2, duty) => {
+        $2.match(duty.team, { some: ($3, team) => {
+            const slot = $3.const({ day: req.from.durationMilliseconds(duty.start).divide(86_400_000n), group: team, shift: duty.shift });
+            $3.if(open.has(slot), ($4) => { $4(open.update(slot, open.get(slot).subtract(1n))); });
+        } });
+    });
+    const placed = $.let(req.duties.map(($2, duty) => duty));
+    const home = $.const(req.context.people.map(($2, person) => person.group));
+    const teams = $.const(req.context.groups.map(($2, group) => group.key));
+    // The passes: a person's own team first, then any team.
+    const ownTeamFirst = $.const([true, false], ArrayType(BooleanType));
+    $.for(ownTeamFirst, ($2, own) => {
+        $2.for(req.duties, ($3, duty, key) => {
+            $3.match(placed.get(key).team, { none: ($4) => {
+                const day = $4.const(req.from.durationMilliseconds(duty.start).divide(86_400_000n));
+                const mine = $4.const(home.get(duty.person, () => ""));
+                const choices = $4.const(teams.filter(($5, team) => own.not().or(() => team.equal(mine))
+                    .and(() => open.get({ day, group: team, shift: duty.shift }, () => 0n).greater(0n))));
+                $4.if(choices.size().greater(0n), ($5) => {
+                    const slot = $5.const({ day, group: choices.get(0n), shift: duty.shift });
+                    $5(open.update(slot, open.get(slot).subtract(1n)));
+                    $5(placed.update(key, { person: duty.person, start: duty.start, end: duty.end, shift: duty.shift, team: some(slot.group) }));
+                });
+            } });
+        });
+    });
+    return { duties: placed };
+});
+/** The second step on e3: the week's duties in, each in no team placed in one against the targets. */
+export const rotaPlaceShifts = e3.function("rota_place_shifts", rosterPlaceShiftsBody);
+
+export const rosterNoGroup = example({
+    inputs: [], description: "A roster made in two steps (#1548): the duty's team is an Option<String> field, `none` while it is in no group yet. The first step's week stands in no group — each person's shifts, Monday to Friday — listed under each shift in the No group band after the groups in Shifts, and on its person's row in People, its tile and the inspector saying No group; it counts in its person's hours, contract and rest, and in no group's targets. A drag from the band into a group's slot writes `some(team)`, and one back into the band `none`, each one edit. The Elara eye runs the second step, `optimise` over Roster.Types.OptimiseRequest(NoGroupDuty): each duty in no group to its person's own team where its target has a head open that day and shift, then the rest to any team with one, a duty no team needs left in none — one edit, which one Undo reverts and Save writes through the duties' patch door.",
+    keywords: ["Roster", "No group", "no group", "two steps", "Option", "OptionType", "group", "Schedule.events", "optimise", "OptimiseRequest", "OptimiseResult", "Func.bind", "e3.function", "Roster.targets", "place", "unplaced"],
+    fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
+        const rota = $.let(Record.bind(noGroupDuties));
+        const cover = $.let(Record.bind(noGroupCover));
+        const staff = $.let(Data.bind(noGroupWorkers));
+        const times = $.let(Data.bind(minimalShiftTimes));
+        const groups = $.let(Data.bind(minimalTeams));
+        // The second step: the eye places each duty in no group in a team, against the targets.
+        const optimise = $.let(Func.bind(rotaPlaceShifts));
+        return <Box width="100%" height="760px"><Roster id="rosterNoGroup" inspector optimise={optimise}
+            view={{ layout: "shifts", period: "week", date: new Date("2028-03-06T00:00:00Z") }}
+            events={{ duty: Schedule.events(rota, {
+                name: "Duty", icon: "user-clock",
+                start: "start", end: "end", resource: { field: "person", of: "people" },
+                // An Option<String> field: `none`, a duty in no group yet.
+                shift: "shift", group: "team",
+            }) }}
+            resources={{ people: Schedule.resources(staff.read(), { name: "People", icon: "user", label: w => w.name, group: w => w.team, contract: w => w.contract }) }}
+            targets={Roster.targets(cover, { day: "day", group: "team", shift: "shift", positions: "heads", hours: "hours" })}
+            shifts={Roster.shifts(times.read(), { label: s => s.name, code: s => s.code, start: s => s.starts, hours: s => s.hours, order: s => s.order })}
+            groups={Roster.groups(groups.read(), { label: t => t.name })} />
+        </Box>;
+    }}</Reactive>),
+});
+
 export const rosterPublished = example({
     inputs: [], description: "The week before, published, is read-only: navigation, staff filtering, coverage and inspection remain available.",
     keywords: ["Roster", "Schedule.events", "Schedule.resources", "Schedule.periods", "Roster.targets", "Slice", "Slice.bindRecords", "Data.bindPaged", "BuilderFrame", "published", "read-only", "Publish"],
@@ -767,6 +1051,185 @@ export const rosterPublished = example({
                 name: "Positions", icon: "id-badge", label: p => p.label, meta: p => some(p.code),
                 drop: (_p, key) => Schedule.patch(WarehouseDuty, { role: key }),
             })]} />
+        </Box>;
+    }}</Reactive>),
+});
+
+export const rosterDaily = example({
+    inputs: [], description: "A roster published a day at a time (#1550) — the second step of one made in two (#1548), where each duty works, firming up a day at a time: `periods` are the rota's days, `Schedule.periods(days, { every: \"day\", status, dismissed, entries })`, each row keyed by its UTC day and read by key through `entries`. In Shifts' Day, Publish saves the day's drafts, then writes the day's row, under Publish day; in Week, it writes each day of the week that takes edits as one request, under Publish week. A published day is read-only in every layout and period, under its banner, while the other days of its week take edits: issued Wednesday refuses a drop that Thursday takes. A proposal rejected is kept on its day's row. The status chip says the day's status, or the week's — 4 of 7 published — and the picker marks each day. Sunday to Wednesday are issued, Thursday is open, and Friday and Saturday are not started.",
+    keywords: ["Roster", "Schedule.periods", "every", "day", "days", "Publish", "Publish day", "Publish week", "published", "read-only", "two steps", "entries", "Data.bindPaged", "Record.bind", "BuilderFrame"],
+    fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
+        const rota = $.let(Record.bind(rosterDuties));
+        const entries = $.let(Data.bindPaged(rosterDuties));
+        const byTime = $.let(Data.bindPaged(rosterDuties, { indexes: ["roster_duties_by_time"] }));
+        // What the Roster publishes: the rota's days, through the record's patch door, each span of them read by key.
+        const days = $.let(Record.bind(rosterDays));
+        const dayEntries = $.let(Data.bindPaged(rosterDays));
+        const cover = $.let(Record.bind(rosterCover));
+        // Every person and activity is the calculation scope; the narrowing only chooses which show (#1342).
+        const people = $.let(Data.bind(rosterStaff));
+        const acts = $.let(Data.bind(rosterActivities));
+        const staffIndex = $.let(Data.bindPaged(rosterStaff, { indexes: ["roster_staff_by_team_name", "roster_staff_by_position", "roster_staff_by_trainer", "roster_staff_by_agency", "roster_staff_by_skill", "roster_staff_by_name"] }));
+        const actIndex = $.let(Data.bindPaged(rosterActivities, { indexes: ["roster_activities_by_group"] }));
+        const slice = $.let(Slice.bindRecords("ex.rosterDaily", {
+            duty: { source: byTime, range: "start" },
+            people: { source: staffIndex, icon: { prefix: "fas", name: "user" }, search: ["name", "skills"],
+                fields: { team: { label: "Group", hints: [{ value: "inbound", label: "Inbound" }, { value: "picking", label: "Picking" }, { value: "dispatch", label: "Dispatch" }] }, position: { label: "Position", hints: [{ value: "lead", label: "Lead" }, { value: "deputy", label: "Deputy" }, { value: "acting", label: "Acting" }, { value: "crew", label: "Crew" }] },
+                    trainer: { label: "Trainer" }, agency: { label: "Agency" }, skills: { label: "Skill" }, name: { label: "Name" } } },
+            activities: { source: actIndex, icon: { prefix: "fas", name: "list-check" }, fields: { group: { label: "Group", hints: [{ value: "inbound", label: "Inbound" }, { value: "picking", label: "Picking" }, { value: "dispatch", label: "Dispatch" }, null] } } },
+        }));
+        const firms = $.let(Data.bind(rosterAgencies));
+        const times = $.let(Data.bind(rosterShiftTimes));
+        const teams = $.let(Data.bind(rosterTeams));
+        const roles = $.let(Data.bind(rosterPositions));
+        const ideas = $.let(Data.bind(rosterSuggestions));
+        return <Box width="100%" height="760px"><Roster id="rosterDaily" week={{ start: "sunday" }} slice={{ slice }} inspector
+            view={{ layout: "shifts", period: "day", date: new Date("2028-03-09T00:00:00Z") }}
+            events={{ duty: Schedule.events(rota, {
+                name: "Duty", icon: "user-clock", entries,
+                start: "start", end: "end", resource: { field: "who", of: { staff: "people", agency: "agencies" } },
+                shift: "shift", group: "team", position: "role", activity: "task",
+                hours: d => d.start.durationMinutes(d.end).subtract(d.unpaidBreak).divide(60.0),
+            }) }}
+            resources={{
+                people: Schedule.resources(people.read(), { name: "People", icon: "user", label: p => p.name, group: p => p.team,
+                    position: p => p.position, skills: p => p.skills, contract: p => p.contract, agency: p => p.agency,
+                    trainer: p => p.trainer, trainee: p => p.trainee, usual: p => p.usual }),
+                agencies: Schedule.resources(firms.read(), { name: "Agencies", icon: "building", label: a => a.name }),
+            }}
+            // A day each, keyed by its UTC day: Publish writes the day in view's, or each day of the week that takes edits.
+            periods={Schedule.periods(days, { every: "day", status: { field: "state", draft: "open", published: "issued" }, dismissed: "dismissed", entries: dayEntries })}
+            targets={Roster.targets(cover, { day: "day", group: "team", shift: "shift", positions: "heads", hours: "hours" })}
+            shifts={Roster.shifts(times.read(), { label: s => s.label, code: s => s.code, start: s => s.start, hours: s => s.hours, order: s => s.order })}
+            groups={Roster.groups(teams.read(), { label: t => t.label, order: t => t.order })}
+            positions={Roster.positions(roles.read(), { label: p => p.label, code: p => p.code, lead: p => p.lead, order: p => p.order })}
+            activities={Roster.activities(acts.read(), { label: a => a.label, code: a => a.code, group: a => a.group, order: a => a.order })}
+            proposals={Roster.proposals(ideas.read(), { person: s => s.person, day: s => s.day, group: s => s.team, shift: s => s.shift, reason: s => s.why })}
+            rules={{ rest: 10.0 }}
+            library={[Roster.library.people(), Roster.library.activities()]} />
+        </Box>;
+    }}</Reactive>),
+});
+
+// A board over its rota (#1551), the second step of a roster made in two (#1548): the first step's answer kept in a record of
+// its own, the rota — each person's shifts for the week, in no team — and the board's duties, each a rota line placed in a team,
+// naming the line it carries out. The rota can change while the board stays as it was; the board's check reads the rota's
+// lines for the week beside the duties, and says where they part.
+
+/** A line of the rota: who works which shift, and when — the first step's answer, in no team. */
+export const RotaLine = StructType({ person: StringType, shift: StringType, start: DateTimeType, end: DateTimeType });
+/** A duty of the board over the rota: a rota line placed in a team, and the key of the line it carries out. */
+export const RotaDuty = StructType({ person: StringType, start: DateTimeType, end: DateTimeType, shift: StringType, team: StringType, rota: OptionType(StringType) });
+/** The rota's lines as rows, by key, as the rota stands now: the first step's week. */
+export const rotaLineRows: Map<string, ValueTypeOf<typeof RotaLine>> = new Map([...noGroupShifts].map(([key, duty]): [string, ValueTypeOf<typeof RotaLine>] =>
+    [key, { person: duty.person, shift: duty.shift, start: duty.start, end: duty.end }]));
+/**
+ * The board's duties as rows, by key: the rota as it stood when the board was made, each line placed in its person's own
+ * team — since when the rota has moved Mia Hart's Wednesday to the late and taken her Friday off, and put Ben Moss on
+ * Monday's late, which no duty carries out yet.
+ */
+export const rotaDutyRows: Map<string, ValueTypeOf<typeof RotaDuty>> = new Map();
+rotaLineRows.forEach((line, key) => {
+    if (key !== "mon-w-06") rotaDutyRows.set(key, { ...line, team: noGroupStaffRows.get(line.person)?.team ?? "", rota: some(key) });
+});
+const ROTA_WEDNESDAY_EARLY = NO_GROUP_MONDAY + (2 * 24 + 6) * NO_GROUP_HOUR, ROTA_FRIDAY_EARLY = NO_GROUP_MONDAY + (4 * 24 + 6) * NO_GROUP_HOUR;
+rotaDutyRows.set("wed-w-03", { person: "w-03", start: new Date(ROTA_WEDNESDAY_EARLY), end: new Date(ROTA_WEDNESDAY_EARLY + 8 * NO_GROUP_HOUR), shift: "early", team: "inbound", rota: some("wed-w-03") });
+rotaDutyRows.set("fri-w-03", { person: "w-03", start: new Date(ROTA_FRIDAY_EARLY), end: new Date(ROTA_FRIDAY_EARLY + 8 * NO_GROUP_HOUR), shift: "early", team: "inbound", rota: some("fri-w-03") });
+/** The rota, which the board reads and never writes: its lines, a week of them read through their interval index. */
+export const rosterRotaLines = e3.record("roster_rota_lines", DictType(StringType, RotaLine), {
+    initial: rotaLineRows,
+    indexes: (index) => ({
+        // The lines by their times: what the board's reference source reads a week of them through.
+        roster_rota_lines_by_time: index.interval({ from: "start", to: "end" }),
+    }),
+    mutations: (mutation) => ({
+        // The rota's patch door: the first step answering again, which the renderer's tests on e3 write beside the board.
+        patch: mutation.patch(),
+    }),
+});
+/** The board's duties, each a rota line placed in a team. */
+export const rosterBoardDuties = e3.record("roster_board_duties", DictType(StringType, RotaDuty), {
+    initial: rotaDutyRows,
+    indexes: (index) => ({
+        roster_board_duties_by_time: index.interval({ from: "start", to: "end" }),
+    }),
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
+
+export const rosterRota = example({
+    inputs: [], description: "A board over its rota (#1551), the second step of a roster made in two: the rota — each person's shifts for the week, the first step's answer, in no team — is a record of its own, and each duty a rota line placed in a team, naming the line it carries out. The slice's `reference` source reads the rota through its interval index, the Roster writing its window into it as into the duties' — each week's lines and the twelve hours either side, never the rota whole — and the check, over Roster.Types.CheckContext(RotaDuty, RotaLine), reads that week's lines in `cx.reference` beside the duties: a duty whose line has changed, its fix the line's shift where only the shift moved; a duty whose line is gone; and a line of the week no duty carries out, on the slot its person's own team would carry it out in. Nothing draws the rota, and the rail offers none of its fields.",
+    keywords: ["Roster", "check", "reference", "Roster.Types.CheckContext", "Roster.Types.Issue", "Roster.Types.Fix", "rota", "two steps", "Slice.bindRecords", "Data.bindPaged", "interval", "indexes", "Schedule.events", "Roster.slotOf", "fix", "move"],
+    fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
+        const board = $.let(Record.bind(rosterBoardDuties));
+        const entries = $.let(Data.bindPaged(rosterBoardDuties));
+        const byTime = $.let(Data.bindPaged(rosterBoardDuties, { indexes: ["roster_board_duties_by_time"] }));
+        // The rota, read only: a week of its lines at a time, through its interval index.
+        const rota = $.let(Data.bindPaged(rosterRotaLines, { indexes: ["roster_rota_lines_by_time"] }));
+        const slice = $.let(Slice.bindRecords("ex.rosterRota", {
+            duty: { source: byTime, range: "start" },
+            // The record the check reads beside the duties: the Roster writes its week into it, as into the duties'.
+            reference: { source: rota, range: "start" },
+        }));
+        const staff = $.let(Data.bind(noGroupWorkers));
+        const times = $.let(Data.bind(minimalShiftTimes));
+        const groups = $.let(Data.bind(minimalTeams));
+        // The board's check over the rota: where the week's duties and the rota's lines part.
+        const check = $.const(East.function([Roster.Types.CheckContext(RotaDuty, RotaLine)], ArrayType(Roster.Types.Issue), ($2, cx) => {
+            const issues = $2.let([], ArrayType(Roster.Types.Issue));
+            const slotOf = $2.const(Roster.slotOf);
+            const names = $2.const(cx.context.people.map((_$3, person) => person.name));
+            const homes = $2.const(cx.context.people.map((_$3, person) => person.group));
+            const shifts = $2.const(cx.context.shifts.toDict((_$3, shift) => shift.key, (_$3, shift) => shift.label));
+            const weekdays = $2.const(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"], ArrayType(StringType));
+            // Each duty against the line it carries out, noting each line carried out.
+            const carried = $2.let(new Set([]), SetType(StringType));
+            $2.for(cx.week.assignments, ($3, a, id) => {
+                $3.match(a.row.rota, { some: ($4, key) => {
+                    $4(carried.tryInsert(key));
+                    $4.if(cx.reference.has(key).not(), ($5) => {
+                        $5(issues.pushLast({ kind: variant("breach", null), tone: variant("warning", null),
+                            title: "Rota line gone", detail: East.str`The rota no longer has ${names.get(a.row.person, () => a.row.person)} on this shift`,
+                            slot: slotOf(a.place), assignment: some(id), flag: some("Rota"), fix: none }));
+                    }).else(($5) => {
+                        const line = $5.const(cx.reference.get(key));
+                        $5.if(East.notEqual(line, { person: a.row.person, shift: a.row.shift, start: a.row.start, end: a.row.end }), ($6) => {
+                            // Where only the line's shift moved, the fix moves the duty to it.
+                            const fix = $6.let(none, OptionType(Roster.Types.Fix));
+                            $6.if(East.equal(line.person, a.row.person).and(() => East.notEqual(line.shift, a.row.shift)), ($7) => {
+                                $7.assign(fix, some(variant("move", line.shift)));
+                            });
+                            $6(issues.pushLast({ kind: variant("breach", null), tone: variant("warning", null),
+                                title: "Rota line changed", detail: East.str`The rota has ${names.get(line.person, () => line.person)} on ${shifts.get(line.shift, () => line.shift)} now`,
+                                slot: slotOf(a.place), assignment: some(id), flag: some("Rota"), fix }));
+                        });
+                    });
+                } });
+            });
+            // Each line of the week no duty carries out: a line at the window's edges is the week before's or after's.
+            const end = $2.const(cx.start.addDays(7n));
+            $2.for(cx.reference, ($3, line, key) => {
+                $3.if(carried.has(key).not().and(() => East.greaterEqual(line.start, cx.start)).and(() => East.less(line.start, end)), ($4) => {
+                    const day = $4.const(cx.start.durationMilliseconds(line.start).divide(86_400_000n));
+                    const slot = $4.const({ day, group: homes.get(line.person, () => ""), shift: line.shift });
+                    $4(issues.pushLast({ kind: variant("gap", null), tone: variant("warning", null),
+                        title: "Rota line not on the board", detail: East.str`${names.get(line.person, () => line.person)} · ${weekdays.get(day)} ${shifts.get(line.shift, () => line.shift)}`,
+                        slot: some(slot), assignment: none, flag: none, fix: none }));
+                });
+            });
+            return issues;
+        }));
+        return <Box width="100%" height="760px"><Roster id="rosterRota" slice={{ slice }} check={check} inspector
+            view={{ layout: "shifts", period: "week", date: new Date("2028-03-06T00:00:00Z") }}
+            events={{ duty: Schedule.events(board, {
+                name: "Duty", icon: "user-clock", entries,
+                start: "start", end: "end", resource: { field: "person", of: "people" },
+                shift: "shift", group: "team",
+            }) }}
+            resources={{ people: Schedule.resources(staff.read(), { name: "People", icon: "user", label: w => w.name, group: w => w.team, contract: w => w.contract }) }}
+            shifts={Roster.shifts(times.read(), { label: s => s.name, code: s => s.code, start: s => s.starts, hours: s => s.hours, order: s => s.order })}
+            groups={Roster.groups(groups.read(), { label: t => t.name })} />
         </Box>;
     }}</Reactive>),
 });

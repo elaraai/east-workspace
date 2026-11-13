@@ -126,8 +126,8 @@ describe("the payload (PB8, PB11)", () => {
         assert.deepEqual([jobs!.key, jobs!.draw.type, jobs!.instant, jobs!.takes, jobs!.backlog], ["job", "span", false, ["presses"], true]);
         assert.equal(keysIn(jobs!).length, 22);
         assert.deepEqual(backlogOf(jobs!), ["J-1023", "J-1024", "J-1025", "J-1026", "J-1027", "J-1028", "J-1029", "J-1030"]);
-        // The resources' rows over a window (#1192, plan-event-rows.spec.ts); nothing else declared: no veto, Apply in batches, the window from its start.
-        assert.deepEqual([payload.blocks.type, payload.canDrop.type, payload.settings.applyMode.type, payload.settings.date.type], ["some", "none", "batch", "none"]);
+        // The resources' rows over a window (#1192, plan-event-rows.spec.ts); nothing else declared: no veto, the window from its start.
+        assert.deepEqual([payload.blocks.type, payload.canDrop.type, payload.settings.date.type], ["some", "none", "none"]);
     });
 
     test("§3.3: presses and crews by hall, jobs as bars, stops as marks and shifts as chips, the pinned chart and the grain", async () => {
@@ -338,8 +338,8 @@ describe("the payload (PB8, PB11)", () => {
         for (const [offset, key] of [[0n, "a"], [1n, "b"]] as const) {
             const window = paged.plan.rows.value.page(offset, 1n);
             if (window.type !== "some") assert.fail("expected the window");
-            assert.deepEqual(window.value.map((b) => b.fixed), [false, true, true]);
-            const [own, theStock, theMs] = ids(window.value);
+            assert.deepEqual(window.value.rows.map((b) => b.fixed), [false, true, true]);
+            const [own, theStock, theMs] = ids(window.value.rows);
             assert.ok(rowIds(own!, [variant("entry", { series: "marks", path: [key] })]));
             assert.ok(rowIds(theStock!, STOCK) && rowIds(theMs!, MS));
         }
@@ -356,7 +356,6 @@ describe("the payload (PB8, PB11)", () => {
                 resources: { presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name }) },
                 events: { job: Schedule.events(jobs, { name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end", resource: { field: "press", of: "presses" } }) },
                 canDrop: veto,
-                applyMode: "auto",
                 date: new Date("2026-10-19T00:00:00Z"),
             });
         });
@@ -364,7 +363,6 @@ describe("the payload (PB8, PB11)", () => {
         const unplaced = { kind: "job", from: variant("backlog", "J-1023"), start: FIRST, end: FIRST, resource: none };
         assert.ok(equalFor(OptionType(StringType))(payload.canDrop.value(unplaced), some("Needs a press")));
         assert.equal(payload.plan.canDrop.type, "none");
-        assert.equal(payload.settings.applyMode.type, "auto");
         assert.ok(equalFor(OptionType(DateTimeType))(payload.settings.date, some(new Date("2026-10-19T00:00:00Z"))));
         // A drag's veto is the canvas's own, over `data`'s rows.
         const overData = await payloadOf(($) => {

@@ -655,8 +655,8 @@ mock.
   Without `costs`, the money is left out.
 - **B4.** The week's status: Draft, Published or Not started. The read-outs
   are `3 changes` pending and `4 to agree · 2 proposals`. The issues chip
-  (`8 issues`, the breaches and gaps in view, in the warning tone) opens the
-  Issues tab.
+  (`8 issues`, the breaches and gaps in view and the refusals holding Save
+  (B41), in the warning tone) opens the Issues tab.
 - **B5.** *Product.* The period, the week and the day persist per builder for
   the viewer.
 - **B6.** A shift's header (Day): its label, its time (`06:00–14:00`), and
@@ -881,6 +881,9 @@ mock.
     - its status: Rostered, Requested · awaiting agency, Added · unsaved,
       Moved · unsaved, Edited · unsaved, Removed · unsaved, or Model
       proposal;
+  - **its refusals holding Save** (B41), in one warning banner,
+    `Not saved yet` over `Cost centre: Give the duty a cost centre`, each
+    field one names ringed in the duty's form;
   - **a banner per issue** with its fix;
   - **Shift:**
     - the shift, a segmented control that moves it;
@@ -944,6 +947,17 @@ mock.
 
   A click opens the issue's day and selects its subject. With none:
   `No issues — Every shift is covered and every change is agreed.`
+
+  *Product.* Ahead of them, `Not saved yet · 1`: the refusals holding Save,
+  the app's `ready` refusing a drafted duty, of any week's drafts. Each names
+  its duty by its person, day and shift
+  (`Requested · Northside Staffing · Thu, Mar 9, 2028 · Night`), or by its key
+  for one the Roster can't place, and its field by its form's label and the
+  app's message (`Cost centre: Give the duty a cost centre`), in the warning
+  tone. A click on one, or on the history item's warning button, opens its
+  duty's day and selects it, its panel showing the refusal over the form
+  (B34). The tab's count and the issues chip count them, and the tab never
+  says `No issues` while Save is held.
 - **B42.** The fixes:
   - request agency staff drafts a request on the slot;
   - mark agreed sets agreed;
@@ -1024,6 +1038,19 @@ mock.
   racing with Save returns the shared conflict banner. Both preserve the drafts
   and the newer stored value. Discard drops the week's drafts and adopts the
   latest record. Unconfirmed outcomes retain the same write identity for retry.
+- **B61.** *Product.* A new row's own fields are the app's. A duty the Roster
+  makes (a person or a request rostered on a slot, a pattern's day, a Find
+  fix) writes the roles the gesture decides over what the duty kind's
+  `values` gives of it: `Roster.Types.NewDuty`, those roles and the pattern
+  that made it. A slot's first target writes its roles over `Roster.targets`'
+  `values` of it (`Roster.Types.NewTarget`), and a week's period row, made at
+  its first Save or Publish, over `Schedule.periods`' `values` of its start
+  (`Schedule.Types.NewPeriod`). Each `values` is checked once at build: a
+  field missing, extra or of another type is refused, naming it. Without
+  `values`, each field takes its type's default. The warehouse's duties take
+  half an hour's break on a shift over six hours and their team's cost centre,
+  its targets the planner's basis, and its new weeks the approver `Ops`
+  (builder-interfaces spec §5.2).
 
 ### 9.12 The People layout (owner: People layout, *product*)
 

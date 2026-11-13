@@ -1416,6 +1416,218 @@ describe("ReactiveDatasetCache — watchHash", () => {
         assert.deepEqual(cache.read(ws(), schedulePath), str("two"), "the polled path still updated");
     });
 
+    test("a poll a refresh overtook tells no watch what it read: the poll the refresh chains reads after what the refresh was asked for, and tells them then", async () => {
+        // A record's Save asks for a refresh as its answer comes, and its page moves to the state the answer names at
+        // once. A poll in flight then read the status before the commit — another session's write that came before it,
+        // say. Told that hash, a page the answer had moved on stepped back to it.
+        const { cache, clock } = newCache();
+        const first = await hashOf(policy);
+        const heard: (string | null)[] = [];
+        cache.watchHash(ws(), policyPath, (hash) => { heard.push(hash); });
+        await h.settle();
+        assert.deepEqual(heard, [first]);
+        // Another session's write, and a poll that reads it, its answer held on its way back.
+        await h.write(policy, 2n);
+        const earlier = await hashOf(policy);
+        const answer = h.e3.holdAnswers((request) => request.kind === "status");
+        clock.tickAll();
+        await answer.holding;
+        // A later write, and the refresh asked for after it: it overtakes the poll in flight.
+        await h.write(policy, 3n);
+        const later = await hashOf(policy);
+        const refreshed = cache.refresh(ws());
+        answer.release();
+        await refreshed;
+        await h.settle();
+        assert.notEqual(earlier, later);
+        assert.deepEqual(heard, [first, later], "what the overtaken poll read is never told, and what the chained poll read is");
+    });
+
+    test("a poll a refresh overtook keeps no tag of its answer: the poll its refresh chains asks in full, and tells the watch what the overtaken one read where nothing has changed since", async () => {
+        // The overtaken poll read a write no watch had been told of, and told none. With its tag kept, the chained poll
+        // asked conditionally, was answered that nothing had changed since — and no watch ever heard of the write,
+        // until the workspace next changed.
+        const { cache, clock } = newCache();
+        const first = await hashOf(policy);
+        const heard: (string | null)[] = [];
+        cache.watchHash(ws(), policyPath, (hash) => { heard.push(hash); });
+        await h.settle();
+        assert.deepEqual(heard, [first]);
+        // Another session's write, read by a poll whose answer is held on its way back…
+        await h.write(policy, 2n);
+        const written = await hashOf(policy);
+        const answer = h.e3.holdAnswers((request) => request.kind === "status");
+        clock.tickAll();
+        await answer.holding;
+        // …and a refresh asked for meanwhile, nothing written since.
+        const refreshed = cache.refresh(ws());
+        answer.release();
+        await refreshed;
+        await h.settle();
+        assert.deepEqual(heard, [first, written], "what the overtaken poll read is told by the poll its refresh chains");
+    });
+
+    test("says whether what it holds of a dataset was confirmed by a poll started since a mark: never by one in flight as the mark was taken, and by one that finds the hash it holds unchanged as by one that fetches", async () => {
+        // What tells that the content held is the dataset's as of a read made since some moment — a record's commit
+        // being answered. A hash cannot: it names content, and a dataset put back as it was is under the hash it had.
+        const { cache, clock } = newCache();
+        cache.setRefetchInterval(ws(), policyPath, 1000);
+        await h.settle();
+        assert.equal(cache.has(ws(), policyPath), true);
+        // A poll in flight as the mark is taken read the status before it: its answer confirms nothing since.
+        const answer = h.e3.holdAnswers((request) => request.kind === "status");
+        clock.tickAll();
+        await answer.holding;
+        const mark = cache.pollMark(ws());
+        answer.release();
+        await h.settle();
+        assert.equal(cache.confirmedSince(ws(), policyPath, mark), false, "the poll in flight started before the mark");
+        // The next poll finds the hash it holds unchanged: confirmed, with nothing fetched.
+        const fetched = reads("inputs.count");
+        await cache.refresh(ws());
+        assert.equal(cache.confirmedSince(ws(), policyPath, mark), true);
+        assert.equal(reads("inputs.count"), fetched, "nothing was fetched to confirm it");
+        // A new value: confirmed since a later mark only once a poll started after it has fetched it.
+        const later = cache.pollMark(ws());
+        await h.write(policy, 7n);
+        assert.equal(cache.confirmedSince(ws(), policyPath, later), false);
+        await cache.refresh(ws());
+        assert.equal(cache.confirmedSince(ws(), policyPath, later), true);
+        assert.deepEqual(cache.read(ws(), policyPath), encodeBeast2For(IntegerType)(7n));
+    });
+
+    test("tells whoever waits once a poll started since their mark has found what it holds to be the dataset's — one that changed nothing among them — and says nothing of a dataset no poll reconciles", async () => {
+        const { cache, clock } = newCache();
+        // Never watched: no poll of the cache reconciles its content.
+        assert.equal(cache.confirmed(ws(), policyPath, cache.pollMark(ws())), undefined);
+        cache.setRefetchInterval(ws(), policyPath, 1000);
+        await h.settle();
+        // A poll in flight as the mark is taken read the status before it: whoever waits is not told by its answer.
+        const answer = h.e3.holdAnswers((request) => request.kind === "status");
+        clock.tickAll();
+        await answer.holding;
+        const mark = cache.pollMark(ws());
+        let told = 0;
+        const waiting = cache.confirmed(ws(), policyPath, mark);
+        assert.notEqual(waiting, undefined);
+        void waiting!.then(() => { told++; });
+        answer.release();
+        await h.settle();
+        assert.equal(told, 0, "the poll in flight started before the mark");
+        // The next finds the hash it holds unchanged: nothing to tell the dataset's readers of, and whoever waits is told.
+        let changes = 0;
+        const stop = cache.subscribe(datasetCacheKey(ws(), policyPath), () => { changes++; });
+        await cache.refresh(ws());
+        await h.settle();
+        assert.deepEqual([told, changes], [1, 0]);
+        stop();
+        // Found so already: told at once.
+        let again = 0;
+        void cache.confirmed(ws(), policyPath, mark)!.then(() => { again++; });
+        await h.settle();
+        assert.equal(again, 1);
+        // Since a later mark: only once a poll started after it has landed.
+        let later = 0;
+        void cache.confirmed(ws(), policyPath, cache.pollMark(ws()))!.then(() => { later++; });
+        await h.settle();
+        assert.equal(later, 0);
+        await cache.refresh(ws());
+        await h.settle();
+        assert.equal(later, 1);
+    });
+
+    test("says whether a poll started since a mark has read a followed dataset's hash, its watchers holding it — one that told them nothing among them — and tells whoever waits", async () => {
+        // What tells that the revision a paged source is pinned to is the dataset's as of a read made since some moment.
+        const { cache, clock } = newCache();
+        assert.equal(cache.hashRead(ws(), policyPath, cache.pollMark(ws())), undefined, "no watch follows its hash");
+        const heard: (string | null)[] = [];
+        cache.watchHash(ws(), policyPath, (hash) => { heard.push(hash); });
+        await h.settle();
+        const first = await hashOf(policy);
+        assert.deepEqual(heard, [first]);
+        // A poll in flight as the mark is taken read the status before it: it says nothing since.
+        const answer = h.e3.holdAnswers((request) => request.kind === "status");
+        clock.tickAll();
+        await answer.holding;
+        const mark = cache.pollMark(ws());
+        let told = 0;
+        void cache.hashRead(ws(), policyPath, mark)!.then(() => { told++; });
+        answer.release();
+        await h.settle();
+        assert.deepEqual([cache.hashReadSince(ws(), policyPath, mark), told], [false, 0]);
+        // The next poll reads the hash its watcher holds: the watcher is told nothing, and whoever waits is told.
+        await cache.refresh(ws());
+        await h.settle();
+        assert.deepEqual([cache.hashReadSince(ws(), policyPath, mark), told, heard], [true, 1, [first]]);
+        // A new hash: read since a later mark only once a poll started after it has told the watcher.
+        const later = cache.pollMark(ws());
+        await h.write(policy, 7n);
+        assert.equal(cache.hashReadSince(ws(), policyPath, later), false);
+        await cache.refresh(ws());
+        await h.settle();
+        assert.deepEqual([cache.hashReadSince(ws(), policyPath, later), heard], [true, [first, await hashOf(policy)]]);
+    });
+
+    test("a watcher that says it holds another hash is told the dataset's by the next poll started since — though that is the hash the watch last told it — and nothing by a poll in flight as it says so", async () => {
+        // A page's Save is answered with the state it committed, and its source is put there. The dataset is by then
+        // back at the state before — another session's write — whose hash is the one the watch last told. Compared with
+        // the last hash told alone, no poll told the source anything more, and it held the Save's state until the
+        // dataset next changed: e3 refuses a read pinned there, but a browser answers one it kept by itself.
+        const { cache, clock } = newCache();
+        const first = await hashOf(policy);
+        const heard: (string | null)[] = [];
+        const onHash = (hash: string | null): void => { heard.push(hash); };
+        cache.watchHash(ws(), policyPath, onHash);
+        await h.settle();
+        assert.deepEqual(heard, [first]);
+        // The dataset written, then put back as it was: under the hash it had.
+        await h.write(policy, 2n);
+        const saved = await hashOf(policy);
+        await h.write(policy, 0n);
+        assert.deepEqual([await hashOf(policy), saved === first], [first, false]);
+        // A poll in flight as the watcher says where it reads may have read before what told the watcher so: it says
+        // nothing to it, and its hash is not read as the one the watcher holds.
+        const answer = h.e3.holdAnswers((request) => request.kind === "status");
+        clock.tickAll();
+        await answer.holding;
+        const inFlight = cache.pollMark(ws());
+        cache.hashHeld(ws(), policyPath, onHash, saved);
+        answer.release();
+        await h.settle();
+        assert.deepEqual([heard, cache.hashReadSince(ws(), policyPath, inFlight - 1)], [[first], false]);
+        // The next poll tells it the dataset's hash, though it is the one the watch last told.
+        clock.tickAll();
+        await h.settle();
+        assert.deepEqual([heard, cache.hashReadSince(ws(), policyPath, inFlight)], [[first, first], true]);
+        // It holds the dataset's hash now: nothing more to tell.
+        clock.tickAll();
+        await h.settle();
+        assert.deepEqual(heard, [first, first]);
+    });
+
+    test("a watcher that says it holds the hash the dataset is under is told nothing by the next poll, which reads its hash as held; one no longer watching says nothing", async () => {
+        const { cache, clock } = newCache();
+        const first = await hashOf(policy);
+        const heard: (string | null)[] = [];
+        const onHash = (hash: string | null): void => { heard.push(hash); };
+        const unwatch = cache.watchHash(ws(), policyPath, onHash);
+        await h.settle();
+        // A write the watcher learns of from its own answer, before any poll.
+        await h.write(policy, 2n);
+        const saved = await hashOf(policy);
+        const mark = cache.pollMark(ws());
+        cache.hashHeld(ws(), policyPath, onHash, saved);
+        clock.tickAll();
+        await h.settle();
+        assert.deepEqual([heard, cache.hashReadSince(ws(), policyPath, mark)], [[first], true]);
+        // Stopped, it says nothing the watch keeps.
+        unwatch();
+        cache.hashHeld(ws(), policyPath, onHash, first);
+        clock.tickAll();
+        await h.settle();
+        assert.deepEqual(heard, [first]);
+    });
+
     test("a stopped watch hears nothing more, and destroy stops them all", async () => {
         const { cache, clock } = newCache();
         const first = await hashOf(policy);

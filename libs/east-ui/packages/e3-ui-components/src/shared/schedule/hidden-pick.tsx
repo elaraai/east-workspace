@@ -24,7 +24,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { ValueTypeOf } from "@elaraai/east";
+import type { EastTypeValue, ValueTypeOf } from "@elaraai/east";
 import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { usePickHandOff, type PickHandOff, type PickingSource } from "@elaraai/east-ui-components/internal";
 import { EachSource } from "./each-source.js";
@@ -38,6 +38,11 @@ export interface HiddenSource {
     readonly part: ValueTypeOf<RecordSliceBindType>;
     /** The field of its narrowing the builder's navigation writes — an event kind's window — which hides no row; none by default. */
     readonly window?: string | undefined;
+    /**
+     * Its record's key type (#1549): a row's id is its key's text, read back at it — the Flowchart's and the Schematic's
+     * kinds, keyed by any type; String by default, as `recordSources` binds every other builder's sources.
+     */
+    readonly keyType?: EastTypeValue | undefined;
 }
 
 /** Each source's hidden pick, by its key. */
@@ -80,7 +85,7 @@ type PickedEntry = readonly [string, SourceHidden];
  * @returns Its key and its pick, the same pair while they hold
  */
 function useHiddenSource(source: HiddenSource, name: string): PickedEntry {
-    const pick = useSourceHidden(name, source.part, source.window);
+    const pick = useSourceHidden(name, source.part, source.window, source.keyType);
     const { key } = source;
     return useMemo((): PickedEntry => [key, pick], [key, pick]);
 }

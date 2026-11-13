@@ -5,8 +5,9 @@
 
 /**
  * Schedule's typed adapter to record Slice's indexed queries: a kind's window
- * and its backlog read through its source of its builder's slice, and the
- * window's events counted before one is read.
+ * and its backlog read through its source of its builder's slice, the
+ * window's events counted before one is read, and a reference record's rows in
+ * a window read for its builder's check (#1551).
  *
  * A window read under a cap counts first: its count is the request its read
  * asks first, the same searches, so counting asks e3 nothing of its own; past
@@ -17,8 +18,8 @@
  * @packageDocumentation
  */
 import {
-    ArrayType, DateTimeType, DictType, East, Expr, FunctionType, IntegerType, OptionType, StringType, StructType,
-    isSubtype, isTypeEqual, none, some, variant, type BlockBuilder, type EastType, type ExprType, type SubtypeExprOrValue,
+    ArrayType, BlobType, DateTimeType, DictType, East, Expr, FunctionType, IntegerType, OptionType, StringType, StructType,
+    isSubtype, isTypeEqual, none, some, variant, type BlockBuilder, type BooleanType, type EastType, type ExprType, type SubtypeExprOrValue,
 } from "@elaraai/east";
 import {
     RecordSliceBindType, RecordSliceChoiceType, RecordSliceConfigType, RecordSliceReadType, RecordSliceStateType, RecordSliceWhereType,
@@ -97,13 +98,68 @@ function checkedSource(part: ScheduleKindPart, slot: string, key: EastType, row:
 }
 
 /**
- * The read a window `[from, to)` asks, built in a read's block — its window's
- * read and its count build it alike, so they ask the same searches: the
- * source's choices but its start field's and, on the start field, the
+ * The interval index a window is read through, scanned in a read's block:
+ * one from `field` — to `end`, where one is given, a kind's end, which keeps
+ * its overlapping events; none given, led by no field, as a read no choice
+ * narrows needs — a kind's window and a reference record's read alike (#1551).
+ * @returns Whether one serves the window, and whether its field is optional
+ */
+function intervalIndex($: BlockBuilder<EastType>, config: ExprType<RecordSliceConfigType>, field: string | ExprType<StringType>, end: string | undefined):
+    { readonly supported: ExprType<BooleanType>; readonly optional: ExprType<BooleanType> } {
+    const supported = $.let(false);
+    const optional = $.let(false);
+    $.for(config.indexes, ($2, index) => {
+        $2.match(index.interval, { some: ($3, interval) => {
+            const serves = $3.const(interval.from.equal(field).and(() => end === undefined ? index.fields.size().equal(0n) : interval.to.equal(end)));
+            $3.if(serves, $4 => { $4.assign(supported, true); $4.assign(optional, interval.optional); });
+        } });
+    });
+    return { supported, optional };
+}
+
+/**
+ * The read of a window `[from, to)` on a field, built in a read's block — a
+ * window's read and its count build it alike, so they ask the same searches:
+ * on the field, the window's half-open range, printed as the field's values
+ * are, an optional field's `some` — or, for a backlog, the field Unset —
+ * beside the source's choices but the field's where `choices` gives them, an
+ * exact values choice on the field standing for the window; with none given, a
+ * reference record's (#1551), the window alone. No read by area (#1432).
+ */
+function windowWhere(
+    $: BlockBuilder<EastType>, field: string | ExprType<StringType>, from: ExprType<DateTimeType>, to: ExprType<DateTimeType>,
+    optional: ExprType<BooleanType>, choices: ExprType<typeof RecordSliceWhereType> | undefined, backlog: boolean,
+): ExprType<typeof RecordSliceReadType> {
+    const time = $.let(variant("range", { from: East.print(from), to: East.print(to) }), RecordSliceChoiceType);
+    $.if(optional, $2 => {
+        const start = $2.const(some(from), OptionType(DateTimeType));
+        const end = $2.const(some(to), OptionType(DateTimeType));
+        $2.assign(time, variant("range", { from: East.print(start), to: East.print(end) }));
+    });
+    if (backlog) $.assign(time, variant("values", [East.print(East.value(none, OptionType(DateTimeType)))]));
+    const where = $.let(new Map(), RecordSliceWhereType);
+    if (choices !== undefined) {
+        $.for(choices, ($2, choice, name) => {
+            $2.if(name.notEqual(field), $3 => { $3(where.insert(name, choice)); });
+        });
+        if (!backlog) {
+            $.match(choices.tryGet(field), { some: ($2, choice) => {
+                $2.match(choice, { values: ($3, values) => { $3.assign(time, variant("values", values)); } });
+            } });
+        }
+    }
+    $(where.insert(field, time));
+    return $.let({ where, area: none }, RecordSliceReadType);
+}
+
+/**
+ * The read a kind's window `[from, to)` asks, built in a read's block — its
+ * window's read and its count build it alike, so they ask the same searches:
+ * the source's choices but its start field's and, on the start field, the
  * window's half-open range — or, for a backlog, the start Unset; exact start
- * values a choice holds stand for a window. No read by area (#1432). Refused
- * as it is read when the source's range is not the start field, or it
- * declares no interval index from the start to the end.
+ * values a choice holds stand for a window ({@link windowWhere}). Refused as
+ * it is read when the source's range is not the start field, or it declares no
+ * interval index from the start to the end.
  */
 function windowRead(
     $: BlockBuilder<EastType>, source: Source, from: ExprType<DateTimeType>, to: ExprType<DateTimeType>,
@@ -114,28 +170,11 @@ function windowRead(
     $.if(config.range.match({ none: () => true, some: (_$2, field) => field.notEqual(start) }), $2 => {
         $2.error(`${label}: set the record Slice range to '${start}' so navigation and filters share one window`);
     });
-    const supported = $.let(false);
-    $.for(config.indexes, ($2, index) => {
-        $2.match(index.interval, { some: ($3, interval) => {
-            $3.if(interval.from.equal(start).and(() => interval.to.equal(end)), $4 => { $4.assign(supported, true); });
-        } });
-    });
-    $.if(supported.not(), $2 => { $2.error(`${label}: declare an interval index for ${start} and ${end} to preserve overlapping events`); });
-    const where = $.let(new Map(), RecordSliceWhereType);
+    const index = intervalIndex($, config, start, end);
+    $.if(index.supported.not(), $2 => { $2.error(`${label}: declare an interval index for ${start} and ${end} to preserve overlapping events`); });
     const state = $.const(read());
-    $.for(state.where, ($2, choice, field) => {
-        $2.if(field.notEqual(start), $3 => { $3(where.insert(field, choice)); });
-    });
-    const time = $.let(backlog ? variant("values", [East.print(East.value(none, OptionType(DateTimeType)))])
-        : variant("range", { from: East.print(optional ? East.value(some(from), OptionType(DateTimeType)) : from),
-            to: East.print(optional ? East.value(some(to), OptionType(DateTimeType)) : to) }), RecordSliceChoiceType);
-    if (!backlog) {
-        $.match(state.where.tryGet(start), { some: ($2, choice) => {
-            $2.match(choice, { values: ($3, values) => { $3.assign(time, variant("values", values)); } });
-        } });
-    }
-    $(where.insert(start, time));
-    return $.let({ where, area: none }, RecordSliceReadType);
+    const optionalStart = $.const(optional);
+    return windowWhere($, start, from, to, optionalStart, state.where, backlog);
 }
 
 /**
@@ -197,6 +236,68 @@ export function scheduleRecordWindow(part: ScheduleKindPart, slot: string, key: 
         }
         return result;
     }) as unknown as ExprType<FunctionType<[DateTimeType, DateTimeType], OptionType<DictType<EastType, EastType>>>>;
+}
+
+/**
+ * Read a reference record's rows in a window through its source of a
+ * builder's slice (#1551): every row overlapping `[from, to)`, by its key, as
+ * its row's bytes — whatever the source's choices hold, since the builder's
+ * check reads them and a check reads every row, whatever the rail hides. The
+ * window is read on the source's range's field through an interval index from
+ * that field led by no field, so a row that starts before the window and runs
+ * into it is among them; the record is never read whole.
+ * @param part - The `reference` source of the builder's slice, bound in the builder's payload.
+ * @param row - The reference record's row type.
+ * @param label - The builder, as its refusals name it.
+ * @returns `(from, to)` → the window's rows by key, each its row's beast2 bytes; `none` while the read is in flight.
+ *   Refused as it reads when the source holds no range, or declares no interval index from its range's field led by no field.
+ * @throws {Error} When the source is not a record Slice over a record keyed by String with joined rows.
+ */
+export function scheduleReferenceWindow(part: ScheduleKindPart, row: EastType, label: string):
+    ExprType<FunctionType<[DateTimeType, DateTimeType], OptionType<DictType<StringType, BlobType>>>> {
+    const entriesType = checkedSource(part, "reference", StringType, row, label);
+    const Held = DictType(StringType, BlobType);
+    return East.function([DateTimeType, DateTimeType], OptionType(Held), ($, from, to) => {
+        // The source as the builder bound it, its members read here: the reader captures the source alone.
+        const source = $.const(part as unknown as Source);
+        const config = $.const(source.config);
+        const countWhere = $.const(source.countWhere);
+        const pageWhere = $.const(source.pageWhere);
+        const id = $.const(source.data.id);
+        const revision = $.const(source.data.revision);
+        // Its range's field: where the builder writes its window, and what the window is read by.
+        const field = $.let("");
+        $.match(config.range, {
+            none: $2 => {
+                $2.error(`${label}: the slice's reference source holds no range — bind it reference: { source: Data.bindPaged(record, { indexes }), ` +
+                    "range: \"<its start field>\" }, its record read through an interval index from that field");
+            },
+            some: ($2, name) => { $2.assign(field, name); },
+        });
+        // An interval index from that field, led by no field: the window's rows by overlap, a row running into it among them.
+        const index = intervalIndex($ as unknown as BlockBuilder<EastType>, config, field, undefined);
+        $.if(index.supported.not(), $2 => {
+            $2.error(`${label}: the slice's reference source reads its window through an interval index from its range's field, led by no field — ` +
+                "declare index.interval({ from: \"<its start field>\", to: \"<its end field>\" }) among the record's indexes and list it in Data.bindPaged's indexes");
+        });
+        // The window alone, on the range's field, as a kind's window is printed: no choice of the source's narrows what the check reads.
+        const window = windowWhere($ as unknown as BlockBuilder<EastType>, field, from, to, index.optional, undefined, false);
+        const result = $.let(none, OptionType(Held));
+        // The window's rows, read a page at a time once their count is known, each kept as its row's bytes.
+        $.match(recordSliceReadPlatform([entriesType], id, revision, countWhere, pageWhere, window), {
+            some: ($2, entries) => {
+                const held = $2.let(new Map(), Held);
+                $2.for(entries, ($3, entry) => {
+                    $3.match(entry.row, {
+                        none: $4 => { $4.error(`${label}: the slice's reference source reads no rows — bind it with Data.bindPaged with join: true`); },
+                        some: ($4, value) => { $4(held.insert(entry.key as ExprType<StringType>, East.Blob.encodeBeast(value, "v2"))); },
+                    });
+                });
+                $2.assign(result, some(held));
+            },
+        });
+        return result;
+    }) as unknown as ExprType<FunctionType<[DateTimeType, DateTimeType], OptionType<DictType<StringType, BlobType>>>>;
 }
 
 /**

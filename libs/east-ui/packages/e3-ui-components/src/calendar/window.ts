@@ -30,7 +30,6 @@ import { CalendarLayoutType, CalendarPeriodType } from "@elaraai/e3-ui/internal"
 import { sourcePart } from "../shared/schedule/visibility.js";
 import { shownView, shownViews } from "../shared/views.js";
 import { calendarRange, DAY, dayStart, type CalendarKind, type CalendarRange, type CalendarValue, type CalendarView } from "./model.js";
-import { timelineRange } from "./timeline.js";
 import { useCalendarView } from "./view.js";
 
 /** The layouts, in the switch's order. */
@@ -118,7 +117,7 @@ export function useCalendarWindow(value: CalendarValue, key: string, now: Date):
         return from === undefined || (state.date >= from && state.date < (to ?? from)) ? offered : { ...offered, date: from };
     }, [state, layouts, periods, from, to]);
     const range = useMemo((): CalendarRange => {
-        if (from === undefined || to === undefined || to <= from) return view.layout === "timeline" ? timelineRange(view) : calendarRange(view, value.settings);
+        if (from === undefined || to === undefined || to <= from) return calendarRange(view, value.settings);
         const days: Date[] = [];
         for (let at = dayStart(from).getTime(); at < to; at += DAY) {
             const day = new Date(at);
@@ -144,7 +143,7 @@ export function useCalendarWindow(value: CalendarValue, key: string, now: Date):
     }, [windowParts, range.from, range.to, version]);
     const setView = (next: CalendarView) => {
         setState(next);
-        const window = next.layout === "timeline" ? timelineRange(next) : calendarRange(next, value.settings);
+        const window = calendarRange(next, value.settings);
         write(window.from.getTime(), window.to.getTime(), () => true);
     };
     return { view, setView, layouts, periods, range, chrome, eventParts, windowParts, affordances, error };

@@ -5,7 +5,7 @@
 
 /** Record narrowing, shared by the platform handle and its controls. */
 import {
-    StringType, compareFor, decodeBeast2For, encodeBeast2For, none, parseFor, printFor, some, variant,
+    StringType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, parseFor, printFor, some, variant,
     type EastType, type StructType, type ValueTypeOf, type option,
 } from "@elaraai/east";
 import { recordSliceFieldSchema, recordSliceFieldTypes, type RecordSliceFieldSchema } from "../platform/slice/record.js";
@@ -46,6 +46,31 @@ interface RowEntries {
     readonly owners: readonly number[];
 }
 
+const stringEqual = equalFor(StringType);
+const printString = printFor(StringType);
+
+/** A primary identity as the record names it: its key's `.east` text, as a search takes it, and the key. */
+interface Identity {
+    /** The key's `.east` text. */
+    readonly text: string;
+    /** The key, an East value of the record's key type. */
+    readonly key: unknown;
+}
+
+/** What a batched membership read made of some rows at one revision ({@link RecordSliceController.containsAll}): each row once, however often the question is asked. */
+interface AskedRows {
+    /** The revision the rows are the record's at. */
+    readonly revision: string;
+    /** The index their entries are of. */
+    readonly index: string;
+    /** The identities the record holds a row of, in the order their entries are asked. */
+    readonly present: readonly string[];
+    /** The identities the record holds no row of. */
+    readonly absent: readonly string[];
+    /** The present rows' maintained entries. */
+    readonly entries: RowEntries;
+}
+
 /** Indexed reads together with the binding's stable identity and default path. */
 export interface RecordSliceBinding extends RecordSliceReader<RecordSliceEntry> {
     /** Binding identity. */
@@ -71,11 +96,18 @@ export class RecordSliceController {
     private readonly decodeRow: ReturnType<typeof decodeBeast2For>;
     /** A primary key's `.east` text, as a search names it. */
     private readonly printKey: (key: unknown) => string;
+    /**
+     * A primary identity's key and its text, its parser built once: a String key's identity is its own text, any
+     * other's its `.east` literal.
+     */
+    private readonly identity: (id: string) => Identity;
     private readonly schemas = new Map<string, RecordSliceFieldSchema>();
     private readonly parse = new Map<string, ReturnType<typeof parseFor>>();
     private readonly print = new Map<string, ReturnType<typeof printFor>>();
     /** Each page of the record's own rows' entries, by the page read — the window the source keeps it in — and the index asked of. */
     private readonly pageEntries = new WeakMap<readonly RecordSliceEntry[], Map<string, RowEntries>>();
+    /** What a batched membership read made of its rows, by the identities asked: the same array while the question stands. */
+    private readonly askedRows = new WeakMap<readonly string[], AskedRows>();
     /** Each generated index's `on` printer, by its name, from the binding's index key types (#1432): what a reader's planners name its leading values with. */
     readonly printOn: RecordOnPrinters;
     /** The entries fields (#1522): each a Dict field whose picked keys weigh a reader's rows and narrow none. */
@@ -99,6 +131,13 @@ export class RecordSliceController {
         this.encodeRow = encodeBeast2For(row);
         this.decodeRow = decodeBeast2For(row);
         this.printKey = printFor(primaryKey);
+        const parseKey = parseFor(primaryKey);
+        this.identity = (id) => {
+            const text = primaryKey.type === "String" ? printString(id) : id;
+            const key = parseKey(text);
+            if (!key.success) throw new Error("Invalid record identity");
+            return { text, key: key.value };
+        };
         this.windows = new RecordSliceSource(source);
         const fieldTypes = recordSliceFieldTypes(row, indexes);
         for (const field of config.fields) {
@@ -277,10 +316,26 @@ export class RecordSliceController {
 
     /** Confirm a saved entry without confusing a filtered-out row with a deletion. */
     readEntry(id: string): option<option<Uint8Array>> {
-        const text = this.primaryKey.type === "String" ? printFor(StringType)(id) : id;
-        const key = parseFor(this.primaryKey)(text);
-        if (!key.success) throw new Error("Invalid record identity");
-        return this.entryAt(text, key.value);
+        const { text, key } = this.identity(id);
+        return this.entryAt(text, key);
+    }
+
+    /**
+     * Confirm several saved entries in one read (#1596), each as
+     * {@link RecordSliceController.readEntry} answers it — its row as the read
+     * decoded it, never encoded again — without confusing a filtered-out row
+     * with a deletion.
+     *
+     * @param ids - The entries' primary identities
+     * @returns Each entry's row, a value of the record's row type, `none` for one the record does not hold, by identity;
+     *   none while the read is pending; `undefined` for a binding that does not batch its reads, whose entries are read
+     *   one at a time
+     */
+    readEntries(ids: readonly string[]): option<ReadonlyMap<string, option<unknown>>> | undefined {
+        if (this.source.rowsAll === undefined) return undefined;
+        const read = this.rows(ids.map(id => this.identity(id).key));
+        if (read.type === "none") return none;
+        return some(new Map(ids.map((id, i) => [id, read.value[i]!] as const)));
     }
 
     /**
@@ -369,6 +424,65 @@ export class RecordSliceController {
         return this.membership(where, id, () => some(some(row)));
     }
 
+    /**
+     * Exact membership of several entries in one read (#1596): the rows the
+     * caller does not hold read by their keys in one request, and every row's
+     * maintained keys asked of the narrowing's runs in one more, as
+     * {@link RecordSliceController.within} asks them — what a Save's view check
+     * asks of every entry it wrote, however many, and however many different
+     * index keys they have. An entry the record does not hold is outside it.
+     *
+     * @param where - The narrowing
+     * @param ids - The entries' primary identities: the same array while the question stands, so each row is read and its entries made once
+     * @param held - The rows the caller holds at the record's current revision, each beast2 of the record's row type, by identity
+     * @returns Whether the narrowing holds each, by identity; none while a read is pending; `undefined` for a binding that
+     *   does not batch its reads, whose entries are asked one at a time ({@link RecordSliceController.containsRow})
+     */
+    containsAll(where: Where, ids: readonly string[], held: ReadonlyMap<string, Uint8Array> | undefined): option<ReadonlyMap<string, boolean>> | undefined {
+        if (this.source.withinAll === undefined || this.source.rowsAll === undefined) return undefined;
+        if (ids.length === 0) return some(new Map());
+        const plan = this.plan(where);
+        // The runs and the rows are asked in the one pass, never one after the other.
+        const runs = this.windows.resolve(plan);
+        const asked = this.rowsAsked(plan.index, ids, held);
+        if (runs.type === "none" || asked.type === "none") return none;
+        if (!stringEqual(asked.value.revision, runs.value.revision)) return none;
+        const answers = new Map<string, boolean>(asked.value.absent.map(id => [id, false] as const));
+        if (plan.index === "primary" || plan.queries.length === 0) {
+            for (const id of asked.value.present) answers.set(id, true);
+            return some(answers);
+        }
+        const inside = this.held(plan, asked.value.entries, asked.value.present.length);
+        if (inside.type === "none") return none;
+        asked.value.present.forEach((id, i) => answers.set(id, inside.value[i]!));
+        return some(answers);
+    }
+
+    /** Some entries' rows and maintained entries of an index, at the record's current revision: made once, by the identities asked. */
+    private rowsAsked(index: string, ids: readonly string[], held: ReadonlyMap<string, Uint8Array> | undefined): option<AskedRows> {
+        const revision = this.source.revision();
+        if (revision.type === "none") return none;
+        const known = this.askedRows.get(ids);
+        if (known !== undefined && stringEqual(known.revision, revision.value) && stringEqual(known.index, index)) return some(known);
+        const unheld = ids.filter(id => held?.has(id) !== true);
+        const read = this.rows(unheld.map(id => this.identity(id).key));
+        if (read.type === "none") return none;
+        const stored = new Map(unheld.map((id, i) => [id, read.value[i]!] as const));
+        const present: string[] = [];
+        const absent: string[] = [];
+        const rows: { key: unknown; row: unknown }[] = [];
+        for (const id of ids) {
+            const bytes = held?.get(id);
+            const row = bytes !== undefined ? some(this.decodeRow(bytes)) : stored.get(id)!;
+            if (row.type === "none") { absent.push(id); continue; }
+            present.push(id);
+            rows.push({ key: this.identity(id).key, row: row.value });
+        }
+        const made: AskedRows = { revision: revision.value, index, present, absent, entries: index === "primary" ? { entries: [], owners: [] } : this.entriesOf(index, rows) };
+        this.askedRows.set(ids, made);
+        return some(made);
+    }
+
     /** An entry's membership, its row read or held: the row read once, its maintained keys sought. */
     private membership(where: Where, id: string, readRow: () => option<option<Uint8Array>>): option<boolean> {
         const plan = this.plan(where);
@@ -379,9 +493,7 @@ export class RecordSliceController {
         if (current.type === "none" || current.value !== runs.value.revision) return none;
         if (row.value.type === "none") return some(false);
         if (plan.index === "primary") return some(true);
-        const key = parseFor(this.primaryKey)(this.primaryKey.type === "String" ? printFor(StringType)(id) : id);
-        if (!key.success) throw new Error("Invalid record identity");
-        const keys = this.source.entryKeys(plan.index, key.value, this.decodeRow(row.value.value));
+        const keys = this.source.entryKeys(plan.index, this.identity(id).key, this.decodeRow(row.value.value));
         let pending = false;
         let included = false;
         for (const key of keys) {

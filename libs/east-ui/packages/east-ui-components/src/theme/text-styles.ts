@@ -14,7 +14,7 @@
  * held to the same rules:
  *  - Titles are DM Sans at the title sizes (15–24px) with negative tracking.
  *  - Running text is Inter Tight at 12.5–14px.
- *  - Labels — eyebrows, keys, statuses — are JetBrains Mono at 9.5–11px,
+ *  - Labels — eyebrows, keys, statuses — are Chivo Mono at 9.5–11px,
  *    600, uppercase, tracked 0.1–0.18em, in `--ink-4` unless they name
  *    another ink.
  *  - Numerals are mono with tabular figures; large numbers 26px / 600.
@@ -182,7 +182,7 @@ export const textStyles = defineTextStyles({
     /** Sub-label — a section divider within a card. */
     "sublabel": { value: label("{fontSizes.label.lg}", "{letterSpacings.caps}", "fg.subtle", NORMAL) },
 
-    /* ─── Mono — JetBrains Mono with tabular figures ─────────
+    /* ─── Mono — Chivo Mono with tabular figures ─────────────
      *
      * `mono.xs` for the caption tier (10), `mono.sm` for inline numerics
      * (11), `mono.md` for mono prose (12.5), `mono.lg` for body-sized mono

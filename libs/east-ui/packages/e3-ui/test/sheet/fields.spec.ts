@@ -10,7 +10,9 @@
  * overriding them and their order, a group's own fields through its band
  * cells, the cells a patch of each sets, every refusal naming the prop and
  * the field, and the author's `inspector` wrapped so a row and its edit cross
- * as bytes.
+ * as bytes. Then the fields a new entry needs that only the app gives (#1536):
+ * what a sheet that adds entries refuses without `newRow` or `newGroup`, and
+ * each such field as it crosses, labelled as the form labels it.
  */
 
 import { test, describe } from "node:test";
@@ -22,7 +24,9 @@ import {
 } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui";
 import { Text, type FieldEditorValue, type FieldHints } from "@elaraai/east-ui/internal";
-import { Sheet, SheetFieldType, SheetFormsType, SheetInspectorType, buildForms, buildInspector, createSheetBuild } from "@elaraai/e3-ui/internal";
+import {
+    Sheet, SheetFieldType, SheetFormsType, SheetInspectorType, SheetUnsettableType, buildForms, buildInspector, createSheetBuild, createSheetRootWith,
+} from "@elaraai/e3-ui/internal";
 
 // ── Fixtures: a part with a field under every column kind, and three without ──
 
@@ -76,7 +80,7 @@ function partForms(hints?: (h: typeof Sheet.field) => FieldHints<typeof Part["fi
                 machines: Sheet.register.members(machines, { kind: "machine", key: (m) => m, label: (m) => m }),
             },
         }, { keyOrdered: true });
-        return buildForms(build.bridge, build.metas, hints?.(Sheet.field) as Hints | undefined, groupHints, undefined, build.registers);
+        return buildForms(build.bridge, build.metas, hints?.(Sheet.field) as Hints | undefined, groupHints, undefined, build.registers, build.data);
     }), [])() as Forms;
 }
 
@@ -96,7 +100,7 @@ function batchForms(groupHints?: (h: typeof Sheet.field) => Hints): Forms {
         }, {
             group: Sheet.group(Batch, "lines", { title: "name", cells: { ends: Sheet.group.cell.date(Batch, "due") } }),
         }, { keyOrdered: true });
-        return buildForms(build.bridge, build.metas, undefined, groupHints?.(Sheet.field), undefined, build.registers);
+        return buildForms(build.bridge, build.metas, undefined, groupHints?.(Sheet.field), undefined, build.registers, build.data);
     }), [])() as Forms;
 }
 
@@ -224,6 +228,23 @@ describe("the inspector's forms (SB10)", () => {
         const named = partForms((h) => ({ created_by: h.reference({ of: "bays" }), task: h.reference({ of: "activity" }) }));
         assert.deepEqual(named.row.fields.slice(0, 2).map((f) => f.spec.editor), [reference("bays"), reference("activity")]);
     });
+
+    test("a group's line has no identity of its own: a field of it named as the id is its form's to set, as the build counts on; a loose row's is its header's (#1584)", () => {
+        const Op = StructType({ id: StringType, task: StringType });
+        const Rig = StructType({ id: StringType, name: StringType, ops: ArrayType(Op) });
+        // With a form, a new line needs no `newRow` for its id: the build counts on the form to set it.
+        assert.doesNotThrow(() => createSheetRootWith(East.value([], ArrayType(Rig)), { task: Sheet.column.text(Op, { header: "Task" }) }, {
+            id: "id", group: Sheet.group(Rig, "ops", { title: "name" }),
+            onApply: East.function([Sheet.Types.ChangeSet(Rig)], Sheet.Types.ApplyResult, () => variant("applied", { revision: none })),
+        }, { inspector: {} }));
+        const lineFields = (loose: boolean) => (East.compile(East.function([], SheetFormsType, ($) => {
+            const rigs = loose ? $.const([], ArrayType(Sheet.Types.Entry(Rig, "ops"))) : $.const([], ArrayType(Rig));
+            const build = createSheetBuild(rigs, { task: Sheet.column.text(Op, { header: "Task" }) }, { id: "id", group: Sheet.group(Rig, "ops", { title: "name" }) }, {});
+            return buildForms(build.bridge, build.metas, undefined, undefined, "id", build.registers, build.data);
+        }), [])() as Forms).row.fields.map((f) => f.spec.path.join("."));
+        assert.deepEqual(lineFields(false), ["id", "task"], "a line's id is its own field, in its form");
+        assert.deepEqual(lineFields(true), ["task"], "a loose row's id is its identity, its header's");
+    });
 });
 
 describe("the author's own Details (SB58)", () => {
@@ -256,5 +277,144 @@ describe("the author's own Details (SB58)", () => {
             /`inspector` is given alone, for the selected row's Details form, or as an East.function over the row and its writer/);
         assert.throws(() => wrapped(($) => $.const(East.function([Job], UIComponentType, (_$2, row) => Text.Root(row.task)))),
             /`inspector` is given alone, for the selected row's Details form, or as an East.function over the row and its writer/);
+    });
+});
+
+// ── A new entry's fields only the app gives (#1536): an order, its code the ERP's; kits of steps ──
+
+const Order = StructType({ id: StringType, task: StringType, hours: OptionType(FloatType), crew: StringType, code: StringType, total: FloatType, rush: BooleanType });
+const Step = StructType({ task: StringType, crew: StringType });
+const Kit = StructType({ id: StringType, name: StringType, site: StringType, steps: ArrayType(Step) });
+
+type Root = ValueTypeOf<typeof Sheet.Types.Root>;
+const unsettableEqual = equalFor(ArrayType(SheetUnsettableType));
+const printUnsettable = printFor(ArrayType(SheetUnsettableType));
+
+describe("a new entry's fields only the app gives (#1536)", () => {
+    test("a sheet that adds rows needs `newRow` for a required field no column sets; with it, each such field crosses as the form labels it", () => {
+        const onApply = East.function([Sheet.Types.ChangeSet(Order)], Sheet.Types.ApplyResult, () => variant("applied", { revision: none }));
+        assert.throws(() => Sheet.Root(East.value([], ArrayType(Order)), {
+            task:  Sheet.column.text(Order, { header: "Task" }),
+            hours: Sheet.column.quantity(Order, { header: "Hours" }),
+        }, { id: "id", onApply }), /Sheet: a new row's "crew" is required, and no column or form sets it — give it in `newRow`, make it an Option, or `edits=\{\{ insertRows: false \}\}`$/);
+        const root = East.compile(East.function([], Sheet.Types.Root, ($) => {
+            const orders = $.const([], ArrayType(Order));
+            const apply = $.const(East.function([Sheet.Types.ChangeSet(Order)], Sheet.Types.ApplyResult, () => variant("applied", { revision: none })));
+            const newRow = $.const(East.function([Sheet.Types.NewRow], Sheet.Types.Patch(Order), () => Sheet.patch(Order, { task: "", crew: "Day crew", code: "", total: 0.0, rush: false })));
+            return Sheet.Root(orders, {
+                task:  Sheet.column.text(Order, { header: "Task", editable: false }),
+                hours: Sheet.column.quantity(Order, { header: "Hours" }),
+                code:  Sheet.column.stamped(Order, { header: "Code", owner: "ERP" }),
+                total: Sheet.column.quantity(Order, { header: "Total", value: () => 2.5 }),
+            }, { id: "id", onApply: apply, newRow });
+        }), [])() as Root;
+        // A column read only, stamped or a projection sets nothing, and a field no column shows is the draft's alone: each
+        // under its column's header, else its name spelled out. An Option, and the id, are none of them.
+        const row = root.editing.unsettable.row;
+        assert.ok(unsettableEqual(row, [
+            { field: "task", label: "Task" }, { field: "crew", label: "Crew" }, { field: "code", label: "Code" }, { field: "total", label: "Total" }, { field: "rush", label: "Rush" },
+        ]), printUnsettable(row));
+        assert.ok(unsettableEqual(root.editing.unsettable.group, []), "a flat sheet adds no group");
+    });
+
+    test("with an inspector, its form sets a field no column shows that it shows to edit; hidden or read only, the field stays the app's, under the hint's label", () => {
+        const onApply = East.function([Sheet.Types.ChangeSet(Order)], Sheet.Types.ApplyResult, () => variant("applied", { revision: none }));
+        // The form shows the crew and the code as text, the total as a number and the rush as a checkbox: a person sets
+        // each of them there, and the sheet needs no `newRow`.
+        assert.doesNotThrow(() => createSheetRootWith(East.value([], ArrayType(Order)), { task: Sheet.column.text(Order, { header: "Task" }) }, { id: "id", onApply }, { inspector: {} }));
+        assert.throws(() => createSheetRootWith(East.value([], ArrayType(Order)), { task: Sheet.column.text(Order, { header: "Task" }) }, { id: "id", onApply },
+            { inspector: { fields: { crew: Sheet.field.hidden() } } }), /Sheet: a new row's "crew" is required, and no column or form sets it/);
+        // A column's field is the column's, whatever the form shows.
+        const shown = East.compile(East.function([], Sheet.Types.Root, ($) => {
+            const orders = $.const([], ArrayType(Order));
+            const apply = $.const(East.function([Sheet.Types.ChangeSet(Order)], Sheet.Types.ApplyResult, () => variant("applied", { revision: none })));
+            const newRow = $.const(East.function([Sheet.Types.NewRow], Sheet.Types.Patch(Order), () => Sheet.patch(Order, { code: "", total: 0.0 })));
+            return createSheetRootWith(orders, {
+                task:  Sheet.column.text(Order, { header: "Task" }),
+                code:  Sheet.column.stamped(Order, { header: "Code", owner: "ERP" }),
+                total: Sheet.column.quantity(Order, { header: "Total", value: () => 2.5 }),
+            }, { id: "id", onApply: apply, newRow }, { inspector: {} });
+        }), [])() as Root;
+        assert.ok(unsettableEqual(shown.editing.unsettable.row, [{ field: "code", label: "Code" }, { field: "total", label: "Total" }]), printUnsettable(shown.editing.unsettable.row));
+        const hinted = East.compile(East.function([], Sheet.Types.Root, ($) => {
+            const orders = $.const([], ArrayType(Order));
+            const apply = $.const(East.function([Sheet.Types.ChangeSet(Order)], Sheet.Types.ApplyResult, () => variant("applied", { revision: none })));
+            const newRow = $.const(East.function([Sheet.Types.NewRow], Sheet.Types.Patch(Order), () => Sheet.patch(Order, { crew: "Day crew", code: "", total: 0.0, rush: false })));
+            return createSheetRootWith(orders, {
+                task:  Sheet.column.text(Order, { header: "Task" }),
+                code:  Sheet.column.stamped(Order, { header: "Code", owner: "ERP" }),
+                total: Sheet.column.quantity(Order, { header: "Total", value: () => 2.5 }),
+            }, { id: "id", onApply: apply, newRow }, {
+                inspector: { fields: { crew: Sheet.field.hidden(), code: Sheet.field.readonly({ label: "ERP code" }), rush: Sheet.field.readonly({ label: "Rush order" }) } },
+            });
+        }), [])() as Root;
+        assert.ok(unsettableEqual(hinted.editing.unsettable.row, [
+            { field: "crew", label: "Crew" }, { field: "code", label: "ERP code" }, { field: "total", label: "Total" }, { field: "rush", label: "Rush order" },
+        ]), printUnsettable(hinted.editing.unsettable.row));
+    });
+
+    test("an action column's field is the app's on a new row — a row takes an action only once its draft is complete", () => {
+        const Panel = StructType({ id: StringType, task: StringType, stage: Stage });
+        assert.throws(() => Sheet.Root(East.value([], ArrayType(Panel)), {
+            task:  Sheet.column.text(Panel, { header: "Task" }),
+            stage: Sheet.column.action(Panel, Stage, { header: "Stage", cases: { cut: { label: "Cut", state: "Cut" }, fit: { label: "Fit", state: "Fitted" } } }),
+        }, { id: "id", onApply: East.function([Sheet.Types.ChangeSet(Panel)], Sheet.Types.ApplyResult, () => variant("applied", { revision: none })) }),
+        /Sheet: a new row's "stage" is required, and no column or form sets it/);
+    });
+
+    test("a grouped sheet needs `newRow` for a line's required field no column sets, and `newGroup` for a group's no band cell sets; with them, each crosses on its list", () => {
+        const onApply = East.function([Sheet.Types.ChangeSet(Kit)], Sheet.Types.ApplyResult, () => variant("applied", { revision: none }));
+        assert.throws(() => Sheet.Root(East.value([], ArrayType(Kit)), { task: Sheet.column.text(Step, { header: "Task" }) },
+            { id: "id", onApply, group: Sheet.group(Kit, "steps", { title: "name" }) }),
+        /Sheet: a new line's "crew" is required, and no column or form sets it — give it in `newRow`, make it an Option, or `edits=\{\{ insertRows: false \}\}`$/);
+        assert.throws(() => Sheet.Root(East.value([], ArrayType(Kit)), { task: Sheet.column.text(Step, { header: "Task" }), crew: Sheet.column.text(Step, { header: "Crew" }) },
+            { id: "id", onApply, group: Sheet.group(Kit, "steps", { title: "name" }) }),
+        /Sheet: a new group's "site" is required, and no band cell or form sets it — give it in `newGroup`, make it an Option, or `edits=\{\{ insertGroups: false \}\}`$/);
+        const root = East.compile(East.function([], Sheet.Types.Root, ($) => {
+            const kits = $.const([], ArrayType(Kit));
+            const apply = $.const(East.function([Sheet.Types.ChangeSet(Kit)], Sheet.Types.ApplyResult, () => variant("applied", { revision: none })));
+            const newRow = $.const(East.function([Sheet.Types.NewRow], Sheet.Types.Patch(Step), () => Sheet.patch(Step, { crew: "Day crew" })));
+            const newGroup = $.const(East.function([Sheet.Types.NewGroup], Sheet.Types.Patch(Kit), () => Sheet.patch(Kit, { site: "Bay 2" })));
+            return Sheet.Root(kits, { task: Sheet.column.text(Step, { header: "Task" }) }, { id: "id", onApply: apply, newRow, newGroup, group: Sheet.group(Kit, "steps", { title: "name" }) });
+        }), [])() as Root;
+        // The band's title sets the name; the id and the steps are the session's.
+        assert.ok(unsettableEqual(root.editing.unsettable.row, [{ field: "crew", label: "Crew" }]), printUnsettable(root.editing.unsettable.row));
+        assert.ok(unsettableEqual(root.editing.unsettable.group, [{ field: "site", label: "Site" }]), printUnsettable(root.editing.unsettable.group));
+        // Beside loose rows, a new row is a line or a loose row, and the session sets its id.
+        const Task = StructType({ id: StringType, task: StringType, crew: StringType });
+        const Pack = StructType({ id: StringType, name: StringType, tasks: ArrayType(Task) });
+        assert.throws(() => Sheet.Root(East.value([], ArrayType(Sheet.Types.Entry(Pack, "tasks"))), { task: Sheet.column.text(Task, { header: "Task" }) }, {
+            id: "id", group: Sheet.group(Pack, "tasks", { title: "name" }),
+            onApply: East.function([Sheet.Types.ChangeSet(Sheet.Types.Entry(Pack, "tasks"))], Sheet.Types.ApplyResult, () => variant("applied", { revision: none })),
+        }), /Sheet: a new line's or loose row's "crew" is required, and no column or form sets it/);
+    });
+
+    test("a sheet that adds no entry of a kind needs no constructor for it, and lists none: one that writes nowhere, one read only, one whose edits insert none", () => {
+        const nowhere = East.compile(East.function([], Sheet.Types.Root, ($) => {
+            const orders = $.const([], ArrayType(Order));
+            return Sheet.Root(orders, { task: Sheet.column.text(Order, { header: "Task" }) }, { id: "id" });
+        }), [])() as Root;
+        assert.ok(unsettableEqual(nowhere.editing.unsettable.row, []), printUnsettable(nowhere.editing.unsettable.row));
+        const readOnly = East.compile(East.function([], Sheet.Types.Root, ($) => {
+            const orders = $.const([], ArrayType(Order));
+            const apply = $.const(East.function([Sheet.Types.ChangeSet(Order)], Sheet.Types.ApplyResult, () => variant("applied", { revision: none })));
+            return Sheet.Root(orders, { task: Sheet.column.text(Order, { header: "Task" }) }, { id: "id", onApply: apply, readOnly: true });
+        }), [])() as Root;
+        assert.ok(unsettableEqual(readOnly.editing.unsettable.row, []), printUnsettable(readOnly.editing.unsettable.row));
+        const inserting = East.compile(East.function([], Sheet.Types.Root, ($) => {
+            const orders = $.const([], ArrayType(Order));
+            const apply = $.const(East.function([Sheet.Types.ChangeSet(Order)], Sheet.Types.ApplyResult, () => variant("applied", { revision: none })));
+            return Sheet.Root(orders, { task: Sheet.column.text(Order, { header: "Task" }) }, { id: "id", onApply: apply, edits: { insertRows: false } });
+        }), [])() as Root;
+        assert.ok(unsettableEqual(inserting.editing.unsettable.row, []), printUnsettable(inserting.editing.unsettable.row));
+        // A grouped sheet that adds lines and no groups: every line's field a column, and no `newGroup` for the site.
+        const lines = East.compile(East.function([], Sheet.Types.Root, ($) => {
+            const kits = $.const([], ArrayType(Kit));
+            const apply = $.const(East.function([Sheet.Types.ChangeSet(Kit)], Sheet.Types.ApplyResult, () => variant("applied", { revision: none })));
+            return Sheet.Root(kits, { task: Sheet.column.text(Step, { header: "Task" }), crew: Sheet.column.text(Step, { header: "Crew" }) },
+                { id: "id", onApply: apply, group: Sheet.group(Kit, "steps", { title: "name" }), edits: { insertGroups: false } });
+        }), [])() as Root;
+        assert.ok(unsettableEqual(lines.editing.unsettable.row, []), printUnsettable(lines.editing.unsettable.row));
+        assert.ok(unsettableEqual(lines.editing.unsettable.group, []), printUnsettable(lines.editing.unsettable.group));
     });
 });

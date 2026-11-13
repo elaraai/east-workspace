@@ -37,13 +37,13 @@ export const CalendarPeriodType = VariantType({ day: NullType, week: NullType, m
 export const CalendarViewType = StructType({ layout: CalendarLayoutType, period: CalendarPeriodType, date: DateTimeType });
 /** One library tab: templates, unscheduled events or author-defined cards. */
 export const CalendarLibraryTabType = VariantType({ templates: NullType, backlog: NullType, tab: ScheduleAuthorTabType });
-/** Initial view and working-time settings; every instant is shown in UTC. */
+/** Initial view and working-time settings — every instant is shown in UTC — whether it takes edits (`readOnly`), and whether its Autosave begins on (`autosave`). */
 export const CalendarSettingsType = StructType({
     layout: CalendarLayoutType, views: ArrayType(CalendarLayoutType), period: CalendarPeriodType, viewPeriods: ArrayType(CalendarPeriodType), date: OptionType(DateTimeType),
     hours: StructType({ from: IntegerType, to: IntegerType }),
     weekStart: VariantType({ monday: NullType, sunday: NullType }), weekends: BooleanType,
     density: VariantType({ compact: NullType, comfortable: NullType, spacious: NullType }),
-    now: OptionType(DateTimeType), readOnly: BooleanType,
+    now: OptionType(DateTimeType), readOnly: BooleanType, autosave: BooleanType,
 });
 /**
  * The app's own words for what the Calendar draws of its own (#1516), every one resolved.
@@ -165,6 +165,13 @@ export interface CalendarProps {
     vocabulary?: CalendarVocabulary;
     /** Disables every edit, write and drag while retaining navigation and selection. */
     readOnly?: SubtypeExprOrValue<BooleanType>;
+    /**
+     * Whether Autosave — the switch in Save's menu — begins on; off by default. On, the Calendar's changes are saved by
+     * themselves a pause after the viewer's last act: never an optimiser's result, an Undo or a Redo, which wait for a
+     * press of Save. A literal, or an expression data drives. The viewer's own choice, once made, is kept in their
+     * browser for the data set and the Calendar, and stands over it.
+     */
+    autosave?: SubtypeExprOrValue<BooleanType>;
     /** Initial layout, period and date. Viewer changes persist under id. */
     view?: { layout?: "calendar" | "resources" | "timeline"; period?: "day" | "week" | "month"; date?: SubtypeExprOrValue<DateTimeType> };
     /**
@@ -288,7 +295,7 @@ export function createCalendarPayload(props: CalendarProps): ExprType<typeof Cal
                 date: props.view?.date === undefined ? none : some(props.view.date), hours,
                 weekStart: variant(props.week?.start ?? "monday", null), weekends: props.week?.weekends ?? true,
                 density: variant(props.density ?? "comfortable", null), now: props.now === undefined ? none : some(props.now),
-                readOnly: props.readOnly ?? false,
+                readOnly: props.readOnly ?? false, autosave: props.autosave ?? false,
             },
             library, inspector: props.inspector ?? false, vocabulary: calendarVocabulary(props.vocabulary),
             slice: narrowing.chrome,

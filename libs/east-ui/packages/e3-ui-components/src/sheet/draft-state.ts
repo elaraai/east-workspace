@@ -10,13 +10,21 @@
  *
  * @packageDocumentation
  */
-import { none, variant, type EastType } from "@elaraai/east";
-import { CLEAN_DRAFT, conflictMarks, presentDraft, type DraftPresentation } from "@elaraai/east-ui-components/internal";
+import { equalFor, none, variant, type EastType } from "@elaraai/east";
+import { CLEAN_DRAFT, conflictMarks, presentDraft, type DraftPresentation as EntryPresentation } from "@elaraai/east-ui-components/internal";
 import { type BatchReadiness } from "@elaraai/east-ui-components";
 import type { EntryVersion, SheetTransactions } from "./transactions.js";
 import { SHEET_WORDS, issueText, type SheetWords } from "./words.js";
 
-export type { DraftPresentation } from "@elaraai/east-ui-components/internal";
+/** How a row presents: its draft's presentation — none for a row nobody drafted — and its numbers outside their bounds. */
+export interface DraftPresentation extends EntryPresentation {
+    /**
+     * Each number the row holds outside its field's bounds (#1585), by the cell it is drawn in, and what it says there:
+     * the cells that wear the warn wash a field still missing wears — any row's, a stored one nobody changed among them.
+     * None for none.
+     */
+    readonly bounds?: ReadonlyMap<string, string> | undefined;
+}
 
 /**
  * A group's own draft: the entry's — or, on a sheet with loose rows between
@@ -54,6 +62,8 @@ export function draftPresentation(session: SheetTransactions, type: EastType, fi
     if (entry?.draft === undefined) return CLEAN_DRAFT;
     const points = session.conflicts.get(id)?.points;
     const original = session.originals.get(id);
+    // A conflict's steps run from the entry, whatever row of it is presented.
+    const entryType = type;
     let current: unknown = entry.draft;
     let before = original?.draft;
     let row: number | undefined;
@@ -66,17 +76,41 @@ export function draftPresentation(session: SheetTransactions, type: EastType, fi
         if (current === undefined) return CLEAN_DRAFT;
         row = entry.wire?.lines.findIndex(line => line.key === child) ?? -1;
     }
+    // A row never applied is dropped by its discard only while no request for its source is unresolved — the session's
+    // own, or another view's: one the session has sent may have landed, and a gesture is taken meanwhile all the same.
     const presented = presentDraft({
-        type, current, before, entry: id, row, readiness, writable: session.writable,
+        type, current, before, entry: id, row, readiness, writable: session.writable && session.canDiscard,
         text: (message) => issueText(message, words),
     });
     // Where it holds a conflict not yet chosen: the cells that wear the warn ring, or the row whole.
-    const conflicts = conflictMarks(points, child === undefined || field === undefined || row === undefined ? undefined : { field, index: row });
+    const conflicts = conflictMarks(points, entryType, child === undefined || field === undefined || row === undefined ? undefined : { field, index: row });
     return conflicts === undefined ? presented : { ...presented, conflicts };
 }
 
 /**
- * Discard only a never-applied row/group or child, as one ordinary undoable gesture.
+ * How many fields a draft changes against the one its entry began from: a
+ * struct's fields counted one by one, any other draft as one field.
+ *
+ * @param type - The entry's draft type
+ * @returns The count, from the draft the entry began from and the draft as it stands
+ */
+export function draftChanges(type: EastType): (before: unknown, current: unknown) => number {
+    if (type.type !== "Struct") {
+        const equal = equalFor(type);
+        return (before, current) => (equal(before, current) ? 0 : 1);
+    }
+    const fields = Object.entries(type.fields).map(([name, field]) => ({ name, equal: equalFor(field) }));
+    return (before, current) => {
+        const was = before as Record<string, unknown>;
+        const now = current as Record<string, unknown>;
+        return fields.reduce((n, field) => (field.equal(was[field.name], now[field.name]) ? n : n + 1), 0);
+    };
+}
+
+/**
+ * Discard only a never-applied row/group or child, as one ordinary undoable gesture — and only while no request for
+ * its source is unresolved: a row the session has sent may have landed, and put back to nothing it would be a removal
+ * to save, never a draft dropped.
  *
  * @param session - The editing session
  * @param type - The entry's draft type — on a sheet with loose rows (#846), the variant of a group and a row
@@ -86,7 +120,7 @@ export function draftPresentation(session: SheetTransactions, type: EastType, fi
  * @returns Whether the draft was discarded
  */
 export function discardDraft(session: SheetTransactions, type: EastType, field: string | undefined, id: string, child?: string): boolean {
-    if (!session.writable) return false;
+    if (!session.writable || !session.canDiscard) return false;
     const before = session.entries.get(id);
     if (before?.draft === undefined || before.wire === undefined) return false;
     const baseline = session.originals.get(id);

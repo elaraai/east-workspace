@@ -7,7 +7,8 @@
  * An action field in the inspector's Details (#1478): the row's state and
  * summary as its cell draws them, then a button for each case its row is
  * offered — off, with why, while it may not act — and under them, inline, a
- * choice's reasons or a form's fields through `FieldForm`, its consequence,
+ * choice's reasons or a form's fields through `FieldForm` — a number typed past
+ * its bounds refused, the field saying the bound — its consequence,
  * Cancel and the verb. Every case is taken through the same command as the
  * grid's, one transaction (T1). In a phone's drawer (`Mobile Sheet Spec.md`
  * SH12) the state stands 44 tall and the cases are the action bar's Default
@@ -53,10 +54,12 @@ export interface ActionPanelProps {
     cell: SheetCellValue | undefined;
     summary: string;
     registers: SheetRegisterIndex;
+    /** Whether the action cell takes an edit: its column writes, and no mark locks it (#1560). */
+    writable: boolean;
 }
 
 /** Renders an action field in the inspector. */
-export const ActionPanel = memo(function ActionPanel({ host, api, r, columnKey, column, cell, summary, registers }: ActionPanelProps) {
+export const ActionPanel = memo(function ActionPanel({ host, api, r, columnKey, column, cell, summary, registers, writable }: ActionPanelProps) {
     const styles = useSlotStyles("sheetAction");
     const button = useRecipe({ key: "button" });
     const phone = useContext(FrameDrawer);
@@ -73,11 +76,10 @@ export const ActionPanel = memo(function ActionPanel({ host, api, r, columnKey, 
     const formRef = useRef<HTMLDivElement | null>(null);
     const [emptied, setEmptied] = useState<FieldSpecValue | undefined>(undefined);
     // A phone's cells draw no controls (X4), but its drawer's field takes the cases as the grid's would: while the sheet
-    // takes an edit, the column is editable and the row is not owned upstream (SH12).
+    // takes an edit, the cell is writable and the row is not owned upstream (SH12).
     const inspect = useSheetInspect();
-    const meta = inspect.columnAt(r, columnKey);
     const owned = inspect.selected.kind === "one" && inspect.selected.place.owned;
-    const controls = host.controls(r, columnKey) || (phone && inspect.writable && meta?.editable === true && !owned);
+    const controls = host.controls(r, columnKey) || (phone && inspect.writable && writable && !owned);
     const choose = (c: ActionCase) => {
         if (c.kind === "button") { api.take(r, columnKey, c, null); return; }
         const form = c.take.type === "form" ? c.take.value : undefined;
@@ -115,7 +117,7 @@ export const ActionPanel = memo(function ActionPanel({ host, api, r, columnKey, 
         <chakra.div css={styles.panel} data-inspector-action-field={columnKey}>
             <chakra.div css={styles.panelState} data-phone={phone ? "" : undefined}>
                 <ActionCell column={column} summary={summary} offer={offer} controls={false} dirty={host.dirty(r, columnKey)}
-                    selected={false} held={undefined} live={host.live(r, columnKey)} onNext={() => undefined} onMore={() => undefined} />
+                    selected={false} held={undefined} onNext={() => undefined} onMore={() => undefined} />
             </chakra.div>
             {controls && offer.offered.length > 0 && (
                 <chakra.div css={phone ? styles.barRest : styles.panelActions} data-inspector-actions-offered=""
@@ -146,7 +148,7 @@ export const ActionPanel = memo(function ActionPanel({ host, api, r, columnKey, 
             {open !== undefined && open.kind === "form" && (
                 <chakra.div ref={formRef} css={styles.panelForm} data-inspector-action-form={open.name}
                     onInput={() => setEmptied(emptyRequired(specs, valueRef.current, formRef.current))}>
-                    <FieldForm specs={specs} value={value} options={options} onChange={onChange} live />
+                    <FieldForm specs={specs} value={value} options={options} onChange={onChange} live refusesBreaches />
                     {missing !== undefined && <chakra.span css={styles.formError} role="alert">{m.issueRequired()} — {missing.label}</chakra.span>}
                     <chakra.div css={styles.formFoot}>
                         <chakra.span css={styles.formConsequence} data-consequence="">

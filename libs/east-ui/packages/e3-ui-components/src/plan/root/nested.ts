@@ -1226,7 +1226,9 @@ const pagedSourceEquivalent = equivalentFor(Plan.Types.Root.fields.rows.cases.pa
  * cells read and the series run over them, the shading in place — its
  * revision naming the reader's version beside the source's own, so the driver
  * reads its windows again when what was read moves, the rows it holds
- * standing in.
+ * standing in. A window carries no entries (`CarriedWindowType`): its rows are
+ * lean, and a gesture drafts from the row read whole by its key
+ * ({@link usePlanWholeRows}).
  *
  * @param value - The latest root
  * @param data - Its data-stable twin
@@ -1258,7 +1260,9 @@ export function usePlanNestedRoot(value: PlanRootValue, data: PlanRootValue, lea
             page: (offset, limit) => {
                 const l = latest.current;
                 if (l.seam === undefined || l.lead === undefined) return none;
-                return l.seam.rows(offset, limit, l.lead.cells, l.rows, l.lead.shading) as ReturnType<PlanPagedSourceValue["page"]>;
+                const read = l.seam.rows(offset, limit, l.lead.cells, l.rows, l.lead.shading);
+                // A window of lean rows carries no entry: none of them is a row whole, and an edit reads its row whole by key.
+                return read.type === "some" ? some({ rows: read.value, entries: [] }) : none;
             },
             total: () => latest.current.src?.total() ?? none,
             // What was read moving is a new revision: the driver reads its windows again, the rows it holds standing in.

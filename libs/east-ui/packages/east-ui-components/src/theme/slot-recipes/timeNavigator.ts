@@ -13,12 +13,16 @@ export const timeNavigatorSlotRecipe = defineSlotRecipe({
     slots: ["root", "trigger", "label", "body", "header", "heading", "weeks", "week", "days", "weekday", "day", "dayMark", "choices", "choice", "legend", "controls", "footer"],
     base: {
         root: { display: "inline-flex", alignItems: "center", gap: "4px", flexShrink: 0, whiteSpace: "nowrap" },
-        /* On a coarse pointer at least 44 wide: its icon alone, a phone's View, is a 44 target, the row's height its halo's. */
-        trigger: { gap: "6px", "& svg": fontAwesomeSize("10px"), _coarse: { minWidth: "44px" } },
+        /* On a coarse pointer at least 44 wide: its icon alone, a phone's View, is a 44 target, the row's height its halo's.
+         * Its words are dates, in the design system's mono face as the picker's weeks and days are: the button's own face,
+         * so its date reads in its button's type. At a chip's 11.5px, as the toolbar's chips beside it: mono runs wider than
+         * the body face at the same size, and the date at the button's own size would fold a toolbar a step sooner. */
+        trigger: { gap: "6px", fontFamily: "mono", fontSize: "11.5px", fontVariantNumeric: "tabular-nums", "& svg": fontAwesomeSize("10px"), _coarse: { minWidth: "44px" } },
         label: { whiteSpace: "nowrap" },
         body: { display: "flex", flexDirection: "column", gap: "12px", minWidth: 0 },
         header: { display: "flex", alignItems: "center", gap: "4px" },
-        heading: { flex: 1, minWidth: 0 },
+        /* The picker's month: a date, in the mono face as the trigger's. */
+        heading: { flex: 1, minWidth: 0, fontFamily: "mono", fontVariantNumeric: "tabular-nums" },
         weeks: { display: "flex", flexDirection: "column", gap: "4px", minWidth: 0 },
         week: { display: "flex", alignItems: "center", gap: "10px", padding: "8px", minHeight: "36px", textAlign: "left", textStyle: "mono.sm", borderRadius: "sm", cursor: "pointer",
             "&:hover:not([data-selected])": { background: "bg.subtle" }, "&[data-selected]": { background: "brand.subtle" }, ...planRowFocus, _coarse: { minHeight: "44px" } },

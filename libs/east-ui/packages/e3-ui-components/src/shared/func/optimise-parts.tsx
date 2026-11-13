@@ -151,7 +151,7 @@ export function useOptimiseParts<Req>({ run, landing, period, readOnly, busy = f
         : undefined, [run.offered, run.running, run.stop, period, readOnly, busy, onRun]);
     const shown: OptimiseOutcome | undefined = useMemo(() => {
         if (outcome === undefined) return undefined;
-        if (outcome.kind === "fail") return { kind: "fail", period: outcome.period };
+        if (outcome.kind === "fail") return { kind: "fail", period: outcome.period, ...(outcome.refused === undefined ? {} : { reason: outcome.refused }) };
         if (!lit || quiet) return undefined;
         return outcome.kind === "done"
             ? { kind: "done", period: outcome.period, added: outcome.counts.added, changed: outcome.counts.changed, removed: outcome.counts.removed }

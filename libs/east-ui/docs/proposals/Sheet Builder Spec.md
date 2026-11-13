@@ -97,7 +97,7 @@ These are settled; the proposal was approved on 2026-10-04.
    discarded, per entry.
    *Amended (2026-10-07, the user's ruling, #1260):* the commit decisions 4
    and 5 call Apply reads Save, as every builder's does. Apply stays the
-   API's word: `onApply`, `Record.onApply`, `applyMode`, `Sheet.apply`.
+   API's word: `onApply`, `Record.onApply`, `Sheet.apply`.
 6. **The library is the author's** (amended 2026-10-05, on the live
    showcase): `library` lists its tabs, in order, each a `Sheet.library.*`
    call — `rows()` (templates, and on a grouped sheet groups with their
@@ -248,7 +248,7 @@ export const jobSheet = ui("job_sheet", [], East.function([], UIComponentType, _
 That is a working editor. There is one row per job in key order, with a blank
 tail for the next one. Every gesture is a draft the history item can undo,
 and Save commits the drafts as one patch through `jobsPatch`. A new row's
-key is minted unless `newRowId` names one. It lists no `library` and is given
+key is a UUID unless `newKey` gives one. It lists no `library` and is given
 no `inspector`, so it has neither pane: the toolbar, the grid and the footer.
 It fills the box it is given, 560px here, and scrolls its own rows.
 
@@ -394,7 +394,7 @@ const page = $.let(Data.bindPaged(d.jobs));
 | Declared | `record={jobs}` | `record={plans} entry={{ key, rows: "rows", id: "id" }}` |
 | Order | The keys', as a keyed paged sheet is today | The array's: the planner's order |
 | A row's identity | Its key | The `id` field |
-| A new row | A minted key (`newRowId`), placed where its key sorts | At the seam it was made at |
+| A new row | `newKey`'s key, given the keys taken, else a UUID; placed where its key sorts | At the seam it was made at |
 | Moving rows | Flat: no. Grouped: lines move between groups, and groups keep key order | As `edits` allows: within, between groups, and groups too |
 | Save | `Record.onApply(record, { keyed: true })`: each changed row an insert, update or delete by key, checked against what it was when the edit began | `Record.onApply(record, { entry, get, set, idField })`: one diff of that entry, reaching its rows and nothing else |
 | A large record | `window={Data.bindPaged(d.jobs)}` reads it a window at a time | Read whole: an entry is one value |
@@ -414,7 +414,7 @@ sheet already has.
 | `data`, `id`, `onApply`, `onUpdate` | as the east-ui `<Sheet>`'s | The host's rows (#1216): an array, a bind handle or a paged source, `id` their String identity field, edited through `onApply` / `onUpdate` (and `onPatch`), read only with none. Over a record, `id`, `onApply` and `onUpdate` are refused: the record identifies and commits its rows. |
 | `entry` | `{ key, rows, id }` | The rows are one entry's Array field (`rows`, a field name) with `id` their String identity field. `key` may be an expression, such as the entry the viewer picked. Omitted, the entries are the rows. |
 | `window` | `Data.bindPaged(rec)` | Reads a large record a window at a time, in the entries form. |
-| `columns`, `group`, `subRows`, `driver`, `registers`, `owned`, `suggest`, `ready`, `newRow`, `newGroup`, `newRowId`, `edits`, `applyMode`, `onPatch`, `slice`, `affordances`, `activeView`, `blanks`, `readOnly`, `density`, `footer` | as `<Sheet>`'s | Unchanged (`Sheet Spec.md` §3). The row type the columns are built over is the entries' (or, with `entry`, the rows field's element type); a grouped sheet's columns are over its line type, as today. |
+| `columns`, `group`, `subRows`, `driver`, `registers`, `owned`, `suggest`, `ready`, `newRow`, `newGroup`, `newKey`, `edits`, `onPatch`, `slice`, `affordances`, `activeView`, `blanks`, `readOnly`, `density`, `footer` | as `<Sheet>`'s | Unchanged (`Sheet Spec.md` §3). The row type the columns are built over is the entries' (or, with `entry`, the rows field's element type); a grouped sheet's columns are over its line type, as today. |
 | `views` | a bind handle of `Array<Sheet.Types.View>` | The saved views, read and written by the builder: a `State.bind` to keep them per viewer, or a `Data.bind` dataset to share them. |
 | `templates` | `{ rows?, groups? }` | The Rows tab's cards (§4.2). |
 | `library` | `Sheet.library.*` calls | The library's tabs, in order (§4.4); left out, or `[]`, no library pane. |
@@ -767,9 +767,11 @@ the grid.
   each row's id its key's text. Read whole, the record is an inline keyed
   source; with `window`, a paged keyed source, as `Data.bindPaged` gives
   today.
-- **SB14.** A new row in the entries form takes its key from `newRowId`, or
-  one the renderer mints, and sits where its key sorts; the seam it was made
-  at does not place it.
+- **SB14.** A new row in the entries form takes its key from `newKey`, an
+  East function over the record's key type given every key taken, or else a
+  UUID the renderer mints, and sits where its key sorts; the seam it was made
+  at does not place it. A record keyed by anything but a String needs `newKey`
+  wherever the sheet adds rows, and the build says so.
 - **SB15.** With `entry`, the rows are the `entry.rows` field of the entry at
   `entry.key`, in their order, identified by `entry.id`. An entry the record
   doesn't hold shows an empty, read-only sheet and a banner naming the key.
@@ -835,8 +837,8 @@ the grid.
   Discard, and nothing is rebased.
 - **SB30.** Sessions live in the UI store by source, so a remount finds the
   drafts; with `entry` each entry keeps its own until Save or Discard.
-- **SB31.** `applyMode: "auto"` sends each ready gesture as it lands, through
-  the same protocol; Undo then commits the inverse.
+- **SB31.** Retired (2026-11-06): every edit waits for Save; there is no
+  apply mode.
 
 ### 9.7 The library pane (owner: the library pane)
 

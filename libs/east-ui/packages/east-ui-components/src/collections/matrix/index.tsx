@@ -27,6 +27,7 @@ import {
 import { useDensityHeights } from "../shared/helpers";
 import { DensityProvider } from "../../contracts/density";
 import { usePlotGutter } from "../../contracts/plot-gutter.js";
+import { followPointer } from "../../pointer/follow-pointer.js";
 
 const matrixRootEqual = equivalentFor(Matrix.Types.Root);
 
@@ -248,6 +249,9 @@ function MatrixCell({
 
     // Segment drag-resize — fires onSegmentChange with the dragged slice's new
     // weight (snapped + clamped). The bar's measured extent maps px → weight.
+    // The drag is its pointer's (`followPointer`): it ends as that pointer is
+    // released, is taken back by the browser or the window loses the page, and
+    // no other pointer's moves resize the slice.
     const handleResize = useCallback((e: React.PointerEvent, segmentIndex: number, total: number, extentPx: number) => {
         if (!onSegmentChange || extentPx <= 0) return;
         e.stopPropagation();
@@ -259,20 +263,16 @@ function MatrixCell({
         const max = getSomeorUndefined(seg.max) ?? total;
         const step = getSomeorUndefined(seg.step) ?? 0;
         const start = orientation === "vertical" ? e.clientY : e.clientX;
-        const move = (me: PointerEvent) => {
-            const cur = orientation === "vertical" ? me.clientY : me.clientX;
-            const delta = orientation === "vertical" ? start - cur : cur - start;
-            let next = startWeight + (delta / extentPx) * total;
-            next = Math.max(min, Math.min(max, next));
-            if (step > 0) next = Math.round(next / step) * step;
-            queueMicrotask(() => onSegmentChange({ row: rowKey, column: columnKey, segmentIndex: BigInt(segmentIndex), weight: next }));
-        };
-        const up = () => {
-            window.removeEventListener("pointermove", move);
-            window.removeEventListener("pointerup", up);
-        };
-        window.addEventListener("pointermove", move);
-        window.addEventListener("pointerup", up);
+        followPointer(e, {
+            move: (me) => {
+                const cur = orientation === "vertical" ? me.clientY : me.clientX;
+                const delta = orientation === "vertical" ? start - cur : cur - start;
+                let next = startWeight + (delta / extentPx) * total;
+                next = Math.max(min, Math.min(max, next));
+                if (step > 0) next = Math.round(next / step) * step;
+                queueMicrotask(() => onSegmentChange({ row: rowKey, column: columnKey, segmentIndex: BigInt(segmentIndex), weight: next }));
+            },
+        });
     }, [onSegmentChange, segments, orientation, rowKey, columnKey]);
 
     const segClick = onSegmentClick !== undefined;

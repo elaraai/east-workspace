@@ -401,6 +401,18 @@ describe("Details: a state (R16, R9)", () => {
         expect(editors(c, "roles")[0]).toBe("key:readonly");
     });
 
+    test("a new state's key refused — held by another, or left empty — shows the key it has, saying why under its field as the footer does (#1585)", async () => {
+        const c = await open(ex.flowchartDepotEditing);
+        await click(node(c, "CH*")!);
+        await click(action(c, "duplicate")!);
+        const said = (key: string, why: "empty" | "taken") => m.inspectorKeyRefused({ name: "state", key, why });
+        const under = () => field(c, "key").querySelector("[data-scope=field][data-part=error-text]")?.textContent ?? null;
+        await retype(c, "key", "SRD");
+        expect([box(c, "key").value, under(), footerMessage(c)]).toEqual(["CH*-2", said("SRD", "taken"), said("SRD", "taken")]);
+        await retype(c, "key", "");
+        expect([box(c, "key").value, under(), footerMessage(c)]).toEqual(["CH*-2", said("", "empty"), said("", "empty")]);
+    });
+
     test("Delete takes it with every transition naming it, and selects nothing", async () => {
         const c = await open(ex.flowchartDepotEditing);
         await click(node(c, "CH*")!);
@@ -449,12 +461,12 @@ describe("Details: a transition (R16)", () => {
         const c = await open(ex.flowchartDepotEditing);
         await click(link(c, "l5")!);
         await choose(c, "decision", "route");
-        // Its far end: every state drawn, each by its key and its label, in the order the states are placed.
+        // Its far end: every state drawn, each by its key and its label, in their keys' order (#1584).
         const listbox = await listboxOf(c, "to");
         expect(within(listbox).getAllByRole("option").map((option) => option.textContent)).toEqual([
-            "ARV · Arrived", "CH* · Sort chutes (class)", "HLD · Held", "IND · Inducted", "LDD · Loaded",
-            "CLR · Cleared", "DSP · Dispatched", "LBL · Relabelled", "SCN · Scanned", "SRD · Sorted",
-            "INS · Inspected", "RCV · Received", "RSD · Resent",
+            "ARV · Arrived", "CH* · Sort chutes (class)", "CLR · Cleared", "DSP · Dispatched", "HLD · Held",
+            "IND · Inducted", "INS · Inspected", "LBL · Relabelled", "LDD · Loaded", "RCV · Received",
+            "RSD · Resent", "SCN · Scanned", "SRD · Sorted",
         ]);
         await act(async () => { fireEvent.click(within(listbox).getByRole("option", { name: "IND · Inducted" })); });
         await settle();
@@ -658,7 +670,7 @@ describe("Issues (R16)", () => {
         expect([head(c), chip(c)]).toEqual([["State · CLR", "Cleared at the desk"], m.inspectorChip({ state: "pending" })]);
     });
 
-    test("a ready refusal holds Save off — listed first, blocking — until the field it names is given; the history item's issue selects what it names too (R12)", async () => {
+    test("a ready refusal holds Save off — listed first, blocking — until the field it names is given, the field saying the refusal's words under it in Details; the history item's issue selects what it names too (R12)", async () => {
         const stored = await h.read(ex.depotStates);
         const c = await open(ex.flowchartDepotEditing);
         await click(node(c, "CLR")!);
@@ -674,8 +686,13 @@ describe("Issues (R16)", () => {
         expect(showing(c)).toBe("flowchart");
         await press(editingMessages.issues({ n: 1, count: "1" }));
         expect([showing(c), head(c)[0]]).toEqual(["state", "State · CLR-2"]);
-        // Given its flow, it is ready: Save writes it.
+        // Its Flow, which the refusal names, is washed, and says the check's words under it (ruled 13 Nov 2026): Details
+        // lists no issue, so the field says why it is named — it alone.
+        const named = () => [...panel(c).querySelectorAll("[data-field][data-issue]")].map((el) => el.getAttribute("data-field"));
+        expect([named(), field(c, "flow").querySelector("[data-field-issue]")?.textContent]).toEqual([["flow"], "Give the state its flow"]);
+        // Given its flow, it is ready — its field says nothing — and Save writes it.
         await retype(c, "flow", "Parcels");
+        expect([named(), field(c, "flow").querySelector("[data-field-issue]")]).toEqual([[], null]);
         expect(enabled(SAVE)).toBe(true);
         await press(SAVE);
         const saved = (await h.read(ex.depotStates)).get("CLR-2")!;

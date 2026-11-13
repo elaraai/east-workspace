@@ -23,7 +23,7 @@ import {
 } from "@elaraai/east";
 import type { ScheduleKindType, SchedulePeriodsKindType } from "@elaraai/e3-ui/internal";
 import type { EditHistory, EntryVersion } from "@elaraai/east-ui-components";
-import type { ScheduleChange, ScheduleEditing, ScheduleEditingRecord, ScheduleEntryRef, ScheduleRowRead } from "./editing.js";
+import type { ScheduleChange, ScheduleEditingRecord, ScheduleEntryRef, ScheduleRowRead } from "./editing.js";
 
 /** A builder's periods, as the payload carries them. */
 export type SchedulePeriodsValue = ValueTypeOf<typeof SchedulePeriodsKindType>;
@@ -75,18 +75,48 @@ export function fieldChange(kind: Pick<ValueTypeOf<typeof ScheduleKindType>, "ke
 }
 
 /**
- * A new key, minted unique among the keys given (`crypto.randomUUID()`,
- * retried): a record read whole holds every key, and a key a record read a
- * window at a time holds unread is its Save's own conflict, never an
- * overwrite.
+ * A new key, minted unique among the keys given (a UUID, retried): a record
+ * read whole holds every key, and a key a record read a window at a time holds
+ * unread is its Save's own conflict, never an overwrite. The UUID is
+ * `crypto.randomUUID()`'s, else — a page served over plain HTTP has none — a
+ * version 4 UUID drawn from `crypto.getRandomValues`, which every page has.
  *
  * @param taken - Whether a key is held already
  * @returns The key
  */
 export function mintKey(taken: (key: string) => boolean): string {
     for (;;) {
-        const key = crypto.randomUUID();
+        const key = "randomUUID" in crypto ? crypto.randomUUID() : randomUUID();
         if (!taken(key)) return key;
+    }
+}
+
+/** A version 4 UUID from the page's random bytes: its version and variant bits set, printed 8-4-4-4-12. */
+function randomUUID(): string {
+    const bytes = crypto.getRandomValues(new Uint8Array(16));
+    bytes[6] = (bytes[6]! & 0x0f) | 0x40;
+    bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+    const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+/**
+ * What a builder makes over the app's `values` (#1526) — a new row, or the
+ * period's row it writes first — or `undefined` where they fail as they run,
+ * which the console says: a gesture then records nothing and a probe draws
+ * nothing, and the builder goes on.
+ *
+ * @param builder - The builder, as the console names it: `Roster`
+ * @param what - What it makes, as the console names it: `a new duty`
+ * @param make - Its kind's function over the app's `values`, called
+ * @returns What it makes
+ */
+export function madeFromValues<T>(builder: string, what: string, make: () => T): T | undefined {
+    try {
+        return make();
+    } catch (err) {
+        console.error(`[${builder}] ${what} could not be made from the app's values:`, err);
+        return undefined;
     }
 }
 
@@ -186,22 +216,28 @@ export function periodRowsRead(periods: SchedulePeriodsValue, from: Date, to: Da
 
 /**
  * The period's row as Publish writes it: its status the published case, at
- * the time given — over the row as the periods' session last saw it saved,
- * else as the builder read it, else a new one.
+ * the time given — rewritten from the row as the periods' session finds it as
+ * the change is recorded, once the Save has settled: drafted, else as the
+ * record holds it then (`ScheduleChange`'s `rewrite`), so the write changes its
+ * status alone and never puts back what the Save, or another session, wrote
+ * since Publish was pressed; where it finds none, a new one, its own fields
+ * the periods' `values` of its start (#1526) — asked only then
+ * (`ScheduleChange`'s `absent`), and a new row they fail to make records
+ * nothing, so it publishes nothing and the console says why.
  *
  * @param periods - The builder's periods
- * @param schedule - The editing over the builder's records
  * @param record - What a change names the periods' record by
  * @param id - The period's key's text
- * @param stored - The period's row as the builder read it
+ * @param start - The period's start: its key
  * @param at - When it is published
+ * @param builder - The builder, as the console names it where the periods' `values` fail
  * @returns The change
  */
-export function periodPublishChange(periods: SchedulePeriodsValue, schedule: Pick<ScheduleEditing, "held">, record: string, id: string,
-    stored: Uint8Array | undefined, at: Date): ScheduleChange {
-    const saved = schedule.held(record, id);
-    const row = saved !== undefined ? rowCodec(periods.rowType).encode(saved) : stored;
-    return { kind: record, id, row: periods.publish(row === undefined ? none : some(row), at) };
+export function periodPublishChange(periods: SchedulePeriodsValue, record: string, id: string, start: Date, at: Date, builder: string): ScheduleChange {
+    return {
+        kind: record, id, rewrite: row => periods.publish(start, some(row), at),
+        absent: () => madeFromValues(builder, "the period's row", () => periods.publish(start, none, at)),
+    };
 }
 
 /**
@@ -225,23 +261,25 @@ export function settled(history: EditHistory<ScheduleEntryRef>): Promise<EditHis
 }
 
 /**
- * Publishes a period (§4.3 rule 4, B7): Save first; once every record's
- * session reads back as saved, the period's status the published case, and
- * the periods saved. A Save that fails, or drafts that cannot be saved yet,
- * leave the period a draft with its drafts kept, so a published period never
- * sits over unsaved rows.
+ * Publishes periods (§4.3 rule 4, B7): Save first; once every record's
+ * session reads back as saved, each period's status the published case, and
+ * the periods saved — one period, or several in one request: a Roster
+ * publishing by the day publishes each day of its week not yet published
+ * (#1550). A Save that fails, or drafts that cannot be saved yet, leave each
+ * period a draft with its drafts kept, so a published period never sits over
+ * unsaved rows.
  *
  * @param history - The history over the records
- * @param change - The period's row as Publish writes it, worked out once the Save has settled
- * @param record - Records it, as one step
- * @returns Whether the period's status was written and saved
+ * @param change - The periods' rows as Publish writes them, worked out once the Save has settled; none publishes nothing
+ * @param record - Records them, as one step
+ * @returns Whether the periods' statuses were written and saved
  */
-export async function publishPeriod(history: EditHistory<ScheduleEntryRef>, change: () => ScheduleChange | undefined,
+export async function publishPeriod(history: EditHistory<ScheduleEntryRef>, change: () => readonly ScheduleChange[],
     record: (changes: readonly ScheduleChange[]) => boolean): Promise<boolean> {
     await history.apply();
     if (await settled(history) !== "idle" || history.pending > 0) return false;
     const published = change();
-    if (published === undefined || !record([published])) return false;
+    if (published.length === 0 || !record(published)) return false;
     await history.apply();
     return await settled(history) === "idle" && history.pending === 0;
 }

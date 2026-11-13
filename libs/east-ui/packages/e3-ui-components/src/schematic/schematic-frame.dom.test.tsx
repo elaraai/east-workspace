@@ -20,7 +20,9 @@
  * first read, later reads keep the canvas, and a failed read is said once on
  * the canvas, with Retry (SC32, #1398 CL11). A card's dot and the canvas's probe resolve one colour chain
  * (SC26), and the canvas sets nothing inline but geometry (SC31). The minimap
- * draws the whole drawing, its items as dots (#1393).
+ * draws the whole drawing, its items as dots (#1393), and its drag is its
+ * pointer's, over as the browser takes that pointer back (`canvas/CLAUDE.md`
+ * invariant 34).
  */
 
 import { expect, test, vi } from "vitest";
@@ -32,7 +34,7 @@ import { getRegisteredPlatformImplementations } from "@elaraai/east-ui-component
 import { Data, Record, Schematic } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/schematic/schematic";
 import { e3Harness, settle, slot } from "../e3-web-mount.test-utils.js";
-import { at, card, drawingCounts, fitted, layOutCanvas, near, tap, unsaved, zoomInto } from "./schematic.test-utils.js";
+import { at, card, cameraOf, drawingCounts, fitted, layOutCanvas, near, tap, unsaved, zoomInto } from "./schematic.test-utils.js";
 import "./index.js";
 
 const h = e3Harness({ "schematic/schematic": ex }, { main: "data-schematic-canvas" });
@@ -588,6 +590,40 @@ test("the minimap draws the whole drawing — kinds read whole as every item's d
     // 28 × 14 m on the 1080px canvas: 150 × 75px, its drawing painted.
     expect([minimap.style.width, minimap.style.height]).toEqual(["150px", "75px"]);
     expect(minimap.querySelector("canvas")).not.toBeNull();
+});
+
+test("the minimap's drag is its pointer's: a press there centres the view on its point and its moves follow, no other pointer's; taken back by the browser the drag is over, and a pointer moved over the minimap after it moves nothing (invariant 34)", async () => {
+    const { container } = await h.mount({ fn: mapped });
+    await waitFor(() => expect(card(container, "network", "MMR-1")).not.toBeNull());
+    const minimap = container.querySelector<HTMLElement>("[data-schematic-minimap]")!;
+    // jsdom lays nothing out: the minimap is given the box its size says, at the page's corner.
+    minimap.getBoundingClientRect = () => new DOMRect(0, 0, 150, 75);
+    /** The frames a camera move waits on, drawn. */
+    const drawn = () => act(async () => { await new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))); });
+    /** The point of the drawing at the canvas's middle, in metres. */
+    const centre = () => { const cam = cameraOf(container); return [(540 - cam.tx) / cam.ppu, (270 - cam.ty) / cam.ppu].map((n) => n.toFixed(3)); };
+    const finger = (type: "pointerDown" | "pointerMove" | "pointerUp" | "pointerCancel", id: number, x: number, y: number, held = true) =>
+        fireEvent[type](minimap, { pointerId: id, pointerType: "touch", button: 0, buttons: held ? 1 : 0, clientX: x, clientY: y });
+    // A quarter of the way in: 7, 3.5 m of the 28 × 14 m floor. Its drag to three quarters: 21, 10.5 m.
+    await act(async () => { finger("pointerDown", 5, 37.5, 18.75); });
+    await drawn();
+    expect(centre()).toEqual(["7.000", "3.500"]);
+    await act(async () => { finger("pointerMove", 5, 112.5, 56.25); });
+    await drawn();
+    expect(centre()).toEqual(["21.000", "10.500"]);
+    // Another pointer over the minimap meanwhile is not the drag's.
+    await act(async () => { finger("pointerMove", 9, 75, 37.5); });
+    await drawn();
+    expect(centre()).toEqual(["21.000", "10.500"]);
+    // The browser takes the finger back: no lift is heard. The drag is over all the same.
+    await act(async () => { finger("pointerCancel", 5, 112.5, 56.25, false); });
+    await act(async () => { finger("pointerMove", 5, 37.5, 18.75); finger("pointerMove", 9, 37.5, 18.75, false); });
+    await drawn();
+    expect(centre()).toEqual(["21.000", "10.500"]);
+    // And a new press drags again.
+    await act(async () => { finger("pointerDown", 6, 75, 37.5); finger("pointerUp", 6, 75, 37.5, false); });
+    await drawn();
+    expect(centre()).toEqual(["14.000", "7.000"]);
 });
 
 test("the canvas, its cards, its minimap and the footer set nothing inline but geometry: the recipe owns every style (SC31)", async () => {

@@ -178,7 +178,7 @@ export const sliceEditSlotRecipe = defineSlotRecipe({
             cursor: "pointer",
             fontSize: "9px",
             color: "fg.muted",
-            _hover: { color: "{colors.brand.600}" },
+            _hover: { color: "brand.solid" },
         },
         // Inline "why can't I Apply" caption in the editor body (mirrors the
         // clause builder's hint grammar).

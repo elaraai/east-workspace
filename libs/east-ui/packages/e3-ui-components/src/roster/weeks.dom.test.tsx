@@ -4,14 +4,15 @@
  * @vitest-environment jsdom
  *
  * The Roster's weeks on e3 itself: Copy previous week, drafts across weeks and
- * remounts, Discard, Publish, a failed or a racing Save, a lost Publish, the
- * windowed roster's reads, and proposals. The week is the page's own (#1398):
+ * remounts, Discard, Publish — of a week its record holds no row of too, the
+ * row the periods' `values` (#1526) — a failed or a racing Save, a lost
+ * Publish, the windowed roster's reads, and proposals. The week is the page's own (#1398):
  * another page keeping a view moves neither it nor the window it writes into
  * its source, and a reload opens on the view kept last.
  */
 import { describe, expect, test } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
-import { DateTimeType, East, FloatType, IntegerType, StringType, StructType, compareFor, decodeBeast2For, printFor, variant } from "@elaraai/east";
+import { DateTimeType, East, FloatType, IntegerType, StringType, StructType, compareFor, decodeBeast2For, printFor, some, variant } from "@elaraai/east";
 import { RecordSliceStateType } from "@elaraai/east-ui/internal";
 import { Schedule } from "@elaraai/e3-ui/internal";
 import { editingMessages, type UIStore } from "@elaraai/east-ui-components";
@@ -21,6 +22,7 @@ import {
     type Choice,
 } from "./harness.test-utils.js";
 import { conflictCards, reloadPage } from "../e3-web-mount.test-utils.js";
+import { rowKeysOf } from "../e3-web.test-utils.js";
 import { DAY } from "./model.js";
 import { resetKept } from "@elaraai/east-ui-components/internal";
 const h = rosterHarness();
@@ -64,13 +66,26 @@ describe("Roster week lifecycle", () => {
         // stands, and every other field as it was.
         const shifts = await h.read(ex.rosterShiftTimes);
         const expected = [...ex.warehouseWeek.assignments.values()].map(duty => {
-            const shift = shifts.get(duty.slot.shift)!;
-            return printDuty({ ...duty.row, ...ownTimes(NEXT, duty.slot.day, shift.start, shift.hours) });
+            const shift = shifts.get(duty.place.shift)!;
+            return printDuty({ ...duty.row, ...ownTimes(NEXT, duty.place.day, shift.start, shift.hours) });
         }).sort(byString);
         expect([...copied.values()].map(duty => printDuty(duty)).sort(byString)).toEqual(expected);
         // Copy writes duties alone: the week's row and its targets stand as they were.
         expect((await h.read(ex.rosterWeeks)).has(NEXT)).toBe(false);
         expect(h.requests("mutate").map(request => request.record)).toEqual([ex.rosterDuties.name]);
+    });
+    test("a Save of hundreds of duties asks its view check in one read, never a request an index key (#1596)", async () => {
+        const { container } = await h.mount(ex.rosterWindowed);
+        await press(within(container).getByRole("button", { name: "Copy previous week" }));
+        const from = h.requests().length;
+        await press(history(container, editingMessages.apply()));
+        expect(weekDuties(await h.read(ex.rosterDuties), NEXT).size).toBe(316);
+        const asked = h.requests().slice(from).filter(request => request.dataset === DUTIES);
+        expect(asked.filter(request => request.kind === "find" && request.method === "GET" && request.query.get("index") !== null)).toEqual([]);
+        expect(asked.filter(request => request.kind === "within").length).toBeLessThanOrEqual(1);
+        // The Save holds every row it wrote: no duty is sought by its key, nor read by it while the week's window reads them.
+        expect(asked.filter(request => request.kind === "find" && request.method === "GET" && request.query.get("index") === null)).toEqual([]);
+        expect(asked.flatMap(rowKeysOf)).toEqual([]);
     });
     test("drafts stay in their session across navigation and remount, and Save includes those of another week", async () => {
         const first = await h.mount(ex.rosterWarehouse);
@@ -85,12 +100,12 @@ describe("Roster week lifecycle", () => {
         expect(again.container.querySelectorAll('[data-roster-assignment][data-drafted]').length).toBeGreaterThan(0);
         // The Save confirms what the week's own window holds from it, every duty it copied into the week among them, and the
         // view's notice checks those by the rows the Save confirmed: only the removed duty of another week, which the
-        // window does not hold, is sought by its key.
-        const before = h.requests("find", DUTIES).length;
+        // window does not hold, is read by its key, and in a read of rows (#1596), never a search and a page of its own.
+        const finds = h.requests("find", DUTIES).length;
+        const rows = h.requests("rows", DUTIES).length;
         await press(history(again.container, editingMessages.apply()));
-        const byKey = h.requests("find", DUTIES).slice(before).filter(request => request.query.get("index") === null && request.query.has("key"));
-        expect(byKey).toHaveLength(1);
-        expect(searched(byKey[0]!, undefined, '"s37"')).toBe(true);
+        expect(h.requests("find", DUTIES).slice(finds).filter(request => request.query.get("index") === null && request.query.has("key"))).toEqual([]);
+        expect(h.requests("rows", DUTIES).slice(rows).map(rowKeysOf), "one read of rows, of the duty the window does not hold alone").toEqual([['"s37"']]);
         const duties = await h.read(ex.rosterDuties);
         expect(duties.has("s37")).toBe(false);
         expect(weekDuties(duties, NEXT).size).toBe(316);
@@ -109,17 +124,38 @@ describe("Roster week lifecycle", () => {
         const { container } = await h.mount(ex.rosterWarehouse);
         const deployed = { duties: await commits(ex.rosterDuties), weeks: await commits(ex.rosterWeeks) };
         await press(within(assignment(container, "s37")).getByRole("button", { name: "Remove C. Clover" }));
-        await press(history(container, "Publish"));
+        await press(history(container, "Publish week"));
         expect((await h.read(ex.rosterWeeks)).get(START)!.state.type).toBe("issued");
         expect((await h.read(ex.rosterDuties)).has("s37")).toBe(false);
         expect(container.querySelector("[data-roster-readonly]")).not.toBeNull();
         expect(container.querySelector("[data-roster-grip], [data-roster-chip-action]")).toBeNull();
         expect([await commits(ex.rosterDuties), await commits(ex.rosterWeeks)]).toEqual([["patch", ...deployed.duties], ["patch", ...deployed.weeks]]);
     });
+    test("Publish of a week its record holds no row of writes one, its own fields the periods' `values` of it (#1526): the warehouse's approver", async () => {
+        const { container } = await h.mount(ex.rosterWarehouse);
+        await weekKey(container, "]");
+        await press(within(container).getByRole("button", { name: "Copy previous week" }));
+        await press(history(container, "Publish week"));
+        const week = (await h.read(ex.rosterWeeks)).get(NEXT)!;
+        expect([week.state.type, week.approver, week.dismissed.size]).toEqual(["issued", some("Ops"), 0]);
+    });
+    test("Publish publishes the week it was pressed on: a week stepped to while its Save is on its way is left as it was (#1584)", async () => {
+        const { container } = await h.mount(ex.rosterWarehouse);
+        await press(within(assignment(container, "s37")).getByRole("button", { name: "Remove C. Clover" }));
+        // The duties' Save held on its way to e3, and the week stepped on meanwhile.
+        const held = h.e3.hold((request) => request.kind === "mutate" && request.record === ex.rosterDuties.name);
+        await act(async () => { fireEvent.click(history(container, "Publish week")); });
+        await settle();
+        await weekKey(container, "]");
+        await act(async () => { held.release(); }); await settle();
+        await waitFor(async () => expect((await h.read(ex.rosterWeeks)).get(START)?.state.type).toBe("issued"));
+        expect((await h.read(ex.rosterWeeks)).has(NEXT)).toBe(false);
+        expect((await h.read(ex.rosterDuties)).has("s37")).toBe(false);
+    });
     test("Publish shows that it works from its press until the week reads back published: its spinner, and Save's live dot while the duties' Save is out (#1573)", async () => {
         const { container } = await h.mount(ex.rosterWarehouse);
         await press(within(assignment(container, "s37")).getByRole("button", { name: "Remove C. Clover" }));
-        const publish = () => history(container, "Publish");
+        const publish = () => history(container, "Publish week");
         expect(publish().hasAttribute("data-loading")).toBe(false);
         // The duties' write held on its way to e3: Publish's Save is out.
         const writes = h.e3.hold((request) => request.kind === "mutate" && request.record === ex.rosterDuties.name);
@@ -218,7 +254,7 @@ describe("Roster week lifecycle", () => {
         // The Publish lands on e3, and every answer to it is lost on the way back: the client tries again under the same id
         // until it gives up, which leaves the write unknown.
         const losing = h.e3.fail((request) => request.kind === "mutate" && request.record === ex.rosterWeeks.name, "lost");
-        await act(async () => { fireEvent.click(history(container, "Publish")); });
+        await act(async () => { fireEvent.click(history(container, "Publish week")); });
         await waitFor(() => expect(container.querySelector('[data-session-banner="unknown"]')).not.toBeNull(), { timeout: 15_000 });
         losing();
         await press(history(container, editingMessages.retryRequest()));
@@ -253,7 +289,7 @@ describe("Roster week lifecycle", () => {
         expect(sought("2028-02-27")).toBe(true);
     });
     test("desktop proposal actions retain identity through rejection, undo and acceptance", async () => {
-        // The warehouse's roster with no check of its own on a draft: an accepted proposal saves with no cost centre given.
+        // The warehouse's roster with no check of its own on a draft: an accepted proposal saves with the fields the app's `values` give it.
         const { container } = await h.mount(warehouseRoster());
         const proposal = () => container.querySelector<HTMLElement>('[data-roster-proposal="s317"]')!;
         await press(within(proposal()).getByRole("button", { name: "Reject proposal for N. Ochre" }));

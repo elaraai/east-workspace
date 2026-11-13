@@ -16,8 +16,8 @@
  * from the history item and the keys, never while typing; Discard of every
  * kind; Save per kind, each its own commit, one kind's conflict or refusal
  * leaving the others committed, a write with no answer retried under its own
- * request id, a kind out of date discarded from its banner alone; auto mode;
- * and the drafts outliving a remount. Every word read from the history item
+ * request id, a kind out of date discarded from its banner alone; and the
+ * drafts outliving a remount. Every word read from the history item
  * and the banners is the shared messages', never written out. And `data`'s
  * rows over a record of their own (#1436, `planRowDrop`): a run moved along
  * its row, resized, carried to another row, a card dropped under the id the
@@ -25,12 +25,12 @@
  * one commit and read back by id.
  */
 
-import { describe, test, expect } from "vitest";
+import { describe, test, expect, vi } from "vitest";
 import { fireEvent, renderHook, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { DateTimeType, East, equalFor, none, printFor, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { DateTimeType, East, StringType, equalFor, none, printFor, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Reactive, Slice, UIComponentType } from "@elaraai/east-ui/internal";
-import { editingMessages, fieldFormMessages, getRegisteredPlatformImplementations, type EditHistoryJoined } from "@elaraai/east-ui-components";
+import { editingMessages, fieldFormMessages, getExtensionEntry, getRegisteredPlatformImplementations, type EditHistoryJoined } from "@elaraai/east-ui-components";
 import { Data, Plan, PlanPayloadType, Record, Schedule } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
 import * as rowDrop from "@elaraai/e3-ui/examples/plan/plan";
@@ -40,10 +40,13 @@ import type { PlanEntryRef } from "../use-plan-editing.js";
 import { carrySaid, keyOn } from "../plan-move.test-utils.js";
 import { boundFrame } from "../../sheet/frame.test-utils.js";
 import { offering } from "../../shared/schedule/keys.test-utils.js";
-import { act, el, elementKey, entry, planHarness, rowAt, settle, slot } from "./harness.test-utils.js";
-import { conflictCards, reloadPage } from "../../e3-web-mount.test-utils.js";
+import { act, drawnFrom, el, entry, madeFrom, planHarness, rowAt, settle, slot } from "./harness.test-utils.js";
+import { conflictCards, evaluatesAgain, reloadPage } from "../../e3-web-mount.test-utils.js";
+import type { E3Request } from "../../e3-web.test-utils.js";
+import { editedThroughReload, redrawnThroughReload, savedThroughReload } from "../../shared/save-held.test-utils.js";
 
 const h = planHarness({ "plan/plan-events": ex, "plan/plan": rowDrop });
+evaluatesAgain();
 // A select scrolls its open listbox to the chosen option; jsdom does not scroll.
 Element.prototype.scrollTo ??= function scrollTo() { /* jsdom lays nothing out */ };
 
@@ -83,8 +86,13 @@ const bar = (c: HTMLElement, key: string, row = A1) => c.querySelector<HTMLEleme
 const stop = (c: HTMLElement, key: string) => c.querySelector<HTMLElement>(`${rowAt(A1_MARKS)} [role="button"]${el("data-mark", "stop", key)}`);
 /** A shift's chip on Crew 1. */
 const shift = (c: HTMLElement, key: string) => c.querySelector<HTMLElement>(`${rowAt(C1)} ${el("data-chip", "shift", key)}`);
-/** The titles of the jobs drawn on a press's row, in order. */
-const jobsOn = (c: HTMLElement, row = A1) => [...c.querySelectorAll(`${rowAt(row)} [data-run]`)].map((node) => node.getAttribute("data-run"));
+/**
+ * The keys of the copies a row draws of an event — each keyed from it. The print works' jobs and shifts are read a
+ * window at a time, so a copy's key is the event's and a suffix drawn at random, read here rather than named; its stops
+ * are read whole, and their copies are the next in a row (`S-01-2`).
+ */
+const copiesOf = (c: HTMLElement, attr: "data-run" | "data-chip", kind: string, from: string, row = A1) =>
+    madeFrom(c.querySelector<HTMLElement>(rowAt(row))!, attr, kind, from);
 
 /** The inspector pane. */
 const pane = (c: HTMLElement) => slot(c, "end")!;
@@ -212,12 +220,32 @@ const printKinds = East.compile(printKindsFn, getRegisteredPlatformImplementatio
 const at = (text: string) => new Date(text);
 /** An instant as East prints it. */
 const printInstant = printFor(DateTimeType);
+const stringEqual = equalFor(StringType);
+
+/**
+ * A kind's own `write` turning down every field edit, as an app's write with no words for it does — its other gestures
+ * its own: the Plan's payload, as the dispatcher decodes it, holding that kind's write in place of its own.
+ *
+ * @param slot - The kind
+ * @returns What puts the payload's own back
+ */
+function refusingFields(slot: string): () => void {
+    const entry = getExtensionEntry("Plan")!;
+    const decode = entry.decode;
+    const spy = vi.spyOn(entry, "decode").mockImplementation((bytes: Uint8Array) => {
+        const payload = decode(bytes) as ValueTypeOf<typeof PlanPayloadType>;
+        return { ...payload, events: payload.events.map((kind) => !stringEqual(kind.key, slot) ? kind : {
+            ...kind, write: (requests: Parameters<typeof kind.write>[0]) => requests.map((request) => (request.gesture.type === "field" ? none : kind.write([request])[0]!)),
+        }) };
+    });
+    return () => spy.mockRestore();
+}
 
 describe("every gesture is one transaction (PB43)", () => {
     test("each kind's session reads its events' start and end as one range, its dates: a conflict at either is one card of the popover", async () => {
         await h.install({ fn: printKindsFn });
         const payload = printKinds();
-        const { result } = renderHook(() => usePlanEventEditing({ kinds: payload.events, applyMode: "batch", storageKey: "plan-ranges", joined: NO_JOINED }));
+        const { result } = renderHook(() => usePlanEventEditing({ kinds: payload.events, storageKey: "plan-ranges", joined: NO_JOINED, autosave: false }));
         await settle();
         const roles = new Map(payload.events.map((kind) => [kind.key, kind.schedule] as const));
         const ranges = result.current.sessions.map((held) => [held.kind, held.session.ranges] as const);
@@ -230,7 +258,7 @@ describe("every gesture is one transaction (PB43)", () => {
         await h.install({ fn: printKindsFn });
         const payload = printKinds();
         const kinds = new Map(payload.events.map((kind) => [kind.key, kind] as const));
-        const { result } = renderHook(() => usePlanEventEditing({ kinds: payload.events, applyMode: "batch", storageKey: "plan-gestures", joined: NO_JOINED }));
+        const { result } = renderHook(() => usePlanEventEditing({ kinds: payload.events, storageKey: "plan-gestures", joined: NO_JOINED, autosave: false }));
         await settle();
         const editing = () => result.current;
         /** An event as Plan draws it, the drafts in place: when it runs, and where. */
@@ -326,6 +354,30 @@ describe("every gesture is one transaction (PB43)", () => {
         expect(field(container, "customer").hasAttribute("data-dirty")).toBe(true);
     });
 
+    test("an edit the kind's own write turns down goes back to what its event holds, with no words — nothing drafted, nothing left in the box: one event's field and the bulk edit's state alike (#1585)", async () => {
+        const restore = refusingFields("job");
+        try {
+            const { container } = await h.mount(ex.planPrintWorks);
+            await settle();
+            await select(bar(container, "J-1001")!);
+            await typeInto(container, "customer", "Alder & Finch Ltd");
+            // The catalogue's customer as its row holds it: untinted, nothing said under it, nothing waiting to save.
+            expect(customer(container)).toBe("Alder & Finch");
+            expect(field(container, "customer").hasAttribute("data-dirty")).toBe(false);
+            expect(field(container, "customer").querySelector("[data-scope=field][data-part=error-text]")).toBeNull();
+            expect(pending(container)).toBe("0 pending");
+            // The two jobs' state, a field of each: turned down, the bulk edit shows the state they share again.
+            await select(bar(container, "J-1002")!, true);
+            const state = () => pane(container).querySelector("[data-field='state'] [data-scope=select][data-part=trigger]")!.textContent;
+            expect(state()).toBe("actual");
+            await choose(container, "state", "estimated");
+            expect(state()).toBe("actual");
+            expect(pending(container)).toBe("0 pending");
+        } finally {
+            restore();
+        }
+    });
+
     test("a kind's own inspector's update is one transaction: the stop's kind chosen on its segment, undone whole (PB60)", async () => {
         const { container } = await h.mount(ex.planPrintWorks);
         await settle();
@@ -352,24 +404,25 @@ describe("every gesture is one transaction (PB43)", () => {
         await press(action(container, "duplicate"));
         // The footer counts the copy: its counts read the drafts (PB23).
         expect(counted(container)).toBe(`${initialCount + 1} events`);
-        // The copy draws beside the catalogue, keyed past the record's keys, and is what the inspector shows now.
-        expect(jobsOn(container)).toContain(elementKey("job", "J-1001-2"));
-        expect(bar(container, "J-1001-2")!.getAttribute("aria-pressed")).toBe("true");
+        // The copy draws beside the catalogue, keyed from it, and is what the inspector shows now.
+        const [copy, ...more] = copiesOf(container, "data-run", "job", "J-1001");
+        expect([more, copy]).toEqual([[], expect.stringMatching(drawnFrom("J-1001"))]);
+        expect(bar(container, copy!)!.getAttribute("aria-pressed")).toBe("true");
         expect(pane(container).querySelector("[data-inspector-title]")!.textContent).toBe("Spring catalogue");
         expect(fact(container, "start")).toBe("Oct 5, 2026, 06:00");
         expect(pending(container)).toBe("1 pending");
         // A copy is new: every field its form has is tinted.
         expect(field(container, "customer").hasAttribute("data-dirty")).toBe(true);
         await press(action(container, "delete"));
-        expect(bar(container, "J-1001-2")).toBeNull();
+        expect(bar(container, copy!)).toBeNull();
         expect(pending(container)).toBe("0 pending");
         expect(counted(container)).toBe(`${initialCount} events`);
-        // Undo brings the copy back; again, takes it away; the record never held it.
+        // Undo brings the copy back, under its key; again, takes it away; the record never held it.
         await press(historyButton(container, UNDO));
-        expect(bar(container, "J-1001-2")).not.toBeNull();
+        expect(bar(container, copy!)).not.toBeNull();
         await press(historyButton(container, UNDO));
-        expect(bar(container, "J-1001-2")).toBeNull();
-        expect((await readJobs()).has("J-1001-2")).toBe(false);
+        expect(bar(container, copy!)).toBeNull();
+        expect((await readJobs()).has(copy!)).toBe(false);
         // Delete of the record's own job: its bar goes, and the record still holds it.
         await select(bar(container, "J-1001")!);
         await press(action(container, "delete"));
@@ -421,7 +474,10 @@ describe("every gesture is one transaction (PB43)", () => {
         // Duplicate and Delete over the three: each one transaction across the kinds — the copies then selected.
         await press(action(container, "duplicate"));
         expect(pending(container)).toBe("3 pending");
-        const copies = [bar(container, "J-1001-2"), shift(container, "SH-01-2"), stop(container, "S-01-2")];
+        const [job, ...jobs] = copiesOf(container, "data-run", "job", "J-1001");
+        const [early, ...shifts] = copiesOf(container, "data-chip", "shift", "SH-01", C1);
+        expect([jobs, shifts, job, early]).toEqual([[], [], expect.stringMatching(drawnFrom("J-1001")), expect.stringMatching(drawnFrom("SH-01"))]);
+        const copies = [bar(container, job!), shift(container, early!), stop(container, "S-01-2")];
         expect(copies.every((node) => node !== null)).toBe(true);
         expect(copies.map((node) => node!.getAttribute("aria-pressed"))).toEqual(["true", "true", "true"]);
         await press(historyButton(container, UNDO));
@@ -555,8 +611,8 @@ describe("Save per kind (PB45–PB48)", () => {
         await press(historyButton(container, SAVE));
         await writes.holding;
         expect(statusLine(container)).toBe(editingMessages.historyStatus({ status: "applying" }));
-        // While the stop's write is out its kind takes no gesture: the selected stop's edits are off.
-        expect(edits(container).disabled).toBe(true);
+        // A Save never stops the editing: while the stop's write is out its kind takes a gesture still, the selected stop's edits on.
+        expect(edits(container).disabled).toBe(false);
         await act(async () => { writes.release(); });
         await settle();
         expect(edits(container).disabled).toBe(false);
@@ -719,6 +775,79 @@ describe("Save per kind (PB45–PB48)", () => {
  * The print works' jobs beside a crew roster the works has locked for the
  * week: its patch door refuses a Save that takes a shift off it.
  */
+// ============================================================================
+// A Save: what it landed, as it left it, while the jobs' window is read again
+// ============================================================================
+
+describe("a Save of the jobs read over the window: what it landed, as it left it, while their window is read again", () => {
+    /** The jobs' record, as a request names it. */
+    const JOBS = `records.${ex.planPrintJobs.name}`;
+    /**
+     * The window's reads of the jobs' record — its batches of key searches, the rows of its runs and what the narrowing
+     * holds — from a Save's commit on: a Save's own confirmation, a key's search and its row, is none of them, and what a
+     * Save asks before it commits goes through.
+     */
+    const afterCommit = () => {
+        let committed = false;
+        return (request: E3Request) => {
+            if (request.kind === "mutate") committed = true;
+            return committed && request.dataset === JOBS
+                && ((request.kind === "find" && request.query.get("findKeys") !== null) || request.kind === "runs" || request.kind === "within");
+        };
+    };
+    /** When each job's bar says it starts, by its key. */
+    const starts = (c: HTMLElement, keys: readonly string[]) => keys.map((key) => bar(c, key)?.getAttribute("aria-label")?.split(" – ")[0] ?? null);
+    /** The spring catalogue and the museum guide, on Press A1, an hour on. */
+    async function shifted(storageKey: string) {
+        const { container: c } = await h.mount(ex.planPrintWorks, { storageKey });
+        await settle();
+        await select(bar(c, "J-1001")!);
+        await select(bar(c, "J-1002")!, true);
+        await press(action(c, "shift:1hour"));
+        expect(pending(c)).toBe("2 pending");
+        return c;
+    }
+
+    test("the check every builder runs: the jobs a Save moved draw where the Save left them at every change of the page, from the press of Save until their window is read again", async () => {
+        const c = await shifted("window-save-check");
+        await savedThroughReload({
+            e3: h.e3,
+            container: c,
+            reads: afterCommit(),
+            look: () => starts(c, ["J-1001", "J-1002"]),
+            save: () => { fireEvent.click(historyButton(c, SAVE)); },
+            unsaved: () => pending(c) !== "0 pending",
+        });
+    });
+
+    test.each([
+        ["a Save never stops the editing: other jobs moved while the window is read again after a Save are taken at once — from their bars as they stand — stay where they were put as the reads land, and the next Save writes them", editedThroughReload, "window-save-again"],
+        ["the page evaluated again while the window is read again after a Save moves no job's bar, and takes none off the canvas: other jobs moved meanwhile are taken at once, stay where they were put as the page is evaluated again and the reads land, and the next Save writes them", redrawnThroughReload, "window-save-redrawn"],
+    ])("%s", async (_name, check, storageKey) => {
+        const c = await shifted(storageKey);
+        const before = await readJobs();
+        await check({
+            e3: h.e3,
+            container: c,
+            reads: afterCommit(),
+            look: () => starts(c, ["J-1001", "J-1002", "J-1003", "J-1004"]),
+            save: () => { fireEvent.click(historyButton(c, SAVE)); },
+            unsaved: () => pending(c) !== "0 pending",
+            // The event posters and the course handbook, on Press A1, which the Save did not hold: each one's original is
+            // the canvas's own row of it. Picked, then — their Details drawn from the rows their bars were drawn from —
+            // shifted an hour.
+            again: [
+                () => select(bar(c, "J-1003")!),
+                () => select(bar(c, "J-1004")!, true),
+                () => press(action(c, "shift:1hour")),
+            ],
+        });
+        const after = await readJobs();
+        const hourOn = (key: string) => some(new Date(before.get(key)!.start.value!.getTime() + 3_600_000));
+        expect(["J-1001", "J-1002", "J-1003", "J-1004"].map((key) => after.get(key)!.start)).toEqual(["J-1001", "J-1002", "J-1003", "J-1004"].map(hourOn));
+    });
+});
+
 const lockedRoster = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const presses = $.let(Record.bind(ex.planPrintPresses, []));
     const crews = $.let(Record.bind(ex.planPrintCrews, []));
@@ -745,41 +874,10 @@ const lockedRoster = { fn: East.function([], UIComponentType, (_$) => Reactive.R
 }))) };
 
 // ============================================================================
-// Auto mode, and drafts outliving a remount (PB50)
+// Drafts outliving a remount (PB50)
 // ============================================================================
 
-/** The jobs on the presses, sent as each gesture lands, with the inspector and the jobs' customer in its form. */
-const autoJobs = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-    const presses = $.let(Record.bind(ex.planPrintPresses, []));
-    const jobs = $.let(Record.bind(ex.planPrintJobs, ["patch"]));
-    const axis = $.const(Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "day" }));
-    return Plan({
-        axis, applyMode: "auto", inspector: true,
-        resources: { presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name }) },
-        events: {
-            job: Schedule.events(jobs, {
-                name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
-                resource: { field: "press", of: "presses" }, fields: { customer: Schedule.field.text({ label: "Customer" }) },
-            }),
-        },
-    });
-}))) };
-
-describe("auto mode, and a remount (PB50)", () => {
-    test("applyMode auto sends each ready gesture as it lands, through the same protocol; Undo sends the inverse", async () => {
-        const { container } = await h.mount(autoJobs);
-        await settle();
-        const deployed = await commits(ex.planPrintJobs.name);
-        await select(container.querySelector<HTMLElement>(`${rowAt(entry("presses.span", "a1"))} ${el("data-run", "job", "J-1001")}`)!);
-        await typeInto(container, "customer", "Alder & Finch Ltd");
-        expect((await readJobs()).get("J-1001")!.customer).toBe("Alder & Finch Ltd");
-        expect(pending(container)).toBe("0 pending");
-        await press(historyButton(container, UNDO));
-        expect((await readJobs()).get("J-1001")!.customer).toBe("Alder & Finch");
-        expect(await commits(ex.planPrintJobs.name)).toEqual(["patch", "patch", ...deployed]);
-        expect(customer(container)).toBe("Alder & Finch");
-    });
-
+describe("a remount (PB50)", () => {
     test("the drafts and their history outlive a remount, kept per record: the remounted Plan shows them, and undoes them", async () => {
         const first = await h.mount(ex.planPrintWorks);
         await settle();

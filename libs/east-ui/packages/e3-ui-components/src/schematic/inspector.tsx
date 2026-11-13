@@ -12,18 +12,22 @@
  *
  * Details shows what is selected (`inspect.ts`), every field through the
  * shared `FieldForm` — the shared input its East type takes, by its kind's
- * form (`fields`: the `Fields` specs of the fields no role writes) — under the
- * shared inspector head: its kind's icon and name, its own name, where it
- * stands, its status, and a Pending or New chip while its drafts hold it
- * otherwise than its record. Its own name is the one the Schematic gives it
- * everywhere (`inspect.ts`' `entityNames`), which the collapsed rail says too:
- * a link's ends, its caption under them; a net's label, else its ends — never
- * a key the Schematic minted for a new link or net:
+ * form (`fields`: the `Fields` specs of the fields no role writes, and of the
+ * fields an item's or a zone's box is, which Details leaves out of it, a hint
+ * holding them to their bounds (#1585)) — under the shared inspector head: its
+ * kind's icon and name, its own name, where it stands, its status, and a
+ * Pending or New chip while its drafts hold it otherwise than its record. Its
+ * own name is the one the Schematic gives it everywhere (`inspect.ts`'
+ * `entityNames`), which the collapsed rail says too: a link's ends, its caption
+ * under them; a net's label, else its ends — never a key the Schematic minted
+ * for a new link or net:
  *
  * - **an item**: its kind's form — or its kind's own `inspector` in its place
  *   — its details record's form, or its details' own; its position, `x` and
- *   `y`, with Unplace where its kind has a backlog; Delete; and what it is
- *   joined to, each link and net a control that selects it;
+ *   `y` — held to the bounds a hint gives its centre, one it breaks said once,
+ *   in its field's help line (#1585) — with Unplace where its kind has a
+ *   backlog; Delete; and what it is joined to, each link and net a control
+ *   that selects it;
  * - **a zone**: its form, or its own Details;
  * - **a link**: its ends, each a Chooser over the items of the slots its role
  *   names; its form; Delete;
@@ -48,17 +52,44 @@
  * Move is the position's `x` and `y`, its Delete the item's. A link's ends, a
  * net's sides and Connect to… are held to the host's veto as the gestures are
  * (`edits.ts`' `connectVeto`): a link's new pair, each pair a net's sides newly
- * join; refused, the footer says why and nothing is recorded.
+ * join; refused, the field and the footer say why and nothing is recorded.
+ *
+ * A new item whose kind makes no key of its own (#1549) — keyed by a type the
+ * viewer types, its record building none — shows its key field at the head of
+ * Details while it is new: the form's own editor for the key type, its help
+ * line under it, washed and taking the keyboard while the item waits under a
+ * placeholder, which holds Save. A key of several parts — a struct's fields, a
+ * variant's case and its value — is typed a part at a time and taken whole by
+ * Set key (#1581, `shared/schedule/key-draft.tsx`). A key typed moves the item,
+ * and its details row, under it — refused, its field and the footer saying why,
+ * where a row of its kind stands under it already; a key whose row a draft deletes is free
+ * (#1581). Until it is typed, no link's end or net's side names the item:
+ * Connect to…, a link's ends and a net's sides refuse it, saying so.
  *
  * Every edit is one step of the editing's history (`editing.ts`): a field
  * through its record's `set`, the row a kind's own Details hands back through
  * `update` whole, a position, ends or sides through the kind's `write`, and
- * Delete as the canvas's Del — refused, the footer says why. A field its
+ * Delete as the canvas's Del — refused, the footer says why. A field's edit
+ * refused leaves the field showing what its row holds: one the Schematic says
+ * why of — a key another row holds, the host's veto, a side emptied — says so
+ * under the field too, the keyboard where the edit left it (`FieldForm`'s
+ * refusal); one refused with nothing to say — its kind's own `set` or `write`
+ * refusing it — draws its form again. A field its
  * drafts changed is tinted against its record. Read only — a kind bound read
  * only, or the Schematic `readOnly` — Details shows every field and edits
  * none, an own Details giving way to the form; while a record takes no edit
  * — a Save in flight, or what the canvas draws standing in while a new
- * narrowing is read (#1398, CL8) — its controls are off.
+ * narrowing is read (#1398, CL8) — its controls are off. A number a row holds
+ * outside its field's bounds is said in the tone the row's Save stands in
+ * (#1585): a warning as stored, an error once its record's session refuses the
+ * row's change, holding Save. A field its record's session's refusal names —
+ * the app's check of the row's change — takes the warn wash and says the
+ * refusal's words under it (ruled 13 Nov 2026), an item's centre's in its
+ * position: Details lists no issue, so the field itself says why it is named.
+ * An issue gone to, from the toolbar or from its
+ * line in Issues, puts the keyboard in the field it names — an item's
+ * centre's, in its position — the inspector opened at Details where it is
+ * collapsed or at Issues.
  *
  * Details keeps the keyboard (#1398): a control that goes with the view it was
  * pressed in — Delete and Unplace, which leave nothing selected, a leg's
@@ -75,11 +106,14 @@
  * has not read, and the form its own height when the row lands.
  *
  * Issues (SC16) lists the drawing's issues (`issues.ts`), each a control that
- * selects what it names and flies to it. A kind read by area is checked in the
- * rows read around the view, with every unsaved change, never by a read of its
- * other rows: while one is, a line over the list names it and says its rows out
- * of view are checked only as the view reaches them, as the drawing's counts
- * say what they don't count (ruled 27 Oct 2026, "Checked in view, said so").
+ * selects what it names and flies to it, the field it names taking the
+ * keyboard in its Details, as the toolbar's issue gone to puts it there: the
+ * viewer lands where the issue is fixed, not left on Issues. A kind read by
+ * area is checked in the rows read around the view, with every unsaved
+ * change, never by a read of its other rows: while one is, a line over the
+ * list names it and says its rows out of view are checked only as the view
+ * reaches them, as the drawing's counts say what they don't count (ruled 27
+ * Oct 2026, "Checked in view, said so").
  * An unsaved change the drawing leaves out — a draft waiting in its session,
  * the rail's filters leaving out the row it drafts — is checked as its draft
  * has it, and its issue says on a line of its own which choices hide it, each
@@ -109,18 +143,22 @@ import {
 } from "@elaraai/east-ui-components";
 import { PlaceholderShape, type PlaceholderKind } from "@elaraai/east-ui-components/internal";
 import { FOCUS_HOME_PROPS, useFocusHome } from "../shared/focus-home.js";
+import { useFieldAsk } from "../shared/schedule/field-ask.js";
+import { KeySetButton, useKeyDraft } from "../shared/schedule/key-draft.js";
+import { keyFieldSpecs, kindKeys } from "../shared/schedule/kind-keys.js";
 import { askHiding, hiddenLine, hiddenOf, type RowHidden, type RowHiding, type SourceHiding } from "../shared/schedule/hidden.js";
 import type { HiddenPicks } from "../shared/schedule/hidden-pick.js";
 import { ScheduleInspectorHead } from "../shared/schedule/inspector-head.js";
 import { draftedRow, rowCodec } from "../shared/schedule/records.js";
+import { entryRefusals, refusedFields, type RefusedFields } from "../shared/schedule/refusals.js";
 import { kindPlural } from "../shared/schedule/words.js";
 import { authorOf } from "../shared/records/author.js";
 import { entityId, refOfId, type DrawnItem, type DrawnLink, type DrawnNet, type DrawnZone, type SchematicDrawn, type SchematicRef } from "./canvas/drawn.js";
 import type { SchematicCounts, SchematicDrawingCount, SchematicSavedRecord, SchematicUncounted } from "./counts.js";
 import type { SchematicValue } from "./data.js";
 import {
-    NO_SESSION, connectStep, deleteEdits, editKinds, joinedPairs, linkRefusal, retargetEdits, vetoOfPairs,
-    type ConnectVetoOf, type DeleteSelection, type EditRefusal, type NetLeg, type SchematicEdit, type SchematicFieldWrite,
+    NO_SESSION, connectStep, deleteEdits, editKinds, joinedPairs, linkRefusal, placeholderRefusal, retargetEdits, vetoOfPairs,
+    type ConnectVetoOf, type DeleteSelection, type EditRefusal, type NetLeg, type SchematicEdit, type SchematicFieldWrite, type SchematicKeyRefusal,
 } from "./edits.js";
 import { detailsKey, type SchematicEditing } from "./editing.js";
 import { joinsOf, nameOfEntity, type SchematicDrawnEntity, type SchematicInspected, type SchematicUnplaced } from "./inspect.js";
@@ -156,6 +194,22 @@ const SidesFormType = StructType({ sources: ArrayType(StringType), destinations:
 /** Connect to…, below 480px of main (#1394): the link kind it records, by its slot, and the item it runs to, by its id. */
 const ConnectFormType = StructType({ kind: StringType, to: StringType });
 
+/**
+ * The editing as Details records its edits: as every route's are (`index.tsx`), each row whose key its fields build
+ * following them (#1549) — an edit refused handing back why, where the Schematic says.
+ */
+export interface SchematicInspectorEditing extends Omit<SchematicEditing, "record"> {
+    /**
+     * Records one edit as one step of the history.
+     *
+     * @param edits - The rows it changes, and how
+     * @param origin - The gesture
+     * @param label - Its label in the history
+     * @returns `true` once recorded; refused, why — its key refused, as the footer says it — or `false` where nothing says
+     */
+    record(edits: readonly SchematicEdit[], origin: Origin, label: string): boolean | string;
+}
+
 /** What the inspector reads of the Schematic. */
 export interface SchematicInspectorProps {
     /** The payload, decoded. */
@@ -174,7 +228,7 @@ export interface SchematicInspectorProps {
     /** The drawing as its lists show it, what the rail's narrowing leaves out left out (#1392): what a Chooser offers, and what an item is joined to. */
     readonly listed: SchematicDrawn;
     /** The editing: each record's session and drafts, and how an edit is recorded. */
-    readonly editing: SchematicEditing;
+    readonly editing: SchematicInspectorEditing;
     /** What the drawing's Details counts, with nothing selected (`counts.ts`). */
     readonly counts: SchematicCounts;
     /** The kinds' records whose commits say when each was last saved, and by whom. */
@@ -206,12 +260,25 @@ export interface SchematicInspectorProps {
      * @param hidden - What hides the row it drafts, as far as e3 has said; `undefined` where nothing does
      */
     readonly goToWaiting: (id: string, hidden: readonly SourceHiding[] | undefined) => void;
+    /**
+     * Asks a row's Details for a field, which takes the keyboard there, the inspector opened at Details: what an issue's
+     * line in Issues asks, as the toolbar's issue gone to does. Asked for none, any ask standing is dropped.
+     *
+     * @param record - The row's record, by its key in the history: its kind's slot, or its details record's
+     * @param entry - The row's key
+     * @param field - The field the issue names, by its form's key; none for an issue naming none
+     */
+    readonly ask: (record: string, entry: string, field: option<string>) => void;
     /** The zone holding a point, by its name, as the Index files an item. */
     readonly zoneAt: (x: number, y: number) => string | undefined;
     /** Selects an entity, by its id — a net's leg with it — flying to it; `undefined` selects nothing. */
     readonly reveal: (id: string | undefined, leg?: NetLeg) => void;
     /** Says why an edit was refused, in the footer; `undefined` clears it. */
     readonly refuse: (words: string | undefined) => void;
+    /** Says why an edit records nothing, its new row's key refused (#1549), in the footer, and hands back the words. */
+    readonly keyRefused: (refusal: SchematicKeyRefusal) => string;
+    /** Selects an entity alone, by its id, once the drawing draws it, the camera where it is: an item under the key typed for it (#1549). */
+    readonly select: (id: string) => void;
     /** The open tab. */
     readonly tab: string;
     /** Opens a tab. */
@@ -319,20 +386,25 @@ function placeholderOf(spec: FieldSpecValue): PlaceholderKind {
 const pendingControl = (spec: FieldSpecValue): ReactNode => <PlaceholderShape kind={placeholderOf(spec)} index={spec.path.join(".").length} />;
 
 /**
- * A form under its section's head — or, given none, an own Details in its place — remounted after a refused edit so it
- * shows what the row holds again; while its row is read (`pending`), each field its label over a placeholder (#1398).
+ * A form under its section's head — a section with no head of its own, a new item's key field, has none: an edit
+ * refused saying why (`onChange` handing back the words) puts its field back, saying so under it; one refused with
+ * nothing to say remounts it (`refused`), so it shows what the row holds again. While its row is read (`pending`),
+ * each field is its label over a placeholder (#1398). A field an issue names (`issues`) takes the warn wash — and, given
+ * the issue's words, says them under it (ruled 13 Nov 2026) — and the field named (`focus`) the keyboard (#1549); a
+ * number outside its bounds is said in the tone its row's Save stands in (`breaches`, #1585).
  */
-function Form({ styles, head, section, specs, value, baseline, options, onChange, readOnly, refused, pending = false }: {
-    styles: Styles; head: string; section: string; specs: readonly FieldSpecValue[]; value: unknown; baseline: unknown;
+function Form({ styles, head, section, specs, value, baseline, options, onChange, readOnly, refused, pending = false, issues, focus, breaches }: {
+    styles: Styles; head: string | undefined; section: string; specs: readonly FieldSpecValue[]; value: unknown; baseline: unknown;
     options?: Readonly<Record<string, readonly FieldOption[]>> | undefined;
-    onChange: (path: readonly string[], value: unknown) => void; readOnly: boolean; refused?: number; pending?: boolean;
+    onChange: (path: readonly string[], value: unknown) => string | void; readOnly: boolean; refused?: number; pending?: boolean;
+    issues?: ReadonlySet<string> | RefusedFields | undefined; focus?: string | undefined; breaches?: "warn" | "error" | undefined;
 }) {
     if (specs.length === 0) return null;
     return (
         <Box css={styles.fields} data-inspector-fields={section} data-pending={pending ? "" : undefined}>
-            <Box css={styles.sectionHead}>{head}</Box>
+            {head !== undefined && <Box css={styles.sectionHead}>{head}</Box>}
             <FieldForm key={refused ?? 0} specs={specs} value={value} baseline={baseline} options={options} onChange={onChange} readOnly={readOnly}
-                renderControl={pending ? pendingControl : undefined} />
+                renderControl={pending ? pendingControl : undefined} issues={issues} focus={focus} breaches={breaches} />
         </Box>
     );
 }
@@ -352,7 +424,7 @@ function Fact({ styles, fact, children }: { styles: Styles; fact: string; childr
     return <Box css={styles.section}><Box css={styles.fact} data-inspector-fact={fact}>{children}</Box></Box>;
 }
 
-/** A remount counter for a form whose edit was refused: its input shows what the row holds again. */
+/** A remount counter for a form whose edit was refused with nothing to say: its input shows what the row holds again. */
 function useRefused(): [number, () => void] {
     const [refused, setRefused] = useState(0);
     const bump = useCallback(() => setRefused((n) => n + 1), []);
@@ -384,7 +456,7 @@ interface RowState {
  * @param read - Its stored row, as the reader read it
  * @returns The row's state
  */
-function useRowState(editing: SchematicEditing, record: string, side: RecordSide | undefined, key: string, read: SchematicRowRead | undefined): RowState {
+function useRowState(editing: SchematicInspectorEditing, record: string, side: RecordSide | undefined, key: string, read: SchematicRowRead | undefined): RowState {
     const codec = useMemo(() => (side === undefined ? undefined : rowCodec(side.rowType)), [side]);
     const stored = useMemo(() => (read?.state === "held" && codec !== undefined ? codec.decode(read.row) : undefined), [read, codec]);
     const drafted = editing.schedule.draftsOf(record).has(key);
@@ -440,21 +512,24 @@ function fieldWrite(specs: readonly FieldSpecValue[], rowType: RecordSide["rowTy
 
 /** A refusal's words, as the canvas says them. */
 function refusalWords(refusal: EditRefusal, words: SchematicWords): string {
-    return refusal.why === "end"
-        ? words.m.endRefused({ kind: refusal.kind, end: refusal.end, item: refusal.item })
-        : words.m.deleteRefused({ item: refusal.item, kind: refusal.kind, key: refusal.key });
+    switch (refusal.why) {
+        case "end": return words.m.endRefused({ kind: refusal.kind, end: refusal.end, item: refusal.item });
+        case "named": return words.m.deleteRefused({ item: refusal.item, kind: refusal.kind, key: refusal.key });
+        case "placeholder": return words.m.placeholderRefused({ kind: refusal.kind.toLocaleLowerCase(words.locale) });
+    }
 }
 
 /**
  * The edits a view records: each one step, a recorded one clearing the
- * footer's refusal — and Delete, as the canvas's Del, refused in its words.
+ * footer's refusal — refused, why, where the Schematic says (`false` where
+ * nothing does) — and Delete, as the canvas's Del, refused in its words.
  */
 function useCommit(props: SchematicInspectorProps) {
     const { editing, refuse, value, drawn, words } = props;
-    const commit = useCallback((edits: readonly SchematicEdit[], origin: Origin, label: string): boolean => {
+    const commit = useCallback((edits: readonly SchematicEdit[], origin: Origin, label: string): boolean | string => {
         if (edits.length === 0) return false;
         const recorded = editing.record(edits, origin, label);
-        if (recorded) refuse(undefined);
+        if (recorded === true) refuse(undefined);
         return recorded;
     }, [editing, refuse]);
     const remove = useCallback((selection: DeleteSelection, label: string): boolean => {
@@ -463,7 +538,7 @@ function useCommit(props: SchematicInspectorProps) {
             refuse(refusalWords(result.refusal, words));
             return false;
         }
-        return commit(result.edits, "remove", label);
+        return commit(result.edits, "remove", label) === true;
     }, [value, drawn, words, refuse, commit]);
     return { commit, remove };
 }
@@ -471,6 +546,15 @@ function useCommit(props: SchematicInspectorProps) {
 /** A kind of a sort, by its slot. */
 function kindOf<K extends { readonly key: string }>(kinds: readonly K[], slot: string): K | undefined {
     return kinds.find((kind) => stringEqual(kind.key, slot));
+}
+
+/**
+ * An item's or a zone's side as Details draws its form: its kind's, but the fields its box is, which its kind's form
+ * holds so a hint holds them to their bounds (#1585) — Details draws an item's centre as its position, and its box nowhere.
+ */
+function formSide<K extends SchematicValue["items"][number] | SchematicValue["zones"][number]>(kind: K): K {
+    const box = [kind.box.x, kind.box.y, getSomeorUndefined(kind.box.width), getSomeorUndefined(kind.box.height)];
+    return { ...kind, fields: kind.fields.filter((spec) => !box.some((field) => field !== undefined && stringEqual(field, spec.path[0]!))) };
 }
 
 /** A row whose read is in flight. */
@@ -566,25 +650,46 @@ function useSide(props: ViewProps, ref: SchematicRef, name: string, side: Record
     const its = rowsOf(rows, ref);
     const state = useRowState(editing, record, side, ref.key, details ? its.details : its.row);
     const { commit } = useCommit(props);
-    const onField = useCallback((path: readonly string[], next: unknown) => {
-        if (side === undefined) return;
+    // A field's edit refused shows what the row holds again: one refused for the key the row's fields build — another
+    // row's (#1549) — saying why under the field; one its record's `set` refuses, the form drawn again.
+    const [refused, bump] = useRefused();
+    const onField = useCallback((path: readonly string[], next: unknown): string | undefined => {
+        if (side === undefined) return undefined;
         const write = fieldWrite(side.fields, side.rowType, path, next);
-        if (write === undefined) return;
-        commit([{ op: "set", ref, sets: [write], ...(details ? { details: true as const } : {}) }], "typed", m.inspectorStep({ edit: "edit", name }));
-    }, [side, ref, details, commit, m, name]);
+        if (write === undefined) return undefined;
+        const recorded = commit([{ op: "set", ref, sets: [write], ...(details ? { details: true as const } : {}) }], "typed", m.inspectorStep({ edit: "edit", name }));
+        if (recorded === false) bump();
+        return recorded === true || recorded === false ? undefined : recorded;
+    }, [side, ref, details, commit, m, name, bump]);
     const update = useCallback((edited: Uint8Array): null => {
         if (writes) commit([{ op: "row", ref, row: edited, ...(details ? { details: true as const } : {}) }], "typed", m.inspectorStep({ edit: "edit", name }));
         return null;
     }, [writes, ref, details, commit, m, name]);
     // Read only, the form shows every field: an own Details is for a record that takes its edits.
     const own = useOwnDetails(writes && side !== undefined ? getSomeorUndefined(side.inspector) : undefined, state.bytes, update, name);
-    return { side, writes, available, state, onField, own };
+    // What its record's session refuses of the row, holding Save. A bound its row breaks (#1585) is said in the tone its
+    // Save stands in: as stored it warns; its change refused, it is an error. And each field a refusal names says the
+    // refusal's words under it (ruled 13 Nov 2026): Details lists no issue, so the field says why it is named.
+    const refusals = entryRefusals(editing.schedule.sessions, record, ref.key);
+    const breaches: "warn" | "error" = refusals.length > 0 ? "error" : "warn";
+    const issues = refusedFields(refusals);
+    // The field an issue gone to names, from the toolbar or from Issues: it takes the keyboard, the inspector opened at
+    // Details. A freshly selected entity's forms are placeholders until its rows are read — a drafted row's drawn at once —
+    // so the ask waits for both its row and its details row: neither form lets go of an ask that is the other's.
+    const placeholder = (read: SchematicRowRead | undefined, of: string) => read?.state === "reading" && !editing.schedule.draftsOf(of).has(ref.key);
+    const drawn = !placeholder(its.row, ref.kind) && !placeholder(its.details, detailsKey(ref.kind));
+    const focus = useFieldAsk(record, ref.key, drawn);
+    return { side, writes, available, state, onField, own, refused, breaches, issues, focus };
 }
 
-/** A record's side drawn: its form, or its own Details, under its head; while its row is read, its fields' placeholders; no row, said so. */
-function SideBody({ styles, head, section, side, own, state, onField, writes, storageKey, empty }: {
+/**
+ * A record's side drawn: its form, or its own Details, under its head — each field its session's refusal names saying why
+ * under it; while its row is read, its fields' placeholders; no row, said so.
+ */
+function SideBody({ styles, head, section, side, own, state, onField, writes, storageKey, empty, refused, breaches, issues, focus }: {
     styles: Styles; head: string; section: string; side: RecordSide; own: unknown; state: RowState;
-    onField: (path: readonly string[], value: unknown) => void; writes: boolean; storageKey: string; empty: string;
+    onField: (path: readonly string[], value: unknown) => string | void; writes: boolean; storageKey: string; empty: string; refused: number;
+    breaches: "warn" | "error"; issues: RefusedFields; focus: string | undefined;
 }) {
     // Read, its form's fields stand at their places, each a placeholder until the row lands (#1398): its head is real.
     if (state.reading) {
@@ -593,21 +698,53 @@ function SideBody({ styles, head, section, side, own, state, onField, writes, st
     if (state.row === undefined) return <Fact styles={styles} fact={`${section}-none`}>{empty}</Fact>;
     if (own !== undefined) return <Custom styles={styles} head={head} section={section} ui={own} storageKey={storageKey} />;
     return <Form styles={styles} head={head} section={section} specs={side.fields} value={state.row} baseline={state.baseline}
-        onChange={writes ? onField : NO_EDIT} readOnly={!writes} />;
+        onChange={writes ? onField : NO_EDIT} readOnly={!writes} refused={refused} breaches={breaches} issues={issues} focus={focus} />;
 }
 
 // ── An item ─────────────────────────────────────────────────────────────────
 
 /** An item: its head, its form or own Details, its details', its position and Unplace, Delete, and what it is joined to. */
 function ItemView(props: ViewProps & { readonly item: DrawnItem; readonly kind: SchematicValue["items"][number] }) {
-    const { item, kind, styles, words, value, names: entityNames, listed, rows, zoneAt, reveal, storageKey } = props;
+    const { item, kind, styles, words, value, names: entityNames, listed, rows, zoneAt, reveal, storageKey, editing, refuse: say, select } = props;
     const m = words.m;
     const unit = getSomeorUndefined(value.scaleUnit);
-    // The item's own row, and its details row: each its record's side.
-    const self = useSide(props, item.ref, item.label, kind, false);
+    // The item's own row, and its details row: each its record's side — its own form but its box (#1585).
+    const form = useMemo(() => formSide(kind), [kind]);
+    const self = useSide(props, item.ref, item.label, form, false);
     const details = getSomeorUndefined(kind.details);
     const theirs = useSide(props, item.ref, item.label, details, true);
     const { commit, remove } = useCommit(props);
+    // A new item whose key the viewer types (#1549): its key field, while it is new — washed, and taking the keyboard,
+    // while it waits under a placeholder.
+    const keys = kindKeys(kind.keyType);
+    const waiting = !keys.isKey(item.ref.key);
+    const keyed = self.state.chip === "new" && self.writes && editing.keysTyped(kind.key);
+    const keySpecs = useMemo(() => (keyed
+        ? keyFieldSpecs(keys, m.inspectorField({ field: "key" }), keys.specs.length > 1 ? m.inspectorKeyPartsHelp() : m.inspectorKeyHelp(), true) : []),
+    [keyed, keys, m]);
+    const keyIssues = useMemo(() => (waiting ? new Set(keySpecs.map((spec) => spec.path.join("."))) : undefined), [waiting, keySpecs]);
+    const [keyRefused, bumpKey] = useRefused();
+    // A key typed whole: refused where a row of its kind stands under it — one whose row a draft deletes is free (#1581) —
+    // saying why, under the field of a key of one part as in the footer.
+    const takeKey = useCallback((to: string): string | undefined => {
+        const from = item.ref.key;
+        if (stringEqual(to, from)) return undefined;
+        if (editing.stands(kind.key, to)) {
+            const said = m.inspectorKeyRefused({ name: kind.name.toLocaleLowerCase(words.locale), key: to });
+            say(said);
+            return said;
+        }
+        // The item under its key, its details row with it where they are edited, and the selection with it.
+        const moved: SchematicEdit[] = [
+            { op: "move", ref: item.ref, to },
+            ...(editing.edited(detailsKey(kind.key)) ? [{ op: "move", ref: item.ref, to, details: true } as const] : []),
+        ];
+        const recorded = commit(moved, "typed", m.inspectorStep({ edit: "key", name: item.label }));
+        if (recorded === true) select(entityId({ kind: kind.key, key: to }));
+        else if (recorded === false) bumpKey();
+        return recorded === true || recorded === false ? undefined : recorded;
+    }, [item.ref, item.label, kind, editing, commit, say, select, m, words.locale, bumpKey]);
+    const keyDraft = useKeyDraft(keys, item.ref.key, takeKey);
     // Its centre as its record holds it — what the position is tinted against; nothing for a new row.
     const stored = rowsOf(rows, item.ref).row;
     const heldAt = useMemo(() => {
@@ -615,15 +752,36 @@ function ItemView(props: ViewProps & { readonly item: DrawnItem; readonly kind: 
         const at = getSomeorUndefined(kind.read(stored.row, item.ref.key).position);
         return at === undefined ? NEW_ROW : { x: at.x, y: at.y };
     }, [stored, kind, item.ref.key]);
-    const positionSpecs = useMemo(() => Fields.specs(PositionType, {
-        x: Fields.number<number>({ label: m.inspectorField({ field: "x" }), ...(unit === undefined ? {} : { unit }) }),
-        y: Fields.number<number>({ label: m.inspectorField({ field: "y" }), ...(unit === undefined ? {} : { unit }) }),
-    }), [m, unit]);
-    const onPosition = useCallback((path: readonly string[], next: unknown) => {
+    // Its centre held to the bounds a hint gives its fields in its kind's form (#1585): a coordinate they don't hold is
+    // said under its field, as the form says one.
+    const positionSpecs = useMemo(() => {
+        const bounds = (field: string) => {
+            const spec = kind.fields.find((s) => s.path.length === 1 && stringEqual(s.path[0]!, field));
+            if (spec?.editor.type !== "number") return {};
+            const min = getSomeorUndefined(spec.editor.value.min), max = getSomeorUndefined(spec.editor.value.max);
+            return { ...(min === undefined ? {} : { min }), ...(max === undefined ? {} : { max }) };
+        };
+        return Fields.specs(PositionType, {
+            x: Fields.number<number>({ label: m.inspectorField({ field: "x" }), ...(unit === undefined ? {} : { unit }), ...bounds(kind.box.x) }),
+            y: Fields.number<number>({ label: m.inspectorField({ field: "y" }), ...(unit === undefined ? {} : { unit }), ...bounds(kind.box.y) }),
+        });
+    }, [m, unit, kind]);
+    // A position refused shows where the item stands again: one refused for the key its centre builds — another item's
+    // (#1581) — saying why under the field; one its kind's `write` refuses, the form drawn again.
+    const [positionRefused, bumpPosition] = useRefused();
+    const onPosition = useCallback((path: readonly string[], next: unknown): string | undefined => {
         const n = next as number;
         const at = stringEqual(path[0]!, "x") ? { x: n, y: item.y } : { x: item.x, y: n };
-        commit([{ op: "place", ref: item.ref, at: some(at) }], "move", m.inspectorStep({ edit: "edit", name: item.label }));
-    }, [item, commit, m]);
+        const recorded = commit([{ op: "place", ref: item.ref, at: some(at) }], "move", m.inspectorStep({ edit: "edit", name: item.label }));
+        if (recorded === false) bumpPosition();
+        return recorded === true || recorded === false ? undefined : recorded;
+    }, [item, commit, m, bumpPosition]);
+    // The field an issue gone to names, where it is one its centre is: that coordinate of its position (#1585) — and what
+    // a refusal says of either, under that coordinate.
+    const positionFocus = self.focus === undefined ? undefined
+        : stringEqual(self.focus, kind.box.x) ? "x" : stringEqual(self.focus, kind.box.y) ? "y" : undefined;
+    const positionIssues: RefusedFields = new Map([["x", kind.box.x] as const, ["y", kind.box.y] as const]
+        .flatMap(([coordinate, field]) => { const said = self.issues.get(field); return said === undefined ? [] : [[coordinate, said] as const]; }));
     const joins = useMemo(() => joinsOf(item.key, listed), [item.key, listed]);
     const names = useMemo(() => new Map([...value.links, ...value.nets].map((k) => [k.key, k.name] as const)), [value.links, value.nets]);
     const actions = !self.writes ? undefined : (
@@ -639,19 +797,28 @@ function ItemView(props: ViewProps & { readonly item: DrawnItem; readonly kind: 
     const icon = getSomeorUndefined(item.icon) ?? (kind.icon === "" ? "cube" : kind.icon);
     // Its status: as the canvas draws it, else as its details row — drafted, else read by its key — gives it.
     const detailsBytes = theirs.state.bytes;
+    // A row under a placeholder is read as keyed by its key type's default (#1549).
     const status = useMemo(() => getSomeorUndefined(item.status)
-        ?? (details === undefined || detailsBytes === undefined ? undefined : getSomeorUndefined(details.read(detailsBytes, item.ref.key).status)),
-    [item.status, item.ref.key, details, detailsBytes]);
+        ?? (details === undefined || detailsBytes === undefined ? undefined : getSomeorUndefined(details.read(detailsBytes, keys.readKey(item.ref.key)).status)),
+    [item.status, item.ref.key, details, detailsBytes, keys]);
     return (
         <Box css={styles.root} data-schematic-inspector="item">
             <ScheduleInspectorHead styles={styles} kind={{ name: kind.name, icon }} title={item.label}
                 when={m.inspectorAt({ zone: zoneAt(item.x, item.y), x: coordinate(item.x, words), y: coordinate(item.y, words), unit })}
-                status={status} pending={self.state.chip} home />
+                status={status} pending={self.state.chip} writes={self.writes} home />
             <Edits styles={styles} available={self.available} actions={actions}>
-                <SideBody styles={styles} head={m.inspectorSection({ section: "fields", name: kind.name })} section="row" side={kind} own={self.own}
-                    state={self.state} onField={self.onField} writes={self.writes} storageKey={`${storageKey}.inspector.${kind.key}`} empty={m.inspectorNoRow()} />
+                {/* A placeholder's key holds no value: its field is Not set, with Set, until it is typed. */}
+                <Form styles={styles} head={undefined} section="key" specs={keySpecs} value={{ key: keyDraft.value }} baseline={NEW_ROW}
+                    onChange={keyDraft.onChange} readOnly={false} refused={keyRefused} issues={keyIssues} focus={waiting ? keySpecs[0]?.path.join(".") : undefined} />
+                {keyed && keyDraft.parts && (
+                    <Box css={styles.actions} data-inspector-actions="key"><KeySetButton draft={keyDraft} label={m.inspectorKeySet()} /></Box>
+                )}
+                <SideBody styles={styles} head={m.inspectorSection({ section: "fields", name: kind.name })} section="row" side={form} own={self.own}
+                    state={self.state} onField={self.onField} writes={self.writes} storageKey={`${storageKey}.inspector.${kind.key}`} empty={m.inspectorNoRow()}
+                    refused={self.refused} breaches={self.breaches} issues={self.issues} focus={self.focus} />
                 <Form styles={styles} head={m.inspectorSection({ section: "position", name: kind.name })} section="position" specs={positionSpecs}
-                    value={{ x: item.x, y: item.y }} baseline={heldAt} onChange={self.writes ? onPosition : NO_EDIT} readOnly={!self.writes} />
+                    value={{ x: item.x, y: item.y }} baseline={heldAt} onChange={self.writes ? onPosition : NO_EDIT} readOnly={!self.writes} refused={positionRefused}
+                    breaches={self.breaches} issues={positionIssues} focus={positionFocus} />
             </Edits>
             {/* Below 480px of main, what a Connect drag from it records (#1394, D15). */}
             {props.narrow && <ConnectTo {...props} item={item} />}
@@ -659,7 +826,8 @@ function ItemView(props: ViewProps & { readonly item: DrawnItem; readonly kind: 
                 <Edits styles={styles} available={theirs.available} actions={undefined}>
                     <SideBody styles={styles} head={m.inspectorSection({ section: "details", name: kind.name })} section="details" side={details}
                         own={theirs.own} state={theirs.state} onField={theirs.onField} writes={theirs.writes}
-                        storageKey={`${storageKey}.inspector.${kind.key}.details`} empty={m.inspectorNoDetails({ name: kind.name })} />
+                        storageKey={`${storageKey}.inspector.${kind.key}.details`} empty={m.inspectorNoDetails({ name: kind.name })} refused={theirs.refused}
+                        breaches={theirs.breaches} issues={theirs.issues} focus={theirs.focus} />
                 </Edits>
             )}
             {(joins.links.length > 0 || joins.nets.length > 0) && (
@@ -693,11 +861,12 @@ function ItemView(props: ViewProps & { readonly item: DrawnItem; readonly kind: 
  * An item's Connect to…, below 480px of main (#1394, D15): a Chooser over the items a link of its kind may run to from
  * the item — what the rail's narrowing shows — and, while several link kinds may run from it, the kind, the toolbar's
  * Connect menu's choice. A choice records the link, one step, as a Connect drag from the item onto the one chosen does —
- * its key minted, its other fields the template of its kind the library has selected (§4.3) — and the Chooser is clear
- * again for the next; refused — its kind's end, or the host's veto — the footer says why, and nothing is recorded.
+ * keyed as its kind makes one (#1549), its other fields the template of its kind the library has selected (§4.3) — and
+ * the Chooser is clear again for the next; refused — its kind's end, an item waiting for its key to be typed, the key
+ * its kind makes, or the host's veto — the footer says why, and nothing is recorded.
  */
 function ConnectTo(props: ViewProps & { readonly item: DrawnItem }) {
-    const { item, styles, words, value, listed, editing, veto, linkKind, onLinkKind, connectValues, refuse: say } = props;
+    const { item, styles, words, value, listed, editing, veto, linkKind, onLinkKind, connectValues, refuse: say, keyRefused } = props;
     const m = words.m;
     const { commit } = useCommit(props);
     const [chosen, clear] = useRefused();
@@ -716,32 +885,34 @@ function ConnectTo(props: ViewProps & { readonly item: DrawnItem }) {
         kind: Fields.reference({ of: "kind", label: m.inspectorField({ field: "kind" }) }),
         to: Fields.reference({ of: "to", label: m.inspectorField({ field: "to" }) }),
     }, choices.length > 1 ? [] : ["kind"]), [m, choices.length]);
-    const onChange = useCallback((path: readonly string[], next: unknown) => {
-        if (kind === undefined) return;
+    const onChange = useCallback((path: readonly string[], next: unknown): string | undefined => {
+        if (kind === undefined) return undefined;
         if (stringEqual(path[0]!, "kind")) {
             onLinkKind(next as string);
-            return;
+            return undefined;
         }
-        // Whatever it records, the Chooser is clear again, for the next.
-        clear();
+        // Whatever it comes to, the Chooser is clear again, for the next — refused, saying why under it.
         const target = listed.items.find((i) => stringEqual(i.key, next as string));
         const link = kinds.links.get(kind.key);
-        if (target === undefined || link === undefined) return;
+        if (target === undefined || link === undefined) {
+            clear();
+            return undefined;
+        }
         const from = { ref: item.ref, label: item.label }, to = { ref: target.ref, label: target.label };
-        const refusal = linkRefusal(link, from, to);
+        const refusal = placeholderRefusal(kinds, from) ?? placeholderRefusal(kinds, to) ?? linkRefusal(link, from, to);
         const said = refusal !== undefined ? refusalWords(refusal, words) : veto(kind.key, item.key, target.key);
         if (said !== undefined) {
             say(said);
-            return;
+            return said;
         }
-        const minted = new Set<string>();
-        const step = connectStep(kinds, { session: undefined, shift: false, linkKind: kind.key, from, to, drawn: NO_SESSION, labelOf: (ref) => ref.key }, (slot) => {
-            const key = editing.mint(slot, minted);
-            minted.add(key);
-            return key;
-        }, connectValues);
-        if (step !== undefined) commit(step.edits, "insert", m.step({ step: "connect", name: kind.name.toLocaleLowerCase(words.locale), n: 1 }));
-    }, [kind, kinds, listed.items, item, words, veto, say, editing, connectValues, commit, m, onLinkKind, clear]);
+        const step = connectStep(kinds, { session: undefined, shift: false, linkKind: kind.key, from, to, drawn: NO_SESSION, labelOf: (ref) => ref.key },
+            (made) => editing.newKey(made), connectValues);
+        if (step !== undefined && "refused" in step) return keyRefused(step.refused);
+        const recorded = step === undefined ? false : commit(step.edits, "insert", m.step({ step: "connect", name: kind.name.toLocaleLowerCase(words.locale), n: 1 }));
+        if (recorded !== true && recorded !== false) return recorded;
+        clear();
+        return undefined;
+    }, [kind, kinds, listed.items, item, words, veto, say, keyRefused, editing, connectValues, commit, m, onLinkKind, clear]);
     if (kind === undefined) return null;
     return (
         <Edits styles={styles} available={editing.available(kind.key)} actions={undefined}>
@@ -777,14 +948,17 @@ function ZoneView(props: ViewProps & { readonly zone: DrawnZone; readonly kind: 
     const { zone, kind, styles, words, value, storageKey } = props;
     const m = words.m;
     const unit = getSomeorUndefined(value.scaleUnit);
-    const own = useSide(props, zone.ref, zone.label, kind, false);
+    // Its own form but its box (#1585).
+    const form = useMemo(() => formSide(kind), [kind]);
+    const own = useSide(props, zone.ref, zone.label, form, false);
     return (
         <Box css={styles.root} data-schematic-inspector="zone">
             <ScheduleInspectorHead styles={styles} kind={{ name: kind.name, icon: kind.icon === "" ? "vector-square" : kind.icon }} title={zone.label}
-                when={m.inspectorSize({ width: coordinate(zone.width, words), height: coordinate(zone.height, words), unit })} pending={own.state.chip} home />
+                when={m.inspectorSize({ width: coordinate(zone.width, words), height: coordinate(zone.height, words), unit })} pending={own.state.chip} writes={own.writes} home />
             <Edits styles={styles} available={own.available} actions={undefined}>
-                <SideBody styles={styles} head={m.inspectorSection({ section: "fields", name: kind.name })} section="row" side={kind} own={own.own}
-                    state={own.state} onField={own.onField} writes={own.writes} storageKey={`${storageKey}.inspector.${kind.key}`} empty={m.inspectorNoRow()} />
+                <SideBody styles={styles} head={m.inspectorSection({ section: "fields", name: kind.name })} section="row" side={form} own={own.own}
+                    state={own.state} onField={own.onField} writes={own.writes} storageKey={`${storageKey}.inspector.${kind.key}`} empty={m.inspectorNoRow()}
+                    refused={own.refused} breaches={own.breaches} issues={own.issues} focus={own.focus} />
             </Edits>
         </Box>
     );
@@ -829,21 +1003,26 @@ function LinkView(props: ViewProps & { readonly link: DrawnLink; readonly kind: 
         const roles = kind.read(stored.row, link.ref.key);
         return { from: entityId(roles.from), to: entityId(roles.to) };
     }, [stored, kind, link.ref.key]);
-    const onEnd = useCallback((path: readonly string[], next: unknown) => {
+    const kinds = useMemo(() => editKinds(value), [value]);
+    const onEnd = useCallback((path: readonly string[], next: unknown): string | undefined => {
         const from = refOfId(link.from), to = refOfId(link.to), target = refOfId(next as string);
         const end = stringEqual(path[0]!, "from") ? "from" as const : "to" as const;
-        if (from === undefined || to === undefined || target === undefined) return;
+        if (from === undefined || to === undefined || target === undefined) return undefined;
         const edits = retargetEdits({ ref: link.ref, ends: { from, to } }, end, target);
-        // The new pair held to the host's veto in the link's own direction, as a Retarget's drag is (#1394): refused, the
-        // footer says why, and the Chooser shows the end it has.
-        const said = edits.length === 0 ? undefined : end === "from" ? veto(link.ref.kind, next as string, link.to) : veto(link.ref.kind, link.from, next as string);
+        // An item waiting for its key to be typed is no end (#1549); the new pair is held to the host's veto in the link's
+        // own direction, as a Retarget's drag is (#1394), and a key its ends build another link holds refuses it (#1549):
+        // refused, the Chooser shows the end it has, saying why under it as the footer does.
+        const waiting = edits.length === 0 ? undefined : placeholderRefusal(kinds, { ref: target, label: target.key });
+        const said = waiting !== undefined ? refusalWords(waiting, words)
+            : edits.length === 0 ? undefined : end === "from" ? veto(link.ref.kind, next as string, link.to) : veto(link.ref.kind, link.from, next as string);
         if (said !== undefined) {
             say(said);
-            refuse();
-            return;
+            return said;
         }
-        if (!commit(edits, "move", m.inspectorStep({ edit: "edit", name }))) refuse();
-    }, [link, commit, m, name, refuse, veto, say]);
+        const recorded = commit(edits, "move", m.inspectorStep({ edit: "edit", name }));
+        if (recorded === false) refuse();
+        return recorded === true || recorded === false ? undefined : recorded;
+    }, [link, kinds, words, commit, m, name, refuse, veto, say]);
     const actions = !own.writes ? undefined : (
         <Action action="delete" words={words} onClick={() => {
             remove({ items: new Set(), link: { key: link.key, leg: null } }, m.inspectorStep({ edit: "delete", name }));
@@ -852,13 +1031,14 @@ function LinkView(props: ViewProps & { readonly link: DrawnLink; readonly kind: 
     return (
         <Box css={styles.root} data-schematic-inspector="link">
             <ScheduleInspectorHead styles={styles} kind={{ name: kind.name, icon: kind.icon === "" ? "link" : kind.icon }}
-                title={name} when={captionText(getSomeorUndefined(link.label), getSomeorUndefined(link.metric))} pending={own.state.chip} home />
+                title={name} when={captionText(getSomeorUndefined(link.label), getSomeorUndefined(link.metric))} pending={own.state.chip} writes={own.writes} home />
             <Edits styles={styles} available={own.available} actions={actions}>
                 <Form styles={styles} head={m.inspectorSection({ section: "ends", name: kind.name })} section="ends" specs={specs}
                     value={{ from: link.from, to: link.to }} baseline={baseline} options={options}
                     onChange={own.writes ? onEnd : NO_EDIT} readOnly={!own.writes} refused={refused} />
                 <SideBody styles={styles} head={m.inspectorSection({ section: "fields", name: kind.name })} section="row" side={kind} own={own.own}
-                    state={own.state} onField={own.onField} writes={own.writes} storageKey={`${storageKey}.inspector.${kind.key}`} empty={m.inspectorNoRow()} />
+                    state={own.state} onField={own.onField} writes={own.writes} storageKey={`${storageKey}.inspector.${kind.key}`} empty={m.inspectorNoRow()}
+                    refused={own.refused} breaches={own.breaches} issues={own.issues} focus={own.focus} />
             </Edits>
         </Box>
     );
@@ -868,12 +1048,13 @@ function LinkView(props: ViewProps & { readonly link: DrawnLink; readonly kind: 
 
 /** A net: its head — titled by its label, else its ends, as the rail names it — its sides as tags, its form or own Details, and Delete. */
 function NetView(props: ViewProps & { readonly net: DrawnNet; readonly kind: SchematicValue["nets"][number] }) {
-    const { net, kind, styles, words, names: entityNames, listed, rows, storageKey, veto, refuse: say } = props;
+    const { net, kind, styles, words, value, names: entityNames, listed, rows, storageKey, veto, refuse: say } = props;
     const m = words.m;
     const name = nameOfEntity(entityNames, net.key);
     const own = useSide(props, net.ref, name, kind, false);
     const { commit, remove } = useCommit(props);
     const [refused, refuse] = useRefused();
+    const kinds = useMemo(() => editKinds(value), [value]);
     const keysOf = (ids: readonly string[]) => ids.map((id) => refOfId(id)?.key ?? id);
     const slotKeys = useCallback((slot: string) => listed.items.filter((item) => stringEqual(item.ref.kind, slot)).map((item) => item.ref.key), [listed.items]);
     const specs = useMemo(() => Fields.specs(SidesFormType, {
@@ -887,29 +1068,33 @@ function NetView(props: ViewProps & { readonly net: DrawnNet; readonly kind: Sch
         const roles = kind.read(stored.row, net.ref.key);
         return { sources: roles.sources.map((r) => r.key), destinations: roles.destinations.map((r) => r.key) };
     }, [stored, kind, net.ref.key]);
-    const onSide = useCallback((path: readonly string[], next: unknown) => {
+    const onSide = useCallback((path: readonly string[], next: unknown): string | undefined => {
         const side = stringEqual(path[0]!, "sources") ? "sources" as const : "destinations" as const;
         const keys = next as readonly string[];
         if (keys.length === 0) {
             // A net keeps a member on each side: its Delete takes it.
-            say(m.inspectorSideEmpty({ side }));
-            refuse();
-            return;
+            const said = m.inspectorSideEmpty({ side });
+            say(said);
+            return said;
         }
         const refs = (ids: readonly string[]) => ids.flatMap((id) => { const ref = refOfId(id); return ref === undefined ? [] : [ref]; });
         const slot = side === "sources" ? kind.sides.sources : kind.sides.destinations;
         const written = keys.map((key) => ({ kind: slot, key }));
         const sides = side === "sources" ? { sources: written, destinations: refs(net.destinations) } : { sources: refs(net.sources), destinations: written };
-        // Each pair the sides newly join held to the host's veto, as an Extend's is (#1394): refused, the footer says why,
-        // and the tags show the sides as they stand.
-        const said = vetoOfPairs(veto, net.ref.kind, joinedPairs({ sources: refs(net.sources), destinations: refs(net.destinations) }, sides));
+        // An item waiting for its key to be typed is no member (#1549); each pair the sides newly join is held to the host's
+        // veto, as an Extend's is (#1394), and a key its sides build another net holds refuses them (#1549): refused, the
+        // tags show the sides as they stand, saying why under them as the footer does.
+        const waiting = written.reduce<EditRefusal | undefined>((found, ref) => found ?? placeholderRefusal(kinds, { ref, label: ref.key }), undefined);
+        const said = waiting !== undefined ? refusalWords(waiting, words)
+            : vetoOfPairs(veto, net.ref.kind, joinedPairs({ sources: refs(net.sources), destinations: refs(net.destinations) }, sides));
         if (said !== undefined) {
             say(said);
-            refuse();
-            return;
+            return said;
         }
-        if (!commit([{ op: "sides", ref: net.ref, sides }], "typed", m.inspectorStep({ edit: "edit", name }))) refuse();
-    }, [net, kind.sides, commit, m, name, say, refuse, veto]);
+        const recorded = commit([{ op: "sides", ref: net.ref, sides }], "typed", m.inspectorStep({ edit: "edit", name }));
+        if (recorded === false) refuse();
+        return recorded === true || recorded === false ? undefined : recorded;
+    }, [net, kind.sides, kinds, words, commit, m, name, say, refuse, veto]);
     const actions = !own.writes ? undefined : (
         <Action action="delete" words={words} onClick={() => {
             remove({ items: new Set(), link: { key: net.key, leg: null } }, m.inspectorStep({ edit: "delete", name }));
@@ -919,13 +1104,14 @@ function NetView(props: ViewProps & { readonly net: DrawnNet; readonly kind: Sch
     return (
         <Box css={styles.root} data-schematic-inspector="net">
             <ScheduleInspectorHead styles={styles} kind={{ name: kind.name, icon: kind.icon === "" ? "diagram-project" : kind.icon }} title={name}
-                when={m.inspectorSides({ sources: count(net.sources.length), destinations: count(net.destinations.length) })} pending={own.state.chip} home />
+                when={m.inspectorSides({ sources: count(net.sources.length), destinations: count(net.destinations.length) })} pending={own.state.chip} writes={own.writes} home />
             <Edits styles={styles} available={own.available} actions={actions}>
                 <Form styles={styles} head={m.inspectorSection({ section: "sides", name: kind.name })} section="sides" specs={specs}
                     value={{ sources: keysOf(net.sources), destinations: keysOf(net.destinations) }} baseline={baseline}
                     onChange={own.writes ? onSide : NO_EDIT} readOnly={!own.writes} refused={refused} />
                 <SideBody styles={styles} head={m.inspectorSection({ section: "fields", name: kind.name })} section="row" side={kind} own={own.own}
-                    state={own.state} onField={own.onField} writes={own.writes} storageKey={`${storageKey}.inspector.${kind.key}`} empty={m.inspectorNoRow()} />
+                    state={own.state} onField={own.onField} writes={own.writes} storageKey={`${storageKey}.inspector.${kind.key}`} empty={m.inspectorNoRow()}
+                    refused={own.refused} breaches={own.breaches} issues={own.issues} focus={own.focus} />
             </Edits>
         </Box>
     );
@@ -1074,12 +1260,13 @@ function DrawingView({ styles, words, counts, records }: ViewProps) {
 
 /**
  * The Issues tab: every issue of the drawing and of its unsaved changes, each a control that selects what it names and
- * flies to it — under a line, while a kind is read by area, saying its rows out of view are checked only as the view
- * reaches them (ruled 27 Oct 2026). An issue of an unsaved change the drawing leaves out says on a line of its own which
- * of the rail's choices hide the row it drafts, asked of e3 through its kind's hidden pick, and Go to issue on it is the
- * frame's hidden pick (`goToWaiting`): those choices cleared, then flown to and selected once it draws.
+ * flies to it, the field it names taking the keyboard in its Details — under a line, while a kind is read by area, saying
+ * its rows out of view are checked only as the view reaches them (ruled 27 Oct 2026). An issue of an unsaved change the
+ * drawing leaves out says on a line of its own which of the rail's choices hide the row it drafts, asked of e3 through
+ * its kind's hidden pick, and Go to issue on it is the frame's hidden pick (`goToWaiting`): those choices cleared, then
+ * flown to and selected once it draws.
  */
-const SchematicInspectorIssues = memo(function SchematicInspectorIssues({ issues, unchecked, reveal, words, waiting, picks, goToWaiting }: SchematicInspectorProps) {
+const SchematicInspectorIssues = memo(function SchematicInspectorIssues({ issues, unchecked, reveal, words, waiting, picks, goToWaiting, ask }: SchematicInspectorProps) {
     const styles = useSlotRecipe({ key: "schematicInspector" })() as Styles;
     const m = words.m;
     // Each issue's unsaved change the drawing leaves out: its kind's hidden pick, and the row it drafts.
@@ -1101,8 +1288,12 @@ const SchematicInspectorIssues = memo(function SchematicInspectorIssues({ issues
         return hiding === undefined ? undefined : hiddenOf([hiding]);
     };
     // Go to issue: what it names selected and flown to — an unsaved change the drawing leaves out through the frame's hidden
-    // pick, the choices hiding it cleared first.
+    // pick, the choices hiding it cleared first. Its row's Details is asked for the field it names, as the toolbar's issue
+    // gone to asks, so Details opens where it is fixed; an issue of a row naming no field drops an earlier ask, which
+    // would otherwise take the keyboard when that row's Details is next drawn.
     const goTo = (issue: SchematicIssue) => {
+        const row = issue.row;
+        if (row !== undefined) ask(row.record, row.entry, row.field === undefined ? none : some(row.field));
         if (issue.at !== undefined && waiting.has(issue.at)) goToWaiting(issue.at, hiddenOfIssue(issue));
         else reveal(issue.at);
     };

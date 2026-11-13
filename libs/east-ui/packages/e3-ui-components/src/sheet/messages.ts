@@ -30,6 +30,7 @@
 import { createContext, createElement, useContext, useMemo, type ReactNode } from "react";
 import { editingMessages, getSomeorUndefined, type EditingMessages } from "@elaraai/east-ui-components";
 import { type EditHistoryWord } from "@elaraai/east-ui-components/internal";
+import { withArticle } from "../shared/article.js";
 import { pagedLoadingMessages, type PagedLoadingMessages } from "../shared/loading.js";
 import { hiddenByText } from "../shared/schedule/hidden.js";
 import { pluralKind } from "./link/grammar.js";
@@ -94,6 +95,20 @@ export type SheetDropRefusalWord =
     | { why: "column"; header: string }
     | { why: "within"; what: string }
     | { why: "lineOut"; noun: string };
+
+/**
+ * Why a paste, a clear or an edit left a cell as it was: a mark locks it
+ * (`words`, the lock's own); its column is read only; its value isn't an
+ * option, so it is never empty; it is an action cell, which only its actions
+ * change; it is edited where ⏎ opens it, never in the grid (#1531); it steps
+ * in place on a row the upstream system owns, which takes no step there (T9);
+ * or `text` is no value its column reads, and a column from data keeps none it
+ * can't read. `header` is the cell's column's.
+ */
+export type SheetCellRefusalWord =
+    | { why: "locked"; words: string }
+    | { why: "readOnly" | "noClear" | "action" | "opens" | "owned"; header: string }
+    | { why: "unread"; header: string; text: string };
 
 /**
  * The Sheet's message table — its own words, and the editing session's
@@ -252,6 +267,8 @@ export interface SheetMessages extends EditingMessages, PagedLoadingMessages {
     rowFailed: (p: { number: string; reason: string }) => string;
     /** A paged source that failed before anything landed. */
     noSource: (p: { reason: string }) => string;
+    /** Why each marked cell of a row whose marks could not be read is locked (#1560): it stays locked until they are. */
+    marksUnread: () => string;
 
     // ── Grouped rows (#740) ────────────────────────────────────────────────
     /** A band's rowheader — `plan 2, 5 lines`. */
@@ -334,6 +351,8 @@ export interface SheetMessages extends EditingMessages, PagedLoadingMessages {
     stripNumber: (p: { unit: boolean }) => string;
     /** A text that could not be read. */
     stripUnrecognised: () => string;
+    /** Why a number field's text isn't taken, in the field's words for what it takes — `2.5 isn't a whole number` (#1585). */
+    stripNotNumber: (p: { text: string; whole: boolean }) => string;
     /** What a custom column accepts when it says nothing. */
     stripValue: () => string;
     /** The days between the base column's date and this one. */
@@ -480,6 +499,8 @@ export interface SheetMessages extends EditingMessages, PagedLoadingMessages {
     noticeLockedHalf: (p: { driver: string }) => string;
     /** An editor whose row left the sheet closed (#877). */
     noticeRowLeft: () => string;
+    /** An editor whose column the grid no longer draws closed. */
+    noticeColumnLeft: () => string;
     /** A view saved — with a query, or without one. */
     noticeTabSaved: (p: { name: string; query: boolean }) => string;
     /** A view closed — the active one, or another. */
@@ -504,8 +525,17 @@ export interface SheetMessages extends EditingMessages, PagedLoadingMessages {
     noticeRowFillDismissed: () => string;
     /** Rows, lines or groups deleted — `again`: the group is left empty, ⌫ again removes it. */
     noticeDeleted: (p: { n: number; count: string; what: "rows" | "lines" | "groups"; noun: string; nouns: string; again: boolean }) => string;
-    /** A paste — `wrote` whether any cell took it; `nActions` the action cells it passed by, which take no paste (T7). */
-    noticePasted: (p: { rows: string; cols: string; n: number; skipped: string; wrote: boolean; nActions: number; actions: string }) => string;
+    /**
+     * A paste — `wrote` whether any cell took it; `nActions` the action cells it passed by, which take no paste (T7); `why`
+     * the first cell it skipped was left as it was, in {@link SheetMessages.cellRefused}'s words, where it says.
+     */
+    noticePasted: (p: { rows: string; cols: string; n: number; skipped: string; wrote: boolean; nActions: number; actions: string; why: string | undefined }) => string;
+    /** Why a gesture left a cell as it was — `Mon can't be left empty`, `locked: Booked centrally`. */
+    cellRefused: (p: SheetCellRefusalWord) => string;
+    /** A clear that left `n` cells as they were beside the `nCleared` it cleared, and why the first was — `Nothing cleared — Mon can't be left empty`. */
+    noticeClearRefused: (p: { n: number; count: string; nCleared: number; cleared: string; why: string }) => string;
+    /** An edit its cell would not take, and why — `Mon can't be left empty — the edit was not kept`. */
+    noticeEditRefused: (p: { why: string }) => string;
     /** A copy. */
     noticeCopied: (p: { rows: string; cols: string }) => string;
     /** A new row discarded. */
@@ -514,6 +544,17 @@ export interface SheetMessages extends EditingMessages, PagedLoadingMessages {
     noticeNewRow: () => string;
     /** A new group. */
     noticeNewGroup: (p: { noun: string }) => string;
+    /** A new entry's key the app's `newKey` gave is taken already (#1536) — `The new key 7 is taken`: nothing was drafted. */
+    noticeKeyTaken: (p: { key: string }) => string;
+    /** The app's `newKey` threw (#1536): nothing was drafted. */
+    noticeKeyFailed: (p: { reason: string }) => string;
+    /**
+     * New rows given new keys as they were saved (#1583): another save had added rows under the keys the sheet gave them —
+     * `J-104 was taken by another save — the new row is J-105`; `from` and `to` the first's keys, `n` how many.
+     */
+    noticeRenumbered: (p: { from: string; to: string; n: number; count: string }) => string;
+    /** A new row, line or group (`noun`) the app left a field of empty, one no person can set (#1536) — `Can't add a row — the app gives no Serial`: nothing was drafted. */
+    noticeCantAdd: (p: { what: "row" | "line" | "group"; noun: string; label: string }) => string;
 
     // ── The builder (#1184) ────────────────────────────────────────────────
     /** The library pane's name. */
@@ -770,6 +811,7 @@ export const sheetMessages: SheetMessages = {
     lensChanged: () => "the record changed while they were read",
     rowFailed: ({ number, reason }) => `Row ${number} could not be drawn — ${reason}`,
     noSource: ({ reason }) => `NO ROWS — the paged source could not be read. ${reason} `,
+    marksUnread: () => "Couldn't be read",
 
     groupName: ({ noun, number, n, count }) => `${noun} ${number}, ${count} ${plural(n, "line", "lines")}`,
     groupTitle: ({ noun }) => `Select the ${noun}'s lines — delete removes them`,
@@ -811,6 +853,7 @@ export const sheetMessages: SheetMessages = {
     stripIncomplete: () => "incomplete",
     stripNumber: ({ unit }) => (unit ? "number + unit" : "number"),
     stripUnrecognised: () => "unrecognised",
+    stripNotNumber: ({ text, whole }) => `${text} isn't ${whole ? "a whole number" : "a number"}`,
     stripValue: () => "a value",
     stripDays: ({ n, count }) => `${count} ${plural(Math.abs(n), "day", "days")}`,
     stripAdd: ({ label }) => `Add ${label}`,
@@ -901,6 +944,7 @@ export const sheetMessages: SheetMessages = {
     noticePredictedTaken: ({ n, count }) => `Took ${count} predicted ${plural(n, "member", "members")}`,
     noticeLockedHalf: ({ driver }) => `${driver} has no destination — kept, but flagged`,
     noticeRowLeft: () => "The edited row left the sheet — its edit was not kept",
+    noticeColumnLeft: () => "The edited column is no longer shown — its edit was not kept",
     noticeTabSaved: ({ name, query }) => (query
         ? `Saved tab "${name}" — a live view: rows that match join it as the sheet changes`
         : `Saved tab "${name}" — no filter; type a search and ⏎ to scope it`),
@@ -919,13 +963,35 @@ export const sheetMessages: SheetMessages = {
             : `${count} ${what === "lines" ? plural(n, "line", "lines") : plural(n, "row", "rows")}`;
         return `Deleted ${deleted}${again ? ` — ⌫ again removes the ${noun}` : ""}`;
     },
-    noticePasted: ({ rows, cols, n, skipped, wrote, nActions, actions }) => (!wrote
-        ? `Nothing pasted${nActions > 0 ? " — an action cell takes no paste" : ""}`
-        : `Pasted ${rows}×${cols} from clipboard${n > 0 ? ` · ${skipped} unrecognised` : ""}${nActions > 0 ? ` · ${actions} action ${plural(nActions, "cell", "cells")} skipped` : ""}`),
+    noticePasted: ({ rows, cols, n, skipped, wrote, nActions, actions, why }) => (!wrote
+        ? `Nothing pasted${why !== undefined ? ` — ${why}` : nActions > 0 ? " — an action cell takes no paste" : ""}`
+        : `Pasted ${rows}×${cols} from clipboard${n > 0 ? ` · ${skipped} ${why !== undefined ? `skipped — ${why}` : "unrecognised"}` : ""}${nActions > 0 ? ` · ${actions} action ${plural(nActions, "cell", "cells")} skipped` : ""}`),
+    cellRefused: (p) => {
+        switch (p.why) {
+            case "locked": return `locked: ${p.words}`;
+            case "readOnly": return `${p.header} is read only`;
+            case "noClear": return `${p.header} can't be left empty`;
+            case "action": return `${p.header} changes only through its actions`;
+            case "opens": return `${p.header} is edited where ⏎ opens it`;
+            case "owned": return `${p.header} is owned upstream`;
+            case "unread": return `${p.header} can't hold "${p.text}"`;
+        }
+    },
+    noticeClearRefused: ({ count, nCleared, cleared, why }) => (nCleared === 0 ? `Nothing cleared — ${why}`
+        : `Cleared ${cleared} ${plural(nCleared, "cell", "cells")} · ${count} kept — ${why}`),
+    noticeEditRefused: ({ why }) => `${why} — the edit was not kept`,
     noticeCopied: ({ rows, cols }) => `Copied ${rows}×${cols} to clipboard`,
     noticeDiscarded: () => "Discarded new row",
     noticeNewRow: () => "New row",
     noticeNewGroup: ({ noun }) => `New ${noun}`,
+    noticeKeyTaken: ({ key }) => `The new key ${key} is taken`,
+    noticeKeyFailed: ({ reason }) => `No new key could be made — ${reason}`,
+    noticeRenumbered: ({ from, to, n, count }) => (n === 1 ? `${from} was taken by another save — the new row is ${to}`
+        : `${count} new rows renumbered — their keys were taken by another save`),
+    noticeCantAdd: ({ what, noun, label }) => {
+        const entry = what === "group" ? noun : what;
+        return `Can't add ${withArticle(entry)} — the app gives no ${label}`;
+    },
 
     libraryPane: () => "Library",
     libraryTab: ({ tab }) => (tab === "rows" ? "Rows" : "Columns"),

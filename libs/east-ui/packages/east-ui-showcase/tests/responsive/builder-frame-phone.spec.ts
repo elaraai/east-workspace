@@ -16,7 +16,17 @@
  *   history there and not in the first row: Issues, Undo, Redo, Discard and
  *   Save each 44 × 44 on a 6px radius, centred on the row and taking the
  *   pointer at its centre; one that does not act drawn in `--rule` and
- *   `--ink-5`, never faded;
+ *   `--ink-5`, never faded; the row's last control ending at its padding, none
+ *   past it; and, where the builder keeps a choice of an automatic Save, Save's
+ *   chevron a square on Save's edge, the pair one box — square where the two
+ *   meet — in the row where the row holds its six squares whole beside the
+ *   Elara eye: 280px of the row's content, the eye's 48 more while it is in
+ *   the row, the count giving way to them until the row holds its room too
+ *   (26px and a gap: 310px; ruled 11 Nov 2026, the buttons themselves wherever
+ *   they fit). Short of the six there is no chevron, Save is a whole square,
+ *   and More stands in Discard's place holding the two — the row shows
+ *   Discard and the chevron, or More, never both and never neither;
+ *   and the query builder, whose every Save is a person's, has none at all;
  * - FR4: the pane strip is 44px on the frame's bottom edge, one equal tab a
  *   pane, each the strip's height, in `--ink-3` until it is open;
  * - FR5 (as the Filters view opens, ruled 3 Nov 2026): a tab opens its pane
@@ -26,8 +36,11 @@
  * Every word in it is whole or not there at all (3 Nov 2026) — cut by nothing,
  * over no other word, in its chrome against no control — at 324px too, as wide as a 390px phone gives it
  * in the showcase's card; a set Filters button's fill stands clear of its row;
- * the first row's controls reach its end; and the Plan's now line runs behind
- * the ruler's labels.
+ * the first row's controls reach its end; a Schematic's scale and minimap
+ * stand clear of the footer's band laid over main's foot; and the Plan's now
+ * line runs behind the ruler's labels. On a touch screen every field in the
+ * page is set at 16px or more — a builder's key search open, its Library's
+ * search — so iOS Safari never zooms the page into one (the touch floor).
  *
  * And the Flowchart's lane pager (`narrow.lanes`, ruled 3 Nov 2026): over the
  * depot's editing example, whose cards draw no details, its window shows two
@@ -100,13 +113,61 @@ function phoneFaults(entry: Locator, name: string): Promise<string[]> {
         if (frame.querySelector("[data-frame-slot='toolbar'] [data-toolbar-item='history']") !== null) faults.push("the history in the first row");
         const history = second.querySelector("[data-slot='history'][data-history-form='phone']");
         if (history === null) faults.push("no history in the second row");
-        for (const button of history?.querySelectorAll<HTMLElement>("button") ?? []) {
+        // Save's chevron, where the builder keeps a choice of an automatic Save: in the row where the row holds its six
+        // squares whole — the five, a gap between each and the next, and its own on Save's edge (280px of the row's
+        // content), the eye's square and gap more while the eye is in the row — the count giving way to them until the row
+        // holds its room and gap too (310px, ruled 11 Nov 2026: the buttons themselves wherever they fit). A conflict
+        // waiting adds nothing to the row: its Issues square opens it (`schematic-conflicts.spec.ts`).
+        const chevron = history?.querySelector<HTMLElement>("[data-history-autosave]") ?? null;
+        const saveButton = history?.querySelector<HTMLElement>("[data-history-save] > :first-child button") ?? null;
+        const shown = chevron !== null && chevron.getBoundingClientRect().width > 0;
+        // Every builder keeps the choice — but the query builder, whose every Save is a person's: a query never saved asks its name.
+        if ((chevron !== null) !== (builder !== "Query")) faults.push(chevron === null ? "no chevron for Save's choice" : "a chevron beside a Save that is a person's alone");
+        if (chevron !== null) {
+            const content = second.clientWidth - Number.parseFloat(rowStyle.paddingLeft) - Number.parseFloat(rowStyle.paddingRight);
+            const eye = second.querySelector("[data-optimise-button]") !== null ? 48 : 0;
+            const holds = content >= 280 + eye;
+            if (shown !== holds) faults.push(`Save's chevron ${shown ? "in" : "out of"} a row whose ${round(content)}px ${holds ? "hold" : "do not hold"} it`);
+            if (shown && saveButton !== null && Math.abs(chevron.getBoundingClientRect().left - saveButton.getBoundingClientRect().right) > 0.5) faults.push("Save's chevron off Save's edge");
+            // The count beside the six: its number's room where the row holds it, never cut for the chevron (the hand test's
+            // rule); short of that it draws nothing, and takes no gap of the row's.
+            const summary = history?.querySelector<HTMLElement>("[data-history-summary]") ?? null;
+            const room = summary?.getBoundingClientRect().width ?? 0;
+            const counted = content >= 310 + eye;
+            // Given way, the count is a pixel wide: its words wrap under its clip, whole.
+            const unseen = summary !== null && room <= 1.5;
+            if (shown && counted && room < 25.5) faults.push(`Save's chevron leaves the count ${round(room)}px, short of its number's room`);
+            if (unseen !== (shown && !counted)) faults.push(unseen ? `the count unseen in a row whose ${round(content)}px hold it` : `the count drawn in a row whose ${round(content)}px are short of it beside the six squares`);
+        }
+        // Short of the chevron's room, More stands in Discard's place and holds the two (ruled 11 Nov 2026) — the row its
+        // five squares — so the Autosave switch is within reach at every width: the row shows Discard and the chevron, or
+        // More, never both and never neither; a bar with no choice to hold has no More.
+        const more = history?.querySelector<HTMLElement>("[data-history-more]") ?? null;
+        const discard = [...history?.querySelectorAll<HTMLElement>("button") ?? []].find((button) => button.getAttribute("aria-label") === "Discard") ?? null;
+        const laid = (el: HTMLElement | null) => el !== null && el.getBoundingClientRect().width > 0;
+        if ((more !== null) !== (chevron !== null)) faults.push(more === null ? "no More for a row short of Save's chevron" : "a More with no chevron to stand in for");
+        if (more !== null && laid(more) === shown) faults.push(shown ? "More beside Save's chevron" : "neither Save's chevron nor More: no way to the Autosave switch");
+        if (laid(discard) !== (more === null || shown)) faults.push(laid(discard) ? "Discard beside More" : "no Discard in a row that holds it");
+        if (more !== null && !shown) {
+            // In Discard's place: after Redo, before Save.
+            const order = [...history?.querySelectorAll<HTMLElement>("button") ?? []].filter(laid).map((button) => button.getAttribute("aria-label")).slice(-3);
+            if (order.join(", ") !== "Redo, More, Save") faults.push(`the row ends ${order.join(", ")}`);
+        }
+        const drawn = [...history?.querySelectorAll<HTMLElement>("button") ?? []].filter((button) => button.getBoundingClientRect().width > 0);
+        // The row's last control ends at the row's padding: nothing in the row runs past it.
+        const ends = drawn.at(-1);
+        if (ends !== undefined && Math.abs(s.right - Number.parseFloat(rowStyle.paddingRight) - ends.getBoundingClientRect().right) > 0.5) {
+            faults.push(`the second row's last control ${round(s.right - ends.getBoundingClientRect().right)}px from its end`);
+        }
+        for (const button of drawn) {
             const b = button.getBoundingClientRect();
             const name = button.getAttribute("aria-label") ?? "?";
-            if (b.width === 0) continue;
             if (Math.abs(b.width - 44) > 0.5 || Math.abs(b.height - 44) > 0.5) faults.push(`${name} ${round(b.width)} × ${round(b.height)}`);
             const look = getComputedStyle(button);
-            if (look.borderTopLeftRadius !== "6px") faults.push(`${name} radius ${look.borderTopLeftRadius}`);
+            // A square's corners — Save and its chevron one box of two, square where they meet.
+            const corners = [look.borderTopLeftRadius, look.borderTopRightRadius, look.borderBottomRightRadius, look.borderBottomLeftRadius].join(" ");
+            const want = !shown || (button !== chevron && button !== saveButton) ? "6px 6px 6px 6px" : button === chevron ? "0px 6px 6px 0px" : "6px 0px 0px 6px";
+            if (corners !== want) faults.push(`${name} corners ${corners}`);
             const off = button.hasAttribute("disabled") || button.getAttribute("aria-disabled") === "true";
             if (off && (look.borderTopColor !== token("border-subtle") || look.color !== token("fg-faint") || look.opacity !== "1")) {
                 faults.push(`${name}, off, drawn ${look.borderTopColor} / ${look.color} at ${look.opacity}`);
@@ -167,6 +228,17 @@ function phoneFaults(entry: Locator, name: string): Promise<string[]> {
                         faults.push(`${region}: "${words}" against ${control.getAttribute("aria-label") ?? control.textContent}`);
                     }
                 }
+            }
+        }
+        // What main keeps at its foot, a Schematic's scale and minimap, stands clear of the footer's band laid over main's
+        // foot (ruled 7 Nov 2026).
+        const footer = slot("footer");
+        if (footer !== null && footer.getBoundingClientRect().height < 0.5) {
+            const parts = [...footer.children].map((part) => part.getBoundingClientRect()).filter((part) => part.height > 0);
+            const band = Math.min(...parts.map((part) => part.top));
+            for (const kept of body.querySelectorAll<HTMLElement>("[data-schematic-scale], [data-schematic-minimap]")) {
+                const k = kept.getBoundingClientRect();
+                if (k.width > 0 && k.bottom > band + 0.5) faults.push(`${kept.hasAttribute("data-schematic-scale") ? "the scale" : "the minimap"} ${round(k.bottom - band)}px under the footer's band`);
             }
         }
         // The count line never goes blank while it has room for its first figures (review of #1481, finding 4): a
@@ -273,6 +345,26 @@ for (const theme of ["light", "dark"] as const) {
             expect(faults).toEqual({});
         });
     }
+}
+
+/** What takes words typed: the fields iOS zooms the page into when one is set under 16px. */
+const TYPED = "input:not([type=checkbox], [type=radio], [type=range], [type=color], [type=file], [type=button], [type=submit], [type=reset], [type=image], [type=hidden]), textarea, select, [contenteditable]:not([contenteditable=false])";
+
+for (const [name, route] of PHONES) {
+    test(`${name}: on a touch screen every field in the page — its key search's open, its Library's — is set at 16px or more, so iOS never zooms the page into one @mobile`, async ({ page }) => {
+        await page.setViewportSize({ width: 1440, height: 900 });
+        const entry = await visitBuilder(page, route, ROOT, "light");
+        const search = entry.locator(ROOT).first().locator("[data-key-search='icon']").first();
+        if (await search.count() > 0) {
+            await search.click();
+            await settled(page);
+        }
+        const small = await page.evaluate((typed) => [...document.querySelectorAll<HTMLElement>(typed)]
+            .map((field) => ({ field, size: Number.parseFloat(getComputedStyle(field).fontSize) }))
+            .filter(({ size }) => size < 16)
+            .map(({ field, size }) => `${field.getAttribute("aria-label") ?? field.getAttribute("placeholder") ?? field.tagName} at ${size}px`), TYPED);
+        expect(small).toEqual([]);
+    });
 }
 
 test("Sheet: narrowed, its Filters set, its tabs and its count stay whole beside the button", async ({ page }) => {

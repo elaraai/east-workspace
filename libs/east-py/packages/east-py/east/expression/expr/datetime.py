@@ -48,7 +48,7 @@ class DateTimeExpression(Expression):
             _builtin("DateTimeGetDayOfMonth", IntegerType, [], [self.ir]), IntegerType)
 
     def get_day_of_week(self) -> IntegerExpression:
-        """Traced DateTimeGetDayOfWeek (0 = Sunday … 6 = Saturday)."""
+        """Traced DateTimeGetDayOfWeek, ISO 8601 (1 = Monday … 7 = Sunday)."""
         return self._expr(
             _builtin("DateTimeGetDayOfWeek", IntegerType, [], [self.ir]), IntegerType)
 

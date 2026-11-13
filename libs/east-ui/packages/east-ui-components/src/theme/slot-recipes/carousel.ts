@@ -52,11 +52,11 @@ export const carouselSlotRecipe = defineSlotRecipe({
             ...coarseHitArea({ position: true, size: 32 }),
             transitionProperty: "background",
             transitionDuration: "{durations.fast}",
-            /* Use brand.700 (deep ink-teal) for the active dot. brand.500
-             * (#488e97) reads as a washed-out mid cyan against the muted
-             * neutrals; brand.700 matches the solid button colour. */
-            _selected: { background: "{colors.brand.700}" },
-            "&[data-current]": { background: "{colors.brand.700}" },
+            /* The active dot is the deep brand, in each theme's own shade of
+             * it: the brand's mid tone reads washed-out against the muted
+             * neutrals, and one fixed deep shade is lost on the dark paper. */
+            _selected: { background: "brandPressed" },
+            "&[data-current]": { background: "brandPressed" },
         },
     },
 });

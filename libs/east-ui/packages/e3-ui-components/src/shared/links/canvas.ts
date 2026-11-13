@@ -25,7 +25,12 @@
  *   every link, outlined while its link is selected.
  *
  * Its measures are the layer's own (`look.ts`); its colours and its font are
- * the part's, never its own. Pure over the context: no React, no DOM.
+ * the part's, never its own. A caption's letters each keep a cell of their
+ * own: the page turns the font's joins off for the SVG layer's, which a
+ * canvas's text need not take, so it turns them off itself — `textRendering`,
+ * and a non-joiner in each pair the font would join ({@link unjoined}) for
+ * Safari, whose canvas has no `textRendering`. Pure over the context: no React,
+ * no DOM.
  *
  * @packageDocumentation
  */
@@ -303,6 +308,22 @@ function paintRings(ctx: CanvasRenderingContext2D, link: CanvasLink, look: Canva
     ctx.restore();
 }
 
+/**
+ * A text as a canvas draws it and measures it, its letters unjoined: a
+ * zero-width non-joiner after each f that meets an f, an i or an l, so a pair
+ * the font would join — Chivo Mono's ff, fi, fl, ffi and ffl, each in one cell —
+ * stays two letters, each in a cell of its own, as the page draws it.
+ * `textRendering` turns the joins off where a canvas has it; Safari's has not,
+ * and the non-joiner keeps the pair apart there too. It takes no room and draws
+ * nothing, so a text measured through it measures what is drawn through it.
+ *
+ * @param text - The text
+ * @returns The text, every pair the font would join kept apart
+ */
+export function unjoined(text: string): string {
+    return text.replace(/f(?=[fil])/gu, "f\u200C");
+}
+
 /** A link's caption on its paper knockout, 4 either side of its text — outlined while its link is selected. */
 function paintCaption(ctx: CanvasRenderingContext2D, link: CanvasLink, look: CanvasLinkLook): void {
     const caption = link.caption;
@@ -310,7 +331,9 @@ function paintCaption(ctx: CanvasRenderingContext2D, link: CanvasLink, look: Can
     ctx.save();
     ctx.globalAlpha = link.alpha;
     ctx.font = look.captionFont;
-    const half = ctx.measureText(caption.text).width / 2 + LINK_KNOCKOUT_PAD;
+    ctx.textRendering = "optimizeSpeed";
+    const text = unjoined(caption.text);
+    const half = ctx.measureText(text).width / 2 + LINK_KNOCKOUT_PAD;
     ctx.beginPath();
     ctx.rect(caption.x - half, caption.y - LINK_KNOCKOUT_RISE, 2 * half, LINK_KNOCKOUT_H);
     ctx.fillStyle = look.knockout;
@@ -324,7 +347,7 @@ function paintCaption(ctx: CanvasRenderingContext2D, link: CanvasLink, look: Can
     ctx.fillStyle = look.caption;
     ctx.textAlign = "center";
     ctx.textBaseline = "alphabetic";
-    ctx.fillText(caption.text, caption.x, caption.y);
+    ctx.fillText(text, caption.x, caption.y);
     ctx.restore();
 }
 

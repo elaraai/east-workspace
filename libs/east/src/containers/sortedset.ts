@@ -4,6 +4,7 @@
  */
 import sorted_btree from "sorted-btree";
 import { defaultKeyCompare } from "../string_order.js";
+import { builtinIterator } from "./iterators.js";
 
 // Deal with CJS default import. Node's ESM interop hands back the whole
 // `module.exports`, so the class is under `.default`; Vite/vitest (and other
@@ -287,7 +288,7 @@ export class SortedSet<K> implements Set<K> {
      * This enables efficient range queries over sorted data.
      */
     keys(firstKey?: K | undefined): SetIterator<K> {
-        return Iterator.from(this.btree.keys(firstKey)) as SetIterator<K>;
+        return builtinIterator(this.btree.keys(firstKey)) as SetIterator<K>;
     }
 
     /**
@@ -300,7 +301,7 @@ export class SortedSet<K> implements Set<K> {
      * Identical to {@link keys} for sets (values and keys are the same).
      */
     values(firstKey?: K | undefined): SetIterator<K> {
-        return Iterator.from(this.btree.keys(firstKey)) as SetIterator<K>;
+        return builtinIterator(this.btree.keys(firstKey)) as SetIterator<K>;
     }
 
     /**
@@ -319,7 +320,7 @@ export class SortedSet<K> implements Set<K> {
                 yield [key, key] as [K, K];
             }
         })(this.btree);
-        return Iterator.from(gen) as SetIterator<[K, K]>;
+        return builtinIterator(gen) as SetIterator<[K, K]>;
     }
 
     /**
@@ -331,7 +332,7 @@ export class SortedSet<K> implements Set<K> {
      * Makes {@link SortedSet} iterable with `for...of` loops.
      */
     [Symbol.iterator](): SetIterator<K> {
-        return Iterator.from(this.btree.keys()) as SetIterator<K>;
+        return builtinIterator(this.btree.keys()) as SetIterator<K>;
     }
 
     /** Returns the string tag for this object type. */

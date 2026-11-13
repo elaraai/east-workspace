@@ -16,13 +16,14 @@
  */
 
 import {
-    BlobType, DateTimeType, DictType, East, EastTypeType, IntegerType, SortedMap, SortedSet, StringType, StructType, compareFor, decodeBeast2For,
+    BlobType, DateTimeType, DictType, East, EastTypeType, IntegerType, OptionType, SortedMap, SortedSet, StringType, StructType, compareFor, decodeBeast2For,
     encodeBeast2For, equalFor, fromEastTypeValue, none, parseFor, printFor, some, variant, type EastType, type EastTypeValue, type ValueTypeOf, type option,
 } from "@elaraai/east";
 import type { ColorTokenType } from "@elaraai/east-ui";
 import {
     ROSTER_LAYOUT_PERIODS, RosterAssignmentTypeFor, RosterCheckContextTypeFor, RosterContextType, RosterCoverageType, RosterFitRequestTypeFor, RosterIssueType,
-    RosterPayRequestTypeFor, RosterPayType, RosterPayloadType, RosterRequirementType, RosterShiftType, RosterSlotType, RosterStatusType, RosterTargetRolesType,
+    RosterPayRequestTypeFor, RosterPayType, RosterPayloadType, RosterPlaceType, RosterRequirementType, RosterShiftType, RosterSlotType, RosterStatusType,
+    RosterTargetRolesType,
     RosterWeekTypeFor, RosterWhoType, ScheduleRosterRolesType, rosterCheck, rosterCoverage, rosterDayOf, rosterMove, rosterNewDuty, rosterPlacement,
     rosterShiftStart, rosterWeekHours,
 } from "@elaraai/e3-ui/internal";
@@ -30,6 +31,7 @@ import type { Formatters } from "@elaraai/east-ui-components";
 import { DAY, weekStart } from "../shared/schedule/window.js";
 import { isoWeekUTC, shiftCalendar } from "../shared/time/scale.js";
 import { shownViews } from "../shared/views.js";
+import { plural } from "../shared/schedule/words.js";
 export { DAY, NARROW_WIDTH, dayStart, weekStart } from "../shared/schedule/window.js";
 
 /** The decoded payload. */
@@ -45,6 +47,8 @@ export type Assignment = ValueTypeOf<RosterAssignmentTypeFor<EastType>>;
 /** A week as the Roster reads it. */
 export type Week = ValueTypeOf<RosterWeekTypeFor<EastType>>;
 export type Slot = ValueTypeOf<typeof RosterSlotType>;
+/** Where a duty stands: its day, its shift, and its group or none (#1548). */
+export type Place = ValueTypeOf<typeof RosterPlaceType>;
 export type Requirement = ValueTypeOf<typeof RosterRequirementType>;
 export type Context = ValueTypeOf<typeof RosterContextType>;
 export type Coverage = ValueTypeOf<typeof RosterCoverageType>;
@@ -78,11 +82,28 @@ export type RosterPeriod = RosterPayload["settings"]["period"]["type"];
 export interface RosterView { layout: RosterLayout; period: RosterPeriod; date: number; held?: Partial<Record<RosterLayout, RosterPeriod>> | undefined }
 /**
  * The inspector's selection is separate from edits and library filtering. A `personWeek` is a person's week (#1406,
- * D11): the inspector's person Details read that week, and a pattern applies to it.
+ * D11): the inspector's person Details read that week, and a pattern applies to it. A `shiftDay` is a shift's day
+ * across the groups (#1568): a day of a work requirement lane where the People layout draws no bands, whose Details
+ * draw each group's slot and the skill lines summed over them. A work requirement's day names its week (`start`), as a
+ * person-week does: a month's mark is a day of one of its weeks, which the inspector then reads.
  */
 export type Selection = { type: "assignment" | "proposal" | "person"; key: string }
-    | { type: "slot" | "requirement"; slot: Slot } | { type: "group"; key: string } | { type: "shift"; key: string }
-    | { type: "personWeek"; key: string; start: number };
+    | { type: "slot" | "requirement"; slot: Slot; start?: number } | { type: "group"; key: string } | { type: "shift"; key: string }
+    | { type: "personWeek"; key: string; start: number } | { type: "shiftDay"; shift: string; day: number; start?: number };
+
+/**
+ * The week a selection names (#1406, D11; #1568): a person-week's, or a work requirement's day's — the week the
+ * inspector, the commands and the checks then work over where a month shows several.
+ *
+ * @param selection - The selection
+ * @returns Its week's first day, as a time; `undefined` for a selection naming none
+ */
+export function selectionWeek(selection: Selection | undefined): number | undefined {
+    switch (selection?.type) {
+        case "personWeek": case "slot": case "requirement": case "shiftDay": return selection.start;
+        default: return undefined;
+    }
+}
 
 /**
  * A period a layout takes (#1406, D1): the one given where the layout takes it, else the layout's first — Shifts a
@@ -213,9 +234,8 @@ export interface WeekState {
     readonly heldDuties: PlacedDuties;
     /** Its targets as drafted. */
     readonly targets: PlacedTargets;
-    /** Its own row as drafted, and as stored. */
-    readonly period: PlacedPeriod;
-    readonly heldPeriod: PlacedPeriod;
+    /** Its periods (#1550): its own, or each of its seven days' where the Roster publishes by the day. */
+    readonly periods: readonly WeekPeriod[];
 }
 
 export const sameSlot = equalFor(RosterSlotType);
@@ -225,6 +245,43 @@ export const weekKey = printFor(DateTimeType);
 export const compareDate = compareFor(DateTimeType);
 export const compareString = compareFor(StringType);
 export const compareSlot = compareFor(RosterSlotType);
+export const samePlace: (a: Place, b: Place) => boolean = equalFor(RosterPlaceType);
+/** Whether two groups are the same: one group's both, or both no group (#1548). */
+export const sameGroup: (a: option<string>, b: option<string>) => boolean = equalFor(OptionType(StringType));
+export const placeKey: (place: Place) => string = printFor(RosterPlaceType);
+const readPlace = parseFor(RosterPlaceType);
+/** A place read back from its key (`placeKey`): what a drop's slot names; `undefined` for text naming none. */
+export function parsePlace(text: string): Place | undefined {
+    const read = readPlace(text);
+    return read.success ? read.value : undefined;
+}
+/** A group's slot as a place: the place its duties stand in. */
+export function placeOf(slot: Slot): Place { return { day: slot.day, group: some(slot.group), shift: slot.shift }; }
+/** The slot a place is, a group's; `undefined` for no group's (#1548). */
+export function slotOfPlace(place: Place): Slot | undefined {
+    return place.group.type === "some" ? { day: place.day, group: place.group.value, shift: place.shift } : undefined;
+}
+/** Whether a duty stands in a slot: its group's shift on its day. */
+export function inSlot(a: Pick<Assignment, "place">, slot: Slot): boolean { return samePlace(a.place, placeOf(slot)); }
+/** The group a duty stands in, by its key; `undefined` for a duty in no group yet (#1548). */
+export function groupOf(a: Pick<Assignment, "place">): string | undefined { return a.place.group.type === "some" ? a.place.group.value : undefined; }
+/**
+ * No group's band (#1548): the key the No group band of either layout is drawn and folded by — the empty key, as the
+ * Calendar's Unassigned row is keyed. Where a duty may be in no group, no group of the Roster's takes it ({@link configError}).
+ */
+export const NO_GROUP = "";
+/**
+ * A group's name where the Roster says where a duty stands: the group's label — its key, for a group no longer
+ * configured — or the vocabulary's No group, for none (#1548).
+ *
+ * @param value - The payload: its groups and its words
+ * @param group - The group, or none
+ * @returns Its name
+ */
+export function groupName(value: Pick<RosterPayload, "groups" | "vocabulary">, group: option<string>): string {
+    if (group.type !== "some") return value.vocabulary.noGroup;
+    return value.groups.find(g => g.key === group.value)?.label ?? group.value;
+}
 export const sameWho: (a: Who, b: Who) => boolean = equalFor(RosterWhoType);
 export const whoKey: (who: Who) => string = printFor(RosterWhoType);
 const sameRequirement = equalFor(RosterRequirementType);
@@ -386,12 +443,37 @@ export function rosterDomain(rowType: EastTypeValue): RosterDomain {
     return domain;
 }
 
+/** The app's check's question over a reference record (#1551): the week's, and the record's rows over it by key. */
+export interface RosterReferenceCheckAsk {
+    start: Date; week: Week; context: Context; coverage: SortedMap<Slot, Coverage>; pay: Pay; reference: SortedMap<string, unknown>;
+}
+
+const referenceCheckEncoders: { row: EastTypeValue; reference: EastTypeValue; encode: (ask: RosterReferenceCheckAsk) => Uint8Array }[] = [];
+
+/**
+ * The app's check's question at the duty row type and a reference record's
+ * row type (#1551), `CheckContext(R, P)`, as bytes: its encoder made the first
+ * time the pair is seen, then shared — East decides which types are the same.
+ *
+ * @param rowType - The duty kind's `rowType`
+ * @param referenceType - The reference record's row type
+ * @returns The question's encoder
+ */
+export function rosterReferenceCheckEncoder(rowType: EastTypeValue, referenceType: EastTypeValue): (ask: RosterReferenceCheckAsk) => Uint8Array {
+    const known = referenceCheckEncoders.find(e => sameTypeValue(e.row, rowType) && sameTypeValue(e.reference, referenceType));
+    if (known !== undefined) return known.encode;
+    const type = RosterCheckContextTypeFor(fromEastTypeValue(rowType) as EastType, fromEastTypeValue(referenceType) as EastType);
+    const encode = encodeBeast2For(type) as unknown as (ask: RosterReferenceCheckAsk) => Uint8Array;
+    referenceCheckEncoders.push({ row: rowType, reference: referenceType, encode });
+    return encode;
+}
+
 /** The time arithmetic every row type shares (§5.5), compiled once. */
 let times: {
     dayOf: (start: Date, clock: Shift["start"]) => Date;
     shiftStart: (day: Date, shift: Shift) => Date;
-    move: (roles: Roles, start: Date, slot: Slot, context: Context) => option<Roles>;
-    newDuty: (who: Who, slot: Slot, start: Date, position: option<string>, activity: option<string>, context: Context) => option<Roles>;
+    move: (roles: Roles, start: Date, place: Place, context: Context) => option<Roles>;
+    newDuty: (who: Who, place: Place, start: Date, position: option<string>, activity: option<string>, context: Context) => option<Roles>;
 } | undefined;
 export function rosterTimes() {
     times ??= {
@@ -511,9 +593,9 @@ export function placeTargets(stored: ReadonlyMap<string, StoredTarget>, drafts: 
     return { requirements, rows };
 }
 
-/** The week's own row — its period's — as drafted, and what it says. */
+/** A period's own row — a week's, or a day's where the Roster publishes by the day (#1550) — as drafted, and what it says. */
 export interface PlacedPeriod {
-    /** Its row's bytes; `undefined` for a week with no row: Not started. */
+    /** Its row's bytes; `undefined` for a period with no row: Not started. */
     readonly bytes: Uint8Array | undefined;
     /** Its status. */
     readonly status: Status;
@@ -521,37 +603,140 @@ export interface PlacedPeriod {
     readonly dismissed: Set<string>;
 }
 
-/** A week with no row of its own: Not started — its status the draft's, nothing dismissed. */
+/** A period with no row of its own: Not started — its status the draft's, nothing dismissed. */
 export const NO_PERIOD: PlacedPeriod = { bytes: undefined, status: variant("draft", null), dismissed: new SortedSet([], compareString) };
 
-/** Whether a period's row is the week's own: what a week with no row reads as Not started for. */
+/** Whether a period's row is its own: what a period with no row reads as Not started for. */
 export function started(period: PlacedPeriod): boolean { return period.bytes !== undefined; }
 
 /**
- * A week as the Roster reads it: its duties, its targets and its own row.
+ * One of a week's periods (#1550): the week itself, where the Roster publishes by the week, or one of its days, where
+ * `Schedule.periods` declares `every: "day"` — what Publish writes, and what a gesture on one of its days asks first.
+ */
+export interface WeekPeriod {
+    /** Its first instant: its row's key, the week's first day or the day's. */
+    readonly start: Date;
+    /** The first of the week's days it holds, from zero. */
+    readonly from: number;
+    /** The day after its last, from zero: seven for the week. */
+    readonly to: number;
+    /** Its own row as drafted, and as stored. */
+    readonly period: PlacedPeriod;
+    readonly held: PlacedPeriod;
+}
+
+/** Whether the Roster publishes by the day: its periods declare `every: "day"` (#1550). */
+export function byDay(value: Pick<RosterPayload, "periods">): boolean {
+    return value.periods.type === "some" && value.periods.value.every.type === "day";
+}
+
+const WHOLE_WEEK: readonly { readonly from: number; readonly to: number }[] = [{ from: 0, to: 7 }];
+const EACH_DAY: readonly { readonly from: number; readonly to: number }[] = Array.from({ length: 7 }, (_, day) => ({ from: day, to: day + 1 }));
+
+/**
+ * A week's periods (#1550): the week, or each of its days.
+ *
+ * @param start - The week's first day
+ * @param days - Whether the periods are days
+ * @param row - A period's own row as drafted and as stored, by its first instant
+ * @returns The periods, in the week's order
+ */
+export function weekPeriods(start: Date, days: boolean, row: (at: Date) => { readonly period: PlacedPeriod; readonly held: PlacedPeriod }): readonly WeekPeriod[] {
+    return (days ? EACH_DAY : WHOLE_WEEK).map(({ from, to }) => {
+        const at = new Date(start.getTime() + from * DAY);
+        return { start: at, from, to, ...row(at) };
+    });
+}
+
+/**
+ * The period holding a day of its week (#1550).
+ *
+ * @param periods - The week's periods
+ * @param day - The day, from zero
+ * @returns The period; `undefined` for a day the week does not hold
+ */
+export function periodOn(periods: readonly WeekPeriod[], day: bigint | number): WeekPeriod | undefined {
+    const at = Number(day);
+    return periods.find(period => period.from <= at && at < period.to);
+}
+
+/** Whether a period takes edits (#1550): its row a draft's — Not started among them — as stored and as drafted. */
+export function takesEdits(period: WeekPeriod): boolean { return editableStatus(period.held.status) && editableStatus(period.period.status); }
+
+/**
+ * A week's status from its periods' (#1550), what the app's check and optimiser read: its own row's, or over its days
+ * the draft's while any day is a draft, else — every day published — the published case at the latest time a day
+ * was published, else the first of the app's own cases a day holds.
+ *
+ * @param periods - The week's periods' rows
+ * @returns The status
+ */
+export function weekStatus(periods: readonly PlacedPeriod[]): Status {
+    if (periods.length === 1) return periods[0]!.status;
+    if (periods.length === 0 || periods.some(period => period.status.type === "draft")) return variant("draft", null);
+    const other = periods.find(period => period.status.type === "other");
+    if (other !== undefined) return other.status;
+    let at: option<Date> = none;
+    for (const { status } of periods) {
+        if (status.type === "published" && status.value.at.type === "some" && (at.type === "none" || compareDate(status.value.at.value, at.value) > 0)) at = status.value.at;
+    }
+    return variant("published", { at });
+}
+
+/**
+ * A week as the Roster reads it: its duties, its targets and its periods' rows — its status theirs (`weekStatus`),
+ * and its dismissals every period's.
  *
  * @param duties - Its duties
  * @param targets - Its targets
- * @param period - Its own row
+ * @param periods - Its periods' rows: its own, or its days'
  * @returns The week
  */
-export function weekOf(duties: PlacedDuties, targets: PlacedTargets, period: PlacedPeriod): Week {
-    return { status: period.status, assignments: duties.assignments, requirements: targets.requirements, dismissed: period.dismissed };
+export function weekOf(duties: PlacedDuties, targets: PlacedTargets, periods: readonly PlacedPeriod[]): Week {
+    const dismissed = periods.length === 1 ? periods[0]!.dismissed : new SortedSet(periods.flatMap(period => [...period.dismissed]), compareString);
+    return { status: weekStatus(periods), assignments: duties.assignments, requirements: targets.requirements, dismissed };
 }
 
 /** A week with nothing in it yet: Not started. */
 export function emptyWeek(): Week {
     return weekOf({ assignments: new SortedMap([], compareString), rows: new Map(), unplaced: [] },
-        { requirements: new SortedMap([], compareSlot), rows: new SortedMap([], compareSlot) }, NO_PERIOD);
+        { requirements: new SortedMap([], compareSlot), rows: new SortedMap([], compareSlot) }, [NO_PERIOD]);
 }
 
-/** Whether a week is open to edits by its status: a draft — Not started among them — and never the published case or another. */
+/** Whether a period is open to edits by its status: a draft — Not started among them — and never the published case or another. */
 export function editableStatus(status: Status): boolean { return status.type === "draft"; }
 
-/** A week's status chip's words: Not started, Draft, Published, or the app's own case by its name. */
+/**
+ * A count of a roster's issues as it is said: `1 issue`, `3 issues`.
+ *
+ * @param n - How many issues
+ * @returns The count in words
+ */
+export function issuesSaid(n: number): string {
+    return plural(n, "issue");
+}
+/** A period's status chip's words: Not started, Draft, Published, or the app's own case by its name. */
 export function statusText(period: PlacedPeriod): string {
     if (!started(period)) return "Not started";
     return period.status.type === "draft" ? "Draft" : period.status.type === "published" ? "Published" : period.status.value;
+}
+
+/**
+ * The status chip's words over a week's periods (#1550): its one period's (`statusText`), or over its days Published
+ * once every day is, Not started while none is, the app's own case where every day holds it, else how many days are
+ * published — `3 of 7 published` — or Draft while none is.
+ *
+ * @param periods - The week's periods' rows
+ * @returns The words
+ */
+export function periodsText(periods: readonly PlacedPeriod[]): string {
+    if (periods.length === 1) return statusText(periods[0]!);
+    const published = periods.filter(period => period.status.type === "published").length;
+    if (published === periods.length) return "Published";
+    if (periods.every(period => !started(period))) return "Not started";
+    const first = periods[0]?.status;
+    if (first?.type === "other" && periods.every(period => started(period) && period.status.type === "other" && compareString(period.status.value, first.value) === 0)) return first.value;
+    return published === 0 ? "Draft" : `${published} of ${periods.length} published`;
 }
 
 // ============================================================================
@@ -637,6 +822,48 @@ export class RosterPayCache {
     }
 }
 
+/** A week's coverage as last worked out: the week it was worked out over, and the coverage. */
+interface WorkedOut { readonly week: Week; readonly coverage: ReadonlyMap<Slot, Coverage> }
+
+/**
+ * Each week of a month's coverage, as the People layout's work requirement
+ * sums it (#1568): its hours alone, no pay asked, each week's kept by the week
+ * as it was worked out over, so a change works out again only the weeks it
+ * changed — an edit in one week leaves the others' standing. The week the
+ * inspector reads is given its own coverage, whose hours its pay leaves as
+ * they are. A new domain or context works out every week again.
+ */
+export class RosterSpanCoverage {
+    private kept = new Map<number, WorkedOut>();
+    private domain: RosterDomain | undefined;
+    private context: Context | undefined;
+
+    /**
+     * The span's coverage, a week at a time.
+     *
+     * @param domain - The duty row type's domain
+     * @param context - The configuration, kept by identity
+     * @param weeks - The span's weeks, each its first day and the week as drafted
+     * @param primary - The week the inspector reads, by its first day, and its coverage, the pay's costs in it
+     * @returns Each week's coverage, in the span's order
+     */
+    run(domain: RosterDomain, context: Context, weeks: readonly Pick<WeekState, "start" | "week">[],
+        primary: { readonly start: Date; readonly coverage: ReadonlyMap<Slot, Coverage> }): readonly ReadonlyMap<Slot, Coverage>[] {
+        if (!Object.is(domain, this.domain) || !Object.is(context, this.context)) { this.kept.clear(); this.domain = domain; this.context = context; }
+        const next = new Map<number, WorkedOut>();
+        const made = weeks.map(({ start, week }) => {
+            const before = this.kept.get(start.getTime());
+            const coverage = compareDate(start, primary.start) === 0 ? primary.coverage
+                : before !== undefined && domain.sameWeek(before.week, week) ? before.coverage
+                : domain.coverage(week, context, NO_PAY.pay);
+            next.set(start.getTime(), { week, coverage });
+            return coverage;
+        });
+        this.kept = next;
+        return made;
+    }
+}
+
 
 /** A pay's costs, totalled: in all, and by code. */
 export interface Costs { readonly total: number; readonly byCode: SortedMap<string, number> }
@@ -682,11 +909,12 @@ export function duties(value: Pick<RosterPayload, "activities">): Activity[] {
 /**
  * What a group's duty may hold: its skills, then the duties — those the
  * slice's `activities` source shows (#1342), and `keep` always: the duty's
- * own, as stored and as an edit has it.
+ * own, as stored and as an edit has it. A duty in no group yet holds a duty
+ * alone (#1548): a group's skill is its own duties'.
  */
-export function activityChoices(value: Pick<RosterValue, "activities" | "visibleActivities">, group: string, keep: readonly string[] = []): Activity[] {
+export function activityChoices(value: Pick<RosterValue, "activities" | "visibleActivities">, group: string | undefined, keep: readonly string[] = []): Activity[] {
     const shown = value.visibleActivities;
-    return [...groupSkills(value, group), ...duties(value)].filter(activity => shown.type === "none" || shown.value.has(activity.key) || keep.includes(activity.key));
+    return [...(group === undefined ? [] : groupSkills(value, group)), ...duties(value)].filter(activity => shown.type === "none" || shown.value.has(activity.key) || keep.includes(activity.key));
 }
 /** An activity by its key. */
 export function activityOf(value: Pick<RosterPayload, "activities">, key: string): Activity | undefined {
@@ -770,9 +998,33 @@ export function shiftHoursText(shift: Shift): string {
     const text = (minutes: number) => { const h = String(Math.floor(minutes / 60)).padStart(2, "0"), m = minutes % 60; return m === 0 ? h : `${h}:${String(m).padStart(2, "0")}`; };
     return `${text(start)}–${text(end)}`;
 }
-/** Checks bound configuration without rejecting ordinary staffing warnings. */
-export function configError(value: RosterPayload): string | undefined {
+/** What a shift's code is cut between: its graphemes, where the page segments them. */
+const GRAPHEMES = typeof Intl.Segmenter === "function" ? new Intl.Segmenter(undefined, { granularity: "grapheme" }) : undefined;
+/**
+ * The letter a month's mark draws for a shift (#1569): its code's first grapheme — an accented letter whole — or its
+ * first code point where the page has no segmenter. Everything else that draws a shift's code draws it whole.
+ *
+ * @param shift - The shift
+ * @returns Its letter; `""` for no shift, or a shift with no code
+ */
+export function shiftLetter(shift: Shift | undefined): string {
+    const code = shift?.code ?? "";
+    if (GRAPHEMES === undefined) return Array.from(code)[0] ?? "";
+    for (const part of GRAPHEMES.segment(code)) return part.segment;
+    return "";
+}
+/**
+ * Checks bound configuration without rejecting ordinary staffing warnings.
+ *
+ * @param value - The payload: its lists, and whether a duty may be in no group yet
+ * @returns Why the Roster can't be drawn; `undefined` for a configuration it draws
+ */
+export function configError(value: Pick<RosterPayload, "groups" | "shifts" | "people" | "activities" | "positions" | "agencies">
+    & { readonly duty: { readonly roles: Pick<RosterPayload["duty"]["roles"], "noGroup"> } }): string | undefined {
     if (value.groups.length === 0 || value.shifts.length === 0) return "Roster needs at least one group and one shift.";
+    // No group's band is keyed by the empty key, as the Calendar's Unassigned band is (#1548): where a duty may be in no
+    // group, no group of the Roster's takes it.
+    if (value.duty.roles.noGroup && value.groups.some(group => group.key === NO_GROUP)) return "Roster groups need keys where a duty may be in no group.";
     const unique = (rows: readonly { key: string }[]) => new SortedSet(rows.map(row => row.key), compareString).size === rows.length;
     for (const [name, rows] of [["people", value.people], ["groups", value.groups], ["activities", value.activities], ["shifts", value.shifts], ["positions", value.positions], ["agencies", value.agencies]] as const) {
         if (!unique(rows)) return `Roster ${name} must have unique keys.`;
@@ -780,21 +1032,24 @@ export function configError(value: RosterPayload): string | undefined {
     if (value.shifts.some(shift => shift.hours <= 0 || !Number.isFinite(shift.hours) || shift.start.hour < 0n || shift.start.hour > 23n || shift.start.minute < 0n || shift.start.minute > 59n)) return "Roster shifts need valid start times and positive durations.";
     return undefined;
 }
-/** A slot's day: a UTC midnight. */
-export function dayOfSlot(start: Date, slot: Slot): Date { return rosterDays().dayAt(start, slot.day); }
+/** A slot's day — or a place's — a UTC midnight. */
+export function dayOfSlot(start: Date, slot: Pick<Slot, "day">): Date { return rosterDays().dayAt(start, slot.day); }
 /**
- * The suggestions the week can take, each in its slot: of a week the Roster
- * may edit, on one of its days, a configured group's and shift's, not
- * dismissed, of a person on the staff who is off that day.
+ * The suggestions the week can take, each in its slot: on one of its days
+ * whose period the Roster may edit — the week's, or the day's (#1550) — a
+ * configured group's and shift's, not dismissed, of a person on the staff who
+ * is off that day.
  */
-export function availableProposals(value: RosterValue, week: Week, start: Date): PlacedProposal[] {
-    if (!editableStatus(week.status)) return [];
+export function availableProposals(value: RosterValue, week: Week, start: Date, periods: readonly WeekPeriod[]): PlacedProposal[] {
+    if (!periods.some(takesEdits)) return [];
     const end = weekSpan(start).to;
     return value.proposals.flatMap(p => {
         if (compareDate(p.day, start) < 0 || compareDate(p.day, end) >= 0 || week.dismissed.has(p.key)) return [];
         if (!value.groups.some(g => g.key === p.group) || !value.shifts.some(s => s.key === p.shift) || !value.people.some(person => person.key === p.person)) return [];
         const slot: Slot = { day: rosterDays().dayIndex(start, p.day), group: p.group, shift: p.shift };
-        const rostered = [...week.assignments.values()].some(a => a.who.type === "person" && a.who.value === p.person && a.slot.day === slot.day);
+        const period = periodOn(periods, slot.day);
+        if (period === undefined || !takesEdits(period)) return [];
+        const rostered = [...week.assignments.values()].some(a => a.who.type === "person" && a.who.value === p.person && a.place.day === slot.day);
         return rostered ? [] : [{ ...p, slot }];
     });
 }
@@ -805,25 +1060,26 @@ export function requirementOf(week: Week, slot: Slot): Requirement {
 /** Whether two targets ask the same of a slot. */
 export function sameTarget(a: Requirement, b: Requirement): boolean { return sameRequirement(a, b); }
 /** A shift's own times on a slot's day: from its start, for its hours — what a duty's own times are drawn against (§5.5, rule 2). */
-export function shiftTimes(value: Pick<RosterPayload, "shifts">, slot: Slot, start: Date): { from: Date; to: Date } | undefined {
+export function shiftTimes(value: Pick<RosterPayload, "shifts">, slot: Pick<Slot, "day" | "shift">, start: Date): { from: Date; to: Date } | undefined {
     const shift = shiftOf(value, slot.shift);
     return shift === undefined ? undefined : rosterDays().shiftSpan(dayOfSlot(start, slot), shift);
 }
 /**
- * Where a duty may start (§5.5, rule 4): within twelve hours of its shift's start on its day.
+ * Where a duty may start (§5.5, rule 4): from twelve hours before its shift's start on its day to just short of twelve
+ * hours after — the starts its day holds (`rosterDayOf`), so an edit of its times never moves it to another day.
  *
  * @param value - The payload: its shifts
- * @param slot - The duty's slot
+ * @param slot - The duty's slot, or its place
  * @param start - The week's first day
- * @returns The span, its ends included; `undefined` for a shift not configured
+ * @returns The span, half open: a start twelve hours after its shift's is the next day's; `undefined` for a shift not configured
  */
-export function startReach(value: Pick<RosterPayload, "shifts">, slot: Slot, start: Date): { from: Date; to: Date } | undefined {
+export function startReach(value: Pick<RosterPayload, "shifts">, slot: Pick<Slot, "day" | "shift">, start: Date): { from: Date; to: Date } | undefined {
     const shift = shiftTimes(value, slot, start);
     return shift === undefined ? undefined : rosterDays().around(shift.from);
 }
 /** Whether a duty's own times differ from its shift's: what draws them (§5.5, rule 2). */
 export function ownTimes(value: Pick<RosterPayload, "shifts">, a: Assignment, start: Date): boolean {
-    const shift = shiftTimes(value, a.slot, start);
+    const shift = shiftTimes(value, a.place, start);
     return shift === undefined || compareDate(shift.from, a.start) !== 0 || compareDate(shift.to, a.end) !== 0;
 }
 /**
@@ -838,11 +1094,22 @@ export function positionFor(value: RosterPayload, who: Who): option<string> {
     return some((value.positions.find(p => !p.lead) ?? value.positions[0]!).key);
 }
 
-/** Totals for the displayed day or week, always over complete coverage. */
-export function viewTotals(coverage: ReadonlyMap<Slot, Coverage>, view: RosterView, day: number) {
+/**
+ * Totals for the displayed day or week, always over complete coverage: its slots', and the hours of the duties in no
+ * group yet (#1548), which stand in no slot.
+ *
+ * @param coverage - Each slot's coverage
+ * @param view - The view: its layout and period
+ * @param day - The day in view
+ * @param week - The week as drafted: its duties in no group
+ * @returns The totals
+ */
+export function viewTotals(coverage: ReadonlyMap<Slot, Coverage>, view: RosterView, day: number, week: Week) {
     const days = view.layout === "shifts" && view.period === "day" ? 1 : 7;
     const rows = [...coverage].filter(([slot]) => days === 7 || Number(slot.day) === day).map(([, c]) => c);
     const sum = (field: (c: Coverage) => number) => rows.reduce((total, c) => total + field(c), 0);
+    let loose = 0;
+    for (const a of week.assignments.values()) if (a.place.group.type === "none" && (days === 7 || Number(a.place.day) === day)) loose += a.hours;
     return { days, cost: sum(c => c.cost), filled: sum(c => Number(c.filled)), positions: sum(c => Number(c.positions)), open: sum(c => Number(c.open)),
-        hours: sum(c => c.hours.rostered), needed: sum(c => c.hours.needed) };
+        hours: sum(c => c.hours.rostered) + loose, needed: sum(c => c.hours.needed) };
 }

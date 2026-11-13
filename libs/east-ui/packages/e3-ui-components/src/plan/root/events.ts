@@ -16,7 +16,10 @@
  * last rows standing; one that throws leaves them too, and says why — and
  * which kinds' own events it could not read, each kind read alone in the read
  * that failed (#1398): what the footer's line names the failure by, and what
- * its Retry asks again. The rows
+ * its Retry asks again. A kind read a window at a time is read by the shared
+ * reader (#1599), which keeps its window's rows standing while they are read
+ * again and names the kind whose window it could not read: said the same way.
+ * The rows
  * move only when they differ, so a write that changes none of them redraws
  * nothing. A resource kind the rail narrows draws the resources its source
  * shows (#1344).
@@ -88,7 +91,7 @@ import {
     PlanEventShownType, ScheduleEventRefType, planHideId,
 } from "@elaraai/e3-ui/internal";
 import { useTrackedEvaluation } from "@elaraai/east-ui-components";
-import { snapshotOf, windowedSourceOf } from "@elaraai/east-ui-components/internal";
+import { snapshotOf, windowedSourceOf, type WindowedSourceValue } from "@elaraai/east-ui-components/internal";
 import { OVERSCAN_BUCKETS } from "../../shared/time/scale.js";
 import { hides } from "../frame/hidden.js";
 import type { PlanLinkValue, PlanRootValue, PlanRowId, PlanWireBlock, PlanWireRow } from "../model.js";
@@ -175,6 +178,9 @@ const NONE_HIDDEN: readonly string[] = [];
 const blocksEqual = equalFor(Plan.Types.Blocks);
 const placedEqual = equalFor(PlanEventPlacedType);
 const shadingEqual = equalFor(PlanEventShadingType);
+/** A windowed source as the canvas composes over it: one that may say how it draws a window standing in (#1599). */
+const under = (source: WindowedSourceValue<PlanRootValue["rows"]> | undefined): PlanPagedSourceValue | undefined => source;
+
 /** Whether two paged sources derive the same rows — the paging driver's test (#809). */
 const pagedSourceEquivalent = equivalentFor(Plan.Types.Root.fields.rows.cases.paged);
 /** Whether two paged kinds' seams read the same rows: their functions by their IR and what they capture (#809). */
@@ -335,20 +341,28 @@ export function usePlanEventBlocks(
     // The last failure, kept by identity while a read fails the same way — its words and its kinds — so the reader hands
     // the canvas nothing new for it.
     const failed = useRef<PlanEventFailure | undefined>(undefined);
+    // A kind's window the reader could not read (#1599): the reader reads each kind read a window at a time, and names
+    // the kind whose window's read threw — said as the rows' own failure is, on the footer's line, with its Retry.
+    const cellsFailure = cells?.error?.window === true ? cells.error : undefined;
     const error = useMemo((): PlanEventFailure | undefined => {
-        if (result.ok) return undefined;
-        const failure = result.error instanceof EventRowsFailure ? result.error : undefined;
-        const thrown = failure?.thrown ?? result.error;
-        console.error("[Plan] the event kinds' rows could not be read:", thrown);
-        const next: PlanEventFailure = {
-            reason: thrown instanceof Error ? thrown.message : String(thrown),
-            kinds: failure?.kinds ?? NO_KINDS_FAILED,
-        };
+        if (result.ok && cellsFailure === undefined) return undefined;
+        let next: PlanEventFailure;
+        if (result.ok) {
+            next = { reason: cellsFailure!.reason, kinds: cellsFailure!.kinds };
+        } else {
+            const failure = result.error instanceof EventRowsFailure ? result.error : undefined;
+            const thrown = failure?.thrown ?? result.error;
+            console.error("[Plan] the event kinds' rows could not be read:", thrown);
+            next = {
+                reason: thrown instanceof Error ? thrown.message : String(thrown),
+                kinds: failure?.kinds ?? NO_KINDS_FAILED,
+            };
+        }
         const was = failed.current;
         if (was !== undefined && was.reason === next.reason && sameKinds(was.kinds, next.kinds)) return was;
         failed.current = next;
         return next;
-    }, [result]);
+    }, [result, cellsFailure]);
     const now = useMemo(() => {
         const previous = held.current;
         if (!result.ok || result.value === undefined) return previous;
@@ -399,6 +413,8 @@ export interface PlanEventsReaderProps {
     links: PlanCellsArgs["links"];
     /** The paged kind's rows in view, as the canvas reports them. */
     spans: PlanCellSpanStore;
+    /** What confirmed Saves landed of the kinds read by their cells, and how it is let go: drawn until the cells are read again. */
+    editing: PlanCellsArgs["editing"];
     /** Where the rows go: called only when they move. */
     onLead: (lead: PlanEventLead) => void;
 }
@@ -411,17 +427,19 @@ export interface PlanEventsReaderProps {
  * render the whole canvas. A kind read by its cells (#1039) is read here too,
  * every cell it wants in one request a read, and every other kind counted
  * before one of its events is read; the rows the canvas reports in view are
- * read here alone.
+ * read here alone. What a Save landed of a kind read by its cells draws as the
+ * Save left it until they are read again: its confirmation reads its events by
+ * their keys, never the cells.
  *
  * @param props - What the rows are read over, and where they go
  * @returns Nothing: it reads
  */
-export function PlanEventsReader({ events, scale, hidden, drafts, shown, kinds, resources, parts, links, spans, onLead }: PlanEventsReaderProps): null {
+export function PlanEventsReader({ events, scale, hidden, drafts, shown, kinds, resources, parts, links, spans, editing, onLead }: PlanEventsReaderProps): null {
     const span = useSyncExternalStore(spans.subscribe, spans.get);
     const range = eventReadRange(scale);
     // The reader decides every kind (#1039): one it reads by its cells, and every other, counted before one of its events is read.
     const cells = usePlanCells({
-        kinds, resources, parts, paged: events?.paged, scale, range, drafts, hidden: hidden ?? NONE_HIDDEN, span, links,
+        kinds, resources, parts, paged: events?.paged, scale, range, drafts, hidden: hidden ?? NONE_HIDDEN, span, links, editing,
     });
     const lead = usePlanEventBlocks(events, scale, hidden, drafts, shown, cells, kinds);
     // What the canvas holds: its stand-in rows until the first read lands.
@@ -493,7 +511,8 @@ export function usePlanEventRoot(
                 const l = latest.current;
                 if (l.src === undefined || l.lead === undefined) return none;
                 const read = l.src.page(offset, limit);
-                return read.type === "some" ? some([...l.lead.blocks, ...read.value]) : read;
+                // The window's own entries stay beside its blocks: the event kinds' rows are none of its source's.
+                return read.type === "some" ? some({ rows: [...l.lead.blocks, ...read.value.rows], entries: read.value.entries }) : read;
             },
             total: () => latest.current.src?.total() ?? none,
             // New rows are a new revision: the driver reads its windows again,
@@ -503,6 +522,16 @@ export function usePlanEventRoot(
                 const r = l.src?.revision?.() ?? none;
                 return some(`${r.type === "some" ? r.value : ""}#events-${l.lead?.version ?? 0}`);
             },
+            // A window standing in is drawn as it is composed now: the event kinds' rows over the data's own (#1599) —
+            // where the source under this one, the canvas's editing's, says how it draws one.
+            ...(under(paged)?.redraft === undefined || under(paged)?.redrafted === undefined ? {} : {
+                redraft: (entries: Parameters<NonNullable<PlanPagedSourceValue["redraft"]>>[0]) => {
+                    const l = latest.current;
+                    const own = under(l.src)?.redraft?.(entries);
+                    return own === undefined || l.lead === undefined ? undefined : [...l.lead.blocks, ...own];
+                },
+                redrafted: () => `${under(latest.current.src)?.redrafted?.() ?? ""}#events-${latest.current.lead?.version ?? 0}`,
+            }),
             refresh: (revision) => latest.current.src?.refresh?.(revision) ?? null,
             seek: paged.seek.type === "some"
                 ? some((query) => {
@@ -553,9 +582,13 @@ export function usePlanEventRoot(
                 const lead = c.lead.blocks;
                 const at = lead.findIndex((block) => !block.fixed);
                 const own = c.data.rows.type === "inline" ? c.data.rows.value.map(fixedBlock) : [];
-                return some(at < 0
-                    ? [...read.value, ...lead, ...own]
-                    : [...lead.slice(0, at), ...read.value, ...lead.slice(at + 1), ...own]);
+                // A paged resource kind's rows: no entry of the canvas's own data stands behind them.
+                return some({
+                    rows: at < 0
+                        ? [...read.value, ...lead, ...own]
+                        : [...lead.slice(0, at), ...read.value, ...lead.slice(at + 1), ...own],
+                    entries: [],
+                });
             },
             total: () => current.current.pages?.total() ?? none,
             // New rows are a new revision: the driver reads its windows again,

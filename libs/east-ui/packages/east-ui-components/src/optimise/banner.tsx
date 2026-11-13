@@ -11,9 +11,12 @@
  * Undo or apply them like any edit.` — and none — **No changes** · `Elara
  * found nothing to improve in {period}.` — are `role="status"`; fail —
  * **Couldn't optimise {period}** · `Nothing changed. Run it again from the
- * eye.` — is `role="alert"`, in the error tone with the exclamation mark. It
- * fades in over `--dur-base`, and when its outcome goes it collapses over
- * `--dur-base` — height, opacity and margin — then leaves.
+ * eye.` — is `role="alert"`, in the error tone with the exclamation mark; an
+ * answer the builder refused (#1553) says why in its line instead —
+ * `Elara's answer changes N. Ochre · Sat Mar 4 Night · Inbound, in a week not
+ * available to edit. Nothing changed.` It fades in over `--dur-base`, and when
+ * its outcome goes it collapses over `--dur-base` — height, opacity and
+ * margin — then leaves.
  *
  * @packageDocumentation
  */
@@ -32,11 +35,11 @@ type Styles = Record<string, SystemStyleObject>;
 /** How long the banner takes to collapse once its outcome goes: the design system's `--dur-base`. */
 export const OPTIMISE_BANNER_COLLAPSE_MS = 200;
 
-/** What a run came to: changes, with their counts; nothing to change; or a failure. */
+/** What a run came to: changes, with their counts; nothing to change; or a failure — with why, where the builder refused the answer (#1553). */
 export type OptimiseOutcome =
     | { readonly kind: "done"; readonly period: string; readonly added: number; readonly changed: number; readonly removed: number }
     | { readonly kind: "none"; readonly period: string }
-    | { readonly kind: "fail"; readonly period: string };
+    | { readonly kind: "fail"; readonly period: string; readonly reason?: string };
 
 /** Props of {@link OptimiseBanner}. */
 export interface OptimiseBannerProps {
@@ -68,7 +71,7 @@ function wordsOf(outcome: OptimiseOutcome, m: OptimiseMessages, number: (n: numb
             return { title: m.done({ period: outcome.period }), detail: m.doneDetail({ n, count: number(n), parts }) };
         }
         case "none": return { title: m.none(), detail: m.noneDetail({ period: outcome.period }) };
-        case "fail": return { title: m.fail({ period: outcome.period }), detail: m.failDetail() };
+        case "fail": return { title: m.fail({ period: outcome.period }), detail: outcome.reason === undefined ? m.failDetail() : m.refusedDetail({ reason: outcome.reason }) };
     }
 }
 

@@ -23,7 +23,7 @@
  */
 
 import type { RenderResult } from "@testing-library/react";
-import { printFor, variant, type EastType, type ValueTypeOf } from "@elaraai/east";
+import { StringType, equalFor, parseFor, printFor, variant, type EastType, type ValueTypeOf } from "@elaraai/east";
 import { ScheduleEventRefType } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
 import type { E3Record } from "../../e3-web.test-utils.js";
@@ -145,3 +145,30 @@ export const elementKey = (kind: string, key: string) => printRef({ kind, key })
  */
 export const el = (attr: "data-run" | "data-chip" | "data-event" | "data-mark", kind: string, key: string) =>
     `[${attr}=${JSON.stringify(elementKey(kind, key))}]`;
+
+const parseRef = parseFor(ScheduleEventRefType);
+const sameText = equalFor(StringType);
+
+/**
+ * The keys of a kind's events made from another's — a template's, a copied
+ * event's — among those drawn under a root: each `<from>-…`. A kind whose
+ * record its session holds whole numbers them (`plates-2`); one read a window
+ * at a time draws each suffix at random (`brochure-5f3a9c2e`), since its
+ * earlier copies may stand out of view — so a test reads the key made, never
+ * names it.
+ *
+ * @param root - Where to look: the canvas, or a row's element
+ * @param attr - The attribute their draw carries
+ * @param kind - The events' kind
+ * @param from - The key they are made from
+ * @returns Their keys, in the order they are drawn
+ */
+export function madeFrom(root: ParentNode, attr: "data-run" | "data-chip" | "data-event" | "data-mark", kind: string, from: string): string[] {
+    return [...root.querySelectorAll(`[${attr}]`)].flatMap((node) => {
+        const ref = parseRef(node.getAttribute(attr) ?? "");
+        return ref.success && sameText(ref.value.kind, kind) && ref.value.key.startsWith(`${from}-`) ? [ref.value.key] : [];
+    });
+}
+
+/** A key made from another's over a kind read a window at a time: the other's, and eight hex digits drawn at random. */
+export const drawnFrom = (from: string) => new RegExp(`^${from}-[0-9a-f]{8}$`);

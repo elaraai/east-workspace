@@ -139,7 +139,7 @@ export const EastChakraSliceLegend = memo(function EastChakraSliceLegend({ value
                         aria-pressed={applied}
                     >
                         <Box as="span" css={styles.legendSwatch} background={g.color} opacity={dimmed ? 0.45 : 1} />
-                        <Box as="span" css={styles.legendLabel} color={applied ? "{colors.brand.700}" : undefined}>{g.key}</Box>
+                        <Box as="span" css={styles.legendLabel} color={applied ? "brand.fg" : undefined}>{g.key}</Box>
                         <Box as="span" css={styles.legendValue}>{pct(Number(g.count))}</Box>
                         {applied && (
                             <Box as="span" color="link" fontSize="9px">

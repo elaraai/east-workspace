@@ -150,8 +150,10 @@ describe("DatasetKeySearch", () => {
 
         const input = screen.getByPlaceholderText("Search Records") as HTMLInputElement;
         await userEvent.type(input, "K");
-        await waitFor(() => expect(screen.getByText("K19 · Rack")).toBeTruthy());
-        fireEvent.click(screen.getByText("K19 · Rack"));
+        await waitFor(() => expect(screen.getByRole("option", { name: "K19 · Rack" })).toBeTruthy());
+        // The line's key, up to its first ` · `, is set apart for the design system's mono face.
+        expect(screen.getByRole("option", { name: "K19 · Rack" }).querySelector("[data-item-key]")?.textContent).toBe("K19");
+        fireEvent.click(screen.getByRole("option", { name: "K19 · Rack" }));
         await waitFor(() => expect(input.value).toBe("K19"));
         expect(screen.getByRole("status").textContent).toBe("20 of 30");
         // A host that keeps the search is told what the box shows.
@@ -182,6 +184,90 @@ describe("DatasetKeySearch", () => {
         await waitFor(() => expect(screen.getByText("2 matches")).toBeTruthy());
         fireEvent.keyDown(input, { key: "Enter" });
         await waitFor(() => expect(onJump).toHaveBeenCalledWith(42, "pick"));
+    });
+
+    test("Enter on a button of the box — Next match, Clear search — is that button's alone, never the box's pick: the box's Enter is its input's", async () => {
+        const onFind = vi.fn(async () => ({ found: true, row: 100, count: 3 }));
+        const onListRange = vi.fn(async (row: number, limit: number) => Array.from({ length: Math.min(limit, 3) }, (_, i) => `key-${row + i}`));
+        const onJump = vi.fn();
+        const onClear = vi.fn();
+        renderSearch({ keyType: StringKey, onFind, onListRange, onJump, onClear });
+
+        const input = screen.getByPlaceholderText("Search Records") as HTMLInputElement;
+        await userEvent.type(input, "key");
+        await waitFor(() => expect(screen.getByText("3 matches")).toBeTruthy());
+        // The keyboard on Next match: Enter steps, as a press of it does — one jump, and no pick, which would hand the
+        // keyboard to the host's view.
+        screen.getByLabelText("Next match").focus();
+        await userEvent.keyboard("{Enter}");
+        await waitFor(() => expect(screen.getByText("2 of 3")).toBeTruthy());
+        expect(onJump.mock.calls).toEqual([[101, "step"]]);
+        // And on Clear search: the query goes, and nothing is jumped to on its way.
+        screen.getByLabelText("Clear search").focus();
+        await userEvent.keyboard("{Enter}");
+        await waitFor(() => expect(onClear).toHaveBeenCalledTimes(1));
+        expect(onJump.mock.calls).toEqual([[101, "step"]]);
+        expect((screen.getByPlaceholderText("Search Records") as HTMLInputElement).value).toBe("");
+    });
+
+    test("Enter in the box reads the box's own list: an option highlighted in another combobox on the page holds nothing of it", async () => {
+        const onFind = vi.fn(async () => ({ found: true, row: 42, count: 2 }));
+        const onListRange = vi.fn(async () => ["a", "b"]);
+        const onJump = vi.fn();
+        renderSearch({ keyType: StringKey, onFind, onListRange, onJump });
+        // Another component's list on the page, an option of it highlighted.
+        const other = document.createElement("div");
+        other.setAttribute("data-scope", "combobox");
+        other.setAttribute("data-part", "content");
+        other.appendChild(document.createElement("div")).setAttribute("data-highlighted", "");
+        document.body.appendChild(other);
+        try {
+            const input = screen.getByPlaceholderText("Search Records");
+            await userEvent.type(input, "a");
+            await waitFor(() => expect(screen.getByText("2 matches")).toBeTruthy());
+            expect(input.getAttribute("aria-activedescendant")).toBeNull();
+            fireEvent.keyDown(input, { key: "Enter" });
+            await waitFor(() => expect(onJump).toHaveBeenCalledWith(42, "pick"));
+            expect(onJump).toHaveBeenCalledTimes(1);
+        } finally {
+            other.remove();
+        }
+    });
+
+    test("an option of the box's own list highlighted, Enter is the combobox's, which picks it — once, never the first match beside it", async () => {
+        const onFind = vi.fn(async () => ({ found: true, row: 42, count: 2 }));
+        const onListRange = vi.fn(async () => ["a", "b"]);
+        const onJump = vi.fn();
+        renderSearch({ keyType: StringKey, onFind, onListRange, onJump });
+        const input = screen.getByPlaceholderText("Search Records");
+        await userEvent.type(input, "a");
+        await waitFor(() => expect(screen.getByRole("option", { name: "b" })).toBeTruthy());
+        // The keyboard to the second option: the input names it as its list's highlighted one.
+        await userEvent.keyboard("{ArrowDown}{ArrowDown}");
+        await waitFor(() => expect(input.getAttribute("aria-activedescendant")).toBe(screen.getByRole("option", { name: "b" }).id));
+        await userEvent.keyboard("{Enter}");
+        await waitFor(() => expect(onJump).toHaveBeenCalled());
+        expect(onJump.mock.calls).toEqual([[43, "pick"]]);
+    });
+
+    test("a list opened by typing asks only what is typed, never what an empty box browses: Enter before its answer picks nothing, and after it the first row the text finds (#1585)", async () => {
+        // The browse lists every row from the first; what is typed finds rows from 40.
+        const onFind = vi.fn(async (query: unknown) => ((query as { prefix?: string }).prefix === ""
+            ? { found: true, row: 0, count: 100 } : { found: true, row: 40, count: 3 }));
+        const onListRange = vi.fn(async (row: number, limit: number) => Array.from({ length: Math.min(limit, 3) }, (_, i) => `state-${row + i}`));
+        const onJump = vi.fn();
+        renderSearch({ keyType: StringKey, onFind, onListRange, onJump, browseQuery: { prefix: "" } });
+        const input = screen.getByPlaceholderText("Search Records") as HTMLInputElement;
+        // One input event opens the list with its text: the combobox tells the box of the text, then of the open, in one turn.
+        await act(async () => { input.focus(); fireEvent.input(input, { target: { value: "s" } }); });
+        // The text waits out its debounce, its rows not yet asked: Enter has no match of its own to pick.
+        fireEvent.keyDown(input, { key: "Enter" });
+        expect(onJump).not.toHaveBeenCalled();
+        await waitFor(() => expect(screen.getByRole("status").textContent).toBe("3 matches"));
+        expect([onFind.mock.calls, onListRange.mock.calls]).toEqual([[[{ prefix: "s" }]], [[40, 3]]]);
+        fireEvent.keyDown(input, { key: "Enter" });
+        await waitFor(() => expect(onJump).toHaveBeenCalledWith(40, "pick"));
+        expect(onJump).toHaveBeenCalledTimes(1);
     });
 
     test("found, the count shows and Enter jumps while the lines are on their way; a listing that fails keeps both, and the popup says why — never No matches (#1398, CL10)", async () => {

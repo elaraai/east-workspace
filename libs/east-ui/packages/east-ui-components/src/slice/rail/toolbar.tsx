@@ -239,7 +239,7 @@ function railItems(
     const { version, activeCount } = model;
 
     const summaryChip = (key: string, d: SliceRailDescriptor): ReactNode => (
-        <Box key={key} as="span" css={chip({ tone: d.active ? "brand" : "neutral", numeric: true })} data-slice-fold={d.kind}>
+        <Box key={key} as="span" css={chip({ tone: d.active ? "brand" : "neutral" })} data-slice-fold={d.kind}>
             <FontAwesomeIcon icon={d.icon} data-chip-icon="" />
             <Box as="span">{d.label}</Box>
         </Box>
@@ -299,7 +299,7 @@ function railItems(
             const icon = faFilter;
             if (form.show === "icon" || form.show === "bare") {
                 return (
-                    <Box key="icon" as="span" css={chip({ tone: anyActive ? "brand" : "neutral", numeric: true })}
+                    <Box key="icon" as="span" css={chip({ tone: anyActive ? "brand" : "neutral" })}
                         title={labels.length > 0 ? labels.join(" · ") : "Slice"} data-rail-rung="icon">
                         <FontAwesomeIcon icon={icon} data-chip-icon="" />
                     </Box>

@@ -13,7 +13,7 @@
 import { OptionType, StringType, equalFor, none, some, variant, type EastType, type VariantType, type ValueTypeOf } from "@elaraai/east";
 import { EditingBatchReadinessType, EditingIssueType, EditingReadinessType } from "@elaraai/east-ui/internal";
 import { DRAFT_ISSUE_TEXT } from "./messages.js";
-import type { ConflictPoint } from "./merge.js";
+import { conflictSteps, type ConflictPoint, type ConflictStep } from "./merge.js";
 
 type Issue = ValueTypeOf<typeof EditingIssueType>;
 /** A batch's readiness — every draft's issues together. */
@@ -87,10 +87,11 @@ export function liftDraft(type: EastType, value: unknown): unknown {
  * @param type - The draft schema
  * @param draft - The draft
  * @param entry - The entry's id, for its issues
- * @returns The domain value when the draft is ready, and its readiness
+ * @returns The domain value when the draft is ready; the value as far as it holds one — a field still missing, or one
+ *   that could not be read, `undefined` — which a check of each field reads; and its readiness
  * @throws {Error} When the schema is not a draft schema
  */
-export function normalizeDraft(type: EastType, draft: unknown, entry: string): { domain: unknown; readiness: BatchReadiness } {
+export function normalizeDraft(type: EastType, draft: unknown, entry: string): { domain: unknown; held: unknown; readiness: BatchReadiness } {
     const missing: Issue[] = [];
     const invalid: Issue[] = [];
     const visit = (type: EastType, value: unknown, field?: string, row?: number): unknown => {
@@ -116,7 +117,7 @@ export function normalizeDraft(type: EastType, draft: unknown, entry: string): {
     };
     const domain = visit(type, draft);
     const readiness: BatchReadiness = invalid.length ? variant("invalid", [...invalid, ...missing]) : missing.length ? variant("incomplete", missing) : variant("ready", null);
-    return { domain: readiness.type === "ready" ? domain : undefined, readiness };
+    return { domain: readiness.type === "ready" ? domain : undefined, held: domain, readiness };
 }
 
 /** One entry's readiness, as an author's check answers it. */
@@ -184,6 +185,46 @@ export function wholeEntryReadiness(
     };
 }
 
+/**
+ * A builder's readiness with its numbers' bounds held (#1585): each entry a draft changed from the one it began from
+ * has its fields its bounds don't hold refused as a field still missing is — the builder's issues of them, over the
+ * value the draft holds as far as it holds one — beside the builder's own checks, so its Save waits. An entry drafted
+ * back to what it began from holds no Save, nor does one no draft changed: the builder flags those where it draws them.
+ *
+ * @param type - The draft schema
+ * @param breaches - An entry's issues of its bounds, given its id and the value its draft holds
+ * @param originals - The entries as the source holds them (the session's `originals`)
+ * @param ready - The builder's own checks; none by default
+ * @returns The session's `ready`
+ */
+export function boundedReadiness<E extends { readonly draft: unknown }>(
+    type: EastType,
+    breaches: (id: string, held: unknown) => readonly Issue[],
+    originals: () => ReadonlyMap<string, { readonly draft: unknown }> | undefined,
+    ready?: ((entries: ReadonlyMap<string, E>) => BatchReadiness) | undefined,
+): (entries: ReadonlyMap<string, E>) => BatchReadiness {
+    const same = equalFor(OptionType(type));
+    const optionOf = (draft: unknown) => (draft === undefined ? none : some(draft));
+    return (entries) => {
+        const own = ready?.(entries);
+        const issues: Issue[] = [];
+        let invalid = false;
+        if (own !== undefined && own.type !== "ready") {
+            invalid = own.type === "invalid";
+            for (const issue of own.value) issues.push(issue);
+        }
+        const was = originals();
+        for (const [id, entry] of entries) {
+            if (entry.draft === undefined || same(optionOf(was?.get(id)?.draft), some(entry.draft))) continue;
+            for (const issue of breaches(id, normalizeDraft(type, entry.draft, id).held)) {
+                invalid ||= issueKinds.get(issue) === "invalid";
+                issues.push(issue);
+            }
+        }
+        return issues.length > 0 ? variant(invalid ? "invalid" : "incomplete", issues) : variant("ready", null);
+    };
+}
+
 /** How a draft shows: whether it differs, and what stands in its way. */
 export interface DraftPresentation {
     /** It differs from the value it began from. */
@@ -206,6 +247,12 @@ const nameEqual = equalFor(StringType);
 export interface ConflictMarks {
     /** Each field a conflict is in. */
     readonly fields: ReadonlySet<string>;
+    /**
+     * Where in each field its conflicts are: each one's steps past the field — a `Dict`'s key as East prints it, a
+     * struct's field, an item, a case — none for one at the field whole. What a part shown on its own, a column
+     * made from a field's members, is marked by.
+     */
+    readonly within: ReadonlyMap<string, readonly (readonly ConflictStep[])[]>;
     /** Whether the entry — or the child row — is one itself: both added it, or one side removed it. */
     readonly whole: boolean;
 }
@@ -214,29 +261,38 @@ export interface ConflictMarks {
  * Where an entry's conflicts are, field by field — or, given a child row
  * (its group's children field and its index), that row's: what the warn
  * ring marks on a canvas, a field's part for each conflict in it and the
- * whole for one at the entry itself. A choice of a variant on the way down
- * (a group or a row of a sheet with loose rows) is passed over.
+ * whole for one at the entry itself. The draft's own wrappers are no step of
+ * the entry's, and a choice of a variant on the way down (a group or a row
+ * of a sheet with loose rows) is passed over.
  *
  * @param points - The entry's conflicts still to choose
+ * @param type - The entry's draft type
  * @param child - A child row: its group's children field and its index there
  * @returns Its marks; `undefined` where none falls on it
  */
-export function conflictMarks(points: readonly ConflictPoint[] | undefined, child?: { readonly field: string; readonly index: number }): ConflictMarks | undefined {
+export function conflictMarks(points: readonly ConflictPoint[] | undefined, type: EastType, child?: { readonly field: string; readonly index: number }): ConflictMarks | undefined {
     if (points === undefined || points.length === 0) return undefined;
     const fields = new Set<string>();
+    const within = new Map<string, (readonly ConflictStep[])[]>();
     let whole = false;
     for (const point of points) {
-        let at = point.at.filter((step, i) => !(step.kind === "variant" && point.at.slice(0, i).every((before) => before.kind === "variant")));
+        const steps = conflictSteps(type, point.at);
+        const lead = steps.findIndex((step) => step.kind !== "case");
+        let at = lead < 0 ? [] : steps.slice(lead);
         if (child !== undefined) {
-            const [field, index] = at;
-            if (field?.kind !== "field" || !nameEqual(field.name, child.field) || index?.kind !== "index" || Number(index.index) !== child.index) continue;
+            const [field, item] = at;
+            if (field?.kind !== "field" || !nameEqual(field.name, child.field) || item?.kind !== "item" || Number(item.index) !== child.index) continue;
             at = at.slice(2);
         }
-        const first = at.find((step) => step.kind !== "variant");
+        const head = at.findIndex((step) => step.kind !== "case");
+        const first = head < 0 ? undefined : at[head]!;
         if (first === undefined) whole = true;
-        else if (first.kind === "field") fields.add(first.name);
+        else if (first.kind === "field") {
+            fields.add(first.name);
+            within.set(first.name, [...(within.get(first.name) ?? []), at.slice(head + 1)]);
+        }
     }
-    return fields.size === 0 && !whole ? undefined : { fields, whole };
+    return fields.size === 0 && !whole ? undefined : { fields, within, whole };
 }
 
 /** A draft with nothing to show. */

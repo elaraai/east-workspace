@@ -9,7 +9,9 @@ import {
 } from "@elaraai/east";
 import { scheduleNumberText } from "../schedule/words.js";
 import { rosterCoverage } from "./coverage.js";
-import { RosterAssignmentTypeFor, RosterContextType, RosterFixType, RosterIssueType, RosterSlotType, RosterWeekTypeFor } from "./types.js";
+import {
+    RosterAssignmentTypeFor, RosterContextType, RosterFixType, RosterGroupType, RosterIssueType, RosterPlaceType, RosterSlotType, RosterWeekTypeFor,
+} from "./types.js";
 
 /** Rest before and after a duty, in hours. Infinity means no other duty of theirs on that side in this week. @internal */
 export const RosterRestType = StructType({ before: FloatType, after: FloatType, minimum: FloatType });
@@ -47,8 +49,8 @@ export function rosterRest<R extends EastType>(row: R) {
  *
  * @typeParam R - The app's duty row type
  * @param row - The app's duty row type
- * @returns An East function `(week, context) → Array<Issue>`: issues in day, group and shift order, with actionable fixes
- * @remarks Pure East, shared by tasks and the renderer. Rest is confined to this week. Issues explain the roster; they do not automatically block Save or Publish. The pay's codes are the app's: its own `check` reads them (`CheckContext(R)`). Its words print hours as the fit's do (`scheduleNumberText`): `6 h rest`, `7.5 h unfilled`.
+ * @returns An East function `(week, context) → Array<Issue>`: issues in day, group and shift order, with actionable fixes — each day's duties in no group after its groups'
+ * @remarks Pure East, shared by tasks and the renderer. Rest is confined to this week. Issues explain the roster; they do not automatically block Save or Publish. The pay's codes are the app's: its own `check` reads them (`CheckContext(R)`). Its words print hours as the fit's do (`scheduleNumberText`): `6 h rest`, `7.5 h unfilled`. A duty in no group (#1548) is checked as its person's — double booked, rest, a skill they don't hold, a person no longer in the staff — its issue in no slot, and its words naming its shift alone (`Night · on 2 shifts this day`); no group has a target, a lead or a trainer to check.
  */
 export function rosterCheck<R extends EastType>(row: R) {
     const Row = row as EastType;
@@ -64,30 +66,50 @@ export function rosterCheck<R extends EastType>(row: R) {
         // The built-in checks read no costs: the app's own check reads its pay's.
         const coverage = $.const(coverageOf(week, context, East.value(new Map(), DictType(StringType, DictType(StringType, FloatType)))));
         const issues = $.let([], ArrayType(RosterIssueType));
+        // Where a day's duties stand: each group's slots, then no group's (#1548).
+        const places = $.let([], ArrayType(OptionType(RosterGroupType)));
+        $.for(context.groups, ($, group) => { $(places.pushLast(some(group))); });
+        $(places.pushLast(none));
         $.for(East.Array.range(0n, 7n), ($, day) => {
-            $.for(context.groups, ($, group) => {
-                // The group's skills: the activities of that group.
-                const skills = $.const(context.activities.filter((_$, activity) => East.equal(activity.group, some(group.key))));
+            $.for(places, ($, place) => {
+                // A group's skills: the activities of that group. A duty in no group is held to every group's.
+                const skills = $.const(place.match({
+                    some: (_$2, group) => context.activities.filter((_$3, activity) => East.equal(activity.group, some(group.key))),
+                    none: (_$2) => context.activities.filter((_$3, activity) => activity.group.hasTag("some")),
+                }));
+                const groupKey = $.const(place.match({
+                    some: (_$2, group) => East.value(some(group.key), OptionType(StringType)),
+                    none: (_$2) => East.value(none, OptionType(StringType)),
+                }));
                 $.for(context.shifts, ($, shift) => {
-                    const slot = $.const({ day, group: group.key, shift: shift.key }, RosterSlotType);
-                    const c = $.const(coverage.get(slot));
-                    const location = $.const(East.str`${group.label} · ${shift.label}`);
-                    const assignments = $.const(week.assignments.filter((_$, a) => East.equal(a.slot, slot)));
-                    $.if(context.rules.lead.and(() => East.greater(c.positions, 0n)).and(() => East.greater(c.filled, 0n)).and(() => c.lead.not()), $ => {
-                        $(issues.pushLast({ kind: variant("breach", null), tone: variant("warning", null),
-                            title: East.str`No lead on ${location}`, detail: "Assign someone in a lead position",
-                            slot: some(slot), assignment: none, flag: some("no lead"), fix: some(variant("find", variant("leads", null))) }));
-                    });
+                    // The slot of the group's shift on the day; none for the duties in no group, which have no slot.
+                    const slot = $.const(place.match({
+                        some: (_$2, group) => East.value(some({ day, group: group.key, shift: shift.key }), OptionType(RosterSlotType)),
+                        none: (_$2) => East.value(none, OptionType(RosterSlotType)),
+                    }));
+                    // Where the issues say the duties stand: the group's shift — or, for the duties in no group, their shift alone,
+                    // which names no group the app's words don't (#1548).
+                    const location = $.const(place.match({ some: (_$2, group) => East.str`${group.label} · ${shift.label}`, none: (_$2) => shift.label }));
+                    const at = $.const({ day, group: groupKey, shift: shift.key }, RosterPlaceType);
+                    const assignments = $.const(week.assignments.filter((_$, a) => East.equal(a.place, at)));
+                    $.match(slot, { some: ($, slot) => {
+                        const c = $.const(coverage.get(slot));
+                        $.if(context.rules.lead.and(() => East.greater(c.positions, 0n)).and(() => East.greater(c.filled, 0n)).and(() => c.lead.not()), $ => {
+                            $(issues.pushLast({ kind: variant("breach", null), tone: variant("warning", null),
+                                title: East.str`No lead on ${location}`, detail: "Assign someone in a lead position",
+                                slot: some(slot), assignment: none, flag: some("no lead"), fix: some(variant("find", variant("leads", null))) }));
+                        });
+                    } });
                     $.for(assignments, ($, a, id) => {
                         $.match(a.who, { person: ($, key) => {
                             $.if(context.people.has(key), $ => {
                                 const person = $.const(context.people.get(key));
                                 const sameDay = $.const(week.assignments.filter((_$, other) =>
-                                    East.equal(other.who, a.who).and(() => East.equal(other.slot.day, day))));
+                                    East.equal(other.who, a.who).and(() => East.equal(other.place.day, day))));
                                 $.if(East.greater(sameDay.size(), 1n), $ => {
                                     $(issues.pushLast({ kind: variant("breach", null), tone: variant("danger", null),
                                         title: East.str`${person.name} · double booked`, detail: East.str`${location} · on ${sameDay.size()} shifts this day`,
-                                        slot: some(slot), assignment: some(id), flag: some("double"), fix: none }));
+                                        slot, assignment: some(id), flag: some("double"), fix: none }));
                                 });
                                 const rest = $.const(restOf(a, id, week, context));
                                 $.if(East.greater(context.rules.rest, 0.0).and(() => East.less(rest.minimum, context.rules.rest)), $ => {
@@ -98,7 +120,7 @@ export function rosterCheck<R extends EastType>(row: R) {
                                             const moved = $.const(alternative.start.hour.multiply(60n).add(alternative.start.minute)
                                                 .subtract(shift.start.hour.multiply(60n).add(shift.start.minute)));
                                             const candidate = $.const(East.value({
-                                                slot: { day, group: group.key, shift: alternative.key }, who: a.who, position: a.position, activity: a.activity,
+                                                place: { day, group: groupKey, shift: alternative.key }, who: a.who, position: a.position, activity: a.activity,
                                                 start: a.start.addMinutes(moved), end: a.end.addMinutes(moved), hours: a.hours, row: a.row,
                                             } as never, Assignment));
                                             $.if(East.greaterEqual(restOf(candidate as never, id, week, context).minimum, context.rules.rest), $ => {
@@ -118,13 +140,15 @@ export function rosterCheck<R extends EastType>(row: R) {
                                         detail: East.lessEqual(rest.before, rest.after).ifElse(
                                             () => East.str`${location} · minimum ${hoursText(context.rules.rest)} h since the previous shift`,
                                             () => East.str`${location} · minimum ${hoursText(context.rules.rest)} h before the next shift`),
-                                        slot: some(slot), assignment: some(id), flag: some(East.str`${hoursText(rest.minimum)}h rest`), fix }));
+                                        slot, assignment: some(id), flag: some(East.str`${hoursText(rest.minimum)}h rest`), fix }));
                                 });
-                                $.if(context.rules.trainer.and(() => person.trainee).and(() => c.trainer.not()), $ => {
-                                    $(issues.pushLast({ kind: variant("breach", null), tone: variant("warning", null),
-                                        title: East.str`${person.name} · trainee without trainer`, detail: East.str`${location} · no trainer rostered on this shift`,
-                                        slot: some(slot), assignment: some(id), flag: some("trainee"), fix: some(variant("find", variant("trainers", null))) }));
-                                });
+                                $.match(slot, { some: ($, slot) => {
+                                    $.if(context.rules.trainer.and(() => person.trainee).and(() => coverage.get(slot).trainer.not()), $ => {
+                                        $(issues.pushLast({ kind: variant("breach", null), tone: variant("warning", null),
+                                            title: East.str`${person.name} · trainee without trainer`, detail: East.str`${location} · no trainer rostered on this shift`,
+                                            slot: some(slot), assignment: some(id), flag: some("trainee"), fix: some(variant("find", variant("trainers", null))) }));
+                                    });
+                                } });
                                 $.if(context.rules.skill, $ => {
                                     $.match(a.activity, { some: ($, activity) => {
                                         $.for(skills, ($, skill) => {
@@ -132,7 +156,7 @@ export function rosterCheck<R extends EastType>(row: R) {
                                                 $(issues.pushLast({ kind: variant("breach", null), tone: variant("warning", null),
                                                     title: East.str`${person.name} · not skilled for ${skill.label}`,
                                                     detail: East.str`${location} · activity ${skill.code} needs the skill`,
-                                                    slot: some(slot), assignment: some(id), flag: some("not skilled"), fix: none }));
+                                                    slot, assignment: some(id), flag: some("not skilled"), fix: none }));
                                             });
                                         });
                                     } });
@@ -140,32 +164,35 @@ export function rosterCheck<R extends EastType>(row: R) {
                             }).else($ => {
                                 $(issues.pushLast({ kind: variant("breach", null), tone: variant("danger", null),
                                     title: East.str`Unknown person · ${key}`, detail: East.str`${location} · this person is no longer in the staff source`,
-                                    slot: some(slot), assignment: some(id), flag: some("unknown person"), fix: none }));
+                                    slot, assignment: some(id), flag: some("unknown person"), fix: none }));
                             });
                         } });
                     });
-                    $.if(East.greater(c.open, 0n), $ => {
-                        const fix = $.let(none, OptionType(RosterFixType));
-                        $.if(East.greater(context.agencies.size(), 0n), $ => { $.assign(fix, some(variant("request", context.agencies.get(0n).key))); });
-                        $(issues.pushLast({ kind: variant("gap", null), tone: variant("warning", null),
-                            title: East.str`${c.open} open ${positionsText(c.open)} · ${location}`,
-                            detail: East.str`${hoursText(c.open.toFloat().multiply(shift.hours))} h unfilled · ${c.filled} of ${c.positions} ${positionsText(c.positions)}`,
-                            slot: some(slot), assignment: none, flag: some(East.str`${c.open} open`), fix }));
-                    });
-                    $.if(context.rules.skill.and(() => East.greater(c.filled, 0n)), $ => {
-                        $.for(c.lines, ($, line) => {
-                            $.if(East.greater(line.gap, 0.0), $ => {
-                                $.for(skills, ($, skill) => {
-                                    $.if(East.equal(skill.key, line.skill), $ => {
-                                        $(issues.pushLast({ kind: variant("gap", null), tone: variant("warning", null),
-                                            title: East.str`${skill.label} · ${hoursText(line.gap)} h short`,
-                                            detail: East.str`${location} · ${hoursText(line.capacity.unwrap("some"))} h capacity of ${hoursText(line.needed)} h`,
-                                            slot: some(slot), assignment: none, flag: some("skill gap"), fix: some(variant("find", variant("skill", skill.key))) }));
+                    $.match(slot, { some: ($, slot) => {
+                        const c = $.const(coverage.get(slot));
+                        $.if(East.greater(c.open, 0n), $ => {
+                            const fix = $.let(none, OptionType(RosterFixType));
+                            $.if(East.greater(context.agencies.size(), 0n), $ => { $.assign(fix, some(variant("request", context.agencies.get(0n).key))); });
+                            $(issues.pushLast({ kind: variant("gap", null), tone: variant("warning", null),
+                                title: East.str`${c.open} open ${positionsText(c.open)} · ${location}`,
+                                detail: East.str`${hoursText(c.open.toFloat().multiply(shift.hours))} h unfilled · ${c.filled} of ${c.positions} ${positionsText(c.positions)}`,
+                                slot: some(slot), assignment: none, flag: some(East.str`${c.open} open`), fix }));
+                        });
+                        $.if(context.rules.skill.and(() => East.greater(c.filled, 0n)), $ => {
+                            $.for(c.lines, ($, line) => {
+                                $.if(East.greater(line.gap, 0.0), $ => {
+                                    $.for(skills, ($, skill) => {
+                                        $.if(East.equal(skill.key, line.skill), $ => {
+                                            $(issues.pushLast({ kind: variant("gap", null), tone: variant("warning", null),
+                                                title: East.str`${skill.label} · ${hoursText(line.gap)} h short`,
+                                                detail: East.str`${location} · ${hoursText(line.capacity.unwrap("some"))} h capacity of ${hoursText(line.needed)} h`,
+                                                slot: some(slot), assignment: none, flag: some("skill gap"), fix: some(variant("find", variant("skill", skill.key))) }));
+                                        });
                                     });
                                 });
                             });
                         });
-                    });
+                    } });
                 });
             });
         });

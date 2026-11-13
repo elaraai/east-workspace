@@ -70,6 +70,8 @@ export type SheetProviderValue = ValueTypeOf<typeof Sheet.Types.Provider>;
 export type SheetProposerValue = ValueTypeOf<typeof Sheet.Types.Proposer>;
 /** The decoded windowed arm — `paged`, `pinned` with its revision and refresh, or a `rows` source's record (#1349) — the source at the sheet's own row collection. */
 export type SheetPagedSourceValue = WindowedSourceValue<SheetRootValue["rows"]>;
+/** One window of that source, as it serves it: its rows, and the stored entries they were made from (#1599, east-ui's `CarriedWindowType`). */
+export type SheetWindowValue = Extract<ReturnType<SheetPagedSourceValue["page"]>, { type: "some" }>["value"];
 /**
  * One saved view (B§8, #1345) — every source's narrowing of the sheet's
  * `Slice.bindRecords`, by the source's name, with a grouped sheet's folds.

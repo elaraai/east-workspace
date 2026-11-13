@@ -15,11 +15,13 @@
  * - `refusal` — a refused drop's note at the top of Details (A40), the shared banner 12px in.
  * - `banner` — an issue's banner (A56, A62): the shared banner in its section.
  * - `section` — one section; `sectionRow` its head with its actions at its end (`sectionActions`: `Split…`, `Open resource →`).
- * - `link` — a brand text action (`Split…`, `Open resource →`, `Show →`).
+ * - `link` — a brand text action (`Split…`, `Open resource →`, `Show →`); faint while it is off — `Split…` while the board
+ *   takes no edit.
  * - `parts` — a bin's parts in Assigned to (A70, A71): each part's quantity a field of the shared form; `remainder` what they
  *   leave unallocated, in warn-text; `split` the `Split…` popover's body: its quantity over the Chooser.
- * - `resourceField` — the resource field (A58): 32px, its name in mono, `+ Choose a resource` in warn; `fill` the
- *   fill beside it, in its tone; `meter`, `meterTick` the shared meter's track with the min tick.
+ * - `resourceField` — the resource field (A58): 32px, its name in mono, `+ Choose a resource` in warn; off as the fields
+ *   around it are while the board takes no edit; `fill` the fill beside it, in its tone; `meter`, `meterTick` the shared
+ *   meter's track with the min tick.
  * - `line` — a mono line in ink-4: the group line, the batch line, a hint; `absent` — what is not there
  *   (`no bins today`), italic.
  * - `mates` and `mate` — a resource's bins today, 28px rows on `44px 32px 1fr auto`, the current one bold (A58).
@@ -69,6 +71,7 @@ export const allocationInspectorSlotRecipe = defineSlotRecipe({
             textStyle: "body.sm", fontWeight: "medium", color: "brand.solid", whiteSpace: "nowrap",
             "& svg": fontAwesomeSize("10px"),
             _hover: { color: "brandPressed", textDecoration: "underline" },
+            _disabled: { color: "fg.faint", cursor: "default", _hover: { color: "fg.faint", textDecoration: "none" } },
             _focusVisible: { outline: "2px solid", outlineColor: "border.focus", outlineOffset: "2px" },
         },
         // The resource field (A58): 32px, its name in mono 14 / 600; with none, `+ Choose a resource` in warn.
@@ -81,7 +84,12 @@ export const allocationInspectorSlotRecipe = defineSlotRecipe({
             "& svg": { ...fontAwesomeSize("10px"), flex: "none", color: "fg.muted" },
             "&[data-unlinked]": { borderColor: "status.warn", color: "fg.warning" },
             _hover: { borderColor: "fg.muted" },
-            _disabled: { cursor: "default", _hover: { borderColor: "border.strong" } },
+            _disabled: {
+                cursor: "default", _hover: { borderColor: "border.strong" },
+                // Switched off while the board takes no edit (`data-disabled`), not a published day's printed resource: a
+                // field's off look (`field-chrome.ts`), faded as the form's controls beside it are.
+                "&[data-disabled]": { background: "bg.subtle", color: "fg.muted", opacity: 0.5, cursor: "not-allowed" },
+            },
             _focusVisible: { outline: "2px solid", outlineColor: "border.focus", outlineOffset: "2px" },
         },
         // A reservation's resource (A61): its name in mono 14 / 600.

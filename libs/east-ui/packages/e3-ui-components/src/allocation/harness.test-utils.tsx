@@ -24,7 +24,7 @@
  * @packageDocumentation
  */
 import { vi } from "vitest";
-import { East, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { East, none, some, variant, type ExprType, type ValueTypeOf } from "@elaraai/east";
 import { Reactive, Slice, UIComponentType } from "@elaraai/east-ui/internal";
 import { Allocation, Data, Func, Record, Schedule } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/allocation/allocation";
@@ -41,8 +41,10 @@ export const TUE_4 = new Date("2027-05-04T00:00:00Z");
 export const WED = new Date("2027-05-12T00:00:00Z");
 export const THU = new Date("2027-05-13T00:00:00Z");
 
+/** A row of the yard's bins: the board's roles and the yard's own fields. */
+type KilnBinType = typeof ex.kilnBins.type.value;
 /** One of the yard's bins, as its record holds it: the board's roles and the yard's own fields. */
-export type KilnBin = ValueTypeOf<typeof ex.kilnBins.type.value>;
+export type KilnBin = ValueTypeOf<KilnBinType>;
 /** A question to the yard's fit, over the yard's own bin rows. */
 const FIT_REQUEST = Allocation.Types.FitRequest(ex.kilnBins.type.value);
 /** A question to the yard's fit, and its answer, decoded. */
@@ -89,18 +91,43 @@ export function allocationHarness(): AllocationHarness {
  * day at a time through the slice's bin source, its days, its bays, kilns and
  * loads, the yard's fit, the library and the inspector — over the records a
  * test needs: the yard's own, or its locked bins or its locked days, whose
- * door refuses every change.
+ * door refuses every change. Given `ready`, the yard's check on a draft holds
+ * Save while a bin's measured grade is empty (#1525); given `failingValues`,
+ * the yard's values for a reservation fail as they run (#1526); given `most`
+ * or `least`, a hint holds a bin's m³, its quantity, to at most or at least
+ * that many (#1585). Given `weeks`, it publishes the yard's weeks in place of
+ * its days (#1550), each row keyed by its week's first day, the week starting
+ * on the day named.
  *
- * @param options - Which of its records is locked, if either
+ * @param options - Which of its records is locked, if either, whether the yard checks a draft, whether its values fail, the most and the least a bin holds, and where its weeks start when it publishes weeks
  * @returns The example
  */
-export function kilnYard(options: { readonly locked?: "bins" | "days" } = {}): Example {
-    const lockedBins = options.locked === "bins", lockedDays = options.locked === "days";
+export function kilnYard(options: {
+    readonly locked?: "bins" | "days"; readonly ready?: boolean; readonly failingValues?: boolean; readonly most?: number; readonly least?: number;
+    readonly weeks?: "monday" | "sunday";
+} = {}): Example {
+    const lockedBins = options.locked === "bins", lockedDays = options.locked === "days", weeks = options.weeks;
+    // The yard's hint on a bin's quantity: at most `most` m³, at least `least`.
+    const bounded = options.most === undefined && options.least === undefined ? {} : { fields: { m3: Schedule.field.number({
+        label: "Volume", ...(options.most === undefined ? {} : { max: options.most }), ...(options.least === undefined ? {} : { min: options.least }),
+    }) } };
+    // The yard's check on a draft: a bin's measured grade, which Save waits for.
+    const check = options.ready !== true ? {} : {
+        ready: (bin: ExprType<KilnBinType>) => East.equal(bin.gradeMeasured, "").ifElse(
+            () => variant("incomplete", [{ field: "gradeMeasured", message: "Measure the grade" }]),
+            () => variant("ready", null)),
+    };
+    // The yard's values for a reservation, failing as they run: its spec read where a reservation holds none.
+    const failing = options.failingValues !== true ? {} : {
+        values: (r: ExprType<typeof Allocation.Types.NewBin>) => ({
+            specBooked: r.kind.unwrap("some"), specMeasured: "", gradeBooked: "", gradeMeasured: "", instruction: none,
+        }),
+    };
     return { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
         // The bins a test needs, the yard's own or its locked ones, each read a day at a time through its interval index.
         const bins = $.let(lockedBins ? Record.bind(ex.kilnLockedBins, ["patch"]) : Record.bind(ex.kilnBins, ["patch"]));
         const entries = $.let(lockedBins ? Data.bindPaged(ex.kilnLockedBins) : Data.bindPaged(ex.kilnBins));
-        const days = $.let(lockedDays ? Record.bind(ex.yardLockedDays, ["patch"]) : Record.bind(ex.yardDays, ["patch"]));
+        const days = $.let(weeks !== undefined ? Record.bind(ex.yardWeeks, ["patch"]) : lockedDays ? Record.bind(ex.yardLockedDays, ["patch"]) : Record.bind(ex.yardDays, ["patch"]));
         const yard = $.let(Data.bind(ex.kilns));
         const loads = $.let(Data.bind(ex.arrivals));
         const bays = $.let(Data.bind(ex.yardBays));
@@ -116,6 +143,9 @@ export function kilnYard(options: { readonly locked?: "bins" | "days" } = {}): E
                 name: "Bin", icon: "box", entries,
                 at: "at", resource: { field: "bay", of: "bays" }, arrival: "load",
                 quantity: { field: "m3", unit: "m³" }, parts: { field: "kilns", of: "kilns" }, hold: "dryFor", kind: "spec",
+                ...check,
+                ...failing,
+                ...bounded,
             }) },
             resources: {
                 bays: Schedule.resources(bays.read(), { name: "Bays", icon: "warehouse", label: b => b.name, offset: b => b.offset }),
@@ -126,7 +156,8 @@ export function kilnYard(options: { readonly locked?: "bins" | "days" } = {}): E
                 label: l => l.code, quantity: l => l.m3, hold: l => variant("days", l.dryingDays), kind: l => some(l.spec),
                 values: l => ({ specBooked: l.spec, specMeasured: l.spec, gradeBooked: l.grade.substring(0n, 1n), gradeMeasured: l.grade, instruction: l.instruction }),
             }),
-            periods: Schedule.periods(days, { every: "day", status: { field: "state", draft: "draft", published: "issued" } }),
+            periods: Schedule.periods(days, { every: weeks === undefined ? "day" : "week", status: { field: "state", draft: "draft", published: "issued" } }),
+            ...(weeks === undefined ? {} : { week: { start: weeks } }),
         });
     }))) };
 }

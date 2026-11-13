@@ -5,10 +5,12 @@
 
 /**
  * The field form's own words (#1147) — what it adds around the shared inputs:
- * an Option's Set and Clear, a reference's Unassigned, a number's help line, a
- * checklist's count. A builder's message table carries them (as the Sheet's
- * carries the editing session's), so a host translates the form where it
- * translates the builder, and hands the form its words.
+ * an Option's Set and Clear, a reference's Unassigned and why a choice of it
+ * changed nothing, a number's help line and why its box emptied changed
+ * nothing, a checklist's count. A builder's
+ * message table carries them (as the Sheet's carries the editing session's),
+ * so a host translates the form where it translates the builder, and hands
+ * the form its words.
  *
  * @packageDocumentation
  */
@@ -19,12 +21,18 @@ import type { Formatters } from "../../format/index.js";
  * The field form's message table.
  *
  * @remarks
- * `label` is a field's label, the author's; `min`, `max`, `step`, `done` and
- * `total` are numbers already formatted for the locale.
+ * `label` is a field's label, the author's; `choice` a reference's choice's
+ * words, the host's; `min`, `max`, `step`, `done` and `total` are numbers
+ * already formatted for the locale.
  */
 export interface FieldFormMessages {
     /** A reference's choice for no key, first in its select. */
     unassigned: () => string;
+    /**
+     * Why a reference's choice changed nothing, under the field: its key reads as none of the values the field holds —
+     * `Can't choose Back bench — Bench holds whole numbers`.
+     */
+    unheld: (p: { choice: string; label: string; holds: "integer" | "float" | "datetime" | "boolean" | "other" }) => string;
     /** An Option's choice for none, first in its select; what an empty Option shows. */
     notSet: () => string;
     /** The button that gives an empty Option a value. */
@@ -37,6 +45,8 @@ export interface FieldFormMessages {
     yesNo: (p: { value: boolean }) => string;
     /** A number's help line — `1–20 people · step 1`. */
     numberHelp: (p: { min: string | undefined; max: string | undefined; unit: string | undefined; step: string | undefined }) => string;
+    /** Why a number's box, emptied, shows what its field holds again, under the field: the field takes no emptying — `Crew can't be left empty`. */
+    noEmpty: (p: { label: string }) => string;
     /** What the tags' box shows while empty. */
     tagPlaceholder: () => string;
     /** A checklist's items done of all — `2 / 5 done`. */
@@ -50,6 +60,8 @@ export interface FieldFormMessages {
 /** The English table — the default. */
 export const fieldFormMessages: FieldFormMessages = {
     unassigned: () => "Unassigned",
+    unheld: ({ choice, label, holds }) => `Can't choose ${choice} — ${label} holds ${holds === "integer" ? "whole numbers" : holds === "float" ? "numbers"
+        : holds === "datetime" ? "dates and times" : holds === "boolean" ? "yes or no" : "keys of another kind"}`,
     notSet: () => "Not set",
     set: () => "Set",
     clear: ({ label }) => `Clear ${label}`,
@@ -62,6 +74,7 @@ export const fieldFormMessages: FieldFormMessages = {
         const counted = range === undefined ? (unit === undefined ? undefined : `in ${unit}`) : unit === undefined ? range : `${range} ${unit}`;
         return [counted, step === undefined ? undefined : `step ${step}`].filter((part) => part !== undefined).join(" · ");
     },
+    noEmpty: ({ label }) => `${label} can't be left empty`,
     tagPlaceholder: () => "Add a tag",
     checklistCount: ({ done, total }) => `${done} / ${total} done`,
     addItem: () => "Add item ⏎",

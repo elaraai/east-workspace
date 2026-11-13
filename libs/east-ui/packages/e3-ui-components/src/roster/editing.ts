@@ -18,12 +18,15 @@
  * @packageDocumentation
  */
 
-import { useMemo, useRef } from "react";
-import type { ValueTypeOf } from "@elaraai/east";
+import { useLayoutEffect, useMemo, useRef, type RefObject } from "react";
+import { DateTimeType, parseFor, type ValueTypeOf } from "@elaraai/east";
 import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
 import type { EditHistory, EditSession, EntryVersion } from "@elaraai/east-ui-components";
-import { useScheduleEditing, type ScheduleEditing, type ScheduleEditingRecord, type ScheduleEntryRef, type ScheduleRowRead } from "../shared/schedule/editing.js";
+import {
+    useScheduleEditing, type ScheduleEditing, type ScheduleEditingRecord, type ScheduleEntryRef, type ScheduleRowRead, type ScheduleStandingRows,
+} from "../shared/schedule/editing.js";
 import { draftedRow, heldInWindow, keptAtRevision, periodRowsRead, rowCodec } from "../shared/schedule/records.js";
+import type { RosterData } from "./data.js";
 import { rosterDomain, spanWindow, type DraftedDuty, type RosterSpan, type RosterValue, type StoredTarget } from "./model.js";
 
 /** What a change names the weeks' record by in the history: no duty kind's slot. */
@@ -45,9 +48,41 @@ export interface RosterEditing {
     readonly targets: ReadonlyMap<string, StoredTarget | undefined>;
     /** Every drafted week's row, by its key's text: its bytes, or `undefined` for one removed. */
     readonly periods: ReadonlyMap<string, Uint8Array | undefined>;
+    /**
+     * Where the board says what it draws of each record now: a gesture's original while the record's revision now is
+     * read — after a Save, or another session's — so a gesture on what the board shows is taken at once.
+     */
+    readonly standing: RefObject<ScheduleStandingRows | undefined>;
 }
 
 const NO_JOINED: Parameters<typeof useScheduleEditing>[0]["joined"] = [];
+const parseInstant = parseFor(DateTimeType);
+
+/**
+ * Says what the board draws of each record now ({@link RosterEditing.standing}): the span's duties and the week
+ * before's, its targets, and each period's own row by its start — as the frame holds them, at whatever revision they
+ * were read. None while the board draws no read of the span in view. Said as the frame commits, so a gesture reads
+ * what the page shows.
+ *
+ * @param editing - The Roster's editing; none for a Roster read only
+ * @param drawn - The read the frame draws, while it is the span's own
+ */
+export function useRosterStanding(editing: RosterEditing | undefined, drawn: Pick<RosterData, "duties" | "previous" | "targets" | "periods"> | undefined): void {
+    const standing = editing?.standing;
+    const duty = editing?.duty;
+    useLayoutEffect(() => {
+        if (standing === undefined || duty === undefined) return undefined;
+        standing.current = drawn === undefined ? undefined : {
+            [duty]: id => (drawn.duties.get(id) ?? drawn.previous?.get(id))?.bytes,
+            [TARGETS]: id => drawn.targets.get(id)?.bytes,
+            [PERIODS]: (id) => {
+                const at = parseInstant(id);
+                return at.success ? drawn.periods.get(at.value) : undefined;
+            },
+        };
+        return () => { standing.current = undefined; };
+    }, [standing, duty, drawn]);
+}
 
 /**
  * The Roster's sessions over its records, and their drafts (see the module docs).
@@ -85,7 +120,8 @@ export function useRosterEditing(value: RosterValue, storageKey: string, span: R
         return out;
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [value.duty, value.periods, value.targets, epoch, until]);
-    const schedule = useScheduleEditing({ kinds, records, reads, applyMode: "batch", storageKey, joined: NO_JOINED, range, recordSlices });
+    const standing = useRef<ScheduleStandingRows | undefined>(undefined);
+    const schedule = useScheduleEditing({ kinds, records, reads, standing, storageKey, joined: NO_JOINED, range, recordSlices, autosave: value.settings.autosave });
     const duty = value.duty.kind.key;
     const sessionOf = (key: string): EditSession<ScheduleEntryRef> | undefined => schedule.sessions.find(held => held.kind === key)?.session;
     // Each draft decoded once: a session keeps an entry's version the same object until a gesture replaces it.
@@ -149,5 +185,5 @@ export function useRosterEditing(value: RosterValue, storageKey: string, span: R
         return out;
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [drafts, value.periods]);
-    return useMemo(() => ({ schedule, history: schedule.history, duty, duties, targets, periods }), [schedule, duty, duties, targets, periods]);
+    return useMemo(() => ({ schedule, history: schedule.history, duty, duties, targets, periods, standing }), [schedule, duty, duties, targets, periods]);
 }

@@ -17,13 +17,17 @@
  * (`theme.tsx`, #1387): its own marks' roles, and each entity's colour by its
  * id — its colour token, its tone, or its status's, resolved as the cards
  * resolve theirs (D14). Its labels draw in the font the bridge read from the
- * recipe: the design system's mono face. A marker whose colour is its status's
- * while its status is unread — its details row read — draws in the
- * placeholders' fill once the builder's reveal says so, and is unseen before
- * (#1398): never a status it has not read. While what it draws stands in for a
- * new narrowing, its words — a labelled pin's and a link's caption — draw in
- * the third ink, as a zone's eyebrow always does; every mark and edge is as it
- * was (the loading design's retained card).
+ * recipe: the design system's mono face, each letter in a cell of its own —
+ * the page turns the face's joins off, which a canvas's text need not take, so
+ * every text it draws or measures turns them off itself: `textRendering`, and a
+ * non-joiner in each pair the face would join (`unjoined`) for Safari, whose
+ * canvas has no `textRendering`. A marker whose colour is its status's while
+ * its status is unread — its details row read — draws in the placeholders'
+ * fill once the builder's reveal says so, and is unseen before (#1398): never a
+ * status it has not read. While what it draws stands in for a new narrowing,
+ * its words — a labelled pin's and a link's caption — draw in the third ink, as
+ * a zone's eyebrow always does; every mark and edge is as it was (the loading
+ * design's retained card).
  *
  * Its links and nets draw in the shared links look (#1403), through the shared
  * Canvas2D painter (`shared/links/canvas.ts`) the Plan's and the Allocation's
@@ -45,7 +49,7 @@
 
 import { match, type option, type ValueTypeOf } from "@elaraai/east";
 import { Schematic } from "@elaraai/e3-ui/internal";
-import { arrive, paintLinks, traceHead, traceRoute, type CanvasLink, type CanvasLinkLook } from "../../shared/links/canvas.js";
+import { arrive, paintLinks, traceHead, traceRoute, unjoined, type CanvasLink, type CanvasLinkLook } from "../../shared/links/canvas.js";
 import { placeCaptions, type RibbonCaption } from "../../shared/links/captions.js";
 import { LINK_CAPTION_DROP, LINK_CORNER } from "../../shared/links/look.js";
 import type { SchematicDensity } from "../area.js";
@@ -522,6 +526,78 @@ function traceVertices(ctx: CanvasRenderingContext2D, pts: Vert[], closed: boole
     }
 }
 
+/**
+ * Where a zone's eyebrow stands, in world units (#1546): on the outline its `geometry` draws, at the outline's point
+ * nearest its box's top-left — of a polygon's edges, the last vertex's bulge curving the edge back to the first; of a
+ * polyline's run, along its middle; on a circle, toward the corner — and for a zone with no geometry, a `rect` or a
+ * shape of no vertices, its box's top-left itself. Its words run to the right of it.
+ *
+ * @param zone - The zone's box, in world units
+ * @param geom - Its drawn shape, if it has one
+ * @returns The point its eyebrow stands at, in world units
+ */
+export function zoneEyebrowAnchor(zone: { x: number; y: number; width: number; height: number }, geom: SchematicGeometryValue | undefined): Pt {
+    const corner = { x: zone.x, y: zone.y };
+    if (geom === undefined || geom.type === "rect") return corner;
+    const centre = zoneAnchor(zone);
+    if (geom.type === "circle") {
+        const r = geom.value.radius, dx = corner.x - centre.x, dy = corner.y - centre.y, d = Math.hypot(dx, dy);
+        // A box of no size has its corner at its centre: the circle's top stands for the point toward it.
+        return d < 1e-9 ? { x: centre.x, y: centre.y - r } : { x: centre.x + dx / d * r, y: centre.y + dy / d * r };
+    }
+    return nearestOnVertices(corner, placedVertices(centre, geom.value.vertices), geom.type === "polygon") ?? corner;
+}
+
+/**
+ * The point of an arc-aware vertex run nearest `p`, as {@link traceVertices} draws it: each edge straight, or the arc
+ * its DXF bulge encodes — and, `closed`, the last vertex's edge back to the first.
+ *
+ * @param p - The point
+ * @param pts - The run's vertices, placed
+ * @param closed - Whether the run closes, a polygon's
+ * @returns The run's point nearest `p`; `undefined` for a run of no vertices
+ */
+function nearestOnVertices(p: Pt, pts: readonly Vert[], closed: boolean): Pt | undefined {
+    if (pts.length === 0) return undefined;
+    let best: Pt = { x: pts[0]!.x, y: pts[0]!.y };
+    let bestDist = Math.hypot(p.x - best.x, p.y - best.y);
+    const edges = closed ? pts.length : pts.length - 1;
+    for (let i = 0; i < edges; i++) {
+        const from = pts[i]!;
+        const q = nearestOnEdge(p, from, pts[(i + 1) % pts.length]!, from.bulge);
+        const d = Math.hypot(p.x - q.x, p.y - q.y);
+        if (d < bestDist) { best = q; bestDist = d; }
+    }
+    return best;
+}
+
+/**
+ * The point of the edge `a`→`b` nearest `p`, as {@link traceBulge} draws it: of the segment, or of the arc its DXF bulge
+ * encodes — swept from its start the way `CanvasRenderingContext2D.arc` turns, the point toward `p` where the sweep
+ * reaches it, else the nearer end.
+ *
+ * @param p - The point
+ * @param a - The edge's start
+ * @param b - The edge's end
+ * @param bulge - Its DXF bulge, `a`'s
+ * @returns The edge's point nearest `p`
+ */
+function nearestOnEdge(p: Pt, a: Pt, b: Pt, bulge: number): Pt {
+    const arc = arcFromBulge(a, b, bulge);
+    if (arc === null) {
+        const dx = b.x - a.x, dy = b.y - a.y, length2 = dx * dx + dy * dy;
+        const t = length2 === 0 ? 0 : Math.max(0, Math.min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / length2));
+        return { x: a.x + dx * t, y: a.y + dy * t };
+    }
+    const TAU = Math.PI * 2;
+    const norm = (angle: number) => ((angle % TAU) + TAU) % TAU;
+    const toward = Math.atan2(p.y - arc.cy, p.x - arc.cx);
+    const sweep = arc.anticlockwise ? norm(arc.startAngle - arc.endAngle) : norm(arc.endAngle - arc.startAngle);
+    const into = arc.anticlockwise ? norm(arc.startAngle - toward) : norm(toward - arc.startAngle);
+    if (into <= sweep) return { x: arc.cx + arc.radius * Math.cos(toward), y: arc.cy + arc.radius * Math.sin(toward) };
+    return Math.hypot(p.x - a.x, p.y - a.y) <= Math.hypot(p.x - b.x, p.y - b.y) ? { x: a.x, y: a.y } : { x: b.x, y: b.y };
+}
+
 /** One look's dots: their centres in screen px, as `x, y, x, y, …`, and their items' ids, in the order they came. */
 interface DotRun {
     readonly centres: number[];
@@ -973,8 +1049,13 @@ export function paintSchematic(input: PaintInput): void {
             ctx.restore();
         }
 
-        // Its eyebrow at the bbox top-left (the minimap's anchor), where it has room: drawn over the dots, below.
-        if (w >= zone.label.length * 6.2 + 24) eyebrows.push({ x, y, label: zone.label.toUpperCase(), alpha: za });
+        // Its eyebrow on its outline, at the point nearest its box's top-left — at that corner for a zone with no shape or
+        // a rect (#1546) — where its box has room: drawn over the dots, below. Its room, like the minimap's anchor and
+        // Fit's margin, is its box's.
+        if (w >= zone.label.length * 6.2 + 24) {
+            const at = zoneEyebrowAnchor(zone, geom);
+            eyebrows.push({ x: wx(at.x), y: wy(at.y), label: zone.label.toUpperCase(), alpha: za });
+        }
         ctx.restore();
     }
 
@@ -990,7 +1071,8 @@ export function paintSchematic(input: PaintInput): void {
     const measure = (text: string): number => {
         ctx.save();
         ctx.font = p.labelFont;
-        const w = ctx.measureText(text).width;
+        ctx.textRendering = "optimizeSpeed";
+        const w = ctx.measureText(unjoined(text)).width;
         ctx.restore();
         return w;
     };
@@ -1224,6 +1306,7 @@ export function paintSchematic(input: PaintInput): void {
     if (conflicted !== undefined && conflicted.size > 0) {
         ctx.save();
         ctx.font = p.labelFont;
+        ctx.textRendering = "optimizeSpeed";
         ctx.lineWidth = 1;
         ctx.strokeStyle = css(p.statusWarn);
         ctx.shadowColor = css(p.statusWarn, 0.45);
@@ -1236,7 +1319,7 @@ export function paintSchematic(input: PaintInput): void {
             if (tier === "dot") {
                 ctx.arc(wx(item.x), wy(item.y), dotDrawnRadius(item) + 0.5, 0, Math.PI * 2);
             } else {
-                const box = markerHitbox(item, "label", cam, (t) => ctx.measureText(t).width);
+                const box = markerHitbox(item, "label", cam, (t) => ctx.measureText(unjoined(t)).width);
                 if (box.kind !== "rect") continue;
                 if (ctx.roundRect) ctx.roundRect(box.left - 1, box.top - 1, box.w + 2, box.h + 2, box.h / 2 + 1);
                 else ctx.rect(box.left - 1, box.top - 1, box.w + 2, box.h + 2);
@@ -1333,12 +1416,14 @@ export function paintSchematic(input: PaintInput): void {
         ctx.save();
         ctx.globalAlpha = brow.alpha;
         ctx.font = p.eyebrowFont;
-        const tw = ctx.measureText(brow.label).width;
+        ctx.textRendering = "optimizeSpeed";
+        const label = unjoined(brow.label);
+        const tw = ctx.measureText(label).width;
         ctx.fillStyle = css(p.bgCanvas);
         ctx.fillRect(brow.x + 6, brow.y - 7, tw + 6, 12);
         ctx.fillStyle = muted;
         ctx.textBaseline = "middle";
-        ctx.fillText(brow.label, brow.x + 9, brow.y);
+        ctx.fillText(label, brow.x + 9, brow.y);
         ctx.restore();
     }
     for (const item of plan.alone) {
@@ -1375,7 +1460,8 @@ export function paintSchematic(input: PaintInput): void {
             // drawn pill and the click target are identical (issue #57, P11), a long
             // label cut before an ellipsis (#1393).
             ctx.font = p.labelFont;
-            const box = markerHitbox(item, "label", cam, t => ctx.measureText(t).width);
+            ctx.textRendering = "optimizeSpeed";
+            const box = markerHitbox(item, "label", cam, t => ctx.measureText(unjoined(t)).width);
             if (box.kind === "rect") {
                 const { left, top, w, h, text } = box;
                 ctx.beginPath();
@@ -1401,7 +1487,7 @@ export function paintSchematic(input: PaintInput): void {
                 }
                 ctx.fillStyle = wordsInk;
                 ctx.textBaseline = "middle";
-                ctx.fillText(text, left + PIN_PAD_X + PIN_DOT_W + PIN_GAP, y);
+                ctx.fillText(unjoined(text), left + PIN_PAD_X + PIN_DOT_W + PIN_GAP, y);
             }
         }
         ctx.restore();

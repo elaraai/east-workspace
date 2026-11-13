@@ -32,6 +32,9 @@ import type { GestureState } from "./use-gestures";
 
 const stringEqual = equalFor(StringType);
 
+/** No item whose row breaks its fields' bounds. */
+const NONE_BOUNDED: ReadonlySet<string> = new Set();
+
 /** The card layer's widest card (#1393): what the recipe holds a card to, but one at its item's own width — the figure `tierSize` and the area read reckon with. */
 const CARD_LAYER_STYLE = { "--schematic-card-max": `${SCHEMATIC_CARD_MAX_PX}px` } as CSSProperties;
 
@@ -55,6 +58,8 @@ export interface SchematicCardLayerProps {
     readonly matches: ReadonlySet<string>;
     /** The items holding a conflict not yet chosen, by key. */
     readonly conflicted: ReadonlySet<string>;
+    /** The items whose rows break their fields' bounds (#1585), by key: none by default. */
+    readonly bounded?: ReadonlySet<string> | undefined;
     /** What draws selected: the selection, or what a marquee in flight would select. */
     readonly renderSelected: ReadonlySet<string>;
     /** What a locked layer holds, by id. */
@@ -81,8 +86,8 @@ export interface SchematicCardLayerProps {
  * @returns The layer
  */
 export function SchematicCardLayer({
-    cardLayerRef, styles, visibleItems, tiers, lod, context, look, matches, conflicted, renderSelected, lockedKeys, layerAlpha, connectDraft, dropMark, centers,
-    cardSizesRef, applyCamera,
+    cardLayerRef, styles, visibleItems, tiers, lod, context, look, matches, conflicted, bounded = NONE_BOUNDED, renderSelected, lockedKeys, layerAlpha, connectDraft,
+    dropMark, centers, cardSizesRef, applyCamera,
 }: SchematicCardLayerProps) {
     // Each card's size as the page lays it out (#1403): a ResizeObserver hears each card as it is laid out and as its box
     // changes — a card with an explicit width grows with the zoom — each size written into the one map in place, and the
@@ -134,6 +139,7 @@ export function SchematicCardLayer({
                         observe={observeCard}
                         selected={renderSelected.has(item.key)}
                         conflict={conflicted.has(item.key)}
+                        bounds={bounded.has(item.key)}
                         // Layer treatment: dim + lock (non-selectable — clicks fall
                         // through to entities beneath, matching the pickAt lock skip).
                         locked={lockedKeys.has(item.key)}

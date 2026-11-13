@@ -79,16 +79,16 @@ export const checkboxSlotRecipe = defineSlotRecipe({
             lg: { control: { boxSize: "16px", padding: "2px" } },
         },
         // The default `solid` variant fills checked/indeterminate from
-        // colorPalette. Pin checked to brand-d; the indeterminate "parent"
-        // affordance is the muted ink-4 minus — both with a white glyph.
+        // colorPalette. Pin checked to the brand, in each theme's shade; the
+        // indeterminate "parent" affordance is a muted minus.
         variant: {
             solid: {
                 control: {
                     borderWidth: "1.5px",
                     "&:is([data-state=checked], [data-state=indeterminate])": {
-                        background: "{colors.brand.600}",
-                        borderColor: "{colors.brand.600}",
-                        color: "fg.inverse",
+                        background: "brand.solid",
+                        borderColor: "brand.solid",
+                        color: "brand.contrast",
                     },
                     "&:is([data-state=indeterminate])": {
                         background: "{colors.gray.500}",

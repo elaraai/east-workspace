@@ -35,12 +35,17 @@ export interface EastChakraFieldProps {
     storageKey: string;
     /** A control a renderer draws itself, in place of the payload's — a field form's host-drawn control (#1188). */
     controlNode?: ReactNode | undefined;
+    /**
+     * What the field's help line holds, drawn by a renderer in place of the payload's text — a field form's help, the
+     * bound a number breaks said in its host's tone (#1585): the control is described by it, as by the text.
+     */
+    helperNode?: ReactNode | undefined;
 }
 
 /**
  * Renders an East UI Field value using Chakra UI Field component.
  */
-export const EastChakraField = memo(function EastChakraField({ value, storageKey, controlNode }: EastChakraFieldProps) {
+export const EastChakraField = memo(function EastChakraField({ value, storageKey, controlNode, helperNode }: EastChakraFieldProps) {
     const props = useMemo(() => toChakraField(value), [value]);
     const helperText = useMemo(() => getSomeorUndefined(value.helperText), [value.helperText]);
     const errorText = useMemo(() => getSomeorUndefined(value.errorText), [value.errorText]);
@@ -58,8 +63,9 @@ export const EastChakraField = memo(function EastChakraField({ value, storageKey
             <FrameFieldName.Provider value={value.label}>
                 {controlNode ?? <EastChakraComponent value={value.control} storageKey={`${storageKey}.control`} />}
             </FrameFieldName.Provider>
-            {helperText && <ChakraField.HelperText>{helperText}</ChakraField.HelperText>}
+            {(helperNode ?? helperText) && <ChakraField.HelperText>{helperNode ?? helperText}</ChakraField.HelperText>}
             {errorText && <ChakraField.ErrorText>{errorText}</ChakraField.ErrorText>}
         </ChakraField.Root>
     );
-}, (prev, next) => fieldEqual(prev.value, next.value) && prev.storageKey === next.storageKey && prev.controlNode === next.controlNode);
+}, (prev, next) => fieldEqual(prev.value, next.value) && prev.storageKey === next.storageKey && prev.controlNode === next.controlNode
+    && prev.helperNode === next.helperNode);

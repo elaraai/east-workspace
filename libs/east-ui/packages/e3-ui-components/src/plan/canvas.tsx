@@ -81,7 +81,7 @@
 
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent, type ReactNode } from "react";
 import { Box, VisuallyHidden, useSlotRecipe } from "@chakra-ui/react";
-import { StringType, equalFor, printFor, type PatchPath, type ValueTypeOf } from "@elaraai/east";
+import { StringType, equalFor, none, printFor, type PatchPath, type ValueTypeOf } from "@elaraai/east";
 import { Plan, ScheduleEventRefType, planKeys, type PlanPayloadType } from "@elaraai/e3-ui/internal";
 import {
     getSomeorUndefined, optimiseMessages, useCoarsePointer, useContainerBelow, useDataStable, useFormatters, useLanding, useLandingStyles, usePersistedState,
@@ -111,6 +111,7 @@ import type { RowKey } from "./plan-state.js";
 import { conflictPlaceOf, entryOf, usePlanEditing, type PlanEntryRef } from "./use-plan-editing.js";
 import { timeInstant } from "./instant.js";
 import { usePlanEventEditing } from "./edit/events.js";
+import { scheduleIssueName } from "../shared/schedule/editing.js";
 import { drawnKinds, usePlanEventDrag, type PlanEventCanDropFn } from "./edit/event-drag.js";
 import { PlanNarrow, PLAN_NARROW_BELOW } from "./narrow/index.js";
 import type { PlanNarrowPaging } from "./narrow/demand.js";
@@ -133,9 +134,10 @@ import {
     ALL_SHOWN, PlanEventsReader, eventReadRange, initialEventLead, usePlanEventRoot,
     type PlanEventLead, type PlanEventRows, type PlanEventShownValue,
 } from "./root/events.js";
-import { cellKinds, createCellSpanStore, shownCellSpan } from "./root/cells.js";
+import { cellKinds, createCellSpanStore, seriesKinds, shownCellSpan } from "./root/cells.js";
+import { NO_BREACHES, PlanBoundsReader, type PlanBreaches } from "./root/bounds.js";
 import { PlanNestedReader, createNestedViewStore, usePlanNestedRoot, usePlanWholeRows, type PlanNestedLead, type PlanNestedSpanRead, type SPAN_READING } from "./root/nested.js";
-import { hidesRow, type PlanRowsHidden } from "./frame/hidden.js";
+import { NONE_HIDDEN, hidesRow, type PlanRowsHidden } from "./frame/hidden.js";
 import type { PlanCanvasParts, PlanSessionBanner } from "./root/chrome.js";
 import { useHostBound } from "./root/host-bound.js";
 import { usePlanExpand, usePlanFocus } from "./root/focus.js";
@@ -154,6 +156,7 @@ import { PlanAnnouncer } from "./root/announce.js";
 import { PlanWordsContext, useResolvedPlanWords } from "./words.js";
 import type { PlanSearch } from "./use-seek.js";
 import { usePlanRowsFind } from "./find.js";
+import { FieldAskProvider, useFieldAsks } from "../shared/schedule/field-ask.js";
 import { useSourceHidden } from "../shared/schedule/hidden.js";
 import { useHiddenPick } from "../shared/schedule/hidden-pick.js";
 import { DROPPABLE_KINDS } from "./rows/BodyRow.js";
@@ -162,7 +165,7 @@ import { PlanTypingStore, planZooms, type PlanTyping } from "./edit/typing.js";
 import { originOf, unmoved, usePlanCarry, type PlanMoveRequest } from "./edit/use-carry.js";
 import { PlanCarryAnnouncer } from "./edit/announce.js";
 import { PlanSelectableContext, elementKeyOf, holdsElement, selectableOf } from "./rows/element-select.js";
-import { PlanConflictCellsContext, PlanConflictedContext, PlanDraftedContext } from "./rows/element-draft.js";
+import { PlanBoundedContext, PlanConflictCellsContext, PlanConflictedContext, PlanDraftedContext } from "./rows/element-draft.js";
 import { PlanOptimisedContext, type PlanOptimisedMarks } from "./rows/element-optimise.js";
 import { rowValueAt, type PlanCanvasInspect } from "./root/inspect.js";
 import { useOptimise } from "../shared/func/use-optimise.js";
@@ -286,8 +289,6 @@ export interface PlanCanvasArgs {
     panel?: readonly string[] | undefined;
     /** The event kinds themselves (#1194): each edited in a session over its record, under one history with `data`'s. */
     kinds?: readonly PlanEventKindValue[] | undefined;
-    /** When the event kinds' drafts go (#1194): on Save (`batch`, the default), or as each gesture lands (`auto`). */
-    applyMode?: "batch" | "auto" | undefined;
     /** The resource kinds (#1196): what the event kinds' rows stand for, by name. */
     resources?: readonly PlanResourceKindValue[] | undefined;
     /** The library's tabs (#1196): the author's tabs' cards, which land on an event of their patch's kind. */
@@ -303,6 +304,8 @@ export interface PlanCanvasArgs {
     busy?: boolean | undefined;
     /** The app's optimiser (#1409): its binding, which the Elara eye calls by name; none, no eye. */
     optimise?: { readonly name: string } | undefined;
+    /** Whether the Plan's Autosave begins on, as its author says: its one history's choice begins there. */
+    autosave?: boolean | undefined;
 }
 
 /** No panel tab whose cards land on the rows. */
@@ -314,12 +317,12 @@ const NO_PANEL: readonly string[] = [];
  * toolbar, banners and footer are drawn from — see the module docs. The
  * frame calls it once per render and places what it hands back.
  *
- * @param args - The root, its storage key, the event kinds' rows, what the viewer hides, the panel's tabs whose cards land, the event kinds with when their drafts go, the resource kinds, the library's tabs, the event kinds' drop veto, the resources the rail shows, and whether their narrowing is resolving
+ * @param args - The root, its storage key, the event kinds' rows, what the viewer hides, the panel's tabs whose cards land, the event kinds, the resource kinds, the library's tabs, the event kinds' drop veto, the resources the rail shows, whether their narrowing is resolving, and whether its Autosave begins on
  * @returns The canvas's parts: its contexts, main, its declared bound, and its chrome's facts
  */
 export function usePlanCanvas({
-    value: hostValue, storageKey, events, hidden, rowsHidden, eventKinds, panel, kinds = NO_KINDS, applyMode = "batch",
-    resources = NO_RESOURCES, tabs = NO_TABS, canDrop, shown: shownResources = ALL_SHOWN, busy = false, optimise,
+    value: hostValue, storageKey, events, hidden, rowsHidden, eventKinds, panel, kinds = NO_KINDS,
+    resources = NO_RESOURCES, tabs = NO_TABS, canDrop, shown: shownResources = ALL_SHOWN, busy = false, optimise, autosave = false,
 }: PlanCanvasArgs): PlanCanvasParts {
     planRootRenderProbe?.();
     // Changes identity on a DATA change only — read data fields through it,
@@ -406,6 +409,7 @@ export function usePlanCanvas({
     const whole = usePlanWholeRows(hostData.nested.type === "some" ? hostData.nested.value : undefined);
     const editing = usePlanEditing({
         value: hostValue, data: hostData, rows: sourceRows, origin: paging.origin, storageKey, labelOf, history: historyRef, whole,
+        entryOf: controller.entryOf, landedAt: controller.landedAt,
     });
 
     // ── The event kinds' editing (#1194) ──────────────────────────────────
@@ -421,12 +425,32 @@ export function usePlanCanvas({
     const standIn = useMemo(() => initialEventLead(events), [events]);
     const [readLead, setLead] = useState<PlanEventLead | undefined>(undefined);
     const lead = readLead ?? standIn;
-    // A kind read by its cells (#1039) finds a gesture's event in the rows its cells hold.
+    // A kind read by its cells (#1039) finds a gesture's event in the rows its cells hold, as the gesture runs.
+    const heldCells = useRef(lead.cells?.held);
+    heldCells.current = lead.cells?.held;
+    // The cells the reader gives a kind read a window at a time — its series index's, or its window's own rows — stand at
+    // the revision they were read at (#1039, #1599): what each Save lands of such a kind draws as the Save left it, over
+    // cells read before the commit, until they are read again.
+    const drawsLanded = useMemo(() => new Set(cellKinds(kinds)), [kinds]);
+    // A new event whose made key another Save took goes on under the next its session makes (#1583) — two planners who
+    // each duplicate one event, or drop one template, are given the same key. Nothing the Plan drafts names an event by
+    // its key — its links are the app's own, of events the record holds — so every kind's may.
+    const rekeys = useMemo(() => new Set(kinds.map((kind) => kind.key)), [kinds]);
     const eventEditing = usePlanEventEditing({
-        kinds, applyMode, storageKey, joined, range: eventRange, recordSlices: eventSlices, held: lead.cells?.held,
+        kinds, storageKey, joined, range: eventRange, recordSlices: eventSlices, held: heldCells, drawsLanded, rekeys, autosave,
     });
     const history = eventEditing.history;
     historyRef.current = history;
+    // What was selected of an event given another key stays selected under it — the inspector open on it still, before
+    // the frame is drawn without it: left on the old key, it would open the other session's event.
+    const renumbered = eventEditing.renumbered;
+    useLayoutEffect(() => {
+        if (renumbered.size === 0) return;
+        const moved = new Map<string, string>();
+        for (const [kind, ids] of renumbered) for (const [from, to] of ids) moved.set(printEventRef({ kind, key: from }), printEventRef({ kind, key: to }));
+        const ui = controller.getSnapshot().store.ui;
+        if (ui.elements.some((key) => moved.has(key))) controller.selectEvents(ui.elements.map((key) => moved.get(key) ?? key), ui.selected);
+    }, [renumbered, controller]);
 
     // ── The app's optimiser (#1409, #1419) ────────────────────────────────
     // One run over the plan window in view, its result landed on the event kinds' events as one step of the history,
@@ -624,7 +648,7 @@ export function usePlanCanvas({
     const cellsRead = lead.cells;
     const cellsReading = cellsRead?.drawn !== undefined && cellsRead.reading;
     const cellsNoun = useMemo(() => {
-        const slot = cellKinds(eventParts)[0];
+        const slot = seriesKinds(eventParts)[0];
         const kind = slot === undefined ? undefined : kinds.find((k) => stringEqual(k.key, slot));
         return kind === undefined ? undefined : words.m.saveNoticeNoun({ kind: kind.name.toLocaleLowerCase(words.locale), n: 2 });
     }, [eventParts, kinds, words]);
@@ -1267,11 +1291,17 @@ export function usePlanCanvas({
     scaleNow.current = scale;
     const moveWindowNow = useRef(moveWindow);
     moveWindowNow.current = moveWindow;
+    // The field a refusal gone to names, asked of its event's form: ringed there, it takes the keyboard as the form draws
+    // it, and so comes into view (`../shared/schedule/field-ask.tsx`).
+    const { asks: fieldAsks, request: askField } = useFieldAsks();
     const onIssue = useCallback((issue: EditIssue, path?: PatchPath) => {
         const source = history.sourceOf(issue);
         const kind = source === undefined ? undefined : kindSessions.find((s) => stringEqual(s.key, source));
         if (kind !== undefined) {
-            if (issue.entry !== "") selectEvents([printEventRef({ kind: kind.kind, key: issue.entry })]);
+            if (issue.entry === "") return;
+            // The warning button's issue asks for the field it names; a conflict's Go to, which names its path, for none.
+            askField(kind.kind, issue.entry, path === undefined ? issue.field : none);
+            selectEvents([printEventRef({ kind: kind.kind, key: issue.entry })]);
             return;
         }
         // A conflict's Go to: the row its path leads to among the canvas's rows (#1438) opened under its folded rows and
@@ -1295,7 +1325,7 @@ export function usePlanCanvas({
             return;
         }
         controller.focusItem(rowItemKey(row.key), "auto");
-    }, [history, kindSessions, selectEvents, controller, typingStore]);
+    }, [history, kindSessions, askField, selectEvents, controller, typingStore]);
     // A conflict below its entry's row named by the rows down to it — `Works 10001 / Crew 1`, never the crew's key —
     // then any steps below them, in words; an event kind's as its banners name it.
     const conflictItem = useCallback((issue: EditIssue, path: PatchPath, steps: readonly string[]) => {
@@ -1314,8 +1344,12 @@ export function usePlanCanvas({
     }, [history, locked, acted]);
     const edits = editing.enabled || kinds.length > 0;
     // Each session's banners: `data`'s naming no source, each kind's naming its kind, its issues by its events' titles —
-    // each event read as a gesture reads it, where the canvas reads its rows, else by its key (#1199).
+    // each event read as a gesture reads it, where the canvas reads its rows; one its drafts removed, as its record held
+    // it; else by its key (#1199, `scheduleIssueName`). The two reads are the same functions while the editing stands, so
+    // a window landing makes the banners no new props.
     const readEvent = eventEditing.read;
+    const heldEvent = eventEditing.heldEvent;
+    const naming = useMemo(() => ({ read: readEvent, heldEvent }), [readEvent, heldEvent]);
     const sessions = useMemo((): readonly PlanSessionBanner[] => {
         const actOn = (key: string) => (action: HistoryAction) => history.actOn(key, action);
         const out: PlanSessionBanner[] = editing.enabled
@@ -1327,18 +1361,11 @@ export function usePlanCanvas({
             if (kind === undefined || out.some((s) => stringEqual(s.key, held.key))) continue;
             out.push({
                 key: held.key, session: held.session, name: kind.name, onAction: actOn(held.key),
-                where: (issue) => {
-                    if (issue.entry === "") return "";
-                    try {
-                        return readEvent(kind.key, issue.entry)?.item.title ?? issue.entry;
-                    } catch {
-                        return issue.entry;
-                    }
-                },
+                where: (issue) => scheduleIssueName(naming, kind.key, issue.entry),
             });
         }
         return out;
-    }, [editing.enabled, editing.historyKey, editing.session, where, kindSessions, kinds, readEvent, history]);
+    }, [editing.enabled, editing.historyKey, editing.session, where, kindSessions, kinds, naming, history]);
     // A conflict's item in the history bar's popover, named as its session's banners name its issues — by this
     // render's rows, read as the popover draws, so a window landing makes the history item no new props (CL9).
     const namingNow = useRef({ sessions, where });
@@ -1349,13 +1376,26 @@ export function usePlanCanvas({
         const held = key === undefined ? undefined : naming.sessions.find((s) => stringEqual(s.key, key));
         return (held?.where ?? naming.where)(issue);
     }, [history]);
+    // The events whose rows break their kind's bounds (#1585), by their elements' keys: each element of one wears the warn
+    // ring, stored or changed, and a stored one's breach is a warning beside the history's issues, holding no Save, gone
+    // to as an issue of its session is. Read by a component of its own (`PlanBoundsReader`, in `provide`), which hands
+    // them over only as they move.
+    const [breaches, setBreaches] = useState<PlanBreaches>(NO_BREACHES);
+    const boundsWarnings = breaches.warnings;
+    const warnings = useMemo(() => boundsWarnings.map(({ kind, issue, text }) => ({
+        text,
+        go: () => {
+            askField(kind, issue.entry, issue.field);
+            selectEvents([printEventRef({ kind, key: issue.entry })]);
+        },
+    })), [boundsWarnings, askField, selectEvents]);
     // The history item's props, made again only as the history moves — its version moves with every change of it or
-    // of its sessions — or as its words and actions do, never as a window lands: the frame's toolbar is handed the
-    // same history item, and draws and measures nothing again for it (#1398, CL9).
+    // of its sessions — or as its words, actions and warnings do, never as a window lands: the frame's toolbar is handed
+    // the same history item, and draws and measures nothing again for it (#1398, CL9).
     const historyProps = useMemo(
-        () => (edits ? { session: history, words, editing: false, onAction: onHistory, onIssue, conflictItem, where: historyWhere, locked } : undefined),
+        () => (edits ? { session: history, words, editing: false, onAction: onHistory, onIssue, conflictItem, where: historyWhere, locked, warnings } : undefined),
         // eslint-disable-next-line react-hooks/exhaustive-deps -- the history is mutable: its version says it moved
-        [edits, history, historyVersion, words, onHistory, onIssue, conflictItem, historyWhere, locked]);
+        [edits, history, historyVersion, words, onHistory, onIssue, conflictItem, historyWhere, locked, warnings]);
 
     // ── The treegrid (#819) ───────────────────────────────────────────────
     // Every item's place in the grid — the pinned rows first, a run not read
@@ -1763,7 +1803,8 @@ export function usePlanCanvas({
     const eventsReader = events !== undefined
         ? (
             <PlanEventsReader events={events} scale={scale} hidden={hidden} drafts={eventEditing.drafts} shown={shownResources}
-                kinds={kinds} resources={resources} parts={eventParts} links={editing.data.links} spans={cellSpans} onLead={setLead} />
+                kinds={kinds} resources={resources} parts={eventParts} links={editing.data.links} spans={cellSpans} editing={eventEditing}
+                onLead={setLead} />
         )
         : null;
     // The rows' nested series (#1438), read by a component of its own around the rows laid out — or, while the Plan is
@@ -1783,6 +1824,9 @@ export function usePlanCanvas({
     const optimiseReader = optimise !== undefined && planWindow !== undefined && eventRange !== undefined
         ? <PlanOptimiseReader kinds={kinds} editing={eventEditing} window={planWindow} range={eventRange} cells={cellsRead} onReady={setOptimiseReady} />
         : null;
+    const boundsReader = kinds.length > 0 && eventRange !== undefined
+        ? <PlanBoundsReader kinds={kinds} editing={eventEditing} range={eventRange} cells={cellsRead} hidden={hidden ?? NONE_HIDDEN} onBreaches={setBreaches} />
+        : null;
     const provide = (children: ReactNode): ReactNode => {
         const provided = (
             <PlanWordsContext.Provider value={words}>
@@ -1793,15 +1837,17 @@ export function usePlanCanvas({
             <PlanCursorContext.Provider value={cursor}>
             <PlanResolversContext.Provider value={resolvers}>
             <PlanSelectableContext.Provider value={selectable}>
-            <PlanDraftedContext.Provider value={drafted}><PlanConflictedContext.Provider value={conflicted}><PlanConflictCellsContext.Provider value={conflictCells}>
+            <PlanDraftedContext.Provider value={drafted}><PlanConflictedContext.Provider value={conflicted}><PlanBoundedContext.Provider value={breaches.bounded}><PlanConflictCellsContext.Provider value={conflictCells}>
             <PlanOptimisedContext.Provider value={optimisedMarks}>
             <PlanGridContext.Provider value={gridCtx}>
             <PlanEditContext.Provider value={editCtx}>
+            <FieldAskProvider value={fieldAsks}>
                 {children}
+            </FieldAskProvider>
             </PlanEditContext.Provider>
             </PlanGridContext.Provider>
             </PlanOptimisedContext.Provider>
-            </PlanConflictCellsContext.Provider></PlanConflictedContext.Provider></PlanDraftedContext.Provider>
+            </PlanConflictCellsContext.Provider></PlanBoundedContext.Provider></PlanConflictedContext.Provider></PlanDraftedContext.Provider>
             </PlanSelectableContext.Provider>
             </PlanResolversContext.Provider>
             </PlanCursorContext.Provider>
@@ -1816,6 +1862,7 @@ export function usePlanCanvas({
                 {eventsReader}
                 {nestedReader}
                 {optimiseReader}
+                {boundsReader}
                 {densityTag !== undefined ? <DensityProvider value={densityTag}>{provided}</DensityProvider> : provided}
             </>
         );

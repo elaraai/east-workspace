@@ -8,7 +8,8 @@
  * lays nothing out (#856). The Sheet renders in its frame and scrolls its own
  * rows in main (#1216), so a test that renders one needs that frame as tall
  * as the browser would lay it, and rows as tall as they draw; a test of a
- * folded gutter (#1215), a touch screen's narrow frame.
+ * folded gutter (#1215), a touch screen's narrow frame; and a test of a
+ * desktop's frame too narrow to pin its panes, main narrower than it.
  *
  * Test use only: the package build leaves `*.test-utils.ts` out.
  *
@@ -84,9 +85,10 @@ export function boundFrame(height: number): () => void {
 
 /**
  * The frame scrolls when it is asked to, as a browser's does: `scrollTo`,
- * which jsdom lacks, writes a bounded rows frame's `scrollTop` and sends its
- * scroll event — what a jump to a sought row, or a keyboard move past the
- * rows in view, asks of it. Any other element's `scrollTo` is what it was.
+ * which jsdom lacks, writes a bounded rows frame's `scrollTop` and its
+ * `scrollLeft` and sends its scroll event — what a jump to a sought row, a
+ * keyboard move past the rows in view, or a phone's pager paging the columns
+ * asks of it. Any other element's `scrollTo` is what it was.
  *
  * @returns The restore
  */
@@ -102,8 +104,12 @@ export function frameScrolls(): () => void {
                 return;
             }
             const top = options?.top;
-            if (top === undefined || top === this.scrollTop) return;
-            this.scrollTop = top;
+            const left = options?.left;
+            const down = top !== undefined && top !== this.scrollTop;
+            const across = left !== undefined && left !== this.scrollLeft;
+            if (!down && !across) return;
+            if (down) this.scrollTop = top;
+            if (across) this.scrollLeft = left;
             this.dispatchEvent(new Event("scroll"));
         },
     });
@@ -169,6 +175,40 @@ export function touchFrame(width: number, options: { builder?: boolean } = {}): 
         Object.defineProperty(HTMLElement.prototype, "offsetWidth", saved.offsetWidth);
         Object.defineProperty(Element.prototype, "clientWidth", saved.clientWidth);
         if (options.builder === true) Element.prototype.getBoundingClientRect = saved.rect;
+    };
+}
+
+/**
+ * A desktop's frame too narrow to pin its panes, the pointer fine: the builder's frame `frame` px wide, and the frame
+ * the rows scroll in `main` px wide — what main keeps beside an overlaid pane's rail.
+ *
+ * @param frame - The builder's frame's width (px)
+ * @param main - The rows' frame's width (px)
+ * @returns The restore
+ */
+export function overlaidFrame(frame: number, main: number): () => void {
+    const saved = {
+        rect: Element.prototype.getBoundingClientRect,
+        offsetWidth: Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetWidth")!,
+        clientWidth: Object.getOwnPropertyDescriptor(Element.prototype, "clientWidth")!,
+    };
+    const rowsFrame = (el: Element) => el.getAttribute("data-virtual-rows") === "bounded";
+    Element.prototype.getBoundingClientRect = function (this: Element) {
+        const box = saved.rect.call(this);
+        return this.hasAttribute("data-builder-frame")
+            ? { x: 0, y: 0, top: 0, left: 0, right: frame, bottom: box.height, width: frame, height: box.height, toJSON: () => ({}) } as DOMRect
+            : box;
+    };
+    Object.defineProperty(HTMLElement.prototype, "offsetWidth", {
+        configurable: true, get(this: HTMLElement) { return rowsFrame(this) ? main : saved.offsetWidth.get!.call(this); },
+    });
+    Object.defineProperty(Element.prototype, "clientWidth", {
+        configurable: true, get(this: Element) { return rowsFrame(this) ? main : saved.clientWidth.get!.call(this); },
+    });
+    return () => {
+        Element.prototype.getBoundingClientRect = saved.rect;
+        Object.defineProperty(HTMLElement.prototype, "offsetWidth", saved.offsetWidth);
+        Object.defineProperty(Element.prototype, "clientWidth", saved.clientWidth);
     };
 }
 

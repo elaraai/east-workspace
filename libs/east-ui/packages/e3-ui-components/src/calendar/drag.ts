@@ -5,7 +5,8 @@
 
 /** Calendar's adaptation of the shared drag grammar to Schedule commands. */
 import { useCallback, useMemo, useRef, type MutableRefObject } from "react";
-import { none, some } from "@elaraai/east";
+import { SortedMap, compareFor, none, some } from "@elaraai/east";
+import { DragEventType } from "@elaraai/east-ui/internal";
 import { dropEvent, useDragTarget, useFormatters, type CellCoord, type DragEventValue, type DragPayload, type Formatters } from "@elaraai/east-ui-components";
 import { initialPlacement, type CalendarCommands, type CalendarPlacement, type CalendarSource } from "./actions.js";
 import { moveSpan, resizeSpan } from "../shared/time/drag.js";
@@ -13,6 +14,11 @@ import { timeScale } from "../shared/time/scale.js";
 import { lowerWord } from "../shared/schedule/words.js";
 import { calendarLibraryId } from "./library.js";
 import { DAY, QUARTER, dayStart, eventKey, parseEventKey, parseResourceKey, parseTimeKey, resourceKey, timeKey, type CalendarItem, type CalendarValue } from "./model.js";
+
+/** Two drops, as East orders them: a drag's verdicts are kept by the drop each was asked of. */
+const compareDrop = compareFor(DragEventType);
+/** The most verdicts an adapter keeps — the places drags have rested on since what they were asked of last changed — before it starts again. */
+const VERDICTS = 4096;
 
 /** The views hand drop coordinates to this single grammar adapter. */
 export interface CalendarDrag {
@@ -38,9 +44,9 @@ interface DragArgs {
     activeTemplate: string | undefined; onError: (message: string | undefined) => void;
 }
 /**
- * No layer is registered in narrow or read-only mode. The same adapter while what it reads holds (#1398, CL9): what the
- * views draw with it draws again only as it changes — and its `grab` the same function while the adapter lives, so an
- * event's block, which calls it, draws again for none of the adapter's other moves.
+ * No layer is registered in narrow or read-only mode. The same object while its surface and whether it takes a drag hold
+ * (#1398, CL9; #1594), each of its answers read from the verdicts as they stand: what the views draw with it — a row that
+ * draws nothing again as a drop lands on another — asks the verdicts of now, and draws again for none of their moves.
  */
 export function useCalendarDrag(args: DragArgs): CalendarDrag {
     const { value, key, commands, narrow, items, backlog, served, selection, activeTemplate, onError } = args;
@@ -54,6 +60,8 @@ export function useCalendarDrag(args: DragArgs): CalendarDrag {
     const format = useFormatters();
     const drag = useMemo(() => calendarDrag({ value, key, commands, items, backlog, served, selection, sources, activeTemplate, onError, enabled, grabbed, grab, format }),
         [value, key, commands, items, backlog, served, selection, sources, activeTemplate, onError, enabled, grab, format]);
+    const live = useRef(drag);
+    live.current = drag;
     const { run } = drag;
     const target = useMemo(() => {
         if (!enabled) return null;
@@ -65,19 +73,38 @@ export function useCalendarDrag(args: DragArgs): CalendarDrag {
         };
     }, [enabled, key, value.library, run, onError]);
     useDragTarget(target);
-    return drag;
+    return useMemo((): CalendarDrag => ({ surface: key, enabled, grab,
+        run: (event, checkOnly) => live.current.run(event, checkOnly),
+        adjust: (instant, payload) => live.current.adjust(instant, payload),
+        wholeDay: (day, payload) => live.current.wholeDay(day, payload),
+        readTime: slot => live.current.readTime(slot),
+        preview: (coord, payload) => live.current.preview(coord, payload),
+        caption: (coord, payload, allowed) => live.current.caption(coord, payload, allowed),
+        create: (start, end, resource) => live.current.create(start, end, resource),
+    }), [key, enabled, grab]);
 }
-/** The drag's verdicts over the period as it stands: what a drop runs, what a hover previews and what a press grabs. */
+/**
+ * The drag's verdicts over the period as it stands: what a drop runs, what a hover previews and what a press grabs.
+ * What they are asked of holds while the adapter does — the events and the Backlog read, the drafts, the selection, the
+ * templates — so it finds an event by its key once, and asks each place a drag rests on once (#1594).
+ */
 function calendarDrag({ value, key, commands, items, backlog, served, selection, sources, activeTemplate, onError, enabled, grabbed, grab, format }: {
     value: CalendarValue; key: string; commands: CalendarCommands | undefined; items: readonly CalendarItem[]; backlog: readonly CalendarItem[];
     served: DragArgs["served"]; selection: readonly CalendarItem[]; sources: ReadonlyMap<string, CalendarSource>; activeTemplate: string | undefined;
     onError: (message: string | undefined) => void; enabled: boolean; grabbed: MutableRefObject<{ id: string; offset: number } | undefined>;
     grab: CalendarDrag["grab"]; format: Formatters;
 }): CalendarDrag {
+    // The events and the Backlog read, each by its key, the first read of a key kept: what a drag finds the event it
+    // carries by, gathered at the first it asks for — never every event walked again at each place it rests on.
+    let read: Map<string, CalendarItem> | undefined;
     const sourceItem = (encoded: string): CalendarItem | undefined => {
         const parsed = parseEventKey(encoded);
-        return parsed.success ? [...items, ...backlog].find(item => item.kind === parsed.value.kind && item.key === parsed.value.key)
-            ?? served?.served(encoded) ?? commands?.editing.read(parsed.value.kind, parsed.value.key)?.item : undefined;
+        if (!parsed.success) return undefined;
+        if (read === undefined) {
+            read = new Map();
+            for (const list of [items, backlog]) for (const item of list) { const id = eventKey(item); if (!read.has(id)) read.set(id, item); }
+        }
+        return read.get(eventKey(parsed.value)) ?? served?.served(encoded) ?? commands?.editing.read(parsed.value.kind, parsed.value.key)?.item;
     };
     const resource = (row: string): CalendarItem["resource"] => {
         const read = parseResourceKey(row); return read.success ? some(read.value) : none;
@@ -85,7 +112,21 @@ function calendarDrag({ value, key, commands, items, backlog, served, selection,
     const at = (coord: { slot: string; row: string }) => {
         const read = parseTimeKey(coord.slot); return read.success ? { start: read.value, resource: resource(coord.row) } : undefined;
     };
+    // A drag's verdicts where it rests, by the drop it would deliver there, as the Roster keeps its previews: each asked
+    // once however often the pointer moves within a place, and the same verdict for the cell, the caption and what is said
+    // to a screen reader. New rows, drafts, a selection or a period make a new adapter, and with it new verdicts. A drop is
+    // never answered from them: it is made through the commands, which check it again.
+    const verdicts = new SortedMap<DragEventValue, { readonly refusal: string | undefined }>(undefined, compareDrop);
     const run = (event: DragEventValue, checkOnly: boolean): string | undefined => {
+        if (!checkOnly) return decide(event, false);
+        const held = verdicts.get(event);
+        if (held !== undefined) return held.refusal;
+        if (verdicts.size >= VERDICTS) verdicts.clear();
+        const refusal = decide(event, true);
+        verdicts.set(event, { refusal });
+        return refusal;
+    };
+    const decide = (event: DragEventValue, checkOnly: boolean): string | undefined => {
         if (!enabled || commands === undefined) return "Editing is unavailable";
         if (event.type === "add") {
             const drop = event.value; const target = at(drop.into);

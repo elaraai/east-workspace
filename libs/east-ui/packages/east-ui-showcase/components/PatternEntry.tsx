@@ -122,7 +122,7 @@ export const PatternEntry = memo(function PatternEntry({ entry }: { entry: Catal
                     css={{ "&:hover .anchor": { opacity: 1 } }}
                 >
                     {entry.name}
-                    <chakra.span className="anchor" opacity={0} transition="opacity 120ms" color="brand.600" ml="6px">#</chakra.span>
+                    <chakra.span className="anchor" opacity={0} transition="opacity 120ms" color="link" ml="6px">#</chakra.span>
                 </chakra.a>
                 <HStack gap="1" wrap="wrap">
                     {entry.keywords.slice(0, 4).map(k => (
@@ -222,7 +222,7 @@ function Disclosure({ label, raw }: { label: string; raw: string }) {
                 cursor="pointer"
                 px="0"
                 color={open ? "fg" : "fg.muted"}
-                _hover={{ color: "brand.700" }}
+                _hover={{ color: "brandPressed" }}
             >
                 <FontAwesomeIcon
                     icon={open ? faChevronDown : faChevronRight}

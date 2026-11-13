@@ -35,6 +35,7 @@ import { EastChakraComponent } from "../../component";
 import { EmptyStateView } from "../../feedback/empty-state/index.js";
 import { AvatarFallback } from "../../display/avatar/index.js";
 import { FrameMenuLayer } from "../../layout/builder-frame/frame-layer.js";
+import { useSlotClass } from "../../theme/slot-styles.js";
 
 const libraryEqual = equivalentFor(Library.Types.Library);
 
@@ -285,6 +286,20 @@ export function libraryEntries(groups: readonly LibraryGroup[], columns: number)
 // Card
 // ============================================================================
 
+/**
+ * Test-only render probe — lets "a drag starting or ending draws no card's face
+ * again" be asserted as the faces' own renders (#1594). `undefined` outside tests.
+ */
+let faceRenderProbe: (() => void) | undefined;
+/**
+ * Install (or clear) the card face render probe. Test use only.
+ *
+ * @param fn - Called each time a card's face renders; `undefined` clears it
+ */
+export function setLibraryFaceRenderProbe(fn: (() => void) | undefined): void {
+    faceRenderProbe = fn;
+}
+
 /** A card's secondary facts, in the toolbar's order — a compact card's and a gallery card's alike. */
 function LibraryDims({ item, keys, styles }: { item: LibraryItemValue; keys: readonly string[]; styles: SlotStyles }) {
     return keys.map(key => {
@@ -360,59 +375,51 @@ function useEnterHandle(drag: DragHandle | undefined, key: string, onCardEnter: 
     }), [drag, key, onCardEnter]);
 }
 
-/** Render the shared compact card for a Library or a paged builder palette. @internal */
-export function LibraryCard({ libraryId, item, dimOrder, activeDims, filtered, styles, onCardClick, onCardEnter, extras }: LibraryCardProps) {
+/**
+ * What follows the pointer as a card is carried, the same for a compact card and a gallery's: its name, a plain element
+ * of a class made as the card is drawn. A rule first added to the page's styles as the drag starts has the browser work
+ * out the whole page's styles and lay it all out again (`useSlotClass`), before the ghost can be measured.
+ *
+ * @param label - The card's name
+ * @param styles - The Library's slots
+ * @returns The ghost's element, the same one while the name and the slot hold
+ */
+function useCardGhost(label: string, styles: SlotStyles): ReactNode {
+    const className = useSlotClass()(styles.ghost);
+    return useMemo(() => <div className={className}>{label}</div>, [className, label]);
+}
+
+/** The secondary facts a card shows: those the toolbar has on that the card holds, in the toolbar's order. */
+function shownDims(item: LibraryItemValue, dimOrder: readonly string[], activeDims: readonly string[]): string[] {
+    return dimOrder.filter(k => activeDims.includes(k) && item.dims.get(k) !== undefined);
+}
+
+/**
+ * What a compact card shows, apart from the card itself, which is its drag
+ * handle. Every draggable draws again as any drag starts or ends (dnd-kit's
+ * `useDraggable` reads the drag in flight), so the handle alone does (#1594):
+ * nothing here hears the drag, and its props hold across those draws.
+ */
+const LibraryCardFace = memo(function LibraryCardFace({ item, visibleDims, grip, styles, extras }: {
+    item: LibraryItemValue;
+    visibleDims: readonly string[];
+    grip: boolean;
+    styles: SlotStyles;
+    extras: LibraryCardExtras | undefined;
+}) {
+    faceRenderProbe?.();
     const status = getSomeorUndefined(item.status);
     const glyph = getSomeorUndefined(item.trailing);
     const glyphTone = glyph !== undefined ? getSomeorUndefined(glyph.tone) : undefined;
     const sublabel = getSomeorUndefined(item.sublabel);
     const icon = getSomeorUndefined(item.icon);
-    const draggable = item.draggable && !filtered;
-    const visibleDims = dimOrder.filter(k => activeDims.includes(k) && item.dims.get(k) !== undefined);
     const tall = visibleDims.length > 0;
     const figure = extras?.figure, note = extras?.note, remove = extras?.remove, strip = extras?.strip;
     // A figure rides the name's line, as a tall card's status does.
     const headed = figure !== undefined || (tall && status !== undefined);
-
-    const from = useMemo(() => ({ library: libraryId, key: item.key, label: item.label }), [libraryId, item.key, item.label]);
-    const ghost = useMemo(() => (
-        <Box css={styles.ghost}>{item.label}</Box>
-    ), [styles.ghost, item.label]);
-    // The card is its own drag handle — by pointer, or focused and picked up
-    // with Space / Enter; the host may take its Enter.
-    const drag = useDragSourceItem(from, ghost, !draggable);
-    const handle = useEnterHandle(drag, item.key, onCardEnter);
-    // A click reports the card; a drag never clicks (the sensor swallows the
-    // click it ends with). A card that cannot be dragged is a button, so the
-    // keyboard clicks it too, the key going no further.
-    const click = onCardClick === undefined ? {} : {
-        onClick: () => onCardClick(item.key),
-        ...(drag === undefined ? {
-            role: "button",
-            tabIndex: 0,
-            onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => {
-                if (event.key !== "Enter" && event.key !== " ") return;
-                takeKey(event);
-                onCardClick(item.key);
-            },
-        } : {}),
-    };
-
     return (
-        <Box
-            css={styles.card}
-            data-library-item={item.key}
-            {...handle}
-            {...click}
-            {...(filtered ? { "data-filtered": "" } : {})}
-            {...(item.placed ? { "data-placed": "" } : {})}
-            {...(draggable && drag ? { "data-draggable": "" } : {})}
-            {...(onCardClick !== undefined ? { "data-clickable": "" } : {})}
-            {...(tall ? { "data-tall": "" } : {})}
-            {...(extras?.look !== undefined ? { "data-look": extras.look } : {})}
-            {...(extras?.title !== undefined ? { title: extras.title } : {})}
-        >
-            {draggable && drag && (
+        <>
+            {grip && (
                 <Box as="span" css={styles.grip} data-drag-grip="">
                     <FontAwesomeIcon icon={faGripVertical} />
                 </Box>
@@ -468,47 +475,24 @@ export function LibraryCard({ libraryId, item, dimOrder, activeDims, filtered, s
                     <FontAwesomeIcon icon={faXmark} />
                 </chakra.button>
             )}
-        </Box>
+        </>
     );
-}
+});
 
-interface LibraryGalleryCardProps extends LibraryCardProps {
-    /** Where the card's media keeps its state. */
-    storageKey: string;
-    /** Draws the card's media, when the host does. */
-    renderMedia: ((item: LibraryItemValue) => ReactNode) | undefined;
-}
-
-/**
- * A gallery card: its media on the sunken paper, then its face — the name and
- * status, the meta line, any secondary facts, and a foot holding the byline
- * and the action or glyph. The card is the one target: it drags, and a click
- * anywhere on it — the action it names included — is its click. The media is
- * a thumbnail, so nothing in it takes the pointer or the focus.
- */
-function LibraryGalleryCard({ libraryId, item, dimOrder, activeDims, filtered, styles, onCardClick, onCardEnter, storageKey, renderMedia }: LibraryGalleryCardProps) {
-    const status = getSomeorUndefined(item.status);
-    const statusStyles = useSlotRecipe({ key: "status" })({
-        status: status?.tone.type ?? "neutral",
-        size: "md",
-        ring: status?.ring ?? false,
-    }) as SlotStyles;
-    const glyph = getSomeorUndefined(item.trailing);
-    const glyphTone = glyph !== undefined ? getSomeorUndefined(glyph.tone) : undefined;
-    const sublabel = getSomeorUndefined(item.sublabel);
-    const media = getSomeorUndefined(item.media);
-    const avatar = getSomeorUndefined(item.avatar);
-    const byline = getSomeorUndefined(item.byline);
-    const action = getSomeorUndefined(item.action);
+/** Render the shared compact card for a Library or a paged builder palette. @internal */
+export function LibraryCard({ libraryId, item, dimOrder, activeDims, filtered, styles, onCardClick, onCardEnter, extras }: LibraryCardProps) {
     const draggable = item.draggable && !filtered;
-    const visibleDims = dimOrder.filter(k => activeDims.includes(k) && item.dims.get(k) !== undefined);
+    const visibleDims = useMemo(() => shownDims(item, dimOrder, activeDims), [item, dimOrder, activeDims]);
 
     const from = useMemo(() => ({ library: libraryId, key: item.key, label: item.label }), [libraryId, item.key, item.label]);
-    const ghost = useMemo(() => (
-        <Box css={styles.ghost}>{item.label}</Box>
-    ), [styles.ghost, item.label]);
+    const ghost = useCardGhost(item.label, styles);
+    // The card is its own drag handle — by pointer, or focused and picked up
+    // with Space / Enter; the host may take its Enter.
     const drag = useDragSourceItem(from, ghost, !draggable);
     const handle = useEnterHandle(drag, item.key, onCardEnter);
+    // A click reports the card; a drag never clicks (the sensor swallows the
+    // click it ends with). A card that cannot be dragged is a button, so the
+    // keyboard clicks it too, the key going no further.
     const click = onCardClick === undefined ? {} : {
         onClick: () => onCardClick(item.key),
         ...(drag === undefined ? {
@@ -524,15 +508,58 @@ function LibraryGalleryCard({ libraryId, item, dimOrder, activeDims, filtered, s
 
     return (
         <Box
-            css={styles.galleryCard}
-            data-library-card={item.key}
+            css={styles.card}
+            data-library-item={item.key}
             {...handle}
             {...click}
             {...(filtered ? { "data-filtered": "" } : {})}
             {...(item.placed ? { "data-placed": "" } : {})}
             {...(draggable && drag ? { "data-draggable": "" } : {})}
             {...(onCardClick !== undefined ? { "data-clickable": "" } : {})}
+            {...(visibleDims.length > 0 ? { "data-tall": "" } : {})}
+            {...(extras?.look !== undefined ? { "data-look": extras.look } : {})}
+            {...(extras?.title !== undefined ? { title: extras.title } : {})}
         >
+            <LibraryCardFace item={item} visibleDims={visibleDims} grip={draggable && drag !== undefined} styles={styles} extras={extras} />
+        </Box>
+    );
+}
+
+interface LibraryGalleryCardProps extends LibraryCardProps {
+    /** Where the card's media keeps its state. */
+    storageKey: string;
+    /** Draws the card's media, when the host does. */
+    renderMedia: ((item: LibraryItemValue) => ReactNode) | undefined;
+}
+
+/**
+ * What a gallery card shows, apart from the card itself, which is its drag
+ * handle: its media and its face. Only the handle draws again as a drag starts
+ * or ends ({@link LibraryCardFace}, #1594).
+ */
+const LibraryGalleryFace = memo(function LibraryGalleryFace({ item, visibleDims, styles, storageKey, renderMedia }: {
+    item: LibraryItemValue;
+    visibleDims: readonly string[];
+    styles: SlotStyles;
+    storageKey: string;
+    renderMedia: ((item: LibraryItemValue) => ReactNode) | undefined;
+}) {
+    faceRenderProbe?.();
+    const status = getSomeorUndefined(item.status);
+    const statusStyles = useSlotRecipe({ key: "status" })({
+        status: status?.tone.type ?? "neutral",
+        size: "md",
+        ring: status?.ring ?? false,
+    }) as SlotStyles;
+    const glyph = getSomeorUndefined(item.trailing);
+    const glyphTone = glyph !== undefined ? getSomeorUndefined(glyph.tone) : undefined;
+    const sublabel = getSomeorUndefined(item.sublabel);
+    const media = getSomeorUndefined(item.media);
+    const avatar = getSomeorUndefined(item.avatar);
+    const byline = getSomeorUndefined(item.byline);
+    const action = getSomeorUndefined(item.action);
+    return (
+        <>
             {(renderMedia !== undefined || media !== undefined) && (
                 <Box css={styles.galleryMedia} data-library-media="" aria-hidden inert>
                     {renderMedia !== undefined ? renderMedia(item)
@@ -579,6 +606,50 @@ function LibraryGalleryCard({ libraryId, item, dimOrder, activeDims, filtered, s
                     </Box>
                 )}
             </Box>
+        </>
+    );
+});
+
+/**
+ * A gallery card: its media on the sunken paper, then its face — the name and
+ * status, the meta line, any secondary facts, and a foot holding the byline
+ * and the action or glyph. The card is the one target: it drags, and a click
+ * anywhere on it — the action it names included — is its click. The media is
+ * a thumbnail, so nothing in it takes the pointer or the focus.
+ */
+function LibraryGalleryCard({ libraryId, item, dimOrder, activeDims, filtered, styles, onCardClick, onCardEnter, storageKey, renderMedia }: LibraryGalleryCardProps) {
+    const draggable = item.draggable && !filtered;
+    const visibleDims = useMemo(() => shownDims(item, dimOrder, activeDims), [item, dimOrder, activeDims]);
+
+    const from = useMemo(() => ({ library: libraryId, key: item.key, label: item.label }), [libraryId, item.key, item.label]);
+    const ghost = useCardGhost(item.label, styles);
+    const drag = useDragSourceItem(from, ghost, !draggable);
+    const handle = useEnterHandle(drag, item.key, onCardEnter);
+    const click = onCardClick === undefined ? {} : {
+        onClick: () => onCardClick(item.key),
+        ...(drag === undefined ? {
+            role: "button",
+            tabIndex: 0,
+            onKeyDown: (event: React.KeyboardEvent<HTMLDivElement>) => {
+                if (event.key !== "Enter" && event.key !== " ") return;
+                takeKey(event);
+                onCardClick(item.key);
+            },
+        } : {}),
+    };
+
+    return (
+        <Box
+            css={styles.galleryCard}
+            data-library-card={item.key}
+            {...handle}
+            {...click}
+            {...(filtered ? { "data-filtered": "" } : {})}
+            {...(item.placed ? { "data-placed": "" } : {})}
+            {...(draggable && drag ? { "data-draggable": "" } : {})}
+            {...(onCardClick !== undefined ? { "data-clickable": "" } : {})}
+        >
+            <LibraryGalleryFace item={item} visibleDims={visibleDims} styles={styles} storageKey={storageKey} renderMedia={renderMedia} />
         </Box>
     );
 }

@@ -132,7 +132,11 @@ test("a cold deep link starts visible examples, then loads an overscan preview w
     expect(started).toContain(`#${file}/rosterMinimal`);
     expect(started.filter(href => href.startsWith("#e3/roster/roster-records/"))).toEqual([]);
 
-    const previous = page.locator("[data-index]", { has: page.locator(`a[href="#${file}/rosterCustomInspector"]`) });
+    // The row the list renders just above the link, its one row of overscan: another of the file's examples, whichever
+    // the catalog's order puts there, its preview deferred until it scrolls into view.
+    const index = Number(await entry.getAttribute("data-index"));
+    const previous = page.locator(`[data-doc-scroll] > div > [data-index="${index - 1}"]`);
+    await expect(previous.locator(`a[href^="#${file}/"]`).first(), "the row above the link is another of the file's examples").toBeAttached();
     await expect(previous.locator("[data-example-deferred]")).toHaveCount(1);
     await previous.scrollIntoViewIfNeeded();
     await expect(previous.locator("[data-builder-frame]")).toBeVisible({ timeout: 20_000 });

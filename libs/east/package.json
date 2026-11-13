@@ -27,6 +27,7 @@
     "example": "node --enable-source-maps dist/contrib/examples/example.js",
     "example:async": "node --enable-source-maps dist/contrib/examples/async.js",
     "test": "npm run build && node --enable-source-maps --test-reporter=spec --test 'dist/test/**/*.spec.js' 'dist/src/**/*.spec.js'",
+    "test:floor": "npm run build && node --import ./dist/test/floor/engine.js --enable-source-maps --test-reporter=spec --test 'dist/test/**/*.spec.js' 'dist/src/**/*.spec.js'",
     "test:coverage": "npm run build && node --enable-source-maps --test-reporter=spec --test --experimental-test-coverage 'dist/test/**/*.spec.js' 'dist/src/**/*.spec.js'",
     "test:export": "npm run build && rm -rf \"${EAST_TEST_IR_DIR:?is unset: run make -C libs/east test-export}\" && EXPORT_TEST_IR=\"$EAST_TEST_IR_DIR\" node --enable-source-maps --test-reporter=spec --test 'dist/test/**/*.spec.js'",
     "lint": "eslint .",

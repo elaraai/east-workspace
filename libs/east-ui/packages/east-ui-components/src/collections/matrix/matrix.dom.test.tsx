@@ -10,9 +10,13 @@
  * keep addressing a row by its key, at any depth. The trees are built by the
  * east-ui factory and COMPILED, so the renderer reads what an author's
  * program produces.
+ *
+ * A slice's resize is its pointer's (`pointer/follow-pointer.ts`): no other
+ * pointer's moves resize it or end it, and once the browser has taken its
+ * pointer back nothing resizes it.
  */
 
-import { describe, test, expect, afterEach, beforeEach } from "vitest";
+import { describe, test, expect, afterEach, beforeEach, vi } from "vitest";
 import { render, cleanup, fireEvent, act } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import {
@@ -178,5 +182,75 @@ describe("nested Matrix rows (#955)", () => {
         const { container } = renderMatrix(rootOf(FLAT), "matrix-flat");
         expect(shown(container)).toEqual(["p@-", "q@-"]);
         expect(container.querySelector('[data-slot="treeIndent"]')).toBeNull();
+    });
+});
+
+describe("a slice's resize", () => {
+    /** A bar laid out 200px along its row, as a page lays it out: jsdom lays nothing out, and observes no resize. */
+    function layOutBars(): () => void {
+        const observer = (globalThis as { ResizeObserver?: unknown }).ResizeObserver;
+        (globalThis as { ResizeObserver?: unknown }).ResizeObserver = class {
+            private readonly heard: () => void;
+            constructor(heard: () => void) { this.heard = heard; }
+            observe() { this.heard(); }
+            unobserve() {}
+            disconnect() {}
+        };
+        const box = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+            return this.getAttribute("data-slot") === "bar" ? new DOMRect(0, 0, 200, 24) : new DOMRect(0, 0, 0, 0);
+        });
+        return () => {
+            box.mockRestore();
+            (globalThis as { ResizeObserver?: unknown }).ResizeObserver = observer;
+        };
+    }
+
+    test("follows the pointer that pressed its handle alone, another pointer's release ending nothing; taken back by the browser, or a mouse's button let go unheard, it is over, and no pointer resizes the slice after", async () => {
+        const restore = layOutBars();
+        try {
+            const changes: { row: string; column: string; segmentIndex: bigint; weight: number }[] = [];
+            const { container } = renderMatrix(rootOf(NESTED, {
+                onSegmentChange: some((e: { row: string; column: string; segmentIndex: bigint; weight: number }) => { changes.push(e); return null; }),
+            } as unknown as Partial<MatrixRootValue>), "matrix-resize");
+            /** The weights heard since last asked, to a thousandth. */
+            const heard = async () => {
+                await act(async () => { await Promise.resolve(); });
+                return changes.splice(0).map((e) => `${e.row}/${e.column}/${e.segmentIndex} ${e.weight.toFixed(3)}`);
+            };
+            // Row a books half of Monday: its slice's handle, pressed at 100px of the 200px bar.
+            const handle = rowAt(container, "a", 0).querySelector<HTMLElement>('[data-slot="resizeHandle"]')!;
+            const finger = (type: "pointerDown" | "pointerMove" | "pointerUp" | "pointerCancel", on: Element | Window, pointerId: number, clientX = 0) =>
+                fireEvent[type](on, { pointerId, pointerType: "touch", isPrimary: pointerId !== 9, button: 0, buttons: type === "pointerUp" || type === "pointerCancel" ? 0 : 1, clientX });
+            finger("pointerDown", handle, 3, 100);
+            finger("pointerMove", window, 3, 140);
+            expect(await heard()).toEqual(["a/mon/0 0.700"]);
+            // Another finger moves, and lifts: neither is the resize's.
+            finger("pointerMove", window, 9, 20);
+            finger("pointerUp", window, 9, 20);
+            finger("pointerMove", window, 3, 120);
+            expect(await heard()).toEqual(["a/mon/0 0.600"]);
+            // The browser takes the finger back: no release is heard, and the resize is over all the same.
+            finger("pointerCancel", window, 3);
+            finger("pointerMove", window, 3, 180);
+            finger("pointerMove", window, 9, 180);
+            expect(await heard()).toEqual([]);
+            // A new press resizes again, and its own release ends it.
+            finger("pointerDown", handle, 4, 100);
+            finger("pointerMove", window, 4, 60);
+            finger("pointerUp", window, 4, 60);
+            finger("pointerMove", window, 4, 10);
+            expect(await heard()).toEqual(["a/mon/0 0.300"]);
+            // A mouse's resize, its button let go where the window could not hear it: its next move, no button held, resizes nothing.
+            const mouse = (type: "pointerDown" | "pointerMove", on: Element | Window, clientX: number, buttons = 1) =>
+                fireEvent[type](on, { pointerId: 1, pointerType: "mouse", isPrimary: true, button: type === "pointerDown" ? 0 : -1, buttons, clientX });
+            mouse("pointerDown", handle, 100);
+            mouse("pointerMove", window, 150);
+            expect(await heard()).toEqual(["a/mon/0 0.750"]);
+            mouse("pointerMove", window, 190, 0);
+            mouse("pointerMove", window, 60);
+            expect(await heard()).toEqual([]);
+        } finally {
+            restore();
+        }
     });
 });

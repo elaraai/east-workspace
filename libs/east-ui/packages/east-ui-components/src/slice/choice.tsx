@@ -19,7 +19,7 @@ export const SliceFieldChip = forwardRef<HTMLButtonElement, Omit<ButtonHTMLAttri
     const frame = useSlotRecipe({ key: "sliceFrame" })();
     const coarse = useCoarsePointer();
     return <chakra.button {...props} ref={ref} type="button" title={label}
-        css={[frame.railTrigger, chip({ tone: active ? "brand" : "neutral", numeric: true })]}
+        css={[frame.railTrigger, chip({ tone: active ? "brand" : "neutral" })]}
         onKeyDown={event => { onKeyDown?.(event); if (!event.defaultPrevented && event.key === "Delete" && onRemove !== undefined) { event.preventDefault(); onRemove(); } }}>
         <Box as="span">{label}</Box>
         {caret && <FontAwesomeIcon icon={faCaretDown} data-chip-caret="" />}

@@ -10,7 +10,9 @@
  * whose drafts retire only once the source reads back what it committed. What
  * the session cannot do says so in the frame's banners, with their Retry and
  * Discard (#1193, PB24). Every test runs inline and paged: the behaviour is
- * the canvas's, whatever the source.
+ * the canvas's, whatever the source. And, paged alone, a Save whose answer
+ * comes only after the canvas has heard of another writer's later change
+ * (#1599): the canvas is never put back at the presses as the Save left them.
  */
 
 import { describe, test, expect, beforeEach, afterEach } from "vitest";
@@ -18,14 +20,15 @@ import { act, cleanup } from "@testing-library/react";
 import { equalFor, variant } from "@elaraai/east";
 import { initializeStore } from "@elaraai/east-ui-components/internal";
 import { UIStore } from "@elaraai/east-ui-components";
+import type { E3Request } from "../e3-web.test-utils.js";
 import {
-    Presses, SEED, type PressValue,
+    PRESSES_DATASET, PRESSES_RECORD, Presses, SEED, type PressValue,
     banner, bannerAction, dropCellOf, dropJob, history, historyButton, hoverJob, jobsDrawn, key, markOf, marks,
     canvasHarness, mountCanvas, releaseCanvases, settle, statusLine, type EditingCanvas,
 } from "./plan-editing.test-utils.js";
 
 // The paged canvases' presses, on e3.
-canvasHarness();
+const h = canvasHarness();
 
 class ResizeObserverStub { observe() {} unobserve() {} disconnect() {} }
 (globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= ResizeObserverStub;
@@ -154,7 +157,7 @@ for (const arm of ["inline", "paged"] as const) {
             expect(canvas.applies).toHaveLength(1);
         });
 
-        test("a source that moves under pending drafts carries them over: another writer's job on another press stands beside them, and Save stays on", async () => {
+        test("a source that moves under pending drafts carries them over: another writer's job on another press stands beside them, Save stays on, and Undo stands — none of the drafts moved", async () => {
             const canvas = await mountCanvas({ arm });
             const c = canvas.container;
             await dropJob(canvas, "job-1", "p1");
@@ -166,14 +169,19 @@ for (const arm of ["inline", "paged"] as const) {
             expect(jobs(c)).toEqual([["job-1"], ["job-9"], []]);
             expect(marks(c)).toEqual({ p1: "pending" });
             expect(historyButton(canvas, "Save").disabled).toBe(false);
-            // The history starts over at the drafts carried over; the canvas takes a gesture.
-            expect(historyButton(canvas, "Undo").disabled).toBe(true);
+            // The other writer's job is on another press: no draft moved, and the history stands — Undo takes the drop
+            // back still, and Redo puts it there again. The canvas takes a gesture.
+            expect(historyButton(canvas, "Undo").disabled).toBe(false);
+            await history(canvas, "Undo");
+            expect([jobs(c), marks(c)]).toEqual([[[], ["job-9"], []], {}]);
+            await history(canvas, "Redo");
+            expect([jobs(c), marks(c)]).toEqual([[["job-1"], ["job-9"], []], { p1: "pending" }]);
             expect(dropCellOf(c, "p3")).not.toBeNull();
             await history(canvas, "Save");
             expect(canvas.applies).toHaveLength(1);
         });
 
-        test("an acknowledgement lost after the write freezes the session — and Retry sends the SAME request, written once", async () => {
+        test("an acknowledgement lost after the write leaves its Save to ask again while the editing goes on — Undo and the canvas take their gestures, Discard waits — and Retry sends the SAME request, written once, what was dropped since left to save", async () => {
             const canvas = await mountCanvas({ arm });
             const c = canvas.container;
             await dropJob(canvas, "job-1", "p1");
@@ -182,19 +190,25 @@ for (const arm of ["inline", "paged"] as const) {
             // The banner says so, with its Retry; the toolbar keeps one row.
             expect(banner(c, "unknown")!.textContent).toContain("Acknowledgement lost");
             expect(c.querySelector('[data-frame-slot="toolbar"] [role="alert"]')).toBeNull();
-            expect(historyButton(canvas, "Undo").disabled).toBe(true);
-            expect(historyButton(canvas, "Discard").disabled).toBe(true);
-            // The canvas takes no gesture until the answer is known.
-            expect(dropCellOf(c, "p2")).toBeNull();
+            // A Save never stops the editing: Undo is on, and the canvas takes a drop. Discard waits for the answer.
+            expect([historyButton(canvas, "Undo").disabled, historyButton(canvas, "Discard").disabled]).toEqual([false, true]);
+            expect(dropCellOf(c, "p1")).not.toBeNull();
+            await dropJob(canvas, "job-2", "p1");
+            // The drop is a gesture of the history, as any other.
+            expect(labels(canvas)).toEqual(["Drop job-1 on Press 1", "Drop job-2 on Press 1"]);
             await bannerAction(c, "unknown", "apply");
             expect(banner(c, "unknown")).toBeNull();
             expect(canvas.queryByRole("alert")).toBeNull();
+            // The request as it was first sent, the drop made since no part of it.
             expect(canvas.applies).toHaveLength(2);
             expect(canvas.applies[1]).toEqual(canvas.applies[0]);
             expect(await canvas.writes()).toBe(1);
+            expect([...(await canvas.stored()).get("p1")!.jobs.keys()]).toEqual(["job-1"]);
             await canvas.confirm();
-            expect(marks(c)).toEqual({});
-            expect(jobsDrawn(c, "p1")).toEqual(["job-1"]);
+            // Read back: the first drop is the source's, and the second is what is left to save.
+            expect(marks(c)).toEqual({ p1: "pending" });
+            expect(jobs(c).map((drawn) => [...drawn].sort())).toEqual([["job-1", "job-2"], [], []]);
+            expect(historyButton(canvas, "Save").disabled).toBe(false);
         });
 
         test("the author's check marks the press it refuses — and Save waits for it", async () => {
@@ -216,6 +230,34 @@ for (const arm of ["inline", "paged"] as const) {
         });
     });
 }
+
+describe("paged: a Save's answer that comes late (#1599)", () => {
+    test("a Save whose answer comes after the canvas has heard of another writer's later job on another press never takes the canvas back to the presses as the Save left them: their job stays drawn, the Save is read back where the canvas reads, and e3 refuses none of its reads", async () => {
+        const canvas = await mountCanvas({ arm: "paged" });
+        const c = canvas.container;
+        // Every answer e3 gives the canvas's reads of the presses, from here.
+        const reads = h.e3.answers((request: E3Request) => request.kind !== "mutate" && request.dataset === PRESSES_DATASET);
+        await dropJob(canvas, "job-1", "p1");
+        // The Save commits, and its answer is held on its way back.
+        const answer = h.e3.holdAnswers((request: E3Request) => request.kind === "mutate" && request.record === PRESSES_RECORD);
+        await history(canvas, "Save");
+        await answer.holding;
+        // Another writer puts a job on Press 2, after the Save's commit; the canvas hears of it, and reads it.
+        const saved = await canvas.stored();
+        await canvas.move(new Map([...saved, ["p2", { ...saved.get("p2")!, jobs: new Map([["job-9", ELSEWHERE]]) }]]));
+        await canvas.confirm();
+        expect(jobs(c)).toEqual([["job-1"], ["job-9"], []]);
+        // Only then the Save's answer: it names the presses as the Save left them, which the canvas has passed.
+        await act(async () => { answer.release(); });
+        await canvas.confirm();
+        expect(jobs(c)).toEqual([["job-1"], ["job-9"], []]);
+        // Read back where the canvas reads: nothing left to save, no Save out.
+        expect([marks(c), statusLine(canvas), historyButton(canvas, "Save").disabled]).toEqual([{}, null, true]);
+        // Saved once: the one request from here, beside the other writer's commit.
+        expect([canvas.applies.length, await canvas.writes()]).toEqual([1, 2]);
+        expect(reads.filter((answer) => answer.status >= 400).length, "e3 refuses none of the canvas's reads: it is never asked for presses as they no longer are").toBe(0);
+    });
+});
 
 describe("the narrow layout (#880)", () => {
     const realRect = Element.prototype.getBoundingClientRect;

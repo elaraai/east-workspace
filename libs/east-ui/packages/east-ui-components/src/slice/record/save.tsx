@@ -9,6 +9,7 @@ import { Button } from "@chakra-ui/react";
 import { StringType, decodeBeast2For, encodeBeast2For, equalFor, none, some, type option, type ValueTypeOf } from "@elaraai/east";
 import { RecordSliceWhereType, type RecordSliceBindType } from "@elaraai/east-ui/internal";
 import type { EditSessionBinding, HeldRows } from "../../editing/session.js";
+import { recordSliceContainsAll } from "../../platform/slice/record.js";
 import { getStore } from "../../platform/state-runtime.js";
 import type { UIStoreInterface } from "../../platform/state-store.js";
 import { useTrackedEvaluation } from "../../reactive/index.js";
@@ -23,10 +24,11 @@ const encode = encodeBeast2For(RecordSliceWhereType);
 const decode = decodeBeast2For(RecordSliceWhereType);
 
 /** Keep membership facts, never decoded pages. A revision change restarts the
- * check; only a small batch of missing identities is requested at a time. An
- * entry whose row the Save holds at the revision checked — what its request
- * began from, or what its confirmation read back — is checked by that row,
- * never read by its key again. */
+ * check. Every entry is asked of the narrowing in one read (#1596), however
+ * many there are; a binding that batches none of its reads is asked a small
+ * batch of missing identities at a time. An entry whose row the Save holds at
+ * the revision checked — what its request began from, or what its confirmation
+ * read back — is checked by that row, never read by its key again. */
 function membership(slice: Slice, where: Where, ids: readonly string[], revision: () => option<string>, held: HeldRows | undefined) {
     let at: string | undefined;
     const results = new Map<string, boolean>();
@@ -35,6 +37,11 @@ function membership(slice: Slice, where: Where, ids: readonly string[], revision
         if (before.type === "none") { at = undefined; results.clear(); return none; }
         if (at === undefined || !sameRevision(at, before.value)) { at = before.value; results.clear(); }
         const rows = held !== undefined && sameRevision(held.revision, before.value) ? held.rows : undefined;
+        const all = recordSliceContainsAll(slice, where, ids, rows);
+        if (all !== undefined) {
+            const moved = revision();
+            return moved.type === "none" || !sameRevision(before.value, moved.value) ? none : all;
+        }
         let pending = 0;
         for (const id of ids) {
             if (results.has(id)) continue;

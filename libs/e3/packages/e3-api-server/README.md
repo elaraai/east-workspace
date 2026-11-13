@@ -631,7 +631,7 @@ running, and those that finished stay cached, so a relaunch is served them.
 |--------|----------|-------------|
 | GET | `/api/repos/:repo/workspaces/:ws/records/:rec` | The record's mutations, indexes and migrations, with their types: whether each index is a summary and whether it is built for the head's state, and when each migration was applied and by which commit, read from the record's ref and state, never its history |
 | GET | `/api/repos/:repo/workspaces/:ws/records/:rec/history` | Its commits, newest first: `?limit=` of them from `?from=`, the head when absent; with no limit, the whole chain, or the host's page (`historyLimit`). Each previews its arguments: the arguments' object, and each argument's type, size and East text, cut at 256 characters, the text of one over 64 KiB left out, and no argument of an object over 1 MiB, which the objects route serves whole |
-| POST | `/api/repos/:repo/workspaces/:ws/records/:rec/mutations/:mut` | Apply a mutation: `committed`, `invalid`, `failed`, `timed_out` or `conflict`; with an `Idempotency-Key`, a retry answers the first call's commit |
+| POST | `/api/repos/:repo/workspaces/:ws/records/:rec/mutations/:mut` | Apply a mutation: `committed`, `invalid`, `failed`, `timed_out` or `conflict`; with an `Idempotency-Key`, a retry answers the first call's commit and the state the record holds now, whatever was written since, while the record remembers the request: its last 16 keyed ones |
 | POST | `/api/repos/:repo/workspaces/:ws/records/:rec/compact` | Collapse the history to a `$compact` root, the state kept (an elevated role when auth is on) |
 
 ### Execution

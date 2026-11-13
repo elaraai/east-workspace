@@ -12,9 +12,13 @@
  * keyboard pickup, the ⊘ veto, edge scrolling and the announcements: each row
  * is a continuous cell that names where a drag rests (beside a tile, or a new
  * row above or below it), a gap cell sits above each row, and the end zone
- * under the last. The three resize handles are the canvas's own pointer
- * handling, snapping live: a resize lands nowhere. The selection is the
- * host's bound `ui` state, or the canvas's own.
+ * under the last. The three resize handles are the canvas's own, snapping
+ * live: a resize lands nowhere. A resize is its pointer's (`followPointer`,
+ * `../../pointer/`): that pointer's moves alone snap it, and it ends once —
+ * landed by that pointer's release, or let go of, landing nothing, as the
+ * browser takes the pointer back, as a mouse moves with its button no longer
+ * held, as the window loses the page, and at Esc. The selection is the host's
+ * bound `ui` state, or the canvas's own.
  *
  * The canvas is the builder's frame (#995), laid out by the shared
  * `BuilderFrame` (#1125): one toolbar across its width — the host's start
@@ -84,6 +88,7 @@ import {
     type DragEventValue, type DragPayload, type DropCellOptions, type DropVeto,
 } from "../../dnd/drag-layer";
 import { useIRCanDrop, type CanDropFn } from "../../dnd/ir-can-drop";
+import { followPointer } from "../../pointer/follow-pointer.js";
 import { useSnapGridEditing, type SnapGridDraftMark } from "./use-snap-grid-editing.js";
 import { useSnapGridWords, type SnapGridWords } from "./messages.js";
 import {
@@ -657,8 +662,12 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
         for (const t of root.querySelectorAll("[data-snap-grid-drop]")) t.removeAttribute("data-snap-grid-drop");
     }, [dragging]);
 
-    // ── The resize handles — the canvas's own pointer handling ───────────
+    // ── The resize handles — the canvas's own, each resize its pointer's ──
     const [preview, setPreview] = useState<ResizePreview | undefined>(undefined);
+    // What lets go of the resize in flight, landing nothing; `undefined` while none is. One at a time: a new press lets
+    // go of one whose end was never heard, as Esc does, and as the canvas going does.
+    const dropResize = useRef<(() => void) | undefined>(undefined);
+    useEffect(() => () => dropResize.current?.(), []);
     /** Each tile's content height, taken the last time it was auto — where a height drag returns it to auto. */
     const naturals = useRef(new Map<string, number>());
     const onResizeStart = useCallback((e: ReactPointerEvent, key: string, kind: ResizeKind) => {
@@ -700,9 +709,7 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
             setPreview(next);
         };
         const finish = (commit: boolean) => {
-            handle.removeEventListener("pointermove", onMove);
-            handle.removeEventListener("pointerup", onUp);
-            handle.removeEventListener("pointercancel", onCancel);
+            dropResize.current = undefined;
             setPreview(undefined);
             if (!commit || last === undefined) return;
             if (kind === "span") {
@@ -711,12 +718,16 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
                 height(key, last.height ?? null, kind === "both" ? last.span : undefined);
             }
         };
-        const onUp = () => finish(true);
-        const onCancel = () => finish(false);
+        dropResize.current?.();
+        // The handle holds the pointer, so its cursor stands wherever the pointer goes. The resize follows the pointer at
+        // the window (`followPointer`): its end is heard though the handle goes under it — the selection let go, the tile
+        // drawn again — and no other pointer's move or lift over the handle is the resize's.
         handle.setPointerCapture?.(e.pointerId);
-        handle.addEventListener("pointermove", onMove);
-        handle.addEventListener("pointerup", onUp);
-        handle.addEventListener("pointercancel", onCancel);
+        const stop = followPointer(e, { move: onMove, up: () => finish(true), cancel: () => finish(false) });
+        dropResize.current = () => {
+            stop();
+            finish(false);
+        };
     }, [resize, height]);
 
     // Each auto tile's content height, kept fresh — what a height a pane asks
@@ -828,6 +839,12 @@ export const SnapGridEditor = memo(function SnapGridEditor({ value, storageKey, 
         const tile = current !== undefined ? tiles.find((x) => x.key === current) : undefined;
         switch (e.key) {
             case "Escape":
+                // A resize in flight is let go of first, landing nothing: the selection stands.
+                if (dropResize.current !== undefined) {
+                    e.preventDefault();
+                    dropResize.current();
+                    return;
+                }
                 if (selected === null) return;
                 e.preventDefault();
                 select(null);

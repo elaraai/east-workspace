@@ -8,14 +8,22 @@
  * in, the week out — `Roster.Types.OptimiseRequest(WarehouseDuty)` to
  * `Roster.Types.OptimiseResult(WarehouseDuty)`, an `e3.function` — bound to the
  * Roster's `optimise`, which the Elara eye calls once per run and whose answer
- * lands in the session as one edit.
+ * lands in the session as one edit. A warehouse whose week runs by when its
+ * shifts end binds one that takes the duties at the week's edges too (#1553):
+ * `Roster.Types.OptimiseRequest(NightsShift, { edges: true })`.
  */
-import { ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, SetType, StringType, StructType, example, none, variant, type BlockBuilder, type ExprType } from "@elaraai/east";
+import {
+    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, SetType, SortedMap, StringType, StructType, VariantType,
+    compareFor, example, none, some, variant, type BlockBuilder, type ExprType, type ValueTypeOf,
+} from "@elaraai/east";
 import e3 from "@elaraai/e3";
 import { Box, Reactive, Slice, UIComponentType } from "@elaraai/east-ui";
 import { Data, Func, Record, Roster, Schedule } from "@elaraai/e3-ui";
 import { WarehouseDuty } from "./warehouse.js";
-import { rosterActivities, rosterAgencies, rosterCover, rosterDuties, rosterPatterns, rosterPositions, rosterShiftTimes, rosterStaff, rosterStaffFit, rosterSuggestions, rosterTeams, rosterWeeks } from "./roster.examples.js";
+import {
+    MinimalShiftTime, minimalTeams, rosterActivities, rosterAgencies, rosterCover, rosterDuties, rosterPatterns, rosterPositions, rosterShiftTimes, rosterStaff, rosterStaffFit,
+    rosterSuggestions, rosterTeams, rosterWeeks,
+} from "./roster.examples.js";
 
 /** One person on one day of the week: who is booked when, so a run never books the same person twice on a day. */
 const Booked = StructType({ day: IntegerType, person: StringType });
@@ -170,6 +178,202 @@ export const rosterOptimise = example({
             patterns={Roster.patterns(weekPatterns.read(), { name: "Patterns", icon: "calendar-week", label: w => w.label, days: w => w.days, order: w => w.order })}
             rules={{ rest: 10.0 }}
             library={[Roster.library.people(), Roster.library.patterns(), Roster.library.activities()]} />
+        </Box>;
+    }}</Reactive>),
+});
+
+// A warehouse whose week runs by when its shifts end (#1553), as its payroll's does: a shift is planned in, and paid in, the
+// week its end falls in. Its Roster's week starts on Monday, so the night from Sunday 22:00 to Monday 06:00 — the business
+// week's first shift — is drawn on the Sunday, in the week before; and the week's own last night ends in the next week,
+// whose plan owns it.
+
+/** A shift of the night warehouse: who works it, which shift, in which team, and when. */
+export const NightsShift = StructType({ who: StringType, shift: StringType, team: StringType, start: DateTimeType, end: DateTimeType });
+/** One of its staff: a name, a team, and the shift they work the week being planned. */
+export const NightsWorker = StructType({ name: StringType, team: StringType, usual: OptionType(StringType) });
+/** A week of its rota, its first day a Monday: open, or issued and when. */
+export const NightsWeek = StructType({ state: VariantType({ open: NullType, issued: StructType({ at: DateTimeType }) }) });
+
+/**
+ * The shifts, by key: the week planned (Monday 6 March 2028) and its edges. Ada works earlies and Tom nights, his night
+ * before the week rostered from 21:00 and his last one ending in the next week; Mia, off nights this week, keeps the night
+ * before it from her old plan, and her Monday is not rostered yet.
+ */
+export const nightsShiftRows: Map<string, ValueTypeOf<typeof NightsShift>> = new Map([
+    ["ada-mon", { who: "w-01", shift: "early", team: "inbound", start: new Date("2028-03-06T06:00:00Z"), end: new Date("2028-03-06T14:00:00Z") }],
+    ["ada-tue", { who: "w-01", shift: "early", team: "inbound", start: new Date("2028-03-07T06:00:00Z"), end: new Date("2028-03-07T14:00:00Z") }],
+    ["ada-wed", { who: "w-01", shift: "early", team: "inbound", start: new Date("2028-03-08T06:00:00Z"), end: new Date("2028-03-08T14:00:00Z") }],
+    ["ada-thu", { who: "w-01", shift: "early", team: "inbound", start: new Date("2028-03-09T06:00:00Z"), end: new Date("2028-03-09T14:00:00Z") }],
+    ["ada-fri", { who: "w-01", shift: "early", team: "inbound", start: new Date("2028-03-10T06:00:00Z"), end: new Date("2028-03-10T14:00:00Z") }],
+    ["ada-next-mon", { who: "w-01", shift: "early", team: "inbound", start: new Date("2028-03-13T06:00:00Z"), end: new Date("2028-03-13T14:00:00Z") }],
+    ["tom-sun-before", { who: "w-02", shift: "night", team: "dispatch", start: new Date("2028-03-05T21:00:00Z"), end: new Date("2028-03-06T05:00:00Z") }],
+    ["tom-mon", { who: "w-02", shift: "night", team: "dispatch", start: new Date("2028-03-06T22:00:00Z"), end: new Date("2028-03-07T06:00:00Z") }],
+    ["tom-tue", { who: "w-02", shift: "night", team: "dispatch", start: new Date("2028-03-07T22:00:00Z"), end: new Date("2028-03-08T06:00:00Z") }],
+    ["tom-wed", { who: "w-02", shift: "night", team: "dispatch", start: new Date("2028-03-08T22:00:00Z"), end: new Date("2028-03-09T06:00:00Z") }],
+    ["tom-thu", { who: "w-02", shift: "night", team: "dispatch", start: new Date("2028-03-09T22:00:00Z"), end: new Date("2028-03-10T06:00:00Z") }],
+    ["tom-sun", { who: "w-02", shift: "night", team: "dispatch", start: new Date("2028-03-12T22:00:00Z"), end: new Date("2028-03-13T06:00:00Z") }],
+    ["mia-sun-before", { who: "w-03", shift: "night", team: "inbound", start: new Date("2028-03-05T22:00:00Z"), end: new Date("2028-03-06T06:00:00Z") }],
+    ["mia-tue", { who: "w-03", shift: "early", team: "inbound", start: new Date("2028-03-07T06:00:00Z"), end: new Date("2028-03-07T14:00:00Z") }],
+    ["mia-wed", { who: "w-03", shift: "early", team: "inbound", start: new Date("2028-03-08T06:00:00Z"), end: new Date("2028-03-08T14:00:00Z") }],
+    ["mia-thu", { who: "w-03", shift: "early", team: "inbound", start: new Date("2028-03-09T06:00:00Z"), end: new Date("2028-03-09T14:00:00Z") }],
+    ["mia-fri", { who: "w-03", shift: "early", team: "inbound", start: new Date("2028-03-10T06:00:00Z"), end: new Date("2028-03-10T14:00:00Z") }],
+]);
+/** The shifts, which the Roster writes through the patch door. */
+export const nightsShifts = e3.record("rota_nights_shifts", DictType(StringType, NightsShift), {
+    initial: nightsShiftRows,
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
+/** The staff as rows, by key: each with the shift they work the week being planned. */
+export const nightsWorkerRows: Map<string, ValueTypeOf<typeof NightsWorker>> = new Map([
+    ["w-01", { name: "Ada Brook", team: "inbound", usual: some("early") }],
+    ["w-02", { name: "Tom Vale", team: "dispatch", usual: some("night") }],
+    ["w-03", { name: "Mia Hart", team: "inbound", usual: some("early") }],
+]);
+export const nightsWorkers = e3.record("rota_nights_staff", DictType(StringType, NightsWorker), { initial: nightsWorkerRows });
+/** Its shift times as rows, by key: an early from 6:00, a late from 14:00 and a night from 22:00, eight hours each. */
+export const nightsShiftTimeRows: Map<string, ValueTypeOf<typeof MinimalShiftTime>> = new Map([
+    ["early", { name: "Early", code: "E", starts: { hour: 6n, minute: 0n }, hours: 8.0, order: 1n }],
+    ["late", { name: "Late", code: "L", starts: { hour: 14n, minute: 0n }, hours: 8.0, order: 2n }],
+    ["night", { name: "Night", code: "N", starts: { hour: 22n, minute: 0n }, hours: 8.0, order: 3n }],
+]);
+export const nightsShiftTimes = e3.record("rota_nights_shift_times", DictType(StringType, MinimalShiftTime), { initial: nightsShiftTimeRows });
+/** The weeks of its rota as rows, each keyed by its Monday: the week before and the week planned, both open. */
+export const nightsWeekRows: SortedMap<Date, ValueTypeOf<typeof NightsWeek>> = new SortedMap<Date, ValueTypeOf<typeof NightsWeek>>([
+    [new Date("2028-02-28T00:00:00Z"), { state: variant("open", null) }],
+    [new Date("2028-03-06T00:00:00Z"), { state: variant("open", null) }],
+], compareFor(DateTimeType));
+/** The weeks of its rota, which Publish writes through the patch door. */
+export const nightsWeeks = e3.record("rota_nights_weeks", DictType(DateTimeType, NightsWeek), {
+    initial: nightsWeekRows,
+    mutations: (mutation) => ({
+        patch: mutation.patch(),
+    }),
+});
+
+const NightsRequest = Roster.Types.OptimiseRequest(NightsShift, { edges: true }), NightsResult = Roster.Types.OptimiseResult(NightsShift, { edges: true });
+/** A person's day of the business week, Monday 0: one the plan already holds. */
+const NightsHeld = StructType({ person: StringType, day: IntegerType });
+
+/**
+ * The night warehouse's optimiser (#1553): the business week — every shift ending from the week's Monday to the next —
+ * planned by when each shift ends, each person on their usual shift Monday to Friday, in their own team. It sees the
+ * week's duties and the duties at its edges together. A duty of a published week, among `fixed`, stands as it is and
+ * holds its person's day. Every other duty ending in the business week — the night before the week among them — is
+ * kept at its shift's own times, where it is its person's usual shift on a weekday not held yet, and taken away
+ * otherwise; one ending outside it stands as it is: the week's last night is the next week's plan's. Each weekday left is
+ * planned under a key of the run's own, a night before the week too: a new duty starting outside the week goes back among
+ * the edges.
+ */
+export const rosterPlanNightsBody = East.function([NightsRequest], NightsResult, ($, req) => {
+    const shifts = $.const(req.context.shifts.toDict(($2, shift) => shift.key, ($2, shift) => shift));
+    // A person's usual shift on a day of the business week: a shift past midnight — the night — starts the day before the
+    // day it ends on.
+    const planned = $.const(East.function([Roster.Types.Person, Roster.Types.Shift, IntegerType], NightsShift, ($2, person, shift, day) => {
+        const from = $2.const(shift.start.hour.multiply(60n).add(shift.start.minute));
+        const length = $2.const(East.Float.roundHalf(shift.hours.multiply(60.0)));
+        const before = $2.const(from.add(length).subtract(1n).divide(1440n));
+        const start = $2.const(req.from.addDays(day.subtract(before)).addMinutes(from));
+        return { who: person.key, shift: shift.key, team: person.group, start, end: start.addMinutes(length) };
+    }));
+    // The day of the business week a shift ending then belongs to, Monday 0; -1 for an end outside it.
+    const dayOf = $.const(East.function([DateTimeType], IntegerType, ($2, end) => {
+        const since = $2.const(req.from.durationMilliseconds(end));
+        return East.greater(since, 0n).and(() => East.lessEqual(since, 604_800_000n)).ifElse(() => since.subtract(1n).divide(86_400_000n), () => -1n);
+    }));
+    // The week's duties and its edges together, by key: the request holds them apart.
+    const seen = $.let(req.duties.map(($2, duty) => duty));
+    $.for(req.edges, ($2, duty, key) => { $2(seen.insert(key, duty)); });
+    const kept = $.let(new Map(), DictType(StringType, NightsShift));
+    const held = $.let(new Set<{ person: string; day: bigint }>(), SetType(NightsHeld));
+    // A published week's duties stand as they are, and hold their person's day.
+    $.for(seen, ($2, duty, key) => {
+        $2.if(req.fixed.has(key), ($3) => {
+            $3(kept.insert(key, duty));
+            const day = $3.const(dayOf(duty.end));
+            $3.if(East.greaterEqual(day, 0n).and(() => held.has({ person: duty.who, day }).not()), ($4) => { $4(held.insert({ person: duty.who, day })); });
+        });
+    });
+    // Every other duty: one ending outside the business week stands as it is; one ending on a weekday is kept where it is
+    // its person's usual shift on a day not held yet, at the shift's own times; any other is taken away.
+    $.for(seen, ($2, duty, key) => {
+        $2.if(req.fixed.has(key).not(), ($3) => {
+            const day = $3.const(dayOf(duty.end));
+            $3.if(East.less(day, 0n), ($4) => { $4(kept.insert(key, duty)); }).else(($4) => {
+                $4.if(East.less(day, 5n).and(() => req.context.people.has(duty.who)), ($5) => {
+                    const person = $5.const(req.context.people.get(duty.who));
+                    $5.match(person.usual, { some: ($6, usual) => {
+                        $6.if(usual.equal(duty.shift).and(() => shifts.has(usual)).and(() => held.has({ person: duty.who, day }).not()), ($7) => {
+                            $7(kept.insert(key, planned(person, shifts.get(usual), day)));
+                            $7(held.insert({ person: duty.who, day }));
+                        });
+                    } });
+                });
+            });
+        });
+    });
+    // Each weekday left, planned on its person's usual shift under a key of the run's own.
+    const weekdays = $.const([0n, 1n, 2n, 3n, 4n], ArrayType(IntegerType));
+    const added = $.let(0n, IntegerType);
+    $.for(req.context.people, ($2, person) => {
+        $2.match(person.usual, { some: ($3, usual) => {
+            $3.if(shifts.has(usual), ($4) => {
+                const shift = $4.const(shifts.get(usual));
+                $4.for(weekdays, ($5, day) => {
+                    $5.if(held.has({ person: person.key, day }).not(), ($6) => {
+                        $6.assign(added, added.add(1n));
+                        $6(kept.insert(East.str`elara-${req.run}-${added}`, planned(person, shift, day)));
+                    });
+                });
+            });
+        } });
+    });
+    // Apart again: a duty the request held among the edges goes back among them, and a new one starting outside the week.
+    const week = $.const(req.from.durationMilliseconds(req.to));
+    const inWeek = $.const(East.function([DateTimeType], BooleanType, ($2, at) => {
+        const since = $2.const(req.from.durationMilliseconds(at));
+        return East.greaterEqual(since, 0n).and(() => East.less(since, week));
+    }));
+    return {
+        duties: kept.filter(($2, duty, key) => req.duties.has(key).or(() => req.edges.has(key).not().and(() => inWeek(duty.start)))),
+        edges: kept.filter(($2, duty, key) => req.edges.has(key).or(() => req.duties.has(key).not().and(() => inWeek(duty.start).not()))),
+    };
+});
+/** The night warehouse's optimiser, on e3: the week's duties and the duties at its edges in, both out, planned by when each shift ends. */
+export const rotaPlanNights = e3.function("rota_plan_nights", rosterPlanNightsBody);
+
+/**
+ * An optimiser that takes away every duty at the week's edges, whatever is fixed (#1553): what the Roster refuses where
+ * one of them is in a published week, naming it, and records nothing — its tests' own, on no page.
+ */
+export const rotaClearEdges = e3.function("rota_clear_edges", East.function([NightsRequest], NightsResult, ($, req) => {
+    const cleared = $.let(new Map(), DictType(StringType, NightsShift));
+    return { duties: req.duties, edges: cleared };
+}));
+
+export const rosterOptimiseEdges = example({
+    inputs: [], description: "A warehouse whose week runs by when its shifts end (#1553), as its payroll's does: its Roster's week starts on Monday, so the night from Sunday 22:00 is drawn on the Sunday of the week before, though it is the business week's first shift, and the week's own last night ends in the next week. `optimise` is Func.bind of an e3.function from Roster.Types.OptimiseRequest(NightsShift, { edges: true }) to Roster.Types.OptimiseResult(NightsShift, { edges: true }): the run sees the week's duties and, in `edges`, every duty the window holds that the Roster places in another week, as the session holds them, unsaved drafts in place — `fixed` naming those of a published week. Its answer's `edges` are the edge duties as it leaves them: here the night before the week is kept, its times changed to the shift's own, and taken away from a person off nights; the week's last night is left to the next week, and Mia's Monday early is added — one edit, which one Undo reverts and Save writes through the patch door. Publish the week before first and its duties are fixed: the run leaves them as they are.",
+    keywords: ["Roster", "optimise", "Optimise", "Elara", "OptimiseRequest", "OptimiseResult", "edges", "fixed", "night shift", "overnight", "week start", "monday", "payroll week", "Func.bind", "e3.function", "Schedule.periods", "published", "one edit", "Undo"],
+    fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
+        const rota = $.let(Record.bind(nightsShifts));
+        const weeks = $.let(Record.bind(nightsWeeks));
+        const staff = $.let(Data.bind(nightsWorkers));
+        const times = $.let(Data.bind(nightsShiftTimes));
+        const teams = $.let(Data.bind(minimalTeams));
+        // The plan by when shifts end: its function takes the edges, so the eye's run sees and plans the night before the week.
+        const optimise = $.let(Func.bind(rotaPlanNights));
+        return <Box width="100%" height="760px"><Roster id="rosterOptimiseEdges" week={{ start: "monday" }} inspector optimise={optimise}
+            view={{ layout: "people", period: "week", date: new Date("2028-03-06T00:00:00Z") }}
+            events={{ duty: Schedule.events(rota, {
+                name: "Shift", icon: "user-clock",
+                start: "start", end: "end", resource: { field: "who", of: "people" },
+                shift: "shift", group: "team",
+            }) }}
+            resources={{ people: Schedule.resources(staff.read(), { name: "People", icon: "user", label: w => w.name, group: w => w.team, usual: w => w.usual }) }}
+            periods={Schedule.periods(weeks, { every: "week", status: { field: "state", draft: "open", published: "issued" } })}
+            shifts={Roster.shifts(times.read(), { label: s => s.name, code: s => s.code, start: s => s.starts, hours: s => s.hours, order: s => s.order })}
+            groups={Roster.groups(teams.read(), { label: t => t.name })} />
         </Box>;
     }}</Reactive>),
 });

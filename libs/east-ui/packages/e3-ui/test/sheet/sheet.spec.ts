@@ -9,8 +9,8 @@ import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Paged, UIComponentType } from "@elaraai/east-ui";
 import { Sheet } from "@elaraai/e3-ui/internal";
 import {
-    East, ArrayType, DateTimeType, DictType, FloatType, IntegerType, NullType, OptionType, StringType, StructType, VariantType,
-    none, some, variant, walkIR, type ExprType,
+    East, ArrayType, BlobType, DateTimeType, DictType, FloatType, IntegerType, NullType, OptionType, StringType, StructType, VariantType,
+    decodeBeast2For, equalFor, none, some, variant, walkIR, type ExprType, type ValueTypeOf,
 } from "@elaraai/east";
 import * as ex from "./sheet.examples.js";
 import * as linkEx from "./sheet-link.examples.js";
@@ -79,6 +79,8 @@ const P1_RENAMED = { id: "p1", owned: false, cells: new Map<string, unknown>([["
 const P2_ROW = { id: "p2", owned: false, cells: new Map<string, unknown>([["$title", variant("String", "Bay 3 week 8")]]) as never, lines: [], band: BAND, subRows: [] };
 const P3_ROW = { id: "p3", owned: false, cells: new Map<string, unknown>([["$title", variant("String", "New plan")]]) as never, lines: [], band: BAND, subRows: [] };
 const EDITING_CELLS = new Map<string, unknown>([["task", variant("String", "Spraying")]]) as never;
+// The day a decode writes columns from data at: these sheets have none, so every day decodes alike.
+const DAY = new Date("2026-01-05T00:00:00Z");
 
 // ── Loose rows between the groups (#846): entries of a group, or a row of the line type.
 const TaskType = StructType({ id: StringType, task: StringType, note: StringType });
@@ -283,7 +285,7 @@ describeEast("Sheet", (test) => {
         }, { id: "id" }));
         const paged = $.let(sheet.rows.unwrap("paged"));
         $(Assert.equal(paged.id, "jobs"));
-        const win = $.let(paged.page(0n, 10n).unwrap("some"));
+        const win = $.let(paged.page(0n, 10n).unwrap("some").rows);
         $(Assert.equal(win.size(), 2n));
         $(Assert.equal(win.get(1n).id, "b"));
         $(Assert.equal(win.get(1n).cells.get("task").unwrap("String"), ""));
@@ -296,7 +298,7 @@ describeEast("Sheet", (test) => {
         const sheet = $.let(Sheet.Root(source, {
             task: Sheet.column.text(KeyedJobType, { header: "Task" }),
         }));
-        const win = $.let(sheet.rows.unwrap("paged").page(0n, 10n).unwrap("some"));
+        const win = $.let(sheet.rows.unwrap("paged").page(0n, 10n).unwrap("some").rows);
         // Canonical key order — the order a keyed dataset's windows arrive in.
         $(Assert.equal(win.get(0n).id, "J10"));
         $(Assert.equal(win.get(1n).id, "J2"));
@@ -440,8 +442,8 @@ describeEast("Sheet", (test) => {
             lines: [], band: none, subRows: [],
         }, Sheet.Types.Row);
         const bytes = $.const(East.Blob.encodeBeast(row, "v2"));
-        const canonicalDraft = $.const(canonical.editing.decode(bytes, none, none).decodeBeast(Sheet.Types.Draft(PlanRowType), "v2"));
-        const typedDraft = $.const(asTyped.editing.decode(bytes, none, none).decodeBeast(Sheet.Types.Draft(PlanRowType), "v2"));
+        const canonicalDraft = $.const(canonical.editing.decode(bytes, none, none, DAY).decodeBeast(Sheet.Types.Draft(PlanRowType), "v2"));
+        const typedDraft = $.const(asTyped.editing.decode(bytes, none, none, DAY).decodeBeast(Sheet.Types.Draft(PlanRowType), "v2"));
         $(Assert.equal(canonicalDraft.machines.unwrap("value"), "Router 2140 > 4 x CNC router"));
         $(Assert.equal(typedDraft.machines.unwrap("value"), "R2140 > 4 x CNC router"));
         $(Assert.equal(typedDraft.status.hasTag("missing"), true));
@@ -693,24 +695,24 @@ describeEast("Sheet", (test) => {
         const baseBytes = $.const(some(East.Blob.encodeBeast(base, "v2")));
         const previousBytes = $.const(some(East.Blob.encodeBeast(previous, "v2")));
         const insertedWire = $.const(P1_INSERTED, Sheet.Types.Row);
-        const inserted = $.const(root.editing.decode(East.Blob.encodeBeast(insertedWire, "v2"), baseBytes, previousBytes).decodeBeast(Draft, "v2"));
+        const inserted = $.const(root.editing.decode(East.Blob.encodeBeast(insertedWire, "v2"), baseBytes, previousBytes, DAY).decodeBeast(Draft, "v2"));
         $(Assert.equal(inserted.lines.size(), 3n));
         $(Assert.equal(inserted.lines.get(1n).task.unwrap("value"), "Between"));
         $(Assert.equal(inserted.lines.get(2n).note.unwrap("value"), "second"));
         $(Assert.equal(inserted.owner.unwrap("value"), "planner"));
         const sprayedWire = $.const(P1_SPRAYED, Sheet.Types.Row);
-        const sprayed = $.const(root.editing.decode(East.Blob.encodeBeast(sprayedWire, "v2"), baseBytes, previousBytes).decodeBeast(Draft, "v2"));
+        const sprayed = $.const(root.editing.decode(East.Blob.encodeBeast(sprayedWire, "v2"), baseBytes, previousBytes, DAY).decodeBeast(Draft, "v2"));
         $(Assert.equal(sprayed.lines.get(1n).task.unwrap("value"), "Spraying"));
         const renamedWire = $.const(P1_RENAMED, Sheet.Types.Row);
-        const renamed = $.const(root.editing.decode(East.Blob.encodeBeast(renamedWire, "v2"), baseBytes, previousBytes).decodeBeast(Draft, "v2"));
+        const renamed = $.const(root.editing.decode(East.Blob.encodeBeast(renamedWire, "v2"), baseBytes, previousBytes, DAY).decodeBeast(Draft, "v2"));
         $(Assert.equal(renamed.name.unwrap("value"), "Renamed"));
         $(Assert.equal(renamed.total.unwrap("value"), 300.0));
         const removedWire = $.const(P1_REMOVED, Sheet.Types.Row);
-        const removed = $.const(root.editing.decode(East.Blob.encodeBeast(removedWire, "v2"), baseBytes, previousBytes).decodeBeast(Draft, "v2"));
+        const removed = $.const(root.editing.decode(East.Blob.encodeBeast(removedWire, "v2"), baseBytes, previousBytes, DAY).decodeBeast(Draft, "v2"));
         $(Assert.equal(removed.lines.size(), 1n));
         $(Assert.equal(removed.lines.get(0n).task.unwrap("value"), "Routing"));
         const freshWire = $.const(P3_ROW, Sheet.Types.Row);
-        const fresh = $.const(root.editing.decode(East.Blob.encodeBeast(freshWire, "v2"), none, none).decodeBeast(Draft, "v2"));
+        const fresh = $.const(root.editing.decode(East.Blob.encodeBeast(freshWire, "v2"), none, none, DAY).decodeBeast(Draft, "v2"));
         $(Assert.equal(fresh.owner.hasTag("missing"), true));
         $(Assert.equal(fresh.total.hasTag("missing"), true));
         $(Assert.equal(fresh.name.unwrap("value"), "New plan"));
@@ -788,7 +790,7 @@ describeEast("Sheet", (test) => {
         const Draft = Sheet.Types.DraftEntry(EntryType);
         // A new loose row, from its wire row alone: the id from the row, the task typed, the note (no column) missing.
         const freshWire = $.const(LOOSE_NEW, Sheet.Types.Row);
-        const fresh = $.const(root.editing.decode(East.Blob.encodeBeast(freshWire, "v2"), none, none).decodeBeast(Draft, "v2"));
+        const fresh = $.const(root.editing.decode(East.Blob.encodeBeast(freshWire, "v2"), none, none, DAY).decodeBeast(Draft, "v2"));
         $(Assert.equal(fresh.hasTag("row"), true));
         $(Assert.equal(fresh.unwrap("row").id.unwrap("value"), "new"));
         $(Assert.equal(fresh.unwrap("row").task.unwrap("value"), "Denib"));
@@ -797,7 +799,7 @@ describeEast("Sheet", (test) => {
         const briefDraft = $.const(variant("row", { id: variant("value", "brief"), task: variant("value", "Review"), note: variant("value", "first") }), Draft);
         const briefBytes = $.const(some(East.Blob.encodeBeast(briefDraft, "v2")));
         const briefWire = $.const(LOOSE_BRIEF, Sheet.Types.Row);
-        const edited = $.const(root.editing.decode(East.Blob.encodeBeast(briefWire, "v2"), briefBytes, none).decodeBeast(Draft, "v2"));
+        const edited = $.const(root.editing.decode(East.Blob.encodeBeast(briefWire, "v2"), briefBytes, none, DAY).decodeBeast(Draft, "v2"));
         $(Assert.equal(edited.unwrap("row").task.unwrap("value"), "Review again"));
         $(Assert.equal(edited.unwrap("row").note.unwrap("value"), "first"));
         // A group's wire row decodes into the group arm, its lines' hidden fields from their drafts.
@@ -808,7 +810,7 @@ describeEast("Sheet", (test) => {
         ] }), Draft);
         const packageBytes = $.const(some(East.Blob.encodeBeast(packageDraft, "v2")));
         const previousBytes = $.const(some(East.Blob.encodeBeast(packageWire, "v2")));
-        const group = $.const(root.editing.decode(East.Blob.encodeBeast(packageWire, "v2"), packageBytes, previousBytes).decodeBeast(Draft, "v2"));
+        const group = $.const(root.editing.decode(East.Blob.encodeBeast(packageWire, "v2"), packageBytes, previousBytes, DAY).decodeBeast(Draft, "v2"));
         $(Assert.equal(group.hasTag("group"), true));
         $(Assert.equal(group.unwrap("group").name.unwrap("value"), "Nesting"));
         $(Assert.equal(group.unwrap("group").tasks.get(1n).note.unwrap("value"), "hidden"));
@@ -962,21 +964,54 @@ describe("Sheet refusals", () => {
     hostTest("a kind under the wrong field names the column", () => {
         assert.throws(() => Sheet.Root(rows, { task: Sheet.column.date(JobType) as never }, { id: "id" }), /date column "task"/);
     });
+    // The sheets below that write add no rows: a job's count and owner have no column here, and no `newRow` gives
+    // them (#1536).
     hostTest("onUpdate needs a live handle, not a captured Array snapshot", () => {
-        assert.throws(() => Sheet.Root(rows, { task: Sheet.column.text(JobType) }, { id: "id", onUpdate: noop }), /data=\{liveHandle\}/);
+        assert.throws(() => Sheet.Root(rows, { task: Sheet.column.text(JobType) }, { id: "id", onUpdate: noop, edits: { insertRows: false } }), /data=\{liveHandle\}/);
     });
     hostTest("Dict children cannot establish an ordered group draft", () => {
         const keyed = East.value([{ id: "k", name: "Keyed", lines: new Map() }], ArrayType(KeyedPlanType));
         assert.throws(() => Sheet.Root(keyed as never, { task: Sheet.column.text(LineType) } as never, { id: "id", group: Sheet.group(KeyedPlanType, "lines" as never, { title: "name" }) } as never), /Array of row structs/);
     });
     hostTest("onUpdate on a paged source is refused", () => {
-        assert.throws(() => Sheet.Root(East.value(JOBS_SOURCE, Paged.Types.Source(Jobs)), { task: Sheet.column.text(JobType) }, { id: "id", onUpdate: noop }), /onUpdate/);
+        assert.throws(() => Sheet.Root(East.value(JOBS_SOURCE, Paged.Types.Source(Jobs)), { task: Sheet.column.text(JobType) }, { id: "id", onUpdate: noop, edits: { insertRows: false } }), /onUpdate/);
     });
     hostTest("editing paged rows needs a pinned source — one that names the snapshot a batch is checked against", () => {
         const onApply = East.function([Sheet.Types.ChangeSet(JobType)], Sheet.Types.ApplyResult, () => variant("applied", { revision: none }));
-        assert.throws(() => Sheet.Root(East.value(JOBS_SOURCE, Paged.Types.Source(Jobs)), { task: Sheet.column.text(JobType) }, { id: "id", onApply }),
+        assert.throws(() => Sheet.Root(East.value(JOBS_SOURCE, Paged.Types.Source(Jobs)), { task: Sheet.column.text(JobType) }, { id: "id", onApply, edits: { insertRows: false } }),
             /Sheet: editing paged rows needs a pinned source/);
-        assert.doesNotThrow(() => Sheet.Root(East.value(PINNED_JOBS_SOURCE, Paged.Types.PinnedSource(Jobs)), { task: Sheet.column.text(JobType) }, { id: "id", onApply }));
+        assert.doesNotThrow(() => Sheet.Root(East.value(PINNED_JOBS_SOURCE, Paged.Types.PinnedSource(Jobs)), { task: Sheet.column.text(JobType) }, { id: "id", onApply, edits: { insertRows: false } }));
+    });
+    hostTest("a sheet that writes over a paged source carries each window's entries beside its rows — every row's id, and the source's own row whole (#1599); one that writes nothing carries none", () => {
+        const onApply = East.function([Sheet.Types.ChangeSet(JobType)], Sheet.Types.ApplyResult, () => variant("applied", { revision: none }));
+        const windowOf = (root: ValueTypeOf<typeof Sheet.Types.Root>) => {
+            assert.equal(root.rows.type, "pinned");
+            const window = root.rows.type === "pinned" ? root.rows.value.page(0n, 10n) : none;
+            assert.equal(window.type, "some");
+            return window.type === "some" ? window.value : undefined;
+        };
+        const written = East.compile(East.function([], Sheet.Types.Root, ($) => {
+            const source = $.let(PINNED_JOBS_SOURCE, Paged.Types.PinnedSource(Jobs));
+            return Sheet.Root(source, { task: Sheet.column.text(JobType, { header: "Task" }) }, { id: "id", onApply, edits: { insertRows: false } });
+        }), [])();
+        const window = windowOf(written)!;
+        assert.deepEqual(window.rows.map((row) => row.id), ["a", "b"]);
+        assert.deepEqual(window.entries.map((carried) => carried.id), ["a", "b"]);
+        // An entry is the source's own row: the fields no column shows are in it.
+        const sameJob = equalFor(JobType);
+        const decodeJob = decodeBeast2For(JobType);
+        assert.ok(window.entries.every((carried, i) => sameJob(decodeJob(carried.entry), JOBS[i]!)));
+        // The very bytes an entry read on its own answers, at hand with no read.
+        const alone = written.editing.readEntry("b", 1n);
+        assert.ok(alone.type === "some" && equalFor(BlobType)(alone.value, window.entries[1]!.entry));
+        // A sheet that writes nothing begins no gesture, and carries no entry.
+        const read = East.compile(East.function([], Sheet.Types.Root, ($) => {
+            const source = $.let(PINNED_JOBS_SOURCE, Paged.Types.PinnedSource(Jobs));
+            return Sheet.Root(source, { task: Sheet.column.text(JobType, { header: "Task" }) }, { id: "id" });
+        }), [])();
+        const bare = windowOf(read)!;
+        assert.deepEqual(bare.rows.map((row) => row.id), ["a", "b"]);
+        assert.equal(bare.entries.length, 0);
     });
     hostTest("an undeclared register is refused", () => {
         assert.throws(() => Sheet.Root(rows, { task: Sheet.column.reference(JobType, "sites") }, { id: "id" }), /register "sites"/);

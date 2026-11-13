@@ -43,7 +43,7 @@ import { getStore, keptName } from "@elaraai/east-ui-components/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-records";
 import * as sheet from "@elaraai/e3-ui/examples/sheet/sheet-records";
 import type { TreePath } from "@elaraai/e3-types";
-import { searched, type E3Request } from "../e3-web.test-utils.js";
+import { readsRow, type E3Request } from "../e3-web.test-utils.js";
 import { width } from "../e3-web-mount.test-utils.js";
 import { PLAN_GEOMETRY } from "./geometry.js";
 import { rowKeyOf } from "./model.js";
@@ -475,7 +475,7 @@ describe("the work orders Plan: the orders a paged resource kind, their operatio
         await settle();
         expect(h.requests("mutate", ex.planOperations.name).map((r) => r.name)).toEqual(["patch"]);
         expect(h.requests("mutate", sheet.indexedWorkOrders.name)).toEqual([]);
-        expect(h.requests().slice(saving).some((r) => r.dataset === OPERATIONS && searched(r, undefined, text("JOB-10000-run")))).toBe(true);
+        expect(h.requests().slice(saving).some((r) => r.dataset === OPERATIONS && readsRow(r, text("JOB-10000-run")))).toBe(true);
         expect(ui.container.querySelector("[data-record-save-notice]")).toBeNull();
         const after = await storedOperations();
         const changed = [...after].filter(([at, operation]) => {

@@ -44,6 +44,7 @@
 
 import { describe, test, expect, beforeEach, afterEach, onTestFinished, vi, type MockInstance } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { East, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Reactive, Slice, UIComponentType } from "@elaraai/east-ui/internal";
 import { editingMessages } from "@elaraai/east-ui-components";
@@ -58,9 +59,12 @@ import { rowKeyOf } from "../model.js";
 import { carry } from "../plan-move.test-utils.js";
 import { emulateWindowScroll } from "../window-scroll.test-utils.js";
 import { act, el, elementKey, entry, planHarness, rowAt, settle, slot, tabs } from "./harness.test-utils.js";
+import { evaluatesAgain } from "../../e3-web-mount.test-utils.js";
+import { editedThroughReload, redrawnThroughReload, savedThroughReload } from "../../shared/save-held.test-utils.js";
 import { keptName } from "@elaraai/east-ui-components/internal";
 
 const h = planHarness({ "plan/plan-windows": ex });
+evaluatesAgain();
 
 type Job = ValueTypeOf<typeof PrintJob>;
 
@@ -529,6 +533,123 @@ describe("the jobs read a cell at a time (#1039)", () => {
         expect(named(bar(c, "W-0003", "P-1002"))).toMatch(/^Museum guide, Oct 7, 2026, 06:00 – Oct 7, 2026, 12:00/);
         expect((await readJobs()).get("W-0003")!.start).toEqual(some(new Date("2026-10-07T06:00:00Z")));
         expect(drawn(c)).toEqual(await drawnWhole());
+    });
+});
+
+// ============================================================================
+// A Save: what it landed, as it left it, while the jobs' cells are read again
+// ============================================================================
+
+describe("a Save of the jobs read a cell at a time: what it landed, as it left it, while their cells are read again", () => {
+    /** Saves through the history's Save with the jobs' cells held: its commit confirmed and its drafts gone, the cells not read again yet. */
+    async function saveHeld(c: HTMLElement) {
+        const held = h.e3.hold(through(SERIES));
+        await act(async () => { fireEvent.click(save(c)); });
+        await held.holding;
+        await settle();
+        await waitFor(() => expect(pending(c)).toBe("0 pending"));
+        return held;
+    }
+    /** Lets the held reads go, and waits for them to land. */
+    async function release(held: { release(): void }) {
+        await act(async () => { held.release(); });
+        await settle();
+    }
+    /** The museum guide's bar, on Press 1002. */
+    const guide = (c: HTMLElement) => bar(c, "W-0003", "P-1002");
+
+    test("a job a Save moved draws where the Save left it while the cells are read again — never back where it stood, nor as a draft — and so once read", async () => {
+        const { container: c } = await h.mount(seriesPlan);
+        await settle();
+        // The brochure run on Press 1001 and the museum guide, from Tuesday 6 October 06:00 on Press 1002, a day on.
+        await select(bar(c, "W-0001", "P-1001")!);
+        await select(guide(c)!, true);
+        await press(action(c, "shift:1day"));
+        expect(pending(c)).toBe("2 pending");
+        expect(named(guide(c))).toMatch(/^Museum guide, Oct 7, 2026, 06:00 – Oct 7, 2026, 12:00/);
+        expect(guide(c)!.hasAttribute("data-draft")).toBe(true);
+        // Saved, the cells' read again held: the guide where the Save left it, in no draft's look.
+        const held = await saveHeld(c);
+        expect((await readJobs()).get("W-0003")!.start).toEqual(some(new Date("2026-10-07T06:00:00Z")));
+        expect(named(guide(c))).toMatch(/^Museum guide, Oct 7, 2026, 06:00 – Oct 7, 2026, 12:00/);
+        expect(guide(c)!.hasAttribute("data-draft")).toBe(false);
+        await release(held);
+        expect(named(guide(c))).toMatch(/^Museum guide, Oct 7, 2026, 06:00 – Oct 7, 2026, 12:00/);
+        expect(guide(c)!.hasAttribute("data-draft")).toBe(false);
+        expect(drawn(c)).toEqual(await drawnWhole());
+    });
+
+    test("the check every builder runs: a job a Save moved draws where the Save left it at every change of the page, from the press of Save until the cells are read again", async () => {
+        const { container: c } = await h.mount(seriesPlan);
+        await settle();
+        await select(bar(c, "W-0001", "P-1001")!);
+        await select(guide(c)!, true);
+        await press(action(c, "shift:1day"));
+        expect(pending(c)).toBe("2 pending");
+        await savedThroughReload({
+            e3: h.e3,
+            container: c,
+            reads: through(SERIES),
+            // When the guide's bar says it starts.
+            look: () => named(guide(c))?.split(" – ")[0] ?? null,
+            save: () => { fireEvent.click(save(c)); },
+            unsaved: () => pending(c) !== "0 pending",
+        });
+    });
+
+    test.each([
+        ["a Save never stops the editing: other jobs moved while the cells are read again after a Save are taken at once — from their bars as they stand — stay where they were put as the reads land, and the next Save writes them", editedThroughReload],
+        ["the page evaluated again while the cells are read again after a Save moves no job's bar, and takes none off the canvas: other jobs moved meanwhile are taken at once, stay where they were put as the page is evaluated again and the reads land, and the next Save writes them", redrawnThroughReload],
+    ])("%s", async (_name, check) => {
+        const { container: c } = await h.mount(seriesPlan);
+        await settle();
+        await select(bar(c, "W-0001", "P-1001")!);
+        await select(guide(c)!, true);
+        await press(action(c, "shift:1day"));
+        expect(pending(c)).toBe("2 pending");
+        // The night catalogue, on Press 1001, and the course handbooks, on Press 1003, which the Save does not hold: each
+        // one's original is the canvas's own row of it.
+        const night = () => bar(c, "W-0002", "P-1001");
+        const handbooks = () => bar(c, "W-0004", "P-1003");
+        expect([night() !== null, handbooks() !== null], "both of their bars are drawn").toEqual([true, true]);
+        await check({
+            e3: h.e3,
+            container: c,
+            reads: through(SERIES),
+            // When each of the bars says it starts.
+            look: () => [guide(c), night(), handbooks()].map((node) => named(node)?.split(" – ")[0] ?? null),
+            save: () => { fireEvent.click(save(c)); },
+            unsaved: () => pending(c) !== "0 pending",
+            // Picked, then — their Details drawn from the rows their bars were drawn from — shifted a day.
+            again: [
+                () => select(night()!),
+                () => select(handbooks()!, true),
+                () => press(action(c, "shift:1day")),
+            ],
+        });
+        const jobs = await readJobs();
+        expect([jobs.get("W-0002")!.start, jobs.get("W-0004")!.start]).toEqual([some(new Date("2026-10-06T22:00:00Z")), some(new Date("2026-10-08T06:00:00Z"))]);
+    });
+
+    test("Details shows a job's field as Save wrote it while the cells are read again, never its old value, nor marked a change", async () => {
+        const { container: c } = await h.mount(seriesPlan);
+        await settle();
+        await select(guide(c)!);
+        const field = () => pane(c).querySelector<HTMLElement>("[data-inspector-fields='form'] [data-field='customer']")!;
+        const input = () => within(field()).getByRole("textbox") as HTMLInputElement;
+        const shows = () => [input().value, field().hasAttribute("data-dirty")];
+        expect(shows()).toEqual(["Driftwood Museum", false]);
+        const user = userEvent.setup();
+        await user.clear(input());
+        await user.type(input(), "Harbour Arts{Enter}");
+        await settle();
+        expect(shows()).toEqual(["Harbour Arts", true]);
+        // Saved, the cells' read again held: the customer as typed, no change of the stored row.
+        const held = await saveHeld(c);
+        expect((await readJobs()).get("W-0003")!.customer).toBe("Harbour Arts");
+        expect(shows()).toEqual(["Harbour Arts", false]);
+        await release(held);
+        expect(shows()).toEqual(["Harbour Arts", false]);
     });
 });
 

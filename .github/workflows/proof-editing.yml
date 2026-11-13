@@ -1,0 +1,187 @@
+name: Proof (editing)
+
+# The editing core's proof (#1599): east-ui-components' harness
+# (libs/east-ui/packages/east-ui-components/src/editing/model/) run past the
+# budgets the unit suite runs it at — `make proof-editing` in libs/east-ui,
+# some hours of a core's time, a part a job. It is never run for every push:
+#
+# - a pull request labelled `proof:editing` runs it, and runs it again at a
+#   push only where what it reads has changed since it last passed;
+# - nightly on main, where it runs only once what it reads has changed since
+#   it last passed there;
+# - by hand (Run workflow), whatever passed before.
+#
+# A proof that passes is recorded against the content it read: a cache entry
+# keyed by the git ids of the paths `proof.json` names beside the harness —
+# `reads`, the package's files the harness loads, and `runsOn`, what it is run
+# on beside them (the package's `test/editing/proof-reads.spec.ts` holds the
+# list to what the harness loads). So the same content is never proved twice,
+# and `editing proof`, the one job every pull request gets, takes seconds. It
+# fails a pull request that changes one of `reads` until the proof has passed
+# on what the pull request holds, and says to label it; a pull request that
+# changes none of them is asked nothing.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 15 * * *"
+  # Every pull request, whatever its base, as the tests are.
+  pull_request:
+    types: [opened, reopened, synchronize, labeled]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # A push starts the run over on what it brought. A label that is not the
+  # proof's waits its turn instead: taken at once, it would stop a proof under
+  # way and start it again for nothing.
+  cancel-in-progress: ${{ github.event.action != 'labeled' || github.event.label.name == 'proof:editing' }}
+
+permissions:
+  contents: read
+
+jobs:
+  # Seconds: the content the proof reads here, whether a proof has passed on
+  # it, whether a pull request changes it, and whether the proof is asked for.
+  scope:
+    name: what to prove
+    runs-on: ubuntu-latest
+    outputs:
+      key: ${{ steps.reads.outputs.key }}
+      changed: ${{ steps.reads.outputs.changed }}
+      asked: ${{ github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'proof:editing') }}
+      proved: ${{ steps.proved.outputs.cache-hit == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # A pull request's merge commit and its parents: the first is the
+          # base it is compared with.
+          fetch-depth: 2
+
+      - name: What the proof reads
+        id: reads
+        shell: bash
+        env:
+          COMPARED: ${{ github.event_name == 'pull_request' }}
+        run: |
+          set -euo pipefail
+          list=libs/east-ui/packages/east-ui-components/src/editing/model/proof.json
+          # Each path's git id at a commit — a file's content or a folder's,
+          # whole — and `none` where the commit holds none of it.
+          ids() {
+            jq -er "$2" "$list" | while read -r path; do
+              git rev-parse --quiet --verify "$1:$path" || echo none
+            done
+          }
+          reads=$(ids HEAD '.reads[]')
+          all=$(ids HEAD '.reads[], .runsOn[]')
+          test -n "$reads"
+          echo "key=$(printf '%s\n' "$all" | sha256sum | cut -c1-40)" >> "$GITHUB_OUTPUT"
+          changed=false
+          if [ "$COMPARED" = true ] && [ "$reads" != "$(ids 'HEAD^1' '.reads[]')" ]; then changed=true; fi
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
+
+      # A proof that passed on this content, in a run this one may read: this
+      # pull request's own, its base's, main's. A run by hand looks for none.
+      - name: Proved already
+        id: proved
+        if: github.event_name != 'workflow_dispatch'
+        uses: actions/cache/restore@v4
+        with:
+          path: proof-editing.txt
+          key: proof-editing-${{ steps.reads.outputs.key }}
+          lookup-only: true
+
+  proof:
+    needs: scope
+    if: needs.scope.outputs.asked == 'true' && needs.scope.outputs.proved != 'true'
+    name: proof (${{ matrix.part }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        # The parts `make proof-editing` runs (libs/east-ui/Makefile).
+        part: [orderings, keys, states-fields, states-whole]
+    env:
+      NODE_OPTIONS: --max-old-space-size=4096
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install
+
+      # The harness reads east and east-ui as they are built, as the
+      # package's tests do, and nothing else of the workspace's.
+      - name: Build east
+        working-directory: libs/east
+        run: make build
+
+      # east-ui compiles its tests with its sources, and they are written on
+      # east-node-std.
+      - name: Build east-node
+        working-directory: libs/east-node
+        run: make build
+
+      - name: Build east-ui
+        working-directory: libs/east-ui
+        run: make build-js-east-ui
+
+      - name: Prove
+        working-directory: libs/east-ui
+        run: make proof-editing PART=${{ matrix.part }}
+
+  # The one check a pull request is held to, and where a proof that passed is
+  # recorded.
+  verdict:
+    name: editing proof
+    needs: [scope, proof]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Whether the editing core stands proved
+        env:
+          SCOPE: ${{ needs.scope.result }}
+          PROOF: ${{ needs.proof.result }}
+          ASKED: ${{ needs.scope.outputs.asked }}
+          CHANGED: ${{ needs.scope.outputs.changed }}
+          PROVED: ${{ needs.scope.outputs.proved }}
+        run: |
+          if [ "$SCOPE" != success ]; then
+            echo "::error::What the editing core's proof reads could not be worked out: see the job before this one."
+            exit 1
+          fi
+          if [ "$PROVED" = true ]; then
+            echo "The proof has passed on what this commit holds of what it reads."
+            exit 0
+          fi
+          if [ "$ASKED" = true ]; then
+            if [ "$PROOF" = success ]; then echo "The proof passed."; exit 0; fi
+            echo "::error::The editing core's proof did not pass: see its jobs."
+            exit 1
+          fi
+          if [ "$CHANGED" = true ]; then
+            echo "::error::This pull request changes what the editing core's proof reads, and the proof has not passed on it. Label the pull request proof:editing to run it (locally: make proof-editing in libs/east-ui)."
+            exit 1
+          fi
+          echo "This pull request changes nothing the editing core's proof reads."
+
+      - name: Record the proof
+        if: needs.proof.result == 'success'
+        env:
+          KEY: ${{ needs.scope.outputs.key }}
+        run: echo "$KEY proved by run $GITHUB_RUN_ID at $GITHUB_SHA" > proof-editing.txt
+
+      - name: Keep the record
+        if: needs.proof.result == 'success'
+        uses: actions/cache/save@v4
+        with:
+          path: proof-editing.txt
+          key: proof-editing-${{ needs.scope.outputs.key }}

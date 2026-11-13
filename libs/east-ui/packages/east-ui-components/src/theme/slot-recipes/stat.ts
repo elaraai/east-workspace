@@ -7,9 +7,9 @@
  * Stat slot recipe — pattern_spec/spec.css `.cell` data-rail.
  *
  * Label: `caption.eyebrow` (mono 11 / 600 / 0.18 em / uppercase).
- * Value: tabular figures at the size variant — 20 (sm) or 26 (md, lg; the
- * design system's large number, `--fs-num`). Unit: mono 10.5 (the design
- * system's unit suffix).
+ * Value: the design system's large number (`num-lg`: mono, tabular, 600) at
+ * the size variant — 20 (sm) or 26 (md, lg; `--fs-num`). Unit: mono 10.5 (the
+ * design system's unit suffix).
  * HelpText: `mono.tabular.sm` muted numerics.
  * Indicator: Font Awesome's caret (#1263) in the 1em square Chakra's arrow
  * took — Chakra sizes its height, `--fa-width` its width.
@@ -31,13 +31,14 @@ export const statSlotRecipe = defineSlotRecipe({
         label: {
             textStyle: "caption.eyebrow",
         },
+        // Chakra's own stat sets its tracking and proportional figures outright, and a text style's own
+        // yield to those: they are the large number's again here.
         valueText: {
-            fontFamily: "heading",
-            fontWeight: "bold",
-            letterSpacing: "-0.01em",
+            textStyle: "num-lg",
+            letterSpacing: "normal",
             fontVariantNumeric: "tabular-nums",
+            fontFeatureSettings: '"tnum"',
             color: "fg",
-            lineHeight: "1",
         },
         valueUnit: {
             fontFamily: "mono",
@@ -59,10 +60,11 @@ export const statSlotRecipe = defineSlotRecipe({
         },
     },
     variants: {
+        // Each size restates the large number: Chakra's own stat sets a text style of its own in each.
         size: {
-            sm: { valueText: { fontSize: "{fontSizes.title.lg}" } },   // 20px
-            md: { valueText: { fontSize: "{fontSizes.num}" } },        // 26px — the large number
-            lg: { valueText: { fontSize: "{fontSizes.num}" } },        // 26px — no larger number exists
+            sm: { valueText: { textStyle: "num-lg", fontSize: "{fontSizes.title.lg}" } },   // 20px
+            md: { valueText: { textStyle: "num-lg", fontSize: "{fontSizes.num}" } },        // 26px — the large number
+            lg: { valueText: { textStyle: "num-lg", fontSize: "{fontSizes.num}" } },        // 26px — no larger number exists
         },
         // Density cascade — value/label/help text tighten with the
         // chipRail/trace rhythm so a stat block shares a surface with chips

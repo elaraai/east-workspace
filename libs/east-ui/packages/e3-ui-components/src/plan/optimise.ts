@@ -160,7 +160,9 @@ export function planOptimiseReady(kinds: readonly PlanEventKindValue[], editing:
     range: PlanEventRange, cells: ScheduleCellsRead | undefined): PlanOptimiseReadiness {
     let reading = false;
     for (const kind of kinds) {
-        if (cells?.reads.has(kind.key) === true) return "unread";
+        // Read by its series index's cells, or past the cap: no window of it is read. A kind given its window's own rows
+        // (#1599) is read over the window, and carries its request.
+        if (cells?.reads.has(kind.key) === true && !cells.windowed.has(kind.key)) return "unread";
         const within = scheduleWithinCap(kind.count, window.from, window.to);
         if (within.type === "some" && !within.value) return "unread";
         const drafts = editing.draftsOf(kind.key);

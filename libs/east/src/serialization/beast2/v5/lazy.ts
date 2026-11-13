@@ -46,6 +46,7 @@ import { LazyReadError } from "../../../error.js";
 import { markFrozen } from "../../../frozen.js";
 import { SortedMap } from "../../../containers/sortedmap.js";
 import { SortedSet } from "../../../containers/sortedset.js";
+import { builtinIterator } from "../../../containers/iterators.js";
 import { asTypeValue } from "./type-section.js";
 import { isSegmentedRoot } from "./codec.js";
 import { Beast2Pages, type Beast2PagesOptions, type SegmentDecoder } from "./stream.js";
@@ -341,7 +342,7 @@ class LazySortedMap<K, V> extends SortedMap<K, V> {
     if (!this.hydrated) {
       const pages = this.pages;
       const cmp = this.cmp;
-      return Iterator.from((function* () {
+      return builtinIterator((function* () {
         for (const [k] of lazyDictEntries<K, V>(pages, cmp, firstKey)) yield k;
       })()) as MapIterator<K>;
     }
@@ -352,7 +353,7 @@ class LazySortedMap<K, V> extends SortedMap<K, V> {
     if (!this.hydrated) {
       const pages = this.pages;
       const cmp = this.cmp;
-      return Iterator.from((function* () {
+      return builtinIterator((function* () {
         for (const [, v] of lazyDictEntries<K, V>(pages, cmp, firstKey)) yield v;
       })()) as MapIterator<V>;
     }
@@ -361,7 +362,7 @@ class LazySortedMap<K, V> extends SortedMap<K, V> {
 
   override entries(firstKey?: K): MapIterator<[K, V]> {
     if (!this.hydrated) {
-      return Iterator.from(lazyDictEntries<K, V>(this.pages, this.cmp, firstKey)) as MapIterator<[K, V]>;
+      return builtinIterator(lazyDictEntries<K, V>(this.pages, this.cmp, firstKey)) as MapIterator<[K, V]>;
     }
     return super.entries(firstKey);
   }
@@ -537,7 +538,7 @@ class LazySortedSet<K> extends SortedSet<K> {
 
   override keys(firstKey?: K): SetIterator<K> {
     if (!this.hydrated) {
-      return Iterator.from(lazySetKeys<K>(this.pages, this.cmp, firstKey)) as SetIterator<K>;
+      return builtinIterator(lazySetKeys<K>(this.pages, this.cmp, firstKey)) as SetIterator<K>;
     }
     return super.keys(firstKey);
   }
@@ -550,7 +551,7 @@ class LazySortedSet<K> extends SortedSet<K> {
     if (!this.hydrated) {
       const pages = this.pages;
       const cmp = this.cmp;
-      return Iterator.from((function* () {
+      return builtinIterator((function* () {
         for (const k of lazySetKeys<K>(pages, cmp, firstKey)) yield [k, k] as [K, K];
       })()) as SetIterator<[K, K]>;
     }

@@ -73,10 +73,14 @@ as Libraries — beside a kind read by area one paged list (`backlog-pages.ts`,
 D51), each such kind's rows paged through its area index's unplaced clause, a
 row its page read the original a drop rewrites; the zones' Index (`index-tab.tsx` over `index-tree.ts`), one
 focusable tree around the shared virtual rows, one zone open at a time with
-the zones it is in, following the zone the viewport is in — opened, marked and
-scrolled to as the canvas pans and zooms, a zone the viewer closed there staying
-closed until the view moves on — a kind read by area's items read by the tab itself (`index-area.ts`,
-D52), an open zone's by its box and the search's through the kind's source; the Layers (`layers-tab.tsx`), the viewer's choices an East value in
+the zones it is in, following the zone the viewport is in once the camera rests,
+never during a fly (#1570) — opened once its items are read, never empty, the
+tree standing as it was until they land, marked and brought to the tree's top,
+its row stuck there while its items scroll under it, a zone the viewer closed
+there staying closed until the view moves on, and the zone the view opened
+closed at Fit — a kind read by area's items read by the tab itself
+(`index-area.ts`, D52), an open zone's by its box, their details by its cells,
+so each dot carries its status, and the search's through the kind's source; the Layers (`layers-tab.tsx`), the viewer's choices an East value in
 the UI store under the `id` (`layers-view.ts`), which the canvas obeys — a
 locked layer's entities select by no path; and an author's tabs, each
 following its source. Its cards drop on the canvas (#1390): `drop.ts` plans
@@ -206,10 +210,12 @@ host-value rules) over source and tests and fails on a JavaScript stand-in;
   calls without the builder: the root, the one-shot call, the plan and its
   split call, the calls in memory — which loads no React and no renderer,
   so a host in Node uses it (`test/query/node-safe.spec.ts` guards that).
-  The bundle keeps React, Chakra and react-aria's locale (`@react-aria/i18n`)
-  external, as east-ui-components' does: each is a context the host shares
-  with every renderer package, so one `I18nProvider` reaches them all
-  (#1206, `src/locale.dom.test.tsx`, `test/one-locale.spec.ts`).
+  The bundle keeps React, Chakra, emotion's cache (`@emotion/react`) and
+  react-aria's locale (`@react-aria/i18n`) external, as east-ui-components'
+  does: each is a context the host shares with every renderer package, so one
+  `I18nProvider` reaches them all (#1206, `src/locale.dom.test.tsx`,
+  `test/one-locale.spec.ts`) and a class made ahead is one Chakra's elements
+  find (#1594, `test/one-emotion.spec.ts`).
 - React Query (TanStack Query 5.x) hooks live alongside the
   components. They wrap `@elaraai/e3-api-client` calls.
 - Renderers follow the same patterns as `east-ui-components` —
@@ -243,6 +249,7 @@ component is not automatically a correct reference for every shared behavior.
 | Drafts, validation, Save, retry, undo/redo | Shared `EditSession`, `EditHistory`, `historyToolbarItem` and `SessionBanners`; `src/shared/schedule/editing.ts` where the domain is event records; `src/shared/schedule/records.ts` for a builder over the app's own records (a minted key, a window kept at its revision, Publish after Save) |
 | Library cards/search/tabs and inspector fields | Shared Library, Fields and FieldForm; existing builder integrations |
 | Drag targets, keyboard drag, ghosts and cancellation | `east-ui-components/src/dnd/` |
+| A part's own pointers, off the drag layer: a canvas that pans and pinches, a lane drawn on, a drag a part draws itself | `east-ui-components/src/pointer/` (`useSurfaceGestures`, `followPointer`, `./internal`); below, "A part's own pointers"; the Schematic's canvas, `src/schematic/canvas/CLAUDE.md` invariants 33 and 34 |
 | Typography, icons and visual states | `east-ui-components/src/theme/text-styles.ts`, slot recipes, `theme/icon-size.ts` |
 
 Use the shared internal entry rather than reaching into another package's
@@ -307,8 +314,8 @@ the Roster's week and the Allocation's day keep too, #1398): a step writes the t
 one without the other, and storage keeps the view for a reload alone, read once
 as the page's first Calendar under its key mounts and never followed. Followed,
 a second tab's step moved this page's date without its window, which put the
-date back at its first day, and the timeline, centred there, re-centred a window
-back, which the other tab heard in turn: both ran back a window at a time. A
+date back at the window's first day: the day the viewer stood on, and every
+step from it, moved to the window's start. A
 narrowed kind's backlog is paged by the Backlog tab itself (#1424,
 `calendar/backlog-pages.ts`), as the Schematic's is: the events in hand first —
 every other kind's, read apart, and a paged kind's drafted events with no start
@@ -611,7 +618,12 @@ window no reader holds goes whole, and none a reader holds — what its last run
 read, or the read in hand — is evicted under it, so past the cap it keeps
 theirs alone, each reader bounding them by its own demand, and a reader of
 more windows than the cap, rows read a key at a time among them, settles, each
-read once (#1409, R24); the bounds of at most 1,024 searches a revision apart
+read once (#1409, R24); apart from those, at most 4,096 one-row windows cut
+from a landed one (`MAX_RETAINED_CUTS`, #1596), which cost no request and push
+no window out — past it its readers' cuts alone, and at most 1,024 no reader
+holds until the cuts are next looked at (`CUTS_BETWEEN_LOOKS`: a reader lets
+one go, or as many more are cut), never a look at every cut for each read;
+the bounds of at most 1,024 searches a revision apart
 from a channel (`MAX_LANDED_SEARCHES`, as record Slice keeps its own: what
 batches answered, and a search's own answer once no reader holds its channel);
 at most 40,000 membership answers over every narrowing of a revision, the least
@@ -645,17 +657,16 @@ subscriber, a microtask after the last one leaves, so a read the next render
 asks again keeps its request. A period builder's reader reads its period's
 neighbours ahead once its period has landed (`shared/schedule/read-ahead.ts`,
 CL7) — the Roster's weeks, the Allocation's days, the Calendar's days, weeks
-and months (`calendarAhead`) — and the Calendar's timeline the next window of
-its grid the way its view last moved, as its scroll travels or as a step of
-its dates went — Prev/Next, Today, a date picked, a pick of Search Records
-(`timeline.ts`' `timelineAhead`, #1398, ruled 25 Oct 2026) — none before the
-view has moved, and none after a layout or a period: a step or a re-centre to
-one shows it at once, and the reads of the periods moved away from are
+and months on every layout, its timeline's among them (`calendarAhead`): a
+step to one shows it at once, and the reads of the periods moved away from are
 aborted.
 It reads them in a tracked read of their own beside the period's
 (`useReadAhead`, called after the period's read in the same reader): a page
 of theirs landing re-runs that read alone, never the period's, which would
-hand the frame a new read of a period that has not moved, once a page.
+hand the frame a new read of a period that has not moved, once a page. The
+Calendar asks it with no drafts (`calendar/data.ts`, #1594): what a read ahead
+works out is never drawn and the drafts read nothing a step waits on, so a
+drop works out neither period again.
 Use the shared session's bounded primary-read batches and retain only confirmed
 facts at the committed revision. Save membership checks also accumulate facts
 at one revision. Partial provider pages must resume within their bounded window.
@@ -713,7 +724,13 @@ whatever the narrowing or a remount. A draft the narrowing hides waits in its
 session — Issues lists it, naming the choices that hide it — and Save writes it
 with the rest, each record's changes through its patch door as a request of its
 own; a refusal keeps that record's drafts and leaves the others' commits
-standing.
+standing. A kind read by key is confirmed as its rows land, while the reader
+hands the frame what it read only once every kind has — a link's far end, read
+by its key after them, among them: what its Save landed stands as the Save
+left it over stored rows read before it, by east-ui-components' one rule
+(`readBeforeSave`, `drafted.ts`' `landedDrafts`), until they are read since
+(`landedRead`) — drawn from the stored rows alone, a renamed state showed its
+old name between the two.
 
 A kind's details (#1507–#1510) are read as the kind is (`details.ts`): whole
 beside a kind read whole, or by the drawn rows' keys, every key in one
@@ -753,7 +770,10 @@ Below 480px of main nothing drags (#1505): no draggable card and no drop
 cell. Details carries the gestures — a state's lane, a transition's ends —
 through the same edits, and a phone's lane pager (`lane-pager.tsx`) steps the
 canvas's sideways scroll a lane at a time: two lanes in view by default
-(`narrow.lanes`), each a whole lane, a Find's pick opening on whole lanes; and
+(`narrow.lanes`), each a whole lane, a Find's pick opening on whole lanes, and
+a swipe let go between two settling on the nearer once its scroll has come to
+rest — as the browser says it, or, on an older iPhone, which has no
+`scrollend`, once it has stood still a moment (`shared/scroll-rest.ts`); and
 where the details draw on the cards one lane, at least the window wide, its
 card brought to the middle of what the window shows, its scrollbar left out —
 as the window opens and resizes, at each step, as a swipe settles and at a
@@ -882,9 +902,39 @@ chrome's `writable` (no run out, nothing retained) beside each kind's
 `available` — its Delete key as much as the inspector's form, its kind's own
 inspector's `update`, Duplicate, Delete and bulk edit — as the Sheet's ask its
 `canEdit` beside its session's `available`. Reuse the shared Save label,
-banners, validation, conflict and unknown-outcome retry behavior. Keep domain
+banners, validation, conflict and unknown-outcome retry behavior. Each builder
+hands its payload's `autosave` — where its author begins the Autosave switch
+(ruled 11 Nov 2026) — to its session: `useScheduleEditing` takes it and will
+not compile without it, the Sheet's and the Record's frames give it through
+their `SheetHost`, and the query builder, whose every Save is a person's, has
+none. Keep domain
 actions such as Publish separate from Save, following Studio/Query. Use shared
 anchored forms/popovers; follow the library's prohibition on modal dialogs.
+
+A field a refusal names says why under it (ruled 13 Nov 2026). An entry's
+panel shows its refusals holding Save in a banner over its form, and each
+field one names is ringed there with the app's words for it under it — the
+shared form's `issues`, given as `shared/schedule/refusals.ts`' `refusedFields`
+makes them from the entry's issues: the Roster's duties, the Allocation's bins
+and reservations (the quantity too, which its Bin section draws), the
+Calendar's events, in whichever of their two forms draws the field, and the
+Plan's — a field one of its roles reads saying them under its fact, where the
+Plan draws it. So going to a refusal lands the keyboard beside its reason
+whatever the panel has room to show above it: a duty with a rule's warning
+between its banner and its fields had the banner cut off at the panel's top
+(the showcase's `roster-inspector.spec.ts`). The Schematic's and the
+Flowchart's Details show no banner — their refusals are listed in Issues — so
+there the field is the one place Details says why: each record's side of a row
+is handed what its session refuses of the row (`refusals.ts`' `entryRefusals`),
+an item's centre's under its position's coordinate; and a Flowchart row still
+waiting for its key says so under its key's field, which its session's refusal
+names (a key of several parts in its first part's help line, once; the
+Schematic's key field in its help line, its refusal naming no field). The
+Record's Details lists a row's issues over its form (IN3), and each field one
+names says the issue's words under it (`sheet/frame/inspector.tsx`'
+`issuesByField`). The Sheet's own Details washes no field: its issues stand
+over its form alone. A bound a number breaks is said once everywhere, in its
+help line: the form drops an issue that only repeats it.
 
 Every builder's Details keeps the keyboard (`shared/focus-home.ts`'
 `useFocusHome`: the Schematic's, the Flowchart's, the Plan's, the Calendar's,
@@ -997,8 +1047,8 @@ from it.
 example's reads loaded first and polled while it shows.
 
 - **Counting.** What a test counts it reads from the request log (`h.requests`), and what e3 answered from a tap of its answers (`h.e3.answers`).
-- **Faults.** A held or failed request is a fault at the harness's fetch (`h.e3.hold`, `h.e3.fail`): e3's own failure, `network`, `lost` (committed, its answer never arriving) or `untagged` (its answer's tags dropped). An answer slow on its way back is `h.e3.holdAnswers`, and a unit e3 runs, held before it starts, `h.e3.holdUnits`.
-- **Another session.** Another session's change is a real commit through the record's patch door (`h.patch`), a write (`h.write`) or a run (`h.run`); a Save it overtakes is `h.race`. A workspace deployed and not run is the node harness's `h.unrun`.
+- **Faults.** A held or failed request is a fault at the harness's fetch (`h.e3.hold`, `h.e3.fail`): e3's own failure, `network`, `lost` (committed, its answer never arriving) or `untagged` (its answer's tags dropped). An answer slow on its way back is `h.e3.holdAnswers`, and a unit e3 runs, held before it starts, `h.e3.holdUnits`. A browser's cache is `h.e3.browserCache()`: from then each answer e3 marks to keep for good (`Cache-Control: immutable`, a read pinned to a state) is kept, and a later request for it answered from there — e3 never asked, so it refuses nothing.
+- **Another session.** Another session's change is a real commit through the record's patch door (`h.patch`), a write (`h.write`) or a run (`h.run`); a Save it overtakes is `h.race`, one it follows before the page reads again `h.followed`, and one whose answer comes only after the page has heard of it `h.late`. `h.poll` is the page's next poll of the workspace's status, now. A workspace deployed and not run is the node harness's `h.unrun`.
 - **Waiting.** `settle()` waits until no request is in flight and React has flushed. It waits on real time, so a test's fake clock stands still meanwhile. e3's client retries a lost answer under the same idempotency key, and a backoff between its tries is a timer `settle()` cannot see, so a test waits for what the user sees then.
 - **Mounting.** `h.mount` settles once what the example reads has loaded, it has rendered and a first poll has told it e3's status, so the run that status brings lands before the test begins. It takes a counted `program`, a `view` the test renders itself under the example's reads, a `wrap` around the page (a locale), a `host` inside e3's providers (calls or plan options of its own) and a `token`. `h.install` installs the runtimes alone, for a program or a hook outside a mount, and `E3Surface` renders a component of the test's own over the file's e3. A builder's fit is asked through `fitCalls` (`shared/func/fit-calls.test-utils.ts`), and a Plan canvas's rail is bound through `bindRail` (`plan/rail.test-utils.ts`).
 
@@ -1035,6 +1085,29 @@ that refuses, goes into the e3-ui example module it belongs to.
   Confirm that a paged example does not read the complete event record.
 - Test meaningful editing paths, failed/refused writes, unknown outcomes,
   read-only behavior and Save/remount persistence through the existing harnesses.
+- Run the shared check of a Save whose reads come back late
+  (`shared/save-held.test-utils.ts`' `savedThroughReload`) in the builder's
+  own tests: its reads of the record it saves held at the harness's fetch and
+  let go one at a time, what it draws of the edit read at every change of the
+  page — from the press of Save until every read has landed, never as it stood
+  before. Every builder runs it: the Roster, the Allocation, the Flowchart, the
+  Sheet and the Record in a `save-held.dom.test.tsx` of their own, the
+  Schematic, the Calendar and the Plan beside their other held-reload tests. A host whose rows
+  are read apart from a Save's confirmation keeps what the Save landed on
+  screen by east-ui-components' one rule (`readBeforeSave`, or `standingBeforeSave`
+  where it knows of its rows only that they stand from before — the Sheet's
+  pages, the Plan's windows), never one of its own. Its second check, `editedThroughReload`, holds a Save to never stopping
+  the editing: while those reads are held — the builder's rows standing in
+  from before the Save — a gesture on a row the Save did not hold is taken and
+  drawn at once, stays drawn as the reads land one at a time, and is the next
+  Save's to send. A gesture of more than one act of its person's — a row
+  picked, then a button of its form pressed — is given as its steps, each an
+  act of its own, the page settling between them: what one act leaves the page
+  to draw a moment later is drawn only once the act is over. The Roster, the
+  Allocation, the Schematic — its racks read by area and read whole — the
+  Flowchart, the Calendar and the Plan, each for events read by their cells
+  and for events read over the window, and the Sheet and the Record, each over
+  a record read a window at a time, run it.
 - Use responsive browser checks at 1440/1024/768/390/360, the light theme (dark too where a check holds a colour),
   narrow parent containers and state-preserving resize. Exercise explicit
   narrow actions, folded toolbar access and real drag previews. Verify computed
@@ -1080,6 +1153,64 @@ runs' labels (A29) and the links read it outside React's renders. A new drop
 target of the board's, such as a fit in the inspector's drop list (A26, A34),
 is `dropTarget(drag, { kind: "resource", resource })` at
 `rowCoord(drag.surface, resource)`, as a resource row is.
+
+### A part's own pointers
+
+A gesture belongs to the pointer that pressed, whoever draws it (ruled 12 Nov
+2026, after a phone's canvas was left zooming under one finger). The shared
+drag layer's sensor holds its drags to that (`east-ui-components`'
+`dnd/sensor.ts`). A part that takes pointers of its own, off the layer, takes
+them through the shared pointer core (`east-ui-components/src/pointer/`,
+`./internal`; that package's CLAUDE.md › A part's own pointers) — never
+pointer handlers or window listeners of its own, and never an owner, a finger
+count or a "pressed" flag kept in the component:
+
+- **A surface** — one element that takes every press on it — spreads
+  `useSurfaceGestures`' handlers on that element and says what its gestures
+  do: what a press begins, what its drag draws, what its release lands, and
+  what letting go puts back (`drop`: a new state a press begins is put back
+  there). The Schematic's canvas (`schematic/canvas/use-gestures.ts`), its
+  minimap inside it (`contained`), the Calendar's lanes, where a new event is
+  drawn (`calendar/views.tsx`' `DropLane`), and the narrow Plan's list, whose
+  two fingers pan the window (`plan/narrow/pan.ts`' `twoFingerPan`): it takes
+  fingers alone and captures none (`capture: false`), so a card's tap stays
+  the card's and one finger's scroll the page's.
+- **A drag begun on one of many elements** — the Flowchart's carried state
+  and its transition drawn out of a handle, the Matrix's slice resize — hands
+  its press to `followPointer`, which follows that pointer at the window. One
+  is in flight at a time: a new press lets go of one still held, landing
+  nothing, as its part going does (the Flowchart's `followDrag`).
+
+Either way the rule is the core's, in one tested place:
+
+- the pressing pointer's moves alone drive the gesture, and another finger's
+  lift neither ends it nor lands it;
+- it ends once — released by its own pointer, or let go of, landing nothing:
+  a second finger put down on its surface, a new press, its pointer taken
+  back by the browser (`pointercancel`: a system gesture, a scroll of its
+  own) or its capture lost, a mouse moved with its button no longer held, the
+  window losing the page, when no release may ever be heard — and it hears
+  nothing after, so no later pointer moves what it was dragging;
+- a finger is held only while it is down: gone as it lifts, is taken back or
+  loses its capture, and one whose end is never heard let go of as the page's
+  next first finger lands or the window loses the page — a finger remembered
+  past its end makes every later one the second finger of a pinch that never
+  ends. Two fingers pinch, and the Schematic's canvas keeps the drawing under
+  them (`schematic/canvas/CLAUDE.md`, invariants 33 and 34).
+
+The Sheet's range drag is the one gesture built on mouse events — each cell
+hears the pointer enter it — and holds itself to the same end: its button
+lifted, a move with the button no longer held, or the window losing the page
+(`sheet/use-input.ts`).
+
+A test of a part's gesture fires what a second pointer and a lost one would:
+a move and a release under another `pointerId` mid-gesture, a second finger's
+press, a `pointerCancel`, a lost capture, a mouse's move with no button held,
+the window's `blur` — each proved to fail over the gesture as it stood. The
+orders the events can arrive in are walked in the core's own tests
+(`gestures.test.ts`, `touches.test.ts`), once, never again a component. A
+phone's canvas is held in a browser too (`schematic-phone.spec.ts`: a touch
+the system takes back, then one finger).
 
 ### Footer rails and drag previews are shared parts too
 
@@ -1150,7 +1281,329 @@ at (`shared/schedule/records.ts`' `keptAtRevision`, `heldInWindow`,
 `periodRowRead`, and `periodRowsRead` over a span of periods — the Roster's
 month, #1406); a row they do not hold is read by its key. A Save confirms
 every row they hold in one pass (`EditHistoryPaged.held`), and reads only the
-rest by key, a bounded batch at a time.
+rest by key, a bounded batch at a time. A gesture begins from the row its
+person is looking at (ruled 11 Nov 2026, east-ui-components'
+`EditSession.startOf`): the session's own version of it, else what its last
+Save left while the builder has yet to show that Save, else the row the
+builder draws — which the frame says to the editing as it commits
+(`useScheduleEditing`'s `standing`: the Roster's and the Allocation's through
+`useRosterStanding` and `useAllocationStanding`, the Schematic's its windows'
+rows and its Backlog's pages) — and only for a row the builder draws none of,
+a read at the record's revision now. So while a record is read again — after
+a Save, or after another session's write — no gesture on what the page shows
+is refused for a read in flight. A row drawn may have been read at the
+revision before; where another write changed the same part of it since, the
+Save that sends it is refused, and the session carries its drafts over at its
+own revision (east-ui-components' `EditSession.nameConflicts`), the part both
+changed a conflict to choose.
+
+**One rule for a read on its way** (`shared/view-read.ts`, ruled 11 Nov 2026).
+What a board shows is its last complete read, made for a view: a period, under
+the choices its rail holds. Asked for another period (`stepping`), it draws
+none of the old one's rows; under other choices of the same period
+(`filtering`), the last choices' rows stand in, retained — readable, focusable
+and selectable, taking no gesture — until the new ones land; and read again as
+it stands (`rereading`) — a Save of the page's own, another session's write —
+it is live: a gesture is taken at once, from the row shown. A board is held
+back only while what it shows is another view's, never for a read again of its
+own; a reader gives its period and its choices as text and asks `viewState`,
+and keeps no rule of its own. The Calendar's and the Plan's event kinds read
+through one reader (`shared/schedule/cells.ts`), which says the state
+(`ScheduleCellsRead.view`) and keeps a kind's rows standing through a read
+again — a series index's cells, and, for a kind read a window at a time
+through its source's interval index or a day index, the rows its window's read
+holds (the kind's `stored` seam, #1599), kept at the revision they were read at
+while its record, its narrowing and the range hold. Both builders draw such a
+kind from those rows, so a draft made meanwhile draws at once, a gesture and an
+inspector find its row among them (`held`), what a Save landed is laid over
+rows read before it (`readBeforeSaves`), and a draft's redraw asks e3 nothing.
+**A page of rows arrives with the entries its rows were made from** (ruled 11
+Nov 2026: the rows carry them — one shared piece, under the Sheet, the Record
+and the Plan's own rows). A builder that edits rows it reads a window at a
+time takes them through east-ui's `CarriedRowSourceType`: each window is its
+rows and the stored entries they were made from (`CarriedWindowType`), one
+read, so the two are of one revision. Its driver keeps each window with its
+entries in the shared store (`shared/windowed.ts`: a reader's `entries`,
+`WindowStore.entryOf` — the window landed at a position, else the one standing
+in for it), the Sheet's lens with each page it keeps, and hands the session
+the entry of the row it shows (`useEditSession`'s `entryOf`, by the row's id
+and position). A gesture on a row a builder shows then begins from that entry,
+and a Save's entries are read back from the window that read holds them in
+(`EditSource.page`'s `EditWindow`), never from an entry read on its own at
+the revision the source reads at now, which is on its way while the windows
+are read again. A row's stored type holds no entry: what the tab keeps of a
+draft through a reload is the row alone.
+
+An author's callbacks read the rows around the one they are for the same way
+(`sheet/shown-drafts.ts`): a column's fill, its options, a custom parse, a
+link's checks and the rows' readiness are each handed every shown row's draft —
+the session's, else what a Save landed of it, else the entry its window
+carried, lifted — so e3-ui's bridge reads the source for none of them. Read
+there, a row whose window was being read again came back with every field no
+column shows missing: a check misfired, and a fill proposed nothing, until the
+pages landed.
+
+The Plan draws its unsaved changes into its windows, so a window standing in
+while it is read again is drawn as its source draws it now
+(`WindowReader.standIn`, the source's `redraft` over what the window carried —
+e3-ui's `deriveWindow`, which reads nothing): a change made meanwhile is drawn
+at once, and what a Save landed is laid over the windows read before it
+(`EditSession.landed`, let go as each window is read again, `standingBeforeSave`).
+Over rows read lean beside their nested series index (#1438) a window carries
+no entry — none of its rows is a row whole, and a gesture reads its row whole
+by key — and a row's numbers are its cells', which their reader holds at the
+record's revision: a change made while they are read again is taken at once
+and drawn once they land (still to close: the reader keeping its cells
+standing, with what a Save landed, so a new change draws over them at once).
+
+**A source read another way** — its id the same, its page no longer equivalent
+(#809): a value its author's block read moved, or the block was evaluated
+again over a handle bound as a variable — is one rule every driver asks
+(`shared/windowed.ts`' `sourceChange`): its rows are read again, and those
+held stand in meanwhile, retained. A builder's tag binds its author's handles
+once, as constants in its own block (e3-ui's `utils/held.ts`,
+`recordSources(…).bind($)`), so a page evaluated again over the same data
+reads nothing again.
+
+**The three checks every builder that saves runs**
+(`shared/save-held.test-utils.ts`): `savedThroughReload`, `editedThroughReload`
+and `redrawnThroughReload` — the second with every builder mounted handed its
+payload again at every step, decoded anew with nothing in it changed
+(`e3-web-mount.test-utils.tsx`' `evaluateAgain`, in a file that calls
+`evaluatesAgain()` beside its harness), as a page evaluated again hands it one
+whenever a value in it moves. The Allocation, the Roster, the Flowchart, the
+Sheet — over its pages and under its lens — the Record, the Calendar and the
+Plan — its events read over the window, read by their cells, and its own paged
+rows — and the Schematic, by area and whole, run all three. The Plan's rows
+read lean run the first, and hold a change made meanwhile to being taken and
+saved (`plan/frame/plan-nested-save-held.dom.test.tsx`).
+
+**The checks of a row another session removes or changes under a draft**
+(`shared/remote-rows.test-utils.ts`): `removedOnBothSides`, `removedThere` and
+`removedHere` hold the builder's own reads at the harness's fetch, commit the
+other session's write, let the reads go one at a time and read what the
+builder draws of the row at every change of the page — a row removed on both
+sides never drawn again, a row changed here and removed there standing as
+drafted, a row removed here and changed there staying off — then the choice,
+each way; and `addedOnBothSides`, a row added here under a key the builder
+made that another session saves its own row under: the one added here goes on
+under another key, both drawn, nothing to choose, and Save keeps both.
+A conflict's card names its row as the builder names it, never by
+its key, whether the builder draws the row or the draft removed it: a row off
+the rows drawn is named from what the session holds of it — the Sheet's
+`rowWhere`, from its `originals`; a board's event from the row its record
+held when last read, read as its kind reads a row with no draft in place
+(`shared/schedule/editing.ts`' `heldEvent`, which `scheduleIssueName` falls
+back to). Every builder that saves runs the three removals: the Record
+(`record/remote-edits.dom.test.tsx`), the Calendar
+(`calendar/remote-rows.dom.test.tsx`), the Sheet, over a record read a
+window at a time (`sheet/remote-rows.dom.test.tsx`), the Plan
+(`plan/frame/plan-remote-rows.dom.test.tsx`, with the row added on both
+sides), the Allocation over its bins (`allocation/remote-rows.dom.test.tsx`:
+its board reads a bin it draws back from its day's own pages, so no read is
+held apart), the Roster over its duties (`roster/remote-rows.dom.test.tsx`),
+the Flowchart over its states (`flowchart/remote-rows.dom.test.tsx`) and the
+Schematic over its racks (`schematic/remote-rows.dom.test.tsx`) — the last two
+over a record read whole, where the canvas and its session read it in the one
+read, and over one read through its source of the rail; the Schematic's racks
+read by area in `schematic/schematic-review-drafts.dom.test.tsx`.
+
+**`removedThere` runs both ways round** over a record read a window at a
+time (hardened 12 Nov 2026): the session's read of the row by its key landing
+first, the builder's own rows held — and the builder's rows landing first,
+read again without the row, the session's read by key held (`"rows"`, its
+`byKey`). There the session still holds the row as one its record holds, and
+a builder that draws a draft only where its rows hold the row — any other a
+row a narrowing hides, waiting in its session — drew nothing of it until the
+session's read landed: a row its person had changed left the page for a round
+trip, and came back with its conflict. The Schematic and the Flowchart read
+through a source, the Plan, the Sheet and the Record did so. One rule holds
+them now: **through a carry-over a drafted row stands as its builder last drew
+it**, until its session has judged it where its record reads
+(`shared/schedule/drafted-rows.ts`' `DraftedStanding`, asked by the
+Schematic's and the Flowchart's drawings and by the shared cells reader of
+the Plan's and the Calendar's events, `cells.ts`' `draftsNotHeld`; whether a
+session has yet to judge its drafts is the shared editing's `carrying`, true
+from the very render its record moves in). The Sheet and the Record, which
+draw a page at a time, keep such a row only where the rows read again have
+closed over its place — another row standing at its position, read at the
+revision the source reads at now, or the source, counted there, ending before
+it — which tells it from a row whose page was let go, scrolled away from
+(`sheet/standing-rows.ts`). Over a record read whole — no page of it still to
+land, nothing narrowing it — a row changed here that the collection, read
+again, holds no more is drawn from its draft at its place in that very
+render (`sheet/use-editing.ts`' `whole`): the shared hook tells the session
+of the new collection only once it is drawn, and left to the session's word
+meanwhile the row left the grid for one commit no one saw — which the
+frame's scroll anchoring saw, taking its anchor on the next row and
+scrolling the changed row under the header as it came back (hand test, 13
+Nov 2026; `sheet/standing-whole.dom.test.tsx` reads what the grid draws at
+every commit, the showcase's `sheet-conflicts.spec.ts` the scroll). And whether a draft adds its row is read from its
+session's original as it stands, never once as the draft is first decoded
+(`shared/schedule/use-drafted-rows.ts`): a rack moved here and removed by
+another session was held to be a rack its record held still, and left the
+Schematic's canvas, and the Flowchart's, while its person was asked to choose
+over it. The Calendar, the Roster and the Allocation held under both from the
+start.
+
+**And with Save pressed before the page has heard** (`removedThereAtSave`,
+`removedHereAtSave`, `addedOnBothSidesAtSave`, over the harness's `race`,
+which holds the Save's request while the other session commits): e3 takes no
+change of a row it holds no more, removes no row that is no longer as the
+session read it, and saves no new row over another's — the Save is refused,
+and each case ends as it does at rest: the row changed here standing as
+drafted, the row removed here staying off, a conflict to choose; the new row
+going on under another key and saved by the Save sent again, both kept. Every
+builder runs the two removals; the Calendar, the Plan and the Sheet, which
+make new rows' keys, the addition. The
+Sheet's check of a row added on both sides holds no read: its session learns
+that the new row's key is taken from the very page its grid reads the row's
+place in. A change taken back by hand while its conflict waits — a level
+typed back to what it was, the edit of a member another session removed typed
+back — makes no choice and writes nothing over the other session's: their
+level shows, their removal stands, and nothing is left to save
+(east-ui-components' `EditSession.overConflicts`, the Record's
+`record/remote-edits.dom.test.tsx`). Left as typed, the grid read no conflict
+and Save was on: it wrote the old level over theirs, and put the removed
+member back. A Save whose answer never comes — saved all the same, another
+session's write, then Retry — is held on e3 in the Record
+(`record/unanswered-save.dom.test.tsx`): e3 answers the request it remembers,
+so a new member is saved once, a change put back by Undo since is still to
+save, and another session's change of the same part meanwhile is no conflict;
+sixteen other Saves on, e3 has forgotten the request and refuses it, and the
+session judges it by what e3 holds — a new member saved once all the same,
+never again under another key. What such a Save wrote put back exactly by
+another session before Retry is acknowledged at the state e3 answers with,
+never waited on (`record/remote-edits.dom.test.tsx`, the crew read a window at
+a time; east-ui-components' "A Save with no answer").
+
+A change saved here that another session puts back exactly before the builder
+reads the record again — a row changed, added or removed — is the shared
+check `putBackAfterSave`: the Save is read back with the row as e3 holds it,
+never left saving, nothing asked and nothing saved again. Every builder runs
+it: the Record over the crew read a window at a time and read whole
+(`record/put-back.dom.test.tsx`), the Sheet and the Calendar each of the three
+changes over a record read a window at a time and two over one read whole
+(their `put-back.dom.test.tsx`), the Plan a job duplicated, the Roster a duty
+placed and one removed, the Allocation a bin removed, the Flowchart a state
+renamed, and the Schematic a rack moved over racks read whole. A record read whole holds, put back,
+the bytes it held before the Save under the hash it had, so nothing it holds
+tells when it was read: the record runtime does (`platform/record-runtime.ts`'
+`settledOf`). It marks the workspace's polls as each of a record's writes is
+answered (the dataset cache's `pollMark`) and says what the cache holds of the
+record once a poll started since has found it the record's — fetched, or held
+already under the hash that poll read (`confirmedSince`; `confirmed` tells
+whoever waits, since a record put back changes no byte to tell its readers
+of) — and it registers that as what its sources hold
+(east-ui-components' `registerSettledSources`: a source's id is its record's
+name there), which an editing session reads a Save back at. It says nothing
+of a record no write from here has been answered for, nor of one the cache's
+polls do not reconcile — read a page at a time, or held offline. The same
+Save with its answer lost, then Retry, is `record/unanswered-save.dom.test.tsx`'s.
+
+A Save's answer that comes after the builder has heard of another session's
+later write — and reads it — names a state the record has left (hardened 12
+Nov 2026). Installed, the builder asked e3 for that state: e3 refused each
+read pinned there, naming the state it holds, and the builder read what it
+shows a second time. But e3 marks a read pinned to a state as one to keep
+for good (`Cache-Control: immutable`), and a browser that holds it answers by
+itself: where the Save had put the record back at a state the builder read
+before — a level typed back, and saved — nothing was refused, and the builder
+drew that past state, the other session's change gone from it. The session installs
+the revision an answer names only while its source still reads where the Save
+was drafted (east-ui-components' `EditSessionBinding.reads`); otherwise the
+source follows its state, and the Save is read back once the workspace has
+read the record since the answer, wherever the source then reads. The record
+runtime says when (`followedOf`: a poll started since the record's last
+answered write has read its hash, every watcher of it told — the dataset
+cache's `hashReadSince`, and `hashRead` for whoever waits, since a hash its
+watchers hold already changes nothing to tell them of), and each host hands
+its session that as its source's `followed` through the paging runtime's
+`readSinceAnswerOf`: the boards' shared editing (`shared/schedule/editing.ts`),
+the Sheet's and the Record's (`sheet/use-editing.ts`) and the Plan's own rows
+(`plan/use-plan-editing.ts`). The paging runtime holds the same line under
+them: a refresh that names a revision installs it only while the source still
+reads where it read as the refresh was asked, and otherwise follows the
+dataset. The shared check is `heardBeforeAnswer`, over the harness's `late`
+(the Save's commit made and its answer held, another session's write, the
+builder hearing of it and reading it, then the answer): the other session's
+change stays drawn through the answer, the Save is read back, and e3 refuses
+none of the builder's reads. One runs for each place a host wires it — the
+Record (`record/remote-edits.dom.test.tsx`), the Calendar
+(`calendar/remote-rows.dom.test.tsx`), the Plan's events
+(`plan/frame/plan-remote-rows.dom.test.tsx`) and the Plan's own rows
+(`plan/plan-editing.dom.test.tsx`) — each proved to fail with its wiring
+taken out; and the Record runs it once more over a browser's cache
+(the harness's `browserCache`, which keeps what e3 marks to keep and answers
+it again by itself), where the fault was the grid drawing a past state.
+
+A builder never stays at a state its record has left (hardened 12 Nov 2026).
+The dataset cache's hash watch tells a follower a hash where it differs from
+the one the follower holds — and the paging runtime says where its source
+reads whenever it moves by evidence of its own: an answer's revision
+installed, a refusal naming the record's state, a lookup (`paged/channels.ts`'
+`moveTo`, the cache's `hashHeld`). The first poll started from then on
+compares the record's hash with that, asked in full; a poll in flight as the
+source moved may have read before the evidence, and says nothing to it.
+Compared with the last hash the watch had told alone, a source put at a
+Save's state while the record was already back at the state before — another
+session's write, under the very hash last told — heard nothing more: with
+its pinned reads answered by a browser that kept them, the grid drew a level
+as saved which the crew no longer held, until they next changed
+(`record/remote-edits.dom.test.tsx`, `test/dataset-store.spec.ts`,
+`test/paged-runtime.spec.ts`). And a poll a refresh overtook, which tells no
+watch what it read, keeps no tag of its answer: the poll its refresh chains
+asks in full.
+
+The Sheet's footer note of a gesture goes with a step of the history, and
+with a conflict's choice, which is one taken in the conflicts popover: a
+removal's `Apply writes it, Undo restores` is so no more once the other side
+is taken, and the Record's status line, which says the note, goes with it.
+
+**A new row's key is its session's to make** (#1583; east-ui-components'
+`keys.ts`, `EditSession.mint`). No builder makes a key: each binds its
+session a rule, asks the session for a new row's key, and the session holds
+the key as its own until the row is saved — through a reload too — and makes
+it another where another Save takes it, both rows kept and nothing to choose.
+The Sheet and the Record bind the app's `newKey`, else a key made up at
+random (`sheet/use-decode.ts`' `makeKey`, `use-session.ts`' `keys` and
+`mintAmong`), a gesture saying which keys it knows taken as it asks, and say
+a re-made key in the footer. The boards' shared editing binds each kind and
+record by its key type (`shared/schedule/editing.ts`): a text key made from
+the key its row is made from — a template's, a copied event's — else made up;
+an Integer key one past the largest; `ScheduleEditing.mint` is the kind's
+session's. A text key made from another's is the next in a row
+(`brackets-2`) only for a kind whose record its session holds whole. A kind
+read a window at a time — every kind given `entries`, the operations
+calendar's and the print works' jobs among them — is keyed with a suffix
+drawn at random (`brackets-5f3a9c2e`, `drawnFromKeys`): its session knows
+none of its record's keys but those it has met, and the next in a row was an
+earlier copy's whenever that copy stood out of what the page had read — a
+second job from one template, the page loaded again since the first was
+saved, took the first one's key, its Save was refused, and the two were a
+conflict to choose between (`calendar/new-event-keys.dom.test.tsx`). Its
+rule is bound past the keys the builder shows a row under — what it draws,
+what its own reads and its cells hold (`pastKeys`) — so a new row is never
+drawn over one on the page; and a gesture that makes a row under a key one
+stands under records nothing (`record`'s guard), whoever made the key. A
+test reads the key a gesture made, never names it (`plan/frame/harness.test-utils.tsx`'
+`madeFrom`, `drawnFrom`). A kind is re-made a key only where its builder
+says nothing else it drafts names its events by key
+(`ScheduleEditingArgs.rekeys`; any other part's rule is made once,
+`onceKeys`), and that builder moves on what it holds by the old key
+(`ScheduleEditing.renumbered`): a selection left on it would open the other
+session's event in the inspector. The Calendar gives every kind the rule and
+moves its selection (`calendar/remote-rows.dom.test.tsx`), and so does the
+Plan (`plan/canvas.tsx`, `plan/frame/plan-remote-rows.dom.test.tsx`): nothing
+it drafts names an event by its key, and its banners name an event through
+the boards' one `scheduleIssueName`. The Roster's duties and targets and the
+Allocation's bins ask their sessions too (`roster/actions.ts`,
+`allocation/actions.ts`): a key made up at random, as it was. Still to move
+to their sessions: the keys the Plan's own rows, the Schematic and the
+Flowchart make up through `shared/schedule/records.ts`' `mintKey`; and still a
+conflict where two sessions make the same key: the Schematic's and the
+Flowchart's Integer-keyed rows, whose rows name one another by key — a
+Flowchart's transitions name their states.
 
 The period is assembled from the app's rows, never stored. A reader of its own
 (`RosterDataReader`, `AllocationDataReader`, as the Calendar's is, #1343) reads
@@ -1166,13 +1619,29 @@ type, East deciding which types are the same. Each command works out the
 period as it leaves it, then records the rows it changed: a changed row
 through the kind's `write`, every field no role maps as it was; a new one
 through `create` — a booked bin's with its arrival's `values` — under a key
-minted unique among every key the builder holds (`mintKey`,
-`crypto.randomUUID()`). Publish saves first, and only once every record reads
+its record's session makes (`ScheduleEditing.mint`: made up at random, a
+UUID). Publish saves first, and only once every record reads
 back as saved writes the period's status and saves the periods
 (`publishPeriod`): a failed save leaves the period a draft, its drafts kept.
+The status is written over the period's row as the Save left it — the row
+rewritten as the periods' session finds it once the Save has settled
+(`periodPublishChange` over `ScheduleChange`'s `rewrite`), a new one where it
+finds none (`absent`) — so Publish changes the status alone, never putting
+back what the Save, or another session, wrote after it was pressed.
 The builder writes its period into its kind's source of the slice
 (`shared/schedule/source-window.ts`), so the rail's summary counts the
 period's events and a Save's notice reads the window it reads.
+
+A record the app's check reads beside them (#1551) is the slice's `reference`
+source, the Roster's and the Allocation's alike: the builder writes the same
+window into it (`useSourceWindow`) and its reader reads the rows overlapping
+each period through the payload's `reference.rows(from, to)` — the Roster's a
+week of its span at a time, the Allocation's the day, with the days either
+side read ahead — each row decoded once (`shared/schedule/reference.ts`'
+`keptReference`), and hands them to the check as `reference`. A read of them in
+flight is the period's, a failure is the period's, said once with Retry, which
+asks the source again; nothing draws them, and the rail leaves the source out
+(`useRailSources`). Tests: each board's `reference.dom.test.tsx`, on e3.
 
 The Roster's pay is asked a person at a time (`roster/model.ts`'
 `RosterPayCache`, B17): once per person with duties in the week and once per
@@ -1190,6 +1659,18 @@ for its calculations, and narrows them through `Slice.bindRecords(key, {
 pay, rest, skills and lead/trainer checks. Never calculate a misleading
 surplus by filtering people out of the roster's arithmetic. Hidden edits still
 Save.
+
+The Roster's and the Allocation's toolbars hold still as a day's status
+changes: the status and the issues count stand in slots as wide as the widest
+of what they may say (`widestSlot`, each word laid out unseen in it), so a step
+to another day neither moves the controls beside them nor tips the row's fold
+(#1595). The picker marks a published day with a filled dot and a draft day
+with a hollow ring, and its legend draws each mark beside its word.
+
+Beside a duty's `NO GROUP` badge a People tile's shift stays whole: where the
+words and the whole name don't both fit, the badge is its `users-slash` icon
+(`views.tsx`' `NoGroupBadge`), its words in the tile's tooltip and in what a
+screen reader says.
 
 The week is the Roster's own navigation and its picker, never a Slice chip
 (ruled 18 Oct, #1342), as the day is the Allocation's. Each builder's view is
@@ -1234,6 +1715,88 @@ duty by whose it is and a shift by its group, each with its day and its shift
 (`C. Clover · Thu Early`, `Inbound · Thu Early`). A shift's colour token resolves through the theme's
 palette variables (`model.ts`' `colorTokenCss`), the words on it in the ink
 the shade takes, the same in both colour modes.
+
+The People layout draws the work requirement over its people, by week and by
+month (#1568, `People Work Requirements` 2a), its figures pure in
+`roster/demand.ts` over the span in view: each slot's coverage as the Shifts
+layout works it out, summed — a lane's day, a lane's week, a skill's, a band's
+— and what each slot is short summed on its own, so no slot's surplus nets
+another's shortfall (K4); rostered is every duty's hours, the agencies'
+requests' included (ruled 8 Nov 2026). By month the coverage is each of the
+month's weeks', its hours alone, no pay asked (`index.tsx`' `spanCoverage`),
+each week's worked out again only as that week moves — kept by its start and
+reused while East says the week is the same (`model.ts`' `RosterSpanCoverage`),
+the week the inspector reads its own coverage.
+Under each open band, or with `peopleBands={false}` one block over every group
+at the list's head: the eyebrow, headed the vocabulary's `demand`, each day's hours
+rostered of needed; a lane a shift with hours needed or rostered on some day of
+the week (a target needing no hours, none rostered, counts as none, as the
+Shifts layout's `No work` does: `demand.ts`' `figuresOf`), in the shifts' order, each day's figures over a bar in the coverage marks — `no
+target` where none of the day's slots has one — its name cell the disclosure of
+its skill rows, kept open under the Roster's surface as the bands' folds are
+(`open-lanes`); then `Assignment · n people`. A lane's day's label — and by
+month its mark's, and a skill's cup's title — says its hours, then the
+difference its figure states (`demand.ts`' `differenceSaid`: `216 of 214 hours
+rostered, 2 short`), which its hours alone cannot say once a group is short as
+another is over. Each is a `VirtualRows` item keyed
+by its kind and its parts as East prints them (`demand:`, `lane:`, `skill:`,
+`assign:`). A lane's day selects its slot, the band's group's, or with no bands
+the shift's day across the groups (`Selection`'s `shiftDay`), which the
+inspector draws as their sum (`demand.ts`' `summedCoverage`) above each group's
+slot; a phone's day card's line selects it and opens the inspector's view on it
+(`views.tsx`' `inspect`), where any other selection leaves main in view. The band says the people it lists and the week's hours in the Shifts
+band's words, with how many of its shifts are short. The eyebrows stand whenever
+requirements are on and the Roster has targets, a week naming none drawing no
+lane, so the list's first row never changes as a week lands — rows landing
+above the view would scroll it; while a week is read the last read's lanes
+stand in, each figure a placeholder. By month the band sums the month's weeks,
+the eyebrow says each week's hours — by the month header's fit rule (R3), in
+the richest form every week's column holds whole: `1,352 / 1,298 h`, then the
+unit dropped, then the hours needed under the hours rostered, else none; every
+form laid out, the others unseen, so the fit measures each (`views.tsx`'
+`measureDemandWeeks` over `useLayoutFit`, which the header's fit shares) — and
+a lane's and a skill row's day is a
+mark on the person marks' day columns, a cup (ruled 8 Nov 2026; `laneCup`,
+`skillCup`, its state `laneMark`'s and `skillMark`'s): filled from the bottom
+to the share of its hours needed its slots meet — full where none of them is
+short; where any is, open above by what they are short, each slot's own summed,
+whatever another slot is over (K4) — its parts the day's bar's by week, in
+their colours and in proportion to its hours rostered (a skill's, assigned),
+the agencies' requests on top in the teal's tint, solid; what a short day
+lacks open above them on the warning's wash, its dashed edge drawn inside it
+and clipped to it, so a gap thinner than the dashes draws none over the fill;
+an empty cup with no target. A day of one slot fills as its bar draws it, each
+level ending where the bar's part does. The cup's levels
+are CSS variables its style sets (`--roster-cup-permanent`, `-agency`,
+`-fill`), which the recipe places its parts by, a 1px gap in the panel's colour
+between them, in both themes, drawn inside the part above it so a part thinner
+than the gap keeps its height. Its difference is drawn in the text colour with a
+thin outline in the panel's colour, whatever the fill behind it, so no digit
+splits (ruled 9 Nov 2026), where a day is 22px or wider, whole or
+not at all, and no figure in the name cells (P16). A mark selects its slot in
+its week — a selection names its week
+(`Selection`'s `start`, `selectionWeek`) — and the inspector and the commands
+work over that week. Deep in a band's people, by week or by month, the band's
+head — the band, its eyebrow and its lanes, an open lane's skill rows with
+them — sticks under the grid's header, each row under the ones above it, until
+the next band pushes the head out whole (A6.1, `views.tsx`' `demandSections`
+over `VirtualRows`' `sections`); with `peopleBands={false}` the one block
+sticks over everyone. A head taller than half of main keeps its band, eyebrow
+and lanes, as many as fit in that half, and its skill rows scroll with the
+people (A6.2). A band with no work requirement under it sticks nothing, and a
+stuck band folded stays at the view's top, the focus on it. The stuck rows are
+on the surface's paper, the `scroll` slot's (`[data-virtual-stuck] >
+[data-index]`), and nothing the keyboard reaches lands under them — a Tab, a
+pick, a keyboard drag's step — each row's elements keeping what covers it clear
+as their scroll margin (`VirtualRows`' `--virtual-cover`, WCAG 2.4.11). On a
+phone, before each band's people's cards — or with `peopleBands={false}`
+everyone's — the eyebrow, headed the vocabulary's `demand` with the week's
+hours rostered of needed, over a card a day: the day's hours as the grid's
+eyebrow says them, then a line a lane, its figures over its bar or `no
+target`, which selects as a lane's day does (`views.tsx`' `DemandCards`, one
+`VirtualRows` item, its rows made by `cardDemand`); then `Assignment · n
+people`. `requirements={false}`, Hide requirements and a Roster without targets
+draw none of it.
 
 The People tab has no filter of its own: leads, trainers, agency and skill are
 rail fields of the staff record (#1342). A Find fix asks the app's fit
@@ -1387,6 +1950,44 @@ and revalidate the final drop through the normal command. Test warning parity,
 repeated hover, source immutability and cache invalidation. A completed edit may
 update selection, but must preserve collapsed panes and the active inspector
 tab. Only an explicit inspection action opens Details.
+
+The Calendar's drag keeps each place's verdict while what it was asked of
+holds — the events and the Backlog read, the drafts, the selection, the
+templates (`calendar/drag.ts`, #1594): a place is asked once a drag however
+often the pointer moves within it, the cell, the caption and what a screen
+reader hears given the one verdict, and the drop itself is checked afresh
+through the commands. A dragged event is found by its key, a template's first
+free resource in one pass over the events (`actions.ts`' `firstResource`), and
+its new key is minted once for the checks and afresh for the drop. A lane lets
+its preview go as the drag leaves it, lets go or is cancelled (`views.tsx`'
+`DropLane`, the drag layer's `onLeave`), so a lane rested on again never shows
+first where the drop landed before (`calendar-windows.dom.test.tsx`, the
+showcase's `calendar.spec.ts`).
+
+Picking something up and putting it down draw only what they move (#1594). The
+frame hears of a drag only while an overlay pane or a phone's drawer is open,
+all a drag moves there (east-ui-components' `OverlayDragWatch`). A Library card and an
+event's block are a thin shell, which holds the drag handle, around a memo of
+their face (`LibraryCardFace`, `LibraryGalleryFace`, `views.tsx`'
+`EventBlockFace`), so a handle starting or ending a drag draws no face again.
+What a drag asks of the Calendar it reads as it runs (`calendar/drag.ts`' one
+object while its surface and whether it takes a drag hold, and
+`useScheduleEditing`'s `held`, a ref), so neither a drag nor a landing's cells
+makes any row draw. The Inspector
+draws what is selected a moment after what selected it (`inspector.tsx`'
+`useDeferredValue`): a drop's event shows on the board and the page paints,
+then its Details draw in a render of their own. And a page's first drag adds
+no rule to the page's styles: Chakra writes every rule in a cascade layer, and
+in Chromium a rule added to a sheet with layers invalidates every font in the
+page, so the first ghost of a drag worked out the styles of all of it and laid
+it all out again. What a drag draws has its classes made as the views are
+drawn (`useSlotClass`; `move-ghost.tsx`' `useMoveGhostClasses` and
+`useClassesAhead`, each board naming the slots a drag draws): the class a
+Chakra element is given, in the one emotion cache every package shares, so it
+serves a plain element or a styled one. The showcase's
+`calendar-first-drag.spec.ts` and `builder-first-drag.spec.ts`, each test on a
+page of its own, hold that nothing is added as a card, an event, a duty, a bar,
+an arrival or a connector is picked up or carried.
 
 Keep a proposal's compact placement and detailed explanation separate in the
 existing regions: a dashed single-line chip in the desktop grid, the complete
@@ -1639,14 +2240,15 @@ Sunday/Monday week start.
 Pass date changes through the host's existing window/Slice owner. Preserve
 whole-week Roster reads and every week's drafts, and request status only for
 the open picker's month. Cancel and browsing must not write the Slice. Calendar's
-timeline labels the visible range and steps from its visible center; Today
-recenters even if the persisted date was already today. Do not duplicate the
+timeline labels its period and steps it as every layout does (ruled 9 Nov
+2026); Today brings the now line into view even if the persisted date was
+already today. Do not duplicate the
 current date as detached toolbar text. Counts remain a separate folding item.
 
 Test all three consumers at 1440/1024/768/390/360 and a 294px parent:
 popup Today, all valid units, keyboard selection/cancel, hover versus selected
-styles, bounded reads, Slice writes, month/year boundaries and timeline
-recentring. Rebuild and check the actual HTTPS showcase before reporting that
+styles, bounded reads, Slice writes, month/year boundaries and the timeline's
+Today. Rebuild and check the actual HTTPS showcase before reporting that
 navigation changed.
 
 Plan's time navigator uses its active scale unit (including hour, quarter and
@@ -1790,36 +2392,35 @@ view (`LoadingFailedBox`: the Calendar's time and month grids), and on the
 footer's line — never a "… unavailable" status over the grid. A period not
 read gives no issue and counts nothing (`…`); a true empty is said once, only
 after its read (the Allocation's `No bins on …`, `LoadingEmptyLine`). The
-toolbar's status, issues, history and Publish hold their slots from cold load
+Issues list shows a placeholder until the period's rows and the check's record
+are read, its count unsaid, and never says there are none (the Roster's and the
+Allocation's inspector, over `read`). The toolbar's status, issues, history and Publish hold their slots from cold load
 (`heldToolbarSlot`): unread, the status and the issues are placeholders, the
 history as the last period read had it, and Publish in its slot, off,
 wherever it cannot publish; the rail's summary keeps a narrowed source's place
 while its count is read.
 
-The Calendar's timeline continues what it shows (#1398): the timeline draws a
-bounded window of days on a fixed grid — 15 on Day, 56 on Week, 154 on
-Month, each starting a whole number of half windows (7, 28 and 77 days) from
-the epoch (`calendar/timeline.ts`) — and as the view comes within 240px of an
-end of it, the window moves on to the grid's next one that way, the scroll by
-as much, every instant where it was on screen; the view's date becomes the
-day under its middle, so a reload opens that window again where the view was.
-Every route that moves the timeline's dates behaves as its scroll does (ruled
-25 Oct 2026): a re-centre, Prev/Next from the view's middle, Today, a date
-picked, a pick of Search Records and a period changed on the timeline. Until
-the window it goes to lands, the held read stands in — the frame's
-`continuing`, while the held read was drawn on the timeline: its events at
-their real dates, wherever they cover the instants on screen, in the lanes the
-period they were drawn at gave them (the views' `lanesPeriod`) — every row
-its height, so the scroll keeps its offset — its booked hours, its overlaps
-and its Backlog, stale and retained (CL5, CL8), and no commit marks it unread.
-Beyond the held read, placeholders only: the days of the window it does not
-cover are washed (the views' `covered`), and a figure over the days shown says
-`…` only where the view has passed beyond it. Landed, the rows take the new
-lanes with the row in view anchored, and the next window the way the view
-moved is read ahead. The grids keep their own rule: a step of a time or month
-grid, or of the agenda, to a period not read yet — or a layout changed, into
-the timeline too — holds none of the old period's events, whose columns are
-another period's days.
+The Calendar's timeline shows the period chosen and scrolls only within it
+(ruled 9 Nov 2026, over the moving window of 25 Oct), as the Roster's grid
+shows its week (`calendar/timeline.ts`): a Day, a Week or a Month, laid out
+from the period's first day to its end, each day at least its period's own
+width (`timelinePixels`: 1,920px at Day, 216 at Week, 40 at Month) and wider
+where the view leaves room beside the resource column (`timelineDayWidth`),
+so a period narrower than the view fills it. A scroll never moves the period,
+and nothing past its ends is drawn or read: only Previous and Next, Today, a
+date picked and a pick of Search Records move it. The view opens its period
+once, as the timeline mounts and as its period changes — at Day on the
+working hours, at Week and Month on the view's date (`timelineOpensAt`) — and
+keeps where it is along the period across a step, a date picked and a
+resize; Today brings the now line a third of the way across, and a pick
+brings its event's time to the middle. A step to a period not read yet holds
+none of the old period's events, as the grids' and the agenda's do: their
+columns, and the timeline's days, are another period's. A row's plot fills
+its row, as tall as its lanes or its head makes it, and its lanes' bars are a
+block in the plot's middle, as far from its top as from its bottom — 7px each
+side where the lanes decide the row's height — its shade bars a lane's bars'
+height in the middle too (`timelineLanes`, `--calendar-bar`;
+`calendar-timeline-bars.spec.ts` measures it, a head made taller included).
 
 The Schematic (#1398) keeps what it drew while a read is in flight: its last
 complete drawing, and once it has settled once, a kind's rows as they land,
@@ -2088,38 +2689,43 @@ library reads the plan recipe's styles made once (`useSlotStyles`), so a
 landing draws and measures nothing of the toolbar again and works out no
 recipe's styles (`plan-landing-draws.dom.test.tsx`).
 The Calendar's timeline virtualises its resources' rows in their groups, and
-their events by what the view shows of the period, one view either side. An
+draws each row's events in the period, every one (ruled 9 Nov 2026), as the
+Roster's week draws its duties, so a scroll along the period draws none of
+them again. An
 event's block is a memo of what it shows (`calendar/views.tsx`' `EventBlock`,
 `sameEventBlock`): its facts — its selection ring, its overlap mark, its draft
 and the optimiser's marks, its drag handle and edges, a pick's reveal, the
 window it is clipped to and the handlers it calls (`eventFacts`, each made once
 while what it reads holds) — where it stands, and its event as East compares
-it; so a move of the span it mounts draws only the events it brings in, each
+it; so a step draws only the events it brings in, each
 once — a bar guesses which of its parts fit from the box its plot gives it
 (`size`), less what a bar the browser laid out showed its measure takes off
 its box (`chromeOf`), never the recipe's rule and padding repeated, so its
-measure keeps the guess — and a window read again draws none it holds as it
+measure keeps the guess — and a period read again draws none it holds as it
 was. A block is measured as the browser hands its box over, once it has laid
 the frame out — the views' one ResizeObserver (`BlockBoxes`), every fit a
 delivery moves applied in one render before the frame paints — never in the
 commit that mounts it, which forced the new blocks' style and layout before
 the frame laid them out. It draws plain elements of its slots' classes (east-ui-components'
 `useSlotClass`), never Chakra's styled elements, which work their styles out
-again at every element they draw: a glide mounts a thousand blocks. A row's
+again at every element they draw: a month of a busy timeline mounts a
+thousand blocks — and the footer's legend draws its kinds' icons so too, the
+rail drawing again at every step. A row's
 plot draws its shading — its weekends, its hours off — once while its bands
-hold, of the shade slot's class (`PlotShading`), so a move of the span draws
+hold, of the shade slot's class (`PlotShading`), so its events moving draw
 none of it again. A row's events take their lanes once a read, and a time
 grid's column's as it draws them, each lane searched by its events' starts
 (`shared/time/lanes.ts`' `packLanes`), never the event's cluster swept for
 every lane it stretches over: a year-long reservation joins a press's every
-job in one cluster, and the Month's whole-day spans join more. Each bar is
-placed from an origin a re-centre never moves, its plot moving by one variable
-(`--calendar-origin`), so a re-centre draws no event both windows hold whole.
+job in one cluster, and the Month's whole-day spans join more.
 An event keeps its handle, its edges, its draft and its marks through a read in
-flight (the views' `grips` and `editing`): retained content refuses the gesture
-itself — the shared drag sensors pick nothing up inside the `aria-disabled`
-main — and the commands are withheld meanwhile, so no read draws every event
-off and back on; the recipe draws a retained event inert to the pointer, the
+flight (the views' `grips` and `editing`). The board is held back only while
+what it shows is another view's (`shared/view-read.ts`): other choices of the
+period standing in, a resource kind's narrowing resolving, a paged kind's last
+view. Retained content then refuses the gesture itself — the shared drag
+sensors pick nothing up inside the `aria-disabled` main — and the commands are
+withheld meanwhile, so no read draws every event off and back on; read again
+as it stands, after a Save or another session's write, the board is live; the recipe draws a retained event inert to the pointer, the
 default cursor over it and its edges rather than the grab and the resize ones
 (the `event` slot's retained rule); where the read failed, main takes the
 pointer for its Retry, and the events carry no handle. Its ruler
@@ -2130,27 +2736,15 @@ caption of the period the view starts in stays beside the resource column, and
 its neighbours either side are sticky too, so a scroll the compositor draws
 ahead of the page finds the next one sticky already; every other caption
 stands where its column starts. A sticky caption is a layer of the
-compositor's own, and a band of them, one a period — 375 at Day — was most of
-what a frame of a glide spent compositing (`calendar.spec.ts` counts them). Its
-scroll publishes the days it shows to a store only what says them reads
-(`calendar/visible.ts`: the navigator's date and label, the count, each row's
-hours, the overlaps chip and the inspector's overlaps), so a scroll draws
-nothing else, and a day crossed only those — a row's hours read off its booked
-time up to each instant its events start or end at, made once a read (the
-views' `bookedHours`), so a day crossed sums none of its events again; the
-navigator and its popover drawn with their styles made once for the theme
-(`useSlotStyles`, `shared/time/navigation.tsx`, east-ui-components'
-`SliceEditPopover`), never their recipes' slots worked out again. The
-overlaps chip counts the
-overlaps in the days shown (`shared/schedule/overlaps.ts`'
-`scheduleOverlapsIn`, #1398), so it moves as days come into view and never as
-the window re-centres; the frame hears only whether there is one to show
-(`scheduleOverlapsAnyIn`). Each reads them off the read's pairs indexed by the
-days their overlaps touch, made once a read with each pair's events' keys, so
-a day crossed reads the pairs of the days shown alone and prints no key. Its
-scroll, and a step of its dates, publish which way it travels to a store of its
-own, which the window's read alone reads, to read ahead the next window of its
-grid that way.
+compositor's own, and a band of them, one a period, was most of what a frame
+of a scroll spent compositing (`calendar.spec.ts` counts them). Its scroll
+draws nothing else: the navigator's label, the count, each row's hours and
+the overlaps are the period's, as every layout's are — a row's hours its
+events summed once a read, as they are first said (the views'
+`TimelineLayout`); the navigator and its popover drawn with their styles made
+once for the theme (`useSlotStyles`, `shared/time/navigation.tsx`,
+east-ui-components' `SliceEditPopover`), never their recipes' slots worked out
+again.
 
 A kind read by its cells (#1039) over a paged kind says which resources' rows
 draw what is known of them (the shared reader's `drawn`, through `usePlanCells`;

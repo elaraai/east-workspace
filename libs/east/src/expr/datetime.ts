@@ -208,7 +208,7 @@ export class DateTimeExpr extends Expr<DateTimeType> {
   /**
    * Extracts the day of the week from the DateTime.
    *
-   * @returns An IntegerExpr representing the day (0-6, where 0 = Sunday, 6 = Saturday)
+   * @returns An IntegerExpr representing the day, ISO 8601 (1-7, where 1 = Monday, 7 = Sunday)
    *
    * @example
    * ```ts
@@ -217,7 +217,7 @@ export class DateTimeExpr extends Expr<DateTimeType> {
    * });
    * const compiled = East.compile(extractDayOfWeek, []);
    * compiled(new Date("2025-01-15T00:00:00.000Z"));  // 3n (Wednesday)
-   * compiled(new Date("2025-01-12T00:00:00.000Z"));  // 0n (Sunday)
+   * compiled(new Date("2025-01-12T00:00:00.000Z"));  // 7n (Sunday)
    * ```
    */
   getDayOfWeek(): IntegerExpr {

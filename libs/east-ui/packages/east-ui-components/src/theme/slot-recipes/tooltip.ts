@@ -9,6 +9,12 @@
  * `bg: fg.default` / `color: bg.surface` / mono 11. Tooltips are text-only
  * explanations of what a number is; structured content belongs in a Popover.
  *
+ * A tooltip takes no pointer: it says something of its trigger and holds
+ * nothing to press, so what lies under it stays live. Its chip takes none by
+ * itself; its positioner, the box that places it, did — and a button under a
+ * tooltip took a press only once the tooltip had gone (Save's `Choose 1
+ * conflict to save`, over the banner's Choose: hand test, 13 Nov 2026).
+ *
  * @packageDocumentation
  */
 
@@ -18,6 +24,9 @@ export const tooltipSlotRecipe = defineSlotRecipe({
     className: "elara-tooltip",
     slots: ["trigger", "positioner", "content", "arrow", "arrowTip"],
     base: {
+        positioner: {
+            pointerEvents: "none",
+        },
         content: {
             fontFamily: "mono",
             fontSize: "11px",

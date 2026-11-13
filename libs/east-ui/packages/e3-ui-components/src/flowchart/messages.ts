@@ -34,6 +34,7 @@
 
 import { StringType, printFor } from "@elaraai/east";
 import { editingMessages, type EditingMessages, type EditingWords } from "@elaraai/east-ui-components";
+import { withArticle as aNoun } from "../shared/article.js";
 import { pagedLoadingMessages, type PagedLoadingMessages } from "../shared/loading.js";
 import { hiddenByText, joinedWords, kindPlural, lowerWord, type HiddenWords } from "../shared/schedule/words.js";
 import type { FlowchartBinsRefusalWord } from "./details.js";
@@ -82,11 +83,30 @@ export type FlowchartDropWhatWord =
 /**
  * Why a drop is refused: not onto what the card lands on; or its kind's
  * record takes no edit — read only, or its session busy — the kind as one of
- * its rows is called, `state`.
+ * its rows is called, `state`; or its kind adds no row, its keys of a type the
+ * form can't type, by the type's name; or the lane it lands in is held under a
+ * placeholder, its key still to be typed — by what a lane is called (#1549).
  */
 export type FlowchartDropRefusalWord =
     | { readonly why: "onto"; readonly lands: FlowchartLandsWord }
-    | { readonly why: "readOnly" | "busy"; readonly kind: string };
+    | { readonly why: "readOnly" | "busy"; readonly kind: string }
+    | { readonly why: "untyped"; readonly kind: string; readonly type: string }
+    | { readonly why: "placeholder"; readonly kind: string };
+
+/**
+ * Why a gesture records nothing (#1549), as the footer says it: the row
+ * holding the key a row builds — a transition by its ends' names, any other row
+ * by its own; a row named in another's field while its key is still to be
+ * typed; a kind adding no row, its keys of a type the form can't type; and a
+ * row whose key would move, by its name, while the rows of another kind that
+ * may name it — `by` — the rail hides some of, or take no edit now (#1580).
+ */
+export type FlowchartRefusalWord =
+    | { readonly refusal: "taken"; readonly sort: FlowchartSort; readonly name: string }
+    | { readonly refusal: "taken"; readonly sort: "transitions"; readonly from: string; readonly to: string }
+    | { readonly refusal: "placeholder"; readonly sort: FlowchartSort }
+    | { readonly refusal: "untyped"; readonly sort: FlowchartSort; readonly type: string }
+    | { readonly refusal: "unheld"; readonly name: string; readonly by: FlowchartSort; readonly why: "filtered" | "busy" };
 
 /**
  * What the inspector shows, in its head and on its rail: one row, by its
@@ -295,6 +315,10 @@ export interface FlowchartMessages extends EditingMessages, HiddenWords, PagedLo
     inspectorField: (p: { field: Exclude<FlowchartFieldWord, "moveTo"> } | { field: "moveTo"; name: string }) => string;
     /** The line under a new row's key field. */
     inspectorKeyHelp: () => string;
+    /** The line under a new row's key of several parts — a struct's fields, a variant's case and its value (#1581). */
+    inspectorKeyPartsHelp: () => string;
+    /** A key of several parts' Set, which takes it whole (#1581). */
+    inspectorKeySet: () => string;
     /** A row in a select of the inspector's — `SCN · Scan`. */
     inspectorChoice: (p: { key: string; label: string }) => string;
     /** A part's head in Details — `Transitions · 3`, `In · 2`, `Evidence`; `name` is the transitions kind's. */
@@ -309,6 +333,20 @@ export interface FlowchartMessages extends EditingMessages, HiddenWords, PagedLo
     inspectorAction: (p: { action: "duplicate" | "delete" }) => string;
     /** Why a key typed in the inspector is refused, in the footer — `Every state needs a key`, `A lane is keyed "ld" already`; `name` as a sentence says it. */
     inspectorKeyRefused: (p: { name: string; key: string; why: "empty" | "taken" }) => string;
+    /**
+     * Why a kind adds no row (#1549) — on Duplicate's off line, "+ LANE"'s and "+ STATE"'s tooltips, a drop and the
+     * footer: `Stations are keyed by Blob, which can't be typed — give the kind `key` to add them`; `name` as a
+     * sentence says one of its rows, `type` its key type's name.
+     */
+    keysUntyped: (p: { name: string; type: string }) => string;
+    /** A new row held under a placeholder, its key still to be typed (#1549) — `Type this lane's key: Save waits for it`. */
+    keyPlaceholder: (p: { sort: FlowchartSort }) => string;
+    /**
+     * Why a gesture records nothing (#1549), in the footer — `A move from Mix to Proof is there already`, `Type the new
+     * lane's key first`, `Scan isn't changed: the rail hides some transitions that may name it — clear its choices, then
+     * try again` (#1580).
+     */
+    gestureRefused: (p: FlowchartRefusalWord) => string;
     /** How many states a lane holds — `Holds 3 states`; `name` as a sentence says it. */
     inspectorLaneStates: (p: { n: number; count: string; name: string }) => string;
     /** A key no state is keyed by, which transitions name — `Named by 2 transitions, and e3 holds no state keyed "GONE"`. */
@@ -364,8 +402,8 @@ const quoted = printFor(StringType);
 /** A name as a sentence starts with it. */
 const capital = (name: string): string => `${name.charAt(0).toUpperCase()}${name.slice(1)}`;
 
-/** A noun with its article, as a sentence takes it — `a state`, `an order`. */
-const aNoun = (noun: string): string => `${/^[aeiou]/i.test(noun) ? "an" : "a"} ${noun}`;
+/** Why a kind adds no row (#1549): its rows' name as a sentence says one, and its key type's name. */
+const keysUntyped = (name: string, type: string): string => `${capital(kindPlural(name))} are keyed by ${type}, which can't be typed — give the kind \`key\` to add them`;
 
 /** Each field's label in the inspector's own forms. */
 const FIELDS: { readonly [F in Exclude<FlowchartFieldWord, "moveTo">]: string } = {
@@ -568,8 +606,15 @@ export function flowchartMessagesOf(nouns: FlowchartNouns): FlowchartMessages {
             }
         },
         dropOnto: ({ what }) => `onto ${what}`,
-        dropRefused: (p) => (p.why === "onto" ? `Drop ${LANDS[p.lands]}`
-            : p.why === "readOnly" ? `${capital(kindPlural(p.kind))} are read only` : `${capital(kindPlural(p.kind))} take no edit now`),
+        dropRefused: (p) => {
+            switch (p.why) {
+                case "onto": return `Drop ${LANDS[p.lands]}`;
+                case "readOnly": return `${capital(kindPlural(p.kind))} are read only`;
+                case "busy": return `${capital(kindPlural(p.kind))} take no edit now`;
+                case "untyped": return keysUntyped(p.kind, p.type);
+                case "placeholder": return `Type the new ${p.kind}'s key first`;
+            }
+        },
         dropCanvas: () => "the canvas",
         dropLabel: ({ card, onto }) => `Drop ${card} on ${onto}`,
         inspectorPane: () => "Inspector",
@@ -583,6 +628,8 @@ export function flowchartMessagesOf(nouns: FlowchartNouns): FlowchartMessages {
         },
         inspectorField: (p) => (p.field === "moveTo" ? `Move to ${p.name}` : FIELDS[p.field]),
         inspectorKeyHelp: () => "A new row's key can change until it is saved; what names it follows the change.",
+        inspectorKeyPartsHelp: () => "Type each part, then Set key: the row takes the key whole, and Save waits until it does.",
+        inspectorKeySet: () => "Set key",
         inspectorChoice: ({ key, label }) => `${key} · ${label}`,
         inspectorSection: ({ section, count, name }) => {
             switch (section) {
@@ -597,6 +644,20 @@ export function flowchartMessagesOf(nouns: FlowchartNouns): FlowchartMessages {
         inspectorChip: ({ state: chip }) => CHIPS[chip],
         inspectorAction: ({ action }) => (action === "duplicate" ? "Duplicate" : "Delete"),
         inspectorKeyRefused: ({ name, key, why }) => (why === "empty" ? `Every ${name} needs a key` : `${capital(aNoun(name))} is keyed ${quoted(key)} already`),
+        keysUntyped: ({ name, type }) => keysUntyped(name, type),
+        keyPlaceholder: ({ sort }) => `Type this ${ONE[sort]}'s key: Save waits for it`,
+        gestureRefused: (p) => {
+            switch (p.refusal) {
+                case "taken": return "from" in p
+                    ? `${capital(aNoun(transition))} from ${p.from} to ${p.to} is there already`
+                    : `${capital(aNoun(ONE[p.sort]))} ${p.name} is there already`;
+                case "placeholder": return `Type the new ${ONE[p.sort]}'s key first`;
+                case "untyped": return keysUntyped(ONE[p.sort], p.type);
+                case "unheld": return p.why === "filtered"
+                    ? `${p.name} isn't changed: the rail hides some ${kindPlural(ONE[p.by])} that may name it — clear its choices, then try again`
+                    : `${p.name} isn't changed: ${kindPlural(ONE[p.by])} that may name it take no edit now — try again in a moment`;
+            }
+        },
         inspectorLaneStates: ({ n, count, name }) => (n === 0 ? `Holds no ${name}` : `Holds ${count} ${counted(n, name)}`),
         inspectorNoRow: ({ n, count, key, state: one, transition: link }) => `Named by ${count} ${counted(n, link)}, and e3 holds no ${one} keyed ${quoted(key)}`,
         inspectorCount: ({ name, n }) => counted(n, name),
@@ -619,6 +680,7 @@ export function flowchartMessagesOf(nouns: FlowchartNouns): FlowchartMessages {
                 case "weighed": return `${p.kind} details read another record than the rail's ${p.source}, so its picks don't add them up: each draws its row's own`;
                 case "waiting": return `${p.name} has an unsaved change the rail hides: Save writes it with the rest`;
                 case "ready": return p.message;
+                case "bounds": return `${p.field}: ${p.bound}`;
                 case "save": return p.message;
             }
         },

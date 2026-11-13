@@ -2,6 +2,7 @@ import tseslint from '@typescript-eslint/eslint-plugin';
 import tsparser from '@typescript-eslint/parser';
 import headers from 'eslint-plugin-headers';
 import east, { hostValueRules } from '@elaraai/eslint-plugin-east';
+import browserFloor from '../../../east/eslint/browser-floor.js';
 
 // East values through East (#963): this library's factories author East IR in
 // module-scope helpers by design, so its source and tests run only the rules over
@@ -73,6 +74,14 @@ export default [
       }],
       'no-restricted-syntax': ['error', ...ONE_FORMATTER]
     }
+  },
+  // This package runs in a browser, on iPhones back to iOS 16.4: its source names no built-in newer than ES2023
+  // (docs/conventions/BROWSER_FLOOR.md). The rule reads types, from the project the block above parses with.
+  {
+    files: ['src/**/*.ts'],
+    ignores: ['src/**/*.spec.ts'],
+    plugins: { 'east-floor': { rules: { 'browser-floor': browserFloor } } },
+    rules: { 'east-floor/browser-floor': 'error' }
   },
   {
     files: ['test/**/*.ts', 'test/**/*.tsx', 'example/**/*.ts'],

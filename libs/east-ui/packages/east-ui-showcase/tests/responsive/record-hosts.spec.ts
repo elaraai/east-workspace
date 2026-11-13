@@ -78,7 +78,8 @@ for (const theme of LAYOUT_THEMES) for (const host of ["roster", "sheet", "plan"
         expect(await trigger.boundingBox()).toEqual(triggerBefore);
         expect((await page.getByRole("dialog").boundingBox())!.x).toBeCloseTo(popoverBefore!.x, 1);
         expect(await page.getByRole("dialog").evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
-        expect(await editor.getByRole("button", { name: new RegExp(`^${next}`) }).evaluate(el => getComputedStyle(el).fontFamily)).toContain("Inter Tight");
+        // A value's chip is set in the mono face, as the design system's chip card sets one; its Clear stays in the body face.
+        expect(await editor.getByRole("button", { name: new RegExp(`^${next}`) }).evaluate(el => getComputedStyle(el).fontFamily)).toContain("Chivo Mono");
         await page.keyboard.press("Escape");
         await expect(page.getByRole("dialog")).toHaveCount(0);
         await settled(page);

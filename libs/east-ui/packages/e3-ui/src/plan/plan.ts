@@ -48,8 +48,9 @@
  * kinds and resources as Plan takes them (`PlanEventKindType`,
  * `PlanResourcesType`, #1190), the resources' rows over a window (`blocks`,
  * #1192) and a paged resource kind's a window of its resources at a time
- * (`paged`, #1199), the event kinds' drop veto, the settings, the library's
- * tabs, whether it has an inspector, and each source's narrowed keys. The
+ * (`paged`, #1199), the event kinds' drop veto, the settings — where it opens,
+ * and whether its Autosave begins on — the library's tabs, whether it has an
+ * inspector, and each source's narrowed keys. The
  * `Plan` renderer in `@elaraai/e3-ui-components` draws it.
  *
  * @packageDocumentation
@@ -69,12 +70,10 @@ import {
     SetType,
     StringType,
     StructType,
-    VariantType,
     isTypeEqual,
     none,
     printType,
     some,
-    variant,
     type EastType,
     type ExprType,
     type SubtypeExprOrValue,
@@ -94,6 +93,7 @@ import { scheduleOptimiseBinding } from "../schedule/optimise.js";
 import type { ScheduleEventKind } from "../schedule/events.js";
 import type { ScheduleResourceKind } from "../schedule/resources.js";
 import { recordSources, sliceSourceNames, templatesSource } from "../utils/record-sources.js";
+import { heldHandle } from "../utils/held.js";
 import { PlanRootType } from "./ir.js";
 import {
     PlanAxisType, PlanBlockType, PlanBlocksType, PlanLinkType, PlanRowsCollectionType, PlanRunRefType, type PlanAxisKindLiteral, type PlanRowsValue,
@@ -159,14 +159,14 @@ export const PlanEventCanDropType = FunctionType([ScheduleCandidateType], Option
 export type PlanEventCanDropType = typeof PlanEventCanDropType;
 
 /**
- * How a Plan's event kinds behave beside its canvas.
+ * Where a Plan opens, and how it begins.
  *
- * @property applyMode - When the event kinds' ready drafts go: on Save (`batch`), or as each gesture lands (`auto`)
  * @property date - The date brought into view first; `none`, the axis's window from its start
+ * @property autosave - Whether its Autosave begins on
  */
 export const PlanSettingsType = StructType({
-    applyMode: VariantType({ batch: NullType, auto: NullType }),
     date: OptionType(DateTimeType),
+    autosave: BooleanType,
 });
 
 /** Type representing {@link PlanSettingsType}. */
@@ -215,7 +215,7 @@ export const PlanVocabularyType = StructType({
  * @property canDrop - The event kinds' drop veto; `none`, every drop the kinds take lands
  * @property optimise - The app's optimiser, by its `e3.function`'s name (#1409): what the Elara eye calls over the plan window in
  *   view, its result one edit of the session; `none`, no eye
- * @property settings - When the event kinds' drafts go, and the date brought into view first
+ * @property settings - The date brought into view first, and whether its Autosave begins on
  * @property library - The library pane's tabs, in the order `library` lists them; empty, no pane (#1195)
  * @property inspector - Whether the Plan has an inspector pane, showing what is selected (#1197)
  * @property vocabulary - The app's words for what the Plan draws of its own (#1516)
@@ -303,7 +303,7 @@ export function planVocabulary(given: PlanVocabularyProp | undefined): ValueType
 
 /**
  * `<Plan>`'s props: the canvas's ({@link PlanConfig}), with `data` optional,
- * and the event kinds, the read-only `rows`, and how the kinds' drafts go.
+ * and the event kinds and the read-only `rows`.
  *
  * @remarks
  * `K` is the canvas's axis kind, inferred from `axis` alone: every series and
@@ -352,10 +352,15 @@ export interface PlanProps<K extends PlanAxisKindLiteral = PlanAxisKindLiteral, 
     events?: Readonly<Record<string, ScheduleEventKind<EastType, EastType>>>;
     /** Read-only rows: hand-built rows (`Plan.chart({ … })`) and `Plan.over(data, [series…])`. Pinned rows sit under the ruler; the rest follow the resources and `data`'s rows. */
     rows?: readonly PlanRowsItem<NoInfer<K>>[];
-    /** When the event kinds' ready drafts go: on Save (`"batch"`, the default), or as each gesture lands (`"auto"`). `data`'s session takes `editing.mode`. */
-    applyMode?: "batch" | "auto";
     /** The date brought into view first; omitted, the axis's window from its start. */
     date?: SubtypeExprOrValue<DateTimeType>;
+    /**
+     * Whether Autosave — the switch in Save's menu — begins on; off by default. On, the Plan's changes are saved by
+     * themselves a pause after the viewer's last act: never an optimiser's result, an Undo or a Redo, which wait for a
+     * press of Save. A literal, or an expression data drives. The viewer's own choice, once made, is kept in their
+     * browser for the data set and the Plan, and stands over it.
+     */
+    autosave?: SubtypeExprOrValue<BooleanType>;
     /**
      * The library pane's tabs, in order (#1195) — `Plan.library.events()`,
      * `Plan.library.backlog()`, `Plan.library.series()` and
@@ -402,9 +407,6 @@ export interface PlanProps<K extends PlanAxisKindLiteral = PlanAxisKindLiteral, 
 
 /** The props, erased — what the implementation reads. */
 type PlanAnyProps = PlanProps & Record<string, unknown>;
-
-/** The ways a Plan's event kinds' drafts go. */
-const APPLY_MODES: readonly string[] = ["batch", "auto"];
 
 /** The source of a Plan's slice that gives the canvas its rows (#1344). */
 const ROWS = "rows";
@@ -569,8 +571,7 @@ function checkedRowsRange(source: string, config: ExprType<RecordSliceConfigType
  *   link naming an event kind `events` has not; a `rows` item that is neither a hand-built row nor `Plan.over`'s; a
  *   `canDrop` over neither a drag nor a candidate, or over a candidate with no event kinds; an `optimise` with no event kinds,
  *   or one that is not `Func.bind` of a function from `OptimiseRequest(E, S)` to `OptimiseResult(E)` over the kinds' rows
- *   (#1409); an `applyMode` that is neither
- *   batch nor auto, or with no event kinds; an `inspector` with no event kinds; a resource kind with no event kind
+ *   (#1409); an `inspector` with no event kinds; a resource kind with no event kind
  *   placed on it and no measures; more than one paged resource kind, or one beside a paged `data` (#1199); an event
  *   kind placed on a paged resource kind and on another, or with no source of the slice — its record read whole, or the
  *   days in view read through its day index (`window`) — each naming the series and summary indexes to declare over the
@@ -591,7 +592,7 @@ function checkedRowsRange(source: string, config: ExprType<RecordSliceConfigType
  * @internal
  */
 export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
-    const { resources, events, rows, applyMode, date, canDrop, optimise, library, inspector, vocabulary, slice, ...canvas } = props as PlanAnyProps;
+    const { resources, events, rows, date, autosave, canDrop, optimise, library, inspector, vocabulary, slice, ...canvas } = props as PlanAnyProps;
     const words = planVocabulary(vocabulary);
     // The narrowing's form #1344 retired, refused by name for an app that still passes it: the bare handle.
     if (slice instanceof Expr || (slice !== undefined && (typeof slice !== "object" || slice === null || !("slice" in slice)))) {
@@ -676,10 +677,6 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
         });
         if (named.includes(undefined)) links = checkedLinkKinds(links, kinds) as unknown as typeof links;
     }
-    if (applyMode !== undefined) {
-        if (!APPLY_MODES.includes(applyMode)) throw new Error(`Plan: \`applyMode\` is "batch" or "auto" — and it is "${String(applyMode)}"`);
-        if (events === undefined) throw new Error("Plan: `applyMode` says when the event kinds' drafts go, and this Plan has none — `data`'s session takes `editing.mode`");
-    }
     if (inspector !== undefined && typeof inspector !== "boolean") {
         throw new Error("Plan: `inspector` is `true` for the inspector pane, or `false` or left out for none, and this one is no boolean — a kind's own inspector for one event is Schedule.events' `inspector`");
     }
@@ -703,10 +700,7 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
         }
     }
     const veto = East.value(eventCanDrop === undefined ? none : some(eventCanDrop), OptionType(PlanEventCanDropType));
-    const settings = East.value({
-        applyMode: variant(applyMode ?? "batch", null),
-        date: date === undefined ? none : some(date),
-    } as never, PlanSettingsType);
+    const settings = East.value({ date: date === undefined ? none : some(date), autosave: autosave ?? false } as never, PlanSettingsType);
     // `data`'s series a viewer can hide are its picked ones, through the pick.
     const picked = canvas.pick !== undefined;
     return Expr.block(($) => {
@@ -719,13 +713,17 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
         }
         // Each source's narrowed keys, paged through its own data: what the renderer reads to show a source's rows.
         const narrowed = East.value(new Map(sources.names.map((name) => [name, bound.keys[name]])) as never, NarrowedType) as ExprType<typeof NarrowedType>;
-        const data = bound.data[ROWS] ?? canvas.data;
+        // The author's own handle for the rows, bound once here (`heldHandle`, #1599): the page the canvas's rows are
+        // read through captures this block's constant, never the author's own variable, so it is the same function from
+        // one evaluation of the author's block to the next.
+        const data = bound.data[ROWS] ?? heldHandle($, canvas.data);
         // The canvas first, then the event kinds' rows, then the library: each refuses in that order.
         // The binding the `rows` source narrows (#1438): what the canvas reads its rows' nested series index through.
         const rowsBinding = pagesRows ? (bound.parts[ROWS] as unknown as { source: ExprType<StructType> }).source : undefined;
         // The pick held once: every read of its series reads this variable, where the handle written out at each would
-        // copy all its series' code into each.
-        const pick = canvas.pick === undefined ? undefined : $.let(canvas.pick as never) as unknown as ExprType<StructType>;
+        // copy all its series' code into each. A constant: a function captures it as its value, never as a box of its
+        // own each evaluation (#1599).
+        const pick = canvas.pick === undefined ? undefined : $.const(canvas.pick as never) as unknown as ExprType<StructType>;
         const plan = buildPlanRoot(
             { ...canvas, data, axis, links, ...(canvasCanDrop === undefined ? {} : { canDrop: canvasCanDrop }) } as Parameters<typeof buildPlanRoot>[0],
             rows === undefined ? (events !== undefined && data === undefined ? East.value([], PlanBlocksType) : undefined) : rowsBlocks(rows),

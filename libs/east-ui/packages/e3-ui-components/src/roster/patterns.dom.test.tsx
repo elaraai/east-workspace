@@ -7,17 +7,17 @@
  * and marked by the app's declaration; a pattern dropped on a person's week
  * — its row in Week, its cell in Month — as one step of the history, its
  * preview and caption, and each refusal; the month's columns, marks, letters
- * and column click; the person-week the inspector reads; the phone's
+ * — a shift code's first letter alone (#1569) — and column click; the person-week the inspector reads; the phone's
  * `Apply pattern…` and Week alone; and #1398's rules on a month's read.
  */
 import { describe, expect, test } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
-import { DateTimeType, East, IntegerType, compareFor } from "@elaraai/east";
+import { DateTimeType, East, IntegerType, compareFor, none } from "@elaraai/east";
 import { editingMessages } from "@elaraai/east-ui-components";
 import { announced } from "@elaraai/east-ui-components/testing";
 import * as ex from "@elaraai/e3-ui/examples/roster/roster";
 import type { E3Request } from "../e3-web.test-utils.js";
-import { act, assignment, at, cell, drop, history, hover, press, release, rosterHarness, settle, slot, START, weekDuties, width } from "./harness.test-utils.js";
+import { act, assignment, at, cell, drop, history, hover, press, release, rosterHarness, settle, slot, START, warehouseRoster, weekDuties, width } from "./harness.test-utils.js";
 import { rosterSpan, weekKey, weekNumber } from "./model.js";
 const h = rosterHarness();
 const byDate = compareFor(DateTimeType);
@@ -81,6 +81,7 @@ describe("a pattern on a person's week (#1406, D4, P17–P19, P21, P11)", () => 
         const { container: c } = await h.mount(ex.rosterPeople);
         const person = firstPerson(c);
         const before = rowOf(c, person);
+        const held = await h.read(ex.rosterDuties);
         await drop(await pattern(c, "fwd"), day(c, person, 2));
         // Early Sun and Mon, Late Tue and Wed, Night Thu, the weekend off.
         expect(rowOf(c, person)).toEqual(["Early", "Early", "Late", "Late", "Night", null, null]);
@@ -101,6 +102,15 @@ describe("a pattern on a person's week (#1406, D4, P17–P19, P21, P11)", () => 
         ]);
         const team = (await h.read(ex.rosterStaff)).get(person)!.team;
         expect(after.every(duty => duty.team === team)).toBe(true);
+        // The days it made a duty of take the duty kind's `values` of it (#1526): half an hour's break on the eight-hour shift,
+        // the team's cost centre, and the pattern's name; a day it moved keeps its own.
+        const centre = (await h.read(ex.rosterTeams)).get(team)!.costCentre;
+        const theirs = [...weekDuties(await h.read(ex.rosterDuties), START)].filter(([, duty]) => duty.who.type === "staff" && duty.who.value === person);
+        const made = theirs.filter(([key]) => !held.has(key)).map(([, duty]) => [duty.unpaidBreak, duty.agreed, duty.costCentre, duty.note]);
+        expect(made.length).toBeGreaterThan(0);
+        expect(made).toEqual(made.map(() => [30, none, centre, "Forward rotation"]));
+        expect(theirs.filter(([key]) => held.has(key)).map(([, duty]) => [duty.unpaidBreak, duty.costCentre, duty.note]))
+            .toEqual(theirs.filter(([key]) => held.has(key)).map(([key]) => [held.get(key)!.unpaidBreak, held.get(key)!.costCentre, held.get(key)!.note]));
     });
     test("while a pattern hovers a row the caption names the pattern and the person and the row previews its days; applied, the same pattern `Already matches`; the Agency requests row, a tile and a Shifts cell refuse a pattern, and another person's row a tile, each in words", async () => {
         const { container: c } = await h.mount(ex.rosterPeople);
@@ -213,6 +223,42 @@ describe("the People month (#1406, D2, D10, P12–P16, P2)", () => {
         await step(c, "[");
         expect(columns()).toHaveLength(5);
     });
+    test("with three-letter codes each mark draws its shift's code's first letter alone — a duty's, and a previewed pattern's day — its title naming the shift; the Patterns tab's strips and the Shifts layout by week keep the whole code (#1569)", async () => {
+        // The shift times as another session leaves them: a three-letter code each.
+        const codes = new Map([["early", "EAR"], ["late", "LAT"], ["night", "NGT"]]);
+        const labels = new Map([["early", "Early"], ["late", "Late"], ["night", "Night"]]);
+        const times = await h.read(ex.rosterShiftTimes);
+        for (const [key, code] of codes) times.set(key, { ...times.get(key)!, code });
+        await h.patch(ex.rosterShiftTimes, times);
+        const { container: c } = await h.mount(ex.rosterPeopleMonth);
+        const lettered = [...slot(c, "main").querySelectorAll<HTMLElement>("[data-roster-mark][data-shift]")];
+        expect(lettered.length).toBeGreaterThan(0);
+        const first = new Map([["early", "E"], ["late", "L"], ["night", "N"]]);
+        expect(lettered.map(mark => mark.textContent)).toEqual(lettered.map(mark => first.get(mark.getAttribute("data-shift")!)));
+        expect(lettered.every(mark => mark.title.startsWith(labels.get(mark.getAttribute("data-shift")!)!))).toBe(true);
+        // A pattern's days previewed over a cell, a letter each: early Sunday and Monday, late Tuesday and Wednesday, night Thursday.
+        const person = firstPerson(c);
+        await hover(await pattern(c, "fwd"), monthCell(c, person, START));
+        expect([...monthCell(c, person, START).querySelectorAll("[data-roster-mark][data-preview]")].map(mark => mark.textContent)).toEqual(["E", "E", "L", "L", "N", "", ""]);
+        await release();
+        await press(history(c, editingMessages.undo()));
+        // The Patterns tab's cards keep the whole code.
+        const strip = slot(c, "start").querySelector('[data-roster-library="patterns"] [data-library-item="fwd"] [data-roster-pattern-strip]')!;
+        expect([...strip.children].map(mark => mark.textContent)).toEqual(["EAR", "EAR", "LAT", "LAT", "NGT", "", ""]);
+        // The Shifts layout by week heads each day's shifts with the whole code.
+        await press(toolbar(c).getByRole("radio", { name: "Shifts" }));
+        if (toolbar(c).getByRole("radio", { name: "Week" }).getAttribute("aria-checked") !== "true") await press(toolbar(c).getByRole("radio", { name: "Week" }));
+        const heads = [...slot(c, "main").querySelectorAll("[data-roster-column-header][data-week]")].map(head => head.textContent ?? "").filter(text => /^[A-Z]{3}$/u.test(text));
+        expect(heads).toEqual(Array.from({ length: 7 }, () => ["EAR", "LAT", "NGT"]).flat());
+    });
+    test("with `letters={false}` no mark draws a letter (#1569)", async () => {
+        const { container: c } = await h.mount(warehouseRoster({ letters: false }));
+        await press(toolbar(c).getByRole("radio", { name: "People" }));
+        await press(toolbar(c).getByRole("radio", { name: "Month" }));
+        const marks = [...slot(c, "main").querySelectorAll<HTMLElement>("[data-roster-mark][data-shift]")];
+        expect(marks.length).toBeGreaterThan(0);
+        expect(marks.every(mark => mark.textContent === "")).toBe(true);
+    });
     test("Month → Week returns to the week Month was opened from while the month holds it; a month stepped to opens on its first week (P3)", async () => {
         const { container: c } = await h.mount(ex.rosterPeople);
         const header = () => slot(c, "main").querySelector("[data-roster-column-header]")!.textContent;
@@ -240,6 +286,23 @@ describe("the People month (#1406, D2, D10, P12–P16, P2)", () => {
         expect(slot(c, "main").querySelector('[data-roster-grid="people"]')).not.toBeNull();
         expect(slot(c, "main").querySelector("[data-roster-column-header]")!.textContent).toMatch(/^Sun\s*5$/);
         await waitFor(() => expect(slot(c, "main").querySelector(`[data-roster-person-row="${person}"] [data-roster-tile][data-selected]`)).not.toBeNull());
+    });
+    test("with Week not offered, a day pressed in a person-week's Details shows its duty, read in its own week — never the month's first — and an off day the person's week, the month kept (#1584)", async () => {
+        const { container: c } = await h.mount(warehouseRoster({ monthOnly: true }));
+        const person = firstPerson(c);
+        // The person's week of 5 March: the month's second, its first February's last.
+        await press(monthCell(c, person, START));
+        const end = slot(c, "end");
+        await press(within(end).getAllByRole("button", { name: /^(Sun|Mon|Tue|Wed|Thu|Fri|Sat) · (?!Off)/ })[0]!);
+        // The month stays, and the Details are the duty's — its own times' form — never the Summary of a week that does not hold it.
+        expect(slot(c, "main").querySelector('[data-roster-grid="people-month"]')).not.toBeNull();
+        expect(end.querySelector('[data-roster-inspector="details"] [data-field="start"]')).not.toBeNull();
+        expect(end.querySelector("[data-inspector-title]")!.textContent).toBe(nameOf(c, person));
+        // An off day of the person's week below it selects that week again: its number in the Details, its cell marked.
+        await press(within(end).getAllByRole("button", { name: /^(Sun|Mon|Tue|Wed|Thu|Fri|Sat) · Off$/ })[0]!);
+        expect(end.querySelector("[data-inspector-title]")!.textContent).toBe(nameOf(c, person));
+        expect(end.textContent).toContain(`W${weekNumber(START)}`);
+        expect(monthCell(c, person, START).hasAttribute("data-selected")).toBe(true);
     });
     test("a pattern dropped on a cell applies to that week as one step, the cell previewing its marks while the pattern hovers (P15, P17)", async () => {
         const { container: c } = await h.mount(ex.rosterPeopleMonth);

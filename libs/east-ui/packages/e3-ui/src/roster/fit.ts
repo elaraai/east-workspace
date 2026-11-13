@@ -17,7 +17,7 @@
  */
 
 import {
-    East, FloatType, FunctionType, StringType, defaultValue, none, variant,
+    East, FloatType, FunctionType, StringType, defaultValue, none, some, variant,
     type EastType, type ExprType, type SubtypeExprOrValue,
 } from "@elaraai/east";
 import { scheduleNumberText } from "../schedule/words.js";
@@ -63,7 +63,8 @@ export function rosterPersonHours<R extends EastType>(row: R) {
  * In order: a person who doesn't hold the need is refused — `Not a lead`
  * (`Associate · not a lead`), `Not a trainer`, `Not skilled` (`doesn't hold
  * Unloading`); one rostered that day is refused, `Rostered` (`rostered on
- * Inbound · Early`), since moving them would leave their own shift short; one
+ * Inbound · Early`, or on a duty in no group yet `rostered on Early`), since
+ * moving them would leave their own shift short; one
  * whose rest before or after the slot's shift falls under the rules' minimum is
  * refused, `Rest too short` (`6 h rest · minimum 10 h`, its measure the rest),
  * the shift run as a new duty would run it, from its start on the slot's day.
@@ -114,21 +115,21 @@ export function rosterFit<R extends EastType>(row: R, words?: { notALead?: Subty
             },
         });
         // Not rostered that day: moving them would leave their own shift short.
-        const thatDay = $.const(request.week.assignments.filter((_$2, a) => East.equal(a.slot.day, slot.day)
+        const thatDay = $.const(request.week.assignments.filter((_$2, a) => East.equal(a.place.day, slot.day)
             .and(() => a.who.match({ person: (_$3, key) => East.equal(key, person.key), request: (_$3, _agency) => false }))).toArray((_$2, a) => a));
         $.if(East.greater(thatDay.size(), 0n), ($2) => {
             const held = $2.const(thatDay.get(0n));
-            $2.return(variant("refused", {
-                group: "Rostered", reason: East.str`rostered on ${groups.get(held.slot.group, () => held.slot.group)} · ${labels.get(held.slot.shift, () => held.slot.shift)}`,
-                measure: variant("none", null),
-            }));
+            // Its group's shift — or, for a duty in no group yet, its shift alone, which names no group the app's words don't (#1548).
+            const shift = $2.const(labels.get(held.place.shift, () => held.place.shift));
+            const where = $2.const(held.place.group.match({ some: (_$3, group) => East.str`${groups.get(group, () => group)} · ${shift}`, none: (_$3) => shift }));
+            $2.return(variant("refused", { group: "Rostered", reason: East.str`rostered on ${where}`, measure: variant("none", null) }));
         });
         // Rest kept, before and after the slot's shift, run as a new duty runs it.
         $.if(shifts.has(slot.shift), ($2) => {
             const shift = $2.const(shifts.get(slot.shift));
             const start = $2.const(shiftStart(request.start.addDays(slot.day), shift));
             const candidate = $2.const(East.value({
-                slot, who: variant("person", person.key), position: person.position, activity: none,
+                place: { day: slot.day, group: some(slot.group), shift: slot.shift }, who: variant("person", person.key), position: person.position, activity: none,
                 start, end: start.addHours(shift.hours), hours: shift.hours, row: blank,
             } as never, Assignment));
             const rest = $2.const(restOf(candidate as never, "", request.week, context));

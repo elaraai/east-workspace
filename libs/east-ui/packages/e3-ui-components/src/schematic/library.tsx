@@ -12,7 +12,9 @@
  *
  * - **Templates** (`Schematic.library.templates()`) — every kind's templates,
  *   item, link and net kinds alike, each card its template's name over its
- *   kind's, grouped by its kind and then its template's `group`; each kind's
+ *   kind's — an item kind's that adds no item (#1549), its keys of a type the
+ *   form can't type, over why, neither dragged nor dropped — grouped by its
+ *   kind and then its template's `group`; each kind's
  *   list follows the source of the rail its templates record names
  *   (`sourcesTab`), counting what it shows (`3 of 5`) and saying so, with
  *   Clear filters, when the rail leaves it none.
@@ -78,7 +80,7 @@ import type { FollowedSources } from "../shared/schedule/follow-sources.js";
 import { sourceTab, sourcesTab, type SourceShown, type SourceTab } from "../shared/schedule/source-tab.js";
 import type { BacklogEntry } from "./backlog.js";
 import type { BacklogPageCount, BacklogPageRow, SchematicBacklogPages } from "./backlog-pages.js";
-import { entityId, type DrawnItem, type DrawnZone } from "./canvas/drawn.js";
+import { entityId, refOfId, type DrawnItem, type DrawnZone } from "./canvas/drawn.js";
 import type { SchematicLayerValue } from "./canvas/layers.js";
 import type { SchematicValue } from "./data.js";
 import { SchematicIndexTab, type SchematicIndexAreaProps } from "./index-tab.js";
@@ -194,7 +196,15 @@ export interface SchematicLibraryProps {
     readonly enter?: ((library: string, key: string) => void) | undefined;
     /** Whether main is below 480px (#1394, D15): no card drags, and a tap on the selected card is its ⏎, whatever the pointer. */
     readonly narrow?: boolean | undefined;
+    /**
+     * Why an item kind adds no item (#1549), by its slot: its keys can't be typed, and it builds none — its template cards'
+     * line, which neither drag nor drop.
+     */
+    readonly off?: ReadonlyMap<string, string> | undefined;
 }
+
+/** No kind off. */
+const NO_OFF: ReadonlyMap<string, string> = new Map();
 
 /** A tab's narrowing in the Schematic's words: the shared narrowing, its empty state said by its message table. */
 function narrowingOf(narrowing: LibraryNarrowing | undefined, tab: SchematicLibraryTabWord, name: string, words: SchematicWords): LibraryNarrowing | undefined {
@@ -236,7 +246,7 @@ function templatesTab(value: SchematicValue, followed: FollowedSources, words: S
 export function useSchematicLibrary(props: SchematicLibraryProps): BuilderFrameDock | undefined {
     const {
         value, zones, items, backlog, backlogNarrowing, backlogPages, indexArea, layers, layerCounts, layerView, onLayerView, inView, selected, onReveal, keys,
-        words, followed, picked, onPick, enter, narrow = false,
+        words, followed, picked, onPick, enter, narrow = false, off = NO_OFF,
     } = props;
     const m = words.m;
     // The recipe's styles, resolved once a recipe: the frame renders it again as each window lands.
@@ -260,8 +270,10 @@ export function useSchematicLibrary(props: SchematicLibraryProps): BuilderFrameD
         if (!drops) return [];
         const tabKey = schematicTabKey(tab);
         const id = schematicLibraryId(keys, tabKey);
+        // A template of a kind that adds no item drops nothing: its card says why (#1549).
+        if (tab.type === "templates") return [[tabKey, (key: string) => { if (!off.has(refOfId(key)?.kind ?? "")) enter(id, key); }]];
         return [[tabKey, (key: string) => enter(id, key)]];
-    })), [library, keys, enter]);
+    })), [library, keys, enter, off]);
     // What each tab that follows a source shows: the Templates tab its kinds' templates records', an author's tab its own.
     const templatesFollow = useMemo(() => templatesTab(value, followed, words), [value, followed, words]);
     const authorTabs = useMemo(() => library.flatMap((tab) => (tab.type === "tab" ? [tab.value] : [])), [library]);
@@ -290,11 +302,13 @@ export function useSchematicLibrary(props: SchematicLibraryProps): BuilderFrameD
         items: templatesFollow.cards.map(({ kind, template }) => {
             const key = entityId({ kind: kind.key, key: template.key });
             const icon = getSomeorUndefined(template.icon) ?? (kind.icon === "" ? undefined : kind.icon);
+            // A kind adding no item says why on its line (#1549).
+            const why = off.get(kind.key);
             return scheduleLibraryCard({
-                key, label: template.name, sublabel: some(kind.name), icon: icon === undefined ? none : some(icon), status: none, trailing: none,
+                key, label: template.name, sublabel: some(why ?? kind.name), icon: icon === undefined ? none : some(icon), status: none, trailing: none,
                 // An item kind's lands on the canvas, a link or a net kind's on a link or a net of its kind (#1390) — dragged
                 // there wherever main is wide enough (#1394).
-                draggable: !narrow, filtered: false, placed: isPicked("templates", key),
+                draggable: !narrow && why === undefined, filtered: false, placed: isPicked("templates", key),
                 search: some([template.name, kind.name, getSomeorUndefined(template.group) ?? ""].filter((text) => text !== "").join(" · ")),
                 groups: new Map([["group", m.templateGroup({ kind: kind.name, group: getSomeorUndefined(template.group) })]]),
             });
@@ -302,7 +316,7 @@ export function useSchematicLibrary(props: SchematicLibraryProps): BuilderFrameD
         groupOptions: groupBy,
         noun: noun("templates"),
         onCardClick: some((key: string) => { onCard("templates", key); return null; }),
-    }, true), [keys, templatesFollow, narrow, isPicked, m, groupBy, noun, onCard]);
+    }, true), [keys, templatesFollow, narrow, off, isPicked, m, groupBy, noun, onCard]);
 
     // ── Backlog: every item kind's rows with no position, under its name ─
     const kindOf = useMemo(() => new Map(value.items.map((kind) => [kind.key, kind] as const)), [value.items]);

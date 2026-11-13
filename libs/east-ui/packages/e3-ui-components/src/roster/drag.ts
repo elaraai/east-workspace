@@ -21,13 +21,14 @@
  * @packageDocumentation
  */
 import { useMemo } from "react";
-import { DateTimeType, SortedMap, StringType, StructType, none, parseFor, printFor, some, variant } from "@elaraai/east";
+import { DateTimeType, OptionType, SortedMap, StringType, StructType, none, parseFor, printFor, some, variant } from "@elaraai/east";
 import { dropEvent, useDragMessages, useDragTarget, type CellCoord, type DragEventValue, type DragMessages, type DragPayload, type Formatters } from "@elaraai/east-ui-components";
+import { madeFromValues } from "../shared/schedule/records.js";
 import { rosterLibraryId } from "./library.js";
 import { readRosterSource } from "./identity.js";
 import {
-    compareDate, compareString, dayOfSlot, parseSlot, positionFor, rosterDomain, rosterTimes, sameSlot, shiftOf, slotKey, weekNumber, type Assignment, type Context,
-    type PlacedDuties, type RosterValue, type Slot, type Week, type WeekState,
+    compareDate, compareString, dayOfSlot, groupName, parsePlace, placeKey, positionFor, rosterDomain, rosterTimes, sameGroup, samePlace, shiftOf, weekNumber, type Assignment,
+    type Context, type Place, type PlacedDuties, type RosterValue, type Week, type WeekState,
 } from "./model.js";
 import type { RosterCommands, RosterSource } from "./actions.js";
 
@@ -36,8 +37,19 @@ export const PersonWeekRefType = StructType({ person: StringType, start: DateTim
 const printPersonWeek = printFor(PersonWeekRefType);
 const parsePersonWeek = parseFor(PersonWeekRefType);
 
-export function rosterCoord(surface: string, slot: Slot, event?: string): CellCoord {
-    return { surface, row: slot.group, slot: slotKey(slot), ...(event === undefined ? {} : { event }) };
+/** A group, as a drop's row names it: its key, or none's for a duty in no group yet (#1548). */
+const printGroup = printFor(OptionType(StringType));
+/**
+ * A place's drop coordinate (#1548): `row` its group, printed, and `slot` the place, printed — a group's shift on a
+ * day, or the shift on the day in no group's band.
+ *
+ * @param surface - The Roster's surface
+ * @param place - The place: its day, its group or none, and its shift
+ * @param event - The duty the coordinate names, if any
+ * @returns The coordinate
+ */
+export function rosterCoord(surface: string, place: Place, event?: string): CellCoord {
+    return { surface, row: printGroup(place.group), slot: placeKey(place), ...(event === undefined ? {} : { event }) };
 }
 /**
  * A person-week drop target's coordinate (#1406, §11): `row` the person's key, `slot` the East-printed `{ person, start }`.
@@ -104,13 +116,13 @@ function rosterDrag({ value, commands, week, duties, weeks, context, storageKey,
             return commands.applyPattern(personWeek.person, personWeek.start, event.value.from.key, checkOnly);
         }
         if (personWeek !== undefined) return event.type === "move" ? "A duty moves along its own row." : "Drop this card onto a day.";
-        const parsed = parseSlot(into.slot); if (!parsed.success) return "Choose a configured shift.";
+        const place = parsePlace(into.slot); if (place === undefined) return "Choose a configured shift.";
         if (event.type === "move") return event.value.from.event.type === "some"
-            ? commands.place({ type: "assignment", key: event.value.from.event.value }, parsed.value, checkOnly) : "Choose a duty.";
+            ? commands.place({ type: "assignment", key: event.value.from.event.value }, place, checkOnly) : "Choose a duty.";
         const from = event.value.from;
         if (from.library === rosterLibraryId(storageKey, "people")) {
             const source = readRosterSource(from.key);
-            return source.success ? commands.place({ type: source.value.type, key: source.value.value }, parsed.value, checkOnly) : "This person is no longer available.";
+            return source.success ? commands.place({ type: source.value.type, key: source.value.value }, place, checkOnly) : "This person is no longer available.";
         }
         if (into.event.type !== "some") return "Drop this card onto a named duty.";
         if (from.library === rosterLibraryId(storageKey, "activities")) return commands.activity(into.event.value, some(from.key), checkOnly);
@@ -125,22 +137,25 @@ function rosterDrag({ value, commands, week, duties, weeks, context, storageKey,
     const previews = new WeakMap<DragPayload, Map<string, Map<string | undefined, { allowed: boolean; result: Preview }>>>();
     const domain = rosterDomain(value.duty.rowType);
     const times = rosterTimes();
-    /** A duty of the week moved to a slot, as a move would leave it: its times kept against the shift's, its activity cleared off its own group. */
-    const movedTo = (id: string, slot: Slot): Assignment | undefined => {
+    /**
+     * A duty of the week moved to a place, as a move would leave it: its times kept against the shift's, its activity
+     * cleared once it leaves its own group (#1548: into no group's band too).
+     */
+    const movedTo = (id: string, place: Place): Assignment | undefined => {
         const a = week.assignments.get(id), row = duties.rows.get(id);
         if (a === undefined || row === undefined) return undefined;
-        const roles = times.move(row.roles, start, slot, context);
+        const roles = times.move(row.roles, start, place, context);
         if (roles.type !== "some") return undefined;
-        return { ...a, slot, start: roles.value.start, end: roles.value.end, hours: roles.value.hours, activity: a.slot.group === slot.group ? a.activity : none };
+        return { ...a, place, start: roles.value.start, end: roles.value.end, hours: roles.value.hours, activity: sameGroup(a.place.group, place.group) ? a.activity : none };
     };
-    /** A new duty of a person on a slot, as a placement would make it. */
-    const newFor = (person: string, slot: Slot): Assignment | undefined => {
+    /** A new duty of a person on a place, as a placement would make it. */
+    const newFor = (person: string, place: Place): Assignment | undefined => {
         const who = variant("person", person);
-        const roles = times.newDuty(who, slot, start, positionFor(value, who), none, context);
+        const roles = times.newDuty(who, place, start, positionFor(value, who), none, context);
         if (roles.type !== "some") return undefined;
-        const bytes = value.duty.create(roles.value);
-        if (bytes.type !== "some") return undefined;
-        return { slot, who, position: roles.value.position.type === "some" ? roles.value.position.value : "", activity: none,
+        const bytes = madeFromValues("Roster", "a new duty", () => value.duty.create({ ...roles.value, pattern: none }));
+        if (bytes?.type !== "some") return undefined;
+        return { place, who, position: roles.value.position.type === "some" ? roles.value.position.value : "", activity: none,
             start: roles.value.start, end: roles.value.end, hours: roles.value.hours, row: domain.decodeRow(bytes.value) };
     };
     /**
@@ -159,9 +174,9 @@ function rosterDrag({ value, commands, week, duties, weeks, context, storageKey,
         const held = compareDate(personWeek.start, start) === 0 ? week : weeks.find(w => compareDate(w.start, personWeek.start) === 0)?.week;
         let warning: string | undefined;
         if (held !== undefined) {
-            const slots = [...plan.candidates.values()].map(candidate => candidate.slot);
+            const places = [...plan.candidates.values()].map(candidate => candidate.place);
             const assignments = new SortedMap([...held.assignments].filter(([key, a]) => !(a.who.type === "person" && a.who.value === personWeek.person) && !plan.removed.includes(key)
-                && slots.some(slot => sameSlot(a.slot, slot))), compareString);
+                && places.some(place => samePlace(a.place, place))), compareString);
             for (const [key, a] of plan.candidates) assignments.set(key, a);
             warning = domain.check({ ...held, assignments }, context).find(issue => issue.kind.type === "breach" && issue.assignment.type === "some" && plan.candidates.has(issue.assignment.value))?.title;
         }
@@ -172,7 +187,7 @@ function rosterDrag({ value, commands, week, duties, weeks, context, storageKey,
         const event = dropEvent(payload, coord, false);
         const refusal = event === undefined ? "Choose a shift." : run(event, true);
         if (!allowed || refusal !== undefined) return { label: refusal ?? "This placement is unavailable.", tone: "danger" };
-        const parsed = parseSlot(coord.slot); if (!parsed.success) return { label: "Choose a shift.", tone: "danger" };
+        const place = parsePlace(coord.slot); if (place === undefined) return { label: "Choose a shift.", tone: "danger" };
         const label = payload.label ?? "Duty";
         let source: RosterSource | undefined;
         if (payload.kind === "event") source = { type: "assignment", key: payload.from.event };
@@ -182,12 +197,12 @@ function rosterDrag({ value, commands, week, duties, weeks, context, storageKey,
         let id: string | undefined;
         let candidate: Assignment | undefined;
         if (source?.type === "assignment") {
-            id = source.key; candidate = movedTo(id, parsed.value);
+            id = source.key; candidate = movedTo(id, place);
         } else if (source?.type === "person") {
             const person = source.key;
-            const previous = [...week.assignments].find(([, a]) => a.who.type === "person" && a.who.value === person && a.slot.day === parsed.value.day);
+            const previous = [...week.assignments].find(([, a]) => a.who.type === "person" && a.who.value === person && a.place.day === place.day);
             id = previous?.[0] ?? ""; while (previous === undefined && week.assignments.has(id)) id += "_";
-            candidate = previous === undefined ? newFor(person, parsed.value) : movedTo(previous[0], parsed.value);
+            candidate = previous === undefined ? newFor(person, place) : movedTo(previous[0], place);
         } else if (payload.kind === "item" && coord.event !== undefined && payload.from.library === rosterLibraryId(storageKey, "activities")) {
             id = coord.event; const a = week.assignments.get(id); if (a !== undefined) candidate = { ...a, activity: some(payload.from.key) };
         }
@@ -197,12 +212,12 @@ function rosterDrag({ value, commands, week, duties, weeks, context, storageKey,
         // Share immutable rows/targets; never serialize an entire week on hover.
         const assignment = candidate;
         const assignments = assignment === undefined ? undefined : new SortedMap([...week.assignments].filter(([key, a]) => key !== id && (
-            sameSlot(a.slot, assignment.slot) || a.who.type === "person" && assignment.who.type === "person" && a.who.value === assignment.who.value
+            samePlace(a.place, assignment.place) || a.who.type === "person" && assignment.who.type === "person" && a.who.value === assignment.who.value
         )), compareString);
         if (id !== undefined && assignment !== undefined) assignments!.set(id, assignment);
         const warning = assignments === undefined ? undefined : domain.check({ ...week, assignments }, context).find(issue => issue.kind.type === "breach" && issue.assignment.type === "some" && issue.assignment.value === id);
-        const group = value.groups.find(g => g.key === parsed.value.group)?.label;
-        const shift = value.shifts.find(s => s.key === parsed.value.shift)?.label;
+        const group = groupName(value, place.group);
+        const shift = value.shifts.find(s => s.key === place.shift)?.label;
         return { label: `${label} · ${group} ${shift}${warning === undefined ? "" : ` · ${warning.title}`}`, tone: warning === undefined ? "info" : "warning" };
     };
     const preview = (coord: CellCoord, payload: DragPayload, allowed: boolean): Preview => {
@@ -229,14 +244,13 @@ function rosterDrag({ value, commands, week, duties, weeks, context, storageKey,
     const name = (coord: CellCoord): string => {
         const personWeek = readPersonWeek(coord.slot);
         if (personWeek !== undefined) {
-            return words.cell({ row: context.people.get(personWeek.person)?.name ?? "Agency requests", slot: `W${format.number(weekNumber(personWeek.start))}` });
+            return words.cell({ row: context.people.get(personWeek.person)?.name ?? value.vocabulary.requests, slot: `W${format.number(weekNumber(personWeek.start))}` });
         }
-        const parsed = parseSlot(coord.slot);
-        if (!parsed.success) return words.cell({ row: coord.row, slot: coord.slot });
-        const slot = parsed.value;
-        const when = `${format.weekday(dayOfSlot(start, slot))} ${shiftOf(value, slot.shift)?.label ?? slot.shift}`;
+        const place = parsePlace(coord.slot);
+        if (place === undefined) return words.cell({ row: coord.row, slot: coord.slot });
+        const when = `${format.weekday(dayOfSlot(start, place))} ${shiftOf(value, place.shift)?.label ?? place.shift}`;
         const duty = coord.event === undefined ? undefined : week.assignments.get(coord.event);
-        if (duty === undefined) return words.cell({ row: value.groups.find(g => g.key === slot.group)?.label ?? slot.group, slot: when });
+        if (duty === undefined) return words.cell({ row: groupName(value, place.group), slot: when });
         const whose = duty.who.type === "person" ? context.people.get(duty.who.value)?.name ?? duty.who.value
             : `Requested · ${context.agencies.find(agency => agency.key === duty.who.value)?.name ?? duty.who.value}`;
         return words.cell({ row: whose, slot: when });

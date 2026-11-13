@@ -9,7 +9,7 @@ import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { ArrayType, East, IntegerType, NullType, OptionType, StringType, StructType, decodeBeast2For, encodeBeast2For, equalFor, some, none } from "@elaraai/east";
 import { Paged } from "@elaraai/east-ui";
 import { Table } from "@elaraai/east-ui/internal";
-import { buildRowSource, resolveRowSource } from "../../src/contracts/source.js";
+import { CarriedEntryType, CarriedRowSourceType, CarriedWindowType, buildCarriedRowSource, buildRowSource, resolveRowSource } from "../../src/contracts/source.js";
 
 // The row-source contract (#567) as a component consumes it. Paged data is
 // bound — `Data.bindPaged` in @elaraai/e3-ui produces it — so no package
@@ -212,5 +212,108 @@ describe("Paged sources and their snapshots — paged and pinned (#744, #821)", 
         // `id`, `page`, `total`, `seek`: what exported UIs carry, and nothing more.
         assert.deepEqual(Object.keys(value.value).sort(), ["id", "page", "seek", "total"]);
         assert.ok(pageEqual(value.value.page(48n, 10n), some(WIDE_ROWS.slice(48))));
+    });
+});
+
+// ── Windows that carry their entries (#1599) ─────────────────────────────────
+
+/** What a component makes of a row: its name alone — so a row's number reaches an edit only through its entry. */
+const Named = ArrayType(StringType);
+const CarriedNamed = CarriedRowSourceType(Named);
+const WideRowBytes = encodeBeast2For(WideRow);
+const carriedEqual = equalFor(OptionType(CarriedWindowType(Named)));
+const entriesEqual = equalFor(ArrayType(CarriedEntryType));
+const namesEqual = equalFor(Named);
+
+/** Each row's name, as the component draws it. */
+const NAMES = East.function([WideRows], Named, (_$, rows) => rows.map((_$2, row) => row.id));
+/** Each row as its entry: its id, and its bytes as the source holds it. */
+const ENTRIES = East.function([WideRows], ArrayType(CarriedEntryType), (_$, rows) =>
+    rows.map((_$2, row) => ({ id: row.id, entry: East.Blob.encodeBeast(row, "v2") })));
+
+/** A window as a carried source serves it: the rows' names, and each row's own bytes under its id, in the source's order. */
+const carriedWindow = (rows: typeof WIDE_ROWS) => some({
+    rows: rows.map((row) => row.id),
+    entries: rows.map((row) => ({ id: row.id, entry: WideRowBytes(row) })),
+});
+
+describe("Windows that carry their entries (#1599)", () => {
+    hostTest("a window arrives with the entries its rows were made from, in one read: whole over a handle that trims its pages, each entry once in the source's order", () => {
+        const value = East.compile(East.function([], CarriedNamed, ($) => {
+            const source = $.let(PINNED_ROWS, Paged.Types.PinnedSource(WideRows));
+            const names = $.const(NAMES);
+            const entries = $.const(ENTRIES);
+            return buildCarriedRowSource(resolveRowSource(source, "fixture"), Named, (rows) => names(rows as never), (rows) => entries(rows as never));
+        }), [])();
+        assert.equal(value.type, "pinned");
+        if (value.type !== "pinned") return;
+        // The handle's id and its snapshot, as buildRowSource carries them.
+        assert.ok(stringEqual(value.value.id, "snapshot"));
+        assert.ok(revisionEqual(value.value.revision(), some("snapshot")));
+        // Twenty asked of a handle that serves seven a page: the window whole, its rows and every one's entry.
+        assert.ok(carriedEqual(value.value.page(0n, 20n), carriedWindow(WIDE_ROWS.slice(0, 20))));
+        // The last window is short, and past the end is the empty one — never none.
+        assert.ok(carriedEqual(value.value.page(40n, 20n), carriedWindow(WIDE_ROWS.slice(40))));
+        assert.ok(carriedEqual(value.value.page(60n, 20n), carriedWindow([])));
+        // An entry decodes to the row the source holds: the number no name shows is in it.
+        const window = value.value.page(20n, 5n);
+        assert.equal(window.type, "some");
+        if (window.type !== "some") return;
+        assert.deepEqual(window.value.entries.map((carried) => decodeBeast2For(WideRow)(carried.entry).n), [20n, 21n, 22n, 23n, 24n]);
+    });
+
+    hostTest("a piece still in flight holds the whole carried window at none: no rows without their entries, no entries without their rows", () => {
+        const value = East.compile(East.function([], CarriedNamed, ($) => {
+            const source = $.let(IN_FLIGHT, Paged.Types.Source(WideRows));
+            const names = $.const(NAMES);
+            const entries = $.const(ENTRIES);
+            return buildCarriedRowSource(resolveRowSource(source, "fixture"), Named, (rows) => names(rows as never), (rows) => entries(rows as never));
+        }), [])();
+        assert.equal(value.type, "paged");
+        if (value.type !== "paged") return;
+        assert.equal(value.value.page(0n, 20n).type, "none");
+        assert.ok(carriedEqual(value.value.page(0n, 5n), carriedWindow(WIDE_ROWS.slice(0, 5))));
+    });
+
+    hostTest("a source no one edits carries no entry, and a live one keeps its narrowing", () => {
+        const value = East.compile(East.function([], CarriedNamed, ($) => {
+            const source = $.let(LIVE_ROWS, Paged.Types.LiveSource(WideRows));
+            const names = $.const(NAMES);
+            return buildCarriedRowSource(resolveRowSource(source, "fixture"), Named, (rows) => names(rows as never));
+        }), [])();
+        assert.equal(value.type, "live");
+        if (value.type !== "live") return;
+        assert.ok(stringEqual(value.value.query(), "status=open"));
+        const window = value.value.page(0n, 10n);
+        assert.equal(window.type, "some");
+        if (window.type !== "some") return;
+        assert.ok(namesEqual(window.value.rows, WIDE_ROWS.slice(0, 10).map((row) => row.id)));
+        assert.ok(entriesEqual(window.value.entries, []));
+    });
+
+    hostTest("rows held whole are the inline arm, the collection alone: an entry is read from them", () => {
+        const value = East.compile(East.function([], CarriedNamed, ($) => {
+            const rows = $.let(WIDE_ROWS, WideRows);
+            const names = $.const(NAMES);
+            const entries = $.const(ENTRIES);
+            return buildCarriedRowSource(resolveRowSource(rows, "fixture"), Named, (all) => names(all as never), (all) => entries(all as never));
+        }), [])();
+        assert.equal(value.type, "inline");
+        if (value.type !== "inline") return;
+        assert.ok(namesEqual(value.value, WIDE_ROWS.map((row) => row.id)));
+    });
+
+    hostTest("a carried payload decodes as it was built: the arm, the id and each window's rows and entries survive beast2", () => {
+        const built = East.compile(East.function([], CarriedNamed, ($) => {
+            const source = $.let(PINNED_ROWS, Paged.Types.PinnedSource(WideRows));
+            const names = $.const(NAMES);
+            const entries = $.const(ENTRIES);
+            return buildCarriedRowSource(resolveRowSource(source, "fixture"), Named, (rows) => names(rows as never), (rows) => entries(rows as never));
+        }), [])();
+        const decoded = decodeBeast2For(CarriedNamed, { platform: [] })(encodeBeast2For(CarriedNamed)(built));
+        assert.equal(decoded.type, "pinned");
+        if (decoded.type !== "pinned") return;
+        assert.ok(stringEqual(decoded.value.id, "snapshot"));
+        assert.ok(carriedEqual(decoded.value.page(7n, 9n), carriedWindow(WIDE_ROWS.slice(7, 16))));
     });
 });

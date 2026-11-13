@@ -9,7 +9,7 @@
  * names its issues, with each side's value and what both began from; a choice
  * applies at once as one step Undo takes back; Keep all mine and Use all
  * theirs choose every one in one step; Go to goes to the item as an issue's
- * click does; a banner's Choose opens it; and once every one is chosen it
+ * click does, told where the popover lies; a banner's Choose opens it; and once every one is chosen it
  * says so, and the button leaves as it closes.
  */
 
@@ -53,7 +53,7 @@ const version = (id: string, end: bigint): EntryVersion<string> => ({ draft: lif
 /** A session over runs each ending at 1, each drafted to end at 4. */
 function drafted(ids: readonly string[]): EditSession<string> {
     const session = new EditSession<string>({
-        sourceId: "runs", entryType: Run, draftType: Draft, idField: "id", auto: false,
+        sourceId: "runs", entryType: Run, draftType: Draft, idField: "id",
         apply: () => variant("applied", { revision: none }), patch: undefined, refresh: undefined,
     });
     session.observeBase(variant("snapshot", ids.map((id) => ({ id, end: 1n }))));
@@ -131,7 +131,7 @@ test("while conflicts wait, their button leads the bar's buttons with how many, 
     fireEvent.click(save);
     expect(ui.onAction).not.toHaveBeenCalled();
     // Said once, as they appear.
-    expect(document.querySelector("[data-conflicts-said]")!.textContent).toBe("2 of your changes conflict with newer changes. Save is off until you choose.");
+    expect(document.querySelector("[data-conflicts-said]")!.textContent).toBe("2 of your changes conflict with newer changes. They are not saved until you choose.");
 });
 
 test("the folded bar keeps the button: it is what turns Save back on", () => {
@@ -190,6 +190,27 @@ test("Keep all mine and Use all theirs choose every one, chosen or not, in one s
     expect([session.unsettled, session.canApply]).toEqual([0, true]);
 });
 
+test("a change taken back by hand while its conflict waits is that conflict settled as theirs: the other side's value stands, one fewer waits — and its card, beside one still to choose, says theirs was used, where Yours puts back what was typed, to save", async () => {
+    const session = conflicted(["a", "b"]);
+    const ui = mount(session);
+    expect(button()!.textContent).toBe("2");
+    // Run a's end typed back to 1, what both sides began from: no choice made, and nothing of theirs to write over.
+    act(() => { session.record([{ id: "a", before: version("a", 4n), after: version("a", 1n) }], "resize", "Resize a"); });
+    expect(session.unsettled).toBe(1);
+    expect(session.entries.get("a")!.draft).toEqual(liftDraft(Draft, { id: "a", end: 7n }));
+    expect(button()!.textContent).toBe("1");
+    await opened(2);
+    // Run a's card stands after the one still to choose, settled as theirs.
+    expect(cards().map((each) => each.querySelector("[data-conflict-item]")!.textContent)).toEqual(["Run b", "Run a"]);
+    const card = cards()[1]!;
+    expect([radio(card, "draft").checked, radio(card, "source").checked]).toEqual([false, true]);
+    // Yours is what was typed: kept over theirs now, by a choice.
+    expect(ui.getByRole("radio", { name: "Yours, 1" })).toBe(radio(card, "draft"));
+    fireEvent.click(radio(card, "draft"));
+    expect(session.entries.get("a")!.draft).toEqual(liftDraft(Draft, { id: "a", end: 1n }));
+    expect([session.unsettled, session.settled.map((settled) => [settled.id, settled.choice])]).toEqual([1, [["a", "draft"]]]);
+});
+
 test("Go to goes to a conflict's item as an issue's click does: a history finds its session by it", async () => {
     const history = new EditHistory<string>();
     history.sync([["runs", conflicted(["a"])], ["shifts", conflicted(["c"])]]);
@@ -208,6 +229,17 @@ test("Go to goes to a conflict's item as an issue's click does: a history finds 
     expect([history.unsettled, history.session("shifts")!.unsettled, history.canUndo]).toEqual([1, 0, true]);
     act(() => history.undo());
     expect(history.unsettled).toBe(2);
+});
+
+test("Go to tells the collection's `onConflict` where the popover lies as it stays open, for the item to land beside it rather than under it", async () => {
+    const onConflict = vi.fn<(issue: EditIssue, at: PatchPath, popover: DOMRectReadOnly | undefined) => void>();
+    const ui = mount(conflicted(["a"]), { onConflict });
+    await opened(1);
+    const box = { left: 800, top: 50, width: 380, height: 350, right: 1180, bottom: 400, x: 800, y: 50 } as DOMRect;
+    vi.spyOn(document.querySelector("[data-conflicts-body]")!.closest<HTMLElement>('[data-part="content"]')!, "getBoundingClientRect").mockReturnValue(box);
+    fireEvent.click(cards()[0]!.querySelector("[data-conflict-go]")!);
+    const [issue, at, popover] = onConflict.mock.calls[0]!;
+    expect([issue.entry, at, popover, ui.onIssue.mock.calls.length]).toEqual(["a", [{ kind: "field", name: "end" }, { kind: "variant", tag: "value" }], box, 0]);
 });
 
 test("a collection that names a conflict's part names its card by it; one it does not name, by its entry and the steps in words", async () => {
@@ -307,6 +339,93 @@ test("locked while an optimiser run is out: it opens, its choices and its foot a
     expect(session.unsettled).toBe(1);
 });
 
+test("in a phone's row the conflicts are the Issues square's: no button of their own joins the row's five; the square counts them and a press opens them; every one chosen and closed, the square is Issues' again", async () => {
+    const session = conflicted(["a", "b"]);
+    const { container } = mount(session, { phone: true });
+    const squares = () => [...container.querySelectorAll<HTMLButtonElement>("[data-history-form='phone'] button")].map((b) => b.getAttribute("aria-label"));
+    const square = () => container.querySelector<HTMLButtonElement>("[data-history-form='phone'] button")!;
+    // The row's five, whatever waits: a sixth would take the count's room, and push Save past a narrow row's end.
+    expect(button()).toBeNull();
+    expect(squares()).toEqual(["2 conflicts", "Undo", "Redo", "Discard", "Save"]);
+    expect([square().disabled, square().getAttribute("aria-expanded"), square().textContent]).toEqual([false, "false", "2"]);
+    // A press opens the conflicts, as their own button does in a toolbar's row.
+    fireEvent.click(square());
+    await waitFor(() => expect(cards()).toHaveLength(2));
+    expect(square().getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "Keep all mine" }));
+    await waitFor(() => expect(session.unsettled).toBe(0));
+    // Still the conflicts' while they show, each folded to how it was chosen, and named as their own button is then; pressed
+    // again, they close, and the square is Issues'.
+    expect([square().getAttribute("aria-expanded"), square().getAttribute("aria-label")]).toEqual(["true", "All 2 conflicts chosen. Save is on."]);
+    fireEvent.click(square());
+    await waitFor(() => expect(cards()).toHaveLength(0));
+    await waitFor(() => expect(squares()).toEqual(["0 issues", "Undo", "Redo", "Discard", "Save"]));
+    // Off, with nothing left to open: aria-disabled while it holds the focus the conflicts gave back, disabled once that moves on.
+    expect([square().disabled, square().getAttribute("aria-disabled"), square().getAttribute("aria-expanded")]).toEqual([false, "true", null]);
+    act(() => { square().blur(); });
+    expect([square().disabled, square().getAttribute("aria-disabled")]).toEqual([true, null]);
+});
+
+test("in a phone's row an issue beside the conflicts is counted with them, and the press is the conflicts' while one waits", async () => {
+    const session = conflicted(["a"]);
+    const go = vi.fn();
+    const { container } = mount(session, { phone: true, warnings: [{ text: "Run b · End: at least 0", go }] });
+    const square = () => container.querySelector<HTMLButtonElement>("[data-history-form='phone'] button")!;
+    // One conflict and one warning: two to look at, the conflict first — it is what holds Save.
+    expect([square().getAttribute("aria-label"), square().textContent]).toEqual(["1 conflict", "2"]);
+    fireEvent.click(square());
+    await waitFor(() => expect(cards()).toHaveLength(1));
+    expect(go).not.toHaveBeenCalled();
+});
+
+/** A phone's row over one conflict, its conflicts opened from the Issues square and the focus in them, as it lands a frame after they open. */
+async function phoneOpened(session: EditSession<string>) {
+    const { container } = mount(session, { phone: true });
+    const square = () => container.querySelector<HTMLButtonElement>("[data-history-form='phone'] button")!;
+    fireEvent.click(square());
+    await waitFor(() => expect(cards()).toHaveLength(1));
+    await waitFor(() => expect(document.activeElement?.closest('[role="dialog"]')).not.toBeNull());
+    return square;
+}
+
+test("in a phone's row the square takes the focus back as the conflicts close: off by then, every one chosen, it keeps it — aria-disabled — until the focus moves on", async () => {
+    const session = conflicted(["a"]);
+    const square = await phoneOpened(session);
+    fireEvent.click(screen.getByRole("button", { name: "Keep all mine" }));
+    await waitFor(() => expect(session.unsettled).toBe(0));
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(square().getAttribute("aria-expanded")).toBeNull());
+    // Nothing left for the square to open, so it is off — and the focus is on it all the same, never dropped to the page.
+    expect(document.activeElement).toBe(square());
+    expect([square().getAttribute("aria-label"), square().disabled, square().getAttribute("aria-disabled")]).toEqual(["0 issues", false, "true"]);
+    // The focus moved on, it is off as any square with nothing to do.
+    act(() => { square().blur(); });
+    expect([square().disabled, square().getAttribute("aria-disabled")]).toEqual([true, null]);
+});
+
+test("in a phone's row conflicts that go from under the focus — their drafts discarded — hand it to the square too, which has nothing left to open", async () => {
+    const session = conflicted(["a"]);
+    const square = await phoneOpened(session);
+    act(() => { session.discard(); });
+    await waitFor(() => expect(cards()).toHaveLength(0));
+    expect([session.unsettled, session.chosen]).toEqual([0, 0]);
+    expect(document.activeElement).toBe(square());
+    expect([square().getAttribute("aria-label"), square().disabled, square().getAttribute("aria-disabled")]).toEqual(["0 issues", false, "true"]);
+});
+
+test("in a phone's row a focus a person moved elsewhere stays there as the conflicts close: the square takes back only what they held", async () => {
+    const session = conflicted(["a"]);
+    const square = await phoneOpened(session);
+    // Discard: the row's one other square that acts while a conflict waits.
+    const elsewhere = screen.getByRole("button", { name: "Discard" }) as HTMLButtonElement;
+    expect(elsewhere.disabled).toBe(false);
+    act(() => { elsewhere.focus(); });
+    expect(document.activeElement).toBe(elsewhere);
+    fireEvent.click(square());
+    await waitFor(() => expect(square().getAttribute("aria-expanded")).toBe("false"));
+    expect(document.activeElement).toBe(elsewhere);
+});
+
 test("once every one is chosen, the button leaves as the popover closes", async () => {
     const session = conflicted(["a"]);
     const ui = mount(session);
@@ -353,7 +472,7 @@ const booking = (from: number, to: number): EntryVersion<string> => ({ draft: li
 
 test("an item moved both ways is one card — its dates whole on each side — and one choice settles both, one step Undo takes back", async () => {
     const session = new EditSession<string>({
-        sourceId: "bookings", entryType: Booking, draftType: BookingDraft, idField: "id", auto: false, ranges: [{ start: "start", end: "end" }],
+        sourceId: "bookings", entryType: Booking, draftType: BookingDraft, idField: "id", ranges: [{ start: "start", end: "end" }],
         apply: () => variant("applied", { revision: none }), patch: undefined, refresh: undefined,
     });
     session.observeBase(variant("snapshot", [{ id: "B1", start: day(16), end: day(20) }]));
@@ -382,7 +501,7 @@ test("an entry drafted whole, as a schedule's kinds draft their rows, reads its 
     const WholeDraft = EditingDraftFieldType(Booking);
     const whole = (from: number, to: number): EntryVersion<string> => ({ draft: liftDraft(WholeDraft, { id: "B1", start: day(from), end: day(to) }), wire: "B1", place: start });
     const session = new EditSession<string>({
-        sourceId: "bookings", entryType: Booking, draftType: WholeDraft, idField: "id", auto: false, ranges: [{ start: "start", end: "end" }],
+        sourceId: "bookings", entryType: Booking, draftType: WholeDraft, idField: "id", ranges: [{ start: "start", end: "end" }],
         apply: () => variant("applied", { revision: none }), patch: undefined, refresh: undefined,
     });
     session.observeBase(variant("snapshot", [{ id: "B1", start: day(16), end: day(20) }]));
@@ -406,7 +525,7 @@ const bin = (m3: bigint): EntryVersion<string> => ({ draft: liftDraft(BinDraft, 
 
 test("a quantity changed both ways is one card under its own name — the split that follows it on it — and one choice settles both", async () => {
     const session = new EditSession<string>({
-        sourceId: "bins", entryType: Bin, draftType: BinDraft, idField: "id", auto: false, together: [{ lead: "m3", with: ["kilns"], label: "Quantity" }],
+        sourceId: "bins", entryType: Bin, draftType: BinDraft, idField: "id", together: [{ lead: "m3", with: ["kilns"], label: "Quantity" }],
         apply: () => variant("applied", { revision: none }), patch: undefined, refresh: undefined,
     });
     session.observeBase(variant("snapshot", [binOf(20n)]));
@@ -455,7 +574,7 @@ test("a number reads in mono; absence in words, in the absent style", async () =
 
 test("a long text reads two lines, and Show all opens both in place, the words that differ marked in each", async () => {
     const session = new EditSession<string>({
-        sourceId: "notes", entryType: Note, draftType: NoteDraft, idField: "id", auto: false,
+        sourceId: "notes", entryType: Note, draftType: NoteDraft, idField: "id",
         apply: () => variant("applied", { revision: none }), patch: undefined, refresh: undefined,
     });
     session.observeBase(variant("snapshot", [{ id: "n1", note: BEGAN }]));
@@ -481,7 +600,7 @@ test("while the newest data is read, the head counts nothing: the live dot says 
     const ShiftDraft = Editing.Types.Draft(Shift);
     const shift = (hours: bigint): EntryVersion<string> => ({ draft: liftDraft(ShiftDraft, { hours }), wire: "s1", place: some(variant("keyOrder", null)) });
     const session = new EditSession<string>({
-        sourceId: "shifts", entryType: Shift, draftType: ShiftDraft, keyType: StringType, auto: false,
+        sourceId: "shifts", entryType: Shift, draftType: ShiftDraft, keyType: StringType,
         apply: () => variant("applied", { revision: none }), patch: undefined, refresh: undefined,
     });
     session.observeBase(variant("revision", "r1"));

@@ -42,7 +42,8 @@
  *   rename in place, and its × — off while the lane holds states, its tooltip
  *   saying why; the "+ STATE" ghost a hovered band parks under its last state,
  *   which opens the inline editor — its key and its label, a key the Flowchart
- *   holds already refused as it is typed; a state double-clicked into its
+ *   holds already refused as it is typed, or its label alone where the states'
+ *   kind makes their keys (#1549); a state double-clicked into its
  *   rename, its key shown fixed (R9); a state dragged to another lane, or —
  *   where the states carry an `order` — between two cards, a line marking
  *   where it lands (D4); a handle dragged to a state, which `canConnect` may
@@ -50,10 +51,13 @@
  *   repeat a transition pulsing it instead; and Del — in the canvas, never in
  *   a field being typed into — deleting the selected state or states with
  *   their transitions, the transition, the decision, or the lane while it
- *   holds no state. A drag the browser takes the pointer back from lands
- *   nothing, and the canvas selects no text (the recipe's), so a card's drag
- *   never turns into the browser's own drag of its words, however often it is
- *   carried.
+ *   holds no state. A drag is its pointer's (east-ui-components'
+ *   `followPointer`): no other pointer's moves carry it, and another finger's
+ *   lift neither ends it nor lands it. One the browser takes the pointer back
+ *   from, or the window loses the page under, lands nothing; one is in flight
+ *   at a time, a new press letting go of one still held. And the canvas
+ *   selects no text (the recipe's), so a card's drag never turns into the
+ *   browser's own drag of its words, however often it is carried.
  * - **Drops**: where a tab of the library drops, the canvas is one drop cell
  *   of the shared drag layer, on the frame's drop target (`use-drop.ts`): it
  *   works out where a drag rests from its own drawing (`drop.ts`'
@@ -116,7 +120,7 @@ import { StringType, equalFor } from "@elaraai/east";
 import {
     getSomeorUndefined, takeKey, typedInto, useDragLayerOptional, useDropCell, type CellCoord, type DragPayload,
 } from "@elaraai/east-ui-components";
-import { LoadingFailedBox } from "@elaraai/east-ui-components/internal";
+import { LoadingFailedBox, followPointer, type PointerFollow } from "@elaraai/east-ui-components/internal";
 import { keyFromPage, keyInFrame } from "../shared/frame-keys.js";
 import type { FlowchartWords } from "./messages.js";
 import type { FlowchartCanvasValue, FlowchartModel, ModelBand, ModelLink, ModelNode } from "./model.js";
@@ -186,10 +190,21 @@ export interface FlowchartCanvasEdit {
     readonly renameLane?: ((key: string, label: string) => void) | undefined;
     /** A lane's ×: deleted, while it holds no state. */
     readonly deleteLane?: ((key: string) => void) | undefined;
-    /** The "+ STATE" ghost's editor committed: a state at the end of its band, its key and its label as typed; whether it was recorded. */
-    readonly addState?: ((band: string, key: string, label: string) => boolean) | undefined;
-    /** Whether the Flowchart holds a state of a key already: the "+ STATE" editor refuses it as it is typed. */
+    /**
+     * The "+ STATE" ghost's editor committed: a state at the end of its band, its key and its label as typed — its key
+     * `undefined` where the editor types none, the kind making it (#1549); whether it was recorded.
+     */
+    readonly addState?: ((band: string, key: string | undefined, label: string) => boolean) | undefined;
+    /**
+     * Whether the Flowchart holds a state of a key already: the "+ STATE" editor refuses it as it is typed. The editor
+     * types a key only with it: without, the states' kind makes each one's (#1549).
+     */
     readonly stateKeyTaken?: ((key: string) => boolean) | undefined;
+    /**
+     * Why "+ STATE" or "+ LANE" adds nothing (#1549): its kind's keys are of a type the form can't type, and it builds
+     * none — the control off, its tooltip saying why.
+     */
+    readonly off?: { readonly states?: string | undefined; readonly lanes?: string | undefined } | undefined;
     /** A state's editor committed: its label. */
     readonly renameState?: ((key: string, label: string) => void) | undefined;
     /** States dragged to a band — and, where the states carry an `order`, to a place among its other states. */
@@ -226,6 +241,11 @@ export interface FlowchartCanvasViewProps {
     readonly canvas: FlowchartCanvasValue;
     /** The keys of the states holding a conflict not yet chosen: their nodes wear the warn ring. None by default. */
     readonly conflicted?: ReadonlySet<string> | undefined;
+    /**
+     * The keys of the states whose rows hold a number outside its field's bounds, stored or changed (#1585): their nodes
+     * wear the warn ring too. None by default.
+     */
+    readonly bounded?: ReadonlySet<string> | undefined;
     /** The view model: the records, the drafts in place. */
     readonly model: FlowchartModel;
     /** The details model: each card's size where the details draw on the cards, and each label's lines (R22, R32). */
@@ -500,7 +520,7 @@ interface MoveDrag {
  * @returns The canvas's box, which scrolls the records inside it
  */
 export function FlowchartCanvasView({
-    canvas, model, details, orientation, reveal, edit, drop, selection, onSelect, words, storageKey, onElement, failure, ref, conflicted, onZoomRange,
+    canvas, model, details, orientation, reveal, edit, drop, selection, onSelect, words, storageKey, onElement, failure, ref, conflicted, bounded, onZoomRange,
 }: FlowchartCanvasViewProps) {
     const styles = useSlotRecipe({ key: "flowchart" })();
 
@@ -638,15 +658,16 @@ export function FlowchartCanvasView({
 
     // A phone's window of lanes, left to right: as many across main's width as the canvas's `narrow.lanes` says, which
     // its pager steps through — as many whole lanes as main holds, each counted at its card's width and 16, so none is
-    // cut however many it is told to show, and the readout says what shows. The lanes fill the window; where the
-    // details draw on the cards a phone holds one, keeping its width — at least the window's — and each step brings
-    // its card to the window's middle (R40, D24). Top down, the lanes stack and the view scrolls down them.
+    // cut however many it is told to show, and the readout says what shows — and never more than the flow has, so the
+    // window never ends at an empty slot: a flow of one lane fills it. The lanes fill the window; where the details
+    // draw on the cards a phone holds one, keeping its width — at least the window's — and each step brings its card
+    // to the window's middle (R40, D24). Top down, the lanes stack and the view scrolls down them.
     const narrow = getSomeorUndefined(canvas.narrow);
     const narrowLanes = narrow === undefined ? undefined : getSomeorUndefined(narrow.lanes);
     const lanesAsked = narrowLanes === undefined ? PHONE_LANES : Number(narrowLanes);
     const laneLeast = (cards?.width ?? NODE_W) + PHONE_LANE_ROOM;
     const windowed = size !== null && size.w > 0 && size.w <= PHONE_MAIN && orientation === "LR";
-    const lanesInView = windowed ? Math.max(1, Math.min(lanesAsked, Math.floor(size.w / laneLeast))) : lanesAsked;
+    const lanesInView = windowed ? Math.max(1, Math.min(lanesAsked, Math.floor(size.w / laneLeast), model.lanes.length)) : lanesAsked;
     const laneWidth = windowed && cards === undefined ? Math.max(laneLeast, Math.floor(size.w / lanesInView)) : undefined;
     // The one lane the window holds where the details draw on the cards: at least the window's width, so no other lane shows beside it.
     const laneWindow = windowed && cards !== undefined ? size.w : undefined;
@@ -938,53 +959,64 @@ export function FlowchartCanvasView({
         return node === undefined || node.dimmed ? null : key;
     }, [layout, model]);
 
+    // The drag in flight — a transition drawn out of a handle, or a state carried by its card — is its pointer's
+    // (`followPointer`): its moves alone carry it, and its own release lands it. One at a time: a new press lets go of
+    // one still in flight, landing nothing, as the canvas going does.
+    const dropDrag = useRef<(() => void) | undefined>(undefined);
+    const followDrag = useCallback((pressed: React.PointerEvent, follow: Required<PointerFollow>): void => {
+        dropDrag.current?.();
+        const stop = followPointer(pressed, {
+            move: follow.move,
+            up: (event) => { dropDrag.current = undefined; follow.up(event); },
+            cancel: () => { dropDrag.current = undefined; follow.cancel(); },
+        });
+        dropDrag.current = () => {
+            dropDrag.current = undefined;
+            stop();
+            follow.cancel();
+        };
+    }, []);
+    useEffect(() => () => dropDrag.current?.(), []);
+
     const connectEdit = edit?.connect;
     const beginDraft = useCallback((from: string, side: "left" | "right" | "top" | "bottom", e: React.PointerEvent) => {
         if (connectEdit === undefined) return;
         e.preventDefault();
         e.stopPropagation();
         const p = svgPoint(e);
+        followDrag(e, {
+            move: (ev) => {
+                const q = svgPoint(ev);
+                const fromKey = draftRef.current?.from ?? from;
+                // The WHOLE node (plus DROP_PAD) is the target — nobody has to
+                // land a 7px ring.
+                const over = connectTarget(q);
+                const dup = over !== null ? existingLink(model, fromKey, over) : undefined;
+                const allowed = over !== null && dup === undefined && canConnect(fromKey, over);
+                setDraft(d => (d === null ? d : { ...d, x: q.x, y: q.y, over, allowed, dup }));
+            },
+            // The browser took the pointer back — a scroll of its own, say — or the window lost the page: the transition
+            // is let go of, and none is drawn.
+            cancel: () => { setDraft(null); },
+            up: () => {
+                const d = draftRef.current;
+                setDraft(null);
+                if (!d || d.over === null) return;
+                if (d.dup !== undefined) {
+                    // Already connected — absorb the drop and pulse the existing
+                    // link (or the node itself for a folded in-place loop).
+                    setPulse(p => ({ from: d.from, to: d.over!, seq: (p?.seq ?? 0) + 1 }));
+                    return;
+                }
+                if (d.allowed) {
+                    connectEdit(d.from, d.over);
+                    setPulse(p => ({ from: d.from, to: d.over!, seq: (p?.seq ?? 0) + 1 }));
+                }
+            },
+        });
+        // After the follow: it lets go of a drag still in flight, whose draft this one's replaces.
         setDraft({ from, side, x: p.x, y: p.y, over: null, allowed: false, dup: undefined });
-        const move = (ev: PointerEvent): void => {
-            const q = svgPoint(ev);
-            const fromKey = draftRef.current?.from ?? from;
-            // The WHOLE node (plus DROP_PAD) is the target — nobody has to
-            // land a 7px ring.
-            const over = connectTarget(q);
-            const dup = over !== null ? existingLink(model, fromKey, over) : undefined;
-            const allowed = over !== null && dup === undefined && canConnect(fromKey, over);
-            setDraft(d => (d === null ? d : { ...d, x: q.x, y: q.y, over, allowed, dup }));
-        };
-        const end = (): void => {
-            window.removeEventListener("pointermove", move);
-            window.removeEventListener("pointerup", up);
-            window.removeEventListener("pointercancel", cancel);
-        };
-        // The browser took the pointer back — a scroll of its own, say: the transition is let go of, and none is drawn.
-        const cancel = (): void => {
-            end();
-            setDraft(null);
-        };
-        const up = (): void => {
-            end();
-            const d = draftRef.current;
-            setDraft(null);
-            if (!d || d.over === null) return;
-            if (d.dup !== undefined) {
-                // Already connected — absorb the drop and pulse the existing
-                // link (or the node itself for a folded in-place loop).
-                setPulse(p => ({ from: d.from, to: d.over!, seq: (p?.seq ?? 0) + 1 }));
-                return;
-            }
-            if (d.allowed) {
-                connectEdit(d.from, d.over);
-                setPulse(p => ({ from: d.from, to: d.over!, seq: (p?.seq ?? 0) + 1 }));
-            }
-        };
-        window.addEventListener("pointermove", move);
-        window.addEventListener("pointerup", up);
-        window.addEventListener("pointercancel", cancel);
-    }, [connectEdit, svgPoint, connectTarget, model, canConnect]);
+    }, [connectEdit, svgPoint, connectTarget, model, canConnect, followDrag]);
 
     /**
      * Where a moved state lands at a point: the band under it, where the band
@@ -1006,55 +1038,48 @@ export function FlowchartCanvasView({
         if (moveEdit === undefined) return;
         const startP = svgPoint(e);
         let started = false;
+        followDrag(e, {
+            move: (ev) => {
+                const q = svgPoint(ev);
+                if (!started) {
+                    if (Math.abs(q.x - startP.x) + Math.abs(q.y - startP.y) < 5) return;
+                    started = true;
+                    movedRef.current = true;
+                }
+                setMoveDrag({ key, x: q.x, y: q.y, ...moveLanding(q) });
+            },
+            // The browser took the pointer back — a touch's scroll, a drag of its own — or the window lost the page: the
+            // state stays where it stands, and the gesture was no move, so the next click on a card selects it.
+            cancel: () => {
+                movedRef.current = false;
+                setMoveDrag(null);
+            },
+            up: () => {
+                const d = moveDragRef.current;
+                setMoveDrag(null);
+                if (!started || d === null || d.overLane === null) return;
+                const node = model.nodesByKey.get(key);
+                const index = model.lanes.findIndex((lane) => keyEqual(lane.key, d.overLane!));
+                if (node === undefined || index < 0) return;
+                const same = node.laneIndex === index;
+                // States carrying no order stand by key: a move writes their lane alone, and one within its own lane does nothing.
+                if (d.row === null) {
+                    if (!same) moveEdit([key], d.overLane);
+                    return;
+                }
+                // Among the band's other states: past the moved state's own row, one fewer; its own row, nothing moves.
+                let at = d.row;
+                if (same) {
+                    const own = bandStates(model, index).findIndex((state) => keyEqual(state.key, key));
+                    if (at > own) at -= 1;
+                    if (at === own) return;
+                }
+                moveEdit([key], d.overLane, at);
+            },
+        });
+        // After the follow: it lets go of a drag still in flight, which says its gesture was no move.
         movedRef.current = false;
-        const move = (ev: PointerEvent): void => {
-            const q = svgPoint(ev);
-            if (!started) {
-                if (Math.abs(q.x - startP.x) + Math.abs(q.y - startP.y) < 5) return;
-                started = true;
-                movedRef.current = true;
-            }
-            setMoveDrag({ key, x: q.x, y: q.y, ...moveLanding(q) });
-        };
-        const end = (): void => {
-            window.removeEventListener("pointermove", move);
-            window.removeEventListener("pointerup", up);
-            window.removeEventListener("pointercancel", cancel);
-        };
-        // The browser took the pointer back — a touch's scroll, a drag of its own: the state stays where it stands, and
-        // the gesture was no move, so the next click on a card selects it.
-        const cancel = (): void => {
-            end();
-            movedRef.current = false;
-            setMoveDrag(null);
-        };
-        const up = (): void => {
-            end();
-            const d = moveDragRef.current;
-            setMoveDrag(null);
-            if (!started || d === null || d.overLane === null) return;
-            const node = model.nodesByKey.get(key);
-            const index = model.lanes.findIndex((lane) => keyEqual(lane.key, d.overLane!));
-            if (node === undefined || index < 0) return;
-            const same = node.laneIndex === index;
-            // States carrying no order stand by key: a move writes their lane alone, and one within its own lane does nothing.
-            if (d.row === null) {
-                if (!same) moveEdit([key], d.overLane);
-                return;
-            }
-            // Among the band's other states: past the moved state's own row, one fewer; its own row, nothing moves.
-            let at = d.row;
-            if (same) {
-                const own = bandStates(model, index).findIndex((state) => keyEqual(state.key, key));
-                if (at > own) at -= 1;
-                if (at === own) return;
-            }
-            moveEdit([key], d.overLane, at);
-        };
-        window.addEventListener("pointermove", move);
-        window.addEventListener("pointerup", up);
-        window.addEventListener("pointercancel", cancel);
-    }, [moveEdit, svgPoint, moveLanding, model]);
+    }, [moveEdit, svgPoint, moveLanding, model, followDrag]);
 
     // ── render helpers ────────────────────────────────────────────────────
     const linksByKey = useMemo(() => new Map(model.links.map(l => [l.key, l])), [model]);
@@ -1084,6 +1109,11 @@ export function FlowchartCanvasView({
     const renameLaneEdit = edit?.renameLane;
     const deleteLaneEdit = edit?.deleteLane;
     const addLaneEdit = edit?.addLane;
+    // The "+ STATE" editor types a new state's key only where it can refuse a key taken; else its kind makes it (#1549).
+    const typesKey = edit?.stateKeyTaken !== undefined;
+    // Why "+ STATE" or "+ LANE" adds nothing: off, its tooltip saying so (#1549).
+    const statesOff = edit?.off?.states;
+    const lanesOff = edit?.off?.lanes;
     const body = (
         <Box ref={onBody} css={styles.body} data-flowchart-body=""
             onPointerEnter={() => { hoveredRef.current = true; }} onPointerLeave={() => { hoveredRef.current = false; }}>
@@ -1354,6 +1384,7 @@ export function FlowchartCanvasView({
                                         data-selected={isSel || undefined}
                                         data-context={live ? undefined : ""}
                                         data-conflict={conflicted?.has(rect.key) === true ? "" : undefined}
+                                        data-bounds={bounded?.has(rect.key) === true ? "" : undefined}
                                         data-drop-target={dropMark?.kind === "state" && keyEqual(dropMark.key, rect.key) ? "" : undefined}
                                         style={{
                                             left: rect.x, top: rect.y, width: rect.w, height: rect.h,
@@ -1585,18 +1616,29 @@ export function FlowchartCanvasView({
                             {/* "+ LANE" — the band row's tail, full lane height: Font
                                 Awesome's plus over the word, a lane added on a click */}
                             {addLaneEdit !== undefined && (
-                                <chakra.button
-                                    type="button"
-                                    css={styles.addLane}
-                                    data-flowchart-addlane=""
-                                    data-orientation={layout.orientation}
-                                    aria-label={words.m.addLane()}
-                                    style={{ left: layout.laneTail.x, top: layout.laneTail.y, width: layout.laneTail.w, height: layout.laneTail.h }}
-                                    onClick={() => addLaneEdit()}
-                                >
-                                    <FontAwesomeIcon icon={faPlus} />
-                                    <span>{words.m.laneWord()}</span>
-                                </chakra.button>
+                                <Tooltip.Root openDelay={250} disabled={lanesOff === undefined} positioning={{ placement: "bottom" }}>
+                                    <Tooltip.Trigger asChild>
+                                        <chakra.button
+                                            type="button"
+                                            css={styles.addLane}
+                                            data-flowchart-addlane=""
+                                            data-orientation={layout.orientation}
+                                            data-disabled={lanesOff === undefined ? undefined : ""}
+                                            aria-disabled={lanesOff === undefined ? undefined : true}
+                                            aria-label={words.m.addLane()}
+                                            style={{ left: layout.laneTail.x, top: layout.laneTail.y, width: layout.laneTail.w, height: layout.laneTail.h }}
+                                            onClick={lanesOff === undefined ? () => addLaneEdit() : undefined}
+                                        >
+                                            <FontAwesomeIcon icon={faPlus} />
+                                            <span>{words.m.laneWord()}</span>
+                                        </chakra.button>
+                                    </Tooltip.Trigger>
+                                    <Portal>
+                                        <Tooltip.Positioner>
+                                            <Tooltip.Content>{lanesOff}</Tooltip.Content>
+                                        </Tooltip.Positioner>
+                                    </Portal>
+                                </Tooltip.Root>
                             )}
 
                             {/* "+ STATE" ghost — dashed, exact node footprint, one per
@@ -1606,16 +1648,27 @@ export function FlowchartCanvasView({
                                 const cell = layout.laneGhosts.get(laneHover);
                                 if (!cell) return null;
                                 return (
-                                    <Box
-                                        data-flowchart-ghoststate={laneHover}
-                                        css={styles.stateGhost}
-                                        style={{ left: cell.x, top: cell.y, width: cell.w, height: cell.h }}
-                                        onPointerEnter={() => setLaneHover(laneHover)}
-                                        onClick={() => setStateEditor({ mode: "add", lane: laneHover, code: "", label: "" })}
-                                    >
-                                        <FontAwesomeIcon icon={faPlus} />
-                                        <span>{words.m.stateWord()}</span>
-                                    </Box>
+                                    <Tooltip.Root openDelay={250} disabled={statesOff === undefined} positioning={{ placement: "bottom" }}>
+                                        <Tooltip.Trigger asChild>
+                                            <Box
+                                                data-flowchart-ghoststate={laneHover}
+                                                css={styles.stateGhost}
+                                                data-disabled={statesOff === undefined ? undefined : ""}
+                                                aria-disabled={statesOff === undefined ? undefined : true}
+                                                style={{ left: cell.x, top: cell.y, width: cell.w, height: cell.h }}
+                                                onPointerEnter={() => setLaneHover(laneHover)}
+                                                onClick={statesOff === undefined ? () => setStateEditor({ mode: "add", lane: laneHover, code: "", label: "" }) : undefined}
+                                            >
+                                                <FontAwesomeIcon icon={faPlus} />
+                                                <span>{words.m.stateWord()}</span>
+                                            </Box>
+                                        </Tooltip.Trigger>
+                                        <Portal>
+                                            <Tooltip.Positioner>
+                                                <Tooltip.Content>{statesOff}</Tooltip.Content>
+                                            </Tooltip.Positioner>
+                                        </Portal>
+                                    </Tooltip.Root>
                                 );
                             })()}
 
@@ -1637,8 +1690,10 @@ export function FlowchartCanvasView({
                                     const ed = stateEditor;
                                     if (ed.mode === "add") {
                                         const key = ed.code.trim();
-                                        if (key.length === 0 || addStateEdit === undefined) { setStateEditor(null); return; }
-                                        const added = !taken && addStateEdit(ed.lane, key, ed.label.trim());
+                                        const label = ed.label.trim();
+                                        // Nothing typed — no key, or with none to type no label — dismisses.
+                                        if ((typesKey ? key.length === 0 : label.length === 0) || addStateEdit === undefined) { setStateEditor(null); return; }
+                                        const added = !taken && addStateEdit(ed.lane, typesKey ? key : undefined, label);
                                         if (added || blur) setStateEditor(null);
                                         return;
                                     }
@@ -1663,7 +1718,7 @@ export function FlowchartCanvasView({
                                             commit(true);
                                         }}
                                     >
-                                        {stateEditor.mode === "add" ? (
+                                        {stateEditor.mode === "add" ? typesKey && (
                                             <input
                                                 autoFocus
                                                 data-flowchart-key=""
@@ -1679,7 +1734,7 @@ export function FlowchartCanvasView({
                                             <Box css={styles.nodeCode} data-flowchart-key="">{stateEditor.key}</Box>
                                         )}
                                         <input
-                                            autoFocus={stateEditor.mode === "edit"}
+                                            autoFocus={stateEditor.mode === "edit" || !typesKey}
                                             data-flowchart-label=""
                                             aria-label={words.m.stateLabelField()}
                                             placeholder={words.m.stateLabelPlaceholder()}

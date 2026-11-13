@@ -13,15 +13,18 @@
  * kind's own inspector in place of its form, several, a row with its
  * measures at the bucket a click on it named, or nothing — its edit controls
  * on, in one fieldset, as the event kinds take edits (#1194; what each does
- * is `plan-builder-editing.dom.test.tsx`'s). Each Plan is the print works', or
- * a test's own over its records, mounted through the dispatcher under the
- * record runtime a surface installs.
+ * is `plan-builder-editing.dom.test.tsx`'s), and over its form the refusals
+ * holding Save while the app's `ready` refuses it (#1525). Each Plan is the
+ * print works', or a test's own over its records, mounted through the
+ * dispatcher under the record runtime a surface installs.
  */
 
 import { describe, test, expect } from "vitest";
 import { fireEvent, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { East, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
+import { editingMessages } from "@elaraai/east-ui-components";
 import { Data, Plan, Record, Schedule } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
 import { el, entry, planHarness, rowAt, settle, slot } from "./harness.test-utils.js";
@@ -35,6 +38,8 @@ const A1 = entry("presses.span", "Hall A", "a1");
 const A1_MARKS = entry("presses.marks", "Hall A", "a1");
 const A2 = entry("presses.span", "Hall A", "a2");
 const C1 = entry("crews.cards", "Hall A", "c1");
+/** The dispatch bay's buckets. */
+const BAY = entry("bays.buckets", "bay");
 
 /** A job's bar on Press A1. */
 const job = (c: HTMLElement, key: string) => c.querySelector<HTMLElement>(`${rowAt(A1)} ${el("data-run", "job", key)}`)!;
@@ -478,5 +483,61 @@ describe("the inspector keeps the keyboard as a control goes with its view (#139
         const focused = document.activeElement ?? document.body;
         expect(focused).not.toBe(document.body);
         expect(focused.closest("[data-plan-row]")?.getAttribute("data-plan-row")).toBe(rowKey(container, A1));
+    });
+});
+
+// ============================================================================
+// An event's refusals holding Save (#1525)
+// ============================================================================
+
+describe("an event's refusals holding Save (#1525)", () => {
+    test("a delivery the app's `ready` refuses: a banner over its form names its field by its label, the field ringed; the warning button selects it again, the field taking the keyboard; a fixed field clears it", async () => {
+        const { container } = await h.mount(ex.planPrintWorks);
+        await settle();
+        const toolbar = () => within(slot(container, "toolbar")!);
+        const delivery = () => container.querySelector<HTMLElement>(`${rowAt(BAY)} ${el("data-event", "delivery", "D-101")}`)!;
+        const banner = () => pane(container).querySelector("[data-inspector-refusals]");
+        const ringed = () => [...pane(container).querySelectorAll("[data-inspector-fields='form'] [data-issue]")].map((node) => node.getAttribute("data-field"));
+        /** Types the delivery's pallets, committed with Enter. */
+        const pallets = async (text: string) => {
+            const user = userEvent.setup();
+            const input = within(pane(container).querySelector<HTMLElement>("[data-inspector-fields='form'] [data-field='pallets']")!).getByRole("spinbutton");
+            await user.clear(input);
+            await user.type(input, text);
+            await user.keyboard("{Enter}");
+            await settle();
+        };
+        fireEvent.click(delivery());
+        await settle();
+        expect(showing(container)).toBe("event");
+        expect(banner()).toBeNull();
+        expect(ringed()).toEqual([]);
+        // No pallets: the kind's `ready` refuses the delivery, which holds Save.
+        await pallets("0");
+        expect(toolbar().getByRole("button", { name: editingMessages.apply() })).toHaveProperty("disabled", true);
+        expect(banner()!.textContent).toBe("Not saved yet" + "Pallets: Pallets must be positive");
+        expect(ringed()).toEqual(["pallets"]);
+        // And the field says why under it, in the app's words: where the keyboard is, whatever of the banner is in view.
+        const reasons = () => [...pane(container).querySelectorAll("[data-field-issue]")].map((node) => [node.closest("[data-field]")?.getAttribute("data-field"), node.textContent]);
+        expect(reasons()).toEqual([["pallets", "Pallets must be positive"]]);
+        // Esc clears the selection; the history's warning button selects the refused delivery again, its refusal over its form —
+        // the issue goes before the warning beside it, the holiday catalogue's stored sheets.
+        fireEvent.keyDown(container.querySelector(rowAt(BAY))!, { key: "Escape" });
+        await settle();
+        expect(showing(container)).toBe("none");
+        const counted = editingMessages.issuesAndWarnings({ issues: editingMessages.issues({ n: 1, count: "1" }), warnings: editingMessages.warnings({ n: 1, count: "1" }) });
+        fireEvent.click(toolbar().getByRole("button", { name: counted }));
+        await settle();
+        expect(delivery().getAttribute("aria-pressed")).toBe("true");
+        expect(pane(container).querySelector("[data-inspector-title]")!.textContent).toBe("Handbooks");
+        expect(banner()).not.toBeNull();
+        // The field it names takes the keyboard, so it is in view in its pane, ready to be set right (#1585).
+        expect(document.activeElement).toBe(within(pane(container).querySelector<HTMLElement>("[data-inspector-fields='form'] [data-field='pallets']")!).getByRole("spinbutton"));
+        // Two pallets: nothing refuses it — Save on, no banner, no ring.
+        await pallets("2");
+        expect(toolbar().getByRole("button", { name: editingMessages.apply() })).toHaveProperty("disabled", false);
+        expect(banner()).toBeNull();
+        expect(ringed()).toEqual([]);
+        expect(reasons()).toEqual([]);
     });
 });
