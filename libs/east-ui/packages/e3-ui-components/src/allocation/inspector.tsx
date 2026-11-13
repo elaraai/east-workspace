@@ -13,7 +13,9 @@
  * own fields a bin's (#1525). A bin's Assigned to holds its
  * parts (A70–A74, #1332): each part's quantity a field, the remainder in
  * warn, `Split…` to put the remainder — or, with none, some of a part — on
- * another resource (`split.tsx`, #1362), and Find a fit.
+ * another resource (`split.tsx`, #1362), and Find a fit. A field a refusal
+ * names is ringed and says the app's words for it under it (ruled 13 Nov
+ * 2026) — its quantity too, which the Bin section draws.
  * The bin's own fields — those no role maps — are the bin kind's: its form
  * over its `fields` (`FieldForm`), or its own `inspector` over the row, in
  * place of the quantity and the rows (#1372). The kind's form holds its
@@ -67,6 +69,7 @@ import { FOCUS_HOME_PROPS, useFocusHome } from "../shared/focus-home.js";
 import type { PeriodRead } from "../shared/loading.js";
 import { useFieldAsk } from "../shared/schedule/field-ask.js";
 import { ScheduleInspectorHead } from "../shared/schedule/inspector-head.js";
+import { NO_REFUSED_FIELDS, refusedFields, type RefusedFields } from "../shared/schedule/refusals.js";
 import { Seg } from "../shared/schedule/segments.js";
 import { linkedQuantity, remainderOf, splitOf, type AllocationCommands } from "./actions.js";
 import { resourceChoices } from "./choices.js";
@@ -187,15 +190,13 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 const timeText = (at: Date) => formatDatePattern("HH:mm", at);
 const dayLong = (at: Date) => formatDatePattern("ddd D MMM", at);
 const keyEqual = equalFor(StringType);
-/** No field a refusal names: the one set, so a form's memo holds while none does. */
-const NO_REFUSED: ReadonlySet<string> = new Set();
 
 /** A bin's refusals holding Save, as its Details show them. */
 interface BinRefusals {
     /** Its Details' first banner, over its form. */
     readonly banners: InspectorBanner[];
-    /** The fields they name, which its form rings. */
-    readonly fields: ReadonlySet<string>;
+    /** The fields they name, which its forms ring, each with the app's words for it, said under it. */
+    readonly fields: RefusedFields;
     /**
      * The tone its forms say a number outside its bounds in (#1585): as stored, refused nothing, it warns; its change
      * refused, holding Save, it is an error.
@@ -209,10 +210,10 @@ interface BinRefusals {
  */
 function refusalsOf(args: InspectorArgs, id: string): BinRefusals {
     const own = args.refusals.filter(r => keyEqual(r.kind, args.value.bin.kind.key) && keyEqual(r.issue.entry, id));
-    if (own.length === 0) return { banners: [], fields: NO_REFUSED, breaches: "warn" };
+    if (own.length === 0) return { banners: [], fields: NO_REFUSED_FIELDS, breaches: "warn" };
     return {
         banners: [{ status: "warning", title: "Not saved yet", text: own.map(r => r.text).join("; ") }],
-        fields: new Set(own.flatMap(r => (r.issue.field.type === "some" ? [r.issue.field.value] : []))),
+        fields: refusedFields(own.map(r => r.issue)),
         breaches: "error",
     };
 }
@@ -420,14 +421,15 @@ function BinDetails({ id, bin, ...part }: Part & { id: string; bin: Bin }) {
  * lane, by its name, and its time are printed as the form prints every field,
  * with no segments or stepper (the hand retest); then the row's own
  * fields, the bin kind's form over its `fields` — each field a refusal names
- * (`refused`) ringed — and the app's columns as rows; or, with the bin kind's
+ * (`refused`) ringed, the app's words for it under it, the quantity's among
+ * them — and the app's columns as rows; or, with the bin kind's
  * own `inspector`, that form over the row in place of the quantity, the
  * fields and the rows. A number outside its field's bounds is said in the tone
  * the bin's Save stands in (`breaches`, #1585), and the quantity takes the
  * keyboard where an issue gone to names the kind's field it is.
  */
 function BinSection({ id, bin, committed, refused, breaches, ...part }: Part & {
-    id: string; bin: Bin; committed: Bin | undefined; refused: ReadonlySet<string>; breaches: "warn" | "error";
+    id: string; bin: Bin; committed: Bin | undefined; refused: RefusedFields; breaches: "warn" | "error";
 }) {
     const { args, styles, words } = part;
     const { value, slots, plan, commands, day, context, shown } = args;
@@ -466,6 +468,9 @@ function BinSection({ id, bin, committed, refused, breaches, ...part }: Part & {
     const asked = useFieldAsk(value.bin.kind.key, id);
     const quantityField = getSomeorUndefined(value.bin.kind.schedule.quantity);
     const focus = asked !== undefined && quantityField !== undefined && keyEqual(asked, quantityField) ? "quantity" : undefined;
+    // What a refusal says of the kind's quantity, which this form draws as its own: ringed here, the app's words under it.
+    const quantityRefused = quantityField === undefined ? undefined : refused.get(quantityField);
+    const quantityIssues = useMemo((): RefusedFields => (quantityRefused === undefined ? NO_REFUSED_FIELDS : new Map([["quantity", quantityRefused]])), [quantityRefused]);
     const quantityLabel = nouns.quantity;
     const keyLabel = args.m.binKey();
     const specs = useMemo(() => Fields.specs(BIN_FIELDS, {
@@ -516,7 +521,7 @@ function BinSection({ id, bin, committed, refused, breaches, ...part }: Part & {
     return <chakra.fieldset css={[styles.edits, styles.fields]} disabled={args.retained} data-allocation-bin-section="">
         <Box css={styles.sectionHead}>{nouns.bin.one}</Box>
         <FieldForm specs={specs} value={shownValue} baseline={baseline} options={laneNames} onChange={onChange} readOnly={!editable} renderControl={renderControl}
-            focus={focus} breaches={breaches} />
+            issues={quantityIssues} focus={focus} breaches={breaches} />
         {form !== undefined ? <CustomBin {...part} id={id} bin={bin} form={form} /> : <>
             <RowFields {...part} id={id} bin={bin} committed={committed} refused={refused} breaches={breaches} />
             <ValueRows {...part} bin={bin} />
@@ -526,12 +531,13 @@ function BinSection({ id, bin, committed, refused, breaches, ...part }: Part & {
 
 /**
  * The row's own fields (`Builder Interfaces Spec.md` §1, rule 2): the bin kind's form over its `fields` but its quantity,
- * the Bin section's (#1585), each edit one command, a draft until Save, and each field a refusal names ringed (#1525) —
- * the one a refusal gone to names taking the keyboard as the form draws it — and a number outside its bounds said in the
+ * the Bin section's (#1585), each edit one command, a draft until Save, and each field a refusal names ringed (#1525),
+ * the app's words for it under it — the one a refusal gone to names taking the keyboard as the form draws it — and a
+ * number outside its bounds said in the
  * tone the bin's Save stands in (`breaches`).
  */
 function RowFields({ args, id, bin, committed, refused, breaches }: Part & {
-    id: string; bin: Bin; committed: Bin | undefined; refused: ReadonlySet<string>; breaches: "warn" | "error";
+    id: string; bin: Bin; committed: Bin | undefined; refused: RefusedFields; breaches: "warn" | "error";
 }) {
     const { value, commands } = args;
     const { field } = commands;

@@ -114,6 +114,9 @@ describe('Roster shared and custom forms', () => {
         const details = () => end().querySelector('[data-roster-inspector="details"]');
         expect(details()?.querySelector('[data-roster-refusals]')?.textContent).toContain('Cost centre: Give the duty a cost centre');
         expect([...details()!.querySelectorAll('[data-issue]')].map(el => el.getAttribute('data-field'))).toEqual(['costCentre']);
+        // And the field says why under it, in the app's words — where the keyboard is, whatever of the banner is in view.
+        expect([...details()!.querySelectorAll('[data-field-issue]')].map(el => [el.closest('[data-field]')?.getAttribute('data-field'), el.textContent]))
+            .toEqual([['costCentre', 'Give the duty a cost centre']]);
         // The field it names takes the keyboard, so it is in view in its pane, ready to be set right (#1585).
         expect(document.activeElement).toBe(costCentre());
         // The Issues tab lists it first, by its duty's person, day and shift — whatever day the view shows.
@@ -136,6 +139,7 @@ describe('Roster shared and custom forms', () => {
         await settle();
         expect(toolbar().getByRole('button', { name: 'Save' })).toHaveProperty('disabled', false);
         expect(details()?.querySelector('[data-roster-refusals]')).toBeNull();
+        expect(details()?.querySelector('[data-field-issue]')).toBeNull();
         expect(chip()).toBe(counted - 1);
     });
     test("a refusal pressed in Month opens its duty's week in Week, the duty selected and the refusal over its form — never the month's first week's Summary (#1584)", async () => {

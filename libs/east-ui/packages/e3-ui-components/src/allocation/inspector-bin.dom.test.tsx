@@ -334,6 +334,9 @@ describe("the refusals holding Save (#1525)", () => {
         // Its panel: the refusal over its form, the field it names ringed.
         expect(banners(c)[0]).toEqual(["Not saved yet", "Not saved yetGrade measured: Measure the grade"]);
         expect([...details(c).querySelectorAll("[data-issue]")].map(f => f.getAttribute("data-field"))).toEqual(["gradeMeasured"]);
+        // And the field says why under it, in the yard's words: where the keyboard is, whatever of the banner is in view.
+        expect([...details(c).querySelectorAll("[data-field-issue]")].map(f => [f.closest("[data-field]")?.getAttribute("data-field"), f.textContent]))
+            .toEqual([["gradeMeasured", "Measure the grade"]]);
         // With nothing selected, the history's warning button selects it again.
         await key(c, "Escape");
         expect(headOf(c).kind).toBe("Plan · Tue 11 May");
@@ -373,10 +376,12 @@ describe("the refusals holding Save (#1525)", () => {
         expect(banners(c)[0]).toEqual(["Not saved yet", "Not saved yetGrade measured: Measure the grade"]);
         const section = details(c).querySelector<HTMLElement>("[data-allocation-reservation]")!;
         expect([...section.querySelectorAll("[data-issue]")].map(f => f.getAttribute("data-field"))).toEqual(["gradeMeasured"]);
+        expect([...section.querySelectorAll("[data-field-issue]")].map(f => f.textContent)).toEqual(["Measure the grade"]);
         await user.type(within(section.querySelector<HTMLElement>('[data-field="gradeMeasured"]')!).getByRole("textbox"), "R3{Enter}");
         await settle();
         expect(save(c)).toHaveProperty("disabled", false);
         expect(banners(c)).toEqual([]);
+        expect(details(c).querySelector("[data-field-issue]")).toBeNull();
     });
 });
 

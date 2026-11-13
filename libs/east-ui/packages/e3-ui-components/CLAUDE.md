@@ -911,6 +911,20 @@ none. Keep domain
 actions such as Publish separate from Save, following Studio/Query. Use shared
 anchored forms/popovers; follow the library's prohibition on modal dialogs.
 
+A field a refusal names says why under it (ruled 13 Nov 2026). An entry's
+panel shows its refusals holding Save in a banner over its form, and each
+field one names is ringed there with the app's words for it under it — the
+shared form's `issues`, given as `shared/schedule/refusals.ts`' `refusedFields`
+makes them from the entry's issues: the Roster's duties, the Allocation's bins
+and reservations (the quantity too, which its Bin section draws), the
+Calendar's events, in whichever of their two forms draws the field, and the
+Plan's — a field one of its roles reads saying them under its fact, where the
+Plan draws it. So going to a refusal lands the keyboard beside its reason
+whatever the panel has room to show above it: a duty with a rule's warning
+between its banner and its fields had the banner cut off at the panel's top
+(the showcase's `roster-inspector.spec.ts`). The Schematic's, the Flowchart's,
+the Sheet's and the Record's panels are still to give their fields' reasons.
+
 Every builder's Details keeps the keyboard (`shared/focus-home.ts`'
 `useFocusHome`: the Schematic's, the Flowchart's, the Plan's, the Calendar's,
 the Roster's and the Allocation's). A control whose view goes with it —

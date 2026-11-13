@@ -13,6 +13,7 @@ import { FOCUS_HOME_PROPS, useFocusHome } from "../shared/focus-home.js";
 import { useFieldAsk } from "../shared/schedule/field-ask.js";
 import { ScheduleInspectorHead } from "../shared/schedule/inspector-head.js";
 import { madeFromValues } from "../shared/schedule/records.js";
+import { NO_REFUSED_FIELDS, refusedFields, type RefusedFields } from "../shared/schedule/refusals.js";
 import { Seg } from "../shared/schedule/segments.js";
 import { plural } from "../shared/schedule/words.js";
 import { AssignmentActions, AssignmentFields, GroupField, PlaceAction, RequirementFields, TimesFields, dutyForm, type DutyFormValue } from "./controls.js";
@@ -58,8 +59,6 @@ type Args = RosterViewsProps & {
     onRefusal: (refusal: RosterRefusal) => void;
 };
 const keyEqual = equalFor(StringType);
-/** No field a refusal names. */
-const NO_REFUSED: ReadonlySet<string> = new Set();
 function fixLabel(issue: Issue, props: Args) {
     if (issue.fix.type === "none") return "";
     const fix = issue.fix.value;
@@ -129,14 +128,15 @@ function DutyPay({ props, id }: { props: Args; id: string }) {
  * The duty's form: its roles the Roster edits — its times and, where its kind
  * maps them, its position and its activity — then the app's fields none of
  * them writes, in the kind's form (`fields`) or the kind's own inspector, each
- * field a refusal names (`refused`) ringed — the one a refusal gone to names
- * taking the keyboard as the form draws it. A field's edit the duty refuses
+ * field a refusal names (`refused`) ringed, the app's words for it under it —
+ * the one a refusal gone to names taking the keyboard as the form draws it. A
+ * field's edit the duty refuses
  * leaves the field showing what the duty holds, the reason under it as the
  * frame's line says it. A number outside its field's bounds is said in the tone
  * the duty's Save stands in (`breaches`, #1585).
  */
 function DutyForm({ props, assignment, id, refused, breaches }: {
-    props: Args; assignment: Assignment; id: string; refused: ReadonlySet<string>; breaches: "warn" | "error";
+    props: Args; assignment: Assignment; id: string; refused: RefusedFields; breaches: "warn" | "error";
 }) {
     const { onError, commands } = props;
     const kind = props.value.duty.kind;
@@ -173,10 +173,10 @@ function OneAssignment({ props, id, assignment: a }: { props: Args; id: string; 
     // A move to another group — or to none, or out of none (#1548) — keeping its day and its shift.
     const toGroup = (group: Assignment["place"]["group"]) => props.onError(props.commands.place({ type: "assignment", key: id }, { day: a.place.day, group, shift: a.place.shift }));
     const position = props.value.positions.find(p => p.key === a.position);
-    // Its refusals holding Save (#1525): over its form, as the Calendar's banner shows an event's, each field named ringed.
+    // Its refusals holding Save (#1525): over its form, as the Calendar's banner shows an event's, each field named ringed
+    // and saying the app's words for it under it.
     const refusals = props.refusals.filter(r => keyEqual(r.kind, props.value.duty.kind.key) && keyEqual(r.issue.entry, id));
-    const refused = refusals.length === 0 ? NO_REFUSED
-        : new Set(refusals.flatMap(r => (r.issue.field.type === "some" ? [r.issue.field.value] : [])));
+    const refused = refusals.length === 0 ? NO_REFUSED_FIELDS : refusedFields(refusals.map(r => r.issue));
     // A bound its row breaks (#1585), said in the tone its Save stands in: as stored it warns; its change refused, holding
     // Save, it is an error.
     const breaches = refusals.length > 0 ? "error" : "warn";

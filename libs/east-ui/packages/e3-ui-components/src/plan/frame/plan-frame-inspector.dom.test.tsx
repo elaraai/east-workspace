@@ -517,6 +517,9 @@ describe("an event's refusals holding Save (#1525)", () => {
         expect(toolbar().getByRole("button", { name: editingMessages.apply() })).toHaveProperty("disabled", true);
         expect(banner()!.textContent).toBe("Not saved yet" + "Pallets: Pallets must be positive");
         expect(ringed()).toEqual(["pallets"]);
+        // And the field says why under it, in the app's words: where the keyboard is, whatever of the banner is in view.
+        const reasons = () => [...pane(container).querySelectorAll("[data-field-issue]")].map((node) => [node.closest("[data-field]")?.getAttribute("data-field"), node.textContent]);
+        expect(reasons()).toEqual([["pallets", "Pallets must be positive"]]);
         // Esc clears the selection; the history's warning button selects the refused delivery again, its refusal over its form —
         // the issue goes before the warning beside it, the holiday catalogue's stored sheets.
         fireEvent.keyDown(container.querySelector(rowAt(BAY))!, { key: "Escape" });
@@ -535,5 +538,6 @@ describe("an event's refusals holding Save (#1525)", () => {
         expect(toolbar().getByRole("button", { name: editingMessages.apply() })).toHaveProperty("disabled", false);
         expect(banner()).toBeNull();
         expect(ringed()).toEqual([]);
+        expect(reasons()).toEqual([]);
     });
 });

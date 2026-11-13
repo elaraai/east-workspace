@@ -69,7 +69,7 @@ interface Said {
 }
 
 /** The form over a batch — as stored or changed, printed or not — and what each field says, by key. */
-function said(value: BatchValue, props: Partial<Pick<FieldFormProps, "breaches" | "readOnly">> = {}) {
+function said(value: BatchValue, props: Partial<Pick<FieldFormProps, "breaches" | "readOnly" | "issues">> = {}) {
     const { container } = render(<ChakraProvider value={system}><I18nProvider locale="en-US">
         <FieldForm specs={SPECS} value={value} onChange={() => {}} {...props} />
     </I18nProvider></ChakraProvider>);
@@ -165,3 +165,24 @@ test("an edit the host refuses of a number its bounds don't hold says the refusa
     await settle();
     expect([lines(), within(crew()).getByRole("spinbutton").getAttribute("aria-invalid")]).toEqual([[[], "1–12 people"], null]);
 });
+
+test("a bound that also reaches the form as an issue of its field is still said once — its help line says it, and no issue's line repeats it; beside another issue of the field, that one alone is said under it (ruled 13 Nov 2026)", () => {
+    // A builder's readiness raises a breach as an issue of its field, in the bound's own words (`fieldBreachIssue`); the
+    // app's check may refuse the same field for a reason of its own.
+    const least = fieldBreachText({ side: "min", bound: 1n }, WORDS);
+    const issues = new Map<string, string | readonly string[]>([
+        ["crew", least],
+        ["coats", [least, "Two coats at least on a door"]],
+        ["length", "Cut it to the order's length"],
+    ]);
+    const { line, field } = said(BROKEN, { issues });
+    const issueOf = (key: string) => [...field(key).querySelectorAll("[data-field-issue]")].map((el) => el.textContent);
+    // The crew's bound, in its help line as before, and nothing under it again.
+    expect([line("crew").help, issueOf("crew")]).toEqual(["1–12 people", []]);
+    // The coats' bound once, then the app's own reason.
+    expect([line("coats").toned, issueOf("coats")]).toEqual([["at least 1", "error"], ["Two coats at least on a door"]]);
+    expect(line("coats").help).toBe("at least 1 Two coats at least on a door");
+    // The length breaks its most, which its help says, and the app's reason is another matter: both are said.
+    expect([line("length").toned, issueOf("length")]).toEqual([["Cut to the order · at most 4 m", "error"], ["Cut it to the order's length"]]);
+});
+

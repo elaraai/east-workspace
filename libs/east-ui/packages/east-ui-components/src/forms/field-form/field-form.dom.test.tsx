@@ -675,7 +675,7 @@ describe("FieldForm — a field a host draws on one line, an issue's wash, and t
         ["lead", YES_NO],
     ]);
 
-    function mountShift(value: Record<string, unknown>, extra: { readOnly?: boolean; issues?: ReadonlySet<string>; hidden?: boolean; pane?: boolean; specs?: readonly FieldSpecValue[] } = {}) {
+    function mountShift(value: Record<string, unknown>, extra: { readOnly?: boolean; issues?: ReadonlySet<string> | ReadonlyMap<string, string>; hidden?: boolean; pane?: boolean; specs?: readonly FieldSpecValue[] } = {}) {
         const edits: Edit[] = [];
         let named: (key: string | undefined) => void = () => {};
         function Host() {
@@ -781,6 +781,39 @@ describe("FieldForm — a field a host draws on one line, an issue's wash, and t
         await focus("kind");
         expect(field("kind").contains(document.activeElement)).toBe(true);
         expect((document.activeElement as HTMLInputElement).type).toBe("radio");
+    });
+
+    test("a field an issue names says the issue's words under it — after its help, on a line of its own; a line's too; read only as well; named with no words, it says nothing", () => {
+        const helped = SHIFT_SPECS.map((spec): FieldSpecValue => (spec.path[0] === "note" ? { ...spec, help: some("for the next crew") } : spec));
+        /** What a field says of its issue, under it. */
+        const saidOf = (el: HTMLElement) => [...el.querySelectorAll("[data-field-issue]")].map((line) => line.textContent);
+        const reasons = new Map([["name", "Give the shift a name"], ["lead", "Say who leads it"], ["note", "Say what the next crew needs"]]);
+        const { container, field } = mountShift({ name: "", kind: "day", active: true, lead: none, note: "" }, { issues: reasons, specs: helped });
+        // Each takes the wash, as a field named with no words does.
+        expect([...container.querySelectorAll("[data-field][data-issue]")].map((el) => el.getAttribute("data-field"))).toEqual(["name", "lead", "note"]);
+        expect(saidOf(field("name"))).toEqual(["Give the shift a name"]);
+        // The control is described by it: its help line holds the words.
+        const help = field("name").querySelector<HTMLElement>("[data-scope=field][data-part=helper-text]")!;
+        expect(help.textContent).toBe("Give the shift a name");
+        expect(within(field("name")).getByRole("textbox").getAttribute("aria-describedby")).toContain(help.id);
+        // After the field's own help, in the same line of help.
+        const noteHelp = field("note").querySelector<HTMLElement>("[data-scope=field][data-part=helper-text]")!;
+        expect([noteHelp.textContent, saidOf(noteHelp)]).toEqual(["for the next crew Say what the next crew needs", ["Say what the next crew needs"]]);
+        // A field drawn on one line says it under the line.
+        expect(saidOf(field("lead"))).toEqual(["Say who leads it"]);
+        expect(saidOf(field("kind"))).toEqual([]);
+        cleanup();
+
+        // Read only, the reason stands: the field is printed, and still says why it is named.
+        const printed = mountShift({ name: "", kind: "day", active: true, lead: none, note: "" }, { issues: reasons, readOnly: true });
+        expect(saidOf(printed.field("name"))).toEqual(["Give the shift a name"]);
+        expect(saidOf(printed.field("lead"))).toEqual(["Say who leads it"]);
+        cleanup();
+
+        // Named with no words — a set of keys — it takes the wash and says nothing.
+        const bare = mountShift({ name: "", kind: "day", active: true, lead: none, note: "" }, { issues: new Set(["name", "lead"]) });
+        expect([...bare.container.querySelectorAll("[data-field][data-issue]")].map((el) => el.getAttribute("data-field"))).toEqual(["name", "lead"]);
+        expect(saidOf(bare.container)).toEqual([]);
     });
 
     test("a field named while the form is hidden takes the keyboard once it shows, a later name in its place", async () => {

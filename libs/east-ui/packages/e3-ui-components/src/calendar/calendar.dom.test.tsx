@@ -340,6 +340,11 @@ describe("Calendar explicit action forms", () => {
         const inspector = slot(container, "end").querySelector("[data-calendar-inspector]")!;
         expect(inspector.querySelector(":scope > [data-calendar-inspector-refusals] > [data-banner-tone]")?.textContent).toContain("Hours: Duration must be positive");
         expect(inspector.querySelector(":scope > [data-banner-tone]")).toBeNull();
+        // The field the issue names is ringed in the form that draws it, the issue's words under it (ruled 13 Nov 2026):
+        // where the keyboard is when it is gone to, whatever of the banner over the forms is in view.
+        const hours = slot(container, "end").querySelector<HTMLElement>('[data-field="hours"]')!;
+        expect([hours.hasAttribute("data-issue"), [...slot(container, "end").querySelectorAll("[data-field-issue]")].map(el => [el.closest("[data-field]")?.getAttribute("data-field"), el.textContent])])
+            .toEqual([true, [["hours", "Duration must be positive"]]]);
         await act(async () => { fireEvent.keyDown(event(container, "job", "job1"), { key: "Escape" }); }); await settle();
         // The issue goes before the warning beside it, the pump housings' stored hours over a run's most.
         await press(history(container, editingMessages.issuesAndWarnings({ issues: editingMessages.issues({ n: 1, count: "1" }), warnings: editingMessages.warnings({ n: 1, count: "1" }) })));

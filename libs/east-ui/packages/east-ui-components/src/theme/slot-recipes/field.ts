@@ -15,7 +15,9 @@
  * bounds don't hold (#1585) — marked `data-breach`, or the part of it marked
  * so — takes the tone its host says it in: a value as stored, which holds no
  * Save, the warn ink (`warn`); a changed row's, which holds Save, the danger
- * ink (`error`).
+ * ink (`error`). What an issue says of a field a form names for it
+ * (`data-field-issue`, ruled 13 Nov 2026) takes the warn ink too, the ink of
+ * the wash its field wears.
  *
  * @packageDocumentation
  */
@@ -43,6 +45,7 @@ export const fieldSlotRecipe = defineSlotRecipe({
             marginTop: "{spacing.1}",
             "&[data-breach=warn], & [data-breach=warn]": { color: "fg.warning" },
             "&[data-breach=error], & [data-breach=error]": { color: "fg.danger" },
+            "&[data-field-issue], & [data-field-issue]": { color: "fg.warning" },
         },
         errorText: {
             fontFamily: "mono",

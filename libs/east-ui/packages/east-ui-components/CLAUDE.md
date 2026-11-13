@@ -1127,6 +1127,19 @@ where it stands. One rule, in the form (`scrolledFrom`), for every builder's
 inspector: `field-form.dom.test.tsx`, and in a browser the showcase's
 `roster-inspector.spec.ts`.
 
+A field an issue names (`issues`) takes the warn wash; given the issue's words
+with it — a map from the field's key to what its issues say — it says them
+under it, after its help, on a line of its own in the warn's ink
+(`data-field-issue`, ruled 13 Nov 2026). The reason is then where the
+keyboard is when the issue is gone to, whatever of a banner over the form is
+in view: a panel too short to hold a refusal's banner and its field together
+showed the field and cut the banner, and nothing by the field said why it was
+ringed (hand re-test, 13 Nov 2026). A bound the field's number breaks is said
+once, by its help line: an issue that only repeats the bound — a builder's
+readiness raises a breach in the bound's own words — is dropped.
+`field-form.dom.test.tsx`, `field-form-bounds.dom.test.tsx`, and in a browser
+the showcase's `roster-inspector.spec.ts`.
+
 The shared inputs' sizes are one line each — `theme/field-chrome.ts` ›
 `fieldHeights`: `sm` 26px, `md` 32px, `lg` 44px — set on each control's
 bordered box (the input, the select's trigger, the number's root, the date's

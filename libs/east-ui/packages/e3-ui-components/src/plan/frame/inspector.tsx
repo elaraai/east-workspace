@@ -14,9 +14,11 @@
  *   PB53), a line per event it overlaps whose click selects that event; the
  *   banner of its refusals holding Save while the app's `ready` refuses it
  *   (#1525), as the Calendar's inspector has it, each field one names ringed
- *   in its form — the one the warning button's issue or warning names taking
- *   the keyboard as the form draws it, or, a field a role reads, its fact
- *   taking it; its resource, its start and end or its instant, its lane, its
+ *   in its form, the app's words for it under it (ruled 13 Nov 2026) — a field
+ *   a role reads saying them under its fact — the one the warning button's
+ *   issue or warning names taking the keyboard as the form draws it, or, a
+ *   field a role reads, its fact taking it; its resource, its start and end or
+ *   its instant, its lane, its
  *   state and its quantity — the bound a hint gives its field that it breaks
  *   said on a line of its own under it, in the form's help line's style and in
  *   the tone the form says one in: a row as stored warns, a changed one's,
@@ -102,7 +104,7 @@ import { EventStateType } from "@elaraai/east-ui";
 import type { FieldSpecValue } from "@elaraai/east-ui/internal";
 import { PlanEventItemType, ScheduleEventRefType, ScheduleResourceRefType, planHideId, type PlanEventDraftsType, type planKeys } from "@elaraai/e3-ui/internal";
 import {
-    BannerView, EastChakraComponent, FieldForm, fieldBreachText, fieldBreaches, fieldFormMessages, getSomeorUndefined, useDataStable, useTrackedEvaluation,
+    BannerView, EastChakraComponent, FieldForm, fieldBreachIssue, fieldBreachText, fieldBreaches, fieldFormMessages, getSomeorUndefined, useDataStable, useTrackedEvaluation,
     type BuilderFrameDock, type FieldOption,
 } from "@elaraai/east-ui-components";
 import { FrameDrawer, PlaceholderShape } from "@elaraai/east-ui-components/internal";
@@ -111,7 +113,7 @@ import { useFieldAsk } from "../../shared/schedule/field-ask.js";
 import { removePlanEvents, type PlanEventChange, type PlanEventEditing } from "../edit/events.js";
 import { usePlanResourceRows, type PlanResourceLookup, type PlanResourceRefValue } from "./resources.js";
 import { scheduleEventKey } from "../../shared/schedule/overlaps.js";
-import { refusalText, scheduleRefusals } from "../../shared/schedule/refusals.js";
+import { NO_REFUSED_FIELDS, refusalText, refusedFields, scheduleRefusals } from "../../shared/schedule/refusals.js";
 import { stateText } from "../a11y.js";
 import type { PlanSnapshot } from "../controller/index.js";
 import { usePlanSelector } from "../controller/react.js";
@@ -574,9 +576,6 @@ const NONE_MINTED: ReadonlySet<string> = new Set();
 /** What a new event's form is tinted against: nothing — every field it has is a change. */
 const NEW_EVENT: Readonly<Record<string, unknown>> = {};
 
-/** No field a refusal names: the one set, so the form's rings hold while none does. */
-const NO_REFUSED: ReadonlySet<string> = new Set();
-
 /** Whether two field paths are one. */
 function samePath(a: readonly string[], b: readonly string[]): boolean {
     return a.length === b.length && a.every((step, i) => stringEqual(step, b[i]!));
@@ -738,10 +737,18 @@ function OneEvent({ event, resources, keys, words, styles, counts, chrome, selec
     // holds no snapshot to read it from).
     const drafted = editing?.draftsOf(kind.key).has(item.key) === true;
     const held = editing?.held(kind.key, item.key) ?? (drafted ? NEW_EVENT : value);
-    // Its refusals holding Save (#1525): the app's `ready` refusing it while it stands, each field one names ringed.
+    // Its refusals holding Save (#1525): the app's `ready` refusing it while it stands, each field one names ringed, the
+    // app's words for it under it.
     const refusals = scheduleRefusals(editing?.sessions ?? []).filter((r) => stringEqual(r.kind, kind.key) && stringEqual(r.issue.entry, item.key));
-    const refused = refusals.length === 0 ? NO_REFUSED
-        : new Set(refusals.flatMap((r) => (r.issue.field.type === "some" ? [r.issue.field.value] : [])));
+    const refused = refusals.length === 0 ? NO_REFUSED_FIELDS : refusedFields(refusals.map((r) => r.issue));
+    // What they say of a field a role reads, under its fact, which is where the Plan draws it — less the bound its
+    // quantity breaks, which its fact's own line says: a readiness raises a breach as an issue in the bound's words.
+    const factIssue = (role: option<string>, bound?: (typeof quantityBreach)): ReactNode => {
+        if (role.type !== "some") return null;
+        const bounds = bound === undefined ? [] : [fieldBreachIssue(bound, { entry: item.key }).message, fieldBreachText(bound, { ...words, m: fieldFormMessages })];
+        const said = (refused.get(role.value) ?? []).filter((line) => !bounds.some((text) => stringEqual(text, line)));
+        return said.length === 0 ? null : <Box css={fieldStyles.helperText} data-field-issue="" data-fact-issue="">{said.join(" · ")}</Box>;
+    };
     // A bound its row breaks (#1585), said in the tone its Save stands in: a row as stored warns, holding no Save; a
     // changed one's is refused, holding Save — an error.
     const breaches = refusals.length > 0 ? "error" : "warn";
@@ -816,14 +823,15 @@ function OneEvent({ event, resources, keys, words, styles, counts, chrome, selec
                             <Fact styles={styles} fact="end" label={m.inspectorFact({ fact: "end" })} value={words.dateTime(end)} />
                         </>
                     ))}
-                {lane !== undefined && <Fact styles={styles} fact="lane" label={m.inspectorFact({ fact: "lane" })} value={lane} focusable />}
-                {roles.state.type === "some" && <Fact styles={styles} fact="state" label={m.inspectorFact({ fact: "state" })} value={stateText(item.state, words)} focusable />}
+                {lane !== undefined && <Fact styles={styles} fact="lane" label={m.inspectorFact({ fact: "lane" })} value={<>{lane}{factIssue(roles.lane)}</>} focusable />}
+                {roles.state.type === "some" && <Fact styles={styles} fact="state" label={m.inspectorFact({ fact: "state" })} value={<>{stateText(item.state, words)}{factIssue(roles.state)}</>} focusable />}
                 {quantity !== undefined && <Fact styles={styles} fact="quantity" label={m.inspectorFact({ fact: "quantity" })} focusable value={<>
                     {quantityText(quantity, words)}
                     {/* A line of its own, in the form's help line's style and the tone its Save stands in. */}
                     {quantityBreach !== undefined && (
                         <Box css={fieldStyles.helperText} data-breach={breaches} data-fact-breach="">{fieldBreachText(quantityBreach, { ...words, m: fieldFormMessages })}</Box>
                     )}
+                    {factIssue(roles.quantity, quantityBreach)}
                 </>} />}
             </Box>
             <chakra.fieldset css={styles.edits} disabled={!writable} data-inspector-edits="">

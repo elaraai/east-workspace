@@ -17,6 +17,10 @@
  * A number an event's row holds outside its field's bounds (#1585) is said in the tone its Save stands in: a warning
  * while the event stands as stored, an error once its session refuses its change, holding Save.
  *
+ * A field an issue of the event names is ringed in whichever of its forms draws it, the issue's words under it (ruled
+ * 13 Nov 2026), as the Roster's, the Allocation's and the Plan's are: gone to, the reason is where the keyboard is,
+ * whatever of the banner over the forms is in view.
+ *
  * What is selected is drawn a moment after what selected it (#1594): a drop's event shows on the board and the page paints,
  * then its Details draw in a render of their own, which a pointer's next move can break into, so a form's many fields
  * never hold up the drop itself.
@@ -31,7 +35,7 @@ import { FOCUS_HOME_PROPS, useFocusHome } from "../shared/focus-home.js";
 import { ScheduleInspectorHead } from "../shared/schedule/inspector-head.js";
 import { EMPTY_SCHEDULE_DRAFTS, heldRowOf, type ScheduleHeldRows } from "../shared/schedule/editing.js";
 import { useFieldAsk } from "../shared/schedule/field-ask.js";
-import { refusalText } from "../shared/schedule/refusals.js";
+import { refusalText, refusedFields } from "../shared/schedule/refusals.js";
 import type { ScheduleOverlaps } from "../shared/schedule/overlaps.js";
 import { PagedChooser, pagedControl, useCalendarChooser } from "./chooser.js";
 import { EventActions, PlacementFields, useCalendarFieldWords, type CalendarShownResources } from "./controls.js";
@@ -204,6 +208,8 @@ function OneEvent({ event, value, shown, styles, commands, storageKey, range, ov
     // A bound its row breaks (#1585), said in the tone its Save stands in: as stored it warns; its change refused, holding
     // Save, it is an error.
     const breaches = readiness !== undefined && readiness.type !== "ready" && readiness.value.some(issue => stringEqual(issue.entry, item.key)) ? "error" : "warn";
+    // Each field an issue names, ringed in whichever of its forms draws it, the issue's words under it.
+    const refused = refusedFields(issues);
     // The field an issue or a warning gone to names takes the keyboard, in whichever of its forms draws it.
     const focus = useFieldAsk(kind.key, item.key);
     return <>
@@ -221,7 +227,7 @@ function OneEvent({ event, value, shown, styles, commands, storageKey, range, ov
         </Box>}
         <Box css={styles.fields}><Box css={styles.sectionHead}>Schedule</Box>
         <FieldForm specs={roleSpecs} words={fieldWords} value={row} baseline={baseline} options={options} onChange={onField} readOnly={fieldsReadOnly} renderControl={chooser === undefined ? undefined : renderReference}
-            focus={focus} breaches={breaches} />
+            issues={refused} focus={focus} breaches={breaches} />
         {commands !== undefined && item.start.type === "some" && item.end.type === "some" && <PlacementFields source={{ kind, item }} value={value} shown={shown} readOnly={!commands.editing.available(kind.key)}
             placement={{ start: item.start.value, end: item.end.value, resource: item.resource }} onChange={at => commands.place({ kind, item }, at)} />}
         {commands === undefined && <Box css={styles.detail}>{item.start.type === "some" ? `${format.dateTime(item.start.value)} – ${item.end.type === "some" ? format.dateTime(item.end.value) : ""}` : value.vocabulary.unscheduled}</Box>}
@@ -229,7 +235,7 @@ function OneEvent({ event, value, shown, styles, commands, storageKey, range, ov
         <Box css={styles.fields}><Box css={styles.sectionHead}>{kind.name} fields</Box>
         {own?.value !== undefined ? <EastChakraComponent value={own.value} storageKey={`${storageKey}.inspector.${kind.key}`} />
             : <FieldForm specs={kind.fields.filter(field => !roleNames.includes(field.path[0]!))} words={fieldWords} value={row} baseline={baseline} options={options} onChange={onField} readOnly={fieldsReadOnly}
-                renderControl={chooser === undefined ? undefined : renderReference} focus={focus} breaches={breaches} />}
+                renderControl={chooser === undefined ? undefined : renderReference} issues={refused} focus={focus} breaches={breaches} />}
         </Box>
         {own?.error !== undefined && <Box role="alert" css={styles.error}>{own.error}</Box>}
         {commands !== undefined && <EventActions item={item} value={value} shown={shown} commands={commands} day={range.from} styles={styles} />}

@@ -84,7 +84,11 @@
  * Record's mark's words (#1561) — sits under it, as a field's does, in the
  * shared `Field`'s style for help. Lines that follow one another sit closer
  * than fields do, rows of choices. A field an issue names (`issues`) takes the
- * warn wash around it, as a changed one takes the brand's — as does a number
+ * warn wash around it, as a changed one takes the brand's — and, where its
+ * host gives the issue's words with it, says them under it, after its help on
+ * a line of its own in the warn's ink (ruled 13 Nov 2026), so a field gone to
+ * says why it is named whatever of the banner over its form is in view — as
+ * does a number
  * its bounds don't hold, whatever gave it; and the field a
  * host names (`focus`) takes the keyboard as it is named — a new row's title —
  * or, where a tab or a fold still hides the form, once it shows, kept in view
@@ -100,7 +104,8 @@
  * one; the form sets data attributes (`data-field`, `data-editor`,
  * `data-layout`, `data-dirty`, `data-issue`, `data-breach`,
  * `data-field-line`, `data-field-side`, `data-field-block`,
- * `data-field-help`, `data-field-error`, `data-field-breach`), a text's or a
+ * `data-field-help`, `data-field-error`, `data-field-breach`,
+ * `data-field-issue`), a text's or a
  * choice's title and geometry only; a line's help takes the `field` recipe's
  * help style, and why its choice was refused the recipe's error style. A
  * bound broken is said in the `field` recipe's help line, toned by its
@@ -218,8 +223,14 @@ export interface FieldFormProps {
      * compares it.
      */
     lines?: ReadonlyMap<string, readonly FieldLineChoice[]> | undefined;
-    /** The fields an issue names, by key: each takes the warn wash around it. */
-    issues?: ReadonlySet<string> | undefined;
+    /**
+     * The fields an issue names, by key: each takes the warn wash around it. Given as a map, each with what its issues
+     * say of it — an app's refusal, `Give the duty a cost centre`; several, each in turn — the field says those words
+     * under it, after its help (ruled 13 Nov 2026): the reason is where the keyboard is, whatever of a banner over the
+     * form is in view. A bound the field's number breaks is said by its help line already, and never again here: a
+     * builder's readiness raises a breach as an issue in the bound's own words ({@link fieldBreachIssue}).
+     */
+    issues?: ReadonlySet<string> | ReadonlyMap<string, string | readonly string[]> | undefined;
     /**
      * How the form says a number its field's bounds don't hold (#1585), as the host's Save stands on what the form
      * edits. Either way the field takes the warn wash, and says the bound once: in its help line, which names the
@@ -677,7 +688,7 @@ export const FieldForm = memo(function FieldForm({
                 base={baseline === undefined ? undefined : valueAt(baseline, spec.path)} hasBaseline={baseline !== undefined}
                 options={options} onChange={onChange} takesUnset={takesUnset} refusesBreaches={refusesBreaches} readOnly={readOnly} words={said} styles={styles}
                 renderControl={renderControl} live={live}
-                choices={under === undefined ? lines?.get(key) : undefined} issue={issues?.has(key) === true} breaches={breaches} />
+                choices={under === undefined ? lines?.get(key) : undefined} issue={issues?.has(key) === true} reason={reasonOf(issues, key)} breaches={breaches} />
         );
     };
     // A section's fields in order, each run of fields drawn on one line together, and under a variant's choice its
@@ -725,6 +736,19 @@ export const FieldForm = memo(function FieldForm({
     );
 });
 
+/** What parts each issue's words of a field in the one text a row is handed: no words hold it. */
+const REASONS = "\u001f";
+
+/**
+ * What its issues say of a field, where its host gave the issues with their words — each issue's in turn, in one text
+ * a row's memo compares ({@link REASONS} between them); none for a set of keys, or no words.
+ */
+function reasonOf(issues: FieldFormProps["issues"], key: string): string | undefined {
+    const said = issues !== undefined && "get" in issues ? issues.get(key) : undefined;
+    const lines = (said === undefined ? [] : typeof said === "string" ? [said] : said).filter((line) => line.length > 0);
+    return lines.length === 0 ? undefined : lines.join(REASONS);
+}
+
 /** Props of {@link FieldRow}. */
 interface FieldRowProps {
     spec: FieldSpecValue;
@@ -747,6 +771,8 @@ interface FieldRowProps {
     choices: readonly FieldLineChoice[] | undefined;
     /** An issue names it. */
     issue: boolean;
+    /** What its issues say of it, each in turn ({@link REASONS} between them), said under it; none where its host gave no words. */
+    reason: string | undefined;
     /** How it says a number its bounds don't hold: as a warning, or as an error. */
     breaches: "warn" | "error";
 }
@@ -757,7 +783,7 @@ interface FieldRowProps {
  */
 const FieldRow = memo(function FieldRow({
     spec, under, current, base, hasBaseline, options, onChange, takesUnset, refusesBreaches, readOnly, words, styles, renderControl, live, choices, issue,
-    breaches,
+    reason, breaches,
 }: FieldRowProps) {
     const { m } = words;
     const button = useRecipe({ key: "button" });
@@ -900,6 +926,14 @@ const FieldRow = memo(function FieldRow({
         refocus.current = false;
         (fieldRef.current?.querySelector<HTMLElement>(FOCUSABLE) ?? rowRef.current?.querySelector<HTMLElement>(FOCUSABLE))?.focus();
     }, [revision]);
+    // What its issues say of it, as it says them under it: each in turn — but the bound its number breaks, which its help
+    // line says already, in whichever words the issue came in (a readiness's canonical English, or the form's own).
+    const issueWords = (bound: Pick<FieldBreach, "side" | "bound"> | undefined): string | undefined => {
+        if (reason === undefined) return undefined;
+        const bounds = bound === undefined ? [] : [fieldBreachText(bound, ISSUE_WORDS), fieldBreachText(bound, words)];
+        const said = reason.split(REASONS).filter((line) => !bounds.some((text) => stringEqual(text, line)));
+        return said.length === 0 ? undefined : said.join(" · ");
+    };
     // An Option's Clear, beside a line's choices or an input that cannot show none.
     const clear = (
         <chakra.button type="button" css={iconButton({ variant: "ghost", size: "xs" })} aria-label={m.clear({ label: spec.label })}
@@ -916,6 +950,7 @@ const FieldRow = memo(function FieldRow({
         const printedLine = editor.type === "readonly" || readOnly;
         const lineHelp = getSomeorUndefined(spec.help);
         const lineRefusal = printedLine ? undefined : refusal;
+        const lineIssue = issueWords(undefined);
         return (
             <Box ref={rowRef} css={styles.field} data-field={key} data-editor={printedLine ? "readonly" : editor.type} data-layout="line"
                 data-dirty={dirty ? "" : undefined} data-issue={issue ? "" : undefined} title={spec.label}>
@@ -942,6 +977,8 @@ const FieldRow = memo(function FieldRow({
                 {lineHelp !== undefined && lineHelp.length > 0 && (
                     <Box as="span" css={[fieldStyles.helperText, styles.lineHelp]} data-field-help="">{lineHelp}</Box>
                 )}
+                {/* What an issue says of it, under the line. */}
+                {lineIssue !== undefined && <Box as="span" css={[fieldStyles.helperText, styles.lineHelp]} data-field-issue="">{lineIssue}</Box>}
                 {lineRefusal !== undefined && (
                     <Box as="span" css={[fieldStyles.errorText, styles.lineHelp]} aria-live="polite" data-field-error="">{lineRefusal}</Box>
                 )}
@@ -1157,6 +1194,14 @@ const FieldRow = memo(function FieldRow({
         {help.length > 0 && `${help.join(" · ")} `}
         <Box as="span" data-breach={tone} data-field-breach="">{fieldBreachText(breach, words)}</Box>
     </>;
+    // What an issue says of the field (ruled 13 Nov 2026): in its help line, after its help and any bound, on a line of its
+    // own — what its control is described by, so the reason is where the keyboard is.
+    const issueSaid = issueWords(breach);
+    const helper = issueSaid === undefined ? helped : <>
+        {helped ?? (help.length > 0 ? `${help.join(" · ")} ` : null)}
+        {helped !== undefined && " "}
+        <Box as="span" data-field-issue="">{issueSaid}</Box>
+    </>;
     // Why it shows what it holds — never where it prints its value — a line of its own under it, the field invalid; as
     // is a bound a changed row's Save waits on.
     const said = printed ? undefined : refusal;
@@ -1202,7 +1247,7 @@ const FieldRow = memo(function FieldRow({
     return (
         <Box ref={rowRef} css={styles.field} data-field={key} data-editor={own !== undefined ? "custom" : printed ? "readonly" : editor.type} data-dirty={dirty ? "" : undefined}
             data-issue={issue || breach !== undefined ? "" : undefined} data-breach={tone} onBlur={onBlur} onKeyDown={onKeyDown}>
-            <EastChakraField key={revision} value={field} storageKey={`fieldForm.${key}`} controlNode={line} helperNode={helped} />
+            <EastChakraField key={revision} value={field} storageKey={`fieldForm.${key}`} controlNode={line} helperNode={helper} />
             {checklist !== undefined && items.length > 0 && (
                 <Box css={styles.items} data-checklist-items="">
                     {/* Drawn afresh with the field, after a refusal: an item's checkbox keeps the toggle last made. */}

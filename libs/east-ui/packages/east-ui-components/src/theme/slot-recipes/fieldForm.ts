@@ -29,7 +29,9 @@
  * `Field`'s help line (#1561). Lines that follow
  * one another sit closer than fields do, rows of choices. A field an issue
  * names takes the warn wash a Record's empty required cell wears, spread as
- * the drafts' tint is — so a new row's empty lines read as one block. A
+ * the drafts' tint is — so a new row's empty lines read as one block — and
+ * what its issue says of it sits in its help line on a line of its own, in
+ * the warn's ink (the `field` recipe). A
  * number its bounds don't hold takes the tone its host says it in (#1585): as
  * stored (`data-breach=warn`), the warn's edge on its box and the warn ink on
  * its help line; a changed row's (`error`), the field invalid — the danger's
@@ -109,6 +111,8 @@ export const fieldFormSlotRecipe = defineSlotRecipe({
             },
             /* The bound a printed number breaks, in its help line under the help its host gives it: a line of its own. */
             "& [data-field-breach]": { display: "block" },
+            /* What an issue says of the field, in its help line after its help: a line of its own. */
+            "& [data-field-issue]": { display: "block" },
             /* Drawn on one line: its label at the start, its choices at the end, on the Input's line — its help
              * wrapping under it, as far from the line as a Field's help sits from its control. */
             "&[data-layout=line]": {
