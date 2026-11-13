@@ -95,6 +95,15 @@ stop. A stop is the same colour in both modes, and the valence palettes
 have none, so the brand's would be inherited from `html`.
 `test/theme/palette.spec.ts` holds every palette to those roles.
 
+**A tooltip takes no pointer.** It says something of its trigger and holds
+nothing to press, so what lies under it stays live: the `tooltip` recipe's
+positioner, the box that places the chip, takes no pointer events, as the
+chip itself takes none. Left to take them, a button a tooltip opened over
+needed a second press, once the tooltip had gone — Save's `Choose 1 conflict
+to save` over the banner's Choose (hand test, 13 Nov 2026; the showcase's
+`sheet-conflicts.spec.ts`). A tooltip whose content is to be hovered
+(`interactive`) keeps its content's own pointer events.
+
 ## Stack
 
 - **React 19.2** with `react-dom` 19
@@ -1466,6 +1475,14 @@ Row virtualization via `@tanstack/react-virtual`:
   the browser anchors on the focused element first, and a window landing that
   moved it — a Plan's run not read that a click focused, its rows replacing
   it — moved the view by itself, by as much as the run (#1398).
+- At the rows' very start — nothing scrolled past, its anchor the first row —
+  an anchoring frame stays on the start, as a browser's own anchoring does at
+  the top of a page: a row landing above the anchor is the rows' new first
+  row, and is shown. Kept in place, the anchor took the view past it, and a
+  row put back first, or added there, stood under the pinned header (hand
+  test, 13 Nov 2026: `virtual-rows.dom.test.tsx`, and in a browser the
+  showcase's `sheet-conflicts.spec.ts`). Anywhere past the start the anchor
+  keeps its place as before.
 - A collection that draws the rows it has not read as one run — keyed by the
   rows it stands for, so a window landing in it makes other items — names
   where its rows stand in its runs (`runs`, `RowRuns`; the Calendar's timeline

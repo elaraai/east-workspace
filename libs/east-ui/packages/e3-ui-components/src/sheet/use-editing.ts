@@ -377,6 +377,9 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
         const drafting = session.drafts.revision;
         const carrying = rowsRead !== undefined && !replacing && !retained
             && (session.carrying || (!session.locked && drafting !== undefined && rowsRead.revision !== undefined && !stringEqual(drafting, rowsRead.revision)));
+        // Whether the rows are their source's whole collection, as it is read now: one that holds no row of a drafted
+        // entry is the record holding none — nothing narrows it, and no page of it is still to land.
+        const whole = rowsRead === undefined && !replacing && !retained;
         // The row drawn at a source position: asked of the few rows that stood, so made as the first is.
         let placed: Map<number, string> | undefined;
         const idAt = (position: number): string | undefined => {
@@ -416,6 +419,15 @@ export function useSheetEditing(declared: Editing, source: SheetPagedSourceValue
                 appended.push(entry.wire);
                 // The Save's new entry still: a count read since that Save holds it.
                 if (landed !== undefined) savedFrom.set(id, landed.from);
+            } else if (!drawn(id) && whole) {
+                // A row changed here that the whole collection, read again, holds no more: another session removed it,
+                // and its session is told only after the render that reads the collection (the shared hook carries
+                // the drafts over once drawn). It is drawn from its draft, at its place, as it is once its session
+                // has judged it a row its draft adds. Left to the session's word of it — that its record holds it —
+                // it left the grid for that one commit: unseen, but the frame took its scroll anchor there, on the
+                // next row, and scrolled the changed row out of view as it came back.
+                appended.push(entry.wire);
+                placements.set(id, entry.place);
             } else if (!drawn(id) && carrying && was !== undefined && closedOver(was, idAt, (position) => !rowsRead.before(position), rowsRead.total)) {
                 // A row changed here that the rows, read again, hold no more — another session removed it — while its
                 // session has yet to read it by its key: it stands where it stood, never off the grid until that read

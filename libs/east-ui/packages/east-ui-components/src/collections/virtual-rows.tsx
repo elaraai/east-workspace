@@ -82,7 +82,12 @@
  * takes once read — and finds it again wherever it then is: its own line, or
  * a run that holds it, so a window landing in the run keeps that row where it
  * was. A scroll not yet reported — a programmatic
- * one — wins. The anchor is kept in the rows' own coordinates, net of the
+ * one — wins. At the rows' very start — nothing scrolled past, the anchor the
+ * first row — rows landing above the anchor are shown, the view staying on the
+ * start: a row put back first, or added there, never lands under the pinned
+ * header (found by hand, 13 Nov 2026: a sheet's first row, changed here and
+ * removed by another write, left the rows for a pass no one saw, and came back
+ * above the anchor the frame had taken there). The anchor is kept in the rows' own coordinates, net of the
  * scroll margin: the pinned header being measured, or growing, is no row
  * moving, and moves nothing (#944). An offset past where the view can go —
  * rows moved from below the view to above it leave the content no taller —
@@ -1375,7 +1380,14 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
             // Where the anchor starts among the rows now, as it was taken: a
             // header measured or grown since moves every start, and no row.
             const moved = start === undefined ? 0 : start - margin - was;
-            if (moved !== 0) {
+            // At the rows' very start — nothing scrolled past, the anchor
+            // their first row — what lands above the anchor is the rows' new
+            // start, and the view stays on it, as a browser's own anchoring
+            // does at the top of a page: a row put back first, or added
+            // there, is shown. Kept in place, the anchor took the view past
+            // it, the new first row under the pinned header.
+            const atStart = anchor.offset <= 0 && anchor.index === 0;
+            if (moved !== 0 && !(atStart && moved > 0)) {
                 const live = liveOffset();
                 if (live !== undefined && Math.abs(live - offset) < 1) {
                     const target = Math.max(0, offset + moved);

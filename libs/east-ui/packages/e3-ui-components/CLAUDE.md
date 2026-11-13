@@ -1404,7 +1404,16 @@ draw a page at a time, keep such a row only where the rows read again have
 closed over its place — another row standing at its position, read at the
 revision the source reads at now, or the source, counted there, ending before
 it — which tells it from a row whose page was let go, scrolled away from
-(`sheet/standing-rows.ts`). And whether a draft adds its row is read from its
+(`sheet/standing-rows.ts`). Over a record read whole — no page of it still to
+land, nothing narrowing it — a row changed here that the collection, read
+again, holds no more is drawn from its draft at its place in that very
+render (`sheet/use-editing.ts`' `whole`): the shared hook tells the session
+of the new collection only once it is drawn, and left to the session's word
+meanwhile the row left the grid for one commit no one saw — which the
+frame's scroll anchoring saw, taking its anchor on the next row and
+scrolling the changed row under the header as it came back (hand test, 13
+Nov 2026; `sheet/standing-whole.dom.test.tsx` reads what the grid draws at
+every commit, the showcase's `sheet-conflicts.spec.ts` the scroll). And whether a draft adds its row is read from its
 session's original as it stands, never once as the draft is first decoded
 (`shared/schedule/use-drafted-rows.ts`): a rack moved here and removed by
 another session was held to be a rack its record held still, and left the

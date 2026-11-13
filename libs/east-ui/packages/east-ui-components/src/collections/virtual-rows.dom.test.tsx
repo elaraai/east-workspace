@@ -552,6 +552,38 @@ describe("VirtualRows — scroll anchoring (#878)", () => {
         expect(inView(container, "r50")).toBe(0);
     });
 
+    test("at the rows' very start a row landing above the first is shown: the view stays on the start, where keeping the anchor in place took it past the new first row", () => {
+        const { container, rerender } = render(frame(ROWS));
+        const scrollEl = container.firstElementChild as HTMLElement;
+        expect(scrollEl.scrollTop).toBe(0);
+        expect(inView(container, "r0")).toBe(0);
+        // A row put back first — one removed here that comes back, one another write adds there.
+        rerender(frame(["n0", ...ROWS]));
+        expect(scrollEl.scrollTop).toBe(0);
+        expect(inView(container, "n0")).toBe(0);
+        expect(inView(container, "r0")).toBe(ROW_H);
+    });
+
+    test("at the rows' very start the first row leaving for a commit and coming back moves nothing: a pass no one saw draws the rows without it, and the frame takes its anchor there", () => {
+        const { container, rerender } = render(frame(ROWS));
+        const scrollEl = container.firstElementChild as HTMLElement;
+        // The first row gone for one commit — a row changed here that another write removed, before its session is told
+        // — then back.
+        rerender(frame(ROWS.slice(1)));
+        rerender(frame(ROWS));
+        expect(scrollEl.scrollTop).toBe(0);
+        expect(inView(container, "r0")).toBe(0);
+    });
+
+    test("a little way into the first row the view is not at the start: the row at its top keeps its place as one lands above", () => {
+        const { container, rerender } = render(frame(ROWS));
+        // Ten px into r0: r1 is the first row starting in the view, and its anchor.
+        const scrollEl = scrollTo(container, 10);
+        rerender(frame(["n0", ...ROWS]));
+        expect(scrollEl.scrollTop).toBe(10 + ROW_H);
+        expect(inView(container, "r1")).toBe(ROW_H - 10);
+    });
+
     test("a row above the view growing leaves the row at its top where it is — its heights re-measured after the render", () => {
         // A stable key function and exact sizes: the growth reaches the frame
         // only through its re-measure, after the render that drew the rows.
