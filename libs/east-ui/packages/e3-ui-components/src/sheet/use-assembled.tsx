@@ -402,6 +402,9 @@ export function useSheetAssembled(value: SheetRootValue, sheetDecode: SheetDecod
                     estimateSize={sizeOf}
                     getItemKey={itemKey}
                     anchorable={anchorable}
+                    // At its very start the sheet stays on its start (#1599): a row put back first — one removed here and
+                    // taken back as another session left it — or one added there is shown, never left under the header.
+                    startStays
                     onViewport={setViewport}
                     renderRow={renderRow}
                     minWidth={`${minWidth}px`}

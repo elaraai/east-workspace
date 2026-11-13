@@ -519,12 +519,12 @@ describe("VirtualRows — scroll anchoring (#878)", () => {
 
     const keysOf = (prefix: string, n: number): string[] => Array.from({ length: n }, (_u, i) => `${prefix}${i}`);
     const ROWS = keysOf("r", 100);
-    /** The frame over `keys` — every row may anchor unless `anchorable` says otherwise. */
-    const frame = (keys: readonly string[], opts: { anchorable?: ((i: number) => boolean) | null; scrollToIndex?: number; scrollNonce?: number } = {}) => (
+    /** The frame over `keys` — every row may anchor unless `anchorable` says otherwise; told to stay on its start where `startStays`. */
+    const frame = (keys: readonly string[], opts: { anchorable?: ((i: number) => boolean) | null; scrollToIndex?: number; scrollNonce?: number; startStays?: boolean } = {}) => (
         <ChakraProvider value={system}>
             <VirtualRows height="200px" maxHeight={undefined} count={keys.length} estimateSize={() => ROW_H} overscan={2}
                 getItemKey={(i) => keys[i]!} anchorable={opts.anchorable === null ? undefined : opts.anchorable ?? (() => true)}
-                scrollToIndex={opts.scrollToIndex} scrollNonce={opts.scrollNonce}
+                startStays={opts.startStays} scrollToIndex={opts.scrollToIndex} scrollNonce={opts.scrollNonce}
                 renderRow={(i) => <div data-key={keys[i]}>{keys[i]}</div>} />
         </ChakraProvider>
     );
@@ -552,36 +552,49 @@ describe("VirtualRows — scroll anchoring (#878)", () => {
         expect(inView(container, "r50")).toBe(0);
     });
 
-    test("at the rows' very start a row landing above the first is shown: the view stays on the start, where keeping the anchor in place took it past the new first row", () => {
-        const { container, rerender } = render(frame(ROWS));
+    test("a frame told to stay on its start: at the rows' very start a row landing above the first is shown, the view staying there, where keeping the anchor in place took it past the new first row", () => {
+        const STAYS = { startStays: true };
+        const { container, rerender } = render(frame(ROWS, STAYS));
         const scrollEl = container.firstElementChild as HTMLElement;
         expect(scrollEl.scrollTop).toBe(0);
         expect(inView(container, "r0")).toBe(0);
         // A row put back first — one removed here that comes back, one another write adds there.
-        rerender(frame(["n0", ...ROWS]));
+        rerender(frame(["n0", ...ROWS], STAYS));
         expect(scrollEl.scrollTop).toBe(0);
         expect(inView(container, "n0")).toBe(0);
         expect(inView(container, "r0")).toBe(ROW_H);
     });
 
-    test("at the rows' very start the first row leaving for a commit and coming back moves nothing: a pass no one saw draws the rows without it, and the frame takes its anchor there", () => {
-        const { container, rerender } = render(frame(ROWS));
+    test("a frame told to stay on its start: the first row leaving for a commit and coming back moves nothing — a pass no one saw draws the rows without it, and the frame takes its anchor there", () => {
+        const STAYS = { startStays: true };
+        const { container, rerender } = render(frame(ROWS, STAYS));
         const scrollEl = container.firstElementChild as HTMLElement;
-        // The first row gone for one commit — a row changed here that another write removed, before its session is told
-        // — then back.
-        rerender(frame(ROWS.slice(1)));
-        rerender(frame(ROWS));
+        // The first row gone for one commit, then back.
+        rerender(frame(ROWS.slice(1), STAYS));
+        rerender(frame(ROWS, STAYS));
         expect(scrollEl.scrollTop).toBe(0);
         expect(inView(container, "r0")).toBe(0);
     });
 
-    test("a little way into the first row the view is not at the start: the row at its top keeps its place as one lands above", () => {
-        const { container, rerender } = render(frame(ROWS));
+    test("a frame told to stay on its start, a little way into the first row, is not at the start: the row at its top keeps its place as one lands above", () => {
+        const STAYS = { startStays: true };
+        const { container, rerender } = render(frame(ROWS, STAYS));
         // Ten px into r0: r1 is the first row starting in the view, and its anchor.
         const scrollEl = scrollTo(container, 10);
-        rerender(frame(["n0", ...ROWS]));
+        rerender(frame(["n0", ...ROWS], STAYS));
         expect(scrollEl.scrollTop).toBe(10 + ROW_H);
         expect(inView(container, "r1")).toBe(ROW_H - 10);
+    });
+
+    test("a frame not told to stay keeps its anchor at the rows' very start too: rows shown again above the first — a Plan's hidden series — leave the view on what it showed", () => {
+        const { container, rerender } = render(frame(ROWS));
+        const scrollEl = container.firstElementChild as HTMLElement;
+        expect(scrollEl.scrollTop).toBe(0);
+        // A block of rows back above the first.
+        const block = keysOf("s", 10);
+        rerender(frame([...block, ...ROWS]));
+        expect(scrollEl.scrollTop).toBe(block.length * ROW_H);
+        expect(inView(container, "r0")).toBe(0);
     });
 
     test("a row above the view growing leaves the row at its top where it is — its heights re-measured after the render", () => {

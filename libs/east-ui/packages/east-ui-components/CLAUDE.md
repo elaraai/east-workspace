@@ -1487,14 +1487,18 @@ Row virtualization via `@tanstack/react-virtual`:
   the browser anchors on the focused element first, and a window landing that
   moved it — a Plan's run not read that a click focused, its rows replacing
   it — moved the view by itself, by as much as the run (#1398).
-- At the rows' very start — nothing scrolled past, its anchor the first row —
-  an anchoring frame stays on the start, as a browser's own anchoring does at
-  the top of a page: a row landing above the anchor is the rows' new first
+- An anchoring frame told to stay on its start (`startStays`: the Sheet's,
+  and the Record's through it) does so at the rows' very start — nothing
+  scrolled past, its anchor the first row — as a browser's own anchoring does
+  at the top of a page: a row landing above the anchor is the rows' new first
   row, and is shown. Kept in place, the anchor took the view past it, and a
   row put back first, or added there, stood under the pinned header (hand
   test, 13 Nov 2026: `virtual-rows.dom.test.tsx`, and in a browser the
-  showcase's `sheet-conflicts.spec.ts`). Anywhere past the start the anchor
-  keeps its place as before.
+  showcase's `sheet-conflicts.spec.ts`). Past the start its anchor keeps its
+  place. A frame not told so keeps its anchor at the start too: a block of
+  rows shown again above it — a Plan's hidden series — leaves the view on what
+  it showed, and its cells are read once, beside the view
+  (e3-ui-components' `plan/frame/plan-nested.dom.test.tsx`).
 - A collection that draws the rows it has not read as one run — keyed by the
   rows it stands for, so a window landing in it makes other items — names
   where its rows stand in its runs (`runs`, `RowRuns`; the Calendar's timeline

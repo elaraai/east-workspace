@@ -82,12 +82,14 @@
  * takes once read — and finds it again wherever it then is: its own line, or
  * a run that holds it, so a window landing in the run keeps that row where it
  * was. A scroll not yet reported — a programmatic
- * one — wins. At the rows' very start — nothing scrolled past, the anchor the
- * first row — rows landing above the anchor are shown, the view staying on the
- * start: a row put back first, or added there, never lands under the pinned
- * header (found by hand, 13 Nov 2026: a sheet's first row, changed here and
- * removed by another write, left the rows for a pass no one saw, and came back
- * above the anchor the frame had taken there). The anchor is kept in the rows' own coordinates, net of the
+ * one — wins. A frame told to stay on its start (`startStays`: a sheet's) does
+ * so at the rows' very start — nothing scrolled past, the anchor the first row
+ * — where rows landing above the anchor are shown: a row put back first, or
+ * added there, never lands under the pinned header (found by hand, 13 Nov
+ * 2026: a sheet's first row, removed here and taken back as another write left
+ * it, came back above the anchor the frame had taken there). Any other frame
+ * keeps its anchor there as anywhere: a block of rows shown again above it — a
+ * Plan's hidden series — leaves the view on what it showed. The anchor is kept in the rows' own coordinates, net of the
  * scroll margin: the pinned header being measured, or growing, is no row
  * moving, and moves nothing (#944). An offset past where the view can go —
  * rows moved from below the view to above it leave the content no taller —
@@ -549,6 +551,15 @@ interface VirtualRowsBaseProps {
      * it in place would scroll them out of view.
      */
     anchorable?: ((index: number) => boolean) | undefined;
+    /**
+     * Whether an anchoring frame stays on its rows' start while it is there (#1599): at the very start — nothing
+     * scrolled past, the anchor the first row — a row landing above the anchor is the collection's new first row, and
+     * is shown, as a browser's own anchoring leaves the top of a page alone. For a collection whose first row is its
+     * start whatever lands there: a sheet's first row put back, or one added there, never lands under the pinned
+     * header. Omitted, the anchor keeps its place at the start as anywhere, and a block of rows shown again above it —
+     * a Plan's hidden series — leaves the view on what it showed.
+     */
+    startStays?: boolean | undefined;
     /**
      * Where the rows a collection draws as runs stand ({@link RowRuns}): an anchorable run covering the view's top anchors
      * the frame on the row inside it there, found again in whatever item then holds it — its own line once its window
@@ -1083,7 +1094,7 @@ export function setVirtualRowsMeasureProbe(fn: (() => void) | undefined): void {
  */
 export function VirtualRows(props: VirtualRowsProps): ReactNode {
     const {
-        header, sticky, sections, footer, overlay, count, estimateSize, sizes, getItemKey, anchorable, runs, renderRow, measureRows = true,
+        header, sticky, sections, footer, overlay, count, estimateSize, sizes, getItemKey, anchorable, startStays = false, runs, renderRow, measureRows = true,
         overscan = 4, minWidth, headerZIndex = 3, onScroll, rootCss, rootProps, fillParent, scrollElRef,
         scrollToIndex, scrollNonce, scrollAlign = "center", onRangeChange, sizeVersion,
         virtualizeUnboundedAt, onAnchorChange, restoreAnchor, rowsProps, rowsRef, onViewport,
@@ -1380,13 +1391,14 @@ export function VirtualRows(props: VirtualRowsProps): ReactNode {
             // Where the anchor starts among the rows now, as it was taken: a
             // header measured or grown since moves every start, and no row.
             const moved = start === undefined ? 0 : start - margin - was;
-            // At the rows' very start — nothing scrolled past, the anchor
-            // their first row — what lands above the anchor is the rows' new
-            // start, and the view stays on it, as a browser's own anchoring
-            // does at the top of a page: a row put back first, or added
-            // there, is shown. Kept in place, the anchor took the view past
-            // it, the new first row under the pinned header.
-            const atStart = anchor.offset <= 0 && anchor.index === 0;
+            // A frame told to stay on its start (`startStays`), at the rows'
+            // very start — nothing scrolled past, the anchor their first row:
+            // what lands above the anchor is the rows' new start, and the
+            // view stays on it, as a browser's own anchoring does at the top
+            // of a page: a row put back first, or added there, is shown.
+            // Kept in place, the anchor took the view past it, the new first
+            // row under the pinned header.
+            const atStart = startStays && anchor.offset <= 0 && anchor.index === 0;
             if (moved !== 0 && !(atStart && moved > 0)) {
                 const live = liveOffset();
                 if (live !== undefined && Math.abs(live - offset) < 1) {
