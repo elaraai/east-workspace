@@ -996,3 +996,29 @@ Each wire changed under this rule, with the kind it is.
   answer of the other release, naming both types — so `e3 call`, e3-ui's
   `Func.bind` and the server they call are of one release, as the function's
   signature already holds them.
+- **east-ui's editing session gains its draft form, and e3-ui's bound record
+  the draft of each mutation (#1620)** — package-borne. The shared session's
+  fields (`EditingSessionFields`: east-ui's `EditingType` and
+  `SnapGridEditingType`, e3-ui's `PlanEditingType` and `SheetEditingType`)
+  gain `toDraft`, after `onApply`: the batch `onApply` takes, over the same
+  bytes, answered as a draft of the source's write and not written
+  (`EditingWireToDraftType`) — the draft's bytes, no change, or the refusal a
+  Save of the batch meets before it writes. A session that saves through
+  e3-ui's `Record.onApply` holds one: a Schedule kind's that saves to its
+  record, a Sheet's over a record, and a Sheet's or a Plan's handed
+  `Record.onApply` as its Save. Every other holds `none`: the SnapGrid's, the
+  query builder's and Studio's, whose Save is the builder's own function, and
+  a Save of the host's own. The fields travel in east-ui's `SnapGrid` arm and
+  in every e3-ui builder's payload, each Schedule kind's session among them,
+  so a UI value encoded under either type does not decode under the other:
+  packages are re-exported, and the dataflow computes each UI task's output
+  again under the new type. e3-ui's `Record.bind` handle
+  (`RecordBindHandleType`) gains `draft`, after `commit`: one function for
+  each mutation the handle binds, from the arguments `mutate.<name>` takes to
+  the mutation's call as a draft (`FuncDraftType`, which is e3-types'
+  `FunctionDraftType`), made by a new UI platform function, `record_draft`. A
+  program that binds a record holds the handle's type in its IR; one an
+  earlier SDK exported names a handle with no `draft`, and is bound one
+  without, as a handle has what its type names — it is re-exported for its
+  session's fields all the same. A UI task's output is not stored state, and a
+  draft is written nowhere, so no repository upgrade step ships with it.

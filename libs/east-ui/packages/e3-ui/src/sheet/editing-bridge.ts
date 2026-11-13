@@ -9,7 +9,8 @@ import {
     NullType, OptionType, StringType, StructType, isTypeEqual, none, some, toEastTypeValue, variant,
     type DictType, type EastType, type ExprType, type SubtypeExprOrValue, type VariantType,
 } from "@elaraai/east";
-import { buildInlineApply, type ResolvedRowSource } from "@elaraai/east-ui/internal";
+import { buildInlineApply, buildWireToDraft, type EditingWireToDraftType, type ResolvedRowSource } from "@elaraai/east-ui/internal";
+import { recordDraftForm } from "../bind/record.js";
 import { SheetRowType, SheetPatchTypeFor, SheetReadyBatchType } from "./types.js";
 import { buildPatchCells, type SheetBridge } from "./bridge.js";
 import { SheetApplyResultType, SheetChangeSetTypeFor, SheetNewRowType, SheetNewGroupType, SheetReadinessType, SheetDraftTypeFor } from "./transactions.js";
@@ -195,6 +196,25 @@ export function buildSheetEditing(source: ResolvedRowSource, bridge: SheetBridge
             onApply = East.value(variant("sync", wrap), SheetWireApplyType);
         }
     }
+    // The Save handed over as a draft (#1620). What `Record.onApply` answered carries its draft form, over the batch
+    // its Apply takes: a record's keyed Apply the session's batch as it comes, an author's the Sheet's own, restated
+    // as it is for the Apply. A Save of the host's own carries none, and the inline adapter is one.
+    let toDraft: ExprType<typeof EditingWireToDraftType> | undefined;
+    const keyedDraft = input.applyKeyed !== undefined ? recordDraftForm(input.applyKeyed) : undefined;
+    const authorDraft = input.onApply !== undefined && input.onUpdate === undefined ? recordDraftForm(input.onApply) : undefined;
+    if (keyedDraft !== undefined) {
+        toDraft = buildWireToDraft(wireBatchType, keyedDraft);
+    } else if (authorDraft !== undefined && toAuthorBatch === undefined) {
+        toDraft = buildWireToDraft(batchType, authorDraft);
+    } else if (authorDraft !== undefined && toAuthorBatch !== undefined) {
+        const answerType = (Expr.type(authorDraft as Expr<EastType>) as FunctionType).output as EastType;
+        const fn = authorDraft as ExprType<FunctionType<[typeof batchType], EastType>>;
+        toDraft = buildWireToDraft(wireBatchType, East.function([wireBatchType], answerType, ($, wire) => {
+            const draft = $.const(fn);
+            const restate = $.const(toAuthorBatch);
+            return draft(restate(wire));
+        }));
+    }
     const authorPatch = input.onPatch !== undefined ? callback(input.onPatch, eventType, NullType, "onPatch", false) : undefined;
     const onPatch = authorPatch !== undefined ? East.function([BlobType], NullType, ($, blob) => {
         const observe = $.const(authorPatch as ExprType<FunctionType<[EastType], NullType>>);
@@ -263,6 +283,7 @@ export function buildSheetEditing(source: ResolvedRowSource, bridge: SheetBridge
         keyType: keyType !== undefined ? some(toEastTypeValue(keyType)) : none,
         snapshot: source.kind === "inline" ? some(East.Blob.encodeBeast(source.rows, "v2")) : none,
         readEntry, decode, project, onApply: onApply !== undefined ? some(onApply) : none,
+        toDraft: toDraft !== undefined ? some(toDraft) : none,
         onPatch: onPatch !== undefined ? some(onPatch) : none,
     }, SheetEditingType);
 }

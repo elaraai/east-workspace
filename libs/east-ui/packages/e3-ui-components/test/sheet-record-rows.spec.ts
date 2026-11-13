@@ -11,19 +11,23 @@
  * its patch door. e3 applies the patch with its own checks — a before the
  * record no longer holds is a conflict — and another session's write is a real
  * commit before it. Both forms: the record's entries as the rows, and one
- * entry's rows.
+ * entry's rows. In each the sheet's Save has a draft form (#1620): the batch
+ * as a draft of the patch that Save sends, and nothing sent — the one a sheet
+ * of the host's own rows gives when handed `Record.onApply`, where a Save of
+ * the host's own gives none.
  */
 
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 
 import {
-    East, OptionType, PatchType, SortedMap, StringType,
-    compareFor, decodeBeast2For, diffFor, encodeBeast2For, none, some, variant,
+    ArrayType, BlobType, East, OptionType, PatchType, SortedMap, StringType, StructType,
+    compareFor, decodeBeast2For, diffFor, encodeBeast2For, equalFor, none, some, variant,
     type ValueTypeOf,
 } from "@elaraai/east";
 import { Editing } from "@elaraai/east-ui";
-import { RecordBindHandleType, Sheet, createSheetRootWith, recordRows } from "@elaraai/e3-ui/internal";
+import { EditingToDraftResultTypeFor } from "@elaraai/east-ui/internal";
+import { FuncDraftType, Record, RecordBindHandleType, Sheet, createSheetRootWith, recordRows } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/sheet/sheet";
 import { MutationCallRequestType } from "@elaraai/e3-types";
 import type { RecordRuntime } from "../src/platform/record-runtime.js";
@@ -53,6 +57,23 @@ function sentPatches<T extends typeof ex.sheetJobs.type | typeof ex.sheetWeekPla
     return h.requests("mutate", record.name).map((request) => ({
         request, patch: decode(decodeBeast2For(MutationCallRequestType)(request.body!).args[0]!),
     }));
+}
+
+type Drafted = ValueTypeOf<ReturnType<typeof EditingToDraftResultTypeFor<BlobType>>>;
+const draftedEqual = equalFor(EditingToDraftResultTypeFor(BlobType));
+
+/** The sheet's own wire draft form, as the renderer's session calls it with a batch's bytes. */
+function draftThrough(root: Root, batch: Uint8Array): Drafted {
+    if (root.editing.toDraft.type !== "some") assert.fail("the sheet's Save has no draft form");
+    return root.editing.toDraft.value(batch);
+}
+
+/** The patch a sheet's draft holds: a draft of the record's patch door, decoded by the record's patch type. */
+function draftedPatch<T extends typeof ex.sheetJobs.type | typeof ex.sheetWeekPlans.type>(record: { readonly name: string; readonly type: T }, answer: Drafted) {
+    if (answer.type !== "draft") assert.fail(`expected a draft, got ${answer.type}`);
+    const draft = decodeBeast2For(FuncDraftType)(answer.value);
+    assert.deepEqual([draft.record, draft.mutation, draft.args.length], [record.name, "patch", 1]);
+    return decodeBeast2For(PatchType(record.type))(draft.args[0]!);
 }
 
 describe("the record's entries are the rows", () => {
@@ -124,6 +145,19 @@ describe("the record's entries are the rows", () => {
         const state = await h.read(ex.sheetJobs);
         assert.deepEqual(state.get("J-0001")!.qty, some(60.0));
         assert.deepEqual([...state.keys()], ["J-0001", "J-0002", "J-0003", "J-0004"], "none of this write landed");
+    });
+
+    test("the sheet's Save has a draft form: the batch as a draft of the patch that Save sends, and nothing sent — the record stays as saved (#1620)", async () => {
+        const { held, runtime, handle } = await jobs();
+        const root = sheetOver(runtime)(handle);
+        const drafted = draftedPatch(ex.sheetJobs, draftThrough(root, edit(held)));
+        assert.deepEqual(h.requests("mutate"), []);
+        assert.deepEqual([...(await h.read(ex.sheetJobs)).keys()], ["J-0001", "J-0002", "J-0003", "J-0004"]);
+        assert.deepEqual((await h.history(ex.sheetJobs)).commits.map((c) => c.mutation), ["$init"], "no commit");
+
+        assert.equal((await applyThrough(root, edit(held))).type, "applied");
+        const [sent] = sentPatches(ex.sheetJobs);
+        assert.ok(equalFor(PatchType(JobsType))(drafted, sent!.patch), "one patch for one batch");
     });
 });
 
@@ -231,5 +265,45 @@ describe("one entry's rows", () => {
         assert.deepEqual(root.readOnly, some(true));
         assert.deepEqual(missingOf(runtime)(handle, "2026-W50"), some("2026-W50"));
         assert.deepEqual(missingOf(runtime)(handle, "2026-W42"), none);
+    });
+
+    /**
+     * Sheets over the host's own rows, one week's, compiled against the runtime: one handed the record's Save of
+     * them, `Record.onApply`, and one whose Save is the host's own.
+     */
+    function hostSheets(runtime: RecordRuntime): (handle: unknown, week: string) => { handed: Root; own: Root } {
+        const Sheets = StructType({ handed: Sheet.Types.Root, own: Sheet.Types.Root });
+        return East.compile(East.function([PlansHandle, StringType], Sheets, ($, record, week) => {
+            const rows = $.let(record.read().get(week).rows);
+            const newRow = $.const(East.function([Sheet.Types.NewRow], Sheet.Types.Patch(WeekRow), () => Sheet.patch(WeekRow, {
+                site: "", status: "PLANNED", code: "", level: variant("day", null), machines: { from: [], to: [] },
+            })));
+            const get = East.function([WeekPlan], ArrayType(WeekRow), (_$2, plan) => plan.rows);
+            const set = East.function([WeekPlan, ArrayType(WeekRow)], WeekPlan, (_$2, plan, next) => ({ starts: plan.starts, rows: next }));
+            const own = East.asyncFunction([Editing.Types.ChangeSet(WeekRow)], Editing.Types.ApplyResult,
+                (_$2, _batch) => East.value(variant("applied", { revision: none }), Editing.Types.ApplyResult));
+            return {
+                handed: createSheetRootWith(rows, COLUMNS, { id: "id", onApply: Record.onApply(record, { entry: week, get, set, idField: "id" }), newRow }, {}),
+                own: createSheetRootWith(rows, COLUMNS, { id: "id", onApply: own, newRow }, {}),
+            };
+        }), runtime.buildPrimitives()) as unknown as (handle: unknown, week: string) => { handed: Root; own: Root };
+    }
+
+    test("the sheet's Save has a draft form: the batch as a draft of the patch that Save sends, of that entry alone — and a sheet of the host's rows handed Record.onApply gives the same draft, where a Save of the host's own gives none (#1620)", async () => {
+        const { w42, runtime, handle } = await plans();
+        const given = sheetOver(runtime)(handle, "2026-W42");
+        const { handed, own } = hostSheets(runtime)(handle, "2026-W42");
+        const answer = draftThrough(given, edit(w42));
+        const drafted = draftedPatch(ex.sheetWeekPlans, answer);
+        if (drafted.type !== "patch") assert.fail(`expected a patch by key, got ${drafted.type}`);
+        assert.deepEqual([...drafted.value.keys()], ["2026-W42"], "one entry");
+        assert.ok(draftedEqual(draftThrough(handed, edit(w42)), answer), "handed the Save, the sheet gives the draft it gives when given the record");
+        assert.equal(own.editing.toDraft.type, "none");
+        assert.deepEqual(h.requests("mutate"), []);
+        assert.deepEqual((await h.read(ex.sheetWeekPlans)).get("2026-W42"), w42, "the record stays as saved");
+
+        assert.equal((await applyThrough(given, edit(w42))).type, "applied");
+        const [sent] = sentPatches(ex.sheetWeekPlans);
+        assert.ok(equalFor(PatchType(PlansType))(drafted, sent!.patch), "one patch for one batch");
     });
 });

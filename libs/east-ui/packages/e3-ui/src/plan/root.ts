@@ -60,13 +60,16 @@ import {
     buildCarriedRowSource,
     buildKeyedInlineApply,
     buildPagedWindow,
+    buildWireToDraft,
     checkedEditingCallback,
     pickActive,
     resolveRowSource,
     resolveTag,
+    type EditingWireToDraftType,
     type RecordSlicesChromeType,
     type ResolvedRowSource,
 } from "@elaraai/east-ui/internal";
+import { recordDraftForm } from "../bind/record.js";
 import {
     PlanAxisType,
     PlanGrainType,
@@ -117,7 +120,10 @@ import { applySeries, checkSeries, seriesWriteFn, PlanCarriedType, PlanSeriesTyp
  * - `onApply(Editing.Types.ChangeSet(R, K)) → Editing.Types.ApplyResult`
  *   commits a batch — sync or async. Its base is the inline `Dict`'s snapshot,
  *   or a paged source's revision; a batch against a source that moved is
- *   refused, never rebased.
+ *   refused, never rebased. Handed a record's own Save as it is
+ *   (`Record.onApply(record, { keyed: true })`), the session can hand the same
+ *   batch over as the draft of that commit (`Record.toDraft`): the value
+ *   carries its draft form, and a Save of the host's own has none.
  * - `onUpdate(Dict<K, R>)` is the inline adapter instead: with
  *   `data={liveHandle}` it applies each batch with `Editing.apply` over the
  *   handle's latest `Dict` and writes the whole result — idempotent across
@@ -847,6 +853,9 @@ function buildPlanEditing(resolved: ResolvedRowSource, series: PlanSeriesInput, 
             : authorApply !== undefined ? East.print(East.Blob.encodeBeast(authorApply, "v2"))
                 : East.value("readonly-inline", StringType);
     let onApply: ExprType<typeof EditingWireApplyType> | undefined;
+    // The Save handed over as a draft (#1620): the inline adapter writes no record, and a Save of the host's own
+    // carries no draft form.
+    let toDraft: ExprType<typeof EditingWireToDraftType> | undefined;
     if (input.onUpdate !== undefined && reader !== undefined) {
         const writer = checkedEditingCallback("Plan", input.onUpdate, [sourceType], NullType, "onUpdate", false,
             "over the whole Dict<K, R> the batch leaves, returning Null");
@@ -877,6 +886,20 @@ function buildPlanEditing(resolved: ResolvedRowSource, series: PlanSeriesInput, 
                 return apply(restate(batch));
             })), EditingWireApplyType);
         }
+        // What `Record.onApply` answered carries its draft form, over the batch the Save takes — restated by key where
+        // the Save's is, so the draft's patch is the patch that Save commits.
+        const draftForm = recordDraftForm(input.onApply);
+        if (draftForm !== undefined && restatement === undefined) {
+            toDraft = buildWireToDraft(batchType, draftForm);
+        } else if (draftForm !== undefined && restatement !== undefined) {
+            const answerType = (Expr.type(draftForm as unknown as Expr) as FunctionType).output as EastType;
+            const fn = draftForm as unknown as ExprType<FunctionType<[typeof typedBatch], EastType>>;
+            toDraft = buildWireToDraft(batchType, East.function([typedBatch], answerType, ($, batch) => {
+                const draft = $.const(fn);
+                const restate = $.const(restatement);
+                return draft(restate(batch));
+            }));
+        }
     }
     const authorPatch = input.onPatch === undefined ? undefined : checkedEditingCallback("Plan", input.onPatch, [eventType], NullType,
         "onPatch", false, "over Plan.Types.PatchEvent(R), returning Null");
@@ -896,6 +919,7 @@ function buildPlanEditing(resolved: ResolvedRowSource, series: PlanSeriesInput, 
         readEntry,
         onPatch: onPatch !== undefined ? some(onPatch) : none,
         onApply: onApply !== undefined ? some(onApply) : none,
+        toDraft: toDraft !== undefined ? some(toDraft) : none,
         derive,
         deriveWindow,
         deriveEntry,

@@ -6,7 +6,7 @@
 /**
  * `Record` — the tag and the namespace at once, as `Sheet` is: `<Record>`,
  * the table for a system of records, with the record binding beside it
- * (`Record.bind`, `Record.onApply`) and the vocabulary its tables are
+ * (`Record.bind`, `Record.onApply`, `Record.toDraft`) and the vocabulary its tables are
  * written with: the columns (`Record.column.*`), the registers
  * (`Record.register.*`), the inspector's hints (`Record.field.*`), a new
  * row's values (`Record.patch`) and the types (`Record.Types.*`).
@@ -52,6 +52,8 @@ export interface RecordNamespace extends RecordTagType {
     bind: typeof RecordBinding.bind;
     /** Commits an editable collection's batches to the record, each Apply one commit through its patch door. */
     onApply: typeof RecordBinding.onApply;
+    /** Answers an editable collection's batch as a draft of the commit `Record.onApply` would make, for a bound function's call; nothing is committed. */
+    toDraft: typeof RecordBinding.toDraft;
     /** The column builders — each takes the row type first. */
     column: {
         /** Free text, edited in place. */
@@ -130,6 +132,7 @@ export interface RecordNamespace extends RecordTagType {
 const RECORD_MEMBERS = {
     bind: RecordBinding.bind,
     onApply: RecordBinding.onApply,
+    toDraft: RecordBinding.toDraft,
     column: {
         text, stamped, integer, quantity, date, enum: enumColumn, reference, set, action,
         boolean: booleanColumn, title, person, toggle, cycle, age, audit,

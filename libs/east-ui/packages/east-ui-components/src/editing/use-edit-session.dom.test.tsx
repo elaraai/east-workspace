@@ -43,7 +43,7 @@ const editingOf = (keyed: boolean): EditingValue => ({
     snapshot: some(keyed
         ? encodeBeast2For(RunsByKey)(new Map(RUNS.map((run) => [run.id, run])))
         : encodeBeast2For(ArrayType(Run))(RUNS)),
-    readEntry, onPatch: none, onApply: some(variant("sync", () => variant("applied", { revision: none }))),
+    readEntry, onPatch: none, onApply: some(variant("sync", () => variant("applied", { revision: none }))), toDraft: none,
 });
 
 test("an entry's place among the collection's rows, and its original version, are read by the collection's own ids", () => {

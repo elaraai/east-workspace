@@ -852,6 +852,8 @@ function buildSnapGridEditing(
         readEntry,
         onPatch: onPatch !== undefined ? some(onPatch) : none,
         onApply: onApply !== undefined ? some(onApply) : none,
+        // A page's tiles are handed to nothing as a draft: no function is called over them.
+        toDraft: none,
         fields: {
             key: keyField, row: edit.row, span: edit.span,
             height: edit.height !== undefined ? some(edit.height) : none,
