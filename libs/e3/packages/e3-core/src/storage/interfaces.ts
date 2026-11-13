@@ -1233,6 +1233,32 @@ export interface FunctionCallListPage {
 }
 
 /**
+ * A call as a store holds it, in whatever form the release that filed it
+ * wrote: what a repository upgrade step reads, and writes back in another
+ * form.
+ */
+export interface StoredFunctionCall {
+  /** The workspace the call was made through */
+  readonly workspace: string;
+  /** The call's id */
+  readonly id: string;
+  /**
+   * Reads the call's bytes, as stored.
+   *
+   * @returns The bytes, or null when the store holds the call no longer
+   */
+  read(): Promise<Uint8Array | null>;
+  /**
+   * Stores these bytes in the call's place, whatever its state and however
+   * long it has left: an upgrade step's write, which changes the call's form
+   * and not the call, so a call that has ended takes it too.
+   *
+   * @param bytes - The call's bytes, in another form
+   */
+  replace(bytes: Uint8Array): Promise<void>;
+}
+
+/**
  * The calls a repository keeps (east-workspace#1554): each call of a named
  * function through a workspace, from its start to the end of the lifetime its
  * end gives it.
@@ -1321,6 +1347,25 @@ export interface FunctionCallStore {
    * @throws {RangeError} When `limit` is not a whole number greater than zero
    */
   list(repo: string, workspace: string, options: FunctionCallListOptions): Promise<FunctionCallListPage>;
+
+  /**
+   * Every call the store holds of a repository, as it holds them: each one's
+   * workspace and id, a read of its bytes in whatever form the release that
+   * filed it wrote, and a way to replace them.
+   *
+   * @remarks
+   * A repository upgrade step reads the store through this, since a call an
+   * earlier release filed does not decode as this release's, and writes each
+   * one it carries forward back through its `replace`. A call past its
+   * lifetime is among them while the store still holds it: one in an earlier
+   * form does not say when it expires. The repository is held still while a
+   * step runs, and no run of this release reads or ends a call in an earlier
+   * form, so a step's write of one races no other.
+   *
+   * @param repo - Repository identifier
+   * @returns The stored calls, in no order
+   */
+  readStored(repo: string): Promise<StoredFunctionCall[]>;
 }
 
 // =============================================================================

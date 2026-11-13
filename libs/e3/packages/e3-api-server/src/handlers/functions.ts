@@ -125,10 +125,15 @@ async function callArguments(
 }
 
 /**
- * Execute a resolved named function: arity check → the caller's runner, when
- * it names one → its arguments, a dataset pinned in the workspace → read
- * bodyIr → runDetached. Never throws for execution outcomes — only for
- * storage/infra errors, and a runner the caller's grant does not allow.
+ * Execute a resolved named function: arity check → no draft → the caller's
+ * runner, when it names one → its arguments, a dataset pinned in the
+ * workspace → read bodyIr → runDetached. Never throws for execution outcomes —
+ * only for storage/infra errors, and a runner the caller's grant does not
+ * allow.
+ *
+ * A draft is refused `invalid`: the state a draft is laid into is held by the
+ * call the workspace keeps, for as long as it keeps it, and a call run within
+ * its request keeps nothing.
  */
 async function executeFunction(
   storage: StorageBackend,
@@ -150,6 +155,12 @@ async function executeFunction(
   if (req.args.length !== fnObj.argTypes.length) {
     return invalidExecuteResult(
       `Expected ${fnObj.argTypes.length} argument(s), got ${req.args.length}`
+    );
+  }
+  if (req.drafts.length > 0) {
+    return invalidExecuteResult(
+      `The call passes ${req.drafts.length} draft(s), and ${workspace === null ? 'a call through the package reads no workspace to lay one over' : 'a call run within its request lays none'}: `
+      + `start it as a call a workspace keeps, at …/workspaces/${workspace ?? '<ws>'}/functions/${fnName}`
     );
   }
   if (req.runner.type === 'some') {
@@ -231,7 +242,8 @@ export async function describePackageFunction(
  * `timed_out` instead of a transport cut. It runs within the request, on
  * `runner`, and keeps nothing: the package route's. A call through a
  * workspace's routes is kept, and runs where the host runs calls
- * (`callFunctionInWorkspace`).
+ * (`callFunctionInWorkspace`). A call that passes a draft is `invalid`, and
+ * nothing runs: only a call a workspace keeps lays one.
  *
  * @remarks
  * A call that names no runner runs the function on its own, whatever the

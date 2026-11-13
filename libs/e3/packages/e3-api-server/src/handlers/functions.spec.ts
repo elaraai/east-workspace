@@ -101,7 +101,7 @@ async function seedPackage(storage: InMemoryStorage): Promise<void> {
 
 /** A call of value arguments, each one's bytes. */
 function callRequest(args: Uint8Array[], runner?: FunctionCallRequest['runner']): FunctionCallRequest {
-  return { args: args.map((arg) => variant('value', arg)), runner: runner ?? none, limits: none };
+  return { args: args.map((arg) => variant('value', arg)), runner: runner ?? none, limits: none, drafts: [] };
 }
 
 describe('function handlers', () => {
@@ -270,7 +270,7 @@ describe('function handlers', () => {
   it('answers a dataset argument through the package, which has no workspace to read it from, invalid without executing', async () => {
     const response = await callFunctionSync(
       storage, REPO, runner, PKG, VERSION, 'double',
-      { args: [variant('dataset', [variant('field', 'inputs'), variant('field', 'n')])], runner: none, limits: none }
+      { args: [variant('dataset', [variant('field', 'inputs'), variant('field', 'n')])], runner: none, limits: none, drafts: [] }
     );
     const result = await decodeResponse(response, ExecuteResultType);
     assert.ok(result.type === 'success');
@@ -282,6 +282,24 @@ describe('function handlers', () => {
       + 'call the function through a workspace it is deployed to, at …/workspaces/<ws>/functions/double',
     );
     assert.deepEqual(result.value.inputs, []);
+    assert.equal(runner.getDetachedCalls().length, 0, 'nothing should have executed');
+  });
+
+  it('answers a draft through the package, which reads no workspace to lay it over, invalid without executing', async () => {
+    const response = await callFunctionSync(
+      storage, REPO, runner, PKG, VERSION, 'double',
+      { ...callRequest([encodeInt(5n)]), drafts: [{ record: 'jobs', mutation: 'patch', args: [] }] }
+    );
+    const result = await decodeResponse(response, ExecuteResultType);
+    assert.ok(result.type === 'success');
+    const { outcome } = result.value;
+    assert.ok(outcome.type === 'invalid');
+    assert.equal(
+      outcome.value.diagnostics[0]!.message,
+      'The call passes 1 draft(s), and a call through the package reads no workspace to lay one over: '
+      + 'start it as a call a workspace keeps, at …/workspaces/<ws>/functions/double',
+    );
+    assert.equal(result.value.drafts.length, 0);
     assert.equal(runner.getDetachedCalls().length, 0, 'nothing should have executed');
   });
 

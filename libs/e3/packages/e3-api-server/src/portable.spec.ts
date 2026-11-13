@@ -367,6 +367,7 @@ describe('an app mounted from the portable entry alone', () => {
       stdoutTruncated: false,
       stderrTruncated: false,
       inputs: [{ path: rowsPath, hash: rowsHash }],
+      drafts: [],
     });
     const refused = variant('error', variant('permission_denied', { path: 'one-shot' }));
     const answers = (answer: ValueTypeOf<typeof ResultType>, expected: ValueTypeOf<typeof ResultType>, what: string): void =>

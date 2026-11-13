@@ -14,17 +14,19 @@
  * shown, the call as the API answers it ({@link FunctionCallType}). Beside it,
  * it keeps what the call's run needs and no reader is shown: the function
  * object it runs, the runner it runs on, whether it runs verbose, its
- * deadline, and a request to cancel it.
+ * deadline, a request to cancel it, and what its run lays its drafts from.
  *
  * It is stored state (`WIRE_MIGRATION.md`): a change to its type ships a
  * repository upgrade step.
  */
 
 import {
-  BooleanType, DateTimeType, IntegerType, OptionType, StringType, StructType, decodeBeast2For, encodeBeast2For, type ValueTypeOf,
+  ArrayType, BooleanType, DateTimeType, DictType, IntegerType, OptionType, StringType, StructType, decodeBeast2For, encodeBeast2For,
+  type ValueTypeOf,
 } from '@elaraai/east';
 import { FunctionCallType } from './api.js';
 import { RunnerType } from './runner.js';
+import { TreePathType } from './structure.js';
 
 /**
  * A request to cancel a running call: who asked, and when.
@@ -49,7 +51,7 @@ export type FunctionCallCancel = ValueTypeOf<typeof FunctionCallCancelType>;
  *
  * @property succeeded - A call that succeeded, or was cancelled
  * @property failed - A call that failed, was refused (`invalid`), returned too
- *   large a value, timed out, or was lost
+ *   large a value, timed out, met a `conflict` laying a draft, or was lost
  */
 export const FunctionCallKeepType = StructType({
   succeeded: IntegerType,
@@ -59,6 +61,31 @@ export type FunctionCallKeepType = typeof FunctionCallKeepType;
 
 /** How long a call is kept once it ends. */
 export type FunctionCallKeep = ValueTypeOf<typeof FunctionCallKeepType>;
+
+/**
+ * A record a kept call drafts, as its run lays the drafts: everything the
+ * laying reads, named as the call started, so the run reads the workspace no
+ * more and lays the same state however often it is run.
+ *
+ * @property record - The record's name, as the call's drafts name it
+ * @property path - Where the workspace holds the record: the call's inputs at
+ *   this path are read at the drafted state
+ * @property base - The state the record held as the call started, which the
+ *   call's drafts of it are laid over, in order
+ * @property mutations - The object of each mutation the call's drafts of the
+ *   record name, by the mutation's name: the one the deployed package named
+ *   when the call started, whatever is deployed since
+ */
+export const FunctionCallDraftedType = StructType({
+  record:    StringType,
+  path:      TreePathType,
+  base:      StringType,
+  mutations: DictType(StringType, StringType),
+});
+export type FunctionCallDraftedType = typeof FunctionCallDraftedType;
+
+/** A record a kept call drafts, as its run lays the drafts. */
+export type FunctionCallDrafted = ValueTypeOf<typeof FunctionCallDraftedType>;
 
 /**
  * A kept call, as its store keeps it.
@@ -76,6 +103,9 @@ export type FunctionCallKeep = ValueTypeOf<typeof FunctionCallKeepType>;
  *   once its deadline and a grace have passed is lost
  * @property cancel - A request to cancel it, once one is made
  * @property keep - How long it is kept once it ends, by how it ended
+ * @property drafted - The records it drafts, each once, in the order its
+ *   drafts first name them, with what its run lays them from; none for a call
+ *   that passed no draft
  */
 export const FunctionCallJobType = StructType({
   call:           FunctionCallType,
@@ -86,6 +116,7 @@ export const FunctionCallJobType = StructType({
   deadline:       DateTimeType,
   cancel:         OptionType(FunctionCallCancelType),
   keep:           FunctionCallKeepType,
+  drafted:        ArrayType(FunctionCallDraftedType),
 });
 export type FunctionCallJobType = typeof FunctionCallJobType;
 
@@ -124,14 +155,25 @@ export function decodeFunctionCallJob(bytes: Uint8Array): FunctionCallJob {
  * its own, which no package names, so the call alone keeps it, and its
  * program, for as long as it runs and is kept.
  *
+ * A call that drafts a record names more: each draft's arguments; the state
+ * each drafted record held as the call started and the mutations its drafts
+ * run, which its run lays the drafts from; and, among its inputs once the
+ * drafts are laid, the drafted state, which nothing else names. So the drafted
+ * state lives as long as the call is kept, and is collected after it.
+ *
  * @param job - The call
  * @returns The hashes it names: its function object's, then its arguments' in
- *   order, then its inputs', then its value's
+ *   order, then its inputs', then its drafts' arguments', then each drafted
+ *   record's state and mutations, then its value's
  */
 export function functionCallRoots(job: FunctionCallJob): string[] {
   const { call } = job;
   const roots = [job.functionObject, ...call.args.map((arg) => (arg.type === 'value' ? arg.value : arg.value.hash))];
   for (const input of call.inputs) roots.push(input.hash);
+  for (const draft of call.drafts) {
+    if (draft.args.type === 'some') roots.push(draft.args.value);
+  }
+  for (const record of job.drafted) roots.push(record.base, ...record.mutations.values());
   if (call.state.type === 'succeeded') roots.push(call.state.value.value);
   return roots;
 }

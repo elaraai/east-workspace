@@ -62,7 +62,7 @@ function server(ends = Infinity): { polls: () => number; cancels: string[]; fetc
       return success(SplitCallStatusType, variant('completed', {
         result: {
           outcome: variant('success', { value: new Uint8Array(0) }),
-          stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false, inputs: [],
+          stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false, inputs: [], drafts: [],
         },
         output: some('output'),
         report: some({ pieces: 1n, ran: 1n, cached: 0n, peakBytes: none }),

@@ -176,7 +176,7 @@ describe('a server\'s call limits (#1103)', () => {
 
     it('answers a function call of 1.5 MiB inline too, through the package as through the workspace', async () => {
       const bytes = noise(1.5 * MiB);
-      const call = encodeBeast2For(FunctionCallRequestType)({ args: [variant('value', encodeBeast2For(BlobType)(bytes))], runner: none, limits: none });
+      const call = encodeBeast2For(FunctionCallRequestType)({ args: [variant('value', encodeBeast2For(BlobType)(bytes))], runner: none, limits: none, drafts: [] });
       for (const path of ['/workspaces/main/functions/echo', '/packages/limits/1.0.0/functions/echo']) {
         const result = success(ExecuteResultType, await server.send(path, call));
         if (result.outcome.type !== 'success') assert.fail(`${path}: expected success, got ${result.outcome.type}: ${result.stderr}`);
@@ -221,7 +221,7 @@ describe('a server\'s call limits (#1103)', () => {
     });
 
     it('ends a slower function call timed_out at the deadline, through the workspace and through the package', { timeout: 60_000 }, async () => {
-      const call = encodeBeast2For(FunctionCallRequestType)({ args: [], runner: none, limits: none });
+      const call = encodeBeast2For(FunctionCallRequestType)({ args: [], runner: none, limits: none, drafts: [] });
       for (const path of ['/workspaces/main/functions/spin', '/packages/limits/1.0.0/functions/spin']) {
         const result = success(ExecuteResultType, await server.send(path, call));
         if (result.outcome.type !== 'timed_out') assert.fail(`${path}: expected timed_out, got ${result.outcome.type}: ${result.stderr}`);

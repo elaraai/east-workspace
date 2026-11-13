@@ -24,6 +24,7 @@ import {
   FUNCTION_CALL_GRACE_MS,
   PermissionDeniedError,
   WorkspaceNotFoundError,
+  functionCallDrafted,
   functionCallInputs,
   functionCallLost,
   functionCallRead,
@@ -291,6 +292,7 @@ export async function callFunctionInWorkspace(
           stdoutTruncated: false,
           stderrTruncated: false,
           inputs: functionCallInputs(job),
+          drafts: functionCallDrafted(job),
         });
       case 'cancelled': {
         const by = status.value.by.type === 'some' ? ` by ${status.value.by.value}` : '';

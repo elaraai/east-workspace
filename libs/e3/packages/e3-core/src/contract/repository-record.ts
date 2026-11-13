@@ -14,12 +14,13 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  ArrayType, IntegerType, OptionType, encodeBeast2For, equalFor, none, printFor, some, variant, type ValueTypeOf,
+  ArrayType, IntegerType, OptionType, SortedMap, encodeBeast2For, equalFor, none, printFor, some, variant, type ValueTypeOf,
 } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import {
-  DataflowExecutionStateType, E3_RELEASE, ExecutionEventType, ExecutionStatusType, RepositoryUpgradeProgressType, WorkspaceRecordType,
-  dataflowForce, decodeExecutionStatus, type DataflowExecutionState, type DataflowForce, type ExecutionEvent, type ExecutionStatus,
+  DataflowExecutionStateType, E3_RELEASE, ExecutionEventType, ExecutionStatusType, FunctionCallJobType, RepositoryUpgradeProgressType,
+  WorkspaceRecordType, dataflowForce, decodeExecutionStatus, decodeFunctionCallJob,
+  type DataflowExecutionState, type DataflowForce, type ExecutionEvent, type ExecutionStatus, type FunctionCallJob,
   type RepositoryUpgradeProgress, type StopReason,
 } from '@elaraai/e3-types';
 import type { EventSegment } from '../dataflow/state-store/events.js';
@@ -32,6 +33,7 @@ import { withRunningWork } from '../running-work.js';
 import { DATAFLOW_EVENTS_APART, dataflowEventsApart } from '../upgrades/dataflow-events-apart.js';
 import { DATAFLOW_FORCE_TASKS, DataflowStateBeforeForceTasksType, dataflowForceTasks } from '../upgrades/dataflow-force-tasks.js';
 import { EXECUTION_STOP_REASONS, ExecutionStatusBeforeReasonsType, executionStopReasons } from '../upgrades/execution-stop-reasons.js';
+import { FUNCTION_CALL_DRAFTS, FunctionCallJobBeforeDraftsType, functionCallDrafts } from '../upgrades/function-call-drafts.js';
 import { RUNNING_EXECUTIONS_INDEXED } from '../upgrades/running-executions-indexed.js';
 import { STATUS_REVISION_TOKENS, statusRevisionTokens } from '../upgrades/status-revision-tokens.js';
 import { TASK_RUNS_INDEXED } from '../upgrades/task-runs-indexed.js';
@@ -111,6 +113,104 @@ async function assertProgress(
   const print = (progress: RepositoryUpgradeProgress | null) => printProgress(progress === null ? none : some(progress));
   const same = expected === null ? read === null : read !== null && sameProgress(read, expected);
   assert.ok(same, `${message}: ${print(read)}, where ${print(expected)} was expected`);
+}
+
+const HOUR_MS = 60 * 60 * 1000;
+
+/** A kept call in the form the releases before `function-call-drafts` stored. */
+type CallBeforeDrafts = ValueTypeOf<typeof FunctionCallJobBeforeDraftsType>;
+
+/**
+ * A call as a release before `function-call-drafts` kept it: of `quote`, with
+ * an argument and an input it read.
+ *
+ * @param workspace - The workspace it was called through
+ * @param state - The state it stands in, or ended in
+ * @param expiresAt - When its lifetime ends: in an hour unless given
+ */
+function callBeforeDrafts(
+  workspace: string,
+  state: CallBeforeDrafts['call']['state'],
+  expiresAt: Date = new Date(Date.now() + HOUR_MS),
+): CallBeforeDrafts {
+  const now = Date.now();
+  return {
+    call: {
+      id: uuidv7(),
+      function: some('quote'),
+      caller: some('ada@example.com'),
+      startedAt: new Date(now),
+      endedAt: state.type === 'running' ? none : some(new Date(now)),
+      state,
+      package: some({ name: 'pricing', version: '1.0.0' }),
+      args: [variant('value', 'a'.repeat(64))],
+      inputs: [{ path: [variant('field', 'inputs'), variant('field', 'sales')], hash: 'b'.repeat(64) }],
+      limits: { timeoutMs: 60_000n, maxResultBytes: 1024n, maxLogBytes: 1024n },
+      expiresAt,
+      stdout: '',
+      stderr: '',
+      stdoutTruncated: false,
+      stderrTruncated: false,
+    },
+    workspace,
+    functionObject: 'f'.repeat(64),
+    runner: variant('east_node', { platforms: [], decode: variant('lazy', null) }),
+    verbose: false,
+    deadline: new Date(now + 60_000),
+    cancel: none,
+    keep: { succeeded: BigInt(HOUR_MS), failed: BigInt(7 * 24 * HOUR_MS) },
+  };
+}
+
+/** A call a release before `function-call-drafts` kept, as the step carries
+ *  it: it passed no draft, and holds none. */
+function withNoDrafts(job: CallBeforeDrafts): FunctionCallJob {
+  return { ...job, call: { ...job.call, drafts: [] }, drafted: [] };
+}
+
+/** A kept call's key among a repository's: a unit of `function-call-drafts`. */
+const callKey = (job: { workspace: string; call: { id: string } }): string => `${job.workspace}/${job.call.id}`;
+
+/**
+ * Leaves a kept call in a backend's call store in the bytes given, as an
+ * earlier release, or a crash, left it: filed as this release files one, then
+ * written over through the stored call's own `replace`.
+ */
+async function leaveCallAs(storage: StorageBackend, repo: string, job: FunctionCallJob, bytes: Uint8Array): Promise<void> {
+  await storage.calls.create(repo, job);
+  const stored = (await storage.calls.readStored(repo)).find((each) => each.workspace === job.workspace && each.id === job.call.id);
+  assert.ok(stored !== undefined, `the store holds the call ${callKey(job)}`);
+  await stored.replace(bytes);
+}
+
+/** The bytes a backend's call store holds for a kept call. */
+async function storedCallBytes(storage: StorageBackend, repo: string, job: { workspace: string; call: { id: string } }): Promise<Uint8Array> {
+  const stored = (await storage.calls.readStored(repo)).find((each) => each.workspace === job.workspace && each.id === job.call.id);
+  const bytes = await stored?.read();
+  assert.ok(bytes !== undefined && bytes !== null, `the store holds the call ${callKey(job)}`);
+  return new Uint8Array(bytes);
+}
+
+/**
+ * Records each stored call a step writes over, by its key, from now until
+ * `stop`: every call the backend's store gives a step is watched.
+ */
+function watchCallReplaces(storage: StorageBackend): { replaced: string[]; stop: () => void } {
+  const replaced: string[] = [];
+  const readStored = storage.calls.readStored.bind(storage.calls);
+  storage.calls.readStored = async (repo) => (await readStored(repo)).map((each) => ({
+    ...each,
+    replace: (bytes: Uint8Array) => {
+      replaced.push(`${each.workspace}/${each.id}`);
+      return each.replace(bytes);
+    },
+  }));
+  return {
+    replaced,
+    stop: () => {
+      storage.calls.readStored = readStored;
+    },
+  };
 }
 
 /**
@@ -968,6 +1068,104 @@ export function repositoryRecordTests(setup: BackendSetup): void {
         assert.deepEqual(await records(), held);
       } finally {
         storage.refs.workspaceWrite = write;
+      }
+    });
+
+    it('carries every function call an earlier release kept into the form in which a call holds its drafts, whatever its state and though its lifetime has ended, and leaves the rest as they are', async (t) => {
+      const { storage, repo } = await setup(t);
+      const record = await repositoryOpen(storage, repo);
+      // A repository an earlier release wrote, which has not had the upgrade.
+      const before = { release: '1.0.107', upgrades: record.upgrades.filter(({ name }) => name !== FUNCTION_CALL_DRAFTS) };
+      await storage.refs.repositoryWrite(repo, before);
+
+      // Calls as an earlier release kept them: one running, one that
+      // succeeded, and one whose lifetime has ended; one in the current form,
+      // which drafts a record; and one in neither form, which a crash left.
+      const running = callBeforeDrafts('earlier', variant('running', null));
+      const succeeded = callBeforeDrafts('earlier', variant('succeeded', { value: 'c'.repeat(64) }));
+      const expired = callBeforeDrafts('expired', variant('failed', { exitCode: 2n }), new Date(Date.now() - 1));
+      const encodeEarlier = encodeBeast2For(FunctionCallJobBeforeDraftsType);
+      for (const call of [running, succeeded, expired]) await leaveCallAs(storage, repo, withNoDrafts(call), encodeEarlier(call));
+      const undrafted = withNoDrafts(callBeforeDrafts('current', variant('running', null)));
+      const current: FunctionCallJob = {
+        ...undrafted,
+        call: { ...undrafted.call, drafts: [{ record: 'jobs', mutation: 'patch', args: some('d'.repeat(64)), commit: 'e'.repeat(64) }] },
+        drafted: [{
+          record: 'jobs', path: [variant('field', 'records'), variant('field', 'jobs')], base: '1'.repeat(64),
+          mutations: new SortedMap([['patch', '2'.repeat(64)]]),
+        }],
+      };
+      await storage.calls.create(repo, current);
+      const currentBytes = await storedCallBytes(storage, repo, current);
+      const crashed = withNoDrafts(callBeforeDrafts('crashed', variant('running', null)));
+      await leaveCallAs(storage, repo, crashed, new TextEncoder().encode('not a call'));
+      await assert.rejects(storage.calls.get(repo, running.workspace, running.call.id), 'before the upgrade, a call in the earlier form does not read');
+
+      // What the opens write, by call: each stored call's replace.
+      const { replaced, stop } = watchCallReplaces(storage);
+      try {
+        const opened = await repositoryOpen(storage, repo);
+        assert.deepEqual(opened.upgrades, [...before.upgrades, { name: FUNCTION_CALL_DRAFTS, release: E3_RELEASE }]);
+        assert.deepEqual([...replaced].sort(), [running, succeeded, expired].map(callKey).sort(),
+          'every call in the earlier form is rewritten, whatever its state and though its lifetime has ended, and no other');
+
+        const equal = equalFor(FunctionCallJobType);
+        const print = printFor(FunctionCallJobType);
+        for (const call of [running, succeeded, expired]) {
+          const kept = decodeFunctionCallJob(await storedCallBytes(storage, repo, call));
+          assert.ok(equal(kept, withNoDrafts(call)), `the ${call.call.state.type} call is stored in the current form, as it was and holding no draft: ${print(kept)}`);
+        }
+        for (const call of [running, succeeded]) {
+          const read = await storage.calls.get(repo, call.workspace, call.call.id);
+          assert.ok(read !== null && equal(read, withNoDrafts(call)), `the ${call.call.state.type} call reads as it was: ${read === null ? 'none' : print(read)}`);
+        }
+        assert.equal(await storage.calls.get(repo, expired.workspace, expired.call.id), null,
+          'a call whose lifetime has ended is forgotten at its next read, as it would have been');
+        assert.deepEqual(await storedCallBytes(storage, repo, current), currentBytes, 'a call in the current form is left as it is');
+        assert.deepEqual(await storedCallBytes(storage, repo, crashed), new TextEncoder().encode('not a call'), 'a call in neither form is left as it is');
+
+        // Cut short by a crash, the upgrade runs again whole, and rewrites
+        // nothing it carried.
+        replaced.length = 0;
+        await storage.refs.repositoryWrite(repo, before);
+        await repositoryOpen(storage, repo);
+        assert.deepEqual(replaced, []);
+      } finally {
+        stop();
+      }
+    });
+
+    it('carries the kept calls in parts, sixteen at once in the order of their workspaces and ids, each part taking up where the last stopped', async (t) => {
+      const { storage, repo } = await setup(t);
+      // Seventeen calls an earlier release kept, over two workspaces: a batch
+      // of sixteen, and one more.
+      const calls = Array.from({ length: 17 }, (_, i) => callBeforeDrafts(i < 9 ? 'parts-b' : 'parts-a', variant('running', null)));
+      const encodeEarlier = encodeBeast2For(FunctionCallJobBeforeDraftsType);
+      for (const call of calls) await leaveCallAs(storage, repo, withNoDrafts(call), encodeEarlier(call));
+      const keys = calls.map(callKey).sort();
+
+      const { replaced, stop } = watchCallReplaces(storage);
+      try {
+        // A part with no time to spare carries a batch, the first sixteen by
+        // their keys, and stops at the last of them.
+        const stopped = await functionCallDrafts.apply(storage, repo, null, 0);
+        assert.equal(stopped, keys[15]);
+        assert.deepEqual([...replaced].sort(), keys.slice(0, 16));
+
+        replaced.length = 0;
+        assert.equal(await functionCallDrafts.apply(storage, repo, stopped, 0), null, 'the part that carries the last unit is the step\'s last');
+        assert.deepEqual(replaced, [keys[16]]);
+        for (const call of calls) {
+          assert.notEqual(await storage.calls.get(repo, call.workspace, call.call.id), null, 'every call reads, in the current form');
+        }
+
+        // From the start, with time to spare, a part goes through every unit,
+        // and rewrites none it carried.
+        replaced.length = 0;
+        assert.equal(await functionCallDrafts.apply(storage, repo, null, Date.now() + 60_000), null);
+        assert.deepEqual(replaced, []);
+      } finally {
+        stop();
       }
     });
   });
