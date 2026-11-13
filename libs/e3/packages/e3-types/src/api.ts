@@ -1308,6 +1308,8 @@ export const FunctionCallRequestType = StructType({
  * @property inputs - The datasets a call reads from the workspace it runs in,
  *   which the caller does not pass; a function with any is called through a
  *   workspace
+ * @property drafts - The records a call may pass drafts of, by name: each a
+ *   record one of `inputs` reads; empty for a function that takes none
  * @property argTypes - The types of the arguments a caller passes
  * @property outputType - The result's type
  * @property runner - The runtime it runs on
@@ -1315,6 +1317,7 @@ export const FunctionCallRequestType = StructType({
 export const FunctionSignatureType = StructType({
   name:       StringType,
   inputs:     ArrayType(TreePathType),
+  drafts:     ArrayType(StringType),
   argTypes:   ArrayType(EastTypeType),
   outputType: EastTypeType,
   runner:     RunnerType,

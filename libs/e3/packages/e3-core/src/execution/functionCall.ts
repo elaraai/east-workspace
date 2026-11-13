@@ -410,6 +410,7 @@ export async function oneShotCallStart(
     const fnObj: FunctionObject = {
       bodyIr: program,
       inputs: [],
+      drafts: [],
       argTypes: signature.argTypes,
       outputType: signature.outputType,
       runner: request.runner,

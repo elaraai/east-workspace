@@ -226,9 +226,11 @@ export interface TaskDef<TOutput extends EastType = EastType, Path extends TreeP
  * Functions are named, typed callables stored in a package and invoked by
  * name with argument values (CLI / HTTP API). A function may read datasets
  * of the workspace it is called through — its {@link inputs}, as a task's
- * are declared — beside the arguments its caller passes. It is still no node
- * of the dataflow: it has no output, nothing reruns when an input changes,
- * and its result is returned inline to the caller, nothing persisted.
+ * are declared — beside the arguments its caller passes, and list the records
+ * among them a call may lay unsaved edits over, its {@link drafts}. It is
+ * still no node of the dataflow: it has no output, nothing reruns when an
+ * input changes, and its result is returned inline to the caller, nothing
+ * persisted.
  *
  * @typeParam Args - The East types of the arguments a caller passes
  * @typeParam Output - The East type of the return value
@@ -246,6 +248,11 @@ export interface FunctionDef<
   /** The datasets a call reads from the workspace it runs in, each pinned at
    *  its hash when the call launches; empty for a function that reads none. */
   readonly inputs: readonly DatasetDef[];
+  /** The records a call may pass drafts of — calls of a record's mutations
+   *  that are not committed, laid over it for that call alone — each once,
+   *  and each a record among {@link inputs}; empty for a function that takes
+   *  none. */
+  readonly drafts: readonly RecordDef[];
   /** The types of the arguments a caller passes, after the inputs. */
   readonly argTypes: Args;
   /** Return type */

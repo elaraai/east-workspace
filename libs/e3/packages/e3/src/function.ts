@@ -12,7 +12,9 @@
  * graph, and its result is returned inline to the caller — nothing durable
  * is written by a call. A function may declare inputs, as a stream task
  * does: datasets of the workspace a call reads, each pinned at its hash,
- * beside the arguments its caller passes.
+ * beside the arguments its caller passes. It may list the records among them
+ * a call may lay unsaved edits over, its drafts: the call reads each with its
+ * drafts laid over it, and saves nothing.
  */
 
 import { validateEnvironmentDecl, type EnvironmentDecl } from './environment.js';
@@ -29,14 +31,18 @@ import type {
   SubtypeExprOrValue,
 } from '@elaraai/east';
 import { East, Expr } from '@elaraai/east';
-import type { DatasetDef, DataTreeDef, FunctionDef, PartitionDef, TaskDef } from './types.js';
+import type { DatasetDef, DataTreeDef, FunctionDef, PartitionDef, RecordDef, TaskDef } from './types.js';
 import { DEFAULT_RUNNER, runnerToVariant, type FunctionRunner } from './runner.js';
+import { isRecord } from './record.js';
 import { refusePartitioned, type InputExprs } from './task.js';
 
 /** The expression a function's body receives for each argument. */
 type ArgExprs<T extends readonly EastType[]> = {
   [K in keyof T]: ExprType<T[K]>;
 };
+
+/** The records among a function's inputs: what its `drafts` may list. */
+type RecordsOf<Inputs extends readonly DatasetDef[]> = Extract<Inputs[number], { readonly recordKind: 'record' }>;
 
 /**
  * The declaration half of a function with inputs ({@link function_}'s
@@ -58,6 +64,14 @@ export interface FunctionSpec<
    *  call during a run may read one before the run rewrites it and another
    *  after. */
   readonly inputs: [...Inputs];
+  /** The records a call may pass drafts of, each a record among `inputs`. A
+   *  draft is a call of one of the record's mutations that is not committed:
+   *  a call reads a drafted record with its drafts laid over it, its indexes
+   *  holding them as they would after the Save, and saves nothing. Listing a
+   *  record says the body is fit to run over edits nobody has saved, so a
+   *  function that sends a message or writes elsewhere lists none. Omitted, a
+   *  call takes no draft. */
+  readonly drafts?: readonly NoInfer<RecordsOf<Inputs>>[];
   /** The types of the arguments a caller passes, after the inputs. */
   readonly args: [...Args];
   /** The return type. */
@@ -93,19 +107,29 @@ export interface FunctionSpec<
  * `invalid`, naming it, and nothing runs. The package route, which has no
  * workspace, refuses such a function.
  *
+ * `drafts` lists the records among the inputs a call may lay unsaved edits
+ * over. A draft is a call of one of the record's mutations that is not
+ * committed: a call passes its drafts in order, reads each drafted record
+ * with them laid over it — its rows, and its indexes as they would hold them
+ * after the Save — and saves nothing. Listing a record is the author's word
+ * that the body is fit to run over edits nobody has saved; a call that passes
+ * a draft of a record the function does not list is `invalid`.
+ *
  * @typeParam Name - Function name (literal type)
  * @typeParam Inputs - The datasets a call reads
  * @typeParam Args - The argument types a caller passes
  * @typeParam Output - Return type
  * @param name - Function name (unique within the package)
- * @param spec - The inputs, the argument types and the return type, and the
- *   runner, environment and `async` ({@link FunctionSpec})
+ * @param spec - The inputs, the records a call may draft, the argument types
+ *   and the return type, and the runner, environment and `async`
+ *   ({@link FunctionSpec})
  * @param fn - The body: given the inputs, then the arguments, it returns the
  *   result
  * @returns A FunctionDef to pass to `e3.package`
  * @throws {Error} When the name is empty or the runner is not a known one, an
- *   input is marked with `e3.partition` (a call runs as one unit), or the
- *   runner is the `custom` runtime with inputs.
+ *   input is marked with `e3.partition` (a call runs as one unit), the runner
+ *   is the `custom` runtime with inputs, or `drafts` lists what is no record,
+ *   or a record none of the inputs reads, naming it.
  *
  * @example
  * ```ts
@@ -120,6 +144,32 @@ export interface FunctionSpec<
  * // Called through a workspace, with the order alone:
  * //   e3 call . -w dev quote '[(sku="bolt", quantity=4)]'
  * const pkg = e3.package('planning', '1.0.0', quote);
+ * ```
+ *
+ * @example
+ * ```ts
+ * const jobs = e3.record('jobs', DictType(StringType, JobType), {
+ *   initial: new Map(),
+ *   mutations: (mutation) => ({ patch: mutation.patch() }),
+ * });
+ *
+ * // How many jobs a press holds. `drafts` says a call may lay unsaved edits over jobs.
+ * const jobsOn = e3.function('jobs_on', {
+ *   inputs: [jobs],
+ *   drafts: [jobs],
+ *   args: [StringType],
+ *   output: IntegerType,
+ * }, ($, jobs, press) => {
+ *   const count = $.let(0n);
+ *   $.for(jobs, ($, job) => {
+ *     $.if(East.equal(job.press, press), ($) => { $.assign(count, count.add(1n)); });
+ *   });
+ *   return count;
+ * });
+ *
+ * // As saved, then with an unsaved edit laid over jobs: nothing is saved.
+ * //   e3 call . -w dev jobs_on '"P1"'
+ * //   e3 call . -w dev jobs_on '"P1"' --draft jobs.patch ./edit.east
  * ```
  */
 export function function_<
@@ -189,7 +239,7 @@ export function function_(
   }
   if (second instanceof Expr) {
     const config = third as { runner?: FunctionRunner, environment?: EnvironmentDecl } | undefined;
-    return define(name, second, [], config?.runner, config?.environment);
+    return define(name, second, [], [], config?.runner, config?.environment);
   }
 
   const spec = second;
@@ -202,6 +252,7 @@ export function function_(
       `read them on a stock runtime (east-node, east-py, east-c), or pass them as arguments`
     );
   }
+  const drafts = draftedRecords(`e3.function '${name}'`, spec.drafts ?? [], datasets);
 
   // East gives the body an expression of each parameter's type: the inputs',
   // in the spec's order, then the arguments'.
@@ -210,17 +261,50 @@ export function function_(
   const bodyFn = spec.async === true
     ? East.asyncFunction(parameters, spec.output, ($, ...params) => body($, ...params) as never)
     : East.function(parameters, spec.output, ($, ...params) => body($, ...params) as never);
-  return define(name, bodyFn, datasets, spec.runner, spec.environment);
+  return define(name, bodyFn, datasets, drafts, spec.runner, spec.environment);
+}
+
+/**
+ * The records a function lists in `drafts`, each once, in the order listed.
+ *
+ * @param owner - The function, as a refusal names it: `e3.function 'x'`
+ * @param listed - Its `drafts`, as declared
+ * @param inputs - Its inputs
+ * @returns The records
+ * @throws {Error} Naming the entry: one that is no record, or a record none
+ *   of the inputs reads
+ */
+function draftedRecords(owner: string, listed: readonly unknown[], inputs: readonly DatasetDef[]): RecordDef[] {
+  const records: RecordDef[] = [];
+  for (const entry of listed) {
+    if (!isRecord(entry)) {
+      const named = (entry as { readonly name?: unknown } | null | undefined)?.name;
+      throw new Error(
+        `${owner}: ${typeof named === 'string' ? `'${named}', listed in drafts,` : 'an entry of drafts'} is no record — ` +
+        `a draft is a call of a record's mutation that is not committed, so only an e3.record takes one`
+      );
+    }
+    if (!inputs.includes(entry)) {
+      throw new Error(
+        `${owner}: the record '${entry.name}', listed in drafts, is read by none of its inputs — ` +
+        `list it in inputs too, and a call reads it with its drafts laid over it`
+      );
+    }
+    if (!records.includes(entry)) records.push(entry);
+  }
+  return records;
 }
 
 /**
  * The definition of a function: its body's IR and signature, the inputs it
- * reads, which come first among its parameters, and what they depend on.
+ * reads, which come first among its parameters, the records among them a
+ * call may draft, and what the inputs depend on.
  */
 function define(
   name: string,
   fn: FunctionExpr<EastType[], EastType> | AsyncFunctionExpr<EastType[], EastType>,
   inputs: readonly DatasetDef[],
+  drafts: readonly RecordDef[],
   runner: FunctionRunner | undefined,
   environment: EnvironmentDecl | undefined,
 ): FunctionDef {
@@ -245,6 +329,7 @@ function define(
     name,
     body: eastIR,
     inputs,
+    drafts,
     argTypes: fnType.inputs.slice(inputs.length),
     outputType: fnType.output,
     runner: resolved,

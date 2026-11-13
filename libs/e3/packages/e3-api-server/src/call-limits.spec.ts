@@ -73,6 +73,7 @@ async function deploy(repo: string): Promise<void> {
   const spinning = await storage.objects.write(repo, encodeBeast2For(FunctionObjectType)({
     bodyIr: await storage.objects.write(repo, encodeEastIR(spin.toIR())),
     inputs: [],
+    drafts: [],
     argTypes: [],
     outputType: toEastTypeValue(IntegerType),
     runner: EAST_NODE,
@@ -81,6 +82,7 @@ async function deploy(repo: string): Promise<void> {
   const echoing = await storage.objects.write(repo, encodeBeast2For(FunctionObjectType)({
     bodyIr: await storage.objects.write(repo, encodeEastIR(echo.toIR())),
     inputs: [],
+    drafts: [],
     argTypes: [toEastTypeValue(BlobType)],
     outputType: toEastTypeValue(BlobType),
     runner: EAST_NODE,

@@ -48,6 +48,7 @@ import {
   SplitCallStatusType,
   type ExecuteResult,
   type FunctionCallRequest,
+  type FunctionSignature,
   type SplitCallRequest,
   type SplitCallStatus,
 } from '../types.js';
@@ -73,6 +74,19 @@ async function resolveFunction(
     throw new TaskNotFoundError(`function '${fnName}' in ${pkgName}@${version}`);
   }
   return decodeFunctionObject(await storage.objects.read(repoPath, fnHash));
+}
+
+/** A function's signature, as list and describe answer it: what its object
+ *  says of it, under its name. */
+function signatureOf(name: string, fnObj: FunctionObject): FunctionSignature {
+  return {
+    name,
+    inputs: fnObj.inputs,
+    drafts: fnObj.drafts,
+    argTypes: fnObj.argTypes,
+    outputType: fnObj.outputType,
+    runner: fnObj.runner,
+  };
 }
 
 /**
@@ -182,16 +196,9 @@ export async function listPackageFunctions(
 ): Promise<Response> {
   try {
     const pkg = await packageRead(storage, repoPath, pkgName, version);
-    const signatures = [];
+    const signatures: FunctionSignature[] = [];
     for (const [name, fnHash] of pkg.functions) {
-      const fnObj = decodeFunctionObject(await storage.objects.read(repoPath, fnHash));
-      signatures.push({
-        name,
-        inputs: fnObj.inputs,
-        argTypes: fnObj.argTypes,
-        outputType: fnObj.outputType,
-        runner: fnObj.runner,
-      });
+      signatures.push(signatureOf(name, decodeFunctionObject(await storage.objects.read(repoPath, fnHash))));
     }
     return sendSuccess(ArrayType(FunctionSignatureType), signatures);
   } catch (err) {
@@ -211,13 +218,7 @@ export async function describePackageFunction(
 ): Promise<Response> {
   try {
     const fnObj = await resolveFunction(storage, repoPath, pkgName, version, fnName);
-    return sendSuccess(FunctionSignatureType, {
-      name: fnName,
-      inputs: fnObj.inputs,
-      argTypes: fnObj.argTypes,
-      outputType: fnObj.outputType,
-      runner: fnObj.runner,
-    });
+    return sendSuccess(FunctionSignatureType, signatureOf(fnName, fnObj));
   } catch (err) {
     return sendError(FunctionSignatureType, errorToVariant(err));
   }

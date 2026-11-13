@@ -30,6 +30,7 @@ function signature(name: string, inputs: EastType[], output: EastType): Function
     return {
         name,
         inputs: [],
+        drafts: [],
         argTypes: inputs.map(t => toEastTypeValue(t)),
         outputType: toEastTypeValue(output),
         runner: variant("east_node", { platforms: [], decode: variant("lazy", null) }),
