@@ -7,12 +7,14 @@ import { describe, test as hostTest } from "node:test";
 import assert from "node:assert/strict";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import {
-    ArrayType, AsyncFunctionType, DictType, East, Expr, IntegerType, NullType, StringType, StructType, VariantType, isTypeEqual, variant,
-    type BlockBuilder, type EastType,
+    ArrayType, AsyncFunctionType, DictType, East, Expr, FunctionType, IntegerType, NullType, PatchType, SortedMap, StringType, StructType, VariantType,
+    compareFor, decodeBeast2For, diffFor, encodeBeast2For, equalFor, isTypeEqual, variant,
+    type BlockBuilder, type EastType, type ExprType,
 } from "@elaraai/east";
 import { Editing, Reactive, Stat, Button, UIComponentType } from "@elaraai/east-ui/internal";
-import { Record, Data, deriveManifest, ui } from "@elaraai/e3-ui";
+import { FuncDraftType, Record, Data, deriveManifest, ui } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
+import { refusingPlatform } from "../../refusing-platform.js";
 import * as ex from "./record.examples.js";
 
 // `Record.bind(record, names?)` takes the state type from the record def
@@ -79,6 +81,64 @@ describe("Record.bind's mutations", () => {
         assert.deepEqual(mutated(Record.bind(counter)), ["increment", "reset"]);
         assert.deepEqual(mutated(Record.bind(counter, ["reset"])), ["reset"]);
         assert.deepEqual(mutated(Record.bind(counter, [])), []);
+    });
+});
+
+/** `draft.<name>`'s type checks (#1620): never called — `tsc` checks what each line says. */
+function draftTypeChecks($: BlockBuilder<NullType>): void {
+    const tally = $.let(Record.bind(counter));
+    const board = $.let(Record.bind(ex.jobs));
+    // What fits: the arguments `mutate.<name>` takes, and one type whatever the record.
+    const bumped: ExprType<FuncDraftType> = tally.draft.increment(1n);
+    const cleared: ExprType<FuncDraftType> = tally.draft.reset();
+    const moved: ExprType<FuncDraftType> = board.draft.patch(East.diff(board.read(), board.read()));
+    $.const([bumped, cleared, moved], ArrayType(FuncDraftType));
+    // @ts-expect-error — `increment` takes an Integer, as `mutate.increment` does
+    tally.draft.increment("one");
+    // @ts-expect-error — and one of them
+    tally.draft.increment();
+    // @ts-expect-error — `rename` is no mutation of the counter
+    tally.draft.rename("tally");
+    // @ts-expect-error — a handle bound with `reset` alone has no draft of `increment`
+    $.let(Record.bind(counter, ["reset"])).draft.increment(1n);
+}
+
+// `draft.<name>` (#1620): a mutation's call as a draft — what `mutate.<name>` takes, not committed. What the record
+// runtime does with one runs in e3-ui-components' record-runtime spec, on e3.
+describe("Record.bind's drafts", () => {
+    /** A handle's `mutate` and `draft` doors, by mutation, from its East type. */
+    const doors = (handle: unknown) => {
+        const fields = (Expr.type(handle as Expr) as StructType).fields;
+        return { mutate: (fields.mutate as StructType).fields as { [name: string]: FunctionType }, draft: (fields.draft as StructType).fields as { [name: string]: EastType } };
+    };
+
+    hostTest("a draft of each mutation the handle binds, of the arguments `mutate.<name>` takes, each answering the one draft type", () => {
+        assert.equal(typeof draftTypeChecks, "function");
+        for (const handle of [Record.bind(counter), Record.bind(counter, ["reset"]), Record.bind(counter, []), Record.bind(ex.jobs)]) {
+            const { mutate, draft } = doors(handle);
+            assert.deepEqual(Object.keys(draft), Object.keys(mutate).filter((name) => !["pending", "status", "error", "cancel"].includes(name)));
+            for (const [name, door] of Object.entries(draft)) {
+                assert.ok(isTypeEqual(door, FunctionType(mutate[name]!.inputs, FuncDraftType)), `draft.${name} takes what mutate.${name} takes`);
+            }
+        }
+    });
+
+    hostTest("a draft names its record and its mutation and holds each argument as a commit sends it; drafts of two records are one list, and nothing of either record is read or written", () => {
+        const Jobs = ex.jobs.type;
+        const cut = new SortedMap([["a", { task: "Cut", qty: 2n }]], compareFor(StringType));
+        // Compiled against a platform whose every read, write and call refuses: making a draft reaches none of them.
+        const drafts = East.compile(East.function([], ArrayType(FuncDraftType), ($) => {
+            const tally = $.let(Record.bind(counter));
+            const board = $.let(Record.bind(ex.jobs));
+            const before = $.const(new Map(), Jobs);
+            const after = $.const(cut, Jobs);
+            return [tally.draft.increment(3n), tally.draft.reset(), board.draft.patch(East.diff(before, after))];
+        }), refusingPlatform)();
+        const [bumped, cleared, added] = drafts;
+        assert.ok(equalFor(FuncDraftType)(bumped!, { record: "counter", mutation: "increment", args: [encodeBeast2For(IntegerType)(3n)] }));
+        assert.ok(equalFor(FuncDraftType)(cleared!, { record: "counter", mutation: "reset", args: [] }), "a mutation of no arguments holds none");
+        assert.deepEqual([added!.record, added!.mutation, added!.args.length], ["jobs", "patch", 1]);
+        assert.ok(equalFor(PatchType(Jobs))(decodeBeast2For(PatchType(Jobs))(added!.args[0]!), diffFor(Jobs)(new Map(), cut)), "the patch, at the patch door's type");
     });
 });
 

@@ -74,6 +74,7 @@ export {
     Func,
     FuncStatusType,
     FuncErrorType,
+    FuncDraftType,
     FuncBindingType,
     FuncBindHandleType,
     type BoundFunc,

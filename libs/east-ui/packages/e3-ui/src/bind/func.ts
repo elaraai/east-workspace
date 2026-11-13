@@ -31,6 +31,7 @@ import {
     type EastType,
     type ExprType,
 } from '@elaraai/east';
+import { FunctionDraftType } from '@elaraai/e3-types';
 import type { FunctionDef } from '@elaraai/e3';
 
 // ============================================================================
@@ -100,6 +101,33 @@ export const FuncErrorType = StructType({
  * Type representing the FuncError structure.
  */
 export type FuncErrorType = typeof FuncErrorType;
+
+/**
+ * A draft: a call of one of a record's mutations that is not committed — the
+ * record, the mutation, and the mutation's arguments, each encoded as a
+ * commit sends it.
+ *
+ * @remarks
+ * `Record.bind`'s `draft.<name>(…)` makes one. A bound function that lists
+ * the record in its `drafts` takes drafts with its call, and reads the record
+ * with them laid over it; nothing is saved.
+ *
+ * It is e3's draft (e3-types' `FunctionDraftType`), one type for every
+ * record, so one list holds drafts of several records. It is not a row's
+ * draft (`Record.Types.Draft(R)`, `Sheet.Types.Draft(R)`,
+ * `Editing.Types.Draft(R)`: a row whose fields may still be missing), and not
+ * what a record's declaration makes of a mutation (e3's `MutationDraft`).
+ *
+ * @property record - The record's name in the deployed package
+ * @property mutation - The mutation's name on the record
+ * @property args - The mutation's arguments, in order, each as beast2 bytes at its declared type
+ */
+export const FuncDraftType = FunctionDraftType;
+
+/**
+ * Type representing the FuncDraft structure.
+ */
+export type FuncDraftType = typeof FuncDraftType;
 
 /**
  * Descriptor for a function binding — carried on the handle's `binding`
