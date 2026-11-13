@@ -6,10 +6,16 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { ArrayType, East, Expr, FloatType, IntegerType, NullType, OptionType, StringType, isTypeEqual, variant, type EastType } from "@elaraai/east";
+import {
+    ArrayType, DictType, East, Expr, FloatType, FunctionType, IntegerType, NullType, OptionType, StringType, StructType, equalFor, isTypeEqual, variant,
+    type BlockBuilder, type EastType,
+} from "@elaraai/east";
 import { Reactive, Stat, Button, UIComponentType } from "@elaraai/east-ui/internal";
-import { Func, Data, deriveManifest, ui } from "@elaraai/e3-ui";
-import e3 from "@elaraai/e3";
+import {
+    Func, FuncBindDraftsHandleType, FuncBindHandleType, FuncBindingType, FuncDraftType, FuncDraftedType, FuncErrorType, Record, Data, deriveManifest, ui,
+} from "@elaraai/e3-ui";
+import e3, { type FunctionDef } from "@elaraai/e3";
+import { refusingPlatform } from "../../refusing-platform.js";
 import * as ex from "./func.examples.js";
 
 // `Func.bind(def)` takes name and signature from the e3.function def, so the
@@ -20,6 +26,19 @@ const rebalanceDef = e3.function("rebalance",
     East.function([FloatType], FloatType, (_$, target) => target));
 const describeDef = e3.function("describe",
     East.function([IntegerType], StringType, (_$, n) => East.print(n)));
+
+// A function that lists `drafts` (#1620): a call may lay unsaved edits over
+// each record it lists, and its handle's call takes them.
+const boardDef = e3.record("func_spec_board", DictType(StringType, StructType({ press: StringType })), {
+    initial: new Map(),
+    mutations: (mutation) => ({ patch: mutation.patch() }),
+});
+const pressesDef = e3.record("func_spec_presses", DictType(StringType, StringType), {
+    initial: new Map(),
+    mutations: (mutation) => ({ patch: mutation.patch() }),
+});
+const jobsOnDef = e3.function("jobs_on", { inputs: [boardDef, pressesDef], drafts: [boardDef, pressesDef], args: [StringType], output: IntegerType },
+    (_$, board, _presses, _press) => board.size());
 
 describeEast("Func", (test) => {
     Assert.examples(test, {
@@ -78,6 +97,74 @@ describeEast("Func", (test) => {
     });
 }, { platformFns: TestImpl });
 
+/** The call's type checks (#1620): never called — `tsc` checks what each line says. */
+function callTypeChecks($: BlockBuilder<NullType>): void {
+    const board = $.let(Record.bind(boardDef));
+    const plain = $.let(Func.bind(forecastDef));
+    const count = $.let(Func.bind(jobsOnDef));
+    const moved = $.const(board.draft.patch(East.diff(board.read(), board.read())));
+    // A function that lists no drafts keeps today's call: its arguments alone.
+    $(plain.call(12n, 1.05));
+    // @ts-expect-error — it takes no drafts
+    plain.call(12n, 1.05, [moved]);
+    // @ts-expect-error — and says nothing of records drafted
+    plain.drafted();
+    // One that lists drafts takes them last, an Array: one draft, several, or none, a call as saved.
+    $(count.call("P1", [moved]));
+    $(count.call("P1", [moved, board.draft.patch(East.diff(board.read(), board.read()))]));
+    $(count.call("P1", []));
+    $.const(count.drafted(), ArrayType(FuncDraftedType));
+    // @ts-expect-error — the drafts are the call's last argument
+    count.call("P1");
+    // @ts-expect-error — and an Array of them
+    count.call("P1", moved);
+    // A definition held under a type that does not say whether it lists drafts is not bound.
+    const unsaid: FunctionDef<[IntegerType, FloatType], FloatType> = forecastDef;
+    // @ts-expect-error — the definition's type says which handle it is bound to
+    Func.bind(unsaid);
+}
+
+// `Func.bind` of a function that lists `drafts` (#1620). What the function runtime does with a call's drafts runs in
+// e3-ui-components' function specs, on e3.
+describe("Func.bind of a function that lists drafts", () => {
+    test("gives a handle whose call takes the drafts last, an Array, with drafted() beside read(); one that lists none keeps today's handle", () => {
+        assert.equal(typeof callTypeChecks, "function");
+        const drafted = Expr.type(Func.bind(jobsOnDef) as Expr) as EastType;
+        assert.ok(drafted.type === "Struct");
+        assert.ok(isTypeEqual(drafted, FuncBindDraftsHandleType([StringType], IntegerType)));
+        assert.deepEqual(Object.keys(drafted.fields), ["call", "read", "drafted", "status", "error", "pending", "cancel", "binding"]);
+        assert.ok(isTypeEqual(drafted.fields["call"]!, FunctionType([StringType, ArrayType(FuncDraftType)], NullType)), "the argument, then the drafts");
+        assert.ok(isTypeEqual(drafted.fields["read"]!, FunctionType([], OptionType(IntegerType))));
+        assert.ok(isTypeEqual(drafted.fields["drafted"]!, FunctionType([], ArrayType(FuncDraftedType))), "each drafted record and its commit");
+
+        const plain = Expr.type(Func.bind(forecastDef) as Expr) as EastType;
+        assert.ok(plain.type === "Struct");
+        assert.ok(isTypeEqual(plain, FuncBindHandleType([IntegerType, FloatType], FloatType)));
+        assert.deepEqual(Object.keys(plain.fields), ["call", "read", "status", "error", "pending", "cancel", "binding"]);
+        assert.ok(isTypeEqual(plain.fields["call"]!, FunctionType([IntegerType, FloatType], NullType)), "the arguments alone");
+    });
+
+    test("binding.drafts names the records the function lists, in the order listed, and none for a function that lists none", () => {
+        // Compiled against a platform whose every read, write and call refuses: a binding is read without one.
+        const bindings = East.compile(East.function([], ArrayType(FuncBindingType), ($) => {
+            const count = $.let(Func.bind(jobsOnDef));
+            const plain = $.let(Func.bind(forecastDef));
+            return [count.binding, plain.binding];
+        }), refusingPlatform)();
+        assert.ok(equalFor(ArrayType(FuncBindingType))(bindings, [
+            { name: "jobs_on", drafts: ["func_spec_board", "func_spec_presses"] },
+            { name: "forecast", drafts: [] },
+        ]));
+    });
+
+    test("a drafted record is its name and the commit it stood at, and the error's kinds gain conflict: the record, the mutation and the refusal's words", () => {
+        assert.ok(isTypeEqual(FuncDraftedType, StructType({ record: StringType, commit: StringType })));
+        const kinds = FuncErrorType.fields.kind.cases;
+        assert.deepEqual(Object.keys(kinds).sort(), ["conflict", "failed", "invalid", "timed_out", "too_large", "transport"]);
+        assert.ok(isTypeEqual(kinds.conflict, StructType({ record: StringType, mutation: StringType, message: StringType })));
+    });
+});
+
 describe("Func.bind of a function with inputs", () => {
     test("gives a handle whose call takes the arguments alone, never the inputs", () => {
         const handle = Expr.type(Func.bind(ex.quoteFn) as Expr) as EastType;
@@ -114,6 +201,15 @@ describeEast("Func — manifest derivation", (test) => {
             })));
         const manifest = deriveManifest(fn);
         assert.deepEqual([...manifest.functions].sort(), ["forecast", "rebalance"]);
+    });
+
+    test("deriveManifest collects a function that lists drafts by its name, the bind's first argument", _ => {
+        const fn = East.function([], UIComponentType, _$ =>
+            Reactive.Root(East.function([], UIComponentType, $ => {
+                const count = $.let(Func.bind(jobsOnDef));
+                return Stat.Root({ label: "Jobs", value: East.print(count.read()) });
+            })));
+        assert.deepEqual(deriveManifest(fn).functions, ["jobs_on"]);
     });
 
     test("deriveManifest collects Data.bind paths and Func.bind names together", _ => {

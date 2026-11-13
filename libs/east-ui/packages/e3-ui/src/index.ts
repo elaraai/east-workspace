@@ -75,9 +75,12 @@ export {
     FuncStatusType,
     FuncErrorType,
     FuncDraftType,
+    FuncDraftedType,
     FuncBindingType,
     FuncBindHandleType,
+    FuncBindDraftsHandleType,
     type BoundFunc,
+    type BoundDraftsFunc,
     funcBindPlatformFn,
 } from './bind/func.js';
 export {

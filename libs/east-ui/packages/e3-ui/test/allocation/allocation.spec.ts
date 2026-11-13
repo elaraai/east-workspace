@@ -239,6 +239,14 @@ describe("the fit and the check, over the bins' row type", () => {
         const notBound = /Allocation: `fit` is Func\.bind of the app's e3\.function from Allocation\.Types\.FitRequest\(R\) to Allocation\.Types\.FitResult, R the bins' row type/;
         assert.throws(() => payload(() => ({ fit: East.value("yard_fit") as never })), notBound);
         assert.throws(() => payload(() => ({ fit: undefined as never })), notBound);
+        // One that lists drafts (#1620): its call takes them, and a fit passes none. The prop's type refuses it too.
+        const drafted = e3.function("allocation_spec_drafted_fit", {
+            inputs: [ex.kilnBins], drafts: [ex.kilnBins], args: [Allocation.Types.FitRequest(KilnBin)], output: StringType,
+        }, () => "nowhere");
+        // @ts-expect-error — a handle of a function that lists drafts is no fit
+        const fit: Props["fit"] = Func.bind(drafted);
+        assert.throws(() => payload(() => ({ fit })),
+            /^Error: Allocation: `fit` is Func\.bind of a function that lists `drafts`, whose call takes them, and the Allocation passes none — bind a function that lists no drafts$/);
     });
 
     test("`check` is an East function from CheckContext(R) to Array<Issue>", () => {

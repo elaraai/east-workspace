@@ -35,7 +35,7 @@ import { export_ } from './export.js';
 import { input } from './input.js';
 import { record } from './record.js';
 import { partition, task } from './task.js';
-import type { IRBundle } from './types.js';
+import type { IRBundle, RecordDef } from './types.js';
 import type { FunctionSpec } from './index.js';
 
 /**
@@ -229,22 +229,68 @@ describe('function_ with drafts', () => {
     assert.deepStrictEqual(both.drafts, [presses, jobs]);
   });
 
+  it('says in its type whether it lists a record, which a page\'s bind reads to give its call drafts or none', () => {
+    const plain = function_('plain', { inputs: [jobs], args: [], output: IntegerType }, ($, jobs) => jobs.size());
+    const simple = function_('simple', East.function([], IntegerType, () => 1n));
+    const empty = function_('empty', { inputs: [jobs], drafts: [], args: [], output: IntegerType }, ($, jobs) => jobs.size());
+    const drafted = function_('drafted', { inputs: [jobs, presses], drafts: [jobs, presses], args: [], output: IntegerType },
+      ($, jobs, presses) => jobs.size().add(presses.size()));
+
+    const ofPlain: readonly [] = plain.drafts;
+    const ofSimple: readonly [] = simple.drafts;
+    const ofEmpty: readonly [] = empty.drafts;
+    const ofDrafted: readonly [RecordDef, ...RecordDef[]] = drafted.drafts;
+    // @ts-expect-error — a function that lists a record is not one that lists none
+    const draftedAsNone: readonly [] = drafted.drafts;
+    // @ts-expect-error — and one that lists none is not one that lists a record
+    const plainAsSome: readonly [RecordDef, ...RecordDef[]] = plain.drafts;
+
+    // The types say what the values hold
+    assert.deepStrictEqual([ofPlain, ofSimple, ofEmpty, plainAsSome], [[], [], [], []]);
+    assert.deepStrictEqual(ofDrafted, [jobs, presses]);
+    assert.strictEqual(draftedAsNone, ofDrafted);
+  });
+
+  it('lists a record in a spec declared apart from its call where the spec names it', () => {
+    const spec: FunctionSpec<[typeof jobs, typeof prices], [], IntegerType, [typeof jobs]> = {
+      inputs: [jobs, prices],
+      drafts: [jobs],
+      args: [],
+      output: IntegerType,
+    };
+    const apart = function_('apart', spec, ($, jobs) => jobs.size());
+    const listed: readonly [RecordDef, ...RecordDef[]] = apart.drafts;
+    assert.deepStrictEqual(listed, [jobs]);
+
+    // A spec that names none lists none
+    const unnamed: FunctionSpec<[typeof jobs], [], IntegerType> = {
+      inputs: [jobs],
+      // @ts-expect-error — the spec's type names no record to draft
+      drafts: [jobs],
+      args: [],
+      output: IntegerType,
+    };
+    assert.deepStrictEqual(unnamed.drafts, [jobs]);
+  });
+
   // The types take the records among the inputs alone, which each spec below
   // is refused by where it is declared; an untyped caller is refused as it is built.
+  const untyped = function_ as unknown as (name: string, spec: object, fn: () => bigint) => unknown;
+
   it('refuses a draft of what is no record, naming it', () => {
-    const priced: FunctionSpec<[typeof prices], [], IntegerType> = {
+    // @ts-expect-error — of the inputs, only a record is listed in drafts
+    const priced: FunctionSpec<[typeof prices], [], IntegerType, [typeof prices]> = {
       inputs: [prices],
-      // @ts-expect-error — of the inputs, only a record is listed in drafts
       drafts: [prices],
       args: [],
       output: IntegerType,
     };
-    assert.throws(() => function_('priced', priced, ($, prices) => prices.size()), {
+    assert.throws(() => untyped('priced', priced, () => 0n), {
       message: 'e3.function \'priced\': \'prices\', listed in drafts, is no record — '
         + 'a draft is a call of a record\'s mutation that is not committed, so only an e3.record takes one',
     });
     // A record is listed as itself, not by its name
-    const byName: FunctionSpec<[typeof jobs], [], IntegerType> = {
+    const byName: FunctionSpec<[typeof jobs], [], IntegerType, [typeof jobs]> = {
       inputs: [jobs],
       // @ts-expect-error — the record, not its name
       drafts: ['jobs'],
@@ -258,14 +304,14 @@ describe('function_ with drafts', () => {
   });
 
   it('refuses a draft of a record none of its inputs reads, naming it', () => {
-    const unread: FunctionSpec<[typeof presses, typeof prices], [], IntegerType> = {
+    // @ts-expect-error — jobs is not among the inputs
+    const unread: FunctionSpec<[typeof presses, typeof prices], [], IntegerType, [typeof jobs]> = {
       inputs: [presses, prices],
-      // @ts-expect-error — jobs is not among the inputs
       drafts: [jobs],
       args: [],
       output: IntegerType,
     };
-    assert.throws(() => function_('unread', unread, ($, presses) => presses.size()), {
+    assert.throws(() => untyped('unread', unread, () => 0n), {
       message: 'e3.function \'unread\': the record \'jobs\', listed in drafts, is read by none of its inputs — '
         + 'list it in inputs too, and a call reads it with its drafts laid over it',
     });

@@ -34,7 +34,7 @@ import {
 } from "@elaraai/east";
 import { EastUI, type UIElement } from "@elaraai/east-ui";
 import { RecordSlicesChromeType, RowSourceType, type RecordSlicesChromeOptions } from "@elaraai/east-ui/internal";
-import { FuncBindingType, boundFuncSignature, type BoundFunc } from "../bind/func.js";
+import { FuncBindingType, boundFuncSignature, refuseDraftsHandle, type BoundFunc } from "../bind/func.js";
 import { scheduleCheck } from "../schedule/index.js";
 import type { ScheduleEventKind } from "../schedule/events.js";
 import { ScheduleAuthorTabType, buildScheduleTab } from "../schedule/library.js";
@@ -478,9 +478,11 @@ function overBytes<O extends EastType>(fn: unknown, asks: EastType, answers: O, 
  * @param fit - What the app passed as `fit`
  * @param rowType - The duty kind's row type
  * @returns The binding's descriptor, which names the function
- * @throws {Error} When it is not a `Func.bind` handle, or its function asks or answers another type, naming it
+ * @throws {Error} When it is not a `Func.bind` handle, or its function asks or answers another type, naming it, or
+ *   lists `drafts`, which a fit does not pass
  */
 function fitBinding(fit: unknown, rowType: EastType): ExprType<typeof FuncBindingType> {
+    refuseDraftsHandle(fit, "Roster", "fit");
     const signature = boundFuncSignature(fit);
     if (signature === undefined) {
         throw new Error("Roster: `fit` is Func.bind of the app's e3.function from Roster.Types.FitRequest(R) to Roster.Types.FitResult, R the duties' row type");
