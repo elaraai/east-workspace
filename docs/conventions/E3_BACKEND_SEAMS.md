@@ -218,6 +218,35 @@ recorded `lost` as it is read: its host stopped before it ended, whatever the
 backend. A store's behaviour is `functionCallStoreTests`; a route's, the
 `calls` suite of e3-api-tests.
 
+**A call's drafts are laid by the job every backend shares.** A call may pass
+drafts: unsaved edits of the records its function reads, each a mutation call
+that is not committed. `functionCallStart` checks each as the call is filed
+and names in the call's record everything laying them reads (`pinCallDrafts`),
+and the call's run (`functionCallRun`, in `handleProcessFunctionCall`) lays
+them on the backend's `TaskRunner`, each by a Save's first half
+(`recordLayDraft`), stores each drafted record's state, and reads the
+function's inputs of those records at it. No commit is stored and no record is
+moved, so a backend runs no code of its own for a draft, and implements three
+things. `FunctionCallStore.pinInputs` replaces what a running call names as
+its inputs, once its drafts are laid: the drafted states are named by nothing
+else, so the backend's gc keeps what a kept call's inputs name from then on
+(`RepoStore.gcScanCallRoots`). `FunctionCallStore.readStored` hands a
+repository upgrade step every call the store holds, in whatever form the
+release that filed it wrote, as the step that gave a kept call its drafts
+reads them (`function-call-drafts`). And the function routes take the host's
+rule on who may pass a draft (`draftAccess`, beside `CallAccess`): a caller
+may pass one only where they may commit its mutation, so a host whose mutate
+route holds a caller to some mutations gives the same rule here, and one that
+gives none admits every draft, which the local server and e3-web do, their
+mutate routes admitting every caller. A call a host runs within its request
+(`callFunctionSync`) keeps nothing to hold a drafted state by, and answers a
+draft `invalid`; a call of a local repository (`functionCallUnkept`, which
+`e3 call -w` makes) holds the repository's running work from its check to its
+answer instead. A store's behaviour is `functionCallStoreTests`, and the
+upgrade step's `repositoryRecordTests`; a route's, the `functionDrafts` suite
+of e3-api-tests, which holds a drafted call to what a Save of the same edit
+does.
+
 **A job over compute with a time limit hands over between calls.** Each job's
 processor takes a signal its caller aborts at the deadline, and a call stopped
 so leaves its job `processing` for the next: a deploy is served the steps that

@@ -217,6 +217,14 @@ export const DraftJobsType = DictType(StringType, DraftJobRowType);
  * - Function: "hours" - reads "jobs" and "tally", and lists both: the jobs'
  *   hours and the tally, summed
  * - Function: "job_count" - reads "jobs", and lists no record: how many jobs
+ * - Function: "job_rows" - reads "jobs", and lists it: the rows, as it read
+ *   them
+ * - Function: "count_after" - reads "jobs", lists it, and is given a number of
+ *   milliseconds: it writes `counting the jobs` to its stdout as it starts,
+ *   sleeps them, and returns how many jobs it read. A call whose body's start
+ *   shows, and of a known length
+ * - Task: "job_total" - how many jobs: a dependent of "jobs", which a Save of
+ *   the record leaves to run again
  *
  * Every body is East, so every server runs them.
  *
@@ -274,7 +282,14 @@ export async function createDraftsPackageZip(
     return total;
   });
   const jobCount = e3.function('job_count', { inputs: [jobs], args: [], output: IntegerType }, ($, jobs) => jobs.size());
-  const pkg = e3.package(name, version, jobs, tally, jobsOn, hours, jobCount);
+  const jobRows = e3.function('job_rows', { inputs: [jobs], drafts: [jobs], args: [], output: DraftJobsType }, ($, jobs) => jobs);
+  const countAfter = e3.function('count_after', { inputs: [jobs], drafts: [jobs], args: [IntegerType], output: IntegerType, async: true }, ($, jobs, ms) => {
+    $(Console.log('counting the jobs'));
+    $(Time.sleep(ms));
+    return jobs.size();
+  });
+  const jobTotal = e3.task('job_total', [jobs], East.function([DraftJobsType], IntegerType, ($, rows) => rows.size()));
+  const pkg = e3.package(name, version, jobs, tally, jobsOn, hours, jobCount, jobRows, countAfter, jobTotal);
 
   const zipPath = join(tempDir, `${name}-${version}.zip`);
   await e3.export(pkg, zipPath);
