@@ -797,6 +797,7 @@ export async function packageZipOpenFrom(
         get: calls.get.bind(calls),
         end: refuse('record a call\'s end'),
         requestCancel: refuse('cancel a call'),
+        pinInputs: refuse('pin a call\'s inputs'),
         list: calls.list.bind(calls),
         readStored: async (of) => (await calls.readStored(of))
           .map(({ workspace, id, read }) => ({ workspace, id, read, replace: refuse('replace a call') })),

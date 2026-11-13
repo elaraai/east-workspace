@@ -156,11 +156,12 @@ describe('functionCall', () => {
     assert.ok(status.type === 'completed' && status.value.outcome.type === 'invalid');
   });
 
-  it('refuses a call that passes a draft, which a call does not lay: filed invalid, and nothing runs', async () => {
+  it('refuses a draft passed to a function that lists no record a call may draft: filed invalid, and nothing runs', async () => {
+    // What a call's drafts do where its function takes them: functionDrafts.spec.ts
     const drafted: FunctionCallRequest = { ...request([encodeInt(3n)]), drafts: [{ record: 'jobs', mutation: 'patch', args: [] }] };
     const job = await functionCallStart(storage, REPO, WS, 'scaled', drafted, { caller: 'ada@example.com', lifetimes: LIFETIMES, now });
     if (job.call.state.type !== 'invalid') assert.fail(`filed ${job.call.state.type}`);
-    assert.match(job.call.state.value.diagnostics[0]!.message, /passes 1 draft\(s\)/);
+    assert.equal(job.call.state.value.diagnostics[0]!.message, 'draft jobs.patch (1 of 1): the function lists no record a call may draft');
     assert.equal(job.call.inputs.length + job.call.drafts.length, 0, 'it read nothing, and keeps no draft');
     assert.equal((await functionCallRun(storage, runner, REPO, WS, job.call.id, { now })).result, null);
     assert.equal(runner.getDetachedCalls().length, 0);

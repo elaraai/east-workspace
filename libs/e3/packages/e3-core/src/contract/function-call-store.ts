@@ -7,9 +7,10 @@
  * The function call store's contract: what any backend's kept calls do
  * (east-workspace#1554). A call is filed as it starts, ended once, asked to
  * stop while it runs, listed the latest first, kept for its lifetime and no
- * longer, rooted for gc while it is kept, and removed with its workspace. Each
- * is read and written as the bytes the store holds, for a repository upgrade
- * step (east-workspace#1619).
+ * longer, rooted for gc while it is kept, and removed with its workspace. A
+ * running call's inputs are pinned again once its drafts are laid, and each
+ * call is read and written as the bytes the store holds, for a repository
+ * upgrade step (east-workspace#1619).
  */
 
 import { describe, it } from 'node:test';
@@ -282,6 +283,40 @@ export function functionCallStoreTests(setup: BackendSetup): void {
       assert.equal(roots.has(expired!), false, 'an expired call roots nothing');
     });
 
+    it("pins a running call's inputs whole, which gc keeps from then on, and leaves a call that has ended as it is", async (t) => {
+      const { storage, repo } = await setup(t);
+      await workspaceCreate(storage, repo, WS);
+      const [base, drafted, rate, late] = ['1', '2', '3', '4'].map((digit) => digit.repeat(64));
+      const inputs = (jobs: string): FunctionCallJob['call']['inputs'] => [
+        { path: recordPath('jobs'), hash: jobs },
+        { path: [variant('field', 'inputs'), variant('field', 'rate')], hash: rate! },
+      ];
+      const running = filed(WS, { inputs: inputs(base!) });
+      await storage.calls.create(repo, running);
+
+      // As a call's run pins it once its drafts are laid: the record at the state they left
+      const pinned = await storage.calls.pinInputs(repo, WS, running.call.id, inputs(drafted!));
+      assert.ok(pinned !== null && jobEqual(pinned, { ...running, call: { ...running.call, inputs: inputs(drafted!) } }),
+        'its inputs replaced whole, and nothing else of it');
+      const read = await storage.calls.get(repo, WS, running.call.id);
+      assert.ok(read !== null && jobEqual(read, pinned), 'and is what a read finds');
+      const roots = await collectAllRoots(storage.repos, repo);
+      assert.ok(roots.has(drafted!) && roots.has(rate!), 'the call roots what its inputs name now');
+      assert.equal(roots.has(base!), false, 'and no longer what they named before');
+
+      // A run that lays its drafts again pins the same inputs again
+      const again = await storage.calls.pinInputs(repo, WS, running.call.id, inputs(drafted!));
+      assert.ok(again !== null && jobEqual(again, pinned));
+
+      const ended = await storage.calls.end(repo, WS, running.call.id, ending(variant('succeeded', { value: 'a'.repeat(64) })));
+      const left = await storage.calls.pinInputs(repo, WS, running.call.id, inputs(late!));
+      assert.ok(left !== null && ended !== null && jobEqual(left, ended), 'an ended call is left as it is');
+      assert.equal(await storage.calls.pinInputs(repo, WS, uuidv7(), inputs(late!)), null, 'no call is pinned that the store does not keep');
+      const expired = filed(WS, { expiresAt: new Date(Date.now() - 1) });
+      await storage.calls.create(repo, expired);
+      assert.equal(await storage.calls.pinInputs(repo, WS, expired.call.id, inputs(late!)), null, 'nor one past its lifetime');
+    });
+
     it('reads every call it holds as the bytes stored, an expired one among them, and writes one over whatever its state', async (t) => {
       const { storage, repo } = await setup(t);
       const running = filed(WS);
@@ -334,6 +369,7 @@ export function functionCallStoreTests(setup: BackendSetup): void {
         await assert.rejects(storage.calls.get(repo, name, uuidv7()), refused);
         await assert.rejects(storage.calls.end(repo, name, uuidv7(), ending(variant('failed', { exitCode: 1n }))), refused);
         await assert.rejects(storage.calls.requestCancel(repo, name, uuidv7(), { by: none, at: new Date() }), refused);
+        await assert.rejects(storage.calls.pinInputs(repo, name, uuidv7(), []), refused);
         await assert.rejects(storage.calls.list(repo, name, { limit: 1 }), refused);
       }
       for (const id of MALFORMED_IDS) {
@@ -342,6 +378,7 @@ export function functionCallStoreTests(setup: BackendSetup): void {
         await assert.rejects(storage.calls.get(repo, WS, id), refused);
         await assert.rejects(storage.calls.end(repo, WS, id, ending(variant('failed', { exitCode: 1n }))), refused);
         await assert.rejects(storage.calls.requestCancel(repo, WS, id, { by: none, at: new Date() }), refused);
+        await assert.rejects(storage.calls.pinInputs(repo, WS, id, []), refused);
         await assert.rejects(storage.calls.list(repo, WS, { limit: 1, before: id }), refused);
       }
     });

@@ -87,6 +87,17 @@ export class LocalFunctionCallStore implements FunctionCallStore {
     });
   }
 
+  async pinInputs(repo: string, workspace: string, id: string, inputs: FunctionCallJob['call']['inputs']): Promise<FunctionCallJob | null> {
+    const file = callFile(repo, workspace, id);
+    return withKeyedLock(file, async () => {
+      const job = await this.readLive(file);
+      if (job === null || job.call.state.type !== 'running') return job;
+      const pinned: FunctionCallJob = { ...job, call: { ...job.call, inputs } };
+      await atomicWriteFile(file, encodeFunctionCallJob(pinned));
+      return pinned;
+    });
+  }
+
   async list(repo: string, workspace: string, options: FunctionCallListOptions): Promise<FunctionCallListPage> {
     checkPageLimit(options.limit);
     if (options.before !== undefined) checkId('call id', options.before);
