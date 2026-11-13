@@ -300,9 +300,22 @@ gives that compute's. Who made a call is `callerOf` (the identity's email, else
 its subject), and who may read or cancel one the call routes' `access`, unset
 here, where every caller the routes admit may.
 
+A function's call may pass drafts: unsaved edits of the records the function
+reads, each a call of a record's mutation, which the call lays over the record,
+reads, and never saves. A caller may pass a draft only where they may commit
+its mutation, and only the host knows whom its mutate route admits to which:
+the workspace function routes take `draftAccess`, asked for each draft a call
+passes, in order, before the call is filed, and the first it refuses answers
+`permission_denied` (`path` `draft <record>.<mutation>`). A host that holds its
+callers to some mutations gives the rule its mutate route goes by; unset, as
+here, where the record routes admit each caller to every mutation, each may
+pass a draft of any.
+
 ```typescript
 app.route('/api/repos/:repo/workspaces/:ws/functions', createWorkspaceFunctionRoutes(storage, getRepoPath, transferBackend, {
   access, syncDeadlineMs: 25_000, windowMs: 20_000, ceilings: { timeoutMs: 13 * 60_000 },
+  // A draft is passed only where its mutation may be committed
+  draftAccess: (c, draft) => mayMutate(c, draft.record, draft.mutation),
 }));
 // A one-shot started as a call runs where the calls above run, under their ceilings
 app.route('/api/repos/:repo/workspaces/:ws/one-shot', createOneShotRoutes(storage, getRepoPath, transferBackend, getRunner, {
@@ -602,7 +615,11 @@ end gives it: an hour for a success
 or a cancel, a week for any other end, with no job run to forget it, since
 every read leaves out a call past its `expiresAt`. A kept call names its
 arguments, the inputs it read and its value by hash, and gc keeps what a live
-call names. A call still recorded running past its deadline and a grace — its
+call names. A call that passes drafts holds them as it holds its arguments,
+each with the commit its record stood at; its own job lays them before it reads
+its inputs, and from then on its inputs name the drafted states, which nothing
+else names, so they live as long as the call is kept and are collected after
+it. A call still recorded running past its deadline and a grace — its
 server stopped before it ended — is answered `lost`. A call found wrong is kept
 `invalid`, answered at once. A workspace's removal removes its calls.
 
@@ -663,7 +680,7 @@ Error variants include:
 - `package_exists` - Package already exists
 - `dataset_not_found` - Dataset path doesn't exist
 - `task_not_found` - Task doesn't exist
-- `permission_denied` - The caller's grant does not run the request: a one-shot or split call (path `one-shot`), a function call's runner (path `runner`), or a kept call the host's `access` does not let the caller read or cancel (path `call`)
+- `permission_denied` - The caller's grant does not run the request: a one-shot or split call (path `one-shot`), a function call's runner (path `runner`), a draft the host's `draftAccess` does not let the caller pass (path `draft <record>.<mutation>`), or a kept call the host's `access` does not let the caller read or cancel (path `call`)
 - `internal` - Internal server error
 
 ## Using with e3-api-client

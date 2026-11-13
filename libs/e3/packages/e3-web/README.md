@@ -302,7 +302,7 @@ The adapters need a secure context (`https:`, or `http://localhost`). They have 
 
 ## Tests
 
-Every shared API suite of `@elaraai/e3-api-tests` — repository, packages, workspaces, datasets, dataset pages, dataset transfer, dataflow, functions with one-shot and split calls, records, keyed records, record deploys, package transfer and platform — passes against e3-web twice, as an admin and in its reader cases as a reader, with the global `fetch` refusing every request that does not go through `e3.fetch`:
+Every shared API suite of `@elaraai/e3-api-tests` — repository, packages, workspaces, datasets, dataset pages, dataset transfer, dataflow, functions with one-shot and split calls, a function's call over drafts, records, keyed records, record deploys, package transfer and platform — passes against e3-web twice, as an admin and in its reader cases as a reader, with the global `fetch` refusing every request that does not go through `e3.fetch`:
 
 - in Node, `serveE3` over a `MessageChannel`, in-memory repositories and units in the test's own thread (`libs/e3/test/integration`'s `web-compliance.spec.ts`);
 - in Chromium, the suites in Node and each of their requests forwarded into a page running e3 over IndexedDB, OPFS, Web Workers and Web Locks (`e3-api.ts`, in parts, a spec file and a browser each).

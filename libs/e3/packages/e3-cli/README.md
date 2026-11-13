@@ -227,6 +227,7 @@ e3 call <repo> <pkg.fn> [args...]            # Call by package: pkg.fn or pkg@1.
 e3 call <repo> -w <ws> <fn> [args...]        # Call the workspace's deployed package
 e3 call <repo> -w <ws> <fn> @.inputs.sales 5 # Pass a dataset of the workspace
 e3 call <repo> <pkg.fn> 2 3 -o sum.beast2    # Write the raw result to a file
+e3 call <repo> -w <ws> <fn> [args...] --draft <record>.<mutation> [args...]  # Over an unsaved edit; nothing is saved
 ```
 
 Arguments are `.east` literals or paths to `.beast2` / `.json` / `.east` files,
@@ -234,7 +235,17 @@ parsed against the function's parameter types. With `-w`, an argument written
 `@<keypath>` is that dataset of the workspace: the function reads it where it
 is stored, at the hash it holds when the call starts, rather than a copy sent
 with the call. Without `-w` one is refused. A call triggers no dataflow and
-writes nothing to the repository.
+changes no dataset or record of the workspace.
+
+With `-w`, each `--draft <record>.<mutation> [args...]` lays an unsaved edit
+over a record the function lists in its `drafts`: the mutation runs as
+`e3 mutate` would run it, its arguments read the same way, and the function
+reads the record at the state that leaves. Nothing is saved. Drafts are laid in
+the order written. `--draft` reads every word up to the next option, so it is
+written after the call's own arguments, or the drafts are ended with `--`; a
+draft ends where its mutation's arguments do, and a word that starts with a
+dash is written `--draft=<word>`. A draft the record refuses ends the call
+before the function runs, and exits non-zero saying which draft and why.
 
 ### Watch / live development
 
