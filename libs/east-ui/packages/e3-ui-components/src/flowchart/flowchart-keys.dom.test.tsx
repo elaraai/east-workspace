@@ -427,6 +427,9 @@ describe("a new row's key, as its kind's key type makes it (#1549)", () => {
             await gesture(() => { fireEvent.click(panel(c).querySelectorAll("[data-inspector-issue]")[0]!); });
             await openTab(c, "Details");
             expect(field(c, "key").getAttribute("data-editor")).toBe("datetime");
+            // Washed while it waits, its key's field says under it what holds Save, as Issues does (ruled 13 Nov 2026).
+            expect([field(c, "key").hasAttribute("data-issue"), field(c, "key").querySelector("[data-field-issue]")?.textContent])
+                .toEqual([true, said.keyPlaceholder({ sort: "states" })]);
             await gesture(() => { fireEvent.click(field(c, "key").querySelector("[data-field-set]")!); });
             expect([node(c, "state-2"), node(c, at(eight))?.hasAttribute("data-selected")]).toEqual([null, true]);
             // The shift's, likewise.
@@ -688,6 +691,11 @@ describe("a key of several parts, and a key stored apart from its fields (#1581)
         }, place({ station: 2n, name: "Weigh" }));
         await addStateNamed(c, "2", "Knead");
         expect([node(c, "state-3")?.hasAttribute("data-selected"), enabled(SAVE)]).toEqual([true, false]);
+        // Each part washed while the step waits; what holds Save names the key whole, no part of it, so it is said once —
+        // in the first part's help line, which says the key is set whole — and under neither part again.
+        expect(["key.station", "key.name"].map((key) => [field(c, key).hasAttribute("data-issue"), field(c, key).querySelector("[data-field-issue]")]))
+            .toEqual([[true, null], [true, null]]);
+        expect(field(c, "key.station").textContent).toContain(m.inspectorKeyPartsHelp());
         // Its station typed: no key yet — the step waits on, and Save with it.
         await retypeNumber(c, "key.station", "2");
         expect([node(c, "state-3") !== null, enabled(SAVE)]).toEqual([true, false]);

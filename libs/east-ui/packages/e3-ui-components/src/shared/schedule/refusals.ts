@@ -8,7 +8,9 @@
  * drafted entry, each its session's, while it stands — what the Roster's and
  * the Allocation's Issues tabs list ahead of their own issues, and an entry's
  * panel shows over its form, the Plan's and the Calendar's included. Each names
- * its field by its form's label.
+ * its field by its form's label, and the field says the refusal's words under
+ * it in every builder's panel — the Schematic's and the Flowchart's too, which
+ * list their refusals in Issues alone ({@link entryRefusals}).
  *
  * @packageDocumentation
  */
@@ -42,6 +44,21 @@ export function scheduleRefusals(sessions: readonly ScheduleKindSession[]): Sche
         if (readiness.type !== "ready") for (const issue of readiness.value) out.push({ kind: held.kind, issue });
     }
     return out;
+}
+
+/**
+ * What one record's session refuses of one entry: its drafts' readiness's issues naming the entry, while it refuses —
+ * the app's check, a bound a changed row breaks, a new row waiting for its key. An entry with any holds its record's
+ * Save; each naming a field is what the entry's form says under it ({@link refusedFields}).
+ *
+ * @param sessions - Each kind's session and each record's, as the shared editing holds them
+ * @param kind - The record: its kind's slot, or its record's key
+ * @param entry - The entry's key's text
+ * @returns Its refusals, in the readiness's order; none while the session is ready, or holds no session of the record
+ */
+export function entryRefusals(sessions: readonly ScheduleKindSession[], kind: string, entry: string): EditIssue[] {
+    const readiness = sessions.find((held) => stringEqual(held.kind, kind))?.session.readiness;
+    return readiness === undefined || readiness.type === "ready" ? [] : readiness.value.filter((issue) => stringEqual(issue.entry, entry));
 }
 
 /**

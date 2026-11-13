@@ -628,6 +628,25 @@ export function targetIssues(target: SheetInspectTarget, inspect: SheetInspect, 
 }
 
 /**
+ * A target's issues by the field each names, as its form keys it, each field with what its issues say of it, in their
+ * order: what a host that washes the fields its issues name hands the form (`FieldForm`'s `issues`), which then says
+ * each field's words under it (ruled 13 Nov 2026) — the Record's Details (IN3). An issue of the whole row names none.
+ *
+ * @param issues - The target's issues ({@link targetIssues})
+ * @returns Each field they name, and the words under it
+ */
+export function issuesByField(issues: readonly TargetIssue[]): ReadonlyMap<string, readonly string[]> {
+    const out = new Map<string, string[]>();
+    for (const issue of issues) {
+        if (issue.name === undefined) continue;
+        const said = out.get(issue.name);
+        if (said === undefined) out.set(issue.name, [issue.text]);
+        else said.push(issue.text);
+    }
+    return out;
+}
+
+/**
  * The author's own Details for a complete row (SB58): what their function returns for the row as bytes, its edit
  * written back as one transaction — every field its columns write through them at once, a field with none on the
  * draft. `undefined` for a band, for a row still missing a field or holding one unreadable, for a pane with no Details

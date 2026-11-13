@@ -67,7 +67,11 @@
  * row a draft deletes is free (#1581). A number a row holds outside its
  * field's bounds is said in the tone the row's Save stands in (#1585): a
  * warning as stored, an error once its record's session refuses the row's
- * change, holding Save. An issue gone to, from the toolbar or from its line in
+ * change, holding Save. A field its record's session's refusal names — the
+ * app's check of the row's change, a new row's key still to be typed — takes
+ * the warn wash and says the refusal's words under it (ruled 13 Nov 2026):
+ * Details lists no issue, so the field itself says why it is named. An issue
+ * gone to, from the toolbar or from its line in
  * Issues, puts the keyboard in the field it names, the inspector opened at
  * Details where it is collapsed or at Issues.
  *
@@ -109,6 +113,7 @@ import { useFieldAsk } from "../shared/schedule/field-ask.js";
 import { askHiding, hiddenLine, hiddenOf, type RowHidden, type RowHiding, type SourceHiding } from "../shared/schedule/hidden.js";
 import type { HiddenPicks } from "../shared/schedule/hidden-pick.js";
 import { draftedRow, rowCodec } from "../shared/schedule/records.js";
+import { entryRefusals, refusedFields, type RefusedFields } from "../shared/schedule/refusals.js";
 import type { FlowchartDetailsModel } from "./details.js";
 import { FlowchartPaneReads } from "./details-pane.js";
 import { kindOf, type FlowchartEditing, type FlowchartFieldWrites } from "./editing.js";
@@ -371,19 +376,25 @@ function Fact({ styles, fact, children }: { styles: Styles; fact: string; childr
  * A new row's key field (#1549): the form's own editor for its kind's key
  * type, taking an edit while the row is new — a key its kind builds from the
  * row never does — the warn wash and the keyboard while it holds a placeholder,
- * which Issues points at. A key of several parts says it is set whole (#1581).
+ * which Issues points at, and under it what its record's session says of it
+ * while it waits, `Type this state's key: Save waits for it` (ruled 13 Nov
+ * 2026): the refusal names the key's field, and no check of the app's is asked
+ * of a row under a placeholder. A key of several parts says it is set whole
+ * (#1581), in its help line.
  *
  * @param keys - The kind's keys
  * @param at - The row's key
  * @param keyed - Whether its key takes an edit
  * @param m - The Flowchart's messages
- * @returns The key's specs, and what the form washes and focuses
+ * @param refused - The fields its record's session's refusals name, each with their words
+ * @returns The key's specs, and what the form washes — each field with what it says under it — and focuses
  */
-function useKeyField(keys: KindKeys, at: string, keyed: boolean, m: FlowchartWords["m"]) {
+function useKeyField(keys: KindKeys, at: string, keyed: boolean, m: FlowchartWords["m"], refused: RefusedFields) {
     const placeholder = !keys.isKey(at);
     const specs = useMemo(() => keyFieldSpecs(keys, m.inspectorField({ field: "key" }), keys.specs.length > 1 ? m.inspectorKeyPartsHelp() : m.inspectorKeyHelp(), keyed),
         [keys, m, keyed]);
-    const issues = useMemo(() => (placeholder ? new Set(specs.map((spec) => spec.path.join("."))) : undefined), [placeholder, specs]);
+    const issues: RefusedFields | undefined = !placeholder ? undefined
+        : new Map(specs.map((spec) => { const key = spec.path.join("."); return [key, refused.get(key) ?? []] as const; }));
     return { specs, issues, focus: placeholder && keyed ? specs[0]?.path.join(".") : undefined };
 }
 
@@ -523,7 +534,8 @@ function useRowState(editing: FlowchartEditing, sort: FlowchartSort, kind: AnyKi
  * @param key - Its key
  * @param what - What it is, for the console
  * @returns The kind, whether it writes and takes an edit now, the row's state, the form's edit, the own Details, the
- *   tone a bound its row breaks is said in, and the field an issue gone to asks of it
+ *   tone a bound its row breaks is said in, the fields its session's refusals name with their words, and the field an
+ *   issue gone to asks of it
  */
 function useSide(props: ViewProps, sort: FlowchartSort, key: string, what: string) {
     const { value, editing, held, act, edit } = props;
@@ -548,25 +560,27 @@ function useSide(props: ViewProps, sort: FlowchartSort, key: string, what: strin
     }, [writes, sort, key, act]);
     // Read only, the form prints every field: an own Details is for a record that takes its edits.
     const own = useOwnDetails(writes && kind !== undefined ? getSomeorUndefined(kind.inspector) : undefined, state.bytes, update, what);
-    // A bound its row breaks (#1585), said in the tone its Save stands in: as stored it warns; its change refused by its
-    // record's session, holding Save, it is an error.
-    const readiness = editing.schedule.sessions.find((part) => stringEqual(part.kind, sort))?.session.readiness;
-    const breaches: "warn" | "error" = readiness !== undefined && readiness.type !== "ready" && readiness.value.some((issue) => stringEqual(issue.entry, key))
-        ? "error" : "warn";
+    // What its record's session refuses of the row, holding Save. A bound its row breaks (#1585) is said in the tone its
+    // Save stands in: as stored it warns; its change refused, it is an error. And each field a refusal names says the
+    // refusal's words under it (ruled 13 Nov 2026): Details lists no issue, so the field says why it is named.
+    const refusals = entryRefusals(editing.schedule.sessions, sort, key);
+    const breaches: "warn" | "error" = refusals.length > 0 ? "error" : "warn";
+    const issues = refusedFields(refusals);
     // The field an issue gone to names, from the toolbar or from Issues: it takes the keyboard, the inspector opened at
     // Details.
     const focus = useFieldAsk(sort, key);
-    return { kind, writes, available, state, onField, own, refused, bump, breaches, focus };
+    return { kind, writes, available, state, onField, own, refused, bump, breaches, issues, focus };
 }
 
 /**
  * A row's fields: its roles' form, then its kind's form over the fields no
- * role writes — or its kind's own Details in that form's place.
+ * role writes, each field its session's refusal names saying why under it —
+ * or its kind's own Details in that form's place.
  */
 function RowFields({ styles, roles, side, storageKey }: {
     styles: Styles; roles: ReactNode; side: ReturnType<typeof useSide>; storageKey: string;
 }) {
-    const { kind, writes, state, onField, own, refused, breaches, focus } = side;
+    const { kind, writes, state, onField, own, refused, breaches, issues, focus } = side;
     const specs = kind?.fields ?? [];
     return (
         <>
@@ -575,7 +589,7 @@ function RowFields({ styles, roles, side, storageKey }: {
                 {own === undefined && specs.length > 0 && (
                     <Box data-inspector-form="fields">
                         <FieldForm key={refused} specs={specs} value={state.row} baseline={state.baseline} onChange={writes ? onField : NO_EDIT} readOnly={!writes}
-                            breaches={breaches} focus={focus} />
+                            breaches={breaches} issues={issues} focus={focus} />
                     </Box>
                 )}
             </Box>
@@ -770,7 +784,7 @@ function StateView(props: RowViewProps) {
     const lanes = getSomeorUndefined(value.lanes);
     const keys = rows.keys.states;
     const keyed = created && side.writes && !editing.builds("states");
-    const key = useKeyField(keys, at, keyed, m);
+    const key = useKeyField(keys, at, keyed, m, side.issues);
     const specs = useMemo(() => Fields.specs(StateRolesForm, {
         label: Fields.text({ label: m.inspectorField({ field: "label" }) }),
         lane: Fields.reference({ of: "lanes", label: lanes?.name ?? "" }),
@@ -997,7 +1011,7 @@ function LaneView(props: RowViewProps) {
     const { created } = side.state;
     const keys = rows.keys.lanes;
     const keyed = created && side.writes && !editing.builds("lanes");
-    const key = useKeyField(keys, at, keyed, m);
+    const key = useKeyField(keys, at, keyed, m, side.issues);
     const specs = useMemo(() => Fields.specs(LaneRolesForm, {
         label: Fields.text({ label: m.inspectorField({ field: "label" }) }),
     }), [m]);

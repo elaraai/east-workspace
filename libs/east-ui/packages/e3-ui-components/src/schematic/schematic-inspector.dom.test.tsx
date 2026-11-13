@@ -569,7 +569,7 @@ const checkedRacks = { fn: East.function([], UIComponentType, (_$) => Reactive.R
     });
 }))) };
 
-test("the app's check refusing a drafted row blocks in Issues, naming its field by its form's label, and selects the row's item", async () => {
+test("the app's check refusing a drafted row blocks in Issues, naming its field by its form's label, and selects the row's item — its Details saying the check's words under the field it names, until the field is given", async () => {
     const { container } = await open(checkedRacks);
     await tap(canvasOf(container), CAM, 9.6, 2.9);
     await retype(container, "row", "owner", "");
@@ -580,6 +580,15 @@ test("the app's check refusing a drafted row blocks in Issues, naming its field 
     expect(issueRows(container)).toEqual([["Rack · A03", "Owner: A rack is let to someone", "invalid"]]);
     await click(panel(container).querySelector("[data-inspector-issue]")!);
     await waitFor(() => expect(card(container, "racks", "A03")?.hasAttribute("data-selected")).toBe(true));
+    // Its Details, where the issue is fixed: Owner washed, and saying the check's words under it (ruled 13 Nov 2026) —
+    // Details lists no issue, so the field says why it is named. No other field of the rack is named.
+    await waitFor(() => expect(showing(container)).toBe("item"));
+    const owner = () => field(container, "row", "owner");
+    const named = () => [...panel(container).querySelectorAll("[data-field][data-issue]")].map((el) => el.getAttribute("data-field"));
+    expect([named(), owner().querySelector("[data-field-issue]")?.textContent]).toEqual([["owner"], "A rack is let to someone"]);
+    // Let to someone again, the rack is ready: the field says nothing.
+    await retype(container, "row", "owner", "Harbour Labs");
+    expect([named(), owner().querySelector("[data-field-issue]")]).toEqual([[], null]);
 });
 
 /** The floor's racks beside fibre runs whose patch door refuses every change, with the inspector. */

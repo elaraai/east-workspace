@@ -162,6 +162,26 @@ for (const theme of RECORD_THEMES) {
             await expect(named.nth(i), theme).toHaveCSS("background-color", t.requiredWash);
             await expect(named.nth(i), theme).toHaveCSS("box-shadow", wash);
         }
+        // …and each says under it what its issue says (ruled 13 Nov 2026), so a field gone to says why it is named whatever of
+        // the issues over the form is in view: `Required` in the warn step, one line under the field's label and its control,
+        // inside the field's box and the pane's, none cut.
+        const reasons = await named.evaluateAll((fields) => fields.map((field) => {
+            const said = field.querySelector<HTMLElement>("[data-field-issue]");
+            if (said === null) return { field: field.getAttribute("data-field"), said: null };
+            const box = field.getBoundingClientRect(), line = said.getBoundingClientRect();
+            // What the field draws over its reason: its label, and its control — a line's choices, or an input's box.
+            const over = [...field.querySelectorAll<HTMLElement>("label, :scope > span, [data-field-choice], input, [data-part='trigger']")]
+                .filter((el) => !said.contains(el) && !el.contains(said));
+            return {
+                field: field.getAttribute("data-field"), said: said.textContent, ink: getComputedStyle(said).color,
+                lines: said.getClientRects().length,
+                inside: line.left >= box.left - 0.5 && line.right <= box.right + 0.5 && line.top >= box.top - 0.5 && line.bottom <= box.bottom + 0.5,
+                under: over.length > 0 && over.every((el) => line.top >= el.getBoundingClientRect().bottom - 0.5),
+                cut: said.scrollWidth > said.clientWidth + 1 && said.clientWidth > 0,
+            };
+        }));
+        const fieldNames = await named.evaluateAll((fields) => fields.map((field) => field.getAttribute("data-field")));
+        expect(reasons, theme).toEqual(fieldNames.map((field) => ({ field, said: "Required", ink: t.c["fg-warning"], lines: 1, inside: true, under: true, cut: false })));
         // IN5: none checked while unset.
         await expect(row.locator('[data-part="item-control"][data-state="checked"]')).toHaveCount(0);
 

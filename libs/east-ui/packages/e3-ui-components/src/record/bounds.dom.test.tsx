@@ -75,6 +75,8 @@ const coatsSaid = async (c: HTMLElement) => {
         return field!;
     });
     expect(coats.querySelector("[data-scope=field][data-part=error-text]")).toBeNull();
+    // Its issue's words are the bound's own, which the help line says: never under the field again, as an issue's are.
+    expect(coats.querySelector("[data-field-issue]")).toBeNull();
     const toned = coats.querySelector("[data-scope=field][data-part=helper-text] [data-breach]");
     return toned === null ? undefined : [toned.textContent, toned.getAttribute("data-breach")];
 };

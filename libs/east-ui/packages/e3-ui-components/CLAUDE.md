@@ -922,8 +922,19 @@ Plan's — a field one of its roles reads saying them under its fact, where the
 Plan draws it. So going to a refusal lands the keyboard beside its reason
 whatever the panel has room to show above it: a duty with a rule's warning
 between its banner and its fields had the banner cut off at the panel's top
-(the showcase's `roster-inspector.spec.ts`). The Schematic's, the Flowchart's,
-the Sheet's and the Record's panels are still to give their fields' reasons.
+(the showcase's `roster-inspector.spec.ts`). The Schematic's and the
+Flowchart's Details show no banner — their refusals are listed in Issues — so
+there the field is the one place Details says why: each record's side of a row
+is handed what its session refuses of the row (`refusals.ts`' `entryRefusals`),
+an item's centre's under its position's coordinate; and a Flowchart row still
+waiting for its key says so under its key's field, which its session's refusal
+names (a key of several parts in its first part's help line, once; the
+Schematic's key field in its help line, its refusal naming no field). The
+Record's Details lists a row's issues over its form (IN3), and each field one
+names says the issue's words under it (`sheet/frame/inspector.tsx`'
+`issuesByField`). The Sheet's own Details washes no field: its issues stand
+over its form alone. A bound a number breaks is said once everywhere, in its
+help line: the form drops an issue that only repeats it.
 
 Every builder's Details keeps the keyboard (`shared/focus-home.ts`'
 `useFocusHome`: the Schematic's, the Flowchart's, the Plan's, the Calendar's,

@@ -82,7 +82,11 @@
  * narrowing is read (#1398, CL8) — its controls are off. A number a row holds
  * outside its field's bounds is said in the tone the row's Save stands in
  * (#1585): a warning as stored, an error once its record's session refuses the
- * row's change, holding Save. An issue gone to, from the toolbar or from its
+ * row's change, holding Save. A field its record's session's refusal names —
+ * the app's check of the row's change — takes the warn wash and says the
+ * refusal's words under it (ruled 13 Nov 2026), an item's centre's in its
+ * position: Details lists no issue, so the field itself says why it is named.
+ * An issue gone to, from the toolbar or from its
  * line in Issues, puts the keyboard in the field it names — an item's
  * centre's, in its position — the inspector opened at Details where it is
  * collapsed or at Issues.
@@ -146,6 +150,7 @@ import { askHiding, hiddenLine, hiddenOf, type RowHidden, type RowHiding, type S
 import type { HiddenPicks } from "../shared/schedule/hidden-pick.js";
 import { ScheduleInspectorHead } from "../shared/schedule/inspector-head.js";
 import { draftedRow, rowCodec } from "../shared/schedule/records.js";
+import { entryRefusals, refusedFields, type RefusedFields } from "../shared/schedule/refusals.js";
 import { kindPlural } from "../shared/schedule/words.js";
 import { authorOf } from "../shared/records/author.js";
 import { entityId, refOfId, type DrawnItem, type DrawnLink, type DrawnNet, type DrawnZone, type SchematicDrawn, type SchematicRef } from "./canvas/drawn.js";
@@ -384,15 +389,15 @@ const pendingControl = (spec: FieldSpecValue): ReactNode => <PlaceholderShape ki
  * A form under its section's head — a section with no head of its own, a new item's key field, has none: an edit
  * refused saying why (`onChange` handing back the words) puts its field back, saying so under it; one refused with
  * nothing to say remounts it (`refused`), so it shows what the row holds again. While its row is read (`pending`),
- * each field is its label over a placeholder (#1398). A field an issue names (`issues`) takes the warn wash, and the
- * field named (`focus`) the keyboard (#1549); a number outside its bounds is said in the tone its row's Save stands in
- * (`breaches`, #1585).
+ * each field is its label over a placeholder (#1398). A field an issue names (`issues`) takes the warn wash — and, given
+ * the issue's words, says them under it (ruled 13 Nov 2026) — and the field named (`focus`) the keyboard (#1549); a
+ * number outside its bounds is said in the tone its row's Save stands in (`breaches`, #1585).
  */
 function Form({ styles, head, section, specs, value, baseline, options, onChange, readOnly, refused, pending = false, issues, focus, breaches }: {
     styles: Styles; head: string | undefined; section: string; specs: readonly FieldSpecValue[]; value: unknown; baseline: unknown;
     options?: Readonly<Record<string, readonly FieldOption[]>> | undefined;
     onChange: (path: readonly string[], value: unknown) => string | void; readOnly: boolean; refused?: number; pending?: boolean;
-    issues?: ReadonlySet<string> | undefined; focus?: string | undefined; breaches?: "warn" | "error" | undefined;
+    issues?: ReadonlySet<string> | RefusedFields | undefined; focus?: string | undefined; breaches?: "warn" | "error" | undefined;
 }) {
     if (specs.length === 0) return null;
     return (
@@ -662,25 +667,29 @@ function useSide(props: ViewProps, ref: SchematicRef, name: string, side: Record
     }, [writes, ref, details, commit, m, name]);
     // Read only, the form shows every field: an own Details is for a record that takes its edits.
     const own = useOwnDetails(writes && side !== undefined ? getSomeorUndefined(side.inspector) : undefined, state.bytes, update, name);
-    // A bound its row breaks (#1585), said in the tone its Save stands in: as stored it warns; its change refused by its
-    // record's session, holding Save, it is an error.
-    const readiness = editing.schedule.sessions.find((part) => stringEqual(part.kind, record))?.session.readiness;
-    const breaches: "warn" | "error" = readiness !== undefined && readiness.type !== "ready" && readiness.value.some((issue) => stringEqual(issue.entry, ref.key))
-        ? "error" : "warn";
+    // What its record's session refuses of the row, holding Save. A bound its row breaks (#1585) is said in the tone its
+    // Save stands in: as stored it warns; its change refused, it is an error. And each field a refusal names says the
+    // refusal's words under it (ruled 13 Nov 2026): Details lists no issue, so the field says why it is named.
+    const refusals = entryRefusals(editing.schedule.sessions, record, ref.key);
+    const breaches: "warn" | "error" = refusals.length > 0 ? "error" : "warn";
+    const issues = refusedFields(refusals);
     // The field an issue gone to names, from the toolbar or from Issues: it takes the keyboard, the inspector opened at
     // Details. A freshly selected entity's forms are placeholders until its rows are read — a drafted row's drawn at once —
     // so the ask waits for both its row and its details row: neither form lets go of an ask that is the other's.
     const placeholder = (read: SchematicRowRead | undefined, of: string) => read?.state === "reading" && !editing.schedule.draftsOf(of).has(ref.key);
     const drawn = !placeholder(its.row, ref.kind) && !placeholder(its.details, detailsKey(ref.kind));
     const focus = useFieldAsk(record, ref.key, drawn);
-    return { side, writes, available, state, onField, own, refused, breaches, focus };
+    return { side, writes, available, state, onField, own, refused, breaches, issues, focus };
 }
 
-/** A record's side drawn: its form, or its own Details, under its head; while its row is read, its fields' placeholders; no row, said so. */
-function SideBody({ styles, head, section, side, own, state, onField, writes, storageKey, empty, refused, breaches, focus }: {
+/**
+ * A record's side drawn: its form, or its own Details, under its head — each field its session's refusal names saying why
+ * under it; while its row is read, its fields' placeholders; no row, said so.
+ */
+function SideBody({ styles, head, section, side, own, state, onField, writes, storageKey, empty, refused, breaches, issues, focus }: {
     styles: Styles; head: string; section: string; side: RecordSide; own: unknown; state: RowState;
     onField: (path: readonly string[], value: unknown) => string | void; writes: boolean; storageKey: string; empty: string; refused: number;
-    breaches: "warn" | "error"; focus: string | undefined;
+    breaches: "warn" | "error"; issues: RefusedFields; focus: string | undefined;
 }) {
     // Read, its form's fields stand at their places, each a placeholder until the row lands (#1398): its head is real.
     if (state.reading) {
@@ -689,7 +698,7 @@ function SideBody({ styles, head, section, side, own, state, onField, writes, st
     if (state.row === undefined) return <Fact styles={styles} fact={`${section}-none`}>{empty}</Fact>;
     if (own !== undefined) return <Custom styles={styles} head={head} section={section} ui={own} storageKey={storageKey} />;
     return <Form styles={styles} head={head} section={section} specs={side.fields} value={state.row} baseline={state.baseline}
-        onChange={writes ? onField : NO_EDIT} readOnly={!writes} refused={refused} breaches={breaches} focus={focus} />;
+        onChange={writes ? onField : NO_EDIT} readOnly={!writes} refused={refused} breaches={breaches} issues={issues} focus={focus} />;
 }
 
 // ── An item ─────────────────────────────────────────────────────────────────
@@ -767,9 +776,12 @@ function ItemView(props: ViewProps & { readonly item: DrawnItem; readonly kind: 
         if (recorded === false) bumpPosition();
         return recorded === true || recorded === false ? undefined : recorded;
     }, [item, commit, m, bumpPosition]);
-    // The field an issue gone to names, where it is one its centre is: that coordinate of its position (#1585).
+    // The field an issue gone to names, where it is one its centre is: that coordinate of its position (#1585) — and what
+    // a refusal says of either, under that coordinate.
     const positionFocus = self.focus === undefined ? undefined
         : stringEqual(self.focus, kind.box.x) ? "x" : stringEqual(self.focus, kind.box.y) ? "y" : undefined;
+    const positionIssues: RefusedFields = new Map([["x", kind.box.x] as const, ["y", kind.box.y] as const]
+        .flatMap(([coordinate, field]) => { const said = self.issues.get(field); return said === undefined ? [] : [[coordinate, said] as const]; }));
     const joins = useMemo(() => joinsOf(item.key, listed), [item.key, listed]);
     const names = useMemo(() => new Map([...value.links, ...value.nets].map((k) => [k.key, k.name] as const)), [value.links, value.nets]);
     const actions = !self.writes ? undefined : (
@@ -803,10 +815,10 @@ function ItemView(props: ViewProps & { readonly item: DrawnItem; readonly kind: 
                 )}
                 <SideBody styles={styles} head={m.inspectorSection({ section: "fields", name: kind.name })} section="row" side={form} own={self.own}
                     state={self.state} onField={self.onField} writes={self.writes} storageKey={`${storageKey}.inspector.${kind.key}`} empty={m.inspectorNoRow()}
-                    refused={self.refused} breaches={self.breaches} focus={self.focus} />
+                    refused={self.refused} breaches={self.breaches} issues={self.issues} focus={self.focus} />
                 <Form styles={styles} head={m.inspectorSection({ section: "position", name: kind.name })} section="position" specs={positionSpecs}
                     value={{ x: item.x, y: item.y }} baseline={heldAt} onChange={self.writes ? onPosition : NO_EDIT} readOnly={!self.writes} refused={positionRefused}
-                    breaches={self.breaches} focus={positionFocus} />
+                    breaches={self.breaches} issues={positionIssues} focus={positionFocus} />
             </Edits>
             {/* Below 480px of main, what a Connect drag from it records (#1394, D15). */}
             {props.narrow && <ConnectTo {...props} item={item} />}
@@ -815,7 +827,7 @@ function ItemView(props: ViewProps & { readonly item: DrawnItem; readonly kind: 
                     <SideBody styles={styles} head={m.inspectorSection({ section: "details", name: kind.name })} section="details" side={details}
                         own={theirs.own} state={theirs.state} onField={theirs.onField} writes={theirs.writes}
                         storageKey={`${storageKey}.inspector.${kind.key}.details`} empty={m.inspectorNoDetails({ name: kind.name })} refused={theirs.refused}
-                        breaches={theirs.breaches} focus={theirs.focus} />
+                        breaches={theirs.breaches} issues={theirs.issues} focus={theirs.focus} />
                 </Edits>
             )}
             {(joins.links.length > 0 || joins.nets.length > 0) && (
@@ -946,7 +958,7 @@ function ZoneView(props: ViewProps & { readonly zone: DrawnZone; readonly kind: 
             <Edits styles={styles} available={own.available} actions={undefined}>
                 <SideBody styles={styles} head={m.inspectorSection({ section: "fields", name: kind.name })} section="row" side={form} own={own.own}
                     state={own.state} onField={own.onField} writes={own.writes} storageKey={`${storageKey}.inspector.${kind.key}`} empty={m.inspectorNoRow()}
-                    refused={own.refused} breaches={own.breaches} focus={own.focus} />
+                    refused={own.refused} breaches={own.breaches} issues={own.issues} focus={own.focus} />
             </Edits>
         </Box>
     );
@@ -1026,7 +1038,7 @@ function LinkView(props: ViewProps & { readonly link: DrawnLink; readonly kind: 
                     onChange={own.writes ? onEnd : NO_EDIT} readOnly={!own.writes} refused={refused} />
                 <SideBody styles={styles} head={m.inspectorSection({ section: "fields", name: kind.name })} section="row" side={kind} own={own.own}
                     state={own.state} onField={own.onField} writes={own.writes} storageKey={`${storageKey}.inspector.${kind.key}`} empty={m.inspectorNoRow()}
-                    refused={own.refused} breaches={own.breaches} focus={own.focus} />
+                    refused={own.refused} breaches={own.breaches} issues={own.issues} focus={own.focus} />
             </Edits>
         </Box>
     );
@@ -1099,7 +1111,7 @@ function NetView(props: ViewProps & { readonly net: DrawnNet; readonly kind: Sch
                     onChange={own.writes ? onSide : NO_EDIT} readOnly={!own.writes} refused={refused} />
                 <SideBody styles={styles} head={m.inspectorSection({ section: "fields", name: kind.name })} section="row" side={kind} own={own.own}
                     state={own.state} onField={own.onField} writes={own.writes} storageKey={`${storageKey}.inspector.${kind.key}`} empty={m.inspectorNoRow()}
-                    refused={own.refused} breaches={own.breaches} focus={own.focus} />
+                    refused={own.refused} breaches={own.breaches} issues={own.issues} focus={own.focus} />
             </Edits>
         </Box>
     );

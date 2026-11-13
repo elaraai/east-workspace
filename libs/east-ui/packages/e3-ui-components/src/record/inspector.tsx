@@ -11,7 +11,8 @@
  * - **one row** — its head: the eyebrow naming its row, its title, and a
  *   chip, New or how many of its fields its drafts change (IN2); its issues
  *   over its form, each field's label and message, the field each names washed
- *   in the form (IN3); its fields in column order, each column group a section
+ *   in the form (IN3) and saying the issue's words under it (ruled 13 Nov
+ *   2026); its fields in column order, each column group a section
  *   under its label — an unlabelled group's `Other` — and the fields no column
  *   shows after them (IN4), each member of a column from data a line of its
  *   own in its group's section (#1561), a cycle, a toggle and a boolean each
@@ -53,7 +54,7 @@ import {
 } from "@elaraai/east-ui-components";
 import { FrameDrawer, formatDatePattern } from "@elaraai/east-ui-components/internal";
 import { useSheetEntries, useSheetInspect, type SheetInspect, type SheetInspectPlace, type SheetInspectTarget } from "../sheet/index.js";
-import { targetIssues, useAuthorDetails, useTargetForm, whatOf, type FormValue, type SheetInspectorDetailsProps } from "../sheet/frame/inspector.js";
+import { issuesByField, targetIssues, useAuthorDetails, useTargetForm, whatOf, type FormValue, type SheetInspectorDetailsProps } from "../sheet/frame/inspector.js";
 import { indexColumns, indexRegisters, markOf, type SheetColumnIndex } from "../sheet/model.js";
 import type { SheetWords } from "../sheet/words.js";
 import { ageOf, useRecordNow } from "./clock.js";
@@ -267,8 +268,9 @@ function RecordTarget({ value, pane, keys, words, hidden, noun, styles, inspect,
     const editControl = edit.renderControl;
     const renderControl = useCallback((spec: FieldSpecValue) => (lines.has(formKey(spec.path)) ? undefined : editControl(spec)), [lines, editControl]);
 
-    // The fields its issues name, washed in the form (IN3).
-    const named = useMemo(() => new Set(issues.flatMap((issue) => (issue.name === undefined ? [] : [issue.name]))), [issues]);
+    // The fields its issues name, washed in the form (IN3), each saying under it what its issues say of it, in their
+    // order (ruled 13 Nov 2026): a field gone to says why it is named, whatever of the issues over the form is in view.
+    const named = issuesByField(issues);
 
     // The field asked to take the keyboard on this row, once the form is drawn to give it; then the request is answered —
     // in a phone's drawer at once, the field left to a tap, so no keyboard rises over the drawer unasked. The author's own

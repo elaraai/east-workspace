@@ -670,7 +670,7 @@ describe("Issues (R16)", () => {
         expect([head(c), chip(c)]).toEqual([["State · CLR", "Cleared at the desk"], m.inspectorChip({ state: "pending" })]);
     });
 
-    test("a ready refusal holds Save off — listed first, blocking — until the field it names is given; the history item's issue selects what it names too (R12)", async () => {
+    test("a ready refusal holds Save off — listed first, blocking — until the field it names is given, the field saying the refusal's words under it in Details; the history item's issue selects what it names too (R12)", async () => {
         const stored = await h.read(ex.depotStates);
         const c = await open(ex.flowchartDepotEditing);
         await click(node(c, "CLR")!);
@@ -686,8 +686,13 @@ describe("Issues (R16)", () => {
         expect(showing(c)).toBe("flowchart");
         await press(editingMessages.issues({ n: 1, count: "1" }));
         expect([showing(c), head(c)[0]]).toEqual(["state", "State · CLR-2"]);
-        // Given its flow, it is ready: Save writes it.
+        // Its Flow, which the refusal names, is washed, and says the check's words under it (ruled 13 Nov 2026): Details
+        // lists no issue, so the field says why it is named — it alone.
+        const named = () => [...panel(c).querySelectorAll("[data-field][data-issue]")].map((el) => el.getAttribute("data-field"));
+        expect([named(), field(c, "flow").querySelector("[data-field-issue]")?.textContent]).toEqual([["flow"], "Give the state its flow"]);
+        // Given its flow, it is ready — its field says nothing — and Save writes it.
         await retype(c, "flow", "Parcels");
+        expect([named(), field(c, "flow").querySelector("[data-field-issue]")]).toEqual([[], null]);
         expect(enabled(SAVE)).toBe(true);
         await press(SAVE);
         const saved = (await h.read(ex.depotStates)).get("CLR-2")!;
