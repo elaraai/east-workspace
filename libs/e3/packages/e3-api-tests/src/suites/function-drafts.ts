@@ -325,9 +325,21 @@ export function functionDraftTests(setup: TestSetup<TestContext>): void {
       if (reversed.outcome.type !== 'conflict') assert.fail(`expected conflict, got ${printOutcome(reversed.outcome)}`);
       assert.deepEqual([reversed.outcome.value.record, reversed.outcome.value.mutation], ['jobs', 'patch']);
 
+      // A function of two records, one of them drafted: the other is read as
+      // stored, which the result names it at
+      const heads = { jobs: await headOf(ctx, ws, 'jobs', opts), tally: await headOf(ctx, ws, 'tally', opts) };
+      const stored = { jobs: await storedAt(ctx, ws, JOBS_PATH, opts), tally: await storedAt(ctx, ws, TALLY_PATH, opts) };
+      const one = await workspaceFunctionCall(base, ctx.repoName, ws, 'hours', request([], [addDraft(5n)]), opts);
+      assert.equal(valueOf(one, IntegerType), 14n, 'the jobs\' 9 hours as saved, and a tally of 5');
+      const [jobsRead, tallyRead] = one.inputs;
+      if (jobsRead === undefined || tallyRead === undefined || one.inputs.length !== 2) assert.fail(`it names ${printInputs(one.inputs)} as read`);
+      assert.ok(sameInputs([jobsRead, { path: tallyRead.path, hash: stored.tally.hash }], [stored.jobs, stored.tally]),
+        `the record it does not draft is read as stored: ${printInputs(one.inputs)}`);
+      assert.notEqual(tallyRead.hash, stored.tally.hash, 'and the one it drafts, at the drafted state');
+      assertDrafted(one, [{ record: 'tally', commit: heads.tally }], 'the one record it drafted');
+
       // Two records, their drafts interleaved: j1's 2 hours gone, and a tally
       // of 5 less 1
-      const heads = { jobs: await headOf(ctx, ws, 'jobs', opts), tally: await headOf(ctx, ws, 'tally', opts) };
       const both = [addDraft(5n), patchDraft(SAVED, edited(SAVED, (rows) => rows.delete('j1'))), addDraft(-1n)];
       const summed = await workspaceFunctionCall(base, ctx.repoName, ws, 'hours', request([], both), opts);
       assert.equal(valueOf(summed, IntegerType), 11n, 'j2\'s 3 hours and j3\'s 4, and a tally of 4');
