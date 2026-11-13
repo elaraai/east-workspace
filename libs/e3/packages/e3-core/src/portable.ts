@@ -68,6 +68,7 @@ export type {
   FunctionCallEnd,
   FunctionCallListOptions,
   FunctionCallListPage,
+  StoredFunctionCall,
   RepositoryUpgrade,
   StorageBackend,
 } from './storage/interfaces.js';
@@ -273,9 +274,15 @@ export {
   recordIndexNames,
   appliedMigrations,
   resolveRecord,
+  recordOfPackage,
   recordLeafType,
+  recordHead,
+  recordDraftMutation,
+  recordLayDraft,
+  encodeMutationArgs,
   RECORD_KEYS_REMEMBERED,
   type RecordRef,
+  type RecordDraftLaid,
   type RecordSystemCommitOptions,
   type RecordSystemCommitTarget,
   type RecordStateRefs,
@@ -545,6 +552,7 @@ export {
   functionCallResult,
   functionCallSummary,
   functionCallInputs,
+  functionCallDrafted,
   functionCallLost,
   functionRunnerRefusal,
   handleProcessFunctionCall,
@@ -557,6 +565,25 @@ export {
   type FunctionCallRun,
   type ProcessFunctionCallDeps,
 } from './execution/functionCall.js';
+
+// A call's drafts: unsaved edits checked and named as the call starts, and
+// laid over the records its function reads as it runs (east-workspace#1619)
+export {
+  pinCallDrafts,
+  layCallDrafts,
+  callDraftsEnd,
+  callDraftsRead,
+  draftedInputs,
+  NO_CALL_DRAFTS,
+  type CallDrafts,
+  type CallDraftsEnd,
+  type CallDraftsLaid,
+  type LayCallDraftsOptions,
+} from './execution/functionDrafts.js';
+
+// A call no store keeps, run within the process that makes it: a local
+// repository's (`e3 call -w`)
+export { functionCallUnkept, type FunctionCallUnkeptOptions } from './execution/functionCallUnkept.js';
 
 // =============================================================================
 // Dataflow

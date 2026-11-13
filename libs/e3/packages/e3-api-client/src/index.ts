@@ -74,6 +74,9 @@ export type {
   Diagnostic,
   ExecuteResult,
   CallArg,
+  FunctionDraft,
+  FunctionDraftConflict,
+  FunctionDrafted,
   FunctionCallRequest,
   FunctionSignature,
   OneShotRequest,
@@ -84,6 +87,7 @@ export type {
   SplitCallPlan,
   FunctionCallState,
   FunctionCallArg,
+  FunctionCallDraft,
   FunctionCallSummary,
   FunctionCall,
   FunctionCallStatus,
@@ -235,6 +239,9 @@ export {
   type SplitCallOptions,
   type SplitCallAnswer,
 } from './functions.js';
+
+// Which of a call's drafts ended it, read from the first line of its stderr
+export { functionDraftEnded, type FunctionDraftEnd } from '@elaraai/e3-types';
 
 // Records (describe + mutations + history + compaction)
 export { workspaceRecordDescribe, workspaceRecordMutate, workspaceRecordCompact, workspaceRecordHistory } from './records.js';

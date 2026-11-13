@@ -118,12 +118,22 @@ export {
   type FunctionCallCancel,
   FunctionCallKeepType,
   type FunctionCallKeep,
+  FunctionCallDraftedType,
+  type FunctionCallDrafted,
   FunctionCallJobType,
   type FunctionCallJob,
   encodeFunctionCallJob,
   decodeFunctionCallJob,
   functionCallRoots,
 } from './function-call.js';
+
+// How a call says which of its drafts ended it
+export {
+  functionDraftLabel,
+  functionDraftEndLine,
+  functionDraftEnded,
+  type FunctionDraftEnd,
+} from './function-draft.js';
 
 // Record objects
 export {
@@ -447,6 +457,9 @@ export {
   DiagnosticType,
   ExecuteResultType,
   CallArgType,
+  FunctionDraftType,
+  FunctionDraftConflictType,
+  FunctionDraftedType,
   FunctionCallRequestType,
   FunctionSignatureType,
   OneShotRequestType,
@@ -459,6 +472,7 @@ export {
   // Function calls, kept for a lifetime
   FunctionCallStateType,
   FunctionCallArgType,
+  FunctionCallDraftType,
   FunctionCallSummaryType,
   FunctionCallType,
   FunctionCallStatusType,
@@ -535,6 +549,9 @@ export {
   type Diagnostic,
   type ExecuteResult,
   type CallArg,
+  type FunctionDraft,
+  type FunctionDraftConflict,
+  type FunctionDrafted,
   type FunctionCallRequest,
   type FunctionSignature,
   type OneShotRequest,
@@ -545,6 +562,7 @@ export {
   type SplitCallPlan,
   type FunctionCallState,
   type FunctionCallArg,
+  type FunctionCallDraft,
   type FunctionCallSummary,
   type FunctionCall,
   type FunctionCallStatus,

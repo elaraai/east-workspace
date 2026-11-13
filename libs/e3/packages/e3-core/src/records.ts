@@ -44,6 +44,7 @@ import {
   mutationDeltaType,
   type DeltaTarget,
   type MutationObject,
+  type PackageObject,
   type RecordArgPreview,
   type RecordCommit,
   type RecordCommitArgs,
@@ -441,10 +442,17 @@ function casBackoffMs(attempt: number): number {
   return Math.min(2 ** attempt, 64) * (0.5 + Math.random());
 }
 
-/** Why a record that holds no state refuses a write: a record declared with
- *  no initial value is unassigned until its first state is committed. */
+/** Why a record that holds no state refuses a write, in a refusal's words: a
+ *  record declared with no initial value is unassigned until its first state
+ *  is committed. */
+function noStateYetMessage(recordName: string): string {
+  return `record '${recordName}' has no state yet: it is unassigned until its first state is committed`;
+}
+
+/** The outcome of a write to a record that holds no state
+ *  ({@link noStateYetMessage}). */
 function noStateYet(recordName: string): MutationOutcome {
-  return { kind: 'invalid', message: `record '${recordName}' has no state yet: it is unassigned until its first state is committed` };
+  return { kind: 'invalid', message: noStateYetMessage(recordName) };
 }
 
 /**
@@ -697,10 +705,38 @@ export async function resolveRecord(
   recordName: string,
 ): Promise<ResolvedRecord | null> {
   const { hash } = await workspaceGetPackage(storage, repo, ws);
-  // Both named by their hashes, so kept once read (#1573)
+  // Named by its hash, so kept once read (#1573)
   const pkg = await keptObject(storage, repo, hash, decodePackageObject);
+  return recordOfPackage(storage, repo, pkg, recordName);
+}
+
+/**
+ * Resolve a record by name in a package: its ref path, its type and its
+ * declarations.
+ *
+ * @remarks
+ * What {@link resolveRecord} finds in the package a workspace has deployed,
+ * for a caller that holds the package already: a call's start resolves the
+ * records its drafts name in the package it resolved its function in, so the
+ * two are one package's whatever is deployed meanwhile.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param pkg - The package, decoded; read, and never changed
+ * @param recordName - The record's name, as the package declares it
+ * @returns The record, or null when the package declares no record of the
+ *   name, or its path names no dataset. Its declarations are the caller's own
+ *   to change; its type is the package's, to read.
+ */
+export async function recordOfPackage(
+  storage: StorageBackend,
+  repo: string,
+  pkg: PackageObject,
+  recordName: string,
+): Promise<ResolvedRecord | null> {
   const recHash = pkg.records.get(recordName);
   if (!recHash) return null;
+  // Named by its hash, so kept once read (#1573)
   const recObj = await keptObject(storage, repo, recHash, decodeRecordObject);
   const type = recordLeafType(pkg.data.structure, recObj.path);
   if (type === undefined) return null;
@@ -714,6 +750,50 @@ export async function resolveRecord(
     indexes: new Map(recObj.indexes),
     migrations: recObj.migrations.map((step) => ({ ...step })),
   };
+}
+
+/**
+ * A record's mutation by its name, checked as every write of the record checks
+ * it before anything runs: the record declares it, the write passes as many
+ * arguments as it takes, and it is no whole-state write of a record with
+ * indexes.
+ *
+ * @remarks
+ * What a Save resolves its mutation with ({@link recordMutate}) and what a
+ * call's start checks each of its drafts with ({@link recordDraftMutation}),
+ * so the two refuse a write in the same words. The object it answers is the
+ * kept one ({@link keptObject}): read, and never changed.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param record - The record's declarations, as {@link resolveRecord} finds them
+ * @param recordName - The record's name, as a refusal names it
+ * @param mutationName - The mutation's name
+ * @param argCount - How many arguments the write passes
+ * @returns The mutation's object and its hash, or why the record refuses the
+ *   write (`invalid`)
+ */
+async function resolveMutation(
+  storage: StorageBackend,
+  repo: string,
+  record: Pick<ResolvedRecord, 'mutations' | 'indexes'>,
+  recordName: string,
+  mutationName: string,
+  argCount: number,
+): Promise<{ hash: string; mutation: MutationObject } | { invalid: string }> {
+  const hash = record.mutations.get(mutationName);
+  if (!hash) return { invalid: `mutation '${mutationName}' not found on record '${recordName}'` };
+  const mutation = await keptObject(storage, repo, hash, decodeMutationObject);
+  if (argCount !== mutation.argTypes.length) {
+    return { invalid: `mutation '${mutationName}' expects ${mutation.argTypes.length} argument(s), got ${argCount}` };
+  }
+  // A whole-state write rewrites the primary and no index. Only a Dict record
+  // declares one, and every Dict record's mutation writes a delta, so one
+  // that does not came from a package that mixes the two.
+  if (mutation.programIr === '' && record.indexes.size > 0) {
+    return { invalid: `mutation '${mutationName}' writes record '${recordName}' whole, and the record has indexes: re-export its package` };
+  }
+  return { hash, mutation };
 }
 
 /**
@@ -768,7 +848,7 @@ function storeProgram(storage: StorageBackend, repo: string, mutObj: MutationObj
  * @param inputs - The unit's input hashes, in the program's parameter order
  * @param run - The time limit, cancellation and verbosity
  * @returns The unit's output hash, or the mutation's outcome when it did not
- *   succeed
+ *   succeed, with whether the stderr it returns is the tail of a longer log
  */
 async function runUnit(
   storage: StorageBackend,
@@ -777,7 +857,7 @@ async function runUnit(
   taskHash: string,
   inputs: string[],
   run: RunContext,
-): Promise<{ output: string } | { failure: MutationOutcome }> {
+): Promise<{ output: string } | UnitFailure> {
   const deadline = new AbortController();
   const timer = setTimeout(() => deadline.abort(), run.limits.timeoutMs);
   let result: TaskResult;
@@ -794,15 +874,17 @@ async function runUnit(
   if (result.state === 'success' && result.outputHash !== undefined) return { output: result.outputHash };
   if (result.cancelled && run.signal?.aborted) return { failure: { kind: 'failed', exitCode: -1, stderr: 'aborted' } };
   let stderr = '';
+  let stderrCut = false;
   if (result.executionId !== undefined) {
     const inHash = inputsHash(inputs);
     const { totalSize } = await storage.logs.read(repo, taskHash, inHash, result.executionId, 'stderr', { offset: 0, limit: 0 });
     const offset = Math.max(0, totalSize - run.limits.maxLogBytes);
+    stderrCut = offset > 0;
     stderr = (await storage.logs.read(repo, taskHash, inHash, result.executionId, 'stderr', { offset, limit: totalSize - offset })).data;
   }
   if (stderr === '') stderr = result.error ?? '';
-  if (result.cancelled) return { failure: { kind: 'timed_out', ms: run.limits.timeoutMs, stderr } };
-  return { failure: { kind: 'failed', exitCode: result.exitCode ?? -1, stderr } };
+  if (result.cancelled) return { failure: { kind: 'timed_out', ms: run.limits.timeoutMs, stderr }, stderrCut };
+  return { failure: { kind: 'failed', exitCode: result.exitCode ?? -1, stderr }, stderrCut };
 }
 
 /**
@@ -841,24 +923,14 @@ export async function recordMutate(
     const resolved = await resolveRecord(storage, repo, ws, recordName);
     if (!resolved) return { kind: 'invalid', message: `record '${recordName}' not found` };
 
-    const mutHash = resolved.mutations.get(mutationName);
-    if (!mutHash) return { kind: 'invalid', message: `mutation '${mutationName}' not found on record '${recordName}'` };
     // The record's ref is read beside the mutation's object, which the first
-    // attempt does not wait on to read it (#1573)
-    const firstRef = storage.datasets.readVersioned(repo, ws, resolved.refPath);
-    firstRef.catch(() => { /* raised when the first attempt takes it */ });
-    const mutObj = await keptObject(storage, repo, mutHash, decodeMutationObject);
-
-    if (args.length !== mutObj.argTypes.length) {
-      return { kind: 'invalid', message: `mutation '${mutationName}' expects ${mutObj.argTypes.length} argument(s), got ${args.length}` };
-    }
-
-    // A whole-state write rewrites the primary and no index. Only a Dict record
-    // declares one, and every Dict record's mutation writes a delta, so one
-    // that does not came from a package that mixes the two.
-    if (mutObj.programIr === '' && resolved.indexes.size > 0) {
-      return { kind: 'invalid', message: `mutation '${mutationName}' writes record '${recordName}' whole, and the record has indexes: re-export its package` };
-    }
+    // attempt does not wait on to read it (#1573): only for a mutation the
+    // record declares, as a write it refuses by name reads nothing
+    const firstRef = resolved.mutations.has(mutationName) ? storage.datasets.readVersioned(repo, ws, resolved.refPath) : undefined;
+    firstRef?.catch(() => { /* raised when the first attempt takes it */ });
+    const checked = await resolveMutation(storage, repo, resolved, recordName, mutationName, args.length);
+    if ('invalid' in checked) return { kind: 'invalid', message: checked.invalid };
+    const mutObj = checked.mutation;
     const limits = opts.limits ?? DEFAULT_LIMITS;
     // The arguments as the commit records them, named once for every attempt
     const argsTuple = args.length > 0 ? named(encodeArgsTuple(args)) : undefined;
@@ -882,7 +954,7 @@ export async function recordMutate(
           return { kind: 'conflict', attempts: attempt - 1 };
         }
 
-        const existing = attempt === 1 ? await firstRef : await storage.datasets.readVersioned(repo, ws, resolved.refPath);
+        const existing = attempt === 1 && firstRef !== undefined ? await firstRef : await storage.datasets.readVersioned(repo, ws, resolved.refPath);
         if (!existing || existing.ref.type !== 'value') return noStateYet(recordName);
 
         // Idempotent retry (OPS-3): if a mutation the record remembers already
@@ -1018,10 +1090,18 @@ function nextVersions(
   return versions;
 }
 
+/** A program's run that did not succeed: the mutation's outcome, and whether
+ *  the stderr it returns is the tail of a longer log, cut at the run's log
+ *  limit. */
+interface UnitFailure {
+  failure: MutationOutcome;
+  stderrCut?: boolean;
+}
+
 /** What a write produced: the targets it moved, or why it did not. */
 type MutationWrite =
   | { primary: string; indexes: Map<string, { manifest: string; index: string }>; delta?: string }
-  | { failure: MutationOutcome }
+  | UnitFailure
   /** A delta op disagreed with the state it landed on — the key is in the text. */
   | { conflictDetail: string };
 
@@ -1222,6 +1302,182 @@ async function patchDelta(
     ops.set(key, op);
   }
   return { type: deltaType, entries, ops };
+}
+
+/**
+ * A mutation call's arguments as the one object a commit names them by: the
+ * tuple a kept call names a draft's arguments by too, so a draft's are stored
+ * as a Save of it would record them.
+ *
+ * @param args - The arguments, each as beast2
+ * @returns The tuple's bytes
+ */
+export function encodeMutationArgs(args: readonly Uint8Array[]): Uint8Array {
+  return encodeArgsTuple([...args]);
+}
+
+/**
+ * The state a record holds and the commit it stands at, by one read of its
+ * ref: what a call's drafts of the record are laid over, and the commit the
+ * call's result names.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param ws - Workspace name
+ * @param recordName - The record's name, as a refusal names it
+ * @param record - The record, as {@link resolveRecord} finds it
+ * @returns The state's hash and its head commit's, or why no draft is laid
+ *   over the record (`invalid`): it holds no state yet, as a Save of it is
+ *   refused, or its ref names no commit
+ */
+export async function recordHead(
+  storage: StorageBackend,
+  repo: string,
+  ws: string,
+  recordName: string,
+  record: Pick<ResolvedRecord, 'refPath' | 'selfKeypath'>,
+): Promise<{ state: string; commit: string } | { invalid: string }> {
+  const existing = await storage.datasets.readVersioned(repo, ws, record.refPath);
+  if (!existing || existing.ref.type !== 'value') return { invalid: noStateYetMessage(recordName) };
+  const commit = existing.ref.value.versions.get(record.selfKeypath);
+  if (commit === undefined) {
+    return { invalid: `record '${recordName}' names no commit its state stands at: no write of the record's own stored it` };
+  }
+  return { state: existing.ref.value.hash, commit };
+}
+
+/**
+ * Checks a draft of a record before anything runs: as a Save of the record
+ * checks its mutation ({@link resolveMutation}), and by its arguments' types
+ * beside, each of which must be the type the mutation declares.
+ *
+ * @remarks
+ * A Save hands its arguments to the mutation's program, whose runner refuses
+ * one of another type as it reads it, and the Save fails. A draft is checked
+ * here instead, by each argument's beast2 header, so a call whose draft could
+ * never be laid is refused as it starts, and nothing runs. The type must be
+ * the declared one exactly, by structure, as a dataset written through any
+ * door must be its declared type's.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param record - The record's declarations, as {@link resolveRecord} finds them
+ * @param recordName - The record's name, as a refusal names it
+ * @param mutationName - The mutation's name
+ * @param args - The draft's arguments, each as beast2
+ * @returns The hash of the mutation's object, or why the draft is refused
+ *   (`invalid`)
+ */
+export async function recordDraftMutation(
+  storage: StorageBackend,
+  repo: string,
+  record: Pick<ResolvedRecord, 'mutations' | 'indexes'>,
+  recordName: string,
+  mutationName: string,
+  args: readonly Uint8Array[],
+): Promise<{ mutation: string } | { invalid: string }> {
+  const checked = await resolveMutation(storage, repo, record, recordName, mutationName, args.length);
+  if ('invalid' in checked) return checked;
+  for (const [i, arg] of args.entries()) {
+    const declared = checked.mutation.argTypes[i]!;
+    let held: EastTypeValue;
+    try {
+      held = readBeast2Type(arg);
+    } catch (err) {
+      return { invalid: `argument ${i + 1} of mutation '${mutationName}' is not beast2: ${err instanceof Error ? err.message : String(err)}` };
+    }
+    if (!isTypeValueStructurallyEqual(held, declared)) {
+      return {
+        invalid: `argument ${i + 1} of mutation '${mutationName}' holds ${printTypeValueSummary(held, 2, 8)}, ` +
+          `and the mutation takes ${printTypeValueSummary(declared, 2, 8)}`,
+      };
+    }
+  }
+  return { mutation: checked.hash };
+}
+
+/**
+ * How laying a draft over a record's state came out ({@link recordLayDraft}).
+ */
+export type RecordDraftLaid =
+  /** The state the draft leaves: the record's primary and every index. */
+  | { kind: 'laid'; state: RecordStateRefs }
+  /** The mutation's program failed. `stderrTruncated` says whether `stderr`
+   *  is the tail of a longer log, cut at the run's log limit. */
+  | { kind: 'failed'; exitCode: number; stderr: string; stderrTruncated: boolean }
+  /** The mutation's program was still running when its time ended. */
+  | { kind: 'timed_out'; stderr: string; stderrTruncated: boolean }
+  /** A write disagreed with the state it was laid over: `detail` is the
+   *  refusal's words, as a Save's conflict carries them. */
+  | { kind: 'conflict'; detail: string }
+  /** The caller's signal stopped the laying. */
+  | { kind: 'aborted' };
+
+/**
+ * Lays one draft over a record's state: a Save's first half, and none of its
+ * second.
+ *
+ * @remarks
+ * The mutation's write runs over the state exactly as a Save runs it
+ * ({@link recordMutate}): a whole-state write runs the reducer, a delta write
+ * runs the mutation's program and applies what it emits to the primary and to
+ * every index, and a patch of a record with no index runs no program at all.
+ * So the state it answers is the one the Save would have left, every index
+ * holding the draft. No commit is stored, no ref is read and none is moved:
+ * the objects written are named by nothing until the caller names them, so the
+ * caller holds the repository's running work until it does
+ * (`withRunningWork`), and they are visible to no reader of the workspace.
+ *
+ * A draft races no other write, since it moves nothing, so it is never run
+ * again: the one conflict it can meet is a write that disagrees with the state
+ * it is laid over.
+ *
+ * @param storage - Storage backend
+ * @param runner - Task runner the mutation's program runs on
+ * @param repo - Repository identifier
+ * @param state - The state the draft is laid over: the record's, or the one
+ *   the draft before it left
+ * @param draft - The hash of the mutation's object, as
+ *   {@link recordDraftMutation} checked it, and the hash of its arguments'
+ *   tuple ({@link encodeMutationArgs}), `null` for a draft with no arguments
+ * @param run - How long the program may run and how much of a failure's
+ *   stderr is returned, with the caller's cancellation and verbosity
+ * @returns The state the draft leaves, or how the draft ended otherwise
+ * @throws {Error} When an object the draft names cannot be read
+ */
+export async function recordLayDraft(
+  storage: StorageBackend,
+  runner: TaskRunner,
+  repo: string,
+  state: RecordStateRefs,
+  draft: { mutation: string; args: string | null },
+  run: { timeoutMs: number; maxLogBytes: number; signal?: AbortSignal; verbose?: boolean },
+): Promise<RecordDraftLaid> {
+  if (run.signal?.aborted) return { kind: 'aborted' };
+  const [mutObj, args] = await Promise.all([
+    keptObject(storage, repo, draft.mutation, decodeMutationObject),
+    draft.args === null ? [] : storage.objects.read(repo, draft.args).then(decodeArgsTuple),
+  ]);
+  const context: RunContext = {
+    limits: { timeoutMs: run.timeoutMs, maxLogBytes: run.maxLogBytes },
+    ...(run.signal !== undefined && { signal: run.signal }),
+    ...(run.verbose !== undefined && { verbose: run.verbose }),
+  };
+  const write = mutObj.programIr === ''
+    ? await writeWholeState(storage, runner, repo, mutObj, state, args, context, undefined)
+    : await writeDelta(storage, runner, repo, mutObj, state, args, context, undefined);
+  if ('failure' in write) {
+    // A run its caller stopped is no failure of the mutation's
+    if (run.signal?.aborted) return { kind: 'aborted' };
+    const { failure } = write;
+    const stderrTruncated = write.stderrCut === true;
+    if (failure.kind === 'timed_out') return { kind: 'timed_out', stderr: failure.stderr, stderrTruncated };
+    if (failure.kind === 'failed') return { kind: 'failed', exitCode: failure.exitCode, stderr: failure.stderr, stderrTruncated };
+    // A write's run fails or runs out of time, and ends no other way
+    throw new Error(`a draft's write ended ${failure.kind}, which no write's run does`);
+  }
+  if ('conflictDetail' in write) return { kind: 'conflict', detail: write.conflictDetail };
+  return { kind: 'laid', state: { primary: write.primary, indexes: write.indexes } };
 }
 
 /**

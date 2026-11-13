@@ -23,6 +23,7 @@ export {
   DEFAULT_CALL_WINDOW_MS,
   type GetRunner,
   type OneShotAccess,
+  type DraftAccess,
   type OneShotRoutesOptions,
   type FunctionRoutesOptions,
 } from './functions.js';

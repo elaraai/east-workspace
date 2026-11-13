@@ -22,6 +22,7 @@ import {
   GcRequestType,
   GcResultType,
   FunctionCallRequestType,
+  FunctionDraftType,
   ExecuteResultType,
   OneShotRequestType,
   PackageListItemType,
@@ -258,7 +259,10 @@ export const platform_task_logs = East.asyncPlatform(
 /** Call a named function of a workspace's deployed package, run to
  *  completion, returning the inline ExecuteResult. An argument is a value, or
  *  a dataset of the workspace (`CallArg`'s `dataset`), pinned by its hash at
- *  launch and named in the result's `inputs`. */
+ *  launch and named in the result's `inputs`. The request's `drafts`
+ *  (`FunctionDraft`) are edits nobody has saved, laid over the records the
+ *  function reads and never saved, as `workspaceFunctionCall` says; `[]`
+ *  passes none. */
 export const platform_function_call = East.asyncPlatform(
   'e3_function_call',
   [StringType, StringType, StringType, StringType, FunctionCallRequestType, StringType],  // url, repo, workspace, fn, request, token
@@ -647,6 +651,7 @@ export const Platform = {
     LogChunk: LogChunkType,
     LogOptions: LogOptionsType,
     CallArg: CallArgType,
+    FunctionDraft: FunctionDraftType,
     FunctionCallRequest: FunctionCallRequestType,
     ExecuteResult: ExecuteResultType,
     OneShotRequest: OneShotRequestType,

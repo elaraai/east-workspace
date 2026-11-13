@@ -43,6 +43,8 @@ export { templateWorkspace, type TemplateCopy } from './template.js';
 export {
   createPackageZip,
   createFunctionPackageZip,
+  createDraftsPackageZip,
+  DraftJobsType,
   createMultiInputPackageZip,
   createStringPackageZip,
   createTablePackageZip,
@@ -78,6 +80,7 @@ export { datasetTransferTests } from './suites/dataset-transfer.js';
 export { dataflowTests } from './suites/dataflow.js';
 export { functionTests } from './suites/functions.js';
 export { callTests } from './suites/calls.js';
+export { functionDraftTests } from './suites/function-drafts.js';
 export { recordTests } from './suites/records.js';
 export { keyedRecordTests } from './suites/records-keyed.js';
 export { areaRecordTests } from './suites/records-area.js';
@@ -104,6 +107,7 @@ import { datasetTransferTests } from './suites/dataset-transfer.js';
 import { dataflowTests } from './suites/dataflow.js';
 import { functionTests } from './suites/functions.js';
 import { callTests } from './suites/calls.js';
+import { functionDraftTests } from './suites/function-drafts.js';
 import { recordTests } from './suites/records.js';
 import { keyedRecordTests } from './suites/records-keyed.js';
 import { areaRecordTests } from './suites/records-area.js';
@@ -136,6 +140,7 @@ export const apiTestSuites: Readonly<Record<string, (setup: TestSetup<TestContex
   dataflow: dataflowTests,
   functions: functionTests,
   calls: callTests,
+  functionDrafts: functionDraftTests,
   records: recordTests,
   keyedRecords: keyedRecordTests,
   areaRecords: areaRecordTests,

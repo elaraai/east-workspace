@@ -7,7 +7,7 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import { some } from '@elaraai/east';
 import { decodeFunctionCallJob, encodeFunctionCallJob, type FunctionCallCancel, type FunctionCallJob } from '@elaraai/e3-types';
-import type { FunctionCallEnd, FunctionCallListOptions, FunctionCallListPage, FunctionCallStore } from '../interfaces.js';
+import type { FunctionCallEnd, FunctionCallListOptions, FunctionCallListPage, FunctionCallStore, StoredFunctionCall } from '../interfaces.js';
 import { checkId, checkName, checkPageLimit, isNotFoundError } from '../../errors.js';
 import { withKeyedLock } from '../../keyed-mutex.js';
 import { isUuidv7 } from '../../uuid.js';
@@ -87,6 +87,17 @@ export class LocalFunctionCallStore implements FunctionCallStore {
     });
   }
 
+  async pinInputs(repo: string, workspace: string, id: string, inputs: FunctionCallJob['call']['inputs']): Promise<FunctionCallJob | null> {
+    const file = callFile(repo, workspace, id);
+    return withKeyedLock(file, async () => {
+      const job = await this.readLive(file);
+      if (job === null || job.call.state.type !== 'running') return job;
+      const pinned: FunctionCallJob = { ...job, call: { ...job.call, inputs } };
+      await atomicWriteFile(file, encodeFunctionCallJob(pinned));
+      return pinned;
+    });
+  }
+
   async list(repo: string, workspace: string, options: FunctionCallListOptions): Promise<FunctionCallListPage> {
     checkPageLimit(options.limit);
     if (options.before !== undefined) checkId('call id', options.before);
@@ -110,6 +121,33 @@ export class LocalFunctionCallStore implements FunctionCallStore {
       if (calls.length >= options.limit) return at < ids.length - 1 ? { calls, next: id } : { calls };
     }
     return { calls };
+  }
+
+  /** Every call file of the repository, by its workspace's directory and its
+   *  name: read as it is, and replaced whole in its turn among the call's
+   *  writes. */
+  async readStored(repo: string): Promise<StoredFunctionCall[]> {
+    const stored: StoredFunctionCall[] = [];
+    for (const workspace of await entries(path.join(repo, 'workspaces'))) {
+      const dir = path.join(repo, 'workspaces', workspace, 'calls');
+      for (const id of await callIds(dir)) {
+        const file = path.join(dir, `${id}${CALL_EXTENSION}`);
+        stored.push({
+          workspace,
+          id,
+          read: async () => {
+            try {
+              return await readReplacedFile(file);
+            } catch (err) {
+              if (isNotFoundError(err)) return null;
+              throw err;
+            }
+          },
+          replace: (bytes) => withKeyedLock(file, () => atomicWriteFile(file, bytes)),
+        });
+      }
+    }
+    return stored;
   }
 
   /**

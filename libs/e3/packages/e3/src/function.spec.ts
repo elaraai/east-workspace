@@ -33,6 +33,7 @@ import { runnerToVariant } from './runner.js';
 import { package_ } from './package.js';
 import { export_ } from './export.js';
 import { input } from './input.js';
+import { record } from './record.js';
 import { partition, task } from './task.js';
 import type { IRBundle } from './types.js';
 import type { FunctionSpec } from './index.js';
@@ -92,6 +93,7 @@ describe('function_', () => {
     assert.deepStrictEqual(toEastTypeValue(fn.argTypes[1]!), toEastTypeValue(FloatType));
     assert.deepStrictEqual(toEastTypeValue(fn.outputType), toEastTypeValue(FloatType));
     assert.strictEqual(fn.inputs.length, 0);
+    assert.deepStrictEqual(fn.drafts, [], 'and so takes no draft');
     assert.strictEqual(fn.deps.size, 0);
     // Defaults to DEFAULT_RUNNER (east-node + east-node-std)
     assert.deepStrictEqual(runnerToVariant(fn.runner), variant('east_node', {
@@ -181,6 +183,102 @@ describe('function_ with inputs', () => {
     assert.ok(pkg.contents.includes(value), 'the task producing the input');
     assert.ok(pkg.contents.includes(value.output), 'the input');
     assert.ok(pkg.contents.includes(stock), 'the task\'s own input');
+  });
+});
+
+describe('function_ with drafts', () => {
+  const JobType = StructType({ press: StringType });
+  const jobs = record('jobs', DictType(StringType, JobType), {
+    initial: new Map(),
+    mutations: (mutation) => ({ patch: mutation.patch() }),
+  });
+  const presses = record('presses', DictType(StringType, StringType), { initial: new Map() });
+  const prices = input('prices', DictType(StringType, FloatType), variant('value', new Map([['a', 2.5]])));
+
+  it('lists the records a call may draft, each a record among its inputs, and its body is given the inputs as any function\'s is', () => {
+    const jobsOn = function_('jobs_on', {
+      inputs: [jobs, prices],
+      drafts: [jobs],
+      args: [StringType],
+      output: IntegerType,
+    }, ($, jobs, _prices, press) => {
+      const count = $.let(0n);
+      $.for(jobs, ($, job) => {
+        $.if(East.equal(job.press, press), ($) => { $.assign(count, count.add(1n)); });
+      });
+      return count;
+    });
+
+    assert.deepStrictEqual(jobsOn.drafts, [jobs]);
+    assert.deepStrictEqual(jobsOn.inputs, [jobs, prices]);
+    assert.deepStrictEqual(jobsOn.argTypes.map((t) => toEastTypeValue(t)), [toEastTypeValue(StringType)]);
+    const held = new Map([['j1', { press: 'P1' }], ['j2', { press: 'P2' }], ['j3', { press: 'P1' }]]);
+    assert.strictEqual((jobsOn.body as IRBundle).compile([])(held, new Map([['a', 2.5]]), 'P1'), 2n);
+  });
+
+  it('takes no draft where it lists no record', () => {
+    const count = function_('count', { inputs: [jobs], args: [], output: IntegerType }, ($, jobs) => jobs.size());
+    assert.deepStrictEqual(count.drafts, []);
+    const none = function_('none_listed', { inputs: [jobs], drafts: [], args: [], output: IntegerType }, ($, jobs) => jobs.size());
+    assert.deepStrictEqual(none.drafts, []);
+  });
+
+  it('holds a record listed twice once, in the order first listed', () => {
+    const both = function_('both', { inputs: [jobs, presses], drafts: [presses, jobs, presses], args: [], output: IntegerType },
+      ($, jobs, presses) => jobs.size().add(presses.size()));
+    assert.deepStrictEqual(both.drafts, [presses, jobs]);
+  });
+
+  // The types take the records among the inputs alone, which each spec below
+  // is refused by where it is declared; an untyped caller is refused as it is built.
+  it('refuses a draft of what is no record, naming it', () => {
+    const priced: FunctionSpec<[typeof prices], [], IntegerType> = {
+      inputs: [prices],
+      // @ts-expect-error — of the inputs, only a record is listed in drafts
+      drafts: [prices],
+      args: [],
+      output: IntegerType,
+    };
+    assert.throws(() => function_('priced', priced, ($, prices) => prices.size()), {
+      message: 'e3.function \'priced\': \'prices\', listed in drafts, is no record — '
+        + 'a draft is a call of a record\'s mutation that is not committed, so only an e3.record takes one',
+    });
+    // A record is listed as itself, not by its name
+    const byName: FunctionSpec<[typeof jobs], [], IntegerType> = {
+      inputs: [jobs],
+      // @ts-expect-error — the record, not its name
+      drafts: ['jobs'],
+      args: [],
+      output: IntegerType,
+    };
+    assert.throws(() => function_('by_name', byName, ($, jobs) => jobs.size()), {
+      message: 'e3.function \'by_name\': an entry of drafts is no record — '
+        + 'a draft is a call of a record\'s mutation that is not committed, so only an e3.record takes one',
+    });
+  });
+
+  it('refuses a draft of a record none of its inputs reads, naming it', () => {
+    const unread: FunctionSpec<[typeof presses, typeof prices], [], IntegerType> = {
+      inputs: [presses, prices],
+      // @ts-expect-error — jobs is not among the inputs
+      drafts: [jobs],
+      args: [],
+      output: IntegerType,
+    };
+    assert.throws(() => function_('unread', unread, ($, presses) => presses.size()), {
+      message: 'e3.function \'unread\': the record \'jobs\', listed in drafts, is read by none of its inputs — '
+        + 'list it in inputs too, and a call reads it with its drafts laid over it',
+    });
+  });
+
+  it('refuses the custom runtime, which takes no input for a draft to be laid over', () => {
+    assert.throws(() => function_('custom', {
+      inputs: [jobs],
+      drafts: [jobs],
+      args: [],
+      output: IntegerType,
+      runner: { runtime: 'custom', command: ['python3', 'my-runner.py'] },
+    }, ($, jobs) => jobs.size()), /e3.function 'custom': the custom runtime takes no inputs/);
   });
 });
 
@@ -279,6 +377,7 @@ describe('export_ with functions', () => {
     assert.strictEqual(fnObject.argTypes.length, 1);
     assert.strictEqual(fnObject.argTypes[0]!.type, 'Integer');
     assert.strictEqual(fnObject.inputs.length, 0);
+    assert.deepStrictEqual(fnObject.drafts, []);
     assert.strictEqual(fnObject.outputType.type, 'Integer');
     assert.deepStrictEqual(fnObject.runner, variant('east_node', { platforms: ['@elaraai/east-node-std'], decode: variant('lazy', null) }));
 
@@ -306,6 +405,29 @@ describe('export_ with functions', () => {
     assert.deepStrictEqual(fnObject.inputs.map((p) => pathToString(p)), ['.inputs.greeting', '.tasks.shout.output']);
     assert.deepStrictEqual(fnObject.argTypes.map((t) => t.type), ['Integer']);
     assert.strictEqual(fnObject.outputType.type, 'String');
+    assert.deepStrictEqual(fnObject.drafts, [], 'and it lists no record a call may draft');
+  });
+
+  it('writes the records a function lists in its drafts by name, as the package holds each', async () => {
+    const jobs = record('jobs', DictType(StringType, StringType), {
+      initial: new Map(),
+      mutations: (mutation) => ({ patch: mutation.patch() }),
+    });
+    const presses = record('presses', DictType(StringType, StringType), { initial: new Map() });
+    const jobsOn = function_('jobs_on', { inputs: [presses, jobs], drafts: [jobs], args: [], output: IntegerType },
+      ($, presses, jobs) => presses.size().add(jobs.size()));
+    const pkg = package_('fn-drafts-pkg', '1.0.0', jobsOn);
+
+    const zipPath = path.join(tempDir, 'fn-drafts-pkg-1.0.0.zip');
+    await export_(pkg, zipPath);
+    const entries = await readZip(zipPath);
+    const pkgObject = decodeBeast2For(PackageObjectType)(objectEntry(entries, decodeBeast2For(StringType)(entries.get('packages/fn-drafts-pkg/1.0.0.beast2')!))!);
+
+    const fnObject = decodeBeast2For(FunctionObjectType)(objectEntry(entries, pkgObject.functions.get('jobs_on')!)!);
+    assert.deepStrictEqual(fnObject.inputs.map((p) => pathToString(p)), ['.records.presses', '.records.jobs']);
+    assert.deepStrictEqual(fnObject.drafts, ['jobs']);
+    // The name is the one the package holds the record under, which a draft and `e3 mutate` address it by
+    assert.deepStrictEqual([...pkgObject.records.keys()], ['jobs', 'presses']);
   });
 
   it('produces identical output for the same package (deterministic)', async () => {

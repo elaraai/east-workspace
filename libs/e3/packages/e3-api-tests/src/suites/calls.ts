@@ -74,7 +74,7 @@ const samePackage = equalFor(FunctionCallType.fields.package);
 
 /** A call of value arguments, each one's bytes. */
 function request(args: Uint8Array[]): FunctionCallRequest {
-  return { args: args.map((arg) => variant('value', arg)), runner: none, limits: none };
+  return { args: args.map((arg) => variant('value', arg)), runner: none, limits: none, drafts: [] };
 }
 
 /** A stock east-node runner, given the platform packages named: none is what a platform-free one-shot runs on. */
@@ -237,7 +237,7 @@ export function callTests(setup: TestSetup<TestContext>): void {
       assert.equal(quote.endedAt.type, 'some');
 
       // A dataset argument is kept as the hash it was pinned at
-      const added = await workspaceFunctionStart(base, ctx.repoName, WS, 'add', { args: [variant('dataset', VALUE_PATH), variant('value', encodeInt(5n))], runner: none, limits: none }, opts);
+      const added = await workspaceFunctionStart(base, ctx.repoName, WS, 'add', { args: [variant('dataset', VALUE_PATH), variant('value', encodeInt(5n))], runner: none, limits: none, drafts: [] }, opts);
       assert.equal(successValue(completed(added.status)), 15n);
       const add = await workspaceCallGet(base, ctx.repoName, WS, added.id, opts);
       const [dataset] = add.args;

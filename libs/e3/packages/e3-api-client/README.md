@@ -178,21 +178,21 @@ import {
   workspaceFunctionCall, workspaceFunctionStart, workspaceFunctionCallStatus, workspaceFunctionCallCancel,
   workspaceCallList, workspaceCallGet,
 } from '@elaraai/e3-api-client';
-import { encodeBeast2For, IntegerType, none, variant } from '@elaraai/east';
+import { encodeBeast2For, IntegerType, StringType, none, variant } from '@elaraai/east';
 
 // Call a function of the workspace's package and wait for its result,
 // however long it runs
 const stop = new AbortController();
 const result = await workspaceFunctionCall(url, repo, 'production', 'forecast', {
-  args: [variant('value', encodeBeast2For(IntegerType)(12n))], runner: none, limits: none,
+  args: [variant('value', encodeBeast2For(IntegerType)(12n))], runner: none, limits: none, drafts: [],
 }, options, { signal: stop.signal, onStarted: (id) => console.log(`call ${id} runs on`) });
-// { outcome: <success | failed | invalid | too_large | timed_out>, stdout, stderr, inputs, ... }
+// { outcome: <success | failed | invalid | too_large | timed_out | conflict>, stdout, stderr, inputs, drafts, ... }
 
 // The calls the workspace keeps, the latest first, and one whole
 const page = await workspaceCallList(url, repo, 'production', options, { state: 'failed' });
 // { calls: [{ id, function: <some(name) | none for a one-shot>, caller, startedAt, endedAt, state }, ...], next: <none | some(cursor)> }
 const call = await workspaceCallGet(url, repo, 'production', page.calls[0].id, options);
-// { function, package: <some({ name, version }) | none>, args, inputs, limits, state: <succeeded { value: hash } | …>, stdout, stderr, expiresAt, ... }
+// { function, package: <some({ name, version }) | none>, args, inputs, drafts, limits, state: <succeeded { value: hash } | …>, stdout, stderr, expiresAt, ... }
 ```
 
 A call through a workspace is the server's, and outlives the request that
@@ -218,8 +218,45 @@ id, options, { waitMs, signal })` its status — `running`, `completed` with its
 result, `cancelled` naming who asked, or `lost` — and
 `workspaceFunctionCallCancel` asks a running call to stop. The server keeps
 each call for its lifetime, an hour for a success or a cancel and a week for
-any other end: who made it, its arguments, the versions of the inputs it read,
-its value and its logs, by hash, which `objectGet` reads.
+any other end: who made it, its arguments and drafts, the versions of the
+inputs it read, its value and its logs, by hash, which `objectGet` reads.
+
+A call may pass **drafts**: edits nobody has saved, laid over the records the
+function reads, so it reads them as a Save would have left them, and nothing is
+saved. Each is a call of a record's mutation that is not committed —
+`{ record, mutation, args }`, the arguments beast2-encoded as
+`workspaceRecordMutate` takes them — of a record the function lists as one a
+call may draft (its signature's `drafts`):
+
+```typescript
+import { functionDraftEnded } from '@elaraai/e3-api-client';
+
+// How many jobs press P1 holds, with job j2 moved to it and not saved
+const drafted = await workspaceFunctionCall(url, repo, 'production', 'jobs_on', {
+  args: [variant('value', encodeBeast2For(StringType)('P1'))], runner: none, limits: none,
+  drafts: [{ record: 'jobs', mutation: 'move', args: [encodeBeast2For(StringType)('j2'), encodeBeast2For(StringType)('P1')] }],
+}, options);
+// drafted.inputs: the drafted state's hash for jobs, which no other reader is shown
+// drafted.drafts: [{ record: 'jobs', commit }], the commit jobs stood at as the call started
+
+if (drafted.outcome.type === 'conflict') {
+  // The record changed under the edit: { record, mutation, message }
+}
+const ended = functionDraftEnded(drafted);
+// { record, mutation, place, of, how: 'failed' | 'timed_out' } when a draft's mutation ended the call, else null
+```
+
+The server lays the drafts in the order given, each by the mutation's own
+program over the state the one before it left. A draft found wrong — a record
+the function does not list, an unknown mutation, arguments of the wrong number
+or type — is an `invalid` result naming the draft, and nothing runs. A draft
+the record refuses ends the call as its Save would have ended, before the
+function runs: `failed` or `timed_out`, the first line of `stderr` naming it
+(`draft jobs.move (1 of 1) failed`), or `conflict`. A draft is passed only
+where its mutation may be committed: one the server does not let the caller
+pass throws `ApiError` `permission_denied`, its `path`
+`draft <record>.<mutation>`. A call through the package (`functionCall`) reads
+no workspace, and answers a draft `invalid`.
 
 ### One-shot calls
 

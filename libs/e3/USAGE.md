@@ -455,6 +455,50 @@ route has no workspace to read from, so such a function is called through one
 (`e3 call -w`). `async: true` builds the body with `East.asyncFunction`; an
 `e3.partition` input, and the `custom` runtime with inputs, are refused.
 
+A page holds edits nobody has saved: a builder's drags and typing, waiting for
+Save. A function reads the workspace as saved, so it cannot see them — unless
+it lists the record in `drafts`, and its caller passes the edits with the call:
+
+```typescript
+const jobsOn = e3.function('jobs_on', {
+  inputs: [jobs],
+  drafts: [jobs],          // a call may lay unsaved edits over jobs
+  args: [StringType],
+  output: IntegerType,
+}, ($, jobs, press) => {
+  const count = $.let(0n);
+  $.for(jobs, ($, job) => {
+    $.if(East.equal(job.press, press), ($) => { $.assign(count, count.add(1n)); });
+  });
+  return count;
+});
+```
+
+A **draft** is a mutation call that is not committed —
+`{ record, mutation, args }`, the arguments as the mutation takes them. A
+call's drafts run in the order passed, each by the mutation's own program over
+the state the one before it left, so the record's rows and every index of it
+hold them as they would after the Save, and the body reads the record at that
+state. Nothing is committed: no commit, no history, no record moved, no task
+re-run, and nothing another reader of the workspace sees. The result's `inputs`
+name the drafted state's hash, and its `drafts` name each drafted record with
+the commit it stood at as the call started, so a caller that holds another
+commit knows its edits were laid over newer saves.
+
+Listing a record is the author's word that the function is fit to run over
+edits nobody saved: a function that sends a message or writes elsewhere lists
+none. Each entry of `drafts` is a record one of the `inputs` reads, else the
+declaration is refused, naming it. A draft of a record the function does not
+list, an unknown mutation, and arguments of the wrong number or type end the
+call `invalid`, naming the draft, and nothing runs. A draft the record refuses
+ends the call as its Save would have ended, and the body does not run: `failed`
+or `timed_out`, the first line of stderr saying which draft
+(`draft jobs.patch (2 of 3) failed`), or `conflict`, naming the record and the
+mutation, when the record changed under the edit. A draft carries no limits of
+its own: its mutation runs under the call's, for what is left of the call's
+timeout. Only a call through a workspace takes drafts — the package route reads
+no workspace — and a task takes none: it reads what is saved.
+
 ### Records: `e3.record`
 
 A record is audited state: written only through its mutations, each a commit
@@ -871,6 +915,7 @@ Task spec uses dots: `pkg.task` (or `pkg@version.task`). Slashes are no longer a
 e3 call <repo> <pkg.fn> [args...]            # call by package: pkg.fn or pkg@1.0.0.fn
 e3 call <repo> -w <ws> <fn> [args...]        # call the workspace's deployed package
 e3 call <repo> -w <ws> <fn> @.inputs.sales 5 # pass a dataset of the workspace
+e3 call <repo> -w <ws> <fn> [args...] --draft <record>.<mutation> [args...]  # over an unsaved edit; nothing is saved
 e3 call <repo> <pkg.fn> 2 3 -o sum.beast2    # write raw result to a file
 e3 call <repo> <pkg.fn> 2 3 -v               # print the runner's timing/perf to stderr (local repos)
 ```
@@ -886,8 +931,37 @@ that declares inputs reads them itself, so it is given its arguments alone and
 called with `-w`; without it, it is refused, naming its inputs. On success
 the decoded result prints to stdout; failures
 (wrong arity, runtime error, timeout, over-size result) exit non-zero with
-a diagnostic. Calls are graph-free — they trigger no dataflow and leave the
-repository byte-for-byte unchanged.
+a diagnostic. Calls are graph-free — they trigger no dataflow and change no
+dataset or record of the workspace.
+
+With `-w`, each `--draft <record>.<mutation> [args...]` lays an unsaved edit
+over a record the function lists in `drafts`: the mutation runs as `e3 mutate`
+would run it, its arguments read the same way, and the function reads the
+record at the state that leaves. Nothing is saved. Drafts are laid in the order
+written, each over the state the one before it left:
+
+```bash
+e3 call . -w dev jobs_on '"P1"'                                    # as saved
+e3 call . -w dev jobs_on '"P1"' --draft jobs.move '"j2"' '"P1"'    # with j2 moved, unsaved
+e3 call . -w dev jobs_on '"P1"' --draft jobs.move '"j2"' '"P1"' --draft jobs.move '"j1"' '"P2"'
+```
+
+`--draft` reads every word up to the next option, so it is written after the
+call's own arguments, or the drafts are ended with `--`. A draft ends where its
+mutation's arguments do — as many words as the mutation declares — and a word
+that starts with a dash is written `--draft=<word>`. A draft that names no
+record or mutation of the workspace, or whose arguments do not match, is
+refused before anything runs, named by its place (`Draft 2 (jobs.move): …`). A
+draft the record refuses ends the call before the function runs, and exits
+non-zero saying which:
+
+- `Draft jobs.patch (2 of 3) failed with exit code: 1; the function did not run`
+- `Draft jobs.patch (2 of 3) had not been laid when the call timed out after 600000ms; the function did not run`
+- `Draft jobs.patch conflicted: … — the edit no longer matches the record; re-read it and call again`,
+  when the record changed under the edit
+
+The objects a drafted state is made of are stored, and named by nothing once
+the call is gone, so `e3 repo gc` collects them.
 
 ### Watch / Live Development
 

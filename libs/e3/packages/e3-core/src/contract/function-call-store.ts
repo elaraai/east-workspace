@@ -7,13 +7,16 @@
  * The function call store's contract: what any backend's kept calls do
  * (east-workspace#1554). A call is filed as it starts, ended once, asked to
  * stop while it runs, listed the latest first, kept for its lifetime and no
- * longer, rooted for gc while it is kept, and removed with its workspace.
+ * longer, rooted for gc while it is kept, and removed with its workspace. A
+ * running call's inputs are pinned again once its drafts are laid, and each
+ * call is read and written as the bytes the store holds, for a repository
+ * upgrade step (east-workspace#1619).
  */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { equalFor, none, some, variant } from '@elaraai/east';
-import { FunctionCallJobType, type FunctionCallJob, type FunctionCallState } from '@elaraai/e3-types';
+import { SortedMap, equalFor, none, some, variant } from '@elaraai/east';
+import { FunctionCallJobType, decodeFunctionCallJob, encodeFunctionCallJob, type FunctionCallJob, type FunctionCallState } from '@elaraai/e3-types';
 import { collectAllRoots } from '../gc.js';
 import type { FunctionCallEnd, FunctionCallListOptions, StorageBackend } from '../storage/interfaces.js';
 import { uuidv7 } from '../uuid.js';
@@ -34,6 +37,8 @@ interface Filed {
   expiresAt?: Date;
   args?: FunctionCallJob['call']['args'];
   inputs?: FunctionCallJob['call']['inputs'];
+  drafts?: FunctionCallJob['call']['drafts'];
+  drafted?: FunctionCallJob['drafted'];
 }
 
 /** A call as it starts, in a workspace: running, and kept for an hour unless told otherwise. */
@@ -51,6 +56,7 @@ function filed(workspace: string, options: Filed = {}): FunctionCallJob {
       package: fn === null ? none : some({ name: 'calls-pkg', version: '1.0.0' }),
       args: options.args ?? [],
       inputs: options.inputs ?? [],
+      drafts: options.drafts ?? [],
       limits: { timeoutMs: 60_000n, maxResultBytes: 1024n, maxLogBytes: 1024n },
       expiresAt: options.expiresAt ?? new Date(now + HOUR_MS),
       stdout: '',
@@ -65,7 +71,13 @@ function filed(workspace: string, options: Filed = {}): FunctionCallJob {
     deadline: new Date(now + 60_000),
     cancel: none,
     keep: { succeeded: BigInt(HOUR_MS), failed: BigInt(7 * 24 * HOUR_MS) },
+    drafted: options.drafted ?? [],
   };
+}
+
+/** A record's place in a workspace, as a call's input names it. */
+function recordPath(name: string): FunctionCallJob['call']['inputs'][number]['path'] {
+  return [variant('field', 'records'), variant('field', name)];
 }
 
 /**
@@ -228,6 +240,114 @@ export function functionCallStoreTests(setup: BackendSetup): void {
       assert.equal(roots.has(expiredFn!), false, 'not even its function object');
     });
 
+    it('files a call with the drafts it passed and what it lays them from, reads it back as filed, and ends it with a conflict', async (t) => {
+      const { storage, repo } = await setup(t);
+      const [state, args, base, patch, clear, commit] = ['1', '2', '3', '4', '5', '6'].map((digit) => digit.repeat(64));
+      const job = filed(WS, {
+        inputs: [{ path: recordPath('jobs'), hash: state! }],
+        drafts: [
+          { record: 'jobs', mutation: 'patch', args: some(args!), commit: commit! },
+          { record: 'jobs', mutation: 'clear', args: none, commit: commit! },
+        ],
+        drafted: [{ record: 'jobs', path: recordPath('jobs'), base: base!, mutations: new SortedMap([['clear', clear!], ['patch', patch!]]) }],
+      });
+      await storage.calls.create(repo, job);
+      const read = await storage.calls.get(repo, WS, job.call.id);
+      assert.ok(read !== null && jobEqual(read, job), 'read back as filed');
+
+      const conflict = variant('conflict', { record: 'jobs', mutation: 'patch', message: 'the row at "j1" changed under the edit' });
+      const ended = await storage.calls.end(repo, WS, job.call.id, ending(conflict));
+      assert.ok(ended?.call.state.type === 'conflict');
+      assert.equal(ended.call.state.value.message, 'the row at "j1" changed under the edit');
+      assert.ok(jobEqual(ended, { ...job, call: { ...ended.call, drafts: job.call.drafts } }), 'its drafts and what it lays them from as filed');
+      assert.deepEqual(await listAll(storage, repo, WS, { limit: 10, state: 'conflict' }), [job.call.id], 'and a list finds it by how it ended');
+    });
+
+    it("roots what a kept call lays its drafts from: each draft's arguments, the state each drafted record stood at and its mutations", async (t) => {
+      const { storage, repo } = await setup(t);
+      await workspaceCreate(storage, repo, WS);
+      const [args, base, patch, clear, commit, expired] = ['1', '2', '3', '4', '5', '6'].map((digit) => digit.repeat(64));
+      const drafted = (state: string): Filed => ({
+        drafts: [
+          { record: 'jobs', mutation: 'patch', args: some(args!), commit: commit! },
+          { record: 'jobs', mutation: 'clear', args: none, commit: commit! },
+        ],
+        drafted: [{ record: 'jobs', path: recordPath('jobs'), base: state, mutations: new SortedMap([['clear', clear!], ['patch', patch!]]) }],
+      });
+      await storage.calls.create(repo, filed(WS, drafted(base!)));
+      await storage.calls.create(repo, filed(WS, { ...drafted(expired!), expiresAt: new Date(Date.now() - 1) }));
+
+      const roots = await collectAllRoots(storage.repos, repo);
+      for (const hash of [args, base, patch, clear]) assert.ok(roots.has(hash!), `the kept call roots ${hash!.slice(0, 1)}…`);
+      assert.equal(roots.has(commit!), false, 'the commit a record stood at is named, and not kept: the record keeps its own history');
+      assert.equal(roots.has(expired!), false, 'an expired call roots nothing');
+    });
+
+    it("pins a running call's inputs whole, which gc keeps from then on, and leaves a call that has ended as it is", async (t) => {
+      const { storage, repo } = await setup(t);
+      await workspaceCreate(storage, repo, WS);
+      const [base, drafted, rate, late] = ['1', '2', '3', '4'].map((digit) => digit.repeat(64));
+      const inputs = (jobs: string): FunctionCallJob['call']['inputs'] => [
+        { path: recordPath('jobs'), hash: jobs },
+        { path: [variant('field', 'inputs'), variant('field', 'rate')], hash: rate! },
+      ];
+      const running = filed(WS, { inputs: inputs(base!) });
+      await storage.calls.create(repo, running);
+
+      // As a call's run pins it once its drafts are laid: the record at the state they left
+      const pinned = await storage.calls.pinInputs(repo, WS, running.call.id, inputs(drafted!));
+      assert.ok(pinned !== null && jobEqual(pinned, { ...running, call: { ...running.call, inputs: inputs(drafted!) } }),
+        'its inputs replaced whole, and nothing else of it');
+      const read = await storage.calls.get(repo, WS, running.call.id);
+      assert.ok(read !== null && jobEqual(read, pinned), 'and is what a read finds');
+      const roots = await collectAllRoots(storage.repos, repo);
+      assert.ok(roots.has(drafted!) && roots.has(rate!), 'the call roots what its inputs name now');
+      assert.equal(roots.has(base!), false, 'and no longer what they named before');
+
+      // A run that lays its drafts again pins the same inputs again
+      const again = await storage.calls.pinInputs(repo, WS, running.call.id, inputs(drafted!));
+      assert.ok(again !== null && jobEqual(again, pinned));
+
+      const ended = await storage.calls.end(repo, WS, running.call.id, ending(variant('succeeded', { value: 'a'.repeat(64) })));
+      const left = await storage.calls.pinInputs(repo, WS, running.call.id, inputs(late!));
+      assert.ok(left !== null && ended !== null && jobEqual(left, ended), 'an ended call is left as it is');
+      assert.equal(await storage.calls.pinInputs(repo, WS, uuidv7(), inputs(late!)), null, 'no call is pinned that the store does not keep');
+      const expired = filed(WS, { expiresAt: new Date(Date.now() - 1) });
+      await storage.calls.create(repo, expired);
+      assert.equal(await storage.calls.pinInputs(repo, WS, expired.call.id, inputs(late!)), null, 'nor one past its lifetime');
+    });
+
+    it('reads every call it holds as the bytes stored, an expired one among them, and writes one over whatever its state', async (t) => {
+      const { storage, repo } = await setup(t);
+      const running = filed(WS);
+      const ended = filed(WS);
+      const expired = filed('other-ws', { expiresAt: new Date(Date.now() - 1) });
+      for (const job of [running, ended, expired]) await storage.calls.create(repo, job);
+      await storage.calls.end(repo, WS, ended.call.id, ending(variant('failed', { exitCode: 1n })));
+
+      const stored = await storage.calls.readStored(repo);
+      assert.deepEqual(
+        stored.map((call) => `${call.workspace}/${call.id}`).sort(),
+        [`${WS}/${running.call.id}`, `${WS}/${ended.call.id}`, `other-ws/${expired.call.id}`].sort(),
+        'each by its workspace and its id, the expired one too',
+      );
+      for (const call of stored) {
+        const bytes = await call.read();
+        assert.ok(bytes !== null);
+        assert.equal(decodeFunctionCallJob(bytes).call.id, call.id, 'the bytes are the call');
+      }
+
+      // Written over as it stands: an ended call is no more closed to it than a running one
+      const of = (id: string) => stored.find((call) => call.id === id)!;
+      for (const job of [running, ended]) {
+        const bytes = await of(job.call.id).read();
+        const held = decodeFunctionCallJob(bytes!);
+        await of(job.call.id).replace(encodeFunctionCallJob({ ...held, verbose: true }));
+        const read = await storage.calls.get(repo, WS, job.call.id);
+        assert.ok(read !== null && jobEqual(read, { ...held, verbose: true }), 'a read finds what was written');
+      }
+    });
+
     it("removes a workspace's calls with it, so a workspace made again under its name has none", async (t) => {
       const { storage, repo } = await setup(t);
       await workspaceCreate(storage, repo, WS);
@@ -249,6 +369,7 @@ export function functionCallStoreTests(setup: BackendSetup): void {
         await assert.rejects(storage.calls.get(repo, name, uuidv7()), refused);
         await assert.rejects(storage.calls.end(repo, name, uuidv7(), ending(variant('failed', { exitCode: 1n }))), refused);
         await assert.rejects(storage.calls.requestCancel(repo, name, uuidv7(), { by: none, at: new Date() }), refused);
+        await assert.rejects(storage.calls.pinInputs(repo, name, uuidv7(), []), refused);
         await assert.rejects(storage.calls.list(repo, name, { limit: 1 }), refused);
       }
       for (const id of MALFORMED_IDS) {
@@ -257,6 +378,7 @@ export function functionCallStoreTests(setup: BackendSetup): void {
         await assert.rejects(storage.calls.get(repo, WS, id), refused);
         await assert.rejects(storage.calls.end(repo, WS, id, ending(variant('failed', { exitCode: 1n }))), refused);
         await assert.rejects(storage.calls.requestCancel(repo, WS, id, { by: none, at: new Date() }), refused);
+        await assert.rejects(storage.calls.pinInputs(repo, WS, id, []), refused);
         await assert.rejects(storage.calls.list(repo, WS, { limit: 1, before: id }), refused);
       }
     });

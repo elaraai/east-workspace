@@ -325,7 +325,10 @@ export async function createServer(config: ServerConfig): Promise<Server> {
   // Workspace-scoped function routes: /api/repos/:repo/workspaces/:ws/functions/*,
   // whose calls run on the transfer backend, outliving their requests, and
   // are kept for their lifetimes, under the server's call limits; and those
-  // calls, polled, cancelled and listed: /api/repos/:repo/workspaces/:ws/calls/*
+  // calls, polled, cancelled and listed: /api/repos/:repo/workspaces/:ws/calls/*.
+  // The routes are given no rule on who may pass a draft: the record routes
+  // below admit each caller the server admits to every mutation, so each may
+  // pass a draft of any.
   app.route('/api/repos/:repo/workspaces/:ws/functions', createWorkspaceFunctionRoutes(storage, getRepoPath, transferBackend, {
     access,
     ...(calls.syncDeadlineMs !== undefined && { syncDeadlineMs: calls.syncDeadlineMs }),

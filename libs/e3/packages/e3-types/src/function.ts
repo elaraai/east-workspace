@@ -9,8 +9,10 @@
  * An `e3.function` is a named, typed function stored in a package and
  * invoked by name with argument values over the CLI and HTTP API. It may
  * read datasets of the workspace a call runs through — its inputs — beside
- * the arguments its caller passes. Unlike a task it is not part of the
- * dataflow graph, and triggers no recomputation.
+ * the arguments its caller passes, and name the records among them a call
+ * may pass drafts of: mutation calls that are not committed, laid over the
+ * record for that call alone. Unlike a task it is not part of the dataflow
+ * graph, and triggers no recomputation.
  *
  * The function object stores its signature explicitly so `describe` and
  * arity/type validation work from the small function object without
@@ -35,6 +37,11 @@ export const FunctionObjectType = StructType({
    *  its hash when the call launches and passed before the caller's
    *  arguments; empty for a function that reads none. */
   inputs: ArrayType(TreePathType),
+  /** The records a call may pass drafts of, by name: each a record one of
+   *  `inputs` reads, which the call then reads with its drafts laid over it.
+   *  A call that passes a draft of any other record is `invalid`; empty for a
+   *  function that takes none. */
+  drafts: ArrayType(StringType),
   /** The types of the arguments a caller passes, after the inputs, surfaced
    *  for arity/type validation and `describe` without decoding the whole
    *  IR. */

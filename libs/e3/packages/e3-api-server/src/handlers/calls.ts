@@ -17,6 +17,11 @@
  * waited for within its request. Each handler reads the store for whatever the
  * dispatch cannot say, so a poll is answered alike by whichever instance it
  * reaches.
+ *
+ * A function's call may pass drafts, unsaved edits its run lays over the
+ * records the function reads (east-workspace#1619). Whether its caller may
+ * pass each is the host's to say ({@link DraftAdmit}), asked before the call
+ * is filed.
  */
 
 import { none, some, variant } from '@elaraai/east';
@@ -24,6 +29,7 @@ import {
   FUNCTION_CALL_GRACE_MS,
   PermissionDeniedError,
   WorkspaceNotFoundError,
+  functionCallDrafted,
   functionCallInputs,
   functionCallLost,
   functionCallRead,
@@ -49,6 +55,7 @@ import {
   type FunctionCall,
   type FunctionCallRequest,
   type FunctionCallState,
+  type FunctionDraft,
   type FunctionCallStatus,
   type FunctionCallSummary,
   type OneShotRequest,
@@ -70,6 +77,13 @@ const SYNC_GRACE_MS = 1000;
  */
 export type CallAdmit = (call: FunctionCall) => boolean | Promise<boolean>;
 
+/**
+ * Whether a request's caller may pass a draft to a function's call: what a
+ * host decides by the rule it admits a caller to commit the draft's mutation
+ * by, since a caller may pass a draft only where they may commit it.
+ */
+export type DraftAdmit = (draft: FunctionDraft) => boolean | Promise<boolean>;
+
 /** Options for {@link startFunctionCall} and {@link callFunctionInWorkspace}. */
 export interface FunctionCallFilingOptions {
   /** Who makes the call, as the host's auth names them; `null` without one */
@@ -84,6 +98,11 @@ export interface FunctionCallFilingOptions {
   lifetimes?: FunctionCallLifetimes;
   /** Pass `-v` to a stock runner */
   verbose?: boolean;
+  /** Whether the caller may pass a draft, asked for each one a function's
+   *  call passes, in order, before the call is filed (default: any caller may
+   *  pass any draft, as a host whose mutate route admits every caller its
+   *  routes do allows) */
+  admitDraft?: DraftAdmit;
 }
 
 /** Options for {@link startFunctionCall}. */
@@ -151,18 +170,26 @@ export interface FunctionCallListQuery {
  * cannot hand to the compute that runs calls is recorded `lost`, and answered
  * so.
  *
+ * Each draft the call passes is put to `options.admitDraft` first, in the
+ * order passed: the first it refuses refuses the request, and no call is
+ * filed. A draft the host admits is then checked as the call starts, and laid
+ * as it runs (e3-core's `functionCallStart` and `functionCallRun`).
+ *
  * @param storage - Storage backend
  * @param dispatch - Runs the call where the backend runs calls
  * @param repo - The repository's name, which the dispatch takes
  * @param repoPath - The repository's identifier, which the store takes
  * @param workspace - The workspace the call is made through
  * @param fnName - The function's name in the deployed package
- * @param request - The arguments, and any runner and limits the caller names
- * @param options - Who calls, their grant, the ceilings, the lifetimes and how
- *   long to wait
+ * @param request - The arguments, any runner and limits the caller names, and
+ *   the drafts to lay over the records the function reads
+ * @param options - Who calls, their grant, the ceilings, the lifetimes, how
+ *   long to wait, and whether they may pass a draft
  * @returns The response: the call's id and how it stood when the wait ended;
  *   or the error that stopped its start — the workspace, its package or the
- *   function not found, or `permission_denied` (`path` `runner`)
+ *   function not found, `permission_denied` (`path` `runner`), or
+ *   `permission_denied` (`path` `draft <record>.<mutation>`) for a draft the
+ *   host does not let the caller pass
  */
 export async function startFunctionCall(
   storage: StorageBackend,
@@ -175,6 +202,7 @@ export async function startFunctionCall(
   options: StartFunctionCallOptions,
 ): Promise<Response> {
   try {
+    await admitDrafts(request.drafts, options.admitDraft);
     const job = await functionCallStart(storage, repoPath, workspace, fnName, request, {
       ...filingOf(options),
       ...(options.id !== undefined && { id: options.id }),
@@ -249,7 +277,8 @@ export async function startOneShotCall(
  * a transport cut. Its run stops it at that timeout and records it so; should
  * the record not land within a second of the deadline, the request answers
  * `timed_out` itself. A call cancelled while the request waits, or lost, has
- * no result: it is answered `internal`, saying which.
+ * no result: it is answered `internal`, saying which. Its drafts are put to
+ * `options.admitDraft` as a started call's are ({@link startFunctionCall}).
  *
  * @param storage - Storage backend
  * @param dispatch - Runs the call where the backend runs calls
@@ -257,10 +286,12 @@ export async function startOneShotCall(
  * @param repoPath - The repository's identifier, which the store takes
  * @param workspace - The workspace the call is made through
  * @param fnName - The function's name in the deployed package
- * @param request - The arguments, and any runner and limits the caller names
- * @param options - Who calls, their grant, the ceilings, the lifetimes and the
- *   host's sync deadline
- * @returns The response: the call's result, or the error that stopped it
+ * @param request - The arguments, any runner and limits the caller names, and
+ *   the drafts to lay over the records the function reads
+ * @param options - Who calls, their grant, the ceilings, the lifetimes, the
+ *   host's sync deadline, and whether they may pass a draft
+ * @returns The response: the call's result, or the error that stopped it, as
+ *   a started call's start answers it
  */
 export async function callFunctionInWorkspace(
   storage: StorageBackend,
@@ -273,6 +304,7 @@ export async function callFunctionInWorkspace(
   options: CallFunctionInWorkspaceOptions,
 ): Promise<Response> {
   try {
+    await admitDrafts(request.drafts, options.admitDraft);
     const job = await functionCallStart(storage, repoPath, workspace, fnName, request, {
       ...filingOf(options),
       sync: options.syncDeadlineMs === undefined ? {} : { deadlineMs: options.syncDeadlineMs },
@@ -291,6 +323,7 @@ export async function callFunctionInWorkspace(
           stdoutTruncated: false,
           stderrTruncated: false,
           inputs: functionCallInputs(job),
+          drafts: functionCallDrafted(job),
         });
       case 'cancelled': {
         const by = status.value.by.type === 'some' ? ` by ${status.value.by.value}` : '';
@@ -467,6 +500,19 @@ export async function getFunctionCall(
     return sendSuccess(FunctionCallType, job.call);
   } catch (err) {
     return sendError(FunctionCallType, errorToVariant(err));
+  }
+}
+
+/**
+ * Puts each draft a call passes to the host, in the order passed.
+ *
+ * @throws {PermissionDeniedError} (`path` `draft <record>.<mutation>`) For the
+ *   first draft the host does not let the caller pass
+ */
+async function admitDrafts(drafts: readonly FunctionDraft[], admit: DraftAdmit | undefined): Promise<void> {
+  if (admit === undefined) return;
+  for (const draft of drafts) {
+    if (!(await admit(draft))) throw new PermissionDeniedError(`draft ${draft.record}.${draft.mutation}`);
   }
 }
 

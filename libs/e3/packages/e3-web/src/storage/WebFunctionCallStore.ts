@@ -22,6 +22,7 @@ import {
   type FunctionCallListOptions,
   type FunctionCallListPage,
   type FunctionCallStore,
+  type StoredFunctionCall,
 } from '@elaraai/e3-core/portable';
 import type { RecordKey, RecordsAdapter, RecordsTransaction } from './adapters.js';
 import { recordKeys } from './record-keys.js';
@@ -49,12 +50,12 @@ function decoded(data: Uint8Array): FunctionCallJob | null {
  * @remarks
  * A call's id is a UUIDv7, so its workspace's keys scan in the order its calls
  * started, and a list reads them from the latest. Each write of a call is a
- * transaction that reads it, so its end and a request to cancel it land one
- * after the other, whichever tab makes them: the first end stands. A call past
- * its `expiresAt` is gone for every read, which deletes it as it passes, and
- * gc's sweep deletes every one ({@link sweepExpired}). A workspace's removal
- * takes its calls in its own transaction, and a repository's removal every
- * call it keeps.
+ * transaction that reads it, so its end, a request to cancel it and the pin of
+ * its inputs land one after the other, whichever tab makes them: the first
+ * end stands. A call past its `expiresAt` is gone for every read, which
+ * deletes it as it passes, and gc's sweep deletes every one
+ * ({@link sweepExpired}). A workspace's removal takes its calls in its own
+ * transaction, and a repository's removal every call it keeps.
  */
 export class WebFunctionCallStore implements FunctionCallStore {
   /**
@@ -116,6 +117,17 @@ export class WebFunctionCallStore implements FunctionCallStore {
     });
   }
 
+  async pinInputs(repo: string, workspace: string, id: string, inputs: FunctionCallJob['call']['inputs']): Promise<FunctionCallJob | null> {
+    const key = this.key(repo, workspace, id);
+    return this.records.transact(async (tx) => {
+      const job = await this.live(tx, key);
+      if (job === null || job.call.state.type !== 'running') return job;
+      const pinned: FunctionCallJob = { ...job, call: { ...job.call, inputs } };
+      tx.put(key, encodeFunctionCallJob(pinned));
+      return pinned;
+    });
+  }
+
   /** Reads the workspace's calls from the latest, a page of records at a
    *  time, until it has the page it was asked for or none are left. */
   async list(repo: string, workspace: string, options: FunctionCallListOptions): Promise<FunctionCallListPage> {
@@ -151,6 +163,30 @@ export class WebFunctionCallStore implements FunctionCallStore {
     }
     if (expired.length > 0) await this.forget(expired);
     return next === undefined ? { calls } : { calls, next };
+  }
+
+  /** Every call record of the repository, a page of records at a time: each
+   *  read as it is, and written over in a transaction of its own. */
+  async readStored(repo: string): Promise<StoredFunctionCall[]> {
+    const prefix = recordKeys.kind(repo, 'call');
+    const stored: StoredFunctionCall[] = [];
+    let after: RecordKey | undefined;
+    for (;;) {
+      const entries = await this.records.scan(prefix, { limit: SWEEP_PAGE, ...(after !== undefined && { after }) });
+      for (const { key } of entries) {
+        stored.push({
+          workspace: key[3]!,
+          id: key[4]!,
+          read: () => this.records.get(key),
+          replace: (bytes) => this.records.transact((tx) => {
+            tx.put(key, bytes);
+            return Promise.resolve();
+          }),
+        });
+      }
+      if (entries.length < SWEEP_PAGE) return stored;
+      after = entries[entries.length - 1]!.key;
+    }
   }
 
   /**

@@ -30,6 +30,7 @@ function signature(name: string, inputs: EastType[], output: EastType): Function
     return {
         name,
         inputs: [],
+        drafts: [],
         argTypes: inputs.map(t => toEastTypeValue(t)),
         outputType: toEastTypeValue(output),
         runner: variant("east_node", { platforms: [], decode: variant("lazy", null) }),
@@ -44,7 +45,7 @@ function recordingApi(received: { fn: string; args: Uint8Array[] }[], result: nu
             received.push({ fn, args: req.args });
             return {
                 outcome: variant("success", { value: encodeBeast2For(FloatType)(result) }),
-                stdout: "", stderr: "", stdoutTruncated: false, stderrTruncated: false, inputs: [],
+                stdout: "", stderr: "", stdoutTruncated: false, stderrTruncated: false, inputs: [], drafts: [],
             } as ExecuteResult;
         },
     } as unknown as FunctionApi;

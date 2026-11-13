@@ -151,7 +151,8 @@ export function resolveJobLimits(
 
 /**
  * The wire result of a detached run: its outcome and log tails, and what it
- * read.
+ * read. It names no drafted record: a run that lays drafts is a call's
+ * through a workspace, whose result is its own (`functionCallResult`).
  *
  * @param result - The run's result
  * @param inputs - Each dataset argument's path and the hash it was pinned at,
@@ -165,6 +166,7 @@ export function detachedToExecuteResult(result: DetachedResult, inputs: ExecuteR
     stdoutTruncated: result.stdoutTruncated,
     stderrTruncated: result.stderrTruncated,
     inputs,
+    drafts: [],
   };
   switch (result.kind) {
     case 'success':
@@ -195,6 +197,7 @@ export function invalidExecuteResult(message: string): ExecuteResult {
     stdoutTruncated: false,
     stderrTruncated: false,
     inputs: [],
+    drafts: [],
   };
 }
 

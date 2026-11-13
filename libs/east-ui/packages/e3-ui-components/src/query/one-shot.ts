@@ -372,7 +372,8 @@ function platformFreeEastC(): RunnerValue {
  *   split call's result (`splitCall`'s `result`)
  * @returns the answer: how the run ended, and the datasets it read
  * @throws {Error} When the call read a dataset other than the one the query
- *   reads there: the result is not this call's.
+ *   reads there, or ended in a draft's `conflict`, which a query's call, laying
+ *   no draft, never does: the result is not this call's.
  *
  * @remarks
  * - `success` is `ok`, the value decoded with the translation's result type.
@@ -392,6 +393,8 @@ function platformFreeEastC(): RunnerValue {
  * - `invalid` is an `error`: `no_value` for a dataset e3 found unassigned
  *   ("orders has no value yet"), and `invalid` for anything else it refused.
  * - `timed_out` and `too_large` are as e3 reported them.
+ * - `conflict` is no answer to a query's call, which lays no draft: it is
+ *   refused, as a result that is not the call's.
  *
  * `inputs` names each dataset the run read, with the hash e3 pinned it at, in
  * the call's argument order: empty when nothing ran.
@@ -416,6 +419,8 @@ export function queryResultOf(prepared: QueryReading, result: ExecuteResult): Qu
             return { inputs, outcome: variant("timed_out", { ms: outcome.value.ms }) };
         case "too_large":
             return { inputs, outcome: variant("too_large", { bytes: outcome.value.bytes, limit: outcome.value.limit }) };
+        case "conflict":
+            throw new Error(`queryResultOf: the call ended in a conflict laying a draft of ${outcome.value.record}, and a query's call lays none: the result is not this call's`);
     }
 }
 
