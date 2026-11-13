@@ -81,7 +81,7 @@ export interface FunctionCallLifetimes {
   /** A call that succeeded, or was cancelled */
   readonly succeededMs: number;
   /** A call that failed, was refused, returned too large a value, timed out,
-   *  or was lost */
+   *  met a conflict laying a draft, or was lost */
   readonly failedMs: number;
 }
 
@@ -265,6 +265,11 @@ export async function functionCallStart(
 
   if (request.args.length !== fnObj.argTypes.length) {
     return refuse(diagnostic(`Expected ${fnObj.argTypes.length} argument(s), got ${request.args.length}`));
+  }
+  // A draft is refused until the call lays it: one read as saved would answer
+  // for edits it never saw
+  if (request.drafts.length > 0) {
+    return refuse(diagnostic(`the call passes ${request.drafts.length} draft(s), and a call lays none`));
   }
   let runner: RunnerValue = fnObj.runner;
   if (request.runner.type === 'some') {
@@ -489,6 +494,7 @@ function filedCall(
       package: filing.pkg,
       args,
       inputs,
+      drafts: [],
       limits: {
         timeoutMs: BigInt(filing.limits.timeoutMs),
         maxResultBytes: BigInt(filing.limits.maxResultBytes),
@@ -504,6 +510,7 @@ function filedCall(
     deadline: new Date(filing.deadline),
     cancel: none,
     keep: filing.keep,
+    drafted: [],
   };
 }
 
@@ -681,7 +688,7 @@ export async function functionCallRun(
   if (stop.signal.aborted) {
     return { job: await end(variant('lost', { message: 'the call\'s host stopped before it ended' }), streams), result: null };
   }
-  const read = functionCallInputs(job);
+  const read = { inputs: functionCallInputs(job), drafts: functionCallDrafted(job) };
   switch (result.kind) {
     case 'success': {
       const value = result.value;
@@ -689,22 +696,22 @@ export async function functionCallRun(
         const hash = await storeDatasetBytes(storage, repo, value);
         return end(variant('succeeded', { value: hash }), streams);
       });
-      return { job: ended, result: { outcome: variant('success', { value }), ...streams, inputs: read } };
+      return { job: ended, result: { outcome: variant('success', { value }), ...streams, ...read } };
     }
     case 'failed':
       return {
         job: await end(variant('failed', { exitCode: BigInt(result.exitCode) }), streams),
-        result: { outcome: variant('failed', { exitCode: BigInt(result.exitCode) }), ...streams, inputs: read },
+        result: { outcome: variant('failed', { exitCode: BigInt(result.exitCode) }), ...streams, ...read },
       };
     case 'too_large':
       return {
         job: await end(variant('too_large', { bytes: BigInt(result.bytes), limit: BigInt(result.limit) }), streams),
-        result: { outcome: variant('too_large', { bytes: BigInt(result.bytes), limit: BigInt(result.limit) }), ...streams, inputs: read },
+        result: { outcome: variant('too_large', { bytes: BigInt(result.bytes), limit: BigInt(result.limit) }), ...streams, ...read },
       };
     case 'timed_out':
       return {
         job: await end(variant('timed_out', { ms: job.call.limits.timeoutMs }), streams),
-        result: { outcome: variant('timed_out', { ms: job.call.limits.timeoutMs }), ...streams, inputs: read },
+        result: { outcome: variant('timed_out', { ms: job.call.limits.timeoutMs }), ...streams, ...read },
       };
   }
 }
@@ -781,8 +788,10 @@ export async function functionCallStatus(storage: StorageBackend, repo: string, 
 
 /**
  * An ended call's result, as a sync call answers it: its outcome, its value
- * read back inline when it succeeded, its log tails, and each input and
- * dataset argument it read with the hash it was pinned at.
+ * read back inline when it succeeded, its log tails, each input and dataset
+ * argument it read with the hash it was pinned at, and each record it drafted
+ * with the commit that record stood at. A call refused `invalid` read nothing,
+ * and names neither.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
@@ -800,17 +809,20 @@ export async function functionCallResult(storage: StorageBackend, repo: string, 
     stderrTruncated: call.stderrTruncated,
   };
   const state = call.state;
+  const read = { inputs: functionCallInputs(job), drafts: functionCallDrafted(job) };
   switch (state.type) {
     case 'succeeded':
-      return { outcome: variant('success', { value: await readDatasetWhole(storage, repo, state.value.value) }), ...streams, inputs: functionCallInputs(job) };
+      return { outcome: variant('success', { value: await readDatasetWhole(storage, repo, state.value.value) }), ...streams, ...read };
     case 'failed':
-      return { outcome: variant('failed', state.value), ...streams, inputs: functionCallInputs(job) };
+      return { outcome: variant('failed', state.value), ...streams, ...read };
     case 'invalid':
-      return { outcome: variant('invalid', state.value), ...streams, inputs: [] };
+      return { outcome: variant('invalid', state.value), ...streams, inputs: [], drafts: [] };
     case 'too_large':
-      return { outcome: variant('too_large', state.value), ...streams, inputs: functionCallInputs(job) };
+      return { outcome: variant('too_large', state.value), ...streams, ...read };
     case 'timed_out':
-      return { outcome: variant('timed_out', state.value), ...streams, inputs: functionCallInputs(job) };
+      return { outcome: variant('timed_out', state.value), ...streams, ...read };
+    case 'conflict':
+      return { outcome: variant('conflict', state.value), ...streams, ...read };
     default:
       throw new Error(`call ${call.id} is ${state.type}, and has no result`);
   }
@@ -881,6 +893,25 @@ export function functionCallInputs(job: FunctionCallJob): ExecuteResult['inputs'
     ...job.call.inputs,
     ...job.call.args.flatMap((arg) => (arg.type === 'dataset' ? [{ path: arg.value.path, hash: arg.value.hash }] : [])),
   ];
+}
+
+/**
+ * The records a call drafted, as its result names them: each once, in the
+ * order its drafts first name them, with the commit it stood at as the call
+ * started.
+ *
+ * @param job - The call
+ * @returns The records it drafted; none for a call that passed no draft
+ */
+export function functionCallDrafted(job: FunctionCallJob): ExecuteResult['drafts'] {
+  const drafted: ExecuteResult['drafts'] = [];
+  const named = new Set<string>();
+  for (const draft of job.call.drafts) {
+    if (named.has(draft.record)) continue;
+    named.add(draft.record);
+    drafted.push({ record: draft.record, commit: draft.commit });
+  }
+  return drafted;
 }
 
 /** Records how a call ended, with the lifetime its end gives it, and answers

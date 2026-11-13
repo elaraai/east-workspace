@@ -22,6 +22,7 @@ import {
   type FunctionCallListOptions,
   type FunctionCallListPage,
   type FunctionCallStore,
+  type StoredFunctionCall,
 } from '@elaraai/e3-core/portable';
 import type { RecordKey, RecordsAdapter, RecordsTransaction } from './adapters.js';
 import { recordKeys } from './record-keys.js';
@@ -151,6 +152,30 @@ export class WebFunctionCallStore implements FunctionCallStore {
     }
     if (expired.length > 0) await this.forget(expired);
     return next === undefined ? { calls } : { calls, next };
+  }
+
+  /** Every call record of the repository, a page of records at a time: each
+   *  read as it is, and written over in a transaction of its own. */
+  async readStored(repo: string): Promise<StoredFunctionCall[]> {
+    const prefix = recordKeys.kind(repo, 'call');
+    const stored: StoredFunctionCall[] = [];
+    let after: RecordKey | undefined;
+    for (;;) {
+      const entries = await this.records.scan(prefix, { limit: SWEEP_PAGE, ...(after !== undefined && { after }) });
+      for (const { key } of entries) {
+        stored.push({
+          workspace: key[3]!,
+          id: key[4]!,
+          read: () => this.records.get(key),
+          replace: (bytes) => this.records.transact((tx) => {
+            tx.put(key, bytes);
+            return Promise.resolve();
+          }),
+        });
+      }
+      if (entries.length < SWEEP_PAGE) return stored;
+      after = entries[entries.length - 1]!.key;
+    }
   }
 
   /**

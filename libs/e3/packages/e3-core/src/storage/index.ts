@@ -47,6 +47,7 @@ export {
   type FunctionCallEnd,
   type FunctionCallListOptions,
   type FunctionCallListPage,
+  type StoredFunctionCall,
   // Repository upgrades
   type RepositoryUpgrade,
   // Combined backend

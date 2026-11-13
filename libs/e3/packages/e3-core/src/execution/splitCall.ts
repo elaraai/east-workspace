@@ -721,6 +721,8 @@ export async function splitCallResult(
     stdoutTruncated: outcome.stdoutTruncated,
     stderrTruncated: outcome.stderrTruncated,
     inputs: read,
+    // A split call is a one-shot's, which lays no draft
+    drafts: [],
   };
   const ended = outcome.outcome;
   switch (ended.type) {

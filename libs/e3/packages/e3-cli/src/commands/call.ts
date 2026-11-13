@@ -256,6 +256,14 @@ async function renderResult(
       process.exit(1);
       break;
     }
+    case 'conflict': {
+      console.error(
+        `Draft ${outcome.value.record}.${outcome.value.mutation} conflicted: ${outcome.value.message} — `
+        + 'the edit no longer matches the record; re-read it and call again'
+      );
+      process.exit(1);
+      break;
+    }
   }
 }
 
@@ -378,7 +386,7 @@ async function callRemote(
     args.push(await callArg(rawArgs[i]!, signature.argTypes[i]!, i));
   }
 
-  const request = { args, runner: none, limits: none };
+  const request = { args, runner: none, limits: none, drafts: [] };
   if (!workspace) {
     await renderResult(await functionCall(baseUrl, repo, spec.name!, version!, spec.fn, request, opts), signature.outputType, outputPath);
     return;

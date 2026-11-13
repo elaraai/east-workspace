@@ -137,6 +137,8 @@ export function createDefaultFunctionApi(
                 args: req.args.map(arg => variant("value", arg)),
                 runner: none,
                 limits: none,
+                // No draft: the function reads the workspace as saved
+                drafts: [],
             }, getOptions(), {
                 // The call is started, and polled to its end; an abort asks the
                 // server to stop it
@@ -720,8 +722,9 @@ export function createInMemoryFunctionApi(functions: InMemoryFunctionDef[]): Fun
                 stderr: "",
                 stdoutTruncated: false,
                 stderrTruncated: false,
-                // A call of values reads no dataset.
+                // A call of values reads no dataset, and drafts no record.
                 inputs: [],
+                drafts: [],
             } as ExecuteResult;
         },
     };

@@ -1247,6 +1247,37 @@ export const DiagnosticType = StructType({
 });
 
 /**
+ * A draft of a record that no longer fits it: the record changed under the
+ * edit, so the mutation's write disagrees with the state it was laid over. It
+ * is what a Save of the same edit ends `conflict` with
+ * ({@link MutationResultType}), named for a function's call by the draft it
+ * was.
+ *
+ * @property record - The record the draft was of
+ * @property mutation - The draft's mutation
+ * @property message - The refusal's words, which name the key
+ */
+export const FunctionDraftConflictType = StructType({
+  record:   StringType,
+  mutation: StringType,
+  message:  StringType,
+});
+
+/**
+ * A record a call read with drafts laid over it, as the call's result names
+ * it.
+ *
+ * @property record - The record's name
+ * @property commit - The commit the record stood at as the call started, which
+ *   its drafts were laid over: a caller that holds another knows its edits
+ *   were laid over newer saves
+ */
+export const FunctionDraftedType = StructType({
+  record: StringType,
+  commit: StringType,
+});
+
+/**
  * The terminal result of a function/one-shot call.
  *
  * - `success`: beast2-encoded result value; decode with the function's `outputType`
@@ -1254,12 +1285,26 @@ export const DiagnosticType = StructType({
  * - `invalid`: signature/IR error; nothing ran
  * - `too_large`: result over `maxResultBytes`; deploy a task and read it with `datasetGet`
  * - `timed_out`: exceeded `timeoutMs` / the server's sync deadline guard
+ * - `conflict`: a draft the call passed no longer fits its record, and the
+ *   function's body did not run ({@link FunctionDraftConflictType})
+ *
+ * A call a draft's mutation ended `failed` or `timed_out`, before the
+ * function's body ran, says which draft in the first line of its `stderr`:
+ * `draft jobs.patch (2 of 3) failed`, or `… timed out`, and the mutation's own
+ * stderr follows it.
  *
  * `inputs` names what the call read: each input the function declares, then
  * each dataset argument, with the hash it was pinned at, in parameter order,
- * so an answer can be reproduced and a stale one noticed. It is empty for a
- * call of a function with no inputs and value arguments only, and for an
- * `invalid` result.
+ * so an answer can be reproduced and a stale one noticed. An input of a record
+ * the call drafted names the drafted state's hash, which no reader of the
+ * workspace is shown. It is empty for a call of a function with no inputs and
+ * value arguments only, and for an `invalid` result.
+ *
+ * `drafts` names each record the call drafted, once, in the order its drafts
+ * first name them, with the commit it stood at
+ * ({@link FunctionDraftedType}). It is empty for a call that passed no draft,
+ * for an `invalid` result, and for a one-shot or a split call, which take
+ * none.
  */
 export const ExecuteResultType = StructType({
   outcome: VariantType({
@@ -1268,12 +1313,14 @@ export const ExecuteResultType = StructType({
     invalid:   StructType({ diagnostics: ArrayType(DiagnosticType) }),
     too_large: StructType({ bytes: IntegerType, limit: IntegerType }),
     timed_out: StructType({ ms: IntegerType }),
+    conflict:  FunctionDraftConflictType,
   }),
   stdout: StringType,
   stderr: StringType,
   stdoutTruncated: BooleanType,
   stderrTruncated: BooleanType,
   inputs: ArrayType(StructType({ path: TreePathType, hash: StringType })),
+  drafts: ArrayType(FunctionDraftedType),
 });
 
 /**
@@ -1287,17 +1334,45 @@ export const CallArgType = VariantType({
 });
 
 /**
+ * A draft: a call of a record's mutation that is not committed. A function's
+ * call passes a list of them, and reads the record with them laid over it, as
+ * a Save of each would have left it; nothing is saved.
+ *
+ * It is not what the SDK exports as `MutationDraft`, which is a mutation's
+ * declaration before `e3.record` builds it.
+ *
+ * @property record - The record's name, as the package declares it and as the
+ *   function lists it in its `drafts`
+ * @property mutation - The mutation's name on the record
+ * @property args - The mutation's arguments, as a mutation call takes them
+ *   ({@link MutationCallRequestType}): one beast2-encoded value per declared
+ *   parameter, after the implicit current state
+ */
+export const FunctionDraftType = StructType({
+  record:   StringType,
+  mutation: StringType,
+  args:     ArrayType(BlobType),
+});
+
+/**
  * Named function call. Positional args, one per argument the function takes
  * (its `argTypes`, never its inputs, which the server reads): a value, or a
  * dataset of the workspace ({@link CallArgType}). The package-scoped route has
  * no workspace to read a dataset from, and answers a dataset argument — or a
  * function with inputs — `invalid`; the workspace-scoped route pins it, as a
  * one-shot's is.
+ *
+ * `drafts` are the unsaved edits the call lays over the records it reads, in
+ * order ({@link FunctionDraftType}): each of a record the function lists in
+ * its `drafts`, else the call is `invalid`. A record's drafts run in the order
+ * given, each over the state the one before it left. The package-scoped route
+ * reads no workspace, and answers a call that passes any `invalid`.
  */
 export const FunctionCallRequestType = StructType({
   args:   ArrayType(CallArgType),
   runner: OptionType(RunnerType),       // optional override; only the known runtimes
   limits: OptionType(ExecuteLimitsType),
+  drafts: ArrayType(FunctionDraftType),
 });
 
 /**
@@ -1480,17 +1555,24 @@ export const SplitCallStatusType = VariantType({
  *
  * - `running`: it has not ended
  * - `succeeded`: it returned, and `value` is the object its value was stored as
- * - `failed`: its runner exited non-zero (see its stderr)
+ * - `failed`: its runner exited non-zero (see its stderr), or a draft's
+ *   mutation failed before its body ran, which the first line of its stderr
+ *   names
  * - `invalid`: it was refused before it ran: a wrong arity, a runner the
- *   caller may not name, an input with no value
+ *   caller may not name, an input with no value, a draft the function does not
+ *   take or one its record's mutation does not
  * - `too_large`: its value was over its `maxResultBytes`, and was not kept
- * - `timed_out`: it ran past its timeout, and was stopped
+ * - `timed_out`: it ran past its timeout, and was stopped, its body or a
+ *   draft's mutation before it
  * - `cancelled`: it was asked to stop, by `by` (`none` without an identity),
  *   and was stopped
  * - `lost`: e3 could not run it, or lost it: its host stopped before it ended
+ * - `conflict`: a draft it passed no longer fits its record, and its
+ *   function's body did not run ({@link FunctionDraftConflictType})
  */
 export const FunctionCallStateType = VariantType({
   cancelled: StructType({ by: OptionType(StringType) }),
+  conflict:  FunctionDraftConflictType,
   failed:    StructType({ exitCode: IntegerType }),
   invalid:   StructType({ diagnostics: ArrayType(DiagnosticType) }),
   lost:      StructType({ message: StringType }),
@@ -1508,6 +1590,26 @@ export const FunctionCallStateType = VariantType({
 export const FunctionCallArgType = VariantType({
   dataset: StructType({ path: TreePathType, hash: StringType }),
   value:   StringType,
+});
+
+/**
+ * A kept call's draft: the draft its caller passed ({@link FunctionDraftType}),
+ * its arguments held by their object as the call's own are, and where its
+ * record stood.
+ *
+ * @property record - The record's name
+ * @property mutation - The mutation's name on the record
+ * @property args - The object the arguments' tuple was stored as, an Array of
+ *   Blobs, as a record's commit holds its mutation's; `none` for a mutation
+ *   that takes none
+ * @property commit - The commit the record stood at as the call started, which
+ *   the call's drafts of it were laid over
+ */
+export const FunctionCallDraftType = StructType({
+  record:   StringType,
+  mutation: StringType,
+  args:     OptionType(StringType),
+  commit:   StringType,
 });
 
 /**
@@ -1540,7 +1642,12 @@ export const FunctionCallSummaryType = StructType({
  * @property args - Its arguments, in order: values by their objects, datasets
  *   by the hashes they were pinned at
  * @property inputs - The function's own inputs, each by its path and the hash
- *   it was pinned at, in the order the function declares them
+ *   it was pinned at, in the order the function declares them. An input of a
+ *   record the call drafts names the state the record held as the call
+ *   started, and, once its drafts are laid, the drafted state
+ * @property drafts - The drafts it passed, in order, each with the commit its
+ *   record stood at; none for a call that passed none, and for one refused as
+ *   it started, which keeps no argument either
  * @property limits - The limits it ran under
  * @property expiresAt - When it is forgotten: its lifetime's end, which its
  *   end sets. A running call's is past its deadline by a grace and then a
@@ -1561,6 +1668,7 @@ export const FunctionCallType = StructType({
   package:         OptionType(StructType({ name: StringType, version: StringType })),
   args:            ArrayType(FunctionCallArgType),
   inputs:          ArrayType(StructType({ path: TreePathType, hash: StringType })),
+  drafts:          ArrayType(FunctionCallDraftType),
   limits:          StructType({ timeoutMs: IntegerType, maxResultBytes: IntegerType, maxLogBytes: IntegerType }),
   expiresAt:       DateTimeType,
   stdout:          StringType,
@@ -1871,6 +1979,9 @@ export type ExecuteLimits = ValueTypeOf<typeof ExecuteLimitsType>;
 export type Diagnostic = ValueTypeOf<typeof DiagnosticType>;
 export type ExecuteResult = ValueTypeOf<typeof ExecuteResultType>;
 export type CallArg = ValueTypeOf<typeof CallArgType>;
+export type FunctionDraft = ValueTypeOf<typeof FunctionDraftType>;
+export type FunctionDraftConflict = ValueTypeOf<typeof FunctionDraftConflictType>;
+export type FunctionDrafted = ValueTypeOf<typeof FunctionDraftedType>;
 export type FunctionCallRequest = ValueTypeOf<typeof FunctionCallRequestType>;
 export type FunctionSignature = ValueTypeOf<typeof FunctionSignatureType>;
 export type OneShotRequest = ValueTypeOf<typeof OneShotRequestType>;
@@ -1881,6 +1992,7 @@ export type SplitCallStatus = ValueTypeOf<typeof SplitCallStatusType>;
 export type SplitCallPlan = ValueTypeOf<typeof SplitCallPlanType>;
 export type FunctionCallState = ValueTypeOf<typeof FunctionCallStateType>;
 export type FunctionCallArg = ValueTypeOf<typeof FunctionCallArgType>;
+export type FunctionCallDraft = ValueTypeOf<typeof FunctionCallDraftType>;
 export type FunctionCallSummary = ValueTypeOf<typeof FunctionCallSummaryType>;
 export type FunctionCall = ValueTypeOf<typeof FunctionCallType>;
 export type FunctionCallStatus = ValueTypeOf<typeof FunctionCallStatusType>;

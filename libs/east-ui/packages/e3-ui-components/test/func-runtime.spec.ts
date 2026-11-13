@@ -165,6 +165,7 @@ describe("FuncRuntime — call lifecycle", () => {
             args: [variant("value", encodeBeast2For(IntegerType)(7n)), variant("value", encodeBeast2For(FloatType)(2.5))],
             runner: none,
             limits: none,
+            drafts: [],
         };
         assert.ok(equalFor(FunctionCallRequestType)(body, expected), printFor(FunctionCallRequestType)(body));
         assert.equal(handle.read().value, 2.5, "e3 ran the function over them");
@@ -193,6 +194,7 @@ describe("FuncRuntime — call lifecycle", () => {
             args: [variant("value", encodeBeast2For(ArrayType(ex.OrderLineType))(order))],
             runner: none,
             limits: none,
+            drafts: [],
         };
         assert.ok(equalFor(FunctionCallRequestType)(body, expected), `the order alone: ${printFor(FunctionCallRequestType)(body)}`);
     });

@@ -153,6 +153,7 @@ export {
   functionCallResult,
   functionCallSummary,
   functionCallInputs,
+  functionCallDrafted,
   functionCallLost,
   functionRunnerRefusal,
   handleProcessFunctionCall,

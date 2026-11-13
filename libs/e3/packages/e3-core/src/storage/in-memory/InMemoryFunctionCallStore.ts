@@ -4,23 +4,26 @@
  */
 
 import { some } from '@elaraai/east';
-import type { FunctionCallCancel, FunctionCallJob } from '@elaraai/e3-types';
-import type { FunctionCallEnd, FunctionCallListOptions, FunctionCallListPage, FunctionCallStore } from '../interfaces.js';
+import { decodeFunctionCallJob, encodeFunctionCallJob, type FunctionCallCancel, type FunctionCallJob } from '@elaraai/e3-types';
+import type { FunctionCallEnd, FunctionCallListOptions, FunctionCallListPage, FunctionCallStore, StoredFunctionCall } from '../interfaces.js';
 import { checkId, checkName, checkPageLimit } from '../../errors.js';
 import type { InMemoryRepositoryRecords } from './InMemoryRepoStore.js';
 
 /**
  * In-memory implementation of {@link FunctionCallStore} for testing.
  *
- * A call is held by its repository, its workspace and its id. A call past its
- * `expiresAt` is dropped as a read or a list passes it, as a local repository's
- * call file is removed. A workspace's removal drops its calls
+ * A call is held by its repository, its workspace and its id, as the bytes a
+ * store keeps, so a call an earlier release filed is held as that release
+ * wrote it, and read as a local repository's call file is: a read of it is
+ * refused, and a list passes it. A call past its `expiresAt` is dropped as a
+ * read or a list passes it, as a local repository's call file is removed. A
+ * workspace's removal drops its calls
  * ({@link InMemoryFunctionCallStore.removeWorkspace}), and a repository's drops
  * every one of them.
  */
 /* eslint-disable @typescript-eslint/require-await */
 export class InMemoryFunctionCallStore implements FunctionCallStore, InMemoryRepositoryRecords {
-  private calls = new Map<string, FunctionCallJob>();
+  private calls = new Map<string, Uint8Array>();
 
   /**
    * @param now - Reads the time, in epoch milliseconds, which a call's expiry
@@ -31,7 +34,7 @@ export class InMemoryFunctionCallStore implements FunctionCallStore, InMemoryRep
   async create(repo: string, job: FunctionCallJob): Promise<void> {
     const key = this.key(repo, job.workspace, job.call.id);
     if (this.live(key) !== null) throw new Error(`workspace '${job.workspace}' keeps a call ${job.call.id} already`);
-    this.calls.set(key, job);
+    this.calls.set(key, encodeFunctionCallJob(job));
   }
 
   async get(repo: string, workspace: string, id: string): Promise<FunctionCallJob | null> {
@@ -55,7 +58,7 @@ export class InMemoryFunctionCallStore implements FunctionCallStore, InMemoryRep
         stderrTruncated: end.stderrTruncated,
       },
     };
-    this.calls.set(key, ended);
+    this.calls.set(key, encodeFunctionCallJob(ended));
     return ended;
   }
 
@@ -64,7 +67,7 @@ export class InMemoryFunctionCallStore implements FunctionCallStore, InMemoryRep
     const job = this.live(key);
     if (job === null || job.call.state.type !== 'running' || job.cancel.type === 'some') return job;
     const asked: FunctionCallJob = { ...job, cancel: some(cancel) };
-    this.calls.set(key, asked);
+    this.calls.set(key, encodeFunctionCallJob(asked));
     return asked;
   }
 
@@ -80,7 +83,13 @@ export class InMemoryFunctionCallStore implements FunctionCallStore, InMemoryRep
       .reverse();
     const calls: FunctionCallJob[] = [];
     for (const [at, id] of ids.entries()) {
-      const job = this.live(`${prefix}${id}`);
+      let job: FunctionCallJob | null;
+      try {
+        job = this.live(`${prefix}${id}`);
+      } catch {
+        // Bytes that do not decode keep no call a reader can be shown
+        continue;
+      }
       if (job === null) continue;
       // A function's calls: a one-shot names none
       if (options.function !== undefined && !(job.call.function.type === 'some' && job.call.function.value === options.function)) continue;
@@ -90,6 +99,23 @@ export class InMemoryFunctionCallStore implements FunctionCallStore, InMemoryRep
       if (calls.length >= options.limit) return at < ids.length - 1 ? { calls, next: id } : { calls };
     }
     return { calls };
+  }
+
+  async readStored(repo: string): Promise<StoredFunctionCall[]> {
+    const stored: StoredFunctionCall[] = [];
+    for (const key of this.calls.keys()) {
+      const [of, workspace, id] = key.split('\0');
+      if (of !== repo || workspace === undefined || id === undefined) continue;
+      stored.push({
+        workspace,
+        id,
+        read: async () => this.calls.get(key) ?? null,
+        replace: async (bytes) => {
+          this.calls.set(key, bytes);
+        },
+      });
+    }
+    return stored;
   }
 
   /**
@@ -132,10 +158,16 @@ export class InMemoryFunctionCallStore implements FunctionCallStore, InMemoryRep
     return `${prefix}${id}`;
   }
 
-  /** The call a key holds, or null when there is none or it has expired, which drops it. */
+  /**
+   * The call a key holds, or null when there is none or it has expired, which
+   * drops it.
+   *
+   * @throws {Error} When its bytes are not a kept call of this release's form
+   */
   private live(key: string): FunctionCallJob | null {
-    const job = this.calls.get(key);
-    if (job === undefined) return null;
+    const bytes = this.calls.get(key);
+    if (bytes === undefined) return null;
+    const job = decodeFunctionCallJob(bytes);
     if (job.call.expiresAt.getTime() <= this.now()) {
       this.calls.delete(key);
       return null;

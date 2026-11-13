@@ -36,7 +36,7 @@ const sameResult = equalFor(ExecuteResultType);
 /** A call's result: its value, 5. */
 const FIVE: ExecuteResult = {
   outcome: variant('success', { value: encodeBeast2For(IntegerType)(5n) }),
-  stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false, inputs: [],
+  stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false, inputs: [], drafts: [],
 };
 
 /** A BEAST2 success, as the server sends one. */
@@ -129,7 +129,7 @@ async function requested(requests: readonly string[], count: number): Promise<vo
   while (requests.length < count) await new Promise((resolve) => setTimeout(resolve, 5));
 }
 
-const ADD = { args: [], runner: none, limits: none };
+const ADD = { args: [], runner: none, limits: none, drafts: [] };
 
 describe('a call of a workspace\'s function (#1554)', () => {
   it('answers a call that ends within its start\'s wait from the start alone, telling no one an id', async () => {

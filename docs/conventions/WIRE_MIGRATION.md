@@ -917,3 +917,81 @@ Each wire changed under this rule, with the kind it is.
   decode as the other's, and a client refuses a server's answer of the other
   release, naming both types, as it refuses any type it does not read — so
   `e3 call`, e3-ui's `Func.bind` and the server they call are of one release.
+- **A function's call passes drafts: the call request gains `drafts`
+  (#1619)** — neither package-borne nor stored in a repository: the function
+  routes' request. `FunctionCallRequestType` gains `drafts`, after `limits`:
+  the unsaved edits a call lays over the records its function reads, in
+  order, each a record, one of its mutations and that mutation's arguments
+  (`FunctionDraftType`); none for a call that passes none. A struct that gains
+  a field reads under neither type, so a request of either release does not
+  decode as the other's: a server refuses a client's request of the other
+  release, naming both types, as it refuses any type it does not read — and
+  `e3 call`, e3-ui's `Func.bind` and the server they call are of one release
+  already, by the function's signature (above). A program that calls e3 from
+  East, through e3-api-client's `e3_function_call`, holds the request's type
+  in its IR, and is package-borne by it: one an earlier SDK exported is
+  refused as its runner checks it, naming the type the function takes and the
+  one the program passes — re-export its package. No store keeps a request: a
+  kept call holds its drafts in a form of its own (below), so no repository
+  upgrade step ships for it.
+- **A call's result names the records it drafted, and may end `conflict`
+  (#1619)** — neither package-borne nor stored in a repository: the function,
+  one-shot and split-call routes' answers. `ExecuteResultType` gains `drafts`,
+  after `inputs`: each record the call drafted, once, with the commit it stood
+  at as its drafts were laid (`FunctionDraftedType`), and none for a call that
+  passed no draft; and its `outcome` gains `conflict`, a draft that no longer
+  fits its record, with the record, the mutation and the refusal's words
+  (`FunctionDraftConflictType`). The result is what a sync call answers, and
+  two more answers hold it: a kept call's status (`FunctionCallStatusType`'s
+  `completed`) and a split call's (`SplitCallStatusType`'s `completed`, as its
+  `result`). A one-shot and a split call take no draft, so theirs names none
+  and never ends so; its type changes all the same. With the struct changed,
+  no naming of the case would keep an answer readable (#1104, above), so it
+  has the name a Save's outcome has (`MutationResultType`): an answer of
+  either release does not decode as the other's, and a client refuses a
+  server's answer of the other release, naming both types — so `e3`, e3-ui's
+  `Func.bind`, the query builder and the server they call are of one release,
+  as they were. A program that calls `e3_function_call` or
+  `e3_one_shot_execute` holds the result's type in its IR, and is refused as
+  one that holds the request's is: re-export its package. No store keeps a
+  result — a kept call keeps a state of its own (below), and a split call's
+  job an outcome of its own (`SplitCallOutcomeType`), whose type does not
+  change — so no repository upgrade step ships for it.
+- **A kept call holds its drafts, and may end `conflict` (#1619)** — stored
+  state, and the call routes' answers. `FunctionCallType` gains `drafts`,
+  after `inputs`: each draft the call passed, in order
+  (`FunctionCallDraftType`) — its record, its mutation, its arguments by the
+  object they were stored as, `none` for a mutation that takes none, and the
+  commit the record stood at as the call started. `FunctionCallStateType`
+  gains `conflict`, how a call ended whose draft no longer fits its record
+  (`FunctionDraftConflictType`). The record a store keeps
+  (`FunctionCallJobType`) gains `drafted`, after `keep`: for each record the
+  call drafts, what its run lays the drafts from (`FunctionCallDraftedType`) —
+  where the workspace holds the record, the state it held as the call
+  started, and the object of each mutation its drafts name — so the run reads
+  the workspace no more, and lays the same state however often it runs. gc
+  keeps what a kept call names (`functionCallRoots`), and so, for as long as
+  the call is kept: each draft's arguments, each drafted record's state and
+  mutations, and among its inputs the drafted state, which nothing else
+  names.
+  The release ships the repository upgrade step `function-call-drafts`
+  (e3-core `upgrades/function-call-drafts.ts`): every call an earlier release
+  kept is rewritten in the new form, holding no draft, whatever its state. It
+  reads each call as its store holds it and writes it back the same way
+  (`FunctionCallStore.readStored`, which every backend's call store
+  implements). A unit of the step is a call, keyed `<workspace>/<id>`, 16 at
+  a time. A call whose lifetime has ended is carried too, and forgotten at its
+  next read, as it would have been; a call already in the new form is left as
+  it is, and so is one in neither form.
+  `conflict` sorts second among a call's states, where #1554 (above) had a
+  new case of `FunctionCallStateType` named to sort last. That keeps an
+  earlier call readable where a case is all a release adds; here the call's
+  struct gains a field beside it, so no naming would (#1104, above), and the
+  state has the name a Save's outcome has. The call routes' answers hold the
+  call, its state or its result (`FunctionCallType`,
+  `FunctionCallSummaryType`, `FunctionCallPageType`, `FunctionCallStatusType`,
+  `FunctionCallAnswerType`), and change with them: an answer of either
+  release does not decode as the other's, and a client refuses a server's
+  answer of the other release, naming both types — so `e3 call`, e3-ui's
+  `Func.bind` and the server they call are of one release, as the function's
+  signature already holds them.

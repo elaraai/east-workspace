@@ -82,9 +82,12 @@ function hold(datasets: readonly InMemoryDataset[]): HeldDataset[] {
 /** The output streams of a call that said nothing. */
 const QUIET = { stdout: "", stdoutTruncated: false, stderrTruncated: false } as const;
 
+/** The records a query's call drafted: none, since a one-shot lays no draft. */
+const NO_DRAFTS: ExecuteResult["drafts"] = [];
+
 /** The `invalid` result e3 answers a call it refuses, before anything runs. */
 function invalid(message: string): ExecuteResult {
-    return { ...QUIET, outcome: variant("invalid", { diagnostics: [{ message, filename: none, line: none, column: none }] }), stderr: "", inputs: [] };
+    return { ...QUIET, outcome: variant("invalid", { diagnostics: [{ message, filename: none, line: none, column: none }] }), stderr: "", inputs: [], drafts: NO_DRAFTS };
 }
 
 /** How e3 refuses a dataset argument with nothing at its path: as it refuses an unassigned dataset. */
@@ -102,14 +105,14 @@ function answer(type: EastType, value: unknown, limits: OneShotRequest["limits"]
     const bytes = encodeBeast2For(type)(value as never);
     const limit = maxResultBytes(limits);
     if (limit !== undefined && BigInt(bytes.length) > limit) {
-        return { ...QUIET, outcome: variant("too_large", { bytes: BigInt(bytes.length), limit }), stderr: "", inputs };
+        return { ...QUIET, outcome: variant("too_large", { bytes: BigInt(bytes.length), limit }), stderr: "", inputs, drafts: NO_DRAFTS };
     }
-    return { ...QUIET, outcome: variant("success", { value: bytes }), stderr: "", inputs };
+    return { ...QUIET, outcome: variant("success", { value: bytes }), stderr: "", inputs, drafts: NO_DRAFTS };
 }
 
 /** A body that raised an East error, failed as a runner's run fails: exit code 1, and `Error: <message>` with its places. */
 function raised(err: EastError, inputs: ExecuteResult["inputs"]): ExecuteResult {
-    return { ...QUIET, outcome: variant("failed", { exitCode: 1n }), stderr: `Error: ${err.toString()}\n`, inputs };
+    return { ...QUIET, outcome: variant("failed", { exitCode: 1n }), stderr: `Error: ${err.toString()}\n`, inputs, drafts: NO_DRAFTS };
 }
 
 /**

@@ -122,7 +122,7 @@ const decodeInt = decodeBeast2For(IntegerType);
 
 /** A call of value arguments, each one's bytes. */
 function request(args: Uint8Array[], overrides?: Partial<FunctionCallRequest>): FunctionCallRequest {
-  return { args: args.map((arg) => variant('value', arg)), runner: none, limits: none, ...overrides };
+  return { args: args.map((arg) => variant('value', arg)), runner: none, limits: none, drafts: [], ...overrides };
 }
 
 function successValue(result: ExecuteResult): bigint {
@@ -279,7 +279,7 @@ export function functionTests(setup: TestSetup<TestContext>): void {
       await ctx.deployPackage('fn-inputs-ws', `${PKG}@${VERSION}`);
       const quote = (): Promise<ExecuteResult> => workspaceFunctionCall(
         ctx.config.baseUrl, ctx.repoName, 'fn-inputs-ws', 'quote',
-        { args: [variant('value', encodeBeast2For(StringType)('b'))], runner: none, limits: none },
+        { args: [variant('value', encodeBeast2For(StringType)('b'))], runner: none, limits: none, drafts: [] },
         opts
       );
 
@@ -306,7 +306,7 @@ export function functionTests(setup: TestSetup<TestContext>): void {
       // The inputs and the argument, as a caller that sent them would
       const result = await workspaceFunctionCall(
         ctx.config.baseUrl, ctx.repoName, 'fn-inputs-arity-ws', 'quote',
-        { args: [variant('dataset', VALUE_PATH), variant('dataset', PRICES_PATH), variant('value', encodeBeast2For(StringType)('b'))], runner: none, limits: none },
+        { args: [variant('dataset', VALUE_PATH), variant('dataset', PRICES_PATH), variant('value', encodeBeast2For(StringType)('b'))], runner: none, limits: none, drafts: [] },
         opts
       );
       if (result.outcome.type !== 'invalid') assert.fail(`expected invalid, got ${result.outcome.type}`);
@@ -345,7 +345,7 @@ export function functionTests(setup: TestSetup<TestContext>): void {
       // `tally` holds 7, and the argument is `value`, which holds 10
       const result = await workspaceFunctionCall(
         ctx.config.baseUrl, ctx.repoName, 'fn-inputs-record-ws', 'tallied',
-        { args: [variant('dataset', VALUE_PATH)], runner: none, limits: none },
+        { args: [variant('dataset', VALUE_PATH)], runner: none, limits: none, drafts: [] },
         opts
       );
       assert.equal(successValue(result), 17n);
@@ -379,7 +379,7 @@ export function functionTests(setup: TestSetup<TestContext>): void {
 
       const result = await functionCall(
         ctx.config.baseUrl, ctx.repoName, PKG, VERSION, 'quote',
-        { args: [variant('value', encodeBeast2For(StringType)('b'))], runner: none, limits: none },
+        { args: [variant('value', encodeBeast2For(StringType)('b'))], runner: none, limits: none, drafts: [] },
         opts
       );
       if (result.outcome.type !== 'invalid') assert.fail(`expected invalid, got ${result.outcome.type}`);
@@ -524,7 +524,7 @@ export function functionTests(setup: TestSetup<TestContext>): void {
       // `value` holds 10
       const result = await workspaceFunctionCall(
         ctx.config.baseUrl, ctx.repoName, 'fn-ds-ws', 'add',
-        { args: [variant('dataset', VALUE_PATH), variant('value', encodeInt(5n))], runner: none, limits: none },
+        { args: [variant('dataset', VALUE_PATH), variant('value', encodeInt(5n))], runner: none, limits: none, drafts: [] },
         opts
       );
       assert.equal(successValue(result), 15n);
@@ -547,7 +547,7 @@ export function functionTests(setup: TestSetup<TestContext>): void {
 
       const result = await functionCall(
         ctx.config.baseUrl, ctx.repoName, PKG, VERSION, 'add',
-        { args: [variant('value', encodeInt(5n)), variant('dataset', VALUE_PATH)], runner: none, limits: none },
+        { args: [variant('value', encodeInt(5n)), variant('dataset', VALUE_PATH)], runner: none, limits: none, drafts: [] },
         opts
       );
       if (result.outcome.type !== 'invalid') assert.fail(`expected invalid, got ${result.outcome.type}`);
@@ -568,7 +568,7 @@ export function functionTests(setup: TestSetup<TestContext>): void {
       // `apply` is the fixture's unassigned input
       const result = await workspaceFunctionCall(
         ctx.config.baseUrl, ctx.repoName, 'fn-unassigned-ws', 'add',
-        { args: [variant('value', encodeInt(5n)), variant('dataset', APPLY_PATH)], runner: none, limits: none },
+        { args: [variant('value', encodeInt(5n)), variant('dataset', APPLY_PATH)], runner: none, limits: none, drafts: [] },
         opts
       );
       if (result.outcome.type !== 'invalid') assert.fail(`expected invalid, got ${result.outcome.type}`);

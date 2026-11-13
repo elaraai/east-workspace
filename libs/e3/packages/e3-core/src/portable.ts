@@ -68,6 +68,7 @@ export type {
   FunctionCallEnd,
   FunctionCallListOptions,
   FunctionCallListPage,
+  StoredFunctionCall,
   RepositoryUpgrade,
   StorageBackend,
 } from './storage/interfaces.js';
@@ -545,6 +546,7 @@ export {
   functionCallResult,
   functionCallSummary,
   functionCallInputs,
+  functionCallDrafted,
   functionCallLost,
   functionRunnerRefusal,
   handleProcessFunctionCall,

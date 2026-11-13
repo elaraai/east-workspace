@@ -63,7 +63,7 @@ const sameCaller = equalFor(OptionType(StringType));
 
 /** A call of value arguments, each one's bytes. */
 function request(args: Uint8Array[]): FunctionCallRequest {
-  return { args: args.map((arg) => variant('value', arg)), runner: none, limits: none };
+  return { args: args.map((arg) => variant('value', arg)), runner: none, limits: none, drafts: [] };
 }
 
 /** A runner's end, its value and its log tails. */
@@ -154,6 +154,38 @@ describe('functionCall', () => {
     assert.equal(job.call.args.length + job.call.inputs.length, 0);
     const status = await functionCallStatus(storage, REPO, job);
     assert.ok(status.type === 'completed' && status.value.outcome.type === 'invalid');
+  });
+
+  it('refuses a call that passes a draft, which a call does not lay: filed invalid, and nothing runs', async () => {
+    const drafted: FunctionCallRequest = { ...request([encodeInt(3n)]), drafts: [{ record: 'jobs', mutation: 'patch', args: [] }] };
+    const job = await functionCallStart(storage, REPO, WS, 'scaled', drafted, { caller: 'ada@example.com', lifetimes: LIFETIMES, now });
+    if (job.call.state.type !== 'invalid') assert.fail(`filed ${job.call.state.type}`);
+    assert.match(job.call.state.value.diagnostics[0]!.message, /passes 1 draft\(s\)/);
+    assert.equal(job.call.inputs.length + job.call.drafts.length, 0, 'it read nothing, and keeps no draft');
+    assert.equal((await functionCallRun(storage, runner, REPO, WS, job.call.id, { now })).result, null);
+    assert.equal(runner.getDetachedCalls().length, 0);
+  });
+
+  it('names in a result each record its call drafted once, in the order its drafts first name them, and none for a call refused', async () => {
+    const filed = await start('twice', [encodeInt(1n)]);
+    const hash = (digit: string): string => digit.repeat(64);
+    const drafts: FunctionCallJob['call']['drafts'] = [
+      { record: 'presses', mutation: 'patch', args: some(hash('1')), commit: hash('a') },
+      { record: 'jobs', mutation: 'clear', args: none, commit: hash('b') },
+      { record: 'presses', mutation: 'patch', args: some(hash('2')), commit: hash('a') },
+    ];
+    const ended = (state: FunctionCallJob['call']['state']): FunctionCallJob => ({ ...filed, call: { ...filed.call, drafts, state } });
+    const sameDrafts = equalFor(ExecuteResultType.fields.drafts);
+
+    const conflict = await functionCallStatus(storage, REPO, ended(variant('conflict', { record: 'presses', mutation: 'patch', message: 'the row changed under the edit' })));
+    if (conflict.type !== 'completed' || conflict.value.outcome.type !== 'conflict') assert.fail(`the status is ${conflict.type}`);
+    assert.equal(conflict.value.outcome.value.message, 'the row changed under the edit');
+    assert.ok(sameDrafts(conflict.value.drafts, [{ record: 'presses', commit: hash('a') }, { record: 'jobs', commit: hash('b') }]));
+
+    const failed = await functionCallStatus(storage, REPO, ended(variant('failed', { exitCode: 1n })));
+    assert.ok(failed.type === 'completed' && sameDrafts(failed.value.drafts, conflict.value.drafts), 'whatever its end');
+    const refused = await functionCallStatus(storage, REPO, ended(variant('invalid', { diagnostics: [] })));
+    assert.ok(refused.type === 'completed' && refused.value.drafts.length === 0, 'a call refused laid none');
   });
 
   it('runs a call on its inputs and arguments as stored objects, stores its value, and keeps it as long as a success', async () => {

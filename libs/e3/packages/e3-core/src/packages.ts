@@ -798,6 +798,8 @@ export async function packageZipOpenFrom(
         end: refuse('record a call\'s end'),
         requestCancel: refuse('cancel a call'),
         list: calls.list.bind(calls),
+        readStored: async (of) => (await calls.readStored(of))
+          .map(({ workspace, id, read }) => ({ workspace, id, read, replace: refuse('replace a call') })),
       },
       runStates: (repo) => {
         const states = storage.runStates(repo);
