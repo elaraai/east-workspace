@@ -1328,6 +1328,28 @@ export interface FunctionCallStore {
   requestCancel(repo: string, workspace: string, id: string, cancel: FunctionCallCancel): Promise<FunctionCallJob | null>;
 
   /**
+   * Replace what a running call names as its function's inputs: each input's
+   * path with the hash it is read at, once the call's run has laid its drafts
+   * (east-workspace#1619). An input of a drafted record then names the drafted
+   * state, which nothing else names, so the call keeps it alive from here on
+   * ({@link RepoStore.gcScanCallRoots}) and its result names it as read. A
+   * call that has ended is left as it is.
+   *
+   * @remarks
+   * The one write of a call between its start and its end, beside a request to
+   * cancel it. A run that lays its drafts again writes the same inputs again:
+   * the drafted state is named by its content.
+   *
+   * @param repo - Repository identifier
+   * @param workspace - The workspace it was called through
+   * @param id - Its id
+   * @param inputs - Its inputs, whole, in the order it was filed with
+   * @returns The call as it stands; null when there is none, or it has
+   *   expired
+   */
+  pinInputs(repo: string, workspace: string, id: string, inputs: FunctionCallJob['call']['inputs']): Promise<FunctionCallJob | null>;
+
+  /**
    * List a page of a workspace's calls, the latest first, and where the next
    * page starts.
    *

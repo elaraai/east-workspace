@@ -274,9 +274,15 @@ export {
   recordIndexNames,
   appliedMigrations,
   resolveRecord,
+  recordOfPackage,
   recordLeafType,
+  recordHead,
+  recordDraftMutation,
+  recordLayDraft,
+  encodeMutationArgs,
   RECORD_KEYS_REMEMBERED,
   type RecordRef,
+  type RecordDraftLaid,
   type RecordSystemCommitOptions,
   type RecordSystemCommitTarget,
   type RecordStateRefs,
@@ -559,6 +565,18 @@ export {
   type FunctionCallRun,
   type ProcessFunctionCallDeps,
 } from './execution/functionCall.js';
+
+// A call's drafts: unsaved edits checked and named as the call starts, and
+// laid over the records its function reads as it runs (east-workspace#1619)
+export {
+  pinCallDrafts,
+  layCallDrafts,
+  draftedInputs,
+  NO_CALL_DRAFTS,
+  type CallDrafts,
+  type CallDraftsLaid,
+  type LayCallDraftsOptions,
+} from './execution/functionDrafts.js';
 
 // =============================================================================
 // Dataflow

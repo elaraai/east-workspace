@@ -71,6 +71,15 @@ export class InMemoryFunctionCallStore implements FunctionCallStore, InMemoryRep
     return asked;
   }
 
+  async pinInputs(repo: string, workspace: string, id: string, inputs: FunctionCallJob['call']['inputs']): Promise<FunctionCallJob | null> {
+    const key = this.key(repo, workspace, id);
+    const job = this.live(key);
+    if (job === null || job.call.state.type !== 'running') return job;
+    const pinned: FunctionCallJob = { ...job, call: { ...job.call, inputs } };
+    this.calls.set(key, encodeFunctionCallJob(pinned));
+    return pinned;
+  }
+
   async list(repo: string, workspace: string, options: FunctionCallListOptions): Promise<FunctionCallListPage> {
     checkPageLimit(options.limit);
     if (options.before !== undefined) checkId('call id', options.before);

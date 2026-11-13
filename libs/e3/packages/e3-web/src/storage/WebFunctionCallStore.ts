@@ -50,12 +50,12 @@ function decoded(data: Uint8Array): FunctionCallJob | null {
  * @remarks
  * A call's id is a UUIDv7, so its workspace's keys scan in the order its calls
  * started, and a list reads them from the latest. Each write of a call is a
- * transaction that reads it, so its end and a request to cancel it land one
- * after the other, whichever tab makes them: the first end stands. A call past
- * its `expiresAt` is gone for every read, which deletes it as it passes, and
- * gc's sweep deletes every one ({@link sweepExpired}). A workspace's removal
- * takes its calls in its own transaction, and a repository's removal every
- * call it keeps.
+ * transaction that reads it, so its end, a request to cancel it and the pin of
+ * its inputs land one after the other, whichever tab makes them: the first
+ * end stands. A call past its `expiresAt` is gone for every read, which
+ * deletes it as it passes, and gc's sweep deletes every one
+ * ({@link sweepExpired}). A workspace's removal takes its calls in its own
+ * transaction, and a repository's removal every call it keeps.
  */
 export class WebFunctionCallStore implements FunctionCallStore {
   /**
@@ -114,6 +114,17 @@ export class WebFunctionCallStore implements FunctionCallStore {
       const asked: FunctionCallJob = { ...job, cancel: some(cancel) };
       tx.put(key, encodeFunctionCallJob(asked));
       return asked;
+    });
+  }
+
+  async pinInputs(repo: string, workspace: string, id: string, inputs: FunctionCallJob['call']['inputs']): Promise<FunctionCallJob | null> {
+    const key = this.key(repo, workspace, id);
+    return this.records.transact(async (tx) => {
+      const job = await this.live(tx, key);
+      if (job === null || job.call.state.type !== 'running') return job;
+      const pinned: FunctionCallJob = { ...job, call: { ...job.call, inputs } };
+      tx.put(key, encodeFunctionCallJob(pinned));
+      return pinned;
     });
   }
 
