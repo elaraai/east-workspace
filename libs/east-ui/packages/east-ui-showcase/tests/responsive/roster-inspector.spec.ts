@@ -106,6 +106,32 @@ test("A refused duty gone to — by the warning button, or by its line in the Is
     await close();
     await toolbar.getByRole('button', { name: '1 issue', exact: true }).click(); await settled(page);
     await expect.poll(shown).toEqual({ banner: true, field: true, keyboard: true });
+    // The panel left scrolled to its foot by another duty, as a person reading that one leaves it, and the warning
+    // button pressed with it open: the request's opens from its start all the same, its refusal over its ringed field
+    // — never where the other duty's was left, the field in view there and its refusal out of sight above it (hand
+    // test, 13 Nov 2026).
+    await close();
+    await frame.locator('[data-roster-assignment="s37"]').click(); await settled(page);
+    if (await expand.isVisible()) await expand.click();
+    const left = await end.evaluate((pane) => {
+        const panel = pane.querySelector<HTMLElement>('[role="tabpanel"]:not([hidden])')!;
+        panel.scrollTop = panel.scrollHeight;
+        return panel.scrollTop;
+    });
+    expect(left, "the other duty's panel, scrolled").toBeGreaterThan(0);
+    await toolbar.getByRole('button', { name: '1 issue', exact: true }).click(); await settled(page);
+    await expect.poll(shown).toEqual({ banner: true, field: true, keyboard: true });
+    // And the request's own panel scrolled to its foot, then closed: a browser keeps a closed panel's scroll, and
+    // the warning button opens it from its start.
+    const foot = await end.evaluate((pane) => {
+        const panel = pane.querySelector<HTMLElement>('[role="tabpanel"]:not([hidden])')!;
+        panel.scrollTop = panel.scrollHeight;
+        return panel.scrollTop;
+    });
+    expect(foot, "the request's panel, scrolled").toBeGreaterThan(0);
+    await close();
+    await toolbar.getByRole('button', { name: '1 issue', exact: true }).click(); await settled(page);
+    await expect.poll(shown).toEqual({ banner: true, field: true, keyboard: true });
     // From the next day, the Issues tab's line goes back to it the same way.
     await toolbar.getByRole('button', { name: 'Next day', exact: true }).click(); await settled(page);
     if (await expand.isVisible()) await expand.click();

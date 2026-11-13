@@ -151,17 +151,28 @@ async function leave(el: HTMLElement) {
     await settle();
 }
 
+/**
+ * The open select's list. The list of a select a pick closed a moment ago may still be in the page, closed and on its
+ * way out — it leaves a frame or so later — and is none of it: asked for the page's one listbox, a second select
+ * opened straight after a pick found two, now and then.
+ */
+function openList(): HTMLElement {
+    const lists = screen.getAllByRole("listbox").filter((list) => list.getAttribute("data-state") === "open");
+    expect(lists).toHaveLength(1);
+    return lists[0]!;
+}
+
 /** Opens a select from its trigger: the choices it offers, in order. */
 async function open(field: HTMLElement): Promise<string[]> {
     const trigger = field.querySelector<HTMLElement>("[data-scope=select][data-part=trigger]")!;
     await act(async () => { fireEvent.click(trigger); });
     expect(trigger.getAttribute("aria-expanded")).toBe("true");
-    return within(screen.getByRole("listbox")).getAllByRole("option").map((o) => o.textContent ?? "");
+    return within(openList()).getAllByRole("option").map((o) => o.textContent ?? "");
 }
 
 /** Picks a choice of the open select by its words; picking closes it. */
 async function choose(name: string) {
-    await act(async () => { fireEvent.click(within(screen.getByRole("listbox")).getByRole("option", { name })); });
+    await act(async () => { fireEvent.click(within(openList()).getByRole("option", { name })); });
     await settle();
 }
 
@@ -664,18 +675,21 @@ describe("FieldForm — a field a host draws on one line, an issue's wash, and t
         ["lead", YES_NO],
     ]);
 
-    function mountShift(value: Record<string, unknown>, extra: { readOnly?: boolean; issues?: ReadonlySet<string>; hidden?: boolean; specs?: readonly FieldSpecValue[] } = {}) {
+    function mountShift(value: Record<string, unknown>, extra: { readOnly?: boolean; issues?: ReadonlySet<string>; hidden?: boolean; pane?: boolean; specs?: readonly FieldSpecValue[] } = {}) {
         const edits: Edit[] = [];
         let named: (key: string | undefined) => void = () => {};
         function Host() {
             const [current, setValue] = useState<Record<string, unknown>>(value);
             const [focus, setFocus] = useState<string | undefined>(undefined);
             named = setFocus;
-            // A panel around the form, hidden as a tab's is until it is shown.
+            // A panel around the form, hidden as a tab's is until it is shown — a pane's body where the test says so, as
+            // a `DockPane`'s is marked — in a page that scrolls too.
             return (
-                <div data-panel="" hidden={extra.hidden}>
-                    <FieldForm specs={extra.specs ?? SHIFT_SPECS} value={current} readOnly={extra.readOnly} lines={LINES} issues={extra.issues} focus={focus}
-                        onChange={(path, next) => { edits.push({ path: path.join("."), value: next }); setValue((v) => setAt(v, path, next)); }} />
+                <div data-page="">
+                    <div data-panel="" data-dock-body={extra.pane === true ? "" : undefined} hidden={extra.hidden}>
+                        <FieldForm specs={extra.specs ?? SHIFT_SPECS} value={current} readOnly={extra.readOnly} lines={LINES} issues={extra.issues} focus={focus}
+                            onChange={(path, next) => { edits.push({ path: path.join("."), value: next }); setValue((v) => setAt(v, path, next)); }} />
+                    </div>
                 </div>
             );
         }
@@ -786,6 +800,41 @@ describe("FieldForm — a field a host draws on one line, an issue's wash, and t
         } finally {
             if (was === undefined) delete prototype.checkVisibility;
             else prototype.checkVisibility = was;
+        }
+    });
+
+    test("a field named in a pane another subject left scrolled comes into view from the pane's start, as a pane opened afresh shows it; what scrolls outside the pane stays where it is", async () => {
+        // jsdom lays nothing out and brings nothing into view: the scroll the form asks for records where each scroller
+        // stood as it was asked, which is where a browser's least scroll begins from.
+        const prototype = HTMLElement.prototype as { scrollIntoView?: (this: HTMLElement, options?: ScrollIntoViewOptions) => void };
+        const was = prototype.scrollIntoView;
+        const asked: { field: string | null; pane: number; page: number; options: ScrollIntoViewOptions | undefined }[] = [];
+        prototype.scrollIntoView = function (this: HTMLElement, options?: ScrollIntoViewOptions) {
+            asked.push({ field: this.getAttribute("data-field"), pane: this.closest("[data-panel]")!.scrollTop, page: this.closest("[data-page]")!.scrollTop, options });
+        };
+        try {
+            // The pane as the subject before left it, scrolled to its foot, in a page scrolled too.
+            const { container, field, focus } = mountShift({ name: "Early", kind: "day", active: true, lead: none, note: "" }, { pane: true });
+            const pane = container.querySelector<HTMLElement>("[data-dock-body]")!;
+            const page = container.querySelector<HTMLElement>("[data-page]")!;
+            pane.scrollTop = 330;
+            page.scrollTop = 120;
+            await focus("note");
+            expect(document.activeElement).toBe(within(field("note")).getByRole("textbox"));
+            expect(asked).toEqual([{ field: "note", pane: 0, page: 120, options: { block: "nearest", inline: "nearest" } }]);
+            cleanup();
+
+            // No pane around the form — a popover's, a page's own: every scroller is left where it stands, the field
+            // brought into view by the least scroll from there.
+            asked.length = 0;
+            const bare = mountShift({ name: "Early", kind: "day", active: true, lead: none, note: "" });
+            const panel = bare.container.querySelector<HTMLElement>("[data-panel]")!;
+            panel.scrollTop = 330;
+            await bare.focus("note");
+            expect(asked).toEqual([{ field: "note", pane: 330, page: 0, options: { block: "nearest", inline: "nearest" } }]);
+        } finally {
+            if (was === undefined) delete prototype.scrollIntoView;
+            else prototype.scrollIntoView = was;
         }
     });
 

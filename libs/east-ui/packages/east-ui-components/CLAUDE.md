@@ -1115,6 +1115,18 @@ ellipsis, its control titled with the whole (#1250). The showcase's
 `inspector-form.spec.ts` measures it in the Sheet's, the Plan's, the
 Flowchart's and the Schematic's inspectors.
 
+The field a host names (`focus`: an issue gone to, a new row's title) takes
+the keyboard and comes into view whole by the least scroll that shows it —
+in a pane's body from the pane's start, as a pane opened afresh shows it.
+`DockPane` marks its bodies (`data-dock-body`): a body shows a subject at a
+time and keeps its scroll from one to the next, and begun from where the
+subject before left it, a field already in view scrolled nothing — the
+banner of the issue that named it left out of sight above its ringed field
+(hand test, 13 Nov 2026). What scrolls outside the pane, the page, begins
+where it stands. One rule, in the form (`scrolledFrom`), for every builder's
+inspector: `field-form.dom.test.tsx`, and in a browser the showcase's
+`roster-inspector.spec.ts`.
+
 The shared inputs' sizes are one line each — `theme/field-chrome.ts` ›
 `fieldHeights`: `sm` 26px, `md` 32px, `lg` 44px — set on each control's
 bordered box (the input, the select's trigger, the number's root, the date's

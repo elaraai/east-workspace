@@ -88,7 +88,11 @@
  * its bounds don't hold, whatever gave it; and the field a
  * host names (`focus`) takes the keyboard as it is named — a new row's title —
  * or, where a tab or a fold still hides the form, once it shows, kept in view
- * while a pane sliding open widens the form under it.
+ * while a pane sliding open widens the form under it. In a pane's body
+ * (`DockPane`'s, `data-dock-body`) it comes into view as a pane opened afresh
+ * shows it, whatever the subject before left the pane scrolled to: by the
+ * least scroll from the pane's start, so what stands over the field — an
+ * issue's banner — shows with it.
  *
  * It is a React part for renderers, as `BuilderFrame` is: no East component.
  * Each input's payload is East's `defaultValue` of its type with the field's
@@ -275,19 +279,61 @@ const NO_SPECS: readonly FieldSpecValue[] = [];
 /** What takes the keyboard in a field: the first control in it that takes it. */
 const FOCUSABLE = "input:not([type=hidden]):not([disabled]), textarea:not([disabled]), button:not([disabled]), [tabindex]:not([tabindex='-1'])";
 
+/** A pane's scrolling body, as `DockPane` marks its own: what shows a form's subject, one at a time. */
+const PANE_BODY = "[data-dock-body]";
+
+/** Each element around a field, and where it is scrolled from as the field comes into view: its top, then its left. */
+type ScrolledFrom = readonly (readonly [Element, number, number])[];
+
+/**
+ * Where each element around a field is scrolled from as the field comes into view: where it stands — but the field's
+ * pane, and whatever scrolls inside it, from its start. A pane shows a subject at a time and keeps its scroll from one
+ * to the next, so where the subject before left it says nothing of this one: begun from there, a field already in view
+ * scrolled nothing, and what stands over it — the banner of the issue that named it — stayed out of sight above (hand
+ * test, 13 Nov 2026). Begun from its start, the pane shows the field as one opened afresh does. What scrolls outside
+ * the pane — the page — begins where it stands: nothing a form does moves a page further than it must.
+ *
+ * @param field - The field
+ * @returns Each element around it, innermost first, and where it begins from
+ */
+function scrolledFrom(field: HTMLElement): ScrolledFrom {
+    const pane = field.closest(PANE_BODY);
+    const from: (readonly [Element, number, number])[] = [];
+    for (let el = field.parentElement; el !== null; el = el.parentElement) {
+        const inPane = pane !== null && pane.contains(el);
+        from.push([el, inPane ? 0 : el.scrollTop, inPane ? 0 : el.scrollLeft]);
+    }
+    return from;
+}
+
+/**
+ * Brings a field into view whole — its label and help with its control — by the least scroll from where each element
+ * around it begins.
+ *
+ * @param field - The field
+ * @param from - Each element around it, and where it begins from ({@link scrolledFrom})
+ */
+function bringIntoView(field: HTMLElement, from: ScrolledFrom): void {
+    for (const [el, top, left] of from) {
+        if (el.scrollTop !== top) el.scrollTop = top;
+        if (el.scrollLeft !== left) el.scrollLeft = left;
+    }
+    field.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+}
+
 /**
  * Keeps the field whose control took the keyboard in view — its label with it — while its form changes width, until
  * the control loses the keyboard: a pane sliding open shows the form narrow first, where the field sits far lower,
  * and widens it under the scroll that brought the control into view. Each width brings it into view again from where
- * the panes around it stood as it took the keyboard, scrolled no further than a form already that wide would have
+ * the elements around it began as it took the keyboard, scrolled no further than a form already that wide would have
  * scrolled them — never left as far down as the narrow form needed.
  *
  * @param root - The form
  * @param field - The field
  * @param control - Its control that took the keyboard
- * @param from - Each element around the field, and where it was scrolled to as the control took the keyboard
+ * @param from - Each element around the field, and where it began from as the control took the keyboard
  */
-function keepInView(root: HTMLElement, field: HTMLElement, control: HTMLElement, from: readonly (readonly [Element, number, number])[]): void {
+function keepInView(root: HTMLElement, field: HTMLElement, control: HTMLElement, from: ScrolledFrom): void {
     if (typeof ResizeObserver !== "function") return;
     let width = root.getBoundingClientRect().width;
     const observer = new ResizeObserver(() => {
@@ -295,8 +341,7 @@ function keepInView(root: HTMLElement, field: HTMLElement, control: HTMLElement,
         const now = root.getBoundingClientRect().width;
         if (Math.abs(now - width) < 0.5) return;
         width = now;
-        for (const [el, top, left] of from) { el.scrollTop = top; el.scrollLeft = left; }
-        field.scrollIntoView({ block: "nearest", inline: "nearest" });
+        bringIntoView(field, from);
     });
     observer.observe(root);
 }
@@ -305,8 +350,8 @@ function keepInView(root: HTMLElement, field: HTMLElement, control: HTMLElement,
  * Gives the keyboard to a field of a form — the first control in it that takes it — at once where it shows, else once
  * it does: the browser gives it to nothing hidden, and a change of an element around the form (a tab's panel shown, a
  * fold opened) is when it may show. The field comes into view whole, its label and help with its control, scrolled no
- * further than it must be — what stands over it in its pane, an issue's banner, stays in view where there is room —
- * and stays in view while the form settles.
+ * further than it must be — what stands over it in its pane, an issue's banner, stays in view where there is room,
+ * wherever the subject before left the pane ({@link scrolledFrom}) — and stays in view while the form settles.
  *
  * @param root - The form
  * @param key - The field, by key
@@ -320,10 +365,9 @@ function takeWhenShown(root: HTMLElement | null, key: string): (() => void) | un
         const control = field?.querySelector<HTMLElement>(FOCUSABLE);
         if (field === undefined || control === undefined || control === null) return true;
         if (typeof control.checkVisibility === "function" && !control.checkVisibility()) return false;
-        const from: (readonly [Element, number, number])[] = [];
-        for (let el = field.parentElement; el !== null; el = el.parentElement) from.push([el, el.scrollTop, el.scrollLeft]);
+        const from = scrolledFrom(field);
         control.focus({ preventScroll: true });
-        field.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+        bringIntoView(field, from);
         keepInView(root, field, control, from);
         return true;
     };

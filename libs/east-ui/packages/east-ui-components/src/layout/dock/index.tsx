@@ -177,6 +177,12 @@ export interface DockPaneProps {
  * and every tab's while another is open, so a child's scroll / drag / search
  * state survives; `lazy` defers first mount.
  *
+ * A body scrolls what it holds, and says it is a pane's (`data-dock-body`): it
+ * shows a subject at a time and keeps its scroll from one to the next, so what
+ * brings a part of a new subject into view — a form giving a named field the
+ * keyboard (`FieldForm`'s `focus`) — begins from the body's start, never from
+ * where the subject before left it.
+ *
  * @param props - The pane's tabs or body, and its options ({@link DockPaneProps})
  * @returns The pane
  */
@@ -403,6 +409,7 @@ export function DockPane(props: DockPaneProps) {
                 key={tab.key}
                 css={styles.body}
                 role="tabpanel"
+                data-dock-body=""
                 id={`${ids}-panel-${index}`}
                 aria-labelledby={`${ids}-tab-${index}`}
                 hidden={collapsed || tab.key !== openTab?.key}
@@ -411,7 +418,7 @@ export function DockPane(props: DockPaneProps) {
             </ChakraBox>
         ))
         : (
-            <ChakraBox css={styles.body} hidden={collapsed}>
+            <ChakraBox css={styles.body} data-dock-body="" hidden={collapsed}>
                 {props.body}
             </ChakraBox>
         );
