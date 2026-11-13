@@ -40,8 +40,9 @@ import { startComplianceServer, type ComplianceServer } from './compliance-serve
 /**
  * The suites of `apiTestSuites` each part runs, by name, every suite in one
  * part: parts of about equal time on the slowest runner (run 41294732185's
- * Windows times). The CLI part, `api-compliance-cli.spec`, runs the suites
- * that are not `apiTestSuites`.
+ * Windows times), and a suite added since in the part with the most time to
+ * spare. The CLI part, `api-compliance-cli.spec`, runs the suites that are
+ * not `apiTestSuites`.
  */
 export const COMPLIANCE_PARTS = {
   rest: [
@@ -49,7 +50,7 @@ export const COMPLIANCE_PARTS = {
     'functions', 'areaRecords', 'inputDeploy', 'packageTransfer', 'platform',
   ],
   dataflow: ['dataflow', 'calls', 'records', 'keyedRecords', 'recordDeploy'],
-  series: ['seriesRecords', 'placeRecords'],
+  series: ['seriesRecords', 'placeRecords', 'functionDrafts'],
 } as const satisfies Record<string, readonly string[]>;
 
 /** How a part's requests reach the server. */

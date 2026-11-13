@@ -57,7 +57,7 @@ A harness whose server runs no commands, such as e3 running in a page, sets `com
 |--------|-------------|
 | `TestSetup<T>` | Type for per-test context factory: `(t: TestContext) => Promise<T>` |
 | `createTestContext` | Create test context with helpers for setup/teardown |
-| `allApiTests` | Register every API test suite of `apiTestSuites`: repository, packages, workspaces, datasets, dataset pages, dataset transfer, dataflow, functions, records, keyed records, record deploys, package transfer and platform |
+| `allApiTests` | Register every API test suite of `apiTestSuites`, in its order: each suite below but the CLI's, the transfers' and the bundles' |
 | `apiTestSuites` | Every API test suite by name, in the order `allApiTests` registers them: for a harness that runs them in parts, and checks its parts name each once |
 | `allTests` | Register all tests including CLI tests (requires credentials env) |
 | `repositoryTests` | Repository CRUD tests |
@@ -65,16 +65,24 @@ A harness whose server runs no commands, such as e3 running in a page, sets `com
 | `workspaceTests` | Workspace management tests |
 | `datasetTests` | Dataset read/write tests |
 | `datasetPageTests` | Paged dataset reads and key search |
+| `datasetBatchTests` | Batch reads: several key searches, rows or index runs in one request |
 | `datasetTransferTests` | Dataset uploads and downloads through the transfer protocol |
 | `dataflowTests` | Dataflow execution tests |
 | `functionTests` | Function calls, one-shots and split calls, as an admin and as a reader |
+| `callTests` | The calls a workspace keeps: started, polled, cancelled, listed and read whole |
+| `functionDraftTests` | A function's call over drafts: unsaved edits laid over the records it reads, and never saved |
 | `recordTests` | Record mutations |
 | `keyedRecordTests` | Keyed records: every write form, and their indexes |
+| `areaRecordTests` | A record read by area, through an area index |
+| `placeRecordTests` | Where a narrowing's rows sit in a record |
+| `seriesRecordTests` | A record read in two dimensions, through its series and summary indexes |
 | `recordDeployTests` | Records across deploys: migrations |
+| `inputDeployTests` | Inputs across deploys: the new package's value, or the one someone set |
 | `packageTransferTests` | Package imports and exports as jobs |
 | `platformTests` | Platform capability tests |
 | `cliTests` | CLI integration tests |
 | `transferTests` | Cross-repository transfer tests |
+| `workspaceBundleTests` | Workspace bundles, for a host that mounts the bundle routes: not one of `apiTestSuites` |
 | `createPackageZip` | Create a test package zip file |
 | `runE3Command` | Run an e3 CLI command |
 
