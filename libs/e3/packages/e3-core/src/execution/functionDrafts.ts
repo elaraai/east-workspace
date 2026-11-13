@@ -25,15 +25,17 @@
  *   record is moved, so nothing another reader of the workspace sees changes.
  *
  * Both go through `StorageBackend` and `TaskRunner`, so every backend shares
- * them, and a caller in process over a local repository lays its drafts as a
- * kept call's run does.
+ * them, and a call no store keeps, of a local repository
+ * (`functionCallUnkept.ts`), lays its drafts as a kept call's run does.
  *
  * @packageDocumentation
  */
 
-import { SortedMap, equalFor, none, some } from '@elaraai/east';
+import { SortedMap, equalFor, none, some, variant } from '@elaraai/east';
 import {
   TreePathType,
+  functionDraftEndLine,
+  functionDraftLabel,
   type ExecuteResult,
   type FunctionCallDraft,
   type FunctionCallDrafted,
@@ -66,19 +68,6 @@ export interface CallDrafts {
 
 /** The drafts of a call that passed none. */
 export const NO_CALL_DRAFTS: CallDrafts = { drafts: [], drafted: [] };
-
-/**
- * How a call names one of its drafts: `draft jobs.patch (2 of 3)`.
- *
- * @param draft - The draft's record and mutation
- * @param at - Its place among the call's drafts, from 0
- * @param total - How many drafts the call passed
- * @returns The draft's name, as a refusal and the first line of a failed
- *   call's stderr begin
- */
-function draftLabel(draft: { readonly record: string; readonly mutation: string }, at: number, total: number): string {
-  return `draft ${draft.record}.${draft.mutation} (${at + 1} of ${total})`;
-}
 
 /** A drafted record while a call's drafts are checked. */
 interface PinnedRecord {
@@ -133,7 +122,8 @@ export async function pinCallDrafts(
   drafts: readonly FunctionDraft[],
 ): Promise<CallDrafts | { invalid: string }> {
   if (drafts.length === 0) return NO_CALL_DRAFTS;
-  const refuse = (at: number, why: string): { invalid: string } => ({ invalid: `${draftLabel(drafts[at]!, at, drafts.length)}: ${why}` });
+  const refuse = (at: number, why: string): { invalid: string } =>
+    ({ invalid: `${functionDraftLabel(drafts[at]!, at + 1, drafts.length)}: ${why}` });
   const records = new Map<string, PinnedRecord>();
   for (const [at, draft] of drafts.entries()) {
     let pinned = records.get(draft.record);
@@ -198,7 +188,8 @@ export interface LayCallDraftsOptions {
  *
  * A call a draft ended `failed` or `timed_out` says which draft in the first
  * line of its `stderr`, `draft jobs.patch (2 of 3) failed` or `draft jobs.patch
- * (2 of 3) timed out`, and the mutation's own stderr follows it, as a Save
+ * (2 of 3) timed out` (`functionDraftEndLine`, which a caller reads back with
+ * `functionDraftEnded`), and the mutation's own stderr follows it, as a Save
  * returns it; `stderrTruncated` says whether that is the tail of a longer log.
  */
 export type CallDraftsLaid =
@@ -215,6 +206,51 @@ export type CallDraftsLaid =
   | { readonly kind: 'conflict'; readonly record: string; readonly mutation: string; readonly message: string }
   /** The caller's signal stopped the laying. */
   | { readonly kind: 'aborted' };
+
+/**
+ * How a call ends when one of its drafts did not lay: its outcome, as the
+ * call's state and its result both hold it, and the stderr that says which
+ * draft.
+ */
+export interface CallDraftsEnd {
+  /** `failed` or `timed_out`, as a Save of the draft would have ended, or
+   *  `conflict`, naming the record, the mutation and the refusal's words. */
+  readonly outcome: Extract<ExecuteResult['outcome'], { type: 'failed' | 'timed_out' | 'conflict' }>;
+  /** The draft in its first line, then its mutation's own stderr; empty for a
+   *  `conflict`, whose outcome says it all, and for a call whose timeout ended
+   *  between two drafts' runs, or once they were laid. */
+  readonly stderr: string;
+  /** Whether the mutation's stderr is the tail of a longer log. */
+  readonly stderrTruncated: boolean;
+}
+
+/**
+ * The end a call comes to when its drafts were not all laid
+ * ({@link layCallDrafts}), or its timeout ended once they were: what a kept
+ * call's run records, and what a call run in process answers, so the two end
+ * a call alike.
+ *
+ * @param ended - How the laying ended
+ * @param timeoutMs - The call's timeout, which a `timed_out` end names
+ * @returns The call's outcome, and its stderr
+ */
+export function callDraftsEnd(
+  ended: Extract<CallDraftsLaid, { kind: 'failed' | 'timed_out' | 'conflict' }>,
+  timeoutMs: bigint,
+): CallDraftsEnd {
+  switch (ended.kind) {
+    case 'failed':
+      return { outcome: variant('failed', { exitCode: BigInt(ended.exitCode) }), stderr: ended.stderr, stderrTruncated: ended.stderrTruncated };
+    case 'timed_out':
+      return { outcome: variant('timed_out', { ms: timeoutMs }), stderr: ended.stderr, stderrTruncated: ended.stderrTruncated };
+    case 'conflict':
+      return {
+        outcome: variant('conflict', { record: ended.record, mutation: ended.mutation, message: ended.message }),
+        stderr: '',
+        stderrTruncated: false,
+      };
+  }
+}
 
 /**
  * Lays a call's drafts, and stores the state each drafted record is read at.
@@ -256,14 +292,16 @@ export async function layCallDrafts(
     records.set(drafted.record, { drafted, state: await readRecordState(storage, repo, drafted.base) });
   }
   for (const [at, draft] of pinned.drafts.entries()) {
-    const label = draftLabel(draft, at, pinned.drafts.length);
+    const named = { record: draft.record, mutation: draft.mutation, place: at + 1, of: pinned.drafts.length };
+    /** The first line of the call's stderr, when this draft ends it. */
+    const ends = (how: 'failed' | 'timed_out'): string => `${functionDraftEndLine({ ...named, how })}\n`;
     if (options.signal?.aborted) return { kind: 'aborted' };
     const left = options.deadline - now();
-    if (left <= 0) return { kind: 'timed_out', stderr: `${label} timed out\n`, stderrTruncated: false };
+    if (left <= 0) return { kind: 'timed_out', stderr: ends('timed_out'), stderrTruncated: false };
     const record = records.get(draft.record);
     const mutation = record?.drafted.mutations.get(draft.mutation);
     if (record === undefined || mutation === undefined) {
-      throw new Error(`${label} names a record or a mutation the call's start did not name`);
+      throw new Error(`${functionDraftLabel(draft, named.place, named.of)} names a record or a mutation the call's start did not name`);
     }
     const laid = await recordLayDraft(storage, runner, repo, record.state,
       { mutation, args: draft.args.type === 'some' ? draft.args.value : null },
@@ -278,9 +316,9 @@ export async function layCallDrafts(
         record.state = laid.state;
         break;
       case 'failed':
-        return { kind: 'failed', exitCode: laid.exitCode, stderr: `${label} failed\n${laid.stderr}`, stderrTruncated: laid.stderrTruncated };
+        return { kind: 'failed', exitCode: laid.exitCode, stderr: `${ends('failed')}${laid.stderr}`, stderrTruncated: laid.stderrTruncated };
       case 'timed_out':
-        return { kind: 'timed_out', stderr: `${label} timed out\n${laid.stderr}`, stderrTruncated: laid.stderrTruncated };
+        return { kind: 'timed_out', stderr: `${ends('timed_out')}${laid.stderr}`, stderrTruncated: laid.stderrTruncated };
       case 'conflict':
         return { kind: 'conflict', record: draft.record, mutation: draft.mutation, message: laid.detail };
       case 'aborted':
@@ -292,6 +330,25 @@ export async function layCallDrafts(
     states.push({ path: drafted.path, hash: await writeRecordState(storage, repo, state) });
   }
   return { kind: 'laid', states };
+}
+
+/**
+ * The records a call's drafts name, as its result names them: each once, in
+ * the order its drafts first name them, with the commit it stood at as the
+ * call started.
+ *
+ * @param drafts - The call's drafts, as {@link pinCallDrafts} named them
+ * @returns The records it drafted; none for a call that passed no draft
+ */
+export function callDraftsRead(drafts: CallDrafts['drafts']): ExecuteResult['drafts'] {
+  const read: ExecuteResult['drafts'] = [];
+  const named = new Set<string>();
+  for (const draft of drafts) {
+    if (named.has(draft.record)) continue;
+    named.add(draft.record);
+    read.push({ record: draft.record, commit: draft.commit });
+  }
+  return read;
 }
 
 /**

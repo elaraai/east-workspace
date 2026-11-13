@@ -22,12 +22,16 @@ import type { TestContext } from '../context.js';
 import type { TestSetup } from '../setup.js';
 import { runE3Command } from '../cli.js';
 import {
-  createPackageZip, createFunctionPackageZip, createKeyedRecordPackageZip, createMigrationPackageZip, PlansType,
+  createPackageZip, createFunctionPackageZip, createDraftsPackageZip, createKeyedRecordPackageZip, createMigrationPackageZip,
+  DraftJobsType, PlansType,
 } from '../fixtures.js';
 
 /** What one touched key of a plans patch carries — derived from the patch type
  *  rather than hand-written, so it follows the row type. */
 type PlanOp = Extract<ValueTypeOf<PatchTypeOf<typeof PlansType>>, { type: 'patch' }>['value'] extends Map<string, infer Op>
+  ? Op : never;
+/** What one touched key of a patch of the drafts fixture's jobs carries. */
+type DraftJobOp = Extract<ValueTypeOf<PatchTypeOf<typeof DraftJobsType>>, { type: 'patch' }>['value'] extends Map<string, infer Op>
   ? Op : never;
 
 /**
@@ -345,6 +349,82 @@ export function cliTests(
         assert.match(refused.stderr, /Function 'quote' reads \.inputs\.value, \.inputs\.prices from the workspace it is called through: pass -w <ws>/);
 
         await runE3Command(['workspace', 'remove', remoteUrl, wsName], workDir, { env });
+      });
+
+      describe('drafts, written --draft', { concurrency: false }, () => {
+        /** A workspace of the drafts fixture: `jobs` holds j1 on P1 for 2 hours,
+         *  j2 on P2 for 3 and j3 on P1 for 4, and `tally` holds 0. */
+        const withDrafts = async (t: Parameters<typeof withCli>[0], wsName: string) => {
+          const ctx = await withCli(t);
+          const { remoteUrl, workDir } = ctx;
+          const env = getCredentialsEnv();
+          const zipPath = await createDraftsPackageZip(ctx.tempDir, 'call-drafts-pkg', '1.0.0');
+          for (const command of [
+            ['package', 'import', remoteUrl, zipPath], ['workspace', 'create', remoteUrl, wsName], ['workspace', 'deploy', remoteUrl, wsName, 'call-drafts-pkg@1.0.0'],
+          ]) {
+            const setup = await runE3Command(command, workDir, { env });
+            assert.strictEqual(setup.exitCode, 0, `${command[0]} ${command[1]} failed: ${setup.stderr}`);
+          }
+          const call = (...words: string[]) => runE3Command(['call', remoteUrl, '-w', wsName, ...words], workDir, { env });
+          /** A patch of the jobs, in a file a draft's argument names. */
+          const patchFile = (name: string, ops: Array<[string, DraftJobOp]>): string => {
+            const path = join(workDir, name);
+            writeFileSync(path, encodeBeast2For(PatchType(DraftJobsType))(variant('patch', new SortedMap<string, DraftJobOp>(ops, compareFor(StringType)))));
+            return path;
+          };
+          const remove = () => runE3Command(['workspace', 'remove', remoteUrl, wsName], workDir, { env });
+          return { call, patchFile, remove };
+        };
+
+        it('lays unsaved edits over the records a function reads, in the order written, and saves nothing', async (t) => {
+          const { call, patchFile, remove } = await withDrafts(t, `call-drafts-ws-${Date.now()}`);
+
+          const saved = await call('jobs_on', '"P1"');
+          assert.strictEqual(saved.exitCode, 0, `Failed: ${saved.stderr}`);
+          assert.match(saved.stdout, /\b2\b/);
+          const drafted = await call('jobs_on', '"P1"', '--draft', 'jobs.move', '"j2"', '"P1"');
+          assert.strictEqual(drafted.exitCode, 0, `Failed: ${drafted.stderr}`);
+          assert.match(drafted.stdout, /\b3\b/, 'the function reads j2 on P1');
+
+          // Two records, a patch from a file, and a word that starts with a dash
+          const gone = patchFile('gone.beast2', [['j1', variant('delete', { press: 'P1', hours: 2n })]]);
+          const summed = await call('hours', '--draft', 'tally.add', '5', '--draft', 'jobs.patch', gone, '--draft', 'tally.add', '--draft=-1');
+          assert.strictEqual(summed.exitCode, 0, `Failed: ${summed.stderr}`);
+          assert.match(summed.stdout, /\b11\b/, 'j2\'s 3 hours and j3\'s 4, and a tally of 5 less 1');
+
+          const after = await call('hours');
+          assert.strictEqual(after.exitCode, 0, `Failed: ${after.stderr}`);
+          assert.match(after.stdout, /\b9\b/, 'each record reads as it was saved');
+
+          await remove();
+        });
+
+        it('reports the draft that ended a call, and refuses one the function or the workspace does not take', async (t) => {
+          const wsName = `call-drafts-ends-ws-${Date.now()}`;
+          const { call, patchFile, remove } = await withDrafts(t, wsName);
+
+          const failed = await call('jobs_on', '"P1"', '--draft', 'jobs.move', '"j2"', '"P1"', '--draft', 'jobs.refuse', '"not today"');
+          assert.notStrictEqual(failed.exitCode, 0);
+          assert.match(failed.stderr, /refused: not today/, 'the mutation\'s own stderr crosses the API');
+          assert.match(failed.stderr, /Draft jobs\.refuse \(2 of 2\) failed with exit code: 1; the function did not run/);
+          assert.strictEqual(failed.stdout.trim(), '');
+
+          // A delete of a row that is not what the patch says it is
+          const stale = patchFile('stale.beast2', [['j1', variant('delete', { press: 'P9', hours: 2n })]]);
+          const unfit = await call('jobs_on', '"P1"', '--draft', 'jobs.patch', stale);
+          assert.notStrictEqual(unfit.exitCode, 0);
+          assert.match(unfit.stderr, /Draft jobs\.patch conflicted: .*j1.* — the edit no longer matches the record; re-read it and call again/);
+
+          const unlisted = await call('job_count', '--draft', 'jobs.move', '"j2"', '"P1"');
+          assert.notStrictEqual(unlisted.exitCode, 0);
+          assert.match(unlisted.stderr, /draft jobs\.move \(1 of 1\): the function lists no record a call may draft/);
+
+          const ghost = await call('jobs_on', '"P1"', '--draft', 'ghost.add', '1');
+          assert.notStrictEqual(ghost.exitCode, 0);
+          assert.match(ghost.stderr, new RegExp(`Draft 1 \\(ghost\\.add\\): record 'ghost' not found in workspace '${wsName}'`));
+
+          await remove();
+        });
       });
     });
 

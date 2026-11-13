@@ -1255,7 +1255,8 @@ export const DiagnosticType = StructType({
  *
  * @property record - The record the draft was of
  * @property mutation - The draft's mutation
- * @property message - The refusal's words, which name the key
+ * @property message - The refusal's words, as a Save's conflict carries them
+ *   in its `detail`
  */
 export const FunctionDraftConflictType = StructType({
   record:   StringType,
@@ -1291,7 +1292,7 @@ export const FunctionDraftedType = StructType({
  * A call a draft's mutation ended `failed` or `timed_out`, before the
  * function's body ran, says which draft in the first line of its `stderr`:
  * `draft jobs.patch (2 of 3) failed`, or `… timed out`, and the mutation's own
- * stderr follows it.
+ * stderr follows it. `functionDraftEnded` reads the draft back from a result.
  *
  * `inputs` names what the call read: each input the function declares, then
  * each dataset argument, with the hash it was pinned at, in parameter order,

@@ -571,12 +571,19 @@ export {
 export {
   pinCallDrafts,
   layCallDrafts,
+  callDraftsEnd,
+  callDraftsRead,
   draftedInputs,
   NO_CALL_DRAFTS,
   type CallDrafts,
+  type CallDraftsEnd,
   type CallDraftsLaid,
   type LayCallDraftsOptions,
 } from './execution/functionDrafts.js';
+
+// A call no store keeps, run within the process that makes it: a local
+// repository's (`e3 call -w`)
+export { functionCallUnkept, type FunctionCallUnkeptOptions } from './execution/functionCallUnkept.js';
 
 // =============================================================================
 // Dataflow

@@ -14,17 +14,29 @@ import {
   encodeBeast2For,
   decodeBeast2For,
   encodeEastIR,
+  equalFor,
+  printFor,
   toEastTypeValue,
   variant,
   some,
   none,
   type EastType,
+  type EastTypeValue,
   type ValueTypeOf,
   type VariantType,
 } from '@elaraai/east';
 import { InMemoryTransferBackend, MockTaskRunner, type OneShotGrant } from '@elaraai/e3-core';
 import { InMemoryStorage } from '@elaraai/e3-core/test';
-import { BEAST2_CONTENT_TYPE, FunctionObjectType, PackageObjectType, type RunnerValue } from '@elaraai/e3-types';
+import {
+  BEAST2_CONTENT_TYPE,
+  FunctionObjectType,
+  MutationObjectType,
+  PackageObjectType,
+  RecordCommitType,
+  RecordObjectType,
+  WorkspaceRecordType,
+  type RunnerValue,
+} from '@elaraai/e3-types';
 import {
   listPackageFunctions,
   describePackageFunction,
@@ -32,19 +44,25 @@ import {
   cancelSplitCall,
   getSplitCallStatus,
 } from './functions.js';
-import { createOneShotRoutes, createPackageFunctionRoutes, oneShotAccessByRoles, type OneShotAccess } from '../routes/functions.js';
+import {
+  createOneShotRoutes, createPackageFunctionRoutes, createWorkspaceFunctionRoutes, oneShotAccessByRoles,
+  type DraftAccess, type OneShotAccess,
+} from '../routes/functions.js';
 import type { Identity } from '../identity.js';
 import {
   ErrorType,
   ResponseType,
   FunctionSignatureType,
   ExecuteResultType,
+  FunctionCallAnswerType,
   FunctionCallRequestType,
+  FunctionDraftType,
   OneShotRequestType,
   PackageJobResponseType,
   SplitCallRequestType,
   SplitCallStatusType,
   type FunctionCallRequest,
+  type FunctionDraft,
 } from '../types.js';
 import { ArrayType } from '@elaraai/east';
 
@@ -303,6 +321,144 @@ describe('function handlers', () => {
     assert.equal(runner.getDetachedCalls().length, 0, 'nothing should have executed');
   });
 
+});
+
+describe('draft access', () => {
+  const WS = 'main';
+  const STOCK = variant('east_node', { platforms: ['@elaraai/east-node-std'], decode: variant('lazy', null) });
+  const sameDrafts = equalFor(ArrayType(FunctionDraftType));
+  const printDrafts = printFor(ArrayType(FunctionDraftType));
+
+  let storage: InMemoryStorage;
+  let runner: MockTaskRunner;
+
+  /** Deploys to `WS` a package of the record `jobs`, an Integer two reducers
+   *  write, and the function `planned`, which reads it and lists it in its
+   *  drafts. */
+  beforeEach(async () => {
+    storage = new InMemoryStorage();
+    runner = new MockTaskRunner();
+    await storage.repos.create(REPO);
+
+    const state = await storage.objects.write(REPO, encodeInt(0n));
+    const genesis = await storage.objects.write(REPO, encodeBeast2For(RecordCommitType)({
+      parent: none, state, mutation: '$init', args: none, actor: 'system:deploy', at: new Date(0), delta: none,
+    }));
+    const ir = await storage.objects.write(REPO, encodeInt(0n)); // stand-in IR: the mock runner reads none
+    const reducer = (argTypes: EastTypeValue[]): Promise<string> =>
+      storage.objects.write(REPO, encodeBeast2For(MutationObjectType)({ bodyIr: ir, argTypes, runner: STOCK, form: variant('reduce', null), programIr: '' }));
+    const record = await storage.objects.write(REPO, encodeBeast2For(RecordObjectType)({
+      path: 'records/jobs',
+      mutations: new Map([['add', await reducer([toEastTypeValue(IntegerType)])], ['reset', await reducer([])]]),
+      indexes: new Map(),
+      migrations: [],
+    }));
+    const planned = await storage.objects.write(REPO, encodeBeast2For(FunctionObjectType)({
+      bodyIr: ir, inputs: [JOBS_PATH], drafts: ['jobs'], argTypes: [], outputType: toEastTypeValue(IntegerType), runner: STOCK, environment: none,
+    }));
+    const structure = variant('struct', new Map([
+      ['records', variant('struct', new Map([
+        ['jobs', variant('value', { type: toEastTypeValue(IntegerType), writable: false })],
+      ]))],
+    ]));
+    const pkg = await storage.objects.write(REPO, encodeBeast2For(PackageObjectType)({
+      tasks: new Map(),
+      data: { structure, refs: new Map([['records/jobs', variant('value', { hash: state, versions: new Map() })]]) },
+      functions: new Map([['planned', planned]]),
+      records: new Map([['jobs', record]]),
+      sources: new Map(),
+    }));
+    await storage.refs.packageWrite(REPO, 'plans', '1.0.0', pkg);
+    await storage.refs.workspaceWrite(REPO, WS, encodeBeast2For(WorkspaceRecordType)(some({
+      packageName: 'plans', packageVersion: '1.0.0', packageHash: pkg, deployedAt: new Date(0), currentRunId: none,
+    })));
+    await storage.datasets.write(REPO, WS, 'records/jobs', variant('value', { hash: state, versions: new Map([['.records.jobs', genesis]]) }));
+
+    // Each reducer's run leaves a state the store holds, and the function answers
+    runner.setDefaultResult({ state: 'success', cached: false, outputHash: await storage.objects.write(REPO, encodeInt(7n)) });
+    runner.setDetachedResult({ kind: 'success', value: encodeInt(7n), stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false });
+  });
+
+  const add = (by: bigint): FunctionDraft => ({ record: 'jobs', mutation: 'add', args: [encodeInt(by)] });
+  const reset: FunctionDraft = { record: 'jobs', mutation: 'reset', args: [] };
+
+  /** The workspace's function routes as a host mounts them: with its rule for
+   *  drafts, or with none. Its calls run in this process, on `runner`. */
+  const buildApp = (draftAccess?: DraftAccess): Hono => {
+    const app = new Hono();
+    const transfer = new InMemoryTransferBackend({ storage, getRepoPath: () => REPO, getRunner: () => runner });
+    app.route('/api/repos/:repo/workspaces/:ws/functions',
+      createWorkspaceFunctionRoutes(storage, () => REPO, transfer, draftAccess === undefined ? {} : { draftAccess }));
+    return app;
+  };
+
+  /** A call of `planned` that passes `drafts`: started, or made within its request. */
+  const post = (app: Hono, route: 'calls' | 'sync', drafts: FunctionDraft[]): Promise<Response> =>
+    Promise.resolve(app.request(`/api/repos/r/workspaces/${WS}/functions/planned${route === 'calls' ? '/calls' : ''}`, {
+      method: 'POST',
+      headers: { 'Content-Type': BEAST2_CONTENT_TYPE },
+      body: encodeBeast2For(FunctionCallRequestType)({ args: [], runner: none, limits: none, drafts }),
+    }));
+
+  const keptCalls = async (): Promise<number> => (await storage.calls.list(REPO, WS, { limit: 10 })).calls.length;
+
+  it('asks the host of each draft a call passes, in the order passed, with the request it came in, before the call is filed', async () => {
+    for (const route of ['calls', 'sync'] as const) {
+      const asked: Array<{ ws: string; draft: FunctionDraft; filed: number }> = [];
+      const app = buildApp(async (c, draft) => {
+        asked.push({ ws: c.req.param('ws')!, draft, filed: await keptCalls() });
+        return true;
+      });
+      const before = await keptCalls();
+      const passed = [add(2n), reset, add(5n)];
+      const response = await post(app, route, passed);
+
+      assert.ok(sameDrafts(asked.map(({ draft }) => draft), passed), `${route}: asked of ${printDrafts(asked.map(({ draft }) => draft))}`);
+      assert.deepEqual(asked.map(({ ws }) => ws), [WS, WS, WS], `${route}: with the request's own context`);
+      assert.deepEqual(asked.map(({ filed }) => filed), [before, before, before], `${route}: before any call is filed`);
+      const result = route === 'calls'
+        ? await decodeResponse(response, FunctionCallAnswerType).then((answer) => (
+          answer.type === 'success' && answer.value.status.type === 'completed' ? answer.value.status.value : assert.fail(`${route}: not completed`)))
+        : await decodeResponse(response, ExecuteResultType).then((answer) => (answer.type === 'success' ? answer.value : assert.fail(`${route}: an error`)));
+      assert.equal(result.outcome.type, 'success', `${route}: every draft admitted, the call runs`);
+      assert.deepEqual(result.drafts.map((drafted) => drafted.record), ['jobs'], `${route}: and names the record it drafted`);
+      assert.equal(await keptCalls(), before + 1, `${route}: one call, kept`);
+    }
+    assert.equal(runner.getCalls().length, 6, 'each draft\'s reducer ran, for each call');
+    assert.equal(runner.getDetachedCalls().length, 2);
+  });
+
+  it('answers a draft the host refuses permission_denied, naming its record and mutation, and files and runs nothing', async () => {
+    for (const route of ['calls', 'sync'] as const) {
+      const asked: string[] = [];
+      const app = buildApp((_c, draft) => {
+        asked.push(draft.mutation);
+        return draft.mutation !== 'reset';
+      });
+      const response = await post(app, route, [add(2n), reset, add(5n)]);
+      const answer = route === 'calls' ? await decodeResponse(response, FunctionCallAnswerType) : await decodeResponse(response, ExecuteResultType);
+      assert.equal(answer.type, 'error', route);
+      assert.deepEqual(answer.value, variant('permission_denied', { path: 'draft jobs.reset' }), route);
+      assert.deepEqual(asked, ['add', 'reset'], `${route}: asked up to the first it refuses, and no further`);
+    }
+    assert.equal(await keptCalls(), 0, 'no call is filed');
+    assert.equal(runner.getCalls().length + runner.getDetachedCalls().length, 0, 'and nothing runs: no reducer, nor the function');
+  });
+
+  it('admits every draft for a host that gives no rule, and asks nothing of a call that passes none', async () => {
+    const open = await decodeResponse(await post(buildApp(), 'sync', [add(2n), reset]), ExecuteResultType);
+    assert.ok(open.type === 'success' && open.value.outcome.type === 'success', 'no rule: what the mutate route allows');
+    assert.equal(runner.getCalls().length, 2, 'both drafts laid');
+
+    let asked = 0;
+    const closed = buildApp(() => {
+      asked += 1;
+      return false;
+    });
+    const plain = await decodeResponse(await post(closed, 'sync', []), ExecuteResultType);
+    assert.ok(plain.type === 'success' && plain.value.outcome.type === 'success', 'a call with no draft runs whatever the rule');
+    assert.equal(asked, 0);
+  });
 });
 
 describe('one-shot access', () => {

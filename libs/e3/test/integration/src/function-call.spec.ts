@@ -6,18 +6,25 @@
 /**
  * Integration tests for `e3 call` against a LOCAL repository — the path
  * that runs the function via LocalTaskRunner.runDetached directly, with no
- * server in between. (The remote-URL CLI path is covered by the shared
- * cli suite in e3-api-tests.)
+ * server in between, and lays a call's drafts in the same process. (The
+ * remote-URL CLI path is covered by the shared cli suite in e3-api-tests.)
  */
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { IntegerType, decodeBeast2For } from '@elaraai/east';
-import { repoInit, packageImport, LocalStorage } from '@elaraai/e3-core';
-import { createFunctionPackageZip } from '@elaraai/e3-api-tests';
+import {
+  IntegerType, PatchType, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, variant,
+  type PatchTypeOf, type ValueTypeOf,
+} from '@elaraai/east';
+import { repoInit, packageImport, recordHistory, LocalStorage } from '@elaraai/e3-core';
+import { createDraftsPackageZip, createFunctionPackageZip, DraftJobsType } from '@elaraai/e3-api-tests';
 import { createTestDir, removeTestDir, runE3Command } from './helpers.js';
+
+/** What one touched key of a jobs patch carries, derived from the patch type. */
+type DraftJobOp = Extract<ValueTypeOf<PatchTypeOf<typeof DraftJobsType>>, { type: 'patch' }>['value'] extends Map<string, infer Op>
+  ? Op : never;
 
 describe('e3 call (local repository)', { timeout: 120_000, concurrency: false }, () => {
   let testDir: string;
@@ -137,6 +144,103 @@ describe('e3 call (local repository)', { timeout: 120_000, concurrency: false },
         assert.notEqual(result.exitCode, 0, raw);
         assert.match(result.stderr, message, raw);
       }
+    });
+  });
+
+  describe('drafts, written --draft', { concurrency: false }, () => {
+    const ws = 'drafted';
+    const call = (...words: string[]): ReturnType<typeof runE3Command> => runE3Command(['call', repoPath, '-w', ws, ...words], process.cwd());
+    /** A patch of the jobs, in a file a draft's argument names. */
+    const patchFile = (name: string, ops: Array<[string, DraftJobOp]>): string => {
+      const path = join(testDir, name);
+      writeFileSync(path, encodeBeast2For(PatchType(DraftJobsType))(variant('patch', new SortedMap<string, DraftJobOp>(ops, compareFor(StringType)))));
+      return path;
+    };
+
+    before(async () => {
+      // `jobs` holds j1 on P1 for 2 hours, j2 on P2 for 3 and j3 on P1 for 4; `tally` holds 0
+      const zipPath = await createDraftsPackageZip(testDir, 'local-drafts-pkg', '1.0.0');
+      await packageImport(new LocalStorage(), repoPath, zipPath);
+      for (const command of [['workspace', 'create', repoPath, ws], ['workspace', 'deploy', repoPath, ws, 'local-drafts-pkg@1.0.0']]) {
+        const result = await runE3Command(command, process.cwd());
+        assert.equal(result.exitCode, 0, `${command.join(' ')}: ${result.stderr}`);
+      }
+    });
+
+    it('lays an unsaved edit over the record the function reads, and saves nothing', async () => {
+      const storage = new LocalStorage();
+      const commits = (await recordHistory(storage, repoPath, ws, 'jobs')).length;
+      const saved = await call('jobs_on', '"P1"');
+      assert.equal(saved.exitCode, 0, `Failed: ${saved.stderr}`);
+      assert.match(saved.stdout, /\b2\b/);
+
+      const drafted = await call('jobs_on', '"P1"', '--draft', 'jobs.move', '"j2"', '"P1"');
+      assert.equal(drafted.exitCode, 0, `Failed: ${drafted.stderr}`);
+      assert.match(drafted.stdout, /\b3\b/, 'the function reads j2 on P1');
+
+      const after = await call('jobs_on', '"P1"');
+      assert.match(after.stdout, /\b2\b/, 'the record reads as it was saved');
+      assert.equal((await recordHistory(storage, repoPath, ws, 'jobs')).length, commits, 'and no commit joined its history');
+    });
+
+    it('lays several drafts in the order written, of two records, a patch from a file among them', async () => {
+      const saved = await call('hours');
+      assert.equal(saved.exitCode, 0, `Failed: ${saved.stderr}`);
+      assert.match(saved.stdout, /\b9\b/);
+
+      const gone = patchFile('gone.beast2', [['j1', variant('delete', { press: 'P1', hours: 2n })]]);
+      // j2 as the move before it leaves it: on P1
+      const moved = patchFile('moved.beast2', [['j2', variant('delete', { press: 'P1', hours: 3n })]]);
+      // A word that starts with a dash is written --draft=<word>
+      const drafted = await call('hours',
+        '--draft', 'tally.add', '5', '--draft', 'jobs.patch', gone, '--draft', 'jobs.move', '"j2"', '"P1"',
+        '--draft', 'jobs.patch', moved, '--draft', 'tally.add', '--draft=-1');
+      assert.equal(drafted.exitCode, 0, `Failed: ${drafted.stderr}`);
+      assert.match(drafted.stdout, /\b8\b/, 'j3\'s 4 hours, and a tally of 5 less 1');
+
+      // Written the other way round, the delete does not fit the record it is laid over
+      const unfit = await call('hours', '--draft', 'jobs.patch', moved, '--draft', 'jobs.move', '"j2"', '"P1"');
+      assert.notEqual(unfit.exitCode, 0);
+      assert.match(unfit.stderr, /Draft jobs\.patch conflicted: .*j2.* — the edit no longer matches the record; re-read it and call again/);
+      assert.equal(unfit.stdout.trim(), '', 'the function did not run');
+    });
+
+    it('takes the call\'s own arguments before the first --draft, or after a --', async () => {
+      const after = await call('jobs_on', '--draft', 'jobs.move', '"j2"', '"P1"', '--', '"P1"');
+      assert.equal(after.exitCode, 0, `Failed: ${after.stderr}`);
+      assert.match(after.stdout, /\b3\b/);
+
+      const swallowed = await call('jobs_on', '--draft', 'jobs.move', '"j2"', '"P1"', '"P1"');
+      assert.notEqual(swallowed.exitCode, 0);
+      assert.match(swallowed.stderr, /Function 'jobs_on' expects 1 argument\(s\), got 0 — a call's own arguments are written before the first --draft/);
+    });
+
+    it('refuses a draft without -w before the repository is read, and one the function or the workspace does not take', async () => {
+      const unscoped = await runE3Command(
+        ['call', join(testDir, 'no-such-repo'), 'local-drafts-pkg.jobs_on', '"P1"', '--draft', 'jobs.move', '"j2"', '"P1"'], process.cwd());
+      assert.notEqual(unscoped.exitCode, 0);
+      assert.match(unscoped.stderr, /A draft \(--draft jobs\.move\) is laid over a record of the workspace the call runs in: pass -w <ws>/);
+
+      const unlisted = await call('job_count', '--draft', 'jobs.move', '"j2"', '"P1"');
+      assert.notEqual(unlisted.exitCode, 0);
+      assert.match(unlisted.stderr, /draft jobs\.move \(1 of 1\): the function lists no record a call may draft/);
+
+      const unknown = await call('jobs_on', '"P1"', '--draft', 'jobs.nope');
+      assert.notEqual(unknown.exitCode, 0);
+      assert.match(unknown.stderr, /Draft 1 \(jobs\.nope\): mutation 'nope' not found on record 'jobs'\. Available: /);
+
+      const ghost = await call('jobs_on', '"P1"', '--draft', 'ghost.add', '1');
+      assert.notEqual(ghost.exitCode, 0);
+      assert.match(ghost.stderr, /Draft 1 \(ghost\.add\): record 'ghost' not found in workspace 'drafted'/);
+    });
+
+    it('reports a draft whose mutation fails as that draft\'s failure, its stderr shown and the function not run', async () => {
+      const result = await call('jobs_on', '"P1"', '--draft', 'jobs.move', '"j2"', '"P1"', '--draft', 'jobs.refuse', '"not today"');
+      assert.notEqual(result.exitCode, 0);
+      assert.match(result.stderr, /^draft jobs\.refuse \(2 of 2\) failed$/m, 'the first line of the call\'s stderr names the draft');
+      assert.match(result.stderr, /refused: not today/, 'and the mutation\'s own stderr follows');
+      assert.match(result.stderr, /Draft jobs\.refuse \(2 of 2\) failed with exit code: 1; the function did not run/);
+      assert.equal(result.stdout.trim(), '');
     });
   });
 });

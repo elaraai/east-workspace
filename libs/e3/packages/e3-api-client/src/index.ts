@@ -240,6 +240,9 @@ export {
   type SplitCallAnswer,
 } from './functions.js';
 
+// Which of a call's drafts ended it, read from the first line of its stderr
+export { functionDraftEnded, type FunctionDraftEnd } from '@elaraai/e3-types';
+
 // Records (describe + mutations + history + compaction)
 export { workspaceRecordDescribe, workspaceRecordMutate, workspaceRecordCompact, workspaceRecordHistory } from './records.js';
 
