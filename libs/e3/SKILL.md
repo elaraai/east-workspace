@@ -80,7 +80,7 @@ What do you need?
 │   │   ├─ Read what rows nest (jobs, a value a day, child rows, trees) a tile at a time, with totals and subtotals
 │   │   │   → index.nested({ collections, tile, summary? })
 │   │   ├─ Read a few keys of a Dict field across every row (each row's figures by category) → index.entries(field)
-│   │   └─ Read an index inside a task or a function → e3.index(record.indexes.<name>) among its inputs: the entries, with its kind's readers — of, between, overlapping, events, totals, within — each a read: each($, body) | collect($)
+│   │   └─ Read an index inside a task or a function → e3.index(record.indexes.<name>) among its inputs: the entries, with its kind's readers — of, between, overlapping, events, totals, within, a nested index's items, subtree, subtotals — each a read: each($, body) | collect($)
 │   ├─ A record's type changes   → migrations: (migration) => [migration.value | rows | rekey(name, fn), …], in order (reference/record-migrations.md)
 │   ├─ A UI task                 → ui(name, [inputs], fn) from @elaraai/e3-ui (the e3-ui skill)
 │   ├─ A function written in python or another node package → East.importFunction(pkg, name, FunctionType) in the body

@@ -290,6 +290,77 @@ export const recordReadEntriesIndex = example({
   },
 });
 
+export const recordReadNestedIndex = example({
+  keywords: ['e3', 'record', 'index', 'e3.index', 'reader', 'items', 'totals', 'subtotals', 'subtree', 'subtreeTotals', 'index.nested', 'nested', 'tree', 'rollup', 'window', 'function'],
+  description: 'Read a nested series index inside a function, one node of a row\'s tree at a time: `items` gives a node\'s own items or values that overlap a window, `subtree` the items of every node beneath it, `totals` and `subtreeTotals` their totals a summary tile, and `subtotals` a parent\'s subtotal of its children\'s values by a rollup',
+  fn: () => {
+    const JobType = StructType({ title: StringType, start: OptionType(DateTimeType), end: OptionType(DateTimeType), sheets: FloatType });
+    const UnitType = StructType({ name: StringType, jobs: DictType(StringType, JobType), load: DictType(DateTimeType, FloatType) });
+    const LineType = StructType({ name: StringType, units: DictType(StringType, UnitType) });
+    const lines = e3.record('lines', DictType(StringType, LineType), {
+      initial: new Map([['l1', {
+        name: 'Line 1',
+        units: new Map([
+          ['u1', {
+            name: 'Feeder',
+            jobs: new Map([['j1', { title: 'Annual report', start: some(new Date('2026-10-05T08:00:00Z')), end: some(new Date('2026-10-07T17:00:00Z')), sheets: 4000 }]]),
+            load: new Map([[new Date('2026-10-05T00:00:00Z'), 0.6], [new Date('2026-10-06T00:00:00Z'), 0.8]]),
+          }],
+          ['u2', {
+            name: 'Folder',
+            jobs: new Map([['j2', { title: 'Posters', start: some(new Date('2026-10-06T09:00:00Z')), end: some(new Date('2026-10-06T15:00:00Z')), sheets: 900 }]]),
+            load: new Map([[new Date('2026-10-05T00:00:00Z'), 0.3]]),
+          }],
+        ]),
+      }]]),
+      indexes: (index) => ({
+        lines_in_time: index.nested({
+          collections: {
+            units: index.nested.rows({
+              jobs: index.nested.items({ from: 'start', to: 'end' }, { rollup: true }),   // filed under the line too
+              load: index.nested.values({ rollup: 'mean' }),                               // the line keeps its units' mean
+            }),
+          },
+          tile: 'day',
+          summary: 'month',
+        }),
+      }),
+    });
+    const inTime = e3.index(lines.indexes.lines_in_time);
+    const Window = [StringType, StringType, DateTimeType, DateTimeType] as const;
+    // A read names a node: its collection's place — the field names from the row down — the row's key, and the Dict
+    // keys from the row down to the node. `items` gives a node's own items that overlap `[from, to)`, each with its id.
+    const sheetsOnUnit = e3.function('sheets_on_unit', { inputs: [inTime], args: [...Window], output: FloatType },
+      ($, linesInTime, line, unit, from, to) => {
+        const sheets = $.let(0.0);
+        linesInTime.items({ collection: ['units', 'jobs'], row: line, path: [unit], from, to }).each($, ($, job) => { $.assign(sheets, sheets.add(job.sheets)); });
+        return sheets;
+      });
+    // A collection of values is read the same way: each value in the window, with its instant.
+    const loadOfUnit = e3.function('load_of_unit', { inputs: [inTime], args: [...Window], output: DictType(DateTimeType, FloatType) },
+      ($, linesInTime, line, unit, from, to) => linesInTime.items({ collection: ['units', 'load'], row: line, path: [unit], from, to }).collect($));
+    // `subtree`: the items of every node beneath a node — here the line itself, its path left out — each with the keys
+    // from the node down to the one holding it, and its id. The collection declares `rollup: true`.
+    const jobsOnLine = e3.function('jobs_on_line', { inputs: [inTime], args: [StringType, DateTimeType, DateTimeType], output: IntegerType },
+      ($, linesInTime, line, from, to) => linesInTime.subtree({ collection: ['units', 'jobs'], row: line, from, to }).collect($).size());
+    // `totals`: a node's totals a summary tile — how many, and for numbers their sum, least, greatest and latest — and
+    // the tile's start. The index declares `summary`.
+    const peakLoad = e3.function('peak_load_a_month', { inputs: [inTime], args: [...Window], output: DictType(DateTimeType, FloatType) },
+      ($, linesInTime, line, unit, from, to) => {
+        const peaks = $.let(new Map(), DictType(DateTimeType, FloatType));
+        linesInTime.totals({ collection: ['units', 'load'], row: line, path: [unit], from, to }).each($, ($, totals, month) => {
+          $.match(totals.values, { some: ($, values) => { $(peaks.insert(month, values.max)); } });
+        });
+        return peaks;
+      });
+    // `subtotals`: a parent's subtotal of its children's values a tile, by a rollup the collection declares, at the
+    // index's tile or a coarser `level`.
+    const lineLoad = e3.function('line_load', { inputs: [inTime], args: [StringType, DateTimeType, DateTimeType], output: DictType(DateTimeType, FloatType) },
+      ($, linesInTime, line, from, to) => linesInTime.subtotals({ collection: ['units', 'load'], row: line, rollup: 'mean', from, to }).collect($));
+    return e3.package('pressroom_lines', '1.0.0', sheetsOnUnit, loadOfUnit, jobsOnLine, peakLoad, lineLoad);
+  },
+});
+
 export const recordReadIndexInTask = example({
   keywords: ['e3', 'record', 'index', 'e3.index', 'reader', 'read', 'task', 'East.function', 'entries'],
   description: 'Read an index with its kind\'s readers inside a task: a task\'s body is its own East function, so `e3.index(def).read(entries)` gives its parameter the readers a function\'s and a stream task\'s parameter arrives with',

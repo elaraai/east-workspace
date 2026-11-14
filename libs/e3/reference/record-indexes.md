@@ -483,22 +483,58 @@ in the index's own order.
 | `index.summary` | `totals({ on?, key, from, to })`: each tile of `key` that overlaps `[from, to)` | `{ count, ms }`, and the tile's start in place of a row's key | one |
 | `index.area` | `within({ on?, x, y, width, height })`: the rows whose box meets the window. `unplaced({ on? })`: the rows with no place | the row, and its key | at most 266, as a page's read of a viewport |
 | `index.entries` | `of(key)`: that key's entry on every row that holds one | the entry's value, and the row's key | one |
+| `index.nested` | of one node of a row's tree, below | below | one, or one a level |
 
 A nested series index's span and an entries index's lean rows are read as
 plain indexes are, with `of` and `between`. A span's entry stands for every
 row of its key and names none, so its read gives the index key,
-`{ collection, tile }`, in a row's key's place. The nested series index's own
-readers, a run each, are not yet built.
+`{ collection, tile }`, in a row's key's place.
+
+**A nested series index's readers.** A nested series index files a row's tree
+a node at a time, each node's entries in runs, so each reader reads one node:
+`{ collection, row, path?, from, to }` — the collection's place (its field
+names from the row down, `['units', 'jobs']`, a recursive field adding none),
+the row's key, and the Dict keys from the row down to the node, the row itself
+where `path` is left out. TypeScript offers the places the index declares, and
+types what a read gives by the place.
+
+```typescript
+const inTime = e3.index(lines.indexes.lines_in_time);
+const sheetsOnUnit = e3.function('sheets_on_unit', {
+  inputs: [inTime], args: [StringType, StringType, DateTimeType, DateTimeType], output: FloatType,
+}, ($, linesInTime, line, unit, from, to) => {
+  const sheets = $.let(0.0);
+  linesInTime.items({ collection: ['units', 'jobs'], row: line, path: [unit], from, to })
+    .each($, ($, job) => { $.assign(sheets, sheets.add(job.sheets)); });
+  return sheets;
+});
+// The line's mean of its units' load a day, which the index keeps.
+linesInTime.subtotals({ collection: ['units', 'load'], row: line, rollup: 'mean', from, to }).collect($);
+```
+
+| Reader | Gives, each once | Needs | Runs read |
+|---|---|---|---|
+| `items(node)` | the node's own items that overlap `[from, to)`, each with its id; or its values in the window, each with its instant | | one a level for items timed `{ from, to }`; one for values and items timed `{ at }` |
+| `subtree(node)` | the items of every node beneath the node that overlap the window, each with `{ path, id }`: the keys from the node down to the one holding it — a path, `end` or a `step` and the rest — and its id (`NestedUnderType`) | `items(…, { rollup: true })` | one a level |
+| `totals(node)` | the node's totals of the collection in each summary tile that overlaps the window — `{ count, ms, values }`, `values` the sum, least, greatest and latest of numbers — with the tile's start | `summary` | one |
+| `subtreeTotals(node)` | the same, of the items beneath the node | `rollup: true` and `summary` | one |
+| `subtotals({ …node, rollup, level? })` | a parent's subtotal of its children's values in each tile of `level` that overlaps the window, with the tile's start. `rollup` is written as the collection declares it; `level` is the index's tile where left out, or a coarser one | `values({ rollup })` | one |
+
+A node that holds values of its own draws them and keeps no subtotal, so its
+`subtotals` is empty; a row or a node that is not there reads as empty too. A
+place the index does not file, a collection not rolled up, a rollup it does not
+keep, a level finer than its tile and totals of an index with no `summary` are
+each refused where the reader is called, naming what the index does keep.
 
 | Rule | |
 |---|---|
-| **Exact** | A series or an area index files more under the runs a window reads than the window holds, and an event past a year under each year it touches: the reader tests each entry, and gives it once. A plain index whose rows fan out — `index.keys`, a Set field — gives a row once across the keys of a read, and holds the keys of the rows it gave to do so |
+| **Exact** | A series, a nested series or an area index files more under the runs a window reads than the window holds, and an event past a year under each year it touches: the reader tests each entry, and gives it once. A plain index whose rows fan out — `index.keys`, a Set field — gives a row once across the keys of a read, and holds the keys of the rows it gave to do so |
 | **The window's edges** | `[from, to)`, for every reader with a span of time: an event that ends at `from` is outside; an instant at `from` is inside and one at `to` outside; an event with no end, or one at or before its start, is an instant. A window that ends at or before its start holds no row. A row with no start is in no window: a series index files it nowhere, and an interval index gives it by `unset`. An area's window holds its edges: a box that touches it is in it, and one of a negative size holds none |
 | **Order** | A read gives its rows in the index's own order. Across a series index's levels that is not time order: sort what is collected where order matters |
 | **Leading fields** | An index declared with `on` takes every leading field, exactly, as `on: { status: "open" }`. One left out, one that leads nothing, or a value of another type is refused where the reader is called, naming the fields |
 | **Its kind's readers** | TypeScript offers an index the readers of its kind. `e3.index(def).read` refuses another index's entries, naming both. `unset` and `unplaced` are refused for an index whose start, or place, is no Option field: every row then has one |
 | **More of the row** | Where an index carries less than the row, take the record as an input beside it and read the row by its key, at the same state. Those keyed reads come in the index's order, not the record's, so an index that carries the row is the one to read many rows through |
-| **Cost** | A read costs its runs, each a range read: its two ends through the pager's cache and what lies between. It never costs the index. Over 24,000 jobs: a key's rows decode 1 of the index's 20 segments, a week of an interval 12 of 61, a week of a press's series 2 of 20, a room of an area 4 of 19 — the same on east-node, east-c and east-py |
+| **Cost** | A read costs its runs, each a range read: its two ends through the pager's cache and what lies between. It never costs the index. Over 24,000 jobs: a key's rows decode 1 of the index's 20 segments, a week of an interval 12 of 61, a week of a press's series 2 of 20, a room of an area 4 of 19; over forty lines of four units, each read of one node of a nested series index 1 of 31 — the same on east-node, east-c and east-py |
 | **The page's runs** | Each reader reads the runs a page's reader of its kind searches, less the tiles and the margin a page reads beyond a window to pan into |
 
 **What a read costs.** A body reads the entries with `prefix` and `range`, by
