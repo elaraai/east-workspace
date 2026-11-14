@@ -114,6 +114,12 @@ lint:
 ## Optional: test/integration/src/localStack.ts builds it on demand. Running it
 ## as its own step attributes a native-build failure to a named target instead
 ## of surfacing as an opaque skip, and keeps `make test` timing honest.
+# On macOS the wheels are built to run from the macOS version the release
+# builds east-py for, as localStack.ts builds them (MACOS_DEPLOYMENT_TARGET
+# there says why): left alone, east-py's wheel is tagged for the build
+# machine's own macOS, which an install for the platform a rack reports does
+# not take. Other systems ignore it.
+e2e-stack: export MACOSX_DEPLOYMENT_TARGET ?= 11.0
 e2e-stack:
 	@echo "Building local @elaraai python wheels for the environment e2e..."
 	uv build --wheel --out-dir test/integration/.local-stack/pypi ../east-py/packages/east-py
