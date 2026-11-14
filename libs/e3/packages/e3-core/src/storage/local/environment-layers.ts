@@ -32,10 +32,12 @@
  * one. So an environment whose lock did not change shares its interpreter and
  * package layers with the one before it, and only its project layer is new.
  *
- * Entries are plain: files, directories, and links that stay inside the
- * tree. A link that is absolute or leaves the tree refuses the pack, and an
- * entry that is neither, or names a path outside the tree, refuses the
- * unpack.
+ * Entries are plain: files, directories, and links. A link is packed as the
+ * path from it to what it leads to in the tree, written as
+ * `environmentLinkInside` takes one, and one that leads out of the tree, or
+ * an entry that is no file, directory or link, refuses the pack. A layer is
+ * composed where it runs by `unpackEnvironmentLayer`, which every rack agent
+ * shares, whatever keeps the layers.
  *
  * What is in a manifest is its writer's: this module keeps it by name, and
  * reads of it only the layers it names, which gc keeps.
@@ -46,24 +48,19 @@
 import * as path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { createReadStream, createWriteStream, promises as fs } from 'node:fs';
-import { Transform, type Readable } from 'node:stream';
+import { Transform } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { setTimeout as delay } from 'node:timers/promises';
-import { createGunzip, createGzip } from 'node:zlib';
-import { extract as tarExtract, pack as tarPack, type Pack } from 'tar-stream';
+import { createGzip } from 'node:zlib';
+import { pack as tarPack, type Pack } from 'tar-stream';
 import type { StorageBackend } from '../interfaces.js';
 import { withKeyedLock } from '../../keyed-mutex.js';
 import { isObjectHash } from '../../objects.js';
-import { materializeEnvironmentFor, type EnvironmentTarget, type TargetEnvironment } from '../../execution/environment.js';
+import { ENVIRONMENT_LAYER_ROOT, environmentLinkInside, layerPathAncestors as ancestors } from '../../environment-layer-unpack.js';
+import { installedTree, materializeEnvironmentFor, type EnvironmentTarget, type TargetEnvironment } from '../../execution/environment.js';
 import { getPidStartTime, processExited } from '../../execution/processHelpers.js';
 import type { ProcessSettings } from '../../execution/processExec.js';
 import { atomicWriteFile, renameWithRetry } from './localHelpers.js';
-
-/**
- * Where a guest finds a composed environment, relative to its root: every
- * entry of every layer is under it.
- */
-export const ENVIRONMENT_LAYER_ROOT = 'var/task/.e3-env';
 
 /** The most bytes of files one package layer holds, unless one file is more. */
 export const ENVIRONMENT_PACKAGE_LAYER_BYTES = 1024 ** 3;
@@ -73,6 +70,13 @@ const GZIP_LEVEL = 6;
 
 /** How often a build that waits for another's looks again, in ms. */
 const BUILD_WAIT_MS = 500;
+
+/**
+ * How old a claim that names no builder is before it is taken for one whose
+ * builder died, in ms: a builder names itself as soon as it has made its
+ * claim, so one that has not after this never will.
+ */
+const UNNAMED_CLAIM_MS = 10_000;
 
 /** One kept layer of an environment. */
 export interface EnvironmentLayer {
@@ -182,41 +186,48 @@ interface TreeEntry {
   readonly linkname: string;
 }
 
-/** Every file, directory and link under `root`, in no order. */
-async function treeOf(root: string, dir: string = root, into: TreeEntry[] = []): Promise<TreeEntry[]> {
-  for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
-    const full = path.join(dir, entry.name);
-    const rel = path.relative(root, full).split(path.sep).join('/');
-    if (entry.isDirectory()) {
-      into.push({ rel, type: 'directory', size: 0, executable: false, linkname: '' });
-      await treeOf(root, full, into);
-    } else if (entry.isSymbolicLink()) {
-      const linkname = (await fs.readlink(full)).split(path.sep).join('/');
-      // A link is plain when what it names is in the tree, wherever the tree
-      // is put.
-      const named = path.posix.normalize(path.posix.join(path.posix.dirname(rel), linkname));
-      if (path.isAbsolute(linkname) || /^[a-zA-Z]:/.test(linkname) || named === '..' || named.startsWith('../')) {
-        throw new Error(`environment layers: the link '${rel}' names '${linkname}', outside its tree`);
+/**
+ * Every file, directory and link under `root`, in no order. A link is given
+ * as the path from it to what it leads to, through any links on the way, so
+ * it is written as a layer writes one and leads where it led, wherever the
+ * tree is put; one that leads nowhere is given as it is written.
+ */
+async function treeOf(root: string): Promise<TreeEntry[]> {
+  const realRoot = await fs.realpath(root);
+  const entries: TreeEntry[] = [];
+  for (const { rel, stat } of await installedTree(root)) {
+    const full = path.join(root, ...rel.split('/'));
+    if (stat.isDirectory()) {
+      entries.push({ rel, type: 'directory', size: 0, executable: false, linkname: '' });
+    } else if (stat.isSymbolicLink()) {
+      const written = (await fs.readlink(full)).split(path.sep).join('/');
+      let linkname: string;
+      try {
+        const led = await fs.realpath(full);
+        const fromRoot = path.relative(realRoot, led);
+        // The link's own directory is real: the walk follows no link
+        const fromLink = path.relative(path.join(realRoot, ...path.posix.dirname(rel).split('/')), led);
+        linkname = fromRoot === '..' || fromRoot.startsWith(`..${path.sep}`) || path.isAbsolute(fromRoot) ? written
+          : fromLink.split(path.sep).join('/') || '.';
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+        linkname = path.isAbsolute(written) ? written : path.posix.normalize(written);
       }
-      into.push({ rel, type: 'symlink', size: 0, executable: false, linkname });
-    } else if (entry.isFile()) {
-      const stat = await fs.lstat(full);
-      into.push({ rel, type: 'file', size: stat.size, executable: (stat.mode & 0o111) !== 0, linkname: '' });
+      if (!environmentLinkInside(rel, linkname)) {
+        throw new Error(`environment layers: the link '${rel}' names '${written}', outside its tree`);
+      }
+      entries.push({ rel, type: 'symlink', size: 0, executable: false, linkname });
+    } else if (stat.isFile()) {
+      entries.push({ rel, type: 'file', size: stat.size, executable: (stat.mode & 0o111) !== 0, linkname: '' });
     } else {
       throw new Error(`environment layers: '${rel}' is not a file, a directory or a link`);
     }
   }
-  return into;
+  return entries;
 }
 
 /** Orders paths as their code units compare, whatever the locale. */
 const byPath = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
-
-/** The directories above a path, the nearest last. */
-function ancestors(rel: string): string[] {
-  const segments = rel.split('/');
-  return segments.slice(0, -1).map((_, i) => segments.slice(0, i + 1).join('/'));
-}
 
 /**
  * Splits a tree into its layers: the interpreter, the packages a gigabyte at
@@ -355,12 +366,22 @@ export async function packEnvironmentLayers(
   if (!Number.isSafeInteger(packageLayerBytes) || packageLayerBytes < 1) throw new RangeError('A package layer holds at least a byte');
   const layers: EnvironmentLayer[] = [];
   let fresh = 0;
-  for (const entries of layersOf(tree, await treeOf(tree.dir), packageLayerBytes)) {
+  for (const entries of layersOf(tree, await treeOf(path.resolve(tree.dir)), packageLayerBytes)) {
     const kept = await keepLayer(repo, tree.dir, entries);
     layers.push(kept.layer);
     if (kept.fresh) fresh++;
   }
   return { layers, fresh };
+}
+
+/** How long a claim has gone without naming its builder, in ms; 0 for one
+ *  that is gone. */
+async function unnamedFor(claim: string): Promise<number> {
+  try {
+    return Math.max(0, Date.now() - (await fs.stat(claim)).mtimeMs);
+  } catch {
+    return 0;
+  }
 }
 
 /** A build's claim: who makes a manifest's layers, in a file made exclusively. */
@@ -380,9 +401,10 @@ async function claimBuild(claim: string, signal: AbortSignal | undefined, made: 
       if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
     }
     // Another build holds it: while its process lives, its layers are waited
-    // for; one that died left a claim no build holds.
+    // for; one that died left a claim no build holds, and so did one that
+    // died before it named itself.
     const holder = /^(\d+) (\d+)\n$/.exec(await fs.readFile(claim, 'utf8').catch(() => ''));
-    if (holder !== null && await processExited(Number(holder[1]), Number(holder[2]))) {
+    if (holder !== null ? await processExited(Number(holder[1]), Number(holder[2])) : await unnamedFor(claim) >= UNNAMED_CLAIM_MS) {
       await fs.rm(claim, { force: true });
       continue;
     }
@@ -465,63 +487,6 @@ export async function buildEnvironmentLayers(
 }
 
 /**
- * Unpacks one layer under a root, as a rack's guest finds it there: the
- * environment is then at {@link ENVIRONMENT_LAYER_ROOT} under the root.
- *
- * @remarks
- * A layer is what another machine sent, so each entry is checked: its name is
- * relative, has no `.`, `..` or empty segment, and is the environment's
- * directory, one above it, or under it; it is a file, a directory, or a link
- * that names a path in the environment. Anything else refuses the layer.
- *
- * @param layer - The layer's bytes: a gzip tar
- * @param root - The directory to unpack under
- * @throws {Error} When an entry is not plain, or the bytes are not a gzip tar
- *
- * @example
- * ```ts
- * for (const file of layers) await unpackEnvironmentLayer(createReadStream(file), root);
- * const dir = path.join(root, ENVIRONMENT_LAYER_ROOT);
- * ```
- */
-export async function unpackEnvironmentLayer(layer: Readable, root: string): Promise<void> {
-  const base = path.resolve(root);
-  const above = new Set(ancestors(`${ENVIRONMENT_LAYER_ROOT}/x`));
-  const extract = tarExtract();
-  extract.on('entry', (header, stream, next) => {
-    void (async () => {
-      const name = header.name.replace(/\/$/, '');
-      const segments = name.split('/');
-      const inTree = name.startsWith(`${ENVIRONMENT_LAYER_ROOT}/`);
-      if (segments.some((segment) => segment === '' || segment === '.' || segment === '..') || !(inTree || above.has(name))) {
-        throw new Error(`environment layers: the entry '${header.name}' is not in the environment`);
-      }
-      const dest = path.join(base, ...segments);
-      if (header.type === 'directory') {
-        await fs.mkdir(dest, { recursive: true });
-        stream.resume();
-      } else if (header.type === 'symlink' && inTree) {
-        const linkname = header.linkname ?? '';
-        const named = path.posix.normalize(path.posix.join(path.posix.dirname(name), linkname));
-        if (linkname === '' || linkname.startsWith('/') || !(named === ENVIRONMENT_LAYER_ROOT || named.startsWith(`${ENVIRONMENT_LAYER_ROOT}/`))) {
-          throw new Error(`environment layers: the link '${header.name}' names '${linkname}', outside the environment`);
-        }
-        await fs.mkdir(path.dirname(dest), { recursive: true });
-        await fs.rm(dest, { recursive: true, force: true });
-        await fs.symlink(linkname, dest);
-        stream.resume();
-      } else if (header.type === 'file' && inTree) {
-        await fs.mkdir(path.dirname(dest), { recursive: true });
-        await pipeline(stream, createWriteStream(dest, { mode: ((header.mode ?? 0) & 0o111) !== 0 ? 0o755 : 0o644 }));
-      } else {
-        throw new Error(`environment layers: the entry '${header.name}' is a ${header.type ?? 'thing'} no layer holds`);
-      }
-    })().then(() => next(), (err: unknown) => extract.destroy(err instanceof Error ? err : new Error(String(err))));
-  });
-  await pipeline(layer, createGunzip(), extract);
-}
-
-/**
  * Removes from a repository's kept environment layers what nothing needs: each
  * manifest whose environment spec gc's mark no longer reached, each layer no
  * kept manifest names, and what a build whose builder died left.
@@ -547,14 +512,18 @@ export async function sweepEnvironmentLayers(repo: string, reachable: ReadonlySe
   };
   const list = (sub: string): Promise<string[]> => fs.readdir(path.join(dir, sub)).catch(() => [] as string[]);
 
-  // A build's claim and scratch tree, once its builder is gone
+  // A build's claim and scratch tree, once its builder is gone: a claim that
+  // names none is a builder's that has not named itself yet, for a while
   let building = false;
   const claims = await list('building');
   for (const entry of claims) {
     const file = path.join(dir, 'building', entry);
     const tree = /\.tree-(\d+)-(\d+)$/.exec(entry);
-    const holder = tree ?? (entry.endsWith('.claim') ? /^(\d+) (\d+)\n$/.exec(await fs.readFile(file, 'utf8').catch(() => '')) : null);
-    if (holder !== null && !await processExited(Number(holder[1]), Number(holder[2]))) building = true;
+    const claim = entry.endsWith('.claim');
+    const holder = tree ?? (claim ? /^(\d+) (\d+)\n$/.exec(await fs.readFile(file, 'utf8').catch(() => '')) : null);
+    const lives = holder !== null ? !await processExited(Number(holder[1]), Number(holder[2]))
+      : claim && await unnamedFor(file) < UNNAMED_CLAIM_MS;
+    if (lives) building = true;
     else await remove(file);
   }
 
@@ -571,9 +540,9 @@ export async function sweepEnvironmentLayers(repo: string, reachable: ReadonlySe
       layers = undefined;
     }
     if (envHash === undefined || !reachable.has(envHash) || !Array.isArray(layers)) {
-      // A staging file of a write in flight is the object sweep's kind: left
-      // to the next sweep, when it is old.
-      if (!entry.endsWith('.partial')) await remove(file);
+      // A manifest's staging file is a build's write, which only a build
+      // holding its claim makes: kept while one runs, as the layers are.
+      if (!entry.endsWith('.partial') || !building) await remove(file);
       continue;
     }
     for (const layer of layers as Array<{ digest?: unknown }>) {

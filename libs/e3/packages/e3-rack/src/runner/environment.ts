@@ -48,6 +48,8 @@ export interface EnvLayerTarget {
  * @param envHash - The environment spec's hash
  * @param target - The platform, the tier and the e3 release
  * @param onEvent - Told a build starts, and what it came to
+ * @param signal - Ends a wait for another build of the same layers: a run
+ *   that is stopped stops waiting
  * @returns The manifest
  * @throws {EnvironmentTargetRefused} For an environment no install makes for
  *   another platform, with its reason (e3-core)
@@ -57,6 +59,7 @@ export interface EnvLayerTarget {
  */
 export async function publishEnvLayers(
   storage: StorageBackend, repo: string, envHash: string, target: EnvLayerTarget, onEvent?: (event: RackEnvironmentEvent) => void,
+  signal?: AbortSignal,
 ): Promise<EnvLayerManifest> {
   const name = envManifestName(envManifestKey(envHash, target.e3Version, target.platform));
   if (name === null) throw new Error(`No environment is published for the e3 release '${target.e3Version}' and the platform '${target.platform}'`);
@@ -65,7 +68,7 @@ export async function publishEnvLayers(
       envHash, e3Version: target.e3Version, baseImage: `rack-tier:${target.tier}`, baseTier: target.tier,
       layers: layers.map((layer) => ({ digest: layer.digest, sizeBytes: layer.sizeBytes, mediaType: ENV_LAYER_MEDIA_TYPE })),
     } satisfies EnvLayerManifest),
-    { onBuilding: () => onEvent?.({ kind: 'building', envHash, platform: target.platform }) });
+    { onBuilding: () => onEvent?.({ kind: 'building', envHash, platform: target.platform }), ...(signal !== undefined && { signal }) });
   if (built !== null) {
     onEvent?.({ kind: 'built', envHash, platform: target.platform, ms: built.ms, layers: built.layers.length,
       bytes: built.layers.reduce((sum, layer) => sum + layer.sizeBytes, 0), fresh: built.fresh });

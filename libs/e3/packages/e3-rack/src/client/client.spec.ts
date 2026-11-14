@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { Hono } from 'hono';
-import { encodeBeast2For, some, variant } from '@elaraai/east';
+import { BooleanType, IntegerType, StringType, StructType, encodeBeast2For, some, variant } from '@elaraai/east';
 import { BEAST2_CONTENT_TYPE, ResponseType } from '@elaraai/e3-types';
 import { LocalStorage, repoInit, uuidv7 } from '@elaraai/e3-core';
 import { answer } from '../server/beast2.js';
@@ -137,6 +137,28 @@ it('drains a hub from before replies lost their envelope, whose hello it cannot 
     && /cannot read its replies/.test(err.message) && /exit once idle — run `e3 rack stop` with that e3/.test(err.message));
   assert.equal(drains, 1, 'the older hub is asked to drain, though its answer is not read');
   assert.deepEqual(await spawnedHubs(path), [], 'no hub is spawned beside one that is running');
+});
+
+it('drains no hub whose hello does not read for another cause: one of a later release, or a reply cut short', async () => {
+  const path = await home();
+  let drains = 0;
+  const beast2 = (bytes: Uint8Array) => new Response(bytes, { headers: { 'Content-Type': BEAST2_CONTENT_TYPE } });
+  // A later hello, grown by a field; then the current one, cut short.
+  const later = encodeBeast2For(StructType({ version: StringType, protocol: IntegerType, pid: IntegerType, draining: BooleanType, region: StringType }))(
+    { version: '9.0.0', protocol: BigInt(HUB_PROTOCOL), pid: BigInt(process.pid), draining: false, region: 'x' });
+  const current = encodeBeast2For(HubHelloType)({ version: '1.0.0', protocol: BigInt(HUB_PROTOCOL), pid: BigInt(process.pid), draining: false });
+  let hello = later;
+  const app = new Hono();
+  app.post('/v1/hello', () => beast2(hello));
+  app.post('/v1/drain', () => { drains++; return answer(EmptyType, {}); });
+  const server = await serveOnSocket(app, hubSocketPath(path));
+  cleanup.push(() => closeSocketServer(server, hubSocketPath(path)));
+  for (const reply of [later, current.subarray(0, current.length - 3)]) {
+    hello = reply;
+    await assert.rejects(connectHub({ home: path, spawn: false, timeoutMs: 400 }), (err: unknown) => err instanceof RackHubUnavailableError
+      && /hello does not read as this e3's[\s\S]* it was not asked to drain/.test(err.message));
+  }
+  assert.equal(drains, 0, 'neither hub is asked to drain');
 });
 
 it('delivers claim, log tee and terminal outcome in order, then removes its session data socket', async () => {

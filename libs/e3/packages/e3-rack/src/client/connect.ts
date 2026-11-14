@@ -67,8 +67,11 @@ export async function spawnHub(home = rackHome()): Promise<void> {
  * This wire has no cross-protocol decoder. A newer protocol is refused too,
  * without draining it. An older hub is asked to drain and the caller runs
  * locally this time: one whose hello names a lower protocol, and one whose
- * hello does not read at all, which is a hub from before the hello's type was
- * fixed. A dead hub is never silently reattached mid-session.
+ * hello is in the envelope replies had before they lost it, a hub from
+ * before the hello's type was fixed. A hello that does not read for another
+ * cause, cut short or of a hub this e3 does not know, drains nothing: it is
+ * asked again until the deadline, and then the hub is unavailable. A dead
+ * hub is never silently reattached mid-session.
  * @param options - Startup policy, deadline and progress sink
  * @returns A ready typed client
  * @throws {RackHubOutdatedError} On an incompatible control protocol
@@ -100,13 +103,19 @@ export async function connectHub(options: ConnectHubOptions = {}): Promise<HubCl
       spawned = false;
     } catch (err) {
       if (err instanceof RackHubOutdatedError || err instanceof RackHubUnavailableError) throw err;
-      // A hello that does not read is a hub from before replies lost their
-      // envelope, started by an e3 of another release: older than this one,
-      // whatever its protocol's number says.
+      // A hello in the envelope replies had is a hub from before they lost
+      // it, started by an e3 of another release: older than this one,
+      // whatever its protocol's number says. Any other that does not read is
+      // asked again, and no hub is drained for it.
       if (err instanceof RackHubError && err.code === 'undecodable') {
-        await client.drainUnread().catch(() => {});
-        throw new RackHubOutdatedError(`The running rack hub was started by an e3 from before control protocol ${HUB_PROTOCOL}, and this e3 cannot read its replies. ` +
-          'It will exit once idle — run `e3 rack stop` with that e3, or end its process, to replace it now.');
+        if (await client.answersInEnvelope(Math.max(1, Math.min(1000, deadline - Date.now()))).catch(() => false)) {
+          await client.drainUnread().catch(() => {});
+          throw new RackHubOutdatedError(`The running rack hub was started by an e3 from before control protocol ${HUB_PROTOCOL}, and this e3 cannot read its replies. ` +
+            'It will exit once idle — run `e3 rack stop` with that e3, or end its process, to replace it now.');
+        }
+        last = `the running rack hub's hello does not read as this e3's (${err.message}); it was not asked to drain`;
+        await delay(Math.max(1, Math.min(100, deadline - Date.now())), undefined, { signal: options.signal }).catch(() => {});
+        continue;
       }
       last = err instanceof Error ? err.message : String(err);
       const absent = err instanceof RackHubError && ['ENOENT', 'ECONNREFUSED', 'EPIPE', 'ECONNRESET'].includes(err.code);

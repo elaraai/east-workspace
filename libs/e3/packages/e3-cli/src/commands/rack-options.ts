@@ -4,6 +4,8 @@
  */
 
 import type { OpenRackRunnerOptions, RackEnvironmentEvent, RackPlacementEvent, RackRunnerHandle } from '@elaraai/e3-rack';
+// The protocol's entry alone, which loads no hub, route or TLS
+import { leaseReserve } from '@elaraai/e3-rack/protocol';
 import { formatSize } from '../format.js';
 
 /** Rack flags shared by dataflow run and watch. */
@@ -57,8 +59,10 @@ export async function openRack(options: OpenRackRunnerOptions): Promise<RackRunn
  *   again reserving 2 GB` for a unit its rack stopped to keep its host from
  *   running out;
  * - `[RACK] train input transfer retried (2 of 5): connection reset`;
- * - `[RACK] train waiting: needs 4 GB, rack-a has 1 GB free` for work queued
- *   with no rack having room for it, a task's or a unit's alike, once;
+ * - `[RACK] train waiting: needs 1 core and 4 GB, rack-a has 0 cores and 1 GB
+ *   free` for work queued with no rack having room for it, a task's or a
+ *   unit's alike, once: what it reserves, which is what a rack waits to have
+ *   free (its cap is what it may grow to), and a GPU when it asks for one;
  * - `[LOCAL] train (input-transfer-failed: connection reset)` for a rack's
  *   work that this machine runs after all, with the rack's reason when its
  *   result gave one, a task's or a unit's alike;
@@ -74,7 +78,12 @@ export async function openRack(options: OpenRackRunnerOptions): Promise<RackRunn
 export function rackPlacementLine(event: RackPlacementEvent): string | undefined {
   if (event.kind === 'retried') return `  [RACK] ${event.taskName} ${event.retry.transfer} transfer retried (${event.retry.attempt} of ${event.retry.of}): ${event.retry.cause}`;
   if (event.kind === 'waiting') {
-    return `  [RACK] ${event.taskName} waiting: needs ${formatSize(event.needs.memoryBytes)}, ${event.rackLabel} has ${event.free === undefined ? 'no free slot' : `${formatSize(event.free.memoryBytes)} free`}`;
+    const cores = (n: number) => `${n} ${n === 1 ? 'core' : 'cores'}`;
+    const gpus = (n: number) => `${n} ${n === 1 ? 'GPU' : 'GPUs'}`;
+    const needs = `${cores(event.needs.cores)}${event.needs.gpu ? `, a GPU` : ''} and ${formatSize(leaseReserve(event.needs))}`;
+    const free = event.free === undefined ? 'no free slot'
+      : `${cores(event.free.cores)}${event.needs.gpu ? `, ${gpus(event.free.gpus)}` : ''} and ${formatSize(event.free.memoryBytes)} free`;
+    return `  [RACK] ${event.taskName} waiting: needs ${needs}, ${event.rackLabel} has ${free}`;
   }
   if (event.kind === 'stopped') {
     return `  [RACK] ${event.taskName} stopped on ${event.rackLabel} at ${formatSize(event.peakBytes)}, its host short of memory: runs again reserving ${formatSize(event.againBytes)}`;

@@ -24,8 +24,11 @@ it('counts a run\'s placements into its summary, each run of a session on its ow
     { kind: 'waiting', ...unit, where: 'rack', rackLabel: 'rack-a', leaseId: 'w0', needs: { kind: 'unit', cores: 1, memoryBytes: 1024, gpu: false }, free: { cores: 0, memoryBytes: 512, gpus: 0 } },
     { kind: 'waiting', ...unit, where: 'rack', rackLabel: 'rack-a', leaseId: 'w1', needs: { kind: 'unit', cores: 1, memoryBytes: 1024, gpu: false } },
     { kind: 'placed', ...unit, where: 'rack', rackLabel: 'rack-a', leaseId: 'w0', waitedMs: 38_400 },
-    // A unit its rack stopped at its cap, which ran again; and a whole task, which did not.
+    // A unit its rack stopped at its cap, which ran again, claimed by another
+    // rack the second time: one unit, counted where it was first claimed;
+    // and a whole task, which did not run again.
     { kind: 'outgrew', ...unit, where: 'rack', rackLabel: 'rack-a', leaseId: 'u1', capBytes: 1024, againBytes: 1536 },
+    { kind: 'placed', ...unit, where: 'rack', rackLabel: 'rack-b', leaseId: 'u1-again', waitedMs: 1_000, again: true },
     { kind: 'outgrew', ...task, where: 'rack', rackLabel: 'rack-a', leaseId: 'a', capBytes: 4096 },
     // A rack's work this machine ran after all, each way it can come to that.
     { kind: 'placed', ...unit, where: 'local', reason: 'fallback:input-transfer-failed: connection reset', detail: { code: 'input-transfer-failed', attempts: 5, cause: 'connection reset' } },
@@ -37,7 +40,7 @@ it('counts a run\'s placements into its summary, each run of a session on its ow
     { kind: 'placed', ...task, where: 'local', reason: 'hub-unreachable' },
   ];
   for (const event of events) tally.add(event);
-  assert.deepEqual(events.map(ranLocally), [false, false, false, false, false, false, false, false, false, false, false, false, true, true, true, true, false, false]);
+  assert.deepEqual(events.map(ranLocally), [false, false, false, false, false, false, false, false, false, false, false, false, false, true, true, true, true, false, false]);
   const summary = tally.take();
   assert.deepEqual(summary, { placed: [{ rackLabel: 'rack-a', tasks: 1, units: 4 }, { rackLabel: 'rack-b', tasks: 0, units: 1 }],
     waited: 2, longestWaitMs: 38_400, ranAgain: 1, transfersRetried: 2, ranLocally: 4 });

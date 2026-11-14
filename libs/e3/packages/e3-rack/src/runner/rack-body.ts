@@ -38,10 +38,11 @@ import type { RackResources } from '../protocol/rack-json.js';
  *   the newest work it held, at `peakBytes`: a unit runs again reserving what
  *   it reached (`againBytes`), as the local budget's guard runs one again.
  *
- * A claim says what the lease asked of its rack (`needs`).
+ * A claim says what the lease asked of its rack (`needs`), and, when the work
+ * was leased before and is leased again, that it is (`again`).
  */
 export type RackPlacementEvent =
-  | { kind: 'placed'; taskName: string; role: 'task' | 'unit'; where: 'rack'; rackLabel: string; leaseId: string; needs?: RackLeaseResources; waitedMs?: number }
+  | { kind: 'placed'; taskName: string; role: 'task' | 'unit'; where: 'rack'; rackLabel: string; leaseId: string; needs?: RackLeaseResources; waitedMs?: number; again?: true }
   | { kind: 'outgrew'; taskName: string; role: 'task' | 'unit'; where: 'rack'; rackLabel: string; leaseId: string; capBytes: number; againBytes?: number }
   | { kind: 'stopped'; taskName: string; role: 'task' | 'unit'; where: 'rack'; rackLabel: string; leaseId: string; peakBytes: number; againBytes: number }
   | { kind: 'waiting'; taskName: string; role: 'task' | 'unit'; where: 'rack'; rackLabel: string; leaseId: string; needs: RackLeaseResources; free?: RackResources }
@@ -84,6 +85,70 @@ export interface RackBodyOptions {
   /** Told an environment's layers are being built for a rack's platform, and
    *  what the build came to. */
   onEnvironment?: (event: RackEnvironmentEvent) => void;
+  /** The layer builds the session's runs share; the body's own unless given. */
+  layerBuilds?: RackLayerBuilds;
+}
+
+/** What a build of an environment's layers for a platform came to: nothing,
+ *  when they are kept; else why not, and the build's own words. */
+export interface RackLayerBuild {
+  /** Why the layers are not kept: an `EnvironmentTargetRefused` reason, or
+   *  `build-failed` */
+  readonly reason?: string;
+  /** The build's own words for it */
+  readonly said?: string;
+}
+
+/**
+ * The builds of environments' layers a session's runs asked for, each once
+ * for an environment and a platform: a second ask is answered what the first
+ * came to.
+ *
+ * @remarks
+ * A build that failed is tried again by the next run, once its session is
+ * told one starts ({@link forgetFailures}): a download that failed, or a run
+ * that was stopped, is no verdict on the environment. One that no install
+ * makes for the platform (`EnvironmentTargetRefused`) is: it is not tried
+ * again until the environment changes, which makes it another.
+ *
+ * @example
+ * ```ts
+ * const builds = new RackLayerBuilds();
+ * const body = createRackBody({ session, policy, workspace: 'dev', layerBuilds: builds });
+ * // before each run of a watch:
+ * builds.forgetFailures();
+ * ```
+ */
+export class RackLayerBuilds {
+  private readonly builds = new Map<string, Promise<RackLayerBuild>>();
+  private readonly failed = new Set<string>();
+
+  /**
+   * The build of an environment's layers for a platform: the one asked for
+   * already, or this one, started now.
+   * @param envHash - The environment's hash
+   * @param platform - The platform
+   * @param build - Builds them, answering what it came to
+   * @returns What the build came to
+   */
+  get(envHash: string, platform: string, build: () => Promise<RackLayerBuild>): Promise<RackLayerBuild> {
+    const key = `${envHash} ${platform}`;
+    let made = this.builds.get(key);
+    if (made === undefined) {
+      made = build().then((result) => {
+        if (result.reason === 'build-failed') this.failed.add(key);
+        return result;
+      });
+      this.builds.set(key, made);
+    }
+    return made;
+  }
+
+  /** Forgets the builds that failed, so the next run tries them again. */
+  forgetFailures(): void {
+    for (const key of this.failed) this.builds.delete(key);
+    this.failed.clear();
+  }
 }
 
 /** Whether a rack composes a lease's environment from layers, and says the
@@ -105,18 +170,24 @@ function composes(rack: SnapshotRack): rack is SnapshotRack & { target: { type: 
  * many units as a local run of its memory would, and a first run is as wide
  * as a later one. Only a unit that expects nothing at all is given its rule's
  * memory limit, else its size's memory, as its reservation and its cap. A
- * whole task takes its size's cores, and its rule's memory limit, else its
- * size's memory, as both.
+ * whole task takes its size's cores, but no more than the rack with the most
+ * has, whose VM it is then given (a VM is given no more cores than its host
+ * has); and its rule's memory limit, else its size's memory, as both its
+ * reservation and its cap, since a rack never stops a whole task to keep its
+ * host's memory.
  *
  * @param request - The task body or unit
  * @param verdict - Its rule's size, memory limit and GPU
+ * @param mostCores - The most cores a rack that could take the work has; no
+ *   bound unless given
  * @returns The resources, or the reason the work cannot be a rack's: the cap
  *   a unit needs is more than its rule's memory limit
  */
-export function leaseResources(request: Pick<TaskBodyRequest, 'unit' | 'options'>, verdict: Extract<Eligibility, { eligible: true }>): RackLeaseResources | RackReason {
+export function leaseResources(request: Pick<TaskBodyRequest, 'unit' | 'options'>, verdict: Extract<Eligibility, { eligible: true }>,
+  mostCores = Infinity): RackLeaseResources | RackReason {
   const size = RACK_SIZES[verdict.size];
   const fallback = verdict.memoryLimit ?? size.memoryBytes;
-  if (request.unit === undefined) return { kind: 'task', cores: size.cores, memoryBytes: fallback, gpu: verdict.gpu };
+  if (request.unit === undefined) return { kind: 'task', cores: Math.max(1, Math.min(size.cores, mostCores)), memoryBytes: fallback, gpu: verdict.gpu };
   const expected = request.options.expectedPeakBytes;
   if (expected === undefined || expected <= 0) return { kind: 'unit', cores: 1, memoryBytes: fallback, gpu: verdict.gpu };
   return unitResources(expected, verdict);
@@ -164,9 +235,9 @@ function wait(next: Promise<LeaseUpdate>, ms: number, signal?: AbortSignal): Pro
  *
  * Work that declares an environment is leased once the environment's layers
  * are kept for the platform of a rack that composes environments: they are
- * built first, once for an environment and a platform in a run, and work
- * whose environment no install makes for that platform, or whose build
- * fails, runs locally with the reason.
+ * built first, once for an environment and a platform ({@link RackLayerBuilds}),
+ * and work whose environment no install makes for that platform, or whose
+ * build fails, runs locally with the reason.
  * @param options - Session, policy and placement sink
  * @returns The body hook for e3-core's LocalTaskRunner
  * @example
@@ -175,21 +246,16 @@ function wait(next: Promise<LeaseUpdate>, ms: number, signal?: AbortSignal): Pro
 export function createRackBody(options: RackBodyOptions): TaskBodyExecutor {
   const { session, policy } = options;
   const evaluator = new EligibilityEvaluator(policy);
-  // Each environment's layers for each platform, once in a run: why they are
-  // not there, when they are not, and the build's own words.
-  const layers = new Map<string, Promise<{ reason?: string; said?: string }>>();
-  const layersFor = (request: TaskBodyRequest, envHash: string, platform: string, tier: string): Promise<{ reason?: string; said?: string }> => {
-    const key = `${envHash} ${platform}`;
-    let made = layers.get(key);
-    if (made === undefined) {
-      made = publishEnvLayers(request.storage, request.repo, envHash, { platform, tier, e3Version: session.e3Version }, options.onEnvironment).then(
+  // Each environment's layers for each platform, once: why they are not
+  // there, when they are not, and the build's own words.
+  const builds = options.layerBuilds ?? new RackLayerBuilds();
+  const layersFor = (request: TaskBodyRequest, envHash: string, platform: string, tier: string): Promise<RackLayerBuild> =>
+    builds.get(envHash, platform, () =>
+      publishEnvLayers(request.storage, request.repo, envHash, { platform, tier, e3Version: session.e3Version }, options.onEnvironment,
+        request.options.signal).then(
         () => ({}),
         (error: unknown) => error instanceof EnvironmentTargetRefused ? { reason: error.reason, said: error.message }
-          : { reason: 'build-failed', said: error instanceof Error ? error.message : String(error) });
-      layers.set(key, made);
-    }
-    return made;
-  };
+          : { reason: 'build-failed', said: error instanceof Error ? error.message : String(error) }));
   return async (request, local) => {
     const placement = { taskName: request.options.taskName ?? request.taskHash, role: request.role };
     let handle: LeaseHandle | undefined;
@@ -234,14 +300,17 @@ export function createRackBody(options: RackBodyOptions): TaskBodyExecutor {
       const racks = compatibleRacks(session.capacity(), verdict.tier);
       return verdict.environment === null ? racks : racks.filter((rack) => composes(rack) && (platforms === undefined || platforms.has(rack.target.value)));
     };
-    // Why no rack can take the work now: those that run its tier are not
-    // healthy, none that could is enrolled, or none of them composes
-    // environments.
+    // Why no rack can take the work now: one that could is not healthy, none
+    // that could is enrolled, or none that runs its tier composes the
+    // environment it declares. Only a rack that composes it could take work
+    // that declares one, so only such a rack's health is waited for.
     const noRack = (): string | null => {
       if (fleet().length > 0) return null;
-      const snapshot = session.capacity();
-      if (compatibleRacks(snapshot, verdict.tier).length > 0) return `no-rack-for-environment:${verdict.tier}`;
-      return snapshot.racks.some((rack) => rack.tiers.includes(verdict.tier) && !rack.healthy) ? 'source-unreachable' : `no-rack-for-tier:${verdict.tier}`;
+      const serving = session.capacity().racks.filter((rack) => rack.tiers.includes(verdict.tier));
+      const could = verdict.environment === null ? serving
+        : serving.filter((rack) => composes(rack) && (platforms === undefined || platforms.has(rack.target.value)));
+      if (could.some((rack) => !rack.healthy)) return 'source-unreachable';
+      return verdict.environment !== null && could.length === 0 && serving.length > 0 ? `no-rack-for-environment:${verdict.tier}` : `no-rack-for-tier:${verdict.tier}`;
     };
     // A rack that is healthy has said what it does: one that composes no
     // environment is not waited for.
@@ -262,7 +331,7 @@ export function createRackBody(options: RackBodyOptions): TaskBodyExecutor {
     if (absent !== null) return runLocal(absent);
     // A unit whose cap would pass its rule's limit is not a rack's: a unit is
     // pure, and runs under the local budget instead.
-    const asked = leaseResources(request, verdict);
+    const asked = leaseResources(request, verdict, Math.max(...fleet().map((rack) => rackResources(rack)?.cores ?? Infinity)));
     if ('code' in asked) return runLocal(asked.code, asked);
     // What the lease asks: a unit its cap stopped asks more of its next lease.
     let resources: RackLeaseResources = asked;
@@ -303,6 +372,9 @@ export function createRackBody(options: RackBodyOptions): TaskBodyExecutor {
     let waitingSince: number | undefined;
     // Under rack-only, work whose transfer failed is leased once more.
     let leasedAgain = false;
+    // Whether a rack has claimed the work before: a claim after it is the
+    // same work leased again, which a run counts once.
+    let claimedBefore = false;
     // Since when a queued lease has had no rack that could claim it.
     let unreachableSince: number | undefined;
     try {
@@ -385,8 +457,9 @@ export function createRackBody(options: RackBodyOptions): TaskBodyExecutor {
             if (stream === 'stdout') request.options.onStdout?.(text); else request.options.onStderr?.(text);
           });
           options.onPlacement?.({ kind: 'placed', ...placement, where: 'rack', rackLabel, leaseId: handle.leaseId, needs: resources,
-            ...(waitingSince !== undefined && { waitedMs: Date.now() - waitingSince }) });
+            ...(waitingSince !== undefined && { waitedMs: Date.now() - waitingSince }), ...(claimedBefore && { again: true as const }) });
           waitingSince = undefined;
+          claimedBefore = true;
           next = handle.next();
           continue;
         }

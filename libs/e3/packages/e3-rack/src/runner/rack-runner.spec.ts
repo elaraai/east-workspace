@@ -379,7 +379,8 @@ it('leases a unit its rack stopped at its cap again under a larger one, tells th
   assert.match((await f.storage.logs.read(f.repo, f.hash, inputsHash(f.inputs), attempts[0]!.executionId, 'stderr')).data,
     new RegExp(`e3: the runner outgrew its cap of ${Math.round(cap / MiB)} MiB on its rack: it runs again under a cap of ${Math.round(again / MiB)} MiB`));
   assert.equal(f.budget.peak, 0, 'nothing ran locally');
-  assert.equal(describeRackSummary(rack.takeSummary()), 'Rack summary: 2 units on test rack · 0 waited for capacity · 1 ran again · 0 transfers retried · 0 ran locally');
+  assert.equal(describeRackSummary(rack.takeSummary()), 'Rack summary: 1 unit on test rack · 0 waited for capacity · 1 ran again · 0 transfers retried · 0 ran locally',
+    'one unit, leased twice');
 
   // A unit whose next cap would pass its rule's memory limit runs locally instead, under the local budget.
   f.placements.length = 0;
@@ -430,7 +431,8 @@ it('books a unit at what it reserves, so a rack holds as many as a local run wou
   assert.match((await f.storage.logs.read(f.repo, f.hash, inputsHash(stoppedUnit.inputs), stoppedUnit.attempts[0]!.executionId, 'stderr')).data,
     /e3: its rack stopped the runner at 120 MiB, its host short of memory: it runs again reserving 120 MiB/);
   assert.equal(f.budget.peak, 0, 'nothing ran locally');
-  assert.match(describeRackSummary(rack.takeSummary())!, /^Rack summary: 3 units on test rack · 1 waited for capacity \(longest \d+ s\) · 1 ran again · 0 transfers retried · 0 ran locally$/);
+  assert.match(describeRackSummary(rack.takeSummary())!, /^Rack summary: 2 units on test rack · 1 waited for capacity \(longest \d+ s\) · 1 ran again · 0 transfers retried · 0 ran locally$/,
+    'two units, one of them leased twice');
 });
 
 it('fails a whole task its rack stopped at its cap, by name, and does not run it again unless the policy retries failures locally', async () => {
@@ -527,17 +529,19 @@ it('leases work whose transfer failed once more under rack-only, and runs it loc
   assert.equal(local.detail?.code, 'input-transfer-failed');
 });
 
-it('runs locally, by name, work that asks more cores or a GPU than any rack has, and leases a GPU task on the tier a rack gives its GPU to', async () => {
+it('leases a task whose size names more cores than any rack has for the most a rack has, runs locally by name work that asks a GPU no rack has, and leases a GPU task on the tier a rack gives its GPU to', async () => {
   const GiB = 1024 ** 3;
   const f = await fixture();
   const local = () => f.placements.flatMap((event) => event.kind === 'placed' && event.where === 'local' ? [event] : []);
-  // A `large` task asks eight cores: more than the rack has, however long it waits.
-  await f.agent({ resources: { cores: 4, memoryBytes: 64 * GiB, gpus: 0 }, tiers: ['node', 'py-datascience'] });
+  // A `large` task's size names eight cores, more than the rack has: it asks the rack's four, whose VM it is given.
+  const four = await f.agent({ resources: { cores: 4, memoryBytes: 64 * GiB, gpus: 0 }, tiers: ['node', 'py-datascience'] });
   const large = await f.open({ policy: setRule(f.policy, 'length', 'rack', { size: 'large' }) });
-  assert.equal((await large.runner.execute(f.storage, f.hash, f.inputs, { taskName: 'length' })).state, 'success');
-  assert.deepEqual(local().map((event) => [event.reason, event.detail]), [['no-rack-holds:8-cores', undefined]]);
-  assert(ranLocally(local()[0]!), 'a rack\'s work that this machine ran');
-  assert.equal((await f.client.status()).capacity.queued, 0n, 'it is not queued to wait for ever');
+  const whole = large.runner.execute(f.storage, f.hash, f.inputs, { taskName: 'length' });
+  const held = await four.claim(); assert(held);
+  assert.deepEqual(four.bookedFor(held.leaseId), { kind: 'task', cores: 4, memoryBytes: 16 * GiB, gpu: false });
+  assert.equal((await four.execute(held)).status, 'success');
+  assert.equal((await whole).state, 'success');
+  assert.deepEqual(local(), [], 'its cores are never why it runs here');
 
   // The same task as east-py's, whose rule asks for a GPU: its tier is the one a rack gives its GPU to.
   const base = decodeTaskObject(await f.storage.objects.read(f.repo, f.hash));
@@ -548,6 +552,8 @@ it('runs locally, by name, work that asks more cores or a GPU than any rack has,
   f.placements.length = 0;
   await gpu.runner.execute(f.storage, python, f.inputs, { taskName: 'length' });
   assert.deepEqual(local().map((event) => [event.reason, event.detail]), [['no-rack-holds:gpu', undefined]]);
+  assert(ranLocally(local()[0]!), 'a rack\'s work that this machine ran');
+  assert.equal((await f.client.status()).capacity.queued, 0n, 'it is not queued to wait for ever');
 
   // A rack with one: the lease asks for it, on the tier that has it, and the rack books it.
   const withGpu = await f.agent({ resources: { cores: 4, memoryBytes: 64 * GiB, gpus: 1 }, tiers: ['py-datascience'] });

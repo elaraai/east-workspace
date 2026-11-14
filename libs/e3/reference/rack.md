@@ -23,8 +23,8 @@ whole output graph before success. Placement never changes task/cache hashes.
 Local bodies and fallback share the original cores/memory budget; rack bodies
 use remote capacity: each lease asks its cores, what it reserves and its cap
 (a split task's piece one core, reserving what it was measured to need, capped
-half as much again; a task its size's cores, reserving its cap, its
-`--memory-limit`, else its size's memory), a rack is given only what its free
+half as much again; a task its size's cores, at most the most a rack has,
+reserving its cap, its `--memory-limit`, else its size's memory), a rack is given only what its free
 resources hold by what each lease reserves, and only work whose cap all its
 memory holds, and a run is as much wider as the racks have cores. `e3 rack list` shows each rack's resources and what is free. A run prints `[RACK] <task> → <rack>` when a rack claims a
 task, `[RACK] <task> input transfer retried (2 of 5): <cause>` for a transfer
@@ -33,8 +33,8 @@ runs after all (`spill`, `no-rack-for-tier:<tier>`, or the rack's reason, such
 as `input-transfer-failed: <cause>` or `guest-crashed: <detail>`, or
 `memory-limit-exceeded: needs 3 GB, limit 2 GB` for work whose cap passes its
 rule's limit or every rack's memory),
-`[RACK] <task> waiting: needs 4 GB, <rack> has 1 GB free` for work queued with
-no rack having room for it,
+`[RACK] <task> waiting: needs 1 core and 4 GB, <rack> has 0 cores and 1 GB
+free` for work queued with no rack having room for what it reserves,
 `[RACK] <task> outgrew its 3 GB cap on <rack>: runs again under 4.5 GB` for a
 split task's piece its rack stopped at its cap (a whole task fails instead:
 `memory-limit-exceeded (cap 16 GB); raise --memory-limit or --size`),
@@ -42,7 +42,8 @@ split task's piece its rack stopped at its cap (a whole task fails instead:
 again reserving 2.6 GB` for a piece a rack stopped to keep its host from
 running out, as a local run's guard stops one, and ends
 with `Rack summary: 1 task and 12 units on <rack> · 0 waited for capacity · 0
-ran again · 1 transfer retried · 0 ran locally`. On a rack that admits by
+ran again · 1 transfer retried · 0 ran locally` (each task or unit once,
+though it was leased again). On a rack that admits by
 its resources a split task's pieces are queued together, booked by what each
 reserves, and the rack's guard keeps them from running its host out of memory;
 a first run's piece reserves e3's estimate, as a local run does, so it is as
@@ -71,7 +72,7 @@ launching machine), `no-rack-for-environment:<tier>` (no rack composes them),
 `environment:no-wheel:<package>` and `environment:native-package:<package>`
 (nothing is compiled for another platform), `environment:pnpm` (a pnpm before
 11, for another platform), `environment:build-failed` (the tool's message is
-in `e3 task logs`). A task's tier is its runner's; `--gpu` puts an `east-py`
+in `e3 task logs`; a watch's next run builds it again). A task's tier is its runner's; `--gpu` puts an `east-py`
 task on `py-datascience`, and is refused for another runner
 (`gpu-not-east-py`).
 

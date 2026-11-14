@@ -31,6 +31,16 @@ export function sessionAttempts(storage: StorageBackend, repo: string, owner: ()
     }, leaseRecordsUnit(lease.event));
   };
   const statusOf = (lease: RackLeaseRecord) => storage.refs.executionGet(repo, lease.taskHash, lease.inputsHash, lease.attempt!.executionId);
+  /** Records an attempt stopped by its host, not failed, why in its log. */
+  const interrupted = async (lease: RackLeaseRecord, attempt: ExecutionAttempt, code: string, cause: string): Promise<void> => {
+    await storage.logs.append(repo, lease.taskHash, lease.inputsHash, attempt.ids.executionId, 'stderr', `e3: ${cause}\n`);
+    await storage.logs.flush(repo, lease.taskHash, lease.inputsHash, attempt.ids.executionId);
+    await storage.refs.executionWrite(repo, lease.taskHash, lease.inputsHash, attempt.ids.executionId, variant('interrupted', {
+      executionId: attempt.ids.executionId, inputHashes: attempt.inputHashes,
+      startedAt: new Date(attempt.ids.startTime), completedAt: new Date(), pid: 0n, unit: attempt.unit,
+      reason: { kind: variant('host', code), message: cause },
+    }));
+  };
   return {
     async closure(lease) {
       const hashes = await closureHashes(lease.event.closure, (hash) => storage.objects.read(repo, hash));
@@ -50,13 +60,7 @@ export function sessionAttempts(storage: StorageBackend, repo: string, owner: ()
       const current = await statusOf(lease);
       if (current !== null && current.type !== 'running') return;
       if (how === 'cancelled') { await attempt.recordStopped('cancelled', cause); return; }
-      await storage.logs.append(repo, lease.taskHash, lease.inputsHash, attempt.ids.executionId, 'stderr', `e3: ${cause}\n`);
-      await storage.logs.flush(repo, lease.taskHash, lease.inputsHash, attempt.ids.executionId);
-      await storage.refs.executionWrite(repo, lease.taskHash, lease.inputsHash, attempt.ids.executionId, variant('interrupted', {
-        executionId: attempt.ids.executionId, inputHashes: attempt.inputHashes,
-        startedAt: new Date(attempt.ids.startTime), completedAt: new Date(), pid: 0n, unit: attempt.unit,
-        reason: { kind: variant('host', 'rack.lease_lost'), message: cause },
-      }));
+      await interrupted(lease, attempt, 'rack.lease_lost', cause);
     },
     async outcome(lease, result: RackLeaseResult) {
       const attempt = attemptFor(lease);
@@ -64,16 +68,6 @@ export function sessionAttempts(storage: StorageBackend, repo: string, owner: ()
       if (current !== null && current.type !== 'running') return;
       await storage.logs.flush(repo, lease.taskHash, lease.inputsHash, attempt.ids.executionId);
       const mib = (bytes: number) => `${Math.round(bytes / 1024 ** 2)} MiB`;
-      /** Records the attempt stopped, not failed: its unit runs again. */
-      const interrupted = async (code: string, cause: string): Promise<void> => {
-        await storage.logs.append(repo, lease.taskHash, lease.inputsHash, attempt.ids.executionId, 'stderr', `e3: ${cause}\n`);
-        await storage.logs.flush(repo, lease.taskHash, lease.inputsHash, attempt.ids.executionId);
-        await storage.refs.executionWrite(repo, lease.taskHash, lease.inputsHash, attempt.ids.executionId, variant('interrupted', {
-          executionId: attempt.ids.executionId, inputHashes: attempt.inputHashes,
-          startedAt: new Date(attempt.ids.startTime), completedAt: new Date(), pid: 0n, unit: attempt.unit,
-          reason: { kind: variant('host', code), message: cause },
-        }));
-      };
       let needs: ReturnType<typeof readRackLeaseResources>;
       try { needs = readRackLeaseResources(lease.event.resources); } catch { needs = undefined; }
       if (result.reason?.code === 'requeued-pressure' && needs?.kind === 'unit') {
@@ -82,7 +76,7 @@ export function sessionAttempts(storage: StorageBackend, repo: string, owner: ()
         // again reserving what it reached, and is no failure in the task's
         // history.
         const reached = Math.max(result.reason.peakBytes ?? 0, leaseReserve(needs));
-        await interrupted('rack.memory_pressure', `its rack stopped the runner at ${mib(result.reason.peakBytes ?? reached)}, its host short of memory: it runs again reserving ${mib(reached)}`);
+        await interrupted(lease, attempt, 'rack.memory_pressure', `its rack stopped the runner at ${mib(result.reason.peakBytes ?? reached)}, its host short of memory: it runs again reserving ${mib(reached)}`);
         return;
       }
       if (result.reason?.code === 'outgrew-cap') {
@@ -90,12 +84,14 @@ export function sessionAttempts(storage: StorageBackend, repo: string, owner: ()
         // again under a larger one, so its attempt was stopped, not failed:
         // it is no failure in the task's history. A whole task is not run
         // again, and its cap is its failure, as the local guard's stop is.
-        const cap = result.reason.capBytes ?? 0;
+        // A rack that does not say the cap stopped it at the one its lease
+        // named, as the body that leases it again reads it.
+        const cap = result.reason.capBytes ?? needs?.memoryBytes ?? 0;
         if (needs?.kind !== 'unit') {
           await attempt.recordStopped('failed', `memory-limit-exceeded: the task outgrew its cap of ${mib(cap)} on its rack; raise --memory-limit or --size`, result.peakBytes);
           return;
         }
-        await interrupted('rack.outgrew_cap', `the runner outgrew its cap of ${mib(cap)} on its rack: it runs again under a cap of ${mib(unitCap(cap))}`);
+        await interrupted(lease, attempt, 'rack.outgrew_cap', `the runner outgrew its cap of ${mib(cap)} on its rack: it runs again under a cap of ${mib(unitCap(cap))}`);
         return;
       }
       if (result.cancelled) await attempt.recordStopped('cancelled', result.error ?? 'Rack work was cancelled');

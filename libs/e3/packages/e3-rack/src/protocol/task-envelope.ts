@@ -225,8 +225,9 @@ export interface RackReason {
 
 /** A try of a transfer that failed and was followed by another. */
 export interface RackTransferRetry {
-  /** An input read, or an output written */
-  readonly transfer: 'input' | 'output';
+  /** What was moved: `input` (read), `output` (written), or a kind a later
+   *  release names */
+  readonly transfer: string;
   /** The try that follows: 2 for the first retry */
   readonly attempt: number;
   /** The tries a transfer is given */
@@ -238,14 +239,24 @@ export interface RackTransferRetry {
 const REASON_NUMBERS = ['capBytes', 'peakBytes', 'needsBytes', 'limitBytes', 'attempts', 'ms'] as const;
 const REASON_TEXTS = ['cause', 'detail'] as const;
 
+/** A word a run prints between brackets: a code, a kind of transfer. */
+const WORD = /^[a-z][a-z0-9-]{0,63}$/;
+
+/** The most retries a result is read for: more than a lease's transfers make. */
+const MOST_RETRIES = 4096;
+
 /**
- * Reads a lease result's reason.
+ * Reads a lease result's reason, for what this build knows of it.
+ *
+ * @remarks
+ * A reason is what a rack says beside its result, and a rack of another
+ * release may say more, or say it otherwise: so this build takes the fields
+ * it knows, of the kinds it knows, and leaves out the rest. It never refuses
+ * a result for its reason, whose work would then be lost.
  *
  * @param value - The result's `reason`, as its JSON holds it
- * @returns The reason with the fields this build knows, or undefined when the
- *   result has none
- * @throws {Error} When it is not an object with a code, or a field this
- *   build reads is of the wrong kind
+ * @returns The reason with the fields this build reads; undefined when the
+ *   result has none, or none with a code this build can print
  *
  * @example
  * ```ts
@@ -254,34 +265,33 @@ const REASON_TEXTS = ['cause', 'detail'] as const;
  * ```
  */
 export function readRackReason(value: unknown): RackReason | undefined {
-  if (value === undefined) return undefined;
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error('a reason is a JSON object');
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return undefined;
   const fields = value as Record<string, unknown>;
-  if (typeof fields.code !== 'string' || !/^[a-z][a-z0-9-]{0,63}$/.test(fields.code)) throw new Error('a reason has a code');
+  if (typeof fields.code !== 'string' || !WORD.test(fields.code)) return undefined;
   const reason: { -readonly [K in keyof RackReason]: RackReason[K] } = { code: fields.code };
   for (const name of REASON_NUMBERS) {
     const field = fields[name];
-    if (field === undefined) continue;
-    if (typeof field !== 'number' || !Number.isSafeInteger(field) || field < 0) throw new Error(`a reason's ${name} is a whole number`);
-    reason[name] = field;
+    if (typeof field === 'number' && Number.isSafeInteger(field) && field >= 0) reason[name] = field;
   }
   for (const name of REASON_TEXTS) {
     const field = fields[name];
-    if (field === undefined) continue;
-    if (typeof field !== 'string') throw new Error(`a reason's ${name} is text`);
     // A line of a run's output, not a log: what is longer is cut.
-    reason[name] = field.slice(0, 500);
+    if (typeof field === 'string') reason[name] = field.slice(0, 500);
   }
   return reason;
 }
 
 /**
- * Reads the retries a lease result lists.
+ * Reads the retries a lease result lists, for what this build knows of them.
+ *
+ * @remarks
+ * As a reason is, retries are read for what this build knows: a retry it
+ * cannot read is left out, a kind of transfer a later release names is kept,
+ * and a result is never refused for them.
  *
  * @param value - The result's `retries`, as its JSON holds them
- * @returns The retries, none when the result lists none
- * @throws {Error} When it is not a list of retries, or lists more than a
- *   lease's transfers could make
+ * @returns The retries this build reads, at most {@link MOST_RETRIES}; none
+ *   when the result lists none
  *
  * @example
  * ```ts
@@ -289,15 +299,13 @@ export function readRackReason(value: unknown): RackReason | undefined {
  * ```
  */
 export function readRackRetries(value: unknown): RackTransferRetry[] {
-  if (value === undefined) return [];
-  if (!Array.isArray(value) || value.length > 4096) throw new Error('retries are a list');
-  return value.map((entry: unknown) => {
-    if (typeof entry !== 'object' || entry === null) throw new Error('a retry is a JSON object');
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, MOST_RETRIES).flatMap((entry: unknown) => {
+    if (typeof entry !== 'object' || entry === null) return [];
     const { transfer, attempt, of, cause } = entry as Record<string, unknown>;
-    if (transfer !== 'input' && transfer !== 'output') throw new Error('a retry is of an input or an output');
-    for (const count of [attempt, of]) if (typeof count !== 'number' || !Number.isSafeInteger(count) || count < 1) throw new Error('a retry counts its tries');
-    if (typeof cause !== 'string') throw new Error('a retry has a cause');
-    return { transfer, attempt: attempt as number, of: of as number, cause: cause.slice(0, 500) };
+    if (typeof transfer !== 'string' || !WORD.test(transfer) || typeof cause !== 'string') return [];
+    if (![attempt, of].every((count) => typeof count === 'number' && Number.isSafeInteger(count) && count >= 1)) return [];
+    return [{ transfer, attempt: attempt as number, of: of as number, cause: cause.slice(0, 500) }];
   });
 }
 

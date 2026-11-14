@@ -30,9 +30,15 @@ it('prints a line for a task a rack claims, a transfer retried, and a rack\'s wo
   assert.equal(rackPlacementLine({ kind: 'placed', ...task, where: 'local', reason: 'no-rack-holds:gpu' }), '  [LOCAL] train (no-rack-holds:gpu)');
   assert.equal(rackPlacementLine({ kind: 'placed', ...task, where: 'local', reason: 'source-unreachable' }), '  [LOCAL] train (source-unreachable)');
   assert.equal(rackPlacementLine({ kind: 'waiting', ...task, where: 'rack', rackLabel: 'rack-a', leaseId: 'a', needs: { kind: 'task', cores: 2, memoryBytes: 4 * 1024 ** 3, gpu: false },
-    free: { cores: 1, memoryBytes: 1024 ** 3, gpus: 0 } }), '  [RACK] train waiting: needs 4 GB, rack-a has 1 GB free');
+    free: { cores: 1, memoryBytes: 1024 ** 3, gpus: 0 } }), '  [RACK] train waiting: needs 2 cores and 4 GB, rack-a has 1 core and 1 GB free');
+  // What it waits for is what it reserves, not the cap it may grow to: here a core, not memory.
+  assert.equal(rackPlacementLine({ kind: 'waiting', ...unit, where: 'rack', rackLabel: 'rack-a', leaseId: 'u',
+    needs: { kind: 'unit', cores: 1, memoryBytes: 3 * 1024 ** 3, reserveBytes: 2 * 1024 ** 3, gpu: false }, free: { cores: 0, memoryBytes: 2.5 * 1024 ** 3, gpus: 0 } }),
+  '  [RACK] score waiting: needs 1 core and 2 GB, rack-a has 0 cores and 2.5 GB free');
+  assert.equal(rackPlacementLine({ kind: 'waiting', ...task, where: 'rack', rackLabel: 'rack-a', leaseId: 'g', needs: { kind: 'task', cores: 4, memoryBytes: 8 * 1024 ** 3, gpu: true },
+    free: { cores: 8, memoryBytes: 32 * 1024 ** 3, gpus: 0 } }), '  [RACK] train waiting: needs 4 cores, a GPU and 8 GB, rack-a has 8 cores, 0 GPUs and 32 GB free');
   assert.equal(rackPlacementLine({ kind: 'waiting', ...unit, where: 'rack', rackLabel: 'rack-a', leaseId: 'u', needs: { kind: 'unit', cores: 1, memoryBytes: 3 * 1024 ** 3, gpu: false } }),
-    '  [RACK] score waiting: needs 3 GB, rack-a has no free slot');
+    '  [RACK] score waiting: needs 1 core and 3 GB, rack-a has no free slot');
   assert.equal(rackPlacementLine({ kind: 'placed', ...task, where: 'local', reason: 'no-rack-for-tier:py' }), '  [LOCAL] train (no-rack-for-tier:py)');
   assert.equal(rackPlacementLine({ kind: 'placed', ...task, where: 'local', reason: 'fallback:rack-unavailable' }), '  [LOCAL] train (fallback:rack-unavailable)');
   assert.equal(rackPlacementLine({ kind: 'placed', ...task, where: 'local', reason: 'environment:native-package:fastfit' }), '  [LOCAL] train (environment:native-package:fastfit)');

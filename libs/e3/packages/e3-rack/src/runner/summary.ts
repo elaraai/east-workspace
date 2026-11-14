@@ -7,7 +7,9 @@ import { ranLocally, type RackPlacementEvent } from './rack-body.js';
 
 /** What a run's rack work came to. */
 export interface RackRunSummary {
-  /** The work racks claimed, by rack, in the order each first claimed some */
+  /** The work racks claimed, by rack, in the order each first claimed some:
+   *  each task or unit once, by the rack that first claimed it, though it was
+   *  leased again */
   readonly placed: ReadonlyArray<{ readonly rackLabel: string; readonly tasks: number; readonly units: number }>;
   /** The leases that were queued with no rack having room for them */
   readonly waited: number;
@@ -49,6 +51,8 @@ export class RackTally {
     if (event.kind === 'stopped') { this.ranAgain++; return; }
     if (event.where === 'rack') {
       if (event.waitedMs !== undefined) this.longestWaitMs = Math.max(this.longestWaitMs, event.waitedMs);
+      // Work leased again was counted when it was first claimed
+      if (event.again === true) return;
       const rack = this.placed.get(event.rackLabel) ?? { tasks: 0, units: 0 };
       if (event.role === 'task') rack.tasks++; else rack.units++;
       this.placed.set(event.rackLabel, rack);

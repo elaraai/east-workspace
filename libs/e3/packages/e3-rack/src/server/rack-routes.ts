@@ -133,8 +133,12 @@ export interface RackRouteOptions {
   now?: () => number;
   /** Stops outstanding lease polls when their host shuts down. */
   signal?: AbortSignal;
-  /** Optional per-candidate gate, checked at claim time too: whether the rack
-   *  may take the lease, given what its poll offers. */
+  /**
+   * Optional per-candidate gate: whether the rack may take the lease, given
+   * what its poll offers. Asked under the lease's fence when the offer holds
+   * the lease, and before a lease the offer does not hold is waited for,
+   * outside the fence: a lease the rack may not take holds no line at it.
+   */
   canClaim?: (rack: RackRegistration, lease: RackLeaseRecord, offer: RackOffer) => boolean | Promise<boolean>;
   /**
    * Whether a rack could hold a lease's work with nothing else on it: its
@@ -536,6 +540,9 @@ export function createRackRoutes(
           // granted by what it reserves, its work could grow past the host.
           if (needs !== undefined && options?.canEverHold !== undefined && !options.canEverHold(currentRack, needs)) continue;
           if (needs !== undefined && !leaseFits(needs, offer)) {
+            // Nor does one this rack may not take: no line is held for work
+            // it would never be granted.
+            if (options?.canClaim !== undefined && !(await options.canClaim(currentRack, candidate, offer))) continue;
             const ms = Math.max(0, now() - candidate.createdAtMs);
             waiting ??= { cores: needs.cores, memoryBytes: leaseReserve(needs), gpus: needs.gpu ? 1 : 0, ms };
             if (ms >= RACK_PASS_OVER_MS) break;

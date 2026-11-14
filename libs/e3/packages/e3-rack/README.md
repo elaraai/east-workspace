@@ -358,7 +358,7 @@ rack work up as it ends:
 Rack: workshop (56 cores, 262 GB, 1 GPU, e3 1.0.108)
   [RACK] train_model → workshop (cap 16 GB)
   [RACK] train_model input transfer retried (2 of 5): connection reset
-  [RACK] embed_rows waiting: needs 16 GB, workshop has 9 GB free
+  [RACK] embed_rows waiting: needs 8 cores and 16 GB, workshop has 12 cores and 9 GB free
   [RACK] score_rows outgrew its 3 GB cap on workshop: runs again under 4.5 GB
   [RACK] score_rows stopped on workshop at 2.6 GB, its host short of memory: runs again reserving 2.6 GB
   [LOCAL] score_rows (input-transfer-failed: connection reset)
@@ -647,7 +647,8 @@ A lease says what it asks of a rack, in its event's `resources`: `{ "kind":
 use. `reserveBytes`, at most its cap, is what the rack books for it (absent,
 its cap). A unit of a split task asks one core, reserves what it is expected
 to need and is capped as e3 caps a local unit that expects the same (half as
-much again); a whole task asks its size's cores and reserves its cap, its
+much again); a whole task asks its size's cores, at most the most cores a
+rack has (a VM is given no more than its host has), and reserves its cap, its
 rule's `--memory-limit`, else its size's memory. A rack that books
 reservations must do what a local run's budget does with them: let each
 lease's work grow to its cap, watch its host's memory, and when the host runs

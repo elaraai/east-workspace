@@ -586,7 +586,7 @@ export class RackHub {
         const report = this.reports.get(rack.rackId);
         if (report?.target === undefined || !report.features.includes('environments')) return false;
         try {
-          return await this.bridge.readEnvManifest(envManifestKey(environment, sub.version, report.target)) !== null;
+          return await this.bridge.readEnvManifestOf(lease.repo, lease.leaseId, envManifestKey(environment, sub.version, report.target)) !== null;
         } catch (error) {
           this.options.log?.(`rack lease ${lease.leaseId}: its environment's layers could not be asked for: ${messageOf(error)}`);
           return false;
