@@ -191,6 +191,16 @@ export {
   type EnvironmentTarget, type EnvironmentTargetReason, type TargetEnvironment,
 } from './environment.js';
 
+// An environment built ahead of the call that declares it — an image's, a
+// rack guest's — and the link that has e3-core take it as built
+export {
+  prebuiltEnvironment,
+  linkPrebuiltEnvironment,
+  PREBUILT_ENV_HASH_VAR,
+  PREBUILT_ENV_DIR_VAR,
+  type PrebuiltEnvironment,
+} from './prebuilt-environment.js';
+
 // Scratch directories of local executions
 export { sweepScratchDirs } from './scratch.js';
 
