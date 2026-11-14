@@ -247,7 +247,9 @@ e3 rack policy . reset
 Defaults are disabled, opt-in selection, `large`, a 1440-minute timeout,
 capacity spill enabled, a 30-second claim recheck and no local retry of task
 failures. `--rack-only` disables capacity spill; infrastructure failures can
-still fall back locally. It does not force ineligible tasks onto a rack.
+still fall back locally, after a wait: work whose racks are not healthy waits
+two minutes for one to come back, and work whose transfer failed its tries is
+leased once more. It does not force ineligible tasks onto a rack.
 Rack flags apply to local dataflows and watch with `--start`, and are refused
 for remote repository URLs. Calls, mutations and intake remain local.
 
@@ -308,9 +310,9 @@ Rack summary: 1 task and 12 units on workshop · 1 waited for capacity (longest 
 
 | `reason.code` | Carries | Who sets it | The work |
 | --- | --- | --- | --- |
-| `input-transfer-failed`, `output-transfer-failed` | `attempts`, `cause` | The rack, after its five tries. | Runs locally. |
+| `input-transfer-failed`, `output-transfer-failed` | `attempts`, `cause` | The rack, after its five tries. | Runs locally; under `--rack-only`, is leased once more first. |
 | `guest-crashed` | `detail` | The rack. | Runs locally: a rack's fault never fails a run. |
-| `source-unreachable` | `ms` | The rack. | Runs locally. |
+| `source-unreachable` | `ms` | The rack, whose source has not answered for two minutes; the launching machine, when the racks that run the work's tier are enrolled but not healthy. | Runs locally: at once, or under `--rack-only` once two minutes have passed with none healthy. |
 | `task-error` | | The rack: the task's own failure. | Its failure is its verdict, unless the policy retries failures locally. |
 | `outgrew-cap` | `capBytes`, `peakBytes` | The rack, when the cap stopped the work. | A unit of a split task is leased again under a cap half as large again, and its stopped attempt is no failure in the task's history. A whole task fails, `memory-limit-exceeded (cap 16 GB); raise --memory-limit or --size`, and is not run again unless the policy retries failures locally. |
 | `memory-limit-exceeded` | `needsBytes`, `limitBytes` | The launching machine. | A unit whose cap would pass its rule's `--memory-limit`, or every rack's memory, runs locally, under the local budget. |

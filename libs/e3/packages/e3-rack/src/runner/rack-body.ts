@@ -3,6 +3,7 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
+import { setTimeout as delay } from 'node:timers/promises';
 import { ExecutionAttempt, touchReachable, unitCap, uuidv7, type ExecutionResult, type TaskBodyExecutor, type TaskBodyRequest } from '@elaraai/e3-core';
 import type { LeaseHandle, LeaseUpdate, RackSession } from '../client/session.js';
 import { recordClosure, stagedObjects, taskClosure } from '../lease/closure.js';
@@ -20,7 +21,8 @@ import type { RackResources } from '../protocol/rack-json.js';
  * - `placed` on a rack, when one claims its lease;
  * - `placed` locally, with why: never a rack's work (`reason` is why it is not
  *   eligible), or a rack's work that this machine runs after all (`spill`,
- *   `no-rack-for-tier:<tier>`, or a `fallback:` with what went wrong, and the
+ *   `no-rack-for-tier:<tier>`, `source-unreachable` when the racks that run
+ *   its tier are not healthy, or a `fallback:` with what went wrong, and the
  *   rack's `detail` when its result gave a reason);
  * - `retried`: a transfer of its lease failed a try and was given another;
  * - `waiting`: its lease is queued, and no rack has room for what it asks
@@ -51,7 +53,7 @@ export type RackPlacementEvent =
  */
 export function ranLocally(event: RackPlacementEvent): event is Extract<RackPlacementEvent, { where: 'local' }> {
   return event.kind === 'placed' && event.where === 'local' &&
-    (event.detail !== undefined || event.reason === 'spill' || event.reason.startsWith('fallback:') || event.reason.startsWith('no-rack-'));
+    (event.detail !== undefined || event.reason === 'spill' || event.reason === 'source-unreachable' || event.reason.startsWith('fallback:') || event.reason.startsWith('no-rack-'));
 }
 
 /** Configures a run's body executor without acquiring local resources. */
@@ -62,8 +64,14 @@ export interface RackBodyOptions {
   policy: RackPolicy;
   /** Workspace named on the rack's activity view. */
   workspace: string;
-  /** Disables capacity spill, but still permits infrastructure fallback. */
+  /** Disables capacity spill, but still permits infrastructure fallback:
+   *  after a wait for a rack to be healthy, and one further lease for work
+   *  whose transfer failed. */
   rackOnly?: boolean;
+  /** How long work waits, under {@link rackOnly}, for a rack that runs its
+   *  tier to be healthy before it runs locally, in ms: two minutes
+   *  ({@link RACK_ONLY_WAIT_MS}) unless set. */
+  unreachableWaitMs?: number;
   /** Receives placement and fallback notifications. */
   onPlacement?: (event: RackPlacementEvent) => void;
 }
@@ -95,6 +103,13 @@ export function leaseResources(request: Pick<TaskBodyRequest, 'unit' | 'options'
   if (verdict.memoryLimit !== null && cap > verdict.memoryLimit) return { code: 'memory-limit-exceeded', needsBytes: cap, limitBytes: verdict.memoryLimit };
   return { kind: 'unit', cores: 1, memoryBytes: cap, gpu: verdict.gpu };
 }
+
+/**
+ * How long a run that keeps its work for a rack (`--rack-only`) waits for one
+ * that runs the work's tier to be healthy, in ms, before the work runs
+ * locally: a rack's fault never fails a run.
+ */
+export const RACK_ONLY_WAIT_MS = 120_000;
 
 /** Whether this body could obtain a local core and its memory reservation. */
 function localIdle(request: TaskBodyRequest): boolean {
@@ -161,7 +176,27 @@ export function createRackBody(options: RackBodyOptions): TaskBodyExecutor {
     // reproduced by a stock guest. Keep these settings on the standard body.
     if (request.options.env !== undefined || request.options.uid !== undefined || request.options.gid !== undefined ||
       (request.options.extraEnv !== undefined && Object.keys(request.options.extraEnv).length > 0)) return runLocal('host-process-settings');
-    if (compatibleRacks(session.capacity(), verdict.tier).length === 0) return runLocal(`no-rack-for-tier:${verdict.tier}`);
+    // Why no rack can take the tier's work now: those that run it are not
+    // healthy, or none that could is enrolled.
+    const noRack = (): string | null => {
+      const snapshot = session.capacity();
+      if (compatibleRacks(snapshot, verdict.tier).length > 0) return null;
+      return snapshot.racks.some((rack) => rack.tiers.includes(verdict.tier) && !rack.healthy) ? 'source-unreachable' : `no-rack-for-tier:${verdict.tier}`;
+    };
+    const unreachableWaitMs = options.unreachableWaitMs ?? RACK_ONLY_WAIT_MS;
+    // A run that keeps its work for a rack waits for one to be healthy
+    // before the work runs locally; any other runs it locally at once.
+    let absent = noRack();
+    if (absent !== null && options.rackOnly) {
+      const until = Date.now() + unreachableWaitMs;
+      while (absent !== null && Date.now() < until && request.options.signal?.aborted !== true && !session.hubLost) {
+        await delay(Math.max(1, Math.min(1000, until - Date.now())), undefined, { signal: request.options.signal }).catch(() => {});
+        await session.refreshCapacity().catch(() => {});
+        absent = noRack();
+      }
+      if (request.options.signal?.aborted) return local();
+    }
+    if (absent !== null) return runLocal(absent);
     // A unit whose cap would pass its rule's limit is not a rack's: a unit is
     // pure, and runs under the local budget instead.
     const asked = leaseResources(request, verdict);
@@ -189,6 +224,10 @@ export function createRackBody(options: RackBodyOptions): TaskBodyExecutor {
       return compatibleRacks(snapshot, verdict.tier).reduce((sum, rack) => sum + rackRoom(rack, resources), 0) - Number(snapshot.queued);
     };
     let waitingSince: number | undefined;
+    // Under rack-only, work whose transfer failed is leased once more.
+    let leasedAgain = false;
+    // Since when a queued lease has had no rack that could claim it.
+    let unreachableSince: number | undefined;
     try {
       const hashes = await taskClosure(request.storage, request.repo, request.taskHash, request.task,
         request.unit === undefined ? request.inputHashes : stagedObjects(request.unit.inputs, request.unit.merge));
@@ -245,7 +284,16 @@ export function createRackBody(options: RackBodyOptions): TaskBodyExecutor {
             return await stop('error', `timed out: the task exceeded ${verdict.timeoutMinutes} min on rack ${rackLabel}`);
           }
           await session.refreshCapacity();
-          if (compatibleRacks(session.capacity(), verdict.tier).length === 0) return await runLocal('fallback:rack-unavailable');
+          const gone = noRack();
+          if (gone === null) unreachableSince = undefined;
+          else {
+            // No rack could claim the lease. A run that keeps its work for a
+            // rack gives one two minutes to be healthy again.
+            unreachableSince ??= Date.now();
+            if (!options.rackOnly || Date.now() - unreachableSince >= unreachableWaitMs) {
+              return await runLocal(gone === 'source-unreachable' ? 'fallback:source-unreachable' : 'fallback:rack-unavailable');
+            }
+          }
           if (canSpill()) return await runLocal('fallback:not-claimed');
           claimDeadline = Date.now() + claimWait;
           continue;
@@ -333,6 +381,13 @@ export function createRackBody(options: RackBodyOptions): TaskBodyExecutor {
         // other error is the rack's, and the work runs locally; a task's own
         // failure is its verdict, whatever its message mentions, unless the
         // policy retries failures locally.
+        // A transfer that failed its tries is the link's fault: a run that
+        // keeps its work for a rack leases it once more before it runs locally.
+        if (options.rackOnly && !leasedAgain && (reason?.code === 'input-transfer-failed' || reason?.code === 'output-transfer-failed')) {
+          leasedAgain = true;
+          untee?.(); untee = undefined;
+          continue leases;
+        }
         const timedOut = state === 'error' && /^timed out:/.test(result.error ?? '');
         if (state === 'error' ? !timedOut : policy.retryTaskFailuresLocally) return await fallback(result.error, 'rack execution failed');
         return { inputsHash: request.ids.inHash, executionId: attempt.executionId, cached: false, state, outputHash: null,

@@ -23,6 +23,8 @@ import { DEFAULT_RACK_POLICY, setMode, setRule, type RackPolicy } from '../routi
 import { openRackRunner, type OpenRackRunnerOptions } from './rack-runner.js';
 import type { RackPlacementEvent } from './rack-body.js';
 import type { RackLeaseEvent } from '../protocol/task-envelope.js';
+import { RackHeartbeatRequestType } from '../protocol/rack-wire.js';
+import { E3_RACK_VERSION } from '../version.js';
 import { describeRackSummary } from './summary.js';
 
 const cleanup: Array<() => Promise<void>> = [];
@@ -415,4 +417,70 @@ it('fails a whole task its rack stopped at its cap, by name, and does not run it
   const again = retrying.runner.execute(f.storage, f.hash, other, { taskName: 'length' });
   assert.equal((await agent.runOne())?.reason?.code, 'outgrew-cap');
   assert.equal((await again).state, 'success'); assert.equal(f.budget.peak, 1);
+});
+
+it('waits, under rack-only, for a rack that runs the work\'s tier to be healthy before the work runs locally, and runs it locally at once otherwise', async () => {
+  const f = await fixture(); const agent = await f.agent();
+  const local = () => f.placements.flatMap((event) => event.kind === 'placed' && event.where === 'local' ? [event.reason] : []);
+  const unhealthy = async () => {
+    const response = await agent.raw('heartbeat', RackHeartbeatRequestType, { healthy: false, freeCapacity: 0n, runningLeases: [],
+      agentVersion: `0.5.0+e3.${E3_RACK_VERSION}`, bootId: agent.bootId, cacheBytes: 0n, report: JSON.stringify({ features: [] }) });
+    assert.equal(response.status, 200); await response.arrayBuffer();
+  };
+  const input = async (text: string) => [await datasetWrite(f.storage, f.repo, text, StringType)];
+
+  // The one rack that runs the tier is not healthy. A run that may run its work locally does so at once, by name.
+  await unhealthy();
+  const plain = await f.open();
+  assert.equal((await plain.runner.execute(f.storage, f.hash, f.inputs, { taskName: 'length' })).state, 'success');
+  assert.deepEqual(local(), ['source-unreachable']);
+  assert.equal(f.budget.peak, 1);
+
+  // A run that keeps its work for a rack waits for it, and the rack comes back within the wait.
+  f.placements.length = 0;
+  const waiting = await f.open({ rackOnly: true, unreachableWaitMs: 30_000 });
+  const running = waiting.runner.execute(f.storage, f.hash, await input('for the rack'), { taskName: 'length' });
+  await delay(150);
+  assert.deepEqual(f.placements, [], 'the work is neither leased nor run while the run waits');
+  await agent.heartbeat();
+  const ran = await agent.runOne(); assert.equal(ran?.status, 'success', ran?.error);
+  assert.equal((await running).state, 'success');
+  assert.deepEqual(local(), []);
+
+  // It stays away past the wait: the work runs locally, since a rack's fault never fails a run.
+  await unhealthy();
+  f.placements.length = 0;
+  const short = await f.open({ rackOnly: true, unreachableWaitMs: 300 });
+  const started = Date.now();
+  assert.equal((await short.runner.execute(f.storage, f.hash, await input('after the wait'), { taskName: 'length' })).state, 'success');
+  assert(Date.now() - started >= 300, 'it waited as long as it was given');
+  assert.deepEqual(local(), ['source-unreachable']);
+});
+
+it('leases work whose transfer failed once more under rack-only, and runs it locally only when that lease fails too', async () => {
+  const f = await fixture(); const agent = await f.agent({ timings: { retryMs: 1 }, faults: {} });
+  const rack = await f.open({ rackOnly: true });
+  const large = async () => [await datasetWrite(f.storage, f.repo, randomBytes(60_000).toString('base64'), StringType)];
+  const claims = () => f.placements.filter((event) => event.kind === 'placed' && event.where === 'rack').length;
+
+  // The link fails every try of the first lease, and is whole again for the second.
+  agent.faults.failTransferNext = 1000;
+  const running = rack.runner.execute(f.storage, f.hash, await large(), { taskName: 'length' });
+  assert.equal((await agent.runOne())?.reason?.code, 'input-transfer-failed');
+  agent.faults.failTransferNext = 0;
+  const again = await agent.runOne(); assert.equal(again?.status, 'success', again?.error);
+  assert.equal((await running).state, 'success');
+  assert.equal(claims(), 2, 'leased once more');
+  assert.equal(f.budget.peak, 0, 'and not run locally');
+
+  // It fails the second lease too: the work runs locally, by the rack's reason.
+  f.placements.length = 0;
+  agent.faults.failTransferNext = 100_000;
+  const falling = rack.runner.execute(f.storage, f.hash, await large(), { taskName: 'length' });
+  assert.equal((await agent.runOne())?.reason?.code, 'input-transfer-failed');
+  assert.equal((await agent.runOne())?.reason?.code, 'input-transfer-failed');
+  assert.equal((await falling).state, 'success');
+  assert.equal(claims(), 2); assert.equal(f.budget.peak, 1);
+  const local = f.placements.find((event) => event.kind === 'placed' && event.where === 'local'); assert(local?.kind === 'placed' && local.where === 'local');
+  assert.equal(local.detail?.code, 'input-transfer-failed');
 });

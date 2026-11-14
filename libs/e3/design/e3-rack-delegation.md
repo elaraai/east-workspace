@@ -216,12 +216,14 @@ planning and final assembly stay local; both pieces and merge bodies delegate.
 | Outcome | Record and action |
 | --- | --- |
 | Cache hit | Return the cached result; no lease. |
-| Ineligible or no compatible rack | Use the ordinary local body. |
+| Ineligible or no compatible rack | Use the ordinary local body: at once, or, under rack-only, once a rack that runs the tier has stayed unhealthy for two minutes (`source-unreachable`). |
 | Capacity full | Spill when enabled and local cores/memory are available; otherwise wait. Dedupe attachment precedes spill. |
 | Claim | Mint a new attempt; write hub owner before running, then persisted placement log and claim event. |
 | Success | Verify whole output, flush logs, record success, publish completion. |
 | Task failure (including signal exit) | Record failed and return the verdict; retry locally only if explicitly configured. |
-| Infrastructure failure or lost lease | End the rack attempt and run locally with a fresh execution identity. |
+| Infrastructure failure or lost lease | End the rack attempt and run locally with a fresh execution identity. Under rack-only, work whose transfer failed its tries is leased once more first. |
+| A unit its cap stopped | Lease it again under a cap half as large again; past its rule's limit or every rack's memory, run it locally. |
+| A task its cap stopped | Record failed (`memory-limit-exceeded`); retry locally only if explicitly configured. |
 | Timeout | Record an error; no local retry. The host also enforces the deadline. |
 | One subscriber cancels | Detach it and record its cancellation; preserve shared work. |
 | Last subscriber cancels | Cancel lease, notify the agent's cancellation watch, record cancelled; no local retry. |
