@@ -22,6 +22,7 @@
  */
 
 import type { RunnerDetachedEvent, RunnerRun, RunnerTaskEvent, RunnerUnitEvent } from '../runner-event.js';
+import type { RackResources } from './rack-json.js';
 
 /** The version of the lease event this build writes and reads. */
 export const RACK_LEASE_VERSION = 2;
@@ -34,6 +35,65 @@ export const RACK_LEASE_VERSION = 2;
 export type RackLeaseClosure =
   | { readonly hashes: readonly string[] }
   | { readonly object: string; readonly count: number };
+
+/**
+ * What a lease's work asks of a rack, and what the rack books for it while it
+ * runs: its cores, and its cap, which is the most memory it may use. A rack
+ * that books the cap of everything it holds never books more than it has.
+ */
+export interface RackLeaseResources {
+  /** A unit of a split task, which e3 runs again under a larger cap when it
+   *  outgrows this one; or a whole task, which it does not */
+  readonly kind: 'unit' | 'task';
+  /** The cores it is given */
+  readonly cores: number;
+  /** Its cap, in bytes */
+  readonly memoryBytes: number;
+  /** Whether it takes a GPU, whole */
+  readonly gpu: boolean;
+}
+
+/**
+ * Reads what a lease's event asks of a rack.
+ *
+ * @param value - The event's `resources`, as its JSON holds them
+ * @returns The resources, or undefined for an event that names none: work
+ *   from a source that does not size its leases
+ * @throws {Error} When it is not a unit's or a task's cores, cap and GPU
+ *
+ * @example
+ * ```ts
+ * const needs = readRackLeaseResources(lease.event.resources);
+ * if (needs !== undefined && !leaseFits(needs, offer)) continue;
+ * ```
+ */
+export function readRackLeaseResources(value: unknown): RackLeaseResources | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error('a lease\'s resources are a JSON object');
+  const { kind, cores, memoryBytes, gpu } = value as Record<string, unknown>;
+  if (kind !== 'unit' && kind !== 'task') throw new Error('a lease\'s resources are a unit\'s or a task\'s');
+  for (const [name, count] of [['cores', cores], ['memoryBytes', memoryBytes]] as const) {
+    if (typeof count !== 'number' || !Number.isSafeInteger(count) || count < 1) throw new Error(`a lease's ${name} is a whole number of one or more`);
+  }
+  if (typeof gpu !== 'boolean') throw new Error('a lease takes a GPU or does not');
+  return { kind, cores: cores as number, memoryBytes: memoryBytes as number, gpu };
+}
+
+/**
+ * Whether a rack that offers this much can hold a lease's work now.
+ *
+ * @param needs - What the lease asks
+ * @param offer - What the rack's poll may be answered with
+ * @returns Whether the cores, the cap and the GPU are all within the offer
+ *
+ * @example
+ * ```ts
+ * leaseFits({ kind: 'unit', cores: 1, memoryBytes: 3 * 1024 ** 3, gpu: false }, { cores: 4, memoryBytes: 8 * 1024 ** 3, gpus: 0 }); // true
+ * ```
+ */
+export function leaseFits(needs: RackLeaseResources, offer: RackResources): boolean {
+  return needs.cores <= offer.cores && needs.memoryBytes <= offer.memoryBytes && (!needs.gpu || offer.gpus >= 1);
+}
 
 /**
  * A lease's work, v2 (#214): a dataflow task, a unit of a split task, or a
@@ -65,6 +125,13 @@ export interface RackLeaseEvent {
   readonly program?: string;
   /** Every object the guest may read */
   readonly closure: RackLeaseClosure;
+  /**
+   * What the work asks of a rack: a poll is answered with it only when the
+   * rack's offer holds it, and the rack caps the work at it. Read with
+   * {@link readRackLeaseResources}; absent from a source that does not size
+   * its leases, whose work a rack admits as it did before.
+   */
+  readonly resources?: RackLeaseResources;
 }
 
 /**

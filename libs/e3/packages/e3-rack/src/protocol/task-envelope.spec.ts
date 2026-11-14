@@ -5,7 +5,8 @@
 
 import { it } from 'node:test';
 import assert from 'node:assert/strict';
-import { RACK_REASON_CODES, describeRackReason, readRackReason, readRackRetries } from './task-envelope.js';
+import { RACK_REASON_CODES, describeRackReason, leaseFits, readRackLeaseResources, readRackReason, readRackRetries } from './task-envelope.js';
+import { readRackWaiting } from './rack-json.js';
 
 it('reads a result\'s reason for the fields it knows, keeps a code of a later release, and refuses what is not one', () => {
   assert.equal(readRackReason(undefined), undefined);
@@ -37,4 +38,21 @@ it('reads the retries a result lists, and refuses a list that is not one', () =>
   for (const bad of ['twice', [7], [{ ...retry, transfer: 'sideways' }], [{ ...retry, attempt: 0 }], [{ ...retry, of: 1.5 }], [{ ...retry, cause: 7 }], Array.from({ length: 4097 }, () => retry)]) {
     assert.throws(() => readRackRetries(bad), /retr/);
   }
+});
+
+it('reads what a lease asks of a rack, and whether a rack\'s offer holds it', () => {
+  const unit = { kind: 'unit', cores: 1, memoryBytes: 3 * 1024 ** 3, gpu: false } as const;
+  assert.equal(readRackLeaseResources(undefined), undefined, 'a source that does not size its leases names none');
+  assert.deepEqual(readRackLeaseResources({ ...unit, later: true }), unit);
+  for (const bad of ['large', null, { ...unit, kind: 'piece' }, { ...unit, cores: 0 }, { ...unit, memoryBytes: 1.5 }, { ...unit, memoryBytes: -1 }, { ...unit, gpu: 1 }]) {
+    assert.throws(() => readRackLeaseResources(bad), /a lease/, JSON.stringify(bad));
+  }
+  assert.equal(leaseFits(unit, { cores: 1, memoryBytes: 3 * 1024 ** 3, gpus: 0 }), true, 'exactly what is offered fits');
+  assert.equal(leaseFits(unit, { cores: 0, memoryBytes: 2 ** 40, gpus: 4 }), false, 'no core');
+  assert.equal(leaseFits(unit, { cores: 8, memoryBytes: 3 * 1024 ** 3 - 1, gpus: 0 }), false, 'a byte short of its cap');
+  assert.equal(leaseFits({ ...unit, gpu: true }, { cores: 8, memoryBytes: 2 ** 40, gpus: 0 }), false, 'no GPU');
+  assert.equal(leaseFits({ ...unit, gpu: true }, { cores: 8, memoryBytes: 2 ** 40, gpus: 1 }), true);
+  assert.deepEqual(readRackWaiting('{"cores":1,"memoryBytes":34359738368,"gpus":0,"ms":12000,"later":1}'), { cores: 1, memoryBytes: 34359738368, gpus: 0, ms: 12000 });
+  assert.equal(readRackWaiting(null), undefined);
+  assert.equal(readRackWaiting('not json'), undefined);
 });

@@ -67,12 +67,15 @@ import {
   RackStorageRequestType,
   RackStorageResponseType,
   RackLogsRequestType,
+  RACK_PASS_OVER_MS,
   RACK_PROTOCOL,
   RACK_PROTOCOL_HEADER,
   RACK_TRANSFERS_AT_ONCE,
+  RACK_WAITING_HEADER,
   readRackOffer,
   readRackReport,
   type RackCompleteRequest,
+  type RackWaiting,
   type RackEnrollRequest,
   type RackHeartbeatRequest,
   type RackHeartbeatResponse,
@@ -94,7 +97,7 @@ import type { RunnerRun } from '../runner-event.js';
 import { MAX_LEASE_TARGETS, type RackLeaseStore, type RackLeaseRecord } from '../lease/lease-store.js';
 import type { RackStorageBridge } from './storage-bridge.js';
 import { envLayerBlobKey, type EnvIndexStore, type EnvLayerManifest } from './env-publication.js';
-import { isFunctionLease, isLeaseEventV2, leaseRun, readRackReason, readRackRetries, type RackLeaseResult } from '../protocol/task-envelope.js';
+import { isFunctionLease, isLeaseEventV2, leaseFits, leaseRun, readRackLeaseResources, readRackReason, readRackRetries, type RackLeaseResources, type RackLeaseResult } from '../protocol/task-envelope.js';
 import { DEFAULT_HEALTHY_WINDOW_MS, DEFAULT_VISIBILITY_MS, heartbeatCapacity, leaseRefusal } from './dispatch.js';
 import { backendLeaseCoordinator, type LeaseCoordinator } from '../lease/coordinator.js';
 import {
@@ -133,6 +136,17 @@ export interface RackRouteOptions {
   /** Optional per-candidate gate, checked at claim time too: whether the rack
    *  may take the lease, given what its poll offers. */
   canClaim?: (rack: RackRegistration, lease: RackLeaseRecord, offer: RackOffer) => boolean | Promise<boolean>;
+  /**
+   * Whether a rack could hold a lease's work with nothing else on it: its
+   * whole resources hold what the lease asks. A lease that has waited
+   * {@link RACK_PASS_OVER_MS} holds the line at a rack that could, and is
+   * passed over for good at one that never could. By default every rack
+   * could.
+   */
+  canEverHold?: (rack: RackRegistration, needs: RackLeaseResources) => boolean;
+  /** How many leases of the queue a poll looks through for one its rack's
+   *  offer holds (default 10). */
+  claimLookahead?: number;
   /** Told what a rack is and has, with each of its heartbeats. */
   onReport?: (rackId: string, report: RackReport) => void | Promise<void>;
   /** Told a rack asked in another protocol, or named none, and was refused:
@@ -323,6 +337,12 @@ export function createRackRoutes(
   const pollMaxMs = Math.max(pollIntervalMs, options?.pollMaxMs ?? pollIntervalMs);
   const policyRecheckMs = Math.max(0, options?.policyRecheckMs ?? 0);
   const visibilityMs = options?.visibilityMs ?? DEFAULT_VISIBILITY_MS;
+  const claimLookahead = Math.max(1, options?.claimLookahead ?? 10);
+  /** What a queued lease asks of a rack; undefined for one that names
+   *  nothing, or whose resources do not read, which a rack admits as before. */
+  const leaseNeeds = (lease: RackLeaseRecord): RackLeaseResources | undefined => {
+    try { return readRackLeaseResources(lease.event.resources); } catch { return undefined; }
+  };
   const watchWindowMs = Math.max(1, Math.min(20_000, options?.watchWindowMs ?? 20_000));
   const watchPollIntervalMs = Math.max(1, options?.watchPollIntervalMs ?? 250);
   const envIndex = options?.envIndex;
@@ -476,6 +496,7 @@ export function createRackRoutes(
     }
 
     const deadline = Date.now() + leaseWindowMs;
+    let waiting: RackWaiting | undefined;
     let waitMs = pollIntervalMs;
     let policyCheckedAt = Number.NEGATIVE_INFINITY;
     let requireStartApproval = false;
@@ -500,8 +521,22 @@ export function createRackRoutes(
 
       if (!quarantined && currentRack.healthy && compareInteger(currentRack.capacity, 0n) > 0
         && currentRack.lastSeenAt.getTime() >= now() - DEFAULT_HEALTHY_WINDOW_MS) {
-        const candidates = await leaseStore.listClaimable(tiers, now(), 10);
+        const candidates = await leaseStore.listClaimable(tiers, now(), claimLookahead);
+        waiting = undefined;
         for (const candidate of candidates) {
+          // A lease is granted to a rack whose offer holds what it asks. One
+          // the offer does not hold is passed over for a while, by smaller
+          // work behind it, and then holds the line: nothing behind it is
+          // granted to this rack until the rack has room for it, as a unit
+          // that does not fit the local budget holds the line there.
+          const needs = leaseNeeds(candidate);
+          if (needs !== undefined && !leaseFits(needs, offer)) {
+            if (options?.canEverHold !== undefined && !options.canEverHold(currentRack, needs)) continue;
+            const ms = Math.max(0, now() - candidate.createdAtMs);
+            waiting ??= { cores: needs.cores, memoryBytes: needs.memoryBytes, gpus: needs.gpu ? 1 : 0, ms };
+            if (ms >= RACK_PASS_OVER_MS) break;
+            continue;
+          }
           const grant = await coordinator.run(candidate.repo, candidate.leaseId, async () => {
           const current = await leaseStore.get(candidate.repo, candidate.leaseId);
           if (current === null) return null;
@@ -565,7 +600,11 @@ export function createRackRoutes(
         }
       }
       if (Date.now() + waitMs >= deadline) {
-        return c.body(null, 204);
+        const idle = c.body(null, 204);
+        // What the oldest lease the offer did not hold asks, so the rack
+        // holds that much back, across its sources, until it can offer it.
+        if (waiting !== undefined) idle.headers.set(RACK_WAITING_HEADER, JSON.stringify(waiting));
+        return idle;
       }
       await delay(waitMs, undefined, { signal }).catch(() => {});
       waitMs = Math.min(pollMaxMs, Math.round(waitMs * 1.5));

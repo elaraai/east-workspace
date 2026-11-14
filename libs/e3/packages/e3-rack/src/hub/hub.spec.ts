@@ -33,7 +33,7 @@ import { SlowLink, type SlowLinkOptions } from '../testing/slow-link.js';
 import { certificateSha256, createHubCertificate, pinnedFetch } from '../tls/tls.js';
 import { writeStateFile } from '../state-file.js';
 import { taskClosure } from '../lease/closure.js';
-import type { RackLeaseEvent } from '../protocol/task-envelope.js';
+import type { RackLeaseEvent, RackLeaseResources } from '../protocol/task-envelope.js';
 
 const cleanup: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -77,7 +77,7 @@ async function fixture(options: RackHubOptions = {}, port = 0, overrides: Partia
     const cancel = (id: string) => socketRequest(socket, 'POST', `${path}/leases/${encodeURIComponent(id)}/cancel`, { responseType: CancelLeaseResultType });
     return { ...opened, close, create, events, cancel, logs };
   };
-  const agent = async (as: Pick<TestRackAgentOptions, 'report' | 'protocol' | 'capacity' | 'transfersAtOnce' | 'timings' | 'faults'> = {}, origin?: string) => {
+  const agent = async (as: Pick<TestRackAgentOptions, 'report' | 'protocol' | 'capacity' | 'transfersAtOnce' | 'timings' | 'faults' | 'resources'> = {}, origin?: string) => {
     const mint = await socketRequest(socket, 'POST', '/v1/enroll', { requestType: HubEnrollType,
       body: { label: none, ttlMinutes: none }, responseType: HubEnrollResultType });
     assert.equal(mint.certificateSha256.type === 'some' ? mint.certificateSha256.value : undefined, pin);
@@ -101,8 +101,8 @@ async function fixture(options: RackHubOptions = {}, port = 0, overrides: Partia
   };
   return { home, hub, socket, repo, storage, status, session, agent, link, objects, config, pin, fetch };
 }
-function event(input: string[] = []): RackLeaseEvent {
-  return { version: 2, taskName: 'task', workspace: 'dev', closure: { hashes: input },
+function event(input: string[] = [], resources?: RackLeaseResources): RackLeaseEvent {
+  return { version: 2, taskName: 'task', workspace: 'dev', closure: { hashes: input }, ...(resources !== undefined && { resources }),
     runnerEvent: { mode: 'task', repo: 'replaced-by-hub', taskHash: 'a'.repeat(64), inputHashes: input, launchId: uuidv7(), timeoutMs: 30000 } };
 }
 
@@ -541,4 +541,49 @@ it('carries a burst of input transfers over a slow link with no failed transfer,
   assert(greedy.transfers.peak > RACK_TRANSFERS_AT_ONCE, `the agent asked for ${greedy.transfers.peak} at once`);
   assert(greedy.transfers.busy > 0, 'the hub told it to ask again');
   assert.equal(greedy.transfers.retried, 0, 'being told to wait is no failed try');
+});
+
+it('grants a lease to a rack whose offer holds it, lets smaller work pass a larger lease for ten seconds, then holds the line for it', async () => {
+  let time = Date.now();
+  const GiB = 1024 ** 3;
+  const f = await fixture({ now: () => time, leaseWindowMs: 40 });
+  const session = await f.session();
+  const agent = await f.agent({ resources: { cores: 4, memoryBytes: 8 * GiB, gpus: 0 } });
+  const rack = async () => (await f.status()).capacity.racks[0]!;
+  assert.deepEqual((await rack()).features, ['resources']);
+  // Each lease is its own work: its inputs name it.
+  const piece = (name: string, memoryBytes: number) => session.create(event([name.repeat(64)], { kind: 'unit', cores: 1, memoryBytes, gpu: false }));
+  const failed = { taskName: 'task', status: 'failed' as const };
+
+  const first = await piece('1', 3 * GiB);
+  const held = await agent.claim(); assert.equal(held?.leaseId, first.leaseId);
+  assert.deepEqual(agent.bookedFor(first.leaseId), { kind: 'unit', cores: 1, memoryBytes: 3 * GiB, gpu: false }, 'the rack books the lease at its cap');
+
+  // A lease of 6 GiB, and two of 3 GiB behind it: the rack has 5 GiB free.
+  const large = await piece('2', 6 * GiB); const second = await piece('3', 3 * GiB); const third = await piece('4', 3 * GiB);
+  const passed = await agent.claim(); assert.equal(passed?.leaseId, second.leaseId, 'smaller work passes a lease the offer does not hold');
+  assert.equal(agent.waitingFor, undefined);
+  // 2 GiB free: nothing queued fits, and the idle poll says what the oldest waits for.
+  assert.equal(await agent.claim(), null);
+  assert.deepEqual(agent.waitingFor, { cores: 1, memoryBytes: 6 * GiB, gpus: 0, ms: 0 });
+
+  // Ten seconds on, the large lease holds the line: 5 GiB free again, and the 3 GiB lease behind it is not granted.
+  time += 10_001; await agent.heartbeat([held, passed]);
+  await agent.complete(held, failed);
+  assert.equal(await agent.claim(), null, 'nothing behind a lease that holds the line is granted to this rack');
+  assert.deepEqual(agent.waitingFor, { cores: 1, memoryBytes: 6 * GiB, gpus: 0, ms: 10_001 });
+  // The rack has room for it: it is granted, and then the work behind it.
+  await agent.complete(passed, failed);
+  const granted = await agent.claim(); assert.equal(granted?.leaseId, large.leaseId);
+  await agent.complete(granted, failed);
+  const last = await agent.claim(); assert.equal(last?.leaseId, third.leaseId);
+  await agent.complete(last, failed);
+
+  // A lease this rack could never hold, however long it waits, holds no line at it.
+  await piece('5', 16 * GiB);
+  time += 10_001; await agent.heartbeat();
+  const small = await piece('6', GiB);
+  const after = await agent.claim(); assert.equal(after?.leaseId, small.leaseId);
+  assert.equal(agent.waitingFor, undefined);
+  await assert.rejects(session.create({ ...event(['7'.repeat(64)]), resources: { kind: 'unit', cores: 0, memoryBytes: GiB, gpu: false } }), /a lease's cores is a whole number of one or more/);
 });

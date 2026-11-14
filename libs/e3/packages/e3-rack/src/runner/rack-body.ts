@@ -3,13 +3,13 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
-import { ExecutionAttempt, touchReachable, uuidv7, type ExecutionResult, type TaskBodyExecutor, type TaskBodyRequest } from '@elaraai/e3-core';
+import { ExecutionAttempt, touchReachable, unitCap, uuidv7, type ExecutionResult, type TaskBodyExecutor, type TaskBodyRequest } from '@elaraai/e3-core';
 import type { LeaseHandle, LeaseUpdate, RackSession } from '../client/session.js';
 import { recordClosure, stagedObjects, taskClosure } from '../lease/closure.js';
-import { RACK_LEASE_VERSION, describeRackReason, readRackReason, readRackRetries, type RackLeaseEvent, type RackReason, type RackTransferRetry } from '../protocol/task-envelope.js';
+import { RACK_LEASE_VERSION, describeRackReason, readRackReason, readRackRetries, type RackLeaseEvent, type RackLeaseResources, type RackReason, type RackTransferRetry } from '../protocol/task-envelope.js';
 import { splitUnitToWire } from '../runner-event.js';
-import { EligibilityEvaluator } from '../routing/eligibility.js';
-import type { RackPolicy } from '../routing/policy.js';
+import { EligibilityEvaluator, type Eligibility } from '../routing/eligibility.js';
+import { RACK_SIZES, type RackPolicy } from '../routing/policy.js';
 import { E3_RACK_VERSION } from '../version.js';
 import { compatibleRacks } from './capacity.js';
 
@@ -54,6 +54,32 @@ export interface RackBodyOptions {
   rackOnly?: boolean;
   /** Receives placement and fallback notifications. */
   onPlacement?: (event: RackPlacementEvent) => void;
+}
+
+/**
+ * What a body's lease asks of a rack, and what the rack books for it.
+ *
+ * @remarks
+ * A unit of a split task takes one core and the cap e3-core gives a local
+ * unit that expects the same peak (`unitCap`): half as much again as it is
+ * expected to need. A unit nothing has measured yet is given its rule's
+ * memory limit, else its size's memory. A whole task takes its size's cores,
+ * and its rule's memory limit, else its size's memory, as its cap.
+ *
+ * @param request - The task body or unit
+ * @param verdict - Its rule's size, memory limit and GPU
+ * @returns The resources, or the reason the work cannot be a rack's: the cap
+ *   a measured unit needs is more than its rule's memory limit
+ */
+export function leaseResources(request: Pick<TaskBodyRequest, 'unit' | 'options'>, verdict: Extract<Eligibility, { eligible: true }>): RackLeaseResources | RackReason {
+  const size = RACK_SIZES[verdict.size];
+  const fallback = verdict.memoryLimit ?? size.memoryBytes;
+  if (request.unit === undefined) return { kind: 'task', cores: size.cores, memoryBytes: fallback, gpu: verdict.gpu };
+  const expected = request.options.expectedPeakBytes;
+  if (expected === undefined) return { kind: 'unit', cores: 1, memoryBytes: fallback, gpu: verdict.gpu };
+  const cap = unitCap(expected);
+  if (verdict.memoryLimit !== null && cap > verdict.memoryLimit) return { code: 'memory-limit-exceeded', needsBytes: cap, limitBytes: verdict.memoryLimit };
+  return { kind: 'unit', cores: 1, memoryBytes: cap, gpu: verdict.gpu };
 }
 
 /** Whether this body could obtain a local core and its memory reservation. */
@@ -122,6 +148,10 @@ export function createRackBody(options: RackBodyOptions): TaskBodyExecutor {
     if (request.options.env !== undefined || request.options.uid !== undefined || request.options.gid !== undefined ||
       (request.options.extraEnv !== undefined && Object.keys(request.options.extraEnv).length > 0)) return runLocal('host-process-settings');
     if (compatibleRacks(session.capacity(), verdict.tier).length === 0) return runLocal(`no-rack-for-tier:${verdict.tier}`);
+    // A unit whose cap would pass its rule's limit is not a rack's: a unit is
+    // pure, and runs under the local budget instead.
+    const resources = leaseResources(request, verdict);
+    if ('code' in resources) return runLocal(resources.code, resources);
     const canSpill = () => policy.spill && !options.rackOnly && localIdle(request);
     // The compatible slots free in the latest snapshot, less the work already queued for them.
     const freeSlots = () => {
@@ -139,7 +169,7 @@ export function createRackBody(options: RackBodyOptions): TaskBodyExecutor {
       const event: RackLeaseEvent = { version: RACK_LEASE_VERSION,
         runnerEvent: request.unit === undefined ? { ...common, mode: 'task', inputHashes: request.inputHashes }
           : { ...common, mode: 'unit', unit: splitUnitToWire(request.unit) },
-        workspace: options.workspace, taskName: placement.taskName, e3Version: E3_RACK_VERSION, closure };
+        workspace: options.workspace, taskName: placement.taskName, e3Version: E3_RACK_VERSION, closure, resources };
       if (request.options.signal?.aborted) return await stop('cancelled', 'cancelled: e3 did not start the rack execution because the run was aborted');
       const lease = { eventJson: JSON.stringify(event), tier: verdict.tier, computeSize: verdict.size };
       if (freeSlots() <= 0 && canSpill()) {
