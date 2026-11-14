@@ -845,14 +845,18 @@ local unless a rule explicitly uses `--allow-host-access`.
 
 A rack runs a split task's pieces as a local run does: every piece of a stage
 is leased at once, as many as the rack has room for, and the rest wait in its
-queue. Each lease says the cores it takes and its **cap**, the most memory it
-may use, and a rack books the cap of everything it holds, so it never books
-more than it has: a piece takes one core and half as much again as the task
-was measured to need, a whole task its `--size`'s cores (`serverless` 2 cores
-and 2 GiB, `small` 2 and 4, `medium` 4 and 8, `large` 8 and 16, `xlarge` 16
-and 32) and its rule's `--memory-limit`, else its size's memory. A piece that
-outgrows its cap is stopped and runs again under a cap half as large again; a
-whole task that does fails, naming `--memory-limit` and `--size`.
+queue. Each lease says the cores it takes, what it **reserves**, and its
+**cap**, the most memory it may use. A piece takes one core, reserves what the
+task was measured to need and is capped half as much again, as a local piece
+is; a whole task takes its `--size`'s cores (`serverless` 2 cores and 2 GiB,
+`small` 2 and 4, `medium` 4 and 8, `large` 8 and 16, `xlarge` 16 and 32) and
+reserves its cap, its rule's `--memory-limit`, else its size's memory. A rack
+books what each lease reserves, so it holds as many pieces as a local run
+would, and lets each grow to its cap; should its host run short of memory, it
+stops the newest piece, which runs again reserving what it reached, as a local
+run's guard does. A piece that outgrows its cap is stopped and runs again under
+a cap half as large again; a whole task that does fails, naming
+`--memory-limit` and `--size`.
 A task's first run, which nothing has measured, books each piece at the cap
 of e3's estimate, as a local run reserves it, so it is as wide as a later run,
 and no piece runs first to measure the rest. `--memory-limit` is a ceiling on
@@ -868,8 +872,9 @@ Rack: workshop (56 cores, 262 GB, 1 GPU, e3 1.0.108, environments for x86_64-man
   [RACK] train_model → workshop (cap 16 GB)
   [RACK] embed_rows waiting: needs 16 GB, workshop has 9 GB free
   [RACK] score_rows outgrew its 3 GB cap on workshop: runs again under 4.5 GB
+  [RACK] score_rows stopped on workshop at 2.6 GB, its host short of memory: runs again reserving 2.6 GB
   [LOCAL] fit_curves (environment:native-package:fastfit)
-Rack summary: 1 task and 12 units on workshop · 1 waited for capacity (longest 38 s) · 1 ran again (cap) · 0 transfers retried · 1 ran locally
+Rack summary: 1 task and 12 units on workshop · 1 waited for capacity (longest 38 s) · 1 ran again · 0 transfers retried · 1 ran locally
 ```
 
 For a task that declares an environment, this machine installs the

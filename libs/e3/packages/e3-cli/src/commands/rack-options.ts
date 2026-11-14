@@ -53,6 +53,9 @@ export async function openRack(options: OpenRackRunnerOptions): Promise<RackRunn
  *   for a unit its rack stopped at its cap, and `[RACK] train failed:
  *   memory-limit-exceeded (cap 16 GB); raise --memory-limit or --size` for a
  *   whole task, which e3 does not run again;
+ * - `[RACK] score stopped on rack-a at 2 GB, its host short of memory: runs
+ *   again reserving 2 GB` for a unit its rack stopped to keep its host from
+ *   running out;
  * - `[RACK] train input transfer retried (2 of 5): connection reset`;
  * - `[RACK] train waiting: needs 4 GB, rack-a has 1 GB free` for work queued
  *   with no rack having room for it, a task's or a unit's alike, once;
@@ -72,6 +75,9 @@ export function rackPlacementLine(event: RackPlacementEvent): string | undefined
   if (event.kind === 'retried') return `  [RACK] ${event.taskName} ${event.retry.transfer} transfer retried (${event.retry.attempt} of ${event.retry.of}): ${event.retry.cause}`;
   if (event.kind === 'waiting') {
     return `  [RACK] ${event.taskName} waiting: needs ${formatSize(event.needs.memoryBytes)}, ${event.rackLabel} has ${event.free === undefined ? 'no free slot' : `${formatSize(event.free.memoryBytes)} free`}`;
+  }
+  if (event.kind === 'stopped') {
+    return `  [RACK] ${event.taskName} stopped on ${event.rackLabel} at ${formatSize(event.peakBytes)}, its host short of memory: runs again reserving ${formatSize(event.againBytes)}`;
   }
   if (event.kind === 'outgrew') {
     return event.againBytes !== undefined

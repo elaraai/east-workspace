@@ -116,7 +116,9 @@ it('runs a split of more than a hundred pieces wholly on a rack: its units queue
   assert(firstCaps.length > 100, `the split has more than a hundred units to place: ${firstCaps.length}`);
   assert(claimed().every((event) => event.role === 'unit' && event.rackLabel === 'test rack'));
   const estimated = firstCaps[0]!;
-  assert(estimated >= unitCap(64 * MiB) && estimated < GiB, `the first unit books the cap of the estimate, the runner's own memory and what it holds: ${estimated}`);
+  // Where the run's budget has no guard, e3-core runs one unit first to measure, and it, expecting nothing, books its size's memory.
+  if (together) assert(estimated >= unitCap(64 * MiB) && estimated < GiB, `the first unit books the cap of the estimate, the runner's own memory and what it holds: ${estimated}`);
+  else assert.equal(estimated, 16 * GiB, 'a unit run first to measure, expecting nothing, books its size\'s memory');
   assert(firstCaps.every((cap) => cap === estimated || cap === unitCap(100 * MiB)), 'a unit books the estimate\'s cap, or once measured the cap of its peak');
   if (together) assert(claimedAtFirstEnd >= 8, `the first run held ${claimedAtFirstEnd} units before its first had ended: it measured none first`);
 
@@ -136,7 +138,7 @@ it('runs a split of more than a hundred pieces wholly on a rack: its units queue
   assert(agent.bookedMost.cores <= 8 && agent.bookedMost.memoryBytes <= 16 * GiB, `the rack booked ${agent.bookedMost.cores} cores and ${agent.bookedMost.memoryBytes} bytes at most`);
   assert.equal(budget.peak, 0, 'no unit ran on this machine');
   assert(placements.every((event) => event.where === 'rack'));
-  assert.match(describeRackSummary(rack.takeSummary())!, /^Rack summary: \d+ units on test rack · \d+ waited for capacity( \(longest \d+ s\))? · 0 ran again \(cap\) · 0 transfers retried · 0 ran locally$/);
+  assert.match(describeRackSummary(rack.takeSummary())!, /^Rack summary: \d+ units on test rack · \d+ waited for capacity( \(longest \d+ s\))? · 0 ran again · 0 transfers retried · 0 ran locally$/);
   await agent.stop();
 
   // A local run of the same task over the same rows writes the same output.

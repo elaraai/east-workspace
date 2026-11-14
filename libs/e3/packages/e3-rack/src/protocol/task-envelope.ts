@@ -37,9 +37,16 @@ export type RackLeaseClosure =
   | { readonly object: string; readonly count: number };
 
 /**
- * What a lease's work asks of a rack, and what the rack books for it while it
- * runs: its cores, and its cap, which is the most memory it may use. A rack
- * that books the cap of everything it holds never books more than it has.
+ * What a lease's work asks of a rack: its cores, its cap (the most memory it
+ * may use) and what it reserves (the memory it is expected to need), as a
+ * local run's unit reserves an estimate and is stopped past a cap.
+ *
+ * A rack books each lease's reservation, so it holds as much work as a local
+ * run of the same memory would, and lets the work's VM grow to its cap. It
+ * watches what its host uses: past its memory it stops the newest work it
+ * holds (`requeued-pressure`), which e3 leases again reserving what it reached,
+ * as the local budget's guard does. A rack that does not watch its host books
+ * the cap instead, and never books more than it has.
  */
 export interface RackLeaseResources {
   /** A unit of a split task, which e3 runs again under a larger cap when it
@@ -49,8 +56,21 @@ export interface RackLeaseResources {
   readonly cores: number;
   /** Its cap, in bytes */
   readonly memoryBytes: number;
+  /** What it reserves, in bytes: at most its cap. Absent, its cap */
+  readonly reserveBytes?: number;
   /** Whether it takes a GPU, whole */
   readonly gpu: boolean;
+}
+
+/**
+ * What a rack books of its memory for a lease's work: its reservation, else
+ * its cap.
+ *
+ * @param needs - What the lease asks
+ * @returns The bytes
+ */
+export function leaseReserve(needs: RackLeaseResources): number {
+  return needs.reserveBytes ?? needs.memoryBytes;
 }
 
 /**
@@ -59,7 +79,8 @@ export interface RackLeaseResources {
  * @param value - The event's `resources`, as its JSON holds them
  * @returns The resources, or undefined for an event that names none: work
  *   from a source that does not size its leases
- * @throws {Error} When it is not a unit's or a task's cores, cap and GPU
+ * @throws {Error} When it is not a unit's or a task's cores, cap and GPU, or
+ *   it reserves more than its cap
  *
  * @example
  * ```ts
@@ -70,13 +91,16 @@ export interface RackLeaseResources {
 export function readRackLeaseResources(value: unknown): RackLeaseResources | undefined {
   if (value === undefined) return undefined;
   if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error('a lease\'s resources are a JSON object');
-  const { kind, cores, memoryBytes, gpu } = value as Record<string, unknown>;
+  const { kind, cores, memoryBytes, reserveBytes, gpu } = value as Record<string, unknown>;
   if (kind !== 'unit' && kind !== 'task') throw new Error('a lease\'s resources are a unit\'s or a task\'s');
   for (const [name, count] of [['cores', cores], ['memoryBytes', memoryBytes]] as const) {
     if (typeof count !== 'number' || !Number.isSafeInteger(count) || count < 1) throw new Error(`a lease's ${name} is a whole number of one or more`);
   }
   if (typeof gpu !== 'boolean') throw new Error('a lease takes a GPU or does not');
-  return { kind, cores: cores as number, memoryBytes: memoryBytes as number, gpu };
+  if (reserveBytes !== undefined && (typeof reserveBytes !== 'number' || !Number.isSafeInteger(reserveBytes) || reserveBytes < 1 || reserveBytes > (memoryBytes as number))) {
+    throw new Error('a lease reserves a whole number of bytes, one or more and at most its cap');
+  }
+  return { kind, cores: cores as number, memoryBytes: memoryBytes as number, ...(reserveBytes !== undefined && { reserveBytes: reserveBytes as number }), gpu };
 }
 
 /**
@@ -84,15 +108,34 @@ export function readRackLeaseResources(value: unknown): RackLeaseResources | und
  *
  * @param needs - What the lease asks
  * @param offer - What the rack's poll may be answered with
- * @returns Whether the cores, the cap and the GPU are all within the offer
+ * @returns Whether the cores, the reservation and the GPU are all within the
+ *   offer
  *
  * @example
  * ```ts
- * leaseFits({ kind: 'unit', cores: 1, memoryBytes: 3 * 1024 ** 3, gpu: false }, { cores: 4, memoryBytes: 8 * 1024 ** 3, gpus: 0 }); // true
+ * leaseFits({ kind: 'unit', cores: 1, memoryBytes: 3 * 1024 ** 3, reserveBytes: 2 * 1024 ** 3, gpu: false }, { cores: 4, memoryBytes: 2 * 1024 ** 3, gpus: 0 }); // true
  * ```
  */
 export function leaseFits(needs: RackLeaseResources, offer: RackResources): boolean {
-  return needs.cores <= offer.cores && needs.memoryBytes <= offer.memoryBytes && (!needs.gpu || offer.gpus >= 1);
+  return needs.cores <= offer.cores && leaseReserve(needs) <= offer.memoryBytes && (!needs.gpu || offer.gpus >= 1);
+}
+
+/**
+ * Whether a rack that has this much in all could hold a lease's work with
+ * nothing else on it: its cores, its GPU, and its cap, since its VM may grow
+ * to it.
+ *
+ * @param needs - What the lease asks
+ * @param all - All the rack has
+ * @returns Whether the rack could ever hold it
+ *
+ * @example
+ * ```ts
+ * leaseFitsRack({ kind: 'unit', cores: 1, memoryBytes: 3 * 1024 ** 3, reserveBytes: 2 * 1024 ** 3, gpu: false }, { cores: 4, memoryBytes: 2 * 1024 ** 3, gpus: 0 }); // false
+ * ```
+ */
+export function leaseFitsRack(needs: RackLeaseResources, all: RackResources): boolean {
+  return needs.cores <= all.cores && needs.memoryBytes <= all.memoryBytes && (!needs.gpu || all.gpus >= 1);
 }
 
 /**
@@ -146,7 +189,7 @@ export interface RackLeaseEvent {
  * | `source-unreachable` | `ms` | the rack |
  * | `guest-crashed` | `detail` | the rack |
  * | `environment-failed` | `detail` | the rack, when it could not compose the lease's environment |
- * | `requeued-pressure` | `peakBytes` | a rack that runs several units in one VM (reserved) |
+ * | `requeued-pressure` | `peakBytes` | a rack that books reservations, when its host ran short and it stopped the newest work it holds |
  * | `task-error` | | the rack: the task's own failure |
  */
 export const RACK_REASON_CODES = ['outgrew-cap', 'memory-limit-exceeded', 'input-transfer-failed', 'output-transfer-failed',

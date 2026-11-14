@@ -13,7 +13,8 @@ export interface RackRunSummary {
   readonly waited: number;
   /** The longest any of them waited for a rack to claim it, in ms */
   readonly longestWaitMs: number;
-  /** The units their rack stopped at their cap, which ran again under a larger one */
+  /** The units their rack stopped, at their cap or for its host's memory,
+   *  which ran again */
   readonly ranAgain: number;
   /** The tries of transfers that failed and were followed by another */
   readonly transfersRetried: number;
@@ -45,6 +46,7 @@ export class RackTally {
     if (event.kind === 'retried') { this.transfersRetried++; return; }
     if (event.kind === 'waiting') { this.waited++; return; }
     if (event.kind === 'outgrew') { if (event.againBytes !== undefined) this.ranAgain++; return; }
+    if (event.kind === 'stopped') { this.ranAgain++; return; }
     if (event.where === 'rack') {
       if (event.waitedMs !== undefined) this.longestWaitMs = Math.max(this.longestWaitMs, event.waitedMs);
       const rack = this.placed.get(event.rackLabel) ?? { tasks: 0, units: 0 };
@@ -73,7 +75,7 @@ const count = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? on
  *
  * @param summary - The run's summary
  * @returns Such as `Rack summary: 100 units on rack-a · 44 waited for capacity
- *   (longest 38 s) · 1 ran again (cap) · 2 transfers retried · 0 ran locally`,
+ *   (longest 38 s) · 1 ran again · 2 transfers retried · 0 ran locally`,
  *   or undefined when no work went to a rack or came back from one
  *
  * @example
@@ -85,6 +87,6 @@ export function describeRackSummary(summary: RackRunSummary): string | undefined
   const placed = summary.placed.map((rack) =>
     `${[rack.tasks > 0 ? count(rack.tasks, 'task') : '', rack.units > 0 ? count(rack.units, 'unit') : ''].filter(Boolean).join(' and ')} on ${rack.rackLabel}`);
   const waited = `${summary.waited} waited for capacity${summary.waited > 0 ? ` (longest ${Math.round(summary.longestWaitMs / 1000)} s)` : ''}`;
-  return `Rack summary: ${[...(placed.length > 0 ? placed : ['nothing ran on a rack']), waited, `${summary.ranAgain} ran again (cap)`,
+  return `Rack summary: ${[...(placed.length > 0 ? placed : ['nothing ran on a rack']), waited, `${summary.ranAgain} ran again`,
     `${count(summary.transfersRetried, 'transfer')} retried`, `${summary.ranLocally} ran locally`].join(' · ')}`;
 }

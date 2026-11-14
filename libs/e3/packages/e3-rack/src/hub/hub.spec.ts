@@ -592,6 +592,32 @@ it('grants a lease to a rack whose offer holds it, lets smaller work pass a larg
   await assert.rejects(session.create({ ...event(['7'.repeat(64)]), resources: { kind: 'unit', cores: 0, memoryBytes: GiB, gpu: false } }), /a lease's cores is a whole number of one or more/);
 });
 
+it('grants leases by what they reserve, not their caps, says what reservations leave free, and holds back a lease whose cap no rack\'s memory holds', async () => {
+  const GiB = 1024 ** 3;
+  const time = Date.now();
+  const f = await fixture({ now: () => time, leaseWindowMs: 40 });
+  const session = await f.session();
+  const agent = await f.agent({ resources: { cores: 4, memoryBytes: 5 * GiB, gpus: 0 } });
+  const rack = async () => (await f.status()).capacity.racks[0]!;
+  // Pieces capped at 3 GiB that reserve 2 GiB: two fit 5 GiB by what they reserve, where their caps would fit one.
+  const piece = (name: string, memoryBytes = 3 * GiB) => session.create(event([name.repeat(64)], { kind: 'unit', cores: 1, memoryBytes, reserveBytes: 2 * GiB, gpu: false }));
+  const first = await piece('1'); const second = await piece('2');
+  const a = await agent.claim(); const b = await agent.claim(); assert(a && b, 'both are granted');
+  assert.deepEqual([a.leaseId, b.leaseId], [first.leaseId, second.leaseId]);
+  assert.deepEqual(agent.bookedFor(first.leaseId), { kind: 'unit', cores: 1, memoryBytes: 3 * GiB, reserveBytes: 2 * GiB, gpu: false });
+  assert.deepEqual((await rack()).free, some({ cores: 2n, memoryBytes: BigInt(GiB), gpus: 0n }), 'what this hub\'s leases reserve is taken from all the rack has');
+  // 1 GiB free: the next is not granted, and the idle poll says it waits for what it reserves.
+  await piece('3');
+  assert.equal(await agent.claim(), null);
+  assert.deepEqual(agent.waitingFor, { cores: 1, memoryBytes: 2 * GiB, gpus: 0, ms: 0 });
+  await agent.complete(a, { taskName: 'task', status: 'failed' }); await agent.complete(b, { taskName: 'task', status: 'failed' });
+  assert.notEqual(await agent.claim(), null);
+  // A lease that reserves what the rack has, but could grow past all of it, holds no line there.
+  await piece('4', 6 * GiB);
+  assert.equal(await agent.claim(), null);
+  assert.equal(agent.waitingFor, undefined, 'no rack it could ever be granted to waits for it');
+});
+
 it('leases work that names an environment only to a rack that composes environments for a platform its session keeps the layers for, and serves it the manifest built with the lease\'s own e3 release', async () => {
   const f = await fixture({ leaseWindowMs: 40 });
   const [release, platform] = ['9.9.9', 'x86_64-manylinux_2_28'];

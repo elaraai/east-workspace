@@ -915,8 +915,9 @@ Each wire changed under this rule, with the kind it is.
   answers it in JSON before any credential. Two structs gain one String each,
   `RackLeaseRequestType`'s `offer` and `RackHeartbeatRequestType`'s `report`,
   whose text is JSON read for the fields a build knows, as a lease's event and
-  result already are (a result gains `reason` and `retries` there, and no type
-  changes for it): what grows from here on is JSON, and the structs keep their
+  result already are (a result gains `reason` and `retries` there, and a
+  lease's `resources` `reserveBytes`, what a rack books for it, at most its
+  cap; no type changes for either): what grows from here on is JSON, and the structs keep their
   forms. The hub's status (`HubStatusType`) gains `outcomes`, and its capacity
   snapshot's racks (`CapacitySnapshotType`) `features`, `target` and `problem`.
   An agent and a source of other protocols refuse each other by name (`426

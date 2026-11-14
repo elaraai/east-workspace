@@ -21,11 +21,12 @@ miss, eligible plain task, map and merge bodies can execute on the rack; input
 closures and every output object transfer by hash. The session verifies the
 whole output graph before success. Placement never changes task/cache hashes.
 Local bodies and fallback share the original cores/memory budget; rack bodies
-use remote capacity: each lease asks its cores and its cap (a split task's
-piece one core and half as much again as it was measured to need; a task its
-size's cores, and its `--memory-limit`, else its size's memory), a rack is
-given only what its free resources hold, and a run is as much wider as the
-racks have cores. `e3 rack list` shows each rack's resources and what is free. A run prints `[RACK] <task> → <rack>` when a rack claims a
+use remote capacity: each lease asks its cores, what it reserves and its cap
+(a split task's piece one core, reserving what it was measured to need, capped
+half as much again; a task its size's cores, reserving its cap, its
+`--memory-limit`, else its size's memory), a rack is given only what its free
+resources hold by what each lease reserves, and only work whose cap all its
+memory holds, and a run is as much wider as the racks have cores. `e3 rack list` shows each rack's resources and what is free. A run prints `[RACK] <task> → <rack>` when a rack claims a
 task, `[RACK] <task> input transfer retried (2 of 5): <cause>` for a transfer
 given another try, `[LOCAL] <task> (<reason>)` for a rack's work this machine
 runs after all (`spill`, `no-rack-for-tier:<tier>`, or the rack's reason, such
@@ -36,13 +37,16 @@ rule's limit or every rack's memory),
 no rack having room for it,
 `[RACK] <task> outgrew its 3 GB cap on <rack>: runs again under 4.5 GB` for a
 split task's piece its rack stopped at its cap (a whole task fails instead:
-`memory-limit-exceeded (cap 16 GB); raise --memory-limit or --size`), and ends
+`memory-limit-exceeded (cap 16 GB); raise --memory-limit or --size`),
+`[RACK] <task> stopped on <rack> at 2.6 GB, its host short of memory: runs
+again reserving 2.6 GB` for a piece a rack stopped to keep its host from
+running out, as a local run's guard stops one, and ends
 with `Rack summary: 1 task and 12 units on <rack> · 0 waited for capacity · 0
-ran again (cap) · 1 transfer retried · 0 ran locally`. On a rack that admits by
-its resources a split task's pieces are queued together and none can run the
-rack out of memory; a first run books each piece at the cap of e3's estimate,
-as a local run reserves it, so it is as wide as a later run and measures no
-piece first. Calls, mutations and intake stay local. Stock runner
+ran again · 1 transfer retried · 0 ran locally`. On a rack that admits by
+its resources a split task's pieces are queued together, booked by what each
+reserves, and the rack's guard keeps them from running its host out of memory;
+a first run's piece reserves e3's estimate, as a local run does, so it is as
+wide as a later run and measures no piece first. Calls, mutations and intake stay local. Stock runner
 configurations qualify, and so does a task that declares a `python` or `node`
 environment, with the project platform packages its runner names; commands, a
 platform package with no environment (`non-stock-platform:<name>`) and

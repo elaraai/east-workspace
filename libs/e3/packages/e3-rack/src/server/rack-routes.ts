@@ -97,7 +97,7 @@ import type { RunnerRun } from '../runner-event.js';
 import { MAX_LEASE_TARGETS, type RackLeaseStore, type RackLeaseRecord } from '../lease/lease-store.js';
 import type { RackStorageBridge } from './storage-bridge.js';
 import { envLayerBlobKey, type EnvIndexStore, type EnvLayerManifest } from './env-publication.js';
-import { isFunctionLease, isLeaseEventV2, leaseFits, leaseRun, readRackLeaseResources, readRackReason, readRackRetries, type RackLeaseResources, type RackLeaseResult } from '../protocol/task-envelope.js';
+import { isFunctionLease, isLeaseEventV2, leaseFits, leaseReserve, leaseRun, readRackLeaseResources, readRackReason, readRackRetries, type RackLeaseResources, type RackLeaseResult } from '../protocol/task-envelope.js';
 import { DEFAULT_HEALTHY_WINDOW_MS, DEFAULT_VISIBILITY_MS, heartbeatCapacity, leaseRefusal } from './dispatch.js';
 import { backendLeaseCoordinator, type LeaseCoordinator } from '../lease/coordinator.js';
 import {
@@ -138,10 +138,11 @@ export interface RackRouteOptions {
   canClaim?: (rack: RackRegistration, lease: RackLeaseRecord, offer: RackOffer) => boolean | Promise<boolean>;
   /**
    * Whether a rack could hold a lease's work with nothing else on it: its
-   * whole resources hold what the lease asks. A lease that has waited
-   * {@link RACK_PASS_OVER_MS} holds the line at a rack that could, and is
-   * passed over for good at one that never could. By default every rack
-   * could.
+   * whole resources hold the lease's cores, GPU and cap. A rack that never
+   * could is never granted the lease, though its offer holds what the lease
+   * reserves (the work may grow to its cap there), and the lease holds no line
+   * at it; one that has waited {@link RACK_PASS_OVER_MS} holds the line at a
+   * rack that could. By default every rack could.
    */
   canEverHold?: (rack: RackRegistration, needs: RackLeaseResources) => boolean;
   /** How many leases of the queue a poll looks through for one its rack's
@@ -531,10 +532,12 @@ export function createRackRoutes(
           // granted to this rack until the rack has room for it, as a unit
           // that does not fit the local budget holds the line there.
           const needs = leaseNeeds(candidate);
+          // A lease whose cap the rack's whole memory never holds is not its:
+          // granted by what it reserves, its work could grow past the host.
+          if (needs !== undefined && options?.canEverHold !== undefined && !options.canEverHold(currentRack, needs)) continue;
           if (needs !== undefined && !leaseFits(needs, offer)) {
-            if (options?.canEverHold !== undefined && !options.canEverHold(currentRack, needs)) continue;
             const ms = Math.max(0, now() - candidate.createdAtMs);
-            waiting ??= { cores: needs.cores, memoryBytes: needs.memoryBytes, gpus: needs.gpu ? 1 : 0, ms };
+            waiting ??= { cores: needs.cores, memoryBytes: leaseReserve(needs), gpus: needs.gpu ? 1 : 0, ms };
             if (ms >= RACK_PASS_OVER_MS) break;
             continue;
           }

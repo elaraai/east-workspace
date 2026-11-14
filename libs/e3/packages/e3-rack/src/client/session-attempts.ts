@@ -9,7 +9,7 @@ import type { ExecutionOwner } from '@elaraai/e3-types';
 import type { RackLeaseRecord } from '../lease/lease-store.js';
 import { closureHashes } from '../lease/closure.js';
 import { unitCap } from '@elaraai/e3-core';
-import { isLeaseEventV2, leaseInputs, leaseRecordsUnit, readRackLeaseResources, type RackLeaseResult } from '../protocol/task-envelope.js';
+import { isLeaseEventV2, leaseInputs, leaseRecordsUnit, leaseReserve, readRackLeaseResources, type RackLeaseResult } from '../protocol/task-envelope.js';
 import type { RackAttemptStore } from '../server/rack-routes.js';
 
 /**
@@ -63,27 +63,39 @@ export function sessionAttempts(storage: StorageBackend, repo: string, owner: ()
       const current = await statusOf(lease);
       if (current !== null && current.type !== 'running') return;
       await storage.logs.flush(repo, lease.taskHash, lease.inputsHash, attempt.ids.executionId);
-      if (result.reason?.code === 'outgrew-cap') {
-        // The rack stopped the work at its cap. A unit of a split task runs
-        // again under a larger one, so its attempt was stopped, not failed:
-        // it is no failure in the task's history. A whole task is not run
-        // again, and its cap is its failure, as the local guard's stop is.
-        const mib = (bytes: number) => `${Math.round(bytes / 1024 ** 2)} MiB`;
-        const cap = result.reason.capBytes ?? 0;
-        let unit = false;
-        try { unit = readRackLeaseResources(lease.event.resources)?.kind === 'unit'; } catch { /* a lease that names no resources is a task's */ }
-        if (!unit) {
-          await attempt.recordStopped('failed', `memory-limit-exceeded: the task outgrew its cap of ${mib(cap)} on its rack; raise --memory-limit or --size`, result.peakBytes);
-          return;
-        }
-        const cause = `the runner outgrew its cap of ${mib(cap)} on its rack: it runs again under a cap of ${mib(unitCap(cap))}`;
+      const mib = (bytes: number) => `${Math.round(bytes / 1024 ** 2)} MiB`;
+      /** Records the attempt stopped, not failed: its unit runs again. */
+      const interrupted = async (code: string, cause: string): Promise<void> => {
         await storage.logs.append(repo, lease.taskHash, lease.inputsHash, attempt.ids.executionId, 'stderr', `e3: ${cause}\n`);
         await storage.logs.flush(repo, lease.taskHash, lease.inputsHash, attempt.ids.executionId);
         await storage.refs.executionWrite(repo, lease.taskHash, lease.inputsHash, attempt.ids.executionId, variant('interrupted', {
           executionId: attempt.ids.executionId, inputHashes: attempt.inputHashes,
           startedAt: new Date(attempt.ids.startTime), completedAt: new Date(), pid: 0n, unit: attempt.unit,
-          reason: { kind: variant('host', 'rack.outgrew_cap'), message: cause },
+          reason: { kind: variant('host', code), message: cause },
         }));
+      };
+      let needs: ReturnType<typeof readRackLeaseResources>;
+      try { needs = readRackLeaseResources(lease.event.resources); } catch { needs = undefined; }
+      if (result.reason?.code === 'requeued-pressure' && needs?.kind === 'unit') {
+        // The rack stopped the unit, the newest work it held, to keep its host
+        // from running out: as the local budget's guard stops one, it runs
+        // again reserving what it reached, and is no failure in the task's
+        // history.
+        const reached = Math.max(result.reason.peakBytes ?? 0, leaseReserve(needs));
+        await interrupted('rack.memory_pressure', `its rack stopped the runner at ${mib(result.reason.peakBytes ?? reached)}, its host short of memory: it runs again reserving ${mib(reached)}`);
+        return;
+      }
+      if (result.reason?.code === 'outgrew-cap') {
+        // The rack stopped the work at its cap. A unit of a split task runs
+        // again under a larger one, so its attempt was stopped, not failed:
+        // it is no failure in the task's history. A whole task is not run
+        // again, and its cap is its failure, as the local guard's stop is.
+        const cap = result.reason.capBytes ?? 0;
+        if (needs?.kind !== 'unit') {
+          await attempt.recordStopped('failed', `memory-limit-exceeded: the task outgrew its cap of ${mib(cap)} on its rack; raise --memory-limit or --size`, result.peakBytes);
+          return;
+        }
+        await interrupted('rack.outgrew_cap', `the runner outgrew its cap of ${mib(cap)} on its rack: it runs again under a cap of ${mib(unitCap(cap))}`);
         return;
       }
       if (result.cancelled) await attempt.recordStopped('cancelled', result.error ?? 'Rack work was cancelled');

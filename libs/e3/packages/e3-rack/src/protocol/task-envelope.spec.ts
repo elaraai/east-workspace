@@ -5,7 +5,7 @@
 
 import { it } from 'node:test';
 import assert from 'node:assert/strict';
-import { RACK_REASON_CODES, describeRackReason, leaseFits, readRackLeaseResources, readRackReason, readRackRetries } from './task-envelope.js';
+import { RACK_REASON_CODES, describeRackReason, leaseFits, leaseFitsRack, leaseReserve, readRackLeaseResources, readRackReason, readRackRetries } from './task-envelope.js';
 import { readRackWaiting } from './rack-json.js';
 
 it('reads a result\'s reason for the fields it knows, keeps a code of a later release, and refuses what is not one', () => {
@@ -48,6 +48,18 @@ it('reads what a lease asks of a rack, and whether a rack\'s offer holds it', ()
     assert.throws(() => readRackLeaseResources(bad), /a lease/, JSON.stringify(bad));
   }
   assert.equal(leaseFits(unit, { cores: 1, memoryBytes: 3 * 1024 ** 3, gpus: 0 }), true, 'exactly what is offered fits');
+  // A lease that reserves less than its cap fits an offer of its reservation, and a rack only whose whole memory holds its cap.
+  const reserving = { ...unit, reserveBytes: 2 * 1024 ** 3 };
+  assert.equal(leaseFits(reserving, { cores: 1, memoryBytes: 2 * 1024 ** 3, gpus: 0 }), true, 'an offer of its reservation');
+  assert.equal(leaseFits(reserving, { cores: 1, memoryBytes: 2 * 1024 ** 3 - 1, gpus: 0 }), false, 'a byte short of its reservation');
+  assert.equal(leaseFitsRack(reserving, { cores: 1, memoryBytes: 2 * 1024 ** 3, gpus: 0 }), false, 'a rack whose memory is short of its cap');
+  assert.equal(leaseFitsRack(reserving, { cores: 1, memoryBytes: 3 * 1024 ** 3, gpus: 0 }), true);
+  assert.equal(leaseReserve(reserving), 2 * 1024 ** 3);
+  assert.equal(leaseReserve(unit), 3 * 1024 ** 3, 'a lease that reserves nothing less reserves its cap');
+  assert.deepEqual(readRackLeaseResources({ ...reserving, later: true }), reserving);
+  for (const bad of [0, 1.5, -1, 3 * 1024 ** 3 + 1, '1']) {
+    assert.throws(() => readRackLeaseResources({ ...unit, reserveBytes: bad }), /a lease reserves a whole number of bytes/, String(bad));
+  }
   assert.equal(leaseFits(unit, { cores: 0, memoryBytes: 2 ** 40, gpus: 4 }), false, 'no core');
   assert.equal(leaseFits(unit, { cores: 8, memoryBytes: 3 * 1024 ** 3 - 1, gpus: 0 }), false, 'a byte short of its cap');
   assert.equal(leaseFits({ ...unit, gpu: true }, { cores: 8, memoryBytes: 2 ** 40, gpus: 0 }), false, 'no GPU');

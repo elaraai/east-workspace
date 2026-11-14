@@ -360,8 +360,9 @@ Rack: workshop (56 cores, 262 GB, 1 GPU, e3 1.0.108)
   [RACK] train_model input transfer retried (2 of 5): connection reset
   [RACK] embed_rows waiting: needs 16 GB, workshop has 9 GB free
   [RACK] score_rows outgrew its 3 GB cap on workshop: runs again under 4.5 GB
+  [RACK] score_rows stopped on workshop at 2.6 GB, its host short of memory: runs again reserving 2.6 GB
   [LOCAL] score_rows (input-transfer-failed: connection reset)
-Rack summary: 1 task and 12 units on workshop · 1 waited for capacity (longest 38 s) · 1 ran again (cap) · 1 transfer retried · 1 ran locally
+Rack summary: 1 task and 12 units on workshop · 1 waited for capacity (longest 38 s) · 1 ran again · 1 transfer retried · 1 ran locally
 ```
 
 | `reason.code` | Carries | Who sets it | The work |
@@ -373,26 +374,29 @@ Rack summary: 1 task and 12 units on workshop · 1 waited for capacity (longest 
 | `task-error` | | The rack: the task's own failure. | Its failure is its verdict, unless the policy retries failures locally. |
 | `outgrew-cap` | `capBytes`, `peakBytes` | The rack, when the cap stopped the work. | A unit of a split task is leased again under a cap half as large again, and its stopped attempt is no failure in the task's history. A whole task fails, `memory-limit-exceeded (cap 16 GB); raise --memory-limit or --size`, and is not run again unless the policy retries failures locally. |
 | `memory-limit-exceeded` | `needsBytes`, `limitBytes` | The launching machine. | A unit whose cap would pass its rule's `--memory-limit`, or every rack's memory, runs locally, under the local budget. |
-| `requeued-pressure` | `peakBytes` | A rack that runs several units in one VM. | Reserved. |
+| `requeued-pressure` | `peakBytes` | A rack that books what its leases reserve, when its host ran short of memory and it stopped the newest work it held. | A unit of a split task is leased again reserving what it reached, at least what it reserved; the dataflow raises `requeued` with reason `budget`, as for a unit a local run's guard stopped, and its stopped attempt is no failure in the task's history. A whole task reserves its cap, so a rack has no cause to stop it for this; one it does runs locally. |
 
 A result also lists the tries of its transfers that failed and were followed
 by another (`retries`), which the run prints when the lease ends. A code a
 build does not know is a rack's fault it cannot name, and the work runs
 locally. `e3 rack status` lists how the hub's last twenty leases ended, each
 with its reason. In code, `RackPlacementEvent` carries the same (`kind`
-`placed` or `retried`, and a local placement's `detail`), and
+`placed`, `waiting`, `retried`, `outgrew` or `stopped`, and a local
+placement's `detail`), and
 `rack.takeSummary()` with `describeRackSummary` the line.
 
 A rack that admits work by its resources reports all it has and what is free,
 and the hub's fleet snapshot carries both for each such rack: what is free is
 the less of what the rack last reported and what the hub's own leases leave of
 all it has. The launching machine reads the snapshot for three things. The
-racks are **full** when no compatible rack's free resources hold the lease,
-less the work already queued: with spill on and a free local core the work
+racks are **full** when no compatible rack's free resources hold what the
+lease reserves, less the work already queued: with spill on and a free local core the work
 then runs locally (`spill`), and otherwise it is queued and the run says once
 that it waits. Work **no rack could ever hold**, with nothing else on it, is
 not queued: it runs locally (`memory-limit-exceeded: needs 32 GB, limit 16
-GB`, or `no-rack-holds:gpu`). And a run is as much **wider** as the compatible
+GB`, or `no-rack-holds:gpu`). A rack holds work only when all its memory holds
+the work's cap, whatever it reserves, since the work may grow to its cap
+there. And a run is as much **wider** as the compatible
 racks have cores (`rackSlots`), so a split task's pieces are queued together.
 `e3 rack list` shows each rack's resources and features:
 
@@ -406,27 +410,32 @@ shows `-`, and its work is counted in slots.
 
 ### A split task on a rack
 
-A rack that admits by its resources caps each unit at what its lease asks, and
-stops one that outgrows it. That is what a local run's guard does, so a split
-task then runs on a rack as it does locally:
+A rack that admits by its resources books each unit at what its lease
+reserves, lets it grow to its cap, and stops one that outgrows its cap or, when
+its host runs short of memory, the newest it holds. That is what a local run's
+budget and guard do, so a split task then runs on a rack as it does locally:
 
-- **Every unit of a stage is queued together**, each asking the cap of what
-  the task was last measured to need, where a run without such a rack runs one
-  unit alone first to measure. The run's own budget must be guarded too
+- **Every unit of a stage is queued together**, each reserving what the task
+  was last measured to need and capped half as much again, as a local unit is,
+  so a rack holds as many as a local run of its size would. The run's own budget must be guarded too
   (Linux and macOS), since a unit may yet run locally.
 - **A unit its cap stopped runs again** on its next lease, under a cap half as
   large again, as a local unit its cgroup's cap killed does; the dataflow
   raises `requeued` with reason `cap`, and prints its `[REQUEUE]` line.
-- **A task's first run** books each piece at the cap of e3's estimate (the
-  runner's own memory and what the largest piece holds of its rows), which is
-  what a local run reserves: so a first run is as wide as a later one, and no
-  piece runs first to measure the rest. A piece the estimate is low for
+- **A unit its rack stopped for its host's memory runs again** on its next
+  lease, reserving what it reached, at least what it reserved, as a unit a
+  local run's guard stopped does; the dataflow raises `requeued` with reason
+  `budget`.
+- **A task's first run** reserves for each piece e3's estimate (the runner's
+  own memory and what the largest piece holds of its rows), as a local run
+  does, capped half as much again: so a first run is as wide as a later one,
+  and no piece runs first to measure the rest. A piece the estimate is low for
   outgrows its cap and runs again under a larger one. Only a piece that
   expects nothing at all books its rule's `--memory-limit`, else its size's
   memory.
 
-So what a rack holds never passes what it has, whatever its units do: e3 work
-cannot run a rack out of memory.
+So a rack is filled as a local run fills its machine, and its guard, not the
+sum of its caps, keeps e3 work from running its host out of memory.
 
 Ctrl-C in `e3 dataflow run` requests cancellation of that run, including its
 delegated work. A current companion agent keeps an outbound cancellation
@@ -633,17 +642,24 @@ environment to it and installs nothing. An environment it cannot compose ends
 its lease with the reason `environment-failed`.
 
 A lease says what it asks of a rack, in its event's `resources`: `{ "kind":
-"unit", "cores": 1, "memoryBytes": 3328599654, "gpu": false }`. `memoryBytes`
-is its **cap**: the most memory the work may use, and what the rack books for
-it, so a rack that books the cap of everything it holds never books more than
-it has. A unit of a split task asks one core and the cap e3 gives a local unit
-that expects the same peak (half as much again); a whole task asks its size's
-cores, and its rule's `--memory-limit`, else its size's memory. A unit whose
+"unit", "cores": 1, "memoryBytes": 3328599654, "reserveBytes": 2219066436,
+"gpu": false }`. `memoryBytes` is its **cap**: the most memory the work may
+use. `reserveBytes`, at most its cap, is what the rack books for it (absent,
+its cap). A unit of a split task asks one core, reserves what it is expected
+to need and is capped as e3 caps a local unit that expects the same (half as
+much again); a whole task asks its size's cores and reserves its cap, its
+rule's `--memory-limit`, else its size's memory. A rack that books
+reservations must do what a local run's budget does with them: let each
+lease's work grow to its cap, watch its host's memory, and when the host runs
+short stop the newest work it holds, nothing it wrote sent, ending its lease
+`requeued-pressure` with the peak it reached. Memory a VM cannot give back (a
+GPU's, which the device pins) is booked at its cap. A unit whose
 cap would pass its rule's limit is not queued, and runs locally:
 `[LOCAL] score_rows (memory-limit-exceeded: needs 3 GB, limit 2 GB)`.
 
 A poll is answered with the first lease in the queue, in its fair order, that
-the poll's `offer` holds (`leaseFits`). One the offer does not hold is passed
+the poll's `offer` holds (`leaseFits`: its cores, its GPU and what it
+reserves), and whose cap all the rack's memory holds (`leaseFitsRack`). One the offer does not hold is passed
 over, by smaller work behind it, for ten seconds (`RACK_PASS_OVER_MS`), and
 then holds the line: nothing behind it is granted to that rack until the rack
 has room for it. A poll answered with no work (`204`) while such a lease waits

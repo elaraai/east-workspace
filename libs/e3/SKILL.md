@@ -85,7 +85,7 @@ What do you need?
 │   └─ Bundle and export         → e3.package(name, version, ...items); e3.export(pkg, zipPath)
 ├─ Operate it from the shell     → the e3 CLI (reference/cli.md): deploy, run, read and write datasets, mutate records, gc
 ├─ Delegate local task bodies to a rack → e3 rack enroll + policy; dataflow run --rack, watch --start --rack (reference/rack.md)
-│   ├─ A split task's pieces fill the rack → each piece leased at its memory cap; --memory-limit bounds it, --gpu asks for the GPU
+│   ├─ A split task's pieces fill the rack → booked by what each reserves, capped half as much again; --memory-limit bounds the cap, --gpu asks for the GPU
 │   └─ A task with its own python/node environment → nothing new in the package: its layers are built for the rack's platform
 └─ Drive it from code
     ├─ A server, over HTTP       → @elaraai/e3-api-client (reference/from-code.md)
