@@ -901,3 +901,44 @@ Each wire changed under this rule, with the kind it is.
   it was that commit's own, which a record has left once anything is written
   since. A backend implements nothing for it, since a ref store keeps a ref's
   version vector whole.
+- **e3-rack's replies lose e3's response type: rack protocol 3 and hub control
+  protocol 3 (#1634)** — neither package-borne nor stored: what a rack's agent
+  and its source exchange (`/api/rack/*`), and what a hub and the e3 processes
+  of its machine exchange over its sockets. Every reply was e3-types'
+  `ResponseType(T)`, whose type holds the API's `ErrorType`, which gains cases
+  with releases; a rack serves the hubs of several releases, a hub the e3 of
+  several projects, and beast2 reads a blob only as the type its header names,
+  so no reply decoded across releases. A success is now the BEAST2 of the
+  route's own type, and a refusal a status and JSON (the machine protocol) or
+  plain text (the sockets). The machine protocol is numbered (`RACK_PROTOCOL`,
+  3) and named in every request's `x-e3-rack-protocol`; `GET /api/rack/hello`
+  answers it in JSON before any credential. Two structs gain one String each,
+  `RackLeaseRequestType`'s `offer` and `RackHeartbeatRequestType`'s `report`,
+  whose text is JSON read for the fields a build knows, as a lease's event and
+  result already are (a result gains `reason` and `retries` there, and no type
+  changes for it): what grows from here on is JSON, and the structs keep their
+  forms. The hub's status (`HubStatusType`) gains `outcomes`, and its capacity
+  snapshot's racks (`CapacitySnapshotType`) `features`, `target` and `problem`.
+  An agent and a source of other protocols refuse each other by name (`426
+  upgrade-required`, and `incompatible` in `e3 rack list`), and an e3 that
+  finds a hub whose hello it cannot read asks it to drain and runs locally:
+  e3, the hub and the rack's agent are released together. No form is stored
+  in these types, so no repository upgrade step ships.
+- **e3-rack's `RackRuleType` gains `memoryLimit` and `gpu` (#1634, #1633)** —
+  stored state, of a local repository's own layout: its rack policy,
+  `rack/policy.beast2`, which the rack package reads and writes. A rule gains
+  `memoryLimit`, after `allowHostCoupled` — an `Option<Integer>` of bytes, the
+  most one piece of the rule's work may be capped at on a rack — and `gpu`, a
+  Boolean. The policy's header names the whole policy type, so one an earlier
+  release stored does not decode under the new type, and the release ships the
+  first step of the local backend's own (`LOCAL_REPOSITORY_UPGRADES`, e3-core's
+  `storage/local/rack-policy-limits.ts`): `rack-policy-limits` rewrites the
+  file when the repository is opened, every rule as it was, with no memory
+  limit and no GPU. A repository with no policy file has the defaults and is
+  left without one; a file in neither form is left as it is, and a read
+  refuses it as before, naming its reset. The step's two forms are frozen in
+  e3-core, which the rack package depends on and not the other way: the form
+  it writes is held to `RackPolicyType` by the rack package's own test, over a
+  policy release 1.0.107 stored. An earlier release refuses a repository that
+  has had the step, naming this release, as it refuses any step it does not
+  know.
