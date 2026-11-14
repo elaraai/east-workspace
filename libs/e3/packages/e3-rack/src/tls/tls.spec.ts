@@ -7,15 +7,16 @@ import { afterEach, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { X509Certificate, createPrivateKey } from 'node:crypto';
 import { once } from 'node:events';
-import { createServer, type Server } from 'node:https';
+import { createServer, request, type Server } from 'node:https';
+import { RACK_AGENT_IDLE_MS, RACK_LISTENER_IDLE_MS } from '../protocol/rack-json.js';
 import { certificateSha256, createHubCertificate, parseCertificateSha256, pinnedFetch, pinnedHttpsAgent } from './tls.js';
 
 const cleanup: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
 
-async function serve(certificate = createHubCertificate(), port = 0) {
+async function serve(certificate = createHubCertificate(), port = 0, keepAliveTimeout?: number) {
   const requests: string[] = [];
-  const server: Server = createServer({ cert: certificate.certificatePem, key: certificate.privateKeyPem }, (req, res) => {
+  const server: Server = createServer({ cert: certificate.certificatePem, key: certificate.privateKeyPem, ...(keepAliveTimeout === undefined ? {} : { keepAliveTimeout }) }, (req, res) => {
     const chunks: Buffer[] = [];
     req.on('data', (chunk: Buffer) => chunks.push(chunk));
     req.on('end', () => {
@@ -97,4 +98,24 @@ it('refuses an origin it trusted once that origin presents another certificate',
   const replaced = await serve(createHubCertificate(), first.port);
   await assert.rejects(fetch(`${replaced.origin}/b`, { method: 'POST', body: 'token' }), /other than the pinned SHA-256/);
   assert.deepEqual(replaced.requests, [], 'the agent the first certificate made refuses the second');
+});
+
+it('closes a connection it is not using sooner than its origin does, by what the origin says it keeps one for', async () => {
+  // A hub's listener of this release, and one that keeps Node's five seconds.
+  for (const keeps of [RACK_LISTENER_IDLE_MS, 5_000]) {
+    const hub = await serve(createHubCertificate(), 0, keeps);
+    const agent = await pinnedHttpsAgent(hub.origin, hub.pin);
+    cleanup.push(async () => { agent.destroy(); });
+    assert.equal(agent.options.timeout, RACK_AGENT_IDLE_MS);
+    const said = await new Promise<string | undefined>((resolve, reject) => {
+      request(`${hub.origin}/a`, { agent }, (res) => { res.resume(); res.once('end', () => resolve(res.headers['keep-alive']?.toString())); }).once('error', reject).end();
+    });
+    assert.equal(said, `timeout=${keeps / 1000}`, 'the origin says how long it keeps an idle connection');
+    // The connection goes back to the agent once its response has ended.
+    await new Promise((resolve) => setImmediate(resolve));
+    const idle = Object.values(agent.freeSockets).flatMap((sockets) => sockets ?? []);
+    assert.equal(idle.length, 1);
+    const closes = idle[0]!.timeout;
+    assert(closes !== undefined && closes > 0 && closes < keeps && closes <= RACK_AGENT_IDLE_MS, `kept ${closes} ms, by an origin that keeps it ${keeps} ms`);
+  }
 });

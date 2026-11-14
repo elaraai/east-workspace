@@ -23,7 +23,7 @@ import type { RackLeaseRecord } from '../lease/lease-store.js';
 import { StoreRackDispatch, bootPendingApproval, bundledE3Version, agentVersionAtLeast, DEFAULT_HEALTHY_WINDOW_MS } from '../server/dispatch.js';
 import { createRackRoutes, type RackLeaseSignal } from '../server/rack-routes.js';
 import { RackRegistrationType, RackSecurityPolicyType } from '../protocol/registration.js';
-import { RACK_PROTOCOL, type RackReport } from '../protocol/rack-json.js';
+import { RACK_LISTENER_IDLE_MS, RACK_PROTOCOL, type RackReport } from '../protocol/rack-json.js';
 import { isLeaseEventV2, leaseInputs, leaseTaskHash, type RackLeaseEvent } from '../protocol/task-envelope.js';
 import { decodeRunnerEvent } from '../runner-event.js';
 import { ApproveRackType, AttachLeaseResultType, CancelLeaseResultType, CreateLeaseResultType, CreateLeaseType, EmptyType, HubConfigType,
@@ -520,8 +520,8 @@ export class RackHub {
         const tls = await loadHubCertificate(this.home);
         pin = certificateSha256(tls.certificatePem);
         created = createAdaptorServer({ fetch: app.fetch, createServer: createHttpsServer,
-          serverOptions: { cert: tls.certificatePem, key: tls.privateKeyPem, requestTimeout: REQUEST_BODY_TIMEOUT_MS } });
-      } else created = createAdaptorServer({ fetch: app.fetch, serverOptions: { requestTimeout: REQUEST_BODY_TIMEOUT_MS } });
+          serverOptions: { cert: tls.certificatePem, key: tls.privateKeyPem, requestTimeout: REQUEST_BODY_TIMEOUT_MS, keepAliveTimeout: RACK_LISTENER_IDLE_MS } });
+      } else created = createAdaptorServer({ fetch: app.fetch, serverOptions: { requestTimeout: REQUEST_BODY_TIMEOUT_MS, keepAliveTimeout: RACK_LISTENER_IDLE_MS } });
       if (!(created instanceof Server) && !(created instanceof HttpsServer)) throw new Error('Rack listener requires HTTP/1');
       const listening = server = created;
       await new Promise<void>((resolve, reject) => {

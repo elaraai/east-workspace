@@ -127,7 +127,21 @@ The storage bridge proxies streams through a live session. Capabilities are
 bound to the repository alias, lease and attempt, restricted to the admitted
 closure or declared outputs, expire after fifteen minutes, and are revoked on
 lease termination or reclaim. A transfer may take the rest of its capability's
-lifetime. Uploads use distinct temporary files per PUT: an old request's cleanup
+lifetime. Every transfer streams through the launching process, so the hub
+serves one rack `limits.transfersAtOnce` (8) at once, counted from the request
+to the last byte of its stream, and answers one more `429 busy` with
+`retryAfterMs` before it reads it. A read honours `Range: bytes=N-` with `206`,
+read by range from the store, so a transfer cut short is taken up from the byte
+it reached; a capability that ended is minted again by the next storage request
+for the same lease and object. A transfer whose rack went away, or whose
+capability ended under it, is not the hub's failure (`410` to a rack still
+there). The listener keeps an idle connection 75 s (Node's default is 5 s) and
+says so in `Keep-Alive`, and an agent closes one idle for 60 s: Node's client
+applies a server's hint only when its own timeout is set, and without it reuses
+a connection the hub has just closed, whose close is still on its way over a
+slow link, which ends as `socket hang up`. Reproduced over a link with 300 ms
+of delay: a request on a connection idle 5.6 to 5.9 s fails, one idle less or
+more does not. Uploads use distinct temporary files per PUT: an old request's cleanup
 cannot remove a successor's acknowledged upload. Acknowledged metadata survives
 session takeover; lease cleanup removes staging without removing committed
 objects. Staging GC collects orphaned files after crashes.

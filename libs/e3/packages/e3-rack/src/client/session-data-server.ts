@@ -92,9 +92,18 @@ export async function startSessionDataServer(options: SessionDataOptions): Promi
     const hash = hashOf(c.req.param('hash'));
     if (!(await storage.objects.touch(repo, [hash]))[0]) return c.body(null, 404);
     const { size } = await storage.objects.stat(repo, hash);
-    const headers = { 'content-type': 'application/octet-stream', 'content-length': String(size) };
-    if (c.req.method === 'HEAD') return new Response(null, { headers });
-    let offset = 0;
+    const whole = { 'content-type': 'application/octet-stream', 'content-length': String(size), 'accept-ranges': 'bytes' };
+    if (c.req.method === 'HEAD') return new Response(null, { headers: whole });
+    // A read may ask for the object from a byte on (`Range: bytes=N-`), the
+    // one form a resumed transfer needs: any other is answered whole.
+    const from = /^bytes=(\d+)-$/.exec(c.req.header('range') ?? '')?.[1];
+    const start = from === undefined ? 0 : Number(from);
+    if (from !== undefined && (!Number.isSafeInteger(start) || start >= size)) {
+      return new Response(null, { status: 416, headers: { 'content-range': `bytes */${size}` } });
+    }
+    const headers = from === undefined ? whole
+      : { ...whole, 'content-length': String(size - start), 'content-range': `bytes ${start}-${size - 1}/${size}` };
+    let offset = start;
     const body = new ReadableStream<Uint8Array>({ async pull(controller) {
       try {
         if (offset >= size) { controller.close(); return; }
@@ -104,7 +113,7 @@ export async function startSessionDataServer(options: SessionDataOptions): Promi
         controller.enqueue(bytes);
       } catch (err) { controller.error(err); }
     } });
-    return new Response(body, { headers });
+    return new Response(body, { status: from === undefined ? 200 : 206, headers });
   });
   app.post('/v1/objects', async (c) => {
     const reader = c.req.raw.body?.getReader();
