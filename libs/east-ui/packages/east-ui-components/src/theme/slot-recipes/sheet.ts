@@ -56,7 +56,10 @@
  *   - Tabs: 28 px — as tall as every control in the toolbar's row
  *     (`toolbar-row.ts`, ruled 23 Oct 2026) — mono 10.5/600/.12em uppercase;
  *     active `inset 0 -2px 0` ink; counts `fg.subtle`; dirty dot 5 px brand;
- *     × 14 px → neg; `+ TAB` 28 px r-sm 1 px `border.strong` mono 9.5/600. A
+ *     × 14 px → neg; `+ TAB` 28 px r-sm 1 px `border.strong` mono 9.5/600. Each
+ *     is a one-line box of the row (`toolbarControlBox`, #1636): its words on
+ *     a line the room's height, so they start a whole number of pixels under
+ *     its top edge. A
  *     tab, `+n` and `+ TAB` reached by the keyboard take a 2 px brand ring
  *     inside themselves — the strip clips its overflow sideways (#860).
  *     Folded into one chip (#1221), the strip is the open view's tab with a
@@ -168,7 +171,8 @@ import { CONFLICT_RING_INSIDE_FOCUS, conflictRingInset } from "../conflict-ring.
 import { coarseHitArea } from "../../style/hit-area.js";
 import { wholeOrNone } from "../../style/whole-or-none.js";
 import { fieldInRingedControl } from "../field-chrome.js";
-import { TOOLBAR_CONTROL_HEIGHT } from "../toolbar-row.js";
+import { oneLineBox } from "../one-line-box.js";
+import { toolbarControlBox } from "../toolbar-row.js";
 import { FOOTER_FIT } from "./builder-footer.js";
 import { schedulePaneBase } from "./schedule-pane.js";
 
@@ -286,7 +290,8 @@ export const sheetSlotRecipe = defineSlotRecipe({
         // height and the button text overflows its 10 px box. Same idiom as the
         // docked strip and the footer (`flexShrink: 0`).
         insertStrip: { display: "flex", alignItems: "center", gap: "2", paddingX: "5", paddingY: "2", flex: "none", background: "bg.panel", borderTopWidth: "1px", borderColor: "border.subtle", overflowX: "auto" },
-        insertChoice: { display: "inline-flex", alignItems: "center", height: "22px", lineHeight: "1", borderWidth: "1px", borderColor: "border.strong", borderRadius: "sm", paddingX: "2", color: "fg.muted", background: "bg.surface", fontFamily: "mono", fontSize: "10.5px", letterSpacing: "0.04em", whiteSpace: "nowrap", cursor: "pointer", _hover: { borderColor: "brand.solid", color: "brand.solid" }, _coarse: { minWidth: "44px", minHeight: "44px" } },
+        // A choice is a one-line box (#1636): 22 px in its 1 px edge, its words on the 20 px of room inside.
+        insertChoice: { display: "inline-flex", alignItems: "center", ...oneLineBox(22), borderWidth: "1px", borderColor: "border.strong", borderRadius: "sm", paddingX: "2", color: "fg.muted", background: "bg.surface", fontFamily: "mono", fontSize: "10.5px", letterSpacing: "0.04em", whiteSpace: "nowrap", cursor: "pointer", _hover: { borderColor: "brand.solid", color: "brand.solid" }, _coarse: { minWidth: "44px", minHeight: "44px" } },
         // The history controls in the toolbar's rail group are the shared
         // editing session's bar — the `editHistory` recipe (#879).
         frame: {
@@ -329,7 +334,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             background: "bg.muted",
             borderRadius: "{radii.sm}",
             paddingX: "6px",
-            height: "20px",
+            ...oneLineBox(20, 0),
             display: "inline-flex",
             alignItems: "center",
             whiteSpace: "nowrap",
@@ -359,9 +364,8 @@ export const sheetSlotRecipe = defineSlotRecipe({
         tab: {
             display: "inline-flex",
             alignItems: "center",
-            lineHeight: "1",
             gap: "7px",
-            height: TOOLBAR_CONTROL_HEIGHT,
+            ...toolbarControlBox(0),
             ...coarseHitArea({ position: true }),
             paddingX: "2px",
             flex: "none",
@@ -422,10 +426,9 @@ export const sheetSlotRecipe = defineSlotRecipe({
             flex: "none",
             display: "inline-flex",
             alignItems: "center",
-            lineHeight: "1",
             gap: "4px",
             alignSelf: "center",
-            height: TOOLBAR_CONTROL_HEIGHT,
+            ...toolbarControlBox(),
             paddingX: "7px",
             paddingY: "0",
             borderWidth: "1px",
@@ -451,9 +454,8 @@ export const sheetSlotRecipe = defineSlotRecipe({
         tabMore: {
             display: "inline-flex",
             alignItems: "center",
-            lineHeight: "1",
             gap: "5px",
-            height: TOOLBAR_CONTROL_HEIGHT,
+            ...toolbarControlBox(0),
             ...coarseHitArea({ position: true }),
             paddingX: "2px",
             paddingY: "0",
@@ -478,9 +480,8 @@ export const sheetSlotRecipe = defineSlotRecipe({
         tabMenu: {
             display: "inline-flex",
             alignItems: "center",
-            lineHeight: "1",
             gap: "6px",
-            height: TOOLBAR_CONTROL_HEIGHT,
+            ...toolbarControlBox(0),
             ...coarseHitArea({ position: true }),
             paddingX: "2px",
             paddingY: "0",
@@ -710,7 +711,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             position: "relative",
             zIndex: "2",
             width: "14px",
-            height: "14px",
+            ...oneLineBox(14),
             boxSizing: "border-box",
             padding: "0",
             display: "flex",
@@ -723,7 +724,6 @@ export const sheetSlotRecipe = defineSlotRecipe({
             background: "bg.surface",
             color: "fg.subtle",
             fontSize: "9px",
-            lineHeight: "1",
             cursor: "pointer",
             "[data-row]:hover:not([data-drop-active], [data-drop-invalid]) &": { borderColor: "fg.muted", background: "bg.panel" },
             "[data-band-row] &": { background: "bg.panel" },
@@ -1240,7 +1240,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
         halfLabel: {
             display: "inline-flex",
             alignItems: "center",
-            height: "20px",
+            ...oneLineBox(20, 0),
             fontFamily: "mono",
             fontSize: "8.5px",
             fontWeight: "600",
@@ -1325,7 +1325,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
         lockTag: {
             display: "inline-flex",
             alignItems: "center",
-            height: "20px",
+            ...oneLineBox(20, 0),
             fontFamily: "mono",
             fontSize: "8.5px",
             fontWeight: "600",
@@ -1340,7 +1340,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
         lockWarn: {
             display: "inline-flex",
             alignItems: "center",
-            height: "20px",
+            ...oneLineBox(20, 0),
             fontFamily: "mono",
             fontSize: "8.5px",
             fontWeight: "600",
@@ -1557,7 +1557,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             // A phone's band's status (SH6): a 22 tall chip at the band's end — an 8 dot and the word mono 10.5/600 caps —
             // on `brandTint` while the band is a draft.
             "[data-sheet-card][data-phone] &": {
-                minHeight: "22px", height: "22px", paddingX: "4px", gap: "8px", borderRadius: "sm", flexShrink: 0,
+                minHeight: "22px", ...oneLineBox(22, 0), paddingX: "4px", gap: "8px", borderRadius: "sm", flexShrink: 0,
                 // The dot (it carries its tone), then the word after it.
                 "& [data-tone]": { width: "8px", height: "8px", marginRight: "0" },
                 "& [data-tone] + span": { fontSize: "label.md", fontWeight: "600", letterSpacing: "0.1em" },

@@ -23,6 +23,7 @@
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
+import { oneLineBox } from "../one-line-box.js";
 
 /** The state's tones (S6): the dot's base and the word's text step, by `data-tone`. */
 const TONES = {
@@ -199,7 +200,8 @@ export const sheetActionSlotRecipe = defineSlotRecipe({
             /* The Menu recipe animates its open state by placement, so the placement's selector too (the hand retest's 5). */
             _open: { animation: "none", "&[data-placement]": { animation: "none" } },
         },
-        /* The menu: a group's head (M2), a direct action's Kbd cap and a disabled item's reason (M3, M4). */
+        /* The menu: a group's head (M2), a direct action's Kbd cap — its figure on the 18px of room inside its edge, so it
+         * starts a whole number of pixels under it (#1636) — and a disabled item's reason (M3, M4). */
         menuHead: {
             height: "24px",
             boxSizing: "border-box",
@@ -219,7 +221,7 @@ export const sheetActionSlotRecipe = defineSlotRecipe({
         },
         menuKbd: {
             marginLeft: "auto",
-            height: "20px",
+            ...oneLineBox(20),
             minWidth: "20px",
             boxSizing: "border-box",
             display: "inline-flex",
@@ -234,7 +236,6 @@ export const sheetActionSlotRecipe = defineSlotRecipe({
             fontFamily: "mono",
             fontSize: "label.lg",
             fontWeight: 500,
-            lineHeight: 1,
             color: "fg.strong",
         },
         menuReason: { marginLeft: "auto", paddingLeft: "24px", fontFamily: "mono", fontSize: "label.md", color: "fg.subtle" },
