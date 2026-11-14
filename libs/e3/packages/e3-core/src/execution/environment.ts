@@ -29,6 +29,17 @@
  * or a project package with native code, refuses the environment by name
  * ({@link EnvironmentTargetRefused}). A python environment then carries an
  * interpreter of its own, so it runs wherever its tree is put.
+ *
+ * And an environment built ahead of the call that declares it is placed where
+ * this module looks for one. A directory already at `<repo>/envs/<hash>` is
+ * taken as built ({@link materializeEnvironment}), so a host that holds an
+ * environment built before the call — a container image that installed one as
+ * it was built, a rack's guest whose image was composed with one — names it
+ * in two variables ({@link prebuiltEnvironment}): `E3_BAKED_ENV_HASH`, the
+ * environment's hash, and `E3_BAKED_ENV_DIR`, the directory it is in. Before
+ * a call that declares that environment, its runner links `<repo>/envs/<hash>`
+ * to the directory ({@link linkPrebuiltEnvironment}), and nothing is
+ * installed.
  */
 
 import * as path from 'node:path';
@@ -42,6 +53,7 @@ import { BlobType, decodeBeast2For, isTypeValueEqual, readBeast2Type, toEastType
 import { EnvironmentSpecType, type EnvironmentSpec } from '@elaraai/e3-types';
 import type { StorageBackend } from '../storage/index.js';
 import { withKeyedLock } from '../keyed-mutex.js';
+import { isObjectHash } from '../objects.js';
 import { getPidStartTime, processExited } from './processHelpers.js';
 import { checkProcessSettings, giveDirectory, type ProcessSettings } from './processExec.js';
 
@@ -1115,4 +1127,92 @@ export async function materializeEnvironmentFor(
     await fs.rm(buildDir, { recursive: true, force: true });
     throw err;
   }
+}
+
+// =============================================================================
+// An environment built ahead of its call
+// =============================================================================
+
+/** The variable a host names its pre-built environment's hash in. */
+export const PREBUILT_ENV_HASH_VAR = 'E3_BAKED_ENV_HASH';
+
+/** The variable a host names its pre-built environment's directory in. */
+export const PREBUILT_ENV_DIR_VAR = 'E3_BAKED_ENV_DIR';
+
+/** An environment built ahead of the call that declares it. */
+export interface PrebuiltEnvironment {
+  /** The environment's hash: the hash of its spec object. */
+  readonly hash: string;
+  /** The absolute directory it is in. */
+  readonly dir: string;
+}
+
+/**
+ * The environment a host holds pre-built, as its variables name it.
+ *
+ * @param env - The process's environment variables
+ * @returns The pre-built environment, or undefined when the host names none
+ * @throws {Error} When only one of the two variables is set, the hash is not
+ *   an object hash, or the directory is not absolute: the host was set up
+ *   wrongly
+ *
+ * @example
+ * ```ts
+ * const prebuilt = prebuiltEnvironment(process.env);
+ * if (prebuilt !== undefined && prebuilt.hash === task.environment) await linkPrebuiltEnvironment(repo, prebuilt);
+ * ```
+ */
+export function prebuiltEnvironment(env: Readonly<Record<string, string | undefined>>): PrebuiltEnvironment | undefined {
+  const hash = env[PREBUILT_ENV_HASH_VAR];
+  const dir = env[PREBUILT_ENV_DIR_VAR];
+  if (hash === undefined && dir === undefined) return undefined;
+  if (hash === undefined || dir === undefined) {
+    const [set, unset] = hash === undefined ? [PREBUILT_ENV_DIR_VAR, PREBUILT_ENV_HASH_VAR] : [PREBUILT_ENV_HASH_VAR, PREBUILT_ENV_DIR_VAR];
+    throw new Error(`${set} is set and ${unset} is not: a pre-built environment is named by both`);
+  }
+  if (!isObjectHash(hash)) {
+    throw new Error(`${PREBUILT_ENV_HASH_VAR} '${hash}' is not an object hash`);
+  }
+  if (!path.isAbsolute(dir)) {
+    throw new Error(`${PREBUILT_ENV_DIR_VAR} '${dir}' is not an absolute path`);
+  }
+  return { hash, dir };
+}
+
+/**
+ * Links the path an environment is materialized at, `<repo>/envs/<hash>`
+ * resolved against the working directory, to the directory it was built in
+ * ahead of the call.
+ *
+ * @remarks
+ * - What is already at the path is kept: a link an earlier call made, or the
+ *   environment built there.
+ * - The directory must exist. A link that leads nowhere is taken as an
+ *   environment not yet built, and none could then be installed in its place.
+ * - On Windows the link is a junction, which needs no privilege.
+ *
+ * @param repo - The repository the call runs for
+ * @param prebuilt - The environment built ahead
+ * @returns The link's path, absolute, as {@link materializeEnvironment} names it
+ * @throws {Error} When the directory does not exist, or the link cannot be
+ *   made
+ *
+ * @example
+ * ```ts
+ * await linkPrebuiltEnvironment(repo, { hash: envHash, dir: '/var/task/.e3-env' });
+ * const bins = await materializeEnvironment(storage, repo, envHash); // installs nothing
+ * ```
+ */
+export async function linkPrebuiltEnvironment(repo: string, prebuilt: PrebuiltEnvironment): Promise<string> {
+  // Where materializeEnvironment looks, named as it names it: an absolute
+  // path, whatever the repository's.
+  const envDir = path.resolve(repo, 'envs', prebuilt.hash);
+  await fs.access(prebuilt.dir);
+  await fs.mkdir(path.dirname(envDir), { recursive: true });
+  try {
+    await fs.symlink(prebuilt.dir, envDir, 'junction');
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+  }
+  return envDir;
 }

@@ -12,8 +12,7 @@ import { BlobType, encodeBeast2For, variant } from '@elaraai/east';
 import { EnvironmentSpecType } from '@elaraai/e3-types';
 import { LocalStorage } from '../storage/local/index.js';
 import { repoInit } from '../storage/local/repository.js';
-import { materializeEnvironment } from './environment.js';
-import { linkPrebuiltEnvironment, prebuiltEnvironment, PREBUILT_ENV_DIR_VAR, PREBUILT_ENV_HASH_VAR } from './prebuilt-environment.js';
+import { linkPrebuiltEnvironment, materializeEnvironment, prebuiltEnvironment, PREBUILT_ENV_DIR_VAR, PREBUILT_ENV_HASH_VAR } from './environment.js';
 
 describe('an environment built ahead of the call that declares it', () => {
   let tmpDir: string;
