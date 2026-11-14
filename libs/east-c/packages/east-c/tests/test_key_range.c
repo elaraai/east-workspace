@@ -316,6 +316,77 @@ static void test_search_cost(void)
     }
 }
 
+/* ---- a collection put together from runs in order ------------------------- */
+
+/* A collection of `n` keys rebuilt from runs of `run` keys each, as a range
+ * read a segment at a time is: equal to its source, entry for entry, and the
+ * source's own keys and values. */
+static bool rebuilt_from_runs(size_t n, size_t run, bool as_dict)
+{
+    EastValue *source = as_dict ? dict_of(n) : set_of(n);
+    EastValue *target = as_dict ? east_dict_new(&east_integer_type, &east_integer_type)
+                                : east_set_new(&east_integer_type);
+    bool ok = true;
+    for (size_t lo = 0; ok && lo < n; lo += run) {
+        size_t hi = lo + run < n ? lo + run : n;
+        ok = as_dict ? east_dict_extend_sorted(target, source, lo, hi)
+                     : east_set_extend_sorted(target, source, lo, hi);
+    }
+    if (length(target) != n) ok = false;
+    for (size_t i = 0; ok && i < n; i++) {
+        if (key_at(target, i) != key_at(source, i)) ok = false;
+        if (as_dict && east_dict_val_at(target, i) != east_dict_val_at(source, i)) ok = false;
+    }
+    /* A run that does not start past the last entry is refused: here, one again. */
+    if (n > 0) {
+        bool again = as_dict ? east_dict_extend_sorted(target, source, n - 1, n)
+                             : east_set_extend_sorted(target, source, n - 1, n);
+        if (again || length(target) != n) ok = false;
+    }
+    /* An empty run adds nothing, wherever it is. */
+    bool empty = as_dict ? east_dict_extend_sorted(target, source, 0, 0)
+                         : east_set_extend_sorted(target, source, 0, 0);
+    if (!empty || length(target) != n) ok = false;
+    /* Positions past the source are refused. */
+    bool past = as_dict ? east_dict_extend_sorted(target, source, 0, n + 1)
+                        : east_set_extend_sorted(target, source, 0, n + 1);
+    if (past) ok = false;
+    east_value_release(target);
+    east_value_release(source);
+    return ok;
+}
+
+static void test_extend_sorted(void)
+{
+    static const size_t sizes[] = {0,
+                                   1,
+                                   EAST_SMALL_COLLECTION_MAX,
+                                   EAST_SMALL_COLLECTION_MAX + 1,
+                                   3 * EAST_SMALL_COLLECTION_MAX + 7,
+                                   5000};
+    static const size_t runs[] = {1, 7, EAST_SMALL_COLLECTION_MAX, 1000};
+    bool dict_ok = true;
+    bool set_ok = true;
+    for (size_t s = 0; s < sizeof(sizes) / sizeof(sizes[0]); s++) {
+        for (size_t r = 0; r < sizeof(runs) / sizeof(runs[0]); r++) {
+            if (!rebuilt_from_runs(sizes[s], runs[r], true)) dict_ok = false;
+            if (!rebuilt_from_runs(sizes[s], runs[r], false)) set_ok = false;
+        }
+    }
+    check(dict_ok, "a Dict put together from runs in order is its source, entry for entry, and a "
+                   "run that does not start past its last key is refused");
+    check(set_ok, "a Set put together from runs in order is its source, element for element, and "
+                  "a run that does not start past its last element is refused");
+    EastValue *dict = dict_of(3);
+    EastValue *set = set_of(3);
+    check(!east_dict_extend_sorted(dict, set, 0, 1) && !east_set_extend_sorted(set, dict, 0, 1) &&
+              !east_dict_extend_sorted(NULL, dict, 0, 1) &&
+              !east_set_extend_sorted(set, NULL, 0, 1),
+          "a run is added from a Dict to a Dict, and from a Set to a Set");
+    east_value_release(set);
+    east_value_release(dict);
+}
+
 /* ---- 4: the builtins ------------------------------------------------------- */
 
 /* Sheets printed, keyed by press and job. */
@@ -573,6 +644,7 @@ int main(void)
     printf("key range gate (issue #1616)\n");
     test_ranges();
     test_search_cost();
+    test_extend_sorted();
     test_builtins();
 
     if (failures == 0) {

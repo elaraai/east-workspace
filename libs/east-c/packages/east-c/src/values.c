@@ -855,6 +855,35 @@ EastValue *east_set_range(EastValue *set, EastKeyTest from, void *from_ctx, East
     return result;
 }
 
+/* The set's last element, or NULL for an empty set: the end of `items` while
+ * the set is small, the tree's greatest item past that — never a read in
+ * order, so a set being filled by runs is not put in order to be asked. */
+static EastValue *set_last(EastValue *set)
+{
+    if (set->data.set.len == 0) return NULL;
+    if (!set->data.set.tree) return set->data.set.items[set->data.set.len - 1];
+    const void *item = btree_max(set->data.set.tree);
+    return item ? *(EastValue *const *)item : NULL;
+}
+
+bool east_set_extend_sorted(EastValue *set, EastValue *from, size_t lo, size_t hi)
+{
+    if (!set || set->kind != EAST_VAL_SET || !from || from->kind != EAST_VAL_SET || lo > hi ||
+        hi > from->data.set.len)
+        return false;
+    if (lo == hi) return true;
+    east_set_sync(from);
+    if (from->data.set.dirty) return false; /* the cache could not be had */
+    EastValue *const *items = from->data.set.items;
+    /* The run is in order, so one comparison holds every element of it past
+     * the set's last. */
+    EastValue *last = set_last(set);
+    if (last && east_value_compare(last, items[lo]) >= 0) return false;
+    for (size_t i = lo; i < hi; i++)
+        if (!set_append(set, items[i])) return false;
+    return true;
+}
+
 void east_set_release_contents(EastValue *v)
 {
     set_empty(v);
@@ -1353,6 +1382,35 @@ EastValue *east_dict_range(EastValue *dict, EastKeyTest from, void *from_ctx, Ea
         return NULL;
     }
     return result;
+}
+
+/* The dict's last key, or NULL for an empty dict, as set_last answers a
+ * set's last element. */
+static EastValue *dict_last_key(EastValue *dict)
+{
+    if (dict->data.dict.len == 0) return NULL;
+    if (!dict->data.dict.tree) return dict->data.dict.keys[dict->data.dict.len - 1];
+    const void *item = btree_max(dict->data.dict.tree);
+    return item ? ((const DictPair *)item)->key : NULL;
+}
+
+bool east_dict_extend_sorted(EastValue *dict, EastValue *from, size_t lo, size_t hi)
+{
+    if (!dict || dict->kind != EAST_VAL_DICT || !from || from->kind != EAST_VAL_DICT || lo > hi ||
+        hi > from->data.dict.len)
+        return false;
+    if (lo == hi) return true;
+    east_dict_sync(from);
+    if (from->data.dict.dirty) return false; /* the caches could not be had */
+    EastValue *const *keys = from->data.dict.keys;
+    EastValue *const *values = from->data.dict.values;
+    /* The run is in key order, so one comparison holds every key of it past
+     * the dict's last. */
+    EastValue *last = dict_last_key(dict);
+    if (last && east_value_compare(last, keys[lo]) >= 0) return false;
+    for (size_t i = lo; i < hi; i++)
+        if (!dict_append(dict, keys[i], values[i])) return false;
+    return true;
 }
 
 void east_dict_release_contents(EastValue *v)

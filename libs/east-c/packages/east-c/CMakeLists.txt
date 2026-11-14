@@ -571,6 +571,16 @@ add_executable(test_key_range tests/test_key_range.c)
 target_link_libraries(test_key_range east-c)
 add_test(NAME key_range COMMAND test_key_range)
 
+# A key range of a lazily opened Set or Dict is a view the pager serves
+# (#1616, D4 and D5): what each read of one costs, in segments decoded on its
+# source's pager — a count, never a clock — its end segments through the cache
+# and the rest fresh; that it decodes its own rows alone into a collection that
+# is never frozen and leaves its source lazy; that it is exact against a walk
+# of the whole, the host's row range with it; and the refusals.
+add_executable(test_paged_range tests/test_paged_range.c)
+target_link_libraries(test_paged_range east-c)
+add_test(NAME paged_range COMMAND test_paged_range)
+
 # Array diff gate (#1425): an Array's diff trims the common start and end, and
 # searches the middle for a shortest edit script by Myers' algorithm, to a
 # bound past which it pairs the middle by position. Its work is pinned by the

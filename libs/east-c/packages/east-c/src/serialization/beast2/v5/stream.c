@@ -7,6 +7,7 @@
 #include "internal_v5.h"
 
 #include <east/compat.h>
+#include <east/key_bound.h>
 
 /* ================================================================== */
 /*  Frame pool — deflate on worker threads, append in order (#763)     */
@@ -1429,6 +1430,10 @@ ByteBuffer *east_beast2_splice_tail(const size_t *offsets, const size_t *counts,
  * segment boundary, and four misses in order are not chance. */
 #define B2V5_RUN_DROPS_FROM 4
 
+/* A key range of a pager's collection (issue #1616): defined with the view's
+ * reads, below the keyed reads it is made of. */
+typedef struct B2V5View B2V5View;
+
 typedef struct {
     EastValue *seg; /* owned while the entry is live */
     size_t segment; /* which segment it is */
@@ -1496,7 +1501,21 @@ struct Beast2Pages {
     /* What a runner calls the collection — "input N" — which names its
      * decodes in a profile (east_paged_set_label); owned, NULL when unnamed. */
     char *label;
+    /* A view: this pager is a key range of another pager's collection and
+     * reads through it (issue #1616). NULL for a pager that reads its own
+     * bytes, which is every pager but a range's; owned. A view's `index` and
+     * `cumulative` describe the segments it spans, each counted by the rows of
+     * it the range holds, once its ends are placed. */
+    B2V5View *view;
 };
+
+static bool pages_view_place(Beast2Pages *p);
+static EastValue *pages_view_segment(Beast2Pages *p, size_t k, const Beast2Projection *pr);
+static EastValue *pages_view_fence(Beast2Pages *p, size_t i);
+static EastValue *pages_view_get_keys(Beast2Pages *p, EastValue *keys, EastValue **missing_out);
+static bool pages_view_holds_key(const Beast2Pages *p, EastValue *key);
+static Beast2Pages *pages_view_source(Beast2Pages *p);
+static void pages_view_free(B2V5View *view);
 
 /* Where segment i's frame is for one read: in the blob behind a blob pager,
  * or in segment i's own blob behind a manifest pager, opened for the read. */
@@ -1776,6 +1795,7 @@ static void cache_drop(Beast2Pages *p, uint32_t e);
 void east_beast2_pages_set_cache_budget(Beast2Pages *p, size_t bytes)
 {
     if (!p) return;
+    p = pages_view_source(p); /* a view reads through its source's one cache */
     p->cache_budget = bytes;
     /* Within the new budget at once, the newest segment kept. */
     while (p->cache_weight > bytes && p->cache_tail != p->cache_head) {
@@ -1784,23 +1804,34 @@ void east_beast2_pages_set_cache_budget(Beast2Pages *p, size_t bytes)
     }
 }
 
+bool east_beast2_pages_prepare(Beast2Pages *p)
+{
+    return !p || !p->view || pages_view_place(p);
+}
+
+/* A view answers these once its ends are placed; one that cannot be placed
+ * answers nothing, its error posted — east_beast2_pages_prepare is how a
+ * caller hears of it. */
 size_t east_beast2_pages_segment_count(Beast2Pages *p)
 {
+    if (!east_beast2_pages_prepare(p)) return 0;
     return p ? p->index.count : 0;
 }
 
 size_t east_beast2_pages_element_count(Beast2Pages *p)
 {
+    if (!east_beast2_pages_prepare(p)) return 0;
     return p ? p->index.total : 0;
 }
 
 bool east_beast2_pages_self_contained(Beast2Pages *p)
 {
-    return p && p->index.self_contained;
+    return p && pages_view_source(p)->index.self_contained;
 }
 
 const size_t *east_beast2_pages_counts(Beast2Pages *p, size_t *n_out)
 {
+    if (!east_beast2_pages_prepare(p)) p = NULL;
     if (n_out) *n_out = p ? p->index.count : 0;
     return p ? p->index.counts : NULL;
 }
@@ -1928,11 +1959,13 @@ static EastValue *pages_decode_segment(Beast2Pages *p, size_t i, const Beast2Pro
 
 EastValue *east_beast2_pages_segment(Beast2Pages *p, size_t i)
 {
+    if (p && p->view) return pages_view_segment(p, i, NULL);
     return pages_decode_segment(p, i, p ? p->proj : NULL, NULL, false);
 }
 
 EastValue *east_beast2_pages_segment_projected(Beast2Pages *p, size_t i, const Beast2Projection *pr)
 {
+    if (p && p->view) return pages_view_segment(p, i, pr);
     /* Per-call projections NEVER touch the shared cache: an entry decoded
      * under one mask must not answer an operation needing another. */
     return pages_decode_segment(p, i, pr, NULL, false);
@@ -2026,7 +2059,8 @@ static void pages_cache_clear(Beast2Pages *p)
 
 void east_beast2_pages_set_projection(Beast2Pages *p, const Beast2Projection *pr)
 {
-    if (!p) return;
+    /* A view reads as its source was opened: it has no projection of its own. */
+    if (!p || p->view) return;
     if (pr && east_beast2_projection_is_identity((Beast2Projection *)pr)) pr = NULL;
     /* Cached segments decoded under the previous shape are unusable now. */
     pages_cache_clear(p);
@@ -2188,6 +2222,7 @@ void east_beast2_pages_free(Beast2Pages *p)
     if (p->manifest) east_value_release(p->manifest);
     if (p->segments.free) p->segments.free(p->segments.ctx);
     free(p->label);
+    pages_view_free(p->view);
     free(p);
 }
 
@@ -2202,6 +2237,7 @@ static EastType *pages_fence_type(Beast2Pages *p)
 EastValue *east_beast2_pages_fence(Beast2Pages *p, size_t i)
 {
     if (!p) return NULL;
+    if (p->view) return pages_view_fence(p, i);
     if (!p->index.self_contained) {
         east_builtin_error("beast2 v5: blob has cross-segment aliasing — random access needs "
                            "self-contained segments");
@@ -2329,6 +2365,8 @@ EastValue *east_beast2_pages_fence(Beast2Pages *p, size_t i)
 
 void east_beast2_pages_stats(Beast2Pages *p, size_t *segments_decoded, size_t *fences_probed)
 {
+    /* A view's reads are counted on its source's pager. */
+    if (p) p = pages_view_source(p);
     if (segments_decoded) *segments_decoded = p ? p->segments_decoded : 0;
     if (fences_probed) *fences_probed = p ? p->fences_probed : 0;
 }
@@ -2338,6 +2376,7 @@ void east_beast2_pages_cache_stats(Beast2Pages *p, Beast2PagesCacheStats *out)
     if (!out) return;
     memset(out, 0, sizeof(*out));
     if (!p) return;
+    p = pages_view_source(p); /* the one cache a view reads through */
     out->hits = p->cache_hits;
     out->evictions = p->cache_evictions;
     out->dropped_behind = p->cache_dropped;
@@ -2453,6 +2492,12 @@ int east_beast2_pages_get_key(Beast2Pages *p, EastValue *key, EastValue **value_
         east_builtin_error("beast2 v5: keyed read needs a pager and a key");
         return -1;
     }
+    if (p->view) {
+        /* A key outside the range is absent, which reads nothing; one inside
+         * it is the source's keyed read. */
+        if (!pages_view_holds_key(p, key)) return 0;
+        p = pages_view_source(p);
+    }
     if (p->type->kind == EAST_TYPE_ARRAY) {
         east_builtin_error("beast2 v5: keyed reads address Set and Dict roots; "
                            "element() addresses Array rows");
@@ -2500,6 +2545,7 @@ EastValue *east_beast2_pages_get_keys(Beast2Pages *p, EastValue *keys, EastValue
         east_builtin_error("beast2 v5: batched keyed read needs a pager and a key set");
         return NULL;
     }
+    if (p->view) return pages_view_get_keys(p, keys, missing_out);
     if (p->type->kind != EAST_TYPE_DICT) {
         east_builtin_error("beast2 v5: get_keys addresses Dict roots");
         return NULL;
@@ -2579,6 +2625,7 @@ fail:
 EastValue *east_beast2_pages_segment_disjoint(Beast2Pages *p, size_t i)
 {
     if (!p) return NULL;
+    if (p->view) return pages_view_segment(p, i, NULL);
     if (p->type->kind == EAST_TYPE_ARRAY) {
         east_builtin_error("beast2 v5: disjoint segment reads address Set and Dict roots");
         return NULL;
@@ -2614,6 +2661,7 @@ EastValue *east_beast2_pages_segment_disjoint_projected(Beast2Pages *p, size_t i
                                                         const Beast2Projection *pr)
 {
     if (!p) return NULL;
+    if (p->view) return pages_view_segment(p, i, pr);
     if (p->type->kind == EAST_TYPE_ARRAY) {
         east_builtin_error("beast2 v5: disjoint segment reads address Set and Dict roots");
         return NULL;
@@ -2646,6 +2694,452 @@ EastValue *east_beast2_pages_segment_disjoint_projected(Beast2Pages *p, size_t i
 EastType *east_beast2_pages_type(Beast2Pages *p)
 {
     return p ? p->type : NULL;
+}
+
+/* ================================================================== */
+/*  A key range of a paged collection (issue #1616)                     */
+/* ================================================================== */
+
+/*  A range of a lazily opened Set or Dict is a view: a pager that holds the
+ *  pager it narrows and its two bounds, and reads through its source's
+ *  pager — so an input keeps its one cache however many ranges are taken of
+ *  it. Making a view reads nothing. Its rows are found when first needed, by
+ *  placing each end: the source's fences are bisected, which reads nothing
+ *  once they are verified, and the one segment that can hold the end is
+ *  searched, through the cache. From then the view's own index describes the
+ *  source's segments it spans, each counted by the rows of it the range
+ *  holds, and the segment entries answer for those — its first and last
+ *  through the cache, their rows whole; those between them as a scan's,
+ *  decoded fresh — so a loop, a whole decode and a host walk a view by the
+ *  code they walk any pager by.  */
+
+/* One end of a view. */
+typedef struct {
+    EastValue *value; /* the bound, retained; NULL for an end left open */
+    EastType *type;   /* its type, a leading part of the key's; retained */
+    bool past;        /* the end is the first key PAST the bound, as a prefix's
+                       * upper end is; otherwise the first at or past it */
+} B2V5ViewEnd;
+
+struct B2V5View {
+    Beast2Pages *source; /* the pager every read goes through. Borrowed: the
+                          * view's value holds the value it narrows, and that
+                          * one its own, down to the source's */
+    Beast2Pages *parent; /* the pager this view narrows: `source`, or a view of it */
+    B2V5ViewEnd from;
+    B2V5ViewEnd to;
+    bool placed; /* lo, hi and the view's index are set */
+    size_t lo;   /* the view's rows of the source: [lo, hi) */
+    size_t hi;
+    size_t first_segment; /* the source's segment the view's first one is */
+};
+
+static Beast2Pages *pages_view_source(Beast2Pages *p)
+{
+    return p->view ? p->view->source : p;
+}
+
+static void pages_view_free(B2V5View *view)
+{
+    if (!view) return;
+    if (view->from.value) east_value_release(view->from.value);
+    if (view->from.type) east_type_release(view->from.type);
+    if (view->to.value) east_value_release(view->to.value);
+    if (view->to.type) east_type_release(view->to.type);
+    free(view);
+}
+
+/* Whether an end's test holds for a key: false, then true, over keys in order. */
+static bool view_end_holds(const B2V5ViewEnd *end, EastValue *key)
+{
+    int order = east_key_bound_compare(key, end->value, end->type);
+    return end->past ? order > 0 : order >= 0;
+}
+
+/* Whether a key is within a view's bounds, and those of every view it
+ * narrows: read from the bounds alone. */
+static bool pages_view_holds_key(const Beast2Pages *p, EastValue *key)
+{
+    for (; p && p->view; p = p->view->parent) {
+        const B2V5View *view = p->view;
+        if (view->from.value && !view_end_holds(&view->from, key)) return false;
+        if (view->to.value && view_end_holds(&view->to, key)) return false;
+    }
+    return true;
+}
+
+/* The source's rows before segment `s`. */
+static size_t pages_rows_before(const Beast2Pages *p, size_t s)
+{
+    return s == 0 ? 0 : p->cumulative[s - 1];
+}
+
+/* The source's segment that holds `row`, a row within it. */
+static size_t pages_segment_of_row(const Beast2Pages *p, size_t row)
+{
+    size_t lo = 0;
+    size_t hi = p->index.count - 1;
+    while (lo < hi) {
+        size_t mid = lo + (hi - lo) / 2;
+        if (p->cumulative[mid] <= row)
+            lo = mid + 1;
+        else
+            hi = mid;
+    }
+    return lo;
+}
+
+/* The row of `p`, a pager with segments and verified fences, an end names:
+ * the first whose key the end's test holds for, or the row count when it
+ * holds for none.
+ *
+ * The fences are bisected for the first segment whose first key the test
+ * holds for; every key from there on passes. The segment before it is the
+ * one that can still hold passing keys, at its end, so it is read, through
+ * the cache, and searched — unless there is none before it, or the bound is
+ * a whole key that is that fence, which every earlier key is before. With no
+ * fence passing, that is the last segment. */
+static bool pages_place_end(Beast2Pages *p, const B2V5ViewEnd *end, size_t *row)
+{
+    bool is_dict = p->type->kind == EAST_TYPE_DICT;
+    EastType *key_type = is_dict ? p->type->data.dict.key : p->type->data.element;
+    size_t lo = 0;
+    size_t hi = p->index.count;
+    while (lo < hi) {
+        size_t mid = lo + (hi - lo) / 2;
+        EastValue *fence = east_beast2_pages_fence(p, mid);
+        if (!fence) return false;
+        bool holds = view_end_holds(end, fence);
+        east_value_release(fence);
+        if (holds)
+            hi = mid;
+        else
+            lo = mid + 1;
+    }
+    size_t first = lo; /* the first segment whose fence passes; the count when none does */
+    if (first == 0) {
+        *row = 0;
+        return true;
+    }
+    if (first < p->index.count && !end->past && east_type_equal(end->type, key_type)) {
+        EastValue *fence = east_beast2_pages_fence(p, first);
+        if (!fence) return false;
+        bool is_bound = east_value_compare(fence, end->value) == 0;
+        east_value_release(fence);
+        if (is_bound) {
+            *row = pages_rows_before(p, first);
+            return true;
+        }
+    }
+    size_t s = first - 1;
+    EastValue *seg = pages_segment_cached(p, s);
+    if (!seg) return false;
+    if (!pages_tail_guard(p, s, seg)) {
+        east_value_release(seg);
+        return false;
+    }
+    size_t a = 0;
+    size_t b = is_dict ? east_dict_len(seg) : east_set_len(seg);
+    while (a < b) {
+        size_t mid = a + (b - a) / 2;
+        EastValue *key = is_dict ? east_dict_key_at(seg, mid) : east_set_at(seg, mid);
+        if (view_end_holds(end, key))
+            b = mid;
+        else
+            a = mid + 1;
+    }
+    east_value_release(seg);
+    *row = pages_rows_before(p, s) + a;
+    return true;
+}
+
+/* The rows [*lo, *hi) of `p`, a pager that reads its own bytes, between two
+ * ends, each NULL-valued for that end of the collection. Refuses where a
+ * keyed read refuses. */
+static bool pages_place_rows(Beast2Pages *p, const B2V5ViewEnd *from, const B2V5ViewEnd *to,
+                             size_t *lo, size_t *hi)
+{
+    if (p->type->kind == EAST_TYPE_ARRAY) {
+        east_builtin_error("beast2 v5: a key range addresses Set and Dict roots");
+        return false;
+    }
+    if (!p->index.self_contained) {
+        east_builtin_error("beast2 v5: blob has cross-segment aliasing — random access needs "
+                           "self-contained segments");
+        return false;
+    }
+    *lo = 0;
+    *hi = p->index.total;
+    if (p->index.count == 0 || (!from->value && !to->value)) return true;
+    if (!pages_verify_fences(p)) return false;
+    if (from->value && !pages_place_end(p, from, lo)) return false;
+    if (to->value && !pages_place_end(p, to, hi)) return false;
+    if (*hi < *lo) *hi = *lo; /* an inverted range holds nothing */
+    return true;
+}
+
+/* Places a view: its rows of the source, within those of the view it narrows,
+ * and its own index over the segments they span. Once; a view that could not
+ * be placed is asked again at its next read, which fails the same way. */
+static bool pages_view_place(Beast2Pages *p)
+{
+    B2V5View *view = p->view;
+    if (view->placed) return true;
+    Beast2Pages *source = view->source;
+    size_t lo, hi;
+    if (!pages_place_rows(source, &view->from, &view->to, &lo, &hi)) return false;
+    if (view->parent->view) {
+        if (!pages_view_place(view->parent)) return false;
+        const B2V5View *outer = view->parent->view;
+        if (lo < outer->lo) lo = outer->lo;
+        if (hi > outer->hi) hi = outer->hi;
+        if (hi < lo) hi = lo;
+    }
+    size_t first = 0;
+    size_t count = 0;
+    if (hi > lo) {
+        first = pages_segment_of_row(source, lo);
+        count = pages_segment_of_row(source, hi - 1) - first + 1;
+    }
+    size_t *offsets = calloc(count ? count : 1, sizeof(size_t));
+    size_t *counts = calloc(count ? count : 1, sizeof(size_t));
+    size_t *cumulative = calloc(count ? count : 1, sizeof(size_t));
+    if (!offsets || !counts || !cumulative) {
+        free(offsets);
+        free(counts);
+        free(cumulative);
+        east_builtin_error("out of memory");
+        return false;
+    }
+    size_t running = 0;
+    for (size_t k = 0; k < count; k++) {
+        size_t base = pages_rows_before(source, first + k);
+        size_t end = base + source->index.counts[first + k];
+        counts[k] = (hi < end ? hi : end) - (lo > base ? lo : base);
+        running += counts[k];
+        cumulative[k] = running;
+    }
+    p->index.offsets = offsets;
+    p->index.counts = counts;
+    p->index.count = count;
+    p->index.total = hi - lo;
+    p->index.self_contained = true;
+    p->cumulative = cumulative;
+    view->lo = lo;
+    view->hi = hi;
+    view->first_segment = first;
+    view->placed = true;
+    return true;
+}
+
+/* The elements [*i0, *i1) of the source's segment a view's segment `k` is. */
+static size_t pages_view_cut(const Beast2Pages *p, size_t k, size_t *i0, size_t *i1)
+{
+    const B2V5View *view = p->view;
+    size_t s = view->first_segment + k;
+    size_t base = pages_rows_before(view->source, s);
+    size_t whole = view->source->index.counts[s];
+    *i0 = view->lo > base ? view->lo - base : 0;
+    *i1 = view->hi < base + whole ? view->hi - base : whole;
+    return s;
+}
+
+static bool pages_view_segment_in_range(Beast2Pages *p, size_t k)
+{
+    if (!pages_view_place(p)) return false;
+    if (k < p->index.count) return true;
+    char msg[96];
+    snprintf(msg, sizeof(msg), "beast2 v5: segment %zu out of range (%zu segments)", k,
+             p->index.count);
+    east_builtin_error(msg);
+    return false;
+}
+
+/* Segment `k` of a view: the source's segment, held to the range's rows.
+ *
+ * The view's first and last segments are its end segments: read through the
+ * cache, where placing the ends left them and the next range of the same
+ * segment finds them, their rows whole — a cached segment has one shape for
+ * the pager's life, so `pr` is refused there and the caller reads the segment
+ * whole, as it does any segment a projection cannot serve. One the range cuts
+ * is copied down to the range's rows of it. The segments between the ends are
+ * a scan's: decoded fresh, under `pr` when one is given, and never cached. */
+static EastValue *pages_view_segment(Beast2Pages *p, size_t k, const Beast2Projection *pr)
+{
+    if (!pages_view_segment_in_range(p, k)) return NULL;
+    Beast2Pages *source = p->view->source;
+    size_t i0, i1;
+    size_t s = pages_view_cut(p, k, &i0, &i1);
+    if (k > 0 && k + 1 < p->index.count)
+        return pr ? east_beast2_pages_segment_disjoint_projected(source, s, pr)
+                  : east_beast2_pages_segment_disjoint(source, s);
+    if (pr && !east_beast2_projection_is_identity((Beast2Projection *)pr)) {
+        east_builtin_error("beast2 v5: a range's end segment is read whole, through the cache");
+        return NULL;
+    }
+    EastValue *seg = pages_segment_cached(source, s);
+    if (!seg) return NULL;
+    if (!pages_tail_guard(source, s, seg)) {
+        east_value_release(seg);
+        return NULL;
+    }
+    if (i0 == 0 && i1 == source->index.counts[s]) return seg; /* the range holds all of it */
+    bool is_dict = source->type->kind == EAST_TYPE_DICT;
+    EastValue *part = is_dict ? east_dict_new(seg->data.dict.key_type, seg->data.dict.val_type)
+                              : east_set_new(seg->data.set.elem_type);
+    bool ok = part && (is_dict ? east_dict_extend_sorted(part, seg, i0, i1)
+                               : east_set_extend_sorted(part, seg, i0, i1));
+    east_value_release(seg);
+    if (!ok) {
+        if (part) east_value_release(part);
+        east_builtin_error("out of memory");
+        return NULL;
+    }
+    return part;
+}
+
+/* The first key of a view's segment `k`: the source's fence where the range
+ * holds the segment from its start, and the range's first key otherwise. */
+static EastValue *pages_view_fence(Beast2Pages *p, size_t i)
+{
+    if (!pages_view_segment_in_range(p, i)) return NULL;
+    Beast2Pages *source = p->view->source;
+    size_t i0, i1;
+    size_t s = pages_view_cut(p, i, &i0, &i1);
+    if (i0 == 0) return east_beast2_pages_fence(source, s);
+    EastValue *seg = pages_segment_cached(source, s);
+    if (!seg) return NULL;
+    if (!pages_tail_guard(source, s, seg)) {
+        east_value_release(seg);
+        return NULL;
+    }
+    EastValue *key =
+        source->type->kind == EAST_TYPE_DICT ? east_dict_key_at(seg, i0) : east_set_at(seg, i0);
+    if (key) east_value_retain(key); /* borrowed from the segment */
+    east_value_release(seg);
+    return key;
+}
+
+/* A batched keyed read of a view: the keys the range holds are the source's
+ * read, and every other key is missing. */
+static EastValue *pages_view_get_keys(Beast2Pages *p, EastValue *keys, EastValue **missing_out)
+{
+    if (missing_out) *missing_out = NULL;
+    if (p->type->kind != EAST_TYPE_DICT) {
+        east_builtin_error("beast2 v5: get_keys addresses Dict roots");
+        return NULL;
+    }
+    if (keys->kind != EAST_VAL_SET) {
+        east_builtin_error("beast2 v5: get_keys takes a Set of keys");
+        return NULL;
+    }
+    EastValue *within = east_set_new(p->type->data.dict.key);
+    if (!within) return NULL;
+    size_t n = east_set_len(keys);
+    for (size_t i = 0; i < n; i++) {
+        EastValue *key = east_set_at(keys, i);
+        if (pages_view_holds_key(p, key)) east_set_insert(within, key);
+    }
+    EastValue *missing = NULL;
+    EastValue *found = east_beast2_pages_get_keys(p->view->source, within, &missing);
+    east_value_release(within);
+    if (!found) return NULL;
+    for (size_t i = 0; i < n; i++) {
+        EastValue *key = east_set_at(keys, i);
+        if (!pages_view_holds_key(p, key)) east_set_insert(missing, key);
+    }
+    if (missing_out)
+        *missing_out = missing;
+    else
+        east_value_release(missing);
+    return found;
+}
+
+/* A view's own rows as a collection: what any read the pager cannot serve
+ * decodes, and no row beyond them. A new collection, never frozen — a range
+ * is one a body may change — of rows that decode as the source's do. Its
+ * source stays lazy and its cache as it was. */
+static EastValue *pages_view_decode(Beast2Pages *p)
+{
+    if (!pages_view_place(p)) return NULL;
+    Beast2Pages *source = p->view->source;
+    bool is_dict = source->type->kind == EAST_TYPE_DICT;
+    /* Typed as the source reads: under a projection set at open, its rows are
+     * the projected ones. */
+    EastType *type = source->proj ? source->proj->root->proj : source->type;
+    EastValue *rows = is_dict ? east_dict_new(type->data.dict.key, type->data.dict.value)
+                              : east_set_new(type->data.element);
+    if (!rows) {
+        east_builtin_error("out of memory");
+        return NULL;
+    }
+    for (size_t k = 0; k < p->index.count; k++) {
+        EastValue *seg = pages_view_segment(p, k, NULL);
+        if (!seg) {
+            east_value_release(rows);
+            return NULL;
+        }
+        size_t n = is_dict ? east_dict_len(seg) : east_set_len(seg);
+        bool ok = is_dict ? east_dict_extend_sorted(rows, seg, 0, n)
+                          : east_set_extend_sorted(rows, seg, 0, n);
+        east_value_release(seg);
+        if (!ok) {
+            east_value_release(rows);
+            east_builtin_error("out of memory");
+            return NULL;
+        }
+    }
+    return rows;
+}
+
+/* Whether a bound of this type may be read against a key of the pager's:
+ * posts the refusal, in the words every runtime says, when it may not. */
+static bool pages_bound_taken(Beast2Pages *p, EastKeyBoundName name, EastValue *value,
+                              EastType *type)
+{
+    if (!value) return true;
+    EastType *key_type =
+        p->type->kind == EAST_TYPE_DICT ? p->type->data.dict.key : p->type->data.element;
+    if (east_key_bound_type_ok(key_type, type)) return true;
+    char *refusal = east_key_bound_refusal(name, key_type, type);
+    east_builtin_error(refusal ? refusal : "out of memory");
+    free(refusal);
+    return false;
+}
+
+bool east_beast2_pages_range(Beast2Pages *p, EastValue *from, EastType *from_type, bool from_past,
+                             EastValue *to, EastType *to_type, bool to_past, size_t *lo_out,
+                             size_t *hi_out)
+{
+    if (!p || !lo_out || !hi_out) {
+        east_builtin_error("beast2 v5: a range needs a pager and somewhere to put its rows");
+        return false;
+    }
+    *lo_out = 0;
+    *hi_out = 0;
+    if (p->type->kind == EAST_TYPE_ARRAY) {
+        east_builtin_error("beast2 v5: a key range addresses Set and Dict roots");
+        return false;
+    }
+    if (!pages_bound_taken(p, EAST_KEY_BOUND_FROM, from, from_type) ||
+        !pages_bound_taken(p, EAST_KEY_BOUND_TO, to, to_type))
+        return false;
+    B2V5ViewEnd from_end = {from, from_type, from_past};
+    B2V5ViewEnd to_end = {to, to_type, to_past};
+    size_t lo, hi;
+    if (!pages_place_rows(pages_view_source(p), &from_end, &to_end, &lo, &hi)) return false;
+    if (p->view) {
+        /* Rows of the view: placed in its source, held to its own. */
+        if (!pages_view_place(p)) return false;
+        if (lo < p->view->lo) lo = p->view->lo;
+        if (hi > p->view->hi) hi = p->view->hi;
+        if (hi < lo) hi = lo;
+        lo -= p->view->lo;
+        hi -= p->view->lo;
+    }
+    *lo_out = lo;
+    *hi_out = hi;
+    return true;
 }
 
 /* ================================================================== */
@@ -2938,6 +3432,18 @@ EastValue *east_paged_hydrated(EastValue *v)
      * pager decodes it segment by segment. */
     Beast2Pages *pages = v->data.paged.pages;
     long before = east_resident_kb();
+    if (pages->view) {
+        /* A range decodes its own rows and no others, into a collection of
+         * its own that is never frozen; its source is left lazy, and the
+         * cache it reads through as it was. */
+        EastValue *rows = pages_view_decode(pages);
+        if (!rows) return NULL;
+        long added = east_resident_kb() - before;
+        pages->hydrated_kb = added > 0 ? added : 0;
+        rows->iter_lock += v->iter_lock;
+        v->data.paged.hydrated = rows;
+        return rows;
+    }
     /* The whole decode is one call of the collection's entry. */
     east_profile_paged_enter(pages->label);
     EastValue *whole = pages->manifest ? pages_decode_whole(pages, v->data.paged.frozen)
@@ -2958,6 +3464,67 @@ EastValue *east_paged_hydrated(EastValue *v)
     whole->iter_lock += v->iter_lock;
     v->data.paged.hydrated = whole;
     return whole;
+}
+
+EastValue *east_beast2_open_paged_range(EastValue *source, EastValue *from, EastType *from_type,
+                                        bool from_past, EastValue *to, EastType *to_type,
+                                        bool to_past)
+{
+    if (!source || source->kind != EAST_VAL_PAGED || !source->data.paged.pages ||
+        source->data.paged.hydrated) {
+        east_builtin_error("beast2 v5: a paged range is taken of a lazily opened collection "
+                           "that still reads from its pager");
+        return NULL;
+    }
+    Beast2Pages *parent = source->data.paged.pages;
+    if (parent->type->kind == EAST_TYPE_ARRAY) {
+        east_builtin_error("beast2 v5: a key range addresses Set and Dict roots");
+        return NULL;
+    }
+    if (!pages_bound_taken(parent, EAST_KEY_BOUND_FROM, from, from_type) ||
+        !pages_bound_taken(parent, EAST_KEY_BOUND_TO, to, to_type))
+        return NULL;
+    Beast2Pages *p = calloc(1, sizeof(*p));
+    B2V5View *view = calloc(1, sizeof(*view));
+    if (!p || !view) {
+        free(p);
+        free(view);
+        east_builtin_error("out of memory");
+        return NULL;
+    }
+    p->type = parent->type;
+    east_type_retain(p->type);
+    p->cache_head = B2V5_NO_ENTRY;
+    p->cache_tail = B2V5_NO_ENTRY;
+    p->cache_free = B2V5_NO_ENTRY;
+    p->run_last = SIZE_MAX;
+    p->view = view;
+    view->source = pages_view_source(parent);
+    view->parent = parent;
+    view->from.past = from_past;
+    view->to.past = to_past;
+    if (from) {
+        view->from.value = from;
+        east_value_retain(from);
+        view->from.type = from_type;
+        east_type_retain(from_type);
+    }
+    if (to) {
+        view->to.value = to;
+        east_value_retain(to);
+        view->to.type = to_type;
+        east_type_retain(to_type);
+    }
+    /* The view holds the value it narrows, as a lazily opened Blob's
+     * collection holds its Blob: the pagers it reads through outlive it. It
+     * is not frozen, whatever its source is. */
+    EastValue *v = east_paged_new(p, NULL, 0, false, source, NULL, NULL);
+    if (!v) {
+        east_beast2_pages_free(p);
+        east_builtin_error("out of memory");
+        return NULL;
+    }
+    return v;
 }
 
 long east_paged_hydrated_kb(EastValue *v)

@@ -378,6 +378,16 @@ typedef bool (*EastKeyTest)(EastValue *key, void *ctx);
  * it. NULL when `set` is no Set or memory cannot be had. */
 EastValue *east_set_range(EastValue *set, EastKeyTest from, void *from_ctx, EastKeyTest to,
                           void *to_ctx);
+/* Adds the elements at positions [lo, hi) of `from`'s order to the end of
+ * `set`: how a collection is put together from runs that arrive in order — a
+ * key range read a segment at a time (#1616). The run's first element must be
+ * past `set`'s last; then nothing is searched for, each element landing where
+ * the last one ended. The elements are `from`'s own, a reference taken for
+ * each. False, with `set` holding what was added before it, when either is no
+ * Set, the positions are not within `from`, the run does not start past
+ * `set`'s last element, or memory cannot be had. */
+bool east_set_extend_sorted(EastValue *set, EastValue *from, size_t lo, size_t hi);
+
 /* Releases a set's elements and frees its store (and elem_type), nulling the
  * fields. Shared by the refcount release path and the GC cycle-collector. */
 void east_set_release_contents(EastValue *set);
@@ -409,6 +419,13 @@ void east_dict_visit(EastValue *dict, void (*visit)(EastValue *child, void *ctx)
  * had. */
 EastValue *east_dict_range(EastValue *dict, EastKeyTest from, void *from_ctx, EastKeyTest to,
                            void *to_ctx);
+/* Adds the entries at positions [lo, hi) of `from`'s key order to the end of
+ * `dict`, as east_set_extend_sorted adds a set's: the run's first key must be
+ * past `dict`'s last. False, with `dict` holding what was added before it,
+ * when either is no Dict, the positions are not within `from`, the run does
+ * not start past `dict`'s last key, or memory cannot be had. */
+bool east_dict_extend_sorted(EastValue *dict, EastValue *from, size_t lo, size_t hi);
+
 /* Releases a dict's keys+values and frees its store (and key/val types),
  * nulling the fields. Shared by the refcount release path and the GC collector. */
 void east_dict_release_contents(EastValue *dict);

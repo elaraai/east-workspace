@@ -751,6 +751,51 @@ bool east_beast2_intake_file(const char *path, EastType *type, bool ranged, int6
 // Setting it evicts down to it at once.
 void east_beast2_pages_set_cache_budget(Beast2Pages *p, size_t bytes);
 
+// ── A key range of a paged collection (issue #1616) ──────────────────────
+//
+// A range of a lazily opened Set or Dict is a view: a paged value that holds
+// the one it narrows and two bounds, and reads through its source's pager and
+// that pager's one cache. A bound is a leading part of the key
+// (east/key_bound.h): its value and its type, and whether the end is the first
+// key at or past it (`past` false) or the first key past it (`past` true, a
+// prefix's upper end). A NULL bound leaves that end open.
+//
+// Opening a view reads nothing. Its rows are found at the first read that
+// needs them: each end by a bisect of the fences, which reads no segment once
+// they are verified, then a search of the one segment that can hold it,
+// through the cache. Every pager entry then answers for the view's rows: its
+// size, a keyed read (a key outside the bounds is absent, with nothing read),
+// its segments — its first and last through the cache, rows whole; those
+// between them decoded fresh, as a scan's — and a range of it again.
+// east_paged_hydrated on a view decodes its own rows and no others, into a
+// collection of its own, and leaves its source lazy.
+//
+// A view is never frozen, whatever its source is: a range is a new collection
+// a body may change, and changing it decodes its rows and changes those. Its
+// rows decode as the source's do.
+//
+// `source` is a paged value that still reads from its pager, of a Set or Dict
+// root; the view retains it. Returns NULL (message via east_builtin_get_error)
+// when it is not one, or a bound's type is no leading part of the key.
+EastValue *east_beast2_open_paged_range(EastValue *source, EastValue *from, EastType *from_type,
+                                        bool from_past, EastValue *to, EastType *to_type,
+                                        bool to_past);
+// Places a view's ends if they are not yet placed. The entries that have no
+// way to fail — east_beast2_pages_segment_count, _element_count and _counts —
+// answer nothing for a view whose ends cannot be placed, the reason posted, so
+// a caller that reads them asks here first. True at once for a pager that is
+// no view.
+bool east_beast2_pages_prepare(Beast2Pages *p);
+// The rows [*lo_out, *hi_out) of a Set or Dict root between two bounds, in the
+// pager's own row numbering: what a host reads a range of a file by. Bounds
+// are given as east_beast2_open_paged_range takes them. Over a manifest it
+// opens only the segments its ends land in. Refuses where a keyed read
+// refuses — an Array root, segments that are not self-contained, fences that
+// do not ascend — and a bound whose type is no leading part of the key.
+bool east_beast2_pages_range(Beast2Pages *p, EastValue *from, EastType *from_type, bool from_past,
+                             EastValue *to, EastType *to_type, bool to_past, size_t *lo_out,
+                             size_t *hi_out);
+
 // The eager collection behind a paged value, decoding the whole blob on
 // first use (cached on the wrapper; iteration locks carry over). Every read
 // goes to it from then on, so the pager's decoded-segment cache is dropped.
