@@ -16,9 +16,14 @@
  *   alone — `1`, never `1 of 2`, every owner's.
  * - **Emptied**, the Backlog says so plainly: never that the filters match
  *   nothing, and no Clear filters, which could not clear the scope.
+ * - **A run to a rack beyond the scope**, dimmed, is no run of this page: its
+ *   far end, read by key as a run reaching the view draws it, is held to the
+ *   scope and drawn nowhere — not as context — and the frame it reaches is
+ *   joined to none of them.
  *
  * jsdom lays nothing out: the canvas is given the box a page would give it,
- * 1080 × 540 px at the client origin.
+ * 1080 × 540 px at the client origin, and each card a test presses answers at
+ * its centre.
  */
 
 import { expect, test } from "vitest";
@@ -29,13 +34,16 @@ import { Data, Record, Schematic } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/schematic/schematic";
 import { act, e3Harness, settle, slot } from "../e3-web-mount.test-utils.js";
 import { entityId } from "./canvas/drawn.js";
-import { card, layOutCanvas } from "./schematic.test-utils.js";
+import { card, fitted, layOutCanvas, near, tap } from "./schematic.test-utils.js";
 import "./index.js";
 
 const h = e3Harness({ "schematic/schematic": ex }, { main: "data-schematic-canvas" });
 
 // jsdom lays nothing out: the canvas is given the box a page would give it, 1080 × 540 px.
-layOutCanvas();
+const canvasLayout = layOutCanvas();
+
+/** The camera the canvas fits the 28 × 14 m floor with. */
+const CAM = fitted(28, 14);
 
 /** The racks' record, as its dataset's requests name it. */
 const RACKS_DATASET = `records.${ex.schematicRacks.name}`;
@@ -150,4 +158,65 @@ test("emptied, its Backlog says so plainly — never that the filters match noth
     await waitFor(() => expect(emptyState(container)).not.toBeNull());
     expect(emptyState(container)).toEqual(["Nothing in the backlog", null]);
     expect(panel(container).querySelector("[data-library-empty][data-narrowed]")).toBeNull();
+});
+
+/**
+ * The owner's page, dimmed, with the floor's network beside its racks: the frames read whole, and the fibre runs that join
+ * them to the racks — A01 to A04's to ODF-1, every one of a rack another owner is let.
+ */
+const ownerNetwork = (owner: string) => ({ fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const racks = $.let(Record.bind(ex.schematicRacks, ["patch"]));
+    const rackEntries = $.let(Data.bindPaged(ex.schematicRacks));
+    const frames = $.let(Data.bind(ex.schematicFrames));
+    const fibre = $.let(Record.bind(ex.schematicFibre, ["patch"]));
+    const slice = $.let(Slice.bindRecords("schematic.scope.network", {
+        racks: {
+            source: Data.bindPaged(ex.schematicRacks, { indexes: ["schematic_racks_by_owner", "schematic_racks_by_area", "schematic_racks_by_owner_area"] }),
+            scope: { owner: [owner] },
+            fields: {},
+        },
+    }));
+    return Schematic({
+        id: "scope-network",
+        inspector: true,
+        extent: { width: 28, height: 14 },
+        slice: { slice },
+        narrowed: { show: "dim" },
+        items: {
+            racks: Schematic.items(racks, { name: "Rack", icon: "server", x: "x", y: "y", width: "w", height: "h", label: "name", entries: rackEntries }),
+            network: Schematic.items(frames, { name: "Network frame", icon: "network-wired", x: "x", y: "y", width: "w", height: "h", label: "name" }),
+        },
+        links: {
+            fibre: Schematic.links(fibre, {
+                name: "Fibre run", icon: "bolt",
+                from: { field: "from", of: { rack: "racks", frame: "network" } }, to: { field: "to", of: { rack: "racks", frame: "network" } },
+            }),
+        },
+    });
+}))) });
+
+/** What Details lists an item joined to, by the entities' ids. */
+const joins = (container: HTMLElement) => [...slot(container, "end").querySelectorAll("[role='tabpanel']:not([hidden]) [data-inspector-join]")]
+    .map((el) => el.getAttribute("data-inspector-join"));
+
+test("dimmed, a fibre run from a rack the page's scope leaves out is no run of this page: its far end, read by key, is held to the scope — drawn neither as itself nor as context — and the frame it reaches is joined to none (#1621)", async () => {
+    const before = h.requests("rows", RACKS_DATASET).length;
+    const { container } = await h.mount(ownerNetwork("Elmway College"));
+    await settle();
+    await waitFor(() => expect(card(container, "network", "ODF-1")).not.toBeNull());
+    await waitFor(() => expect(card(container, "racks", "A05")).not.toBeNull());
+    // The runs reach ODF-1, which the view draws: their far ends, A01 to A04, read by key.
+    await waitFor(() => expect(h.requests("rows", RACKS_DATASET).length).toBeGreaterThan(before));
+    await settle();
+    // Held to the scope, none of them is drawn: the owner's rack alone, as itself.
+    expect(drawnRacks(container)).toEqual(["A05"]);
+    expect(card(container, "racks", "A05")!.hasAttribute("data-context")).toBe(false);
+    // ODF-1, tapped: it is joined to no run, each running from a rack this page does not hold.
+    const canvas = container.querySelector<HTMLElement>("[data-schematic-canvas]")!;
+    const odf = card(container, "network", "ODF-1")!;
+    canvasLayout.hits((px, py) => (near(CAM, px, py, 8.4, 9.6) ? odf : px >= 0 && px < 1080 && py >= 0 && py < 540 ? canvas : null));
+    fireEvent.pointerEnter(canvas);
+    await tap(canvas, CAM, 8.4, 9.6);
+    await waitFor(() => expect(odf.hasAttribute("data-selected")).toBe(true));
+    expect(joins(container)).toEqual([]);
 });

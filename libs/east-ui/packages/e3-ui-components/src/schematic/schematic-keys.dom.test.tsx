@@ -26,7 +26,8 @@
  *   changes what its key reads, its links with it — a Shift session growing
  *   its line where it moved (#1584) — and a key another row holds refusing
  *   the gesture, naming that row — as the rail's filters hiding a link that
- *   may name it does (#1580), while a Save of the links naming it, on its
+ *   may name it does (#1580), and a page's scope holding only some links, in
+ *   the page's words (#1621), while a Save of the links naming it, on its
  *   way, refuses nothing: the row moves, its links with it, left to save
  *   (#1584);
  *   by DateTime, a placeholder — Save waiting, Issues listing it, Connect
@@ -511,6 +512,46 @@ describe("a new row's key, as its kind's key type makes it (#1549)", () => {
         expect(printFor(fx.placedSpots.type)(await h.read(fx.placedSpots))).toBe(printFor(fx.placedSpots.type)(placed));
         expect(printFor(fx.keyedRopes.type)(await h.read(fx.keyedRopes)))
             .toBe(printFor(fx.keyedRopes.type)(withRows(ropes, compareNumber, [[1n, { from: { row: 1n, col: 1n }, to: { row: 1n, col: 3n }, note: "Along row 1" }]])));
+    });
+
+    test("keyed by row and column, on a page whose ropes are scoped to one note, a column edited is refused in the page's words — it holds only some ropes — hidden or dimmed alike, and nothing is recorded: no choice of the viewer's clears the scope (#1621)", async () => {
+        const spot = printFor(fx.SpotKey);
+        const said = m.keyRefused({ refusal: "unheld", name: "1-2", kind: "rope", why: "scoped" });
+        expect(said).toBe("1-2 isn't changed: this page holds only some ropes, and one it does not may name it — edit it where they are all held");
+        for (const show of ["hide", "dim"] as const) {
+            const ui = await h.mount({ fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+                // The ropes scoped to the note "Along row 1": the page holds that rope, and the rail offers no field.
+                const slice = $.let(Slice.bindRecords(`schematic.keyed.scopedRopes.${show}`, {
+                    ropes: { source: Data.bindPaged(fx.keyedRopes, { indexes: ["schematic_keyed_ropes_by_note"] }), scope: { note: ["Along row 1"] } },
+                }));
+                const spotsBound = $.let(Record.bind(fx.placedSpots));
+                const ropesBound = $.let(Record.bind(fx.keyedRopes));
+                const ropeEntries = $.let(Data.bindPaged(fx.keyedRopes));
+                return Schematic({
+                    id: `keyedScopedRopes-${show}`,
+                    inspector: true,
+                    extent: fx.KEYED_FLOOR,
+                    slice: { slice },
+                    narrowed: { show },
+                    items: { spots: Schematic.items(spotsBound, { name: "Spot", icon: "pallet", x: "x", y: "y", label: "name", key: (row) => ({ row: row.row, col: row.col }) }) },
+                    links: { ropes: Schematic.links(ropesBound, { name: "Rope", icon: "link", from: { field: "from", of: "spots" }, to: { field: "to", of: "spots" }, entries: ropeEntries }) },
+                });
+            }))) });
+            const c = ui.container;
+            await settle();
+            await waitFor(() => expect(card(c, "spots", spot({ row: 1n, col: 2n }))).not.toBeNull());
+            await waitFor(() => expect(drawingCounts(c)["links"], show).toBe("1"), { timeout: 10_000 });
+            // 1-2's column edited to 3: refused, in the page's words, and the form shows its column again.
+            const canvas = canvasOf(c);
+            hits(c, [["spots", spot({ row: 1n, col: 2n }), 22, 3]]);
+            await tap(canvas, CAM, 22, 3);
+            await waitFor(() => expect(isSelected(c, "spots", spot({ row: 1n, col: 2n }))).toBe(true));
+            await retypeNumber(c, "row", "col", "3");
+            expect(refused(c), show).toBe(said);
+            expect(unsaved(c), show).toBe(false);
+            expect(within(field(c, "row", "col")).getByRole<HTMLInputElement>("spinbutton").value, show).toBe("2");
+            ui.unmount();
+        }
     });
 
     test("keyed by row and column, a column edited while the ropes' Save is on its way is taken as any other — a Save never stops the editing: the spot moves under its new key, still selected, and the rope along row 1 follows it, drafted beside the Save's own rope; the Save landed, the move is what is left to save, and Save writes both (#1584)", async () => {

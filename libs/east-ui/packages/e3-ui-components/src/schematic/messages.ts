@@ -177,8 +177,9 @@ export interface SchematicMessages extends PagedLoadingMessages, HiddenWords {
     keyPlaceholder: (p: { name: string }) => string;
     /**
      * Why a gesture records nothing (#1549), in the footer — `A fibre run A01 → ODF-1 is there already`, `A01 isn't changed:
-     * the filters hide some fibre runs that may name it — clear them, then try again` (#1580), `A01 isn't changed: the
-     * fibre runs naming it take no edit now — try again in a moment` (#1584).
+     * the filters hide some fibre runs that may name it — clear them, then try again` (#1580), `A01 isn't changed: this page
+     * holds only some fibre runs, and one it does not may name it — edit it where they are all held` (#1621), `A01 isn't
+     * changed: the fibre runs naming it take no edit now — try again in a moment` (#1584).
      */
     keyRefused: (p: SchematicKeyRefusalWord) => string;
     /** A gesture's label in the history: what it did, and to how many. */
@@ -373,14 +374,15 @@ export type SchematicDropRefusalWord =
  * the key a row builds, by its kind's name and its own, as running text writes
  * them; a kind adding no row, its keys of a type the form can't type; an item
  * whose key would move, by its name, while some rows of a link or net kind that
- * may name it — by its name, as running text writes it — the filters hide or
- * aren't read (#1580), or those naming it take no edit now (#1584); or a row
- * whose key would move while its kind's details take no edit now (#1584).
+ * may name it — by its name, as running text writes it — the filters hide,
+ * aren't read (#1580) or lie beyond the page's scope (#1621), or those naming it
+ * take no edit now (#1584); or a row whose key would move while its kind's
+ * details take no edit now (#1584).
  */
 export type SchematicKeyRefusalWord =
     | { readonly refusal: "taken"; readonly kind: string; readonly name: string }
     | { readonly refusal: "untyped"; readonly kind: string; readonly type: string }
-    | { readonly refusal: "unheld"; readonly name: string; readonly kind: string; readonly why: "filtered" | "unread" | "busy" }
+    | { readonly refusal: "unheld"; readonly name: string; readonly kind: string; readonly why: "filtered" | "scoped" | "unread" | "busy" }
     | { readonly refusal: "details"; readonly name: string; readonly kind: string };
 
 /** A tab of the library, as its words name it: its own, or an author's (`tab`). */
@@ -521,6 +523,8 @@ export function schematicMessagesOf(v: SchematicVocabulary): SchematicMessages {
                 case "untyped": return keysUntyped(p.kind, p.type);
                 case "unheld": return `${p.name} isn't changed: ${({
                     filtered: `the filters hide some ${p.kind}s that may name it — clear them, then try again`,
+                    // A page's scope (#1621) is no filter of the viewer's: no choice clears it.
+                    scoped: `this page holds only some ${p.kind}s, and one it does not may name it — edit it where they are all held`,
                     unread: `some ${p.kind}s that may name it aren't read — try again once they are`,
                     busy: `the ${p.kind}s naming it take no edit now — try again in a moment`,
                 })[p.why]}`;
