@@ -19,8 +19,10 @@
  *   placed or deleted, drawn as drafted; a row a draft only edits draws as
  *   drafted, in place.
  * - **Its count** ({@link SchematicBacklogPages.count}): the rows it lists, and
- *   — while a narrowing an area index leads narrows them — `N of M`, every row
- *   with no position the kinds hold.
+ *   — while a choice an area index leads narrows them — `N of M`, every row
+ *   with no position the kinds hold. On a page whose sources hold a scope
+ *   (#1621), that is every such row the scope holds: the scope is no choice of
+ *   the viewer's, so it alone says `N`.
  * - **What a card drops** ({@link SchematicBacklogPages.card}): each row it has
  *   listed and not as context, placed where it lands — its row, as its page
  *   read it at its revision, the original a gesture rewrites (the frame's
@@ -33,7 +35,9 @@
  */
 
 import { SortedMap, StringType, compareFor, equalFor, none, printFor, some, variant, type ValueTypeOf, type option } from "@elaraai/east";
-import { RecordSliceWhereType, type RecordSliceBindType, type RecordSliceEntry, type RecordSliceReadType } from "@elaraai/east-ui/internal";
+import {
+    RecordSliceWhereType, recordChoicesOf, recordScopedWhere, type RecordSliceBindType, type RecordSliceEntry, type RecordSliceReadType,
+} from "@elaraai/east-ui/internal";
 import { schematicUnplacedPlan, type SchematicAreaIndexes, type SchematicUnplacedPlan } from "@elaraai/e3-ui/internal";
 import { recordSlicePage, recordSliceRevision, recordSliceWithin, type LibraryPageSource } from "@elaraai/east-ui-components/internal";
 import type { BacklogEntry } from "./backlog.js";
@@ -55,8 +59,18 @@ const compareString = compareFor(StringType);
 const stringEqual = equalFor(StringType);
 const printWhere = printFor(RecordSliceWhereType);
 
-/** The rows with no position, whatever the narrowing: what `M` counts. */
-const UNPLACED: Read = { where: new SortedMap([], compareString), area: some(variant("unplaced", null)) };
+/** A read by area's clause for the rows with no position. */
+const UNPLACED: Read["area"] = some(variant("unplaced", null));
+/** No choice of the viewer's. */
+const NO_CHOICES: Read["where"] = new SortedMap([], compareString);
+
+/**
+ * A kind's rows with no position, whatever the viewer's choices — those its page's scope holds (#1621), which no
+ * choice changes: what `M` counts.
+ */
+function unplacedOf(part: Part): Read {
+    return { where: recordScopedWhere(part.config.scope, NO_CHOICES), area: UNPLACED };
+}
 
 /** The most cards the list keeps for what a drop finds them by, past which the oldest go: the pages around the view hold far fewer. */
 const MAX_SERVED = 4_096;
@@ -79,13 +93,13 @@ export interface BacklogPageRow {
     readonly context: boolean;
 }
 
-/** What the paged Backlog counts: the rows it lists, every row with no position, and whether a narrowing narrows the list. */
+/** What the paged Backlog counts: the rows it lists, every row with no position, and whether a choice narrows the list. */
 export interface BacklogPageCount {
     /** The rows it lists. */
     readonly shown: number;
-    /** Every row with no position the kinds hold, the rows in hand among them. */
+    /** Every row with no position the kinds hold — under their page's scope, on a scoped page (#1621) — the rows in hand among them. */
     readonly total: number;
-    /** Whether a narrowing an area index leads narrows what it lists. */
+    /** Whether a choice of the viewer's an area index leads narrows what it lists: a page's scope is none (#1621). */
     readonly narrowing: boolean;
 }
 
@@ -180,10 +194,11 @@ export class SchematicBacklogPages implements LibraryPageSource<BacklogPageRow> 
         for (const [i, kind] of this.kinds.entries()) {
             shown += Number(counts[i]!);
             const plan = this.planOf(kind);
-            // Only the choices the index leads narrow the list — any its read holds: the rest draw what they leave out as context.
-            if (plan.read.where.size > 0) {
+            // Only the choices the index leads narrow the list — any its read holds beyond its page's scope (#1621), which is
+            // no choice of the viewer's: the rest draw what they leave out as context.
+            if (recordChoicesOf(kind.part.config.scope, plan.read.where).size > 0) {
                 narrowing = true;
-                const all = kind.part.countWhere(UNPLACED);
+                const all = kind.part.countWhere(unplacedOf(kind.part));
                 if (all.type !== "some") return undefined;
                 total += Number(all.value);
             } else {

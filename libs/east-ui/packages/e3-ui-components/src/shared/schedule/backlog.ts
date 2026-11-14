@@ -12,12 +12,16 @@
  * those choices alone, each source keeping its window. The Calendar's and the
  * Plan's Backlog tabs read it.
  *
+ * A source's page's scope (#1621) is no choice of the viewer's: the rows it
+ * holds are the source's whole. A backlog on a scoped page counts out of the
+ * scope's unscheduled events, and the scope alone narrows nothing it says.
+ *
  * @packageDocumentation
  */
 
 import { useCallback, useMemo } from "react";
 import { DateTimeType, OptionType, SortedMap, StringType, compareFor, equalFor, none, printFor, some, variant, type ValueTypeOf } from "@elaraai/east";
-import type { RecordSliceBindType, RecordSliceChoiceType, RecordSliceWhereType } from "@elaraai/east-ui/internal";
+import { recordChoicesOf, type RecordSliceBindType, type RecordSliceChoiceType, type RecordSliceWhereType } from "@elaraai/east-ui/internal";
 import { useSlicesReactivity, useTrackedEvaluation } from "@elaraai/east-ui-components";
 
 /** One record Slice's controls. */
@@ -62,13 +66,27 @@ export function backlogWhere(where: ValueTypeOf<RecordSliceWhereType>, start: st
 }
 
 /**
- * A kind's start Unset alone: every unscheduled event its record holds, whatever its source's choices.
+ * A kind's start Unset under its page's scope alone (#1621): every unscheduled event its source holds, whatever the
+ * viewer's choices — on a page with no scope, every one its record holds.
  *
+ * @param scope - The source's page's scope (`config.scope`), empty on a page that holds none
  * @param start - The kind's start field
  * @returns The narrowing
  */
-export function backlogWhole(start: string): SortedMap<string, ValueTypeOf<RecordSliceChoiceType>> {
-    return new SortedMap([[start, UNSET]], compareString);
+export function backlogWhole(scope: ValueTypeOf<RecordSliceWhereType>, start: string): SortedMap<string, ValueTypeOf<RecordSliceChoiceType>> {
+    return backlogWhere(scope, start);
+}
+
+/**
+ * Whether the viewer's choices narrow a kind's backlog: a choice of theirs in force but its window, which a backlog
+ * event has none of. Its page's scope is none (#1621): the viewer neither made it nor can clear it.
+ *
+ * @param part - The kind's source's part of the slice
+ * @param start - The kind's start field
+ * @returns Whether a choice of the viewer's narrows the backlog
+ */
+export function backlogNarrowed(part: Pick<Bind, "config" | "read">, start: string): boolean {
+    return [...recordChoicesOf(part.config.scope, part.read().where).keys()].some((field) => !stringEqual(field, start));
 }
 
 /**
@@ -80,7 +98,7 @@ export function backlogWhole(start: string): SortedMap<string, ValueTypeOf<Recor
 export function useBacklogNarrowing<P extends BacklogPart>(eventParts: readonly P[]): BacklogNarrowing<P> {
     const parts = useMemo(() => eventParts.filter(({ kind }) => kind.backlog), [eventParts]);
     const version = useSlicesReactivity(parts.map(({ part }) => part.key));
-    const narrowing = useMemo(() => parts.filter(({ kind, part }) => [...part.read().where.keys()].some(field => !stringEqual(field, kind.schedule.start))),
+    const narrowing = useMemo(() => parts.filter(({ kind, part }) => backlogNarrowed(part, kind.schedule.start)),
         // `version` moves with each source's choices.
         // eslint-disable-next-line react-hooks/exhaustive-deps
         [parts, version]);
@@ -88,8 +106,8 @@ export function useBacklogNarrowing<P extends BacklogPart>(eventParts: readonly 
         let hidden = 0n;
         for (const { kind, part } of narrowing) {
             const start = kind.schedule.start;
-            // Each a read of a narrowing alone, never a read by area (#1432).
-            const all = part.countWhere({ where: backlogWhole(start), area: none });
+            // Each a read of a narrowing alone, never a read by area (#1432); the whole is the page's scope's (#1621).
+            const all = part.countWhere({ where: backlogWhole(part.config.scope, start), area: none });
             const shown = part.countWhere({ where: backlogWhere(part.read().where, start), area: none });
             if (all.type === "none" || shown.type === "none") return none;
             hidden += all.value - shown.value;

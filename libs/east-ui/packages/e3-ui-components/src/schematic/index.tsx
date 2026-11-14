@@ -155,7 +155,7 @@
 import { memo, useCallback, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Box, Button, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { ArrayType, StringType, compareFor, equalFor, equivalentFor, none, printFor, some, type EastType, type PatchPath, type option } from "@elaraai/east";
-import { RecordSliceWhereType } from "@elaraai/east-ui/internal";
+import { RecordSliceWhereType, recordChoicesOf } from "@elaraai/east-ui/internal";
 import { Schematic, schematicAreaIndexes, schematicKeys } from "@elaraai/e3-ui/internal";
 import {
     BannerView, BuilderFrame, SessionBanners, editingMessages, focusKeySearch, getSomeorUndefined, historyShortcut, historyToolbarItem,
@@ -775,14 +775,15 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     const backlogArea = useMemo(() => ({ kinds: areas, held: drafted }), [areas, drafted]);
     const backlog = useMemo(() => backlogEntries(value.items, data.unplaced, data.held, editing.drafts.items, backlogArea)
         .filter((entry) => !narrowing.isContext(entry.ref)), [value.items, data.unplaced, data.held, editing.drafts.items, backlogArea, narrowing]);
-    // An item kind with a backlog read through its source: while the rail narrows one, the Backlog says so, with Clear filters.
+    // An item kind with a backlog read through its source: while a choice on the rail narrows one, the Backlog says so, with
+    // Clear filters. A page's scope (#1621) is no choice, and no Clear clears it.
     const backlogParts = useMemo(() => value.items.flatMap((kind) => {
         const part = kind.backlog ? sourcePart(chrome, kind.key) : undefined;
         return part === undefined ? [] : [part];
     }), [value.items, chrome]);
     const backlogVersion = useSlicesReactivity(backlogParts.map((part) => part.key));
     const backlogNarrowing = useMemo((): SchematicBacklogNarrowing => {
-        const narrowing = backlogParts.filter((part) => part.read().where.size > 0);
+        const narrowing = backlogParts.filter((part) => recordChoicesOf(part.config.scope, part.read().where).size > 0);
         return { narrows: narrowing.length > 0, clear: narrowing.length === 0 ? undefined : () => { for (const part of narrowing) part.clearAll(); } };
         // `backlogVersion` moves with each source's choices.
         // eslint-disable-next-line react-hooks/exhaustive-deps
