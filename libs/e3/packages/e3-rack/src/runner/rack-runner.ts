@@ -81,6 +81,9 @@ export async function openRackRunner(options: OpenRackRunnerOptions): Promise<Ra
   const takeSummary = () => tally.take();
   let session: RackSession | undefined;
   let slots = 0;
+  // Whether every compatible rack admits work by its resources, and so caps
+  // each unit at what its lease asks.
+  let capped = false;
   const gib = (bytes: number) => `${Math.round(bytes / 1024 ** 3 * 10) / 10} GiB`;
   let description: (formatBytes: (bytes: number) => string) => string = () => 'No healthy compatible rack; running locally';
   const describe = (formatBytes: (bytes: number) => string = gib) => description(formatBytes);
@@ -101,6 +104,7 @@ export async function openRackRunner(options: OpenRackRunnerOptions): Promise<Ra
         const racks = compatibleRacks(capacity);
         enrolled = capacity.racks.length;
         slots = racks.reduce((sum, rack) => sum + rackWidth(rack), 0);
+        capped = racks.length > 0 && racks.every((rack) => rackResources(rack) !== undefined);
         const text = racks.length > 0 ? undefined
           : capacity.racks.length === 0 ? 'No connected rack; running locally'
             : `No healthy compatible rack; running locally (${capacity.racks.map((rack) => `${rack.label}: ${rack.problem.type === 'some' ? rack.problem.value : rack.pendingApproval ? 'boot needs approval' : !rack.healthy ? 'unhealthy' : rack.bundledE3.type === 'none' ? 'bundled e3 version missing' : `e3 ${rack.bundledE3.value} is incompatible`}`).join(', ')})`;
@@ -112,7 +116,7 @@ export async function openRackRunner(options: OpenRackRunnerOptions): Promise<Ra
           return all === undefined ? `${rack.label} (${Number(rack.capacity)} slots, ${e3})`
             : `${rack.label} (${all.cores} ${all.cores === 1 ? 'core' : 'cores'}, ${formatBytes(all.memoryBytes)}${all.gpus > 0 ? `, ${all.gpus} ${all.gpus === 1 ? 'GPU' : 'GPUs'}` : ''}, ${e3})`;
         }).join(', ');
-      } catch (error) { slots = 0; enrolled = 0; const text = `Rack unavailable: ${error instanceof Error ? error.message : String(error)}; running locally`; description = () => text; }
+      } catch (error) { slots = 0; capped = false; enrolled = 0; const text = `Rack unavailable: ${error instanceof Error ? error.message : String(error)}; running locally`; description = () => text; }
       return slots;
     };
     // Waits for an enrolled rack to report healthy, up to the deadline. With
@@ -125,7 +129,12 @@ export async function openRackRunner(options: OpenRackRunnerOptions): Promise<Ra
     } while (Date.now() <= deadline);
     const runner = new LocalTaskRunner(options.repoPath, options.budget, { ...options.settings,
       body: createRackBody({ session: attached, policy, workspace: options.workspace, rackOnly: options.rackOnly,
-        onPlacement: (event) => { tally.add(event); options.onPlacement?.(event); } }) });
+        onPlacement: (event) => { tally.add(event); options.onPlacement?.(event); } }),
+      // Racks that cap each unit stop one that outgrows what it was started
+      // expecting, and the body leases it again asking more: a split task's
+      // stage then queues every unit at once, as a guarded local run starts
+      // them. Read as each stage starts, from the latest snapshot.
+      get bodyStopsUnits() { return capped; } });
     return { runner, get rackSlots() { return slots; }, describe, refreshSlots, takeSummary, close: () => attached.close() };
   } catch (error) {
     await session?.close().catch(() => {});

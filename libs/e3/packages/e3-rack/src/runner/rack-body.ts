@@ -26,10 +26,16 @@ import type { RackResources } from '../protocol/rack-json.js';
  * - `waiting`: its lease is queued, and no rack has room for what it asks
  *   now. `rackLabel` is the rack with the most memory free, and `free` what
  *   that rack has, when it admits by its resources. A lease that waited says
- *   for how long once a rack claims it (`waitedMs`).
+ *   for how long once a rack claims it (`waitedMs`);
+ * - `outgrew`: its rack stopped it at its cap. A unit of a split task runs
+ *   again under a larger one (`againBytes`); a whole task does not, and
+ *   fails.
+ *
+ * A claim says what the lease asked of its rack (`needs`).
  */
 export type RackPlacementEvent =
-  | { kind: 'placed'; taskName: string; role: 'task' | 'unit'; where: 'rack'; rackLabel: string; leaseId: string; waitedMs?: number }
+  | { kind: 'placed'; taskName: string; role: 'task' | 'unit'; where: 'rack'; rackLabel: string; leaseId: string; needs?: RackLeaseResources; waitedMs?: number }
+  | { kind: 'outgrew'; taskName: string; role: 'task' | 'unit'; where: 'rack'; rackLabel: string; leaseId: string; capBytes: number; againBytes?: number }
   | { kind: 'waiting'; taskName: string; role: 'task' | 'unit'; where: 'rack'; rackLabel: string; leaseId: string; needs: RackLeaseResources; free?: RackResources }
   | { kind: 'placed'; taskName: string; role: 'task' | 'unit'; where: 'local'; reason: string; detail?: RackReason }
   | { kind: 'retried'; taskName: string; role: 'task' | 'unit'; where: 'rack'; rackLabel: string; leaseId: string; retry: RackTransferRetry };
@@ -68,9 +74,11 @@ export interface RackBodyOptions {
  * @remarks
  * A unit of a split task takes one core and the cap e3-core gives a local
  * unit that expects the same peak (`unitCap`): half as much again as it is
- * expected to need. A unit nothing has measured yet is given its rule's
- * memory limit, else its size's memory. A whole task takes its size's cores,
- * and its rule's memory limit, else its size's memory, as its cap.
+ * expected to need. A unit nothing has measured yet — it expects nothing, or
+ * what it expects is a guess from what it holds of its rows, which e3-core
+ * does not cap a local unit by either — is given its rule's memory limit,
+ * else its size's memory. A whole task takes its size's cores, and its rule's
+ * memory limit, else its size's memory, as its cap.
  *
  * @param request - The task body or unit
  * @param verdict - Its rule's size, memory limit and GPU
@@ -82,7 +90,7 @@ export function leaseResources(request: Pick<TaskBodyRequest, 'unit' | 'options'
   const fallback = verdict.memoryLimit ?? size.memoryBytes;
   if (request.unit === undefined) return { kind: 'task', cores: size.cores, memoryBytes: fallback, gpu: verdict.gpu };
   const expected = request.options.expectedPeakBytes;
-  if (expected === undefined) return { kind: 'unit', cores: 1, memoryBytes: fallback, gpu: verdict.gpu };
+  if (expected === undefined || expected <= 0 || request.options.expectedPeakGuessed === true) return { kind: 'unit', cores: 1, memoryBytes: fallback, gpu: verdict.gpu };
   const cap = unitCap(expected);
   if (verdict.memoryLimit !== null && cap > verdict.memoryLimit) return { code: 'memory-limit-exceeded', needsBytes: cap, limitBytes: verdict.memoryLimit };
   return { kind: 'unit', cores: 1, memoryBytes: cap, gpu: verdict.gpu };
@@ -156,17 +164,23 @@ export function createRackBody(options: RackBodyOptions): TaskBodyExecutor {
     if (compatibleRacks(session.capacity(), verdict.tier).length === 0) return runLocal(`no-rack-for-tier:${verdict.tier}`);
     // A unit whose cap would pass its rule's limit is not a rack's: a unit is
     // pure, and runs under the local budget instead.
-    const resources = leaseResources(request, verdict);
-    if ('code' in resources) return runLocal(resources.code, resources);
+    const asked = leaseResources(request, verdict);
+    if ('code' in asked) return runLocal(asked.code, asked);
+    // What the lease asks: a unit its cap stopped asks more of its next lease.
+    let resources: RackLeaseResources = asked;
     // Work no rack could hold, with nothing else on it, is not queued: it
     // would wait for ever. For want of memory it runs locally by that name.
-    const fleet = compatibleRacks(session.capacity(), verdict.tier);
-    if (!fleet.some((rack) => rackCouldHold(rack, resources))) {
+    const unheld = (needs: RackLeaseResources): (() => Promise<ExecutionResult>) | null => {
+      const fleet = compatibleRacks(session.capacity(), verdict.tier);
+      if (fleet.length === 0) return () => runLocal('fallback:rack-unavailable');
+      if (fleet.some((rack) => rackCouldHold(rack, needs))) return null;
       const most = Math.max(...fleet.map((rack) => rackResources(rack)?.memoryBytes ?? 0));
-      return resources.memoryBytes > most
-        ? runLocal('memory-limit-exceeded', { code: 'memory-limit-exceeded', needsBytes: resources.memoryBytes, limitBytes: most })
-        : runLocal(`no-rack-holds:${resources.gpu ? 'gpu' : `${resources.cores}-cores`}`);
-    }
+      return () => needs.memoryBytes > most
+        ? runLocal('memory-limit-exceeded', { code: 'memory-limit-exceeded', needsBytes: needs.memoryBytes, limitBytes: most })
+        : runLocal(`no-rack-holds:${needs.gpu ? 'gpu' : `${needs.cores}-cores`}`);
+    };
+    const never = unheld(resources);
+    if (never !== null) return never();
     const canSpill = () => policy.spill && !options.rackOnly && localIdle(request);
     // How many more leases asking this much the compatible racks hold in the
     // latest snapshot, less the work already queued for them.
@@ -180,6 +194,10 @@ export function createRackBody(options: RackBodyOptions): TaskBodyExecutor {
         request.unit === undefined ? request.inputHashes : stagedObjects(request.unit.inputs, request.unit.merge));
       const closure = await recordClosure(request.storage, request.repo, hashes);
       const timeoutMs = Math.min(verdict.timeoutMinutes * 60000, request.options.timeout ?? Infinity);
+      // A lease at a time, as the local body runs an attempt at a time: a
+      // unit its cap stopped is leased again asking for more.
+      leases: for (;;) {
+      handle = undefined;
       const common = { launchId: uuidv7(), repo: session.repoAlias, timeoutMs,
         taskHash: request.taskHash, force: true, verbose: request.options.verbose === true,
         ...(request.options.expectedPeakBytes !== undefined && { expectedPeakBytes: request.options.expectedPeakBytes }) };
@@ -240,7 +258,7 @@ export function createRackBody(options: RackBodyOptions): TaskBodyExecutor {
           untee = session.onLog(update.attempt.executionId, (stream, text) => {
             if (stream === 'stdout') request.options.onStdout?.(text); else request.options.onStderr?.(text);
           });
-          options.onPlacement?.({ kind: 'placed', ...placement, where: 'rack', rackLabel, leaseId: handle.leaseId,
+          options.onPlacement?.({ kind: 'placed', ...placement, where: 'rack', rackLabel, leaseId: handle.leaseId, needs: resources,
             ...(waitingSince !== undefined && { waitedMs: Date.now() - waitingSince }) });
           waitingSince = undefined;
           next = handle.next();
@@ -266,6 +284,34 @@ export function createRackBody(options: RackBodyOptions): TaskBodyExecutor {
           : reason.cause === undefined && reason.detail === undefined && text !== undefined ? `${reason.code}: ${text}` : describeRackReason(reason)}`, reason);
         const duration = () => Date.now() - request.ids.startTime;
         const peak = result.peakBytes !== undefined ? { peakBytes: result.peakBytes } : {};
+        if (reason?.code === 'outgrew-cap') {
+          const cap = reason.capBytes ?? resources.memoryBytes;
+          if (resources.kind === 'unit') {
+            // The rack stopped the unit at its cap, as its cgroup's cap stops
+            // a local one, which then runs again under a cap half as large
+            // again. So does this one, on its next lease: unless that would
+            // pass its rule's limit, or what any rack could hold, when it
+            // runs locally, under the local budget.
+            const again = unitCap(cap);
+            request.options.onRequeued?.({ reason: 'cap', peak: cap, reserves: cap });
+            options.onPlacement?.({ kind: 'outgrew', ...placement, where: 'rack', rackLabel, leaseId, capBytes: cap, againBytes: again });
+            untee?.(); untee = undefined;
+            if (verdict.memoryLimit !== null && again > verdict.memoryLimit) {
+              return await runLocal('memory-limit-exceeded', { code: 'memory-limit-exceeded', needsBytes: again, limitBytes: verdict.memoryLimit });
+            }
+            const larger = { ...resources, memoryBytes: again };
+            const nowhere = unheld(larger);
+            if (nowhere !== null) return await nowhere();
+            resources = larger;
+            continue leases;
+          }
+          // A whole task e3 does not run again: its cap stopped it, and that
+          // is its failure, as a task the local guard stops fails.
+          options.onPlacement?.({ kind: 'outgrew', ...placement, where: 'rack', rackLabel, leaseId, capBytes: cap });
+          if (policy.retryTaskFailuresLocally) return await fallback(result.error, 'the task outgrew its cap');
+          return { inputsHash: request.ids.inHash, executionId: attempt.executionId, cached: false, state: 'failed', outputHash: null, exitCode: -1, duration: duration(),
+            error: `memory-limit-exceeded: the task outgrew its cap of ${Math.round(cap / 1024 ** 2)} MiB on rack ${rackLabel}; raise --memory-limit or --size`, cancelled: false, ...peak };
+        }
         if (result.cancelled === true) {
           // To e3-core a cancelled result is its own abort's: the task goes back
           // to pending, and a loop that was not aborted launches it again at
@@ -291,6 +337,7 @@ export function createRackBody(options: RackBodyOptions): TaskBodyExecutor {
         if (state === 'error' ? !timedOut : policy.retryTaskFailuresLocally) return await fallback(result.error, 'rack execution failed');
         return { inputsHash: request.ids.inHash, executionId: attempt.executionId, cached: false, state, outputHash: null,
           exitCode: result.exitCode ?? null, duration: duration(), error: result.error ?? null, cancelled: false, ...peak };
+      }
       }
     } catch (error) {
       if (leavingRack) throw error;

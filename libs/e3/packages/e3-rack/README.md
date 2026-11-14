@@ -298,11 +298,12 @@ rack work up as it ends:
 
 ```text
 Rack: workshop (56 cores, 262 GB, 1 GPU, e3 1.0.108)
-  [RACK] train_model → workshop
+  [RACK] train_model → workshop (cap 16 GB)
   [RACK] train_model input transfer retried (2 of 5): connection reset
   [RACK] embed_rows waiting: needs 16 GB, workshop has 9 GB free
+  [RACK] score_rows outgrew its 3 GB cap on workshop: runs again under 4.5 GB
   [LOCAL] score_rows (input-transfer-failed: connection reset)
-Rack summary: 1 task and 12 units on workshop · 0 waited for capacity · 1 transfer retried · 1 ran locally
+Rack summary: 1 task and 12 units on workshop · 1 waited for capacity (longest 38 s) · 1 ran again (cap) · 1 transfer retried · 1 ran locally
 ```
 
 | `reason.code` | Carries | Who sets it | The work |
@@ -311,8 +312,8 @@ Rack summary: 1 task and 12 units on workshop · 0 waited for capacity · 1 tran
 | `guest-crashed` | `detail` | The rack. | Runs locally: a rack's fault never fails a run. |
 | `source-unreachable` | `ms` | The rack. | Runs locally. |
 | `task-error` | | The rack: the task's own failure. | Its failure is its verdict, unless the policy retries failures locally. |
-| `outgrew-cap` | `capBytes`, `peakBytes` | The rack, when the cap stopped the work. | Reserved for work a rack caps. |
-| `memory-limit-exceeded` | `needsBytes`, `limitBytes` | The launching machine. | Reserved for work a rack caps. |
+| `outgrew-cap` | `capBytes`, `peakBytes` | The rack, when the cap stopped the work. | A unit of a split task is leased again under a cap half as large again, and its stopped attempt is no failure in the task's history. A whole task fails, `memory-limit-exceeded (cap 16 GB); raise --memory-limit or --size`, and is not run again unless the policy retries failures locally. |
+| `memory-limit-exceeded` | `needsBytes`, `limitBytes` | The launching machine. | A unit whose cap would pass its rule's `--memory-limit`, or every rack's memory, runs locally, under the local budget. |
 | `requeued-pressure` | `peakBytes` | A rack that runs several units in one VM. | Reserved. |
 
 A result also lists the tries of its transfers that failed and were followed
@@ -343,6 +344,29 @@ workshop  01a1da04-228  node,py  3/56  0.6.0+e3.1.0.108  1.0.108  2026-11-14T12:
 
 A rack that reports no resources admits by its slots, as before: its row
 shows `-`, and its work is counted in slots.
+
+### A split task on a rack
+
+A rack that admits by its resources caps each unit at what its lease asks, and
+stops one that outgrows it. That is what a local run's guard does, so a split
+task then runs on a rack as it does locally:
+
+- **Every unit of a stage is queued together**, each asking the cap of what
+  the task was last measured to need, where a run without such a rack runs one
+  unit alone first to measure. The run's own budget must be guarded too
+  (Linux and macOS), since a unit may yet run locally.
+- **A unit its cap stopped runs again** on its next lease, under a cap half as
+  large again, as a local unit its cgroup's cap killed does; the dataflow
+  raises `requeued` with reason `cap`, and prints its `[REQUEUE]` line.
+- **A unit nothing has measured** books its rule's `--memory-limit`, else its
+  size's memory: the whole of a task's first run, where its stage starts from
+  a guess, and a guess caps nothing, here or locally. Give a split task's rule
+  a `--memory-limit` near what a piece needs and its first run is as wide as
+  its later ones; without one each of its pieces books its size's memory (16
+  GiB at the default `large`).
+
+So what a rack holds never passes what it has, whatever its units do: e3 work
+cannot run a rack out of memory.
 
 Ctrl-C in `e3 dataflow run` requests cancellation of that run, including its
 delegated work. A current companion agent keeps an outbound cancellation

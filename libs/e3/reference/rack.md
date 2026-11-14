@@ -33,9 +33,16 @@ as `input-transfer-failed: <cause>` or `guest-crashed: <detail>`, or
 `memory-limit-exceeded: needs 3 GB, limit 2 GB` for work whose cap passes its
 rule's limit or every rack's memory),
 `[RACK] <task> waiting: needs 4 GB, <rack> has 1 GB free` for work queued with
-no rack having room for it, and ends
-with `Rack summary: 1 task and 12 units on <rack> · 0 waited for capacity · 1
-transfer retried · 0 ran locally`. Calls, mutations and intake stay local. Stock runner
+no rack having room for it,
+`[RACK] <task> outgrew its 3 GB cap on <rack>: runs again under 4.5 GB` for a
+split task's piece its rack stopped at its cap (a whole task fails instead:
+`memory-limit-exceeded (cap 16 GB); raise --memory-limit or --size`), and ends
+with `Rack summary: 1 task and 12 units on <rack> · 0 waited for capacity · 0
+ran again (cap) · 1 transfer retried · 0 ran locally`. On a rack that admits by
+its resources a split task's pieces are queued together and none can run the
+rack out of memory; give the task's rule a `--memory-limit` near what a piece
+needs, so its first run, which nothing has measured, is as wide as its later
+ones. Calls, mutations and intake stay local. Stock runner
 configurations qualify; commands, custom environments/platforms and unscannable
 IR stay local. Host file/environment/network access stays local unless a rule
 deliberately grants `--allow-host-access` and its resources exist on the rack.

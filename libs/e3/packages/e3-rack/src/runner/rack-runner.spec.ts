@@ -13,7 +13,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { East, IntegerType, StringType, none, some, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import { Budget, InMemoryStateStore, LocalOrchestrator, LocalStorage, LocalTaskRunner, datasetWrite, inputsHash,
-  packageImport, packageRead, repoInit, workspaceCreate, workspaceDeploy } from '@elaraai/e3-core';
+  packageImport, packageRead, repoInit, unitCap, workspaceCreate, workspaceDeploy, type UnitRequeue } from '@elaraai/e3-core';
 import { RackHub, type RackHubOptions } from '../hub/hub.js';
 import { defaultHubConfig, saveHubConfig } from '../hub/config.js';
 import { HubClient } from '../client/hub-client.js';
@@ -54,7 +54,7 @@ async function fixture(options: RackHubOptions = {}) {
     cleanup.push(() => rack.close());
     return rack;
   };
-  const agent = async (as: Pick<TestRackAgentOptions, 'timings' | 'faults' | 'resources' | 'capacity'> = {}) => {
+  const agent = async (as: Pick<TestRackAgentOptions, 'timings' | 'faults' | 'resources' | 'capacity' | 'peak'> = {}) => {
     const mint = await client.enroll();
     const peer = await TestRackAgent.enroll(mint.apiUrl, mint.enrollmentToken, { certificateSha256: mint.certificateSha256.type === 'some' ? mint.certificateSha256.value : undefined, ...as });
     cleanup.push(() => peer.close()); return peer;
@@ -274,7 +274,7 @@ it('says a transfer\'s retry, places work by the reason its rack gave, and sums 
   assert.equal((await running).state, 'success');
   assert.deepEqual(retried(f.placements), [{ transfer: 'input', attempt: 2, of: 5, cause: 'injected transfer failure' }]);
   assert.equal(f.budget.peak, 0, 'nothing ran locally');
-  assert.equal(describeRackSummary(rack.takeSummary()), 'Rack summary: 1 task on test rack · 0 waited for capacity · 1 transfer retried · 0 ran locally');
+  assert.equal(describeRackSummary(rack.takeSummary()), 'Rack summary: 1 task on test rack · 0 waited for capacity · 0 ran again (cap) · 1 transfer retried · 0 ran locally');
 
   // Every try fails: the rack ends the lease with its reason, and the work runs locally by it.
   f.placements.length = 0;
@@ -292,7 +292,7 @@ it('says a transfer\'s retry, places work by the reason its rack gave, and sums 
   assert(retried(f.placements).length >= 4, 'each failed try that was followed by another is said');
   assert.match((await f.storage.logs.read(f.repo, f.hash, inputsHash(other), result.executionId, 'stderr')).data,
     /e3: rack attempt failed on test rack: input-transfer-failed: injected transfer failure — running locally/);
-  assert.match(describeRackSummary(rack.takeSummary())!, /^Rack summary: 1 task on test rack · 0 waited for capacity · \d+ transfers retried · 1 ran locally$/);
+  assert.match(describeRackSummary(rack.takeSummary())!, /^Rack summary: 1 task on test rack · 0 waited for capacity · 0 ran again \(cap\) · \d+ transfers retried · 1 ran locally$/);
 
   // The hub's status lists how its last leases ended, the latest first, each with its reason.
   const outcomes = (await f.client.status()).outcomes;
@@ -335,7 +335,7 @@ it('widens a run by a rack\'s cores, queues work the rack has no room for and sa
   const next = await agent.runOne(); assert.equal(next?.status, 'success', next?.error); assert.equal((await second).state, 'success');
   const claims = f.placements.flatMap((event) => event.kind === 'placed' && event.where === 'rack' ? [event.waitedMs] : []);
   assert.equal(claims.length, 2); assert.equal(claims[0], undefined); assert(claims[1] !== undefined && claims[1] >= 0, 'the lease that waited says for how long');
-  assert.match(describeRackSummary(rack.takeSummary())!, /^Rack summary: 2 tasks on test rack · 1 waited for capacity \(longest \d+ s\) · 0 transfers retried · 0 ran locally$/);
+  assert.match(describeRackSummary(rack.takeSummary())!, /^Rack summary: 2 tasks on test rack · 1 waited for capacity \(longest \d+ s\) · 0 ran again \(cap\) · 0 transfers retried · 0 ran locally$/);
   assert.equal(f.budget.peak, 0, 'nothing ran locally');
 
   // An `xlarge` task asks 32 GiB, which this rack does not have at all: it is not queued, and runs locally.
@@ -348,4 +348,71 @@ it('widens a run by a rack\'s cores, queues work the rack has no room for and sa
   assert.deepEqual([local.reason, local.detail], ['memory-limit-exceeded', { code: 'memory-limit-exceeded', needsBytes: 32 * GiB, limitBytes: 4 * GiB }]);
   assert.equal((await f.client.status()).capacity.queued, 0n);
   assert.equal(f.budget.peak, 1);
+});
+
+it('leases a unit its rack stopped at its cap again under a larger one, tells the run it was requeued, and leaves no failure in its history', async () => {
+  const MiB = 1024 ** 2;
+  // A unit expected to need 100 MiB is capped as a local one is, and peaks just past its cap.
+  const cap = unitCap(100 * MiB); const again = unitCap(cap);
+  const f = await fixture();
+  const agent = await f.agent({ resources: { cores: 2, memoryBytes: 4 * 1024 ** 3, gpus: 0 }, peak: () => cap + 1 });
+  const rack = await f.open({ policy: { ...f.policy, spill: false } });
+  const requeues: UnitRequeue[] = [];
+  const unit = { inputs: f.inputs, merge: null, own: false };
+  const running = rack.runner.executeUnit(f.storage, f.hash, unit, { taskName: 'length', expectedPeakBytes: 100 * MiB, onRequeued: (requeue) => { requeues.push(requeue); } });
+  const stopped = await agent.runOne();
+  assert.deepEqual(stopped?.reason, { code: 'outgrew-cap', capBytes: cap, peakBytes: cap + 1 });
+  assert.equal(stopped.outputHash, undefined, 'nothing a stopped unit wrote is sent');
+  const ran = await agent.runOne(); assert.equal(ran?.status, 'success', ran?.error);
+  const result = await running; assert.equal(result.state, 'success', result.error);
+  assert.deepEqual(requeues, [{ reason: 'cap', peak: cap, reserves: cap }], 'the run hears it as it hears a local unit its cap killed');
+  assert.deepEqual(f.placements.flatMap((event) => event.kind === 'placed' && event.where === 'rack' ? [event.needs?.memoryBytes] : []), [cap, again], 'the next lease asks half as much again');
+  const outgrew = f.placements.find((event) => event.kind === 'outgrew'); assert(outgrew?.kind === 'outgrew');
+  assert.deepEqual([outgrew.capBytes, outgrew.againBytes, outgrew.rackLabel], [cap, again, 'test rack']);
+  // The stopped attempt is no failure of the task's: it was stopped, and says why in its log.
+  const attempts = await f.storage.refs.executionListAttempts(f.repo, f.hash, inputsHash(f.inputs));
+  assert.deepEqual(attempts.map((attempt) => attempt.status?.type), ['interrupted', 'success']);
+  assert.match((await f.storage.logs.read(f.repo, f.hash, inputsHash(f.inputs), attempts[0]!.executionId, 'stderr')).data,
+    new RegExp(`e3: the runner outgrew its cap of ${Math.round(cap / MiB)} MiB on its rack: it runs again under a cap of ${Math.round(again / MiB)} MiB`));
+  assert.equal(f.budget.peak, 0, 'nothing ran locally');
+  assert.equal(describeRackSummary(rack.takeSummary()), 'Rack summary: 2 units on test rack · 0 waited for capacity · 1 ran again (cap) · 0 transfers retried · 0 ran locally');
+
+  // A unit whose next cap would pass its rule's memory limit runs locally instead, under the local budget.
+  f.placements.length = 0;
+  const limited = await f.open({ policy: { ...setRule(f.policy, 'length', 'rack', { memoryLimit: cap }), spill: false } });
+  const other = [await datasetWrite(f.storage, f.repo, 'another', StringType)];
+  const second = limited.runner.executeUnit(f.storage, f.hash, { inputs: other, merge: null, own: false }, { taskName: 'length', expectedPeakBytes: 100 * MiB });
+  assert.equal((await agent.runOne())?.reason?.code, 'outgrew-cap');
+  assert.equal((await second).state, 'success');
+  const local = f.placements.find((event) => event.kind === 'placed' && event.where === 'local'); assert(local?.kind === 'placed' && local.where === 'local');
+  assert.deepEqual([local.reason, local.detail], ['memory-limit-exceeded', { code: 'memory-limit-exceeded', needsBytes: again, limitBytes: cap }]);
+  assert.equal(f.budget.peak, 1);
+});
+
+it('fails a whole task its rack stopped at its cap, by name, and does not run it again unless the policy retries failures locally', async () => {
+  const GiB = 1024 ** 3;
+  const f = await fixture();
+  // A `small` task's cap is 4 GiB, and its runner is taken to pass it.
+  const agent = await f.agent({ resources: { cores: 4, memoryBytes: 8 * GiB, gpus: 0 }, peak: () => 4 * GiB + 1 });
+  const policy = { ...setRule(f.policy, 'length', 'rack', { size: 'small' }), spill: false };
+  const rack = await f.open({ policy });
+  const running = rack.runner.execute(f.storage, f.hash, f.inputs, { taskName: 'length' });
+  assert.equal((await agent.runOne())?.reason?.code, 'outgrew-cap');
+  const result = await running;
+  assert.equal(result.state, 'failed');
+  assert.equal(result.error, 'memory-limit-exceeded: the task outgrew its cap of 4096 MiB on rack test rack; raise --memory-limit or --size');
+  const outgrew = f.placements.find((event) => event.kind === 'outgrew'); assert(outgrew?.kind === 'outgrew');
+  assert.deepEqual([outgrew.capBytes, outgrew.againBytes], [4 * GiB, undefined]);
+  const attempts = await f.storage.refs.executionListAttempts(f.repo, f.hash, inputsHash(f.inputs));
+  assert.deepEqual(attempts.map((attempt) => attempt.status?.type), ['failed'], 'its cap is its failure, as the local guard\'s stop is');
+  assert.equal((await f.client.status()).capacity.queued, 0n, 'it is not leased again');
+  assert.equal(f.budget.peak, 0, 'nor run locally');
+  assert.equal(describeRackSummary(rack.takeSummary()), 'Rack summary: 1 task on test rack · 0 waited for capacity · 0 ran again (cap) · 0 transfers retried · 0 ran locally');
+
+  // Under a policy that retries failures locally it runs here, where nothing caps it.
+  const retrying = await f.open({ policy: { ...policy, retryTaskFailuresLocally: true } });
+  const other = [await datasetWrite(f.storage, f.repo, 'another', StringType)];
+  const again = retrying.runner.execute(f.storage, f.hash, other, { taskName: 'length' });
+  assert.equal((await agent.runOne())?.reason?.code, 'outgrew-cap');
+  assert.equal((await again).state, 'success'); assert.equal(f.budget.peak, 1);
 });

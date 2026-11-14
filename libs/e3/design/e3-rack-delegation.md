@@ -198,7 +198,17 @@ also enforce health, approval and the lease's bundled-e3 version floor.
 Core probes the cache before the body hook. The hook takes no local budget
 grant; its local continuation preserves all existing process settings and
 budget. The orchestrator's width includes the compatible racks' cores (a
-slot-based rack's slots). The racks are full when no compatible rack's free
+slot-based rack's slots). When every compatible rack caps its units, the
+runner says its body stops units (`LocalTaskRunnerOptions.bodyStopsUnits`),
+and e3-core starts a split task's stages with every unit at once under a
+guarded budget, as it does with no body. A lease that ends `outgrew-cap` is a
+unit's requeue: the body tells the run (`onRequeued`, reason `cap`), the
+session records the stopped attempt `interrupted`, with the local run's log
+line, and the next lease asks `unitCap` of the cap it reached; past its rule's
+limit, or every rack's memory, the unit runs locally. A whole task its cap
+stopped fails (`memory-limit-exceeded`), as a task the local guard stops does.
+A unit whose expectation is a guess from its rows is capped as an unmeasured
+one, since e3-core caps no local unit by a guess. The racks are full when no compatible rack's free
 resources hold the lease, less the work already queued; work no rack could
 ever hold is not queued, and runs locally. Split-task
 planning and final assembly stay local; both pieces and merge bodies delegate.

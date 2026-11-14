@@ -28,6 +28,10 @@ it('asks one core for a unit of a split task, and the cap a local unit expecting
   // A unit nothing has measured yet: its rule's limit, else its size's memory.
   assert.deepEqual(leaseResources({ unit, options: {} }, rule), { kind: 'unit', cores: 1, memoryBytes: 16 * GiB, gpu: false });
   assert.deepEqual(leaseResources({ unit, options: {} }, { ...rule, memoryLimit: 8 * GiB }), { kind: 'unit', cores: 1, memoryBytes: 8 * GiB, gpu: false });
+  // A guess from what the unit holds of its rows is no measurement: e3-core caps no local unit by one, and no lease is capped by one.
+  assert.deepEqual(leaseResources({ unit, options: { expectedPeakBytes: 2 * GiB, expectedPeakGuessed: true } }, { ...rule, memoryLimit: 8 * GiB }),
+    { kind: 'unit', cores: 1, memoryBytes: 8 * GiB, gpu: false });
+  assert.deepEqual(leaseResources({ unit, options: { expectedPeakBytes: 0 } }, rule), { kind: 'unit', cores: 1, memoryBytes: 16 * GiB, gpu: false });
 });
 
 it('refuses a rack a unit whose cap would pass its rule\'s memory limit, with what it needs and the limit', () => {
