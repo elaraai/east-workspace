@@ -67,6 +67,7 @@ import { defineSlotRecipe } from "@chakra-ui/react";
 import { CONFLICT_RING_INSIDE_FOCUS, conflictRingInset } from "../conflict-ring.js";
 import { fieldHeights } from "../field-chrome.js";
 import { fontAwesomeSize } from "../icon-size.js";
+import { oneLineBox } from "../one-line-box.js";
 import { FOOTER_FIT } from "./builder-footer.js";
 import { INSPECTOR_SECTION } from "./inspector.js";
 
@@ -98,8 +99,8 @@ const MARK_TONES = {
 
 /** The 14 checkbox the select column and a boolean cell draw: `brand.solid` once ticked, its 9 tick in the paper. */
 const BOX = {
-    width: "14px", height: "14px", boxSizing: "border-box", flex: "none", display: "inline-flex", alignItems: "center", justifyContent: "center",
-    lineHeight: "1", borderWidth: "1px", borderStyle: "solid", borderColor: "border.strong", borderRadius: "xs", background: "bg.surface",
+    width: "14px", ...oneLineBox(14), boxSizing: "border-box", flex: "none", display: "inline-flex", alignItems: "center", justifyContent: "center",
+    borderWidth: "1px", borderStyle: "solid", borderColor: "border.strong", borderRadius: "xs", background: "bg.surface",
     color: "bg.surface",
     "& > svg": fontAwesomeSize("9px"),
     "&[data-on]": { background: "brand.solid", borderColor: "brand.solid" },
@@ -161,9 +162,9 @@ export const recordSlotRecipe = defineSlotRecipe({
             color: "fg", whiteSpace: "nowrap",
         },
         titleCount: {
-            height: "16px", boxSizing: "border-box", display: "inline-flex", alignItems: "center", paddingInline: "4px",
+            ...oneLineBox(16, 0), boxSizing: "border-box", display: "inline-flex", alignItems: "center", paddingInline: "4px",
             borderRadius: "sm", background: "bg.subtle", fontFamily: "mono", fontSize: "label.sm", fontWeight: 600,
-            fontFeatureSettings: '"tnum" 1', lineHeight: "1", color: "fg.strong",
+            fontFeatureSettings: '"tnum" 1', color: "fg.strong",
         },
         /* The last gesture's words, one line, at the right of the slack. */
         status: {
@@ -267,11 +268,11 @@ export const recordSlotRecipe = defineSlotRecipe({
         titleCell: {
             flex: "1", minWidth: "0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "body", fontWeight: 500, color: "fg",
         },
-        /* Neutral initials: never a colour per person. */
+        /* Neutral initials: never a colour per person. Their one line the room inside the ring, so they start on a whole pixel under its edge. */
         avatar: {
-            width: "24px", height: "24px", boxSizing: "border-box", flex: "none", display: "inline-flex", alignItems: "center", justifyContent: "center",
+            width: "24px", ...oneLineBox(24), boxSizing: "border-box", flex: "none", display: "inline-flex", alignItems: "center", justifyContent: "center",
             marginInlineEnd: "8px", borderWidth: "1px", borderStyle: "solid", borderColor: "border.strong", borderRadius: "full", background: "bg.subtle",
-            fontFamily: "mono", fontSize: "label.sm", fontWeight: 600, letterSpacing: "0.04em", lineHeight: "1", textTransform: "uppercase", color: "fg.strong",
+            fontFamily: "mono", fontSize: "label.sm", fontWeight: 600, letterSpacing: "0.04em", textTransform: "uppercase", color: "fg.strong",
         },
         /* No one: a dashed ring. */
         nobody: {
@@ -284,10 +285,11 @@ export const recordSlotRecipe = defineSlotRecipe({
         },
         text: { flex: "1", minWidth: "0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "body", color: "fg" },
         /* A cycle's or a toggle's chip: one width per column — its widest label, in characters, with its padding and edge, and no
-           narrower than a digit's chip — so the states line up. */
+           narrower than a digit's chip — so the states line up. Its one line the room inside its edge: its words start a whole
+           number of pixels under the edge, and stand on the same row of the chip wherever a page puts the grid (#1636). */
         chip: {
-            height: "22px", minWidth: "max(28px, calc(var(--record-chip-ch, 0) * 1ch + 14px))", boxSizing: "border-box", paddingInline: "6px", display: "inline-flex",
-            alignItems: "center", justifyContent: "center", lineHeight: "1", borderWidth: "1px", borderStyle: "solid", borderRadius: "sm",
+            ...oneLineBox(22), minWidth: "max(28px, calc(var(--record-chip-ch, 0) * 1ch + 14px))", boxSizing: "border-box", paddingInline: "6px", display: "inline-flex",
+            alignItems: "center", justifyContent: "center", borderWidth: "1px", borderStyle: "solid", borderRadius: "sm",
             fontFamily: "mono", fontFeatureSettings: '"tnum" 1', fontSize: "label.md", fontWeight: 600, whiteSpace: "nowrap",
             transitionProperty: "background-color, color", ...SETTLE,
             ...LOOKS,
@@ -388,10 +390,10 @@ export const recordSlotRecipe = defineSlotRecipe({
         },
         legend: { flex: "none", display: "flex", alignItems: "center", gap: "16px" },
         legendItem: { display: "inline-flex", alignItems: "center", gap: "8px", whiteSpace: "nowrap" },
-        /* A legend chip: as wide as a cell's chip is, at its own face. */
+        /* A legend chip: as wide as a cell's chip is, at its own face, its one line the room inside its edge as a cell's chip's is. */
         legendChip: {
-            height: "15px", minWidth: "max(20px, calc(var(--record-chip-ch, 0) * 1ch + 10px))", boxSizing: "border-box", paddingInline: "4px", display: "inline-flex",
-            alignItems: "center", justifyContent: "center", lineHeight: "1", borderWidth: "1px", borderStyle: "solid", borderRadius: "sm",
+            ...oneLineBox(15), minWidth: "max(20px, calc(var(--record-chip-ch, 0) * 1ch + 10px))", boxSizing: "border-box", paddingInline: "4px", display: "inline-flex",
+            alignItems: "center", justifyContent: "center", borderWidth: "1px", borderStyle: "solid", borderRadius: "sm",
             fontFamily: "mono", fontSize: "label.xs", fontWeight: 600,
             ...LOOKS,
         },
@@ -411,17 +413,17 @@ export const recordSlotRecipe = defineSlotRecipe({
         statValue: { fontSize: "body" },
     },
     variants: {
-        /* Rows 36 · 32 · 28: at compact and condensed the chips stand 15 tall and the initials 20. */
+        /* Rows 36 · 32 · 28: at compact and condensed the chips stand 15 tall and the initials 20, each one's line the room inside its edge still. */
         density: {
             comfortable: {},
             compact: {
-                chip: { height: "15px", fontSize: "label.xs" },
-                avatar: { width: "20px", height: "20px", fontSize: "label.xs" },
+                chip: { ...oneLineBox(15), fontSize: "label.xs" },
+                avatar: { width: "20px", ...oneLineBox(20), fontSize: "label.xs" },
                 nobody: { width: "20px", height: "20px" },
             },
             condensed: {
-                chip: { height: "15px", fontSize: "label.xs" },
-                avatar: { width: "20px", height: "20px", fontSize: "label.xs" },
+                chip: { ...oneLineBox(15), fontSize: "label.xs" },
+                avatar: { width: "20px", ...oneLineBox(20), fontSize: "label.xs" },
                 nobody: { width: "20px", height: "20px" },
             },
         },
