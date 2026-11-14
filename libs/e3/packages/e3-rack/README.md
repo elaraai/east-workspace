@@ -417,12 +417,13 @@ task then runs on a rack as it does locally:
 - **A unit its cap stopped runs again** on its next lease, under a cap half as
   large again, as a local unit its cgroup's cap killed does; the dataflow
   raises `requeued` with reason `cap`, and prints its `[REQUEUE]` line.
-- **A unit nothing has measured** books its rule's `--memory-limit`, else its
-  size's memory: the whole of a task's first run, where its stage starts from
-  a guess, and a guess caps nothing, here or locally. Give a split task's rule
-  a `--memory-limit` near what a piece needs and its first run is as wide as
-  its later ones; without one each of its pieces books its size's memory (16
-  GiB at the default `large`).
+- **A task's first run** books each piece at the cap of e3's estimate (the
+  runner's own memory and what the largest piece holds of its rows), which is
+  what a local run reserves: so a first run is as wide as a later one, and no
+  piece runs first to measure the rest. A piece the estimate is low for
+  outgrows its cap and runs again under a larger one. Only a piece that
+  expects nothing at all books its rule's `--memory-limit`, else its size's
+  memory.
 
 So what a rack holds never passes what it has, whatever its units do: e3 work
 cannot run a rack out of memory.

@@ -25,16 +25,18 @@ it('asks one core for a unit of a split task, and the cap a local unit expecting
   assert.deepEqual(leaseResources({ unit, options: { expectedPeakBytes: 2 * GiB } }, rule), { kind: 'unit', cores: 1, memoryBytes: 3 * GiB, gpu: false });
   assert.deepEqual(leaseResources({ unit, options: { expectedPeakBytes: 2 * GiB } }, { ...rule, memoryLimit: 3 * GiB }), { kind: 'unit', cores: 1, memoryBytes: 3 * GiB, gpu: false },
     'a cap of exactly the limit is within it');
-  // A unit nothing has measured yet: its rule's limit, else its size's memory.
+  // A first run's estimate is booked as a measured peak is: the first run is as wide as a later one.
+  assert.deepEqual(leaseResources({ unit, options: { expectedPeakBytes: 2 * GiB, expectedPeakGuessed: true } }, { ...rule, memoryLimit: 8 * GiB }),
+    { kind: 'unit', cores: 1, memoryBytes: 3 * GiB, gpu: false });
+  // A unit that expects nothing at all: its rule's limit, else its size's memory.
   assert.deepEqual(leaseResources({ unit, options: {} }, rule), { kind: 'unit', cores: 1, memoryBytes: 16 * GiB, gpu: false });
   assert.deepEqual(leaseResources({ unit, options: {} }, { ...rule, memoryLimit: 8 * GiB }), { kind: 'unit', cores: 1, memoryBytes: 8 * GiB, gpu: false });
-  // A guess from what the unit holds of its rows is no measurement: e3-core caps no local unit by one, and no lease is capped by one.
-  assert.deepEqual(leaseResources({ unit, options: { expectedPeakBytes: 2 * GiB, expectedPeakGuessed: true } }, { ...rule, memoryLimit: 8 * GiB }),
-    { kind: 'unit', cores: 1, memoryBytes: 8 * GiB, gpu: false });
   assert.deepEqual(leaseResources({ unit, options: { expectedPeakBytes: 0 } }, rule), { kind: 'unit', cores: 1, memoryBytes: 16 * GiB, gpu: false });
 });
 
 it('refuses a rack a unit whose cap would pass its rule\'s memory limit, with what it needs and the limit', () => {
-  assert.deepEqual(leaseResources({ unit, options: { expectedPeakBytes: 2 * GiB } }, { ...rule, memoryLimit: 3 * GiB - 1 }),
-    { code: 'memory-limit-exceeded', needsBytes: 3 * GiB, limitBytes: 3 * GiB - 1 });
+  for (const expectedPeakGuessed of [false, true]) {
+    assert.deepEqual(leaseResources({ unit, options: { expectedPeakBytes: 2 * GiB, expectedPeakGuessed } }, { ...rule, memoryLimit: 3 * GiB - 1 }),
+      { code: 'memory-limit-exceeded', needsBytes: 3 * GiB, limitBytes: 3 * GiB - 1 });
+  }
 });

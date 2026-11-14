@@ -87,11 +87,12 @@ it('runs a split of more than a hundred pieces wholly on a rack: its units queue
   cleanup.push(() => agent.close());
 
   // The run's own budget is guarded where a guard runs, as a run's is. Nothing
-  // spills: the rack is to hold all of it. A piece nothing has measured books
-  // its rule's limit, 1 GiB.
+  // spills: the rack is to hold all of it. No rule sets a memory limit: a first
+  // run's pieces are booked at e3's estimate, which is far less than the
+  // size's 16 GiB.
   const budget = new Budget({ cores: 2, memory: GiB });
   const rack = await openRackRunner({ repoPath: repo, workspace: 'dev', storage, label: 'scale test', home, budget, waitForRackMs: 0,
-    policy: { ...setRule(setMode({ ...DEFAULT_RACK_POLICY, enabled: true }, 'auto'), 'score', 'rack', { memoryLimit: GiB }), spill: false },
+    policy: { ...setRule(setMode({ ...DEFAULT_RACK_POLICY, enabled: true }, 'auto'), 'score', 'rack'), spill: false },
     onPlacement: (event) => { placements.push(event); } });
   cleanup.push(() => rack.close());
   assert.equal(rack.rackSlots, 8);
@@ -108,12 +109,16 @@ it('runs a split of more than a hundred pieces wholly on a rack: its units queue
     return record.value.outputHash;
   };
 
-  // A first run: nothing has measured the task, so each unit books its rule's limit until one has.
+  // A first run: nothing has measured the task, so each unit books the cap of e3's estimate, until one has measured;
+  // its pieces are queued together, as wide as a later run's, and none runs first to measure the rest.
   const first = await run(false);
   const firstCaps = claimed().map((event) => event.needs!.memoryBytes);
   assert(firstCaps.length > 100, `the split has more than a hundred units to place: ${firstCaps.length}`);
   assert(claimed().every((event) => event.role === 'unit' && event.rackLabel === 'test rack'));
-  assert(firstCaps.every((cap) => cap === GiB || cap === unitCap(100 * MiB)), 'a unit books its limit, or once measured the cap of its peak');
+  const estimated = firstCaps[0]!;
+  assert(estimated >= unitCap(64 * MiB) && estimated < GiB, `the first unit books the cap of the estimate, the runner's own memory and what it holds: ${estimated}`);
+  assert(firstCaps.every((cap) => cap === estimated || cap === unitCap(100 * MiB)), 'a unit books the estimate\'s cap, or once measured the cap of its peak');
+  if (together) assert(claimedAtFirstEnd >= 8, `the first run held ${claimedAtFirstEnd} units before its first had ended: it measured none first`);
 
   // A second run, the task's peak known: every unit of a stage asks the cap of that peak, and a stage's units are queued together.
   const second = await run(true);

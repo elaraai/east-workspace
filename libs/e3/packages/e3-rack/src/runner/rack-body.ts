@@ -94,23 +94,27 @@ function composes(rack: SnapshotRack): rack is SnapshotRack & { target: { type: 
  * @remarks
  * A unit of a split task takes one core and the cap e3-core gives a local
  * unit that expects the same peak (`unitCap`): half as much again as it is
- * expected to need. A unit nothing has measured yet — it expects nothing, or
- * what it expects is a guess from what it holds of its rows, which e3-core
- * does not cap a local unit by either — is given its rule's memory limit,
+ * expected to need. What it expects is its stage's measured peak, the task's
+ * previous peak, or, the first time the task runs, e3-core's estimate of the
+ * largest piece (the runner's own memory and what the piece holds of its
+ * rows), which a local unit reserves: so a first run is as wide as a later
+ * one, and a piece the estimate is low for outgrows its cap and is leased
+ * again under a larger one, as the local guard stops one and runs it again.
+ * Only a unit that expects nothing at all is given its rule's memory limit,
  * else its size's memory. A whole task takes its size's cores, and its rule's
  * memory limit, else its size's memory, as its cap.
  *
  * @param request - The task body or unit
  * @param verdict - Its rule's size, memory limit and GPU
  * @returns The resources, or the reason the work cannot be a rack's: the cap
- *   a measured unit needs is more than its rule's memory limit
+ *   a unit needs is more than its rule's memory limit
  */
 export function leaseResources(request: Pick<TaskBodyRequest, 'unit' | 'options'>, verdict: Extract<Eligibility, { eligible: true }>): RackLeaseResources | RackReason {
   const size = RACK_SIZES[verdict.size];
   const fallback = verdict.memoryLimit ?? size.memoryBytes;
   if (request.unit === undefined) return { kind: 'task', cores: size.cores, memoryBytes: fallback, gpu: verdict.gpu };
   const expected = request.options.expectedPeakBytes;
-  if (expected === undefined || expected <= 0 || request.options.expectedPeakGuessed === true) return { kind: 'unit', cores: 1, memoryBytes: fallback, gpu: verdict.gpu };
+  if (expected === undefined || expected <= 0) return { kind: 'unit', cores: 1, memoryBytes: fallback, gpu: verdict.gpu };
   const cap = unitCap(expected);
   if (verdict.memoryLimit !== null && cap > verdict.memoryLimit) return { code: 'memory-limit-exceeded', needsBytes: cap, limitBytes: verdict.memoryLimit };
   return { kind: 'unit', cores: 1, memoryBytes: cap, gpu: verdict.gpu };
