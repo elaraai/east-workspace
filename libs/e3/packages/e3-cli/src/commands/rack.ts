@@ -87,7 +87,7 @@ function findRack(status: Status, name: string): Status['racks'][number] {
 
 function printFleet(lib: RackLib, status: Status): void {
   if (status.racks.length === 0) { console.log('No enrolled racks. Run: e3 rack enroll --listen <address>:7331'); return; }
-  console.log('LABEL  ID  RUNTIMES  BUSY/CAPACITY  AGENT  E3  LAST SEEN  STATE');
+  console.log('LABEL  ID  RUNTIMES  BUSY/CAPACITY  AGENT  E3  LAST SEEN  RESOURCES  FEATURES  STATE');
   for (const rack of status.racks) {
     const capacity = status.capacity.racks.find((entry) => equalString(entry.rackId, rack.rackId));
     const bundled = lib.bundledE3Version(rack.agentVersion);
@@ -100,7 +100,17 @@ function printFleet(lib: RackLib, status: Status): void {
       : rack.tiers.length === 0 ? 'no-runtimes'
       : bundled === null ? 'incompatible: bundled e3 unknown'
         : !lib.agentVersionAtLeast(bundled, lib.E3_RACK_VERSION) ? `incompatible: agent e3 ${bundled} < project e3 ${lib.E3_RACK_VERSION}` : 'ready';
-    console.log(`${rack.label}  ${rack.rackId.slice(0, 12)}  ${rack.tiers.join(',')}  ${Number(capacity?.busy ?? 0n)}/${Number(rack.capacity)}  ${rack.agentVersion}  ${bundled ?? '?'}  ${printFor(DateTimeType)(rack.lastSeenAt)}  ${state}`);
+    // A rack that admits by its resources: all it has, and what nothing has booked.
+    const all = capacity?.resources.type === 'some' ? capacity.resources.value : undefined;
+    const free = capacity?.free.type === 'some' ? capacity.free.value : undefined;
+    const part = (have: string, left: string | undefined) => `${have}${left === undefined ? '' : ` (${left} free)`}`;
+    const counted = (n: bigint, one: string) => `${Number(n)} ${compareInteger(n, 1n) === 0 ? one : `${one}s`}`;
+    const resources = all === undefined ? '-' : [
+      part(counted(all.cores, 'core'), free === undefined ? undefined : `${Number(free.cores)}`),
+      part(formatSize(Number(all.memoryBytes)), free === undefined ? undefined : formatSize(Number(free.memoryBytes))),
+      ...(compareInteger(all.gpus, 0n) > 0 ? [part(counted(all.gpus, 'GPU'), free === undefined ? undefined : `${Number(free.gpus)}`)] : []),
+    ].join(', ');
+    console.log(`${rack.label}  ${rack.rackId.slice(0, 12)}  ${rack.tiers.join(',')}  ${Number(capacity?.busy ?? 0n)}/${Number(rack.capacity)}  ${rack.agentVersion}  ${bundled ?? '?'}  ${printFor(DateTimeType)(rack.lastSeenAt)}  ${resources}  ${capacity === undefined || capacity.features.length === 0 ? '-' : capacity.features.join(',')}  ${state}`);
   }
 }
 

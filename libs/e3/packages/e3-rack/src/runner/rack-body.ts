@@ -11,7 +11,8 @@ import { splitUnitToWire } from '../runner-event.js';
 import { EligibilityEvaluator, type Eligibility } from '../routing/eligibility.js';
 import { RACK_SIZES, type RackPolicy } from '../routing/policy.js';
 import { E3_RACK_VERSION } from '../version.js';
-import { compatibleRacks } from './capacity.js';
+import { compatibleRacks, rackCouldHold, rackFree, rackResources, rackRoom } from './capacity.js';
+import type { RackResources } from '../protocol/rack-json.js';
 
 /**
  * Reports where one task body or split unit runs, and what happens to it on a
@@ -21,10 +22,15 @@ import { compatibleRacks } from './capacity.js';
  *   eligible), or a rack's work that this machine runs after all (`spill`,
  *   `no-rack-for-tier:<tier>`, or a `fallback:` with what went wrong, and the
  *   rack's `detail` when its result gave a reason);
- * - `retried`: a transfer of its lease failed a try and was given another.
+ * - `retried`: a transfer of its lease failed a try and was given another;
+ * - `waiting`: its lease is queued, and no rack has room for what it asks
+ *   now. `rackLabel` is the rack with the most memory free, and `free` what
+ *   that rack has, when it admits by its resources. A lease that waited says
+ *   for how long once a rack claims it (`waitedMs`).
  */
 export type RackPlacementEvent =
-  | { kind: 'placed'; taskName: string; role: 'task' | 'unit'; where: 'rack'; rackLabel: string; leaseId: string }
+  | { kind: 'placed'; taskName: string; role: 'task' | 'unit'; where: 'rack'; rackLabel: string; leaseId: string; waitedMs?: number }
+  | { kind: 'waiting'; taskName: string; role: 'task' | 'unit'; where: 'rack'; rackLabel: string; leaseId: string; needs: RackLeaseResources; free?: RackResources }
   | { kind: 'placed'; taskName: string; role: 'task' | 'unit'; where: 'local'; reason: string; detail?: RackReason }
   | { kind: 'retried'; taskName: string; role: 'task' | 'unit'; where: 'rack'; rackLabel: string; leaseId: string; retry: RackTransferRetry };
 
@@ -39,7 +45,7 @@ export type RackPlacementEvent =
  */
 export function ranLocally(event: RackPlacementEvent): event is Extract<RackPlacementEvent, { where: 'local' }> {
   return event.kind === 'placed' && event.where === 'local' &&
-    (event.detail !== undefined || event.reason === 'spill' || event.reason.startsWith('fallback:') || event.reason.startsWith('no-rack-for-tier:'));
+    (event.detail !== undefined || event.reason === 'spill' || event.reason.startsWith('fallback:') || event.reason.startsWith('no-rack-'));
 }
 
 /** Configures a run's body executor without acquiring local resources. */
@@ -152,12 +158,23 @@ export function createRackBody(options: RackBodyOptions): TaskBodyExecutor {
     // pure, and runs under the local budget instead.
     const resources = leaseResources(request, verdict);
     if ('code' in resources) return runLocal(resources.code, resources);
+    // Work no rack could hold, with nothing else on it, is not queued: it
+    // would wait for ever. For want of memory it runs locally by that name.
+    const fleet = compatibleRacks(session.capacity(), verdict.tier);
+    if (!fleet.some((rack) => rackCouldHold(rack, resources))) {
+      const most = Math.max(...fleet.map((rack) => rackResources(rack)?.memoryBytes ?? 0));
+      return resources.memoryBytes > most
+        ? runLocal('memory-limit-exceeded', { code: 'memory-limit-exceeded', needsBytes: resources.memoryBytes, limitBytes: most })
+        : runLocal(`no-rack-holds:${resources.gpu ? 'gpu' : `${resources.cores}-cores`}`);
+    }
     const canSpill = () => policy.spill && !options.rackOnly && localIdle(request);
-    // The compatible slots free in the latest snapshot, less the work already queued for them.
-    const freeSlots = () => {
+    // How many more leases asking this much the compatible racks hold in the
+    // latest snapshot, less the work already queued for them.
+    const room = () => {
       const snapshot = session.capacity();
-      return compatibleRacks(snapshot, verdict.tier).reduce((sum, rack) => sum + Number(rack.capacity) - Number(rack.busy), 0) - Number(snapshot.queued);
+      return compatibleRacks(snapshot, verdict.tier).reduce((sum, rack) => sum + rackRoom(rack, resources), 0) - Number(snapshot.queued);
     };
+    let waitingSince: number | undefined;
     try {
       const hashes = await taskClosure(request.storage, request.repo, request.taskHash, request.task,
         request.unit === undefined ? request.inputHashes : stagedObjects(request.unit.inputs, request.unit.merge));
@@ -172,7 +189,8 @@ export function createRackBody(options: RackBodyOptions): TaskBodyExecutor {
         workspace: options.workspace, taskName: placement.taskName, e3Version: E3_RACK_VERSION, closure, resources };
       if (request.options.signal?.aborted) return await stop('cancelled', 'cancelled: e3 did not start the rack execution because the run was aborted');
       const lease = { eventJson: JSON.stringify(event), tier: verdict.tier, computeSize: verdict.size };
-      if (freeSlots() <= 0 && canSpill()) {
+      const full = room() <= 0;
+      if (full && canSpill()) {
         // The racks are full. Identical work already queued or held costs them
         // no further capacity, so attach to it; anything else runs locally now,
         // without first queuing a lease a rack could claim before the spill.
@@ -180,6 +198,18 @@ export function createRackBody(options: RackBodyOptions): TaskBodyExecutor {
         if (attached === null) return await runLocal('spill');
         handle = attached;
       } else handle = await session.createLease(lease);
+      if (full && handle.attempt === null) {
+        // Queued with no room for it now: said once, with the rack that has
+        // the most memory free. Work attached to a lease a rack already holds
+        // waits for nothing.
+        waitingSince = Date.now();
+        const racks = compatibleRacks(session.capacity(), verdict.tier);
+        const best = racks.reduce((most, rack) => (rackFree(rack)?.memoryBytes ?? 0) > (rackFree(most)?.memoryBytes ?? 0) ? rack : most, racks[0]);
+        if (best !== undefined) {
+          const free = rackFree(best);
+          options.onPlacement?.({ kind: 'waiting', ...placement, where: 'rack', rackLabel: best.label, leaseId: handle.leaseId, needs: resources, ...(free !== undefined && { free }) });
+        }
+      }
       const claimWait = Number(policy.claimTimeoutSeconds) * 1000;
       let claimDeadline = Date.now() + claimWait;
       let executionDeadline: number | undefined;
@@ -210,7 +240,9 @@ export function createRackBody(options: RackBodyOptions): TaskBodyExecutor {
           untee = session.onLog(update.attempt.executionId, (stream, text) => {
             if (stream === 'stdout') request.options.onStdout?.(text); else request.options.onStderr?.(text);
           });
-          options.onPlacement?.({ kind: 'placed', ...placement, where: 'rack', rackLabel, leaseId: handle.leaseId });
+          options.onPlacement?.({ kind: 'placed', ...placement, where: 'rack', rackLabel, leaseId: handle.leaseId,
+            ...(waitingSince !== undefined && { waitedMs: Date.now() - waitingSince }) });
+          waitingSince = undefined;
           next = handle.next();
           continue;
         }

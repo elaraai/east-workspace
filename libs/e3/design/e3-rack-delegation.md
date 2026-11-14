@@ -121,7 +121,11 @@ refused when saved, and a saved one is kept down with the reason.
 
 Control routes cover handshake, sessions, lease subscription/cancellation,
 ordered events, capacity/status, config, enrollment, removal, boot approval,
-drain and stop. Sessions register canonical repository paths, their exact e3
+drain and stop. The capacity snapshot gives, of a rack that admits by its
+resources, all it has and what is free: the less of what its last heartbeat
+reported and what the hub's own claimed leases leave of all it has, since a
+report lags a grant by up to a heartbeat and a rack may serve other sources.
+A rack that reports none admits by its slots (`capacity`, `busy`). Sessions register canonical repository paths, their exact e3
 release, process identity and private data endpoints. The hub derives opaque
 repository aliases but never opens a repository or interprets its objects.
 
@@ -193,7 +197,10 @@ also enforce health, approval and the lease's bundled-e3 version floor.
 
 Core probes the cache before the body hook. The hook takes no local budget
 grant; its local continuation preserves all existing process settings and
-budget. The orchestrator's width includes compatible remote slots. Split-task
+budget. The orchestrator's width includes the compatible racks' cores (a
+slot-based rack's slots). The racks are full when no compatible rack's free
+resources hold the lease, less the work already queued; work no rack could
+ever hold is not queued, and runs locally. Split-task
 planning and final assembly stay local; both pieces and merge bodies delegate.
 
 | Outcome | Record and action |

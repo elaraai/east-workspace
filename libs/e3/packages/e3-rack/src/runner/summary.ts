@@ -9,6 +9,10 @@ import { ranLocally, type RackPlacementEvent } from './rack-body.js';
 export interface RackRunSummary {
   /** The work racks claimed, by rack, in the order each first claimed some */
   readonly placed: ReadonlyArray<{ readonly rackLabel: string; readonly tasks: number; readonly units: number }>;
+  /** The leases that were queued with no rack having room for them */
+  readonly waited: number;
+  /** The longest any of them waited for a rack to claim it, in ms */
+  readonly longestWaitMs: number;
   /** The tries of transfers that failed and were followed by another */
   readonly transfersRetried: number;
   /** The work a rack was to run that this machine ran after all */
@@ -25,6 +29,8 @@ export interface RackRunSummary {
  */
 export class RackTally {
   private placed = new Map<string, { tasks: number; units: number }>();
+  private waited = 0;
+  private longestWaitMs = 0;
   private transfersRetried = 0;
   private ranLocally = 0;
 
@@ -34,7 +40,9 @@ export class RackTally {
    */
   add(event: RackPlacementEvent): void {
     if (event.kind === 'retried') { this.transfersRetried++; return; }
+    if (event.kind === 'waiting') { this.waited++; return; }
     if (event.where === 'rack') {
+      if (event.waitedMs !== undefined) this.longestWaitMs = Math.max(this.longestWaitMs, event.waitedMs);
       const rack = this.placed.get(event.rackLabel) ?? { tasks: 0, units: 0 };
       if (event.role === 'task') rack.tasks++; else rack.units++;
       this.placed.set(event.rackLabel, rack);
@@ -48,8 +56,8 @@ export class RackTally {
    */
   take(): RackRunSummary {
     const summary = { placed: [...this.placed].map(([rackLabel, counts]) => ({ rackLabel, ...counts })),
-      transfersRetried: this.transfersRetried, ranLocally: this.ranLocally };
-    this.placed = new Map(); this.transfersRetried = 0; this.ranLocally = 0;
+      waited: this.waited, longestWaitMs: this.longestWaitMs, transfersRetried: this.transfersRetried, ranLocally: this.ranLocally };
+    this.placed = new Map(); this.waited = 0; this.longestWaitMs = 0; this.transfersRetried = 0; this.ranLocally = 0;
     return summary;
   }
 }
@@ -60,18 +68,19 @@ const count = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? on
  * A run's rack work as the line a run ends with.
  *
  * @param summary - The run's summary
- * @returns Such as `Rack summary: 100 units on rack-a · 2 transfers retried ·
- *   0 ran locally`, or undefined when no work went to a rack or came back
- *   from one
+ * @returns Such as `Rack summary: 100 units on rack-a · 44 waited for capacity
+ *   (longest 38 s) · 2 transfers retried · 0 ran locally`, or undefined when
+ *   no work went to a rack or came back from one
  *
  * @example
  * const line = describeRackSummary(rack.takeSummary());
  * if (line !== undefined) console.log(line);
  */
 export function describeRackSummary(summary: RackRunSummary): string | undefined {
-  if (summary.placed.length === 0 && summary.ranLocally === 0 && summary.transfersRetried === 0) return undefined;
+  if (summary.placed.length === 0 && summary.ranLocally === 0 && summary.transfersRetried === 0 && summary.waited === 0) return undefined;
   const placed = summary.placed.map((rack) =>
     `${[rack.tasks > 0 ? count(rack.tasks, 'task') : '', rack.units > 0 ? count(rack.units, 'unit') : ''].filter(Boolean).join(' and ')} on ${rack.rackLabel}`);
-  return `Rack summary: ${[...(placed.length > 0 ? placed : ['nothing ran on a rack']),
+  const waited = `${summary.waited} waited for capacity${summary.waited > 0 ? ` (longest ${Math.round(summary.longestWaitMs / 1000)} s)` : ''}`;
+  return `Rack summary: ${[...(placed.length > 0 ? placed : ['nothing ran on a rack']), waited,
     `${count(summary.transfersRetried, 'transfer')} retried`, `${summary.ranLocally} ran locally`].join(' · ')}`;
 }

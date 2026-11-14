@@ -342,11 +342,30 @@ export class RackHub {
       const bundled = bundledE3Version(rack.agentVersion);
       const report = this.reports.get(rack.rackId);
       const problem = this.problems.get(rack.rackId);
+      const held = active.filter((lease) => lease.claimedBy === rack.rackId && lease.status === 'claimed');
+      // What is free is the less of what the rack last said and what this
+      // hub's own leases leave of all it has: a rack's report lags a grant
+      // by up to a heartbeat, and it may serve other sources too.
+      const all = report?.resources;
+      const free = all === undefined ? undefined : (() => {
+        let { cores, memoryBytes, gpus } = all;
+        for (const lease of held) {
+          let needs: ReturnType<typeof readRackLeaseResources>;
+          try { needs = readRackLeaseResources(lease.event.resources); } catch { needs = undefined; }
+          if (needs === undefined) continue;
+          cores -= needs.cores; memoryBytes -= needs.memoryBytes; if (needs.gpu) gpus -= 1;
+        }
+        const said = report?.free ?? all;
+        const count = (ours: number, theirs: number) => BigInt(Math.max(0, Math.min(ours, theirs)));
+        return { cores: count(cores, said.cores), memoryBytes: count(memoryBytes, said.memoryBytes), gpus: count(gpus, said.gpus) };
+      })();
       return { rackId: rack.rackId, label: rack.label, tiers: rack.tiers, capacity: rack.capacity,
-        busy: BigInt(active.filter((lease) => lease.claimedBy === rack.rackId && lease.status === 'claimed').length),
+        busy: BigInt(held.length),
         healthy: healthy.has(rack.rackId), bundledE3: bundled === null ? none : some(bundled), pendingApproval: approval && bootPendingApproval(rack),
         features: [...(report?.features ?? [])], target: report?.target === undefined ? none : some(report.target),
-        problem: problem === undefined ? none : some(problem) };
+        problem: problem === undefined ? none : some(problem),
+        resources: all === undefined ? none : some({ cores: BigInt(all.cores), memoryBytes: BigInt(all.memoryBytes), gpus: BigInt(all.gpus) }),
+        free: free === undefined ? none : some(free) };
     }), queued: BigInt(active.filter((lease) => lease.status === 'pending').length), mine: { pending: BigInt(pending), claimed: BigInt(claimed) } };
   }
 
