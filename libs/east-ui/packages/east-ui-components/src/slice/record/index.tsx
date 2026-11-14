@@ -9,7 +9,7 @@ import { Box, Button, Skeleton, useSlotRecipe } from "@chakra-ui/react";
 import { faCalendar, faFilter, faMagnifyingGlass, faUsers } from "@fortawesome/free-solid-svg-icons";
 import type { IconName, IconPrefix, IconProp } from "@fortawesome/fontawesome-svg-core";
 import { DateTimeType, IntegerType, FloatType, lessFor, parseFor, printFor, none, some, variant, type ValueTypeOf, type option } from "@elaraai/east";
-import { recordChoiceNeeds, recordChoiceWhere, type RecordSliceBindType, type RecordSliceFieldType, type RecordSliceChoiceType, type RecordSlicesBindType } from "@elaraai/east-ui/internal";
+import { recordChoiceNeeds, recordChoiceWhere, recordChoicesOf, type RecordSliceBindType, type RecordSliceFieldType, type RecordSliceChoiceType, type RecordSlicesBindType } from "@elaraai/east-ui/internal";
 import { useTrackedEvaluation } from "../../reactive/index.js";
 import { SliceSearchInput } from "../search/input.js";
 import { SliceChoiceGroup, SliceCountSummary, SliceFieldActions, SliceFieldChip, SliceFiltersViewContext } from "../choice.js";
@@ -93,6 +93,14 @@ export function recordSliceNoun(part: Part, nouns: Readonly<Record<string, strin
 const lessCount = lessFor(IntegerType);
 
 /**
+ * Whether the viewer narrows a source: a choice of theirs is in force over it. A page's scope is none (#1621): the rows
+ * it holds are the source's whole, which its total counts, and the viewer neither made it nor can clear it.
+ */
+function narrowedByViewer(slice: Bind): boolean {
+    return recordChoicesOf(slice.config.scope, slice.read().where).size > 0;
+}
+
+/**
  * One source's exact counts as a summary reads them — each `none` while it is
  * read — and whether a narrowing is in force over it; or that they could not
  * be read.
@@ -106,7 +114,10 @@ type SourceCounts = { ok: true; count: option<bigint>; total: option<bigint>; na
  * count is read — a new period's, a new choice's — the count pending, never a
  * zero, so the toolbar holds its slots and never folds again as the count
  * lands (#1398, CL1); once counted, it stays only if the narrowing hides rows
- * of it. One that could not be read says so, with its source's Retry.
+ * of it. One that could not be read says so, with its source's Retry. On a
+ * scoped page a source counts out of the rows its page's scope holds, and the
+ * scope alone is no narrowing (#1621): nothing is said of it until a choice is
+ * made.
  *
  * @param slices - The product's handle
  * @param nouns - The host's noun counting each source, by its name
@@ -131,7 +142,7 @@ export function RecordSlicesSummary({ slices, nouns, except, whole = false }: {
     }, [slices.parts, skipped]);
     // Each source read on its own: one failing leaves the others counted.
     const read = useCallback(() => parts.map((part): SourceCounts => {
-        try { return { ok: true, count: part.slice.count(), total: part.slice.total(), narrowed: part.slice.read().where.size > 0 }; } catch { return { ok: false }; }
+        try { return { ok: true, count: part.slice.count(), total: part.slice.total(), narrowed: narrowedByViewer(part.slice) }; } catch { return { ok: false }; }
     }), [parts]);
     const { result } = useTrackedEvaluation(read);
     const named: ({ part: Part; failed: true } | { part: Part; failed: false; count: bigint | undefined; total: bigint | undefined })[] = [];
@@ -171,7 +182,9 @@ export function RecordSlicesSummary({ slices, nouns, except, whole = false }: {
  * A source's count at its heading in the rail's editor (#1358), as a Library
  * tab counts it: the total while nothing narrows the source, `2 of 30` while
  * its narrowing is in force; a skeleton while a count it needs is read, and
- * its source's Retry when one could not be.
+ * its source's Retry when one could not be. On a scoped page the total is the
+ * rows its page's scope holds, and only a choice of the viewer's narrows
+ * (#1621).
  */
 function RecordSourceCount({ slice }: { slice: Bind }) {
     useSliceReactivity(slice.key);
@@ -180,7 +193,7 @@ function RecordSourceCount({ slice }: { slice: Bind }) {
     const read = useCallback(() => ({ count: slice.count(), total: slice.total() }), [slice]);
     const { result } = useTrackedEvaluation(read);
     if (!result.ok) return <RecordSliceFailure slice={slice} message="Could not load count" />;
-    const narrowing = slice.read().where.size > 0;
+    const narrowing = narrowedByViewer(slice);
     const { count, total } = result.value;
     const shown = narrowing ? count : total;
     if (total.type === "none" || shown.type === "none") {

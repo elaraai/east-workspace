@@ -18,7 +18,7 @@ import userEvent from "@testing-library/user-event";
 import { ChakraProvider } from "@chakra-ui/react";
 import { IntegerType, decodeBeast2For, encodeBeast2For, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import {
-    RecordSliceConfigType, RecordSliceStateType, recordChoiceWhere,
+    RecordSliceConfigType, RecordSliceStateType, recordChoiceWhere, recordChoicesOf, recordScopedWhere,
     type RecordSliceBindType, type RecordSliceChoiceType, type RecordSliceFieldType, type RecordSlicesBindType,
 } from "@elaraai/east-ui/internal";
 import { system } from "../../theme/index.js";
@@ -45,28 +45,34 @@ const decode = decodeBeast2For(RecordSliceStateType);
 const field = (fieldId: string, label: string, values: readonly string[]): Field => ({ fieldId, label, kind: "string", optional: false, multiple: true, set: false,
     values: values.map(value => ({ value: `"${value}"`, label: value })), format: none });
 
-/** One part over the shared store, its counts tracked against `network`. */
-function part(key: string, fields: Field[], presets: { id: string; name: string; where: State["where"] }[]) {
+/**
+ * One part over the shared store, its counts tracked against `network`: 7 of 20 while a choice narrows it. Given its
+ * page's scope (#1621), as a scoped source reads: each index led by the scope's fields, every read carrying the scope
+ * over the viewer's choices, the store keeping the choices alone, and its rows the scope's — 5 of 12.
+ */
+function part(key: string, fields: Field[], presets: { id: string; name: string; where: State["where"] }[], scope: State["where"] = new Map()) {
+    const scoped = [...scope.keys()];
     const config = decodeBeast2For(RecordSliceConfigType)(encodeBeast2For(RecordSliceConfigType)({
-        fields, indexes: fields.map(f => ({ name: f.fieldId, fields: [f.fieldId], sets: new Set<string>(), structured: false, interval: none, area: none, series: none, summary: none, entries: false })),
-        range: none, search: [], presets, scope: new Map(),
+        fields, indexes: fields.map(f => ({ name: f.fieldId, fields: [...scoped, f.fieldId], sets: new Set<string>(), structured: false, interval: none, area: none, series: none, summary: none, entries: false })),
+        range: none, search: [], presets, scope,
     }));
+    const rows = scope.size === 0 ? { total: 20n, narrowed: 7n } : { total: 12n, narrowed: 5n };
     if (getStore().read(key) === undefined) getStore().write(key, encode({ where: new Map(), preset: none, resolution: none }));
-    const read = (): State => { trackKey(key); return decode(getStore().read(key)!); };
-    const write = (state: State) => { getStore().write(key, encode(state)); return null; };
+    const read = (): State => { trackKey(key); const state = decode(getStore().read(key)!); return { ...state, where: recordScopedWhere(config.scope, state.where) }; };
+    const write = (state: State) => { getStore().write(key, encode({ ...state, where: recordChoicesOf(config.scope, state.where) })); return null; };
     const choose = (id: string, choice: ValueTypeOf<RecordSliceChoiceType> | undefined) => {
         const where = recordChoiceWhere(config, read().where, id, choice);
         if (where === null) throw new Error("Choose a preceding field");
         return write({ ...read(), where, preset: none });
     };
-    const count = vi.fn<Bind["count"]>(() => { trackKey("network"); return some(BigInt(read().where.size === 0 ? 20 : 7)); });
+    const count = vi.fn<Bind["count"]>(() => { trackKey("network"); return some(recordChoicesOf(config.scope, read().where).size === 0 ? rows.total : rows.narrowed); });
     const clearAll = () => write({ ...read(), where: new Map(), preset: none });
     const retry = vi.fn(() => { getStore().write("network", encodeBeast2For(IntegerType)(BigInt(Date.now()))); return null; });
     const slice: Bind & { count: typeof count; retry: typeof retry } = { key, config, sourceId: key, read, write,
         choose: (id, values) => choose(id, values.length === 0 ? undefined : variant("values", values)),
         range: (id, from, to) => choose(id, variant("range", { from, to })), prefix: (id, value) => choose(id, variant("prefix", value)),
         clear: id => choose(id, undefined), clearAll,
-        count, countWhere: count, total: () => some(20n), domain: () => none, suggest: () => none,
+        count, countWhere: count, total: () => some(rows.total), domain: () => none, suggest: () => none,
         values: id => { const chosen = read().where.get(id); return config.fields.find(f => f.fieldId === id)!.values.map(value =>
             ({ ...value, selected: chosen?.type === "values" && chosen.value.includes(value.value), count: some(3n), error: none })); },
         replaces: () => [],
@@ -89,13 +95,14 @@ type Named = Partial<Record<"lanes" | "resources", { label?: string; icon?: stri
 
 /**
  * The yard: lanes by area, resources by group, and one preset over both — the product's functions as the East ones run;
- * and, given `crews`, crews with no field of the rail's, narrowed as a host's window narrows a Plan's shifts.
+ * given `crews`, crews with no field of the rail's, narrowed as a host's window narrows a Plan's shifts; and given
+ * `laneScope`, the lanes scoped as a page for one dock scopes them (#1621).
  */
-function fixture(store = new UIStore(), named: Named = {}, crews = false) {
+function fixture(store = new UIStore(), named: Named = {}, crews = false, laneScope: State["where"] = new Map()) {
     initializeStore(store);
     const north = { id: "north", name: "North, halls" };
     const lanes = part("yard.lanes", [field("area", "Area", ["North", "South"]), ...(named.lanes?.cover === true ? [field("cover", "Cover", ["Covered", "Open"])] : [])],
-        [{ ...north, where: new Map([["area", variant("values", ['"North"'])]]) }]);
+        [{ ...north, where: new Map([["area", variant("values", ['"North"'])]]) }], laneScope);
     const kilns = part("yard.resources", [field("group", "Kiln group", ["Hall A", "Hall B", "Bulk"])],
         [{ ...north, where: new Map([["group", variant("values", ['"Hall A"', '"Hall B"'])]]) }]);
     const shifts = part("yard.crews", [], []);
@@ -394,4 +401,32 @@ test("a source with several fields is headed once, over its first; its fields st
     const order = [...dialog.querySelectorAll<HTMLElement>("[data-slice-group], [data-slice-section]")]
         .map(el => el.dataset.sliceGroup !== undefined ? `head:${el.dataset.sliceGroup}` : el.dataset.sliceSection);
     expect(order).toEqual(["head:source:lanes", "field:lanes.area", "field:lanes.cover", "head:source:resources", "field:resources.group", "head:presets", "presets"]);
+});
+
+/** The lanes' scope on a page for one dock (#1621). */
+const DOCK: State["where"] = new Map([["dock", variant("values", ['"D-1"'])]]);
+
+test("a page's scope is no choice of the viewer's (#1621): a scoped source is named nowhere while only its scope holds it, its count read or not; its heading counts the scope's rows; and Clear all leaves the scope", async () => {
+    const f = fixture(new UIStore(), {}, false, DOCK);
+    // Its count read with the scope over no choice: named nowhere while it is read, and nowhere once counted.
+    const counted = f.lanes.count.getMockImplementation()!;
+    f.lanes.count.mockImplementation(() => { trackKey("network"); return none; });
+    show(f.product);
+    expect(document.querySelector("[data-record-slices-summary]")).toBeNull();
+    act(() => { f.lanes.count.mockImplementation(counted); f.lanes.retry(); });
+    expect(document.querySelector("[data-record-slices-summary]")).toBeNull();
+    // A choice beside the scope: counted out of the scope's rows. Every read carries the scope; the store keeps the choice alone.
+    act(() => { f.lanes.choose("area", ['"North"']); });
+    await waitFor(() => expect(document.querySelector("[data-record-slices-summary]")?.textContent).toBe("5 of 12 lanes"));
+    expect(f.lanes.read().where.get("dock")).toEqual(variant("values", ['"D-1"']));
+    expect([...decode(getStore().read("yard.lanes")!).where.keys()]).toEqual(["area"]);
+    cleanup();
+    show(f.product, { folded: true });
+    const dialog = await openEditor();
+    expect([headingCount(dialog, "lanes")!.textContent, activeCount(dialog)]).toEqual(["5 of 12", "1 active"]);
+    // Cleared, the heading counts the scope's rows — never `12 of 12` — and the scope still holds every read.
+    await userEvent.setup().click(within(dialog).getByRole("button", { name: "Clear all" }));
+    await waitFor(() => expect(headingCount(screen.getByRole("dialog"), "lanes")!.textContent).toBe("12"));
+    expect(activeCount(screen.getByRole("dialog"))).toBe("0 active");
+    expect(f.lanes.read().where.get("dock")).toEqual(variant("values", ['"D-1"']));
 });
