@@ -593,6 +593,22 @@ cdef extern from "east/serialization.h":
     # decodes takes the name: a runner names its inputs "input N".
     void east_paged_set_label(EastValue *v, const char *label)
     EastType *east_beast2_pages_type(Beast2Pages *p)
+    # A key range of a paged collection (#1616). A range of a lazily opened
+    # Set or Dict is a view: a paged value that reads through its source's
+    # pager, its ends placed at the first read that needs them. `prepare`
+    # places them — the count entries above answer nothing for a view whose
+    # ends cannot be placed, so a caller that reads them asks here first; it
+    # is true at once for a pager that is no view. `pages_range` is the rows
+    # [lo, hi) between two bounds in the pager's own row numbering. A bound is
+    # a leading part of the key, its value and its type; `past` makes the end
+    # the first key past it, as a prefix's upper end is; NULL leaves it open.
+    EastValue *east_beast2_open_paged_range(EastValue *source, EastValue *from_,
+                                            EastType *from_type, bint from_past,
+                                            EastValue *to, EastType *to_type, bint to_past)
+    bint east_beast2_pages_prepare(Beast2Pages *p)
+    bint east_beast2_pages_range(Beast2Pages *p, EastValue *from_, EastType *from_type,
+                                 bint from_past, EastValue *to, EastType *to_type,
+                                 bint to_past, size_t *lo_out, size_t *hi_out)
 
     # Segment manifests: a collection held as standalone segment blobs and a
     # manifest naming them, a manifest directory being the manifest's file

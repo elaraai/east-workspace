@@ -62,6 +62,10 @@ static inline bool arg_paged_live(const EastValue *v)
 static EastValue *set_size_impl(EastValue **args, size_t n)
 {
     (void)n;
+    /* A range's ends are placed at its first read (#1616); one whose ends
+     * cannot be placed has no size, and says why. */
+    if (arg_paged_live(args[0]) && !east_beast2_pages_prepare(args[0]->data.paged.pages))
+        return NULL;
     return east_integer((int64_t)east_set_len(args[0]));
 }
 

@@ -14,8 +14,9 @@
  *      once, the cache left holding the ends alone;
  *   3. a keyed read tests the key against the bounds, which reads nothing,
  *      and inside them is the source's keyed read;
- *   4. a range of a range is a narrower view of the same source, and reads
- *      nothing to be made;
+ *   4. a range of a range is a narrower view of the same source: it reads
+ *      nothing to be made, and is placed among the rows of the range it
+ *      narrows, so it reads no segment outside that one's;
  *   5. a view's own rows decode into a collection of its own — never frozen,
  *      whatever the source is — and no row beyond them; the source stays
  *      lazy, its cache as it was, and a source decoded whole or changed
@@ -343,6 +344,11 @@ static void test_view_rule(void)
     EastValue *narrower = int_view(view, 36, 600);
     check(narrower != NULL && decoded(source) == before, "a range of a range reads nothing");
     check_count(narrower ? east_dict_len(narrower) : 0, 8, "a range of a range holds both bounds");
+    /* Its size placed the range it narrows — whose last segment was not yet
+     * read — and then itself among that range's rows: a `to` past every key
+     * of the collection reads no segment past the range. */
+    check_count(decoded(source), before + 1,
+                "a range of a range reads no segment outside the range it narrows");
     check(narrower && !east_dict_has(narrower, inside) && east_dict_has(view, inside),
           "a key the narrower range leaves out is absent from it alone");
     EastValue *wider = int_view(view, 0, 600);
@@ -445,7 +451,7 @@ static void test_exactness(void)
     EastValue *source = open_lazy(blob, type, true);
     check(source != NULL, "the struct-keyed fixture opens");
 
-    bool sizes = true, walks = true, decodes = true, hosts = true, keyed = true;
+    bool sizes = true, walks = true, decodes = true, hosts = true, keyed = true, narrowed = true;
     for (int trial = 0; source && trial < 400; trial++) {
         /* Each end: left out, a whole key, or the key's first field; a prefix now and then. */
         EastValue *ends[2] = {NULL, NULL};
@@ -502,6 +508,48 @@ static void test_exactness(void)
                 bool has = east_dict_has(view, east_dict_key_at(whole, row));
                 if (has != (row >= lo && row < hi)) keyed = false;
             }
+            /* A range of it, by two more ends: the rows both ranges hold,
+             * and the host's row range of the view, numbered from its first. */
+            EastValue *in_ends[2] = {NULL, NULL};
+            EastType *in_types[2] = {key_type, key_type};
+            for (int e = 0; e < 2; e++) {
+                uint32_t pick = rng() % 3;
+                size_t press = rng() % (SEGMENTS + 2);
+                if (pick == 1) {
+                    in_ends[e] = sheet_key(press, (int64_t)(rng() % (PER_SEGMENT + 2)), key_type);
+                } else if (pick == 2) {
+                    in_ends[e] = sheet_key(press, 0, press_type);
+                    in_types[e] = press_type;
+                }
+            }
+            size_t in_lo, in_hi;
+            oracle(whole, in_ends[0], in_types[0], false, in_ends[1], in_types[1], false, &in_lo,
+                   &in_hi);
+            if (in_lo < lo) in_lo = lo;
+            if (in_hi > hi) in_hi = hi;
+            if (in_hi < in_lo) in_hi = in_lo;
+            /* Within an empty range every range is empty, wherever its ends are. */
+            size_t both = hi > lo ? in_hi - in_lo : 0;
+            EastValue *inner = east_beast2_open_paged_range(view, in_ends[0], in_types[0], false,
+                                                            in_ends[1], in_types[1], false);
+            if (!inner || east_dict_len(inner) != both) {
+                narrowed = false;
+            } else if (both > 0) {
+                Beast2Pages *ip = inner->data.paged.pages;
+                EastValue *seg = east_beast2_pages_segment_disjoint(ip, 0);
+                if (!seg ||
+                    !east_value_equal(east_dict_key_at(seg, 0), east_dict_key_at(whole, in_lo)))
+                    narrowed = false;
+                if (seg) east_value_release(seg);
+            }
+            size_t view_lo = 0, view_hi = 0;
+            if (!east_beast2_pages_range(p, in_ends[0], in_types[0], false, in_ends[1], in_types[1],
+                                         false, &view_lo, &view_hi) ||
+                view_hi - view_lo != both || (both > 0 && view_lo != in_lo - lo))
+                narrowed = false;
+            if (inner) east_value_release(inner);
+            if (in_ends[0]) east_value_release(in_ends[0]);
+            if (in_ends[1]) east_value_release(in_ends[1]);
             /* Its own rows, decoded. */
             EastValue *rows = east_paged_hydrated(view);
             if (!rows || east_dict_len(rows) != hi - lo || east_value_frozen(rows)) {
@@ -531,6 +579,7 @@ static void test_exactness(void)
     check(keyed, "a keyed read of a view finds the rows inside it and no other");
     check(decodes, "a view's own rows, decoded, are those rows and their values, not frozen");
     check(hosts, "the host's row range is those rows");
+    check(narrowed, "a range of a range, and the host's row range of one, are the rows both hold");
 
     /* A prefix that is one segment: the segment before it and its own, each once. */
     if (source) {

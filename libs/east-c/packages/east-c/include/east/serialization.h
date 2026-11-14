@@ -763,7 +763,9 @@ void east_beast2_pages_set_cache_budget(Beast2Pages *p, size_t bytes);
 // Opening a view reads nothing. Its rows are found at the first read that
 // needs them: each end by a bisect of the fences, which reads no segment once
 // they are verified, then a search of the one segment that can hold it,
-// through the cache. Every pager entry then answers for the view's rows: its
+// through the cache. A range of a range is placed among the rows of the range
+// it narrows, and reads no segment outside that one's. Every pager entry then
+// answers for the view's rows: its
 // size, a keyed read (a key outside the bounds is absent, with nothing read),
 // its segments — its first and last through the cache, rows whole; those
 // between them decoded fresh, as a scan's — and a range of it again.

@@ -1527,6 +1527,19 @@ cpdef bint _proxy_is_live_paged(uintptr_t ptr):
     return _live_paged(<_eastc.EastValue*>ptr)
 
 
+cdef int _paged_prepare(_eastc.EastValue *v) except -1:
+    """Place a range's ends before its size or its segments are read.
+
+    A range of a lazily opened Set or Dict (#1616) finds its rows at the first
+    read that needs them, and the pager's count entries answer nothing for one
+    whose ends cannot be placed — a corrupt blob's — so every read of them
+    asks here first and raises the pager's reason. Nothing for a value that
+    is no range, or that no longer reads from its pager."""
+    if _live_paged(v) and not _eastc.east_beast2_pages_prepare(v.data.paged.pages):
+        _raise_paged_error()
+    return 0
+
+
 def _paged_array_iter(uintptr_t ptr, uintptr_t elem_type_ptr):
     """Stream a live paged Array's elements one decoded segment at a time —
     the python twin of the evaluator's paged for-loop (O(segment) memory)."""
@@ -1557,8 +1570,10 @@ def _paged_set_iter(uintptr_t ptr, uintptr_t elem_type_ptr):
     cdef _eastc.Beast2Pages *pages = v.data.paged.pages
     cdef _eastc.EastValue *seg
     cdef size_t s, i, n
-    cdef size_t seg_count = _eastc.east_beast2_pages_segment_count(pages)
+    cdef size_t seg_count
     cdef list batch
+    _paged_prepare(v)
+    seg_count = _eastc.east_beast2_pages_segment_count(pages)
     for s in range(seg_count):
         seg = _eastc.east_beast2_pages_segment_disjoint(pages, s)
         if seg == NULL:
@@ -1581,8 +1596,10 @@ def _paged_dict_items(uintptr_t ptr, uintptr_t key_type_ptr, uintptr_t val_type_
     cdef _eastc.Beast2Pages *pages = v.data.paged.pages
     cdef _eastc.EastValue *seg
     cdef size_t s, i, n
-    cdef size_t seg_count = _eastc.east_beast2_pages_segment_count(pages)
+    cdef size_t seg_count
     cdef list batch
+    _paged_prepare(v)
+    seg_count = _eastc.east_beast2_pages_segment_count(pages)
     for s in range(seg_count):
         seg = _eastc.east_beast2_pages_segment_disjoint(pages, s)
         if seg == NULL:
@@ -1700,7 +1717,8 @@ cpdef object _proxy_array_pop(uintptr_t ptr, uintptr_t elem_type_ptr, Py_ssize_t
     arr.data.array.len -= 1
     return result
 
-cpdef Py_ssize_t _proxy_set_len(uintptr_t ptr):
+cpdef Py_ssize_t _proxy_set_len(uintptr_t ptr) except -1:
+    _paged_prepare(<_eastc.EastValue*>ptr)
     return <Py_ssize_t>_eastc.east_set_len(<_eastc.EastValue*>ptr)
 
 cpdef void _proxy_set_add(uintptr_t ptr, uintptr_t elem_type_ptr, object value):
@@ -1749,7 +1767,8 @@ cpdef object _proxy_set_iter(uintptr_t ptr, uintptr_t elem_type_ptr):
         result.append(c_value_to_py(_eastc.east_set_at(s, i), <_eastc.EastType*>elem_type_ptr))
     return result
 
-cpdef Py_ssize_t _proxy_dict_len(uintptr_t ptr):
+cpdef Py_ssize_t _proxy_dict_len(uintptr_t ptr) except -1:
+    _paged_prepare(<_eastc.EastValue*>ptr)
     return <Py_ssize_t>_eastc.east_dict_len(<_eastc.EastValue*>ptr)
 
 cdef object _missing_key_error(str container, _eastc.EastValue *c_key, _eastc.EastType *key_type):

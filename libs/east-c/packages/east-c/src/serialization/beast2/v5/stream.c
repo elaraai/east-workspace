@@ -2706,12 +2706,13 @@ EastType *east_beast2_pages_type(Beast2Pages *p)
  *  it. Making a view reads nothing. Its rows are found when first needed, by
  *  placing each end: the source's fences are bisected, which reads nothing
  *  once they are verified, and the one segment that can hold the end is
- *  searched, through the cache. From then the view's own index describes the
- *  source's segments it spans, each counted by the rows of it the range
- *  holds, and the segment entries answer for those — its first and last
- *  through the cache, their rows whole; those between them as a scan's,
- *  decoded fresh — so a loop, a whole decode and a host walk a view by the
- *  code they walk any pager by.  */
+ *  searched, through the cache. A range of a range is placed among the rows
+ *  of the range it narrows, so it reads no segment outside that one's. From
+ *  then the view's own index describes the source's segments it spans, each
+ *  counted by the rows of it the range holds, and the segment entries answer
+ *  for those — its first and last through the cache, their rows whole; those
+ *  between them as a scan's, decoded fresh — so a loop, a whole decode and a
+ *  host walk a view by the code they walk any pager by.  */
 
 /* One end of a view. */
 typedef struct {
@@ -2789,22 +2790,34 @@ static size_t pages_segment_of_row(const Beast2Pages *p, size_t row)
     return lo;
 }
 
-/* The row of `p`, a pager with segments and verified fences, an end names:
- * the first whose key the end's test holds for, or the row count when it
- * holds for none.
+/* The row an end names among rows [w_lo, w_hi) of `p`, a pager with segments
+ * and verified fences: the first of them whose key the end's test holds for,
+ * or w_hi when it holds for none. The window is the whole collection, or the
+ * rows of the range a narrower range is taken of — so placing an end never
+ * reads a segment outside the range it narrows.
  *
- * The fences are bisected for the first segment whose first key the test
+ * The fences of the window's segments are bisected for the first the test
  * holds for; every key from there on passes. The segment before it is the
  * one that can still hold passing keys, at its end, so it is read, through
- * the cache, and searched — unless there is none before it, or the bound is
- * a whole key that is that fence, which every earlier key is before. With no
- * fence passing, that is the last segment. */
-static bool pages_place_end(Beast2Pages *p, const B2V5ViewEnd *end, size_t *row)
+ * the cache, and its rows in the window searched — unless there is none
+ * before it in the window, or the bound is a whole key that is that fence,
+ * which every earlier key is before. With no fence passing, that is the
+ * window's last segment. A window that starts inside a segment has no fence
+ * at its first row, so that segment is never skipped on a fence's word. */
+static bool pages_place_end(Beast2Pages *p, const B2V5ViewEnd *end, size_t w_lo, size_t w_hi,
+                            size_t *row)
 {
+    if (w_hi <= w_lo) {
+        *row = w_lo;
+        return true;
+    }
     bool is_dict = p->type->kind == EAST_TYPE_DICT;
     EastType *key_type = is_dict ? p->type->data.dict.key : p->type->data.element;
-    size_t lo = 0;
-    size_t hi = p->index.count;
+    size_t first_seg = pages_segment_of_row(p, w_lo);
+    size_t last_seg = pages_segment_of_row(p, w_hi - 1);
+    bool from_fence = w_lo == pages_rows_before(p, first_seg);
+    size_t lo = from_fence ? first_seg : first_seg + 1;
+    size_t hi = last_seg + 1;
     while (lo < hi) {
         size_t mid = lo + (hi - lo) / 2;
         EastValue *fence = east_beast2_pages_fence(p, mid);
@@ -2816,12 +2829,12 @@ static bool pages_place_end(Beast2Pages *p, const B2V5ViewEnd *end, size_t *row)
         else
             lo = mid + 1;
     }
-    size_t first = lo; /* the first segment whose fence passes; the count when none does */
-    if (first == 0) {
-        *row = 0;
+    size_t first = lo; /* the first segment whose fence passes; one past the last when none does */
+    if (first == first_seg) {
+        *row = w_lo; /* the window's first row passes */
         return true;
     }
-    if (first < p->index.count && !end->past && east_type_equal(end->type, key_type)) {
+    if (first <= last_seg && !end->past && east_type_equal(end->type, key_type)) {
         EastValue *fence = east_beast2_pages_fence(p, first);
         if (!fence) return false;
         bool is_bound = east_value_compare(fence, end->value) == 0;
@@ -2838,8 +2851,10 @@ static bool pages_place_end(Beast2Pages *p, const B2V5ViewEnd *end, size_t *row)
         east_value_release(seg);
         return false;
     }
-    size_t a = 0;
-    size_t b = is_dict ? east_dict_len(seg) : east_set_len(seg);
+    size_t base = pages_rows_before(p, s);
+    size_t held = is_dict ? east_dict_len(seg) : east_set_len(seg);
+    size_t a = w_lo > base ? w_lo - base : 0;
+    size_t b = w_hi < base + held ? w_hi - base : held;
     while (a < b) {
         size_t mid = a + (b - a) / 2;
         EastValue *key = is_dict ? east_dict_key_at(seg, mid) : east_set_at(seg, mid);
@@ -2849,15 +2864,15 @@ static bool pages_place_end(Beast2Pages *p, const B2V5ViewEnd *end, size_t *row)
             a = mid + 1;
     }
     east_value_release(seg);
-    *row = pages_rows_before(p, s) + a;
+    *row = base + a;
     return true;
 }
 
-/* The rows [*lo, *hi) of `p`, a pager that reads its own bytes, between two
- * ends, each NULL-valued for that end of the collection. Refuses where a
- * keyed read refuses. */
+/* The rows [*lo, *hi) between two ends among rows [w_lo, w_hi) of `p`, a pager
+ * that reads its own bytes; each end NULL-valued for that end of the window.
+ * Refuses where a keyed read refuses. */
 static bool pages_place_rows(Beast2Pages *p, const B2V5ViewEnd *from, const B2V5ViewEnd *to,
-                             size_t *lo, size_t *hi)
+                             size_t w_lo, size_t w_hi, size_t *lo, size_t *hi)
 {
     if (p->type->kind == EAST_TYPE_ARRAY) {
         east_builtin_error("beast2 v5: a key range addresses Set and Dict roots");
@@ -2868,12 +2883,12 @@ static bool pages_place_rows(Beast2Pages *p, const B2V5ViewEnd *from, const B2V5
                            "self-contained segments");
         return false;
     }
-    *lo = 0;
-    *hi = p->index.total;
-    if (p->index.count == 0 || (!from->value && !to->value)) return true;
+    *lo = w_lo;
+    *hi = w_hi;
+    if (w_hi <= w_lo || (!from->value && !to->value)) return true;
     if (!pages_verify_fences(p)) return false;
-    if (from->value && !pages_place_end(p, from, lo)) return false;
-    if (to->value && !pages_place_end(p, to, hi)) return false;
+    if (from->value && !pages_place_end(p, from, w_lo, w_hi, lo)) return false;
+    if (to->value && !pages_place_end(p, to, w_lo, w_hi, hi)) return false;
     if (*hi < *lo) *hi = *lo; /* an inverted range holds nothing */
     return true;
 }
@@ -2886,15 +2901,17 @@ static bool pages_view_place(Beast2Pages *p)
     B2V5View *view = p->view;
     if (view->placed) return true;
     Beast2Pages *source = view->source;
-    size_t lo, hi;
-    if (!pages_place_rows(source, &view->from, &view->to, &lo, &hi)) return false;
+    /* The rows it is placed among: the source's, or those of the range it
+     * narrows, which is placed first. */
+    size_t w_lo = 0;
+    size_t w_hi = source->index.total;
     if (view->parent->view) {
         if (!pages_view_place(view->parent)) return false;
-        const B2V5View *outer = view->parent->view;
-        if (lo < outer->lo) lo = outer->lo;
-        if (hi > outer->hi) hi = outer->hi;
-        if (hi < lo) hi = lo;
+        w_lo = view->parent->view->lo;
+        w_hi = view->parent->view->hi;
     }
+    size_t lo, hi;
+    if (!pages_place_rows(source, &view->from, &view->to, w_lo, w_hi, &lo, &hi)) return false;
     size_t first = 0;
     size_t count = 0;
     if (hi > lo) {
@@ -3126,19 +3143,19 @@ bool east_beast2_pages_range(Beast2Pages *p, EastValue *from, EastType *from_typ
         return false;
     B2V5ViewEnd from_end = {from, from_type, from_past};
     B2V5ViewEnd to_end = {to, to_type, to_past};
-    size_t lo, hi;
-    if (!pages_place_rows(pages_view_source(p), &from_end, &to_end, &lo, &hi)) return false;
+    Beast2Pages *source = pages_view_source(p);
+    /* Rows of a view are placed among its own, and numbered from its first. */
+    size_t w_lo = 0;
+    size_t w_hi = source->index.total;
     if (p->view) {
-        /* Rows of the view: placed in its source, held to its own. */
         if (!pages_view_place(p)) return false;
-        if (lo < p->view->lo) lo = p->view->lo;
-        if (hi > p->view->hi) hi = p->view->hi;
-        if (hi < lo) hi = lo;
-        lo -= p->view->lo;
-        hi -= p->view->lo;
+        w_lo = p->view->lo;
+        w_hi = p->view->hi;
     }
-    *lo_out = lo;
-    *hi_out = hi;
+    size_t lo, hi;
+    if (!pages_place_rows(source, &from_end, &to_end, w_lo, w_hi, &lo, &hi)) return false;
+    *lo_out = lo - w_lo;
+    *hi_out = hi - w_lo;
     return true;
 }
 

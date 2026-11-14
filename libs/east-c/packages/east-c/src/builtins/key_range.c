@@ -3,6 +3,7 @@
  */
 #include "key_range.h"
 #include "east/key_bound.h"
+#include "east/serialization.h"
 #include "east/values.h"
 #include <stdlib.h>
 #include <string.h>
@@ -48,11 +49,22 @@ static bool bound_taken(EastKeyBoundName name, EastType *key, EastType *type)
     return false;
 }
 
-/* The run of a Dict or a Set between two tests of its keys, as a new
- * collection; NULL with a builtin error posted when it cannot be had. */
+/* A collection that still reads from its pager — a task's input, a lazily
+ * opened file, a range of one: its range is a view the pager serves, which
+ * reads nothing until it is read. */
+static bool reads_from_pager(const EastValue *collection)
+{
+    return collection && collection->kind == EAST_VAL_PAGED &&
+           collection->data.paged.hydrated == NULL;
+}
+
+/* The run of a Dict or a Set held in memory between two tests of its keys, as
+ * a new collection; NULL with a builtin error posted when it cannot be had. A
+ * paged collection that was decoded whole is the collection it decoded to. */
 static EastValue *range_between(EastValue *collection, EastKeyTest from, void *from_ctx,
                                 EastKeyTest to, void *to_ctx)
 {
+    collection = east_paged_hydrated(collection);
     EastValue *range;
     if (collection && collection->kind == EAST_VAL_DICT) {
         range = east_dict_range(collection, from, from_ctx, to, to_ctx);
@@ -93,6 +105,9 @@ static EastValue *key_range_impl(EastValue **args, size_t n)
     Bound to = {NULL, to_type};
     bool has_from = option_some(args[1], &from.value);
     bool has_to = option_some(args[2], &to.value);
+    if (reads_from_pager(args[0]))
+        return east_beast2_open_paged_range(args[0], has_from ? from.value : NULL, from_type, false,
+                                            has_to ? to.value : NULL, to_type, false);
     return range_between(args[0], has_from ? at_or_past : NULL, &from, has_to ? at_or_past : NULL,
                          &to);
 }
@@ -107,6 +122,8 @@ static EastValue *key_prefix_impl(EastValue **args, size_t n)
         return NULL;
     }
     if (!bound_taken(EAST_KEY_BOUND_PREFIX, key, type)) return NULL;
+    if (reads_from_pager(args[0]))
+        return east_beast2_open_paged_range(args[0], args[1], type, false, args[1], type, true);
     Bound prefix = {args[1], type};
     return range_between(args[0], at_or_past, &prefix, past, &prefix);
 }

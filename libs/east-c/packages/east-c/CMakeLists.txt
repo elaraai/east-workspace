@@ -581,6 +581,17 @@ add_executable(test_paged_range tests/test_paged_range.c)
 target_link_libraries(test_paged_range east-c)
 add_test(NAME paged_range COMMAND test_paged_range)
 
+# The same range read by a function's body (#1616, D4): each row of the
+# design's table run through the interpreter over a lazily opened input, with
+# the segments it decodes — a size, a keyed read, a loop; a range handed on,
+# which reads nothing; every other read, which decodes the range's own rows
+# and leaves the input lazy; a source that changes after a range is taken;
+# loops inside loops, and one whose segment the cache drops; and a range whose
+# ends cannot be placed, refused in a keyed read's words.
+add_executable(test_paged_range_body tests/test_paged_range_body.c)
+target_link_libraries(test_paged_range_body east-c)
+add_test(NAME paged_range_body COMMAND test_paged_range_body)
+
 # Array diff gate (#1425): an Array's diff trims the common start and end, and
 # searches the middle for a shortest edit script by Myers' algorithm, to a
 # bound past which it pairs the middle by position. Its work is pinned by the

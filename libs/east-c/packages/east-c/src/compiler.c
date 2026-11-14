@@ -996,9 +996,13 @@ static inline void bind_var(Environment *frame, size_t slot, const char *name, E
  * so direct-impl callers — the east-py eager funnel — apply the same gate. */
 bool east_builtin_serves_paged(const char *name)
 {
+    /* The range builtins among them: a range of a paged collection is a view
+     * the pager serves (#1616). */
     static const char *const served[] = {
-        "ArraySize", "ArrayHas", "ArrayGet",   "ArrayTryGet",      "ArrayGetOrDefault", "DictSize",
-        "DictHas",   "DictGet",  "DictTryGet", "DictGetOrDefault", "SetSize",           "SetHas",
+        "ArraySize",         "ArrayHas",         "ArrayGet", "ArrayTryGet",
+        "ArrayGetOrDefault", "DictSize",         "DictHas",  "DictGet",
+        "DictTryGet",        "DictGetOrDefault", "SetSize",  "SetHas",
+        "DictRange",         "DictPrefix",       "SetRange", "SetPrefix",
     };
     for (size_t i = 0; i < sizeof(served) / sizeof(served[0]); i++)
         if (strcmp(name, served[i]) == 0) return true;
@@ -1094,6 +1098,16 @@ static EvalResult eval_for_paged(IRNode *node, Environment *env, PlatformRegistr
                                  const char *loop_label, bool disjoint, PagedBindFn bind)
 {
     Beast2Pages *pages = subject->data.paged.pages;
+    /* A range's ends are placed at its first read (#1616), and a loop is one:
+     * the segments an end lands in are this loop's read. A pager that is no
+     * range has nothing to place. */
+    int64_t placing = prof_read_at(node);
+    bool placed = east_beast2_pages_prepare(pages);
+    g_prof_read_loc = placing;
+    if (!placed) {
+        east_value_release(subject);
+        return paged_error(node);
+    }
     size_t seg_count = east_beast2_pages_segment_count(pages);
     size_t base = 0;
     /* Column projection (#599): the loop body's IR names the struct fields
