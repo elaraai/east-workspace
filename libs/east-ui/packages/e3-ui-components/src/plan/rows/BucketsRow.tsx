@@ -46,6 +46,7 @@ import {
 import type { IconName, IconPrefix } from "@fortawesome/fontawesome-svg-core";
 import { variant, type ValueTypeOf } from "@elaraai/east";
 import { Plan } from "@elaraai/e3-ui/internal";
+import { getSomeorUndefined } from "@elaraai/east-ui-components";
 import { resolveColor } from "@elaraai/east-ui-components/internal";
 import { usePlanDispatch, usePlanScale, type PlanElementRefValue } from "../context.js";
 import { runStateKey, type PlanRowMove } from "./SpanRow.js";
@@ -60,6 +61,7 @@ import type { PlanBucket } from "../scale.js";
 import type { PlanInstantValue } from "../instant.js";
 import { appendAll } from "../reductions.js";
 import { tileName } from "../a11y.js";
+import { statusAttributes } from "../../shared/status.js";
 import type { PlanRowId } from "../model.js";
 import { usePlanWords } from "../words.js";
 import { PLAN_CELL_INSET } from "../geometry.js";
@@ -146,7 +148,8 @@ function EventChip({ ev, styles, rowKey, rowId, ctx, bucket, lane, move, folded 
             aria-label={tileName(ev, bucket, lane, scale, words)}
             data-ctx={ctx === true ? "" : undefined}
             data-state={stateKey}
-            data-tone={ev.tone.type === "some" ? ev.tone.value.type : undefined}
+            // Its status (#1541): its tone's ring, and the open ring a tentative one draws as.
+            {...statusAttributes(getSomeorUndefined(ev.status))}
             data-overlap={overlap ? "" : undefined}
             data-draft={drafted ? "" : undefined}
             data-conflict={conflict ? "" : undefined}

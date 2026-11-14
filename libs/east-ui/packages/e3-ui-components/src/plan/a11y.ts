@@ -74,9 +74,21 @@ function spanText(scale: PlanScale, from: RunValue["start"], to: RunValue["end"]
 }
 
 /**
+ * An item's status in words (#1541): the status's own, which its ring or its
+ * glyph's colour says by look — never its tone's name, which the author's
+ * words stand for.
+ *
+ * @param status - The item's status
+ * @returns Its words, or `undefined` for an item with none
+ */
+function statusWords(status: RunValue["status"]): string | undefined {
+    return status.type === "some" ? status.value.label : undefined;
+}
+
+/**
  * A run bar's accessible name — its label, its span, its state, and what its
- * look adds: the quantity caption (#824), the `moved ×k` counter, the stuck
- * ring's status.
+ * look adds: the quantity caption (#824), the `moved ×k` counter, its
+ * status's words.
  *
  * @param run - The run
  * @param scale - The shared scale
@@ -91,7 +103,7 @@ export function runName(run: RunValue, scale: PlanScale, w: PlanWords): string {
         state: stateText(run.state, w),
         quantity: run.quantity.type === "some" ? quantityText(run.quantity.value, w) : undefined,
         moved: moved > 0 ? w.m.movedTimes({ n: moved, count: w.number(moved) }) : undefined,
-        status: run.status.type === "some" ? w.m.tone({ tone: run.status.value.type }) : undefined,
+        status: statusWords(run.status),
     });
 }
 
@@ -110,7 +122,8 @@ export function decisionName(dec: DecisionValue, scale: PlanScale, w: PlanWords)
 
 /**
  * A bucket tile's accessible name — its label (or `Event` for the resting
- * ✓ / `plan` chip), its bucket, its lane caption, its state and tone.
+ * ✓ / `plan` chip), its bucket, its lane caption, its state and its status's
+ * words.
  *
  * @param ev - The bucket event
  * @param bucket - The bucket it renders in
@@ -125,12 +138,13 @@ export function tileName(ev: BucketEventValue, bucket: PlanBucket, lane: string 
         bucket: scale.bucketText(bucket),
         lane,
         state: stateText(ev.state, w),
-        tone: ev.tone.type === "some" ? w.m.tone({ tone: ev.tone.value.type }) : undefined,
+        status: statusWords(ev.status),
     });
 }
 
 /**
- * A cards chip's accessible name — its label, the buckets it spans, its state.
+ * A cards chip's accessible name — its label, the buckets it spans, its state
+ * and its status's words.
  *
  * @param chip - The chip
  * @param scale - The shared scale
@@ -138,12 +152,15 @@ export function tileName(ev: BucketEventValue, bucket: PlanBucket, lane: string 
  * @returns `CREW A, Jun 29, 2026 – Jul 13, 2026, confirmed`
  */
 export function chipName(chip: ChipValue, scale: PlanScale, w: PlanWords): string {
-    return w.m.chipName({ label: chip.label, span: spanText(scale, chip.from, chip.to, w), state: stateText(chip.state, w) });
+    return w.m.chipName({
+        label: chip.label, span: spanText(scale, chip.from, chip.to, w), state: stateText(chip.state, w), status: statusWords(chip.status),
+    });
 }
 
 /**
  * An event mark's accessible name — its label, its kind (the glyph's
- * meaning: ● milestone, ◇/◆ decision, ▲ exception) and its instant.
+ * meaning: ● milestone, ◇/◆ decision, ▲ exception), its instant and its
+ * status's words.
  *
  * @param mark - The event mark
  * @param scale - The shared scale
@@ -156,6 +173,7 @@ export function markName(mark: EventMarkValue, scale: PlanScale, w: PlanWords): 
         kind: mark.kind.type,
         applied: mark.kind.type === "decision" && mark.kind.value.applied,
         at: scale.instantText(mark.at),
+        status: statusWords(mark.status),
     });
 }
 

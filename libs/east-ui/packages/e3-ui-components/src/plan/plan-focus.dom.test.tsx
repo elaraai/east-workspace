@@ -50,7 +50,7 @@ function run(key: string, start: Date, end: Date, state: unknown, opts?: { quant
             ? some({ value: opts.quantity, unit: opts.unit !== undefined ? some(opts.unit) : none, format: none, text: opts.text !== undefined ? some(opts.text) : none })
             : none,
         state,
-        status: opts?.stuck === true ? some(variant("warning", null)) : none,
+        status: opts?.stuck === true ? some({ label: "Over dwell", tone: variant("warning", null), ring: false }) : none,
         moved: none, icon: none,
     };
 }
@@ -618,7 +618,7 @@ describe("Plan expand-in-place (R2)", () => {
             planRow("focal", spanKind([]), { expand: { height: none, axis: variant("keep", null) } }),
             planRow("s", spanKind([run("r1", W27, new Date("2026-07-13Z"), variant("actual", null))])),
             planRow("e", variant("events", { marks: [{
-                key: "m1", at: t(W27), kind: variant("milestone", null), icon: none, label: some("KICKOFF"),
+                key: "m1", at: t(W27), kind: variant("milestone", null), status: none, icon: none, label: some("KICKOFF"),
             }] })),
             planRow("ontime", variant("chart", {
                 layers: [variant("line", {

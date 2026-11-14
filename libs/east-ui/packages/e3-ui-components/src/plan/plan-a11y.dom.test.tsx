@@ -91,7 +91,7 @@ const group = (summary?: unknown) => variant("group", {
 function run(key: string, start: Date, end: Date, state: unknown = variant("actual", null), status?: string) {
     return {
         key, start: t(start), end: t(end), label: key.toUpperCase(), quantity: none, state,
-        status: status !== undefined ? some(variant(status, null)) : none, moved: none, icon: none,
+        status: status !== undefined ? some({ label: status, tone: variant("warning", null), ring: false }) : none, moved: none, icon: none,
     };
 }
 const span = (runs: unknown[] = [], decisions: unknown[] = [], ports: unknown[] = []) =>
@@ -149,7 +149,7 @@ const EVERY_KIND = () => [
     planRow("pin", span(), { pinned: true, label: "Pinned" }),
     planRow("G", group(), { label: "Hall 1" }),
     planRow("s", span(
-        [run("r1", W27, day("2026-07-13"), variant("actual", null), "warning")],
+        [run("r1", W27, day("2026-07-13"), variant("actual", null), "Over dwell")],
         [{ key: "d1", at: t(day("2026-07-06")), applied: true }],
         [{ at: t(day("2026-07-20")), label: some("IN · 40 k sheets") }],
     ), { parent: "G", status: "warning" }),
@@ -157,7 +157,7 @@ const EVERY_KIND = () => [
         lanes: [{ key: "am", label: some("AM") }],
         events: [{
             key: "e1", at: t(W27), lane: some("am"), label: some("Proof"), icon: none, state: variant("confirmed", null),
-            tone: none, color: none, colorPalette: none, stretch: none, content: none, animation: none,
+            status: none, color: none, colorPalette: none, stretch: none, content: none, animation: none,
         }],
         markers: [{ at: t(W27), lane: some("am"), status: variant("danger", null), message: "Crew short" }],
     }), { parent: "G" }),
@@ -168,13 +168,13 @@ const EVERY_KIND = () => [
         split: variant("horizontal", null), aggregate: none, format: none, emphasis: variant("body", null),
     }), { parent: "G" }),
     planRow("c", variant("cards", {
-        chips: [{ key: "c1", from: t(W27), to: t(day("2026-07-13")), label: "CREW A", state: variant("confirmed", null), icon: none }],
+        chips: [{ key: "c1", from: t(W27), to: t(day("2026-07-13")), label: "CREW A", state: variant("confirmed", null), status: none, icon: none }],
     }), { parent: "G" }),
     planRow("e", variant("events", {
         marks: [
-            { key: "k1", at: t(W27), kind: variant("milestone", null), icon: none, label: some("KICKOFF") },
-            { key: "k2", at: t(day("2026-07-13")), kind: variant("decision", { applied: false }), icon: none, label: none },
-            { key: "k3", at: t(day("2026-07-27")), kind: variant("exception", null), icon: none, label: none },
+            { key: "k1", at: t(W27), kind: variant("milestone", null), status: none, icon: none, label: some("KICKOFF") },
+            { key: "k2", at: t(day("2026-07-13")), kind: variant("decision", { applied: false }), status: none, icon: none, label: none },
+            { key: "k3", at: t(day("2026-07-27")), kind: variant("exception", null), status: none, icon: none, label: none },
         ],
     }), { parent: "G" }),
 ];
@@ -256,7 +256,7 @@ describe("the canvas is a treegrid (#819)", () => {
             const el = container.querySelector(sel) as HTMLElement;
             return [el.getAttribute("role"), el.getAttribute("aria-label")];
         };
-        expect(named("[data-run='r1']")).toEqual(["button", "R1, Jun 29, 2026 – Jul 13, 2026, actual, warning"]);
+        expect(named("[data-run='r1']")).toEqual(["button", "R1, Jun 29, 2026 – Jul 13, 2026, actual, Over dwell"]);
         expect(named(`${itemSel("s")} [data-mark='d1']`)).toEqual(["button", "Decision, Jul 6, 2026, applied"]);
         expect(named("[data-port]")).toEqual(["img", "IN · 40 k sheets"]);
         expect(named("[data-event='e1']")).toEqual(["button", "Proof, Week of Jun 29, 2026, AM, confirmed"]);

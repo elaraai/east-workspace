@@ -42,7 +42,7 @@ const t = (d: Date): PlanInstantValue => variant("time", d) as PlanInstantValue;
 /** A tile: its key, the week it sits in, its label (none, a proposal's `plan`) and its state. */
 const tile = (key: string, at: number, label: string | undefined, state: unknown = variant("confirmed", null)) => ({
     key, at: t(week(at)), lane: none, label: label !== undefined ? some(label) : none, icon: none, state,
-    tone: none, color: none, colorPalette: none, stretch: none, content: none, animation: none,
+    status: none, color: none, colorPalette: none, stretch: none, content: none, animation: none,
 });
 
 /** One WIRE row, as the source serves it — named by its test key (#822). */

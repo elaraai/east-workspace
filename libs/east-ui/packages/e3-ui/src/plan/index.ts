@@ -111,6 +111,7 @@ import {
     PlanBlocksType,
     PlanFoldType,
     PlanQuantityType,
+    PlanStatusType,
     PlanHeatScaleType,
     PlanGroupSummaryType,
     PlanUiStateType,
@@ -130,6 +131,7 @@ import {
     createAxis,
     at,
     createQuantity,
+    createStatus,
     createUiState,
     createRun,
     createDecision,
@@ -296,6 +298,7 @@ export {
     PlanFoldType,
     type PlanFoldLiteral,
     PlanQuantityType,
+    PlanStatusType,
     PlanHeatScaleType,
     PlanGroupSummaryType,
     PlanUiStateType,
@@ -354,6 +357,7 @@ export {
     type PlanIconInput,
     type PlanFoldInput,
     type PlanQuantityOptions,
+    type PlanStatusOptions,
     type PlanHeatScaleInput,
     type PlanCellsFoldOptions,
     type PlanUiStateInput,
@@ -498,6 +502,9 @@ export interface PlanNamespace extends PlanTagType {
     /** Builds a quantity — a number with its unit and format (#824) — for a
      *  run's or a link's `quantity`. */
     quantity: typeof createQuantity;
+    /** Builds an item's status (#1541) — its words, its tone and whether it draws as an open ring — for the
+     *  `status` of a run, a tile, a chip or a mark: `Plan.status("Over dwell", "warning")`. */
+    status: typeof createStatus;
     /** Builds a bound `ui` state's seed (#824) — `State.bind([Plan.Types.UiState], key, Plan.uiState())`. */
     uiState: typeof createUiState;
     /** Span-row stream builder (`series.rows` chrome + nested `rows:` input). */
@@ -752,6 +759,8 @@ export interface PlanNamespace extends PlanTagType {
         Fold: typeof PlanFoldType;
         /** A quantity — a number, its unit and format (#824). */
         Quantity: typeof PlanQuantityType;
+        /** An item's status — its words, its tone and whether it draws as an open ring (#1541): what `Plan.status` builds. */
+        Status: typeof PlanStatusType;
         /** A heat scale — min, max and the warn threshold. */
         HeatScale: typeof PlanHeatScaleType;
         /** What a collapsed group strip shows (#824). */
@@ -774,6 +783,7 @@ const PLAN_MEMBERS = {
     axis: createAxis,
     at,
     quantity: createQuantity,
+    status: createStatus,
     uiState: createUiState,
     span: createSpan,
     buckets: createBuckets,
@@ -899,6 +909,7 @@ const PLAN_MEMBERS = {
         ElementRef: PlanElementRefType,
         Fold: PlanFoldType,
         Quantity: PlanQuantityType,
+        Status: PlanStatusType,
         HeatScale: PlanHeatScaleType,
         GroupSummary: PlanGroupSummaryType,
         UiState: PlanUiStateType,
