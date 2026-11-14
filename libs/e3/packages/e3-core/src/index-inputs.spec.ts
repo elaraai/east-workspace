@@ -38,7 +38,7 @@ import { packageRead } from './packages.js';
 import { readRecordState, recordHistory, recordMutate } from './records.js';
 import { LocalStorage } from './storage/local/index.js';
 import type { StorageBackend } from './storage/interfaces.js';
-import { createTempDir, createTestRepo, removeTempDir, removeTestRepo } from './test-helpers.js';
+import { createTempDir, createTestRepo, removeTempDir, removeTestRepo, stockRuntimesOnPath } from './test-helpers.js';
 import { workspaceCreate } from './workspaces.js';
 import { workspaceDeploy } from './workspace-files.js';
 import { workspaceStatus } from './workspaceStatus.js';
@@ -48,6 +48,14 @@ import { workspaceStatus } from './workspaceStatus.js';
 const JOBS = 12_000;
 const PRESSES = 60;
 const ON_A_PRESS = JOBS / PRESSES;
+/** The two as the record's `seed` mutation counts them. */
+const JOB_COUNT = BigInt(JOBS);
+const PRESS_COUNT = BigInt(PRESSES);
+
+/** The runtimes each held to the one behaviour: a function and a task of the
+ *  package run on each, named by it. */
+const RUNTIMES = stockRuntimesOnPath();
+const onRuntime = (name: string, runtime: string): string => `${name}_${runtime.replace('-', '_')}`;
 
 const JobType = StructType({ press: StringType, title: StringType });
 const JobsType = DictType(StringType, JobType);
@@ -115,8 +123,8 @@ describe('an index of a record as an input', { timeout: 480_000, concurrency: fa
         // The jobs, made where the data is: job i on press i mod PRESSES
         seed: mutation.reduce(East.function([JobsType], JobsType, ($, _state) => {
           const rows = $.let(new Map(), JobsType);
-          $.for(East.Array.range(0n, BigInt(JOBS)), ($, i) => {
-            $(rows.insert(East.str`j${i.add(100_000n)}`, { press: East.str`P${i.remainder(BigInt(PRESSES)).add(100n)}`, title: East.str`Job ${i}` }));
+          $.for(East.Array.range(0n, JOB_COUNT), ($, i) => {
+            $(rows.insert(East.str`j${i.add(100_000n)}`, { press: East.str`P${i.remainder(PRESS_COUNT).add(100n)}`, title: East.str`Job ${i}` }));
           });
           return rows;
         })),
@@ -152,8 +160,18 @@ describe('an index of a record as an input', { timeout: 480_000, concurrency: fa
     const watchedBacklog = e3.task('watched_backlog', [backlogByPress, watched],
       East.function([backlogByPress.type, StringType], IntegerType, ($, entries, press) => entries.prefix({ ik: press }).size()));
 
+    // The same function and the same task on each runtime, which is handed the
+    // index as the default runner is
+    const onEachRuntime = RUNTIMES.flatMap((runtime) => [
+      e3.function(onRuntime('jobs_on_press', runtime), { inputs: [byPress], args: [StringType], output: IntegerType, runner: { runtime, platforms: [] } },
+        ($, jobsByPress, press) => jobsByPress.prefix({ ik: press }).size()),
+      e3.task(onRuntime('watched_jobs', runtime), [byPress, watched],
+        East.function([byPress.type, StringType], IntegerType, ($, jobsByPress, press) => jobsByPress.prefix({ ik: press }).size()),
+        { runner: { runtime, platforms: [] } }),
+    ]);
+
     const zip = join(tempDir, 'presses.zip');
-    await e3.export(e3.package('presses', '1.0.0', jobsOnPress, titlesOnPress, backlogOnPress, watchedJobs, watchedBacklog), zip);
+    await e3.export(e3.package('presses', '1.0.0', jobsOnPress, titlesOnPress, backlogOnPress, watchedJobs, watchedBacklog, ...onEachRuntime), zip);
     await packageImport(storage, repo, zip);
     await workspaceCreate(storage, repo, WS);
     await workspaceDeploy(storage, repo, WS, 'presses', '1.0.0', { runner });
@@ -193,10 +211,10 @@ describe('an index of a record as an input', { timeout: 480_000, concurrency: fa
     return result.outcome.value.value;
   }
 
-  /** What the task `watched_jobs` last wrote. */
-  async function watchedJobsOutput(): Promise<bigint> {
-    const ref = await storage.datasets.read(repo, WS, 'tasks/watched_jobs/output');
-    if (ref?.type !== 'value') assert.fail('watched_jobs has written its output');
+  /** What a task that counts the watched press's jobs last wrote. */
+  async function watchedJobsOutput(task = 'watched_jobs'): Promise<bigint> {
+    const ref = await storage.datasets.read(repo, WS, `tasks/${task}/output`);
+    if (ref?.type !== 'value') assert.fail(`${task} has written its output`);
     return decodeInt(await readDatasetWhole(storage, repo, ref.value.hash));
   }
 
@@ -235,6 +253,17 @@ describe('an index of a record as an input', { timeout: 480_000, concurrency: fa
 
     assert.equal(decodeInt(valueOf(await call('jobs_on_press', ['P99']))), 0n, 'a press with no job holds none');
   });
+
+  for (const runtime of RUNTIMES) {
+    it(`${runtime} is handed the index's own segments, and reads a run of it at the cost of the run`, async () => {
+      const result = await call(onRuntime('jobs_on_press', runtime), [pressOf(7)], [], true);
+      assert.equal(decodeInt(valueOf(result)), BigInt(ON_A_PRESS));
+      const index = await DatasetSegments.open(storage, repo, await indexOf(await jobsState()));
+      const { decoded, segments } = decodedOf(result.stderr, 0);
+      assert.equal(segments, index.segmentCount, 'the runner was handed the index\'s own segments, not the record\'s rows');
+      assert.ok(decoded <= 2, `the size of a press's run decodes the segment each of its ends lands in, and none between: ${decoded} of ${segments}`);
+    });
+  }
 
   /**
    * Runs `read` with a write landing as soon as the record's ref is first
@@ -294,6 +323,7 @@ describe('an index of a record as an input', { timeout: 480_000, concurrency: fa
     assert.deepEqual(first.tasks.find((task) => task.name === 'watched_jobs'), { ...first.tasks.find((task) => task.name === 'watched_jobs'), cached: false, state: 'success' });
     assert.equal(await watchedJobsOutput(), BigInt(ON_A_PRESS));
     assert.equal(await watchedJobsStatus(), 'up-to-date');
+    for (const runtime of RUNTIMES) assert.equal(await watchedJobsOutput(onRuntime('watched_jobs', runtime)), BigInt(ON_A_PRESS), `${runtime} counted the run`);
 
     // Its execution is keyed by the objects it read: the index's manifest, and the input
     const state = await jobsState();
@@ -310,7 +340,7 @@ describe('an index of a record as an input', { timeout: 480_000, concurrency: fa
     const again = await dataflowExecute(storage, repo, WS, { runner });
     assert.equal(again.success, true, JSON.stringify(again.tasks));
     assert.equal(again.tasks.find((task) => task.name === 'watched_jobs')?.cached, true, 'decided again, and served by the cache');
-    assert.equal(again.executed, 0);
+    assert.equal(again.executed, 0, 'and so is the task on each runtime');
 
     // A write that changes the index: a job leaves the watched press
     const moved = await recordMutate(storage, runner, repo, WS, 'jobs', 'move', [encodeString(jobKey(7)), encodeString(pressOf(9))], { actor: 'ada@example.com' });
@@ -322,6 +352,11 @@ describe('an index of a record as an input', { timeout: 480_000, concurrency: fa
     assert.equal(rerun.tasks.find((task) => task.name === 'watched_jobs')?.cached, false, 'it ran again');
     assert.equal(await watchedJobsOutput(), BigInt(ON_A_PRESS - 1));
     assert.equal(await watchedJobsStatus(), 'up-to-date');
+    for (const runtime of RUNTIMES) {
+      const task = onRuntime('watched_jobs', runtime);
+      assert.equal(rerun.tasks.find((ran) => ran.name === task)?.cached, false, `${runtime} ran again`);
+      assert.equal(await watchedJobsOutput(task), BigInt(ON_A_PRESS - 1), `${runtime} counted the run as the write left it`);
+    }
 
     // Back as it was
     for (const [mutation, value] of [['move', pressOf(7)], ['retitle', 'Job 7']] as const) {

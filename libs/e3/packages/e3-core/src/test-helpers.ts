@@ -418,6 +418,19 @@ export function ran(result: Partial<DetachedResult> & Pick<DetachedResult, 'kind
 }
 
 /**
+ * The stock runtimes a test that holds every runner to one behaviour runs
+ * over: east-node, which every checkout has, then east-c and east-py, each
+ * where its runner's CLI is on PATH and answers `version`, as CI's are.
+ *
+ * @returns The runtimes, east-node first
+ */
+export function stockRuntimesOnPath(): Array<'east-node' | 'east-c' | 'east-py'> {
+  const runs = (command: string): boolean =>
+    spawnSync(command, ['version'], { stdio: 'ignore', shell: process.platform === 'win32' }).status === 0;
+  return ['east-node', ...(['east-c', 'east-py'] as const).filter(runs)];
+}
+
+/**
  * The pid of a process that has certainly exited.
  *
  * @remarks
