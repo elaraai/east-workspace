@@ -29,6 +29,7 @@ import {
     StringType,
     StructType,
     isTypeEqual,
+    printType,
     ref,
     toEastTypeValue,
     variant,
@@ -57,7 +58,6 @@ import {
     CarriedEntryType,
     CarriedWindowType,
     buildCarriedRowSource,
-    buildKeyedInlineApply,
     buildPagedWindow,
     buildWireApply,
     buildWireObserver,
@@ -92,6 +92,7 @@ import {
     type PlanAxisKindLiteral,
     type PlanAxisInput,
 } from "./types.js";
+import { Record } from "../bind/record.js";
 import { orderedPlanSource } from "./ordered-source.js";
 import { PlanRootType } from "./ir.js";
 import { WINDOWLESS_AXES, axisKindOf, axisResolutionsOf } from "./builders.js";
@@ -107,45 +108,61 @@ import { applySeries, checkSeries, seriesWriteFn, PlanCarriedType, PlanSeriesTyp
 // ============================================================================
 
 /**
- * The Plan's editing session (#880) — the Sheet's, over the canvas's entries:
+ * The record a Plan's rows save through (#1541, U4): the record they are read from, bound with its patch mutation —
+ * what `Record.bind(record)`, its record declaring `patch: mutation.patch()`, returns for a `Dict`.
+ */
+export interface PlanRecordHandle {
+    /** The record's entries. */
+    read: (...args: never[]) => Expr<DictType<EastType, EastType>>;
+    /** The record's binding. */
+    binding: unknown;
+}
+
+/**
+ * The canvas's editing session (#880) — the Sheet's, over the canvas's entries:
  * every dropped card and every moved or resized element (#825) is a DRAFT of
  * the entry it was made on, each gesture one undoable transaction, and Save
  * one checked, idempotent batch against the base the drafts began from.
  *
  * @remarks
+ * `<Plan>` builds it from its props (#1541, U4): `record`, the Plan's one save
+ * door, with `onPatch` and `ready`. A Plan over `data` that is no record does
+ * not edit. The canvas's own declaration, which `Plan.Root` takes, has the seam
+ * under `record` too: `onApply`, the commit itself, which a record's is built
+ * as (`Record.onApply(record, { keyed: true })`) and a test of the wire may
+ * give of its own.
+ *
  * The entries are `data`'s top-level entries: a gesture on a row at any depth
  * drafts the entry its row came from (the whole subtree rides in it), and the
  * canvas draws a draft by deriving the entry's rows again — exactly what
  * Save leaves. The callbacks are East functions over the canvas's own entry
  * type `R` and key type `K`:
  *
- * - `onApply(Editing.Types.ChangeSet(R, K)) → Editing.Types.ApplyResult`
- *   commits a batch — sync or async. Its base is the inline `Dict`'s snapshot,
- *   or a paged source's revision; a batch against a source that moved is
- *   refused, never rebased. Handed a record's own Save
- *   (`Record.onApply(record, { keyed: true })`), the session can hand the same
- *   batch over as the draft of that commit (`Record.toDraft`): what
- *   `Record.onApply` answers is the Save with its draft form, and a Save of
- *   the host's own, a function, has none.
- * - `onUpdate(Dict<K, R>)` is the inline adapter instead: with
- *   `data={liveHandle}` it applies each batch with `Editing.apply` over the
- *   handle's latest `Dict` and writes the whole result — idempotent across
- *   retries. Exclusive with `onApply`.
+ * - `record` commits a batch to the record the entries are read from, through
+ *   its patch door, each change its entry's insert, update or delete by key.
+ *   Its base is the inline `Dict`'s snapshot, or a paged source's revision; a
+ *   batch against a record that moved is refused, never rebased. The session
+ *   can hand the same batch over as the draft of that commit (#1620): the
+ *   record's Save carries its draft form.
+ * - `onApply(Editing.Types.ChangeSet(R, K)) → Editing.Types.ApplyResult` is the
+ *   commit as a function, sync or async, which has no draft form — or the Save
+ *   with its draft form that `Record.onApply(record, { keyed: true })` answers,
+ *   which is what `record` gives. Exclusive with `record`.
  * - `onPatch(Plan.Types.PatchEvent(R))` observes every gesture.
  * - `ready(R, K) → Editing.Types.Readiness` is the author's check over one
  *   drafted entry; a refusal holds Save and names the entry.
  *
- * @property onApply - Commit one checked batch (sync or async)
- * @property onUpdate - The inline adapter's writer — the whole collection with the batch applied (requires `data={liveHandle}`)
+ * @property record - The record the entries are read from, bound with its patch mutation: what Save commits to
+ * @property onApply - Commit one checked batch (sync or async): the seam `record` fills
  * @property onPatch - Observe every gesture
  * @property ready - The author's readiness check over a drafted entry
  */
 export interface PlanEditingConfig {
+    /** The record the entries are read from, bound with its patch mutation — `Record.bind(record)`: Save commits each batch to it by key. Exclusive with `onApply`. */
+    record?: PlanRecordHandle;
     /** Commit one checked batch — `Fn(Editing.Types.ChangeSet(R, K)) → Editing.Types.ApplyResult`, sync or async, or
-     *  the Save with its draft form that `Record.onApply(record, { keyed: true })` answers. */
+     *  the Save with its draft form that `Record.onApply(record, { keyed: true })` answers: the seam `record` fills. */
     onApply?: ExprType<EastType> | EditingSaveExpr;
-    /** The inline adapter's writer — `Fn(Dict<K, R>) → Null`; requires `data={liveHandle}`, exclusive with `onApply`. */
-    onUpdate?: ExprType<EastType>;
     /** Observe every gesture — `Fn(Plan.Types.PatchEvent(R)) → Null`. */
     onPatch?: ExprType<EastType>;
     /** The author's check over one drafted entry — `Fn(R, K) → Editing.Types.Readiness`. */
@@ -153,9 +170,8 @@ export interface PlanEditingConfig {
 }
 
 /**
- * A whole-value bind handle (`State.bind` / `Data.bind`) over a keyed
- * collection — accepted as `data`. The canvas reads it as the inline arm, and
- * `editing.onUpdate` writes each applied batch back through it (#880).
+ * A whole-value bind handle (`State.bind` / `Data.bind` / `Record.bind`) over a
+ * keyed collection — accepted as `data`. The canvas reads it as the inline arm.
  */
 export interface PlanBindHandle {
     /** The handle's read. */
@@ -186,7 +202,7 @@ export interface PlanBindHandle {
  * @property hover - Generalized hovercard resolver over the element ref (`none` result ⇒ no surface)
  * @property expandRender - The R2 developer render for rows declaring `expand` (called with the row's id)
  * @property expandGutter - The R2 gutter render — fills the expanded row's grown gutter cell (called with the row's id)
- * @property editing - The editing session (#880) — every dropped card, move and resize a draft, saved as one checked batch
+ * @property editing - The editing session (#880) — every dropped card, move and resize a draft, saved as one checked batch; `<Plan>` builds it from `record`, `onPatch` and `ready` (#1541)
  * @property footer - Status-footer items
  * @property id - DnD target identity — what a Library beside the Plan reaches it by
  * @property sources - The ids of the Libraries beside the Plan whose cards it takes; its own library panel's need none
@@ -206,8 +222,7 @@ export interface PlanConfig<K extends PlanAxisKindLiteral = PlanAxisKindLiteral>
     axis: PlanAxisInput<K>;
     /** The source — a KEYED collection: a `Dict<K, R>` value or expression (a
      *  `$.let`-bound map, `Data.bind(...).read()`) or a whole-value bind handle
-     *  over one (`data={handle}` — what `editing.onUpdate` writes back
-     *  through) for the INLINE arm, or a `$.let`-bound paged handle over one
+     *  over one (`data={handle}`) for the INLINE arm, or a `$.let`-bound paged handle over one
      *  (`Data.bindPaged(ops)`) for the PAGED arm; the East type is the
      *  discriminant. Any key type: a row's path
      *  starts with its entry's key (the String itself, any other key as its
@@ -269,8 +284,9 @@ export interface PlanConfig<K extends PlanAxisKindLiteral = PlanAxisKindLiteral>
      *  their place once the row has the canvas. Called with the same row id
      *  as `expandRender`. */
     expandGutter?: SubtypeExprOrValue<FunctionType<[PlanRowIdType], UIComponentType>>;
-    /** The editing session (#880) — see {@link PlanEditingConfig}. Without it the canvas takes no gesture: no card
-     *  lands and nothing moves. */
+    /** The canvas's editing session (#880) — see {@link PlanEditingConfig}. Without it the canvas takes no gesture: no
+     *  card lands and nothing moves. `<Plan>` takes none: it builds the session from its `record`, `onPatch` and `ready`
+     *  (#1541). */
     editing?: PlanEditingConfig;
     /** Status-footer items (`end: true` right-aligns). */
     footer?: {
@@ -286,7 +302,7 @@ export interface PlanConfig<K extends PlanAxisKindLiteral = PlanAxisKindLiteral>
      *  panel needs neither — an author's tab's cards land without them (#1259). A card lands only on a row whose
      *  series declares `edit: { create }` (how it becomes an item, under the id the canvas mints, #1436). The
      *  canvas's own elements move whether or not it has an `id` — where their series declares `edit`, its elements
-     *  read with `Plan.items` (#825, #1436). Each is a draft of the root's `editing` session. */
+     *  read with `Plan.items` (#825, #1436). Each is a draft of the editing session, saved through `record`. */
     id?: string;
     /** The ids of the Libraries beside the Plan whose cards it takes (`add`), reached by its `id` — its own
      *  library panel's need none (omit = no Library beside it). */
@@ -360,7 +376,7 @@ function seriesSourceOf(list: ExprType<EastType>): EastType | undefined {
  * ranges and resolutions of a Plan's slice — hosts observe the slice — or,
  * while no source of it holds the window, the canvas's own (#1344). A change
  * to the data — a dropped card, a moved or resized element — is a draft of the
- * `editing` session, saved as one checked batch (#880, #825).
+ * editing session, saved as one checked batch (#880, #825).
  */
 export function createPlanRoot<K extends PlanAxisKindLiteral = PlanAxisKindLiteral>(config: PlanConfig<K>): ExprType<PlanRootType> {
     return buildPlanRoot(config, undefined, none);
@@ -406,13 +422,13 @@ export function buildPlanRoot(config: PlanCanvasOptions, extra: ExprType<PlanBlo
     // caller would otherwise lose them silently.
     if ("onDrag" in (config as object)) {
         throw new Error(
-            "Plan: `onDrag` is removed (#880) — a card dropped on a row is a draft of the `editing` session: declare " +
-            "`edit: { create }` on the series it lands on, and commit with `editing.onApply` (or `onUpdate`)");
+            "Plan: `onDrag` is removed (#880) — a card dropped on a row is a draft of the editing session: declare " +
+            "`edit: { create }` on the series it lands on, and save through `record`, the record the rows are read from");
     }
     if ("review" in (config as object)) {
         throw new Error(
             "Plan: `review` is removed (#1260) — a Plan approves and rejects nothing: its changes are drafts of the " +
-            "`editing` session, undone, redone, discarded or saved together");
+            "editing session, undone, redone, discarded or saved together");
     }
     if ("applyMode" in (config as object)) {
         throw new Error("Plan: `applyMode` is removed (#1536) — every edit waits for Save: the Plan's changes are drafts, undone, " +
@@ -421,6 +437,11 @@ export function buildPlanRoot(config: PlanCanvasOptions, extra: ExprType<PlanBlo
     if (typeof config.editing === "object" && "mode" in config.editing) {
         throw new Error("Plan: `editing.mode` is removed (#1536) — every edit waits for Save: the session's drafts are undone, " +
             "redone, discarded or saved together");
+    }
+    if (typeof config.editing === "object" && "onUpdate" in config.editing) {
+        throw new Error("Plan: `editing.onUpdate` is removed (#1541) — a Plan saves through a record's patch door alone, so one over " +
+            "data that is no record does not edit: bind the record the rows are read from and give it as `record` (Record.bind(record), " +
+            "its record declaring patch: mutation.patch())");
     }
     if (config.data === undefined) {
         for (const prop of ["series", "pick", "editing"] as const) {
@@ -636,6 +657,30 @@ function planEntryId(keyType: EastType): ExprType<FunctionType<[EastType], Strin
 }
 
 /**
+ * A record's commit of the canvas's batches (#1541, U4): `Record.onApply(record, { keyed: true })`, the record held to
+ * the rows it saves — it is the record they are read from, so it holds their entries under their keys.
+ *
+ * @param record - The record, bound with its patch mutation
+ * @param sourceType - The rows' source: `Dict<K, R>`
+ * @returns The commit over `Editing.Types.ChangeSet(R, K)`: the Save with its draft form (#1620)
+ * @throws {Error} Naming `record` and the remedy: no bound record, one that is no Dict or is not bound with its patch
+ *   mutation, or one holding other entries than the rows'
+ */
+function planRecordApply(record: PlanRecordHandle, sourceType: DictType<EastType, EastType>): ExprType<EastType> | EditingSaveExpr {
+    const bound = "Plan: `record` is the record the rows are read from, bound with its patch mutation — Record.bind(record), its record declaring patch: mutation.patch()";
+    if (!(record instanceof Expr)) throw new Error(`${bound} — and this one is no bound record`);
+    const type = Expr.type(record as unknown as Expr) as EastType;
+    const read = type.type === "Struct" ? (type.fields as Readonly<globalThis.Record<string, EastType>>)["read"] : undefined;
+    if (read === undefined || read.type !== "Function") throw new Error(`${bound} — and this one is ${printType(type)}`);
+    const recordType = read.output as EastType;
+    if (!isTypeEqual(recordType, sourceType)) {
+        throw new Error("Plan: `record` saves the rows by key, so it is the record they are read from — and this record holds " +
+            `${printType(recordType)} where the rows are ${printType(sourceType)}`);
+    }
+    return Record.onApply(record as never, { keyed: true }) as unknown as ExprType<EastType> | EditingSaveExpr;
+}
+
+/**
  * The canvas's editing declaration (#880) — the shared session's fields over
  * the source's top-level entries, and the canvas's own: its blocks with the
  * drafted entries in place, one entry's blocks, the gestures written into
@@ -655,15 +700,22 @@ function planEntryId(keyType: EastType): ExprType<FunctionType<[EastType], Strin
  * @throws {Error} When the declaration is inconsistent, or a callback has another signature
  */
 function buildPlanEditing(resolved: ResolvedRowSource, series: PlanSeriesInput, input: PlanEditingConfig, nested?: PlanNestedIndex): ExprType<PlanEditingType> {
+    if (input.onApply !== undefined && input.record !== undefined) {
+        throw new Error("Plan: editing takes `record`, whose patch door commits each batch, or `onApply`, the commit itself — not both");
+    }
+    // The record's commit (#1541, U4): each batch's changes its entries' inserts, updates and deletes by key, through its
+    // patch door. It is the record the rows are read from, so its entries are theirs.
+    const save = input.record === undefined ? input.onApply
+        : planRecordApply(input.record, resolved.collectionType as DictType<EastType, EastType>);
     // The Save handed over as a draft (#1620). What `Record.onApply` answered is the Save with its draft form: bound
     // once where the session is made, its apply the session's Save and its draft form the session's. A Save of the
     // host's own is a function, and carries none.
-    return withEditingSave(input.onApply, PlanEditingType, (apply, draftForm) => planEditing(
+    return withEditingSave(save, PlanEditingType, (apply, draftForm) => planEditing(
         resolved, series, apply === undefined ? { ...input, onApply: undefined } : { ...input, onApply: apply }, draftForm, nested));
 }
 
-/** A Plan's editing declaration, its `onApply` a function of the batch. */
-type PlanEditingInput = Omit<PlanEditingConfig, "onApply"> & { onApply: ExprType<EastType> | undefined };
+/** A Plan's editing declaration, its commit a function of the batch: the record's, or the seam's own. */
+type PlanEditingInput = Omit<PlanEditingConfig, "onApply" | "record"> & { onApply: ExprType<EastType> | undefined };
 
 /**
  * {@link buildPlanEditing}, over an `onApply` that is a function of the batch.
@@ -679,15 +731,8 @@ function planEditing(resolved: ResolvedRowSource, series: PlanSeriesInput, input
     const batchType = EditingChangeSetTypeFor(entryType, keyType);
     const eventType = EditingPatchEventTypeWith(entryType, draftType);
     const DraftsType = DictType(StringType, BlobType);
-    if (input.onApply !== undefined && input.onUpdate !== undefined) {
-        throw new Error("Plan: editing takes onApply or the inline onUpdate adapter, not both");
-    }
-    if (input.onUpdate !== undefined && (resolved.kind !== "inline" || resolved.live === undefined)) {
-        throw new Error(
-            "Plan: editing.onUpdate requires data={liveHandle}, so each batch reads the latest entries — pass the bound " +
-            "handle itself, or commit with onApply");
-    }
-    if (resolved.kind !== "inline" && !resolved.pinned && input.onApply !== undefined) {
+    const applyInput = input.onApply;
+    if (resolved.kind !== "inline" && !resolved.pinned && applyInput !== undefined) {
         throw new Error(
             "Plan: editing a paged source needs its revision and refresh — a pinned source (Data.bindPaged's handle): " +
             "a batch is checked against the revision it began at, and the drafts retire once the source reads back at " +
@@ -860,13 +905,12 @@ function planEditing(resolved: ResolvedRowSource, series: PlanSeriesInput, input
         });
     });
 
-    // The authoritative apply: the author's, or the inline adapter over the
-    // live handle's latest Dict (#879's protocol, keyed).
+    // The authoritative apply: the record's commit, or the seam's own function.
     const live = resolved.kind === "inline" ? resolved.live : undefined;
     const reader = live !== undefined
         ? (live as unknown as ExprType<StructType<{ read: FunctionType<[], DictType<EastType, EastType>> }>>).read
         : undefined;
-    const authorApply = input.onApply === undefined ? undefined : checkedEditingCallback("Plan", input.onApply, [batchType], EditingApplyResultType,
+    const authorApply = applyInput === undefined ? undefined : checkedEditingCallback("Plan", applyInput, [batchType], EditingApplyResultType,
         "editing.onApply", true, "over Editing.Types.ChangeSet(R, K) — this canvas's entry and key types — returning Editing.Types.ApplyResult");
     // A paged source is one of the contract's shapes, both of which carry `id`.
     const sourceId: ExprType<StringType> = resolved.kind === "paged"
@@ -881,20 +925,12 @@ function planEditing(resolved: ResolvedRowSource, series: PlanSeriesInput, input
     const restatement = authorApply === undefined || nested === undefined ? undefined
         : planNestedRestatement(entryType, keyType, nested) as unknown as Restate | undefined;
     /**
-     * The session's Save, and that Save handed over as a draft (#1620): the inline adapter writes no record, and a Save
-     * of the host's own carries no draft form.
+     * The session's Save, and that Save handed over as a draft (#1620): a Save of the host's own, a function, carries
+     * no draft form.
      *
      * @param restate - The restatement, bound where the session is made; none where a batch goes as it is
      */
     const doors = (restate: Restate | undefined): { onApply?: ExprType<typeof EditingWireApplyType>; toDraft?: ExprType<typeof EditingWireToDraftType> } => {
-        if (input.onUpdate !== undefined && reader !== undefined) {
-            const writer = checkedEditingCallback("Plan", input.onUpdate, [sourceType], NullType, "editing.onUpdate", false,
-                "over the whole Dict<K, R> the batch leaves, returning Null");
-            return {
-                onApply: East.value(variant("sync", buildKeyedInlineApply(sourceType, sourceId, reader as unknown as ExprType<FunctionType>,
-                    writer as unknown as ExprType<FunctionType>)), EditingWireApplyType),
-            };
-        }
         if (authorApply === undefined) return {};
         // The Save's draft form is over the batch the Save takes — restated by key where the Save's is, so the draft's
         // patch is the patch that Save commits.
