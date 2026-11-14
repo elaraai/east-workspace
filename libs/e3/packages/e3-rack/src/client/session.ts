@@ -108,6 +108,8 @@ export class RackSession {
   private loop?: Promise<void>;
 
   private constructor(private readonly client: HubClient, readonly sessionId: string, readonly repoAlias: string,
+    /** The e3 release the session's work is built with, which its leases name. */
+    readonly e3Version: string,
     private readonly data: Awaited<ReturnType<typeof startSessionDataServer>>) {}
 
   /**
@@ -123,10 +125,11 @@ export class RackSession {
     const data = await startSessionDataServer({ storage: options.storage, repoPath: await realpath(options.repoPath), home: client.home, dataToken,
       onLog: (id, stream, text) => { for (const sink of session?.tee.get(id) ?? []) sink(stream, text); } });
     try {
-      const opened = await client.openSession({ protocol: BigInt(HUB_PROTOCOL), e3Version: options.e3Version ?? E3_RACK_VERSION,
+      const e3Version = options.e3Version ?? E3_RACK_VERSION;
+      const opened = await client.openSession({ protocol: BigInt(HUB_PROTOCOL), e3Version,
         owner: await processOwner(), repoPath: await realpath(options.repoPath), workspace: options.workspace, label: options.label,
         dataSocket: data.socketPath, dataToken });
-      session = new RackSession(client, opened.sessionId, opened.repoAlias, data);
+      session = new RackSession(client, opened.sessionId, opened.repoAlias, e3Version, data);
       const initial = await client.events(opened.sessionId, 0n, 0);
       session.snapshot = initial.capacity;
       session.loop = session.poll();

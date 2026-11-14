@@ -9,7 +9,7 @@ import { unitCap } from '@elaraai/e3-core';
 import { leaseResources } from './rack-body.js';
 
 const GiB = 1024 ** 3;
-const rule = { eligible: true as const, tier: 'node' as const, size: 'large' as const, timeoutMinutes: 1440, memoryLimit: null, gpu: false };
+const rule = { eligible: true as const, tier: 'node' as const, size: 'large' as const, timeoutMinutes: 1440, memoryLimit: null, gpu: false, environment: null };
 const unit = { inputs: ['a'.repeat(64)], merge: null, own: false };
 
 it('asks of a rack what a whole task\'s size stands for, capped at its rule\'s memory limit', () => {

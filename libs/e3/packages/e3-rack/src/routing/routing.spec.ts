@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { East, IntegerType, StringType, encodeBeast2For, encodeEastIR, equalFor, none, some, variant } from '@elaraai/east';
 import { InMemoryStorage, LocalStorage, repoInit, uuidv7, type TaskBodyRequest } from '@elaraai/e3-core';
-import { TASK_OBJECT_KIND, TaskObjectType, type TaskObject } from '@elaraai/e3-types';
+import { EnvironmentSpecType, TASK_OBJECT_KIND, TaskObjectType, type TaskObject } from '@elaraai/e3-types';
 import { DEFAULT_RACK_POLICY, RACK_SIZES, RackPolicyError, RackPolicyType, loadPolicy, policyPath, removeRule, savePolicy, selectTask, setEnabled, setMode, setRule } from './policy.js';
 import { rackTierFor } from './tiers.js';
 import { collectPlatformNames, hostCoupledPlatforms } from './host-coupling.js';
@@ -61,6 +61,21 @@ it('maps only each runtime’s own stock platforms to a rack tier', () => {
   assert.deepEqual(rackTierFor(variant('custom', { command: ['mine'] })), { ineligible: 'custom-runner' });
 });
 
+it('takes a platform package a task\'s environment carries, and gives a GPU to an east-py task alone, on the tier a rack gives its GPU to', () => {
+  const decode = variant('lazy', null);
+  const mine = variant('east_py', { platforms: ['mine', 'east-py-std'], decode });
+  assert.deepEqual(rackTierFor(mine), { ineligible: 'non-stock-platform:mine' }, 'a rack has nowhere to find it');
+  assert.deepEqual(rackTierFor(mine, { environment: true }), { tier: 'py' }, 'its environment carries it');
+  assert.deepEqual(rackTierFor(variant('east_node', { platforms: ['@acme/pricing'], decode }), { environment: true }), { tier: 'node' });
+  assert.deepEqual(rackTierFor(variant('east_py', { platforms: ['mine', 'east-py-datascience'], decode }), { environment: true }), { tier: 'py-datascience' });
+  assert.deepEqual(rackTierFor(variant('custom', { command: ['mine'] }), { environment: true }), { ineligible: 'custom-runner' });
+  assert.deepEqual(rackTierFor(mine, { environment: true, gpu: true }), { tier: 'py-datascience' });
+  assert.deepEqual(rackTierFor(variant('east_py', { platforms: ['east-py-std'], decode }), { gpu: true }), { tier: 'py-datascience' });
+  for (const runner of [variant('east_node', { platforms: [], decode }), variant('east_c', { platforms: [], decode })]) {
+    assert.deepEqual(rackTierFor(runner, { gpu: true }), { ineligible: 'gpu-not-east-py' });
+  }
+});
+
 const fetchGet = East.asyncPlatform('fetch_get', [StringType], StringType);
 const envGet = East.platform('env_get', [StringType], StringType);
 const sync = East.function([StringType], StringType, ($, value) => envGet(value));
@@ -99,13 +114,41 @@ it('checks reducers even when the first request is a merge with cached maps', as
   assert.deepEqual(await evaluator.evaluate({ ...request, options: {} }), { eligible: false, reason: 'no-task-name' });
   assert.deepEqual(await evaluator.evaluate({ ...request, options: { taskName: 'other' } }), { eligible: false, reason: 'not-selected' });
   const override = new EligibilityEvaluator(setRule(policy, 'train', 'rack', { allowHostCoupled: true }));
-  assert.deepEqual(await override.evaluate(request), { eligible: true, tier: 'node', size: 'large', timeoutMinutes: 1440, memoryLimit: null, gpu: false });
-  const limited = new EligibilityEvaluator(setRule(policy, 'train', 'rack', { allowHostCoupled: true, size: 'small', memoryLimit: 8 * 1024 ** 3, gpu: true }));
-  assert.deepEqual(await limited.evaluate(request), { eligible: true, tier: 'node', size: 'small', timeoutMinutes: 1440, memoryLimit: 8 * 1024 ** 3, gpu: true });
-  const envTask = { ...task, environment: some('b'.repeat(64)) };
-  assert.deepEqual(await new EligibilityEvaluator(policy).evaluate({ ...request, task: envTask }), { eligible: false, reason: 'environment' });
+  assert.deepEqual(await override.evaluate(request), { eligible: true, tier: 'node', size: 'large', timeoutMinutes: 1440, memoryLimit: null, gpu: false, environment: null });
+  const limited = new EligibilityEvaluator(setRule(policy, 'train', 'rack', { allowHostCoupled: true, size: 'small', memoryLimit: 8 * 1024 ** 3 }));
+  assert.deepEqual(await limited.evaluate(request), { eligible: true, tier: 'node', size: 'small', timeoutMinutes: 1440, memoryLimit: 8 * 1024 ** 3, gpu: false, environment: null });
+  assert.deepEqual(await new EligibilityEvaluator(setRule(policy, 'train', 'rack', { allowHostCoupled: true, gpu: true })).evaluate(request),
+    { eligible: false, reason: 'gpu-not-east-py' });
   const badTask = { ...task, body: variant('east', { program: 'c'.repeat(64) }) };
   assert.deepEqual(await new EligibilityEvaluator(policy).evaluate({ ...request, task: badTask }), { eligible: false, reason: 'unscannable' });
+});
+
+it('takes a task that declares an environment with the platform package it carries, but not one whose environment is files or an image, nor any on Windows', async () => {
+  const storage = new InMemoryStorage();
+  await storage.repos.create('repo');
+  const pure = East.function([IntegerType], IntegerType, ($, value) => value.add(1n));
+  const program = await storage.objects.write('repo', encodeEastIR(pure.toIR()));
+  const spec = (value: Parameters<ReturnType<typeof encodeBeast2For<typeof EnvironmentSpecType>>>[0]) => storage.objects.write('repo', encodeBeast2For(EnvironmentSpecType)(value));
+  const python = await spec(variant('python', { pyproject: 'a'.repeat(64), lock: 'b'.repeat(64), sdists: [] }));
+  const evaluate = async (environment: string, platforms: string[] = ['mine'], rule: Parameters<typeof setRule>[3] = {}) => {
+    const task: TaskObject = {
+      kind: TASK_OBJECT_KIND, body: variant('east', { program }), runner: variant('east_py', { platforms, decode: variant('lazy', null) }),
+      inputs: [], output: { path: [], kind: variant('value', null) }, role: variant('data', null), environment: some(environment),
+    };
+    const hash = await storage.objects.write('repo', encodeBeast2For(TaskObjectType)(task));
+    return new EligibilityEvaluator(setRule(DEFAULT_RACK_POLICY, 'train', 'rack', rule)).evaluate({ storage, repo: 'repo', taskHash: hash, task, inputHashes: [],
+      ids: { inHash: 'a'.repeat(64), executionId: uuidv7(), startTime: Date.now() }, options: { taskName: 'train' }, role: 'task' });
+  };
+  if (process.platform === 'win32') {
+    assert.deepEqual(await evaluate(python), { eligible: false, reason: 'environment:windows-host' });
+  } else {
+    const rule = { eligible: true as const, size: 'large' as const, timeoutMinutes: 1440, memoryLimit: null };
+    assert.deepEqual(await evaluate(python), { ...rule, tier: 'py', gpu: false, environment: python }, 'its environment carries the package its runner names');
+    assert.deepEqual(await evaluate(python, ['mine'], { gpu: true }), { ...rule, tier: 'py-datascience', gpu: true, environment: python });
+  }
+  assert.deepEqual(await evaluate(await spec(variant('tools', { files: [] }))), { eligible: false, reason: 'environment:tools' });
+  assert.deepEqual(await evaluate(await spec(variant('image', { digest: 'sha256:' + 'c'.repeat(64) }))), { eligible: false, reason: 'environment:image' });
+  assert.deepEqual(await evaluate('d'.repeat(64)), { eligible: false, reason: 'unscannable' }, 'an environment whose spec the store lacks');
 });
 
 it('holds a rule\'s memory limit and its GPU, selects them with the task, and names what each size stands for', async (t) => {

@@ -5,7 +5,7 @@
 
 import { it } from 'node:test';
 import assert from 'node:assert/strict';
-import { rackPlacementLine } from './rack-options.js';
+import { rackEnvironmentLine, rackPlacementLine } from './rack-options.js';
 
 const task = { taskName: 'train', role: 'task' as const };
 const unit = { taskName: 'score', role: 'unit' as const };
@@ -33,10 +33,22 @@ it('prints a line for a task a rack claims, a transfer retried, and a rack\'s wo
     '  [RACK] score waiting: needs 3 GB, rack-a has no free slot');
   assert.equal(rackPlacementLine({ kind: 'placed', ...task, where: 'local', reason: 'no-rack-for-tier:py' }), '  [LOCAL] train (no-rack-for-tier:py)');
   assert.equal(rackPlacementLine({ kind: 'placed', ...task, where: 'local', reason: 'fallback:rack-unavailable' }), '  [LOCAL] train (fallback:rack-unavailable)');
+  assert.equal(rackPlacementLine({ kind: 'placed', ...task, where: 'local', reason: 'environment:native-package:fastfit' }), '  [LOCAL] train (environment:native-package:fastfit)');
+  assert.equal(rackPlacementLine({ kind: 'placed', ...task, where: 'local', reason: 'no-rack-for-environment:py' }), '  [LOCAL] train (no-rack-for-environment:py)');
+});
+
+it('prints a line when an environment\'s layers are built for a rack, and what the build came to', () => {
+  const envHash = `3f9a2b1c0d4e${'0'.repeat(52)}`;
+  assert.equal(rackEnvironmentLine({ kind: 'building', envHash, platform: 'x86_64-manylinux_2_28' }), '  [ENV] 3f9a2b1c0d4e for x86_64-manylinux_2_28: building');
+  assert.equal(rackEnvironmentLine({ kind: 'built', envHash, platform: 'x86_64-manylinux_2_28', ms: 48_200, layers: 4, bytes: 2.1 * 1024 ** 3, fresh: 1 }),
+    '  [ENV] 3f9a2b1c0d4e built in 48 s: 4 layers, 2.1 GB (1 new)');
+  assert.equal(rackEnvironmentLine({ kind: 'built', envHash, platform: 'aarch64-apple-darwin', ms: 400, layers: 1, bytes: 2048, fresh: 0 }),
+    '  [ENV] 3f9a2b1c0d4e built in 0 s: 1 layer, 2 KB (0 new)');
 });
 
 it('prints nothing for work that was never a rack\'s, and of a unit only what went wrong on its rack', () => {
   assert.equal(rackPlacementLine({ kind: 'placed', ...task, where: 'local', reason: 'not-selected' }), undefined);
+  assert.equal(rackPlacementLine({ kind: 'placed', ...task, where: 'local', reason: 'gpu-not-east-py' }), undefined);
   // Split progress already describes a task's units as they run.
   assert.equal(rackPlacementLine({ kind: 'placed', ...unit, where: 'rack', rackLabel: 'rack-a', leaseId: 'u' }), undefined);
   assert.equal(rackPlacementLine({ kind: 'placed', ...unit, where: 'local', reason: 'spill' }), undefined);

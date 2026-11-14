@@ -179,8 +179,9 @@ export interface RackRouteOptions {
   /** #94 Slice B: published-env index — absent means env resolution is
    *  unavailable (requests for it error; racks fall back to cloud). */
   envIndex?: EnvIndexStore;
-  /** The deployment's e3 version: what the hello names, and which published
-   *  env build is read (default this build's). */
+  /** The deployment's e3 version: what the hello names (default this
+   *  build's), and which published env build is read for a lease that names
+   *  no release of its own. */
   e3Version?: string;
   /**
    * Wakes a dataflow's parked run once a rack attempt's outcome is recorded
@@ -902,8 +903,12 @@ export function createRackRoutes(
       if (lease.event.environment !== envHash) {
         return forbidden(`Environment ${envHash} is not part of lease ${lease.leaseId}`);
       }
-      const record = envIndex !== undefined && e3Version !== undefined
-        ? await envIndex.get(envHash, e3Version)
+      // Built with the e3 release the lease's work names, which is the
+      // runtime its guest runs; the deployment's own for a lease that names
+      // none.
+      const release = lease.event.e3Version ?? e3Version;
+      const record = envIndex !== undefined && release !== undefined
+        ? await envIndex.get(envHash, release)
         : null;
       const manifestJson = record === null ? null : await bridge.readEnvManifest(record.manifestKey);
       if (manifestJson === null) {

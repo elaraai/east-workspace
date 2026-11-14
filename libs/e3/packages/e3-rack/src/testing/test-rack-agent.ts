@@ -3,14 +3,17 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
-import { randomUUID } from 'node:crypto';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { createHash, randomUUID } from 'node:crypto';
+import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Readable } from 'node:stream';
 import { setTimeout as delay } from 'node:timers/promises';
-import { BooleanType, decodeBeast2For, encodeBeast2For, none, variant, type EastType, type ValueTypeOf } from '@elaraai/east';
+import { BooleanType, decodeBeast2For, encodeBeast2For, none, some, variant, type EastType, type ValueTypeOf } from '@elaraai/east';
 import { BEAST2_CONTENT_TYPE } from '@elaraai/e3-types';
-import { LocalStorage, gcObjectReaders, markReachable, repoInit, taskExecute, taskExecuteUnit } from '@elaraai/e3-core';
+import { ENVIRONMENT_LAYER_ROOT, LocalStorage, gcObjectReaders, hostEnvironmentPlatform, linkPrebuiltEnvironment, markReachable, repoInit,
+  taskExecute, taskExecuteUnit, unpackEnvironmentLayer } from '@elaraai/e3-core';
+import type { EnvLayerManifest } from '../server/env-publication.js';
 import { closureHashes } from '../lease/closure.js';
 import { decodeRunnerEvent, splitUnitFromWire } from '../runner-event.js';
 import { E3_RACK_VERSION } from '../version.js';
@@ -90,14 +93,17 @@ export interface TestRackAgentOptions {
   timings?: { heartbeatMs?: number; extendMs?: number; transferMs?: number; retryMs?: number };
   /** Consumes counters in place, permitting faults to be armed during a test. */
   faults?: TestRackAgentFaults;
-  /** What the agent says it is and has, with each heartbeat; by default no
-   *  feature beyond a stock tier's work, or, with {@link resources}, them. */
+  /** What the agent says it is and has, with each heartbeat; by default that
+   *  it composes environments for the platform of the machine it runs on
+   *  (where e3-core installs one for it), and, with {@link resources}, them. */
   report?: RackReport;
   /**
    * What a lease's runner is taken to have peaked at, in bytes, given what it
    * measured: how a test has work outgrow its cap. The agent stands in for a
    * cap by it: work whose peak is above the cap its lease asked is completed
-   * `outgrew-cap`, with nothing it wrote sent.
+   * `outgrew-cap`, with nothing it wrote sent. It is asked once the runner has
+   * ended and before anything is sent, and may take its time: a test holds a
+   * lease's end by it until what it waits for has happened.
    */
   peak?: (lease: RackLeaseGrant, measured: number | undefined) => number | undefined | Promise<number | undefined>;
   /**
@@ -126,6 +132,11 @@ export interface TestRackAgentOptions {
  * flight than its source's hello allows, waits when told its source is busy,
  * and gives a transfer that failed five tries, each read going on from the
  * byte the one before reached.
+ *
+ * For a lease that names an environment it asks its source for the manifest
+ * and its layers, checks each layer's digest and size, unpacks them, and runs
+ * the work with the tree linked where e3-core looks for a built environment:
+ * nothing is installed on it.
  * @example
  * const agent = await TestRackAgent.enroll(origin, token);
  * await agent.runOne();
@@ -286,12 +297,16 @@ export class TestRackAgent {
     return { cores: Math.max(0, cores), memoryBytes: Math.max(0, memoryBytes), gpus: Math.max(0, gpus) };
   }
 
-  /** What the agent is and has: what its options say, else its resources
-   *  and what is free of them, else no feature. */
+  /** What the agent is and has: what its options say; else its resources and
+   *  what is free of them, when it admits by them, and that it composes
+   *  environments for this machine's platform, when that is one e3-core
+   *  installs an environment for. */
   private report(): RackReport {
     if (this.options.report !== undefined) return this.options.report;
     const all = this.options.resources;
-    return all === undefined ? { features: [] } : { features: ['resources'], resources: all, free: this.free(all) };
+    const target = hostEnvironmentPlatform();
+    return { features: [...(all === undefined ? [] : ['resources']), ...(target === null ? [] : ['environments'])],
+      ...(target !== null && { target }), ...(all !== undefined && { resources: all, free: this.free(all) }) };
   }
 
   /** What a poll may be answered with: what is free of the agent's
@@ -412,11 +427,17 @@ export class TestRackAgent {
   }
 
   /**
-   * Reads one object through its data URL. A try that a link cut short keeps
-   * the bytes it carried, and the next asks for the object from the byte
-   * after them; a URL whose time ended is asked for again.
+   * Reads one object, or one layer of an environment, through its data URL.
+   * A try that a link cut short keeps the bytes it carried, and the next asks
+   * for the rest from the byte after them; a URL whose time ended is asked
+   * for again.
+   * @param again - Asks for the URL anew: an object's, unless given
    */
-  private async download(lease: RackLeaseRef, hash: string, firstUrl: string, signal: AbortSignal, of?: Transfers): Promise<Uint8Array> {
+  private async download(lease: RackLeaseRef, hash: string, firstUrl: string, signal: AbortSignal, of?: Transfers,
+    again: () => Promise<string | undefined> = async () => {
+      const object = (await this.storageRequest(lease, { need: [hash] })).objects[0];
+      return object?.type === 'url' ? object.value.url : undefined;
+    }): Promise<Uint8Array> {
     const parts: Uint8Array[] = [];
     let have = 0;
     let url = firstUrl;
@@ -424,11 +445,11 @@ export class TestRackAgent {
       const response = await this.transport(url, { headers: have > 0 ? { range: `bytes=${have}-` } : {}, signal: deadline });
       if (response.status === 404 || response.status === 410) {
         // The URL's fifteen minutes ended, or its session went: the same
-        // object is asked for again, which mints its URL anew.
+        // bytes are asked for again, which mints their URL anew.
         await response.arrayBuffer();
-        const again = (await this.storageRequest(lease, { need: [hash] })).objects[0];
-        if (again?.type !== 'url') throw new Error(`HTTP ${response.status}, and no new URL`);
-        url = again.value.url;
+        const issued = await again();
+        if (issued === undefined) throw new Error(`HTTP ${response.status}, and no new URL`);
+        url = issued;
         throw new Error(`HTTP ${response.status}: its URL was issued again`);
       }
       // A source that does not resume answers the whole object again.
@@ -464,6 +485,51 @@ export class TestRackAgent {
 
   /** Whether the agent's store holds an object: what a fetch left there. */
   holds(hash: string): Promise<boolean> { return this.storage.objects.exists(this.repo, hash); }
+
+  /** The directory a lease's environment is composed in: under it, where a
+   *  guest finds one. */
+  composedAt(envHash: string): string {
+    return join(this.options.workDir, 'env', envHash, ...ENVIRONMENT_LAYER_ROOT.split('/'));
+  }
+
+  /**
+   * Composes a held lease's environment from the layers its source keeps, and
+   * links it where e3-core looks for a built environment, so the lease's work
+   * installs nothing. Each layer is checked against its digest and its size
+   * before it is unpacked, and an environment composed for an earlier lease
+   * is used as it is.
+   * @param lease - The lease that names the environment
+   * @param envHash - The environment spec's hash
+   * @param signal - Ends the transfers with the lease
+   * @param of - The lease's transfers, which take note of each retry
+   * @throws {Error} When the source publishes no layers for it, or a layer is
+   *   not the bytes its manifest names
+   */
+  async compose(lease: RackLeaseRef, envHash: string, signal: AbortSignal = this.abort.signal, of?: Transfers): Promise<void> {
+    const root = join(this.options.workDir, 'env', envHash);
+    const composed = join(root, '.composed');
+    if (!await access(composed).then(() => true, () => false)) {
+      const published = async () => {
+        const { env } = await this.storageRequest(lease, { envManifest: some(envHash) });
+        if (env.type !== 'some') throw new Error(`The source answered no layers for the environment ${envHash}`);
+        return env.value;
+      };
+      const { manifestJson, layers } = await published();
+      if ((JSON.parse(manifestJson) as EnvLayerManifest).envHash !== envHash) throw new Error(`The source answered another environment's manifest for ${envHash}`);
+      await rm(root, { recursive: true, force: true });
+      await mkdir(root, { recursive: true });
+      for (const layer of layers) {
+        const bytes = await this.download(lease, layer.digest, layer.url, signal, of,
+          async () => (await published()).layers.find((candidate) => candidate.digest === layer.digest)?.url);
+        if (bytes.length !== Number(layer.sizeBytes) || `sha256:${createHash('sha256').update(bytes).digest('hex')}` !== layer.digest) {
+          throw new Error(`Rack environment layer ${layer.digest} is not the bytes its manifest names`);
+        }
+        await unpackEnvironmentLayer(Readable.from([bytes]), root);
+      }
+      await writeFile(composed, '');
+    }
+    await linkPrebuiltEnvironment(this.repo, { hash: envHash, dir: this.composedAt(envHash) });
+  }
 
   /** Executes one claimed task/unit with the production core over the fetched closure. */
   execute(lease: RackLeaseGrant): Promise<RackLeaseResult> {
@@ -514,6 +580,20 @@ export class TestRackAgent {
     try {
       if ('object' in event.closure) await this.fetch(lease, [event.closure.object], signal, transfers);
       await this.fetch(lease, await closureHashes(event.closure, (hash) => this.storage.objects.read(this.repo, hash)), signal, transfers);
+      if (event.environment !== undefined) {
+        try {
+          await this.compose(lease, event.environment, signal, transfers);
+        } catch (error) {
+          // An environment the rack could not compose is the rack's fault,
+          // with its reason, for its source to place the work elsewhere.
+          if (error instanceof TransferFailed || signal.aborted) throw error;
+          const detail = error instanceof Error ? error.message : String(error);
+          const failed: RackLeaseResult = { taskName: event.taskName, status: 'failed', state: 'error', error: detail,
+            reason: { code: 'environment-failed', detail }, ...retries() };
+          if (!this.abort.signal.aborted) await this.complete(lease, failed);
+          return failed;
+        }
+      }
       const options = { force: true, signal, timeout: run.timeoutMs, verbose: run.verbose,
         onStdout: (data: string) => { chunks.push({ stream: variant('stdout', null), data }); },
         onStderr: (data: string) => { chunks.push({ stream: variant('stderr', null), data }); } };

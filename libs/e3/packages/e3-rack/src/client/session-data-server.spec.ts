@@ -6,17 +6,18 @@
 import { afterEach, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdtemp, readdir, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { PassThrough, Readable } from 'node:stream';
 import { setTimeout as delay } from 'node:timers/promises';
 import { BooleanType, IntegerType, StringType, encodeBeast2For, variant } from '@elaraai/east';
-import { LocalStorage, inputsHash, processOwner, repoInit, uuidv7 } from '@elaraai/e3-core';
+import { LocalStorage, environmentLayerPath, environmentLayersDir, inputsHash, processOwner, repoInit, uuidv7 } from '@elaraai/e3-core';
 import { startSessionDataServer } from './session-data-server.js';
 import { RackHubError, socketRequest, socketStream } from './local-http.js';
 import { LeaseOutcomeType, LeaseRunningType, SessionLogsType, SessionUploadType, VerifyOutputType, type SessionUpload } from '../protocol/session-data.js';
 import { makeLeaseId, type RackLeaseRecord } from '../lease/lease-store.js';
+import { envLayerBlobKey, envLayerDigest, envManifestKey, envManifestName, type EnvLayerManifest } from '../server/env-publication.js';
 
 const cleanup: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -181,4 +182,64 @@ it('keeps a successor upload when a predecessor PUT fails after takeover', async
     ...auth, requestType: SessionUploadType, body: info, responseType: BooleanType,
   }), true);
   assert.deepEqual(new Uint8Array(await storage.objects.read(repo, info.hash)), new Uint8Array(bytes));
+});
+
+it('serves the manifest a repository keeps of an environment by its name, and a layer only to the manifest that names it, whole or from a byte on', async () => {
+  const { data, auth, repo } = await setup();
+  const envHash = 'e'.repeat(64);
+  const layers = [Buffer.from('the interpreter layer'), Buffer.from('the project layer, which is longer')].map((bytes) => ({ bytes, digest: `sha256:${digest(bytes)}` }));
+  const other = { bytes: Buffer.from('another environment\'s layer'), digest: `sha256:${digest(Buffer.from('another environment\'s layer'))}` };
+  for (const layer of [...layers, other]) {
+    await mkdir(dirname(environmentLayerPath(repo, layer.digest)), { recursive: true });
+    await writeFile(environmentLayerPath(repo, layer.digest), layer.bytes);
+  }
+  // The keys a source names them by are where the repository keeps them.
+  const key = envManifestKey(envHash, '1.0.108', 'x86_64-manylinux_2_28');
+  const name = envManifestName(key)!;
+  assert.equal(name, `${envHash}-1.0.108-x86_64-manylinux_2_28.json`);
+  assert.equal(join(repo, 'rack', ...envLayerBlobKey(other.digest).split('/')), environmentLayerPath(repo, other.digest));
+  assert.equal(envLayerDigest(envLayerBlobKey(other.digest)), other.digest);
+  assert.deepEqual([envManifestName('env-layers/blobs/x.json'), envManifestName('env-layers/manifests/a/b.json'), envLayerDigest('env-layers/blobs/sha256-xyz')], [null, null, null]);
+  const manifest: EnvLayerManifest = { envHash, e3Version: '1.0.108', baseImage: 'rack-tier:py', baseTier: 'py',
+    layers: layers.map((layer) => ({ digest: layer.digest, sizeBytes: layer.bytes.length, mediaType: 'application/vnd.oci.image.layer.v1.tar+gzip' })) };
+  await mkdir(join(environmentLayersDir(repo), 'manifests'), { recursive: true });
+  await writeFile(join(repo, 'rack', ...key.split('/')), JSON.stringify(manifest));
+
+  const read = async (method: string, path: string, headers?: Record<string, string>) => {
+    const response = await socketStream(data.socketPath, method, path, { ...auth, ...(headers !== undefined && { headers }) });
+    const chunks: Buffer[] = [];
+    for await (const chunk of response) chunks.push(chunk as Buffer);
+    return { status: response.statusCode, headers: response.headers, body: Buffer.concat(chunks) };
+  };
+  const kept = await read('GET', `/v1/env/manifests/${name}`);
+  assert.equal(kept.status, 200);
+  assert.deepEqual(JSON.parse(kept.body.toString('utf8')), manifest);
+  assert.equal((await read('GET', `/v1/env/manifests/${'f'.repeat(64)}-1.0.108-x86_64-manylinux_2_28.json`)).status, 404, 'an environment it keeps no layers of');
+  assert.equal((await read('GET', `/v1/env/manifests/${encodeURIComponent('../policy.beast2')}`)).status, 404, 'no other file of the repository');
+
+  const layerUrl = (of: { digest: string }, manifestName = name) => `/v1/env/layers/${of.digest.slice('sha256:'.length)}?${new URLSearchParams({ manifest: manifestName })}`;
+  const whole = await read('GET', layerUrl(layers[1]!));
+  assert.equal(whole.status, 200);
+  assert.deepEqual(whole.body, layers[1]!.bytes);
+  assert.equal(whole.headers['content-length'], String(layers[1]!.bytes.length));
+  assert.equal(whole.headers['accept-ranges'], 'bytes');
+  const head = await read('HEAD', layerUrl(layers[1]!));
+  assert.deepEqual([head.status, head.headers['content-length'], head.body.length], [200, String(layers[1]!.bytes.length), 0]);
+  // From a byte on, as a transfer a link cut short asks.
+  const tail = await read('GET', layerUrl(layers[1]!), { range: 'bytes=12-' });
+  assert.equal(tail.status, 206);
+  assert.deepEqual(tail.body, layers[1]!.bytes.subarray(12));
+  assert.equal(tail.headers['content-range'], `bytes 12-${layers[1]!.bytes.length - 1}/${layers[1]!.bytes.length}`);
+  assert.equal((await read('GET', layerUrl(layers[1]!), { range: `bytes=${layers[1]!.bytes.length}-` })).status, 416);
+
+  // A layer the repository keeps, which this manifest does not name.
+  assert.equal((await read('GET', layerUrl(other))).status, 403);
+  assert.equal((await read('GET', layerUrl(layers[0]!, `${'f'.repeat(64)}-1.0.108-x86_64-manylinux_2_28.json`))).status, 404, 'no manifest, no layer');
+  assert.equal((await read('GET', layerUrl(layers[0]!, 'not-a-manifest'))).status, 404);
+  // A layer the manifest names and the repository lost.
+  await rm(environmentLayerPath(repo, layers[0]!.digest));
+  assert.equal((await read('GET', layerUrl(layers[0]!))).status, 404);
+  const unauthorized = await socketStream(data.socketPath, 'GET', layerUrl(layers[1]!), {});
+  unauthorized.resume();
+  assert.equal(unauthorized.statusCode, 401);
 });

@@ -3,7 +3,7 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
-import type { OpenRackRunnerOptions, RackPlacementEvent, RackRunnerHandle } from '@elaraai/e3-rack';
+import type { OpenRackRunnerOptions, RackEnvironmentEvent, RackPlacementEvent, RackRunnerHandle } from '@elaraai/e3-rack';
 import { formatSize } from '../format.js';
 
 /** Rack flags shared by dataflow run and watch. */
@@ -60,7 +60,10 @@ export async function openRack(options: OpenRackRunnerOptions): Promise<RackRunn
  *   work that this machine runs after all, with the rack's reason when its
  *   result gave one, a task's or a unit's alike;
  * - `[LOCAL] score (memory-limit-exceeded: needs 3 GB, limit 2 GB)` for a
- *   piece whose cap would pass its rule's memory limit.
+ *   piece whose cap would pass its rule's memory limit;
+ * - `[LOCAL] fit (environment:native-package:fastfit)` for a task whose
+ *   environment cannot go to a rack, and `[LOCAL] fit
+ *   (no-rack-for-environment:py)` where no rack composes environments.
  *
  * @param event - The event
  * @returns The line, or undefined for an event a run does not print
@@ -83,8 +86,31 @@ export function rackPlacementLine(event: RackPlacementEvent): string | undefined
   }
   if (event.detail !== undefined) return `  [LOCAL] ${event.taskName} (${event.reason.replace(/^fallback:/, '')})`;
   if (event.role === 'unit') return undefined;
-  return event.reason === 'spill' || event.reason === 'source-unreachable' || event.reason.startsWith('fallback:') || event.reason.startsWith('no-rack-')
+  return event.reason === 'spill' || event.reason === 'source-unreachable' || event.reason.startsWith('fallback:') || event.reason.startsWith('no-rack-') ||
+    event.reason.startsWith('environment:')
     ? `  [LOCAL] ${event.taskName} (${event.reason})` : undefined;
+}
+
+/**
+ * The line a run prints when an environment's layers are built for a rack:
+ * - `[ENV] 3f9a2b1c0d4e for x86_64-manylinux_2_28: building`, when the
+ *   repository keeps none for the platform yet;
+ * - `[ENV] 3f9a2b1c0d4e built in 48 s: 4 layers, 2.1 GB (1 new)`, once it does.
+ *
+ * A run whose repository keeps the layers already prints neither.
+ *
+ * @param event - The event
+ * @returns The line
+ */
+export function rackEnvironmentLine(event: RackEnvironmentEvent): string {
+  const name = event.envHash.slice(0, 12);
+  if (event.kind === 'building') return `  [ENV] ${name} for ${event.platform}: building`;
+  return `  [ENV] ${name} built in ${Math.round(event.ms / 1000)} s: ${event.layers} ${event.layers === 1 ? 'layer' : 'layers'}, ${formatSize(event.bytes)} (${event.fresh} new)`;
+}
+
+/** Prints an environment event's line. */
+export function printRackEnvironment(event: RackEnvironmentEvent): void {
+  console.log(rackEnvironmentLine(event));
 }
 
 /** Prints a placement event's line, when a run prints one for it. */

@@ -41,7 +41,7 @@ import { parseRepoLocation, formatError, exitError, type RepoLocation } from '..
 import { getValidToken } from '../credentials.js';
 import { formatRequeue, formatSize } from '../format.js';
 import { commandBudget, refuseRemoteBudget, type BudgetFlags } from './budget.js';
-import { openRack, rackEnabled, refuseRemoteRack, printRackPlacement, printRackSummary, type RackFlags } from './rack-options.js';
+import { openRack, rackEnabled, refuseRemoteRack, printRackEnvironment, printRackPlacement, printRackSummary, type RackFlags } from './rack-options.js';
 
 /** Polling interval for remote execution (ms) */
 const POLL_INTERVAL = 500;
@@ -190,7 +190,7 @@ async function executeLocal(
   // the runner, which holds the budget, decides which of them spawn.
   const rack = await rackEnabled(repoPath, options) ? await openRack({ repoPath, workspace: ws, storage,
     label: `e3 dataflow run ${ws} (pid ${process.pid})`, budget: options.budget, rackOnly: options.rackOnly, signal: options.signal,
-    onPlacement: printRackPlacement, log: console.log }) : undefined;
+    onPlacement: printRackPlacement, onEnvironment: printRackEnvironment, log: console.log }) : undefined;
   if (rack !== undefined) console.log(`Rack: ${rack.describe(formatSize)}`);
   try {
     const handle = await orchestrator.start(storage, repoPath, ws, {

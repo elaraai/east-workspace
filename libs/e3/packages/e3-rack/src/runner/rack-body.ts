@@ -4,15 +4,15 @@
  */
 
 import { setTimeout as delay } from 'node:timers/promises';
-import { ExecutionAttempt, touchReachable, unitCap, uuidv7, type ExecutionResult, type TaskBodyExecutor, type TaskBodyRequest } from '@elaraai/e3-core';
+import { EnvironmentTargetRefused, ExecutionAttempt, touchReachable, unitCap, uuidv7, type ExecutionResult, type TaskBodyExecutor, type TaskBodyRequest } from '@elaraai/e3-core';
 import type { LeaseHandle, LeaseUpdate, RackSession } from '../client/session.js';
 import { recordClosure, stagedObjects, taskClosure } from '../lease/closure.js';
 import { RACK_LEASE_VERSION, describeRackReason, readRackReason, readRackRetries, type RackLeaseEvent, type RackLeaseResources, type RackReason, type RackTransferRetry } from '../protocol/task-envelope.js';
 import { splitUnitToWire } from '../runner-event.js';
 import { EligibilityEvaluator, type Eligibility } from '../routing/eligibility.js';
 import { RACK_SIZES, type RackPolicy } from '../routing/policy.js';
-import { E3_RACK_VERSION } from '../version.js';
-import { compatibleRacks, rackCouldHold, rackFree, rackResources, rackRoom } from './capacity.js';
+import { compatibleRacks, rackCouldHold, rackFree, rackResources, rackRoom, type SnapshotRack } from './capacity.js';
+import { publishEnvLayers, type RackEnvironmentEvent } from './environment.js';
 import type { RackResources } from '../protocol/rack-json.js';
 
 /**
@@ -22,8 +22,10 @@ import type { RackResources } from '../protocol/rack-json.js';
  * - `placed` locally, with why: never a rack's work (`reason` is why it is not
  *   eligible), or a rack's work that this machine runs after all (`spill`,
  *   `no-rack-for-tier:<tier>`, `source-unreachable` when the racks that run
- *   its tier are not healthy, or a `fallback:` with what went wrong, and the
- *   rack's `detail` when its result gave a reason);
+ *   its tier are not healthy, `no-rack-for-environment:<tier>` when none of
+ *   them composes environments, an `environment:` reason when the
+ *   environment it declares cannot go to a rack, or a `fallback:` with what
+ *   went wrong, and the rack's `detail` when its result gave a reason);
  * - `retried`: a transfer of its lease failed a try and was given another;
  * - `waiting`: its lease is queued, and no rack has room for what it asks
  *   now. `rackLabel` is the rack with the most memory free, and `free` what
@@ -53,7 +55,8 @@ export type RackPlacementEvent =
  */
 export function ranLocally(event: RackPlacementEvent): event is Extract<RackPlacementEvent, { where: 'local' }> {
   return event.kind === 'placed' && event.where === 'local' &&
-    (event.detail !== undefined || event.reason === 'spill' || event.reason === 'source-unreachable' || event.reason.startsWith('fallback:') || event.reason.startsWith('no-rack-'));
+    (event.detail !== undefined || event.reason === 'spill' || event.reason === 'source-unreachable' || event.reason.startsWith('fallback:') ||
+      event.reason.startsWith('no-rack-') || event.reason.startsWith('environment:'));
 }
 
 /** Configures a run's body executor without acquiring local resources. */
@@ -74,6 +77,15 @@ export interface RackBodyOptions {
   unreachableWaitMs?: number;
   /** Receives placement and fallback notifications. */
   onPlacement?: (event: RackPlacementEvent) => void;
+  /** Told an environment's layers are being built for a rack's platform, and
+   *  what the build came to. */
+  onEnvironment?: (event: RackEnvironmentEvent) => void;
+}
+
+/** Whether a rack composes a lease's environment from layers, and says the
+ *  platform it runs environments on. */
+function composes(rack: SnapshotRack): rack is SnapshotRack & { target: { type: 'some'; value: string } } {
+  return rack.features.includes('environments') && rack.target.type === 'some';
 }
 
 /**
@@ -135,6 +147,12 @@ function wait(next: Promise<LeaseUpdate>, ms: number, signal?: AbortSignal): Pro
 /**
  * Delegates eligible cache misses through the shared hub. The hub alone
  * writes the remote attempt; local() owns every local fallback and grant.
+ *
+ * Work that declares an environment is leased once the environment's layers
+ * are kept for the platform of a rack that composes environments: they are
+ * built first, once for an environment and a platform in a run, and work
+ * whose environment no install makes for that platform, or whose build
+ * fails, runs locally with the reason.
  * @param options - Session, policy and placement sink
  * @returns The body hook for e3-core's LocalTaskRunner
  * @example
@@ -143,6 +161,21 @@ function wait(next: Promise<LeaseUpdate>, ms: number, signal?: AbortSignal): Pro
 export function createRackBody(options: RackBodyOptions): TaskBodyExecutor {
   const { session, policy } = options;
   const evaluator = new EligibilityEvaluator(policy);
+  // Each environment's layers for each platform, once in a run: why they are
+  // not there, when they are not, and the build's own words.
+  const layers = new Map<string, Promise<{ reason?: string; said?: string }>>();
+  const layersFor = (request: TaskBodyRequest, envHash: string, platform: string, tier: string): Promise<{ reason?: string; said?: string }> => {
+    const key = `${envHash} ${platform}`;
+    let made = layers.get(key);
+    if (made === undefined) {
+      made = publishEnvLayers(request.storage, request.repo, envHash, { platform, tier, e3Version: session.e3Version }, options.onEnvironment).then(
+        () => ({}),
+        (error: unknown) => error instanceof EnvironmentTargetRefused ? { reason: error.reason, said: error.message }
+          : { reason: 'build-failed', said: error instanceof Error ? error.message : String(error) });
+      layers.set(key, made);
+    }
+    return made;
+  };
   return async (request, local) => {
     const placement = { taskName: request.options.taskName ?? request.taskHash, role: request.role };
     let handle: LeaseHandle | undefined;
@@ -156,13 +189,16 @@ export function createRackBody(options: RackBodyOptions): TaskBodyExecutor {
     };
     // A rack's result that gives its reason is placed by it: the reason's
     // code, and its cause or detail, are what the run prints.
-    const runLocal = async (reason: string, detail?: RackReason): Promise<ExecutionResult> => {
+    const runLocal = async (reason: string, detail?: RackReason, said?: string): Promise<ExecutionResult> => {
       leavingRack = true;
       if (handle !== undefined) await handle.cancel().catch(() => {});
       const ids = handle === undefined ? request.ids : freshIds();
       options.onPlacement?.({ kind: 'placed', ...placement, where: 'local', reason, ...(detail !== undefined && { detail }) });
-      if (reason.startsWith('fallback:')) {
-        const line = `e3: rack attempt failed on ${rackLabel}: ${reason.slice(9)} — running locally\n`;
+      // What went wrong is in the task's log: a rack's attempt, or the build
+      // of its environment for a rack, in the build tool's own words.
+      const line = reason.startsWith('fallback:') ? `e3: rack attempt failed on ${rackLabel}: ${reason.slice(9)} — running locally\n`
+        : said !== undefined ? `e3: the environment was not built for a rack (${reason}): ${said} — running locally\n` : undefined;
+      if (line !== undefined) {
         await request.storage.logs.append(request.repo, request.taskHash, ids.inHash, ids.executionId, 'stderr', line);
         request.options.onStderr?.(line);
       }
@@ -176,20 +212,33 @@ export function createRackBody(options: RackBodyOptions): TaskBodyExecutor {
     // reproduced by a stock guest. Keep these settings on the standard body.
     if (request.options.env !== undefined || request.options.uid !== undefined || request.options.gid !== undefined ||
       (request.options.extraEnv !== undefined && Object.keys(request.options.extraEnv).length > 0)) return runLocal('host-process-settings');
-    // Why no rack can take the tier's work now: those that run it are not
-    // healthy, or none that could is enrolled.
+    // The racks that can take the work: the healthy ones that run its tier
+    // and, for work that declares an environment, compose environments, for
+    // a platform its layers are kept for once that is known.
+    let platforms: ReadonlySet<string> | undefined;
+    const fleet = (): SnapshotRack[] => {
+      const racks = compatibleRacks(session.capacity(), verdict.tier);
+      return verdict.environment === null ? racks : racks.filter((rack) => composes(rack) && (platforms === undefined || platforms.has(rack.target.value)));
+    };
+    // Why no rack can take the work now: those that run its tier are not
+    // healthy, none that could is enrolled, or none of them composes
+    // environments.
     const noRack = (): string | null => {
+      if (fleet().length > 0) return null;
       const snapshot = session.capacity();
-      if (compatibleRacks(snapshot, verdict.tier).length > 0) return null;
+      if (compatibleRacks(snapshot, verdict.tier).length > 0) return `no-rack-for-environment:${verdict.tier}`;
       return snapshot.racks.some((rack) => rack.tiers.includes(verdict.tier) && !rack.healthy) ? 'source-unreachable' : `no-rack-for-tier:${verdict.tier}`;
     };
+    // A rack that is healthy has said what it does: one that composes no
+    // environment is not waited for.
+    const waitedFor = (why: string): boolean => !why.startsWith('no-rack-for-environment:');
     const unreachableWaitMs = options.unreachableWaitMs ?? RACK_ONLY_WAIT_MS;
     // A run that keeps its work for a rack waits for one to be healthy
     // before the work runs locally; any other runs it locally at once.
     let absent = noRack();
-    if (absent !== null && options.rackOnly) {
+    if (absent !== null && waitedFor(absent) && options.rackOnly) {
       const until = Date.now() + unreachableWaitMs;
-      while (absent !== null && Date.now() < until && request.options.signal?.aborted !== true && !session.hubLost) {
+      while (absent !== null && waitedFor(absent) && Date.now() < until && request.options.signal?.aborted !== true && !session.hubLost) {
         await delay(Math.max(1, Math.min(1000, until - Date.now())), undefined, { signal: request.options.signal }).catch(() => {});
         await session.refreshCapacity().catch(() => {});
         absent = noRack();
@@ -206,23 +255,37 @@ export function createRackBody(options: RackBodyOptions): TaskBodyExecutor {
     // Work no rack could hold, with nothing else on it, is not queued: it
     // would wait for ever. For want of memory it runs locally by that name.
     const unheld = (needs: RackLeaseResources): (() => Promise<ExecutionResult>) | null => {
-      const fleet = compatibleRacks(session.capacity(), verdict.tier);
-      if (fleet.length === 0) return () => runLocal('fallback:rack-unavailable');
-      if (fleet.some((rack) => rackCouldHold(rack, needs))) return null;
-      const most = Math.max(...fleet.map((rack) => rackResources(rack)?.memoryBytes ?? 0));
+      const racks = fleet();
+      if (racks.length === 0) return () => runLocal('fallback:rack-unavailable');
+      if (racks.some((rack) => rackCouldHold(rack, needs))) return null;
+      const most = Math.max(...racks.map((rack) => rackResources(rack)?.memoryBytes ?? 0));
       return () => needs.memoryBytes > most
         ? runLocal('memory-limit-exceeded', { code: 'memory-limit-exceeded', needsBytes: needs.memoryBytes, limitBytes: most })
         : runLocal(`no-rack-holds:${needs.gpu ? 'gpu' : `${needs.cores}-cores`}`);
     };
     const never = unheld(resources);
     if (never !== null) return never();
+    if (verdict.environment !== null) {
+      // The environment's layers, for each platform a rack that could hold
+      // the work runs environments on: built now if the repository keeps
+      // none, and for no rack that could never hold the work. The work is
+      // then a rack's whose platform they were built for.
+      const environment = verdict.environment;
+      const built = [...new Set(fleet().filter((rack) => rackCouldHold(rack, resources)).filter(composes).map((rack) => rack.target.value))].sort();
+      const made = await Promise.all(built.map((platform) => layersFor(request, environment, platform, verdict.tier)));
+      if (request.options.signal?.aborted) return local();
+      platforms = new Set(built.filter((_, i) => made[i]!.reason === undefined));
+      if (platforms.size === 0) {
+        const refused = made.find((result) => result.reason !== undefined)!;
+        return runLocal(`environment:${refused.reason!}`, undefined, refused.said);
+      }
+      const nowhere = unheld(resources);
+      if (nowhere !== null) return nowhere();
+    }
     const canSpill = () => policy.spill && !options.rackOnly && localIdle(request);
     // How many more leases asking this much the compatible racks hold in the
     // latest snapshot, less the work already queued for them.
-    const room = () => {
-      const snapshot = session.capacity();
-      return compatibleRacks(snapshot, verdict.tier).reduce((sum, rack) => sum + rackRoom(rack, resources), 0) - Number(snapshot.queued);
-    };
+    const room = () => fleet().reduce((sum, rack) => sum + rackRoom(rack, resources), 0) - Number(session.capacity().queued);
     let waitingSince: number | undefined;
     // Under rack-only, work whose transfer failed is leased once more.
     let leasedAgain = false;
@@ -243,7 +306,8 @@ export function createRackBody(options: RackBodyOptions): TaskBodyExecutor {
       const event: RackLeaseEvent = { version: RACK_LEASE_VERSION,
         runnerEvent: request.unit === undefined ? { ...common, mode: 'task', inputHashes: request.inputHashes }
           : { ...common, mode: 'unit', unit: splitUnitToWire(request.unit) },
-        workspace: options.workspace, taskName: placement.taskName, e3Version: E3_RACK_VERSION, closure, resources };
+        workspace: options.workspace, taskName: placement.taskName, e3Version: session.e3Version, closure, resources,
+        ...(verdict.environment !== null && { environment: verdict.environment }) };
       if (request.options.signal?.aborted) return await stop('cancelled', 'cancelled: e3 did not start the rack execution because the run was aborted');
       const lease = { eventJson: JSON.stringify(event), tier: verdict.tier, computeSize: verdict.size };
       const full = room() <= 0;
@@ -260,7 +324,7 @@ export function createRackBody(options: RackBodyOptions): TaskBodyExecutor {
         // the most memory free. Work attached to a lease a rack already holds
         // waits for nothing.
         waitingSince = Date.now();
-        const racks = compatibleRacks(session.capacity(), verdict.tier);
+        const racks = fleet();
         const best = racks.reduce((most, rack) => (rackFree(rack)?.memoryBytes ?? 0) > (rackFree(most)?.memoryBytes ?? 0) ? rack : most, racks[0]);
         if (best !== undefined) {
           const free = rackFree(best);
@@ -290,8 +354,8 @@ export function createRackBody(options: RackBodyOptions): TaskBodyExecutor {
             // No rack could claim the lease. A run that keeps its work for a
             // rack gives one two minutes to be healthy again.
             unreachableSince ??= Date.now();
-            if (!options.rackOnly || Date.now() - unreachableSince >= unreachableWaitMs) {
-              return await runLocal(gone === 'source-unreachable' ? 'fallback:source-unreachable' : 'fallback:rack-unavailable');
+            if (!options.rackOnly || !waitedFor(gone) || Date.now() - unreachableSince >= unreachableWaitMs) {
+              return await runLocal(gone === 'source-unreachable' ? 'fallback:source-unreachable' : waitedFor(gone) ? 'fallback:rack-unavailable' : `fallback:${gone}`);
             }
           }
           if (canSpill()) return await runLocal('fallback:not-claimed');

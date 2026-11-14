@@ -4,17 +4,18 @@
  */
 
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, open, readFile, unlink } from 'node:fs/promises';
+import { mkdir, open, readFile, stat, unlink } from 'node:fs/promises';
 import { dirname } from 'node:path';
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { ArrayType, BooleanType, StringType, decodeBeast2For, encodeBeast2For, equalFor } from '@elaraai/east';
-import { atomicWriteFile, isObjectHash, transferStagingPath, touchReachable, type StorageBackend } from '@elaraai/e3-core';
+import { atomicWriteFile, environmentLayerPath, isObjectHash, readEnvironmentManifest, transferStagingPath, touchReachable, type StorageBackend } from '@elaraai/e3-core';
 import type { ExecutionOwner } from '@elaraai/e3-types';
 import { answer, decodeBody } from '../server/beast2.js';
 import { ensureRackHome, rackHome, sessionSocketPath } from '../paths.js';
 import { InMemoryLeaseCoordinator } from '../lease/coordinator.js';
 import type { RackLeaseRecord } from '../lease/lease-store.js';
 import { isLeaseEventV2, type RackLeaseResult } from '../protocol/task-envelope.js';
+import type { EnvLayerManifest } from '../server/env-publication.js';
 import { LeaseDataType, LeaseOutcomeType, LeaseRunningType, LeaseStoppedType, SessionLogsType,
   SessionUploadStateType, SessionUploadType, TouchObjectsType, VerifyOutputType, type SessionUpload } from '../protocol/session-data.js';
 import { closeSocketServer, serveOnSocket } from './local-http.js';
@@ -41,7 +42,9 @@ export interface SessionDataOptions {
 }
 
 /**
- * Serves repository objects, staged uploads, logs and execution records locally.
+ * Serves repository objects, staged uploads, logs and execution records locally,
+ * and the layers the repository keeps of an environment built for a rack: a
+ * manifest by its name, and a layer the manifest names, from a byte on.
  *
  * Uploads stream to immutable files on the repository's device. Hash, length,
  * declaration and receipt must all match before adoption. Temporary metadata
@@ -88,32 +91,69 @@ export async function startSessionDataServer(options: SessionDataOptions): Promi
     return size;
   };
 
+  // Answers bytes of a known size, whole or from a byte on (`Range:
+  // bytes=N-`), the one form a resumed transfer needs: any other range is
+  // answered whole. `end` is told once nothing more will be read.
+  const ranged = (c: Context, size: number, read: (offset: number, length: number) => Promise<Uint8Array>, end?: () => Promise<void>): Response => {
+    const whole = { 'content-type': 'application/octet-stream', 'content-length': String(size), 'accept-ranges': 'bytes' };
+    const from = /^bytes=(\d+)-$/.exec(c.req.header('range') ?? '')?.[1];
+    const start = from === undefined ? 0 : Number(from);
+    const unread = c.req.method === 'HEAD' ? new Response(null, { headers: whole })
+      : from !== undefined && (!Number.isSafeInteger(start) || start >= size) ? new Response(null, { status: 416, headers: { 'content-range': `bytes */${size}` } })
+        : null;
+    if (unread !== null) { void end?.().catch(() => {}); return unread; }
+    const headers = from === undefined ? whole
+      : { ...whole, 'content-length': String(size - start), 'content-range': `bytes ${start}-${size - 1}/${size}` };
+    let offset = start;
+    let ended = false;
+    const finish = async (): Promise<void> => { if (!ended) { ended = true; await end?.().catch(() => {}); } };
+    const body = new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        try {
+          if (offset >= size) { await finish(); controller.close(); return; }
+          const bytes = await read(offset, Math.min(CHUNK_BYTES, size - offset));
+          if (bytes.length === 0) throw new Error('The bytes ended before their declared size');
+          offset += bytes.length;
+          controller.enqueue(bytes);
+        } catch (err) { await finish(); controller.error(err); }
+      },
+      cancel: finish,
+    });
+    return new Response(body, { status: from === undefined ? 200 : 206, headers });
+  };
+
   app.on(['HEAD', 'GET'], '/v1/objects/:hash', async (c) => {
     const hash = hashOf(c.req.param('hash'));
     if (!(await storage.objects.touch(repo, [hash]))[0]) return c.body(null, 404);
     const { size } = await storage.objects.stat(repo, hash);
-    const whole = { 'content-type': 'application/octet-stream', 'content-length': String(size), 'accept-ranges': 'bytes' };
-    if (c.req.method === 'HEAD') return new Response(null, { headers: whole });
-    // A read may ask for the object from a byte on (`Range: bytes=N-`), the
-    // one form a resumed transfer needs: any other is answered whole.
-    const from = /^bytes=(\d+)-$/.exec(c.req.header('range') ?? '')?.[1];
-    const start = from === undefined ? 0 : Number(from);
-    if (from !== undefined && (!Number.isSafeInteger(start) || start >= size)) {
-      return new Response(null, { status: 416, headers: { 'content-range': `bytes */${size}` } });
-    }
-    const headers = from === undefined ? whole
-      : { ...whole, 'content-length': String(size - start), 'content-range': `bytes ${start}-${size - 1}/${size}` };
-    let offset = start;
-    const body = new ReadableStream<Uint8Array>({ async pull(controller) {
-      try {
-        if (offset >= size) { controller.close(); return; }
-        const bytes = await storage.objects.readRange(repo, hash, offset, Math.min(CHUNK_BYTES, size - offset));
-        if (bytes.length === 0) throw new Error('Object ended before its declared size');
-        offset += bytes.length;
-        controller.enqueue(bytes);
-      } catch (err) { controller.error(err); }
-    } });
-    return new Response(body, { status: from === undefined ? 200 : 206, headers });
+    return ranged(c, size, (offset, length) => storage.objects.readRange(repo, hash, offset, length));
+  });
+
+  // The manifest that names an environment's layers, as the repository keeps
+  // it: built for one platform and e3 release, which its name says.
+  const manifestOf = async (name: string): Promise<string | null> => {
+    try { return await readEnvironmentManifest(repo, name); } catch { return null; }
+  };
+  app.get('/v1/env/manifests/:name', async (c) => {
+    const manifest = await manifestOf(c.req.param('name'));
+    return manifest === null ? c.body(null, 404) : new Response(manifest, { headers: { 'content-type': 'application/json' } });
+  });
+  // A layer, by the SHA-256 it is named by: served only when the manifest
+  // asked with names it, so a lease reads its own environment's layers and no
+  // other file of the repository.
+  app.on(['HEAD', 'GET'], '/v1/env/layers/:sha256', async (c) => {
+    const digest = `sha256:${c.req.param('sha256')}`;
+    const manifest = await manifestOf(c.req.query('manifest') ?? '');
+    if (manifest === null) return c.body(null, 404);
+    if (!(JSON.parse(manifest) as EnvLayerManifest).layers.some((layer) => layer.digest === digest)) return c.text('The manifest names no such layer', 403);
+    const path = environmentLayerPath(repo, digest);
+    let size: number;
+    try { ({ size } = await stat(path)); } catch { return c.body(null, 404); }
+    const file = await open(path, 'r');
+    return ranged(c, size, async (offset, length) => {
+      const { bytesRead, buffer } = await file.read(Buffer.allocUnsafe(length), 0, length, offset);
+      return buffer.subarray(0, bytesRead);
+    }, () => file.close());
   });
   app.post('/v1/objects', async (c) => {
     const reader = c.req.raw.body?.getReader();

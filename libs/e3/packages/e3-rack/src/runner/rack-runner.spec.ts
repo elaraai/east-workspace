@@ -10,8 +10,9 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { East, IntegerType, StringType, none, some, variant } from '@elaraai/east';
+import { East, IntegerType, StringType, encodeBeast2For, none, some, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
+import { TaskObjectType, decodeTaskObject } from '@elaraai/e3-types';
 import { Budget, InMemoryStateStore, LocalOrchestrator, LocalStorage, LocalTaskRunner, datasetWrite, inputsHash,
   packageImport, packageRead, repoInit, unitCap, workspaceCreate, workspaceDeploy, type UnitRequeue } from '@elaraai/e3-core';
 import { RackHub, type RackHubOptions } from '../hub/hub.js';
@@ -21,7 +22,7 @@ import { TestRackAgent, type TestRackAgentOptions } from '../testing/test-rack-a
 import { pinnedFetch } from '../tls/tls.js';
 import { DEFAULT_RACK_POLICY, setMode, setRule, type RackPolicy } from '../routing/policy.js';
 import { openRackRunner, type OpenRackRunnerOptions } from './rack-runner.js';
-import type { RackPlacementEvent } from './rack-body.js';
+import { ranLocally, type RackPlacementEvent } from './rack-body.js';
 import type { RackLeaseEvent } from '../protocol/task-envelope.js';
 import { RackHeartbeatRequestType } from '../protocol/rack-wire.js';
 import { E3_RACK_VERSION } from '../version.js';
@@ -56,7 +57,7 @@ async function fixture(options: RackHubOptions = {}) {
     cleanup.push(() => rack.close());
     return rack;
   };
-  const agent = async (as: Pick<TestRackAgentOptions, 'timings' | 'faults' | 'resources' | 'capacity' | 'peak'> = {}) => {
+  const agent = async (as: Pick<TestRackAgentOptions, 'timings' | 'faults' | 'resources' | 'capacity' | 'peak' | 'tiers'> = {}) => {
     const mint = await client.enroll();
     const peer = await TestRackAgent.enroll(mint.apiUrl, mint.enrollmentToken, { certificateSha256: mint.certificateSha256.type === 'some' ? mint.certificateSha256.value : undefined, ...as });
     cleanup.push(() => peer.close()); return peer;
@@ -483,4 +484,41 @@ it('leases work whose transfer failed once more under rack-only, and runs it loc
   assert.equal(claims(), 2); assert.equal(f.budget.peak, 1);
   const local = f.placements.find((event) => event.kind === 'placed' && event.where === 'local'); assert(local?.kind === 'placed' && local.where === 'local');
   assert.equal(local.detail?.code, 'input-transfer-failed');
+});
+
+it('runs locally, by name, work that asks more cores or a GPU than any rack has, and leases a GPU task on the tier a rack gives its GPU to', async () => {
+  const GiB = 1024 ** 3;
+  const f = await fixture();
+  const local = () => f.placements.flatMap((event) => event.kind === 'placed' && event.where === 'local' ? [event] : []);
+  // A `large` task asks eight cores: more than the rack has, however long it waits.
+  await f.agent({ resources: { cores: 4, memoryBytes: 64 * GiB, gpus: 0 }, tiers: ['node', 'py-datascience'] });
+  const large = await f.open({ policy: setRule(f.policy, 'length', 'rack', { size: 'large' }) });
+  assert.equal((await large.runner.execute(f.storage, f.hash, f.inputs, { taskName: 'length' })).state, 'success');
+  assert.deepEqual(local().map((event) => [event.reason, event.detail]), [['no-rack-holds:8-cores', undefined]]);
+  assert(ranLocally(local()[0]!), 'a rack\'s work that this machine ran');
+  assert.equal((await f.client.status()).capacity.queued, 0n, 'it is not queued to wait for ever');
+
+  // The same task as east-py's, whose rule asks for a GPU: its tier is the one a rack gives its GPU to.
+  const base = decodeTaskObject(await f.storage.objects.read(f.repo, f.hash));
+  const python = await f.storage.objects.write(f.repo, encodeBeast2For(TaskObjectType)({ ...base,
+    runner: variant('east_py', { platforms: ['east-py-std'], decode: variant('lazy', null) }) }));
+  const gpu = await f.open({ policy: setRule(f.policy, 'length', 'rack', { size: 'small', gpu: true }) });
+  // No rack has one: the work is this machine's, by that name. Whether this machine's east-py then runs it is not this test's.
+  f.placements.length = 0;
+  await gpu.runner.execute(f.storage, python, f.inputs, { taskName: 'length' });
+  assert.deepEqual(local().map((event) => [event.reason, event.detail]), [['no-rack-holds:gpu', undefined]]);
+
+  // A rack with one: the lease asks for it, on the tier that has it, and the rack books it.
+  const withGpu = await f.agent({ resources: { cores: 4, memoryBytes: 64 * GiB, gpus: 1 }, tiers: ['py-datascience'] });
+  await gpu.refreshSlots();
+  f.placements.length = 0;
+  const other = [await datasetWrite(f.storage, f.repo, 'a GPU task', StringType)];
+  const running = gpu.runner.execute(f.storage, python, other, { taskName: 'length' });
+  const grant = await withGpu.claim(); assert(grant);
+  assert.equal(grant.tier, 'py-datascience');
+  assert.deepEqual(withGpu.bookedFor(grant.leaseId), { kind: 'task', cores: 2, memoryBytes: 4 * GiB, gpu: true });
+  // The task's own failure is its verdict: nothing of it runs here.
+  await withGpu.complete(grant, { taskName: 'length', status: 'failed', state: 'failed', exitCode: 1, error: 'the task failed', reason: { code: 'task-error' } });
+  assert.equal((await running).state, 'failed');
+  assert.deepEqual(local(), []);
 });

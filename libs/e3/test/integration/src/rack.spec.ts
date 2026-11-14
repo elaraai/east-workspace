@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { East, IntegerType, StringType, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
-import { LocalStorage, packageImport, repoInit, workspaceCreate, workspaceDeploy } from '@elaraai/e3-core';
+import { LocalStorage, hostEnvironmentPlatform, packageImport, repoInit, workspaceCreate, workspaceDeploy } from '@elaraai/e3-core';
 import { E3_RACK_VERSION, HubClient } from '@elaraai/e3-rack';
 import { RACK_PROTOCOL, RackEnrollRequestType, RackEnrollResponseType, RackHeartbeatRequestType, RackHeartbeatResponseType } from '@elaraai/e3-rack/protocol';
 import { TestRackAgent, type TestRackAgentOptions } from '@elaraai/e3-rack/testing';
@@ -141,15 +141,18 @@ it('shows a rack whose agent asks in another rack protocol as incompatible, with
 
 it('lists a rack that admits by its resources with all it has and what is free, and a run says them', async () => {
   const f = await enrolled({ resources: { cores: 4, memoryBytes: 8 * 1024 ** 3, gpus: 1 } });
-  assert.match(ok(await f.cli('rack', 'list')), /^t {2}.* {2}4 cores \(4 free\), 8 GB \(8 GB free\), 1 GPU \(1 free\) {2}resources {2}ready$/m);
+  // The test agent composes environments for the platform of the machine it runs on, where e3 installs one for it.
+  const platform = hostEnvironmentPlatform();
+  const features = platform === null ? 'resources' : 'resources,environments';
+  assert.match(ok(await f.cli('rack', 'list')), new RegExp(`^t {2}.* {2}4 cores \\(4 free\\), 8 GB \\(8 GB free\\), 1 GPU \\(1 free\\) {2}${features} {2}ready$`, 'm'));
   // A `small` task asks 2 cores and 4 GiB of it.
   ok(await f.cli('rack', 'policy', '.', 'set', 'train_*', 'rack', '--size', 'small'));
   const running = f.cli('dataflow', 'run', '.', 'ws1', '--rack');
   const grant = await f.agent.claim(); assert(grant);
-  assert.match(ok(await f.cli('rack', 'list')), /^t {2}.* {2}4 cores \(2 free\), 8 GB \(4 GB free\), 1 GPU \(1 free\) {2}resources {2}ready$/m);
+  assert.match(ok(await f.cli('rack', 'list')), new RegExp(`^t {2}.* {2}4 cores \\(2 free\\), 8 GB \\(4 GB free\\), 1 GPU \\(1 free\\) {2}${features} {2}ready$`, 'm'));
   assert.equal((await f.agent.execute(grant)).status, 'success');
   const output = ok(await running);
-  assert.match(output, /^Rack: t \(4 cores, 8 GB, 1 GPU, e3 \S+\)$/m);
+  assert.match(output, new RegExp(`^Rack: t \\(4 cores, 8 GB, 1 GPU, e3 \\S+${platform === null ? '' : `, environments for ${platform}`}\\)$`, 'm'));
   assert.match(output, /^ {2}\[RACK\] train_a → t \(cap 4 GB\)$/m);
   assert.match(output, /^Rack summary: 1 task on t · 0 waited for capacity · 0 ran again \(cap\) · 0 transfers retried · 0 ran locally$/m);
 });

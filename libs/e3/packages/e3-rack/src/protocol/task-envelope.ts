@@ -145,11 +145,12 @@ export interface RackLeaseEvent {
  * | `input-transfer-failed`, `output-transfer-failed` | `attempts`, `cause` | the rack, after its tries |
  * | `source-unreachable` | `ms` | the rack |
  * | `guest-crashed` | `detail` | the rack |
+ * | `environment-failed` | `detail` | the rack, when it could not compose the lease's environment |
  * | `requeued-pressure` | `peakBytes` | a rack that runs several units in one VM (reserved) |
  * | `task-error` | | the rack: the task's own failure |
  */
 export const RACK_REASON_CODES = ['outgrew-cap', 'memory-limit-exceeded', 'input-transfer-failed', 'output-transfer-failed',
-  'source-unreachable', 'guest-crashed', 'requeued-pressure', 'task-error'] as const;
+  'source-unreachable', 'guest-crashed', 'environment-failed', 'requeued-pressure', 'task-error'] as const;
 
 /** A reason's code this build knows. */
 export type RackReasonCode = typeof RACK_REASON_CODES[number];
