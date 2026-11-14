@@ -36,6 +36,7 @@ set(EAST_C_SOURCES
     src/builtins/matrix.c
     src/builtins/patch.c
     src/builtins/query.c
+    src/builtins/key_range.c
     src/builtins/tree.c
     src/serialization/json.c
     src/serialization/beast.c
@@ -559,6 +560,16 @@ add_test(NAME value_compare COMMAND test_value_compare)
 add_executable(test_key_bound tests/test_key_bound.c)
 target_link_libraries(test_key_bound east-c)
 add_test(NAME key_bound COMMAND test_key_bound)
+
+# A key range of a Set and of a Dict (#1616): what a range holds against a walk
+# of the whole, across the size a tree takes over at; that it is a new
+# collection, never frozen; that it is found by a search — of the cache, or of
+# the tree itself when the collection has changed — counted in tests of a key
+# over 100,000 keys, never in time; and the range builtins' refusals, in
+# TypeScript's words.
+add_executable(test_key_range tests/test_key_range.c)
+target_link_libraries(test_key_range east-c)
+add_test(NAME key_range COMMAND test_key_range)
 
 # Array diff gate (#1425): an Array's diff trims the common start and end, and
 # searches the middle for a shortest edit script by Myers' algorithm, to a

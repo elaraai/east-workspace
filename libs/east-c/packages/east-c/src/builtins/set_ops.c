@@ -5,6 +5,7 @@
 #include "east/compiler.h"
 #include "east/serialization.h"
 #include "east/values.h"
+#include "key_range.h"
 #include "tree.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -908,6 +909,19 @@ static BuiltinImpl set_to_tree_factory(EastType **tp, size_t ntp)
     return set_to_tree_impl;
 }
 
+/* SetRange [K, F, T] and SetPrefix [K, P]: a key range (#1616), the same
+ * builtins a Dict's are — key_range.h. */
+static BuiltinImpl set_range_factory(EastType **tp, size_t ntp)
+{
+    return east_key_range_builtin(ntp > 0 ? tp[0] : NULL, ntp > 1 ? tp[1] : NULL,
+                                  ntp > 2 ? tp[2] : NULL);
+}
+
+static BuiltinImpl set_prefix_factory(EastType **tp, size_t ntp)
+{
+    return east_key_prefix_builtin(ntp > 0 ? tp[0] : NULL, ntp > 1 ? tp[1] : NULL);
+}
+
 /* --- registration --- */
 
 void east_register_set_builtins(BuiltinRegistry *reg)
@@ -928,6 +942,8 @@ void east_register_set_builtins(BuiltinRegistry *reg)
     builtin_registry_register(reg, "SetIsSubset", set_is_subset_factory);
     builtin_registry_register(reg, "SetIsDisjoint", set_is_disjoint_factory);
     builtin_registry_register(reg, "SetCopy", set_copy_factory);
+    builtin_registry_register(reg, "SetRange", set_range_factory);
+    builtin_registry_register(reg, "SetPrefix", set_prefix_factory);
     builtin_registry_register(reg, "SetForEach", set_for_each_factory);
     builtin_registry_register(reg, "SetMap", set_map_factory);
     builtin_registry_register(reg, "SetFilter", set_filter_factory);

@@ -708,6 +708,153 @@ size_t east_set_len(EastValue *set)
     return set->data.set.len;
 }
 
+/* ------------------------------------------------------------------ */
+/*  A key range (#1616): the run of a Set or Dict between two tests of   */
+/*  its keys, each false, then true, over the keys in order.             */
+/* ------------------------------------------------------------------ */
+
+/* The first of `keys[lo..len)` a test holds for, or `len`: the test turns from
+ * false to true once over keys in order, so a binary search finds where. */
+static size_t key_test_first(EastValue *const *keys, size_t lo, size_t len, EastKeyTest test,
+                             void *ctx)
+{
+    size_t hi = len;
+    while (lo < hi) {
+        size_t mid = lo + (hi - lo) / 2;
+        if (test(keys[mid], ctx))
+            hi = mid;
+        else
+            lo = mid + 1;
+    }
+    return lo;
+}
+
+/* A test as btree.c's node search is handed it, in place of a key. */
+typedef struct {
+    EastKeyTest test;
+    void *ctx;
+} KeyProbe;
+
+/* What a walk of a tree's range fills, and where it stops. */
+typedef struct {
+    EastValue *into; /* the range */
+    EastKeyTest to;  /* holds for the first key past the range; NULL for none */
+    void *to_ctx;
+    bool failed; /* out of memory */
+} RangeWalk;
+
+/* btree.c's node search over a tree of the search's item. */
+typedef int (*TreeProbeSearch)(const void *items, size_t nitems, const void *key, bool *found,
+                               void *udata);
+
+/* Walks a tree in order from the first item `from` holds for — the tree's
+ * first, when `from` is NULL — until `iter` returns false. The item is found
+ * by a search down the tree and never by a walk to it: the search runs on a
+ * clone, which shares every node (one counted reference to the root, dropped
+ * again here) and carries `search` in place of the comparison, so the tree
+ * itself is read and never written. False when the clone cannot be had. */
+static bool tree_ascend_from(struct btree *tree, TreeProbeSearch search, EastKeyTest from,
+                             void *from_ctx, bool (*iter)(const void *item, void *udata),
+                             void *udata)
+{
+    if (!from) {
+        btree_ascend(tree, NULL, iter, udata);
+        return true;
+    }
+    struct btree *view = btree_clone(tree);
+    if (!view) return false;
+    btree_set_searcher(view, search);
+    KeyProbe probe = {from, from_ctx};
+    btree_ascend(view, &probe, iter, udata);
+    btree_free(view); /* frees the clone alone: the nodes are still the tree's */
+    return true;
+}
+
+/* Adds `val` past the set's last element — the order a run read in order
+ * arrives in — so it is never searched for: it lands at the end of `items`,
+ * or is loaded into the tree, where it costs the one comparison with the
+ * last. False when out of memory, the set as it was. */
+static bool set_append(EastValue *set, EastValue *val)
+{
+    size_t len = set->data.set.len;
+    if (!set->data.set.tree) {
+        if (len < EAST_SMALL_COLLECTION_MAX) {
+            if (!set_reserve(set, len + 1)) return false;
+            if (val) east_value_retain(val); /* `items` holds one reference */
+            set->data.set.items[len] = val;
+            set->data.set.len = len + 1;
+            return true;
+        }
+        if (!set_promote(set)) return false;
+    }
+    if (val) east_value_retain(val); /* the tree holds one reference */
+    btree_load(set->data.set.tree, &val);
+    if (btree_oom(set->data.set.tree)) {
+        if (val) east_value_release(val); /* it never went in */
+        return false;
+    }
+    set->data.set.len = len + 1;
+    set->data.set.dirty = true; /* `items` is collected at the next read in order */
+    return true;
+}
+
+/* The first element of a node a probe's test holds for. Never `found`: the
+ * walk then goes down to the child before it, where an earlier one may be. */
+static int set_probe_search(const void *items, size_t nitems, const void *key, bool *found,
+                            void *udata)
+{
+    (void)udata;
+    const KeyProbe *probe = (const KeyProbe *)key;
+    *found = false;
+    return (int)key_test_first((EastValue *const *)items, 0, nitems, probe->test, probe->ctx);
+}
+
+static bool set_range_collect(const void *item, void *udata)
+{
+    RangeWalk *walk = (RangeWalk *)udata;
+    EastValue *elem = *(EastValue *const *)item;
+    if (walk->to && walk->to(elem, walk->to_ctx)) return false;
+    if (!set_append(walk->into, elem)) {
+        walk->failed = true;
+        return false;
+    }
+    return true;
+}
+
+EastValue *east_set_range(EastValue *set, EastKeyTest from, void *from_ctx, EastKeyTest to,
+                          void *to_ctx)
+{
+    if (!set || set->kind != EAST_VAL_SET) return NULL;
+    EastValue *result = east_set_new(set->data.set.elem_type);
+    if (!result) return NULL;
+    bool ok;
+    if (set->data.set.tree && set->data.set.dirty) {
+        /* Changed since `items` was last collected: the tree is searched and
+         * read as it stands, so the range costs its own length, never the
+         * set's — however often a program changes the set between ranges. */
+        RangeWalk walk = {result, to, to_ctx, false};
+        ok = tree_ascend_from(set->data.set.tree, set_probe_search, from, from_ctx,
+                              set_range_collect, &walk) &&
+             !walk.failed;
+    } else {
+        /* `items` is the set in order: two searches, and the run between. */
+        EastValue *const *items = set->data.set.items;
+        size_t len = set->data.set.len;
+        size_t lo = from ? key_test_first(items, 0, len, from, from_ctx) : 0;
+        size_t hi = to ? key_test_first(items, lo, len, to, to_ctx) : len;
+        size_t count = hi - lo;
+        ok = set_reserve(result,
+                         count < EAST_SMALL_COLLECTION_MAX ? count : EAST_SMALL_COLLECTION_MAX);
+        for (size_t i = lo; ok && i < hi; i++)
+            ok = set_append(result, items[i]);
+    }
+    if (!ok) {
+        east_value_release(result);
+        return NULL;
+    }
+    return result;
+}
+
 void east_set_release_contents(EastValue *v)
 {
     set_empty(v);
@@ -1108,6 +1255,104 @@ size_t east_dict_len(EastValue *dict)
     }
     if (dict->kind != EAST_VAL_DICT) return 0;
     return dict->data.dict.len;
+}
+
+/* Adds an entry past the dict's last key, as set_append adds an element.
+ * False when out of memory, the dict as it was. */
+static bool dict_append(EastValue *dict, EastValue *key, EastValue *val)
+{
+    size_t len = dict->data.dict.len;
+    if (!dict->data.dict.tree) {
+        if (len < EAST_SMALL_COLLECTION_MAX) {
+            if (!dict_reserve(dict, len + 1)) return false;
+            if (key) east_value_retain(key); /* the arrays hold one reference each */
+            if (val) east_value_retain(val);
+            dict->data.dict.keys[len] = key;
+            dict->data.dict.values[len] = val;
+            dict->data.dict.len = len + 1;
+            return true;
+        }
+        if (!dict_promote(dict)) return false;
+    }
+    DictPair pair = {key, val};
+    if (key) east_value_retain(key); /* the tree holds one reference to each */
+    if (val) east_value_retain(val);
+    btree_load(dict->data.dict.tree, &pair);
+    if (btree_oom(dict->data.dict.tree)) {
+        if (key) east_value_release(key); /* the pair never went in */
+        if (val) east_value_release(val);
+        return false;
+    }
+    dict->data.dict.len = len + 1;
+    dict->data.dict.dirty = true; /* the caches are collected at the next read in order */
+    return true;
+}
+
+/* The first pair of a node whose key a probe's test holds for; never `found`,
+ * as set_probe_search. */
+static int dict_probe_search(const void *items, size_t nitems, const void *key, bool *found,
+                             void *udata)
+{
+    (void)udata;
+    const KeyProbe *probe = (const KeyProbe *)key;
+    const DictPair *pairs = (const DictPair *)items;
+    size_t lo = 0;
+    size_t hi = nitems;
+    while (lo < hi) {
+        size_t mid = lo + (hi - lo) / 2;
+        if (probe->test(pairs[mid].key, probe->ctx))
+            hi = mid;
+        else
+            lo = mid + 1;
+    }
+    *found = false;
+    return (int)lo;
+}
+
+static bool dict_range_collect(const void *item, void *udata)
+{
+    RangeWalk *walk = (RangeWalk *)udata;
+    const DictPair *pair = (const DictPair *)item;
+    if (walk->to && walk->to(pair->key, walk->to_ctx)) return false;
+    if (!dict_append(walk->into, pair->key, pair->val)) {
+        walk->failed = true;
+        return false;
+    }
+    return true;
+}
+
+EastValue *east_dict_range(EastValue *dict, EastKeyTest from, void *from_ctx, EastKeyTest to,
+                           void *to_ctx)
+{
+    if (!dict || dict->kind != EAST_VAL_DICT) return NULL;
+    EastValue *result = east_dict_new(dict->data.dict.key_type, dict->data.dict.val_type);
+    if (!result) return NULL;
+    bool ok;
+    if (dict->data.dict.tree && dict->data.dict.dirty) {
+        /* Changed since the caches were last collected: the tree is searched
+         * and read as it stands, as east_set_range reads a set's. */
+        RangeWalk walk = {result, to, to_ctx, false};
+        ok = tree_ascend_from(dict->data.dict.tree, dict_probe_search, from, from_ctx,
+                              dict_range_collect, &walk) &&
+             !walk.failed;
+    } else {
+        /* `keys` is the dict in key order: two searches, and the run between. */
+        EastValue *const *keys = dict->data.dict.keys;
+        EastValue *const *values = dict->data.dict.values;
+        size_t len = dict->data.dict.len;
+        size_t lo = from ? key_test_first(keys, 0, len, from, from_ctx) : 0;
+        size_t hi = to ? key_test_first(keys, lo, len, to, to_ctx) : len;
+        size_t count = hi - lo;
+        ok = dict_reserve(result,
+                          count < EAST_SMALL_COLLECTION_MAX ? count : EAST_SMALL_COLLECTION_MAX);
+        for (size_t i = lo; ok && i < hi; i++)
+            ok = dict_append(result, keys[i], values[i]);
+    }
+    if (!ok) {
+        east_value_release(result);
+        return NULL;
+    }
+    return result;
 }
 
 void east_dict_release_contents(EastValue *v)

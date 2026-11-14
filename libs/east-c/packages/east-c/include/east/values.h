@@ -361,6 +361,23 @@ void east_set_sync(EastValue *set);
  * `items` while the set is small — for the GC traversal, which must see live
  * elements even while a tree's `items` cache is stale. */
 void east_set_visit(EastValue *set, void (*visit)(EastValue *elem, void *ctx), void *ctx);
+/* A test of a key that is false, then true, over the keys of a Set or Dict in
+ * order — "is this key at or past the bound?" — so it names one place in the
+ * collection: the first key it holds for. */
+typedef bool (*EastKeyTest)(EastValue *key, void *ctx);
+
+/* A new set of `set`'s elements from the first `from` holds for up to, and not
+ * including, the first `to` holds for: a key range (#1616). A NULL test leaves
+ * that end open, and a `to` that already holds where `from` first does gives
+ * an empty set. Never frozen, whatever `set` is; its elements are `set`'s own,
+ * a reference taken for each.
+ *
+ * Each end is found by a search, never by a walk to it — of `items`, or of the
+ * tree itself when the set has changed since `items` was last collected — so a
+ * range costs log(n) tests and its own length, and leaves `set` as it found
+ * it. NULL when `set` is no Set or memory cannot be had. */
+EastValue *east_set_range(EastValue *set, EastKeyTest from, void *from_ctx, EastKeyTest to,
+                          void *to_ctx);
 /* Releases a set's elements and frees its store (and elem_type), nulling the
  * fields. Shared by the refcount release path and the GC cycle-collector. */
 void east_set_release_contents(EastValue *set);
@@ -385,6 +402,13 @@ void east_dict_sync(EastValue *dict);
  * or the arrays while the dict is small — for the GC traversal, which must see
  * live entries even while a tree's caches are stale. */
 void east_dict_visit(EastValue *dict, void (*visit)(EastValue *child, void *ctx), void *ctx);
+/* A new dict of `dict`'s entries from the first key `from` holds for up to,
+ * and not including, the first `to` holds for: a key range (#1616), found and
+ * copied as east_set_range's is. Never frozen, whatever `dict` is; its keys
+ * and values are `dict`'s own. NULL when `dict` is no Dict or memory cannot be
+ * had. */
+EastValue *east_dict_range(EastValue *dict, EastKeyTest from, void *from_ctx, EastKeyTest to,
+                           void *to_ctx);
 /* Releases a dict's keys+values and frees its store (and key/val types),
  * nulling the fields. Shared by the refcount release path and the GC collector. */
 void east_dict_release_contents(EastValue *dict);

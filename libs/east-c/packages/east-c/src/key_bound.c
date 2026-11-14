@@ -105,10 +105,15 @@ static const char *bound_words(EastKeyBoundName name)
     return "a prefix";
 }
 
+bool east_key_bound_accepts(EastKeyBoundName name, EastType *key_type, EastType *bound_type)
+{
+    if (!east_key_bound_type_ok(key_type, bound_type)) return false;
+    return name != EAST_KEY_BOUND_PREFIX || key_type->kind == EAST_TYPE_STRUCT;
+}
+
 char *east_key_bound_refusal(EastKeyBoundName name, EastType *key_type, EastType *bound_type)
 {
-    if (!key_type) return NULL;
-    bool leading = east_key_bound_type_ok(key_type, bound_type);
+    if (!key_type || east_key_bound_accepts(name, key_type, bound_type)) return NULL;
     Words w = {0};
     if (key_type->kind != EAST_TYPE_STRUCT) {
         const char *kind = east_type_kind_name(key_type->kind);
@@ -117,7 +122,6 @@ char *east_key_bound_refusal(EastKeyBoundName name, EastType *key_type, EastType
             words_append(&w, kind);
             words_append(&w, ": read one key with `get`, or the keys between two with `range`");
         } else {
-            if (leading) return NULL;
             words_append(&w, bound_words(name));
             words_append(&w, " is not the key's type: a bound of a ");
             words_append(&w, kind);
@@ -125,7 +129,6 @@ char *east_key_bound_refusal(EastKeyBoundName name, EastType *key_type, EastType
             words_append(&w, kind);
         }
     } else {
-        if (leading) return NULL;
         words_append(&w, bound_words(name));
         /* The dash is U+2014, as TypeScript writes it. */
         words_append(&w, " is no leading part of the key: a bound gives the key's first fields in "

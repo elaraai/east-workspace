@@ -42,16 +42,20 @@ typedef enum {
  * type but the last, which may be cut short the same way. */
 bool east_key_bound_type_ok(EastType *key_type, EastType *bound_type);
 
-/* Why a bound's type is refused, in the words every runtime says, or NULL for
- * a type that is a leading part of the key. The caller frees the string.
+/* Whether a bound of this name and type is taken on a key of `key_type`: its
+ * type is the key's cut short (east_key_bound_type_ok) and, for a prefix, the
+ * key is a struct — a prefix is the first fields of a struct key, so on any
+ * other key it is refused whatever its type. A NULL type is not taken.
  *
  * A bound's type is a type parameter of the range builtins, so an IR can name
- * one that is no leading part of the key: it is refused where the builtin is
- * made from its type parameters, and never trusted. A prefix is the first
- * fields of a struct key, so on any other key it is refused whatever its type.
- * A NULL `bound_type` is refused as no leading part. Returns NULL as well when
- * memory for the words cannot be had; a caller that must refuse checks
- * east_key_bound_type_ok. */
+ * one that is no leading part of the key: it is asked here before a bound's
+ * value is read, and never trusted. */
+bool east_key_bound_accepts(EastKeyBoundName name, EastType *key_type, EastType *bound_type);
+
+/* Why a bound is refused, in the words every runtime says, or NULL for one
+ * that is taken (east_key_bound_accepts). The caller frees the string. Returns
+ * NULL as well when memory for the words cannot be had, or `key_type` is NULL;
+ * a caller that must refuse asks east_key_bound_accepts. */
 char *east_key_bound_refusal(EastKeyBoundName name, EastType *key_type, EastType *bound_type);
 
 /* How a key stands to a bound: negative before it, zero at it — equal on every
