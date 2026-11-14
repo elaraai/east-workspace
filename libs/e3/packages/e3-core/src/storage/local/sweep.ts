@@ -8,7 +8,8 @@
  * objects and records, which gc's mark does not reach — the staging files of
  * writes and transfers that never finished, the scratch directories of
  * orchestrators that have exited, the built environments no kept object
- * names, the runs of a gc in steps that were given up, the unreachable notes
+ * names and the layers kept of them for a rack, the runs of a gc in steps
+ * that were given up, the unreachable notes
  * of objects already gone, and the places in the indexes of running attempts
  * and of each task's runs that a crash left.
  */
@@ -25,6 +26,7 @@ import { isObjectHash } from '../../objects.js';
 import { isUuidv7, uuidv7Timestamp } from '../../uuid.js';
 import { sweepScratchDirs } from '../../execution/scratch.js';
 import { sweepEnvironments } from '../../execution/environment.js';
+import { sweepEnvironmentLayers } from './environment-layers.js';
 
 /** How old a gc run in steps is before the sweep takes it for given up: a
  *  week, which no step of a run takes. */
@@ -40,8 +42,9 @@ const GIVEN_UP_GC_RUN_MS = 7 * 24 * 60 * 60 * 1000;
  * aside to delete, and did not, is put back, and a note whose object is gone
  * is dropped.
  *
- * Beside running work (`options.held` false), the built environments are
- * left: a running task may be using one no kept object names yet. So are the
+ * Beside running work (`options.held` false), the built environments and
+ * their kept layers are left: a running task may be using one no kept object
+ * names yet. So are the
  * places in the indexes of running attempts and of runs: an attempt being
  * written may be between its place and its record.
  *
@@ -101,6 +104,11 @@ export async function sweepLocalRepository(
     if (options.held) {
       try {
         await sweepEnvironments(repoPath, reachable);
+      } catch {
+        // Not a fatal error
+      }
+      try {
+        await sweepEnvironmentLayers(repoPath, reachable);
       } catch {
         // Not a fatal error
       }

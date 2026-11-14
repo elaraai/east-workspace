@@ -135,6 +135,24 @@ export {
   renameWithRetry,
 } from './storage/local/localHelpers.js';
 
+// A local repository's kept environment layers: an environment installed for
+// a rack's platform, packed as the layers the rack composes it from
+export {
+  ENVIRONMENT_LAYER_ROOT,
+  ENVIRONMENT_PACKAGE_LAYER_BYTES,
+  buildEnvironmentLayers,
+  packEnvironmentLayers,
+  unpackEnvironmentLayer,
+  readEnvironmentManifest,
+  environmentLayersDir,
+  environmentLayerPath,
+  sweepEnvironmentLayers,
+  type EnvironmentLayer,
+  type PackedEnvironment,
+  type EnvironmentLayerBuild,
+  type BuildEnvironmentLayersOptions,
+} from './storage/local/environment-layers.js';
+
 // Package operations: a zip read from a file on this machine or a source, and
 // written to a file or a Node stream; and the store's
 export {
