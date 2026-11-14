@@ -17,7 +17,11 @@
  * - a series' and an area's searches hold more than a window, which a page's
  *   reader tests as it draws: what they hold that the window does is exactly
  *   what the body's `events` and `within` give;
- * - a summary's tiles that overlap the window are the body's `totals`.
+ * - a summary's tiles that overlap the window are the body's `totals`;
+ * - a nested series index's runs of a node are read as a series' and a
+ *   summary's are, a run a level and a run of tiles (e3-ui-components'
+ *   `plan/root/nested.ts`): what they hold that the window does is exactly the
+ *   body's `items`, `subtree`, `totals` and `subtotals`.
  *
  * A search is answered as e3 answers one (e3-api-server's `key-search.ts`): a
  * `fields` search by the index key's own leading fields, and a `range` by the
@@ -32,8 +36,8 @@ import {
     compareFor, compareKeyToBoundFor, decodeBeast2For, encodeBeast2For, equalFor, keyLeaves, none, parseFor, printFor, some, variant,
     type EastType, type ValueTypeOf,
 } from "@elaraai/east";
-import e3, { builtIndex, indexBuildProgram, summaryMergeProgram, type RecordDef, type RecordIndexDef } from "@elaraai/e3";
-import { RecordSummaryTotalsType, type RecordSummaryTotals } from "@elaraai/e3-types";
+import e3, { NestedUnderType, builtIndex, indexBuildProgram, summaryMergeProgram, type RecordDef, type RecordIndexDef } from "@elaraai/e3";
+import { RecordNestedTotalsType, RecordSummaryTotalsType, type RecordNestedTotals, type RecordSummaryTotals } from "@elaraai/e3-types";
 import {
     RecordSliceIndexType, areaQueries, intervalQueries, levelCellQueries, levelRuns, recordOnPrinter, summaryCellQueries, summaryRun, tileNext,
 } from "@elaraai/east-ui/internal";
@@ -67,6 +71,26 @@ const racks = e3.record("racks", RacksType, {
     indexes: (index) => ({
         by_area: index.area({ x: "x", y: "y", width: "w", height: "h", at: "centre", cell: 0.01 }),
         by_zone_area: index.area({ on: ["zone"], x: "x", y: "y", width: "w", height: "h", at: "centre", cell: 0.01 }),
+    }),
+});
+
+/** A press line: its units, each with its own jobs and its load, a value a day. */
+const UnitRow = StructType({ jobs: JobsType, load: DictType(DateTimeType, FloatType) });
+const LineRow = StructType({ name: StringType, units: DictType(StringType, UnitRow) });
+const LinesType = DictType(StringType, LineRow);
+const lines = e3.record("lines", LinesType, {
+    initial: new Map(),
+    indexes: (index) => ({
+        lines_in_time: index.nested({
+            collections: {
+                units: index.nested.rows({
+                    jobs: index.nested.items({ from: "start", to: "end" }, { rollup: true }),
+                    load: index.nested.values({ rollup: "sum" }),
+                }),
+            },
+            tile: "week",
+            summary: "month",
+        }),
     }),
 });
 
@@ -147,6 +171,34 @@ function seededRacks(): SortedMap<string, Rack> {
 
 const JOBS = seededJobs();
 const RACKS = seededRacks();
+
+/** The lines: two, of three units each, the seeded jobs dealt out among the units, and a load a day for each. */
+function seededLines(): ValueTypeOf<typeof LinesType> {
+    const draw = stream(1434);
+    const dealt = Array.from({ length: 6 }, () => new SortedMap<string, Job>(undefined, keyOrder));
+    let n = 0;
+    for (const [key, job] of JOBS) dealt[n++ % dealt.length]!.set(key, job);
+    // The first unit holds the edges, whatever else it is dealt
+    for (const name of ["E-ends-at-from", "E-instant-at-from", "E-instant-at-to", "E-past-a-year"]) {
+        const job = JOBS.get(name);
+        assert.ok(job !== undefined, name);
+        dealt[0]!.set(name, job);
+    }
+    const rows = new SortedMap<string, ValueTypeOf<typeof LineRow>>(undefined, keyOrder);
+    for (let line = 0; line < 2; line++) {
+        const units = new SortedMap<string, ValueTypeOf<typeof UnitRow>>(undefined, keyOrder);
+        for (let unit = 0; unit < 3; unit++) {
+            // Quarters, so a sum is exact in whatever order it is added
+            const load = new SortedMap<Date, number>(
+                Array.from({ length: 200 }, (_, day): [Date, number] => [later(OCT_5, BigInt(day - 100) * DAY + 6n * HOUR), Math.floor(draw() * 64) / 4]), instantOrder);
+            units.set(`U-${unit + 1}`, { jobs: dealt[line * 3 + unit]!, load });
+        }
+        rows.set(`L-${line + 1}`, { name: `Line ${line + 1}`, units });
+    }
+    return decodeBeast2For(LinesType)(encodeBeast2For(LinesType)(rows));
+}
+
+const LINES = seededLines();
 
 /** The windows of time: the week of the edges, an hour, two years, and seeded ones. */
 const WINDOWS: { from: Date; to: Date }[] = (() => {
@@ -396,4 +448,89 @@ test("an area index: of what the page's searches of a viewport hold, the rows wh
         }
         assert.ok(rows > 300 && more > 50, `the windows hold racks, and the page's searches more than they do: ${rows}, ${more}`);
     }
+});
+
+test("a nested series index: of what the page's runs of a node hold, what the window holds is exactly the body's `items`, `subtree`, `totals` and `subtotals`", () => {
+    const inTime = e3.index(lines.indexes.lines_in_time);
+    const held = heldOf(lines, lines.indexes.lines_in_time, LINES);
+    const ik = (held.ik as StructType<Record<string, EastType>>).fields;
+    const printPath = printFor(ik["path"]!);
+    const printRun = printFor(ik["run"]!);
+    const printLevel = printFor(ik["level"]!);
+    const printTile = printFor(ik["tile"]!);
+    /** A path as the index's key holds one, from its names: what the page's reader prints a place and a node by. */
+    const pathOf = (names: readonly string[]): unknown => names.reduceRight<unknown>((rest, key) => variant("step", { key, rest }), variant("end", null));
+    /** The page's search of one run of a node at a level, over a run of its tiles (`plan/root/nested.ts`). */
+    const pageRun = (place: readonly string[], row: string, path: readonly string[], run: unknown, level: string, from: Date, to: Date): Query => {
+        const leading = [printPath(pathOf(place) as never), printString(row), printPath(pathOf(path) as never), printRun(run as never), printLevel(variant(level, null) as never)];
+        return variant("range", { from: [...leading, printTile(from as never)], to: [...leading, printTile(to as never)] }) as Query;
+    };
+    /** An entry's job, out of its value: `.item .units .jobs`. */
+    const jobOf = (value: unknown): Job => (value as { value: { value: { value: Job } } }).value.value.value;
+
+    const Beneath = DictType(NestedUnderType, JobRow);
+    const MonthTotals = DictType(DateTimeType, RecordNestedTotalsType);
+    const Weeks = DictType(DateTimeType, FloatType);
+    const itemsOf = East.compile(East.function([inTime.type, StringType, StringType, DateTimeType, DateTimeType], JobsType, ($, entries, line, unit, from, to) =>
+        inTime.read(entries).items({ collection: ["units", "jobs"], row: line, path: [unit], from, to }).collect($)), []);
+    const beneathOf = East.compile(East.function([inTime.type, StringType, DateTimeType, DateTimeType], Beneath, ($, entries, line, from, to) =>
+        inTime.read(entries).subtree({ collection: ["units", "jobs"], row: line, from, to }).collect($)), []);
+    const monthsOf = East.compile(East.function([inTime.type, StringType, StringType, DateTimeType, DateTimeType], MonthTotals, ($, entries, line, unit, from, to) =>
+        inTime.read(entries).totals({ collection: ["units", "load"], row: line, path: [unit], from, to }).collect($)), []);
+    const weeksOf = East.compile(East.function([inTime.type, StringType, DateTimeType, DateTimeType], Weeks, ($, entries, line, from, to) =>
+        inTime.read(entries).subtotals({ collection: ["units", "load"], row: line, rollup: "sum", from, to }).collect($)), []);
+
+    let more = 0;
+    let rows = 0;
+    let tiles = 0;
+    for (const w of WINDOWS) {
+        for (const [line, row] of LINES) {
+            // A unit's own jobs: a run a level, two tiles before the window's first and one after its last
+            for (const unit of row.units.keys()) {
+                const cells = levelRuns("week", w.from, w.to).flatMap((run) =>
+                    searched(held, pageRun(["units", "jobs"], line, [unit], variant("items", null), run.level, run.from, run.to)));
+                const inWindow = cells.filter(([, value]) => overlaps(jobOf(value), w.from, w.to));
+                more += cells.length - inWindow.length;
+                // A job past a year is filed under each year it touches: the page's fill holds it once
+                const expected = new SortedMap<string, Job>(inWindow.map(([entry, value]): [string, Job] => [(entry.ik["item"] as { value: string }).value, jobOf(value)]), keyOrder);
+                rows += expected.size;
+                assert.ok(equalFor(JobsType)(itemsOf(held.dict, line, unit, w.from, w.to), expected), `the jobs of ${line} ${unit} in ${window(w)}`);
+
+                // Its load's totals a month: the tiles of the page's run that overlap the window
+                const run = summaryRun("month", w.from, w.to);
+                const months = new SortedMap<Date, RecordNestedTotals>(undefined, instantOrder);
+                for (const [entry, value] of searched(held, pageRun(["units", "load"], line, [unit], variant("totals", null), "month", run.from, run.to))) {
+                    const tile = entry.ik["tile"] as Date;
+                    if (instantOrder(w.from, w.to) < 0 && instantOrder(tile, w.to) < 0 && instantOrder(tileNext("month", tile), w.from) > 0) {
+                        months.set(tile, (value as { value: RecordNestedTotals }).value);
+                    }
+                }
+                tiles += months.size;
+                assert.ok(equalFor(MonthTotals)(monthsOf(held.dict, line, unit, w.from, w.to), months), `the load's months of ${line} ${unit} in ${window(w)}`);
+            }
+
+            // The jobs beneath the line, each named by the unit holding it and its id
+            const cells = levelRuns("week", w.from, w.to).flatMap((run) =>
+                searched(held, pageRun(["units", "jobs"], line, [], variant("subtree", null), run.level, run.from, run.to)));
+            const beneath = new SortedMap<ValueTypeOf<typeof NestedUnderType>, Job>(undefined, compareFor(NestedUnderType));
+            for (const [entry, value] of cells) {
+                if (overlaps(jobOf(value), w.from, w.to)) beneath.set((entry.ik["item"] as { value: ValueTypeOf<typeof NestedUnderType> }).value, jobOf(value));
+            }
+            assert.ok(equalFor(Beneath)(beneathOf(held.dict, line, w.from, w.to), beneath), `the jobs beneath ${line} in ${window(w)}`);
+
+            // The line's sum of its units' load a week
+            const run = summaryRun("week", w.from, w.to);
+            const sum = { fold: variant("sum", null), aggregate: variant("sum", null) };
+            const weeks = new SortedMap<Date, number>(undefined, instantOrder);
+            for (const [entry, value] of searched(held, pageRun(["units", "load"], line, [], variant("subtotals", sum), "week", run.from, run.to))) {
+                const tile = entry.ik["tile"] as Date;
+                if (instantOrder(w.from, w.to) < 0 && instantOrder(tile, w.to) < 0 && instantOrder(tileNext("week", tile), w.from) > 0) {
+                    weeks.set(tile, (value as { value: number }).value);
+                }
+            }
+            tiles += weeks.size;
+            assert.ok(equalFor(Weeks)(weeksOf(held.dict, line, w.from, w.to), weeks), `the load's weeks of ${line} in ${window(w)}`);
+        }
+    }
+    assert.ok(rows > 300 && tiles > 300 && more > 100, `the windows hold jobs and tiles, and the page's runs more than they do: ${rows}, ${tiles}, ${more}`);
 });
