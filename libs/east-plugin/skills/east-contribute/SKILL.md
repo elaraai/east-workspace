@@ -50,7 +50,7 @@ gh label list --repo elaraai/east-workspace              # taxonomy (most issues
 ```
 0 UNDERSTAND   read the whole issue; honor its scope (Acceptance criteria / Ship-this-release; leave Defer items)
 1 TRIAGE       map issue → lib(s) → per-package skill(s); compute the CI blast radius
-2 DISCOVER     check the feature register — does this capability already exist? (anti-duplication)
+2 DISCOVER     the feature register: does it already exist, and which shared layer owns it? (anti-duplication)
 3 TOOLING      ensure East diagnostics are live; know the REAL gate is `make lint`
 4 REPRODUCE    bugs: run the repro, confirm the root cause BEFORE editing. features: design to the issue's design
 5 IMPLEMENT    edit src WITH TypeDoc; obey the East interop rules absolutely
@@ -130,6 +130,25 @@ Heuristic: always `make build` the union; run a downstream lib's **tests** when 
 | Dev tooling: diagnostics, eslint/tsserver plugin, scaffolds, the agent plugins | `east-diagnostics`, `eslint-plugin-east`, `tsserver-plugin-east`, `create`, `east-plugin` (+ `east-claude-plugin`, `east-codex-plugin`) | — | grep that lib's `src` + README |
 
 If a near-match exists, **extend/reuse it** rather than adding a parallel implementation. If a genuinely new capability is needed, place it in the lib that owns the concern (dependency order: `east` → `east-node`/`e3`/`east-ui`; `east-c`/`east-py` consume exported IR). **Record what you searched in the PR body** so review can see duplication was checked. Adding a capability = "register" it: add the `example()` (auto-flows into the index via CI — §6/§8), update the lib SKILL.md table, and add a row here only if a new package/domain appeared.
+
+**Inside a lib, the same holds between components.** A rule a component
+follows — a data change, an edit, a record's read or write, narrowing and
+filtering, search, paging, keys, a requery or latest-wins token — lives in a
+shared, exhaustively tested layer, and the component only renders. The root
+`CLAUDE.md`'s HARD RULE names the UI packages' layers. Before the first edit:
+
+1. Find the layer that already does it, lowest first: East's utilities, then
+   the lib's runtime and contracts, then its shared folders. Grep by name and
+   by shape (`rg -n "<concept>" libs/east-ui/packages/*/src`).
+2. Name the layer the change goes in. A component's own file is never the
+   answer for a rule.
+3. For a change that reaches more than one component, write the layer and its
+   tests first, then make each component call it. The same adaptation made
+   in N sibling components is the fault itself.
+4. Grep every sibling for the same thing hand-rolled (latest-wins counters,
+   run layouts, requery tokens, hidden-row asks, in-memory key finds) and
+   move each copy onto the layer in the same change.
+5. Say in the PR what is shared, what runs on it, and what you found.
 
 ## 3. Tooling — make East diagnostics real
 
@@ -223,6 +242,7 @@ before copying an idiom from elsewhere in the monorepo.
 Each of these shipped as a real bug here, and each survives a green `tsc`. The
 rule is stated; the mechanics live in the doc named beside it.
 
+- **HARD RULE — behaviour lives in shared, tested layers; components render.** Search Records grew a separate copy in each of six schedule builders, with one run layout copied word for word between two of them, and the editing core once had to be gathered back out of per-component copies. A rule goes in the layer that owns it, tested there, and every component calls it. The rule and the UI packages' layers are in the root `CLAUDE.md`; §2 has the steps.
 - **HARD RULE — East values through East.** An East value is printed, read, compared, ordered, collected and typed through East's utilities — never a JavaScript stand-in — and tested over real, decoded East values. `String(x)` / `toISOString()` / `JSON.stringify`, `BigInt(text)` / `new Date(text)`, `typeof` / `instanceof`, `===` and subtracting sorts, a plain `Set` / `Map` keyed by structs, and `{ type, value }` casts each type-check clean, and several hid real bugs in the renderers (#960, #962). The UI packages' `make lint` fails on every one of them. See `docs/conventions/EAST_TS_INTEROP.md` §7–§11.
 - **Decode/value TS types: derive, never hand-roll.** Where an East type exists, type its decoded JS shape `ValueTypeOf<typeof FooType>`. A hand-authored `interface FooValue` mirror — or a local `type Opt<T> = {type;value}` standing in for `OptionType` — drifts the moment the East type gains a field, with no compiler complaint: a renderer's hand-rolled `ConfigValue` silently missed three new config fields this way. See `east-ui-components/CLAUDE.md`.
 - **east-ui / e3-ui renderers: theme recipes only, zero inline styles.** No `style={{…}}`, no inline Chakra style props — they bypass the theme, which follows the East Design System (claude.ai/design; its read-only download is `libs/east-ui/app_design_system/`, and the token guard `east-ui-components/src/theme/design-system.test.ts` fails when the theme drifts from it). A renderer sets data attributes and geometry only; an element with no recipe gets a new slot recipe using the theme's semantic tokens, never raw hex/px. Dynamic data bindings are the only exception, and nearby debt is not licence to add more. See the `east-ui` skill + `libs/east-ui/CLAUDE.md` › Canonical design source.
