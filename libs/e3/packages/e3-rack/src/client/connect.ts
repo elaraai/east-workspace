@@ -66,7 +66,9 @@ export async function spawnHub(home = rackHome()): Promise<void> {
  * @remarks
  * This wire has no cross-protocol decoder. A newer protocol is refused too,
  * without draining it. An older hub is asked to drain and the caller runs
- * locally this time. A dead hub is never silently reattached mid-session.
+ * locally this time: one whose hello names a lower protocol, and one whose
+ * hello does not read at all, which is a hub from before the hello's type was
+ * fixed. A dead hub is never silently reattached mid-session.
  * @param options - Startup policy, deadline and progress sink
  * @returns A ready typed client
  * @throws {RackHubOutdatedError} On an incompatible control protocol
@@ -98,6 +100,14 @@ export async function connectHub(options: ConnectHubOptions = {}): Promise<HubCl
       spawned = false;
     } catch (err) {
       if (err instanceof RackHubOutdatedError || err instanceof RackHubUnavailableError) throw err;
+      // A hello that does not read is a hub from before replies lost their
+      // envelope, started by an e3 of another release: older than this one,
+      // whatever its protocol's number says.
+      if (err instanceof RackHubError && err.code === 'undecodable') {
+        await client.drainUnread().catch(() => {});
+        throw new RackHubOutdatedError(`The running rack hub was started by an e3 from before control protocol ${HUB_PROTOCOL}, and this e3 cannot read its replies. ` +
+          'It will exit once idle — run `e3 rack stop` with that e3, or end its process, to replace it now.');
+      }
       last = err instanceof Error ? err.message : String(err);
       const absent = err instanceof RackHubError && ['ENOENT', 'ECONNREFUSED', 'EPIPE', 'ECONNRESET'].includes(err.code);
       if (!absent) break;

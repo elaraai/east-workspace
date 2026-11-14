@@ -28,6 +28,18 @@
  * - `/rack/storage` admits exactly the lease's closure, and takes the objects
  *   its guest wrote in by checksum-bound PUTs and their commits.
  *
+ * Rack protocol 3 makes the wire one a rack and its sources of several e3
+ * releases all read:
+ * - `GET /rack/hello` answers, to anyone who can reach it, the protocol the
+ *   source speaks and its e3 release, in JSON;
+ * - every other request names the protocol in a header, and one that names
+ *   another, or none, is refused `426` before its body is read;
+ * - a success is the BEAST2 of the route's own type, with no envelope, and a
+ *   refusal is a status and JSON (`protocol/rack-json.ts`): the status says
+ *   whether to send the request again, the code why;
+ * - a heartbeat carries what the rack is and has (its report), and a poll
+ *   what it may be answered with (its offer).
+ *
  * A rack token authenticates ONLY these routes — it is invisible to the
  * human `jwtAuthorizer`, so it can never reach the human/admin API.
  */
@@ -55,19 +67,28 @@ import {
   RackStorageRequestType,
   RackStorageResponseType,
   RackLogsRequestType,
+  RACK_PROTOCOL,
+  RACK_PROTOCOL_HEADER,
+  RACK_TRANSFERS_AT_ONCE,
+  readRackOffer,
+  readRackReport,
   type RackCompleteRequest,
   type RackEnrollRequest,
   type RackHeartbeatRequest,
   type RackHeartbeatResponse,
   type RackLeaseRef,
   type RackLogsRequest,
+  type RackHello,
   type RackObjectDescriptor,
+  type RackOffer,
   type RackRegistration,
+  type RackReport,
   type RackStorageRequest,
   type RackStorageResponse,
   type RackWriteTarget,
 } from '../protocol/index.js';
-import { sendSuccess, sendError, decodeBody } from './beast2.js';
+import { answer, refuse, decodeBody } from './beast2.js';
+import { E3_RACK_VERSION } from '../version.js';
 import { updateRack, type RackRegistry } from '../registry/rack-registry.js';
 import type { RunnerRun } from '../runner-event.js';
 import { MAX_LEASE_TARGETS, type RackLeaseStore, type RackLeaseRecord } from '../lease/lease-store.js';
@@ -109,8 +130,17 @@ export interface RackRouteOptions {
   now?: () => number;
   /** Stops outstanding lease polls when their host shuts down. */
   signal?: AbortSignal;
-  /** Optional per-candidate compatibility gate, checked at claim time too. */
-  canClaim?: (rack: RackRegistration, lease: RackLeaseRecord) => boolean | Promise<boolean>;
+  /** Optional per-candidate gate, checked at claim time too: whether the rack
+   *  may take the lease, given what its poll offers. */
+  canClaim?: (rack: RackRegistration, lease: RackLeaseRecord, offer: RackOffer) => boolean | Promise<boolean>;
+  /** Told what a rack is and has, with each of its heartbeats. */
+  onReport?: (rackId: string, report: RackReport) => void | Promise<void>;
+  /** Told a rack asked in another protocol, or named none, and was refused:
+   *  what its request named. */
+  onIncompatible?: (rackId: string, protocol: string | undefined) => void | Promise<void>;
+  /** The object and layer transfers the hello says the source serves one rack
+   *  at once (default {@link RACK_TRANSFERS_AT_ONCE}). */
+  transfersAtOnce?: number;
   /** Notifies session waiters after a transition and its record writes. */
   onLeaseSignal?: (signal: RackLeaseSignal) => void | Promise<void>;
   /**
@@ -135,7 +165,8 @@ export interface RackRouteOptions {
   /** #94 Slice B: published-env index — absent means env resolution is
    *  unavailable (requests for it error; racks fall back to cloud). */
   envIndex?: EnvIndexStore;
-  /** The deployment's e3 version (selects which published env build). */
+  /** The deployment's e3 version: what the hello names, and which published
+   *  env build is read (default this build's). */
   e3Version?: string;
   /**
    * Wakes a dataflow's parked run once a rack attempt's outcome is recorded
@@ -193,10 +224,17 @@ const equalString = equalFor(StringType);
 const compareInteger = compareFor(IntegerType);
 
 function unauthorized(message: string): Response {
-  return new Response(
-    JSON.stringify({ success: false, error: { type: 'unauthorized', message } }),
-    { status: 401, headers: { 'Content-Type': 'application/json' } },
-  );
+  return refuse(401, 'unauthorized', message);
+}
+
+/** A request this build cannot read: not sent again as it is. */
+function invalid(message: string): Response {
+  return refuse(400, 'invalid-request', message);
+}
+
+/** What the source could not do now, and may once asked again. */
+function unavailable(message: string): Response {
+  return refuse(503, 'source-unavailable', message);
 }
 
 /**
@@ -297,13 +335,37 @@ export function createRackRoutes(
   app.use('/api/rack/heartbeat', auth);
   app.use('/api/rack/lease/extend', auth);
   app.use('/api/rack/lease/watch', auth);
-  app.use('/api/rack/lease/watch', rackBodyLimit(256 * 1024));
   app.use('/api/rack/complete', auth);
   app.use('/api/rack/storage', auth);
   app.use('/api/rack/logs', auth);
+  // After the credential, so the rack that asked is known, and before the
+  // body: an agent of another protocol is told so, never read. An enrolment
+  // shows no credential, and its token is not consumed by a refusal.
+  const speaks = async (c: Context<RackEnv>, next: Next): Promise<Response | void> => {
+    const named = c.req.header(RACK_PROTOCOL_HEADER);
+    if (named === String(RACK_PROTOCOL)) { await next(); return; }
+    const asking = c.get('rackId') as string | undefined;
+    if (asking !== undefined) await options?.onIncompatible?.(asking, named);
+    return refuse(426, 'upgrade-required',
+      `this source speaks rack protocol ${RACK_PROTOCOL}, and the request ${named === undefined ? 'names none' : `names ${named}`}: update the rack's agent`);
+  };
+  for (const route of ['enroll', 'lease', 'heartbeat', 'lease/extend', 'lease/watch', 'complete', 'storage', 'logs']) {
+    app.use(`/api/rack/${route}`, speaks);
+  }
+  app.use('/api/rack/lease/watch', rackBodyLimit(256 * 1024));
   for (const route of ['enroll', 'lease', 'heartbeat', 'lease/extend', 'complete', 'storage', 'logs']) {
     app.use(`/api/rack/${route}`, rackBodyLimit(route === 'enroll' ? 64 * 1024 : 2 * 1024 * 1024));
   }
+
+  // GET /api/rack/hello — what an agent asks before it shows any credential:
+  // the protocol this source speaks, its e3 release, and its limits. JSON,
+  // so an agent of any protocol reads it.
+  const hello: RackHello = {
+    protocol: RACK_PROTOCOL,
+    e3: e3Version ?? E3_RACK_VERSION,
+    limits: { transfersAtOnce: options?.transfersAtOnce ?? RACK_TRANSFERS_AT_ONCE },
+  };
+  app.get('/api/rack/hello', () => new Response(JSON.stringify(hello), { headers: { 'Content-Type': 'application/json' } }));
 
   /**
    * Resolve a lease the caller actively holds — the scope gate for the
@@ -316,11 +378,7 @@ export function createRackRoutes(
     return lease;
   };
 
-  const forbidden = (message: string): Response =>
-    new Response(
-      JSON.stringify({ success: false, error: { type: 'permission_denied', message } }),
-      { status: 403, headers: { 'Content-Type': 'application/json' } },
-    );
+  const forbidden = (message: string): Response => refuse(403, 'forbidden', message);
 
   /**
    * Every object a held lease may read: its closure (#214), and, for one
@@ -385,7 +443,7 @@ export function createRackRoutes(
     };
     await settingsStore.putRack(registration);
 
-    return sendSuccess(RackEnrollResponseType, { rackId, rackToken });
+    return answer(RackEnrollResponseType, { rackId, rackToken });
   });
 
   // POST /api/rack/lease — long-poll claim of the next task matching the
@@ -394,12 +452,14 @@ export function createRackRoutes(
     const rackId = c.get('rackId');
     let tiers: string[];
     let bootId: string;
+    let offer: RackOffer;
     try {
-      const request = (await decodeBody(c, RackLeaseRequestType)) as { tiers: string[]; bootId: string };
+      const request = await decodeBody(c, RackLeaseRequestType);
       tiers = request.tiers;
       bootId = request.bootId;
+      offer = readRackOffer(request.offer);
     } catch {
-      return sendError(RackLeaseGrantType, variant('internal', { message: 'Invalid lease request body' }));
+      return invalid('Invalid lease request body');
     }
     // Converge the ADVERTISED tiers into the registration (found live: a
     // re-install with widened --tiers left the registry on the enrollment-
@@ -412,7 +472,7 @@ export function createRackRoutes(
     // by every heartbeat; the dispatch routes no work at such a rack either
     const refusal = leaseRefusal(c.get('registration').agentVersion);
     if (refusal !== null) {
-      return sendError(RackLeaseGrantType, variant('internal', { message: refusal }));
+      return refuse(426, 'upgrade-required', refusal);
     }
 
     const deadline = Date.now() + leaseWindowMs;
@@ -458,7 +518,7 @@ export function createRackRoutes(
             || leaseRefusal(claimRack.agentVersion) !== null
             || (security?.requireStartApproval === true
               && !(claimRack.approvedBootId.type === 'some' && equalString(claimRack.approvedBootId.value, bootId)))) return null;
-          if (options?.canClaim !== undefined && !(await options.canClaim(claimRack, current))) return null;
+          if (options?.canClaim !== undefined && !(await options.canClaim(claimRack, current, offer))) return null;
           // A task or unit lease's claim runs an attempt, which the cloud
           // records: the rack cannot (#214)
           const attempt = isFunctionLease(candidate.event) ? undefined : { executionId: uuidv7(), startedAtMs: now() };
@@ -482,7 +542,7 @@ export function createRackRoutes(
               await attempts.running(claimed, bootId);
             }
             await options?.onLeaseSignal?.({ kind: 'claimed', repo: claimed.repo, leaseId: claimed.leaseId, rackId });
-            const response = sendSuccess(RackLeaseGrantType, {
+            const response = answer(RackLeaseGrantType, {
               repo: claimed.repo,
               workspace: claimed.workspace,
               leaseId: claimed.leaseId,
@@ -520,11 +580,13 @@ export function createRackRoutes(
     const rackId = c.get('rackId');
     let heartbeat: RackHeartbeatRequest;
     let capacity: bigint;
+    let report: RackReport;
     try {
       heartbeat = (await decodeBody(c, RackHeartbeatRequestType)) as RackHeartbeatRequest;
       capacity = heartbeatCapacity(heartbeat);
+      report = readRackReport(heartbeat.report);
     } catch {
-      return sendError(RackHeartbeatResponseType, variant('internal', { message: 'Invalid heartbeat body' }));
+      return invalid('Invalid heartbeat body');
     }
 
     const registration = await touchRack(rackId, (current) => ({
@@ -537,6 +599,7 @@ export function createRackRoutes(
         ? some(heartbeat.bootId) : current.approvedBootId,
     }));
     if (registration === null) return unauthorized('Rack is deregistered');
+    await options?.onReport?.(rackId, report);
     const { approvedBootId } = registration;
 
     // A lease is dead to this agent when it is terminal-for-someone-else:
@@ -575,7 +638,7 @@ export function createRackRoutes(
       }
     }
 
-    return sendSuccess(RackHeartbeatResponseType, { stop, rotatedToken, pendingApproval });
+    return answer(RackHeartbeatResponseType, { stop, rotatedToken, pendingApproval });
   });
 
   // Separate cancellation from health/rotation writes. This request stays
@@ -589,7 +652,7 @@ export function createRackRoutes(
       if (refs.length === 0 || refs.length > RACK_WATCH_MAX_LEASES
         || refs.some(ref => [ref.repo, ref.leaseId].some(value => !value || Buffer.byteLength(value) > 1024 || /[\x00-\x1f\x7f]/.test(value)))
         || new Set(refs.map(ref => JSON.stringify([ref.repo, ref.leaseId]))).size !== refs.length) throw new Error();
-    } catch { return c.text('Invalid cancellation watch', 400); }
+    } catch { return invalid('Invalid cancellation watch'); }
     const signal = options?.signal ? AbortSignal.any([c.req.raw.signal, options.signal]) : c.req.raw.signal;
     const deadline = Date.now() + watchWindowMs;
     for (;;) {
@@ -600,7 +663,7 @@ export function createRackRoutes(
         const lease = states[i];
         return lease == null || lease.claimedBy !== rackId || lease.status !== 'claimed';
       });
-      if (stop.length) return sendSuccess(RackWatchResponseType, { stop });
+      if (stop.length) return answer(RackWatchResponseType, { stop });
       const remaining = deadline - Date.now();
       if (remaining <= 0) return c.body(null, 204);
       await delay(Math.min(watchPollIntervalMs, remaining), undefined, { signal }).catch(() => {});
@@ -611,15 +674,16 @@ export function createRackRoutes(
   // own heartbeat). False when the lease is no longer this rack's.
   app.post('/api/rack/lease/extend', async (c) => {
     const rackId = c.get('rackId');
+    let request: { repo: string; leaseId: string };
     try {
-      const request = (await decodeBody(c, RackExtendRequestType)) as { repo: string; leaseId: string };
-      const extended = await coordinator.run(request.repo, request.leaseId,
-        () => leaseStore.extend(request.repo, request.leaseId, rackId, now() + visibilityMs));
-      if (extended) await options?.onLeaseSignal?.({ kind: 'extended', repo: request.repo, leaseId: request.leaseId });
-      return sendSuccess(BooleanType, extended);
+      request = await decodeBody(c, RackExtendRequestType);
     } catch {
-      return sendError(BooleanType, variant('internal', { message: 'Invalid extend body' }));
+      return invalid('Invalid extend body');
     }
+    const extended = await coordinator.run(request.repo, request.leaseId,
+      () => leaseStore.extend(request.repo, request.leaseId, rackId, now() + visibilityMs));
+    if (extended) await options?.onLeaseSignal?.({ kind: 'extended', repo: request.repo, leaseId: request.leaseId });
+    return answer(BooleanType, extended);
   });
 
   // POST /api/rack/complete — terminal result. Accepted-and-discarded: a
@@ -652,7 +716,7 @@ export function createRackRoutes(
       if (result.cancelled !== undefined && typeof result.cancelled !== 'boolean') throw new Error('invalid cancellation');
       if (result.error !== undefined && typeof result.error !== 'string') throw new Error('invalid error');
     } catch {
-      return sendError(RackCompleteResponseType, variant('internal', { message: 'Invalid completion body' }));
+      return invalid('Invalid completion body');
     }
 
     return coordinator.run(request.repo, request.leaseId, async () => {
@@ -668,21 +732,21 @@ export function createRackRoutes(
         result.outputHash = await bridge.writeInline(request.repo, request.inlineOutput.value);
       } else if (request.outputUploadId.type === 'some') {
         if (result.outputHash === undefined) {
-          return sendError(RackCompleteResponseType, variant('internal', { message: 'outputUploadId without outputHash' }));
+          return invalid('outputUploadId without outputHash');
         }
         // A whole output, staged: taken in once the store's copy of it hashes
         // to its hash (#210)
         const verified = await bridge.commitStaged(request.repo, result.outputHash, request.outputUploadId.value);
         if (!verified) {
           // Tampered/corrupt upload: reject — the lease stays claimed, so
-          // the agent may retry; otherwise visibility expiry → cloud.
-          return sendError(RackCompleteResponseType, variant('internal', { message: 'Output verification failed' }));
+          // the agent may upload it again; otherwise visibility expiry → cloud.
+          return refuse(422, 'output-rejected', 'Output verification failed');
         }
       }
       if (attempt !== undefined) {
         const outputHash = result.outputHash;
         if (outputHash === undefined || !isObjectHash(outputHash)) {
-          return sendError(RackCompleteResponseType, variant('internal', { message: 'A success names its output\'s hash' }));
+          return invalid('A success names its output\'s hash');
         }
         // Every object the output names is in the store, committed by the
         // lease or held already, and re-referenced until the loop roots it
@@ -690,12 +754,11 @@ export function createRackRoutes(
         try {
           whole = await attempts.verifyOutput(held, outputHash);
         } catch (err) {
-          return sendError(RackCompleteResponseType, variant('internal', { message: `The output could not be checked: ${messageOf(err)}` }));
+          return unavailable(`The output could not be checked: ${messageOf(err)}`);
         }
         if (!whole) {
-          return sendError(RackCompleteResponseType, variant('internal', {
-            message: `Output ${outputHash} is not whole in the store: commit every object it names before completing`,
-          }));
+          return refuse(422, 'output-incomplete',
+            `Output ${outputHash} is not whole in the store: commit every object it names before completing`);
         }
       }
     }
@@ -705,7 +768,7 @@ export function createRackRoutes(
         await attempts.outcome(held, result);
       } catch (err) {
         // The lease stays claimed: the agent completes it again
-        return sendError(RackCompleteResponseType, variant('internal', { message: `The attempt's outcome was not recorded: ${messageOf(err)}` }));
+        return unavailable(`The attempt's outcome was not recorded: ${messageOf(err)}`);
       }
     }
 
@@ -728,7 +791,7 @@ export function createRackRoutes(
       }
     }
     await options?.onLeaseSignal?.({ kind: 'completed', repo: request.repo, leaseId: request.leaseId, disposition });
-    return sendSuccess(RackCompleteResponseType, { disposition: variant(disposition, null) });
+    return answer(RackCompleteResponseType, { disposition: variant(disposition, null) });
     });
   });
 
@@ -745,7 +808,7 @@ export function createRackRoutes(
     try {
       request = (await decodeBody(c, RackStorageRequestType)) as RackStorageRequest;
     } catch {
-      return sendError(RackStorageResponseType, variant('internal', { message: 'Invalid storage request body' }));
+      return invalid('Invalid storage request body');
     }
     return coordinator.run(request.repo, request.leaseId, async () => {
     const lease = await heldLease(request.repo, request.leaseId, rackId);
@@ -761,7 +824,7 @@ export function createRackRoutes(
       try {
         allowed = await admitted(lease);
       } catch (err) {
-        return sendError(RackStorageResponseType, variant('internal', { message: `The lease's closure could not be read: ${messageOf(err)}` }));
+        return unavailable(`The lease's closure could not be read: ${messageOf(err)}`);
       }
       for (const hash of request.need) {
         if (!allowed.has(hash)) {
@@ -800,9 +863,8 @@ export function createRackRoutes(
         : null;
       const manifestJson = record === null ? null : await bridge.readEnvManifest(record.manifestKey);
       if (manifestJson === null) {
-        return sendError(RackStorageResponseType, variant('internal', {
-          message: `Environment ${envHash} has no published layers (build it, or the deployment predates publication)`,
-        }));
+        return refuse(404, 'environment-not-published',
+          `Environment ${envHash} has no published layers (build it, or the deployment predates publication)`);
       }
       const manifest = JSON.parse(manifestJson) as EnvLayerManifest;
       const layers = await mapBounded(manifest.layers, STORAGE_READS_AT_ONCE, async layer => ({
@@ -822,21 +884,19 @@ export function createRackRoutes(
         return forbidden(`Lease ${lease.leaseId} is a function call's, which writes nothing to the store`);
       }
       if (request.outputs.length > MAX_STORAGE_OBJECTS || request.commits.length > MAX_STORAGE_OBJECTS) {
-        return sendError(RackStorageResponseType, variant('internal', { message: `A request declares or commits at most ${MAX_STORAGE_OBJECTS} objects` }));
+        return refuse(400, 'too-many-objects', `A request declares or commits at most ${MAX_STORAGE_OBJECTS} objects`);
       }
     }
     // Validate and reserve the complete batch before issuing any capability.
     // A rejected batch must leave no untracked upload for a later cleanup.
     for (const { hash, size } of [...request.outputs, ...request.commits]) {
       if (!isObjectHash(hash) || size < 0n || size > BigInt(MAX_RACK_OBJECT_BYTES)) {
-        return sendError(RackStorageResponseType, variant('internal', {
-          message: `Output ${hash} is not an object this lease can write: a SHA-256, of at most ${MAX_RACK_OBJECT_BYTES} bytes`,
-        }));
+        return invalid(`Output ${hash} is not an object this lease can write: a SHA-256, of at most ${MAX_RACK_OBJECT_BYTES} bytes`);
       }
     }
     const fresh = [...new Set(request.outputs.map(({ hash }) => hash))].filter((hash) => !issued.has(hash));
     if (issued.size + fresh.length > MAX_LEASE_TARGETS) {
-      return sendError(RackStorageResponseType, variant('internal', { message: `The lease writes more than ${MAX_LEASE_TARGETS} objects` }));
+      return refuse(400, 'too-many-objects', `The lease writes more than ${MAX_LEASE_TARGETS} objects`);
     }
     if (fresh.length > 0 && !await leaseStore.recordTargets(request.repo, lease.leaseId, rackId, fresh)) {
       return forbidden('No such lease held by this rack');
@@ -859,7 +919,7 @@ export function createRackRoutes(
       const ok = issued.has(hash) && await bridge.commitWrite(request.repo, lease.leaseId, rackId, hash, Number(size), version);
       committed.push({ hash, committed: ok });
     }
-    return sendSuccess(RackStorageResponseType, { objects, output, env, targets, committed });
+    return answer(RackStorageResponseType, { objects, output, env, targets, committed });
     });
   });
 
@@ -871,7 +931,7 @@ export function createRackRoutes(
     try {
       request = (await decodeBody(c, RackLogsRequestType)) as RackLogsRequest;
     } catch {
-      return sendError(BooleanType, variant('internal', { message: 'Invalid logs body' }));
+      return invalid('Invalid logs body');
     }
     return coordinator.run(request.repo, request.leaseId, async () => {
     const lease = await heldLease(request.repo, request.leaseId, rackId);
@@ -898,11 +958,9 @@ export function createRackRoutes(
       // Told its lines were not stored, a rack posts them again while it
       // holds the lease. Its batches carry one stream each, so a re-post
       // repeats no line of another stream.
-      return sendError(BooleanType, variant('internal', {
-        message: `Logs not stored: ${err instanceof Error ? err.message : String(err)}`,
-      }));
+      return unavailable(`Logs not stored: ${err instanceof Error ? err.message : String(err)}`);
     }
-    return sendSuccess(BooleanType, true);
+    return answer(BooleanType, true);
     });
   });
 

@@ -13,6 +13,10 @@ const ref = { repo: 'repo', leaseId: 'lease' };
 const size = { hash: 'a'.repeat(64), size: 4n };
 const layer = { digest: 'sha256:abc', url: 'https://rack.invalid/layer', sizeBytes: 5n };
 const target = variant('put', { url: 'https://rack.invalid/put', headers: new Map([['x-checksum', 'abc']]) });
+/** What a poll offers and a heartbeat reports: JSON, carried as text. */
+const offer = '{"cores":2,"memoryBytes":4294967296,"gpus":0}';
+const report = '{"features":["resources","environments"],"target":"x86_64-manylinux_2_28",' +
+  '"resources":{"cores":8,"memoryBytes":17179869184,"gpus":1},"free":{"cores":6,"memoryBytes":12884901888,"gpus":1}}';
 
 /** A fully populated protocol value, with its encoder and name. @internal */
 function sample<T extends EastType>(name: string, type: T, value: ValueTypeOf<T>): { name: string; value: unknown; encode: () => Uint8Array } {
@@ -25,9 +29,9 @@ export const wireSamples = [
   sample('RackEnrollRequestType', wire.RackEnrollRequestType, { enrollmentToken: 'enroll', hostInfo: host }),
   sample('RackEnrollResponseType', wire.RackEnrollResponseType, { rackId: 'rack', rackToken: 'token' }),
   sample('RackLeaseRefType', wire.RackLeaseRefType, ref),
-  sample('RackLeaseRequestType', wire.RackLeaseRequestType, { tiers: ['node'], bootId: 'boot' }),
+  sample('RackLeaseRequestType', wire.RackLeaseRequestType, { tiers: ['node'], bootId: 'boot', offer }),
   sample('RackLeaseGrantType', wire.RackLeaseGrantType, { ...ref, workspace: 'dev', tier: 'node', computeSize: 'large', eventJson: '{}', visibilityDeadline: at }),
-  sample('RackHeartbeatRequestType', wire.RackHeartbeatRequestType, { healthy: true, freeCapacity: 1n, runningLeases: [ref], agentVersion: host.agentVersion, bootId: 'boot', cacheBytes: 123n }),
+  sample('RackHeartbeatRequestType', wire.RackHeartbeatRequestType, { healthy: true, freeCapacity: 1n, runningLeases: [ref], agentVersion: host.agentVersion, bootId: 'boot', cacheBytes: 123n, report }),
   sample('RackHeartbeatResponseType', wire.RackHeartbeatResponseType, { stop: [ref], rotatedToken: some('token'), pendingApproval: true }),
   sample('RackExtendRequestType', wire.RackExtendRequestType, ref),
   sample('RackWatchRequestType', wire.RackWatchRequestType, { runningLeases: [ref] }),

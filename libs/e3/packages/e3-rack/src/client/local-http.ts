@@ -9,8 +9,8 @@ import type { Server as HttpsServer } from 'node:https';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { createAdaptorServer } from '@hono/node-server';
-import { decodeBeast2For, encodeBeast2For, printFor, type EastType, type ValueTypeOf } from '@elaraai/east';
-import { BEAST2_CONTENT_TYPE, ErrorType, ResponseType } from '@elaraai/e3-types';
+import { decodeBeast2For, encodeBeast2For, type EastType, type ValueTypeOf } from '@elaraai/east';
+import { BEAST2_CONTENT_TYPE } from '@elaraai/e3-types';
 import type { Hono } from 'hono';
 
 /** Reports a control/data transport error without losing its machine-readable cause. */
@@ -116,13 +116,16 @@ export function socketStream(socketPath: string, method: string, path: string, o
 }
 
 /**
- * Sends a BEAST2 control message and decodes its standard response envelope.
+ * Sends a BEAST2 control message and decodes its reply: the route's own type,
+ * with no envelope. A refusal is a status with its reason as plain text.
  * @param socketPath - Unix socket or Windows pipe
  * @param method - HTTP verb
  * @param path - Control route
  * @param options - Request/response schemas, value and transport settings
- * @returns The decoded success value
- * @throws {RackHubError} On an error envelope, HTTP error or deadline
+ * @returns The decoded value
+ * @throws {RackHubError} On a refusal or deadline, and, with the code
+ *   `undecodable`, on a reply that does not read as the type: its peer speaks
+ *   another protocol
  * @example
  * const hello = await socketRequest(socket, 'POST', '/v1/hello', { responseType: HubHelloType });
  */
@@ -146,7 +149,9 @@ export async function socketRequest<Req extends EastType, Res extends EastType>(
     const text = String(response.headers['content-type']).startsWith('text/plain') ? Buffer.concat(chunks).toString('utf8').trim() : '';
     throw new RackHubError(`http_${response.statusCode}`, text !== '' && text.length <= 2000 ? text : `Rack request ${path}: HTTP ${response.statusCode}`);
   }
-  const envelope = decodeBeast2For(ResponseType(options.responseType))(Buffer.concat(chunks));
-  if (envelope.type === 'error') throw new RackHubError(envelope.value.type, printFor(ErrorType)(envelope.value));
-  return envelope.value;
+  try {
+    return decodeBeast2For(options.responseType)(Buffer.concat(chunks));
+  } catch (err) {
+    throw new RackHubError('undecodable', `Rack reply to ${method} ${path} does not read as this e3's: ${err instanceof Error ? err.message : String(err)}`);
+  }
 }

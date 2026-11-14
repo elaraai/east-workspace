@@ -8,8 +8,8 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { BooleanType, decodeBeast2For, encodeBeast2For, none, printFor, variant, type EastType, type ValueTypeOf } from '@elaraai/east';
-import { BEAST2_CONTENT_TYPE, ErrorType, ResponseType } from '@elaraai/e3-types';
+import { BooleanType, decodeBeast2For, encodeBeast2For, none, variant, type EastType, type ValueTypeOf } from '@elaraai/east';
+import { BEAST2_CONTENT_TYPE } from '@elaraai/e3-types';
 import { LocalStorage, gcObjectReaders, markReachable, repoInit, taskExecute, taskExecuteUnit } from '@elaraai/e3-core';
 import { closureHashes } from '../lease/closure.js';
 import { decodeRunnerEvent, splitUnitFromWire } from '../runner-event.js';
@@ -19,6 +19,7 @@ import { RackCompleteRequestType, RackCompleteResponseType, RackEnrollRequestTyp
   RackExtendRequestType, RackHeartbeatRequestType, RackHeartbeatResponseType, RackLeaseGrantType, RackLeaseRequestType,
   RackLogsRequestType, RackStorageRequestType, RackStorageResponseType, type RackLeaseGrant, type RackLeaseRef,
   type RackLogChunk, type RackObjectCommit, type RackStorageRequest } from '../protocol/rack-wire.js';
+import { RACK_PROTOCOL, RACK_PROTOCOL_HEADER, readRackHello, readRackRefusal, type RackHello, type RackOffer, type RackReport } from '../protocol/rack-json.js';
 import type { RackLeaseEvent, RackLeaseResult } from '../protocol/task-envelope.js';
 
 /** Configures deterministic failures of an in-process protocol peer. */
@@ -57,6 +58,13 @@ export interface TestRackAgentOptions {
   timings?: { heartbeatMs?: number; extendMs?: number };
   /** Consumes counters in place, permitting faults to be armed during a test. */
   faults?: TestRackAgentFaults;
+  /** What the agent says it is and has, with each heartbeat; by default no
+   *  feature beyond a stock tier's work. */
+  report?: RackReport;
+  /** The rack protocol its requests name: this build's by default, another to
+   *  stand for an agent of another release, and null for one from before the
+   *  protocol was named, which sends no header. */
+  protocol?: number | null;
 }
 
 /**
@@ -117,11 +125,32 @@ export class TestRackAgent {
     catch (err) { await rm(home, { recursive: true, force: true }); throw err; }
   }
 
-  /** Consumes a single-use token and publishes this boot's health.
+  /**
+   * Asks the source what it speaks, before any credential is shown.
+   * @returns The source's hello
+   * @throws {Error} When the source answers no hello: it speaks a rack
+   *   protocol from before the hello
+   */
+  async hello(): Promise<RackHello> {
+    const response = await this.transport(`${this.options.apiUrl}/api/rack/hello`, { signal: AbortSignal.any([this.abort.signal, AbortSignal.timeout(25000)]) });
+    if (!response.ok) {
+      await response.arrayBuffer();
+      throw new Error(`Rack hello: HTTP ${response.status}: the source speaks a rack protocol from before ${RACK_PROTOCOL}; update e3 on it`);
+    }
+    return readRackHello(await response.text());
+  }
+
+  /** Consumes a single-use token and publishes this boot's health, once the
+   * source's hello says it speaks this agent's protocol: a token is not spent
+   * on a source whose answer could not be read.
    * @param enrollmentToken - Token minted by the control plane.
    */
   async enroll(enrollmentToken: string): Promise<void> {
     if (this.token) throw new Error('Test rack is already enrolled');
+    const hello = await this.hello();
+    if (this.options.protocol === undefined && hello.protocol !== RACK_PROTOCOL) {
+      throw new Error(`The source speaks rack protocol ${hello.protocol} (e3 ${hello.e3}), and this agent ${RACK_PROTOCOL}`);
+    }
     if (!repoInit(this.repo).success) throw new Error('Could not initialize test rack repository');
     const enrolled = await this.post('enroll', RackEnrollRequestType, { enrollmentToken,
       hostInfo: { label: this.options.label ?? 'test rack', tiers: this.tiers, capacity: BigInt(this.capacity), agentVersion: this.version } }, RackEnrollResponseType);
@@ -150,26 +179,51 @@ export class TestRackAgent {
     } finally { clearInterval(heartbeat); }
   }
 
-  /** Posts a typed agent request with a finite transport deadline. */
-  async raw<T extends EastType>(path: string, type: T, value: ValueTypeOf<T>): Promise<Response> {
+  /**
+   * Posts a typed agent request, naming its protocol, with a finite transport deadline.
+   * @param path - The route under /api/rack
+   * @param type - The request's type
+   * @param value - The request
+   * @param protocol - The rack protocol this one request names, when not the
+   *   agent's own: another number, or null for no header
+   * @returns The response, unread
+   */
+  async raw<T extends EastType>(path: string, type: T, value: ValueTypeOf<T>,
+    protocol: number | null = this.options.protocol === undefined ? RACK_PROTOCOL : this.options.protocol): Promise<Response> {
     return this.transport(`${this.options.apiUrl}/api/rack/${path}`, { method: 'POST',
-      headers: { 'content-type': BEAST2_CONTENT_TYPE, ...(this.token ? { authorization: `Bearer ${this.token}` } : {}) },
+      headers: { 'content-type': BEAST2_CONTENT_TYPE, ...(protocol === null ? {} : { [RACK_PROTOCOL_HEADER]: String(protocol) }),
+        ...(this.token ? { authorization: `Bearer ${this.token}` } : {}) },
       body: encodeBeast2For(type)(value), signal: AbortSignal.any([this.abort.signal, AbortSignal.timeout(25000)]) });
   }
 
-  /** Decodes one standard response, raising its typed error. */
+  /** A reply that is no success, as an error naming its status, and its
+   *  refusal's code and words when the body is one. */
+  private async refused(path: string, response: Response): Promise<Error> {
+    const refusal = readRackRefusal(await response.text());
+    return new Error(`Rack ${path}: HTTP ${response.status}${refusal === null ? '' : ` ${refusal.code}: ${refusal.message}`}`);
+  }
+
+  /** Decodes one reply, the route's own type, raising a refusal as an error. */
   async post<Req extends EastType, Res extends EastType>(path: string, type: Req, value: ValueTypeOf<Req>, responseType: Res): Promise<ValueTypeOf<Res>> {
     const response = await this.raw(path, type, value);
-    if (response.status !== 200) throw new Error(`Rack ${path}: HTTP ${response.status}`);
-    const envelope = decodeBeast2For(ResponseType(responseType))(new Uint8Array(await response.arrayBuffer()));
-    if (envelope.type === 'error') throw new Error(printFor(ErrorType)(envelope.value));
-    return envelope.value;
+    if (response.status !== 200) throw await this.refused(path, response);
+    return decodeBeast2For(responseType)(new Uint8Array(await response.arrayBuffer()));
+  }
+
+  /** What the agent is and has: what its options say, else no feature. */
+  private report(): RackReport { return this.options.report ?? { features: [] }; }
+
+  /** What a poll may be answered with: a core for each free slot, and what
+   *  the report says is free of memory and GPUs, else no bound on memory. */
+  private offer(): RackOffer {
+    const free = this.report().free ?? this.report().resources;
+    return { cores: Math.max(0, this.capacity - this.active.size), memoryBytes: free?.memoryBytes ?? Number.MAX_SAFE_INTEGER, gpus: free?.gpus ?? 0 };
   }
 
   /** Reports health and returns the leases the hub asks this agent to stop. */
   async heartbeat(runningLeases: RackLeaseRef[] = [...this.active.values()].filter((value) => !value.silent).map((value) => value.lease)): Promise<ValueTypeOf<typeof RackHeartbeatResponseType>> {
     const response = await this.post('heartbeat', RackHeartbeatRequestType, { healthy: true, freeCapacity: BigInt(Math.max(0, this.capacity - Math.max(this.active.size, runningLeases.length))),
-      runningLeases, agentVersion: this.version, bootId: this.bootId, cacheBytes: 0n }, RackHeartbeatResponseType);
+      runningLeases, agentVersion: this.version, bootId: this.bootId, cacheBytes: 0n, report: JSON.stringify(this.report()) }, RackHeartbeatResponseType);
     if (response.rotatedToken.type === 'some') this.token = response.rotatedToken.value;
     for (const lease of response.stop) this.active.get(lease.leaseId)?.stop.abort();
     return response;
@@ -178,12 +232,10 @@ export class TestRackAgent {
   /** Claims a lease, or answers null after an idle poll window. */
   async claim(): Promise<RackLeaseGrant | null> {
     if (this.faults.claimDelayMs) await delay(this.faults.claimDelayMs, undefined, { signal: this.abort.signal });
-    const response = await this.raw('lease', RackLeaseRequestType, { tiers: this.tiers, bootId: this.bootId });
+    const response = await this.raw('lease', RackLeaseRequestType, { tiers: this.tiers, bootId: this.bootId, offer: JSON.stringify(this.offer()) });
     if (response.status === 204) return null;
-    if (response.status !== 200) throw new Error(`Rack claim: HTTP ${response.status}`);
-    const envelope = decodeBeast2For(ResponseType(RackLeaseGrantType))(new Uint8Array(await response.arrayBuffer()));
-    if (envelope.type === 'error') throw new Error(printFor(ErrorType)(envelope.value));
-    return envelope.value;
+    if (response.status !== 200) throw await this.refused('claim', response);
+    return decodeBeast2For(RackLeaseGrantType)(new Uint8Array(await response.arrayBuffer()));
   }
 
   /** Resolves storage descriptors and write receipts for a held lease. */

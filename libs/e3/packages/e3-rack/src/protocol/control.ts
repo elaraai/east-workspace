@@ -46,10 +46,16 @@ export const SessionEventType = StructType({ seq: IntegerType, event: VariantTyp
   lost: StructType({ leaseId: StringType, reason: StringType }),
   cancelled: StructType({ leaseId: StringType }),
 }) });
-/** Reports healthy fleet capacity and the requesting session's queue. */
+/**
+ * Reports healthy fleet capacity and the requesting session's queue. Of each
+ * rack: the `features` and the `target` its last heartbeat reported (none
+ * until one has), and its `problem`, why it cannot be used, when it asked in
+ * another rack protocol than this hub speaks.
+ */
 export const CapacitySnapshotType = StructType({
   racks: ArrayType(StructType({ rackId: StringType, label: StringType, tiers: ArrayType(StringType), capacity: IntegerType,
-    busy: IntegerType, healthy: BooleanType, bundledE3: OptionType(StringType), pendingApproval: BooleanType })),
+    busy: IntegerType, healthy: BooleanType, bundledE3: OptionType(StringType), pendingApproval: BooleanType,
+    features: ArrayType(StringType), target: OptionType(StringType), problem: OptionType(StringType) })),
   queued: IntegerType, mine: StructType({ pending: IntegerType, claimed: IntegerType }),
 });
 /** Requests events after a cursor, waiting at most 20 seconds. */

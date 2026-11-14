@@ -12,10 +12,10 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { setTimeout as delay } from 'node:timers/promises';
 import { Hono } from 'hono';
-import { BooleanType, StringType, decodeBeast2For, encodeBeast2For, some, variant } from '@elaraai/east';
+import { BooleanType, StringType, decodeBeast2For, encodeBeast2For, some } from '@elaraai/east';
 import type { ExecutionOwner } from '@elaraai/e3-types';
 import { processOwner } from '@elaraai/e3-core';
-import { decodeBody, sendError, sendSuccess } from '../server/beast2.js';
+import { answer, decodeBody } from '../server/beast2.js';
 import { acquireHubLock, HubLockType, readHubLock } from './lock.js';
 import { defaultHubConfig, listenerProblem, loadHubConfig, saveHubConfig, validateHubConfig, wildcardHost } from './config.js';
 import { FairLeaseStore } from './fair-lease-store.js';
@@ -129,16 +129,19 @@ it('elects one hub across processes and recovers its lock after an ungraceful ex
 it('serves typed and raw data over a private socket with deadlines and cancellation', async () => {
   const path = sessionSocketPath(await home());
   const app = new Hono();
-  app.post('/echo', async (c) => sendSuccess(StringType, await decodeBody(c, StringType)));
-  app.get('/error', () => sendError(StringType, variant('internal', { message: 'test error' })));
-  app.get('/slow', async () => { await delay(150); return sendSuccess(StringType, 'late'); });
+  app.post('/echo', async (c) => answer(StringType, await decodeBody(c, StringType)));
+  app.get('/error', (c) => c.text('test error', 409));
+  app.get('/slow', async () => { await delay(150); return answer(StringType, 'late'); });
   app.get('/bytes', () => new Response(new Uint8Array([1, 2, 3])));
   const server = await serveOnSocket(app, path);
   cleanup.push(() => closeSocketServer(server, path));
   assert.equal(server.requestTimeout, REQUEST_BODY_TIMEOUT_MS, "a request body may take a data URL's whole lifetime to arrive");
   if (process.platform !== 'win32') assert.equal((await stat(path)).mode & 0o777, 0o600);
   assert.equal(await socketRequest(path, 'POST', '/echo', { requestType: StringType, body: 'hello', responseType: StringType }), 'hello');
-  await assert.rejects(socketRequest(path, 'GET', '/error', { responseType: StringType }), /test error/);
+  // A refusal is a status with its reason as text; a reply of another type is a peer of another protocol.
+  await assert.rejects(socketRequest(path, 'GET', '/error', { responseType: StringType }), (err: unknown) => err instanceof RackHubError && err.code === 'http_409' && err.message === 'test error');
+  await assert.rejects(socketRequest(path, 'POST', '/echo', { requestType: StringType, body: 'hello', responseType: BooleanType }),
+    (err: unknown) => err instanceof RackHubError && err.code === 'undecodable' && /does not read as this e3's/.test(err.message));
   await assert.rejects(socketRequest(path, 'GET', '/slow', { responseType: StringType, timeoutMs: 20 }), (err: unknown) => err instanceof RackHubError && err.code === 'timeout');
   const abort = new AbortController();
   const pending = socketRequest(path, 'GET', '/slow', { responseType: StringType, signal: abort.signal });
@@ -159,7 +162,7 @@ it('drops a log batch whose flush the session refused, so the rack\'s re-post is
     const request = await decodeBody(c, SessionLogsType);
     if (refusals-- > 0) return c.text('session busy', 503);
     batches.push(request.chunks.map((chunk) => chunk.data));
-    return sendSuccess(BooleanType, true);
+    return answer(BooleanType, true);
   });
   const server = await serveOnSocket(app, path);
   cleanup.push(() => closeSocketServer(server, path));

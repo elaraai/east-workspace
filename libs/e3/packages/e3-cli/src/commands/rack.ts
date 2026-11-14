@@ -83,7 +83,10 @@ function printFleet(lib: RackLib, status: Status): void {
   for (const rack of status.racks) {
     const capacity = status.capacity.racks.find((entry) => equalString(entry.rackId, rack.rackId));
     const bundled = lib.bundledE3Version(rack.agentVersion);
-    const state = rack.lastBootId.type === 'none' ? 'enrolled-not-started'
+    // A rack whose agent asks in another rack protocol is refused each time it
+    // asks, so it also goes stale: the reason is what is shown.
+    const state = capacity?.problem.type === 'some' ? `incompatible: ${capacity.problem.value}`
+      : rack.lastBootId.type === 'none' ? 'enrolled-not-started'
       : capacity?.pendingApproval ? 'pending-approval'
       : !rack.healthy || compareInteger(rack.capacity, 0n) <= 0 ? 'unavailable' : !capacity?.healthy ? 'stale'
       : rack.tiers.length === 0 ? 'no-runtimes'

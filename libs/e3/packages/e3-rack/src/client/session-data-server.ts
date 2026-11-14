@@ -10,7 +10,7 @@ import { Hono } from 'hono';
 import { ArrayType, BooleanType, StringType, decodeBeast2For, encodeBeast2For, equalFor } from '@elaraai/east';
 import { atomicWriteFile, isObjectHash, transferStagingPath, touchReachable, type StorageBackend } from '@elaraai/e3-core';
 import type { ExecutionOwner } from '@elaraai/e3-types';
-import { decodeBody, sendSuccess } from '../server/beast2.js';
+import { answer, decodeBody } from '../server/beast2.js';
 import { ensureRackHome, rackHome, sessionSocketPath } from '../paths.js';
 import { InMemoryLeaseCoordinator } from '../lease/coordinator.js';
 import type { RackLeaseRecord } from '../lease/lease-store.js';
@@ -117,12 +117,12 @@ export async function startSessionDataServer(options: SessionDataOptions): Promi
       if (length > 4096) { await reader.cancel(); return c.text('Inline object exceeds 4096 bytes', 413); }
       chunks.push(value);
     }
-    return sendSuccess(StringType, await storage.objects.write(repo, Buffer.concat(chunks)));
+    return answer(StringType, await storage.objects.write(repo, Buffer.concat(chunks)));
   });
-  app.post('/v1/touch', async (c) => sendSuccess(ArrayType(BooleanType), await storage.objects.touch(repo, await decodeBody(c, TouchObjectsType))));
+  app.post('/v1/touch', async (c) => answer(ArrayType(BooleanType), await storage.objects.touch(repo, await decodeBody(c, TouchObjectsType))));
   app.post('/v1/verify', async (c) => {
     const { hash } = await decodeBody(c, VerifyOutputType);
-    return sendSuccess(BooleanType, await touchReachable(storage, repo, [hashOf(hash)]));
+    return answer(BooleanType, await touchReachable(storage, repo, [hashOf(hash)]));
   });
 
   app.put('/v1/uploads/:id', async (c) => {
@@ -181,17 +181,17 @@ export async function startSessionDataServer(options: SessionDataOptions): Promi
     return serial.run(repo, id, async () => {
       let state: ReturnType<typeof decodeUpload>;
       try { state = decodeUpload(await readFile(files.meta)); } catch (err) {
-        if ((err as NodeJS.ErrnoException).code === 'ENOENT') return sendSuccess(BooleanType, false);
+        if ((err as NodeJS.ErrnoException).code === 'ENOENT') return answer(BooleanType, false);
         throw err;
       }
-      if (!sameUpload(state.declaration, info)) return sendSuccess(BooleanType, false);
-      if (state.committed) return sendSuccess(BooleanType, (await storage.objects.touch(repo, [info.hash]))[0]!);
+      if (!sameUpload(state.declaration, info)) return answer(BooleanType, false);
+      if (state.committed) return answer(BooleanType, (await storage.objects.touch(repo, [info.hash]))[0]!);
       const data = paths(state.fileId).data;
       const adopted = await storage.objects.adoptFile(repo, data, info.hash);
       if (adopted.size !== Number(info.size)) throw new Error('Adopted upload has a different size');
       await atomicWriteFile(files.meta, encodeUpload({ declaration: info, fileId: state.fileId, committed: true }));
       await remove(data);
-      return sendSuccess(BooleanType, true);
+      return answer(BooleanType, true);
     });
   });
   app.delete('/v1/uploads/:id', async (c) => {
@@ -201,7 +201,7 @@ export async function startSessionDataServer(options: SessionDataOptions): Promi
       try { await remove(paths(decodeUpload(await readFile(files.meta)).fileId).data); }
       catch (err) { if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err; }
       await remove(files.meta);
-      return sendSuccess(BooleanType, true);
+      return answer(BooleanType, true);
     });
   });
   app.post('/v1/logs', async (c) => {
@@ -211,33 +211,33 @@ export async function startSessionDataServer(options: SessionDataOptions): Promi
       options.onLog?.(request.executionId, chunk.stream.type, chunk.data);
     }
     await storage.logs.flush(repo, request.taskHash, request.inputsHash, request.executionId);
-    return sendSuccess(BooleanType, true);
+    return answer(BooleanType, true);
   });
   app.post('/v1/logs/tee', async (c) => {
     const request = await decodeBody(c, SessionLogsType);
     for (const chunk of request.chunks) options.onLog?.(request.executionId, chunk.stream.type, chunk.data);
-    return sendSuccess(BooleanType, true);
+    return answer(BooleanType, true);
   });
-  app.post('/v1/attempts/closure', async (c) => sendSuccess(ArrayType(StringType), [...await attempts.closure(leaseOf((await decodeBody(c, LeaseDataType)).leaseJson))]));
+  app.post('/v1/attempts/closure', async (c) => answer(ArrayType(StringType), [...await attempts.closure(leaseOf((await decodeBody(c, LeaseDataType)).leaseJson))]));
   app.post('/v1/attempts/running', async (c) => {
     const request = await decodeBody(c, LeaseRunningType);
     hubOwner = request.owner;
     const lease = leaseOf(request.leaseJson);
     await serial.run(repo, lease.leaseId, () => attempts.running(lease, request.owner.bootId));
-    return sendSuccess(BooleanType, true);
+    return answer(BooleanType, true);
   });
   app.post('/v1/attempts/stopped', async (c) => {
     const request = await decodeBody(c, LeaseStoppedType);
     const lease = leaseOf(request.leaseJson);
     await serial.run(repo, lease.leaseId, () => attempts.stopped(lease, request.cancelled ? 'cancelled' : 'interrupted', request.cause));
-    return sendSuccess(BooleanType, true);
+    return answer(BooleanType, true);
   });
   app.post('/v1/attempts/outcome', async (c) => {
     const request = await decodeBody(c, LeaseOutcomeType);
     const lease = leaseOf(request.leaseJson);
     const result = JSON.parse(request.resultJson) as RackLeaseResult;
     await serial.run(repo, lease.leaseId, () => attempts.outcome(lease, result));
-    return sendSuccess(BooleanType, true);
+    return answer(BooleanType, true);
   });
   const server = await serveOnSocket(app, socketPath);
   let closing: Promise<void> | undefined;

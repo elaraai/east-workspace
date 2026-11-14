@@ -9,7 +9,8 @@ import { ApproveRackType, AttachLeaseResultType, CancelLeaseResultType, CreateLe
   HubConfigType, HubEnrollResultType, HubEnrollType, HubHelloType, HubStatusType, OpenSessionResultType, OpenSessionType,
   RemoveRackResultType, SessionPollResultType, SessionPollType, type CreateLease, type HubConfig, type OpenSession } from '../protocol/control.js';
 import { RackRegistrationType, RackSecurityPolicyType, type RackSecurityPolicy } from '../protocol/registration.js';
-import { socketRequest } from './local-http.js';
+import { BEAST2_CONTENT_TYPE } from '@elaraai/e3-types';
+import { socketRequest, socketStream } from './local-http.js';
 
 /**
  * Calls the typed control API of the single user-wide hub.
@@ -58,6 +59,14 @@ export class HubClient {
   }
   /** Refuses new sessions and exits after existing sessions finish. */
   async drain(): Promise<void> { await socketRequest(this.socketPath, 'POST', '/v1/drain', { responseType: EmptyType }); }
+  /**
+   * Asks a hub whose replies this e3 cannot read to drain: one from before
+   * replies lost their envelope. Its answer is not read, only that it answered.
+   */
+  async drainUnread(): Promise<void> {
+    const response = await socketStream(this.socketPath, 'POST', '/v1/drain', { headers: { 'content-type': BEAST2_CONTENT_TYPE }, timeoutMs: 5000 });
+    response.resume();
+  }
   /** Cancels active work and gracefully exits the hub. */
   async stop(): Promise<void> { await socketRequest(this.socketPath, 'POST', '/v1/stop', { responseType: EmptyType }); }
   /** Registers a live repository data endpoint; RackSession owns its lifecycle. */
