@@ -102,7 +102,7 @@ import {
     type EastType, type ExprType, type FunctionType, type NullType, type SetType, type SubtypeExprOrValue, type VariantType,
 } from "@elaraai/east";
 import { EventStateType, TimeStepType, type UIComponentType } from "@elaraai/east-ui";
-import { EditingDraftFieldType, EditingReadinessType, Fields, FieldSpecType, TickFormatType, type FieldHints } from "@elaraai/east-ui/internal";
+import { EditingDraftFieldType, EditingReadinessType, Fields, FieldSpecType, TickFormatType, type FieldHints, type RecordSliceConfigType } from "@elaraai/east-ui/internal";
 import type { PlanDrawLiteral } from "../plan/types.js";
 import { RowInspectorType, rowInspector } from "../utils/row-inspector.js";
 import { scheduleAccessor } from "./accessor.js";
@@ -1109,6 +1109,51 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
     });
     // A setter for every field, at any depth: an inspector edit writes one (`field`), its value as bytes at the field's type.
     const setters = fieldSetters(rowType);
+    /**
+     * The fields of the row a kind's source holds its page's scope of (#1621), as the source's type names them
+     * (`scoped`): what an event made on the page takes from the scope. A field the builder's gesture writes keeps the
+     * gesture's, and one that fans out over a Set — which a scope reads by one value, and a row holds many of — or that
+     * names no field of the row takes nothing.
+     */
+    const scopedFields = (part: ScheduleKindPart | undefined, written: readonly (string | undefined)[]): string[] => {
+        if (part === undefined) return [];
+        const type = Expr.type(part as unknown as Expr);
+        const scoped = type.type === "Struct" ? (type.fields as Record<string, EastType>).scoped : undefined;
+        if (scoped?.type !== "Struct") return [];
+        return Object.keys(scoped.fields).filter((name) => Object.hasOwn(fields, name) && fields[name]!.type !== "Set" && !written.includes(name));
+    };
+    /**
+     * A new row with its page's scope written in (#1621): each of `scoped` the scope holds one value of takes that
+     * value, its literal read at the field's type; a field it holds no value or several values of keeps the row's. A
+     * draft that leaves the scope later stays, and saves, as any draft does.
+     */
+    const withScope = (part: ScheduleKindPart, scoped: readonly string[]) => East.function([rowType], rowType, ($, row) => {
+        const source = $.const(part as unknown as ExprType<StructType<{ config: RecordSliceConfigType }>>);
+        const scope = $.const(source.config.scope);
+        const held: Record<string, ExprType<EastType>> = {};
+        for (const name of scoped) {
+            const type = fields[name]!;
+            const value = $.let(fieldOf(row, name) as ExprType<EastType>, type);
+            $.match(scope.tryGet(name), {
+                some: ($2, clause) => {
+                    $2.match(clause, {
+                        values: ($3, list) => { $3.if(East.equal(list.size(), 1n), ($4) => { $4.assign(value, list.get(0n).parse(type)); }); },
+                    });
+                },
+            });
+            held[name] = value;
+        }
+        return East.value(Object.fromEntries(Object.keys(fields).map((f) => [f, held[f] ?? fieldOf(row, f)])) as never, rowType);
+    });
+    /**
+     * What writes its page's scope into a new row of a kind narrowed through `part` (#1621), its gesture writing
+     * `written`: `undefined` where the source holds no scope of a field the gesture leaves to it, so a kind on a page
+     * with no scope is built as it always was.
+     */
+    const scopeWriter = (part: ScheduleKindPart | undefined, written: readonly (string | undefined)[]) => {
+        const scoped = scopedFields(part, written);
+        return part === undefined || scoped.length === 0 ? undefined : withScope(part, scoped);
+    };
 
     /**
      * The reads a build's events come by (#1199, #1343): through the kind's source of its builder's slice, its
@@ -1652,9 +1697,13 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
             duration: t.duration === undefined ? variant("minutes", 0) : East.value(t.duration as SubtypeExprOrValue<ScheduleDurationType>, ScheduleDurationType),
             values: East.Blob.encodeBeast(East.value(t.values as SubtypeExprOrValue<EastType>, valuesType), "v2"),
         })), ArrayType(ScheduleTemplateType));
+        // A new event on a scoped page takes the scope's values (#1621), its times and resource the gesture's.
+        const scopeOf = scopeWriter(part, [...placed]);
         const write = East.function([ArrayType(ScheduleWriteType)], ArrayType(OptionType(BlobType)), ($, requests) => {
             const place = $.const(placeIn);
             const resolve = resourceValue === undefined ? undefined : $.const(resourceValue);
+            const scope = scopeOf === undefined ? undefined : $.const(scopeOf);
+            const made = (row: ExprType<EastType>): ExprType<EastType> => scope === undefined ? row : scope(row) as ExprType<EastType>;
             const byTemplate = $.let(new Map(), DictType(StringType, BlobType));
             const presets = $.const(templateRows);
             $.for(presets, ($2, t) => { $2(byTemplate.insert(t.key, t.values)); });
@@ -1689,13 +1738,13 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                     create: ($3, c) => {
                         $3.match(byTemplate.tryGet(c.template), {
                             some: ($4, bytes) => {
-                                // The new entry: the template's values, its times and its resource placed.
+                                // The new entry: the template's values, its times and its resource placed, and its page's scope.
                                 const values = $4.const(bytes.decodeBeast(valuesType, "v2"));
                                 if (resolve === undefined) {
-                                    $4.if(c.resource.hasTag("none"), ($5) => { $5.assign(result, encoded(rowWith(values, c.start, c.end, undefined))); });
+                                    $4.if(c.resource.hasTag("none"), ($5) => { $5.assign(result, encoded(made(rowWith(values, c.start, c.end, undefined)))); });
                                 } else {
                                     $4.match(resolve(c.resource), {
-                                        some: ($5, value) => { $5.assign(result, encoded(rowWith(values, c.start, c.end, value as ExprType<EastType>))); },
+                                        some: ($5, value) => { $5.assign(result, encoded(made(rowWith(values, c.start, c.end, value as ExprType<EastType>)))); },
                                     });
                                 }
                             },
@@ -1926,11 +1975,15 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                 // type's default. A resource the kind refuses, or a duty in no group of a kind whose group is a String
                 // field, makes none before the app's `values` are asked.
                 const blank = East.value(defaultValue(rowType) as never, rowType) as ExprType<EastType>;
+                // A new duty on a scoped page takes the scope's values (#1621), its roles the Roster's.
+                const scopeOf = scopeWriter(part, mapped);
                 const create = East.function([ScheduleRosterNewDutyType], OptionType(BlobType), ($, duty) => {
                     // Its roles, the pattern aside.
                     const roles = duty as unknown as ExprType<typeof Roles>;
                     const resolve = $.const(whoOf);
                     const ownOf = valuesOf === undefined ? undefined : $.const(valuesOf);
+                    const scope = scopeOf === undefined ? undefined : $.const(scopeOf);
+                    const made = (row: ExprType<EastType>): ExprType<EastType> => scope === undefined ? row : scope(row) as ExprType<EastType>;
                     const result = $.let(East.value(none, OptionType(BlobType)), OptionType(BlobType));
                     $.if(takes(roles), ($2) => {
                         $2.match(resolve(roles.resource), {
@@ -1944,7 +1997,7 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                                     row = $3.const(East.value(Object.fromEntries(Object.entries(fields).map(([f, type]) =>
                                         [f, Object.hasOwn(own.fields, f) ? fieldOf(given, f) : East.value(defaultValue(type) as never, type)])) as never, rowType) as ExprType<EastType>);
                                 }
-                                $3.assign(result, East.value(some(East.Blob.encodeBeast(rosterRow(row, roles, value as ExprType<EastType>), "v2")), OptionType(BlobType)));
+                                $3.assign(result, East.value(some(East.Blob.encodeBeast(made(rosterRow(row, roles, value as ExprType<EastType>)), "v2")), OptionType(BlobType)));
                             },
                         });
                     });
@@ -2026,8 +2079,11 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                 // A new bin: its roles written, and every other field the arrival's values' — or, with none, a reservation's
                 // the kind's `values` of it, and a booked bin's, or a reservation's without them, its type's default (B13).
                 const blank = East.value(defaultValue(ValuesType) as never, ValuesType) as ExprType<EastType>;
+                // A new bin on a scoped page takes the scope's values (#1621), its roles the Allocation's.
+                const scopeOf = scopeWriter(part, [...mapped]);
                 const create = East.function([Roles, OptionType(BlobType)], BlobType, ($, roles, values) => {
                     const ownOf = reservedOf === undefined ? undefined : $.const(reservedOf);
+                    const scope = scopeOf === undefined ? undefined : $.const(scopeOf);
                     const given = $.const(values.match({
                         some: (_$2, bytes) => bytes.decodeBeast(ValuesType, "v2") as ExprType<EastType>,
                         none: (_$2) => ownOf === undefined ? blank : roles.arrival.match({
@@ -2035,7 +2091,8 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                             some: (_$3) => blank,
                         }) as ExprType<EastType>,
                     }) as ExprType<EastType>);
-                    return East.Blob.encodeBeast(binRow(given, roles), "v2");
+                    const made = (row: ExprType<EastType>): ExprType<EastType> => scope === undefined ? row : scope(row) as ExprType<EastType>;
+                    return East.Blob.encodeBeast(made(binRow(given, roles)), "v2");
                 });
                 return East.value({
                     kind: East.value(parts.fields as never, ScheduleKindType),

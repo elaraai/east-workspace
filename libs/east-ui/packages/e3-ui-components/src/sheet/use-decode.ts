@@ -290,8 +290,10 @@ export function useSheetDecode(value: SheetRootValue, host: SheetHost) {
     const narrowing = useMemo<SheetNarrowing | undefined>(() => (chrome === undefined ? undefined : narrowingOf(chrome)),
         // eslint-disable-next-line react-hooks/exhaustive-deps -- sliceVersion IS the dependency of each part's `read()`: the store moves, no prop does (#611)
         [chrome, sliceVersion]);
-    // The `rows` source's narrowing: what the lens draws over the record's rows (#1349).
-    const rowsWhere = useMemo(() => narrowing?.get("rows")?.where, [narrowing]);
+    // The `rows` source's narrowing: what the lens draws over the record's rows (#1349) — as every read of the source
+    // carries it, its page's scope laid over the viewer's choices (#1621), which are all `narrowing` holds. It moves as
+    // `narrowing` does: with a write of the slice's.
+    const rowsWhere = useMemo(() => (narrowing === undefined ? undefined : rowsPart?.read().where), [narrowing, rowsPart]);
 
     // ── The views — the local layer over `views` until the host writes back ──
     // The layer sits over the host's views by VALUE, not identity: every host

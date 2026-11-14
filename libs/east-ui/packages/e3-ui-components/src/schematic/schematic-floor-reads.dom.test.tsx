@@ -15,6 +15,10 @@
  *   read — and the footer says how many it shades and that zooming in draws
  *   them; a narrowing no area index leads is named there, not applied. A tap
  *   on the density zooms into it.
+ * - **On a page whose scope holds three halls** (#1621), dimmed, the canvas
+ *   shades those halls' racks alone, read through the area index the hall
+ *   leads, and the footer names no filter as not applied: the scope is no
+ *   choice of the viewer's.
  * - **A drawn link's far end** off the window (SC22) is read by key, all of a
  *   window's in one request: zoomed into Hall 1's front, the uplinks' ends in
  *   Hall 5.
@@ -109,6 +113,35 @@ const fitFloor = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(
     });
 }))) };
 
+/** The rail's key over the floor on a page whose scope holds three halls. */
+const SCOPED = "schematic.floor.scoped";
+
+/**
+ * The floor on a page whose scope holds Halls 1 to 3 (#1621): their 6,000 racks, past the 5,000 a window draws, read by
+ * area — their source lists the area index over every hall's racks and the one the hall leads — and dimmed, the viewer's
+ * choices drawn as context. The rail offers no field: the scope holds the only one a listed index leads first.
+ */
+const scopedFloor = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const racks = $.let(Data.bindPaged(ex.schematicStressRacks));
+    const halls = $.let(Data.bind(ex.schematicStressHalls));
+    const slice = $.let(Slice.bindRecords(SCOPED, {
+        racks: {
+            source: Data.bindPaged(ex.schematicStressRacks, { indexes: ["schematic_stress_racks_by_area", "schematic_stress_racks_by_hall_area"] }),
+            scope: { hall: ["Hall 1", "Hall 2", "Hall 3"] },
+            fields: {},
+        },
+    }));
+    return Schematic({
+        id: "floorReadsScoped",
+        extent: { width: 382, height: 254 },
+        scaleUnit: "m",
+        slice: { slice },
+        narrowed: { show: "dim" },
+        items: { racks: Schematic.items(racks, { name: "Rack", icon: "server", x: "x", y: "y", width: "w", height: "h", label: "name" }) },
+        zones: { halls: Schematic.zones(halls, { name: "Hall", icon: "warehouse", x: "x", y: "y", width: "w", height: "h", label: "name" }) },
+    });
+}))) };
+
 /** What the footer says of the racks drawn as their density; `undefined` while it says nothing of them. */
 const densityNotice = (container: HTMLElement) => slot(container, "footer").querySelector("[data-density-cell]")?.textContent ?? undefined;
 
@@ -153,6 +186,17 @@ test("a narrowing no area index leads is named in the footer, the density not ap
     const { container } = await open();
     await narrow(new SortedMap([["model", variant("values", [printText("42U · 8 kW")])]], compareString));
     await waitFor(() => expect(densityNotice(container)).toContain("the filters not applied"));
+});
+
+test("on a page whose scope holds three halls, dimmed, the canvas shades those halls' racks alone, read through the area index the hall leads, and names no filter as not applied: the viewer has chosen none (#1621)", async () => {
+    const before = h.requests(undefined, RACKS).length;
+    const { container } = await open(scopedFloor);
+    expect(densityNotice(container)).toBe("Density: 6,000 racks — zoom in to draw them");
+    // Counted through the index the hall leads alone: never the one over every hall's racks, and no rack's row read.
+    const read = h.requests(undefined, RACKS).slice(before).map((request) => request.query.get("index"));
+    expect(read).toContain("schematic_stress_racks_by_hall_area");
+    expect(read.filter((index) => index === "schematic_stress_racks_by_area")).toEqual([]);
+    expect(h.requests("read", RACKS)).toEqual([]);
 });
 
 test("fit flies to a narrowing made at Fit, the racks shaded as their density: Hall 3 chosen, the view goes to its racks as the area index finds them (§10.3)", async () => {

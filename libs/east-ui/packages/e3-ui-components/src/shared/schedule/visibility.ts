@@ -129,9 +129,10 @@ export function sourcePart(chrome: SourcesChrome | undefined, source: string): V
 
 /**
  * Which of a source's rows show (#1339): the keys its part of a Slice over
- * several records narrows to while a choice narrows it, every row — and no
- * read — while none does. Every place a builder shows the source's rows reads
- * these keys, so one choice narrows them all.
+ * several records narrows to while a choice or its page's scope (#1621)
+ * narrows it, every row — and no read — while nothing does. Every place a
+ * builder shows the source's rows reads these keys, so one choice narrows them
+ * all, and a scoped source shows the scope's rows alone.
  *
  * @param chrome - The payload's chrome; `undefined` with no slice
  * @param source - The source's name (`resources`)
