@@ -429,7 +429,9 @@ test("the Index follows the view once the camera rests, never during a fly: a zo
     await zoomInto(container.querySelector<HTMLElement>("[data-schematic-canvas]")!, CAM, { minX: 19.5, minY: 8.2, maxX: 26.9, maxY: 11.2 });
     await settle();
     await waitFor(() => expect(currentRow(container)).toBe("Network room"));
-    expect(openRows(container)).toEqual(["Network room"]);
+    // The mark is the view's, drawn as the camera rests; the zone opens in the render after it, once the tab has taken
+    // the view's zone as the one to open: waited for, as the mark is.
+    await waitFor(() => expect(openRows(container)).toEqual(["Network room"]));
     // A click on Cage A's row opens it and flies there: at every frame of the fly Cage A alone is open, and the network
     // room is still the zone in view — the view crossing into Cage A tells the Index nothing until the camera rests.
     const frames: string[] = [];
