@@ -97,6 +97,19 @@ function isEastCall(call: ts.CallExpression, ctx: RuleContext): boolean {
   // (`[1n, 2n].indexOf(2n)`) stay flagged: computing over collections is East's
   // job even when the operands happen to be literals.
   if (isConstantFoldCall(call, ctx)) return true;
+  // A11 — a LIBRARY-declared member call that is HANDED the block builder: a
+  // library's own builder of East statements, which emits into the block it is
+  // given as `$.for` does (`read.each($, ($, row, key) => …)`, an e3 index's
+  // read). Its result need not be an `Expr` — a statement has none — but the
+  // member is library API as A9's is, never a TS macro authored in project
+  // source.
+  if (
+    t.isPropertyAccessExpression(f) &&
+    call.arguments.some((a) => isBlockBuilderType(ctx.checker.getTypeAtLocation(a))) &&
+    isLibDeclaredMember(f, ctx)
+  ) {
+    return true;
+  }
   return false;
 }
 
@@ -135,7 +148,13 @@ function isConstantFoldCall(call: ts.CallExpression, ctx: RuleContext): boolean 
  * own default libs never count — a JS `Map<string, Expr>` read with `.get(k)`
  * is host-keyed East data (the abuse), not a library East API. */
 function isLibDeclaredEastCall(call: ts.CallExpression, f: ts.PropertyAccessExpression, ctx: RuleContext): boolean {
-  if (!isEastExprType(ctx.checker.getTypeAtLocation(call))) return false;
+  return isEastExprType(ctx.checker.getTypeAtLocation(call)) && isLibDeclaredMember(f, ctx);
+}
+
+/** Is the accessed member LIBRARY API — declared in a package declaration
+ * file, or on an object an `@elaraai/*` factory built? (See
+ * {@link isLibDeclaredEastCall} for the two ways, and clauses A9 and A11.) */
+function isLibDeclaredMember(f: ts.PropertyAccessExpression, ctx: RuleContext): boolean {
   const inPackageDts = (sym: ts.Symbol | undefined): boolean =>
     (sym?.declarations ?? []).some((d) => {
       const sf = d.getSourceFile();

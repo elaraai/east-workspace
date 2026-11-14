@@ -186,6 +186,49 @@ export const f = fn(($) => kinds.Case.open());
   assert.equal(hits.length, 0);
 });
 
+// ── A11: library-declared builders of statements, handed the block builder ─
+test("silent on a library's builder of statements that is handed the block builder (A11 — an e3 index's read)", () => {
+  // The shape of `e3.index(def).read(entries).events({…}).each($, …)`: `read`
+  // gives an Expr with the index's readers on it (A9), `events` is a method on
+  // that Expr (A2), and `each` — whose result is no Expr, a statement having
+  // none — is library API handed `$` (A11).
+  const files = {
+    "/proj/fake-e3.ts": `export interface KindExpr { readonly __kind: true }
+export interface BlockBuilder<T> { let(v: unknown): KindExpr }
+export interface Read { each($: BlockBuilder<null>, body: ($: BlockBuilder<null>, row: KindExpr) => void): void }
+export interface EntriesExpr extends KindExpr { events(window: object): Read }
+export const e3 = {
+  index(_def: object) {
+    return { read: (_entries: KindExpr): EntriesExpr => ({ __kind: true, events: () => ({ each() {} }) }) };
+  },
+};
+export function fn(cb: ($: BlockBuilder<null>, entries: KindExpr) => KindExpr): KindExpr { return cb(null as never, null as never); }
+`,
+    "/proj/indexes.ts": `import { e3 } from "@elaraai/fake-e3";
+export const byPress = e3.index({});
+`,
+    "/proj/main.ts": `import { fn } from "@elaraai/fake-e3";
+import { byPress } from "@proj/indexes";
+export const f = fn(($, entries) => {
+  byPress.read(entries).events({ key: "P1" }).each($, ($, row) => { $.let(row); });
+  return $.let(1);
+});
+`,
+  };
+  const hits = analyzeProgram(files, "/proj/main.ts", {
+    baseUrl: "/proj",
+    paths: { "@elaraai/fake-e3": ["./fake-e3.ts"], "@proj/indexes": ["./indexes.ts"] },
+  }).filter((d) => d.ruleName === RULE);
+  assert.equal(hits.length, 0);
+});
+
+test("still flags a project's own helper that is handed the block builder", () => {
+  // Handing `$` to a TS macro authored in project source does not make it East:
+  // the macro is still an authoring-time expansion.
+  const src = `${PRELUDE}const each = (b: unknown, n: number): number => n;\nexport const f = East.function([], IntegerType, ($) => {\n  const lib = { each };\n  lib.each($, 1);\n  return $.const(1n, IntegerType);\n});\n`;
+  assert.equal(rule(src).length, 1);
+});
+
 // ── A10: literal constant folding ────────────────────────────────────────
 test("silent on literal constant folding (['…','…'].join over literals)", () => {
   assert.equal(rule(inFn(`  const patch = ["--- a", "+++ b"].join("\\n");\n  return $.const(1n, IntegerType);`)).length, 0);

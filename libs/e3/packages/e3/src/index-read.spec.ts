@@ -813,6 +813,21 @@ describe('where a reader is refused', () => {
   });
 });
 
+describe('e3.index(def).read', () => {
+  it('gives the expression it was handed, still the entries, with the index\'s readers on it', () => {
+    const byPress = input.by_press;
+    const both = East.compile(East.function([byPress.type, StringType], StructType({ sized: IntegerType, read: IntegerType }), ($, entries, press) => {
+      const read = byPress.read(entries);
+      assert.equal(read, entries, 'the same expression');
+      const given = $.let(0n);
+      read.of(press).each($, ($) => { $.assign(given, given.add(1n)); });
+      return { sized: read.prefix({ ik: press }).size(), read: given };
+    }), []);
+    const onPress = BigInt([...ROWS.values()].filter((row) => row.press === 'P-1001').length);
+    assert.deepEqual(both(held.by_press, 'P-1001'), { sized: onPress, read: onPress });
+  });
+});
+
 describe('the body\'s parameter for an index', () => {
   it('arrives with its kind\'s readers on it in a function with a spec, and is still the entries', () => {
     const fn = function_('sheets_on_press', {

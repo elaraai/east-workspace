@@ -110,7 +110,7 @@ function given(value: unknown): string {
  * (`IndexRead`). An `e3.function` with a spec and an `e3.streamTask` give the
  * body its parameter with the readers on it; over any other expression of the
  * index's type, a task's own function's parameter among them,
- * `e3.index(def).read(entries)` gives the same readers.
+ * `e3.index(def).read(entries)` gives that expression with the same readers.
  *
  * @typeParam D - The index, as `record.indexes.<name>` types it
  * @param def - The index, as its record carries it by name
@@ -163,7 +163,7 @@ export function index<const D extends RecordIndexDef>(def: D): IndexInputDef<Ind
   }
   const input: IndexInputDef = {
     kind: 'index', index: def, record, type: indexEntriesType(record, def),
-    read: (entries) => indexReaders(input, entries) as never,
+    read: (entries) => Object.assign(entries, indexReaders(input, entries)) as never,
   };
   return input as IndexInputDef<IndexEntriesOf<D>, D>;
 }

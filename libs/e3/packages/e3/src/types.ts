@@ -130,17 +130,17 @@ export interface IndexInputDef<T extends EastType = EastType, D extends RecordIn
    *  `Dict<{ ik, k }, P>`. */
   readonly type: T;
   /**
-   * The index's readers over an expression of its entries: its kind's reads,
-   * each of the rows its words say, once (`IndexRead`). An `e3.function`
-   * with a spec and an `e3.streamTask` give the body its parameter with the
-   * readers on it already; this gives them over any other expression of the
-   * index's type, the parameter of a task's own function among them.
+   * An expression of the index's entries with its kind's readers on it: its
+   * reads, each of the rows its words say, once (`IndexRead`). An
+   * `e3.function` with a spec and an `e3.streamTask` give the body its
+   * parameter so already; this gives the same over any other expression of
+   * the index's type, the parameter of a task's own function among them.
    *
    * @param entries - An expression of the index's entries: {@link type}
-   * @returns The readers of the index's kind
+   * @returns The same expression, still the entries, with the readers of the index's kind
    * @throws {Error} When the expression is not of the index's entries' type, naming both
    */
-  read(entries: ExprType<T>): IndexReadersOf<D>;
+  read(entries: ExprType<T>): ExprType<T> & IndexReadersOf<D>;
 }
 
 /**
