@@ -7,6 +7,7 @@ set(EAST_C_SOURCES
     src/hashmap.c
     src/types.c
     src/values.c
+    src/key_bound.c
     src/value_slab.c
     src/ir.c
     src/ir_resolve.c
@@ -550,6 +551,14 @@ add_test(NAME field_cache COMMAND test_field_cache)
 add_executable(test_value_compare tests/test_value_compare.c)
 target_link_libraries(test_value_compare east-c)
 add_test(NAME value_compare COMMAND test_value_compare)
+
+# A bound of a key range (#1616): the types that are a key's type cut short,
+# the words a bound of any other type is refused in — TypeScript's, to the
+# letter — and how a key stands to a bound, over the orders that are easy to
+# get wrong.
+add_executable(test_key_bound tests/test_key_bound.c)
+target_link_libraries(test_key_bound east-c)
+add_test(NAME key_bound COMMAND test_key_bound)
 
 # Array diff gate (#1425): an Array's diff trims the common start and end, and
 # searches the middle for a shortest edit script by Myers' algorithm, to a

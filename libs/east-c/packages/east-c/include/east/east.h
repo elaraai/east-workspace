@@ -24,6 +24,7 @@
 // Umbrella header for the east-c library
 #include "types.h"
 #include "values.h"
+#include "key_bound.h"
 #include "ir.h"
 #include "compiler.h"
 #include "builtins.h"
