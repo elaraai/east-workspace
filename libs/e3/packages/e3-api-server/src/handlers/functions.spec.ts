@@ -142,9 +142,9 @@ describe('function handlers', () => {
     assert.equal(double!.inputs.length, 0);
     assert.deepEqual(double!.drafts, []);
     assert.equal(double!.outputType.type, 'Integer');
-    assert.deepEqual(planned!.inputs, [JOBS_PATH]);
+    assert.deepEqual(planned!.inputs, [{ path: JOBS_PATH, index: none }]);
     assert.deepEqual(planned!.drafts, ['jobs']);
-    assert.deepEqual(scaled!.inputs, [N_PATH]);
+    assert.deepEqual(scaled!.inputs, [{ path: N_PATH, index: none }]);
     assert.deepEqual(scaled!.drafts, [], 'an input is read as stored: only a listed record takes a draft');
     assert.equal(scaled!.argTypes.length, 1);
   });
