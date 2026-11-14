@@ -5,6 +5,7 @@
 import sorted_btree from "sorted-btree";
 import { defaultKeyCompare } from "../string_order.js";
 import { builtinIterator } from "./iterators.js";
+import { copyRange, type KeyTest } from "./range.js";
 
 // Deal with CJS default import. Node's ESM interop hands back the whole
 // `module.exports`, so the class is under `.default`; Vite/vitest (and other
@@ -28,6 +29,7 @@ type BTree<K, T> = sorted_btree.default<K, T>;
  * - Maintains keys in sorted order based on a comparison function
  * - Supports {@link minKey} and {@link maxKey} for accessing extrema
  * - Provides range-based iteration starting from any key
+ * - Gives the elements between two bounds as a new set ({@link range}), found by a search
  * - Implements ES2024 set operations (union, intersection, difference, etc.)
  * - Respects frozen state and throws errors on modification attempts
  *
@@ -321,6 +323,35 @@ export class SortedSet<K> implements Set<K> {
             }
         })(this.btree);
         return builtinIterator(gen) as SetIterator<[K, K]>;
+    }
+
+    /**
+     * Returns the elements between two bounds as a new set.
+     *
+     * @param from - A test that is false, then true, over the elements in order: the first it holds for is the first kept. Left out, the set's first element is
+     * @param to - A test of the same kind: the first element it holds for, and every one after it, is left out. Left out, the elements run to the set's last
+     * @returns A new {@link SortedSet} with this set's comparison, holding the elements kept
+     *
+     * @remarks
+     * A bound of a key range is an element's first fields, which is no element the set can be asked
+     * for, so each bound is given as the test "is this element at or past it?" (`keyAtOrPast`, for an
+     * East key).
+     *
+     * The ends are found by a search down the tree and the elements between them are walked:
+     * neither the tests nor the set's comparison is called for an element outside the range. The new
+     * set is not frozen, whatever this one is, and nothing of this one is changed.
+     *
+     * @example
+     * ```ts
+     * const primes = new SortedSet<number>([2, 3, 5, 7, 11]);
+     * const middle = primes.range((key) => key >= 3, (key) => key >= 11);
+     * // Set { 3, 5, 7 }
+     * ```
+     */
+    range(from?: KeyTest<K>, to?: KeyTest<K>): SortedSet<K> {
+        const result = new SortedSet<K>(undefined, this.compare);
+        copyRange(this.btree, result.btree, from, to);
+        return result;
     }
 
     /**

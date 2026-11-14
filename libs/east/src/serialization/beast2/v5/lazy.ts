@@ -47,6 +47,7 @@ import { markFrozen } from "../../../frozen.js";
 import { SortedMap } from "../../../containers/sortedmap.js";
 import { SortedSet } from "../../../containers/sortedset.js";
 import { builtinIterator } from "../../../containers/iterators.js";
+import type { KeyTest } from "../../../containers/range.js";
 import { asTypeValue } from "./type-section.js";
 import { isSegmentedRoot } from "./codec.js";
 import { Beast2Pages, type Beast2PagesOptions, type SegmentDecoder } from "./stream.js";
@@ -367,6 +368,11 @@ class LazySortedMap<K, V> extends SortedMap<K, V> {
     return super.entries(firstKey);
   }
 
+  override range(from?: KeyTest<K>, to?: KeyTest<K>): SortedMap<K, V> {
+    this.hydrate();
+    return super.range(from, to);
+  }
+
   override [Symbol.iterator](): MapIterator<[K, V]> {
     return this.entries();
   }
@@ -503,6 +509,11 @@ class LazySortedSet<K> extends SortedSet<K> {
   override symmetricDifference<U>(other: ReadonlySetLike<U>): SortedSet<K | U> {
     this.hydrate();
     return super.symmetricDifference(other);
+  }
+
+  override range(from?: KeyTest<K>, to?: KeyTest<K>): SortedSet<K> {
+    this.hydrate();
+    return super.range(from, to);
   }
 
   override isSubsetOf(other: ReadonlySetLike<unknown>): boolean {
