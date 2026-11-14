@@ -53,30 +53,31 @@ const RACKS_DATASET = `records.${ex.schematicRacks.name}`;
 /** The racks the floor places. */
 const PLACED = ["A01", "A02", "A03", "A04", "A05"];
 
-/**
- * An owner's page: its key, the owners it is for, how the viewer's narrowing draws, and whether its source lists the area
- * index the owner leads — by default it does.
- */
+/** An owner's page: its key, the owners it is for, and how the viewer's narrowing draws. */
 interface OwnerPage {
     readonly key: string;
     readonly owners: readonly string[];
     readonly show: "hide" | "dim";
-    readonly unled?: boolean;
 }
+
+/**
+ * As many owners as a scope may hold (the record Slice's bound on its runs): Elmway College, and tenants no rack is let
+ * to. A window's searches across them all pass the bound on the searches one read lands, so their page's window is read
+ * through the area index over every owner's racks.
+ */
+const MANY_OWNERS = ["Elmway College", ...Array.from({ length: 63 }, (_, i) => `Tenant ${i + 1}`)];
 
 /**
  * The data centre's racks on an owner's own page: read by area — their source lists the area index, the one the owner
  * leads and the index by owner the scope asks for — scoped to the owner, editable through their patch door, with the
  * Backlog in the library. The rail offers no field: the scope holds the only one a listed index leads first.
  */
-const ownerFloor = ({ key, owners, show, unled = false }: OwnerPage) => ({ fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+const ownerFloor = ({ key, owners, show }: OwnerPage) => ({ fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const racks = $.let(Record.bind(ex.schematicRacks, ["patch"]));
     const rackEntries = $.let(Data.bindPaged(ex.schematicRacks));
     const slice = $.let(Slice.bindRecords(`schematic.scope.${key}`, {
         racks: {
-            source: unled
-                ? Data.bindPaged(ex.schematicRacks, { indexes: ["schematic_racks_by_owner", "schematic_racks_by_area"] })
-                : Data.bindPaged(ex.schematicRacks, { indexes: ["schematic_racks_by_owner", "schematic_racks_by_area", "schematic_racks_by_owner_area"] }),
+            source: Data.bindPaged(ex.schematicRacks, { indexes: ["schematic_racks_by_owner", "schematic_racks_by_area", "schematic_racks_by_owner_area"] }),
             scope: { owner: [...owners] },
             fields: {},
         },
@@ -149,12 +150,15 @@ test("an owner's page draws that owner's racks alone, read through the area inde
     }
 });
 
-test("a source whose area index the owner does not lead draws the owner's racks alone all the same — hidden or dimmed: the window is read over every owner's racks, and none beyond the scope is drawn, as itself or as context (#1621)", async () => {
+test("a page for more owners than a window's read asks of the index they lead draws their racks alone all the same — hidden or dimmed: its window is read over every owner's racks, the scope is asked of them, and none beyond it is drawn, as itself or as context (#1621)", async () => {
     for (const show of ["hide", "dim"] as const) {
-        const { container, unmount } = await open({ key: `elmway-unled-${show}`, owners: ["Elmway College"], show, unled: true }, "A05");
+        const before = indexesRead().length;
+        const { container, unmount } = await open({ key: `many-${show}`, owners: MANY_OWNERS, show }, "A05");
         await settle();
         expect(drawnRacks(container), show).toEqual(["A05"]);
         expect(card(container, "racks", "A05")!.hasAttribute("data-context"), show).toBe(false);
+        // The window went through the index over every owner's racks: through the one the owners lead it takes too many searches.
+        expect(indexesRead().slice(before), show).toContain("schematic_racks_by_area");
         expect(h.requests("read", RACKS_DATASET), show).toEqual([]);
         unmount();
     }

@@ -320,6 +320,33 @@ describe("Slice.bindRecord's scope is refused where no listed index reads it, na
             "listed after the other, it is found");
     });
 
+    hostTest("a scoped source read by area lists an area index led by exactly the scope's fields, through which its window reads no row beyond the scope: one led by no field alone is refused, naming the one to declare as the listed one boxes its rows", () => {
+        const Rack = StructType({ hall: StringType, row: StringType, x: OptionType(FloatType), y: OptionType(FloatType), w: FloatType, h: FloatType });
+        const racks = e3.record("scoped_racks", DictType(StringType, Rack), {
+            initial: new Map(),
+            indexes: (index) => ({
+                by_hall: index.on(["hall"]),
+                by_area: index.area({ x: "x", y: "y", width: "w", height: "h", at: "centre", cell: 0.01 }),
+                by_hall_area: index.area({ on: ["hall"], x: "x", y: "y", width: "w", height: "h", at: "centre", cell: 0.01 }),
+                by_hall_row_area: index.area({ on: ["hall", "row"], x: "x", y: "y", width: "w", height: "h", at: "centre", cell: 0.01 }),
+            }),
+        });
+        const hall = { hall: ["A"] };
+        const refused = {
+            message: "Slice.bindRecord: a scoped source read by area reads its window among the scope's ('hall') through an area index led by exactly the scope's fields — " +
+                `by_hall_area: index.area({ on: ["hall"], x: "x", y: "y", width: "w", height: "h", at: "centre", cell }) among the record's indexes, as 'by_area' boxes its rows, ` +
+                "listed in Data.bindPaged's indexes",
+        };
+        assert.throws(() => bindRecord("racks", Data.bindPaged(racks, { indexes: ["by_hall", "by_area"] }), { scope: hall, fields: {} }), refused);
+        // One led by the hall and then the row reads no window until the viewer chooses a row: it is not the scope's.
+        assert.throws(() => bindRecord("racks", Data.bindPaged(racks, { indexes: ["by_hall", "by_area", "by_hall_row_area"] }), { scope: hall, fields: {} }), refused);
+        assert.doesNotThrow(() => bindRecord("racks", Data.bindPaged(racks, { indexes: ["by_hall", "by_area", "by_hall_area"] }), { scope: hall, fields: {} }),
+            "listed beside the one led by no field, the scope's own reads the window");
+        // A source that lists no area index is read by none; one with no scope reads its window whatever the rail chooses.
+        assert.doesNotThrow(() => bindRecord("racks", Data.bindPaged(racks, { indexes: ["by_hall"] }), { scope: hall, fields: {} }));
+        assert.doesNotThrow(() => bindRecord("racks", Data.bindPaged(racks, { indexes: ["by_hall", "by_area"] }), { fields: {} }));
+    });
+
     hostTest("a scoped field is no field of the rail: it is refused in fields, initial, every preset, range and search", () => {
         const held = (where: string) => ({ message: `Slice.bindRecord: 'press' is in the scope, which every read holds and the rail shows no control for — leave it out of ${where}` });
         assert.throws(() => bindRecord("jobs", pressLed, { scope: press, fields: { press: {}, status: { hints: ["held"] } } }), held("fields"));
