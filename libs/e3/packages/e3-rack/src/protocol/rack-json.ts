@@ -33,6 +33,20 @@ export const RACK_PROTOCOL_HEADER = 'x-e3-rack-protocol';
 /** The transfers a source serves one rack at once, unless it says otherwise. */
 export const RACK_TRANSFERS_AT_ONCE = 8;
 
+/**
+ * How long a source's listener keeps an idle connection open, in ms, which
+ * every reply says in its `Keep-Alive`.
+ */
+export const RACK_LISTENER_IDLE_MS = 75_000;
+
+/**
+ * How long an agent keeps a connection it is not using before it closes it,
+ * in ms: less than {@link RACK_LISTENER_IDLE_MS} by more than any link's
+ * delay, so an agent never sends a request on a connection its source has
+ * already closed, which ends as a connection reset.
+ */
+export const RACK_AGENT_IDLE_MS = 60_000;
+
 /** The cores, memory and GPUs of a rack, or the part of them that is free. */
 export interface RackResources {
   /** Cores: a unit of work takes one */

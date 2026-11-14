@@ -325,8 +325,27 @@ backs off for up to 30 seconds. For a hub racks can always reach, run
 `e3 rack hub` as a service, or set `e3 rack config --idle-exit 0`.
 
 A rack reads and writes each object through a data URL that lasts 15 minutes,
-and a transfer may take all of it; an object is at most 5 GiB. Over a slow
-link, a large object can outlast its URL, and the work then falls back locally.
+and a transfer may take all of it; an object is at most 5 GiB. Every transfer
+streams through this machine, so the hub looks after the link:
+
+- It serves one rack **eight transfers at once**, the number its hello states
+  (`limits.transfersAtOnce`). One more is answered `429 busy` with how long to
+  wait, before any byte of it is read. An agent keeps to the hello's number
+  itself, so it is not told to wait.
+- A read honours **`Range: bytes=N-`** and answers `206` from that byte, so a
+  transfer a slow or broken link cut short goes on from where it stopped. A
+  data URL whose 15 minutes ended, or whose transfer its end cut (`404`,
+  `410`), is issued again by the next storage request for the same object.
+- The listener keeps an **idle connection for 75 seconds** and says so in every
+  reply's `Keep-Alive`; an agent closes one it has not used for 60
+  (`RACK_LISTENER_IDLE_MS`, `RACK_AGENT_IDLE_MS`), and sooner when a source
+  says it keeps one for less. Over a link with any delay, a request sent on a
+  connection its source has just closed ends as a connection reset
+  (`socket hang up`); `pinnedFetch` and `pinnedHttpsAgent` keep to this.
+
+An agent gives a transfer that fails five tries, each read going on from the
+byte the one before reached, before it fails the lease, which then falls back
+locally.
 
 ## Local API server
 
@@ -427,6 +446,7 @@ with a release:
 | 408, 413 | The body came too slowly (`timeout`), or is over the route's limit (`too-large`). | Does not send it again as it was. |
 | 422 | The request was read and its content is refused (`output-rejected`, `output-incomplete`); the lease stays claimed. | Puts it right (uploads again, commits what is missing) and completes again. |
 | 426 | Another rack protocol (`upgrade-required`). | Marks the source incompatible. |
+| 429 | The source is serving this rack as many transfers as it serves one rack at once (`busy`), with `retryAfterMs`. | Waits that long and asks again; it is no failed try. |
 | 503 | The source could not do it now (`source-unavailable`): the repository's session did not answer, or the outcome or the log lines were not stored. | Sends the same request again, with backoff. |
 | Other 5xx | The source's own failure. | Sends the same request again, with backoff. |
 

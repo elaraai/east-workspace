@@ -5,7 +5,7 @@
 
 import { afterEach, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { randomUUID, createHash } from 'node:crypto';
+import { randomBytes, randomUUID, createHash } from 'node:crypto';
 import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -27,8 +27,9 @@ import { ApproveRackType, AttachLeaseResultType, CancelLeaseResultType, CreateLe
   HubEnrollResultType, HubEnrollType, HubStatusType, OpenSessionType, OpenSessionResultType, RemoveRackResultType, SessionPollType, SessionPollResultType } from '../protocol/control.js';
 import { RackRegistrationType, RackSecurityPolicyType } from '../protocol/registration.js';
 import { RackHeartbeatRequestType, RackHeartbeatResponseType } from '../protocol/rack-wire.js';
-import { RACK_PROTOCOL, RACK_TRANSFERS_AT_ONCE, readRackHello } from '../protocol/rack-json.js';
+import { RACK_LISTENER_IDLE_MS, RACK_PROTOCOL, RACK_TRANSFERS_AT_ONCE, readRackHello, readRackRefusal } from '../protocol/rack-json.js';
 import { TestRackAgent, type TestRackAgentOptions } from '../testing/test-rack-agent.js';
+import { SlowLink, type SlowLinkOptions } from '../testing/slow-link.js';
 import { certificateSha256, createHubCertificate, pinnedFetch } from '../tls/tls.js';
 import { writeStateFile } from '../state-file.js';
 import { taskClosure } from '../lease/closure.js';
@@ -76,15 +77,29 @@ async function fixture(options: RackHubOptions = {}, port = 0, overrides: Partia
     const cancel = (id: string) => socketRequest(socket, 'POST', `${path}/leases/${encodeURIComponent(id)}/cancel`, { responseType: CancelLeaseResultType });
     return { ...opened, close, create, events, cancel, logs };
   };
-  const agent = async (as: Pick<TestRackAgentOptions, 'report' | 'protocol'> = {}) => {
+  const agent = async (as: Pick<TestRackAgentOptions, 'report' | 'protocol' | 'capacity' | 'transfersAtOnce' | 'timings' | 'faults'> = {}, origin?: string) => {
     const mint = await socketRequest(socket, 'POST', '/v1/enroll', { requestType: HubEnrollType,
       body: { label: none, ttlMinutes: none }, responseType: HubEnrollResultType });
     assert.equal(mint.certificateSha256.type === 'some' ? mint.certificateSha256.value : undefined, pin);
-    const agent = await TestRackAgent.enroll(mint.apiUrl, mint.enrollmentToken, { certificateSha256: pin, ...as });
+    const agent = await TestRackAgent.enroll(origin ?? mint.apiUrl, mint.enrollmentToken, { certificateSha256: pin, ...as });
     cleanup.push(() => agent.close());
     return agent;
   };
-  return { home, hub, socket, repo, storage, status, session, agent, config, pin, fetch };
+  /** A slow link to the hub's listener, and the origin an agent reaches the hub at through it. */
+  const link = async (faults: Omit<SlowLinkOptions, 'target'>) => {
+    const listener = (await status()).rackListener; assert(listener.type === 'up');
+    const url = new URL(listener.value.origin);
+    const link = await SlowLink.open({ target: { host: url.hostname, port: Number(url.port) }, ...faults });
+    cleanup.push(() => link.close());
+    return { link, origin: `${url.protocol}//${url.hostname}:${link.port}` };
+  };
+  /** Objects of random bytes in the session's repository, by hash. */
+  const objects = async (count: number, size: number) => {
+    const written = new Map<string, Buffer>();
+    for (let n = 0; n < count; n++) { const bytes = randomBytes(size); written.set(await storage.objects.write(repo, bytes), bytes); }
+    return written;
+  };
+  return { home, hub, socket, repo, storage, status, session, agent, link, objects, config, pin, fetch };
 }
 function event(input: string[] = []): RackLeaseEvent {
   return { version: 2, taskName: 'task', workspace: 'dev', closure: { hashes: input },
@@ -376,4 +391,154 @@ it('never enrols an agent of another rack protocol, and keeps its token for the 
   const agent = await TestRackAgent.enroll(mint.apiUrl, mint.enrollmentToken, { certificateSha256: f.pin });
   cleanup.push(() => agent.close());
   assert.equal((await f.status()).racks.length, 1);
+});
+
+it('serves one rack eight transfers at once, tells it to ask again for a ninth, and serves another rack meanwhile', async () => {
+  const f = await fixture();
+  const session = await f.session();
+  const inputs = await f.objects(1, 8192); const [input] = [...inputs.keys()];
+  await session.create(event([input!]));
+  const first = await f.agent(); const grant = await first.claim(); assert(grant);
+  const others = await f.objects(1, 8192); const [other] = [...others.keys()];
+  await session.create(event([other!]));
+  const second = await f.agent(); const otherGrant = await second.claim(); assert(otherGrant);
+  const read = async (agent: TestRackAgent, lease: typeof grant, hash: string) => {
+    const descriptor = (await agent.storageRequest(lease, { need: [hash] })).objects[0]; assert(descriptor?.type === 'url');
+    return f.fetch(descriptor.value.url);
+  };
+
+  // Eight uploads whose bodies have not ended are in flight for as long as the test holds them.
+  // Each sends half its body at once: a request's head goes out with its first bytes.
+  const stop = new AbortController();
+  const held = await Promise.all(Array.from({ length: RACK_TRANSFERS_AT_ONCE }, async () => {
+    const bytes = randomBytes(64);
+    const hash = createHash('sha256').update(bytes).digest('hex');
+    const target = (await first.storageRequest(grant, { outputs: [{ hash, size: BigInt(bytes.length) }] })).targets[0]!.target; assert(target.type === 'put');
+    let body!: ReadableStreamDefaultController<Uint8Array>;
+    const response = f.fetch(target.value.url, { method: 'PUT', signal: stop.signal, duplex: 'half',
+      body: new ReadableStream<Uint8Array>({ start(controller) { body = controller; controller.enqueue(bytes.subarray(0, 32)); } }) } as RequestInit);
+    response.catch(() => {}); // those still held when the test ends are aborted
+    return { bytes, body, response };
+  }));
+  // Each is counted once its request reaches the hub: until then a read is served.
+  let refused: Response | undefined;
+  for (let asked = 0; asked < 200 && refused === undefined; asked++) {
+    const response = await read(first, grant, input!);
+    if (response.status === 429) refused = response;
+    else { assert.equal(response.status, 200); await response.arrayBuffer(); await delay(10); }
+  }
+  assert(refused, 'a ninth transfer is refused while eight are in flight');
+  assert.equal(refused.headers.get('retry-after'), '1');
+  assert.deepEqual(readRackRefusal(await refused.text()), { code: 'busy', message: '8 transfers are in flight for this rack', retryAfterMs: 500 });
+
+  // The bound is each rack's own.
+  const elsewhere = await read(second, otherGrant, other!);
+  assert.equal(elsewhere.status, 200); assert.deepEqual(Buffer.from(await elsewhere.arrayBuffer()), others.get(other!));
+
+  // One of the eight ends, and the rack has a transfer free again.
+  held[0]!.body.enqueue(held[0]!.bytes.subarray(32)); held[0]!.body.close();
+  const put = await held[0]!.response; assert.equal(put.status, 200); await put.arrayBuffer();
+  let served: Response | undefined;
+  for (let asked = 0; asked < 200 && served === undefined; asked++) {
+    const response = await read(first, grant, input!);
+    if (response.status === 200) served = response; else { assert.equal(response.status, 429); await response.arrayBuffer(); await delay(10); }
+  }
+  assert(served, 'a transfer is served once one of the eight has ended');
+  assert.deepEqual(Buffer.from(await served.arrayBuffer()), inputs.get(input!));
+  stop.abort();
+});
+
+it('reads an object from a byte on, so a transfer a link cut short goes on from where it stopped', async () => {
+  const f = await fixture();
+  const session = await f.session();
+  const size = 1024 * 1024;
+  const inputs = await f.objects(1, size); const [hash] = [...inputs.keys()]; const bytes = inputs.get(hash!)!;
+  await session.create(event([hash!]));
+  const { link, origin } = await f.link({});
+  const agent = await f.agent({ timings: { retryMs: 1 } }, origin); const grant = await agent.claim(); assert(grant);
+
+  const descriptor = (await agent.storageRequest(grant, { need: [hash!] })).objects[0]; assert(descriptor?.type === 'url');
+  assert(descriptor.value.url.startsWith(`${origin}/api/rack/data/`), 'a data URL is on the origin the rack asked at');
+  const whole = await f.fetch(descriptor.value.url);
+  assert.equal(whole.status, 200); assert.equal(whole.headers.get('accept-ranges'), 'bytes'); await whole.arrayBuffer();
+  const rest = await f.fetch(descriptor.value.url, { headers: { range: 'bytes=1000000-' } });
+  assert.equal(rest.status, 206);
+  assert.equal(rest.headers.get('content-range'), `bytes 1000000-${size - 1}/${size}`);
+  assert.equal(rest.headers.get('content-length'), String(size - 1000000));
+  assert.deepEqual(Buffer.from(await rest.arrayBuffer()), bytes.subarray(1000000));
+  const past = await f.fetch(descriptor.value.url, { headers: { range: `bytes=${size}-` } });
+  assert.equal(past.status, 416); assert.equal(past.headers.get('content-range'), `bytes */${size}`); await past.arrayBuffer();
+  // A range it does not serve is answered with the whole object, as a server may.
+  const other = await f.fetch(descriptor.value.url, { headers: { range: 'bytes=0-99' } });
+  assert.equal(other.status, 200); assert.equal((await other.arrayBuffer()).byteLength, size);
+
+  // The link drops the connection a third of the way through the body.
+  link.cutAfter(350_000);
+  const before = link.carried.towardsAgent;
+  await agent.fetch(grant, [hash!]);
+  assert.equal(link.cuts, 1);
+  assert.equal(agent.transfers.resumed, 1, 'the second try was answered from the byte the first reached');
+  const carried = link.carried.towardsAgent - before;
+  assert(carried >= size && carried < size + 64 * 1024, `the bytes the first try carried were not sent again: the link carried ${carried} for an object of ${size}`);
+  assert.equal(agent.transfers.retried, 1);
+  assert(await agent.holds(hash!), 'the object arrived whole: the agent\'s store took it under its own hash');
+});
+
+it('gives a transfer five tries, and fails its lease\'s fetch only when the fifth has failed', async () => {
+  const f = await fixture();
+  const session = await f.session();
+  const inputs = await f.objects(2, 8192); const [recovers, fails] = [...inputs.keys()];
+  await session.create(event([recovers!, fails!]));
+  const agent = await f.agent({ timings: { retryMs: 1 }, faults: {} }); const grant = await agent.claim(); assert(grant);
+  agent.faults.failTransferNext = 4;
+  await agent.fetch(grant, [recovers!]);
+  assert.equal(agent.transfers.retried, 4); assert(await agent.holds(recovers!));
+  agent.faults.failTransferNext = 5;
+  await assert.rejects(agent.fetch(grant, [fails!]), new RegExp(`Rack input ${fails} failed after 5 tries: injected transfer failure`));
+  assert.equal(await agent.holds(fails!), false);
+  // A request its source refuses is not sent again: a URL that is not this rack's to read.
+  const before = agent.transfers.retried;
+  const ended = (await agent.storageRequest(grant, { need: [fails!] })).objects[0]; assert(ended?.type === 'url');
+  const wrong = await f.fetch(ended.value.url, { method: 'PUT', body: new Uint8Array(1) });
+  assert.equal(wrong.status, 404); await wrong.arrayBuffer();
+  assert.equal(agent.transfers.retried, before);
+});
+
+it('keeps an idle connection of a rack for seventy-five seconds, and says so in every reply', async () => {
+  const f = await fixture();
+  const status = await f.status(); assert(status.rackListener.type === 'up');
+  const hello = await f.fetch(`${status.rackListener.value.origin}/api/rack/hello`);
+  assert.equal(hello.headers.get('keep-alive'), `timeout=${RACK_LISTENER_IDLE_MS / 1000}`); await hello.arrayBuffer();
+  assert.equal(RACK_LISTENER_IDLE_MS, 75_000);
+});
+
+it('carries a burst of input transfers over a slow link with no failed transfer, never more than eight of a rack\'s in flight', async () => {
+  const f = await fixture();
+  const session = await f.session();
+  // A link of 8 MiB/s that every connection shares, and three leases of eight inputs each, fetched at once.
+  const { origin } = await f.link({ delayMs: 5, bytesPerSecond: 8 * 1024 * 1024 });
+  const agent = await f.agent({ capacity: 3 }, origin);
+  const leases = [];
+  for (let n = 0; n < 3; n++) {
+    const inputs = await f.objects(8, 192 * 1024);
+    await session.create(event([...inputs.keys()]));
+    const grant = await agent.claim(); assert(grant);
+    leases.push({ grant, inputs });
+  }
+  await Promise.all(leases.map(({ grant, inputs }) => agent.fetch(grant, [...inputs.keys()])));
+  for (const { inputs } of leases) for (const hash of inputs.keys()) assert(await agent.holds(hash));
+  assert.equal(agent.transfers.peak, RACK_TRANSFERS_AT_ONCE, 'the agent has as many in flight as its source\'s hello allows, and no more');
+  assert.equal(agent.transfers.busy, 0, 'the hub never had a ninth to refuse');
+  assert.equal(agent.transfers.retried, 0);
+
+  // An agent that does not hold itself to the limit is held to it by the hub, and loses nothing by it.
+  const greedy = await f.agent({ transfersAtOnce: 24 }, origin);
+  const inputs = await f.objects(24, 64 * 1024);
+  await session.create(event([...inputs.keys()]));
+  const grant = await greedy.claim(); assert(grant);
+  await greedy.fetch(grant, [...inputs.keys()]);
+  for (const hash of inputs.keys()) assert(await greedy.holds(hash));
+  assert(greedy.transfers.peak > RACK_TRANSFERS_AT_ONCE, `the agent asked for ${greedy.transfers.peak} at once`);
+  assert(greedy.transfers.busy > 0, 'the hub told it to ask again');
+  assert.equal(greedy.transfers.retried, 0, 'being told to wait is no failed try');
 });
