@@ -20,7 +20,9 @@
  */
 import { describe, expect, test } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
-import { OptionType, StringType, decodeBeast2For, encodeBeast2For, none, printFor, some, variant, type ValueTypeOf } from "@elaraai/east";
+import {
+    OptionType, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, printFor, some, variant, type ValueTypeOf,
+} from "@elaraai/east";
 import { RecordSliceStateType, type RecordSliceChoiceType } from "@elaraai/east-ui/internal";
 import { StateRuntime, UIStore } from "@elaraai/east-ui-components";
 import * as cs from "@elaraai/e3-ui/examples/calendar/calendar-scope";
@@ -38,6 +40,8 @@ type Where = ValueTypeOf<typeof RecordSliceStateType>["where"];
 const decodeState = decodeBeast2For(RecordSliceStateType);
 const encodeState = encodeBeast2For(RecordSliceStateType);
 const maybeText = printFor(OptionType(StringType));
+const compareString = compareFor(StringType);
+const stringEqual = equalFor(StringType);
 
 /** Where the rail keeps a source's narrowing on a press's page: the page's slice is keyed by its press. */
 const sourceKey = (press: string, source: string) => `ex.calendarScoped.${press}.${source}`;
@@ -189,5 +193,26 @@ describe("a press's own page (#1621)", () => {
         expect(whereOf(store, "P-1").get("start")).toEqual(start);
         expect(drawn(container)).toEqual(["r1", "r2", "r3"]);
         expect(tabs(container)[1]).toBe("Backlog 2");
+    });
+
+    test("a run whose crew member is another press's, where the view lays the crew out, says its crew is not on this page — never that a filter hides it — and a pick of it clears nothing", async () => {
+        const { container, store } = await open();
+        // Another session gives the letterheads to c3, a crew member of Press 2's: no row of this page's crew.
+        const runs = await h.read(cs.pressRuns);
+        await h.patch(cs.pressRuns, new SortedMap([...runs].map(([key, run]) => [key, stringEqual(key, "r3") ? { ...run, crew: some("c3") } : run] as const), compareString));
+        await settle();
+        // The timeline lays the crew out, a row each of the press's own: the run has no row to be drawn on.
+        await act(async () => { fireEvent.click(within(slot(container, "toolbar")).getByRole("radio", { name: "Timeline" })); });
+        await settle();
+        await pasteIntoSearch(container, "r3");
+        await waitFor(() => expect(lines(container)).toHaveLength(1), { timeout: 10_000 });
+        await waitFor(() => expect(lines(container)[0]).toMatch(/ · its crew is not on this page$/), { timeout: 10_000 });
+        expect(lines(container)[0]).not.toMatch(/hidden by|filter|press/i);
+        // Picked: nothing of the rail is written — the runs' narrowing and the crew's as they were.
+        const before = [...whereOf(store, "P-1").entries()];
+        await act(async () => { fireEvent.keyDown(searchBox(container).querySelector("input")!, { key: "Enter" }); });
+        await settle();
+        expect([...whereOf(store, "P-1").entries()]).toEqual(before);
+        expect(store.read(sourceKey("P-1", "crew")) === undefined || whereOf(store, "P-1", "crew").size === 0).toBe(true);
     });
 });

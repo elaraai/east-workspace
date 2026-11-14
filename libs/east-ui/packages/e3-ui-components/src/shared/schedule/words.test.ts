@@ -3,11 +3,12 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  *
  * The schedule builders' shared words: a count and what it counts, a
- * dimming builder's words for a row its narrowing leaves out, and what a
+ * dimming builder's words for a row its narrowing leaves out, what a line
+ * says of a row that stands on one its page does not hold, and what a
  * refusal says of a kind its page's scope holds only some rows of.
  */
 import { describe, expect, test } from "vitest";
-import { dimmedWords, hiddenByText, plural, unheldByScopeText, type DimmedWords } from "./words.js";
+import { dimmedWords, hiddenByText, notOnPageText, plural, unheldByScopeText, type DimmedWords } from "./words.js";
 
 describe("plural — a count and what it counts", () => {
     test("one is the word itself, any other count its English plural — never the word with an s put after it: `1 gap`, `4 breaches`", () => {
@@ -31,6 +32,24 @@ describe("dimmedWords — a dimming builder's words, as the hidden pick's line t
         expect(words.hiddenBy({ filters: ["Status: Ready"], also: [] })).toBe("dimmed by Status: Ready — picking it clears that filter");
         expect(words.hiddenBy({ filters: ["Status: Ready", "Owner: Harbour Labs"], also: ["Hall: A"] }))
             .toBe("dimmed by Status: Ready; Owner: Harbour Labs — picking it clears those filters, and Hall: A with them");
+    });
+});
+
+describe("notOnPageText — a line's words for a row that stands on one its page's scope does not hold (#1621)", () => {
+    test("the row itself is not on this page; what it stands on is named as the builder names it, one or several", () => {
+        expect(notOnPageText([])).toBe("not on this page");
+        expect(notOnPageText(["crew"])).toBe("its crew is not on this page");
+        expect(notOnPageText(["lane", "arrival"])).toBe("its lane and arrival are not on this page");
+    });
+
+    test("after the choices that hide it too, which a pick still clears", () => {
+        expect(notOnPageText(["crew"], hiddenByText(["Status: Ready"], [])))
+            .toBe("hidden by Status: Ready — picking it clears that filter; its crew is not on this page");
+    });
+
+    test("of the page alone it names no filter and no Clear: a scope is no choice of the viewer's", () => {
+        expect(notOnPageText(["crew"])).not.toMatch(/filter|clear|hidden|rail/i);
+        expect(notOnPageText([])).not.toMatch(/filter|clear|hidden|rail/i);
     });
 });
 

@@ -660,8 +660,10 @@ function CalendarFrame(props: HostProps) {
         const keys = followed.get(kind.key)?.shown.keys;
         return keys === undefined ? [] : [[kind.key, keys] as const];
     })), [value.resources, followed]);
+    // Each resource kind's name as a line writes it: what an event stands on where the kind's source's page does not hold it.
+    const resourceWords = useMemo(() => new Map(value.resources.map(kind => [kind.key, lowerWord(kind.name)] as const)), [value.resources]);
     const finder = useCalendarFind({ kinds: value.events, parts: dates.eventParts, editing, range, format: words, onPick: found, held: cellRows, picks,
-        resourcesShown, laysResources });
+        resourcesShown, laysResources, resourceWords });
     const search = useMemo(() => (finder === undefined ? undefined : hiddenPick.search(finder)), [finder, hiddenPick]);
     // The field an issue or a warning gone to names, asked of its event's form: it takes the keyboard as the form draws it,
     // and so comes into view (`../shared/schedule/field-ask.tsx`).

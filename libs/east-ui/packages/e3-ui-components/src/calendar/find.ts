@@ -146,18 +146,23 @@ export interface CalendarFindProps {
      * resource's source hides is hidden; the time grids, the month and the agenda narrow no event by its resource.
      */
     readonly laysResources: boolean;
+    /**
+     * Each resource kind's name as running text writes it, by its slot: what a line says an event stands on where the
+     * kind's source's page does not hold it (#1621) — `its crew is not on this page`.
+     */
+    readonly resourceWords: ReadonlyMap<string, string>;
 }
 
 /**
  * Search Records' source, for the shared key search's toolbar item (see the module docs).
  *
  * @param props - The kinds and their parts, the editing, the window, the words, the pick, the hidden picks, what each
- *   resource kind's source shows and the layout
+ *   resource kind's source shows, the layout and the resource kinds' names
  * @returns The source; `undefined` with no event kind to seek
  */
-export function useCalendarFind({ kinds, parts, editing, range, format, onPick, held, picks, resourcesShown, laysResources }: CalendarFindProps): KeySearchSource | undefined {
-    const latest = useRef({ editing, range, format, onPick, held, picks, resourcesShown, laysResources });
-    useLayoutEffect(() => { latest.current = { editing, range, format, onPick, held, picks, resourcesShown, laysResources }; });
+export function useCalendarFind({ kinds, parts, editing, range, format, onPick, held, picks, resourcesShown, laysResources, resourceWords }: CalendarFindProps): KeySearchSource | undefined {
+    const latest = useRef({ editing, range, format, onPick, held, picks, resourcesShown, laysResources, resourceWords });
+    useLayoutEffect(() => { latest.current = { editing, range, format, onPick, held, picks, resourcesShown, laysResources, resourceWords }; });
     const sources = useMemo(() => kinds.flatMap((kind): SoughtSource<Listed>[] => {
         const draftsOf = () => latest.current.editing?.drafts.get(kind.key) ?? EMPTY_SCHEDULE_DRAFTS;
         const part = parts.find(p => keyEqual(p.kind.key, kind.key))?.part;
@@ -202,7 +207,7 @@ export function useCalendarFind({ kinds, parts, editing, range, format, onPick, 
         // Where the layout lays resources out, an event its resource's source hides is drawn nowhere: of the resources the
         // listed events stand on, those a source hides, each standing on the event's resource there.
         hidings: async (events): Promise<readonly (readonly RowHiding[])[]> => {
-            const { picks: sourcePicks, resourcesShown: shown, laysResources: lays } = latest.current;
+            const { picks: sourcePicks, resourcesShown: shown, laysResources: lays, resourceWords: named } = latest.current;
             if (!lays) return events.map(() => []);
             // The resources each source narrows that the listed events are drawn on, each once.
             const standing = new Map<string, string[]>();
@@ -222,7 +227,7 @@ export function useCalendarFind({ kinds, parts, editing, range, format, onPick, 
                 const resource = laidOn(item);
                 const hiding = resource === undefined ? undefined : hides.get(resource.kind);
                 return resource === undefined || hiding === undefined || !hiding.hidden.some(key => keyEqual(key, resource.key)) ? []
-                    : [{ pick: hiding.pick, id: resource.key }];
+                    : [{ pick: hiding.pick, id: resource.key, what: named.get(resource.kind) }];
             });
         },
         // And lists its lines again as e3 says what hides an event, as a source's choices move, as what a resource kind's

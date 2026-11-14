@@ -9,9 +9,11 @@
  * row the rail's narrowing hides (`hidden.ts`): what a builder's message table
  * gives its line ({@link HiddenWords}) and their English — hidden by the
  * choices, or dimmed by them where the narrowing draws the row as context
- * ({@link dimmedWords}) — and what a refusal says of a kind its page's scope
- * holds only some rows of ({@link unheldByScopeText}) — here, with no DOM to
- * load, so a builder's message table that says them loads with none.
+ * ({@link dimmedWords}), or not on this page, where its page's scope does not
+ * hold what it stands on ({@link notOnPageText}) — and what a refusal says of
+ * a kind its page's scope holds only some rows of ({@link unheldByScopeText})
+ * — here, with no DOM to load, so a builder's message table that says them
+ * loads with none.
  *
  * @packageDocumentation
  */
@@ -92,6 +94,12 @@ export interface HiddenWords {
      * Status: Ready — picking it clears that filter` ({@link hiddenByText} in English).
      */
     readonly hiddenBy: (p: { readonly filters: readonly string[]; readonly also: readonly string[] }) => string;
+    /**
+     * Of a row that stands on one its page's scope does not hold (#1621): what it stands on is not on this page — `its
+     * crew is not on this page` — after what the viewer's choices hide of it, where they hide it too (`hidden`). A
+     * table that words none says the shared English ({@link notOnPageText}).
+     */
+    readonly notOnPage?: ((p: { readonly what: readonly string[]; readonly hidden: string | undefined }) => string) | undefined;
 }
 
 /**
@@ -111,6 +119,23 @@ export function hiddenByText(filters: readonly string[], also: readonly string[]
     const one = filters.length === 1;
     const extra = also.length === 0 ? "" : `, and ${also.join("; ")} with ${one ? "it" : "them"}`;
     return `${verb} by ${filters.join("; ")} — picking it clears ${one ? "that filter" : "those filters"}${extra}`;
+}
+
+/**
+ * The English of a row that stands on one its page's scope does not hold
+ * (#1621): `not on this page` of the row itself; `its crew is not on this
+ * page` of what it stands on, as the builder names it; and after the choices
+ * that hide it too, `hidden by Status: Ready — picking it clears that filter;
+ * its crew is not on this page`. A scope is no choice of the viewer's: the
+ * words name no filter of it, and nothing a pick clears.
+ *
+ * @param what - What the row stands on that the page does not hold, as running text names it; none for the row itself
+ * @param hidden - What the viewer's choices hide of it, as its line says it ({@link hiddenByText}); `undefined` where none does
+ * @returns The words
+ */
+export function notOnPageText(what: readonly string[], hidden?: string): string {
+    const off = what.length === 0 ? "not on this page" : `its ${joinedWords(what, "and")} ${what.length === 1 ? "is" : "are"} not on this page`;
+    return hidden === undefined ? off : `${hidden}; ${off}`;
 }
 
 /**
