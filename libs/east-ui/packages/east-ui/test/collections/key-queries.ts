@@ -9,15 +9,8 @@
  * grammar's ranges, and the record Slice's search of a scoped page (#1621).
  */
 
-import { printFor, toEastTypeValue, type EastType, type EastTypeValue } from "@elaraai/east";
-import { flattenKeyLeaves, type DatasetKeyQuery } from "@elaraai/east-ui/internal";
-
-/** The value at a flattened field path. */
-function leafAt(key: unknown, path: readonly string[]): unknown {
-    let value = key;
-    for (const segment of path) value = (value as Record<string, unknown>)[segment];
-    return value;
-}
+import { keyLeafAt, keyLeaves, printFor, toEastTypeValue, type EastType, type EastTypeValue } from "@elaraai/east";
+import type { DatasetKeyQuery } from "@elaraai/east-ui/internal";
 
 /** A String's prefixes by code point, the empty one and itself among them. */
 function prefixesOf(text: string): string[] {
@@ -37,8 +30,8 @@ function prefixesOf(text: string): string[] {
  */
 export function queriesOf(type: EastType, probes: readonly unknown[]): DatasetKeyQuery[] {
     const typeValue = toEastTypeValue(type);
-    const leaves = flattenKeyLeaves(typeValue);
-    const leafLiterals = (key: unknown): string[] => leaves.map((leaf) => printFor(leaf.type)(leafAt(key, leaf.path) as never));
+    const leaves = keyLeaves(typeValue);
+    const leafLiterals = (key: unknown): string[] => leaves.map((leaf) => printFor(leaf.type)(keyLeafAt(key, leaf.path) as never));
     const queries: DatasetKeyQuery[] = [];
     for (const [n, key] of probes.entries()) {
         queries.push({ key: printFor(typeValue)(key as never) });

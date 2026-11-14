@@ -18,7 +18,7 @@
  * @packageDocumentation
  */
 
-import { compareFor, parseFor, some, type EastTypeValue, type option } from '@elaraai/east';
+import { compareFor, keyAtOrPast, keyLeaves, parseFor, some, type EastTypeValue, type option } from '@elaraai/east';
 import type { DatasetSegments, StorageBackend } from '@elaraai/e3-core/portable';
 import { decodedSegments, firstWhere } from './segments.js';
 
@@ -75,60 +75,6 @@ export interface KeySearchTarget {
   keysNoun: string;
 }
 
-/** One leaf of a key type, and the field path that reaches it. */
-interface KeyField {
-  path: string[];
-  type: EastTypeValue;
-}
-
-/**
- * A key type's leaves, in declaration order, recursing into nested structs.
- *
- * @remarks
- * Struct keys compare field by field in declaration order, so this flattening
- * IS the key's sort order — which is what makes a bound on a leading prefix of
- * it one contiguous row range. A scalar key flattens to one leaf with an empty
- * path.
- */
-function flattenKeyFields(keyType: EastTypeValue): KeyField[] {
-  if (keyType.type !== 'Struct') return [{ path: [], type: keyType }];
-  const out: KeyField[] = [];
-  for (const field of keyType.value as { name: string; type: EastTypeValue }[]) {
-    for (const leaf of flattenKeyFields(field.type)) {
-      out.push({ path: [field.name, ...leaf.path], type: leaf.type });
-    }
-  }
-  return out;
-}
-
-/** The value at a flattened field path. */
-function fieldAt(key: unknown, path: string[]): unknown {
-  let value = key;
-  for (const segment of path) value = (value as Record<string, unknown>)[segment];
-  return value;
-}
-
-/**
- * A monotone "is this key at or past the bound?" predicate over a leading
- * prefix of the flattened key.
- *
- * @remarks
- * Monotone over the canonical key order because it reads only the leading
- * fields, which are exactly the ones the order sorts by first — so one fence
- * bisect finds its boundary row, and a pair of them bound one contiguous
- * range.
- */
-function boundPredicate(leaves: KeyField[], values: unknown[]): (key: unknown) => boolean {
-  const comparators = leaves.slice(0, values.length).map((leaf) => compareFor(leaf.type as never) as (a: unknown, b: unknown) => number);
-  return (key) => {
-    for (let i = 0; i < values.length; i++) {
-      const order = comparators[i]!(fieldAt(key, leaves[i]!.path), values[i]);
-      if (order !== 0) return order > 0;
-    }
-    return true; // equal on the prefix: at the bound, so past it
-  };
-}
-
 /**
  * Compiles a key search against a collection: its bounds, or why it cannot be
  * searched.
@@ -157,10 +103,11 @@ export function compileKeySearch(query: KeySearchQuery, target: KeySearchTarget)
     return { type: 'bad_request', message: 'Pass a key literal, or a prefix and/or leading fields, or a from/to range — exactly one form' };
   }
 
-  // The range form's bounds are leading prefixes of the FLATTENED key, which
-  // is the order the collection is sorted in, so each bounds one contiguous
-  // row range.
-  const leaves = flattenKeyFields(keyTypeValue);
+  // The range form's bounds are leading parts of the key — its first leaves,
+  // in the order the collection is sorted in — so each bounds one contiguous
+  // row range. The rule is East's own (`keyLeaves`, `keyAtOrPast`, #1616): the
+  // one an East function's `range` reads by.
+  const leaves = keyLeaves(keyTypeValue);
   const parseBound = (label: string, literals: string[] | undefined): { values: unknown[] } | KeySearchRefusal => {
     if (literals === undefined || literals.length === 0) return { values: [] };
     if (literals.length > leaves.length) {
@@ -252,8 +199,8 @@ export function compileKeySearch(query: KeySearchQuery, target: KeySearchTarget)
     const hasLower = query.from !== undefined && query.from.length > 0;
     const hasUpper = query.to !== undefined && query.to.length > 0;
     const bounds = [
-      ...(hasLower ? [boundPredicate(leaves, lowerBound.values)] : []),
-      ...(hasUpper ? [boundPredicate(leaves, upperBound.values)] : []),
+      ...(hasLower ? [keyAtOrPast(leaves, lowerBound.values)] : []),
+      ...(hasUpper ? [keyAtOrPast(leaves, upperBound.values)] : []),
     ];
     return {
       bounds,

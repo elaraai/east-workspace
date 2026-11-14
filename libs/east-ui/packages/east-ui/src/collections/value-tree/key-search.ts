@@ -25,8 +25,8 @@
  */
 
 import {
-    compareFor, none, parseFor, printFor, some, StringType, variant,
-    type EastTypeValue, type ValueTypeOf,
+    compareFor, keyAtOrPast, keyLeafAt, keyLeaves, none, parseFor, printFor, some, StringType, variant,
+    type EastTypeValue, type KeyLeaf, type ValueTypeOf,
 } from "@elaraai/east";
 import type { SeekQueryType } from "../../contracts/source.js";
 
@@ -259,7 +259,7 @@ function rangeHint(leaves: readonly KeyLeaf[]): string {
 /** A `from..to` search input as a range query, or the hint to display. A
  *  range open at both ends names no run, so it is a hint as well. */
 function parseRangeInput(keyType: EastTypeValue, bounds: { from: string; to: string }): ParsedKeyInput {
-    const leaves = flattenKeyLeaves(keyType);
+    const leaves = keyLeaves(keyType);
     const from = parseBound(leaves, bounds.from);
     const to = parseBound(leaves, bounds.to);
     if (from === null || to === null || (from.length === 0 && to.length === 0)) {
@@ -274,48 +274,20 @@ function parseRangeInput(keyType: EastTypeValue, bounds: { from: string; to: str
 /** Predicates that match no key — a defensively-handled malformed query. */
 const MATCH_NOTHING = { lower: () => false, upper: () => false } as const;
 
-/** One leaf of a key type, and the field path that reaches it. */
-interface KeyLeaf {
-    path: string[];
-    type: EastTypeValue;
-}
-
-/**
- * A key type's leaves, in declaration order, recursing into nested structs —
- * the client's mirror of the server's flattening.
- *
- * @remarks
- * Struct keys compare field by field in declaration order, so this flattening
- * IS the key's sort order, which is what makes a bound on a leading prefix of
- * it one contiguous run. An index entry's `{ik: {status, due}, k}` flattens to
- * `status, due, k`, so a bound of two values bounds the index key.
- *
- * @param keyType - the collection's Dict key / Set element type
- * @returns the leaves, in sort order
- */
-export function flattenKeyLeaves(keyType: EastTypeValue): KeyLeaf[] {
-    if (keyType.type !== "Struct") return [{ path: [], type: keyType }];
-    const out: KeyLeaf[] = [];
-    for (const field of keyType.value as { name: string; type: EastTypeValue }[]) {
-        for (const leaf of flattenKeyLeaves(field.type)) {
-            out.push({ path: [field.name, ...leaf.path], type: leaf.type });
-        }
-    }
-    return out;
-}
-
-/** The value at a flattened field path. */
-function leafAt(key: unknown, path: string[]): unknown {
-    let value = key;
-    for (const segment of path) value = (value as Record<string, unknown>)[segment];
-    return value;
-}
-
 /**
  * A monotone "is this key at or past the bound?" predicate over a leading
- * prefix of the flattened key, or `null` when the bound does not parse.
+ * part of the key, read from the bound's `.east` literals, or `null` when the
+ * bound does not parse.
+ *
+ * @remarks
+ * A key's leaves and the test itself are East's own (`keyLeaves`,
+ * `keyAtOrPast`, #1616): the rule the server's key search and an East
+ * function's `range` read by too. Struct keys compare field by field in
+ * declaration order, so the leaves in order ARE the key's sort order: an index
+ * entry's `{ik: {status, due}, k}` has the leaves `status, due, k`, so a bound
+ * of two values bounds the index key.
  */
-function boundPredicate(leaves: KeyLeaf[], literals: readonly string[]): ((key: unknown) => boolean) | null {
+function boundPredicate(leaves: readonly KeyLeaf[], literals: readonly string[]): ((key: unknown) => boolean) | null {
     if (literals.length > leaves.length) return null;
     const values: unknown[] = [];
     for (let i = 0; i < literals.length; i++) {
@@ -323,14 +295,7 @@ function boundPredicate(leaves: KeyLeaf[], literals: readonly string[]): ((key: 
         if (!parsed.success) return null;
         values.push(parsed.value);
     }
-    const comparators = leaves.slice(0, values.length).map((leaf) => compareFor(leaf.type));
-    return (key) => {
-        for (let i = 0; i < values.length; i++) {
-            const order = comparators[i]!(leafAt(key, leaves[i]!.path), values[i]);
-            if (order !== 0) return order > 0;
-        }
-        return true; // equal on the prefix: at the bound, so past it
-    };
+    return keyAtOrPast(leaves, values);
 }
 
 /**
@@ -352,7 +317,7 @@ export function keyRangePredicates(keyType: EastTypeValue, query: DatasetKeyQuer
         // A half-open bound on the FLATTENED key, which is what a time window
         // or a status band asks for — and what the other forms cannot say,
         // since they all pin a leading prefix to ONE value.
-        const leaves = flattenKeyLeaves(keyType);
+        const leaves = keyLeaves(keyType);
         const lower = boundPredicate(leaves, query.from ?? []);
         const upper = boundPredicate(leaves, query.to ?? []);
         if (lower === null || upper === null) return MATCH_NOTHING;
@@ -472,7 +437,7 @@ export function toSeekQuery(query: DatasetKeyQuery): SeekQueryValue {
 
 /**
  * A key query as one half-open range over the key's flattened leaves
- * ({@link flattenKeyLeaves}), in the `.east` literals a `range` seek takes.
+ * (East's `keyLeaves`), in the `.east` literals a `range` seek takes.
  *
  * @property from - The literals of the leading leaves the range starts at: its
  *   first key is the first at or past them. Empty, the order's start.
@@ -518,7 +483,7 @@ export interface KeyQueryRange {
  *   the part, since a range of them is searched instead
  */
 export function keyQueryRange(keyType: EastTypeValue, query: DatasetKeyQuery): KeyQueryRange | null {
-    const leaves = flattenKeyLeaves(keyType);
+    const leaves = keyLeaves(keyType);
     if ("from" in query || "to" in query) {
         const from = query.from ?? [];
         const to = query.to ?? [];
@@ -572,9 +537,9 @@ function readsAt(leaves: readonly KeyLeaf[], literals: readonly string[]): boole
     return literals.length <= leaves.length && literals.every((literal, i) => parseFor(leaves[i]!.type)(literal).success);
 }
 
-/** A value's leaves at a type, in the order {@link flattenKeyLeaves} lists them. */
+/** A value's leaves at a type, in the order East's `keyLeaves` lists them. */
 function leafValuesOf(type: EastTypeValue, value: unknown): unknown[] {
-    return flattenKeyLeaves(type).map((leaf) => leafAt(value, leaf.path));
+    return keyLeaves(type).map((leaf) => keyLeafAt(value, leaf.path));
 }
 
 /** Leading leaves' values as `.east` literals. */
