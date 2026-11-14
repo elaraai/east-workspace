@@ -53,7 +53,27 @@ compile the server's dependencies excluding rack, then build the full graph.
 
 ## Wire protocol
 
-Typed control and rack requests use BEAST2 and normal response envelopes.
+Typed control and rack requests are BEAST2, and a success is the BEAST2 of the
+route's own response type, with no envelope. No reply holds a type of e3's
+HTTP API: its error variant changes between releases, a rack serves the hubs
+of several, a hub the e3 of several projects, and BEAST2 reads a blob only as
+the type its header names, so an envelope made every reply unreadable across
+releases. A refusal of the rack machine protocol is a status, which says
+whether the same request is worth sending again, and JSON
+(`{ error: { code, message, retryAfterMs? } }`); the hub's control socket and
+a session's data socket refuse with a status and plain text.
+
+The rack machine protocol is numbered (`RACK_PROTOCOL`, 3). Every request
+names it in `x-e3-rack-protocol`; one that names another, or none, is answered
+426 before its body is read, the hub's log names its rack once, and
+`e3 rack list` shows why it cannot be used. `GET /api/rack/hello` answers the
+protocol, the e3 release and the source's limits in JSON before any
+credential, so an agent of any protocol reads it and spends no enrollment
+token on a source it cannot speak to. The BEAST2 structs are fixed at a
+protocol; what grows is JSON text inside them, read for the fields a build
+knows: a heartbeat's `report` (features, target platform, resources and what
+is free) and a poll's `offer` (what the poll may be answered with).
+
 Streamed object bodies are raw bytes. Existing `eventJson` and `resultJson`
 remain JSON strings for compatibility with the pinned cloud agent; replacing
 them requires a negotiated protocol change, not silently changing the decoder.
@@ -163,10 +183,13 @@ success/failure/cancellation or failed start, and leave calls/mutations local.
 
 ## Versions and persisted forms
 
-The protocol golden fixtures were generated from e3-cloud's rack protocol.
-Agents advertise `+e3.<release>`; bundled e3 must meet the project's floor. Local control protocol is initially
-1 exactly; no numeric greater-than compatibility assumption is made for
-positional BEAST2 structs.
+The protocol golden fixtures were generated from e3-cloud's rack protocol; rack
+protocol 3 changed two of them, the lease request and the heartbeat, by one
+field of JSON text each.
+Agents advertise `+e3.<release>`; bundled e3 must meet the project's floor. Local control protocol is
+3 exactly; no numeric greater-than compatibility assumption is made for
+positional BEAST2 structs. A hub whose hello does not read at all is one from
+before replies lost their envelope: it is asked to drain, as an older one is.
 
 Task/package/repository object and execution schemas do not change. The new
 policy is repository state, and future incompatible changes need a repository

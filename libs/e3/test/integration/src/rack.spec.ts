@@ -13,7 +13,7 @@ import { East, IntegerType, StringType, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import { LocalStorage, packageImport, repoInit, workspaceCreate, workspaceDeploy } from '@elaraai/e3-core';
 import { E3_RACK_VERSION, HubClient } from '@elaraai/e3-rack';
-import { RackEnrollRequestType, RackEnrollResponseType, RackHeartbeatRequestType, RackHeartbeatResponseType } from '@elaraai/e3-rack/protocol';
+import { RACK_PROTOCOL, RackEnrollRequestType, RackEnrollResponseType, RackHeartbeatRequestType, RackHeartbeatResponseType } from '@elaraai/e3-rack/protocol';
 import { TestRackAgent } from '@elaraai/e3-rack/testing';
 import { runE3Command, spawnE3Command, waitFor, type CliResult } from './helpers.js';
 
@@ -121,9 +121,20 @@ it('shows a fenced worker as unavailable and a resumed worker as ready', async (
   const f = await enrolled();
   await f.agent.post('heartbeat', RackHeartbeatRequestType, {
     healthy: false, freeCapacity: 0n, runningLeases: [], agentVersion: `${E3_RACK_VERSION}+e3.${E3_RACK_VERSION}`,
-    bootId: 'fenced-fixture', cacheBytes: 0n,
+    bootId: 'fenced-fixture', cacheBytes: 0n, report: JSON.stringify({ features: [] }),
   }, RackHeartbeatResponseType);
   assert.match(ok(await f.cli('rack', 'list')), /0\/0\s+.*unavailable/);
+  await f.agent.heartbeat();
+  assert.match(ok(await f.cli('rack', 'list')), /t\s+.*ready/);
+});
+
+it('shows a rack whose agent asks in another rack protocol as incompatible, with what to do, until its agent is updated', async () => {
+  const f = await enrolled();
+  const heartbeat = { healthy: true, freeCapacity: 1n, runningLeases: [], agentVersion: `${E3_RACK_VERSION}+e3.${E3_RACK_VERSION}`,
+    bootId: f.agent.bootId, cacheBytes: 0n, report: JSON.stringify({ features: [] }) };
+  const refused = await f.agent.raw('heartbeat', RackHeartbeatRequestType, heartbeat, RACK_PROTOCOL - 1);
+  assert.equal(refused.status, 426); await refused.arrayBuffer();
+  assert.match(ok(await f.cli('rack', 'list')), new RegExp(`t\\s+.*incompatible: speaks rack protocol ${RACK_PROTOCOL - 1}, not ${RACK_PROTOCOL}; update the rack$`, 'm'));
   await f.agent.heartbeat();
   assert.match(ok(await f.cli('rack', 'list')), /t\s+.*ready/);
 });

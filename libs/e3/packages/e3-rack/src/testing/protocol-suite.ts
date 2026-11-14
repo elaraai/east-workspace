@@ -6,8 +6,8 @@
 import { describe, it, type TestContext } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { BooleanType, StringType, decodeBeast2For, encodeBeast2For, none, some, variant, type EastType, type ValueTypeOf } from '@elaraai/east';
-import { BEAST2_CONTENT_TYPE, ResponseType } from '@elaraai/e3-types';
+import { BooleanType, StringType, decodeBeast2For, encodeBeast2For, isTypeValueEqual, none, readBeast2Type, some, toEastTypeValue, variant, type EastType, type ValueTypeOf } from '@elaraai/east';
+import { BEAST2_CONTENT_TYPE } from '@elaraai/e3-types';
 import { uuidv7 } from '@elaraai/e3-core';
 import type { RackDispatch } from '../lease/rack-dispatch.js';
 import { E3_RACK_VERSION } from '../version.js';
@@ -16,7 +16,8 @@ import { RackEnrollRequestType, RackEnrollResponseType, RackLeaseRequestType, Ra
   RackHeartbeatRequestType, RackHeartbeatResponseType, RackExtendRequestType,
   RackWatchRequestType, RackWatchResponseType, RACK_WATCH_MAX_LEASES,
   RackCompleteRequestType, RackCompleteResponseType, RackStorageRequestType, RackStorageResponseType,
-  RackLogsRequestType, type RackLeaseRef, type RackLeaseResult } from '../protocol/index.js';
+  RackLogsRequestType, RACK_PROTOCOL, RACK_PROTOCOL_HEADER, RACK_TRANSFERS_AT_ONCE, readRackHello, readRackRefusal,
+  type RackLeaseRef, type RackLeaseResult } from '../protocol/index.js';
 
 /** Supplies a fresh real-listener control plane for each protocol case. */
 export interface RackProtocolFixture {
@@ -54,14 +55,28 @@ export function rackProtocolSuite(label: string, setup: () => Promise<RackProtoc
   const fixture = async (t: TestContext) => {
     const f = await setup(); t.after(() => f.teardown());
     const request = f.fetch ?? fetch; const repo = f.repo ?? 'repo';
-    const raw = <T extends EastType>(path: string, type: T, value: ValueTypeOf<T>, token = '') => request(`${f.baseUrl}/api/rack/${path}`, {
-      method: 'POST', headers: { 'content-type': BEAST2_CONTENT_TYPE, authorization: `Bearer ${token}` },
+    // Every request names the protocol, unless a case says which, or none.
+    const raw = <T extends EastType>(path: string, type: T, value: ValueTypeOf<T>, token = '', protocol: string | null = String(RACK_PROTOCOL)) => request(`${f.baseUrl}/api/rack/${path}`, {
+      method: 'POST', headers: { 'content-type': BEAST2_CONTENT_TYPE, authorization: `Bearer ${token}`, ...(protocol === null ? {} : { [RACK_PROTOCOL_HEADER]: protocol }) },
       body: encodeBeast2For(type)(value), signal: AbortSignal.timeout(30000),
     });
+    // A success is the route's own type and nothing around it: its header
+    // names that type exactly, so an agent of any e3 release reads it.
     const success = async <T extends EastType>(response: Response, type: T): Promise<ValueTypeOf<T>> => {
       assert.equal(response.status, 200);
-      const value = decodeBeast2For(ResponseType(type))(new Uint8Array(await response.arrayBuffer()));
-      assert(value.type === 'success'); return value.value;
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      assert(isTypeValueEqual(readBeast2Type(bytes), toEastTypeValue(type)), 'the reply is the route\'s type, bare');
+      return decodeBeast2For(type)(bytes);
+    };
+    // A refusal is a status and JSON: why, in a word and in words.
+    const refusal = async (response: Response, status: number, code: string): Promise<string> => {
+      assert.equal(response.status, status);
+      assert.match(response.headers.get('content-type') ?? '', /^application\/json/);
+      const body = readRackRefusal(await response.text());
+      assert(body !== null, 'the refusal\'s body is one');
+      assert.equal(body.code, code);
+      assert.notEqual(body.message, '');
+      return body.message;
     };
     const enroll = async (enrollmentToken?: string, ready = true) => {
       const enrolled = await success(await raw('enroll', RackEnrollRequestType, {
@@ -70,9 +85,11 @@ export function rackProtocolSuite(label: string, setup: () => Promise<RackProtoc
       if (ready) await success(await heartbeat(enrolled.rackToken), RackHeartbeatResponseType);
       return enrolled;
     };
-    const claim = (token: string) => raw('lease', RackLeaseRequestType, { tiers: ['node'], bootId: 'contract-boot' }, token);
+    const offer = JSON.stringify({ cores: 1, memoryBytes: 2 ** 40, gpus: 0 });
+    const claim = (token: string) => raw('lease', RackLeaseRequestType, { tiers: ['node'], bootId: 'contract-boot', offer }, token);
     const heartbeat = (token: string, runningLeases: RackLeaseRef[] = []) => raw('heartbeat', RackHeartbeatRequestType, {
       healthy: true, freeCapacity: 1n, runningLeases, bootId: 'contract-boot', cacheBytes: 0n, agentVersion: `0.5.0+e3.${E3_RACK_VERSION}`,
+      report: JSON.stringify({ features: [] }),
     }, token);
     const create = async () => {
       const hash = await f.seedObject(repo, encodeBeast2For(StringType)('input'));
@@ -81,9 +98,42 @@ export function rackProtocolSuite(label: string, setup: () => Promise<RackProtoc
     };
     const complete = (token: string, leaseId: string, result: RackLeaseResult = { taskName: 'contract', status: 'failed', state: 'failed', exitCode: 1 }) =>
       raw('complete', RackCompleteRequestType, { repo, leaseId, resultJson: JSON.stringify(result), outputUploadId: none, inlineOutput: none }, token);
-    return { ...f, repo, request, raw, success, enroll, claim, heartbeat, create, complete };
+    return { ...f, repo, request, raw, success, refusal, enroll, claim, heartbeat, create, complete };
   };
   void describe(`rack protocol (${label})`, () => {
+    void it('says what it speaks to anyone who asks, in JSON, before any credential', async (t) => {
+      const f = await fixture(t);
+      const response = await f.request(`${f.baseUrl}/api/rack/hello`);
+      assert.equal(response.status, 200);
+      assert.match(response.headers.get('content-type') ?? '', /^application\/json/);
+      assert.deepEqual(readRackHello(await response.text()), { protocol: RACK_PROTOCOL, e3: E3_RACK_VERSION, limits: { transfersAtOnce: RACK_TRANSFERS_AT_ONCE } });
+    });
+    void it('refuses a request that names another protocol, or none, before its body is read, and spends no enrolment token on it', async (t) => {
+      const f = await fixture(t); const token = await f.mintEnrollmentToken();
+      const host = { label: 'contract', tiers: ['node'], capacity: 1n, agentVersion: `0.5.0+e3.${E3_RACK_VERSION}` };
+      for (const protocol of [null, '2', '4', 'three']) {
+        const message = await f.refusal(await f.raw('enroll', RackEnrollRequestType, { enrollmentToken: token, hostInfo: host }, '', protocol), 426, 'upgrade-required');
+        assert.match(message, new RegExp(`speaks rack protocol ${RACK_PROTOCOL}`));
+      }
+      const a = await f.enroll(token);
+      // A credential that is good does not excuse the protocol: the body, here
+      // one no route could read, is not looked at.
+      await f.refusal(await f.raw('heartbeat', StringType, 'not a heartbeat', a.rackToken, null), 426, 'upgrade-required');
+      await f.refusal(await f.raw('lease', StringType, 'not a poll', a.rackToken, '2'), 426, 'upgrade-required');
+      // The credential comes first: a stranger is not told what is spoken here.
+      await f.refusal(await f.raw('heartbeat', StringType, 'not a heartbeat', 'e3rk_bad', null), 401, 'unauthorized');
+    });
+    void it('refuses with a status and a reason in JSON: a body it cannot read, a lease that is not the caller\'s, a report or an offer that is not one', async (t) => {
+      const f = await fixture(t); const a = await f.enroll(); const b = await f.enroll(); const lease = await f.create();
+      await f.refusal(await f.raw('heartbeat', StringType, 'not a heartbeat', a.rackToken), 400, 'invalid-request');
+      await f.refusal(await f.raw('heartbeat', RackHeartbeatRequestType, { healthy: true, freeCapacity: 1n, runningLeases: [], bootId: 'contract-boot',
+        cacheBytes: 0n, agentVersion: `0.5.0+e3.${E3_RACK_VERSION}`, report: '{"features":"resources"}' }, a.rackToken), 400, 'invalid-request');
+      await f.refusal(await f.raw('lease', RackLeaseRequestType, { tiers: ['node'], bootId: 'contract-boot', offer: 'everything' }, a.rackToken), 400, 'invalid-request');
+      await f.success(await f.claim(a.rackToken), RackLeaseGrantType);
+      const storage = { repo: f.repo, leaseId: lease.leaseId, need: [], output: none, envManifest: none, outputs: [], commits: [] };
+      await f.refusal(await f.raw('storage', RackStorageRequestType, storage, b.rackToken), 403, 'forbidden');
+      await f.refusal(await f.raw('storage', RackStorageRequestType, { ...storage, envManifest: some('e'.repeat(64)) }, a.rackToken), 403, 'forbidden');
+    });
     void it('consumes enrollment once and refuses missing or bad machine credentials', async (t) => {
       const f = await fixture(t); const token = await f.mintEnrollmentToken(); await f.enroll(token);
       await assert.rejects(f.enroll(token));

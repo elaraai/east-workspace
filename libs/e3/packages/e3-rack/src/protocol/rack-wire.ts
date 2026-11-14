@@ -8,6 +8,11 @@
  * exchanged between a rack agent and the deployment's /api/rack endpoints.
  * Shared by the server routes (e3-cloud-core), the HTTP client, and the
  * rack agent, so the shapes live here beside the delegation types.
+ *
+ * A request's body and a success's are the BEAST2 of the route's own type,
+ * with no envelope; a refusal is a status and JSON (`rack-json.ts`). No body
+ * holds a type of e3's HTTP API, whose error variant changes between
+ * releases.
  */
 
 import {
@@ -72,11 +77,14 @@ export type RackLeaseRef = ValueTypeOf<typeof RackLeaseRefType>;
  * matching any of the agent's tiers. `bootId` declares WHICH process
  * lifetime is asking: under `requireStartApproval` only the approved boot
  * receives grants, checked against the request itself so no heartbeat
- * ordering can leak a lease to an unapproved restart (D12, #90).
+ * ordering can leak a lease to an unapproved restart (D12, #90). `offer` is
+ * what the poll may be answered with, as JSON (`RackOffer`, `rack-json.ts`):
+ * the cores, memory and GPUs the rack holds back for it.
  */
 export const RackLeaseRequestType = StructType({
   tiers: ArrayType(StringType),
   bootId: StringType,
+  offer: StringType,
 });
 export type RackLeaseRequest = ValueTypeOf<typeof RackLeaseRequestType>;
 
@@ -106,11 +114,14 @@ export type RackLeaseGrant = ValueTypeOf<typeof RackLeaseGrantType>;
  * is what the agent's object cache holds after its last collection, which
  * it runs after every lease and every 10 minutes; the cloud keeps none of
  * it yet (a registration is a stored value: its shape grows only with a
- * migration).
+ * migration). `report` is what the rack is and has, as JSON (`RackReport`,
+ * `rack-json.ts`): its features, the platform it runs environments on, its
+ * resources and what of them is free.
  *
- * The machine protocol evolves IN PLACE (pre-GA): a deployment and its
- * racks update together. #80's drift check is the planned skew answer —
- * a too-old binary gets "update required", never shape negotiation.
+ * These structs are fixed at rack protocol 3 (`RACK_PROTOCOL`): a rack serves
+ * sources of several e3 releases, so what grows from here is JSON — the
+ * report, a poll's offer, a lease's event and result, a refusal's body — and
+ * a pair that speaks different protocols refuses each other once, by name.
  */
 export const RackHeartbeatRequestType = StructType({
   healthy: BooleanType,
@@ -119,6 +130,7 @@ export const RackHeartbeatRequestType = StructType({
   agentVersion: StringType,
   bootId: StringType,
   cacheBytes: IntegerType,
+  report: StringType,
 });
 export type RackHeartbeatRequest = ValueTypeOf<typeof RackHeartbeatRequestType>;
 

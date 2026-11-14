@@ -11,9 +11,10 @@ import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { Hono } from 'hono';
-import { some, variant } from '@elaraai/east';
+import { encodeBeast2For, some, variant } from '@elaraai/east';
+import { BEAST2_CONTENT_TYPE, ResponseType } from '@elaraai/e3-types';
 import { LocalStorage, repoInit, uuidv7 } from '@elaraai/e3-core';
-import { sendSuccess } from '../server/beast2.js';
+import { answer } from '../server/beast2.js';
 import { connectHub, RackHubOutdatedError, RackHubUnavailableError } from './connect.js';
 import { HubClient } from './hub-client.js';
 import { RackSession } from './session.js';
@@ -110,8 +111,8 @@ it('drains an older protocol, refuses a newer one and leaves its sessions alone'
   const path = await home();
   let protocol = BigInt(HUB_PROTOCOL) - 1n; let drains = 0;
   const app = new Hono();
-  app.post('/v1/hello', () => sendSuccess(HubHelloType, { version: '1.0.0', protocol, pid: BigInt(process.pid), draining: false }));
-  app.post('/v1/drain', () => { drains++; return sendSuccess(EmptyType, {}); });
+  app.post('/v1/hello', () => answer(HubHelloType, { version: '1.0.0', protocol, pid: BigInt(process.pid), draining: false }));
+  app.post('/v1/drain', () => { drains++; return answer(EmptyType, {}); });
   const server = await serveOnSocket(app, hubSocketPath(path));
   cleanup.push(() => closeSocketServer(server, hubSocketPath(path)));
   await assert.rejects(connectHub({ home: path }), (err: unknown) => err instanceof RackHubOutdatedError && /older.*exit once idle/.test(err.message));
@@ -119,6 +120,23 @@ it('drains an older protocol, refuses a newer one and leaves its sessions alone'
   protocol = BigInt(HUB_PROTOCOL) + 1n;
   await assert.rejects(connectHub({ home: path }), (err: unknown) => err instanceof RackHubOutdatedError && /newer/.test(err.message));
   assert.equal(drains, 1);
+});
+
+it('drains a hub from before replies lost their envelope, whose hello it cannot read, and says how to replace it', async () => {
+  const path = await home();
+  let drains = 0;
+  // Such a hub answers every route inside e3's HTTP response type.
+  const enveloped = (bytes: Uint8Array) => new Response(bytes, { headers: { 'Content-Type': BEAST2_CONTENT_TYPE } });
+  const app = new Hono();
+  app.post('/v1/hello', () => enveloped(encodeBeast2For(ResponseType(HubHelloType))(variant('success',
+    { version: '1.0.107', protocol: BigInt(HUB_PROTOCOL) - 1n, pid: BigInt(process.pid), draining: false }))));
+  app.post('/v1/drain', () => { drains++; return enveloped(encodeBeast2For(ResponseType(EmptyType))(variant('success', {}))); });
+  const server = await serveOnSocket(app, hubSocketPath(path));
+  cleanup.push(() => closeSocketServer(server, hubSocketPath(path)));
+  await assert.rejects(connectHub({ home: path }), (err: unknown) => err instanceof RackHubOutdatedError
+    && /cannot read its replies/.test(err.message) && /exit once idle — run `e3 rack stop` with that e3/.test(err.message));
+  assert.equal(drains, 1, 'the older hub is asked to drain, though its answer is not read');
+  assert.deepEqual(await spawnedHubs(path), [], 'no hub is spawned beside one that is running');
 });
 
 it('delivers claim, log tee and terminal outcome in order, then removes its session data socket', async () => {

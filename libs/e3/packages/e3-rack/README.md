@@ -309,10 +309,13 @@ e3 rack stop                           # stop the shared hub
 ```
 
 Hub state lives under `~/.e3/rack` (override with `E3_RACK_HOME`). The rack
-listener is off until configured. A running hub and client must have compatible
-control schemas (currently protocol 2 exactly); incompatible clients receive
-an explicit diagnostic. Agents must report a bundled e3 version at least as
-new as the project's. Stop and restart the hub after an incompatible upgrade.
+listener is off until configured. A running hub and the e3 that calls it speak
+the same control protocol (3) exactly. A hub that an older e3 started is asked
+to exit once idle, and the run that found it runs locally this time; `e3 rack
+stop` with that e3, or ending its process, replaces it now. Agents must report
+a bundled e3 version at least as new as the project's, and speak the hub's rack
+protocol ([below](#rack-protocol)): `e3 rack list` shows one that does not as
+`incompatible: speaks rack protocol 2, not 3; update the rack`.
 
 A hub that `e3 dataflow run` starts exits after 15 idle minutes, while a run
 waits up to 10 seconds for an enrolled rack to report healthy and fixes its
@@ -395,9 +398,53 @@ are reserved first, and every started operation settles before the lease fence
 is released, including after a failure. Commits stay sequential for distributed
 backends whose transactions condition on the same lease row.
 
+### Rack protocol
+
+An agent and its source speak **rack protocol 3** (`RACK_PROTOCOL`, from the
+protocol entry). A rack serves sources of several e3 releases at once, so
+nothing the two exchange holds a type of e3's HTTP API, whose shapes change
+with a release:
+
+- **Hello.** `GET /api/rack/hello` answers anyone who reaches the listener,
+  before any credential, in JSON: `{ "protocol": 3, "e3": "<release>",
+  "limits": { "transfersAtOnce": 8 } }`. An agent asks it before it spends an
+  enrollment token.
+- **Requests.** Every request names its protocol in the `x-e3-rack-protocol`
+  header and carries the BEAST2 of the route's request type. One that names
+  another protocol, or none, is answered `426 upgrade-required` before its body
+  is read; an enrollment refused this way does not spend its token.
+- **Replies.** A success is status 200 and the BEAST2 of the route's own
+  response type, with no envelope; an idle poll for work is 204.
+- **Refusals.** A status and JSON: `{ "error": { "code", "message",
+  "retryAfterMs"? } }`. The status says whether the same request is worth
+  sending again.
+
+| Status | Means (`code`) | An agent |
+| --- | --- | --- |
+| 400 | The request is malformed (`invalid-request`, `too-many-objects`). | Does not send it again. |
+| 401, 403 | The credential (`unauthorized`), or not this rack's lease or object (`forbidden`). | Does not send it again. |
+| 404 | What was asked for is not there (`environment-not-published`). | Does not send it again. |
+| 408, 413 | The body came too slowly (`timeout`), or is over the route's limit (`too-large`). | Does not send it again as it was. |
+| 422 | The request was read and its content is refused (`output-rejected`, `output-incomplete`); the lease stays claimed. | Puts it right (uploads again, commits what is missing) and completes again. |
+| 426 | Another rack protocol (`upgrade-required`). | Marks the source incompatible. |
+| 503 | The source could not do it now (`source-unavailable`): the repository's session did not answer, or the outcome or the log lines were not stored. | Sends the same request again, with backoff. |
+| Other 5xx | The source's own failure. | Sends the same request again, with backoff. |
+
+What grows travels as JSON text inside the fixed structs, read for the fields
+a build knows and ignoring the rest (`readRackReport`, `readRackOffer`): each
+heartbeat's `report` says what the rack is and has (its `features`, the
+platform it installs environments for, its cores, memory and GPUs and what of
+them is free), and each poll's `offer` says how much the poll may be answered
+with. A lease's event and result were JSON already.
+
+The hub's control socket and a session's data socket answer the same way: the
+BEAST2 of the route's own type, and a refusal as a status with its reason in
+plain text.
+
 This implementation speaks e3-cloud's v2 task/unit leases with per-object
-uploads. The protocol golden fixtures come from e3-cloud's rack protocol, and
-the cancellation-watch fixtures match the companion agent
+uploads. The protocol golden fixtures (`wire-golden.ts`) fix every struct's
+bytes; rack protocol 3 changed the lease request and the heartbeat, by one
+field each, and the cancellation-watch fixtures match the companion agent
 ([e3-cloud #254](https://github.com/elaraai/e3-cloud/pull/254)). The test rack
 agent executes real e3 runners and exercises the transfer path, over TLS with a
 pinned certificate; those tests do not establish KVM or hardware acceptance for

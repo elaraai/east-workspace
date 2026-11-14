@@ -23,12 +23,12 @@ import { socketRequest } from '../client/local-http.js';
 import { startSessionDataServer } from '../client/session-data-server.js';
 import { HUB_CONFIG_FILE, hubSocketPath } from '../paths.js';
 import { E3_RACK_VERSION, HUB_PROTOCOL } from '../version.js';
-import { ResponseType } from '@elaraai/e3-types';
 import { ApproveRackType, AttachLeaseResultType, CancelLeaseResultType, CreateLeaseType, CreateLeaseResultType, EmptyType, HubConfigType,
-  HubEnrollResultType, HubEnrollType, HubStatusType, OpenSessionType, OpenSessionResultType, SessionPollType, SessionPollResultType } from '../protocol/control.js';
+  HubEnrollResultType, HubEnrollType, HubStatusType, OpenSessionType, OpenSessionResultType, RemoveRackResultType, SessionPollType, SessionPollResultType } from '../protocol/control.js';
 import { RackRegistrationType, RackSecurityPolicyType } from '../protocol/registration.js';
 import { RackHeartbeatRequestType, RackHeartbeatResponseType } from '../protocol/rack-wire.js';
-import { TestRackAgent } from '../testing/test-rack-agent.js';
+import { RACK_PROTOCOL, RACK_TRANSFERS_AT_ONCE, readRackHello } from '../protocol/rack-json.js';
+import { TestRackAgent, type TestRackAgentOptions } from '../testing/test-rack-agent.js';
 import { certificateSha256, createHubCertificate, pinnedFetch } from '../tls/tls.js';
 import { writeStateFile } from '../state-file.js';
 import { taskClosure } from '../lease/closure.js';
@@ -76,11 +76,11 @@ async function fixture(options: RackHubOptions = {}, port = 0, overrides: Partia
     const cancel = (id: string) => socketRequest(socket, 'POST', `${path}/leases/${encodeURIComponent(id)}/cancel`, { responseType: CancelLeaseResultType });
     return { ...opened, close, create, events, cancel, logs };
   };
-  const agent = async () => {
+  const agent = async (as: Pick<TestRackAgentOptions, 'report' | 'protocol'> = {}) => {
     const mint = await socketRequest(socket, 'POST', '/v1/enroll', { requestType: HubEnrollType,
       body: { label: none, ttlMinutes: none }, responseType: HubEnrollResultType });
     assert.equal(mint.certificateSha256.type === 'some' ? mint.certificateSha256.value : undefined, pin);
-    const agent = await TestRackAgent.enroll(mint.apiUrl, mint.enrollmentToken, { certificateSha256: pin });
+    const agent = await TestRackAgent.enroll(mint.apiUrl, mint.enrollmentToken, { certificateSha256: pin, ...as });
     cleanup.push(() => agent.close());
     return agent;
   };
@@ -184,10 +184,10 @@ it('quarantines a rebooted rack until its boot is approved, only while the polic
   const policy = () => socketRequest(f.socket, 'GET', '/v1/security', { responseType: RackSecurityPolicyType });
   assert.deepEqual(await policy(), { requireStartApproval: false });
   const reboot = async (bootId: string) => {
-    const response = await agent.raw('heartbeat', RackHeartbeatRequestType, { healthy: true, freeCapacity: 1n, runningLeases: [], agentVersion: `0.5.0+e3.${E3_RACK_VERSION}`, bootId, cacheBytes: 0n });
+    const response = await agent.raw('heartbeat', RackHeartbeatRequestType, { healthy: true, freeCapacity: 1n, runningLeases: [], agentVersion: `0.5.0+e3.${E3_RACK_VERSION}`, bootId, cacheBytes: 0n,
+      report: JSON.stringify({ features: [] }) });
     assert.equal(response.status, 200);
-    const reply = decodeBeast2For(ResponseType(RackHeartbeatResponseType))(new Uint8Array(await response.arrayBuffer()));
-    assert(reply.type === 'success'); return reply.value;
+    return decodeBeast2For(RackHeartbeatResponseType)(new Uint8Array(await response.arrayBuffer()));
   };
   const pending = async () => (await f.status()).capacity.racks[0]!.pendingApproval;
   // Without the policy a reboot is admitted as the first boot was.
@@ -328,4 +328,52 @@ it('enrolls through a listener on every address only once an origin is advertise
   await socketRequest(f.socket, 'POST', '/v1/config', { requestType: HubConfigType,
     body: { ...f.config, advertiseUrl: some('https://rack-source.example.invalid') }, responseType: HubConfigType });
   assert.equal((await enroll()).apiUrl, 'https://rack-source.example.invalid');
+});
+
+it('says what it speaks to anyone who reaches its listener, what each rack reports of itself, and why a rack that asks in another protocol cannot be used', async () => {
+  const lines: string[] = [];
+  const f = await fixture({ log: (line) => { lines.push(line); } });
+  const status = await f.status(); assert(status.rackListener.type === 'up');
+  const hello = await f.fetch(`${status.rackListener.value.origin}/api/rack/hello`);
+  assert.deepEqual(readRackHello(await hello.text()), { protocol: RACK_PROTOCOL, e3: E3_RACK_VERSION, limits: { transfersAtOnce: RACK_TRANSFERS_AT_ONCE } });
+
+  const agent = await f.agent({ report: { features: ['resources', 'environments'], target: 'x86_64-manylinux_2_28' } });
+  const rack = async () => (await f.status()).capacity.racks[0]!;
+  const reported = await rack();
+  assert.deepEqual(reported.features, ['resources', 'environments']);
+  assert.deepEqual(reported.target, some('x86_64-manylinux_2_28'));
+  assert.deepEqual(reported.problem, none);
+
+  // The same rack, its agent now one of another release: refused by name each
+  // time it asks, said once in the log, and in the status for as long as it holds.
+  const heartbeat = { healthy: true, freeCapacity: 1n, runningLeases: [], agentVersion: `0.5.0+e3.${E3_RACK_VERSION}`, bootId: agent.bootId, cacheBytes: 0n,
+    report: JSON.stringify({ features: [] }) };
+  for (let asked = 0; asked < 2; asked++) {
+    const refused = await agent.raw('heartbeat', RackHeartbeatRequestType, heartbeat, 2);
+    assert.equal(refused.status, 426); await refused.arrayBuffer();
+  }
+  assert.deepEqual((await rack()).problem, some(`speaks rack protocol 2, not ${RACK_PROTOCOL}; update the rack`));
+  assert.deepEqual((await rack()).features, ['resources', 'environments'], 'a refused heartbeat is not read');
+  assert.equal(lines.filter((line) => line.includes(`rack ${agent.rackId} refused: it speaks rack protocol 2`)).length, 1);
+  const unnamed = await agent.raw('heartbeat', RackHeartbeatRequestType, heartbeat, null);
+  assert.equal(unnamed.status, 426); await unnamed.arrayBuffer();
+  assert.deepEqual((await rack()).problem, some(`speaks a rack protocol from before it was named, not ${RACK_PROTOCOL}; update the rack`));
+
+  // Its agent updated, its next heartbeat is read and the problem is gone.
+  await agent.heartbeat();
+  assert.deepEqual((await rack()).problem, none);
+  // A rack that is removed takes what was known of it along.
+  await socketRequest(f.socket, 'DELETE', `/v1/racks/${agent.rackId}`, { responseType: RemoveRackResultType });
+  assert.equal((await f.status()).capacity.racks.length, 0);
+});
+
+it('never enrols an agent of another rack protocol, and keeps its token for the agent that replaces it', async () => {
+  const f = await fixture();
+  const mint = await socketRequest(f.socket, 'POST', '/v1/enroll', { requestType: HubEnrollType, body: { label: none, ttlMinutes: none }, responseType: HubEnrollResultType });
+  await assert.rejects(TestRackAgent.enroll(mint.apiUrl, mint.enrollmentToken, { certificateSha256: f.pin, protocol: 2 }),
+    /HTTP 426 upgrade-required: this source speaks rack protocol 3, and the request names 2: update the rack's agent/);
+  assert.equal((await f.status()).racks.length, 0);
+  const agent = await TestRackAgent.enroll(mint.apiUrl, mint.enrollmentToken, { certificateSha256: f.pin });
+  cleanup.push(() => agent.close());
+  assert.equal((await f.status()).racks.length, 1);
 });

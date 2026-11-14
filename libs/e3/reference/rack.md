@@ -118,7 +118,11 @@ run waits up to 10 seconds for an enrolled rack to report healthy (with none
 enrolled, or a policy that selects no task for a rack, it starts at once): run
 `e3 rack hub` as a service, or set `--idle-exit 0`, for a hub racks can always
 reach. A data URL lasts 15 minutes, which a transfer may use whole; an object is
-at most 5 GiB. The control schema currently requires protocol 2 exactly.
+at most 5 GiB. A hub and the e3 that calls it speak control protocol 3 exactly:
+a hub an older e3 started is asked to exit once idle, and `e3 rack stop` with
+that e3 replaces it now. A rack's agent and its source speak rack protocol 3:
+an agent of another protocol is refused by name each time it asks, and
+`e3 rack list` shows its rack as `incompatible: …; update the rack` until it is.
 Agents must report bundled e3 at least the project's release. Infrastructure
 failure falls back locally with a separate execution attempt, as does an
 attempt the rack stopped on its own; the run's own cancellation and the task's

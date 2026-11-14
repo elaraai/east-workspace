@@ -14,7 +14,7 @@ import { createAdaptorServer } from '@hono/node-server';
 import { getConnInfo } from '@hono/node-server/conninfo';
 import { IntegerType, StringType, compareFor, equalFor, none, some, variant, type ValueTypeOf } from '@elaraai/east';
 import { inputsHash, isObjectHash, isProcessAlive } from '@elaraai/e3-core';
-import { decodeBody, sendSuccess } from '../server/beast2.js';
+import { answer, decodeBody } from '../server/beast2.js';
 import { FileMachineIdentityStore } from '../identity/file-identity-store.js';
 import { generateEnrollmentToken } from '../identity/machine-identity.js';
 import { FileRackRegistry } from '../registry/file-rack-registry.js';
@@ -23,6 +23,7 @@ import type { RackLeaseRecord } from '../lease/lease-store.js';
 import { StoreRackDispatch, bootPendingApproval, bundledE3Version, agentVersionAtLeast, DEFAULT_HEALTHY_WINDOW_MS } from '../server/dispatch.js';
 import { createRackRoutes, type RackLeaseSignal } from '../server/rack-routes.js';
 import { RackRegistrationType, RackSecurityPolicyType } from '../protocol/registration.js';
+import { RACK_PROTOCOL, type RackReport } from '../protocol/rack-json.js';
 import { isLeaseEventV2, leaseInputs, leaseTaskHash, type RackLeaseEvent } from '../protocol/task-envelope.js';
 import { decodeRunnerEvent } from '../runner-event.js';
 import { ApproveRackType, AttachLeaseResultType, CancelLeaseResultType, CreateLeaseResultType, CreateLeaseType, EmptyType, HubConfigType,
@@ -100,6 +101,11 @@ export class RackHub {
   private readonly sessions = new Map<string, Session>();
   private readonly subscriptions = new Map<string, Subscription>();
   private readonly dedupe = new Map<string, string>();
+  /** What each rack last reported of itself, by rack: kept here, since a
+   *  registration is a stored value whose shape does not grow. */
+  private readonly reports = new Map<string, RackReport>();
+  /** Why a rack cannot be used, by rack: it asked in another rack protocol. */
+  private readonly problems = new Map<string, string>();
   private readonly mutations = new MutationQueue();
   private readonly coordinator = new SessionLeaseCoordinator();
   private readonly backend: InMemoryRackLeaseStore;
@@ -321,16 +327,20 @@ export class RackHub {
     const approval = (await this.registry.getRackSecurityPolicy())?.requireStartApproval ?? false;
     return { racks: (await this.registry.listRacks()).map((rack) => {
       const bundled = bundledE3Version(rack.agentVersion);
+      const report = this.reports.get(rack.rackId);
+      const problem = this.problems.get(rack.rackId);
       return { rackId: rack.rackId, label: rack.label, tiers: rack.tiers, capacity: rack.capacity,
         busy: BigInt(active.filter((lease) => lease.claimedBy === rack.rackId && lease.status === 'claimed').length),
-        healthy: healthy.has(rack.rackId), bundledE3: bundled === null ? none : some(bundled), pendingApproval: approval && bootPendingApproval(rack) };
+        healthy: healthy.has(rack.rackId), bundledE3: bundled === null ? none : some(bundled), pendingApproval: approval && bootPendingApproval(rack),
+        features: [...(report?.features ?? [])], target: report?.target === undefined ? none : some(report.target),
+        problem: problem === undefined ? none : some(problem) };
     }), queued: BigInt(active.filter((lease) => lease.status === 'pending').length), mine: { pending: BigInt(pending), claimed: BigInt(claimed) } };
   }
 
   private controlApp(): Hono {
     const app = new Hono();
     app.onError((err, c) => c.text(messageOf(err), 500));
-    app.post('/v1/hello', () => sendSuccess(HubHelloType, this.hello()));
+    app.post('/v1/hello', () => answer(HubHelloType, this.hello()));
     app.post('/v1/sessions', async (c) => {
       const registration = await decodeBody(c, OpenSessionType);
       return this.mutations.run(async () => {
@@ -344,17 +354,17 @@ export class RackHub {
         const alias = `r-${createHash('sha256').update(`${hostname()}\0${registration.repoPath}`).digest('hex').slice(0, 16)}`;
         this.sessions.set(id, { id, alias, registration, lastSeen: this.now(), dead: false, seq: 0n, events: [], waiters: new Set() });
         this.idleSince = this.now();
-        return sendSuccess(OpenSessionResultType, { sessionId: id, repoAlias: alias });
+        return answer(OpenSessionResultType, { sessionId: id, repoAlias: alias });
       });
     });
     app.delete('/v1/sessions/:id', (c) => this.mutations.run(async () => {
       const session = this.sessions.get(c.req.param('id'));
       if (session !== undefined) await this.endSession(session);
-      return sendSuccess(EmptyType, {});
+      return answer(EmptyType, {});
     }));
     app.post('/v1/sessions/:id/leases', async (c) => {
       const request = await decodeBody(c, CreateLeaseType);
-      return this.mutations.run(async () => sendSuccess(CreateLeaseResultType, (await this.submit(this.session(c.req.param('id')), request, false))!));
+      return this.mutations.run(async () => answer(CreateLeaseResultType, (await this.submit(this.session(c.req.param('id')), request, false))!));
     });
     // Attaches to identical work already queued or held, which costs the racks
     // no further capacity, and queues nothing otherwise: how a full fleet is
@@ -363,10 +373,10 @@ export class RackHub {
       const request = await decodeBody(c, CreateLeaseType);
       return this.mutations.run(async () => {
         const attached = await this.submit(this.session(c.req.param('id')), request, true);
-        return sendSuccess(AttachLeaseResultType, attached === null ? none : some(attached));
+        return answer(AttachLeaseResultType, attached === null ? none : some(attached));
       });
     });
-    app.post('/v1/sessions/:id/leases/:leaseId/cancel', (c) => this.mutations.run(async () => sendSuccess(CancelLeaseResultType, {
+    app.post('/v1/sessions/:id/leases/:leaseId/cancel', (c) => this.mutations.run(async () => answer(CancelLeaseResultType, {
       status: await this.unsubscribe(this.session(c.req.param('id')), c.req.param('leaseId')),
     })));
     app.post('/v1/sessions/:id/events', async (c) => {
@@ -386,13 +396,13 @@ export class RackHub {
       });
       this.session(session.id);
       session.lastSeen = this.now();
-      return sendSuccess(SessionPollResultType, { events: [...session.events], capacity: await this.capacity(session.id) });
+      return answer(SessionPollResultType, { events: [...session.events], capacity: await this.capacity(session.id) });
     });
-    app.get('/v1/status', async () => sendSuccess(HubStatusType, { hello: this.hello(), rackListener: this.listener,
+    app.get('/v1/status', async () => answer(HubStatusType, { hello: this.hello(), rackListener: this.listener,
       racks: await this.registry.listRacks(), sessions: await Promise.all([...this.sessions.values()].map(async (session) => ({ sessionId: session.id, repoAlias: session.alias,
         workspace: session.registration.workspace, label: session.registration.label, e3Version: session.registration.e3Version,
         ...(await this.capacity(session.id)).mine }))), capacity: await this.capacity() }));
-    app.get('/v1/config', () => sendSuccess(HubConfigType, this.config));
+    app.get('/v1/config', () => answer(HubConfigType, this.config));
     app.post('/v1/config', async (c) => {
       const config = await decodeBody(c, HubConfigType);
       return this.mutations.run(async () => {
@@ -402,17 +412,17 @@ export class RackHub {
         // A listener that is not up binds again on any change: an --allow it
         // lacked, or a port that has since come free.
         if (changed || this.listener.type !== 'up') { await this.closeRack(); await this.bindRack(); }
-        return sendSuccess(HubConfigType, this.config);
+        return answer(HubConfigType, this.config);
       });
     });
     // Whether a rack's boots after its first need approval before it is leased
     // work: e3 rack config --require-approval, and e3 rack approve.
-    app.get('/v1/security', async () => sendSuccess(RackSecurityPolicyType, await this.registry.getRackSecurityPolicy() ?? { requireStartApproval: false }));
+    app.get('/v1/security', async () => answer(RackSecurityPolicyType, await this.registry.getRackSecurityPolicy() ?? { requireStartApproval: false }));
     app.post('/v1/security', async (c) => {
       const policy = await decodeBody(c, RackSecurityPolicyType);
       return this.mutations.run(async () => {
         await this.registry.putRackSecurityPolicy(policy);
-        return sendSuccess(RackSecurityPolicyType, policy);
+        return answer(RackSecurityPolicyType, policy);
       });
     });
     app.post('/v1/enroll', async (c) => {
@@ -427,18 +437,20 @@ export class RackHub {
       const { token, tokenHash } = generateEnrollmentToken();
       const expiresAt = new Date(this.now() + ttl * 60000);
       await this.identity.putEnrollmentToken(tokenHash, expiresAt);
-      return sendSuccess(HubEnrollResultType, { enrollmentToken: token, apiUrl: this.config.advertiseUrl.type === 'some' ? this.config.advertiseUrl.value : this.listener.value.origin,
+      return answer(HubEnrollResultType, { enrollmentToken: token, apiUrl: this.config.advertiseUrl.type === 'some' ? this.config.advertiseUrl.value : this.listener.value.origin,
         expiresAt, e3Version: E3_RACK_VERSION, certificateSha256: this.listener.value.certificateSha256 });
     });
     app.delete('/v1/racks/:id', (c) => this.mutations.run(async () => {
       const id = c.req.param('id');
       const removed = await this.coordinator.run('@rack', id, () => this.registry.deleteRack(id));
       await this.identity.deleteRackTokens(id);
+      this.reports.delete(id);
+      this.problems.delete(id);
       for (const sub of this.subscriptions.values()) {
         const lease = this.backend.peek(sub.repo, sub.id);
         if (lease?.status === 'claimed' && lease.claimedBy === id) await this.lose(sub, 'rack deregistered');
       }
-      return sendSuccess(RemoveRackResultType, { removed });
+      return answer(RemoveRackResultType, { removed });
     }));
     app.post('/v1/racks/:id/approve', async (c) => {
       const request = await decodeBody(c, ApproveRackType);
@@ -448,14 +460,14 @@ export class RackHub {
         if (rack.lastBootId.type !== 'some' || !equalString(rack.lastBootId.value, request.bootId)) return c.text('Rack rebooted; refresh before approving', 409);
         const approved = { ...rack, approvedBootId: some(request.bootId) };
         await this.registry.putRack(approved);
-        return sendSuccess(RackRegistrationType, approved);
+        return answer(RackRegistrationType, approved);
       });
     });
-    app.post('/v1/drain', () => { this.draining = true; return sendSuccess(EmptyType, {}); });
+    app.post('/v1/drain', () => { this.draining = true; return answer(EmptyType, {}); });
     app.post('/v1/stop', () => {
       this.draining = true;
       setImmediate(() => { void this.stop().catch((err: unknown) => this.options.log?.(messageOf(err))); });
-      return sendSuccess(EmptyType, {});
+      return answer(EmptyType, {});
     });
     return app;
   }
@@ -481,6 +493,14 @@ export class RackHub {
     app.route('/', createRackRoutes(this.identity, this.registry, this.leases, this.bridge, this.bridge.attempts, {
       coordinator: this.coordinator, now: this.now, signal: this.abort.signal, visibilityMs: this.options.visibilityMs,
       onLeaseSignal: (signal) => this.signal(signal),
+      // A heartbeat that was read is of this protocol: what was wrong is not.
+      onReport: (rackId, report) => { this.reports.set(rackId, report); this.problems.delete(rackId); },
+      // Said once in the log, and for as long as it holds in the status.
+      onIncompatible: (rackId, named) => {
+        const problem = `speaks ${named === undefined ? 'a rack protocol from before it was named' : `rack protocol ${named}`}, not ${RACK_PROTOCOL}; update the rack`;
+        if (this.problems.get(rackId) !== problem) this.options.log?.(`rack ${rackId} refused: it ${problem}`);
+        this.problems.set(rackId, problem);
+      },
       canClaim: (rack, lease) => {
         const sub = this.subscriptions.get(lease.leaseId);
         if (sub === undefined || sub.endedAt !== undefined || sub.subscribers.size === 0) return false;
