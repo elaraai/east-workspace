@@ -150,11 +150,13 @@ it('round-trips policy, auto-starts and stops the hub, and delegates an enabled 
   const running = f.cli('dataflow', 'run', '.', 'ws1');
   const remote = await f.agent.runOne(); assert.equal(remote?.status, 'success');
   const output = ok(await running); assert.match(output, /Rack: t/); assert.match(output, /\[RACK\] train_a → t/);
+  assert.match(output, /^Rack summary: 1 task on t · 0 transfers retried · 0 ran locally$/m);
+  assert.match(ok(await f.cli('rack', 'status')), /^Last outcomes:\n {2}\S+ {2}ws1\.train_a {2}t {2}success$/m);
   const remoteDataset = ok(await f.cli('dataset', 'get', '.', 'ws1.train_a'));
   const logs = ok(await f.cli('task', 'logs', '.', 'ws1.train_a'));
   assert.match(logs, /e3: running on rack t/);
   const local = ok(await f.cli('dataflow', 'run', '.', 'ws2', '--no-rack'));
-  assert(!local.includes('Rack:')); assert(!local.includes('[RACK]'));
+  assert(!local.includes('Rack:')); assert(!local.includes('[RACK]')); assert(!local.includes('Rack summary'));
   assert.equal(ok(await f.cli('dataset', 'get', '.', 'ws2.train_a')), remoteDataset);
   assert.equal((await f.client.status()).capacity.queued, 0n);
   ok(await f.cli('rack', 'policy', '.', 'unset', 'train_*'));

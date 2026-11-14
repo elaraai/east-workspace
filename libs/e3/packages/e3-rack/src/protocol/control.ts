@@ -64,12 +64,19 @@ export const SessionPollType = StructType({ after: IntegerType, waitMs: IntegerT
 export const SessionPollResultType = StructType({ events: ArrayType(SessionEventType), capacity: CapacitySnapshotType });
 /** Reports listener readiness without hiding a failed bind, and the certificate a rack pins when it serves TLS. */
 export const RackListenerType = VariantType({ disabled: NullType, up: StructType({ origin: StringType, certificateSha256: OptionType(StringType) }), down: StructType({ reason: StringType }) });
-/** Reports the hub, attached sessions, fleet and queue. */
+/**
+ * How one lease ended: its work, the rack that ran it, `success`, `failed`
+ * (the task's own verdict) or `error` (the rack's), and the reason its result
+ * gave, as a run prints it.
+ */
+export const HubOutcomeType = StructType({ at: DateTimeType, workspace: StringType, taskName: StringType, rackLabel: StringType,
+  outcome: StringType, reason: OptionType(StringType) });
+/** Reports the hub, attached sessions, fleet and queue, and how its last leases ended, the latest first. */
 export const HubStatusType = StructType({
   hello: HubHelloType, rackListener: RackListenerType, racks: ArrayType(RackRegistrationType),
   sessions: ArrayType(StructType({ sessionId: StringType, repoAlias: StringType, workspace: StringType, label: StringType, e3Version: StringType,
     pending: IntegerType, claimed: IntegerType })),
-  capacity: CapacitySnapshotType,
+  capacity: CapacitySnapshotType, outcomes: ArrayType(HubOutcomeType),
 });
 /** Requests a short-lived enrollment credential. */
 export const HubEnrollType = StructType({ label: OptionType(StringType), ttlMinutes: OptionType(IntegerType) });

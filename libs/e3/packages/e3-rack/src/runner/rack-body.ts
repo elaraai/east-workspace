@@ -6,17 +6,41 @@
 import { ExecutionAttempt, touchReachable, uuidv7, type ExecutionResult, type TaskBodyExecutor, type TaskBodyRequest } from '@elaraai/e3-core';
 import type { LeaseHandle, LeaseUpdate, RackSession } from '../client/session.js';
 import { recordClosure, stagedObjects, taskClosure } from '../lease/closure.js';
-import { RACK_LEASE_VERSION, type RackLeaseEvent } from '../protocol/task-envelope.js';
+import { RACK_LEASE_VERSION, describeRackReason, readRackReason, readRackRetries, type RackLeaseEvent, type RackReason, type RackTransferRetry } from '../protocol/task-envelope.js';
 import { splitUnitToWire } from '../runner-event.js';
 import { EligibilityEvaluator } from '../routing/eligibility.js';
 import type { RackPolicy } from '../routing/policy.js';
 import { E3_RACK_VERSION } from '../version.js';
 import { compatibleRacks } from './capacity.js';
 
-/** Reports the placement of one task body or split unit. */
+/**
+ * Reports where one task body or split unit runs, and what happens to it on a
+ * rack:
+ * - `placed` on a rack, when one claims its lease;
+ * - `placed` locally, with why: never a rack's work (`reason` is why it is not
+ *   eligible), or a rack's work that this machine runs after all (`spill`,
+ *   `no-rack-for-tier:<tier>`, or a `fallback:` with what went wrong, and the
+ *   rack's `detail` when its result gave a reason);
+ * - `retried`: a transfer of its lease failed a try and was given another.
+ */
 export type RackPlacementEvent =
-  | { taskName: string; role: 'task' | 'unit'; where: 'rack'; rackLabel: string; leaseId: string }
-  | { taskName: string; role: 'task' | 'unit'; where: 'local'; reason: string };
+  | { kind: 'placed'; taskName: string; role: 'task' | 'unit'; where: 'rack'; rackLabel: string; leaseId: string }
+  | { kind: 'placed'; taskName: string; role: 'task' | 'unit'; where: 'local'; reason: string; detail?: RackReason }
+  | { kind: 'retried'; taskName: string; role: 'task' | 'unit'; where: 'rack'; rackLabel: string; leaseId: string; retry: RackTransferRetry };
+
+/**
+ * Whether a local placement is of work a rack was to run: what a run prints
+ * and counts as having run locally. Work that was never a rack's is not.
+ *
+ * @param event - A placement event
+ * @returns Whether it is a rack's work run locally
+ * @example
+ * if (ranLocally(event)) console.log(`[LOCAL] ${event.taskName} (${event.reason})`);
+ */
+export function ranLocally(event: RackPlacementEvent): event is Extract<RackPlacementEvent, { where: 'local' }> {
+  return event.kind === 'placed' && event.where === 'local' &&
+    (event.detail !== undefined || event.reason === 'spill' || event.reason.startsWith('fallback:') || event.reason.startsWith('no-rack-for-tier:'));
+}
 
 /** Configures a run's body executor without acquiring local resources. */
 export interface RackBodyOptions {
@@ -75,11 +99,13 @@ export function createRackBody(options: RackBodyOptions): TaskBodyExecutor {
       leavingRack = true;
       return new ExecutionAttempt(request.storage, request.repo, request.taskHash, request.inputHashes, freshIds(), request.unit !== undefined && !request.unit.own).recordStopped(kind, cause);
     };
-    const runLocal = async (reason: string): Promise<ExecutionResult> => {
+    // A rack's result that gives its reason is placed by it: the reason's
+    // code, and its cause or detail, are what the run prints.
+    const runLocal = async (reason: string, detail?: RackReason): Promise<ExecutionResult> => {
       leavingRack = true;
       if (handle !== undefined) await handle.cancel().catch(() => {});
       const ids = handle === undefined ? request.ids : freshIds();
-      options.onPlacement?.({ ...placement, where: 'local', reason });
+      options.onPlacement?.({ kind: 'placed', ...placement, where: 'local', reason, ...(detail !== undefined && { detail }) });
       if (reason.startsWith('fallback:')) {
         const line = `e3: rack attempt failed on ${rackLabel}: ${reason.slice(9)} — running locally\n`;
         await request.storage.logs.append(request.repo, request.taskHash, ids.inHash, ids.executionId, 'stderr', line);
@@ -154,7 +180,7 @@ export function createRackBody(options: RackBodyOptions): TaskBodyExecutor {
           untee = session.onLog(update.attempt.executionId, (stream, text) => {
             if (stream === 'stdout') request.options.onStdout?.(text); else request.options.onStderr?.(text);
           });
-          options.onPlacement?.({ ...placement, where: 'rack', rackLabel, leaseId: handle.leaseId });
+          options.onPlacement?.({ kind: 'placed', ...placement, where: 'rack', rackLabel, leaseId: handle.leaseId });
           next = handle.next();
           continue;
         }
@@ -168,6 +194,14 @@ export function createRackBody(options: RackBodyOptions): TaskBodyExecutor {
         const result = update.result;
         if (update.attempt === null) return await runLocal('fallback:missing-attempt');
         const attempt = update.attempt;
+        // What the rack said of the lease beyond its outcome. A reason this
+        // build cannot read is a rack's fault it cannot name.
+        const leaseId = handle.leaseId;
+        for (const retry of readRackRetries(result.retries)) options.onPlacement?.({ kind: 'retried', ...placement, where: 'rack', rackLabel, leaseId, retry });
+        const reason = readRackReason(result.reason);
+        // A reason that carries no words of its own is said with the result's.
+        const fallback = (text: string | undefined, otherwise: string) => runLocal(`fallback:${reason === undefined ? text ?? otherwise
+          : reason.cause === undefined && reason.detail === undefined && text !== undefined ? `${reason.code}: ${text}` : describeRackReason(reason)}`, reason);
         const duration = () => Date.now() - request.ids.startTime;
         const peak = result.peakBytes !== undefined ? { peakBytes: result.peakBytes } : {};
         if (result.cancelled === true) {
@@ -175,7 +209,7 @@ export function createRackBody(options: RackBodyOptions): TaskBodyExecutor {
           // to pending, and a loop that was not aborted launches it again at
           // once. Only this run's abort is one. A rack that stopped the attempt
           // for a reason of its own did not run it, and the work runs locally.
-          if (!request.options.signal?.aborted) return await runLocal(`fallback:${result.error ?? 'the rack stopped the attempt'}`);
+          if (!request.options.signal?.aborted) return await fallback(result.error, 'the rack stopped the attempt');
           return { inputsHash: request.ids.inHash, executionId: attempt.executionId, cached: false, state: 'error', outputHash: null,
             exitCode: result.exitCode ?? null, duration: duration(), error: result.error ?? null, cancelled: true, ...peak };
         }
@@ -192,7 +226,7 @@ export function createRackBody(options: RackBodyOptions): TaskBodyExecutor {
         // failure is its verdict, whatever its message mentions, unless the
         // policy retries failures locally.
         const timedOut = state === 'error' && /^timed out:/.test(result.error ?? '');
-        if (state === 'error' ? !timedOut : policy.retryTaskFailuresLocally) return await runLocal(`fallback:${result.error ?? 'rack execution failed'}`);
+        if (state === 'error' ? !timedOut : policy.retryTaskFailuresLocally) return await fallback(result.error, 'rack execution failed');
         return { inputsHash: request.ids.inHash, executionId: attempt.executionId, cached: false, state, outputHash: null,
           exitCode: result.exitCode ?? null, duration: duration(), error: result.error ?? null, cancelled: false, ...peak };
       }

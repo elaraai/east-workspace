@@ -68,6 +68,146 @@ export interface RackLeaseEvent {
 }
 
 /**
+ * Why a lease ended as it did: a word a program reads, and what that word
+ * carries. Each is printed on its line and counted in a run's summary.
+ *
+ * | Code | Carries | Who sets it |
+ * |---|---|---|
+ * | `outgrew-cap` | `capBytes`, `peakBytes` | the rack, when the cap stopped the work |
+ * | `memory-limit-exceeded` | `needsBytes`, `limitBytes` | the launching machine, when a cap would pass its ceiling |
+ * | `input-transfer-failed`, `output-transfer-failed` | `attempts`, `cause` | the rack, after its tries |
+ * | `source-unreachable` | `ms` | the rack |
+ * | `guest-crashed` | `detail` | the rack |
+ * | `requeued-pressure` | `peakBytes` | a rack that runs several units in one VM (reserved) |
+ * | `task-error` | | the rack: the task's own failure |
+ */
+export const RACK_REASON_CODES = ['outgrew-cap', 'memory-limit-exceeded', 'input-transfer-failed', 'output-transfer-failed',
+  'source-unreachable', 'guest-crashed', 'requeued-pressure', 'task-error'] as const;
+
+/** A reason's code this build knows. */
+export type RackReasonCode = typeof RACK_REASON_CODES[number];
+
+/**
+ * Why a lease ended as it did. JSON: a reader takes the fields it knows, and
+ * a code it does not know is a rack's fault it cannot name.
+ */
+export interface RackReason {
+  /** One of {@link RACK_REASON_CODES}, or a later release's */
+  readonly code: string;
+  /** The cap the work ran under, in bytes */
+  readonly capBytes?: number;
+  /** The most the work was measured using, in bytes */
+  readonly peakBytes?: number;
+  /** What the work would be capped at, in bytes */
+  readonly needsBytes?: number;
+  /** The ceiling that is less than it, in bytes */
+  readonly limitBytes?: number;
+  /** The tries a transfer was given */
+  readonly attempts?: number;
+  /** What the last try failed of */
+  readonly cause?: string;
+  /** How long the source had not answered, in ms */
+  readonly ms?: number;
+  /** What is known of the guest's end */
+  readonly detail?: string;
+}
+
+/** A try of a transfer that failed and was followed by another. */
+export interface RackTransferRetry {
+  /** An input read, or an output written */
+  readonly transfer: 'input' | 'output';
+  /** The try that follows: 2 for the first retry */
+  readonly attempt: number;
+  /** The tries a transfer is given */
+  readonly of: number;
+  /** What the try before it failed of */
+  readonly cause: string;
+}
+
+const REASON_NUMBERS = ['capBytes', 'peakBytes', 'needsBytes', 'limitBytes', 'attempts', 'ms'] as const;
+const REASON_TEXTS = ['cause', 'detail'] as const;
+
+/**
+ * Reads a lease result's reason.
+ *
+ * @param value - The result's `reason`, as its JSON holds it
+ * @returns The reason with the fields this build knows, or undefined when the
+ *   result has none
+ * @throws {Error} When it is not an object with a code, or a field this
+ *   build reads is of the wrong kind
+ *
+ * @example
+ * ```ts
+ * const reason = readRackReason(result.reason);
+ * if (reason?.code === 'outgrew-cap') requeue(reason.capBytes);
+ * ```
+ */
+export function readRackReason(value: unknown): RackReason | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error('a reason is a JSON object');
+  const fields = value as Record<string, unknown>;
+  if (typeof fields.code !== 'string' || !/^[a-z][a-z0-9-]{0,63}$/.test(fields.code)) throw new Error('a reason has a code');
+  const reason: { -readonly [K in keyof RackReason]: RackReason[K] } = { code: fields.code };
+  for (const name of REASON_NUMBERS) {
+    const field = fields[name];
+    if (field === undefined) continue;
+    if (typeof field !== 'number' || !Number.isSafeInteger(field) || field < 0) throw new Error(`a reason's ${name} is a whole number`);
+    reason[name] = field;
+  }
+  for (const name of REASON_TEXTS) {
+    const field = fields[name];
+    if (field === undefined) continue;
+    if (typeof field !== 'string') throw new Error(`a reason's ${name} is text`);
+    // A line of a run's output, not a log: what is longer is cut.
+    reason[name] = field.slice(0, 500);
+  }
+  return reason;
+}
+
+/**
+ * Reads the retries a lease result lists.
+ *
+ * @param value - The result's `retries`, as its JSON holds them
+ * @returns The retries, none when the result lists none
+ * @throws {Error} When it is not a list of retries, or lists more than a
+ *   lease's transfers could make
+ *
+ * @example
+ * ```ts
+ * for (const retry of readRackRetries(result.retries)) console.log(`${retry.transfer} transfer retried (${retry.attempt} of ${retry.of}): ${retry.cause}`);
+ * ```
+ */
+export function readRackRetries(value: unknown): RackTransferRetry[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 4096) throw new Error('retries are a list');
+  return value.map((entry: unknown) => {
+    if (typeof entry !== 'object' || entry === null) throw new Error('a retry is a JSON object');
+    const { transfer, attempt, of, cause } = entry as Record<string, unknown>;
+    if (transfer !== 'input' && transfer !== 'output') throw new Error('a retry is of an input or an output');
+    for (const count of [attempt, of]) if (typeof count !== 'number' || !Number.isSafeInteger(count) || count < 1) throw new Error('a retry counts its tries');
+    if (typeof cause !== 'string') throw new Error('a retry has a cause');
+    return { transfer, attempt: attempt as number, of: of as number, cause: cause.slice(0, 500) };
+  });
+}
+
+/**
+ * A reason as a run prints it between brackets: its code, and what the code
+ * carries that is text. A size it carries is for its reader to format.
+ *
+ * @param reason - The reason
+ * @returns Such as `input-transfer-failed: connection reset`
+ *
+ * @example
+ * ```ts
+ * console.log(`[LOCAL] ${taskName} (${describeRackReason(reason)})`);
+ * ```
+ */
+export function describeRackReason(reason: RackReason): string {
+  const said = reason.cause ?? reason.detail;
+  return said === undefined || said === '' ? reason.code : `${reason.code}: ${said}`;
+}
+
+/**
  * What a rack agent completes a lease with.
  */
 export interface RackLeaseResult {
@@ -92,6 +232,11 @@ export interface RackLeaseResult {
   cancelled?: boolean;
   /** How long it ran, in ms */
   duration?: number;
+  /** Why it ended as it did, when it did not succeed: read with {@link readRackReason} */
+  reason?: RackReason;
+  /** The tries of its transfers that failed and were followed by another:
+   *  read with {@link readRackRetries} */
+  retries?: RackTransferRetry[];
   /** A function lease's detached call's outcome (#83). `status` mirrors it
    *  (`success` ⇔ kind 'success') so the lease store's validation applies
    *  unchanged. */

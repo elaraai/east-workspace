@@ -272,6 +272,38 @@ cancellation are not retried locally; an attempt the rack stopped on its own
 is. Task failures are returned unless the policy explicitly enables
 `--retry-task-failures-locally`; infrastructure failures fall back locally.
 
+### What a run prints
+
+A lease's result says why it ended as it did: a `reason` with a code a program
+reads, and what the code carries. A run prints each on its line and sums its
+rack work up as it ends:
+
+```text
+Rack: workshop (8 slots, e3 1.0.108)
+  [RACK] train_model → workshop
+  [RACK] train_model input transfer retried (2 of 5): connection reset
+  [LOCAL] score_rows (input-transfer-failed: connection reset)
+Rack summary: 1 task and 12 units on workshop · 1 transfer retried · 1 ran locally
+```
+
+| `reason.code` | Carries | Who sets it | The work |
+| --- | --- | --- | --- |
+| `input-transfer-failed`, `output-transfer-failed` | `attempts`, `cause` | The rack, after its five tries. | Runs locally. |
+| `guest-crashed` | `detail` | The rack. | Runs locally: a rack's fault never fails a run. |
+| `source-unreachable` | `ms` | The rack. | Runs locally. |
+| `task-error` | | The rack: the task's own failure. | Its failure is its verdict, unless the policy retries failures locally. |
+| `outgrew-cap` | `capBytes`, `peakBytes` | The rack, when the cap stopped the work. | Reserved for work a rack caps. |
+| `memory-limit-exceeded` | `needsBytes`, `limitBytes` | The launching machine. | Reserved for work a rack caps. |
+| `requeued-pressure` | `peakBytes` | A rack that runs several units in one VM. | Reserved. |
+
+A result also lists the tries of its transfers that failed and were followed
+by another (`retries`), which the run prints when the lease ends. A code a
+build does not know is a rack's fault it cannot name, and the work runs
+locally. `e3 rack status` lists how the hub's last twenty leases ended, each
+with its reason. In code, `RackPlacementEvent` carries the same (`kind`
+`placed` or `retried`, and a local placement's `detail`), and
+`rack.takeSummary()` with `describeRackSummary` the line.
+
 Ctrl-C in `e3 dataflow run` requests cancellation of that run, including its
 delegated work. A current companion agent keeps an outbound cancellation
 request open while work is active. The source checks the watched leases every

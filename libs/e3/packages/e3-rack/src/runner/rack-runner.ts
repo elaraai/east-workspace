@@ -10,6 +10,7 @@ import { RackSession } from '../client/session.js';
 import { loadPolicy, policyTargetsRack, type RackPolicy } from '../routing/policy.js';
 import { compatibleRacks } from './capacity.js';
 import { createRackBody, type RackPlacementEvent } from './rack-body.js';
+import { RackTally, type RackRunSummary } from './summary.js';
 
 /** Configures rack delegation for one run or one watch session. */
 export interface OpenRackRunnerOptions {
@@ -51,6 +52,9 @@ export interface RackRunnerHandle {
   describe(): string;
   /** Refreshes capacity before a watch run without replacing its session. */
   refreshSlots(): Promise<number>;
+  /** What the rack work since the last take came to: a run's summary, read
+   *  with `describeRackSummary`. */
+  takeSummary(): RackRunSummary;
   /** Unsubscribes from shared work and closes the private data socket. */
   close(): Promise<void>;
 }
@@ -68,6 +72,8 @@ export interface RackRunnerHandle {
  */
 export async function openRackRunner(options: OpenRackRunnerOptions): Promise<RackRunnerHandle> {
   const local = new LocalTaskRunner(options.repoPath, options.budget, options.settings);
+  const tally = new RackTally();
+  const takeSummary = () => tally.take();
   let session: RackSession | undefined;
   let slots = 0;
   let description = 'No healthy compatible rack; running locally';
@@ -76,7 +82,7 @@ export async function openRackRunner(options: OpenRackRunnerOptions): Promise<Ra
     // A policy that selects no task for a rack needs no session: nothing it
     // routes would wait for one.
     if (!policyTargetsRack(policy)) {
-      return { runner: local, rackSlots: 0, describe: () => 'Rack policy selects no task for a rack; running locally', refreshSlots: () => Promise.resolve(0), close: () => Promise.resolve() };
+      return { runner: local, rackSlots: 0, describe: () => 'Rack policy selects no task for a rack; running locally', refreshSlots: () => Promise.resolve(0), takeSummary, close: () => Promise.resolve() };
     }
     const client = await connectHub({ home: options.home, log: options.log, signal: options.signal });
     session = await RackSession.open(client, options);
@@ -103,11 +109,12 @@ export async function openRackRunner(options: OpenRackRunnerOptions): Promise<Ra
       await delay(Math.min(250, deadline - Date.now()), undefined, { signal: options.signal }).catch(() => {});
     } while (Date.now() <= deadline);
     const runner = new LocalTaskRunner(options.repoPath, options.budget, { ...options.settings,
-      body: createRackBody({ session: attached, policy, workspace: options.workspace, rackOnly: options.rackOnly, onPlacement: options.onPlacement }) });
-    return { runner, get rackSlots() { return slots; }, describe: () => description, refreshSlots, close: () => attached.close() };
+      body: createRackBody({ session: attached, policy, workspace: options.workspace, rackOnly: options.rackOnly,
+        onPlacement: (event) => { tally.add(event); options.onPlacement?.(event); } }) });
+    return { runner, get rackSlots() { return slots; }, describe: () => description, refreshSlots, takeSummary, close: () => attached.close() };
   } catch (error) {
     await session?.close().catch(() => {});
     description = `${error instanceof Error ? error.message : String(error)}; running locally`;
-    return { runner: local, rackSlots: 0, describe: () => description, refreshSlots: () => Promise.resolve(0), close: () => Promise.resolve() };
+    return { runner: local, rackSlots: 0, describe: () => description, refreshSlots: () => Promise.resolve(0), takeSummary, close: () => Promise.resolve() };
   }
 }

@@ -41,7 +41,7 @@ import { parseRepoLocation, formatError, exitError, type RepoLocation } from '..
 import { getValidToken } from '../credentials.js';
 import { formatRequeue, formatSize } from '../format.js';
 import { commandBudget, refuseRemoteBudget, type BudgetFlags } from './budget.js';
-import { openRack, rackEnabled, refuseRemoteRack, printRackPlacement, type RackFlags } from './rack-options.js';
+import { openRack, rackEnabled, refuseRemoteRack, printRackPlacement, printRackSummary, type RackFlags } from './rack-options.js';
 
 /** Polling interval for remote execution (ms) */
 const POLL_INTERVAL = 500;
@@ -235,6 +235,7 @@ async function executeLocal(
       waiting: result.waiting,
       duration: result.duration,
     });
+    if (rack !== undefined) await printRackSummary(rack);
 
     if (result.success) {
       await printOutputs({ type: 'local', path: repoPath }, ws);

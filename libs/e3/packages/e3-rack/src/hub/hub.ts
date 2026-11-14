@@ -24,10 +24,10 @@ import { StoreRackDispatch, bootPendingApproval, bundledE3Version, agentVersionA
 import { createRackRoutes, type RackLeaseSignal } from '../server/rack-routes.js';
 import { RackRegistrationType, RackSecurityPolicyType } from '../protocol/registration.js';
 import { RACK_LISTENER_IDLE_MS, RACK_PROTOCOL, type RackReport } from '../protocol/rack-json.js';
-import { isLeaseEventV2, leaseInputs, leaseTaskHash, type RackLeaseEvent } from '../protocol/task-envelope.js';
+import { describeRackReason, isLeaseEventV2, leaseInputs, leaseTaskHash, type RackLeaseEvent } from '../protocol/task-envelope.js';
 import { decodeRunnerEvent } from '../runner-event.js';
 import { ApproveRackType, AttachLeaseResultType, CancelLeaseResultType, CreateLeaseResultType, CreateLeaseType, EmptyType, HubConfigType,
-  HubEnrollResultType, HubEnrollType, HubHelloType, HubStatusType, OpenSessionResultType, OpenSessionType,
+  HubEnrollResultType, HubEnrollType, HubHelloType, HubOutcomeType, HubStatusType, OpenSessionResultType, OpenSessionType,
   RemoveRackResultType, SessionPollResultType, SessionPollType, type CapacitySnapshot, type OpenSession, type SessionEvent } from '../protocol/control.js';
 import { closeSocketServer, RackHubError, REQUEST_BODY_TIMEOUT_MS, serveOnSocket } from '../client/local-http.js';
 import { rackHome, hubSocketPath } from '../paths.js';
@@ -61,6 +61,8 @@ interface Subscription {
 }
 const equalString = equalFor(StringType);
 const compareInteger = compareFor(IntegerType);
+/** How many of its last leases' ends a hub keeps for its status. */
+const LAST_OUTCOMES = 20;
 const nonterminal = (lease: RackLeaseRecord) => lease.status === 'pending' || lease.status === 'claimed';
 const normalizedAddress = (address: string) => address.replace(/^::ffff:/, '');
 
@@ -106,6 +108,8 @@ export class RackHub {
   private readonly reports = new Map<string, RackReport>();
   /** Why a rack cannot be used, by rack: it asked in another rack protocol. */
   private readonly problems = new Map<string, string>();
+  /** How the last leases ended, the latest first: what the status lists. */
+  private readonly outcomes: Array<ValueTypeOf<typeof HubOutcomeType>> = [];
   private readonly mutations = new MutationQueue();
   private readonly coordinator = new SessionLeaseCoordinator();
   private readonly backend: InMemoryRackLeaseStore;
@@ -247,6 +251,12 @@ export class RackHub {
       this.publish(sub, event);
     } else if (signal.kind === 'completed' && signal.disposition === 'recorded') {
       await this.finish(sub);
+      const result = lease.result;
+      const rack = lease.claimedBy === undefined ? null : await this.registry.getRack(lease.claimedBy);
+      this.outcomes.unshift({ at: new Date(lease.completedAtMs!), workspace: lease.workspace, taskName: lease.event.taskName,
+        rackLabel: rack?.label ?? lease.claimedBy ?? '', outcome: result?.state ?? result?.status ?? 'error',
+        reason: result?.reason === undefined ? none : some(describeRackReason(result.reason)) });
+      this.outcomes.length = Math.min(this.outcomes.length, LAST_OUTCOMES);
       this.publish(sub, variant('completed', { leaseId: lease.leaseId,
         attempt: lease.attempt === undefined ? none : some({ executionId: lease.attempt.executionId, startedAt: new Date(lease.attempt.startedAtMs) }),
         resultJson: JSON.stringify(lease.result), at: new Date(lease.completedAtMs!) }));
@@ -401,7 +411,7 @@ export class RackHub {
     app.get('/v1/status', async () => answer(HubStatusType, { hello: this.hello(), rackListener: this.listener,
       racks: await this.registry.listRacks(), sessions: await Promise.all([...this.sessions.values()].map(async (session) => ({ sessionId: session.id, repoAlias: session.alias,
         workspace: session.registration.workspace, label: session.registration.label, e3Version: session.registration.e3Version,
-        ...(await this.capacity(session.id)).mine }))), capacity: await this.capacity() }));
+        ...(await this.capacity(session.id)).mine }))), capacity: await this.capacity(), outcomes: [...this.outcomes] }));
     app.get('/v1/config', () => answer(HubConfigType, this.config));
     app.post('/v1/config', async (c) => {
       const config = await decodeBody(c, HubConfigType);

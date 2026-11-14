@@ -44,11 +44,36 @@ export async function openRack(options: OpenRackRunnerOptions): Promise<RackRunn
   return openRackRunner(options);
 }
 
-/** Prints task placement; existing split progress already describes units. */
+/**
+ * The line a run prints for a placement event, when it prints one:
+ * - `[RACK] train → rack-a` when a rack claims a task (split progress
+ *   already describes its units);
+ * - `[RACK] train input transfer retried (2 of 5): connection reset`;
+ * - `[LOCAL] train (input-transfer-failed: connection reset)` for a rack's
+ *   work that this machine runs after all, with the rack's reason when its
+ *   result gave one, a task's or a unit's alike.
+ *
+ * @param event - The event
+ * @returns The line, or undefined for an event a run does not print
+ */
+export function rackPlacementLine(event: RackPlacementEvent): string | undefined {
+  if (event.kind === 'retried') return `  [RACK] ${event.taskName} ${event.retry.transfer} transfer retried (${event.retry.attempt} of ${event.retry.of}): ${event.retry.cause}`;
+  if (event.where === 'rack') return event.role === 'unit' ? undefined : `  [RACK] ${event.taskName} → ${event.rackLabel}`;
+  if (event.detail !== undefined) return `  [LOCAL] ${event.taskName} (${event.reason.replace(/^fallback:/, '')})`;
+  if (event.role === 'unit') return undefined;
+  return event.reason === 'spill' || event.reason.startsWith('fallback:') || event.reason.startsWith('no-rack-for-tier:')
+    ? `  [LOCAL] ${event.taskName} (${event.reason})` : undefined;
+}
+
+/** Prints a placement event's line, when a run prints one for it. */
 export function printRackPlacement(event: RackPlacementEvent): void {
-  if (event.role === 'unit') return;
-  if (event.where === 'rack') console.log(`  [RACK] ${event.taskName} → ${event.rackLabel}`);
-  else if (event.reason === 'spill' || event.reason.startsWith('fallback:') || event.reason.startsWith('no-rack-for-tier:')) {
-    console.log(`  [LOCAL] ${event.taskName} (${event.reason})`);
-  }
+  const line = rackPlacementLine(event);
+  if (line !== undefined) console.log(line);
+}
+
+/** Prints what the run's rack work came to, when any went to a rack or came back from one. */
+export async function printRackSummary(rack: RackRunnerHandle): Promise<void> {
+  const { describeRackSummary } = await import('@elaraai/e3-rack');
+  const line = describeRackSummary(rack.takeSummary());
+  if (line !== undefined) console.log(line);
 }

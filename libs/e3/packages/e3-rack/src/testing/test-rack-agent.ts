@@ -20,7 +20,7 @@ import { RackCompleteRequestType, RackCompleteResponseType, RackEnrollRequestTyp
   RackLogsRequestType, RackStorageRequestType, RackStorageResponseType, type RackLeaseGrant, type RackLeaseRef,
   type RackLogChunk, type RackObjectCommit, type RackStorageRequest } from '../protocol/rack-wire.js';
 import { RACK_PROTOCOL, RACK_PROTOCOL_HEADER, RACK_TRANSFERS_AT_ONCE, readRackHello, readRackRefusal, type RackHello, type RackOffer, type RackReport } from '../protocol/rack-json.js';
-import type { RackLeaseEvent, RackLeaseResult } from '../protocol/task-envelope.js';
+import type { RackLeaseEvent, RackLeaseResult, RackTransferRetry } from '../protocol/task-envelope.js';
 
 /** Configures deterministic failures of an in-process protocol peer. */
 export interface TestRackAgentFaults {
@@ -57,6 +57,14 @@ const TRANSFER_TRIES = 5;
 /** A transfer its source refused for good: the same request is not sent again. */
 class TransferRefused extends Error {}
 
+/** A transfer that failed every try it was given. */
+class TransferFailed extends Error {
+  constructor(message: string, readonly transfer: 'input' | 'output', readonly attempts: number, readonly why: string) { super(message); }
+}
+
+/** One lease's transfers: which way they go, and the retries they made. */
+interface Transfers { transfer: 'input' | 'output'; retries: RackTransferRetry[] }
+
 /** Configures a protocol peer backed by a real local runner repository. */
 export interface TestRackAgentOptions {
   /** Origin hosting /api/rack. */
@@ -77,7 +85,7 @@ export interface TestRackAgentOptions {
   workDir: string;
   /** Overrides heartbeat and lease-extension intervals, the deadline of one
    *  try of an object transfer (thirty seconds), and the first wait between
-   *  two tries, which doubles (a hundred milliseconds). */
+   *  two tries (a second), which doubles up to thirty seconds. */
   timings?: { heartbeatMs?: number; extendMs?: number; transferMs?: number; retryMs?: number };
   /** Consumes counters in place, permitting faults to be armed during a test. */
   faults?: TestRackAgentFaults;
@@ -145,7 +153,7 @@ export class TestRackAgent {
     this.version = options.agentVersion ?? `0.5.0+e3.${E3_RACK_VERSION}`;
     this.capacity = options.capacity ?? 1;
     if (!Number.isSafeInteger(this.capacity) || this.capacity < 1) throw new Error('Test rack capacity must be a positive integer');
-    for (const ms of [options.timings?.heartbeatMs ?? 15000, options.timings?.extendMs ?? 20000, options.timings?.transferMs ?? 30000, options.timings?.retryMs ?? 100]) {
+    for (const ms of [options.timings?.heartbeatMs ?? 15000, options.timings?.extendMs ?? 20000, options.timings?.transferMs ?? 30000, options.timings?.retryMs ?? 1000]) {
       if (!Number.isFinite(ms) || ms <= 0) throw new Error('Test rack intervals must be positive');
     }
     if (options.transfersAtOnce !== undefined && (!Number.isSafeInteger(options.transfersAtOnce) || options.transfersAtOnce < 1)) throw new Error('Test rack transfers at once must be a positive integer');
@@ -313,10 +321,12 @@ export class TestRackAgent {
    * doubles, five in all.
    * @param what - The transfer, for the error
    * @param signal - Ends the transfer with its lease
+   * @param of - The lease's transfers, which take note of each retry
    * @param attempt - One try: nothing once the transfer is done, else the
    *   response that was no success
+   * @throws {TransferFailed} When the last try has failed
    */
-  private async tries(what: string, signal: AbortSignal, attempt: (deadline: AbortSignal) => Promise<Response | void>): Promise<void> {
+  private async tries(what: string, signal: AbortSignal, of: Transfers | undefined, attempt: (deadline: AbortSignal) => Promise<Response | void>): Promise<void> {
     let cause: unknown;
     for (let failed = 0; failed < TRANSFER_TRIES;) {
       if (signal.aborted) throw new Error(`${what} was stopped`);
@@ -338,11 +348,13 @@ export class TestRackAgent {
         failed++;
         if (failed < TRANSFER_TRIES) {
           this.transfers.retried++;
-          await delay((this.options.timings?.retryMs ?? 100) * 2 ** (failed - 1), undefined, { signal });
+          of?.retries.push({ transfer: of.transfer, attempt: failed + 1, of: TRANSFER_TRIES, cause: error instanceof Error ? error.message : String(error) });
+          await delay(Math.min(30_000, (this.options.timings?.retryMs ?? 1000) * 2 ** (failed - 1)), undefined, { signal });
         }
       }
     }
-    throw new Error(`${what} failed after ${TRANSFER_TRIES} tries: ${cause instanceof Error ? cause.message : String(cause)}`);
+    const why = cause instanceof Error ? cause.message : String(cause);
+    throw new TransferFailed(`${what} failed after ${TRANSFER_TRIES} tries: ${why}`, of?.transfer ?? 'input', TRANSFER_TRIES, why);
   }
 
   /**
@@ -350,11 +362,11 @@ export class TestRackAgent {
    * the bytes it carried, and the next asks for the object from the byte
    * after them; a URL whose time ended is asked for again.
    */
-  private async download(lease: RackLeaseRef, hash: string, firstUrl: string, signal: AbortSignal): Promise<Uint8Array> {
+  private async download(lease: RackLeaseRef, hash: string, firstUrl: string, signal: AbortSignal, of?: Transfers): Promise<Uint8Array> {
     const parts: Uint8Array[] = [];
     let have = 0;
     let url = firstUrl;
-    await this.transfer(() => this.tries(`Rack input ${hash}`, signal, async (deadline) => {
+    await this.transfer(() => this.tries(`Rack input ${hash}`, signal, of, async (deadline) => {
       const response = await this.transport(url, { headers: have > 0 ? { range: `bytes=${have}-` } : {}, signal: deadline });
       if (response.status === 404 || response.status === 410) {
         // The URL's fifteen minutes ended, or its session went: the same
@@ -381,15 +393,16 @@ export class TestRackAgent {
    * @param lease - The lease that may read them
    * @param hashes - The objects; one the store holds already is not fetched
    * @param signal - Ends the transfers with the lease
+   * @param of - The lease's transfers, which take note of each retry
    */
-  async fetch(lease: RackLeaseRef, hashes: readonly string[], signal: AbortSignal = this.abort.signal): Promise<void> {
+  async fetch(lease: RackLeaseRef, hashes: readonly string[], signal: AbortSignal = this.abort.signal, of?: Transfers): Promise<void> {
     for (let from = 0; from < hashes.length; from += 256) {
       const need: string[] = [];
       for (const hash of hashes.slice(from, from + 256)) if (!await this.storage.objects.exists(this.repo, hash)) need.push(hash);
       if (need.length === 0) continue;
       const response = await this.storageRequest(lease, { need });
       await Promise.all(response.objects.map(async (object) => {
-        const bytes = object.type === 'inline' ? object.value.data : await this.download(lease, object.value.hash, object.value.url, signal);
+        const bytes = object.type === 'inline' ? object.value.data : await this.download(lease, object.value.hash, object.value.url, signal, of);
         if (await this.storage.objects.write(this.repo, bytes) !== object.value.hash) throw new Error('Rack input checksum mismatch');
       }));
     }
@@ -427,7 +440,8 @@ export class TestRackAgent {
     const infra = this.consume('infraFailNext');
     if (infra || this.consume('taskFailNext')) {
       const result: RackLeaseResult = { taskName: event.taskName, status: 'failed', state: infra ? 'error' : 'failed',
-        ...(infra ? {} : { exitCode: 1 }), error: infra ? 'Injected infrastructure failure' : 'Injected task failure' };
+        ...(infra ? {} : { exitCode: 1 }), error: infra ? 'Injected infrastructure failure' : 'Injected task failure',
+        reason: infra ? { code: 'guest-crashed', detail: 'Injected infrastructure failure' } : { code: 'task-error' } };
       await this.complete(lease, result); return result;
     }
     const run = decodeRunnerEvent(event.runnerEvent);
@@ -440,9 +454,12 @@ export class TestRackAgent {
     }, this.options.timings?.extendMs ?? 20000);
     heartbeat.unref(); extend.unref();
     const chunks: RackLogChunk[] = [];
+    // The lease's transfers, in and then out, and the retries they make.
+    const transfers: Transfers = { transfer: 'input', retries: [] };
+    const retries = () => (transfers.retries.length > 0 ? { retries: transfers.retries } : {});
     try {
-      if ('object' in event.closure) await this.fetch(lease, [event.closure.object], signal);
-      await this.fetch(lease, await closureHashes(event.closure, (hash) => this.storage.objects.read(this.repo, hash)), signal);
+      if ('object' in event.closure) await this.fetch(lease, [event.closure.object], signal, transfers);
+      await this.fetch(lease, await closureHashes(event.closure, (hash) => this.storage.objects.read(this.repo, hash)), signal, transfers);
       const options = { force: true, signal, timeout: run.timeoutMs, verbose: run.verbose,
         onStdout: (data: string) => { chunks.push({ stream: variant('stdout', null), data }); },
         onStderr: (data: string) => { chunks.push({ stream: variant('stderr', null), data }); } };
@@ -451,6 +468,7 @@ export class TestRackAgent {
         : await taskExecuteUnit(this.storage, this.repo, run.taskHash, splitUnitFromWire(run.unit), options);
       if (chunks.length > 0) await this.logs(lease, chunks);
       if (result.state === 'success' && result.outputHash !== null) {
+        transfers.transfer = 'output';
         const readers = gcObjectReaders(this.storage, this.repo);
         const hashes = [...await markReachable(readers.readObject, new Set([result.outputHash]), { readHead: readers.readHead })];
         for (const hash of hashes) {
@@ -462,7 +480,7 @@ export class TestRackAgent {
           // A PUT is sent whole each try: its source answers one it has
           // already taken with the same receipt.
           let version: string | null = null;
-          await this.transfer(() => this.tries(`Rack output ${hash}`, signal, async (deadline) => {
+          await this.transfer(() => this.tries(`Rack output ${hash}`, signal, transfers, async (deadline) => {
             const put = await this.transport(target.value.url, { method: 'PUT', headers: Object.fromEntries(target.value.headers), body: bytes, signal: deadline });
             if (!put.ok) return put;
             version = put.headers.get('x-amz-version-id');
@@ -476,8 +494,17 @@ export class TestRackAgent {
       const output: RackLeaseResult = { taskName: event.taskName, status: result.state === 'success' ? 'success' : 'failed',
         state: result.state, ...(result.outputHash === null ? {} : { outputHash: result.outputHash }),
         ...(result.exitCode == null ? {} : { exitCode: result.exitCode }), ...(result.error == null ? {} : { error: result.error }),
-        ...(result.peakBytes === undefined ? {} : { peakBytes: result.peakBytes }), cancelled: signal.aborted };
+        ...(result.peakBytes === undefined ? {} : { peakBytes: result.peakBytes }), cancelled: signal.aborted,
+        ...(result.state === 'failed' ? { reason: { code: 'task-error' } } : {}), ...retries() };
       if (!this.consume('dropCompletionNext') && !this.abort.signal.aborted) await this.complete(lease, output);
+      return output;
+    } catch (error) {
+      // A transfer that failed its last try ends the lease: the rack's
+      // fault, with its reason, for its source to place the work elsewhere.
+      if (!(error instanceof TransferFailed) || signal.aborted) throw error;
+      const output: RackLeaseResult = { taskName: event.taskName, status: 'failed', state: 'error', error: error.message,
+        reason: { code: `${error.transfer}-transfer-failed`, attempts: error.attempts, cause: error.why }, ...retries() };
+      if (!this.abort.signal.aborted) await this.complete(lease, output);
       return output;
     } finally { clearInterval(heartbeat); clearInterval(extend); }
   }
