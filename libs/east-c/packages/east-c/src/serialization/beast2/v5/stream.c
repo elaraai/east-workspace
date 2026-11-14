@@ -3451,10 +3451,13 @@ EastValue *east_paged_hydrated(EastValue *v)
     long before = east_resident_kb();
     if (pages->view) {
         /* A range decodes its own rows and no others, into a collection of
-         * its own that is never frozen; its source is left lazy, and the
-         * cache it reads through as it was. */
+         * its own — not frozen, as a range is a collection a body may change —
+         * and its source is left lazy, the cache it reads through as it was. */
         EastValue *rows = pages_view_decode(pages);
         if (!rows) return NULL;
+        /* A host that hands a range out read-only brands the view frozen as
+         * it makes it: its rows are then a frozen collection too. */
+        if (v->data.paged.frozen) east_value_set_frozen(rows);
         long added = east_resident_kb() - before;
         pages->hydrated_kb = added > 0 ? added : 0;
         rows->iter_lock += v->iter_lock;

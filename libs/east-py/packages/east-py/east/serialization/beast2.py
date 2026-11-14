@@ -61,6 +61,8 @@ from east.serialization._beast2_eastc import (  # type: ignore[import-not-found]
     _decode_manifest_dir,
     _encode_beast2_paged,
     _encode_beast2_v5,
+    _freeze_collection,
+    _paged_range_view,
     _read_manifest,
     decode_beast2_for,
     decode_beast2_with_header_for,
@@ -1068,6 +1070,57 @@ class Beast2File:
             starts.append(starts[-1] + c)
         return starts
 
+    def _key_range(self, eager, from_end, to_end):
+        """A key range of a Set or Dict file (#1616): a read-only East value
+        of the file's kind over the same open file.
+
+        ``from_end`` and ``to_end`` are the range's two ends as the pager
+        takes them — ``None`` for an end left out, or ``(value, type, past)``
+        (:func:`_file_range_end`) — and ``eager`` runs the eager class's own
+        ``range`` or ``prefix`` over a collection held in memory.
+
+        Where the file holds a lazily opened value — its segments decode on
+        their own and no ``project=`` narrows them — the range is a view of
+        it the pager serves: making it reads nothing, its size places its two
+        ends, a keyed read tests its bounds first, and iterating it reads its
+        segments, each once; any other method decodes its own rows and runs
+        on those. The view holds the file's bytes, so :meth:`close` defers
+        while one lives, as it does for a function the file is bound into.
+
+        Otherwise the rows are placed by the file's own pager — by the keys
+        as the wire holds them, so the same under a projection — and the
+        segments they span are read once each, into a collection of those
+        rows. Either way the range refuses a change, as the file does.
+        """
+        pages = self._require_pages()
+        if self._lazy is not None:
+            view = _paged_range_view(self._lazy._east_c_paged, self.collection_type,
+                                     from_end, to_end)
+            if view is not None:
+                return view
+        lo, hi = pages._core.range(from_end, to_end)
+        is_dict = self.collection_type.type == "Dict"
+        result = None
+        if hi > lo:
+            import bisect
+
+            starts = self._segment_starts()
+            for i in range(bisect.bisect_right(starts, lo) - 1, pages.segment_count):
+                if starts[i] >= hi:
+                    break
+                part = eager(pages._core.segment_disjoint(i))
+                if result is None:
+                    result = part
+                elif is_dict:
+                    _merge_partial(result, part, None)
+                else:
+                    result.union_in_place(part)
+        if result is None:
+            result = eager(
+                EastDict(self.collection_type.value["key"], self.collection_type.value["value"])
+                if is_dict else EastSet(self.collection_type.value))
+        return _freeze_collection(result)
+
     def _disjoint_segments(self, project=None):
         """Yield decoded segments under the keyed-read disjointness contract
         (Set/Dict compute streams) — east-c verifies the fences ascend and
@@ -1100,6 +1153,21 @@ class Beast2File:
         for i in range(pages.segment_count):
             counters[key] += 1
             yield core.segment_disjoint(i)
+
+
+def _file_range_end(name: str, key_type, bound, past: bool = False):
+    """One end of a file's key range as the pager takes it: ``None`` for an
+    end left out, or ``(value, type, past)`` — the bound coerced to its type,
+    the key's type cut short to what is written, and whether the end is the
+    first key past the bound, as a prefix's upper end is. A bound that is no
+    leading part of the key raises ``EastTypeError`` in the words every
+    runtime refuses it in."""
+    if bound is None:
+        return None
+    from east.types.values.collections import _eager_bound
+
+    bound_type, value = _eager_bound(name, key_type, bound)
+    return (value, bound_type, past)
 
 
 def _refuse_mutation(name: str):
@@ -2300,6 +2368,67 @@ class Beast2DictFile(Beast2File, EastDict):
         found, _ = self._require_pages()._core.get_key(key)
         return found
 
+    def range(self, from_: Any = None, to: Any = None):
+        """The entries from the first key at or past ``from_`` up to, and not
+        including, the first at or past ``to`` (``EastDict.range``), read
+        from the file at the cost of the range.
+
+        Args:
+            from_: Where the range starts: the whole key or, for a struct key,
+                its first fields as a dict in any order. Left out, the file's
+                first key.
+            to: Where the range stops, written as ``from_`` is; the first key
+                at or past it is not in the range. Left out, the range runs to
+                the file's last key.
+
+        Returns:
+            A read-only dict over the same open file. Each end is found by
+            the fences and the one segment that can hold it; a file opened
+            without ``project=`` gives a dict that reads on from the pager —
+            its size reads no segment between its ends, a keyed read tests the
+            bounds first, iterating it reads its segments each once — and
+            holds the file open until it is dropped. Under ``project=`` the
+            range's rows are read as it is made, the segments they span each
+            once. ``copy()`` gives a dict to change.
+
+        Raises:
+            EastTypeError: When a bound is no leading part of the key, naming
+                the key's fields in order.
+        """
+        from east.types.values.collections import _bound_traced
+
+        if _bound_traced(from_) or _bound_traced(to):
+            return EastDict.range(self, from_, to)
+        return self._key_range(
+            lambda rows: EastDict.range(rows, from_, to),
+            _file_range_end("from", self.key_type, from_),
+            _file_range_end("to", self.key_type, to))
+
+    def prefix(self, fields: Any):
+        """The entries whose key begins with ``fields`` — the first fields of
+        a struct key, as a dict (``EastDict.prefix``) — read from the file at
+        the cost of the range, as :meth:`range` reads one.
+
+        Args:
+            fields: The key's first fields, in any order: ``{"press": "P1"}``.
+
+        Returns:
+            A read-only dict over the same open file, as :meth:`range` gives.
+
+        Raises:
+            EastTypeError: When ``fields`` is no leading part of the key, or
+                the key is not a struct — read one key with ``get``, or the
+                keys between two with ``range``.
+        """
+        from east.types.values.collections import _bound_traced
+
+        if _bound_traced(fields):
+            return EastDict.prefix(self, fields)
+        return self._key_range(
+            lambda rows: EastDict.prefix(rows, fields),
+            _file_range_end("prefix", self.key_type, fields),
+            _file_range_end("prefix", self.key_type, fields, past=True))
+
     # ----- Segment-streamed compute (issue #481 W4) ------------------------
     # Dict folds stream disjointness-verified segments (the keyed-read
     # contract), so cross-segment merges can never double-count a key.
@@ -2789,6 +2918,60 @@ class Beast2SetFile(Beast2File, EastSet):
     def __contains__(self, value):
         found, _ = self._require_pages()._core.get_key(value)
         return found
+
+    def range(self, from_: Any = None, to: Any = None):
+        """The elements from the first at or past ``from_`` up to, and not
+        including, the first at or past ``to`` (``EastSet.range``), read from
+        the file at the cost of the range.
+
+        Args:
+            from_: Where the range starts: the whole element or, for a struct
+                element, its first fields as a dict in any order. Left out,
+                the file's first element.
+            to: Where the range stops, written as ``from_`` is; the first
+                element at or past it is not in the range. Left out, the range
+                runs to the file's last element.
+
+        Returns:
+            A read-only set over the same open file, read as
+            :meth:`Beast2DictFile.range` reads a dict's.
+
+        Raises:
+            EastTypeError: When a bound is no leading part of the element,
+                naming its fields in order.
+        """
+        from east.types.values.collections import _bound_traced
+
+        if _bound_traced(from_) or _bound_traced(to):
+            return EastSet.range(self, from_, to)
+        return self._key_range(
+            lambda rows: EastSet.range(rows, from_, to),
+            _file_range_end("from", self.element_type, from_),
+            _file_range_end("to", self.element_type, to))
+
+    def prefix(self, fields: Any):
+        """The elements that begin with ``fields`` — the first fields of a
+        struct element, as a dict (``EastSet.prefix``) — read from the file
+        at the cost of the range, as :meth:`range` reads one.
+
+        Args:
+            fields: The element's first fields, in any order.
+
+        Returns:
+            A read-only set over the same open file, as :meth:`range` gives.
+
+        Raises:
+            EastTypeError: When ``fields`` is no leading part of the element,
+                or the element is not a struct.
+        """
+        from east.types.values.collections import _bound_traced
+
+        if _bound_traced(fields):
+            return EastSet.prefix(self, fields)
+        return self._key_range(
+            lambda rows: EastSet.prefix(rows, fields),
+            _file_range_end("prefix", self.element_type, fields),
+            _file_range_end("prefix", self.element_type, fields, past=True))
 
     # ----- Segment-streamed compute (issue #481 W4) ------------------------
     # Set folds stream disjointness-verified segments (the keyed-read

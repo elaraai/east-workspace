@@ -774,7 +774,10 @@ void east_beast2_pages_set_cache_budget(Beast2Pages *p, size_t bytes);
 //
 // A view is never frozen, whatever its source is: a range is a new collection
 // a body may change, and changing it decodes its rows and changes those. Its
-// rows decode as the source's do.
+// rows decode as the source's do. A host that hands a range out read-only —
+// a range of a file it keeps open — brands the view frozen as it makes it
+// (east_value_set_frozen): it then refuses a change, and its own rows decode
+// into a frozen collection.
 //
 // `source` is a paged value that still reads from its pager, of a Set or Dict
 // root; the view retains it. Returns NULL (message via east_builtin_get_error)

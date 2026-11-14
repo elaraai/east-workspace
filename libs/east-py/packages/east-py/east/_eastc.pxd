@@ -395,6 +395,9 @@ cdef extern from "east/values.h":
 
     # Frozen (task-input) brand — per union arm; false for kinds without it.
     bint east_value_frozen(const EastValue *v)
+    # Brands a value frozen as it is made — a decoder's call, and a host's for
+    # a range of a file it hands out read-only (#1616); never cleared.
+    void east_value_set_frozen(EastValue *v)
     # The uniform frozen-mutation message, identical across runtimes.
     const char *EAST_FROZEN_MUTATION_MSG
 
@@ -582,6 +585,9 @@ cdef extern from "east/serialization.h":
         size_t peak_weight
         size_t budget
     void east_beast2_pages_cache_stats(Beast2Pages *p, Beast2PagesCacheStats *out)
+    # What a pager's reads have cost: every segment decode, and every fence
+    # probed. A view's are counted on the pager it reads through.
+    void east_beast2_pages_stats(Beast2Pages *p, size_t *segments_decoded, size_t *fences_probed)
     EastValue *east_paged_hydrated(EastValue *v)
     bint east_paged_stats(EastValue *v, size_t *segments, size_t *segments_decoded,
                           size_t *fences_probed, cbool *hydrated)

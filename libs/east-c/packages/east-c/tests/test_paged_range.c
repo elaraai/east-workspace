@@ -397,6 +397,18 @@ static void test_view_rule(void)
     east_value_release(taken);
     east_value_release(plain);
 
+    /* A view a host brands frozen as it makes it: read-only, its rows frozen too. */
+    EastValue *kept = open_lazy(blob, type, true);
+    EastValue *read_only = int_view(kept, 30, 60);
+    east_value_set_frozen(read_only);
+    EastValue *frozen_rows = east_paged_hydrated(read_only);
+    check(east_value_frozen(read_only) && frozen_rows && east_value_frozen(frozen_rows) &&
+              east_dict_len(frozen_rows) == 10,
+          "a view branded frozen decodes its rows into a frozen collection");
+    check(kept->data.paged.hydrated == NULL, "and leaves its source lazy");
+    east_value_release(read_only);
+    east_value_release(kept);
+
     /* The source outlives a view that is all that holds it. */
     EastValue *held = open_lazy(blob, type, true);
     EastValue *only = int_view(held, 30, 60);
