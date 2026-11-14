@@ -216,6 +216,13 @@ describe("lazy inputs — builtin corpus sweep (#510)", () => {
     [1n, { xs: [1n, 2n] }], [2n, { xs: [3n] }], [3n, { xs: [] }], [4n, { xs: [4n] }],
   ]);
   const nestedRows: { inner: bigint[] }[] = [{ inner: [5n] }, { inner: [] }, { inner: [9n, 10n] }];
+  // Struct-keyed inputs, for the key ranges: a press's runs, and what each printed.
+  const Run = StructType({ press: StringType, n: IntegerType });
+  const Runs = SetType(Run);
+  const Sheets = DictType(Run, StringType);
+  const runKeys = ["P1", "P2", "P3"].flatMap((press) => [0n, 1n, 2n].map((n) => ({ press, n })));
+  const runs = new Set(runKeys);
+  const sheets = new Map(runKeys.map((key) => [key, `${key.press}-${key.n}`]));
 
   const corpus: SweepCase[] = [
     {
@@ -404,6 +411,37 @@ describe("lazy inputs — builtin corpus sweep (#510)", () => {
         return d;
       }),
       inputs: [table, new Map<bigint, string>([[1n, "-u1"], [200n, "-u2"]])],
+    },
+    {
+      // A key range of a lazily opened input (#1616): what a range and a
+      // prefix hold, read and narrowed again, and that a range is a collection
+      // of its own — changed, it leaves the input as it was, which the sweep
+      // holds by comparing the inputs after the call.
+      label: "corpus.keyRanges",
+      fn: East.function([Tags, Table, Runs, Sheets], ArrayType(StringType), ($, s, d, r, sh) => {
+        const out = $.let([], ArrayType(StringType));
+        $(out.pushLast(East.print(s.range({ from: "b", to: "e" }))));
+        $(out.pushLast(East.print(s.range({ to: "carrot" }).size())));
+        $(out.pushLast(East.print(s.range({ from: "zz" }))));
+        $(out.pushLast(East.print(d.range({ from: 3n, to: 6n }))));
+        $(out.pushLast(East.print(d.range({ from: 7n }).has(8n))));
+        $(out.pushLast(East.print(d.range({ from: 7n }).has(2n))));
+        $(out.pushLast(East.print(d.range().size())));
+        $(out.pushLast(East.print(r.prefix({ press: "P2" }))));
+        $(out.pushLast(East.print(r.range({ from: { press: "P2", n: 1n } }).size())));
+        $(out.pushLast(East.print(sh.prefix({ press: "P1" }).range({ from: { press: "P1", n: 1n } }))));
+        $(out.pushLast(East.print(sh.range({ from: { press: "P3" }, to: { press: "P1" } }).size())));
+        const part = $.let(d.range({ from: 2n, to: 4n }));
+        $(part.insert(100n, "added"));
+        $(part.delete(2n));
+        $(out.pushLast(East.print(part)));
+        $(out.pushLast(East.print(d.has(100n))));
+        const few = $.let(r.prefix({ press: "P3" }));
+        $(few.insert({ press: "P9", n: 9n }));
+        $(out.pushLast(East.print(few.size())));
+        return out;
+      }),
+      inputs: [tags, table, runs, sheets],
     },
     {
       // Each element's parent is the key below it, so every collection is

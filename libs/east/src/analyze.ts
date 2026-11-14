@@ -19,6 +19,7 @@ import { printTypeValue } from "./compile.js";
 import { variant } from "./containers/variant.js";
 import { ArrayType, IntegerType, StringType, StructType, type ValueTypeOf } from "./types.js";
 import { Builtins } from "./builtins.js";
+import { keyBoundRefusal, type KeyBoundName } from "./key_bound.js";
 import { QueryCallType } from "./query/types.js";
 import { constValueOf } from "./walker.js";
 
@@ -906,6 +907,7 @@ export function analyzeIR<T extends IR>(
       }
 
       if (builtinName === "Query") checkQueryBuiltin(node, analyzedArgs[1]!.value.type);
+      if (builtinName in KEY_RANGE_BOUNDS) checkKeyRangeBuiltin(node, analyzedArgs.map((arg) => arg.value.type));
 
       // Return analyzed Builtin with analyzed arguments
       return {
@@ -1913,6 +1915,63 @@ function checkQueryBuiltin(node: Extract<IR, { type: "Builtin" }>, translation: 
   for (const [what, type] of [["its second argument", translation], ["what it gives", node.value.type]] as const) {
     if (!isTypeValueEqual(type, given)) {
       throw new Error(`Builtin function 'Query': its translation is of type ${printTypeValue(given)}, but ${what} is of type ${printTypeValue(type)} at loc_id ${loc}`);
+    }
+  }
+}
+
+/** The range builtins (#1616): whether each is over a Dict, and the bounds it takes after the collection, in order. */
+const KEY_RANGE_BOUNDS: Readonly<Record<string, { readonly dict: boolean; readonly bounds: readonly KeyBoundName[] }>> = {
+  DictRange: { dict: true, bounds: ["from", "to"] },
+  DictPrefix: { dict: true, bounds: ["prefix"] },
+  SetRange: { dict: false, bounds: ["from", "to"] },
+  SetPrefix: { dict: false, bounds: ["prefix"] },
+};
+
+/**
+ * Holds a call of a range builtin to its type parameters (#1616, D2): the
+ * collection's key type, its value type for a Dict, then each bound's type.
+ * The first argument, and what the builtin gives, are the collection. A
+ * range's bounds are each an option of the bound's type, `none` for an end
+ * left out; a prefix is its bound.
+ *
+ * A bound's type is a type parameter, so an IR can name one that is no leading
+ * part of the key. It is refused here, in the words every runtime refuses it
+ * in, so the builtin never compares a key with a bound of another shape.
+ *
+ * @param node - the builtin
+ * @param given - the types of its arguments
+ * @throws {Error} When the builtin does not have its type parameters, a bound's
+ *   type is no leading part of the key, or an argument, or what the builtin
+ *   gives, is not of the type its type parameters say.
+ */
+function checkKeyRangeBuiltin(node: Extract<IR, { type: "Builtin" }>, given: readonly EastTypeValue[]): void {
+  const name = node.value.builtin;
+  const loc = node.value.loc_id;
+  const { dict, bounds } = KEY_RANGE_BOUNDS[name]!;
+  const parameters = node.value.type_parameters;
+  const first = dict ? 2 : 1;
+  if (parameters.length !== first + bounds.length) {
+    throw new Error(`Builtin function '${name}' takes ${first + bounds.length} type parameters, got ${parameters.length} at loc_id ${loc}`);
+  }
+  const key = parameters[0]!;
+  const collection: EastTypeValue = dict ? variant("Dict", { key, value: parameters[1]! }) : variant("Set", key);
+  for (const [what, type] of [["its first argument", given[0]!], ["what it gives", node.value.type]] as const) {
+    if (type.type !== "Never" && !isTypeValueEqual(type, collection)) {
+      throw new Error(`Builtin function '${name}': its type parameters say ${printTypeValue(collection)}, but ${what} is of type ${printTypeValue(type)} at loc_id ${loc}`);
+    }
+  }
+  for (const [index, bound] of bounds.entries()) {
+    const type = parameters[first + index]!;
+    const refusal = keyBoundRefusal(bound, key, type);
+    if (refusal !== undefined) {
+      throw new Error(`Builtin function '${name}': ${refusal} at loc_id ${loc}`);
+    }
+    const expected: EastTypeValue = bound === "prefix" ? type
+      : variant("Variant", [{ name: "none", type: variant("Null", null) }, { name: "some", type }]);
+    const argument = given[1 + index]!;
+    if (argument.type !== "Never" && !isTypeValueEqual(argument, expected)) {
+      const which = bound === "prefix" ? "its prefix" : `its \`${bound}\``;
+      throw new Error(`Builtin function '${name}': ${which} is of type ${printTypeValue(argument)}, but its type parameters say ${printTypeValue(expected)} at loc_id ${loc}`);
     }
   }
 }

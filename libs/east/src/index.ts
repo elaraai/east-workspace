@@ -18,6 +18,7 @@ export * from './key_bound.js';
 export { isFrozenValue } from './frozen.js';
 export * from './ast.js';
 export * from './expr/index.js';
+export type { KeyBound, KeyPrefix, KeyRangeBounds } from './expr/key_range.js';
 export * from './ir.js';
 export * from './walker.js';
 export * from './error.js';

@@ -133,18 +133,19 @@ const leafNames = (keyType: EastTypeValue): string => keyLeaves(keyType).map((le
  *
  * @param name - Which bound: a range's `from` or `to`, or a prefix
  * @param keyType - The key's type
- * @param boundType - The bound's type
+ * @param boundType - The bound's type; `undefined` for a bound written as fields that are not the key's first, which has no type to give
  * @returns The refusal's words, or `undefined`
  */
-export function keyBoundRefusal(name: KeyBoundName, keyType: EastTypeValue | EastType, boundType: EastTypeValue | EastType): string | undefined {
+export function keyBoundRefusal(name: KeyBoundName, keyType: EastTypeValue | EastType, boundType: EastTypeValue | EastType | undefined): string | undefined {
   const key = typeValueOf(keyType);
+  const leading = boundType !== undefined && isKeyBoundType(key, boundType);
   if (key.type !== "Struct") {
     if (name === "prefix") {
       return `a prefix gives the first fields of a struct key, and this key is a ${key.type}: read one key with \`get\`, or the keys between two with \`range\``;
     }
-    return isKeyBoundType(key, boundType) ? undefined : `${boundWords(name)} is not the key's type: a bound of a ${key.type} key is a ${key.type}`;
+    return leading ? undefined : `${boundWords(name)} is not the key's type: a bound of a ${key.type} key is a ${key.type}`;
   }
-  return isKeyBoundType(key, boundType) ? undefined
+  return leading ? undefined
     : `${boundWords(name)} is no leading part of the key: a bound gives the key's first fields in order — ${leafNames(key)}`;
 }
 

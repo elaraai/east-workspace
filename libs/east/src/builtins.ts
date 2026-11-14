@@ -24,8 +24,8 @@ export type BuiltinName = "Is" | "Equal" | "NotEqual" | "Less" | "LessEqual" | "
   | "BlobSize" | "BlobGetUint8" | "BlobDecodeUtf8" | "BlobDecodeUtf16" | "BlobDecodeBeast" | "BlobEncodeBeast" | "BlobDecodeBeast2" | "BlobEncodeBeast2" | "BlobOpenBeast2" | "BlobDecodeCsv" | "ArrayEncodeCsv"
   | "RefGet" | "RefUpdate" | "RefMerge"
   | "ArrayGenerate" | "ArrayRange" | "ArrayLinspace" | "ArraySize" | "ArrayHas" | "ArrayGet" | "ArrayGetOrDefault" | "ArrayTryGet" | "ArrayUpdate" | "ArrayMerge" | "ArrayPushLast" | "ArrayPopLast" | "ArrayPushFirst" | "ArrayPopFirst" | "ArrayAppend" | "ArrayPrepend" | "ArrayMergeAll" | "ArrayClear" | "ArraySortInPlace" | "ArrayReverseInPlace" | "ArraySort" | "ArrayReverse" | "ArrayIsSorted" | "ArrayFindSortedFirst" | "ArrayFindSortedLast" | "ArrayFindSortedRange" | "ArrayFindFirst" | "ArrayConcat" | "ArraySlice" | "ArrayGetKeys" | "ArrayForEach" | "ArrayCopy" | "ArrayMap" | "ArrayFilter" | "ArrayFilterMap" | "ArrayFirstMap" | "ArrayMapReduce" | "ArrayFold" | "ArrayScan" | "ArrayStringJoin" | "ArrayToSet" | "ArrayToDict" | "ArrayFlattenToArray" | "ArrayFlattenToSet" | "ArrayFlattenToDict" | "ArrayGroupFold" | "ArrayToTree" | "ArrayFlattenTree"
-  | "SetGenerate" | "SetSize" | "SetHas" | "SetInsert" | "SetTryInsert" | "SetDelete" | "SetTryDelete" | "SetClear" | "SetUnionInPlace" | "SetUnion" | "SetIntersect" | "SetDiff" | "SetSymDiff" | "SetIsSubset" | "SetIsDisjoint" | "SetCopy" | "SetForEach" | "SetMap" | "SetFilter" | "SetFilterMap" | "SetFirstMap" | "SetMapReduce" | "SetReduce" | "SetScan" | "SetToArray" | "SetToSet" |"SetToDict" | "SetFlattenToArray" | "SetFlattenToSet" | "SetFlattenToDict" | "SetGroupFold" | "SetToTree"
-  | "DictGenerate" | "DictSize" | "DictHas" | "DictGet" | "DictGetOrDefault" | "DictTryGet" | "DictInsert" | "DictGetOrInsert" | "DictInsertOrUpdate" | "DictUpdate" | "DictSwap" | "DictMerge" | "DictDelete" | "DictTryDelete" | "DictPop" | "DictClear" | "DictUnionInPlace" | "DictMergeAll" | "DictKeys" | "DictGetKeys" | "DictForEach" | "DictCopy" | "DictMap" | "DictFilter" | "DictFilterMap" | "DictFirstMap" | "DictMapReduce" | "DictReduce" | "DictScan" | "DictToArray" | "DictToSet" | "DictToDict" | "DictFlattenToArray" | "DictFlattenToSet" | "DictFlattenToDict" | "DictGroupFold" | "DictToTree" | "DictFlattenTree"
+  | "SetGenerate" | "SetSize" | "SetHas" | "SetInsert" | "SetTryInsert" | "SetDelete" | "SetTryDelete" | "SetClear" | "SetUnionInPlace" | "SetUnion" | "SetIntersect" | "SetDiff" | "SetSymDiff" | "SetIsSubset" | "SetIsDisjoint" | "SetRange" | "SetPrefix" | "SetCopy" | "SetForEach" | "SetMap" | "SetFilter" | "SetFilterMap" | "SetFirstMap" | "SetMapReduce" | "SetReduce" | "SetScan" | "SetToArray" | "SetToSet" |"SetToDict" | "SetFlattenToArray" | "SetFlattenToSet" | "SetFlattenToDict" | "SetGroupFold" | "SetToTree"
+  | "DictGenerate" | "DictSize" | "DictHas" | "DictGet" | "DictGetOrDefault" | "DictTryGet" | "DictInsert" | "DictGetOrInsert" | "DictInsertOrUpdate" | "DictUpdate" | "DictSwap" | "DictMerge" | "DictDelete" | "DictTryDelete" | "DictPop" | "DictClear" | "DictUnionInPlace" | "DictMergeAll" | "DictKeys" | "DictGetKeys" | "DictRange" | "DictPrefix" | "DictForEach" | "DictCopy" | "DictMap" | "DictFilter" | "DictFilterMap" | "DictFirstMap" | "DictMapReduce" | "DictReduce" | "DictScan" | "DictToArray" | "DictToSet" | "DictToDict" | "DictFlattenToArray" | "DictFlattenToSet" | "DictFlattenToDict" | "DictGroupFold" | "DictToTree" | "DictFlattenTree"
   | "VectorLength" | "VectorGet" | "VectorSet" | "VectorSlice" | "VectorConcat" | "VectorFromArray" | "VectorToArray" | "VectorToMatrix" | "VectorZeros" | "VectorOnes" | "VectorFill" | "VectorMap" | "VectorFold"
   | "VectorScale" | "VectorSum" | "VectorAddScaled" | "VectorMul" | "VectorAddScalar" | "VectorDot" | "VectorMax" | "VectorMin" | "VectorArgMax" | "VectorArgMin" | "VectorMean" | "VectorCumSum" | "VectorAbs" | "VectorClamp"
   | "VectorGather" | "VectorScatterAdd" | "VectorSearchSorted"
@@ -844,6 +844,19 @@ export const Builtins: Record<BuiltinName, BuiltinType> = {
     inputs: [SetType("K"), SetType("K")] as const,
     output: BooleanType,
   },
+  // A key range (#1616): the elements at or past `from` and before `to`, or those that begin with a prefix.
+  // F, T and P are the bounds' types, each a leading part of K (`key_bound.ts`), worked out where the
+  // expression is built and passed as type parameters, as the patch builtins' P is. A bound left out is `none`.
+  SetRange: {
+    type_parameters: ["K", "F", "T"],
+    inputs: [SetType("K"), VariantType({ none: NullType, some: "F" }), VariantType({ none: NullType, some: "T" })] as const,
+    output: SetType("K"),
+  },
+  SetPrefix: {
+    type_parameters: ["K", "P"],
+    inputs: [SetType("K"), "P"] as const,
+    output: SetType("K"),
+  },
   SetCopy: {
     type_parameters: ["K"],
     inputs: [SetType("K")] as const,
@@ -1029,6 +1042,18 @@ export const Builtins: Record<BuiltinName, BuiltinType> = {
   DictGetKeys: {
     type_parameters: ["K", "V"],
     inputs: [DictType("K", "V"), SetType("K"), FunctionType(["K"], "V")] as const,
+    output: DictType("K", "V"),
+  },
+  // A key range (#1616): the entries whose key is at or past `from` and before `to`, or begins with a prefix.
+  // F, T and P are the bounds' types, each a leading part of K (`key_bound.ts`), as SetRange's are.
+  DictRange: {
+    type_parameters: ["K", "V", "F", "T"],
+    inputs: [DictType("K", "V"), VariantType({ none: NullType, some: "F" }), VariantType({ none: NullType, some: "T" })] as const,
+    output: DictType("K", "V"),
+  },
+  DictPrefix: {
+    type_parameters: ["K", "V", "P"],
+    inputs: [DictType("K", "V"), "P"] as const,
     output: DictType("K", "V"),
   },
   DictForEach: {

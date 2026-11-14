@@ -17,6 +17,7 @@ import type { BlockBuilder } from "./block.js";
 import type { FloatExpr } from "./float.js";
 import type { ArrayExpr } from "./array.js";
 import { none, some } from "../containers/variant.js";
+import { keyBoundAst, keyRangeEnds, type KeyPrefix, type KeyRangeBounds } from "./key_range.js";
 
 /**
  * Expression representing set (sorted unique collection) values and operations.
@@ -500,6 +501,102 @@ export class SetExpr<K extends any> extends Expr<SetType<K>> {
       type_parameters: [this.key_type as EastType],
       arguments: [this[AstSymbol], otherAst],
     }) as BooleanExpr;
+  }
+
+  /**
+   * Returns the elements that lie between two bounds, as a new set.
+   *
+   * A bound is a leading part of an element: the whole element or, for a struct element, its
+   * first fields in the element's order — `{ press: "P1" }`, `{ press: "P1", day }`. An element
+   * is at or past a bound when its first fields, compared in order, are greater than or equal to
+   * the bound's. The range holds the elements at or past `from` and before `to`.
+   *
+   * @param bounds - `from`, the bound the range starts at, and `to`, the bound it stops before; either left out is that end of the set
+   * @returns A new SetExpr of the same type, holding the elements in the range
+   *
+   * @throws {Error} When the function is built with a bound that is no leading part of the element, naming the element's fields in order
+   *
+   * @remarks
+   * - `from` past `to` gives an empty set, and both left out gives every element.
+   * - The elements are found by a search, never by a walk of the set: a range costs what it
+   *   holds. Over an input a runner opened lazily, the range's own segments are read and no
+   *   others.
+   * - The result is a new set a body may change, whatever its source; the source is not changed
+   *   with it.
+   *
+   * @see {@link prefix} for the elements that begin with given fields
+   * @see {@link has} to test one element
+   *
+   * @example
+   * ```ts
+   * const fromBToD = East.function([SetType(StringType)], SetType(StringType), ($, names) => {
+   *   // Every name from "b" up to, and not including, "d": the names that start with b or c.
+   *   $.return(names.range({ from: "b", to: "d" }));
+   * });
+   * const compiled = East.compile(fromBToD, []);
+   * compiled(new SortedSet(["ant", "bee", "bison", "cat", "dog", "eel"]));  // Set(["bee", "bison", "cat"])
+   * ```
+   */
+  range(bounds: KeyRangeBounds<K> = {}): SetExpr<K> {
+    const { from, to } = keyRangeEnds(this.key_type as EastType, bounds);
+
+    return Expr.fromAst({
+      ast_type: "Builtin",
+      type: this[TypeSymbol],
+      loc_id: get_location_id(),
+      builtin: "SetRange",
+      type_parameters: [this.key_type as EastType, from.type, to.type],
+      arguments: [this[AstSymbol], from.ast, to.ast],
+    }) as SetExpr<K>;
+  }
+
+  /**
+   * Returns the elements that begin with the given fields, as a new set.
+   *
+   * The prefix gives the first fields of a struct element, in the element's order, and the
+   * result holds the elements equal to it on every field it gives.
+   *
+   * @param fields - The element's first fields: `{ press: "P1" }`, or `{ press: "P1", day }`
+   * @returns A new SetExpr of the same type, holding the elements that begin with the fields
+   *
+   * @throws {Error} When the function is built with fields that are not the element's first, naming the element's fields in order, or on an element that is not a struct, naming `get` and `range`
+   *
+   * @remarks
+   * - An element that is not a struct has no prefix. A String's starts-with is a range:
+   *   `range({ from: "ab", to: "ac" })`.
+   * - Found by a search, and a new set, as {@link range}'s is.
+   *
+   * @see {@link range} for the elements between two bounds
+   *
+   * @example
+   * ```ts
+   * // The days each press ran.
+   * const RunsType = SetType(StructType({ press: StringType, day: DateTimeType }));
+   *
+   * const daysRun = East.function([RunsType, StringType], IntegerType, ($, runs, press) => {
+   *   $.return(runs.prefix({ press }).size());
+   * });
+   * const compiled = East.compile(daysRun, []);
+   * const runs = new SortedSet([
+   *   { press: "P1", day: new Date("2026-06-01T00:00:00Z") },
+   *   { press: "P1", day: new Date("2026-06-02T00:00:00Z") },
+   *   { press: "P2", day: new Date("2026-06-01T00:00:00Z") },
+   * ], compareFor(RunsType.key));
+   * compiled(runs, "P1");  // 2n
+   * compiled(runs, "P3");  // 0n
+   * ```
+   */
+  prefix(fields: KeyPrefix<K>): SetExpr<K> {
+    const prefixAst = keyBoundAst("prefix", this.key_type as EastType, fields);
+
+    return Expr.fromAst({
+      ast_type: "Builtin",
+      type: this[TypeSymbol],
+      loc_id: get_location_id(),
+      builtin: "SetPrefix",
+      type_parameters: [this.key_type as EastType, prefixAst.type],
+      arguments: [this[AstSymbol], prefixAst],
+    }) as SetExpr<K>;
   }
 
   /**
