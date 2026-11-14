@@ -19,9 +19,10 @@ import { LocalStorage } from './index.js';
 import { repoInit } from './repository.js';
 import { EnvironmentTargetRefused, hostEnvironmentPlatform, type TargetEnvironment } from '../../execution/environment.js';
 import { getPidStartTime } from '../../execution/processHelpers.js';
+import { ENVIRONMENT_LAYER_ROOT, unpackEnvironmentLayer } from '../../environment-layer-unpack.js';
 import {
-  ENVIRONMENT_LAYER_ROOT, buildEnvironmentLayers, environmentLayerPath, environmentLayersDir, packEnvironmentLayers,
-  readEnvironmentManifest, sweepEnvironmentLayers, unpackEnvironmentLayer, type EnvironmentLayer,
+  buildEnvironmentLayers, environmentLayerPath, environmentLayersDir, packEnvironmentLayers,
+  readEnvironmentManifest, sweepEnvironmentLayers, type EnvironmentLayer,
 } from './environment-layers.js';
 
 /** An environment's file, as export stores it: a beast2 Blob of its bytes. */
@@ -42,16 +43,6 @@ async function entriesOf(file: string): Promise<Array<{ header: Headers; data: s
     Readable.from(gunzipSync(fs.readFileSync(file))).pipe(extract);
   });
   return entries;
-}
-
-/** A gzip tar of the given entries, as a layer another machine sent. */
-async function layerOf(entries: Array<Headers & { data?: string }>): Promise<Readable> {
-  const tar = tarPack();
-  for (const { data, ...header } of entries) tar.entry(header, data ?? '');
-  tar.finalize();
-  const chunks: Buffer[] = [];
-  for await (const chunk of tar) chunks.push(chunk as Buffer);
-  return Readable.from(gzipSync(Buffer.concat(chunks)));
 }
 
 describe('a repository\'s kept environment layers', {
@@ -184,6 +175,30 @@ describe('a repository\'s kept environment layers', {
     assert.strictEqual(fs.readFileSync(path.join(dir, '.venv', 'bin', 'python'), 'utf8'), 'interpreter', 'a link leads where it led');
   });
 
+  it('packs each link as the path from it to what it leads to, which a layer writes and leads where it led', async () => {
+    const source = tree();
+    const bin = path.join(source.dir, '.venv', 'bin');
+    fs.symlinkSync('./east-py', path.join(bin, 'dotted'));
+    fs.symlinkSync('python', path.join(bin, 'python3'));
+    fs.symlinkSync(path.join(source.dir, '.venv', 'pyvenv.cfg'), path.join(source.dir, '.venv', 'absolute-inside'));
+    fs.symlinkSync('../lib/../missing', path.join(bin, 'dangling'));
+    const packed = await packEnvironmentLayers(repo, source);
+    const links = new Map((await Promise.all(packed.layers.map((layer) => entriesOf(environmentLayerPath(repo, layer.digest))))).flat()
+      .filter(({ header }) => header.type === 'symlink').map(({ header }) => [header.name.slice(ENVIRONMENT_LAYER_ROOT.length + 1), header.linkname]));
+    assert.deepStrictEqual(Object.fromEntries(links), {
+      '.venv/bin/python': '../../.python/cpython/bin/python3.12',
+      '.venv/bin/dotted': 'east-py',
+      '.venv/bin/python3': '../../.python/cpython/bin/python3.12',
+      '.venv/absolute-inside': 'pyvenv.cfg',
+      '.venv/bin/dangling': '../missing',
+    }, 'a link through a link names what it leads to; one that leads nowhere is its own text, as a layer writes it');
+    const root = path.join(tmpDir, 'links-guest');
+    for (const layer of packed.layers) await unpackEnvironmentLayer(fs.createReadStream(environmentLayerPath(repo, layer.digest)), root);
+    const env = path.join(root, ENVIRONMENT_LAYER_ROOT);
+    assert.deepStrictEqual(['.venv/bin/dotted', '.venv/bin/python3', '.venv/absolute-inside'].map((rel) => fs.readFileSync(path.join(env, rel), 'utf8')),
+      ['#!/bin/sh\n', 'interpreter', 'home = ../.python/cpython/bin\n']);
+  });
+
   it('refuses to pack a link that names a path outside its tree, and something that is no file, directory or link', async () => {
     for (const [target, what] of [['/usr/bin/python3', 'absolute'], ['../../outside', 'above the tree']] as const) {
       const source = tree();
@@ -193,28 +208,6 @@ describe('a repository\'s kept environment layers', {
     const source = tree();
     execFileSync('mkfifo', [path.join(source.dir, '.venv', 'pipe')]);
     await assert.rejects(packEnvironmentLayers(repo, source), /'\.venv\/pipe' is not a file, a directory or a link/);
-  });
-
-  it('refuses to unpack an entry outside the environment, a link that leaves it, and a thing no layer holds, writing nothing outside', async () => {
-    const root = path.join(tmpDir, 'refused');
-    const refused = async (entries: Array<Headers & { data?: string }>, why: RegExp): Promise<void> => {
-      await assert.rejects(unpackEnvironmentLayer(await layerOf(entries), root), why);
-    };
-    const inside = `${ENVIRONMENT_LAYER_ROOT}/x`;
-    await refused([{ name: 'var/task/other/x', data: 'x' }], /is not in the environment/);
-    await refused([{ name: `${ENVIRONMENT_LAYER_ROOT}/../../../escaped`, data: 'x' }], /is not in the environment/);
-    await refused([{ name: '/etc/escaped', data: 'x' }], /is not in the environment/);
-    await refused([{ name: 'var/task', data: 'a file where a directory is' }], /no layer holds/);
-    await refused([{ name: inside, type: 'symlink', linkname: '/etc/passwd' }], /outside the environment/);
-    await refused([{ name: inside, type: 'symlink', linkname: '../../../etc/passwd' }], /outside the environment/);
-    await refused([{ name: inside, type: 'link', linkname: `${ENVIRONMENT_LAYER_ROOT}/y` }], /no layer holds/);
-    await refused([{ name: inside, type: 'fifo' }], /no layer holds/);
-    await assert.rejects(unpackEnvironmentLayer(Readable.from(Buffer.from('not a gzip tar')), root));
-    assert.ok(!fs.existsSync(path.join(tmpDir, 'escaped')) && !fs.existsSync(path.join(root, 'var', 'task', 'other')), 'nothing was written outside');
-    // A link within the environment is one a layer holds.
-    await unpackEnvironmentLayer(await layerOf([{ name: `${ENVIRONMENT_LAYER_ROOT}/a/file`, data: 'held' },
-      { name: `${ENVIRONMENT_LAYER_ROOT}/b/link`, type: 'symlink', linkname: '../a/file' }]), root);
-    assert.strictEqual(fs.readFileSync(path.join(root, ENVIRONMENT_LAYER_ROOT, 'b', 'link'), 'utf8'), 'held');
   });
 
   describe('built for a platform', () => {
@@ -298,6 +291,22 @@ describe('a repository\'s kept environment layers', {
       await assert.rejects(waiting, /the wait for another build was stopped/);
       assert.strictEqual(await readEnvironmentManifest(repo, held), null);
       fs.rmSync(live);
+
+      // A claim that names no builder: its builder died before it named
+      // itself. A fresh one is waited for; an old one is taken over.
+      const unnamed = await environment('unnamed');
+      const unnamedName = `${unnamed}-${platform}.json`;
+      const blank = path.join(environmentLayersDir(repo), 'building', `${unnamedName}.claim`);
+      fs.writeFileSync(blank, '');
+      const pausing = new AbortController();
+      const paused = buildEnvironmentLayers(storage, repo, unnamed, { platform }, unnamedName, manifestOf,
+        { signal: pausing.signal, onBuilding: () => assert.fail('built under a fresh claim') });
+      setTimeout(() => pausing.abort(), 50);
+      await assert.rejects(paused, /the wait for another build was stopped/, 'a claim just made is its builder\'s, named or not');
+      const longAgo = new Date(Date.now() - 60_000);
+      fs.utimesSync(blank, longAgo, longAgo);
+      const over = await buildEnvironmentLayers(storage, repo, unnamed, { platform }, unnamedName, manifestOf);
+      assert.ok(over.built !== null, 'built over a claim that never named its builder');
     });
 
     it('keeps no manifest and no scratch of an environment that is refused, and refuses a name that is not the environment\'s', async () => {
@@ -324,25 +333,35 @@ describe('a repository\'s kept environment layers', {
       fs.writeFileSync(path.join(dir, 'manifests', `${kept}-p.json`), manifestOf(shared.layers));
       fs.writeFileSync(path.join(dir, 'manifests', `${gone}-p.json`), manifestOf(only.layers));
       fs.writeFileSync(path.join(dir, 'manifests', `${kept}-unread.json`), 'not json');
+      // A manifest's staging file, of a write in flight or one a crash left
+      const staged = `${kept}-r.json.abc123.partial`;
+      fs.writeFileSync(path.join(dir, 'manifests', staged), manifestOf(shared.layers));
       fs.mkdirSync(path.join(dir, 'building'), { recursive: true });
       const start = await getPidStartTime(process.pid);
       const live = path.join(dir, 'building', `${kept}-q.json.claim`);
       fs.writeFileSync(live, `${process.pid} ${start}\n`);
       fs.writeFileSync(path.join(dir, 'building', `${gone}-q.json.claim`), `${process.pid} ${start + 1}\n`);
       fs.mkdirSync(path.join(dir, 'building', `${gone}-q.json.tree-${process.pid}-${start + 1}`));
+      // A claim whose builder died before it named itself, long ago
+      const blank = path.join(dir, 'building', `${gone}-s.json.claim`);
+      fs.writeFileSync(blank, '');
+      fs.utimesSync(blank, new Date(Date.now() - 60_000), new Date(Date.now() - 60_000));
       fs.writeFileSync(path.join(dir, 'blobs', 'left.partial'), 'a write a crash left');
       const blobs = (): string[] => fs.readdirSync(path.join(dir, 'blobs')).sort();
       const all = blobs();
 
-      // A build runs: its layers are kept though no manifest names them yet.
-      assert.strictEqual(await sweepEnvironmentLayers(sweepRepo, new Set([kept])), 4,
-        'the dead build\'s claim and tree, the unreached environment\'s manifest and the one that does not read');
+      // A build runs: its layers are kept though no manifest names them yet,
+      // and so is a manifest's staging file, which only a build writes.
+      assert.strictEqual(await sweepEnvironmentLayers(sweepRepo, new Set([kept])), 5,
+        'the dead builds\' claims and tree, the unreached environment\'s manifest and the one that does not read');
       assert.deepStrictEqual(blobs(), all);
-      assert.deepStrictEqual(fs.readdirSync(path.join(dir, 'manifests')), [`${kept}-p.json`]);
+      assert.deepStrictEqual(fs.readdirSync(path.join(dir, 'manifests')).sort(), [`${kept}-p.json`, staged].sort());
       assert.deepStrictEqual(fs.readdirSync(path.join(dir, 'building')), [path.basename(live)]);
 
       fs.rmSync(live);
-      assert.strictEqual(await sweepEnvironmentLayers(sweepRepo, new Set([kept])), 2, 'the layer only the unreached environment named, and the staging file');
+      assert.strictEqual(await sweepEnvironmentLayers(sweepRepo, new Set([kept])), 3,
+        'the layer only the unreached environment named, and the two staging files');
+      assert.deepStrictEqual(fs.readdirSync(path.join(dir, 'manifests')), [`${kept}-p.json`]);
       assert.deepStrictEqual(blobs(), shared.layers.map((layer) => layer.digest.replace(':', '-')).sort());
       assert.strictEqual(await sweepEnvironmentLayers(sweepRepo, new Set([kept])), 0);
       assert.strictEqual(await sweepEnvironmentLayers(path.join(tmpDir, 'no-such-repo'), new Set()), 0);

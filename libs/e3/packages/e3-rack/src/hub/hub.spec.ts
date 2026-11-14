@@ -589,6 +589,14 @@ it('grants a lease to a rack whose offer holds it, lets smaller work pass a larg
   const small = await piece('6', GiB);
   const after = await agent.claim(); assert.equal(after?.leaseId, small.leaseId);
   assert.equal(agent.waitingFor, undefined);
+
+  // Nor does one this rack may not take, which its offer does not hold:
+  // work whose environment's layers its session keeps for no platform.
+  await session.create({ ...event(['8'.repeat(64)], { kind: 'unit', cores: 1, memoryBytes: 8 * GiB, gpu: false }), environment: 'e'.repeat(64) });
+  time += 10_001; await agent.heartbeat([after]);
+  const behind = await piece('9', GiB);
+  assert.equal((await agent.claim())?.leaseId, behind.leaseId, 'a lease its rack may not take holds no line there');
+  assert.equal(agent.waitingFor, undefined, 'and is not what the rack is told to keep room for');
   await assert.rejects(session.create({ ...event(['7'.repeat(64)]), resources: { kind: 'unit', cores: 0, memoryBytes: GiB, gpu: false } }), /a lease's cores is a whole number of one or more/);
 });
 

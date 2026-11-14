@@ -278,13 +278,21 @@ it('refuses obsolete agents and checks compatibility when claiming', async () =>
 it('rejects malformed completion metadata before writing an attempt outcome', async () => {
   const f = await fixture(); await f.enroll(); const lease = await f.create();
   await f.success(await f.claim(), RackLeaseGrantType);
-  for (const invalid of [{ state: 'bogus' }, { state: 'failed' }, { exitCode: 0.5 }, { peakBytes: -1 }, { duration: -1 }, { outputHash: '../other' }, { cancelled: 'yes' },
-    { reason: 'because' }, { reason: { code: 'Not A Code' } }, { reason: { code: 'outgrew-cap', capBytes: -1 } }, { retries: [{ transfer: 'sideways', attempt: 2, of: 5, cause: '' }] }]) {
+  for (const invalid of [{ state: 'bogus' }, { state: 'failed' }, { exitCode: 0.5 }, { peakBytes: -1 }, { duration: -1 }, { outputHash: '../other' }, { cancelled: 'yes' }]) {
     const response = await f.raw('complete', RackCompleteRequestType, { repo: 'repo', leaseId: lease.leaseId,
       resultJson: JSON.stringify({ taskName: 'task', status: 'success', outputHash: output, ...invalid }), outputUploadId: none, inlineOutput: none });
     await f.refusal(response, 400, 'invalid-request');
   }
   assert(!f.calls.includes('outcome')); assert.equal((await f.leases.get('repo', lease.leaseId))!.status, 'claimed');
+
+  // What a rack says beside its result is read for what this build knows,
+  // and never refuses the result, whose work would be lost.
+  const response = await f.raw('complete', RackCompleteRequestType, { repo: 'repo', leaseId: lease.leaseId,
+    resultJson: JSON.stringify({ taskName: 'task', status: 'failed', exitCode: 1, reason: { code: 'Not A Code' },
+      retries: [{ transfer: 'sideways', attempt: 2, of: 5 }, { transfer: 'layer', attempt: 2, of: 5, cause: 'connection reset' }] }), outputUploadId: none, inlineOutput: none });
+  await f.success(response, RackCompleteResponseType);
+  const stored = (await f.leases.get('repo', lease.leaseId))!.result!;
+  assert.deepEqual([stored.reason, stored.retries], [undefined, [{ transfer: 'layer', attempt: 2, of: 5, cause: 'connection reset' }]]);
 });
 
 it('validates every output before issuing a capability and rejects oversized commit metadata', async () => {

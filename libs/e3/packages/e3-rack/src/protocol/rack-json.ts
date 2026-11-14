@@ -125,9 +125,10 @@ export interface RackHello {
 export interface RackReport {
   /**
    * What the rack does beyond running a stock tier's work: `resources` (it
-   * admits work by its cores and memory, and caps each piece of work at what
-   * its lease says), `environments` (it composes a lease's environment from
-   * layers).
+   * admits work by its cores and memory, books what each lease reserves, lets
+   * the work grow to the cap its lease names and stops it there, and stops
+   * the newest unit it holds when its host runs short), `environments` (it
+   * composes a lease's environment from layers).
    */
   readonly features: readonly string[];
   /** The platform environments are installed for, as e3-core names one

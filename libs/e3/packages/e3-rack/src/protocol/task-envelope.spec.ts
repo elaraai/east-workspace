@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { RACK_REASON_CODES, describeRackReason, leaseFits, leaseFitsRack, leaseReserve, readRackLeaseResources, readRackReason, readRackRetries } from './task-envelope.js';
 import { readRackWaiting } from './rack-json.js';
 
-it('reads a result\'s reason for the fields it knows, keeps a code of a later release, and refuses what is not one', () => {
+it('reads a result\'s reason for the fields it knows, keeps a code of a later release, and leaves out what it cannot read, refusing nothing', () => {
   assert.equal(readRackReason(undefined), undefined);
   assert.deepEqual(readRackReason({ code: 'outgrew-cap', capBytes: 3_328_599_654, peakBytes: 3_328_599_654, later: { anything: true } }),
     { code: 'outgrew-cap', capBytes: 3_328_599_654, peakBytes: 3_328_599_654 });
@@ -16,10 +16,14 @@ it('reads a result\'s reason for the fields it knows, keeps a code of a later re
   // A code this build does not know is still a reason: a rack's fault it cannot name.
   assert.deepEqual(readRackReason({ code: 'thermal-shutdown', detail: 'node 3' }), { code: 'thermal-shutdown', detail: 'node 3' });
   assert.equal(readRackReason({ code: 'guest-crashed', detail: 'x'.repeat(2000) })!.detail!.length, 500, 'a run prints a line, not a log');
-  for (const bad of ['because', null, [], {}, { code: 7 }, { code: 'Not A Code' }, { code: 'outgrew-cap', capBytes: -1 }, { code: 'outgrew-cap', peakBytes: 1.5 },
-    { code: 'source-unreachable', ms: '120000' }, { code: 'guest-crashed', detail: 7 }]) {
-    assert.throws(() => readRackReason(bad), /a reason/, JSON.stringify(bad));
+  // No code this build can print: no reason.
+  for (const none of ['because', null, [], {}, { code: 7 }, { code: 'Not A Code' }, { code: 'task_error' }]) {
+    assert.equal(readRackReason(none), undefined, JSON.stringify(none));
   }
+  // A field of another kind is left out, and the reason kept.
+  assert.deepEqual(readRackReason({ code: 'outgrew-cap', capBytes: -1, peakBytes: 1.5 }), { code: 'outgrew-cap' });
+  assert.deepEqual(readRackReason({ code: 'source-unreachable', ms: '120000' }), { code: 'source-unreachable' });
+  assert.deepEqual(readRackReason({ code: 'guest-crashed', detail: 7, cause: 'its VM exited' }), { code: 'guest-crashed', cause: 'its VM exited' });
   assert.deepEqual([...RACK_REASON_CODES].sort(), ['environment-failed', 'guest-crashed', 'input-transfer-failed', 'memory-limit-exceeded', 'outgrew-cap', 'output-transfer-failed',
     'requeued-pressure', 'source-unreachable', 'task-error']);
 });
@@ -31,13 +35,15 @@ it('says a reason as a run prints it: its code, and the words it carries', () =>
   assert.equal(describeRackReason({ code: 'outgrew-cap', capBytes: 1024, peakBytes: 1024 }), 'outgrew-cap', 'a size is for its reader to format');
 });
 
-it('reads the retries a result lists, and refuses a list that is not one', () => {
+it('reads the retries a result lists, keeps a kind of transfer a later release names, and leaves out a retry it cannot read, refusing nothing', () => {
   assert.deepEqual(readRackRetries(undefined), []);
   const retry = { transfer: 'input', attempt: 2, of: 5, cause: 'connection reset' };
   assert.deepEqual(readRackRetries([retry, { ...retry, transfer: 'output', attempt: 3, later: true }]), [retry, { ...retry, transfer: 'output', attempt: 3 }]);
-  for (const bad of ['twice', [7], [{ ...retry, transfer: 'sideways' }], [{ ...retry, attempt: 0 }], [{ ...retry, of: 1.5 }], [{ ...retry, cause: 7 }], Array.from({ length: 4097 }, () => retry)]) {
-    assert.throws(() => readRackRetries(bad), /retr/);
-  }
+  assert.deepEqual(readRackRetries([{ ...retry, transfer: 'layer' }]), [{ ...retry, transfer: 'layer' }], 'a kind a later release names');
+  assert.deepEqual(readRackRetries('twice'), []);
+  assert.deepEqual(readRackRetries([7, { ...retry, transfer: 'Sideways' }, { ...retry, attempt: 0 }, { ...retry, of: 1.5 }, { ...retry, cause: 7 }, retry]), [retry],
+    'each retry it cannot read is left out, and the rest kept');
+  assert.equal(readRackRetries(Array.from({ length: 5000 }, () => retry)).length, 4096, 'at most what a lease\'s transfers make');
 });
 
 it('reads what a lease asks of a rack, and whether a rack\'s offer holds it', () => {

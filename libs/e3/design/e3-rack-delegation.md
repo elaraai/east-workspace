@@ -239,8 +239,14 @@ packages installed. The same files pack to the same bytes (entries sorted,
 times and owners zeroed, two modes, one gzip setting), so an environment whose
 lock did not change shares its interpreter and package layers with the one
 before it, and a change to the project's code makes one small layer. Entries
-are plain: files, directories, and links that stay inside the tree; anything
-else refuses the pack, and the unpack. They are kept beside the repository,
+are plain: files, directories, and links, each link packed as the path from it
+to what it leads to (its `..` segments all leading, no `.` and no empty
+segment, never above the environment); a link that leads out of the tree, or
+anything else, refuses the pack. A layer is composed where it runs by
+`unpackEnvironmentLayer` (e3-core, `environment-layer-unpack.ts`), which any
+rack agent shares: it takes such links alone, and writes nothing through a
+link, one its layer made or an earlier layer did, so a layer another machine
+sent writes nothing outside its root. They are kept beside the repository,
 not in its object store:
 
 ```
@@ -253,7 +259,10 @@ not in its object store:
 One build runs at a time for a manifest, in a repository: a second run that
 needs it, in this process or another, waits for the first. `e3 repo gc`
 removes a manifest whose environment spec nothing reaches, each layer no kept
-manifest names, and a dead build's leavings, as it sweeps `<repo>/envs`. The
+manifest names, and a dead build's leavings (a claim whose builder is gone, or
+that named none for ten seconds, its scratch tree, and a manifest's staging
+file once no build runs), as it sweeps `<repo>/envs`. A run that is stopped
+stops waiting for another's build. The
 packer is e3-core's because the rack package holds no tar library; what a
 manifest says is the rack package's (`EnvLayerManifest`, as a deployment
 publishes one: `baseTier` the lease's tier, `baseImage` `rack-tier:<tier>`,

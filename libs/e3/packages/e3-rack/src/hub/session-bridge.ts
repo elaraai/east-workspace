@@ -110,6 +110,9 @@ export interface SessionBridgeOptions {
 /** How long a rack that was refused a transfer waits before it asks again. */
 const BUSY_RETRY_MS = 500;
 
+/** How many characters of manifests the hub keeps in memory, read once. */
+const MANIFESTS_KEPT_BYTES = 16 * 1024 * 1024;
+
 /**
  * Proxies objects and attempt records without opening a repository in the hub.
  * Capability URLs bind to one lease attempt, expire in fifteen minutes and
@@ -137,6 +140,9 @@ export class SessionProxyStorageBridge implements RackStorageBridge {
   private readonly logs = new Map<string, LogBuffer>();
   /** The transfers in flight, by the rack they serve. */
   private readonly transfers = new Map<string, number>();
+  /** The manifests sessions keep, read once: by the session and the name. */
+  private readonly manifests = new Map<string, string>();
+  private manifestBytes = 0;
   private readonly transfersAtOnce: number;
   private readonly now: () => number;
 
@@ -311,13 +317,36 @@ export class SessionProxyStorageBridge implements RackStorageBridge {
    * The manifest the calling lease's session keeps by a key, or null when it
    * keeps none: a lease reads its own environment's, and no other.
    */
-  async readEnvManifest(manifestKey: string): Promise<string | null> {
-    const context = this.options.coordinator.lease();
-    const lease = await this.options.leases.get(context.repo, context.leaseId);
+  readEnvManifest(manifestKey: string): Promise<string | null> {
+    const { repo, leaseId } = this.options.coordinator.lease();
+    return this.readEnvManifestOf(repo, leaseId, manifestKey);
+  }
+
+  /**
+   * The manifest a lease's session keeps by a key, or null when it keeps none:
+   * a lease reads its own environment's, and no other. Asked of a lease
+   * outside its fence too, as a poll asks whether its rack could take it.
+   *
+   * @remarks
+   * What a session keeps by a manifest's name it never changes, so a manifest
+   * read once is answered again from memory ({@link MANIFESTS_KEPT_BYTES}),
+   * and a poll that asks of every lease waiting asks its session nothing more.
+   * One a session does not keep is asked again each time: it may be built.
+   *
+   * @param repo - The lease's repository
+   * @param leaseId - The lease
+   * @param manifestKey - The manifest's key
+   * @returns The manifest, or null
+   */
+  async readEnvManifestOf(repo: string, leaseId: string, manifestKey: string): Promise<string | null> {
+    const lease = await this.options.leases.get(repo, leaseId);
     const environment = lease?.event.environment;
     const name = envManifestName(manifestKey);
     if (environment === undefined || name === null || !name.startsWith(`${environment}-`)) return null;
-    const session = this.options.session(context.repo, context.leaseId);
+    const session = this.options.session(repo, leaseId);
+    const kept = JSON.stringify([session.dataSocket, name]);
+    const known = this.manifests.get(kept);
+    if (known !== undefined) return known;
     const response = await socketStream(session.dataSocket, 'GET', `/v1/env/manifests/${encodeURIComponent(name)}`, { bearer: session.dataToken });
     const chunks: Buffer[] = [];
     let length = 0;
@@ -328,7 +357,16 @@ export class SessionProxyStorageBridge implements RackStorageBridge {
     }
     if (response.statusCode === 404) return null;
     if (response.statusCode !== 200) throw new Error(`Environment manifest read failed: HTTP ${response.statusCode}`);
-    return Buffer.concat(chunks).toString('utf8');
+    const manifest = Buffer.concat(chunks).toString('utf8');
+    this.manifests.set(kept, manifest);
+    this.manifestBytes += manifest.length;
+    // The oldest go first, once the kept ones pass their bound
+    for (const [key, text] of this.manifests) {
+      if (this.manifestBytes <= MANIFESTS_KEPT_BYTES) break;
+      this.manifests.delete(key);
+      this.manifestBytes -= text.length;
+    }
+    return manifest;
   }
 
   /**
@@ -475,5 +513,7 @@ export class SessionProxyStorageBridge implements RackStorageBridge {
     this.capabilities.clear();
     this.logs.clear();
     this.transfers.clear();
+    this.manifests.clear();
+    this.manifestBytes = 0;
   }
 }

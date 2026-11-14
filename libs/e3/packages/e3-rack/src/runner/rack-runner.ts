@@ -9,7 +9,7 @@ import { connectHub } from '../client/connect.js';
 import { RackSession } from '../client/session.js';
 import { loadPolicy, policyTargetsRack, type RackPolicy } from '../routing/policy.js';
 import { compatibleRacks, rackResources, rackWidth } from './capacity.js';
-import { createRackBody, type RackPlacementEvent } from './rack-body.js';
+import { RackLayerBuilds, createRackBody, type RackPlacementEvent } from './rack-body.js';
 import type { RackEnvironmentEvent } from './environment.js';
 import { RackTally, type RackRunSummary } from './summary.js';
 
@@ -62,7 +62,9 @@ export interface RackRunnerHandle {
    * @param formatBytes - How a memory size reads; by default as `262 GiB`
    */
   describe(formatBytes?: (bytes: number) => string): string;
-  /** Refreshes capacity before a watch run without replacing its session. */
+  /** Refreshes capacity before a watch run without replacing its session,
+   *  and forgets the environment builds that failed, which that run tries
+   *  again. */
   refreshSlots(): Promise<number>;
   /** What the rack work since the last take came to: a run's summary, read
    *  with `describeRackSummary`. */
@@ -105,7 +107,10 @@ export async function openRackRunner(options: OpenRackRunnerOptions): Promise<Ra
     session = await RackSession.open(client, options);
     const attached = session;
     let enrolled = 0;
+    // The session's runs share their environments' layer builds
+    const layerBuilds = new RackLayerBuilds();
     const refreshSlots = async () => {
+      layerBuilds.forgetFailures();
       try {
         const capacity = await attached.refreshCapacity();
         const racks = compatibleRacks(capacity);
@@ -138,7 +143,7 @@ export async function openRackRunner(options: OpenRackRunnerOptions): Promise<Ra
     } while (Date.now() <= deadline);
     const runner = new LocalTaskRunner(options.repoPath, options.budget, { ...options.settings,
       body: createRackBody({ session: attached, policy, workspace: options.workspace, rackOnly: options.rackOnly,
-        unreachableWaitMs: options.unreachableWaitMs, onEnvironment: options.onEnvironment,
+        unreachableWaitMs: options.unreachableWaitMs, onEnvironment: options.onEnvironment, layerBuilds,
         onPlacement: (event) => { tally.add(event); options.onPlacement?.(event); } }),
       // Racks that cap each unit stop one that outgrows what it was started
       // expecting, and the body leases it again asking more: a split task's

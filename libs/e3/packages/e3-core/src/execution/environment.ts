@@ -43,7 +43,7 @@
  */
 
 import * as path from 'node:path';
-import { promises as fs } from 'node:fs';
+import { promises as fs, type Stats } from 'node:fs';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { gunzipSync } from 'node:zlib';
@@ -190,18 +190,40 @@ async function writeSdists(
   return files;
 }
 
+/**
+ * Builds a python environment in `buildDir`.
+ *
+ * @param platform - The platform it is installed for, when not this machine's:
+ *   its dependencies are then the platform's wheels alone, copied, the
+ *   project's packages are built to wheels here and must be pure, and it
+ *   carries the platform's build of its Python
+ * @returns The interpreter it carries and the project's own files, when a
+ *   platform is given; else neither
+ * @throws {EnvironmentTargetRefused} When a platform is given and a
+ *   dependency has no wheel for it, or a project package builds native code
+ */
 async function buildPython(
   storage: StorageBackend, repo: string,
   spec: Extract<EnvironmentSpec, { type: 'python' }>, buildDir: string, settings: ProcessSettings,
-): Promise<void> {
+  platform?: TargetPlatform,
+): Promise<TargetParts> {
   await writePythonProject(storage, repo, spec, buildDir);
+  const venv = path.join(buildDir, '.venv');
   // Relocatable: the venv is built in a temp sibling and atomically renamed
   // into the cache path — absolute shebangs would break on rename.
   await run('uv', ['venv', '--relocatable', '.venv'], buildDir, 'virtualenv creation', settings);
-  await run('uv', SYNC, buildDir, 'locked dependency sync', settings);
+  // For another platform, its wheels alone: nothing is built. Copied, since
+  // the tree is packed and sent, never linked into this machine's cache.
+  const forPlatform = platform === undefined ? [] : ['--python-platform', platform.name, '--no-build', '--link-mode=copy'];
+  try {
+    await run('uv', [...SYNC, ...forPlatform], buildDir, 'locked dependency sync', settings);
+  } catch (err) {
+    throw (platform === undefined ? null : unbuiltWheel(err, platform)) ?? err;
+  }
+  const before = platform === undefined ? undefined : await treeEntries(buildDir);
   if (spec.value.sdists.length > 0) {
-    const files = await writeSdists(storage, repo, spec, buildDir);
-    // `--no-deps`: the sdist install must NOT resolve anything from a
+    const sdists = await writeSdists(storage, repo, spec, buildDir);
+    // `--no-deps`: the project's install must NOT resolve anything from a
     // registry — every dependency is already pinned and installed by the
     // sync above (or is another captured sdist). Without it, a missing
     // first-party dep would be silently satisfied by a same-named PyPI
@@ -209,43 +231,104 @@ async function buildPython(
     // environment is internally consistent and fails loudly otherwise, so
     // an incomplete capture is a materialization error, never a silent
     // wrong-code env.
-    await run('uv', ['pip', 'install', '--python', path.join(buildDir, '.venv'), '--no-deps', ...files],
-      buildDir, 'project sdist install', settings);
+    if (platform === undefined) {
+      await run('uv', ['pip', 'install', '--python', venv, '--no-deps', ...sdists], buildDir, 'project sdist install', settings);
+    } else {
+      // Each of the project's packages is built to a wheel here, which runs
+      // on the platform only if it is pure: uv takes a wheel this machine
+      // built for one of its own kind, so its tags are read here.
+      const wheelDir = path.join(buildDir, '.wheels');
+      for (const sdist of sdists) {
+        await run('uv', ['build', '--wheel', '--python', venv, '--out-dir', wheelDir, sdist], buildDir, 'project wheel build', settings);
+      }
+      const wheels = (await fs.readdir(wheelDir)).filter((name) => name.endsWith('.whl')).sort();
+      for (const wheel of wheels) {
+        const { distribution, pure } = wheelOf(wheel);
+        if (!pure) {
+          throw new EnvironmentTargetRefused(`native-package:${distribution}`,
+            `environment materialization: ${distribution} builds native code (its wheel is ${wheel}), ` +
+            `and nothing is built for ${platform.name}`);
+        }
+      }
+      await run('uv', ['pip', 'install', '--python', venv, '--no-deps', ...forPlatform, ...wheels.map((wheel) => path.join(wheelDir, wheel))],
+        buildDir, 'project wheel install', settings);
+      await fs.rm(wheelDir, { recursive: true, force: true });
+      await fs.rm(path.join(buildDir, '.sdists'), { recursive: true, force: true });
+    }
   }
-  await run('uv', ['pip', 'check', '--python', path.join(buildDir, '.venv')], buildDir,
+  const project = before === undefined ? [] : changedSince(before, await treeEntries(buildDir));
+  // For another platform, checked while the virtualenv's interpreter is still
+  // this machine's, which uv asks what it is.
+  await run('uv', ['pip', 'check', '--python', venv, ...(platform === undefined ? [] : ['--python-platform', platform.name])], buildDir,
     'environment consistency check', settings);
+  return { interpreter: platform === undefined ? null : await carryInterpreter(buildDir, platform, settings), project };
 }
 
+/**
+ * Builds a node environment in `buildDir`.
+ *
+ * @param platform - The platform it is installed for, when not this machine's:
+ *   its dependencies are then the platform's, and the project's own packages
+ *   must hold no native addon, which is looked at before anything is installed
+ * @returns The project's own files, when a platform is given; else none
+ * @throws {EnvironmentTargetRefused} When a platform is given and a project
+ *   package holds a native addon, or the lock is pnpm's and this machine's
+ *   pnpm installs for its own platform alone
+ */
 async function buildNode(
   storage: StorageBackend, repo: string,
   spec: Extract<EnvironmentSpec, { type: 'node' }>, buildDir: string, settings: ProcessSettings,
-): Promise<void> {
+  platform?: TargetPlatform,
+): Promise<TargetParts> {
+  const tarballs: Buffer[] = [];
+  for (const hash of spec.value.tarballs) {
+    const tarball = await readFile(storage, repo, hash);
+    if (platform !== undefined) await refuseNativeAddon(tarball, null, platform);
+    tarballs.push(tarball);
+  }
   await writeBlob(storage, repo, spec.value.packageJson, path.join(buildDir, 'package.json'));
   const lockData = await readFile(storage, repo, spec.value.lock);
   const lockName = nodeLockFilename(lockData);
   await fs.writeFile(path.join(buildDir, lockName), lockData);
+  const forPlatform = platform?.node ?? [];
   if (lockName === 'pnpm-lock.yaml') {
-    await run('pnpm', ['install', '--frozen-lockfile', '--ignore-scripts'], buildDir,
-      'locked dependency install', settings);
+    // pnpm takes the platform's flags from version 11. One that does not
+    // installs for its own platform, which is the platform's on a machine of
+    // its kind.
+    const away = platform !== undefined && !platform.host;
+    try {
+      await run('pnpm', ['install', '--frozen-lockfile', '--ignore-scripts', ...(away ? forPlatform : [])], buildDir,
+        'locked dependency install', settings);
+    } catch (err) {
+      if (away && /Unknown options?:/.test(err instanceof Error ? err.message : String(err))) {
+        throw new EnvironmentTargetRefused('pnpm',
+          `environment materialization: this machine's pnpm installs for its own platform alone, not for ${platform.name}`);
+      }
+      throw err;
+    }
   } else {
-    await run('npm', ['ci', '--no-audit', '--no-fund', '--ignore-scripts'], buildDir,
+    await run('npm', ['ci', '--no-audit', '--no-fund', '--ignore-scripts', ...forPlatform], buildDir,
       'locked dependency install', settings);
   }
-  if (spec.value.tarballs.length > 0) {
+  const before = platform === undefined ? undefined : await treeEntries(buildDir);
+  if (tarballs.length > 0) {
     const packDir = path.join(buildDir, '.tarballs');
     await fs.mkdir(packDir);
     const files: string[] = [];
-    for (let i = 0; i < spec.value.tarballs.length; i++) {
+    for (const [i, tarball] of tarballs.entries()) {
       const f = path.join(packDir, `pack-${i}.tgz`);
-      await writeBlob(storage, repo, spec.value.tarballs[i]!, f);
+      await fs.writeFile(f, tarball);
       files.push(f);
     }
     // --ignore-scripts, as every install here: a project's own packages
     // arrive built — `npm pack` ran `prepack` at capture — and one that
     // builds a native addon ships it prebuilt.
-    await run('npm', ['install', '--no-save', '--no-audit', '--no-fund', '--ignore-scripts', ...files], buildDir,
+    await run('npm', ['install', '--no-save', '--no-audit', '--no-fund', '--ignore-scripts', ...forPlatform, ...files], buildDir,
       'project tarball install', settings);
+    // A tree for another platform is packed and sent: the tarballs are not of it.
+    if (platform !== undefined) await fs.rm(packDir, { recursive: true, force: true });
   }
+  return { interpreter: null, project: before === undefined ? [] : changedSince(before, await treeEntries(buildDir)) };
 }
 
 /**
@@ -622,22 +705,44 @@ function targetPlatformOf(platform: string): TargetPlatform {
   };
 }
 
+/** One thing in an installed tree. */
+export interface InstalledEntry {
+  /** Its path, relative to the tree, with `/` between segments */
+  readonly rel: string;
+  /** What `lstat` says of it: a link is itself, never what it names */
+  readonly stat: Stats;
+}
+
+/**
+ * Every file, directory and link under a tree an environment was installed
+ * in, in no order. A link is not followed, so a directory it names is walked
+ * only where it is.
+ *
+ * @internal
+ * @param root - The tree
+ * @returns Its entries
+ */
+export async function installedTree(root: string): Promise<InstalledEntry[]> {
+  const into: InstalledEntry[] = [];
+  const walk = async (dir: string): Promise<void> => {
+    for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      into.push({ rel: path.relative(root, full).split(path.sep).join('/'), stat: await fs.lstat(full) });
+      if (entry.isDirectory()) await walk(full);
+    }
+  };
+  await walk(root);
+  return into;
+}
+
 /**
  * Every file and link under `root`, relative to it with `/` between segments,
  * each with what tells one written since from one left alone: its size, when
  * it was changed, and its inode.
  */
-async function treeEntries(root: string, dir: string = root, into = new Map<string, string>()): Promise<Map<string, string>> {
-  for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      await treeEntries(root, full, into);
-      continue;
-    }
-    const stat = await fs.lstat(full);
-    into.set(path.relative(root, full).split(path.sep).join('/'), `${stat.size}:${stat.mtimeMs}:${stat.ino}`);
-  }
-  return into;
+async function treeEntries(root: string): Promise<Map<string, string>> {
+  return new Map((await installedTree(root)).filter(({ stat }) => !stat.isDirectory())
+    .map(({ rel, stat }) => [rel, `${stat.size}:${stat.mtimeMs}:${stat.ino}`]));
 }
 
 /** The files and links of `after` that `before` lacks, or holds otherwise. */
@@ -760,106 +865,6 @@ async function carryInterpreter(buildDir: string, platform: TargetPlatform, sett
 
 /** What a build for another platform made, beside its tree. */
 type TargetParts = Pick<TargetEnvironment, 'interpreter'> & { project: string[] };
-
-async function buildPythonFor(
-  storage: StorageBackend, repo: string,
-  spec: Extract<EnvironmentSpec, { type: 'python' }>, buildDir: string, settings: ProcessSettings, platform: TargetPlatform,
-): Promise<TargetParts> {
-  await writePythonProject(storage, repo, spec, buildDir);
-  const venv = path.join(buildDir, '.venv');
-  await run('uv', ['venv', '--relocatable', '.venv'], buildDir, 'virtualenv creation', settings);
-  // Wheels alone, the platform's: nothing is built. Copied, since the tree
-  // is packed and sent, never linked into this machine's cache.
-  try {
-    await run('uv', [...SYNC, '--python-platform', platform.name, '--no-build', '--link-mode=copy'],
-      buildDir, 'locked dependency sync', settings);
-  } catch (err) {
-    throw unbuiltWheel(err, platform) ?? err;
-  }
-  const before = await treeEntries(buildDir);
-  if (spec.value.sdists.length > 0) {
-    // Each of the project's packages is built to a wheel here, which runs on
-    // the platform only if it is pure: uv takes a wheel this machine built
-    // for one of its own kind, so its tags are read here.
-    const sdists = await writeSdists(storage, repo, spec, buildDir);
-    const wheelDir = path.join(buildDir, '.wheels');
-    for (const sdist of sdists) {
-      await run('uv', ['build', '--wheel', '--python', venv, '--out-dir', wheelDir, sdist], buildDir, 'project wheel build', settings);
-    }
-    const wheels = (await fs.readdir(wheelDir)).filter((name) => name.endsWith('.whl')).sort();
-    for (const wheel of wheels) {
-      const { distribution, pure } = wheelOf(wheel);
-      if (!pure) {
-        throw new EnvironmentTargetRefused(`native-package:${distribution}`,
-          `environment materialization: ${distribution} builds native code (its wheel is ${wheel}), ` +
-          `and nothing is built for ${platform.name}`);
-      }
-    }
-    // `--no-deps`, as a build for this machine: every dependency is pinned
-    // and installed by the sync, or is another of the project's packages.
-    await run('uv', ['pip', 'install', '--python', venv, '--no-deps', '--no-build', '--python-platform', platform.name, '--link-mode=copy',
-      ...wheels.map((wheel) => path.join(wheelDir, wheel))], buildDir, 'project wheel install', settings);
-    await fs.rm(wheelDir, { recursive: true, force: true });
-    await fs.rm(path.join(buildDir, '.sdists'), { recursive: true, force: true });
-  }
-  const project = changedSince(before, await treeEntries(buildDir));
-  // Checked while the virtualenv's interpreter is still this machine's,
-  // which uv asks what it is.
-  await run('uv', ['pip', 'check', '--python', venv, '--python-platform', platform.name], buildDir,
-    'environment consistency check', settings);
-  return { interpreter: await carryInterpreter(buildDir, platform, settings), project };
-}
-
-async function buildNodeFor(
-  storage: StorageBackend, repo: string,
-  spec: Extract<EnvironmentSpec, { type: 'node' }>, buildDir: string, settings: ProcessSettings, platform: TargetPlatform,
-): Promise<TargetParts> {
-  // The project's own packages are looked at first: one that cannot go to the
-  // platform refuses the environment before anything is installed.
-  const tarballs: Buffer[] = [];
-  for (const hash of spec.value.tarballs) {
-    const tarball = await readFile(storage, repo, hash);
-    await refuseNativeAddon(tarball, null, platform);
-    tarballs.push(tarball);
-  }
-  await writeBlob(storage, repo, spec.value.packageJson, path.join(buildDir, 'package.json'));
-  const lockData = await readFile(storage, repo, spec.value.lock);
-  const lockName = nodeLockFilename(lockData);
-  await fs.writeFile(path.join(buildDir, lockName), lockData);
-  if (lockName === 'pnpm-lock.yaml') {
-    // pnpm takes the platform's flags from version 11. One that does not
-    // installs for its own platform, which is the platform's on a machine of
-    // its kind.
-    try {
-      await run('pnpm', ['install', '--frozen-lockfile', '--ignore-scripts', ...(platform.host ? [] : platform.node)], buildDir,
-        'locked dependency install', settings);
-    } catch (err) {
-      if (!platform.host && /Unknown options?:/.test(err instanceof Error ? err.message : String(err))) {
-        throw new EnvironmentTargetRefused('pnpm',
-          `environment materialization: this machine's pnpm installs for its own platform alone, not for ${platform.name}`);
-      }
-      throw err;
-    }
-  } else {
-    await run('npm', ['ci', '--no-audit', '--no-fund', '--ignore-scripts', ...platform.node], buildDir,
-      'locked dependency install', settings);
-  }
-  const before = await treeEntries(buildDir);
-  if (tarballs.length > 0) {
-    const packDir = path.join(buildDir, '.tarballs');
-    await fs.mkdir(packDir);
-    const files: string[] = [];
-    for (const [i, tarball] of tarballs.entries()) {
-      const f = path.join(packDir, `pack-${i}.tgz`);
-      await fs.writeFile(f, tarball);
-      files.push(f);
-    }
-    await run('npm', ['install', '--no-save', '--no-audit', '--no-fund', '--ignore-scripts', ...platform.node, ...files], buildDir,
-      'project tarball install', settings);
-    await fs.rm(packDir, { recursive: true, force: true });
-  }
-  return { interpreter: null, project: changedSince(before, await treeEntries(buildDir)) };
-}
 
 /** The mode bits a built environment's files lose when it is taken back: set
  *  user and group id, which a chown by root keeps on BSD, and writing by the
@@ -1112,10 +1117,10 @@ export async function materializeEnvironmentFor(
     let parts: TargetParts;
     switch (spec.type) {
       case 'python':
-        parts = await buildPythonFor(storage, repo, spec, buildDir, settings, platform);
+        parts = await buildPython(storage, repo, spec, buildDir, settings, platform);
         break;
       case 'node':
-        parts = await buildNodeFor(storage, repo, spec, buildDir, settings, platform);
+        parts = await buildNode(storage, repo, spec, buildDir, settings, platform);
         break;
       case 'workspace_node':
         parts = { interpreter: null, project: await buildWorkspaceNode(storage, repo, spec, buildDir, buildDir, settings, platform) };

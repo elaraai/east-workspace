@@ -3,7 +3,7 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
-import { none, type ValueTypeOf } from '@elaraai/east';
+import { none, readBeast2Type, type ValueTypeOf } from '@elaraai/east';
 import { hubSocketPath, rackHome } from '../paths.js';
 import { ApproveRackType, AttachLeaseResultType, CancelLeaseResultType, CreateLeaseResultType, CreateLeaseType, EmptyType,
   HubConfigType, HubEnrollResultType, HubEnrollType, HubHelloType, HubStatusType, OpenSessionResultType, OpenSessionType,
@@ -28,6 +28,33 @@ export class HubClient {
   /** Reads the fixed version handshake within the caller's startup deadline. */
   hello(timeoutMs = 30000): Promise<ValueTypeOf<typeof HubHelloType>> {
     return socketRequest(this.socketPath, 'POST', '/v1/hello', { responseType: HubHelloType, timeoutMs });
+  }
+  /**
+   * Whether the hub answers its hello in the envelope every reply had before
+   * replies lost it: a variant of an `error` and a `success`, which only a hub
+   * of an earlier release sends. A hello that does not read for another cause,
+   * cut short or of a later release, is not.
+   * @param timeoutMs - The caller's deadline for the answer
+   * @returns Whether it does
+   */
+  async answersInEnvelope(timeoutMs = 30000): Promise<boolean> {
+    const response = await socketStream(this.socketPath, 'POST', '/v1/hello', { headers: { 'content-type': BEAST2_CONTENT_TYPE }, timeoutMs });
+    const chunks: Buffer[] = [];
+    let size = 0;
+    for await (const chunk of response) {
+      size += (chunk as Buffer).length;
+      if (size > 64 * 1024) { response.destroy(); return false; }
+      chunks.push(chunk as Buffer);
+    }
+    let root;
+    try {
+      root = readBeast2Type(Buffer.concat(chunks));
+    } catch {
+      return false;
+    }
+    if (root.type !== 'Variant') return false;
+    const cases = new Set(root.value.map((entry) => entry.name));
+    return cases.size === 2 && cases.has('error') && cases.has('success');
   }
   /** Reads listener readiness, attached sessions and fleet capacity. */
   status(): Promise<ValueTypeOf<typeof HubStatusType>> { return socketRequest(this.socketPath, 'GET', '/v1/status', { responseType: HubStatusType }); }

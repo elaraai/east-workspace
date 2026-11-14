@@ -870,7 +870,7 @@ Rack: workshop (56 cores, 262 GB, 1 GPU, e3 1.0.108, environments for x86_64-man
   [ENV] 3f9a2b1c0d4e for x86_64-manylinux_2_28: building
   [ENV] 3f9a2b1c0d4e built in 48 s: 4 layers, 2.1 GB (1 new)
   [RACK] train_model → workshop (cap 16 GB)
-  [RACK] embed_rows waiting: needs 16 GB, workshop has 9 GB free
+  [RACK] embed_rows waiting: needs 8 cores and 16 GB, workshop has 12 cores and 9 GB free
   [RACK] score_rows outgrew its 3 GB cap on workshop: runs again under 4.5 GB
   [RACK] score_rows stopped on workshop at 2.6 GB, its host short of memory: runs again reserving 2.6 GB
   [LOCAL] fit_curves (environment:native-package:fastfit)

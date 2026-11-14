@@ -135,14 +135,15 @@ export {
   renameWithRetry,
 } from './storage/local/localHelpers.js';
 
+// An environment's layers composed where they run, by any rack agent
+export { ENVIRONMENT_LAYER_ROOT, environmentLinkInside, unpackEnvironmentLayer } from './environment-layer-unpack.js';
+
 // A local repository's kept environment layers: an environment installed for
 // a rack's platform, packed as the layers the rack composes it from
 export {
-  ENVIRONMENT_LAYER_ROOT,
   ENVIRONMENT_PACKAGE_LAYER_BYTES,
   buildEnvironmentLayers,
   packEnvironmentLayers,
-  unpackEnvironmentLayer,
   readEnvironmentManifest,
   environmentLayersDir,
   environmentLayerPath,

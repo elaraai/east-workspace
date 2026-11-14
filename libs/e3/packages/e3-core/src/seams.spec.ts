@@ -83,6 +83,7 @@ const FILE_SYSTEM: Record<string, string> = {
   'dataset-adopt-file.ts': 'an adoption takes in a file on this machine',
   'delivery-intake-file.ts': 'an intake reads the index of a delivered file on this machine, to cut it into pieces',
   'store-collection-file.ts': 'the store\'s door reads a runner\'s output files on this machine',
+  'environment-layer-unpack.ts': 'a rack composes an environment by unpacking its layers into a directory on this machine',
   'storage/in-memory/InMemoryStorage.ts': 'its object store adopts and materializes files on this machine, as the interface asks',
 };
 
