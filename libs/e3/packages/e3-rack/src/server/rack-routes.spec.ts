@@ -278,7 +278,8 @@ it('refuses obsolete agents and checks compatibility when claiming', async () =>
 it('rejects malformed completion metadata before writing an attempt outcome', async () => {
   const f = await fixture(); await f.enroll(); const lease = await f.create();
   await f.success(await f.claim(), RackLeaseGrantType);
-  for (const invalid of [{ state: 'bogus' }, { state: 'failed' }, { exitCode: 0.5 }, { peakBytes: -1 }, { duration: -1 }, { outputHash: '../other' }, { cancelled: 'yes' }]) {
+  for (const invalid of [{ state: 'bogus' }, { state: 'failed' }, { exitCode: 0.5 }, { peakBytes: -1 }, { duration: -1 }, { outputHash: '../other' }, { cancelled: 'yes' },
+    { reason: 'because' }, { reason: { code: 'Not A Code' } }, { reason: { code: 'outgrew-cap', capBytes: -1 } }, { retries: [{ transfer: 'sideways', attempt: 2, of: 5, cause: '' }] }]) {
     const response = await f.raw('complete', RackCompleteRequestType, { repo: 'repo', leaseId: lease.leaseId,
       resultJson: JSON.stringify({ taskName: 'task', status: 'success', outputHash: output, ...invalid }), outputUploadId: none, inlineOutput: none });
     await f.refusal(response, 400, 'invalid-request');

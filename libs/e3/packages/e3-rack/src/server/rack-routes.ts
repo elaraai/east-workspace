@@ -94,7 +94,7 @@ import type { RunnerRun } from '../runner-event.js';
 import { MAX_LEASE_TARGETS, type RackLeaseStore, type RackLeaseRecord } from '../lease/lease-store.js';
 import type { RackStorageBridge } from './storage-bridge.js';
 import { envLayerBlobKey, type EnvIndexStore, type EnvLayerManifest } from './env-publication.js';
-import { isFunctionLease, isLeaseEventV2, leaseRun, type RackLeaseResult } from '../protocol/task-envelope.js';
+import { isFunctionLease, isLeaseEventV2, leaseRun, readRackReason, readRackRetries, type RackLeaseResult } from '../protocol/task-envelope.js';
 import { DEFAULT_HEALTHY_WINDOW_MS, DEFAULT_VISIBILITY_MS, heartbeatCapacity, leaseRefusal } from './dispatch.js';
 import { backendLeaseCoordinator, type LeaseCoordinator } from '../lease/coordinator.js';
 import {
@@ -715,6 +715,11 @@ export function createRackRoutes(
       if (!inlineSuccess && result.outputHash !== undefined && (typeof result.outputHash !== 'string' || !isObjectHash(result.outputHash))) throw new Error('invalid output hash');
       if (result.cancelled !== undefined && typeof result.cancelled !== 'boolean') throw new Error('invalid cancellation');
       if (result.error !== undefined && typeof result.error !== 'string') throw new Error('invalid error');
+      // What is stored and handed on is what this build read of them.
+      const reason = readRackReason(result.reason);
+      const retries = readRackRetries(result.retries);
+      if (reason === undefined) delete result.reason; else result.reason = reason;
+      if (retries.length === 0) delete result.retries; else result.retries = retries;
     } catch {
       return invalid('Invalid completion body');
     }

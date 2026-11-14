@@ -124,6 +124,10 @@ export function createRackCommand(): Command {
     console.log(`Sessions: ${status.sessions.length}`);
     for (const session of status.sessions) console.log(`  ${session.label}  ${session.repoAlias}  ${session.workspace}  ${Number(session.pending)} pending / ${Number(session.claimed)} claimed  e3 ${session.e3Version}`);
     console.log(`Queue: ${Number(status.capacity.queued)} pending`);
+    if (status.outcomes.length > 0) console.log('Last outcomes:');
+    for (const outcome of status.outcomes) {
+      console.log(`  ${printFor(DateTimeType)(outcome.at)}  ${outcome.workspace}.${outcome.taskName}  ${outcome.rackLabel}  ${outcome.outcome}${outcome.reason.type === 'some' ? ` (${outcome.reason.value})` : ''}`);
+    }
   }));
   rack.command('list').description('List enrolled racks and compatible capacity').action(guarded(async () => {
     const lib = await rackLib();

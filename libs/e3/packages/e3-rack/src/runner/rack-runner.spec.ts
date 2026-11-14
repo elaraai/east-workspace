@@ -5,22 +5,24 @@
 
 import { afterEach, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { randomBytes } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { East, IntegerType, StringType, some, variant } from '@elaraai/east';
+import { East, IntegerType, StringType, none, some, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import { Budget, InMemoryStateStore, LocalOrchestrator, LocalStorage, LocalTaskRunner, datasetWrite, inputsHash,
   packageImport, packageRead, repoInit, workspaceCreate, workspaceDeploy } from '@elaraai/e3-core';
 import { RackHub, type RackHubOptions } from '../hub/hub.js';
 import { defaultHubConfig, saveHubConfig } from '../hub/config.js';
 import { HubClient } from '../client/hub-client.js';
-import { TestRackAgent } from '../testing/test-rack-agent.js';
+import { TestRackAgent, type TestRackAgentOptions } from '../testing/test-rack-agent.js';
 import { pinnedFetch } from '../tls/tls.js';
 import { DEFAULT_RACK_POLICY, setMode, setRule, type RackPolicy } from '../routing/policy.js';
 import { openRackRunner, type OpenRackRunnerOptions } from './rack-runner.js';
 import type { RackPlacementEvent } from './rack-body.js';
+import { describeRackSummary } from './summary.js';
 
 const cleanup: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -51,9 +53,9 @@ async function fixture(options: RackHubOptions = {}) {
     cleanup.push(() => rack.close());
     return rack;
   };
-  const agent = async () => {
+  const agent = async (as: Pick<TestRackAgentOptions, 'timings' | 'faults'> = {}) => {
     const mint = await client.enroll();
-    const peer = await TestRackAgent.enroll(mint.apiUrl, mint.enrollmentToken, { certificateSha256: mint.certificateSha256.type === 'some' ? mint.certificateSha256.value : undefined });
+    const peer = await TestRackAgent.enroll(mint.apiUrl, mint.enrollmentToken, { certificateSha256: mint.certificateSha256.type === 'some' ? mint.certificateSha256.value : undefined, ...as });
     cleanup.push(() => peer.close()); return peer;
   };
   return { home, hub, client, repo, storage, hash, inputs, budget, placements, policy, open, agent };
@@ -255,3 +257,46 @@ for (const fault of ['infraFailNext', 'taskFailNext', 'hangNext', 'dropCompletio
     assert.equal(agent.faults[fault], 0);
   });
 }
+
+it('says a transfer\'s retry, places work by the reason its rack gave, and sums the run up', async () => {
+  const f = await fixture(); const agent = await f.agent({ timings: { retryMs: 1 }, faults: {} }); const rack = await f.open();
+  // Inputs too large to travel inline, however well they compress, so each lease has a transfer to retry.
+  const text = () => randomBytes(60_000).toString('base64');
+  const large = [await datasetWrite(f.storage, f.repo, text(), StringType)];
+  const retried = (events: RackPlacementEvent[]) => events.flatMap((event) => event.kind === 'retried' ? [event.retry] : []);
+
+  // One try fails and the next succeeds: the work stays on the rack.
+  agent.faults.failTransferNext = 1;
+  const running = rack.runner.execute(f.storage, f.hash, large, { taskName: 'length' });
+  const done = await agent.runOne(); assert.equal(done?.status, 'success', done?.error);
+  assert.deepEqual(done.retries, [{ transfer: 'input', attempt: 2, of: 5, cause: 'injected transfer failure' }]);
+  assert.equal((await running).state, 'success');
+  assert.deepEqual(retried(f.placements), [{ transfer: 'input', attempt: 2, of: 5, cause: 'injected transfer failure' }]);
+  assert.equal(f.budget.peak, 0, 'nothing ran locally');
+  assert.equal(describeRackSummary(rack.takeSummary()), 'Rack summary: 1 task on test rack · 1 transfer retried · 0 ran locally');
+
+  // Every try fails: the rack ends the lease with its reason, and the work runs locally by it.
+  f.placements.length = 0;
+  agent.faults.failTransferNext = 1000;
+  const other = [await datasetWrite(f.storage, f.repo, text(), StringType)];
+  const falling = rack.runner.execute(f.storage, f.hash, other, { taskName: 'length' });
+  const failed = await agent.runOne(); assert.equal(failed?.status, 'failed');
+  assert.deepEqual(failed.reason, { code: 'input-transfer-failed', attempts: 5, cause: 'injected transfer failure' });
+  const result = await falling; assert.equal(result.state, 'success', result.error);
+  assert.equal(f.budget.peak, 1, 'it ran locally');
+  const local = f.placements.find((event) => event.kind === 'placed' && event.where === 'local');
+  assert(local?.kind === 'placed' && local.where === 'local');
+  assert.equal(local.reason, 'fallback:input-transfer-failed: injected transfer failure');
+  assert.deepEqual(local.detail, { code: 'input-transfer-failed', attempts: 5, cause: 'injected transfer failure' });
+  assert(retried(f.placements).length >= 4, 'each failed try that was followed by another is said');
+  assert.match((await f.storage.logs.read(f.repo, f.hash, inputsHash(other), result.executionId, 'stderr')).data,
+    /e3: rack attempt failed on test rack: input-transfer-failed: injected transfer failure — running locally/);
+  assert.match(describeRackSummary(rack.takeSummary())!, /^Rack summary: 1 task on test rack · \d+ transfers retried · 1 ran locally$/);
+
+  // The hub's status lists how its last leases ended, the latest first, each with its reason.
+  const outcomes = (await f.client.status()).outcomes;
+  assert.deepEqual(outcomes.map(({ workspace, taskName, rackLabel, outcome, reason }) => ({ workspace, taskName, rackLabel, outcome, reason })), [
+    { workspace: 'dev', taskName: 'length', rackLabel: 'test rack', outcome: 'error', reason: some('input-transfer-failed: injected transfer failure') },
+    { workspace: 'dev', taskName: 'length', rackLabel: 'test rack', outcome: 'success', reason: none },
+  ]);
+});

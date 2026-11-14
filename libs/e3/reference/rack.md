@@ -13,7 +13,7 @@ Part of the `e3` skill.
 | `e3 rack policy [repo] show\|unset <glob>\|reset` | Inspect rules, remove an exact pattern, or delete the saved policy. | `e3 rack policy . show` |
 | `e3 dataflow run <repo> <ws> --rack\|--no-rack\|--rack-only` | Select rack routing for this run; rack-only disables capacity spill but keeps infrastructure fallback. ❗ Refused for remote URLs. | `e3 dataflow run . dev --rack` |
 | `e3 watch <source> <repo> <ws> --start --rack` | Reuses a rack session across watch runs and refreshes capacity; a second Ctrl-C stops the watch at once. ❗ `--rack` and `--rack-only` require `--start`. | `e3 watch src/main.ts . dev --start --rack` |
-| `e3 rack status\|list\|remove <id-or-label>\|approve <id-or-label>\|stop` | Inspect fleet, revoke a rack, admit the boot a quarantined rack last reported, or stop the shared hub. Status never starts an absent hub. | `e3 rack status` |
+| `e3 rack status\|list\|remove <id-or-label>\|approve <id-or-label>\|stop` | Inspect fleet, revoke a rack, admit the boot a quarantined rack last reported, or stop the shared hub. Status never starts an absent hub, and lists how its last leases ended, each with its reason. | `e3 rack status` |
 | `e3 rack config [--listen <host:port>] [--allow <ip,...>] [--idle-exit <min>] [--advertise-url <origin>] [--tls\|--no-tls] [--require-approval\|--no-require-approval]` | Configure the shared listener (off by default; HTTPS with the hub's own certificate unless `--no-tls`); every rack and data URL is built on `--advertise-url` when set; zero idle-exit disables automatic shutdown; `--require-approval` quarantines a rack after each reboot until `e3 rack approve` admits it (enrollment admits the first boot). ❗ Plain HTTP only on the loopback or a private address, with `--allow`. | `e3 rack config --listen 10.0.0.5:7331` |
 
 The local process owns graph planning, repository and cache. After a cache
@@ -21,7 +21,13 @@ miss, eligible plain task, map and merge bodies can execute on the rack; input
 closures and every output object transfer by hash. The session verifies the
 whole output graph before success. Placement never changes task/cache hashes.
 Local bodies and fallback share the original cores/memory budget; rack bodies
-use remote capacity. Calls, mutations and intake stay local. Stock runner
+use remote capacity. A run prints `[RACK] <task> → <rack>` when a rack claims a
+task, `[RACK] <task> input transfer retried (2 of 5): <cause>` for a transfer
+given another try, `[LOCAL] <task> (<reason>)` for a rack's work this machine
+runs after all (`spill`, `no-rack-for-tier:<tier>`, or the rack's reason, such
+as `input-transfer-failed: <cause>` or `guest-crashed: <detail>`), and ends
+with `Rack summary: 1 task and 12 units on <rack> · 1 transfer retried · 0 ran
+locally`. Calls, mutations and intake stay local. Stock runner
 configurations qualify; commands, custom environments/platforms and unscannable
 IR stay local. Host file/environment/network access stays local unless a rule
 deliberately grants `--allow-host-access` and its resources exist on the rack.

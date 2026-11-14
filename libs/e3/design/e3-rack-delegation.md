@@ -190,6 +190,16 @@ planning and final assembly stay local; both pieces and merge bodies delegate.
 | Last subscriber cancels | Cancel lease, notify the agent's cancellation watch, record cancelled; no local retry. |
 | Hub dies | Local fallback; existing owner liveness rules identify the dead hub's attempt. |
 
+A lease's result gives its `reason` when it did not succeed: a code and what
+it carries (`protocol/task-envelope.ts`: `outgrew-cap`, `memory-limit-exceeded`,
+`input-transfer-failed`, `output-transfer-failed`, `source-unreachable`,
+`guest-crashed`, `requeued-pressure`, `task-error`), read for the fields a build
+knows, and a code it does not know is a rack's fault it cannot name. It also
+lists the tries of its transfers that were followed by another. The body places
+the work by the reason, a placement event carries it (`kind`, `detail`), a run
+prints each on its line and its summary as it ends, and the hub keeps how its
+last twenty leases ended for `e3 rack status`.
+
 Results retain the usual execution identity, unit flag, output, peak memory and
 history shape. Placement never enters cache keys. API dataflow factories receive
 the server's existing storage and shared budget, close their session after
