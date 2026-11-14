@@ -14,6 +14,14 @@ import { lazyBuilds } from './lazy-build.js';
 const BIAS = 1n << 53n;
 const LEAVES = 1n << 54n;
 
+/**
+ * The tree's leaf holding the instant of millisecond 0, by its number: a leaf
+ * is this plus its instant's milliseconds, and a node's parent is half its
+ * number. What a reader walks up from (`index-read.ts`, and a page's
+ * `intervalQueries`).
+ */
+export const INTERVAL_LEAF = BIAS + LEAVES;
+
 /** Internal millisecond key before the row's declared DateTime type is restored. */
 export const IntervalEntryType = StructType({ node: IntegerType, at: IntegerType });
 

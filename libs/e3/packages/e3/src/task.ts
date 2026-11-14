@@ -19,7 +19,8 @@ import type { TaskRole } from '@elaraai/e3-types';
 import type { DatasetDef, DataTreeDef, IndexInputDef, InputDef, OutputDef, PartitionDef, TaskDef } from './types.js';
 import { DEFAULT_RUNNER, type Runner } from './runner.js';
 import { validateEnvironmentDecl, type EnvironmentDecl } from './environment.js';
-import { inputDataset, inputName, inputType } from './index-input.js';
+import { inputDataset, inputName, inputType, withIndexReaders } from './index-input.js';
+import type { IndexReadersOf } from './index-read.js';
 
 /**
  * Helper type to extract East types from a task's inputs: a dataset's, or the
@@ -354,7 +355,7 @@ export function partition<T extends EastType>(dataset: DatasetDef<T>, config?: {
 export type InputExprs<T extends readonly (InputDef | PartitionDef)[]> = {
   [K in keyof T]:
     T[K] extends PartitionDef<infer U> ? ExprType<U> :
-    T[K] extends IndexInputDef<infer U> ? ExprType<U> :
+    T[K] extends IndexInputDef<infer U, infer D> ? ExprType<U> & IndexReadersOf<D> :
     T[K] extends DatasetDef<infer U> ? ExprType<U> :
     never;
 };
@@ -562,7 +563,7 @@ export function streamTask<
 
   // East gives the body an expression of each of those types: the inputs', in
   // the spec's order, and the emit's, as the body's signature names them.
-  const bodyFn = East.function(parameters, NullType, ($, ...args) => fn($, ...(args as [...InputExprs<Inputs>, ExprType<Output['emit']>])));
+  const bodyFn = East.function(parameters, NullType, ($, ...args) => fn($, ...(withIndexReaders(inputs, args) as [...InputExprs<Inputs>, ExprType<Output['emit']>])));
 
   const taskTree = createTaskTree(name);
   const output = createOutputDataset(name, taskTree, outputKind.type as EastType);

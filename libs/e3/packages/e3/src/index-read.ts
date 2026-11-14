@@ -1,0 +1,522 @@
+/**
+ * Copyright (c) 2025 Elara AI Pty Ltd
+ * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
+ */
+
+/**
+ * A reader for each kind of index, inside a task or a function
+ * (east-workspace#1618).
+ *
+ * With `e3.index` a body holds an index's entries, `Dict<{ ik, k }, P>`, and
+ * with a range read it reads a run of them. For a plain index that is the
+ * whole read: the rows under a key are one run. The indexes a planning board
+ * reads are not one run — a series index files each event once, at the level
+ * its length fits, so a key's events over a span are a run a level; an
+ * interval index answers a window with a run of starts and one a tree node
+ * above the window's first instant — and each files more under those runs than
+ * a window holds. A reader knows its kind's runs, and tests what they hold.
+ *
+ * A reader answers a **read** ({@link IndexRead}), which gives the rows its
+ * words say and no others, each once, in the index's own order: `each` runs a
+ * body for each, a segment in memory at a time, and `collect` gives them as a
+ * Dict by the row's key.
+ *
+ * The runs are written as East, over the functions that file each index
+ * (`record-tiles.ts`, `record-interval.ts`), so they run on every runner, and
+ * are the runs a page's reader of the kind reads (east-ui's
+ * `platform/slice/record-interval.ts`, `record-series.ts`).
+ *
+ * @packageDocumentation
+ */
+
+import {
+  ArrayType, DateTimeType, DictType, East, Expr, OptionType, SetType, isTypeEqual, none, printType, some, variant,
+  type BlockBuilder, type EastType, type ExprType, type IntegerType, type KeyBound, type NullType, type StructType, type SubtypeExprOrValue,
+} from '@elaraai/east';
+import { RecordLevelType, RecordSummaryTotalsType } from '@elaraai/e3-types';
+import { INTERVAL_LEAF } from './record-interval.js';
+import { optionField, type OptionField, type RowType } from './record-keys.js';
+import { RECORD_TILES, TILE_FNS, type RecordTile } from './record-tiles.js';
+import type { IndexInputDef, RecordIndexDef } from './types.js';
+
+/**
+ * A read of an index: the rows a reader's words hold, each once, in the
+ * index's own order.
+ *
+ * @typeParam P - What the read gives for a row: what the index carries
+ * @typeParam K - What it gives beside it: the row's key, or a summary's tile
+ */
+export interface IndexRead<P extends EastType = EastType, K extends EastType = EastType> {
+  /**
+   * Runs a body once for each row the read holds, in the index's own order,
+   * a segment of the index in memory at a time.
+   *
+   * It takes no label and runs to its end: a body skips a row with `$.if`,
+   * and leaves the function with `$.return`.
+   *
+   * @typeParam Ret - The return type of the function the read is in
+   * @param $ - The block the read is in
+   * @param body - Given what the index carries for the row, and the row's key
+   */
+  each<Ret>($: BlockBuilder<Ret>, body: ($: BlockBuilder<Ret>, carried: ExprType<P>, key: ExprType<K>) => void): void;
+  /**
+   * The rows the read holds, as a new Dict by the row's key of what the index
+   * carries for it.
+   *
+   * @typeParam Ret - The return type of the function the read is in
+   * @param $ - The block the read is in
+   * @returns The Dict, held in memory whole
+   */
+  collect<Ret>($: BlockBuilder<Ret>): ExprType<DictType<K, P>>;
+}
+
+/** A read's rows, given one at a time to `give`, in a block. */
+type Walk = <Ret>($: BlockBuilder<Ret>, give: ($: BlockBuilder<Ret>, carried: Expr, key: Expr) => void) => void;
+
+/** A read from the walk that gives its rows. */
+function readOf<P extends EastType, K extends EastType>(keyType: K, carriedType: P, walk: Walk): IndexRead<P, K> {
+  return {
+    each: ($, body) => { walk($, body as never); },
+    collect: ($) => {
+      const rows = $.let(new Map(), DictType(keyType as EastType, carriedType as EastType));
+      walk($, ($, carried, key) => { $(rows.insert(key as never, carried as never)); });
+      return rows as never;
+    },
+  };
+}
+
+/** An index's entries as its readers hold them: the Dict, and the types of an entry's parts. */
+interface Entries {
+  /** The index, as a refusal names it: `e3.index 'jobs.jobs_by_press'`. */
+  readonly name: string;
+  readonly def: RecordIndexDef;
+  readonly dict: ExprType<DictType<StructType<{ ik: EastType; k: EastType }>, EastType>>;
+  /** The index's key type. */
+  readonly ik: EastType;
+  /** The row's key type; Null for an index whose entry stands for every row of its key. */
+  readonly k: EastType;
+  /** What the index carries. */
+  readonly carried: EastType;
+}
+
+/** An entry's row key. */
+const rowKey = (entry: Expr): Expr => East.field(entry, 'k');
+/** A part of an entry's index key. */
+const indexKeyPart = (entry: Expr, part: string): Expr => East.field(East.field(entry, 'ik'), part);
+
+/** The instant a millisecond before one. */
+function msBefore(at: ExprType<DateTimeType>): ExprType<DateTimeType> {
+  return East.DateTime.fromEpochMilliseconds(at.toEpochMilliseconds().subtract(1n));
+}
+
+/** An object literal: what a reader's `on` is written as. */
+function isObjectLiteral(value: unknown): value is Readonly<Record<string, unknown>> {
+  return typeof value === 'object' && value !== null && Object.getPrototypeOf(value) === Object.prototype;
+}
+
+/**
+ * The leading values a generated index's reader is given, as the key's `on`:
+ * every leading field, exactly.
+ *
+ * @param entries - The index's entries
+ * @param reader - The reader, as the refusal names it
+ * @param on - What was written
+ * @returns The key's `on`
+ * @throws {Error} When a leading field is left out, one is given that leads nothing, or a value is not of its field's
+ *   type, naming the fields the index is led by
+ */
+function leadingOn(entries: Entries, reader: string, on: unknown): Expr {
+  const onType = (entries.ik as StructType<{ on: StructType<Record<string, EastType>> }>).fields.on;
+  const names = Object.keys(onType.fields);
+  const led = names.length === 0
+    ? 'the index is led by no field, and takes no `on`'
+    : `the index is led by ${names.map((name) => `'${name}'`).join(', ')}, and takes each exactly, as on: { ${names.map((name) => `${name}: …`).join(', ')} }`;
+  const given = on === undefined ? {} : on;
+  if (!isObjectLiteral(given)) throw new Error(`${entries.name} ${reader}: \`on\` is written as an object of the leading fields — ${led}`);
+  const stranger = Object.keys(given).find((name) => !names.includes(name));
+  if (stranger !== undefined) throw new Error(`${entries.name} ${reader}: '${stranger}' leads nothing — ${led}`);
+  const missing = names.find((name) => given[name] === undefined);
+  if (missing !== undefined) throw new Error(`${entries.name} ${reader}: '${missing}' is left out — ${led}`);
+  try {
+    return East.struct(onType, given);
+  } catch (err) {
+    const fields = names.map((name) => `${name}: ${printType(onType.fields[name]!)}`).join(', ');
+    throw new Error(`${entries.name} ${reader}: a leading field is given a value of another type — \`on\` is { ${fields} }: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+/** A reader's instant, as an expression. */
+function instant(entries: Entries, reader: string, name: string, at: unknown): ExprType<DateTimeType> {
+  if (at === undefined) throw new Error(`${entries.name} ${reader}: \`${name}\` is left out — a window is [from, to), each a DateTime`);
+  return East.value(at as never, DateTimeType);
+}
+
+// ── Plain indexes: `of`, `between` ───────────────────────────────────────────
+
+/**
+ * A plain index's readers — `index.on`, `index.key`, `index.keys` — and those
+ * of the indexes e3 keeps beside one, a nested series index's span and an
+ * entries index's lean rows.
+ *
+ * @typeParam IK - The index's key type
+ * @typeParam P - What the index carries
+ * @typeParam K - The row's key type
+ */
+export interface PlainReaders<IK extends EastType = EastType, P extends EastType = EastType, K extends EastType = EastType> {
+  /**
+   * The rows filed under an index key, or under a leading part of one:
+   * `{ owner }` of an index on `['owner', 'due']`. One run.
+   *
+   * @param key - The index key, or its first fields
+   * @returns The read
+   * @throws {Error} Where the function is built, when the key is no leading part of the index's
+   */
+  of(key: KeyBound<IK>): IndexRead<P, K>;
+  /**
+   * The rows from one index key up to another: `from` and every key after it
+   * that is before `to`. One run. An end left out is that end of the index.
+   *
+   * @param bounds - The two index keys, each whole or its first fields
+   * @returns The read
+   * @throws {Error} Where the function is built, when a bound is no leading part of the index's key
+   */
+  between(bounds: { from?: KeyBound<IK>; to?: KeyBound<IK> }): IndexRead<P, K>;
+}
+
+/**
+ * Gives a run's rows. A fanned-out index files a row under each of several
+ * keys, so a run of more than one key may hold it more than once: the keys of
+ * the rows given are then kept, and a row is given the first time it is met.
+ */
+function giveRun<Ret>(
+  $: BlockBuilder<Ret>, entries: Entries, run: Expr, once: boolean, give: ($: BlockBuilder<Ret>, carried: Expr, key: Expr) => void,
+): void {
+  const dict = run as Entries['dict'];
+  if (!once) {
+    $.for(dict, ($, carried, entry) => { give($, carried, rowKey(entry)); });
+    return;
+  }
+  const given = $.let(new Set(), SetType(entries.k));
+  $.for(dict, ($, carried, entry) => {
+    $.if(given.tryInsert(rowKey(entry) as never), ($) => { give($, carried, rowKey(entry)); });
+  });
+}
+
+function plainReaders(entries: Entries): PlainReaders {
+  // One whole key's rows are filed under it once each; a key that is a struct may be given by its first fields.
+  const fanned = entries.def.multi;
+  return {
+    of: (key) => {
+      if (key === undefined) throw new Error(`${entries.name} of: the index key is left out — the key the rows are filed under, or its first fields`);
+      // The run is made here, where a key that is no leading part of the index's is refused.
+      const run = entries.dict.prefix({ ik: key } as never);
+      return readOf(entries.k, entries.carried, ($, give) => { giveRun($, entries, run, fanned && entries.ik.type === 'Struct', give); });
+    },
+    between: (bounds) => {
+      const run = entries.dict.range({
+        ...(bounds.from !== undefined && { from: { ik: bounds.from } }),
+        ...(bounds.to !== undefined && { to: { ik: bounds.to } }),
+      } as never);
+      return readOf(entries.k, entries.carried, ($, give) => { giveRun($, entries, run, fanned, give); });
+    },
+  };
+}
+
+// ── Interval indexes: `overlapping`, `unset` ─────────────────────────────────
+
+/** The leading fields a generated index's reader takes: `on`, each field exactly, where the index is led by any. */
+export type LeadingOn<IK> =
+  IK extends StructType<{ on: StructType<infer L> }>
+    ? keyof L extends never ? { on?: Record<never, never> } : { on: { [F in keyof L]: SubtypeExprOrValue<L[F]> } }
+    : { on?: Readonly<Record<string, unknown>> };
+
+/** A half-open window of time, `[from, to)`. */
+export interface TimeWindow {
+  /** The window's first instant. */
+  from: SubtypeExprOrValue<DateTimeType>;
+  /** The instant it ends before. */
+  to: SubtypeExprOrValue<DateTimeType>;
+}
+
+/**
+ * An interval index's readers (`index.interval`).
+ *
+ * @typeParam IK - The index's key type, `{ on, node, at }`
+ * @typeParam P - What the index carries
+ * @typeParam K - The row's key type
+ */
+export interface IntervalReaders<IK extends EastType = EastType, P extends EastType = EastType, K extends EastType = EastType> {
+  /**
+   * The rows that overlap `[from, to)`: an event that ends at `from` is
+   * outside, an instant at `from` is inside and one at `to` outside, and an
+   * event with no end, or one at or before its start, is an instant. A window
+   * that ends at or before its start holds none. At most 55 runs: the starts
+   * inside the window, and one a tree node above its first instant.
+   *
+   * @param window - The leading fields, each exactly, and the window
+   * @returns The read
+   * @throws {Error} Where the function is built, when a leading field is left out or of another type, naming them
+   */
+  overlapping(window: LeadingOn<IK> & TimeWindow): IndexRead<P, K>;
+  /**
+   * The rows with no start: the backlog. One run.
+   *
+   * @param where - The leading fields, each exactly
+   * @returns The read
+   * @throws {Error} Where the function is built, when the start is not an Option field — every row then has one — or
+   *   a leading field is left out or of another type
+   */
+  unset(where?: LeadingOn<IK>): IndexRead<P, K>;
+}
+
+function intervalReaders(entries: Entries): IntervalReaders {
+  const atType = (entries.ik as StructType<{ at: EastType }>).fields.at;
+  const optional = isTypeEqual(atType, OptionType(DateTimeType));
+  /** An instant as an entry is ordered by it: at the start field's type. */
+  const at = (ms: ExprType<IntegerType>): Expr => {
+    const time = East.DateTime.fromEpochMilliseconds(ms);
+    return optional ? East.value(some(time), OptionType(DateTimeType)) : time;
+  };
+  return {
+    overlapping: (window) => {
+      const given = window as { on?: unknown; from?: unknown; to?: unknown };
+      const written = { on: leadingOn(entries, 'overlapping', given.on), from: instant(entries, 'overlapping', 'from', given.from), to: instant(entries, 'overlapping', 'to', given.to) };
+      return readOf(entries.k, entries.carried, ($, give) => {
+      const on = $.const(written.on);
+      const from = $.const(written.from);
+      const to = $.const(written.to);
+      $.if(East.less(from, to), ($) => {
+        const fromMs = $.const(from.toEpochMilliseconds());
+        // The first run holds the starts inside the window. Each one after it is a node above the window's first
+        // instant, from its leaf up: a node's events all cross its centre, so to the left of it they overlap the
+        // window when they start before it, and to the right when they end after its first instant.
+        const starts = $.let(true);
+        const child = $.let(fromMs.add(INTERVAL_LEAF));
+        $.while(starts.or(() => child.greater(1n)), ($) => {
+          const parent = $.const(child.divide(2n));
+          const right = $.const(child.remainder(2n).equal(1n));
+          const node = $.const(parent.multiply(2n));
+          const run = $.const(starts.ifElse(
+            () => entries.dict.range({ from: { ik: { on, node: 0n, at: at(fromMs) } }, to: { ik: { on, node: 0n, at: at(to.toEpochMilliseconds()) } } } as never),
+            () => right.ifElse(
+              () => entries.dict.range({ from: { ik: { on, node: node.add(1n), at: at(fromMs.add(1n)) } }, to: { ik: { on, node: node.add(2n) } } } as never),
+              () => entries.dict.range({ from: { ik: { on, node } }, to: { ik: { on, node, at: at(fromMs) } } } as never),
+            ),
+          ));
+          $.for(run as Entries['dict'], ($, carried, entry) => { give($, carried, rowKey(entry)); });
+          $.if(starts, ($) => { $.assign(starts, false); }).else(($) => { $.assign(child, parent); });
+        });
+      });
+      });
+    },
+    unset: (where) => {
+      if (!optional) {
+        throw new Error(
+          `${entries.name} unset: the index's start, '${entries.def.interval!.from}', is a DateTime field, so every row has one — ` +
+          `a row with no start is one whose start is an Option<DateTime> left none`,
+        );
+      }
+      const written = leadingOn(entries, 'unset', (where as { on?: unknown } | undefined)?.on);
+      return readOf(entries.k, entries.carried, ($, give) => {
+        const on = $.const(written);
+        const backlog = East.value(none, OptionType(DateTimeType));
+        $.for(entries.dict.prefix({ ik: { on, node: 0n, at: backlog } } as never), ($, carried, entry) => { give($, carried, rowKey(entry)); });
+      });
+    },
+  };
+}
+
+// ── Series and summary indexes: `events`, `totals` ───────────────────────────
+
+/** A window of one key's time: the key the events are on, and `[from, to)`. */
+export type KeyWindow<IK> = TimeWindow & {
+  /** The key the events are on: a Plan's resource. */
+  key: IK extends StructType<{ key: infer KT extends EastType }> ? SubtypeExprOrValue<KT> : unknown;
+};
+
+/**
+ * A series index's readers (`index.series`).
+ *
+ * @typeParam IK - The index's key type, `{ on, key, level, tile }`
+ * @typeParam P - What the index carries: the row
+ * @typeParam K - The row's key type
+ */
+export interface SeriesReaders<IK extends EastType = EastType, P extends EastType = EastType, K extends EastType = EastType> {
+  /**
+   * The events on `key` that overlap `[from, to)`, by the interval index's
+   * edges: an event that ends at `from` is outside, an instant at `from` is
+   * inside and one at `to` outside. A window that ends at or before its start
+   * holds none. One run a level, the finest first, so the events come in the
+   * index's order, which across levels is not time order.
+   *
+   * @param window - The leading fields, each exactly, the key, and the window
+   * @returns The read: each event's row once, and its key
+   * @throws {Error} Where the function is built, when a leading field is left out or of another type, naming them
+   */
+  events(window: LeadingOn<IK> & KeyWindow<IK>): IndexRead<P, K>;
+}
+
+/**
+ * A summary index's readers (`index.summary`).
+ *
+ * @typeParam IK - The index's key type, `{ on, key, tile }`
+ */
+export interface SummaryReaders<IK extends EastType = EastType> {
+  /**
+   * The totals of each tile of `key` that overlaps `[from, to)`: how many
+   * rows touch the tile, and the milliseconds of it they cover. A window that
+   * ends at or before its start holds none. One run.
+   *
+   * @param window - The leading fields, each exactly, the key, and the window
+   * @returns The read: each tile's totals, and the tile's start in place of a row's key
+   * @throws {Error} Where the function is built, when a leading field is left out or of another type, naming them
+   */
+  totals(window: LeadingOn<IK> & KeyWindow<IK>): IndexRead<typeof RecordSummaryTotalsType, DateTimeType>;
+}
+
+/** The key a series or a summary reader is given, at the index's key field's type. */
+function eventKey(entries: Entries, reader: string, key: unknown): Expr {
+  if (key === undefined) throw new Error(`${entries.name} ${reader}: \`key\` is left out — the key the events are on`);
+  return East.value(key as never, (entries.ik as StructType<{ key: EastType }>).fields.key);
+}
+
+/** What a series or a summary reader is given, each part an expression, refused where it is written. */
+function keyWindow(entries: Entries, reader: string, window: unknown): { on: Expr; key: Expr; from: ExprType<DateTimeType>; to: ExprType<DateTimeType> } {
+  const given = (window ?? {}) as { on?: unknown; key?: unknown; from?: unknown; to?: unknown };
+  return {
+    on: leadingOn(entries, reader, given.on),
+    key: eventKey(entries, reader, given.key),
+    from: instant(entries, reader, 'from', given.from),
+    to: instant(entries, reader, 'to', given.to),
+  };
+}
+
+/** A row's field read as an instant: the field itself, or an Option's value, `absent` for none. */
+function timeOf(row: Expr, field: OptionField<DateTimeType>, absent: ExprType<DateTimeType>): ExprType<DateTimeType> {
+  return field.optional
+    ? East.field(row, field.field, OptionType(DateTimeType)).unwrap('some', () => absent)
+    : East.field(row, field.field, DateTimeType);
+}
+
+function seriesReaders(entries: Entries): SeriesReaders {
+  const series = entries.def.series!;
+  const rowType = entries.carried as RowType;
+  const start = optionField(rowType, series.from, DateTimeType);
+  const end = optionField(rowType, series.to, DateTimeType);
+  if (start === undefined || end === undefined) {
+    throw new Error(`${entries.name}: a series index carries its rows, and these carry no '${series.from}' and '${series.to}' to test a window by`);
+  }
+  // The levels the index files at: its tile, and every coarser one up to the year.
+  const levels = RECORD_TILES.slice(RECORD_TILES.indexOf(series.tile)).map((tile: RecordTile) => variant(tile, null));
+  return {
+    events: (window) => {
+      const written = keyWindow(entries, 'events', window);
+      return readOf(entries.k, entries.carried, ($, give) => {
+      const on = $.const(written.on);
+      const key = $.const(written.key);
+      const from = $.const(written.from);
+      const to = $.const(written.to);
+      $.if(East.less(from, to), ($) => {
+        const startOf = $.const(TILE_FNS.tileStart);
+        const nextOf = $.const(TILE_FNS.tileNext);
+        const fromMs = $.const(from.toEpochMilliseconds());
+        const toMs = $.const(to.toEpochMilliseconds());
+        $.for($.const(levels, ArrayType(RecordLevelType)), ($, level) => {
+          // An event filed at a level ends within the tile after the one holding its start, so the events of a
+          // level that overlap the window start in a tile from the one before the window's first to its last.
+          const first = $.const(startOf(level, msBefore(startOf(level, from))));
+          const after = $.const(nextOf(level, startOf(level, msBefore(to))));
+          const run = entries.dict.range({ from: { ik: { on, key, level, tile: first } }, to: { ik: { on, key, level, tile: after } } } as never);
+          $.for(run as Entries['dict'], ($, row, entry) => {
+            // The index files a row with a start alone, and one with no end, or one at or before its start, is an instant.
+            const starts = $.const(timeOf(row, start, from));
+            const startMs = $.const(starts.toEpochMilliseconds());
+            const endMs = $.const(timeOf(row, end, starts).toEpochMilliseconds());
+            const overlaps = endMs.lessEqual(startMs).ifElse(
+              () => startMs.greaterEqual(fromMs).and(() => startMs.less(toMs)),
+              () => startMs.less(toMs).and(() => endMs.greater(fromMs)),
+            );
+            // An event past a year is filed under each year it touches: it is given under the first of them the run holds.
+            const tile = $.const(indexKeyPart(entry, 'tile') as ExprType<DateTimeType>);
+            $.if(overlaps.and(() => East.equal(tile, first).or(() => East.equal(tile, startOf(level, starts)))), ($) => {
+              give($, row, rowKey(entry));
+            });
+          });
+        });
+      });
+      });
+    },
+  };
+}
+
+function summaryReaders(entries: Entries): SummaryReaders {
+  const level = variant(entries.def.summary!.tile, null);
+  return {
+    totals: (window) => {
+      const written = keyWindow(entries, 'totals', window);
+      return readOf(DateTimeType, RecordSummaryTotalsType, ($, give) => {
+      const on = $.const(written.on);
+      const key = $.const(written.key);
+      const from = $.const(written.from);
+      const to = $.const(written.to);
+      $.if(East.less(from, to), ($) => {
+        const startOf = $.const(TILE_FNS.tileStart);
+        const nextOf = $.const(TILE_FNS.tileNext);
+        const tile = $.const(level, RecordLevelType);
+        // A total is split by tile, so the tiles that overlap the window hold all of it.
+        const first = $.const(startOf(tile, from));
+        const after = $.const(nextOf(tile, startOf(tile, msBefore(to))));
+        const run = entries.dict.range({ from: { ik: { on, key, tile: first } }, to: { ik: { on, key, tile: after } } } as never);
+        $.for(run as Entries['dict'], ($, totals, entry) => { give($, totals, indexKeyPart(entry, 'tile')); });
+      });
+      });
+    },
+  };
+}
+
+// ── The readers of an index ──────────────────────────────────────────────────
+
+/** A Dict record's key type. */
+type RecordKeyOf<T> = T extends DictType<infer K extends EastType, unknown> ? K : EastType;
+
+/**
+ * The readers of an index, by its kind: a series index's `events`, a summary
+ * index's `totals`, an interval index's `overlapping` and `unset`, and a
+ * plain index's `of` and `between`.
+ *
+ * @typeParam D - The index, as `record.indexes.<name>` types it
+ */
+export type IndexReadersOf<D> =
+  D extends RecordIndexDef<string, infer T, infer IK, infer P>
+    ? D extends { readonly series: object } ? SeriesReaders<IK, P, RecordKeyOf<T>>
+      : D extends { readonly summary: object } ? SummaryReaders<IK>
+      : D extends { readonly interval: object } ? IntervalReaders<IK, P, RecordKeyOf<T>>
+      : D extends { readonly area: object } | { readonly nested: object } | { readonly entries: object } ? Record<never, never>
+      : PlainReaders<IK, P, D extends { readonly span: object } ? NullType : RecordKeyOf<T>>
+    : Record<never, never>;
+
+/**
+ * The readers of an index over an expression of its entries.
+ *
+ * @param input - The index, as `e3.index` takes it
+ * @param entries - Its entries: the body's parameter for it, or any expression of the input's type
+ * @returns Its kind's readers
+ * @throws {Error} When the expression is not of the index's entries' type, naming both
+ */
+export function indexReaders(input: IndexInputDef, entries: unknown): object {
+  const name = `e3.index '${input.record.name}.${input.index.name}'`;
+  if (!(entries instanceof Expr) || !isTypeEqual(Expr.type(entries), input.type)) {
+    const given = entries instanceof Expr ? `an expression of ${printType(Expr.type(entries))}` : 'no East expression';
+    throw new Error(`${name} reads its own entries, ${printType(input.type)}, and was given ${given} — pass the body's parameter for this index`);
+  }
+  const type = input.type as DictType<StructType<{ ik: EastType; k: EastType }>, EastType>;
+  const held: Entries = {
+    name, def: input.index, dict: entries as Entries['dict'], ik: type.key.fields.ik, k: type.key.fields.k, carried: type.value,
+  };
+  const def = input.index;
+  if (def.series !== undefined) return seriesReaders(held);
+  if (def.summary !== undefined) return summaryReaders(held);
+  if (def.interval !== undefined) return intervalReaders(held);
+  if (def.area !== undefined || def.nested !== undefined || def.entries !== undefined) return {};
+  return plainReaders(held);
+}

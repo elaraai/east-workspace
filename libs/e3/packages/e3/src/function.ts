@@ -35,7 +35,7 @@ import type { DatasetDef, DataTreeDef, FunctionDef, InputDef, PartitionDef, Reco
 import { DEFAULT_RUNNER, runnerToVariant, type FunctionRunner } from './runner.js';
 import { isRecord } from './record.js';
 import { refusePartitioned, type InputExprs } from './task.js';
-import { inputDataset, inputType } from './index-input.js';
+import { inputDataset, inputType, withIndexReaders } from './index-input.js';
 
 /** The expression a function's body receives for each argument. */
 type ArgExprs<T extends readonly EastType[]> = {
@@ -294,8 +294,8 @@ export function function_(
   const body = third as ($: BlockBuilder<EastType>, ...params: Expr[]) => unknown;
   const parameters: EastType[] = [...inputs.map(inputType), ...spec.args];
   const bodyFn = spec.async === true
-    ? East.asyncFunction(parameters, spec.output, ($, ...params) => body($, ...params) as never)
-    : East.function(parameters, spec.output, ($, ...params) => body($, ...params) as never);
+    ? East.asyncFunction(parameters, spec.output, ($, ...params) => body($, ...withIndexReaders(inputs, params)) as never)
+    : East.function(parameters, spec.output, ($, ...params) => body($, ...withIndexReaders(inputs, params)) as never);
   return define(name, bodyFn, inputs, drafts, spec.runner, spec.environment);
 }
 

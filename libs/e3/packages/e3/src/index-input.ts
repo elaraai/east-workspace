@@ -14,8 +14,9 @@
  * row.
  */
 
-import { NullType, type DictType, type EastType, type StructType } from '@elaraai/east';
+import { NullType, type DictType, type EastType, type Expr, type StructType } from '@elaraai/east';
 import { indexCollectionType } from '@elaraai/e3-types';
+import { indexReaders } from './index-read.js';
 import { isRecord } from './record.js';
 import { RECORD_PART } from './record-builders.js';
 import { builtIndex, summed } from './record-programs.js';
@@ -104,9 +105,16 @@ function given(value: unknown): string {
  * makes a task wait and a call `invalid`, as it does for the record as an
  * input. `e3.package` collects the index's record.
  *
+ * Its kind's readers give a body the rows a read's words say — a series
+ * index's `events`, an interval index's `overlapping`, a plain index's `of`
+ * (`IndexRead`). An `e3.function` with a spec and an `e3.streamTask` give the
+ * body its parameter with the readers on it; over any other expression of the
+ * index's type, a task's own function's parameter among them,
+ * `e3.index(def).read(entries)` gives the same readers.
+ *
  * @typeParam D - The index, as `record.indexes.<name>` types it
  * @param def - The index, as its record carries it by name
- * @returns The input: pass it in `inputs`; its `type` is the body's parameter
+ * @returns The input: pass it in `inputs`; its `type` is the body's parameter, and its `read` the index's readers
  * @throws {Error} When given anything but an index its record carries by name
  *   — a record, a dataset, a mutation, a function, an index the builder made
  *   before its record built it — naming what it was given and what to pass
@@ -144,7 +152,7 @@ function given(value: unknown): string {
  *   }));
  * ```
  */
-export function index<const D extends RecordIndexDef>(def: D): IndexInputDef<IndexEntriesOf<D>> {
+export function index<const D extends RecordIndexDef>(def: D): IndexInputDef<IndexEntriesOf<D>, D> {
   const declared = def as unknown as { readonly kind?: unknown; readonly name?: unknown; readonly record?: unknown } | null | undefined;
   const record = typeof declared === 'object' && declared !== null && declared.kind === 'recordIndex' && isRecord(declared.record)
     ? declared.record : undefined;
@@ -153,7 +161,27 @@ export function index<const D extends RecordIndexDef>(def: D): IndexInputDef<Ind
   if (record === undefined || typeof def.name !== 'string' || !Object.hasOwn(record.indexes, def.name) || record.indexes[def.name] !== def) {
     throw new Error(`e3.index takes an index of a record, as the record carries it by name — e3.index(record.indexes.<name>) — and was given ${given(def)}`);
   }
-  return { kind: 'index', index: def, record, type: indexEntriesType(record, def) as IndexEntriesOf<D> };
+  const input: IndexInputDef = {
+    kind: 'index', index: def, record, type: indexEntriesType(record, def),
+    read: (entries) => indexReaders(input, entries) as never,
+  };
+  return input as IndexInputDef<IndexEntriesOf<D>, D>;
+}
+
+/**
+ * A body's parameters with each index input's readers on its own: the
+ * parameter is still the index's entries, and its kind's readers read them.
+ *
+ * @param inputs - The inputs, in the body's parameter order
+ * @param params - The body's parameters: the inputs', then any others
+ * @returns The parameters
+ * @internal
+ */
+export function withIndexReaders<P extends readonly Expr[]>(inputs: readonly (InputDef | PartitionDef)[], params: P): P {
+  inputs.forEach((input, at) => {
+    if (input.kind === 'index') Object.assign(params[at]!, indexReaders(input, params[at]));
+  });
+  return params;
 }
 
 /**

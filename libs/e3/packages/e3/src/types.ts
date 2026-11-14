@@ -14,7 +14,7 @@
  * - **Task**: A transformation that reads input datasets and produces an output dataset
  */
 
-import type { ArrayType, AsyncEastIR, DictType, EastIR, EastType, FunctionType, NullType, SetType, ValueTypeOf, variant } from '@elaraai/east';
+import type { ArrayType, AsyncEastIR, DictType, EastIR, EastType, ExprType, FunctionType, NullType, SetType, ValueTypeOf, variant } from '@elaraai/east';
 
 /**
  * A function's IR bundle, whatever its signature — what a definition keeps,
@@ -29,6 +29,7 @@ import type { MigrationForm, MutationForm, RecordNestedDecl, TaskRole, TreePath 
 import type { DatasetSource } from './input.js';
 import type { Runner } from './runner.js';
 import type { EnvironmentDecl } from './environment.js';
+import type { IndexReadersOf } from './index-read.js';
 
 /**
  * A tree definition.
@@ -116,17 +117,30 @@ export interface PartitionDef<T extends EastType = EastType> {
  * and `prefix`, each at the cost of the entries it reaches.
  *
  * @typeParam T - The East type of the index's entries, the body's parameter
+ * @typeParam D - The index, as `record.indexes.<name>` types it, which says its kind
  */
-export interface IndexInputDef<T extends EastType = EastType> {
+export interface IndexInputDef<T extends EastType = EastType, D extends RecordIndexDef = RecordIndexDef> {
   readonly kind: 'index';
   /** The index, as its record carries it by name. */
-  readonly index: RecordIndexDef;
+  readonly index: D;
   /** The record the index is over: the dataset the input is read through, at
    *  the state it holds, and what `e3.package` collects for it. */
   readonly record: RecordDef;
   /** The type of the index's entries, as the record's state holds them:
    *  `Dict<{ ik, k }, P>`. */
   readonly type: T;
+  /**
+   * The index's readers over an expression of its entries: its kind's reads,
+   * each of the rows its words say, once (`IndexRead`). An `e3.function`
+   * with a spec and an `e3.streamTask` give the body its parameter with the
+   * readers on it already; this gives them over any other expression of the
+   * index's type, the parameter of a task's own function among them.
+   *
+   * @param entries - An expression of the index's entries: {@link type}
+   * @returns The readers of the index's kind
+   * @throws {Error} When the expression is not of the index's entries' type, naming both
+   */
+  read(entries: ExprType<T>): IndexReadersOf<D>;
 }
 
 /**
