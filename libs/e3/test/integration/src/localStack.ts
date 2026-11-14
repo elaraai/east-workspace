@@ -129,15 +129,34 @@ let failure: string | undefined;
 let step = 'not started';
 let registry: ChildProcess | undefined;
 
-function run(command: string, args: string[], cwd?: string): void {
+function run(command: string, args: string[], cwd?: string, env?: NodeJS.ProcessEnv): void {
   execFileSync(command, args, {
     cwd,
+    env,
     stdio: 'pipe',
     // npm/pnpm are .cmd shims on Windows; a shell resolves both.
     shell: process.platform === 'win32',
     maxBuffer: 64 * 1024 * 1024,
   });
 }
+
+/**
+ * The macOS version the stand-in wheels are built to run from: the one the
+ * release builds east-py's arm64 wheels for (cibuildwheel's floor).
+ *
+ * east-py compiles native code, and its builder (scikit-build-core) tags a
+ * wheel with the BUILD MACHINE's macOS version unless a deployment target is
+ * set: `macosx_15_0_arm64` on a macOS 15 runner. This machine installs such a
+ * wheel, but an install for the platform `aarch64-apple-darwin` does not: uv
+ * reads that platform as macOS 13, and takes wheels tagged for 13 or earlier.
+ * The suites install an environment for that platform when they run a task
+ * through a rack that composes environments (the test agent, on this
+ * machine), so a wheel tagged for the runner's own macOS would be refused
+ * there by name, `environment:no-wheel:elaraai-east-py`, as a dependency with
+ * no wheel for a rack's platform is. Built as the release builds it, the
+ * stand-in is what a project resolves from PyPI. Other systems ignore it.
+ */
+const MACOS_DEPLOYMENT_TARGET = '11.0';
 
 /** Build the three east-py wheels into the flat index, if not already there. */
 function buildPythonWheels(): void {
@@ -146,9 +165,10 @@ function buildPythonWheels(): void {
   const missing = PY_PACKAGES.filter(
     name => !built.some(f => f.startsWith(name.replace(/-/g, '_') + '-')),
   );
+  const env = { ...process.env, MACOSX_DEPLOYMENT_TARGET: process.env['MACOSX_DEPLOYMENT_TARGET'] ?? MACOS_DEPLOYMENT_TARGET };
   for (const name of missing) {
     run('uv', ['build', '--wheel', '--out-dir', PYPI_DIR,
-      join(WORKSPACE_LIBS, 'east-py', 'packages', name)]);
+      join(WORKSPACE_LIBS, 'east-py', 'packages', name)], undefined, env);
   }
 }
 
