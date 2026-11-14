@@ -65,6 +65,21 @@ export function recordScopeSearchIndex(indexes: readonly Index[], scoped: readon
 }
 
 /**
+ * The area index a scoped source's window is read through (#1621): one led
+ * by exactly the scope's fields, so a read by area asks the scope's values
+ * with its cells, and reads no row beyond them. One led by no field, or by
+ * some of the scope's alone, reads rows the scope does not hold; one led by
+ * more reads nothing until the viewer chooses the rest.
+ * @param indexes - Available paths.
+ * @param scoped - The scope's fields.
+ * @returns The first such listed index; `undefined` where none is listed, or the source has no scope.
+ */
+export function recordScopeAreaIndex(indexes: readonly Index[], scoped: readonly string[]): Index | undefined {
+    if (scoped.length === 0) return undefined;
+    return indexes.find(index => index.area.type === "some" && index.fields.length === scoped.length && scoped.every(field => index.fields.includes(field)));
+}
+
+/**
  * The fields an entries index offers (#1522): each a Dict field of the rows,
  * whose picked keys weigh a reader's rows — the picked entries are what it
  * draws of each row — and never narrow them.

@@ -11,7 +11,7 @@ import {
 } from "@elaraai/east";
 import { IndexedEntryType, IndexedSourceType, type IndexedSource } from "../../contracts/indexed-source.js";
 import { toValueFormat, type SliceFieldFormat } from "./index.js";
-import { planRecordSlice, recordEntriesFields, recordIndexFields, recordPlanIndex, recordScopeSearchIndex } from "./record-plan.js";
+import { planRecordSlice, recordEntriesFields, recordIndexFields, recordPlanIndex, recordScopeAreaIndex, recordScopeSearchIndex } from "./record-plan.js";
 import { readAreaMarker } from "./record-area.js";
 import { readIntervalMarker } from "./record-interval.js";
 import { readTileMarker, tilingOf } from "./record-series.js";
@@ -101,9 +101,10 @@ export interface RecordSliceOptions<R extends StructType, M extends StructType> 
      * of its exact values, each a value as `initial` takes one or an East expression of the field's type, so a page's
      * parameter goes in (`scope: { press: [press] }`). Every read of the source carries it beside the rail's choices;
      * the rail offers no control of a scoped field, and Clear all and a preset leave it. Each field the rail offers is
-     * answered by one listed index led by the scope's fields (`index.on(["press", "start"])`). A list written here is
-     * never empty; one that is an East expression may be, and the source then reads no rows. A scope is no access rule:
-     * e3 serves the record's other rows to whoever may read it.
+     * answered by one listed index led by the scope's fields (`index.on(["press", "start"])`), and a source read by
+     * area lists an area index led by exactly them (`index.area({ on: ["press"], … })`). A list written here is never
+     * empty; one that is an East expression may be, and the source then reads no rows. A scope is no access rule: e3
+     * serves the record's other rows to whoever may read it.
      */
     scope?: RecordSliceScope<R, M>;
     /** Named narrowings, selected one at a time. */
@@ -285,8 +286,10 @@ function scopeValues(field: string, schema: RecordSliceFieldSchema, list: unknow
  * scoped field, and Clear all and a preset leave the scope as it is. Each
  * field the rail offers — its `range` and its `search` among them — is
  * answered by one listed index led by the scope's fields, and the scope by one
- * alone; otherwise the build refuses, naming the index to declare. The handle
- * names the scoped fields in its type (`scoped`).
+ * alone; a source read by area — one that lists an area index — lists one led
+ * by exactly the scope's fields, through which its window reads no row beyond
+ * the scope; otherwise the build refuses, naming the index to declare. The
+ * handle names the scoped fields in its type (`scoped`).
  *
  * @param key - Stable UI state key.
  * @param source - A field-index binding, such as Data.bindPaged(record, { indexes }).
@@ -408,6 +411,17 @@ export function bindRecord<K extends EastType, R extends StructType, P extends E
     if (scoped.length > 0 && recordScopeSearchIndex(indexes, scoped) === undefined) {
         throw new Error(`Slice.bindRecord: Search Records finds a row among the scope's (${scoped.map(name => `'${name}'`).join(", ")}) by its key, ` +
             `through an index on exactly the scope's fields, whose rows run in their keys' order — ${declare(scoped)}`);
+    }
+    // A source read by area — one that lists an area index — reads its window, and the density past it, under the scope
+    // only through an area index led by exactly the scope's fields (#1621): any other reads rows the scope does not hold.
+    const boxed = indexes.find(index => index.area.type === "some");
+    if (scoped.length > 0 && boxed !== undefined && boxed.area.type === "some" && recordScopeAreaIndex(indexes, scoped) === undefined) {
+        const box = boxed.area.value;
+        const sides = box.width.type === "some" && box.height.type === "some" ? `, width: "${box.width.value}", height: "${box.height.value}"` : "";
+        throw new Error(`Slice.bindRecord: a scoped source read by area reads its window among the scope's (${scoped.map(name => `'${name}'`).join(", ")}) ` +
+            `through an area index led by exactly the scope's fields — by_${scoped.join("_")}_area: index.area({ on: [${scoped.map(name => JSON.stringify(name)).join(", ")}], ` +
+            `x: "${box.x}", y: "${box.y}"${sides}, at: "${box.centre ? "centre" : "corner"}", cell }) among the record's indexes, as '${boxed.name}' boxes its rows, ` +
+            "listed in Data.bindPaged's indexes");
     }
     /** What a refusal says of a scoped field named where the rail's own fields go. */
     const held = (field: string, where: string) =>
