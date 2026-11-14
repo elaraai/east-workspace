@@ -54,7 +54,7 @@ async function fixture(options: RackHubOptions = {}) {
     cleanup.push(() => rack.close());
     return rack;
   };
-  const agent = async (as: Pick<TestRackAgentOptions, 'timings' | 'faults'> = {}) => {
+  const agent = async (as: Pick<TestRackAgentOptions, 'timings' | 'faults' | 'resources' | 'capacity'> = {}) => {
     const mint = await client.enroll();
     const peer = await TestRackAgent.enroll(mint.apiUrl, mint.enrollmentToken, { certificateSha256: mint.certificateSha256.type === 'some' ? mint.certificateSha256.value : undefined, ...as });
     cleanup.push(() => peer.close()); return peer;
@@ -274,7 +274,7 @@ it('says a transfer\'s retry, places work by the reason its rack gave, and sums 
   assert.equal((await running).state, 'success');
   assert.deepEqual(retried(f.placements), [{ transfer: 'input', attempt: 2, of: 5, cause: 'injected transfer failure' }]);
   assert.equal(f.budget.peak, 0, 'nothing ran locally');
-  assert.equal(describeRackSummary(rack.takeSummary()), 'Rack summary: 1 task on test rack · 1 transfer retried · 0 ran locally');
+  assert.equal(describeRackSummary(rack.takeSummary()), 'Rack summary: 1 task on test rack · 0 waited for capacity · 1 transfer retried · 0 ran locally');
 
   // Every try fails: the rack ends the lease with its reason, and the work runs locally by it.
   f.placements.length = 0;
@@ -292,7 +292,7 @@ it('says a transfer\'s retry, places work by the reason its rack gave, and sums 
   assert(retried(f.placements).length >= 4, 'each failed try that was followed by another is said');
   assert.match((await f.storage.logs.read(f.repo, f.hash, inputsHash(other), result.executionId, 'stderr')).data,
     /e3: rack attempt failed on test rack: input-transfer-failed: injected transfer failure — running locally/);
-  assert.match(describeRackSummary(rack.takeSummary())!, /^Rack summary: 1 task on test rack · \d+ transfers retried · 1 ran locally$/);
+  assert.match(describeRackSummary(rack.takeSummary())!, /^Rack summary: 1 task on test rack · 0 waited for capacity · \d+ transfers retried · 1 ran locally$/);
 
   // The hub's status lists how its last leases ended, the latest first, each with its reason.
   const outcomes = (await f.client.status()).outcomes;
@@ -310,4 +310,42 @@ it('asks of a rack what the task\'s rule stands for: its size\'s cores, and its 
   assert.deepEqual((JSON.parse(grant.eventJson) as RackLeaseEvent).resources, { kind: 'task', cores: 2, memoryBytes: 1024 ** 3, gpu: false });
   const done = await agent.execute(grant); assert.equal(done.status, 'success', done.error);
   assert.equal((await running).state, 'success');
+});
+
+it('widens a run by a rack\'s cores, queues work the rack has no room for and says it waits, and runs locally what no rack could ever hold', async () => {
+  const GiB = 1024 ** 3;
+  // A rack of 2 cores and 4 GiB, whose agent would run five things at once: its cores are what a run counts.
+  const f = await fixture(); const agent = await f.agent({ resources: { cores: 2, memoryBytes: 4 * GiB, gpus: 0 }, capacity: 5 });
+  // A `small` task asks 2 cores and 4 GiB: the rack holds one at a time. Nothing spills, so the second waits.
+  const rack = await f.open({ policy: { ...setRule(f.policy, 'length', 'rack', { size: 'small' }), spill: false } });
+  assert.equal(rack.rackSlots, 2, 'a run is as much wider as the rack has cores');
+  assert.match(rack.describe(), /^test rack \(2 cores, 4 GiB, e3 /);
+  assert.match(rack.describe((bytes) => `${bytes} B`), /^test rack \(2 cores, 4294967296 B, e3 /);
+  const first = rack.runner.execute(f.storage, f.hash, f.inputs, { taskName: 'length' });
+  const grant = await agent.claim(); assert(grant);
+  await rack.refreshSlots();
+  assert.deepEqual((await f.client.status()).capacity.racks[0]!.free, some({ cores: 0n, memoryBytes: 0n, gpus: 0n }), 'the rack\'s whole resources are booked');
+  const other = [await datasetWrite(f.storage, f.repo, 'another', StringType)];
+  const second = rack.runner.execute(f.storage, f.hash, other, { taskName: 'length' });
+  await until(async () => f.placements.some((event) => event.kind === 'waiting'));
+  const waiting = f.placements.find((event) => event.kind === 'waiting'); assert(waiting?.kind === 'waiting');
+  assert.deepEqual([waiting.rackLabel, waiting.needs, waiting.free], ['test rack', { kind: 'task', cores: 2, memoryBytes: 4 * GiB, gpu: false }, { cores: 0, memoryBytes: 0, gpus: 0 }]);
+  assert.equal((await f.client.status()).capacity.queued, 1n, 'it waits in the queue');
+  const ran = await agent.execute(grant); assert.equal(ran.status, 'success', ran.error); assert.equal((await first).state, 'success');
+  const next = await agent.runOne(); assert.equal(next?.status, 'success', next?.error); assert.equal((await second).state, 'success');
+  const claims = f.placements.flatMap((event) => event.kind === 'placed' && event.where === 'rack' ? [event.waitedMs] : []);
+  assert.equal(claims.length, 2); assert.equal(claims[0], undefined); assert(claims[1] !== undefined && claims[1] >= 0, 'the lease that waited says for how long');
+  assert.match(describeRackSummary(rack.takeSummary())!, /^Rack summary: 2 tasks on test rack · 1 waited for capacity \(longest \d+ s\) · 0 transfers retried · 0 ran locally$/);
+  assert.equal(f.budget.peak, 0, 'nothing ran locally');
+
+  // An `xlarge` task asks 32 GiB, which this rack does not have at all: it is not queued, and runs locally.
+  f.placements.length = 0;
+  const large = await f.open({ policy: setRule(f.policy, 'length', 'rack', { size: 'xlarge' }) });
+  const third = [await datasetWrite(f.storage, f.repo, 'a third', StringType)];
+  assert.equal((await large.runner.execute(f.storage, f.hash, third, { taskName: 'length' })).state, 'success');
+  const local = f.placements.find((event) => event.kind === 'placed' && event.where === 'local');
+  assert(local?.kind === 'placed' && local.where === 'local');
+  assert.deepEqual([local.reason, local.detail], ['memory-limit-exceeded', { code: 'memory-limit-exceeded', needsBytes: 32 * GiB, limitBytes: 4 * GiB }]);
+  assert.equal((await f.client.status()).capacity.queued, 0n);
+  assert.equal(f.budget.peak, 1);
 });

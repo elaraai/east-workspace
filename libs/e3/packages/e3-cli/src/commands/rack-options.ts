@@ -50,6 +50,8 @@ export async function openRack(options: OpenRackRunnerOptions): Promise<RackRunn
  * - `[RACK] train → rack-a` when a rack claims a task (split progress
  *   already describes its units);
  * - `[RACK] train input transfer retried (2 of 5): connection reset`;
+ * - `[RACK] train waiting: needs 4 GB, rack-a has 1 GB free` for work queued
+ *   with no rack having room for it, a task's or a unit's alike, once;
  * - `[LOCAL] train (input-transfer-failed: connection reset)` for a rack's
  *   work that this machine runs after all, with the rack's reason when its
  *   result gave one, a task's or a unit's alike;
@@ -61,13 +63,16 @@ export async function openRack(options: OpenRackRunnerOptions): Promise<RackRunn
  */
 export function rackPlacementLine(event: RackPlacementEvent): string | undefined {
   if (event.kind === 'retried') return `  [RACK] ${event.taskName} ${event.retry.transfer} transfer retried (${event.retry.attempt} of ${event.retry.of}): ${event.retry.cause}`;
+  if (event.kind === 'waiting') {
+    return `  [RACK] ${event.taskName} waiting: needs ${formatSize(event.needs.memoryBytes)}, ${event.rackLabel} has ${event.free === undefined ? 'no free slot' : `${formatSize(event.free.memoryBytes)} free`}`;
+  }
   if (event.where === 'rack') return event.role === 'unit' ? undefined : `  [RACK] ${event.taskName} → ${event.rackLabel}`;
   if (event.detail?.code === 'memory-limit-exceeded' && event.detail.needsBytes !== undefined && event.detail.limitBytes !== undefined) {
     return `  [LOCAL] ${event.taskName} (memory-limit-exceeded: needs ${formatSize(event.detail.needsBytes)}, limit ${formatSize(event.detail.limitBytes)})`;
   }
   if (event.detail !== undefined) return `  [LOCAL] ${event.taskName} (${event.reason.replace(/^fallback:/, '')})`;
   if (event.role === 'unit') return undefined;
-  return event.reason === 'spill' || event.reason.startsWith('fallback:') || event.reason.startsWith('no-rack-for-tier:')
+  return event.reason === 'spill' || event.reason.startsWith('fallback:') || event.reason.startsWith('no-rack-')
     ? `  [LOCAL] ${event.taskName} (${event.reason})` : undefined;
 }
 

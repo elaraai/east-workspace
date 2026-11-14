@@ -297,11 +297,12 @@ reads, and what the code carries. A run prints each on its line and sums its
 rack work up as it ends:
 
 ```text
-Rack: workshop (8 slots, e3 1.0.108)
+Rack: workshop (56 cores, 262 GB, 1 GPU, e3 1.0.108)
   [RACK] train_model → workshop
   [RACK] train_model input transfer retried (2 of 5): connection reset
+  [RACK] embed_rows waiting: needs 16 GB, workshop has 9 GB free
   [LOCAL] score_rows (input-transfer-failed: connection reset)
-Rack summary: 1 task and 12 units on workshop · 1 transfer retried · 1 ran locally
+Rack summary: 1 task and 12 units on workshop · 0 waited for capacity · 1 transfer retried · 1 ran locally
 ```
 
 | `reason.code` | Carries | Who sets it | The work |
@@ -321,6 +322,27 @@ locally. `e3 rack status` lists how the hub's last twenty leases ended, each
 with its reason. In code, `RackPlacementEvent` carries the same (`kind`
 `placed` or `retried`, and a local placement's `detail`), and
 `rack.takeSummary()` with `describeRackSummary` the line.
+
+A rack that admits work by its resources reports all it has and what is free,
+and the hub's fleet snapshot carries both for each such rack: what is free is
+the less of what the rack last reported and what the hub's own leases leave of
+all it has. The launching machine reads the snapshot for three things. The
+racks are **full** when no compatible rack's free resources hold the lease,
+less the work already queued: with spill on and a free local core the work
+then runs locally (`spill`), and otherwise it is queued and the run says once
+that it waits. Work **no rack could ever hold**, with nothing else on it, is
+not queued: it runs locally (`memory-limit-exceeded: needs 32 GB, limit 16
+GB`, or `no-rack-holds:gpu`). And a run is as much **wider** as the compatible
+racks have cores (`rackSlots`), so a split task's pieces are queued together.
+`e3 rack list` shows each rack's resources and features:
+
+```text
+LABEL  ID  RUNTIMES  BUSY/CAPACITY  AGENT  E3  LAST SEEN  RESOURCES  FEATURES  STATE
+workshop  01a1da04-228  node,py  3/56  0.6.0+e3.1.0.108  1.0.108  2026-11-14T12:24:26.505  56 cores (41 free), 262 GB (120 GB free), 1 GPU (0 free)  resources  ready
+```
+
+A rack that reports no resources admits by its slots, as before: its row
+shows `-`, and its work is counted in slots.
 
 Ctrl-C in `e3 dataflow run` requests cancellation of that run, including its
 delegated work. A current companion agent keeps an outbound cancellation

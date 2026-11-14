@@ -20,6 +20,10 @@ it('counts a run\'s placements into its summary, each run of a session on its ow
     { kind: 'placed', ...unit, where: 'rack', rackLabel: 'rack-b', leaseId: 'b' },
     { kind: 'retried', ...unit, where: 'rack', rackLabel: 'rack-a', leaseId: 'u0', retry },
     { kind: 'retried', ...unit, where: 'rack', rackLabel: 'rack-a', leaseId: 'u0', retry: { ...retry, attempt: 3 } },
+    // Two leases queued with no room for them, one of which a rack then claimed 38.4 s on.
+    { kind: 'waiting', ...unit, where: 'rack', rackLabel: 'rack-a', leaseId: 'w0', needs: { kind: 'unit', cores: 1, memoryBytes: 1024, gpu: false }, free: { cores: 0, memoryBytes: 512, gpus: 0 } },
+    { kind: 'waiting', ...unit, where: 'rack', rackLabel: 'rack-a', leaseId: 'w1', needs: { kind: 'unit', cores: 1, memoryBytes: 1024, gpu: false } },
+    { kind: 'placed', ...unit, where: 'rack', rackLabel: 'rack-a', leaseId: 'w0', waitedMs: 38_400 },
     // A rack's work this machine ran after all, each way it can come to that.
     { kind: 'placed', ...unit, where: 'local', reason: 'fallback:input-transfer-failed: connection reset', detail: { code: 'input-transfer-failed', attempts: 5, cause: 'connection reset' } },
     { kind: 'placed', ...task, where: 'local', reason: 'spill' },
@@ -30,16 +34,19 @@ it('counts a run\'s placements into its summary, each run of a session on its ow
     { kind: 'placed', ...task, where: 'local', reason: 'hub-unreachable' },
   ];
   for (const event of events) tally.add(event);
-  assert.deepEqual(events.map(ranLocally), [false, false, false, false, false, false, false, true, true, true, true, false, false]);
+  assert.deepEqual(events.map(ranLocally), [false, false, false, false, false, false, false, false, false, false, true, true, true, true, false, false]);
   const summary = tally.take();
-  assert.deepEqual(summary, { placed: [{ rackLabel: 'rack-a', tasks: 1, units: 3 }, { rackLabel: 'rack-b', tasks: 0, units: 1 }], transfersRetried: 2, ranLocally: 4 });
-  assert.equal(describeRackSummary(summary), 'Rack summary: 1 task and 3 units on rack-a · 1 unit on rack-b · 2 transfers retried · 4 ran locally');
+  assert.deepEqual(summary, { placed: [{ rackLabel: 'rack-a', tasks: 1, units: 4 }, { rackLabel: 'rack-b', tasks: 0, units: 1 }],
+    waited: 2, longestWaitMs: 38_400, transfersRetried: 2, ranLocally: 4 });
+  assert.equal(describeRackSummary(summary), 'Rack summary: 1 task and 4 units on rack-a · 1 unit on rack-b · 2 waited for capacity (longest 38 s) · 2 transfers retried · 4 ran locally');
   // The next run of the same session starts from nothing.
-  assert.deepEqual(tally.take(), { placed: [], transfersRetried: 0, ranLocally: 0 });
+  assert.deepEqual(tally.take(), { placed: [], waited: 0, longestWaitMs: 0, transfersRetried: 0, ranLocally: 0 });
 });
 
 it('says nothing of a run none of whose work went to a rack or came back from one', () => {
-  assert.equal(describeRackSummary({ placed: [], transfersRetried: 0, ranLocally: 0 }), undefined);
-  assert.equal(describeRackSummary({ placed: [], transfersRetried: 0, ranLocally: 2 }), 'Rack summary: nothing ran on a rack · 0 transfers retried · 2 ran locally');
-  assert.equal(describeRackSummary({ placed: [{ rackLabel: 'rack-a', tasks: 2, units: 0 }], transfersRetried: 1, ranLocally: 0 }), 'Rack summary: 2 tasks on rack-a · 1 transfer retried · 0 ran locally');
+  const none = { placed: [], waited: 0, longestWaitMs: 0, transfersRetried: 0, ranLocally: 0 };
+  assert.equal(describeRackSummary(none), undefined);
+  assert.equal(describeRackSummary({ ...none, ranLocally: 2 }), 'Rack summary: nothing ran on a rack · 0 waited for capacity · 0 transfers retried · 2 ran locally');
+  assert.equal(describeRackSummary({ ...none, placed: [{ rackLabel: 'rack-a', tasks: 2, units: 0 }], transfersRetried: 1 }),
+    'Rack summary: 2 tasks on rack-a · 0 waited for capacity · 1 transfer retried · 0 ran locally');
 });

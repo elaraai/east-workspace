@@ -226,7 +226,7 @@ export async function watchCommand(
         if (await rackEnabled(repoPath, options)) {
           rack = await openRack({ repoPath, workspace, storage, budget, label: `e3 watch ${workspace} (pid ${process.pid})`,
             rackOnly: options.rackOnly, signal, onPlacement: printRackPlacement, log: console.log });
-          console.log(`Rack: ${rack.describe()}`);
+          console.log(`Rack: ${rack.describe(formatSize)}`);
         }
       } else await rack?.refreshSlots();
       const handle = await orchestrator.start(storage, repoPath, workspace, {

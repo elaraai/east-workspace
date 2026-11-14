@@ -21,13 +21,21 @@ miss, eligible plain task, map and merge bodies can execute on the rack; input
 closures and every output object transfer by hash. The session verifies the
 whole output graph before success. Placement never changes task/cache hashes.
 Local bodies and fallback share the original cores/memory budget; rack bodies
-use remote capacity. A run prints `[RACK] <task> → <rack>` when a rack claims a
+use remote capacity: each lease asks its cores and its cap (a split task's
+piece one core and half as much again as it was measured to need; a task its
+size's cores, and its `--memory-limit`, else its size's memory), a rack is
+given only what its free resources hold, and a run is as much wider as the
+racks have cores. `e3 rack list` shows each rack's resources and what is free. A run prints `[RACK] <task> → <rack>` when a rack claims a
 task, `[RACK] <task> input transfer retried (2 of 5): <cause>` for a transfer
 given another try, `[LOCAL] <task> (<reason>)` for a rack's work this machine
 runs after all (`spill`, `no-rack-for-tier:<tier>`, or the rack's reason, such
-as `input-transfer-failed: <cause>` or `guest-crashed: <detail>`), and ends
-with `Rack summary: 1 task and 12 units on <rack> · 1 transfer retried · 0 ran
-locally`. Calls, mutations and intake stay local. Stock runner
+as `input-transfer-failed: <cause>` or `guest-crashed: <detail>`, or
+`memory-limit-exceeded: needs 3 GB, limit 2 GB` for work whose cap passes its
+rule's limit or every rack's memory),
+`[RACK] <task> waiting: needs 4 GB, <rack> has 1 GB free` for work queued with
+no rack having room for it, and ends
+with `Rack summary: 1 task and 12 units on <rack> · 0 waited for capacity · 1
+transfer retried · 0 ran locally`. Calls, mutations and intake stay local. Stock runner
 configurations qualify; commands, custom environments/platforms and unscannable
 IR stay local. Host file/environment/network access stays local unless a rule
 deliberately grants `--allow-host-access` and its resources exist on the rack.

@@ -558,6 +558,9 @@ it('grants a lease to a rack whose offer holds it, lets smaller work pass a larg
   const first = await piece('1', 3 * GiB);
   const held = await agent.claim(); assert.equal(held?.leaseId, first.leaseId);
   assert.deepEqual(agent.bookedFor(first.leaseId), { kind: 'unit', cores: 1, memoryBytes: 3 * GiB, gpu: false }, 'the rack books the lease at its cap');
+  // The status says all the rack has, and what this hub's leases leave of it before the rack next reports.
+  assert.deepEqual((await rack()).resources, some({ cores: 4n, memoryBytes: BigInt(8 * GiB), gpus: 0n }));
+  assert.deepEqual((await rack()).free, some({ cores: 3n, memoryBytes: BigInt(5 * GiB), gpus: 0n }));
 
   // A lease of 6 GiB, and two of 3 GiB behind it: the rack has 5 GiB free.
   const large = await piece('2', 6 * GiB); const second = await piece('3', 3 * GiB); const third = await piece('4', 3 * GiB);
