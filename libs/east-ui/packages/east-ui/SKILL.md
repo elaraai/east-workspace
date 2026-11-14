@@ -145,6 +145,7 @@ Task → Which tag?
 │   ├─ <Deck data={rows} statuses={Deck.statuses({…})} card={r => ({ key, title, status, metrics, fill })} /> — status-coloured mini-card board (display, not a drag source)
 │   ├─ <Blend targets={…} config={{…}} /> — blend / batch assembly surface fed by a Library; 1 target single, 2 compare, 3+ portfolio
 │   ├─ <Slice.Rail slice={slice} affordances={[…]} /> — narrowing chrome over one bound dataset (Slice.bind); consumers read Slice.rows(slice)
+│   │   └─ one rail over several records' paged sources → Slice.bindRecords(key, { <source>: { source, fields?, initial?, scope? } }) — the e3-ui builders' slice; scope ({ press: [press] }) is the page's, and the rail shows no control for it
 │   ├─ <Pagination> — page-number control
 │   └─ <Plan>, <Sheet>, <Calendar>, <Roster>, <Allocation>, <Flowchart>, <Schematic> — the planning builders are e3-ui's (`import { Plan } from "@elaraai/e3-ui"`)
 ├─ Charts (visualize data) — layers are a config array of factory values, never child tags
