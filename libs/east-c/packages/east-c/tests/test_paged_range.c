@@ -29,13 +29,19 @@
  *
  * Run under ASan/LSan too (scripts/run_leak_check.sh): a view holds its
  * source, and its end segments are the cache's.
+ *
+ * EAST_C_RANGE_BENCH=1 also times range reads over a million rows against a
+ * walk of the whole — a short run held and not held, runs in key order, a
+ * long range. Printed, and never asserted: no clock decides this gate.
  */
+#include <east/compat.h>
 #include <east/east.h>
 
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 static int failures = 0;
 
@@ -733,11 +739,181 @@ static void test_refusals(void)
     east_type_release(key_type);
 }
 
+/* ---- timings, when asked for ------------------------------------------------ */
+
+static double now_ms(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (double)ts.tv_sec * 1e3 + (double)ts.tv_nsec / 1e6;
+}
+
+/* The rows of a view, walked as a loop walks them; -1 when a read fails. */
+static long walk_rows(EastValue *view)
+{
+    Beast2Pages *p = view->data.paged.pages;
+    if (!east_beast2_pages_prepare(p)) return -1;
+    long rows = 0;
+    size_t n = east_beast2_pages_segment_count(p);
+    for (size_t k = 0; k < n; k++) {
+        EastValue *seg = east_beast2_pages_segment_disjoint(p, k);
+        if (!seg) return -1;
+        rows += (long)east_dict_len(seg);
+        east_value_release(seg);
+    }
+    return rows;
+}
+
+/* EAST_C_RANGE_BENCH=1: what a range read costs in time, over sheets keyed
+ * { press, job } — 2,000 presses of 500 jobs, cut by the writer's own rule.
+ * A count holds the gate; this says what the counts come to on this machine. */
+static void report_timings(void)
+{
+    const char *bench = getenv("EAST_C_RANGE_BENCH");
+    if (!bench || strcmp(bench, "1") != 0) return;
+    enum { PRESSES = 2000, JOBS = 500 };
+    EastType *key_type = sheet_key_type(2);
+    EastType *press_type = sheet_key_type(1);
+    EastType *type = east_dict_type(key_type, &east_integer_type);
+    EastValue *whole = east_dict_new(key_type, &east_integer_type);
+    for (size_t i = 0; i < (size_t)PRESSES * JOBS; i++) {
+        char name[16];
+        snprintf(name, sizeof(name), "P%05zu", i / JOBS);
+        EastValue *p = east_string(name);
+        EastValue *j = east_integer((int64_t)(i % JOBS));
+        const char *names[] = {"press", "job"};
+        EastValue *values[] = {p, j};
+        EastValue *k = east_struct_new(names, values, 2, key_type);
+        EastValue *v = east_integer((int64_t)i);
+        east_dict_set(whole, k, v);
+        east_value_release(v);
+        east_value_release(k);
+        east_value_release(j);
+        east_value_release(p);
+    }
+    ByteBuffer *blob = east_beast2_encode_paged(whole, type, EAST_BEAST2_CODEC_DEFLATE);
+    east_value_release(whole);
+    if (!blob) {
+        printf("  range bench: the table does not encode\n");
+        return;
+    }
+    EastValue *bounds[PRESSES];
+    for (size_t i = 0; i < PRESSES; i++) {
+        char name[16];
+        snprintf(name, sizeof(name), "P%05zu", i);
+        EastValue *p = east_string(name);
+        const char *names[] = {"press"};
+        bounds[i] = east_struct_new(names, &p, 1, press_type);
+        east_value_release(p);
+    }
+#define PREFIX_OF(source, i)                                                                       \
+    east_beast2_open_paged_range(source, bounds[i], press_type, false, bounds[i], press_type, true)
+
+    EastValue *source = open_lazy(blob, type, true);
+    size_t segments = east_beast2_pages_segment_count(source->data.paged.pages);
+    printf("  range bench: %d rows in %zu segments, %.1f MB stored\n", PRESSES * JOBS, segments,
+           (double)blob->len / 1e6);
+
+    /* The first range read of a pager: the fences are verified, once. */
+    double t0 = now_ms();
+    EastValue *first = PREFIX_OF(source, PRESSES / 2);
+    long rows = first ? (long)east_dict_len(first) : -1;
+    double t1 = now_ms();
+    printf("  the first range read on a pager, its fences verified: %.2f ms (%ld rows)\n", t1 - t0,
+           rows);
+    if (first) east_value_release(first);
+
+    /* A short run whose segments the cache does not hold: a cache of one
+     * segment, and presses far apart. */
+    east_beast2_pages_set_cache_budget(source->data.paged.pages, 1);
+    size_t before = decoded(source);
+    int cold = 400;
+    t0 = now_ms();
+    for (int i = 0; i < cold; i++) {
+        EastValue *view = PREFIX_OF(source, ((size_t)i * 997) % PRESSES);
+        rows = view ? walk_rows(view) : -1;
+        if (view) east_value_release(view);
+    }
+    t1 = now_ms();
+    printf("  a run of %d rows, not held: %.3f ms each (%.1f segments decoded each)\n", JOBS,
+           (t1 - t0) / cold, (double)(decoded(source) - before) / cold);
+    east_value_release(source);
+
+    /* The same run again and again: its segments held. */
+    source = open_lazy(blob, type, true);
+    EastValue *warm = PREFIX_OF(source, PRESSES / 2);
+    rows = warm ? walk_rows(warm) : -1;
+    if (warm) east_value_release(warm);
+    before = decoded(source);
+    int held = 20000;
+    t0 = now_ms();
+    for (int i = 0; i < held; i++) {
+        EastValue *view = PREFIX_OF(source, PRESSES / 2);
+        rows = view ? (long)east_dict_len(view) : -1;
+        if (view) east_value_release(view);
+    }
+    t1 = now_ms();
+    printf("  the size of a run, its segments held: %.2f us each (%zu segments decoded)\n",
+           (t1 - t0) * 1e3 / held, decoded(source) - before);
+    east_value_release(source);
+
+    /* Every press in key order, as an index is read. */
+    source = open_lazy(blob, type, true);
+    t0 = now_ms();
+    long total = 0;
+    for (size_t i = 0; i < PRESSES; i++) {
+        EastValue *view = PREFIX_OF(source, i);
+        total += view ? walk_rows(view) : 0;
+        if (view) east_value_release(view);
+    }
+    t1 = now_ms();
+    Beast2PagesCacheStats stats;
+    east_beast2_pages_cache_stats(source->data.paged.pages, &stats);
+    printf("  %d runs in key order: %.1f ms, %.3f ms each (%ld rows, %zu segments decoded, the "
+           "cache holding %zu at the end)\n",
+           PRESSES, t1 - t0, (t1 - t0) / PRESSES, total, decoded(source), stats.segments);
+    east_value_release(source);
+
+    /* A long range — a tenth of the table — and the whole of it. */
+    source = open_lazy(blob, type, true);
+    t0 = now_ms();
+    EastValue *tenth =
+        east_beast2_open_paged_range(source, bounds[PRESSES / 2], press_type, false,
+                                     bounds[PRESSES / 2 + PRESSES / 10], press_type, false);
+    rows = tenth ? walk_rows(tenth) : -1;
+    t1 = now_ms();
+    printf("  a range of a tenth of the table: %.1f ms (%ld rows, %zu segments decoded)\n", t1 - t0,
+           rows, decoded(source));
+    if (tenth) east_value_release(tenth);
+    east_value_release(source);
+    source = open_lazy(blob, type, true);
+    t0 = now_ms();
+    rows = 0;
+    for (size_t k = 0; k < segments; k++) {
+        EastValue *seg = east_beast2_pages_segment_disjoint(source->data.paged.pages, k);
+        rows += seg ? (long)east_dict_len(seg) : 0;
+        if (seg) east_value_release(seg);
+    }
+    t1 = now_ms();
+    printf("  a walk of the whole table: %.1f ms (%ld rows, %zu segments decoded)\n", t1 - t0, rows,
+           decoded(source));
+    east_value_release(source);
+#undef PREFIX_OF
+
+    for (size_t i = 0; i < PRESSES; i++)
+        east_value_release(bounds[i]);
+    byte_buffer_free(blob);
+    east_type_release(type);
+    east_type_release(press_type);
+    east_type_release(key_type);
+}
+
 int main(void)
 {
     east_type_of_type_init();
 
     printf("paged range gate (issue #1616)\n");
+    report_timings();
     test_costs();
     test_view_rule();
     test_exactness();
