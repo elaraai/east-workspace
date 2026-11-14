@@ -1030,10 +1030,10 @@ export class SchematicAreaReader {
 
     /**
      * A kind's rows read by area, its narrowing asked of them (D28): those it
-     * holds drawn — every one under `dim`, those it holds the matches — each
-     * row's answer kept at its revision and narrowing, so a pan asks only of
-     * the rows it adds; every row asked in one request. The same object while
-     * what it was read from is.
+     * holds drawn — under `dim` every one its page's scope holds (#1621), those
+     * the narrowing holds the matches — each row's answer kept at its revision
+     * and narrowing, so a pan asks only of the rows it adds; every row asked in
+     * one request. The same object while what it was read from is.
      *
      * @param kind - The kind
      * @param part - Its source of the slice
@@ -1054,25 +1054,37 @@ export class SchematicAreaReader {
 
     /** A kind's rows, its narrowing asked of them (see {@link SchematicAreaReader.narrowed}). */
     private narrow(slot: Slot, part: Part, read: SchematicWindowRead, far: SchematicAreaRows, where: Where, dim: boolean, keys: KindKeys): SchematicAreaRead | Reading {
-        // Under `dim`, a far end its page's scope doesn't hold (#1621) is no row of this page, drawn nowhere — not as context:
-        // the window is read under the scope, and a far end, read by key, is held to it.
+        // Under `dim`, a row its page's scope doesn't hold (#1621) is no row of this page, drawn nowhere — not as context.
+        // The window is read under the scope: through an index the scope's fields lead, its rows are the scope's; through
+        // one that leaves a scoped field unasked (the plan's residual, which under `dim` is the scope's alone), they are
+        // every page's, and the scope is asked of each. A far end, read by key, is held to the scope either way.
         let ends = far;
-        if (dim && far.size > 0 && recordSliceScoped(part)) {
-            const inScope = this.answersOf(slot, part, read.revision, recordSliceBase(part), far, keys, "scopeAnswers");
-            if (inScope === READING) return READING;
-            ends = new Map([...far].filter(([key]) => inScope.get(key) === true));
+        let window = read.rows;
+        let scoped: ReadonlyMap<string, boolean> | undefined;
+        if (dim && recordSliceScoped(part)) {
+            const unasked = read.plan.residual.length > 0;
+            const asked = !unasked ? far : far.size === 0 ? read.rows : new Map([...read.rows, ...far]);
+            if (asked.size > 0) {
+                const inScope = this.answersOf(slot, part, read.revision, recordSliceBase(part), asked, keys, "scopeAnswers");
+                if (inScope === READING) return READING;
+                scoped = inScope;
+                if (far.size > 0) ends = new Map([...far].filter(([key]) => inScope.get(key) === true));
+                if (unasked) window = new Map([...read.rows].filter(([key]) => inScope.get(key) === true));
+            }
         }
-        const rows = ends.size === 0 ? read.rows : new Map([...read.rows, ...ends]);
+        const rows = ends.size === 0 ? window : new Map([...window, ...ends]);
         if (where.size === 0) return { rows, matched: undefined, from: [...read.from, ends] };
         // Read by key, a far end is held to the whole narrowing; a window read through an index that serves it whole, to nothing.
         const residual = dim || read.plan.residual.length > 0;
         if (!residual && ends.size === 0) return { rows, matched: new Set(rows.keys()), from: [...read.from, ends] };
+        // Under `dim` with nothing chosen, the narrowing is the page's scope alone, which holds every row drawn.
+        if (dim && !recordSliceChosen(part)) return { rows, matched: new Set(rows.keys()), from: [...read.from, ends, scoped] };
         const held = this.answersOf(slot, part, read.revision, where, residual ? rows : ends, keys, "answers");
         if (held === READING) return READING;
         if (dim) {
             const matched = new Set<string>();
             for (const key of rows.keys()) if (held.get(key) === true) matched.add(key);
-            return { rows, matched, from: [...read.from, ends, held] };
+            return { rows, matched, from: [...read.from, ends, scoped, held] };
         }
         const shown = new Map<string, unknown>();
         for (const [key, row] of rows) {

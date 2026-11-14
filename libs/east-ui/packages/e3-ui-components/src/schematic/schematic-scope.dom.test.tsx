@@ -53,11 +53,15 @@ const RACKS_DATASET = `records.${ex.schematicRacks.name}`;
 /** The racks the floor places. */
 const PLACED = ["A01", "A02", "A03", "A04", "A05"];
 
-/** An owner's page: its key, the owners it is for, and how the viewer's narrowing draws. */
+/**
+ * An owner's page: its key, the owners it is for, how the viewer's narrowing draws, and whether its source lists the area
+ * index the owner leads — by default it does.
+ */
 interface OwnerPage {
     readonly key: string;
     readonly owners: readonly string[];
     readonly show: "hide" | "dim";
+    readonly unled?: boolean;
 }
 
 /**
@@ -65,12 +69,14 @@ interface OwnerPage {
  * leads and the index by owner the scope asks for — scoped to the owner, editable through their patch door, with the
  * Backlog in the library. The rail offers no field: the scope holds the only one a listed index leads first.
  */
-const ownerFloor = ({ key, owners, show }: OwnerPage) => ({ fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+const ownerFloor = ({ key, owners, show, unled = false }: OwnerPage) => ({ fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const racks = $.let(Record.bind(ex.schematicRacks, ["patch"]));
     const rackEntries = $.let(Data.bindPaged(ex.schematicRacks));
     const slice = $.let(Slice.bindRecords(`schematic.scope.${key}`, {
         racks: {
-            source: Data.bindPaged(ex.schematicRacks, { indexes: ["schematic_racks_by_owner", "schematic_racks_by_area", "schematic_racks_by_owner_area"] }),
+            source: unled
+                ? Data.bindPaged(ex.schematicRacks, { indexes: ["schematic_racks_by_owner", "schematic_racks_by_area"] })
+                : Data.bindPaged(ex.schematicRacks, { indexes: ["schematic_racks_by_owner", "schematic_racks_by_area", "schematic_racks_by_owner_area"] }),
             scope: { owner: [...owners] },
             fields: {},
         },
@@ -138,6 +144,17 @@ test("an owner's page draws that owner's racks alone, read through the area inde
         const read = indexesRead().slice(before);
         expect(read, show).toContain("schematic_racks_by_owner_area");
         expect(read.filter((index) => index === "schematic_racks_by_area"), show).toEqual([]);
+        expect(h.requests("read", RACKS_DATASET), show).toEqual([]);
+        unmount();
+    }
+});
+
+test("a source whose area index the owner does not lead draws the owner's racks alone all the same — hidden or dimmed: the window is read over every owner's racks, and none beyond the scope is drawn, as itself or as context (#1621)", async () => {
+    for (const show of ["hide", "dim"] as const) {
+        const { container, unmount } = await open({ key: `elmway-unled-${show}`, owners: ["Elmway College"], show, unled: true }, "A05");
+        await settle();
+        expect(drawnRacks(container), show).toEqual(["A05"]);
+        expect(card(container, "racks", "A05")!.hasAttribute("data-context"), show).toBe(false);
         expect(h.requests("read", RACKS_DATASET), show).toEqual([]);
         unmount();
     }
