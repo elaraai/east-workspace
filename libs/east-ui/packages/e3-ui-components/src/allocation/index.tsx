@@ -264,8 +264,8 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
             focus: setBinFocus,
         },
     });
-    const finder = useAllocationFind({ value, domain, part: binsPart, words, hidden: hiddenBins, onPick: (bin: FoundBin) => {
-        hiddenPick.pick(hiddenBins.of(bin), bin.key, () => { window.setView({ ...window.view, date: dayStart(bin.at).getTime() }); });
+    const finder = useAllocationFind({ value, domain, part: binsPart, words, hidden: hiddenBins, onPick: (bin: FoundBin, hidden) => {
+        hiddenPick.pick(hidden, bin.key, () => { window.setView({ ...window.view, date: dayStart(bin.at).getTime() }); });
     } });
     const search = useMemo(() => (finder === undefined ? undefined : hiddenPick.search(finder)), [finder, hiddenPick]);
     // The bin given the keyboard waits for its element only while it is the one selected (`useBinFocusTarget`), and until

@@ -103,8 +103,8 @@ export interface SchematicToolbarProps {
     readonly links: readonly SchematicLinkChoice[];
     /** Picks a tool, or the link kind Connect draws. */
     readonly onTools: (next: SchematicToolsState) => void;
-    /** Find's source, over the item kinds' keys. */
-    readonly find: KeySearchSource;
+    /** Find's source, over the item kinds' keys (`find.ts`); `undefined` with no item kind, which the payload never holds. */
+    readonly find: KeySearchSource | undefined;
     /** Zooms about the canvas's middle by a factor. */
     readonly onZoom: (factor: number) => void;
     /** Where the zoom stands: at Fit Zoom out takes no press, and at the zoom's limit Zoom in takes none (#1393). */

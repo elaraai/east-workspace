@@ -6,10 +6,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-    DateTimeType, IntegerType, OptionType, SetType, StringType, StructType, decodeBeast2For, encodeBeast2For, equalFor, isFrozenValue, none, parseFor, printFor, some, variant,
-    type ValueTypeOf,
+    BooleanType, DateTimeType, IntegerType, OptionType, SetType, StringType, StructType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, isFrozenValue,
+    none, parseFor, printFor, some, toEastTypeValue, variant,
+    type EastType, type ValueTypeOf,
 } from "@elaraai/east";
-import { RecordSliceConfigType, RecordSliceStateType, RecordSliceChoiceType, RecordSliceController, type RecordSliceBinding } from "@elaraai/east-ui/internal";
+import {
+    RecordSliceConfigType, RecordSliceStateType, RecordSliceChoiceType, RecordSliceController, findKeyInline,
+    type DatasetKeyQuery, type RecordSliceBinding, type SeekQueryValue,
+} from "@elaraai/east-ui/internal";
+import { queriesOf } from "../collections/key-queries.js";
 
 const Config = RecordSliceConfigType;
 const config = decodeBeast2For(Config)(encodeBeast2For(Config)({
@@ -961,4 +966,175 @@ test("a range's extent on a scoped page is the page's: its boundary entries are 
     assert.deepEqual(controller.domain("due"), some({ from: ".some 4", to: ".some 80" }), "the held jobs' due dates, and none of the late ones'");
     assert.equal(pages.length, 3, "one run: its first entry, its last, and its first set");
     assert.ok(pages.every(page => page.offset < 1_000_000_000_000n), "no entry of another status is read");
+});
+
+/** A DateTime read from its East text. */
+function dateTime(text: string): Date {
+    const read = parseFor(DateTimeType)(text);
+    assert.ok(read.success, text);
+    return read.value;
+}
+
+/** A key query as the grammar writes it, from the East value a source's `seek` is asked. */
+function asKeyQuery(query: SeekQueryValue): DatasetKeyQuery {
+    switch (query.type) {
+        case "key": return { key: query.value };
+        case "prefix": return { prefix: query.value };
+        case "fields": return query.value.prefix.type === "some" ? { fields: [...query.value.values], prefix: query.value.prefix.value } : { fields: [...query.value.values] };
+        case "range": return { from: [...query.value.from], to: [...query.value.to] };
+    }
+}
+
+/**
+ * A record of jobs on presses (#1621), keyed at `keyType`, read in its own order (`primary`) and through `by_press`,
+ * whose entries run by press and then by key: each search answered as e3 answers it — through the index, the key,
+ * prefix and fields forms address its `ik`, and a range its flattened `{ik, k}` — and kept as it was asked.
+ */
+function scopedJobs(keyType: EastType, jobs: readonly { readonly press: string; readonly key: unknown }[], scope: readonly string[]) {
+    const printString = printFor(StringType);
+    const Key = toEastTypeValue(keyType);
+    const Ik = toEastTypeValue(StructType({ press: StringType }));
+    const Entry = toEastTypeValue(StructType({ ik: StructType({ press: StringType }), k: keyType }));
+    const own = jobs.map(job => job.key).sort(compareFor(Key));
+    const entries = jobs.map(job => ({ ik: { press: job.press }, k: job.key })).sort(compareFor(Entry));
+    const compareIk = compareFor(Ik);
+    /** A search of the index: of `ik` alone, a key a run of its entries; a range, of `{ik, k}`. */
+    const seekIndex = (query: SeekQueryValue) => {
+        if (query.type === "range") return findKeyInline(Entry, entries, asKeyQuery(query));
+        if (query.type !== "key") return findKeyInline(Ik, entries.map(entry => entry.ik), asKeyQuery(query));
+        const parsed = parseFor(Ik)(query.value);
+        assert.ok(parsed.success, query.value);
+        const row = entries.findIndex(entry => compareIk(entry.ik, parsed.value) >= 0);
+        const start = row === -1 ? entries.length : row;
+        let count = 0;
+        while (start + count < entries.length && compareIk(entries[start + count]!.ik, parsed.value) === 0) count++;
+        return { found: count > 0, row: start, count };
+    };
+    const asked: { readonly index: string; readonly query: SeekQueryValue }[] = [];
+    const binding: RecordSliceBinding = {
+        id: "jobs", recordId: "jobs", defaultIndex: "primary", revision: () => some("A"), refresh: () => null,
+        total: () => some(BigInt(jobs.length)), entryKeys: () => [],
+        seek(index, query) {
+            asked.push({ index, query });
+            const found = index === "primary" ? findKeyInline(Key, own, asKeyQuery(query)) : seekIndex(query);
+            return some({ found: found.count > 0, row: BigInt(found.row), count: BigInt(found.count) });
+        },
+        page(index, offset, limit) {
+            const rows = index === "primary"
+                ? own.map(key => ({ ik: variant("primary", key), key }))
+                : entries.map(entry => ({ ik: variant(index, entry.ik), key: entry.k }));
+            return some(rows.slice(Number(offset), Number(offset + limit)));
+        },
+    };
+    const config = decodeBeast2For(Config)(encodeBeast2For(Config)({
+        fields: [],
+        indexes: [{ name: "by_press", fields: ["press"], sets: new Set<string>(), structured: true, interval: none, area: none, series: none, summary: none, entries: false }],
+        range: none, search: [], presets: [],
+        scope: new Map(scope.length === 0 ? [] : [["press", values(...scope.map(press => printString(press)))]]),
+    }));
+    let current = frozenState(encodeState({ where: new Map(), preset: none, resolution: none }));
+    const controller = new RecordSliceController(binding, config, StructType({ press: StringType }),
+        () => current, next => { current = frozenState(encodeState(next)); }, keyType);
+    return { controller, asked };
+}
+
+/**
+ * What a key search of a scoped page finds: for each of the scope's values in the index's order, what a search of its
+ * rows alone finds — their keys in East's order — placed after the rows of the values before it; with no scope, what a
+ * search of every row finds.
+ */
+function searchedAlone(keyType: EastType, jobs: readonly { readonly press: string; readonly key: unknown }[], scope: readonly string[], query: DatasetKeyQuery) {
+    const Key = toEastTypeValue(keyType);
+    const samePress = equalFor(StringType);
+    const blocks: { found: boolean; row: bigint; count: bigint }[] = [];
+    let before = 0n;
+    const presses = scope.length === 0 ? [undefined] : [...scope].sort(compareFor(StringType));
+    for (const press of presses) {
+        const keys = jobs.filter(job => press === undefined || samePress(job.press, press)).map(job => job.key).sort(compareFor(Key));
+        const found = findKeyInline(Key, keys, query);
+        if (found.count > 0) blocks.push({ found: true, row: before + BigInt(found.row), count: BigInt(found.count) });
+        before += BigInt(keys.length);
+    }
+    return blocks;
+}
+
+const MAX_INTEGER = (1n << 63n) - 1n;
+/** Each key type a search of a scoped page is held at: the jobs, the page's presses, and keys of no job among the probes. */
+const SCOPED_SEARCHES: { readonly name: string; readonly keyType: EastType; readonly jobs: readonly { press: string; key: unknown }[]; readonly scope: readonly string[]; readonly misses: readonly unknown[] }[] = [
+    {
+        name: "String keys, a press of the scope holding none",
+        keyType: StringType,
+        jobs: [
+            { press: "P-1", key: "J-001" }, { press: "P-1", key: "J-002" }, { press: "P-1", key: "J-010" }, { press: "P-1", key: "J-011" },
+            { press: "P-1", key: "K-1" }, { press: "P-1", key: "\u{10FFFF}" },
+            { press: "P-2", key: "J-003" }, { press: "P-2", key: "J-012" }, { press: "P-2", key: "K-2" },
+            { press: "P-3", key: "J-004" }, { press: "P-3", key: "J-0045" }, { press: "P-3", key: "J-005" }, { press: "P-3", key: "Z" },
+        ],
+        scope: ["P-3", "P-1", "P-4"],
+        misses: ["", "J", "J-0", "J-00", "J-01", "J-006", "K", "Z\u0000", "\u{10FFFF}\u{10FFFF}"],
+    },
+    {
+        name: "Struct keys, whose leading field two presses share",
+        keyType: StructType({ line: StringType, seq: IntegerType }),
+        jobs: [
+            { press: "P-1", key: { line: "A", seq: 1n } }, { press: "P-1", key: { line: "A", seq: 2n } }, { press: "P-1", key: { line: "A", seq: MAX_INTEGER } },
+            { press: "P-1", key: { line: "AB", seq: 5n } }, { press: "P-1", key: { line: "B", seq: 0n } },
+            { press: "P-2", key: { line: "A", seq: 3n } }, { press: "P-2", key: { line: "C", seq: 1n } },
+            { press: "P-3", key: { line: "A", seq: 0n } }, { press: "P-3", key: { line: "A\u0000", seq: 1n } }, { press: "P-3", key: { line: "B", seq: -1n } },
+        ],
+        scope: ["P-1", "P-3"],
+        misses: [{ line: "A", seq: 4n }, { line: "", seq: 0n }, { line: "Z", seq: 0n }],
+    },
+    {
+        name: "Struct keys ending in a Boolean, whose last value carries",
+        keyType: StructType({ lot: StringType, rework: BooleanType }),
+        jobs: [
+            { press: "P-1", key: { lot: "L1", rework: false } }, { press: "P-1", key: { lot: "L1", rework: true } }, { press: "P-1", key: { lot: "L2", rework: true } },
+            { press: "P-2", key: { lot: "L1", rework: false } }, { press: "P-2", key: { lot: "L1\u0000", rework: false } },
+        ],
+        scope: ["P-1"],
+        misses: [{ lot: "L0", rework: true }, { lot: "L1\u0000", rework: true }],
+    },
+    {
+        name: "DateTime keys, the last instant East writes among them, an instant past it after",
+        keyType: DateTimeType,
+        jobs: [
+            { press: "P-1", key: dateTime("2024-01-01T00:00:00.000") }, { press: "P-1", key: dateTime("9999-12-31T23:59:59.999") },
+            { press: "P-1", key: new Date(Date.UTC(10000, 0, 1)) }, { press: "P-2", key: dateTime("9999-12-31T23:59:59.998") },
+        ],
+        scope: ["P-1"],
+        misses: [dateTime("2024-01-01T00:00:00.001")],
+    },
+];
+
+test("a key search of a scoped page finds, among each of the scope's values' rows in their keys' order, what a search of those rows alone finds: a block a value holding a match, after the rows of the values before it; and with no scope, what a search of every row finds (#1621)", () => {
+    for (const { name, keyType, jobs, scope, misses } of SCOPED_SEARCHES) {
+        // The keys no literal writes are among the rows, never the probes.
+        const printable = jobs.map(job => job.key).filter(key => parseFor(toEastTypeValue(keyType))(printFor(toEastTypeValue(keyType))(key as never)).success);
+        const queries = queriesOf(keyType, [...printable, ...misses]);
+        for (const page of [scope, []]) {
+            const { controller, asked } = scopedJobs(keyType, jobs, page);
+            for (const query of queries) {
+                const found = controller.keySearch(query);
+                assert.equal(found.type, "some", `${name}: ${JSON.stringify(query)} is answered at once`);
+                assert.deepEqual(found.value, searchedAlone(keyType, jobs, page, query), `${name}, scope ${JSON.stringify(page)}: ${JSON.stringify(query)}`);
+            }
+            if (page.length === 0) continue;
+            // The scoped page's searches read the index under the scope's presses alone, and never the record's own order.
+            const inScope = new Set(page.map(press => printFor(StringType)(press)));
+            assert.ok(asked.every(({ index }) => index === "by_press"), `${name}: every search reads by_press`);
+            const pressesAsked = asked.map(({ query }) => query.type === "range" ? query.value.from[0] : query.type === "fields" ? query.value.values[0] : undefined);
+            assert.ok(pressesAsked.every(press => press !== undefined && inScope.has(press)), `${name}: every search names a press of the scope`);
+        }
+    }
+});
+
+test("a key search of a scoped page East writes no end for is refused, naming the part; one no key matches finds nothing and asks nothing (#1621)", () => {
+    const Timed = StructType({ when: DateTimeType, id: StringType });
+    const { controller, asked } = scopedJobs(Timed, [{ press: "P-1", key: { when: dateTime("9999-12-31T23:59:59.999"), id: "a" } }], ["P-1"]);
+    assert.throws(() => controller.keySearch({ fields: ["9999-12-31T23:59:59.999"] }), /'when' \(DateTime\).*from\.\.to/);
+    const before = asked.length;
+    assert.deepEqual(controller.keySearch({ key: "not a key" }), some([]));
+    assert.deepEqual(controller.keySearch({ fields: ["9999-12-31T23:59:59.999", "\"a\"", "1"] }), some([]));
+    assert.equal(asked.length, before, "nothing more is asked of the record");
 });

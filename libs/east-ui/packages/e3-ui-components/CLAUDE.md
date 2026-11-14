@@ -248,6 +248,7 @@ component is not automatically a correct reference for every shared behavior.
 | Author-bound Slice and window | `src/plan/root/sources.ts`, `src/plan/root/window.ts`, `src/plan/shell/Toolbar.tsx`; e3-ui's `slicePlanChrome`, `planWindows` and `planPrintWorks` examples |
 | Drafts, validation, Save, retry, undo/redo | Shared `EditSession`, `EditHistory`, `historyToolbarItem` and `SessionBanners`; `src/shared/schedule/editing.ts` where the domain is event records; `src/shared/schedule/records.ts` for a builder over the app's own records (a minted key, a window kept at its revision, Publish after Save) |
 | Library cards/search/tabs and inspector fields | Shared Library, Fields and FieldForm; existing builder integrations |
+| Search Records: a builder's toolbar key search over its records | `src/shared/schedule/search-records.ts` (`useSearchRecords`: one engine that seeks, lists and picks, its rules held in `search-records.test.ts`); a builder's `find.ts` names its sources, what a found row reads as, its line's words and what a pick does |
 | Drag targets, keyboard drag, ghosts and cancellation | `east-ui-components/src/dnd/` |
 | A part's own pointers, off the drag layer: a canvas that pans and pinches, a lane drawn on, a drag a part draws itself | `east-ui-components/src/pointer/` (`useSurfaceGestures`, `followPointer`, `./internal`); below, "A part's own pointers"; the Schematic's canvas, `src/schematic/canvas/CLAUDE.md` invariants 33 and 34 |
 | Typography, icons and visual states | `east-ui-components/src/theme/text-styles.ts`, slot recipes, `theme/icon-size.ts` |
@@ -462,6 +463,18 @@ nothing matches, where a bin's key is, or to search by an event's key. It
 lists the rows a query finds wherever they are — read through the source by their place, never only what is
 drawn.
 
+One engine does it for every builder (`shared/schedule/search-records.ts`'
+`useSearchRecords`, its rules held in `search-records.test.ts`, on e3): it
+seeks each source — through e3 in its record, a block of matches for each
+value of a page's scope (#1621), or among rows held whole, by their keys at
+their key type — lists the matches as one list, a row keeping its place, asks
+which of a list's rows the narrowing hides through each source's hidden pick,
+and hands the builder the latest pick alone: a newer pick, a new query or a
+clear leaves one on its way behind, and a query asked again leaves it
+standing. Each builder's `find.ts` names its sources, what a found row reads
+as, its line's words and what a pick does, and keeps nothing else: a rule of
+seeking, listing or picking goes in the engine, with its test.
+
 A row the rail's narrowing hides is one shared behaviour, the hidden pick
 (`shared/schedule/hidden.ts`, `hidden-pick.tsx`), in every builder's Search
 Records and Go to issue — the Schematic's Find among them; no builder keeps a
@@ -520,9 +533,10 @@ builder supplies only its own:
   the month and the agenda narrow no event by its resource, and name none.
 - **The Plan**: the source of the rows it pages, its `rows` source or a paged
   resource kind's (`plan/find.ts`, #1513): the box seeks and
-  lists the whole record as the binding reads it with no narrowing — by key
-  where it joins its rows, a lean binding by its default index — a line naming
-  what hides a row; a
+  lists the rows the page holds of the record — the record's own, or, on a
+  page whose source holds a scope, the scope's alone (#1621) — as the binding
+  reads them with no choice of the viewer's — by key where it joins its rows,
+  a lean binding by its default index — a line naming what hides a row; a
   pick asks e3 where the row stands among the narrowing's rows, from the row's
   index keys and, among rows sharing one, by halves (`recordSlicePosition`), and
   clears what hides it first where the narrowing holds none of it. The canvas

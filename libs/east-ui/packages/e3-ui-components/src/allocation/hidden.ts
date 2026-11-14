@@ -19,7 +19,7 @@
 
 import { useMemo } from "react";
 import type { option } from "@elaraai/east";
-import { askHiding, hiddenOf, useRelist, useSourceHidden, type RowHidden, type RowHiding, type SourceHidden } from "../shared/schedule/hidden.js";
+import { useRelist, useSourceHidden, type RowHiding, type SourceHidden } from "../shared/schedule/hidden.js";
 import type { FoundBin } from "./find.js";
 import type { AllocationValue } from "./model.js";
 import { narrowingPart, narrowingSlot, type NarrowedSource } from "./narrowed.js";
@@ -38,19 +38,13 @@ export interface BinShown {
 /** The hidden pick over the bins Search Records finds. */
 export interface HiddenBins {
     /**
-     * What hides a bin on the board, as far as e3 has said: each source that does, in the slice's order.
+     * The sources that hide a bin as the board draws it, in the slice's order, each with the row of it the bin stands on
+     * there: what Search Records asks e3 of and words a bin's line by (`shared/schedule/search-records.ts`).
      *
      * @param bin - The bin, as Search Records found it
-     * @returns What hides it; `undefined` for a bin the narrowing shows
+     * @returns The sources; none for a bin the narrowing shows
      */
-    of(bin: FoundBin): readonly RowHidden[] | undefined;
-    /**
-     * Asks e3 which choices hide the bins a listing holds that the narrowing hides: each source's question of the rows
-     * they stand on, one request a question.
-     *
-     * @param bins - The bins, as the box lists them
-     */
-    ask(bins: readonly FoundBin[]): void;
+    hidingsOf(bin: FoundBin): readonly RowHiding[];
     /** Moves as answers land and as what the narrowing shows moves: the box lists its lines again. */
     readonly relist: number;
 }
@@ -95,10 +89,6 @@ export function useHiddenBins(value: AllocationValue, shown: BinShown): HiddenBi
                 return hides[source] && pick.part !== undefined && row !== undefined ? [{ pick, id: row }] : [];
             });
         };
-        return {
-            of: (bin) => hiddenOf(hidingsOf(bin)),
-            ask: (bins) => askHiding(bins.flatMap(hidingsOf), true),
-            relist,
-        };
+        return { hidingsOf, relist };
     }, [lanes, resources, arrivals, order, shown, relist]);
 }

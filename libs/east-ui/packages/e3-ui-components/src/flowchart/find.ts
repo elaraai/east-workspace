@@ -5,18 +5,15 @@
 
 /**
  * Find state (#1504, `Flowchart Records Spec.md` R17): the toolbar's search
- * over the states — the shared key search's item (`useKeySearchToolbarItem`),
- * its box folding to its icon.
+ * over the states — every builder's Search Records
+ * (`shared/schedule/search-records.ts`), the shared key search's item, its box
+ * folding to its icon.
  *
  * - **States read through their source of the rail** are sought in their
- *   record through e3, as the Schematic's kinds are (`schematic/find.ts`):
- *   `recordSliceKeySearch` with no choice of the viewer's places the query's
- *   matches by key — on a page whose source holds a scope (#1621), among the
- *   scope's rows alone, a block of matches for each of its values —
- *   `recordSliceBasePage` reads the rows a list shows by their place there,
- *   each made its roles by the kind's `read`, and `recordSliceWithin` asks, in
- *   one request, which of them the rail's narrowing holds — so a state the
- *   rail's choices hide is found by its key.
+ *   record through e3, as every builder's sources are: with no choice of the
+ *   viewer's, and on a page whose source holds a scope (#1621), among the
+ *   scope's rows alone — each row a list shows made its roles by the kind's
+ *   `read` — so a state the rail's choices hide is found by its key.
  * - **The states the canvas draws** are sought by key and by label: those a
  *   key's start, a quoted key or a range finds, and — for bare text — those
  *   whose label holds it, in any case. Beside a record sought through e3 they
@@ -30,48 +27,32 @@
  * one list: the record's in its keys' order, then the drawn states' in theirs,
  * at their type. A line names a state by its key, its label where it has
  * one, and — where the narrowing leaves it out — which of the rail's choices
- * do, in the shared hidden pick's words (`shared/schedule/hidden.ts`), asked
- * of e3 for the rows a list shows, or, under `"dim"`, the words for a row
- * drawn as context. A pick hands the frame the state and what leaves it out
- * (`onPick`): the frame clears just those choices and selects the state once
- * it is drawn as itself. The box asks its query again as the record, its
- * narrowing or the drawn states move — a pick standing — and lists its lines
- * again as e3 says which choices leave a row out, or as the narrowing comes to
- * dim or to hide what it leaves out (`relist`).
+ * do, in the shared hidden pick's words (`shared/schedule/hidden.ts`), or,
+ * under `"dim"`, the words for a row drawn as context. A pick hands the frame
+ * the state and what leaves it out (`onPick`): the frame clears just those
+ * choices and selects the state once it is drawn as itself. The box asks its
+ * query again as the record or the drawn states move, and lists its lines again
+ * as the narrowing comes to dim or to hide what it leaves out.
  *
  * @packageDocumentation
  */
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { StringType, equalFor, match, printFor, type ValueTypeOf, type option } from "@elaraai/east";
-import { RecordSliceWhereType, findKeyInline, type DatasetKeyMatchRange, type DatasetKeyQuery, type RecordSliceBindType } from "@elaraai/east-ui/internal";
-import { useTrackedEvaluation, type KeySearchSource } from "@elaraai/east-ui-components";
-import { awaitTracked, recordSliceBasePage, recordSliceKeySearch, recordSliceRevision, recordSliceWithin, toSeekQuery } from "@elaraai/east-ui-components/internal";
-import { blocksAt, type FoundBlock } from "../shared/schedule/found-blocks.js";
-import { askHiding, hiddenLine, hiddenOf, useRelist, type RowHidden, type SourceHidden } from "../shared/schedule/hidden.js";
+import { useLayoutEffect, useMemo, useRef } from "react";
+import { StringType, equalFor, some, type ValueTypeOf } from "@elaraai/east";
+import type { DatasetKeyQuery, RecordSliceBindType } from "@elaraai/east-ui/internal";
+import type { KeySearchSource } from "@elaraai/east-ui-components";
+import { hiddenLine, type RowHidden, type SourceHidden } from "../shared/schedule/hidden.js";
 import { STRING_KEYS, type KindKeys } from "../shared/schedule/kind-keys.js";
 import type { RowCodec } from "../shared/schedule/records.js";
+import { keyMatches, readsRows, useSearchRecords, type SoughtSource } from "../shared/schedule/search-records.js";
 import type { HiddenWords } from "../shared/schedule/words.js";
 import type { FlowchartMessages, FlowchartWords } from "./messages.js";
 import type { FlowchartStateRoles } from "./model.js";
 
 const keyEqual = equalFor(StringType);
-const printWhere = printFor(RecordSliceWhereType);
-
-/** An empty box lists the first of the states. */
-const BROWSE_QUERY: DatasetKeyQuery = { prefix: "" };
-
-/** An Option's value, or `undefined`. */
-const someOf = <T,>(opt: option<T>): T | undefined => match(opt, { some: (value) => value }, undefined);
 
 /** A record Slice's part: the states' source of the rail. */
 type RecordPart = ValueTypeOf<RecordSliceBindType>;
-
-/** An entry of a record's page, as every record Slice binding reads one: its key, at the record's key type, and its row, joined. */
-interface RecordEntry {
-    readonly key: unknown;
-    readonly row: option<unknown>;
-}
 
 /** One state as Find seeks it among those the canvas draws: its key, its label, and whether it draws as context. */
 export interface FindableState {
@@ -124,8 +105,8 @@ export function foundLine(found: FoundState, words: FlowchartWords, dim: boolean
 
 /**
  * The drawn states a query finds, in East's order of their keys at the states' key type (see the module docs): those its
- * key finds — a key's start, a quoted key, a range, as the server finds a key (`findKeyInline`) — but those `listed` says
- * the record's matches hold; and, for bare text, those whose label holds it, in any case.
+ * key finds, as every source read whole is sought (`keyMatches`), but those `listed` says the record's matches hold;
+ * and, for bare text, those whose label holds it, in any case.
  *
  * @param states - The states the canvas draws, in any order
  * @param query - The query the box parsed
@@ -138,32 +119,13 @@ export function foundLine(found: FoundState, words: FlowchartWords, dim: boolean
 export function drawnMatches(states: readonly FindableState[], query: DatasetKeyQuery, locale: string,
     listed: (key: string) => boolean, keys: KindKeys = STRING_KEYS): FindableState[] {
     const byText = new Map(states.map((state) => [state.key, state] as const));
-    const order = keys.order(byText.keys());
-    const sorted = order.map(({ text }) => byText.get(text)!);
-    // The keys the query is sought among: a text no key prints as is found by its label alone.
-    const sought = order.filter(({ key }) => key !== undefined);
-    const range = findKeyInline(keys.keyType, sought.map(({ key }) => key), query);
-    const byKey = new Set(range.found ? sought.slice(range.row, range.row + range.count).map(({ text }) => text) : []);
+    const byKey = new Set(keyMatches(states, (state) => state.key, query, keys).map((state) => state.key));
     // Bare text finds a label that holds it too.
     const text = "prefix" in query && !("fields" in query) ? query.prefix.toLocaleLowerCase(locale) : undefined;
-    return sorted.filter((state) => (byKey.has(state.key)
+    return keys.order(byText.keys()).map(({ text: key }) => byText.get(key)!).filter((state) => (byKey.has(state.key)
         ? !listed(state.key)
         : text !== undefined && text.length > 0 && state.label !== undefined && state.label.toLocaleLowerCase(locale).includes(text)));
 }
-
-/** What the last find found: the record's matches, among the rows its page holds — sought through e3 — then the drawn states'. */
-interface Found {
-    /**
-     * The record's matches: the states' source, each block of them among the rows its page holds (#1621), and how many in
-     * all; `undefined` for states read whole.
-     */
-    readonly record: { readonly part: RecordPart; readonly blocks: readonly FoundBlock[]; readonly count: number } | undefined;
-    /** The drawn states' matches, in key order. */
-    readonly drawn: readonly FindableState[];
-}
-
-/** Nothing found. */
-const NOTHING: Found = { record: undefined, drawn: [] };
 
 /** A state's label as a line names it: none for an empty one. */
 function labelOf(roles: FlowchartStateRoles): string | undefined {
@@ -205,108 +167,40 @@ export function useFlowchartFind({ part, read, codec, keys, drawn, stored, pick,
     // What a find reads, and whom a pick tells: the latest — the box calls what it captured before the find answered.
     const latest = useRef({ part, read, codec, keys, drawn, stored, pick, dim, words, onPick });
     useLayoutEffect(() => { latest.current = { part, read, codec, keys, drawn, stored, pick, dim, words, onPick }; });
-    // What the last find found; a find answered after a newer one asked finds nothing here.
-    const found = useRef<Found>(NOTHING);
-    const asked = useRef(0);
-    const find = useCallback(async (query: DatasetKeyQuery): Promise<DatasetKeyMatchRange> => {
-        const mine = ++asked.current;
-        const { part: source, keys: stateKeys, drawn: states, stored: held, words: w } = latest.current;
-        let record: Found["record"];
-        if (source !== undefined) {
-            const blocks = await awaitTracked(() => recordSliceKeySearch(source, toSeekQuery(query)));
-            record = { part: source, blocks, count: Number(blocks.reduce((sum, block) => sum + block.count, 0n)) };
-        }
-        const matches = drawnMatches(states, query, w.locale, (key) => source !== undefined && held.has(key), stateKeys);
-        if (mine === asked.current) found.current = { record, drawn: matches };
-        const count = (record?.count ?? 0) + matches.length;
-        return { found: count > 0, row: 0, count };
-    }, []);
-    /** The matches at the list's rows `[row, row + limit)`, each with the row it is at. */
-    const statesAt = useCallback(async (row: number, limit: number): Promise<{ at: number; state: FoundState }[]> => {
-        const { record, drawn: matches } = found.current;
-        const { read: readRoles, codec: rows, keys: stateKeys, drawn: states, pick: hidden } = latest.current;
-        const out: { at: number; state: FoundState }[] = [];
-        const inRecord = record?.count ?? 0;
-        if (record !== undefined && row < inRecord) {
-            const { part: source } = record;
-            // A state the canvas draws is named as it draws it, the drafts in place.
-            const labels = new Map(states.map((state) => [state.key, state.label] as const));
-            // Each stretch of the list read from its block, among the rows the page holds of the record.
-            for (const stretch of blocksAt(record.blocks, row, Math.min(limit, inRecord - row))) {
-                const from = stretch.from;
-                // Each entry by its key's text (#1549), the narrowing asked of it at its key.
-                const entries = await awaitTracked(() => recordSliceBasePage(source, from, BigInt(stretch.n))) as readonly RecordEntry[];
-                const listed = entries.map((entry) => ({ key: stateKeys.textOf(entry.key), at: entry.key, row: someOf(entry.row) }));
-                const present = listed.flatMap(({ key, at, row: value }) => (value === undefined ? [] : [{ key, at, row: value }]));
-                const where = source.read().where;
-                const within = where.size === 0 ? undefined
-                    : await awaitTracked(() => recordSliceWithin(source, where, present.map(({ at, row: value }) => ({ key: at, row: value }))));
-                // Whether the narrowing holds each row read; every entry of the page with it — one with no row asks nothing.
-                const held = present.map((_row, i) => within === undefined || within[i] === true);
-                let at = 0;
-                const holds = listed.map(({ row: value }) => (value === undefined ? true : held[at++]!));
-                if (within !== undefined && hidden !== undefined) hidden.rows.askListed(Number(from), listed.map(({ key }) => key), holds);
-                present.forEach(({ key, row: value }, i) => out.push({
-                    at: stretch.at + i,
-                    state: {
-                        key,
-                        label: labels.has(key) ? labels.get(key) : labelOf(readRoles(rows.encode(value), key)),
-                        hidden: held[i] || hidden === undefined ? undefined : hiddenOf([{ pick: hidden, id: key }]),
-                    },
-                }));
-            }
-        }
-        const from = Math.max(row, inRecord) - inRecord;
-        const to = row + limit - inRecord;
-        if (to > from) {
-            const listed = matches.slice(from, to);
-            // A state drawn as context is left out by the narrowing: e3 is asked which choices dim it.
-            if (hidden !== undefined) askHiding(listed.filter((state) => state.dimmed).map((state) => ({ pick: hidden, id: state.key })), true);
-            listed.forEach((state, i) => out.push({
-                at: inRecord + from + i,
-                state: {
-                    key: state.key, label: state.label,
-                    hidden: state.dimmed && hidden !== undefined ? hiddenOf([{ pick: hidden, id: state.key }]) : undefined,
-                },
-            }));
-        }
-        return out;
-    }, []);
-    const listRange = useCallback(async (row: number, limit: number) => {
-        const { words: w, dim: dimmed } = latest.current;
+    const sources = useMemo((): SoughtSource<FindableState>[] => [
+        // The record's matches, a state the canvas draws named as it draws it, the drafts in place.
+        ...(part === undefined ? [] : [{
+            part, keys, pick,
+            read: readsRows((id, row): FindableState => {
+                const { drawn: states, read: readRoles, codec: rows } = latest.current;
+                const drawnAs = states.find((state) => keyEqual(state.key, id));
+                return { key: id, label: drawnAs !== undefined ? drawnAs.label : labelOf(readRoles(rows.encode(row), id)), dimmed: false };
+            }),
+        }]),
+        // Then the drawn states', but those the record's matches list.
+        ...(drawn.length === 0 ? [] : [{
+            rows: () => some(drawn), idOf: (state: FindableState) => state.key, keys,
+            matches: (states: readonly FindableState[], query: DatasetKeyQuery) => {
+                const { part: source, stored: held, words: w, keys: stateKeys } = latest.current;
+                return drawnMatches(states, query, w.locale, (key) => source !== undefined && held.has(key), stateKeys);
+            },
+        }]),
+    ], [part, keys, pick, drawn]);
+    const said = (state: FindableState, hidden: readonly RowHidden[] | undefined): FoundState => ({ key: state.key, label: state.label, hidden });
+    return useSearchRecords({
+        name: "Flowchart", resetKey: "flowchart", sources,
         // A pick shows the state's key in the box: what its query is typed against.
-        return (await statesAt(row, limit)).map(({ at, state }) => ({ row: at, label: foundLine(state, w, dimmed), text: state.key }));
-    }, [statesAt]);
-    const jump = useCallback((row: number) => {
-        void statesAt(row, 1).then(([hit]) => { if (hit !== undefined) latest.current.onPick(hit.state); })
-            .catch((error: unknown) => { console.error("[Flowchart] Find state could not read the state it found:", error); });
-    }, [statesAt]);
-    const clear = useCallback(() => {
-        asked.current++;
-        found.current = NOTHING;
-    }, []);
-    // The box asks its query again as what its lines are read from moves: the states' record and its narrowing — read
-    // through the source, so a page landing moves none of it — and the states the canvas draws.
-    const readAnswers = useCallback(() => (part === undefined ? ""
-        : `${someOf(recordSliceRevision(part)) ?? ""}\u0000${printWhere(part.read().where)}`), [part]);
-    const { result } = useTrackedEvaluation(readAnswers);
-    const answers = result.ok ? result.value : "";
-    const [requery, setRequery] = useState(0);
-    const seen = useRef({ answers, drawn });
-    useEffect(() => {
-        if (keyEqual(seen.current.answers, answers) && Object.is(seen.current.drawn, drawn)) return;
-        seen.current = { answers, drawn };
-        setRequery((n) => n + 1);
-    }, [answers, drawn]);
-    // It lists its lines again as e3 says which choices leave out a state they show, or the pick comes to ask — and as the
-    // narrowing comes to dim what it leaves out, or to hide it, which its lines word.
-    const relist = useRelist(pick === undefined ? [] : [pick], [dim]);
-    const noMatches = words.m.findNoMatches();
-    const any = part !== undefined || drawn.length > 0;
-    // Typed text parses at the states' key type; the empty box lists the first of them where a key's start finds them all.
-    const keyType = keys.keyType;
-    const browse = keys.text ? BROWSE_QUERY : undefined;
-    return useMemo(() => (any ? {
-        resetKey: "flowchart", requery, relist, keyType, find, listRange, jump, clear, browseQuery: browse, noMatchesText: noMatches,
-    } : undefined), [any, requery, relist, keyType, find, listRange, jump, clear, browse, noMatches]);
+        line: ({ item, hidden }) => ({ label: foundLine(said(item, hidden), latest.current.words, latest.current.dim), text: item.key }),
+        onPick: ({ item, hidden }) => { latest.current.onPick(said(item, hidden)); },
+        noMatchesText: words.m.findNoMatches(),
+        // A state drawn as context is left out by the narrowing: e3 is asked which choices dim it.
+        hidings: (states) => {
+            const hidden = latest.current.pick;
+            return states.map((state) => (state.dimmed && hidden !== undefined ? [{ pick: hidden, id: state.key }] : []));
+        },
+        // The box asks its query again as the drawn states move, and lists its lines again as the narrowing comes to dim
+        // what it leaves out, or to hide it, which its lines word.
+        requeryBy: [drawn],
+        relistBy: [dim],
+    });
 }
