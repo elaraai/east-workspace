@@ -45,8 +45,8 @@ import { hiddenLine, type RowHidden, type SourceHidden } from "../shared/schedul
 import { STRING_KEYS, type KindKeys } from "../shared/schedule/kind-keys.js";
 import type { RowCodec } from "../shared/schedule/records.js";
 import { keyMatches, readsRows, useSearchRecords, type SoughtSource } from "../shared/schedule/search-records.js";
-import type { HiddenWords } from "../shared/schedule/words.js";
-import type { FlowchartMessages, FlowchartWords } from "./messages.js";
+import { dimmedWords } from "../shared/schedule/words.js";
+import type { FlowchartWords } from "./messages.js";
 import type { FlowchartStateRoles } from "./model.js";
 
 const keyEqual = equalFor(StringType);
@@ -78,19 +78,8 @@ export interface FoundState {
 }
 
 /**
- * The words a line names the choices that leave a state out in, where the narrowing draws what it leaves out as context
- * (`"dim"`): they dim it, never hide it.
- *
- * @param m - The Flowchart's message table
- * @returns Its dimmed words, as the shared hidden pick's line takes them
- */
-function dimmedWords(m: FlowchartMessages): HiddenWords {
-    return { hiddenByFilters: m.dimmedByFilters, hiddenBy: m.dimmedBy };
-}
-
-/**
  * How a found state reads in Find's list: its key, its label where it is not its key, and — where the narrowing leaves
- * it out — which of the rail's choices do (`hiddenLine`), or, under `"dim"`, which dim it.
+ * it out — which of the rail's choices do (`hiddenLine`), or, under `"dim"`, which dim it (`dimmedWords`).
  *
  * @param found - The state
  * @param words - The Flowchart's words

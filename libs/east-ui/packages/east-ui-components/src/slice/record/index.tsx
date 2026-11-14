@@ -9,7 +9,7 @@ import { Box, Button, Skeleton, useSlotRecipe } from "@chakra-ui/react";
 import { faCalendar, faFilter, faMagnifyingGlass, faUsers } from "@fortawesome/free-solid-svg-icons";
 import type { IconName, IconPrefix, IconProp } from "@fortawesome/fontawesome-svg-core";
 import { DateTimeType, IntegerType, FloatType, lessFor, parseFor, printFor, none, some, variant, type ValueTypeOf, type option } from "@elaraai/east";
-import { recordChoiceNeeds, recordChoiceWhere, recordChoicesOf, type RecordSliceBindType, type RecordSliceFieldType, type RecordSliceChoiceType, type RecordSlicesBindType } from "@elaraai/east-ui/internal";
+import { recordChoiceNeeds, recordChoiceWhere, recordSliceChosen, type RecordSliceBindType, type RecordSliceFieldType, type RecordSliceChoiceType, type RecordSlicesBindType } from "@elaraai/east-ui/internal";
 import { useTrackedEvaluation } from "../../reactive/index.js";
 import { SliceSearchInput } from "../search/input.js";
 import { SliceChoiceGroup, SliceCountSummary, SliceFieldActions, SliceFieldChip, SliceFiltersViewContext } from "../choice.js";
@@ -93,14 +93,6 @@ export function recordSliceNoun(part: Part, nouns: Readonly<Record<string, strin
 const lessCount = lessFor(IntegerType);
 
 /**
- * Whether the viewer narrows a source: a choice of theirs is in force over it. A page's scope is none (#1621): the rows
- * it holds are the source's whole, which its total counts, and the viewer neither made it nor can clear it.
- */
-function narrowedByViewer(slice: Bind): boolean {
-    return recordChoicesOf(slice.config.scope, slice.read().where).size > 0;
-}
-
-/**
  * One source's exact counts as a summary reads them — each `none` while it is
  * read — and whether a narrowing is in force over it; or that they could not
  * be read.
@@ -140,9 +132,10 @@ export function RecordSlicesSummary({ slices, nouns, except, whole = false }: {
         const skip = new Set(skipped === "" ? [] : skipped.split("\u0000"));
         return slices.parts.filter(part => !skip.has(part.source));
     }, [slices.parts, skipped]);
-    // Each source read on its own: one failing leaves the others counted.
+    // Each source read on its own: one failing leaves the others counted. A narrowing is in force over one while a choice
+    // of the viewer's narrows it (`recordSliceChosen`): its page's scope is none (#1621).
     const read = useCallback(() => parts.map((part): SourceCounts => {
-        try { return { ok: true, count: part.slice.count(), total: part.slice.total(), narrowed: narrowedByViewer(part.slice) }; } catch { return { ok: false }; }
+        try { return { ok: true, count: part.slice.count(), total: part.slice.total(), narrowed: recordSliceChosen(part.slice) }; } catch { return { ok: false }; }
     }), [parts]);
     const { result } = useTrackedEvaluation(read);
     const named: ({ part: Part; failed: true } | { part: Part; failed: false; count: bigint | undefined; total: bigint | undefined })[] = [];
@@ -193,7 +186,7 @@ function RecordSourceCount({ slice }: { slice: Bind }) {
     const read = useCallback(() => ({ count: slice.count(), total: slice.total() }), [slice]);
     const { result } = useTrackedEvaluation(read);
     if (!result.ok) return <RecordSliceFailure slice={slice} message="Could not load count" />;
-    const narrowing = narrowedByViewer(slice);
+    const narrowing = recordSliceChosen(slice);
     const { count, total } = result.value;
     const shown = narrowing ? count : total;
     if (total.type === "none" || shown.type === "none") {

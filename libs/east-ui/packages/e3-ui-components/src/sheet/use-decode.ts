@@ -16,7 +16,7 @@ import { SortedSet, StringType, StructType, compareFor, equalFor, printFor, type
 import { Sheet } from "@elaraai/e3-ui/internal";
 import { getSomeorUndefined, randomKeys, useCoarsePointer, useSlicesReactivity, useDataStable, type KnownKeys } from "@elaraai/east-ui-components";
 import { useDensityHeights, devicePixels, type RowsViewport, windowedSourceOf } from "@elaraai/east-ui-components/internal";
-import type { RecordSliceBindType, RecordSliceStateType } from "@elaraai/east-ui/internal";
+import { recordSliceChoicesOf, type RecordSliceBindType, type RecordSliceStateType } from "@elaraai/east-ui/internal";
 import { DEFAULT_BLANKS, DEFAULT_GUTTER_PX, TITLE_KEY, cellWritable, densityOf, groupBandPx, indexColumns, indexGroup, indexRegisters, parseWidth } from "./model.js";
 import { keyOrderOf } from "./key-order.js";
 import { narrowingOf, sheetViewsEqual } from "./view-state.js";
@@ -336,10 +336,11 @@ export function useSheetDecode(value: SheetRootValue, host: SheetHost) {
     const narrowedBy = narrowingOfSource(windowed);
     const pagedSource = useMemo(() => (windowed === undefined || narrowedBy === undefined ? windowed
         : { ...windowed, id: printNarrowedSource({ source: windowed.id, narrowing: narrowedBy }) }), [windowed, narrowedBy]);
-    // Over a `rows` source the rows are its record's, every one in the record's order (#1349): the source's
-    // narrowing is drawn over them as the lens while it narrows them.
+    // Over a `rows` source the rows are the ones its page holds of the record — every one, in the record's order
+    // (#1349), or on a scoped page the scope's alone (#1621): the source's narrowing is drawn over them as the lens
+    // while the viewer's choices narrow them. The scope alone narrows none of them.
     const recordRows = rowsPart !== undefined && windowed !== undefined && narrowedBy === undefined;
-    const lensWanted = recordRows && rowsWhere !== undefined && rowsWhere.size > 0;
+    const lensWanted = recordRows && rowsPart !== undefined && rowsWhere !== undefined && recordSliceChoicesOf(rowsPart, rowsWhere).size > 0;
     const decodedRows = useMemo<readonly SheetRowValue[] | undefined>(
         () => (data.rows.type === "inline" ? (data.rows.value as readonly SheetRowValue[]) : undefined),
         [data.rows],

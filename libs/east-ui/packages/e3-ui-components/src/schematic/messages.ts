@@ -48,7 +48,7 @@ import type { Formatters } from "@elaraai/east-ui-components";
 import type { LoadingLineText } from "@elaraai/east-ui-components/internal";
 import { articleOf as article } from "../shared/article.js";
 import { pagedLoadingMessages, type PagedLoadingMessages } from "../shared/loading.js";
-import { hiddenByText, joinedWords, lowerWord, type HiddenWords } from "../shared/schedule/words.js";
+import { hiddenByText, joinedWords, lowerWord, unheldByScopeText, type HiddenWords } from "../shared/schedule/words.js";
 import type { SchematicValue } from "./data.js";
 import type { SchematicIssueWord } from "./issues.js";
 import type { SchematicTool } from "./tools.js";
@@ -524,7 +524,7 @@ export function schematicMessagesOf(v: SchematicVocabulary): SchematicMessages {
                 case "unheld": return `${p.name} isn't changed: ${({
                     filtered: `the filters hide some ${p.kind}s that may name it — clear them, then try again`,
                     // A page's scope (#1621) is no filter of the viewer's: no choice clears it.
-                    scoped: `this page holds only some ${p.kind}s, and one it does not may name it — edit it where they are all held`,
+                    scoped: unheldByScopeText(`${p.kind}s`),
                     unread: `some ${p.kind}s that may name it aren't read — try again once they are`,
                     busy: `the ${p.kind}s naming it take no edit now — try again in a moment`,
                 })[p.why]}`;

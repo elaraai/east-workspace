@@ -34,9 +34,9 @@
  * @packageDocumentation
  */
 
-import { SortedMap, StringType, compareFor, equalFor, none, printFor, some, variant, type ValueTypeOf, type option } from "@elaraai/east";
+import { StringType, equalFor, none, printFor, some, variant, type ValueTypeOf, type option } from "@elaraai/east";
 import {
-    RecordSliceWhereType, recordChoicesOf, recordScopedWhere, type RecordSliceBindType, type RecordSliceEntry, type RecordSliceReadType,
+    RecordSliceWhereType, recordSliceBase, recordSliceChoicesOf, type RecordSliceBindType, type RecordSliceEntry, type RecordSliceReadType,
 } from "@elaraai/east-ui/internal";
 import { schematicUnplacedPlan, type SchematicAreaIndexes, type SchematicUnplacedPlan } from "@elaraai/e3-ui/internal";
 import { recordSlicePage, recordSliceRevision, recordSliceWithin, type LibraryPageSource } from "@elaraai/east-ui-components/internal";
@@ -55,21 +55,18 @@ type Read = ValueTypeOf<RecordSliceReadType>;
 /** An item kind, decoded. */
 type ItemKind = SchematicValue["items"][number];
 
-const compareString = compareFor(StringType);
 const stringEqual = equalFor(StringType);
 const printWhere = printFor(RecordSliceWhereType);
 
 /** A read by area's clause for the rows with no position. */
 const UNPLACED: Read["area"] = some(variant("unplaced", null));
-/** No choice of the viewer's. */
-const NO_CHOICES: Read["where"] = new SortedMap([], compareString);
 
 /**
- * A kind's rows with no position, whatever the viewer's choices — those its page's scope holds (#1621), which no
- * choice changes: what `M` counts.
+ * A kind's rows with no position among the rows its page holds (`recordSliceBase`, #1621), whatever the viewer's
+ * choices: what `M` counts.
  */
 function unplacedOf(part: Part): Read {
-    return { where: recordScopedWhere(part.config.scope, NO_CHOICES), area: UNPLACED };
+    return { where: recordSliceBase(part), area: UNPLACED };
 }
 
 /** The most cards the list keeps for what a drop finds them by, past which the oldest go: the pages around the view hold far fewer. */
@@ -196,7 +193,7 @@ export class SchematicBacklogPages implements LibraryPageSource<BacklogPageRow> 
             const plan = this.planOf(kind);
             // Only the choices the index leads narrow the list — any its read holds beyond its page's scope (#1621), which is
             // no choice of the viewer's: the rest draw what they leave out as context.
-            if (recordChoicesOf(kind.part.config.scope, plan.read.where).size > 0) {
+            if (recordSliceChoicesOf(kind.part, plan.read.where).size > 0) {
                 narrowing = true;
                 const all = kind.part.countWhere(unplacedOf(kind.part));
                 if (all.type !== "some") return undefined;

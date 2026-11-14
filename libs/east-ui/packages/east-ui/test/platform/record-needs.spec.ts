@@ -20,7 +20,9 @@ import assert from "node:assert/strict";
 import { equalFor, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { RecordSliceChoiceType, RecordSliceIndexType, RecordSliceWhereType } from "../../src/platform/slice/record-types.js";
 import {
-    planRecordSlice, recordChoiceNeeds, recordChoiceWhere, recordChoicesOf, recordScopeEmpty, recordScopedWhere, type RecordSlicePaths,
+    planRecordSlice, recordChoiceNeeds, recordChoiceWhere, recordChoicesOf, recordScopeEmpty, recordScopedWhere,
+    recordSliceBase, recordSliceChoices, recordSliceChoicesOf, recordSliceChosen, recordSliceScoped, recordSliceScopedWhere,
+    type RecordSlicePaths,
 } from "../../src/platform/slice/record-plan.js";
 
 type Index = ValueTypeOf<typeof RecordSliceIndexType>;
@@ -189,6 +191,57 @@ test("the narrowing a read carries is the choices with the scope laid over them,
     const unheld = new Map<string, Choice>();
     assert.ok(Object.is(recordScopedWhere(unheld, choices), choices));
     assert.ok(Object.is(recordChoicesOf(unheld, choices), choices));
+});
+
+/** A source as a reader holds it: its config's scope, and the narrowing a read of it carries, which `reads` counts. */
+function sourceOf(scope: Where, where: Where): { config: { scope: Where }; read(): { where: Where }; reads: () => number } {
+    let reads = 0;
+    return { config: { scope }, read: () => { reads++; return { where }; }, reads: () => reads };
+}
+
+test("a source's narrowing in its two parts, asked of the source itself: the rows its page holds, its viewer's choices, and whether they narrow it — a scope is no choice (#1621)", () => {
+    const scope: Where = new Map<string, Choice>([["press", exactly("P-1")]]);
+    // The page alone: the viewer has chosen nothing.
+    const untouched = sourceOf(scope, recordScopedWhere(scope, new Map()));
+    assert.equal(recordSliceScoped(untouched), true);
+    assert.ok(sameWhere(recordSliceBase(untouched), [["press", exactly("P-1")]]), "the rows the page holds: its scope alone");
+    assert.ok(Object.is(recordSliceBase(untouched), recordSliceBase(untouched)), "the same map while the source's config is");
+    assert.equal(untouched.reads(), 0, "what the page holds is the config's to say: no read of the source's state");
+    assert.equal(recordSliceChoices(untouched).size, 0);
+    assert.equal(recordSliceChosen(untouched), false, "a page's scope is no choice of the viewer's");
+    // The viewer chooses a status under it.
+    const chosen = sourceOf(scope, recordScopedWhere(scope, new Map<string, Choice>([["status", exactly("Ready")]])));
+    assert.ok(sameWhere(recordSliceChoices(chosen), [["status", exactly("Ready")]]), "the choices leave the scope's fields out");
+    assert.ok(Object.is(recordSliceChoices(chosen), recordSliceChoices(chosen)), "the same answer while the narrowing is the same");
+    assert.equal(recordSliceChosen(chosen), true);
+    assert.ok(sameWhere(recordSliceBase(chosen), [["press", exactly("P-1")]]), "what the page holds is not narrowed by a choice");
+});
+
+test("a source with no scope: the rows its page holds are every row, and every clause of its narrowing is the viewer's (#1621)", () => {
+    const none_: Where = new Map();
+    const whole = sourceOf(none_, new Map());
+    assert.equal(recordSliceScoped(whole), false);
+    assert.equal(recordSliceBase(whole).size, 0, "no narrowing: every row");
+    assert.equal(recordSliceChosen(whole), false);
+    const where: Where = new Map<string, Choice>([["status", exactly("Ready")]]);
+    const narrowed = sourceOf(none_, where);
+    assert.ok(Object.is(recordSliceChoices(narrowed), where), "the narrowing itself");
+    assert.equal(recordSliceChosen(narrowed), true);
+});
+
+test("choices a reader holds itself are read under the page they are asked on, and a narrowing read of a source gives its choices back (#1621)", () => {
+    const scope: Where = new Map<string, Choice>([["press", exactly("P-1")]]);
+    const source = sourceOf(scope, recordScopedWhere(scope, new Map()));
+    // A view saved on another press's page holds its viewer's choices — and, were it to hold that press, never this page's.
+    const saved: Where = new Map<string, Choice>([["status", exactly("Ready")], ["press", exactly("P-9")]]);
+    const asked = recordSliceScopedWhere(source, saved);
+    assert.ok(sameWhere(asked, [["status", exactly("Ready")], ["press", exactly("P-1")]]), "the page's scope stands over what the choices hold of its fields");
+    assert.ok(sameWhere(recordSliceChoicesOf(source, asked), [["status", exactly("Ready")]]));
+    assert.equal(source.reads(), 0, "neither reads the source's own state");
+    // With no scope each is the map it was given.
+    const whole = sourceOf(new Map(), new Map());
+    assert.ok(Object.is(recordSliceScopedWhere(whole, saved), saved));
+    assert.ok(Object.is(recordSliceChoicesOf(whole, saved), saved));
 });
 
 test("a narrowing holds no row where a scoped field of it chooses no value, a list only the page's own expression gives (#1621)", () => {

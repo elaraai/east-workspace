@@ -282,7 +282,7 @@ export class CalendarBacklogPages implements LibraryPageSource<BacklogPageEvent>
             // holds — its record's, or on a scoped page its scope's, which is no choice (#1621).
             if (backlogNarrowed(part, kind.schedule.start)) {
                 narrowing = true;
-                const all = part.countWhere({ where: backlogWhole(part.config.scope, kind.schedule.start), area: none });
+                const all = part.countWhere({ where: backlogWhole(part, kind.schedule.start), area: none });
                 if (all.type !== "some") return undefined;
                 total += Number(all.value);
             } else {

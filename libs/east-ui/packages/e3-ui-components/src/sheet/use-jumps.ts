@@ -12,18 +12,18 @@
  */
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { StringType, StructType, equalFor, fromEastTypeValue, none, parseFor, printFor, some, type ValueTypeOf, type option } from "@elaraai/east";
+import { StringType, StructType, equalFor, none, printFor, some, type option } from "@elaraai/east";
 import { useTrackedEvaluation } from "@elaraai/east-ui-components";
-import { recordSliceWithinAt } from "@elaraai/east-ui-components/internal";
-import type { SeekQueryType } from "@elaraai/east-ui";
+import { recordSliceBaseWithinAt } from "@elaraai/east-ui-components/internal";
 import { RecordSliceWhereType } from "@elaraai/east-ui/internal";
 import { isRowSpace, type SheetBodyItem } from "./model.js";
 import { narrowingOf } from "./view-state.js";
 import { sameAnchor, type SheetAnchor } from "./persisted.js";
-import { useSheetSeek, type SheetSeekNarrowing } from "./use-seek.js";
-import { hiddenLine, hiddenOf, useHidden, useRelist } from "../shared/schedule/hidden.js";
+import { pagedSnapshot, pagedSnapshotEqual, pagedSnapshotKey } from "./paged-snapshot.js";
+import { hiddenLine, useHidden } from "../shared/schedule/hidden.js";
 import { useHiddenPick } from "../shared/schedule/hidden-pick.js";
-import { seekRecord } from "./use-lens.js";
+import { STRING_KEYS, kindKeys } from "../shared/schedule/kind-keys.js";
+import { useSearchRecords, useSeekPlace, type PlacedSource } from "../shared/schedule/search-records.js";
 import type { SheetTransactions } from "./transactions.js";
 import type { SheetRootValue } from "./values.js";
 import type { SheetDecode } from "./use-decode.js";
@@ -36,7 +36,11 @@ import { elementOf, elementUnder, keyOfItem, placeOf, rowPositionOf, spanOf } fr
 
 export type SheetTransactionsIssue = SheetTransactions["issues"][number];
 
-export type SeekQuery = ValueTypeOf<typeof SeekQueryType>;
+/** A row Search Records found: its key's text, and its place among the sheet's rows — the row the view goes to. */
+interface SheetFound {
+    readonly id: string;
+    readonly place: number;
+}
 
 /**
  * A row the `rows` source's narrowing hid, being gone to (the hidden pick):
@@ -83,43 +87,26 @@ export function useSheetJumps(value: SheetRootValue, sheetDecode: SheetDecode, s
         clearJump, dispatch, expectedNarrowing, jumpTo, jumpToElement, lensJumpTo, rowSpaceSlots, seenRows, uiRef,
     } = sheetMachine;
     const { cardRef, jumpBy, ringMoves, scrollTarget, seekIntent, setScrollTarget } = sheetEffects;
-    // ── The key search over a keyed paged source (§3.13) ──────────────────
-    // Its jumps are its own (#860): cleared — by the viewer, or by a new
-    // snapshot — it drops only a jump it asked for, never a key's move. Over a
-    // `rows` source it seeks the record's own order (#1349); under the lens its
-    // jump reads where its row lands and goes there where the narrowing keeps
-    // it. A row the narrowing hides is marked so in the box, by the filters that
-    // hide it once e3 has said, and a pick of it clears them and goes to it (the
-    // hidden pick, below).
+    // ── Search Records (§3.13, #1398, #1621) ──────────────────────────────
+    // Every builder's (`shared/schedule/search-records.ts`): over a `rows` source it seeks the rows the page holds of
+    // the record — every one, in the record's order (#1349), or on a scoped page the scope's alone (#1621) — through e3
+    // with no choice of the viewer's, each match at its place among them, which is its row's on the sheet; over a host's
+    // paged source, by the source's own `seek`. Its jumps are its own (#860): cleared — by the viewer, by a new query, or
+    // by a new snapshot of the rows — it drops only a jump it asked for, never a key's move. The box is its snapshot's: it
+    // starts afresh with each narrowing of the rows, as it did while they were the narrowing's alone (#1345), and with
+    // each revision of them. Under the lens its jump reads where its row lands and goes there where the narrowing keeps
+    // it. A row the narrowing hides is marked so in the box, by the filters that hide it once e3 has said, and a pick of
+    // it clears them and goes to it (the hidden pick, below).
     const searchJump = useCallback((element: number) => { jumpBy.current = "search"; jumpTo(element); }, [jumpTo, jumpBy]);
     const searchClearJump = useCallback(() => { if (jumpBy.current === "search") clearJump(); }, [clearJump, jumpBy]);
-    const recordSeek = useMemo(() => (rowsPart === undefined ? undefined : (query: SeekQuery) => seekRecord(rowsPart, query)), [rowsPart]);
-    // Over a `rows` source the key search seeks the record's own order, and starts afresh with each narrowing of the
-    // rows, as it did while they were the narrowing's alone (#1345): its source's id names the narrowing too.
-    const seekSource = useMemo(() => (recordRows && recordSeek !== undefined && pagedSource !== undefined && pagedSource.seek.type === "none"
-        ? { ...pagedSource, id: rowsQuery, seek: some(recordSeek) } : pagedSource), [recordRows, recordSeek, pagedSource, rowsQuery]);
+    // The rows' keys (#1549): a String key's id is the String itself, any other key's its `.east` text, read back at it.
+    const keys = useMemo(() => (value.editing.keyType.type === "some" ? kindKeys(value.editing.keyType.value) : STRING_KEYS), [value.editing.keyType]);
     // ── The hidden pick (`shared/schedule/hidden.ts`, `hidden-pick.tsx`): a row the narrowing hides, named and gone to ──
     // Which of the `rows` source's choices hide a row its narrowing hides, asked of e3 through the record's indexes for
     // the rows the box lists and for the issues' rows — never worked out here — and kept by the lens's revision and the
-    // narrowing. A row's record key by its id, and its id by its key: a String key's id is the String itself, any other
-    // key's its `.east` text.
-    const recordKeys = useMemo(() => {
-        const keyType = value.editing.keyType.type === "some" ? fromEastTypeValue(value.editing.keyType.value) : StringType;
-        const text = keyType.type === "String";
-        const parseKey = parseFor(keyType);
-        const printKey = printFor(keyType);
-        return {
-            keyOf: (id: string): option<unknown> => {
-                if (text) return some(id);
-                const read = parseKey(id);
-                return read.success ? some(read.value) : none;
-            },
-            idOf: (key: unknown): string => (text ? key as string : printKey(key as never)),
-        };
-    }, [value.editing.keyType]);
+    // narrowing.
     const rowsPick = useHidden({
-        name: "Sheet", part: lensWanted ? rowsPart : undefined, where: lensWanted ? rowsWhere : undefined, revision: lens.revision,
-        keyOf: recordKeys.keyOf, idOf: recordKeys.idOf,
+        name: "Sheet", part: lensWanted ? rowsPart : undefined, where: lensWanted ? rowsWhere : undefined, revision: lens.revision, keys,
     });
     // A pick of a row the narrowing hides — the box's, or Go to issue's — clears the filters hiding it and goes to it: the
     // lens's jump lands it (below), so the shared pick clears, and hands the keyboard on.
@@ -151,27 +138,79 @@ export function useSheetJumps(value: SheetRootValue, sheetDecode: SheetDecode, s
     }, [chrome, rowsPart, pagedSource, rowsPick, pick, rowsQuery, expectedNarrowing]);
     const revealRef = useRef(revealHidden);
     revealRef.current = revealHidden;
-    // The box lists the rows its key finds wherever they are, each read by its place in the record, and says which the
-    // `rows` source's narrowing hides (#1398, CL10): under the lens, which of them the narrowing holds — and, once e3 has
-    // said, the filters that hide each, in the sheet's words for the line — listing them again as the answers land.
-    const hiddenRelist = useRelist([rowsPick]);
-    const seekNarrowing = useMemo<SheetSeekNarrowing | undefined>(() => (lensWanted && rowsPart !== undefined && rowsWhere !== undefined ? {
-        held: (from: number, count: number) => recordSliceWithinAt(rowsPart, rowsWhere, BigInt(from), BigInt(count)),
-        hiddenLine: (key: string) => {
-            const hidden = hiddenOf([{ pick: rowsPick, id: key }]);
-            return hidden === undefined ? key
-                : hiddenLine(hidden, words, { hiddenByFilters: () => words.m.keySearchHidden({ key }), hiddenBy: (p) => words.m.keySearchHiddenBy({ key, ...p }) });
+    // The row a pick of the box, or Go to issue, sends the view to — its place among the sheet's rows — on which the ring
+    // lands once its window is in. A place is the rows' own: a new snapshot of them — their source, the narrowing they
+    // are read under, their revision — drops it, and the box's jump with it.
+    const [target, setTarget] = useState<number | undefined>(undefined);
+    const readRevision = useCallback((): option<string> => pagedSource?.revision?.() ?? none, [pagedSource]);
+    const revisionRead = useTrackedEvaluation(readRevision).result;
+    const revision = revisionRead.ok && revisionRead.value.type === "some" ? revisionRead.value.value : undefined;
+    const snapshot = useMemo(() => pagedSnapshot(recordRows ? rowsQuery : pagedSource?.id, revision), [recordRows, rowsQuery, pagedSource?.id, revision]);
+    const seenSnapshot = useRef(snapshot);
+    const snapshotMoved = !pagedSnapshotEqual(seenSnapshot.current, snapshot);
+    useLayoutEffect(() => {
+        if (pagedSnapshotEqual(seenSnapshot.current, snapshot)) return;
+        seenSnapshot.current = snapshot;
+        setTarget(undefined);
+        searchClearJump();
+    }, [snapshot, searchClearJump]);
+    const landing = snapshotMoved ? undefined : target;
+    /** Goes to a row by its place among the sheet's rows: its window read there, and the ring on it as it lands. */
+    const goToPlace = useCallback((place: number) => { searchJump(place); setTarget(place); }, [searchJump]);
+    // What the box seeks: the record's rows through the `rows` source's part — the narrowing's hidden pick beside it,
+    // under the lens — or a host's paged source by its `seek`; nothing over the sheet's own rows, or a paged source with
+    // no `seek`.
+    const sources = useMemo((): PlacedSource<SheetFound>[] => {
+        if (recordRows && rowsPart !== undefined) {
+            return [{ part: rowsPart, keys, pick: lensWanted ? rowsPick : undefined, read: ({ id, place }) => some(some({ id, place: Number(place) })) }];
+        }
+        const seek = pagedSource?.seek;
+        if (pagedSource === undefined || seek === undefined || seek.type === "none") return [];
+        return [{
+            keys,
+            paged: { id: pagedSource.id, seek: seek.value, revision: pagedSource.revision, query: pagedSource.query },
+            page: (from, count) => {
+                const window = pagedSource.page(from, count);
+                return window.type === "none" ? none : some(window.value.rows.map((row, i) => ({ id: row.id, place: Number(from) + i })));
+            },
+        }];
+    }, [recordRows, rowsPart, keys, lensWanted, rowsPick, pagedSource]);
+    const search = useSearchRecords<SheetFound>({
+        // The box is the snapshot's: another source, narrowing or revision of the rows is another box, which starts empty.
+        name: "Sheet", resetKey: pagedSnapshotKey(snapshot), sources,
+        // A line names its row by its key, and a row the narrowing hides by the filters that hide it, in the sheet's words.
+        line: ({ item, hidden }) => ({
+            text: item.id,
+            label: hidden === undefined ? item.id : hiddenLine(hidden, words, {
+                hiddenByFilters: () => words.m.keySearchHidden({ key: item.id }), hiddenBy: (p) => words.m.keySearchHiddenBy({ key: item.id, ...p }),
+            }),
+        }),
+        // A row the narrowing hides: the filters hiding it cleared, and the row gone to there — never a jump under the
+        // narrowing that hides it (the hidden pick).
+        onPick: ({ item, hidden }) => {
+            if (hidden !== undefined) {
+                setTarget(undefined);
+                revealRef.current(item.place, item.id, false);
+                return;
+            }
+            goToPlace(item.place);
         },
-        askHidden: rowsPick.rows.askListed,
-        reveal: (row: number, key: string) => revealRef.current(row, key, false),
-        version: hiddenRelist,
-    } : undefined), [lensWanted, rowsPart, rowsWhere, rowsPick, words, hiddenRelist]);
-    const seek = useSheetSeek(seekSource, searchJump, searchClearJump, seekNarrowing);
+        // A row nothing can hide — a host's paged source's, or the record's while nothing narrows the rows — is gone to by
+        // its place at once, with nothing read: its window is read there, and one that cannot be is shown there (#854).
+        onPickPlace: (place) => { goToPlace(Number(place)); },
+        onCleared: () => {
+            setTarget(undefined);
+            searchClearJump();
+        },
+    });
+    // Where a key is among the sheet's rows, as the box seeks it (the engine's): what Go to issue goes to on a sheet that
+    // has not read the issue's row; `undefined` where the box seeks nothing.
+    const seekPlace = useSeekPlace(sources);
     // A pick in the key search hands the keyboard to the grid (#1398): the grid's focus lands with the ring, on the picked
     // row's cell, once the row is drawn and the box has let the keyboard go — a hidden pick's once the narrowing it
     // leaves draws the row; a step leaves it in the box.
     const handOff = pick.handOff;
-    const pickSearch = useMemo(() => (seek.search === undefined ? undefined : pick.search(seek.search)), [seek.search, pick]);
+    const pickSearch = useMemo(() => (search === undefined ? undefined : pick.search(search)), [search, pick]);
     const focusGrid = useCallback(() => { cardRef.current?.focus({ preventScroll: true }); }, [cardRef]);
     // A jump's target is shown once its window settles (#854): the ring goes
     // to the sought row (no echo — the host hears the move through onSelect),
@@ -202,10 +241,10 @@ export function useSheetJumps(value: SheetRootValue, sheetDecode: SheetDecode, s
         return true;
     }, [body, rowSpace, group, dispatch, setScrollTarget, uiRef]);
     useEffect(() => {
-        const target = seek.target;
-        if (target === undefined || jumpInFlight) return;
-        seek.clearTarget();
-        if (landJump(target, true)) {
+        const at = landing;
+        if (at === undefined || jumpInFlight) return;
+        setTarget(undefined);
+        if (landJump(at, true)) {
             handOff.land(focusGrid);
             return;
         }
@@ -219,9 +258,9 @@ export function useSheetJumps(value: SheetRootValue, sheetDecode: SheetDecode, s
         }
         const sought = issueSought.current;
         issueSought.current = undefined;
-        const issue = sought !== undefined && sought.row === target ? sought : undefined;
-        revealRef.current(target, issue?.entry, issue !== undefined);
-    }, [seek, jumpInFlight, landJump, clearJump, lensDrawn, handOff, focusGrid]);
+        const issue = sought !== undefined && sought.row === at ? sought : undefined;
+        revealRef.current(at, issue?.entry, issue !== undefined);
+    }, [landing, jumpInFlight, landJump, clearJump, lensDrawn, handOff, focusGrid]);
     // The frame's own effects run first, so by now it has asked for the scroll: a fresh target's, which a jump's is.
     const scrollNonce = scrollTarget?.nonce;
     useEffect(() => {
@@ -416,7 +455,7 @@ export function useSheetJumps(value: SheetRootValue, sheetDecode: SheetDecode, s
     const askKept = useCallback(() => {
         if (keeping === undefined || keeping.phase !== "asking") return none;
         if (!lensWanted || rowsPart === undefined || rowsWhere === undefined) return some(true);
-        const held = recordSliceWithinAt(rowsPart, rowsWhere, BigInt(keeping.element), 1n);
+        const held = recordSliceBaseWithinAt(rowsPart, rowsWhere, BigInt(keeping.element), 1n);
         return held.type === "some" ? some(held.value[0] === true) : none;
     }, [keeping, lensWanted, rowsPart, rowsWhere]);
     const keptHeld = useTrackedEvaluation(askKept).result;
@@ -481,7 +520,7 @@ export function useSheetJumps(value: SheetRootValue, sheetDecode: SheetDecode, s
         cardRef.current?.focus({ preventScroll: true });
         setPendingIssue(undefined);
     }, [pendingIssue, body, rowSpace, columns, rows, dispatch, cardRef, dispatchStore, setScrollTarget]);
-    return { issueSought, onAnchorChange, onIssue, pickSearch, restoreAnchor, revealRef, rowsPick, seek };
+    return { goToPlace, issueSought, onAnchorChange, onIssue, pickSearch, restoreAnchor, revealRef, rowsPick, seekPlace };
 }
 
 /** What {@link useSheetJumps} gives the parts after it. */

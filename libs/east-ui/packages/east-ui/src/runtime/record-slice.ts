@@ -11,8 +11,8 @@ import {
 import { keyQueryRange, toSeekQuery, type DatasetKeyQuery } from "../collections/value-tree/key-search.js";
 import { recordSliceFieldSchema, recordSliceFieldTypes, type RecordSliceFieldSchema } from "../platform/slice/record.js";
 import {
-    MAX_RECORD_SLICE_RUNS, planRecordSlice, recordChoiceWhere, recordEntriesFields, recordIndexFields, recordIndexGenerated, recordPlanIndex,
-    recordScopeEmpty, recordScopeSearchIndex, recordScopedWhere,
+    MAX_RECORD_SLICE_RUNS, planRecordSlice, recordChoiceWhere, recordChoicesOf, recordEntriesFields, recordIndexFields, recordIndexGenerated,
+    recordPlanIndex, recordScopeEmpty, recordScopeSearchIndex, recordScopedWhere,
     type RecordSlicePlan,
 } from "../platform/slice/record-plan.js";
 import { recordOnPrinters, recordOnTypeOf, type RecordOnPrinters } from "../platform/slice/record-on.js";
@@ -20,7 +20,9 @@ import {
     RecordSliceChoiceType, RecordSliceConfigType, RecordSliceStateType,
     type RecordSliceAreaType, type RecordSliceWhereType, type RecordSliceCountType, type RecordSliceDomainType,
 } from "../platform/slice/record-types.js";
-import { RecordSliceSource, type RecordSliceEntryKey, type RecordSlicePlacement, type RecordSliceReader } from "./record-slice-source.js";
+import {
+    RecordSliceSource, type RecordSliceEntryKey, type RecordSlicePlacedSegment, type RecordSlicePlacement, type RecordSliceReader,
+} from "./record-slice-source.js";
 import type { SeekQueryType } from "../contracts/source.js";
 
 type Config = ValueTypeOf<RecordSliceConfigType>;
@@ -60,6 +62,18 @@ const frozenConfig = decodeBeast2For(RecordSliceConfigType, { frozen: true });
 
 /** A run of rows, as a seek places one: where it starts, and how many it holds. */
 type Range = { found: boolean; row: bigint; count: bigint };
+
+/** One of a page's scope's values that holds rows, as the page's rows hold them (#1621). */
+interface ScopeBlock {
+    /** Its fields' literals, in the order of the index on exactly the scope's fields. */
+    readonly values: readonly string[];
+    /** The narrowing that holds it alone: each of the scope's fields held to its one value. */
+    readonly where: Where;
+    /** Its rows, read alone through that index: in their keys' order. */
+    readonly plan: RecordSlicePlan;
+    /** Its first row among the page's rows: after the rows of every value before it in the index's order. */
+    readonly offset: bigint;
+}
 
 /** A primary identity as the record names it: its key's `.east` text, as a search takes it, and the key. */
 interface Identity {
@@ -764,6 +778,57 @@ export class RecordSliceController {
     }
 
     /**
+     * Where a narrowing's rows sit among the rows a page holds of its source (#1621), as far as they are placed: what a
+     * reader that lays them out among the page's rows reads — the Sheet's lens — as {@link place} places them in the
+     * record. With no scope the page's rows are the record's own, and this is {@link place}. On a scoped page they run
+     * value by value of the scope, each value's in their keys' order, which is the record's: each value's rows are
+     * placed in the record, and the narrowing's rows of that value beside them, so each record segment that holds some
+     * of the narrowing's is one stretch of the page's rows — the value's rows it holds, after those the segments before
+     * it hold. A value's stretches are given once its own rows are all placed; until then its matches are unplaced.
+     *
+     * @param where - The narrowing, the page's scope with it; the one the Slice holds when absent
+     * @returns The placement so far, its segments and its row count the page's rows'; none while a read is pending
+     * @throws {Error} When nothing but the page's scope narrows its rows, or the binding reads no placements
+     */
+    basePlace(where: Where = this.readState().where): option<RecordSlicePlacement> {
+        const index = this.scopeIndex();
+        if (index === undefined) return this.place(where);
+        const choices = recordChoicesOf(this.config.scope, where);
+        if (choices.size === 0) throw new Error("A placement places a narrowing's rows among the page's, and nothing but the page's scope narrows them");
+        const base = this.basePlan();
+        // A scope that holds no value holds no row of the page's to place a narrowing's among.
+        if (base.empty === true) return some({ segments: [], placed: 0n, total: 0n, records: 0n, complete: true });
+        const runs = this.windows.resolve(base);
+        if (runs.type === "none") return none;
+        const { blocks, pending: unbound } = this.scopeBlocks(index, runs.value.runs);
+        const segments: RecordSlicePlacedSegment[] = [];
+        let pending = unbound;
+        let complete = true;
+        let placed = 0n;
+        let total = 0n;
+        for (const block of blocks) {
+            const own = this.windows.place(block.plan);
+            const chosen = this.place(recordScopedWhere(block.where, choices));
+            if (own.type === "none" || chosen.type === "none") { pending = true; continue; }
+            total += chosen.value.total;
+            // Where the value's stretches start is the rows of it each record segment before them holds: all of them placed.
+            if (!own.value.complete) { complete = false; continue; }
+            complete &&= chosen.value.complete;
+            placed += chosen.value.placed;
+            const matches = new Map(chosen.value.segments.map((segment) => [segment.offset, segment.rows] as const));
+            let at = block.offset;
+            for (const segment of own.value.segments) {
+                const rows = matches.get(segment.offset) ?? 0n;
+                if (rows > 0n) segments.push({ offset: at, count: segment.rows, rows });
+                at += segment.rows;
+            }
+        }
+        if (pending) return none;
+        segments.sort((a, b) => (a.offset < b.offset ? -1 : a.offset > b.offset ? 1 : 0));
+        return some({ segments, placed, total, records: runs.value.total, complete });
+    }
+
+    /**
      * Where a key query over the record's primary key lands among the rows a page holds of its source (#1621): what
      * each builder's Search Records seeks. With no scope, in the record's own order: one block, as a seek with no
      * narrowing places it. On a scoped page, among the scope's rows ({@link basePage}): through the index on exactly
@@ -788,35 +853,53 @@ export class RecordSliceController {
         if (runs.type === "none") return none;
         const range = keyQueryRange(toEastTypeValue(this.primaryKey), query);
         if (range === null) return some([]);
+        const { blocks: values, pending: unbound } = this.scopeBlocks(index, runs.value.runs);
         const blocks: Range[] = [];
-        let pending = false;
-        for (const values of this.scopeValues(index)) {
-            // The value's own run, read alone: a range open at its end is held to it.
-            const plan = planRecordSlice([index], new Map(index.fields.map((field, i) => [field, variant("values", [values[i]!])] as const)),
-                this.source.defaultIndex, undefined, this.printOn)!;
-            const own = this.windows.resolve(plan);
-            if (own.type === "none") { pending = true; continue; }
-            const run = own.value.runs[0];
-            if (run === undefined) continue;
-            const found = this.windows.seek(plan, variant("range", { from: [...values, ...range.from], to: range.to === undefined ? [] : [...values, ...range.to] }));
+        let pending = unbound;
+        for (const value of values) {
+            // Sought among the value's own rows: a range open at its end is held to them.
+            const to = range.to === undefined ? [] : [...value.values, ...range.to];
+            const found = this.windows.seek(value.plan, variant("range", { from: [...value.values, ...range.from], to }));
             if (found.type === "none") { pending = true; continue; }
             let at = found.value;
             if (range.exact !== undefined && at.count > 0n) {
                 // A key with no value after it to write: the first row at or past it is it, or no row is.
-                const first = this.windows.page(plan, at.row, 1n);
+                const first = this.windows.page(value.plan, at.row, 1n);
                 if (first.type === "none") { pending = true; continue; }
                 const entry = first.value[0];
                 at = entry !== undefined && equalFor(this.primaryKey)(entry.key, range.exact) ? { found: true, row: at.row, count: 1n } : { found: false, row: at.row, count: 0n };
             }
             if (at.count === 0n) continue;
-            // Its place among the page's rows: after the rows of every value before it in the index's order.
-            let before = 0n;
-            for (const other of runs.value.runs) if (other.row < run.row) before += other.count;
-            blocks.push({ found: true, row: before + at.row, count: at.count });
+            blocks.push({ found: true, row: value.offset + at.row, count: at.count });
         }
         if (pending) return none;
         blocks.sort((a, b) => (a.row < b.row ? -1 : a.row > b.row ? 1 : 0));
         return some(blocks);
+    }
+
+    /**
+     * Each of the scope's values that holds rows, as the page's rows hold them (#1621): its rows read alone, through the
+     * index on exactly the scope's fields, and placed after the rows of every value before it in the index's order.
+     * What {@link keySearch} seeks within and {@link basePlace} places by.
+     * @param index - The index on exactly the scope's fields
+     * @param runs - The page's rows' runs of that index: one a value that holds rows
+     * @returns The values whose bounds have landed, and whether any value's are still pending
+     */
+    private scopeBlocks(index: Config["indexes"][number], runs: readonly Range[]): { blocks: ScopeBlock[]; pending: boolean } {
+        const blocks: ScopeBlock[] = [];
+        let pending = false;
+        for (const values of this.scopeValues(index)) {
+            const where: Where = new Map(index.fields.map((field, i) => [field, variant("values", [values[i]!])] as const));
+            const plan = planRecordSlice([index], where, this.source.defaultIndex, undefined, this.printOn)!;
+            const own = this.windows.resolve(plan);
+            if (own.type === "none") { pending = true; continue; }
+            const run = own.value.runs[0];
+            if (run === undefined) continue;
+            let offset = 0n;
+            for (const other of runs) if (other.row < run.row) offset += other.count;
+            blocks.push({ values, where, plan, offset });
+        }
+        return { blocks, pending };
     }
 
     /** Each of the scope's values, as the index on exactly its fields keys a run of it: its fields' literals, in their order. */

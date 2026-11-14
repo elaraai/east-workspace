@@ -58,7 +58,7 @@ import {
 } from "@elaraai/east-ui/internal";
 import { useSliceReactivity, useTrackedEvaluation, type Formatters } from "@elaraai/east-ui-components";
 import { awaitTracked, recordChoiceLabel, recordSliceBasePage, recordSliceRevision, recordSliceRows, recordSliceWithin } from "@elaraai/east-ui-components/internal";
-import { STRING_KEYS, kindKeys } from "./kind-keys.js";
+import { STRING_KEYS, kindKeys, type KindKeys } from "./kind-keys.js";
 import type { HiddenWords } from "./words.js";
 
 type Where = ValueTypeOf<typeof RecordSliceWhereType>;
@@ -265,10 +265,8 @@ export interface HiddenRowsInput {
     readonly where: Where | undefined;
     /** The record's revision the builder reads at: what the answers are kept by, with the source and the narrowing. */
     readonly revision: string | undefined;
-    /** A row's record key, by its id: none for an id that names no key. */
-    readonly keyOf: (id: string) => option<unknown>;
-    /** A row's id, by its record key. */
-    readonly idOf: (key: unknown) => string;
+    /** Its rows' keys (#1549): a row's id is its key's text, read back at the record's key type — an id no key prints as names none. */
+    readonly keys: KindKeys;
 }
 
 /** The hidden pick's reads, and what they have been told. */
@@ -362,7 +360,7 @@ export function useHiddenRows(input: HiddenRowsInput): HiddenRows {
 
     const askListed = useCallback((from: number, ids: readonly string[], holds: readonly boolean[]) => {
         const at = now();
-        const { part, idOf, name } = latest.current;
+        const { part, keys, name } = latest.current;
         if (at === undefined || part === undefined) return;
         const asking: number[] = [];
         ids.forEach((id, i) => {
@@ -379,7 +377,7 @@ export function useHiddenRows(input: HiddenRowsInput): HiddenRows {
             const entries = page as readonly RecordSliceEntry[];
             const rows = asking.map((i) => {
                 const entry = entries[i];
-                if (entry === undefined || entry.row?.type !== "some" || !stringEqual(idOf(entry.key), ids[i]!)) {
+                if (entry === undefined || entry.row?.type !== "some" || !stringEqual(keys.textOf(entry.key), ids[i]!)) {
                     throw new Error("The record's rows moved while they were listed");
                 }
                 return { key: entry.key, row: entry.row.value };
@@ -392,7 +390,7 @@ export function useHiddenRows(input: HiddenRowsInput): HiddenRows {
 
     const askIds = useCallback((ids: readonly string[], hidden = false) => {
         const at = now();
-        const { part, where, keyOf, name } = latest.current;
+        const { part, where, keys, name } = latest.current;
         if (at === undefined || part === undefined || where === undefined) return;
         const asking: { id: string; key: unknown }[] = [];
         for (const id of ids) {
@@ -400,8 +398,8 @@ export function useHiddenRows(input: HiddenRowsInput): HiddenRows {
             if (hidden && !at.states.has(id)) at.states.set(id, HIDDEN);
             if (at.asked.has(id)) continue;
             at.asked.add(id);
-            const key = keyOf(id);
-            if (key.type === "some") asking.push({ id, key: key.value });
+            const key = keys.keyOf(id);
+            if (key !== undefined) asking.push({ id, key });
         }
         if (asking.length === 0) return;
         void awaitTracked(() => {
@@ -524,11 +522,7 @@ export function useSourceHidden(name: string, part: Bind | undefined, window?: s
     const holds = kept.current !== undefined && (was === undefined || text === undefined ? was === text : stringEqual(was, text));
     if (!holds) kept.current = { text, where: read };
     const where = kept.current!.where;
-    const keyOf = (id: string): option<unknown> => {
-        const key = keys.keyOf(id);
-        return key === undefined ? none : some(key);
-    };
-    return useHidden({ name, part, where, revision: usePartRevision(part), keyOf, idOf: keys.textOf, window });
+    return useHidden({ name, part, where, revision: usePartRevision(part), keys, window });
 }
 
 /**

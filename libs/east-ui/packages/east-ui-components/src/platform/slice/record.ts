@@ -224,6 +224,8 @@ const operations: Record<keyof typeof RecordSlicePrimitives, Operation> = {
     togglePreset: (c, id) => c.togglePreset(id as string),
     setResolution: (c, resolution) => c.write({ ...c.readState(), resolution: resolution as State["resolution"] }),
     pageWhere: (c, read, offset, limit) => c.windows.page(c.plan((read as Read).where, areaOf(read as Read)), offset as bigint, limit as bigint),
+    // The rows the page holds of the source, whatever the viewer chooses: on a scoped source, the scope's (#1621).
+    pageBase: (c, offset, limit) => c.basePage(offset as bigint, limit as bigint),
     // The narrowed data's reads read the narrowing as it stands, tracked in the evaluation that reads them (#1354).
     dataPage: (c, offset, limit) => c.windows.page(c.plan(c.readState().where), offset as bigint, limit as bigint),
     dataSeek: (c, query) => c.windows.seek(c.plan(c.readState().where), query as Query),
@@ -295,6 +297,7 @@ export function createRecordSliceImplementation(platforms: () => PlatformFunctio
                 // itself (#1438), what a reader of their nested series index reads through.
                 indexes: source.indexes, nested: source.nested, source, scoped,
                 pageWhere: compile("pageWhere", [RecordSliceReadType, IntegerType, IntegerType], dataType.fields.page.output),
+                pageBase: compile("pageBase", [IntegerType, IntegerType], dataType.fields.page.output),
                 data: {
                     // The source, never its narrowing: its reads read the narrowing as it stands, and `query` names it,
                     // so a reader keys its windows by it as by the revision. Revision remains the record's real state
@@ -555,6 +558,26 @@ export function recordSliceBasePage(slice: Pick<ValueTypeOf<RecordSliceBindType>
  */
 export function recordSliceBaseWithinAt(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key" | "config">, where: Where, offset: bigint, limit: bigint): option<boolean[]> {
     return controllerOf(slice).baseWithinAt(where, offset, limit);
+}
+
+/**
+ * Where a record Slice's narrowing sits among the rows its page holds
+ * (#1621), as far as it is placed: {@link recordSlicePlace} over those rows.
+ * With no scope they are the record's own, in its order; on a scoped page the
+ * scope's, in their keys' order under each of its values, so each stretch
+ * that holds some of the narrowing's rows is the rows of one value one record
+ * segment holds. What the Sheet's lens lays a narrowing out by over a `rows`
+ * source, which its {@link recordSliceBasePage} pages and
+ * {@link recordSliceBaseWithinAt} asks of. A tracked read, as
+ * {@link recordSlicePlace} is.
+ *
+ * @param slice - The record Slice
+ * @param where - The narrowing, the page's scope with it; the one the Slice holds when absent
+ * @returns The placement so far, its segments and its row count the page's rows'; none while a read is pending
+ * @throws {Error} When nothing but the page's scope narrows its rows, or its binding reads no placements
+ */
+export function recordSliceBasePlace(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key" | "config">, where?: Where): option<RecordSlicePlacement> {
+    return controllerOf(slice).basePlace(where);
 }
 
 /**

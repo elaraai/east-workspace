@@ -12,7 +12,7 @@ import {
 } from "@elaraai/east";
 import {
     RecordSliceConfigType, RecordSliceStateType, RecordSliceChoiceType, RecordSliceController, findKeyInline,
-    type DatasetKeyQuery, type RecordSliceBinding, type SeekQueryValue,
+    type DatasetKeyQuery, type RecordSliceBinding, type RecordSlicePlacement, type SeekQueryValue,
 } from "@elaraai/east-ui/internal";
 import { queriesOf } from "../collections/key-queries.js";
 
@@ -1137,4 +1137,228 @@ test("a key search of a scoped page East writes no end for is refused, naming th
     assert.deepEqual(controller.keySearch({ key: "not a key" }), some([]));
     assert.deepEqual(controller.keySearch({ fields: ["9999-12-31T23:59:59.999", "\"a\"", "1"] }), some([]));
     assert.equal(asked.length, before, "nothing more is asked of the record");
+});
+
+/** A run on a press, made by a crew member: a row of the record a press's page is scoped over (#1621). */
+interface PressRun { readonly key: string; readonly press: string; readonly crew: string }
+
+/** How many rows a segment of the runs' record holds. */
+const SEGMENT = 3;
+const PressRow = StructType({ press: StringType, crew: StringType });
+/** Each index of the runs' record: its key's type, and a row's key in it. */
+const PRESS_INDEXES: Readonly<Record<string, { readonly type: EastType; readonly of: (row: ValueTypeOf<typeof PressRow>) => unknown }>> = {
+    by_press: { type: StructType({ press: StringType }), of: row => ({ press: row.press }) },
+    by_press_crew: { type: StructType({ press: StringType, crew: StringType }), of: row => ({ press: row.press, crew: row.crew }) },
+};
+
+/**
+ * A record of runs on presses (#1621), its rows stored {@link SEGMENT} to a segment in their keys' order, and read
+ * through `by_press` — on exactly the scope's field, its entries by press and then by key — and `by_press_crew`, which
+ * answers a crew chosen on a press's page. Each search, page, placement and membership is answered from the entries as
+ * e3 answers it; a placement of one press's entries may be held to its first few, as e3 places a window at a time.
+ */
+function pressRuns(runs: readonly PressRun[], scope: readonly string[] | undefined) {
+    const printString = printFor(StringType);
+    const compareKey = compareFor(StringType);
+    const sameKey = equalFor(StringType);
+    const samePress = equalFor(StringType);
+    const own = [...runs].sort((a, b) => compareKey(a.key, b.key));
+    const rowOf = (key: string) => { const run = own.find(r => sameKey(r.key, key))!; return { press: run.press, crew: run.crew }; };
+    const entriesOf = (index: string) => {
+        const { type, of } = PRESS_INDEXES[index]!;
+        return own.map(run => ({ ik: of(run), k: run.key })).sort(compareFor(StructType({ ik: type, k: StringType })));
+    };
+    const pressOf = (entry: { readonly ik: unknown }) => (entry.ik as { readonly press: string }).press;
+    const pages: { readonly index: string; readonly offset: bigint; readonly limit: bigint }[] = [];
+    /** Each placement asked: its index, and the presses its runs' entries are of. */
+    const placements: { readonly index: string; readonly presses: readonly string[] }[] = [];
+    const held: { index: string; press: string; upTo: number }[] = [];
+    let pending = false;
+    const binding: RecordSliceBinding = {
+        id: "runs", recordId: "runs", defaultIndex: "primary", revision: () => some("A"), refresh: () => null,
+        total: () => some(BigInt(own.length)),
+        entryKeys: (index, _key, row) => [printFor(PRESS_INDEXES[index]!.type)(PRESS_INDEXES[index]!.of(row as ValueTypeOf<typeof PressRow>) as never)],
+        seek(index, query) {
+            if (index === "primary") {
+                const found = findKeyInline(toEastTypeValue(StringType), own.map(run => run.key), asKeyQuery(query));
+                return some({ found: found.count > 0, row: BigInt(found.row), count: BigInt(found.count) });
+            }
+            const { type } = PRESS_INDEXES[index]!;
+            const entries = entriesOf(index);
+            const found = query.type === "range" ? findKeyInline(toEastTypeValue(StructType({ ik: type, k: StringType })), entries, asKeyQuery(query))
+                : findKeyInline(toEastTypeValue(type), entries.map(entry => entry.ik), asKeyQuery(query));
+            return some({ found: found.count > 0, row: BigInt(found.row), count: BigInt(found.count) });
+        },
+        page(index, offset, limit) {
+            pages.push({ index, offset, limit });
+            const rows = index === "primary"
+                ? own.map(run => ({ ik: variant("primary", run.key), key: run.key, row: some(rowOf(run.key)) }))
+                : entriesOf(index).map(entry => ({ ik: variant(index, entry.ik), key: entry.k, row: some(rowOf(entry.k)) }));
+            return some(rows.slice(Number(offset), Number(offset + limit)));
+        },
+        withinAll(index, ranges, asked) {
+            const { type } = PRESS_INDEXES[index]!;
+            const sameEntry = equalFor(StructType({ ik: type, k: StringType }));
+            const parseIk = parseFor(type);
+            const entries = entriesOf(index);
+            return some(asked.map(({ ik, key }) => {
+                const parsed = parseIk(ik);
+                assert.ok(parsed.success, ik);
+                const at = BigInt(entries.findIndex(entry => sameEntry(entry, { ik: parsed.value, k: key as string })));
+                return at >= 0n && ranges.some(range => at >= range.row && at < range.row + range.count);
+            }));
+        },
+        placeAll(index, ranges) {
+            const entries = entriesOf(index);
+            const inRuns = ranges.flatMap(range => entries.slice(Number(range.row), Number(range.row + range.count)));
+            placements.push({ index, presses: [...new Set(inRuns.map(pressOf))] });
+            if (pending) return none;
+            const hold = held.find(h => h.index === index && inRuns.every(entry => samePress(pressOf(entry), h.press)));
+            const placed = inRuns.slice(0, hold === undefined ? inRuns.length : hold.upTo);
+            const bySegment = new Map<number, number>();
+            for (const entry of placed) {
+                const segment = Math.floor(own.findIndex(run => sameKey(run.key, entry.k)) / SEGMENT);
+                bySegment.set(segment, (bySegment.get(segment) ?? 0) + 1);
+            }
+            const segments = [...bySegment].sort(([a], [b]) => a - b).map(([segment, rows]) => ({
+                offset: BigInt(segment * SEGMENT), count: BigInt(Math.min(SEGMENT, own.length - segment * SEGMENT)), rows: BigInt(rows),
+            }));
+            return some({ segments, placed: BigInt(placed.length), total: BigInt(inRuns.length), records: BigInt(own.length), complete: placed.length === inRuns.length });
+        },
+    };
+    const field = (fieldId: string) => ({ fieldId, label: fieldId, kind: "string", optional: false, multiple: true, set: false, values: [], format: none });
+    const index = (name: string, fields: string[]) => ({ name, fields, sets: new Set<string>(), structured: true, interval: none, area: none, series: none, summary: none, entries: false });
+    const scopeClause = values(...(scope ?? []).map(press => printString(press)));
+    const config = decodeBeast2For(Config)(encodeBeast2For(Config)({
+        fields: scope === undefined ? [field("press"), field("crew")] : [field("crew")],
+        indexes: [index("by_press", ["press"]), index("by_press_crew", ["press", "crew"])],
+        range: none, search: [], presets: [],
+        scope: new Map(scope === undefined ? [] : [["press", scopeClause]]),
+    }));
+    let current = frozenState(encodeState({ where: new Map(), preset: none, resolution: none }));
+    const controller = new RecordSliceController(binding, config, PressRow, () => current, next => { current = frozenState(encodeState(next)); });
+    /** The narrowing a read of the page carries: the page's scope, and the crews the viewer chose. */
+    const narrowing = (crews: readonly string[], presses: readonly string[] = []): Where => new Map([
+        ...(scope === undefined ? presses.length === 0 ? [] : [["press", values(...presses.map(press => printString(press)))] as const] : [["press", scopeClause] as const]),
+        ...(crews.length === 0 ? [] : [["crew", values(...crews.map(crew => printString(crew)))] as const]),
+    ]);
+    return {
+        controller, pages, placements, narrowing,
+        /** Hold the placements of one press's entries of an index to their first few. */
+        hold(index: string, press: string, upTo: number) { held.push({ index, press, upTo }); },
+        pending(value: boolean) { pending = value; },
+    };
+}
+type Where = ValueTypeOf<typeof RecordSliceStateType>["where"];
+
+/**
+ * Where a crew's runs sit among a press's page's rows, worked out row by row: the page's rows are each of the scope's
+ * presses' runs, the presses in East's order and each one's runs in their keys' order; each record segment's runs of one
+ * press are one stretch of them, holding as many of the crew's as it does.
+ */
+function placedAmongPresses(runs: readonly PressRun[], scope: readonly string[], crews: readonly string[]): RecordSlicePlacement {
+    const compareKey = compareFor(StringType);
+    const same = equalFor(StringType);
+    const own = [...runs].sort((a, b) => compareKey(a.key, b.key));
+    const segmentOf = (run: PressRun) => Math.floor(own.findIndex(other => same(other.key, run.key)) / SEGMENT);
+    const segments: RecordSlicePlacement["segments"][number][] = [];
+    let at = 0n;
+    let total = 0n;
+    for (const press of [...new Set(scope)].sort(compareKey)) {
+        const ofPress = own.filter(run => same(run.press, press));
+        for (let i = 0; i < ofPress.length;) {
+            const segment = segmentOf(ofPress[i]!);
+            let j = i;
+            let rows = 0n;
+            for (; j < ofPress.length && segmentOf(ofPress[j]!) === segment; j++) if (crews.some(crew => same(crew, ofPress[j]!.crew))) rows++;
+            if (rows > 0n) segments.push({ offset: at + BigInt(i), count: BigInt(j - i), rows });
+            total += rows;
+            i = j;
+        }
+        at += BigInt(ofPress.length);
+    }
+    return { segments, placed: total, total, records: at, complete: true };
+}
+
+/** Runs on three presses, stored three to a segment, each press's runs falling in several. */
+const PRESS_RUNS: readonly PressRun[] = [
+    { key: "R-01", press: "P-2", crew: "C-1" }, { key: "R-02", press: "P-1", crew: "C-2" }, { key: "R-03", press: "P-1", crew: "C-1" },
+    { key: "R-04", press: "P-3", crew: "C-1" }, { key: "R-05", press: "P-2", crew: "C-2" }, { key: "R-06", press: "P-1", crew: "C-1" },
+    { key: "R-07", press: "P-2", crew: "C-1" }, { key: "R-08", press: "P-1", crew: "C-3" }, { key: "R-09", press: "P-3", crew: "C-2" },
+    { key: "R-10", press: "P-1", crew: "C-1" }, { key: "R-11", press: "P-2", crew: "C-3" }, { key: "R-12", press: "P-1", crew: "C-2" },
+    { key: "R-13", press: "P-2", crew: "C-1" },
+];
+
+test("a narrowing's rows are placed among a scoped page's rows — each of the scope's values' rows in their keys' order — as a row-by-row count places them: each record segment's rows of one value one stretch, after the values before it; each stretch's rows the page's rows there, holding what the placement says; and no row of another press read (#1621)", () => {
+    const sameKey = equalFor(StringType);
+    for (const scope of [["P-2", "P-1", "P-9"], ["P-1"], ["P-3", "P-2"]]) {
+        for (const crews of [["C-1"], ["C-1", "C-2"], ["C-3"], ["C-9"]]) {
+            const f = pressRuns(PRESS_RUNS, scope);
+            const where = f.narrowing(crews);
+            const expected = placedAmongPresses(PRESS_RUNS, scope, crews);
+            assert.deepEqual(f.controller.basePlace(where), some(expected), `scope ${JSON.stringify(scope)}, crews ${JSON.stringify(crews)}`);
+            // The page's rows are the scope's, in that order: what each stretch reads, and asks the narrowing of.
+            const presses = new Set(scope);
+            const rows = f.controller.basePage(0n, expected.records);
+            assert.equal(rows.type, "some");
+            const inScope = [...PRESS_RUNS].filter(run => presses.has(run.press))
+                .sort((a, b) => compareFor(StringType)(a.press, b.press) || compareFor(StringType)(a.key, b.key));
+            assert.deepEqual(rows.value.map(entry => entry.key), inScope.map(run => run.key), "the page's rows: each press's, in their keys' order");
+            for (const segment of expected.segments) {
+                const held = f.controller.baseWithinAt(where, segment.offset, segment.count);
+                assert.equal(held.type, "some");
+                assert.equal(BigInt(held.value.filter(inside => inside).length), segment.rows, `the stretch at ${segment.offset} holds what it was placed with`);
+                const page = f.controller.basePage(segment.offset, segment.count);
+                assert.ok(page.type === "some" && page.value.every((entry, i) => sameKey(entry.key as string, inScope[Number(segment.offset) + i]!.key)));
+            }
+            assert.ok(f.pages.every(page => page.index === "by_press"), "the page's rows are read through the index on exactly the scope's fields");
+            assert.ok(f.placements.every(placement => placement.presses.every(press => presses.has(press))), "no press beyond the scope is placed");
+        }
+    }
+});
+
+test("on a page with no scope a narrowing's rows are placed among the record's own, as the record places them; a scope that holds no value places none, asking nothing; a narrowing of nothing but the scope places nothing, refused (#1621)", () => {
+    const unscoped = pressRuns(PRESS_RUNS, undefined);
+    const where = unscoped.narrowing(["C-1"], ["P-1", "P-2"]);
+    const placed = unscoped.controller.basePlace(where);
+    assert.equal(placed.type, "some");
+    assert.deepEqual(placed, unscoped.controller.place(where), "the record's own placement");
+    assert.equal(placed.value.records, BigInt(PRESS_RUNS.length));
+    const empty = pressRuns(PRESS_RUNS, []);
+    assert.deepEqual(empty.controller.basePlace(empty.narrowing(["C-1"])), some({ segments: [], placed: 0n, total: 0n, records: 0n, complete: true }));
+    assert.deepEqual([empty.pages, empty.placements], [[], []], "nothing is asked of the record");
+    const scoped = pressRuns(PRESS_RUNS, ["P-1"]);
+    assert.throws(() => scoped.controller.basePlace(scoped.narrowing([])), /nothing but the page's scope narrows them/);
+});
+
+test("a narrowing's rows on a scoped page are placed as far as the record has placed them: a value whose own rows are not all placed gives no stretch, its matches unplaced; one whose matches are partly placed gives the stretches placed; a placement on its way is none (#1621)", () => {
+    const scope = ["P-2", "P-1"];
+    const all = placedAmongPresses(PRESS_RUNS, scope, ["C-1"]);
+    const ofPress = (press: string) => placedAmongPresses(PRESS_RUNS, [press], ["C-1"]);
+    // P-1's rows come first among the page's, so P-2's stretches stand after them.
+    const after = ofPress("P-1").records;
+    const shifted = ofPress("P-2").segments.map(segment => ({ ...segment, offset: segment.offset + after }));
+    {
+        // P-2's own rows placed two of five: where its stretches start is not known yet.
+        const f = pressRuns(PRESS_RUNS, scope);
+        f.hold("by_press", "P-2", 2);
+        assert.deepEqual(f.controller.basePlace(f.narrowing(["C-1"])), some({
+            segments: ofPress("P-1").segments, placed: ofPress("P-1").placed, total: all.total, records: all.records, complete: false,
+        }));
+    }
+    {
+        // P-1's crew runs placed one of three: its first stretch alone, P-2's whole.
+        const f = pressRuns(PRESS_RUNS, scope);
+        f.hold("by_press_crew", "P-1", 1);
+        assert.deepEqual(f.controller.basePlace(f.narrowing(["C-1"])), some({
+            segments: [ofPress("P-1").segments[0]!, ...shifted], placed: 1n + ofPress("P-2").placed, total: all.total, records: all.records, complete: false,
+        }));
+    }
+    {
+        const f = pressRuns(PRESS_RUNS, scope);
+        f.pending(true);
+        assert.deepEqual(f.controller.basePlace(f.narrowing(["C-1"])), none);
+        f.pending(false);
+        assert.deepEqual(f.controller.basePlace(f.narrowing(["C-1"])), some(all));
+    }
 });

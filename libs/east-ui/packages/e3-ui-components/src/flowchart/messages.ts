@@ -36,7 +36,7 @@ import { StringType, printFor } from "@elaraai/east";
 import { editingMessages, type EditingMessages, type EditingWords } from "@elaraai/east-ui-components";
 import { withArticle as aNoun } from "../shared/article.js";
 import { pagedLoadingMessages, type PagedLoadingMessages } from "../shared/loading.js";
-import { hiddenByText, joinedWords, kindPlural, lowerWord, type HiddenWords } from "../shared/schedule/words.js";
+import { hiddenByText, joinedWords, kindPlural, lowerWord, unheldByScopeText, type HiddenWords } from "../shared/schedule/words.js";
 import type { FlowchartBinsRefusalWord } from "./details.js";
 import type { FlowchartGesture } from "./edits.js";
 import type { FlowchartIssueWord } from "./issues.js";
@@ -658,7 +658,7 @@ export function flowchartMessagesOf(nouns: FlowchartNouns): FlowchartMessages {
                 case "unheld": switch (p.why) {
                     case "filtered": return `${p.name} isn't changed: the rail hides some ${kindPlural(ONE[p.by])} that may name it — clear its choices, then try again`;
                     // A page's scope (#1621) is no choice of the viewer's: nothing on the rail clears it.
-                    case "scoped": return `${p.name} isn't changed: this page holds only some ${kindPlural(ONE[p.by])}, and one it does not may name it — edit it where they are all held`;
+                    case "scoped": return `${p.name} isn't changed: ${unheldByScopeText(kindPlural(ONE[p.by]))}`;
                     case "busy": return `${p.name} isn't changed: ${kindPlural(ONE[p.by])} that may name it take no edit now — try again in a moment`;
                 }
             }

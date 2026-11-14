@@ -20,7 +20,7 @@
 import { ArrayType, DictType, SortedMap, StringType, compareFor, equalFor, none, type ValueTypeOf } from "@elaraai/east";
 import { Sheet } from "@elaraai/e3-ui/internal";
 import {
-    RecordSliceStateType, recordChoicesOf, recordScopedWhere, type RecordSliceBindType, type RecordSliceReadType, type RecordSlicesChromeType,
+    RecordSliceStateType, recordSliceChoicesOf, recordSliceScopedWhere, type RecordSliceReadType, type RecordSliceScopeHolder, type RecordSlicesChromeType,
 } from "@elaraai/east-ui/internal";
 import type { SheetNarrowing, SheetSavedView } from "./values.js";
 
@@ -49,10 +49,10 @@ export function narrowingOf(chrome: Chrome): SheetNarrowing {
     return new SortedMap(chrome.slice.parts.map((part) => [part.source, chosen(part.slice)] as const), compareString);
 }
 
-/** A source's state with its page's scope taken out (#1621): the state itself where the source has none. */
+/** A source's state holding its viewer's choices alone (`recordSliceChoicesOf`, #1621): the state itself where the source has no scope. */
 function chosen(slice: Chrome["slice"]["parts"][number]["slice"]): SourceState {
     const state = slice.read();
-    const where = recordChoicesOf(slice.config.scope, state.where);
+    const where = recordSliceChoicesOf(slice, state.where);
     return Object.is(where, state.where) ? state : { ...state, where };
 }
 
@@ -80,8 +80,8 @@ export function writeNarrowing(chrome: Chrome, narrowing: SheetNarrowing): void 
  * @param view - The saved view
  * @returns The read the view's count asks of the source
  */
-export function viewRowsRead(rows: Pick<ValueTypeOf<RecordSliceBindType>, "config">, view: SheetSavedView): ValueTypeOf<RecordSliceReadType> {
-    return { where: recordScopedWhere(rows.config.scope, view.narrowing.get("rows")?.where ?? new Map()), area: none };
+export function viewRowsRead(rows: RecordSliceScopeHolder, view: SheetSavedView): ValueTypeOf<RecordSliceReadType> {
+    return { where: recordSliceScopedWhere(rows, view.narrowing.get("rows")?.where ?? new Map()), area: none };
 }
 
 /** Whether two narrowings hold the same choices, through East's equality, by source. */

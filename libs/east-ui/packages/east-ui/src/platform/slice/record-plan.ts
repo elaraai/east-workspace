@@ -149,6 +149,105 @@ export function recordScopeEmpty(scope: ReadonlyMap<string, Choice>, where: Read
     return false;
 }
 
+/**
+ * A record Slice's source as the scope's rules read it (#1621): its config,
+ * which holds its page's scope. A bound source's handle is one.
+ */
+export interface RecordSliceScopeHolder<W extends ReadonlyMap<string, Choice> = ReadonlyMap<string, Choice>> {
+    /** The source's config. */
+    readonly config: {
+        /** The page's scope: empty on a page that holds none. */
+        readonly scope: W;
+    };
+}
+
+/**
+ * A record Slice's source as its narrowing is read in its two parts (#1621):
+ * its page's scope, and the narrowing a read of it carries, which holds the
+ * viewer's choices under the scope. A bound source's handle is one.
+ */
+export interface RecordSliceNarrowed<W extends ReadonlyMap<string, Choice> = ReadonlyMap<string, Choice>> extends RecordSliceScopeHolder {
+    /** The source's state now: the narrowing a read of it carries. */
+    read(): { readonly where: W };
+}
+
+/**
+ * Whether a source's page holds a scope over it (#1621): the page then holds
+ * only the scope's rows of the record, whatever its viewer chooses, and no
+ * choice of theirs brings in another.
+ * @param slice - The source.
+ * @returns Whether its page scopes it.
+ */
+export function recordSliceScoped(slice: RecordSliceScopeHolder): boolean {
+    return slice.config.scope.size > 0;
+}
+
+/**
+ * The rows a source's page holds of its record, as the narrowing a read of
+ * them carries (#1621): its scope alone, with no choice of the viewer's —
+ * every row, on a page that holds no scope. What a reader takes for the
+ * source's whole: a count's total, the rows a dimmed narrowing draws as
+ * context, the rows a key is sought among.
+ * @param slice - The source.
+ * @returns That narrowing: the same map while the source's config is.
+ */
+export function recordSliceBase<W extends ReadonlyMap<string, Choice>>(slice: RecordSliceScopeHolder<W>): W {
+    return slice.config.scope;
+}
+
+/**
+ * The narrowing a read of a source carries for some choices of its viewer's
+ * (#1621): its page's scope laid over them ({@link recordScopedWhere}). What a
+ * reader asks the source with choices it holds itself — a saved view's — so
+ * they are read under the page they are asked on.
+ * @param slice - The source.
+ * @param choices - The viewer's choices.
+ * @returns The two together, the same map where the page holds no scope.
+ */
+export function recordSliceScopedWhere(slice: RecordSliceScopeHolder, choices: Map<string, Choice>): Map<string, Choice>;
+export function recordSliceScopedWhere(slice: RecordSliceScopeHolder, choices: ReadonlyMap<string, Choice>): ReadonlyMap<string, Choice>;
+export function recordSliceScopedWhere(slice: RecordSliceScopeHolder, choices: ReadonlyMap<string, Choice>): ReadonlyMap<string, Choice> {
+    return recordScopedWhere(slice.config.scope, choices);
+}
+
+/**
+ * The viewer's own choices of a narrowing read of a source (#1621): the
+ * narrowing without the fields its page scopes ({@link recordChoicesOf}).
+ * @param slice - The source.
+ * @param where - A narrowing a read of it carries: the choices and the scope together.
+ * @returns Its choices: the same map where the page holds no scope, and the same answer whenever the same narrowing is asked.
+ */
+export function recordSliceChoicesOf(slice: RecordSliceScopeHolder, where: Map<string, Choice>): Map<string, Choice>;
+export function recordSliceChoicesOf(slice: RecordSliceScopeHolder, where: ReadonlyMap<string, Choice>): ReadonlyMap<string, Choice>;
+export function recordSliceChoicesOf(slice: RecordSliceScopeHolder, where: ReadonlyMap<string, Choice>): ReadonlyMap<string, Choice> {
+    return recordChoicesOf(slice.config.scope, where);
+}
+
+/**
+ * The viewer's own choices of a source as it stands (#1621): the narrowing a
+ * read of it carries now, without the fields its page scopes. What the rail
+ * draws as chosen, what a Clear clears, and what a saved view keeps.
+ * @param slice - The source.
+ * @returns Its viewer's choices: the same answer while its narrowing is the same.
+ */
+export function recordSliceChoices(slice: RecordSliceNarrowed<Map<string, Choice>>): Map<string, Choice>;
+export function recordSliceChoices(slice: RecordSliceNarrowed): ReadonlyMap<string, Choice>;
+export function recordSliceChoices(slice: RecordSliceNarrowed): ReadonlyMap<string, Choice> {
+    return recordChoicesOf(slice.config.scope, slice.read().where);
+}
+
+/**
+ * Whether a choice of the viewer's narrows a source as it stands (#1621):
+ * what a reader means by the source being narrowed — a count that says
+ * `N of M`, a Clear to offer, rows a narrowing hides. Its page's scope is no
+ * choice: the rows it holds are the source's whole.
+ * @param slice - The source.
+ * @returns Whether its viewer has chosen anything of it.
+ */
+export function recordSliceChosen(slice: RecordSliceNarrowed): boolean {
+    return recordSliceChoices(slice).size > 0;
+}
+
 /** Bound the fan-out of a multi-choice path; never replace it with a row scan. */
 export const MAX_RECORD_SLICE_RUNS = 64;
 

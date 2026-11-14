@@ -85,6 +85,7 @@ import { FollowSources, type FollowedSources } from "../shared/schedule/follow-s
 import type { SourceHiding } from "../shared/schedule/hidden.js";
 import { HideSources, useHiddenPick, type HiddenPicks, type HiddenSource } from "../shared/schedule/hidden-pick.js";
 import { draftedRow, rowCodec } from "../shared/schedule/records.js";
+import { sourceUnheld } from "../shared/schedule/unheld.js";
 import { sourcePart, type KeyVisibilityWords } from "../shared/schedule/visibility.js";
 import { NARROW_WIDTH } from "../shared/schedule/window.js";
 import { kindPlural } from "../shared/schedule/words.js";
@@ -401,15 +402,13 @@ function FlowchartFrame({ value, data, attempt, readAgain, storageKey, words, no
         unqueues: editing.unqueues, wholeLaneOrders: editing.wholeLaneOrders,
         newKey: (sort, made, madeUp, minted) => editing.newKey(sort, made, madeUp, minted),
         moves: (edits) => editing.moves(edits),
-        // A state or a transition the rail narrows reads only its narrowing, under `"hide"`; under `"dim"` it reads every
-        // row — every row its page's scope holds (#1621), which holds only some of it under either — and a lane or a
-        // decision is read whole (#1580).
+        // A state or a transition is read through its source, which may hold only some of its rows (`sourceUnheld`: its
+        // page's scope, #1621, or the rail's filters, which under `"dim"` leave none out); a lane or a decision is read
+        // whole (#1580).
         unheld: (sort) => {
             if (!editing.editable(sort)) return undefined;
             const part = sort === "states" || sort === "transitions" ? sourcePart(chrome, sort) : undefined;
-            if (part !== undefined && part.config.scope.size > 0) return "scoped";
-            if (part !== undefined && value.narrowed.type !== "dim" && part.read().where.size > 0) return "filtered";
-            return editing.available(sort) ? undefined : "busy";
+            return sourceUnheld(part, value.narrowed.type === "dim") ?? (editing.available(sort) ? undefined : "busy");
         },
         created: (sort, key) => editing.drafts[sort].get(key)?.created === true,
     }), [model, drafted, editing, value.narrowed, chrome]);

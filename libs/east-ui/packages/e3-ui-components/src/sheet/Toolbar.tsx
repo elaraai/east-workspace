@@ -5,8 +5,8 @@
 
 /**
  * The toolbar's items (§7): the view tabs at left, then the lens's
- * `n matches` line, and hugging the row's right edge the key search over a
- * paged source's `seek`, the rail — one over the sheet's `Slice.bindRecords`,
+ * `n matches` line, and hugging the row's right edge Search Records over its
+ * rows (`shared/schedule/search-records.ts`), the rail — one over the sheet's `Slice.bindRecords`,
  * each source's fields in source order, the presets, and one summary counting
  * each source (#1345) — the paged scope badge *loaded rows only* while nothing
  * narrows the rows, and the history controls. The count line is the lens's
@@ -54,9 +54,8 @@ import { Box } from "@chakra-ui/react";
 import type { ValueTypeOf } from "@elaraai/east";
 import type { RecordSlicesChromeType } from "@elaraai/east-ui/internal";
 import { HOST_RANK, useRecordSlicesToolbarItems } from "@elaraai/east-ui-components/internal";
-import { type ToolbarItem, useKeySearchToolbarItem } from "@elaraai/east-ui-components";
+import { type KeySearchSource, type ToolbarItem, useKeySearchToolbarItem } from "@elaraai/east-ui-components";
 import type { SheetTabsFold } from "./Tabs.js";
-import type { SheetSearch } from "./use-seek.js";
 import { useSheetWords } from "./words.js";
 
 type Styles = Record<string, Record<string, unknown>>;
@@ -102,8 +101,8 @@ export interface SheetToolbarProps {
     partial: boolean;
     /** The view tabs — while the slice narrows the rows. */
     tabs?: SheetToolbarTabs | undefined;
-    /** Key search over the paged source's `seek`. */
-    search?: SheetSearch | undefined;
+    /** Search Records over the sheet's rows: the record's, through e3, or a host's paged source's, by its `seek`. */
+    search?: KeySearchSource | undefined;
     /** The editing session's history item (#988) — undo · redo · discard · apply at the row's end, right of the rail. */
     history?: ToolbarItem | undefined;
     /** The Elara eye (#1409): the app's optimiser's item, immediately before the history item; `undefined` with no optimiser. */

@@ -15,10 +15,11 @@
  *   backlog, and the crew's rows — each asked of e3 through an index the press
  *   leads, with the press, and never the record whole. What the Backlog tab
  *   counts on such a page is the DOM's (`src/calendar/calendar-scope.dom.test.tsx`).
- * - A Sheet's rail reads the press's runs, and its lens places them in the
- *   record, whose rows are the sheet's own. Its saved views hold the viewer's
- *   choices alone: one saved on a press's page counts another's runs under that
- *   page's press, and opens there.
+ * - A Sheet's rows are the press's runs alone, numbered 1 to N in their keys'
+ *   order through the index on exactly the press, the viewer's narrowing placed
+ *   among them as the lens, and no row beyond the press read. Its saved views
+ *   hold the viewer's choices alone: one saved on a press's page counts
+ *   another's runs under that page's press, and opens there.
  * - A run made on the page takes its press from the scope and its crew member
  *   from the row it lands on; a scope of several presses leaves a template's
  *   own. A draft that leaves the scope stays a draft, and its Save commits it.
@@ -36,7 +37,7 @@ import {
 import { Slice } from "@elaraai/east-ui";
 import { Editing } from "@elaraai/east-ui/internal";
 import { StateRuntime, UIStore, createRecordSliceImplementation } from "@elaraai/east-ui-components/platform";
-import { recordSlicePlace } from "@elaraai/east-ui-components/internal";
+import { recordSliceBasePlace, recordSliceBaseWithinAt } from "@elaraai/east-ui-components/internal";
 import {
     Calendar, CalendarPayloadType, Data, Plan, PlanPayloadType, Record, Schedule, Sheet, SheetPayloadType, createCalendarPayload, createSheetPayload,
 } from "@elaraai/e3-ui/internal";
@@ -121,7 +122,8 @@ function planOf($: BlockBuilder<typeof PlanPayloadType>, presses: readonly strin
 
 /**
  * The runs as a Sheet on `press`'s page: the rail's `rows` source scoped to the press, a choice of crew member beside it
- * through the index the press leads, and the sheet's rows the record's own, the press's drawn over them as the lens.
+ * through the index the press leads, and the sheet's rows the press's alone, the viewer's narrowing drawn over them as
+ * the lens.
  */
 function sheetOf($: BlockBuilder<typeof SheetPayloadType>, press: ExprType<StringType>): ExprType<typeof SheetPayloadType> {
     const runs = $.let(Record.bind(ex.pressRuns, ["patch"]));
@@ -211,22 +213,31 @@ describe("a press's own page reads that press alone (#1621)", () => {
         assert.deepEqual([...new Set(leadingOf(runReads()))], [`(press=${printString("P-2")})`]);
     });
 
-    test("a Sheet: its rail's rows are the press's, and its lens places them in the record, whose rows are the sheet's own", async () => {
+    test("a Sheet: its rows are the press's alone, numbered 1 to N in their keys' order, its total the press's, and the viewer's narrowing placed among them — no row beyond the press is read", async () => {
         const page = (await sheetPages())("P-1");
         const rows = rowsOf(page);
         assert.equal(await h.ready(() => rows.total()), 5n, "the source's count is the press's runs");
         // In their keys' order, through the index on exactly the press: what Search Records finds a run among them by.
         assert.deepEqual(await keysOf(page.narrowed.get("rows")), ["r1", "r2", "r3", "r6", "r7"]);
-        // The lens: where the press's runs sit among the record's, placed from the index the press leads.
-        const placed = await h.ready(() => recordSlicePlace(rows, rows.read().where));
-        assert.deepEqual([placed.total, placed.records], [5n, 8n]);
-        // The sheet's own rows: the record's, every press's, in its order — its total what its pages hold.
-        if (page.sheet.rows.type !== "pinned") assert.fail(`expected the record's rows pinned, got ${page.sheet.rows.type}`);
-        const record = page.sheet.rows.value;
-        assert.equal(await h.ready(() => record.total()), 8n);
-        assert.deepEqual((await h.ready(() => record.page(0n, 8n))).rows.map((row) => row.id), ["r1", "r2", "r3", "r4", "r5", "r6", "r7", "r8"]);
-        // Every search of the narrowing names the press: through the index on exactly it, by the press itself.
-        const named = runReads().flatMap((request) => request.searches.map((search) =>
+        // The sheet's own rows: the press's alone, in that order — its total theirs, and a page of them by their numbers.
+        if (page.sheet.rows.type !== "pinned") assert.fail(`expected the page's rows pinned, got ${page.sheet.rows.type}`);
+        const sheet = page.sheet.rows.value;
+        assert.equal(await h.ready(() => sheet.total()), 5n);
+        assert.deepEqual((await h.ready(() => sheet.page(0n, 8n))).rows.map((row) => row.id), ["r1", "r2", "r3", "r6", "r7"]);
+        assert.deepEqual((await h.ready(() => sheet.page(2n, 2n))).rows.map((row) => row.id), ["r3", "r6"], "rows 3 and 4 of the sheet");
+        // The lens: the runs waiting for a crew member, placed among the press's five — its last two.
+        rows.write({ ...rows.read(), preset: none, where: new Map([["crew", variant("values", [maybeText(none)])]]) });
+        const placed = await h.ready(() => recordSliceBasePlace(rows, rows.read().where));
+        assert.deepEqual([placed.total, placed.records], [2n, 5n]);
+        assert.deepEqual(await h.ready(() => recordSliceBaseWithinAt(rows, rows.read().where, 0n, 5n)), [false, false, false, true, true]);
+        // No row beyond the press is read: the runs never whole, every read through an index the press leads, and every
+        // search naming the press.
+        const reads = runReads();
+        assert.deepEqual(reads.filter((request) => request.kind === "read"), [], "the runs are never read whole");
+        const indexes = new Set(reads.map((request) => request.query.get("index")));
+        assert.deepEqual([...indexes].filter((index) => index === null || !index.startsWith("press_runs_by_press")), [], "every read through an index the press leads");
+        assert.ok(indexes.has("press_runs_by_press"), "the sheet's rows through the index on exactly the press");
+        const named = reads.flatMap((request) => request.searches.map((search) =>
             ("fields" in search ? search.fields[0]! : "key" in search ? search.key : "from" in search ? search.from[0] ?? "" : "")));
         assert.ok(named.length > 0 && named.every((text) => text.includes(printString("P-1"))), `every search names the press: ${named.join(", ")}`);
     });

@@ -108,7 +108,7 @@
 import { IntegerType, StringType, compareFor, equalFor, printFor, type ValueTypeOf } from "@elaraai/east";
 import { SeekQueryType, type SeekRangeType } from "@elaraai/east-ui";
 import {
-    RecordSliceWhereType, areaCells, recordChoicesOf, recordScopedWhere,
+    RecordSliceWhereType, areaCells, recordSliceBase, recordSliceChosen, recordSliceScoped,
     type AreaCell, type RecordOnPrinter, type RecordSliceBindType, type RecordSliceCell, type RecordSliceEntry, type RecordSliceJoined,
 } from "@elaraai/east-ui/internal";
 import {
@@ -472,31 +472,6 @@ function rowOf(entry: RecordSliceEntry): unknown {
     return undefined;
 }
 
-/** No narrowing. */
-const NO_WHERE: Where = new Map();
-
-/** Each source's page's scope as a narrowing (#1621), by its config: the same object while the config is. */
-const scopes = new WeakMap<object, Where>();
-
-/**
- * What a kind reads under `narrowed="dim"`, which draws the viewer's narrowing as context: every row its page's scope
- * holds (#1621) — every row, with no scope — the same object while its source's config is, so a window is planned again
- * only when what it reads moves.
- */
-function dimWhere(part: Part): Where {
-    let where = scopes.get(part.config);
-    if (where === undefined) {
-        where = recordScopedWhere(part.config.scope, NO_WHERE);
-        scopes.set(part.config, where);
-    }
-    return where;
-}
-
-/** Whether the viewer's choices narrow a kind, its page's scope apart (#1621): what `narrowed="dim"` leaves out of a density. */
-function chosen(part: Part): boolean {
-    return recordChoicesOf(part.config.scope, part.read().where).size > 0;
-}
-
 /** No rows. */
 const NO_ROWS: SchematicAreaRows = new Map();
 
@@ -702,7 +677,9 @@ export class SchematicAreaReader {
         slot.waiting = "rows";
         const revision = recordSliceRevision(part);
         if (revision.type !== "some") return READING;
-        const planned = this.plannedOf(slot, part, areas, dim ? dimWhere(part) : part.read().where, this.windowFor(slot, viewport, extent));
+        // Under `dim` a kind reads every row its page holds (`recordSliceBase`, #1621), the viewer's narrowing drawn over them
+        // as context: the same narrowing while its source's config is, so a window is planned again only as what it reads moves.
+        const planned = this.plannedOf(slot, part, areas, dim ? recordSliceBase(part) : part.read().where, this.windowFor(slot, viewport, extent));
         const last = slot.read;
         if (last !== undefined && Object.is(last.planned, planned) && stringEqual(last.revision, revision.value)) {
             slot.waiting = undefined;
@@ -847,9 +824,9 @@ export class SchematicAreaReader {
         for (const range of coarse) total += range.count;
         // The coarser levels' rows, boxes larger than half a raster cell: drawn as rows while a window would draw them all.
         const few = total <= BigInt(SCHEMATIC_WINDOW_ROWS);
-        // Under `dim` the raster counts every row its page's scope holds, the viewer's choices left out of it; otherwise the
-        // fields the index doesn't lead aren't counted in it.
-        const unnarrowed = dim ? chosen(part) : planned.plan.residual.length > 0;
+        // Under `dim` the raster counts every row its page holds, the viewer's choices left out of it (`recordSliceChosen`:
+        // its page's scope is none, #1621); otherwise the fields the index doesn't lead aren't counted in it.
+        const unnarrowed = dim ? recordSliceChosen(part) : planned.plan.residual.length > 0;
         const density = this.densityOf(slot, rastered, counts, few ? undefined : coarse.map((range) => range.count), unnarrowed);
         return { density, found, coarse, few: few && total > 0n };
     }
@@ -944,7 +921,7 @@ export class SchematicAreaReader {
         const revision = recordSliceRevision(part);
         if (revision.type !== "some") return READING;
         const slot = this.slotOf(kind.key);
-        const where = dim ? dimWhere(part) : part.read().where;
+        const where = dim ? recordSliceBase(part) : part.read().where;
         let planned = slot.overviewPlanned;
         if (planned === undefined || !Object.is(planned.config, part.config) || !Object.is(planned.where, where) || !sameBox(planned.extent, extent)) {
             const plan = schematicWindowPlan(areas, where, extent);
@@ -960,7 +937,7 @@ export class SchematicAreaReader {
         if (found.type !== "some") return last === undefined ? READING : last.density;
         const cells = schematicDensityCells(planned.raster, found.value.slice(0, planned.cells).map((range) => range.count),
             found.value.slice(planned.cells).map((range) => range.count));
-        const unnarrowed = dim ? chosen(part) : planned.plan.residual.length > 0;
+        const unnarrowed = dim ? recordSliceChosen(part) : planned.plan.residual.length > 0;
         const density: SchematicDensity = {
             side: planned.raster.side, cells, most: cells.reduce((most, cell) => Math.max(most, cell.count), 0), box: extent, spread: true, unnarrowed,
         };
@@ -1080,8 +1057,8 @@ export class SchematicAreaReader {
         // Under `dim`, a far end its page's scope doesn't hold (#1621) is no row of this page, drawn nowhere — not as context:
         // the window is read under the scope, and a far end, read by key, is held to it.
         let ends = far;
-        if (dim && far.size > 0 && part.config.scope.size > 0) {
-            const inScope = this.answersOf(slot, part, read.revision, dimWhere(part), far, keys, "scopeAnswers");
+        if (dim && far.size > 0 && recordSliceScoped(part)) {
+            const inScope = this.answersOf(slot, part, read.revision, recordSliceBase(part), far, keys, "scopeAnswers");
             if (inScope === READING) return READING;
             ends = new Map([...far].filter(([key]) => inScope.get(key) === true));
         }
