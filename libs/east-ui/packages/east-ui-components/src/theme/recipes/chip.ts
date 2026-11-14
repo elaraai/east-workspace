@@ -35,11 +35,13 @@
  *
  * In a toolbar's row a chip stands as tall as every control there, 28px
  * (`toolbar-row.ts`, ruled 23 Oct 2026): the rail's, the chip a row folds into,
- * a count; elsewhere it keeps its own height.
+ * a count; elsewhere it keeps its own height. There its words are set on the
+ * 26px of room inside its edge, so they start a whole number of pixels under
+ * it (#1636).
  */
 
 import { defineRecipe } from "@chakra-ui/react";
-import { IN_TOOLBAR_ROW, TOOLBAR_CONTROL_HEIGHT } from "../toolbar-row.js";
+import { IN_TOOLBAR_ROW, toolbarControlBox } from "../toolbar-row.js";
 
 export const chipRecipe = defineRecipe({
     className: "elara-chip",
@@ -67,7 +69,7 @@ export const chipRecipe = defineRecipe({
         "& [data-chip-caret]": { fontSize: "8px", "--fa-width": "auto" },
         "& [data-chip-meta]": { color: "fg.muted" },
         "& [data-chip-remove]": { color: "link", cursor: "pointer", flexShrink: "0", fontSize: "0.8em", "--fa-width": "auto" },
-        [IN_TOOLBAR_ROW]: { height: TOOLBAR_CONTROL_HEIGHT },
+        [IN_TOOLBAR_ROW]: { ...toolbarControlBox() },
     },
     variants: {
         tone: {

@@ -16,7 +16,9 @@
  * Awesome's xmark (#1263) in the square Chakra's icon took — 80% of the
  * delete's own box, a third less than the chip height Chakra sizes it by:
  * Font Awesome's own height is 1em, outranking the `_icon` size, so the
- * delete's font is the icon's size, and `--fa-width` its width.
+ * delete's font is the icon's size, and `--fa-width` its width. A chip's words
+ * are set on the 20px of room inside its edge, so they start a whole number of
+ * pixels under it (#1636).
  *
  * @packageDocumentation
  */
@@ -24,9 +26,10 @@
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { fieldChrome, fieldFocusRing, fieldInRingedControl, fieldHeights, TOUCH_FONT_FLOOR } from "../field-chrome.js";
 import { coarseHitArea } from "../../style/hit-area.js";
+import { oneLineBox } from "../one-line-box.js";
 
-/** A chip's height, and the typed box's beside it: the design system's tag chip. */
-const CHIP = "22px";
+/** The design system's tag chip: 22px in its 1px edge, its words on the room inside; the typed box beside it is as tall. */
+const CHIP = oneLineBox(22);
 
 export const tagsInputSlotRecipe = defineSlotRecipe({
     className: "elara-tags-input",
@@ -56,7 +59,7 @@ export const tagsInputSlotRecipe = defineSlotRecipe({
             display: "inline-flex",
             alignItems: "center",
             gap: "{spacing.1}",
-            height: CHIP,
+            ...CHIP,
             background: "{colors.brandTint}",
             borderWidth: "1px",
             borderColor: "{colors.brand.500}",
@@ -66,7 +69,6 @@ export const tagsInputSlotRecipe = defineSlotRecipe({
             paddingBlock: "0",
             fontSize: "{fontSizes.body.sm}",
             fontWeight: "medium",
-            lineHeight: "1",
             whiteSpace: "nowrap",
         },
         itemDeleteTrigger: {
@@ -84,7 +86,7 @@ export const tagsInputSlotRecipe = defineSlotRecipe({
             ...fieldInRingedControl,
             flex: 1,
             minWidth: "80px",
-            height: CHIP,
+            height: CHIP.height,
             border: "none",
             outline: "none",
             background: "transparent",
