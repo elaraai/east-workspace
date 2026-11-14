@@ -881,6 +881,24 @@ Each wire changed under this rule, with the kind it is.
   new type. A UI task's output is not stored state, and a column from data
   reads and writes a field the app's record already holds, as it holds it, so
   no repository upgrade step ships with it.
+- **e3-ui's `Plan` items carry a status, the builders' one (#1541)** —
+  package-borne. `Plan.Types.Run.status` is an `Option` of
+  `Plan.Types.Status` (`{ label, tone, ring }`: its words, its tone and
+  whether it draws as an open ring) where it was an `Option` of a tone;
+  `Plan.Types.BucketEvent` loses `tone` and holds `status`, the same `Option`,
+  in its place; `Plan.Types.Chip` gains `status` after `state`, and
+  `Plan.Types.EventMark` after `kind`. `Plan.Types.Status` is the type an
+  event kind's status case already is (`Schedule.Types.Status`, and the
+  Schematic's `Schematic.Types.Status`): one definition
+  (e3-ui's `utils/status.ts`) under the three names, so the Schedule's and the
+  Schematic's kinds on the wire do not change. The four items travel in the
+  `Plan` extension's payload — the canvas's rows, a paged source's windows,
+  the event kinds' blocks and a paged resource kind's — so a UI value encoded
+  under either type does not decode under the other: packages are
+  re-exported, and the dataflow computes each UI task's output again under
+  the new type. A UI task's output is not stored state, so no repository
+  upgrade step ships with it. An application's records keep their types: a
+  status is made by the series' map, from whatever the row holds.
 - **A record's ref remembers its last 16 keyed requests (#1599)** — stored
   state, and no type changes. A record's ref holds its version vector, a
   `Dict<String, String>`, and in it the commit protocol's reserved entries.

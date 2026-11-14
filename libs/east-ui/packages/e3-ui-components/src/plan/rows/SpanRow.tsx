@@ -8,7 +8,7 @@
  * on the shared scale, plus factory-computed rollup bands, decision diamonds
  * and quantity ports. The §4.3 run-state truth table maps `EventStateType` to
  * the recipe `bar` slot's `data-state` axis; `status: warning` adds the
- * `.stuck` warn ring; a run ending past the window keeps its true geometry and
+ * status's ring (#1541: `data-tone`, and `data-ring` for an open one); a run ending past the window keeps its true geometry and
  * mask-fades (`data-runoff`) — never a fabricated end. Popovers and hover cards
  * resolve through the root's generalized resolvers: the canvas's one overlay
  * layer opens them from a bar's `data-run` or a diamond's `data-mark` (#816),
@@ -30,8 +30,10 @@ import { useMemo } from "react";
 import { Box } from "@chakra-ui/react";
 import { variant, type ValueTypeOf } from "@elaraai/east";
 import { Plan } from "@elaraai/e3-ui/internal";
+import { getSomeorUndefined } from "@elaraai/east-ui-components";
 import { usePlanDispatch, usePlanResolvers, usePlanScale, type PlanElementRefValue } from "../context.js";
 import { decisionName, runName } from "../a11y.js";
+import { statusAttributes } from "../../shared/status.js";
 import { quantityText } from "../quantity.js";
 import { usePlanWords } from "../words.js";
 import { usePlanMovable } from "../edit/movable.js";
@@ -90,7 +92,6 @@ function RunBar({ run, left, width, runoff, rowKey, rowId, styles, ctx, move }: 
         : undefined), [move, rowKey, run]);
     const { handle, edges, carried } = usePlanMovable(movable);
     const stateKey = runStateKey(run.state);
-    const stuck = run.status.type === "some" && run.status.value.type === "warning";
     // ONE quantity (#824): its caption is its text, else its value
     // through its format, then its unit.
     const qty = run.quantity.type === "some" ? quantityText(run.quantity.value, words) : undefined;
@@ -114,7 +115,8 @@ function RunBar({ run, left, width, runoff, rowKey, rowId, styles, ctx, move }: 
             css={styles.bar}
             data-ctx={ctx === true ? "" : undefined}
             data-state={stateKey}
-            data-stuck={stuck ? "" : undefined}
+            // Its status (#1541): its tone's ring, and the open ring a tentative one draws as.
+            {...statusAttributes(getSomeorUndefined(run.status))}
             data-overlap={overlap ? "" : undefined}
             data-draft={drafted ? "" : undefined}
             data-conflict={conflict ? "" : undefined}

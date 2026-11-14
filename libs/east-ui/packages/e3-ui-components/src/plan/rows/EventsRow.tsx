@@ -28,12 +28,14 @@ import { Box } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconName, IconPrefix } from "@fortawesome/fontawesome-svg-core";
 import { Plan } from "@elaraai/e3-ui/internal";
+import { getSomeorUndefined } from "@elaraai/east-ui-components";
 import { usePlanScale, type PlanElementRefValue } from "../context.js";
 import { usePlanElementSelect } from "./element-select.js";
 import { usePlanElementOverlap } from "./element-overlap.js";
 import { usePlanElementBounded, usePlanElementConflicted, usePlanElementDrafted } from "./element-draft.js";
 import { usePlanElementOp } from "./element-optimise.js";
 import { markName } from "../a11y.js";
+import { statusAttributes } from "../../shared/status.js";
 import type { PlanRowId } from "../model.js";
 import { usePlanWords } from "../words.js";
 import type { PlanRowMove } from "./SpanRow.js";
@@ -92,6 +94,8 @@ function MarkGlyph({ mark, x, rowKey, rowId, styles, ctx, move }: {
     const common = {
         role: "button", "aria-label": markName(mark, scale, words),
         "data-mark": mark.key, "data-plan-frac": frac, style: { left: `${x * 100}%` }, tabIndex: -1, onClick: select.onClick,
+        // Its status (#1541): its glyph in its tone, and the open dot a tentative one draws as.
+        ...statusAttributes(getSomeorUndefined(mark.status)),
         // A mark that moves takes the recipe's grab cursor.
         cursor: handle !== undefined ? undefined : "pointer",
         ...handle,

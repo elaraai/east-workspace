@@ -312,7 +312,7 @@ describe("a resource is a row block (PB12, PB13, PB15)", () => {
         assert.deepEqual(keysOn(marks), [elementKey("stop", "S-01"), elementKey("check", "S-01")]);
     });
 
-    test("a kind's events draw as tiles in their lanes, the lanes each named once in order; a warning tone rings a tile, a bar and a mark", async () => {
+    test("a kind's events draw as tiles in their lanes, the lanes each named once in order; a warning tone rings a tile, a bar and a chip in its case's words, and makes a mark an exception", async () => {
         const laned = await payloadOf(($) => {
             const presses = $.let(Record.bind(ex.planPrintPresses, []));
             const lane = $.let(Record.bind(ex.planRowsLaneJobs, ["patch"]));
@@ -324,24 +324,35 @@ describe("a resource is a row block (PB12, PB13, PB15)", () => {
                     tile: Schedule.events(lane, { ...config, name: "Tile", icon: "square", start: "start", end: "end", draw: "buckets", lane: "lane" }),
                     bar: Schedule.events(lane, { ...config, name: "Bar", icon: "minus", start: "start", end: "end", draw: "span" }),
                     mark: Schedule.events(lane, { ...config, name: "Mark", icon: "flag", start: "start", end: "end", draw: "marks" }),
+                    chip: Schedule.events(lane, { ...config, name: "Chip", icon: "clock", start: "start", end: "end", draw: "cards" }),
                 },
             });
         });
         const week1 = blocksOf(laned, FIRST, WEEK2);
-        // Bars, then tiles, then marks: span, buckets, cards, marks order, whatever order `events` lists them in.
-        assert.ok(sameIds(week1[0]!.rows.slice(0, 3).map((r) => r.id), [entry("presses.span", "a1"), entry("presses.buckets", "a1"), entry("presses.marks", "a1")]));
+        // Bars, then tiles, then chips, then marks: span, buckets, cards, marks order, whatever order `events` lists them in.
+        assert.ok(sameIds(week1[0]!.rows.slice(0, 4).map((r) => r.id),
+            [entry("presses.span", "a1"), entry("presses.buckets", "a1"), entry("presses.cards", "a1"), entry("presses.marks", "a1")]));
+        // What an element wears of its event's status (#1541): a warning's ring, in its case's words, drawn as the ring
+        // whether or not its case is an open ring; a status of any other tone, nothing.
+        const worn = (status: ValueTypeOf<OptionType<typeof Plan.Types.Status>>) =>
+            (status.type === "some" ? [status.value.label, status.value.tone.type, status.value.ring] : "-");
         const tiles = rowAt(week1, entry("presses.buckets", "a1"));
         if (tiles.kind.type !== "buckets") assert.fail("expected tiles");
         assert.deepEqual(tiles.kind.value.lanes.map((l) => [l.key, l.label.type === "some" ? l.label.value : ""]), [["am", "am"], ["pm", "pm"]]);
-        assert.deepEqual(tiles.kind.value.events.map((e) => [e.key, e.lane.type === "some" ? e.lane.value : "", e.tone.type === "some" ? e.tone.value.type : "-"]), [
-            [elementKey("tile", "L-1"), "pm", "-"], [elementKey("tile", "L-2"), "am", "warning"],
+        assert.deepEqual(tiles.kind.value.events.map((e) => [e.key, e.lane.type === "some" ? e.lane.value : "", worn(e.status)]), [
+            [elementKey("tile", "L-1"), "pm", "-"], [elementKey("tile", "L-2"), "am", ["Late", "warning", false]],
         ]);
         const bars = rowAt(week1, entry("presses.span", "a1"));
         if (bars.kind.type !== "span") assert.fail("expected bars");
-        assert.deepEqual(bars.kind.value.runs.map((r) => r.status.type === "some" ? r.status.value.type : "-"), ["-", "warning"]);
+        assert.deepEqual(bars.kind.value.runs.map((r) => worn(r.status)), ["-", ["Late", "warning", false]]);
+        // A chip takes the ring too, which it drew none of before.
+        const chips = rowAt(week1, entry("presses.cards", "a1"));
+        if (chips.kind.type !== "cards") assert.fail("expected chips");
+        assert.deepEqual(chips.kind.value.chips.map((c) => worn(c.status)), ["-", ["Late", "warning", false]]);
+        // A mark says the warning by its kind, and carries no status.
         const marks = rowAt(week1, entry("presses.marks", "a1"));
         if (marks.kind.type !== "events") assert.fail("expected marks");
-        assert.deepEqual(marks.kind.value.marks.map((m) => m.kind.type), ["milestone", "exception"]);
+        assert.deepEqual(marks.kind.value.marks.map((m) => [m.kind.type, worn(m.status)]), [["milestone", "-"], ["exception", "-"]]);
         // A row with no tiles has no lanes.
         const a3 = rowAt(week1, entry("presses.buckets", "a3"));
         assert.deepEqual(a3.kind.type === "buckets" ? a3.kind.value.lanes : undefined, []);

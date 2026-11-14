@@ -442,16 +442,16 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
     span: (p: { from: string; to: string }) => string;
     /** A run bar's churn, in words. */
     movedTimes: (p: { n: number; count: string }) => string;
-    /** A run bar's accessible name. */
+    /** A run bar's accessible name; `status` its status's own words (#1541), which its ring says by colour. */
     runName: (p: { label: string; span: string; state: string; quantity: string | undefined; moved: string | undefined; status: string | undefined }) => string;
     /** A span row's decision diamond's accessible name. */
     decisionName: (p: { at: string; applied: boolean }) => string;
-    /** A bucket tile's accessible name. */
-    tileName: (p: { label: string | undefined; bucket: string; lane: string | undefined; state: string; tone: string | undefined }) => string;
-    /** A cards chip's accessible name. */
-    chipName: (p: { label: string; span: string; state: string }) => string;
-    /** An event mark's accessible name. */
-    markName: (p: { label: string | undefined; kind: PlanMarkWord; applied: boolean; at: string }) => string;
+    /** A bucket tile's accessible name; `status` its status's own words (#1541). */
+    tileName: (p: { label: string | undefined; bucket: string; lane: string | undefined; state: string; status: string | undefined }) => string;
+    /** A cards chip's accessible name; `status` its status's own words (#1541). */
+    chipName: (p: { label: string; span: string; state: string; status: string | undefined }) => string;
+    /** An event mark's accessible name; `status` its status's own words (#1541). */
+    markName: (p: { label: string | undefined; kind: PlanMarkWord; applied: boolean; at: string; status: string | undefined }) => string;
     /** A heat cell's value — `91, at or above the warning threshold`. */
     heatValue: (p: { value: string; warn: boolean }) => string;
     /** A cell or bucket with no value. */
@@ -775,13 +775,13 @@ export const planMessages: PlanMessages = {
     movedTimes: ({ n, count }) => `moved ${count} ${plural(n, "time", "times")}`,
     runName: ({ label, span, state, quantity, moved, status }) => listed([label, span, state, quantity, moved, status]),
     decisionName: ({ at, applied }) => `Decision, ${at}, ${applied ? "applied" : "pending"}`,
-    tileName: ({ label, bucket, lane, state, tone }) => listed([label ?? "Event", bucket, lane, state, tone]),
-    chipName: ({ label, span, state }) => listed([label, span, state]),
-    markName: ({ label, kind, applied, at }) => {
+    tileName: ({ label, bucket, lane, state, status }) => listed([label ?? "Event", bucket, lane, state, status]),
+    chipName: ({ label, span, state, status }) => listed([label, span, state, status]),
+    markName: ({ label, kind, applied, at, status }) => {
         const what = kind === "decision" ? `decision, ${applied ? "applied" : "pending"}` : kind;
         return label !== undefined
-            ? listed([label, what, at])
-            : listed([what.charAt(0).toUpperCase() + what.slice(1), at]);
+            ? listed([label, what, at, status])
+            : listed([what.charAt(0).toUpperCase() + what.slice(1), at, status]);
     },
     heatValue: ({ value, warn }) => (warn ? `${value}, at or above the warning threshold` : value),
     noData: () => "no data",
