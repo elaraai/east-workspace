@@ -83,7 +83,7 @@ export function rackPlacementLine(event: RackPlacementEvent): string | undefined
   }
   if (event.detail !== undefined) return `  [LOCAL] ${event.taskName} (${event.reason.replace(/^fallback:/, '')})`;
   if (event.role === 'unit') return undefined;
-  return event.reason === 'spill' || event.reason.startsWith('fallback:') || event.reason.startsWith('no-rack-')
+  return event.reason === 'spill' || event.reason === 'source-unreachable' || event.reason.startsWith('fallback:') || event.reason.startsWith('no-rack-')
     ? `  [LOCAL] ${event.taskName} (${event.reason})` : undefined;
 }
 

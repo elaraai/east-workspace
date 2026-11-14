@@ -26,6 +26,9 @@ export interface OpenRackRunnerOptions {
   policy?: RackPolicy;
   /** Keeps eligible work queued when capacity is busy. */
   rackOnly?: boolean;
+  /** How long work waits, under `rackOnly`, for a rack that runs its tier to
+   *  be healthy before it runs locally, in ms; two minutes unless set. */
+  unreachableWaitMs?: number;
   /** Milliseconds to await a healthy compatible rack; defaults to ten seconds. */
   waitForRackMs?: number;
   /** Receives task/unit placement notifications. */
@@ -129,6 +132,7 @@ export async function openRackRunner(options: OpenRackRunnerOptions): Promise<Ra
     } while (Date.now() <= deadline);
     const runner = new LocalTaskRunner(options.repoPath, options.budget, { ...options.settings,
       body: createRackBody({ session: attached, policy, workspace: options.workspace, rackOnly: options.rackOnly,
+        unreachableWaitMs: options.unreachableWaitMs,
         onPlacement: (event) => { tally.add(event); options.onPlacement?.(event); } }),
       // Racks that cap each unit stop one that outgrows what it was started
       // expecting, and the body leases it again asking more: a split task's
