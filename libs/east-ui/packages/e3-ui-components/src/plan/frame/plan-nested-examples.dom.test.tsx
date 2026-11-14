@@ -197,8 +197,8 @@ describe("the nested series example on e3 (#1439)", () => {
             ["Load line", true], ["Alarms", false], ["Job chips", false], ["Alarm tiles", false]]);
         expect(slot(c, "main")!.querySelector(rowAt(entry("works", "W-10001")))).toBeNull();
         await waitFor(() => expect(slot(c, "main")!.querySelector(rowAt(entry("load-line", "W-10001")))).not.toBeNull());
-        // Kept under the pick's own key.
-        expect(new Set(JSON.parse(localStorage.getItem(keptName("pick.ex.planNestedAll.series"))!))).toEqual(new Set(["works", "load", "crews", "assembly", "alarm-marks", "job-chips", "alarm-tiles"]));
+        // Kept under the Plan's id.
+        expect(new Set(JSON.parse(localStorage.getItem(keptName("pick.plan.planNestedAll.pick"))!))).toEqual(new Set(["works", "load", "crews", "assembly", "alarm-marks", "job-chips", "alarm-tiles"]));
     });
 
     test("planNestedAll: with every series switched off, the strip still spans what they hold", async () => {

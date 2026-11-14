@@ -7,9 +7,10 @@
  * The row stream on screen (#822). Every canvas here is built by the e3-ui
  * factory and COMPILED, so the rows the renderer draws are the ones the series
  * pipeline emits: nesting from the data at any depth, section headers over
- * child collections, `views` adjacency, the series list as the layout (and a
- * pick's list as its order, through the `Plan` carrier as an app renders
- * it), a repeated id drawn as a diagnostic, and sources keyed by any type.
+ * child collections, `views` adjacency, the series list as the layout (a
+ * picked one's too, through the `Plan` carrier as an app renders it, and
+ * `hidden` naming what is off, #1541), a repeated id drawn as a diagnostic,
+ * and sources keyed by any type.
  */
 
 import { describe, test, expect, afterEach, beforeEach } from "vitest";
@@ -257,6 +258,78 @@ describe("nesting comes from the data (#822)", () => {
     });
 });
 
+describe("what `hidden` names is not drawn (#1541)", () => {
+    const Kid = StructType({ v: FloatType });
+    const Row = StructType({ v: FloatType, jobs: BooleanType, kids: DictType(StringType, Kid) });
+    const DATA = new Map([
+        ["p03", { v: 1.0, jobs: true, kids: new Map([["k1", { v: 5.0 }]]) }],
+        ["p04", { v: 2.0, jobs: false, kids: new Map() }],
+    ]);
+    /** Each press three ways, its parts beneath, under a section; then a block of marks. */
+    const canvas = (hidden: string[]) => planOf(East.function([], Plan.Types.Root, ($) => {
+        const data = $.const(DATA, DictType(StringType, Row));
+        return Plan.Root({
+            axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }),
+            data,
+            series: [
+                Plan.series.views(Row, {
+                    key: "presses", title: "Presses",
+                    children: Plan.children("kids", [
+                        Plan.series.heat(Kid, { key: "parts", title: "Parts", label: (_k, key) => key, cells: _k => Plan.heatCells([]) }),
+                    ]),
+                }, [
+                    Plan.series.span(Row, { key: "press-jobs", title: "Jobs", match: r => r.jobs, label: (_r, k) => k, runs: _r => [] }),
+                    Plan.series.heat(Row, { key: "press-load", title: "Load", label: (_r, k) => k,
+                        cells: r => Plan.heatCells([{ at: Plan.at.time(W27), value: some(r.v), label: none }]) }),
+                    Plan.series.table(Row, { key: "press-sheets", title: "Sheets", label: (_r, k) => k,
+                        cells: r => Plan.tableCells([{ at: W27, value: some(r.v) }]) }),
+                ]),
+                Plan.series.section(Row, { key: "notes", title: "Notes" }, [
+                    Plan.series.events(Row, { key: "marks", title: "Marks", label: (_r, k) => k, marks: _r => [] }),
+                ]),
+            ],
+            hidden,
+        });
+    }));
+
+    test("a series off takes its block, a section its header and its members", () => {
+        const all = renderPlan(canvas([]), "plan-1541-all");
+        expect(ids(all.container)).toEqual([
+            "entry press-jobs p03", "entry press-load p03", "entry press-sheets p03", "entry parts p03/k1",
+            "entry press-load p04", "entry press-sheets p04",
+            "section notes ", "entry marks p03", "entry marks p04",
+        ]);
+        cleanup();
+        const noNotes = renderPlan(canvas(["notes"]), "plan-1541-notes");
+        expect(ids(noNotes.container)).toEqual([
+            "entry press-jobs p03", "entry press-load p03", "entry press-sheets p03", "entry parts p03/k1",
+            "entry press-load p04", "entry press-sheets p04",
+        ]);
+    });
+
+    test("a `views` member off takes its rows alone: the entry's child nests under the first left, and folds with it", () => {
+        const { container } = renderPlan(canvas(["press-jobs"]), "plan-1541-member");
+        expect(ids(container)).toEqual([
+            "entry press-load p03", "entry press-sheets p03", "entry parts p03/k1",
+            "entry press-load p04", "entry press-sheets p04",
+            "section notes ", "entry marks p03", "entry marks p04",
+        ]);
+        expect(itemById(container, "entry parts p03/k1")!.getAttribute("aria-level")).toBe("2");
+        // The child's parent is now the load, the first view row left: closing it hides the child.
+        fireEvent.click(itemById(container, "entry press-load p03")!.querySelector("[role='rowheader']")!);
+        expect(ids(container)).toEqual([
+            "entry press-load p03", "entry press-sheets p03",
+            "entry press-load p04", "entry press-sheets p04",
+            "section notes ", "entry marks p03", "entry marks p04",
+        ]);
+    });
+
+    test("every member of a `views` off leaves no row of its entries, and none beneath them", () => {
+        const { container } = renderPlan(canvas(["press-jobs", "press-load", "press-sheets"]), "plan-1541-none");
+        expect(ids(container)).toEqual(["section notes ", "entry marks p03", "entry marks p04"]);
+    });
+});
+
 describe("the series list is the layout (#822)", () => {
     const Row = StructType({ v: FloatType });
     const DATA = new Map([["a", { v: 1.0 }], ["b", { v: 2.0 }]]);
@@ -283,13 +356,20 @@ describe("the series list is the layout (#822)", () => {
         expect(ids(reverse.container)).toEqual(SHEETS_FIRST);
     });
 
-    test("a pick's list is the order on screen; switching a series off takes its block", async () => {
-        const picked = (key: string, all: typeof heat[], hidden: string[]) => East.compile(
+    test("the series list is the order on screen; a series `hidden` names is off to start, picked or not (#1541)", async () => {
+        // Picked: the library lists the Series tab, and what is off is state, under the Plan's id.
+        const picked = (id: string, all: typeof heat[], hidden: string[]) => East.compile(
             East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
                 const data = $.const(DATA, DictType(StringType, Row));
-                const list = $.const(all, ArrayType(Plan.Types.Series(Row)));
-                const shown = $.let(Plan.pick(key, list, { hidden }));
-                return Plan({ axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }), data, pick: shown });
+                return Plan({ id, axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }), data, series: all, hidden, library: [Plan.library.series()] });
+            }))) as never,
+            getRegisteredPlatformImplementations(),
+        )() as UIValue;
+        // Not picked: no Series tab, so nothing is bound, and `hidden` names what is not drawn.
+        const fixed = (all: typeof heat[], hidden: string[]) => East.compile(
+            East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+                const data = $.const(DATA, DictType(StringType, Row));
+                return Plan({ axis: Plan.axis({ window: { min: W27, max: END }, resolution: "week" }), data, series: all, hidden });
             }))) as never,
             getRegisteredPlatformImplementations(),
         )() as UIValue;
@@ -306,6 +386,9 @@ describe("the series list is the layout (#822)", () => {
         cleanup();
         const loadOff = mount(picked("plan.822.pick.c", [heat, table], ["load"]));
         await waitFor(() => expect(ids(loadOff.container)).toEqual(["entry sheets a", "entry sheets b"]));
+        cleanup();
+        const loadLeftOut = mount(fixed([heat, table], ["load"]));
+        await waitFor(() => expect(ids(loadLeftOut.container)).toEqual(["entry sheets a", "entry sheets b"]));
     });
 });
 

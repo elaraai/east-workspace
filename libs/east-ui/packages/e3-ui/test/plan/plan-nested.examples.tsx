@@ -219,7 +219,7 @@ export const planWorks = e3.record("plan_works", WorksByKey, {
 export const planNestedAll = example({
     keywords: [
         "Plan", "Slice", "Slice.bindRecords", "rows", "rail", "paged", "Data.bindPaged", "index.nested", "nested series index",
-        "cell", "subtotals", "bands", "rollup", "tree", "children", "shading", "cap", "large record", "stress", "pick", "Plan.pick",
+        "cell", "subtotals", "bands", "rollup", "tree", "children", "shading", "cap", "large record", "stress", "pick", "picked", "hidden",
         "library", "Plan.library.series", "Series tab", "record", "Record.bind", "save door", "editing", "Save", "chart", "events", "marks",
         "cards", "chips", "buckets", "tiles", "#1438",
     ],
@@ -242,8 +242,8 @@ export const planNestedAll = example({
             }));
             return <Box width="100%" height="760px"><Plan id="planNestedAll" slice={{ slice }}
                 axis={Plan.axis({ window: { min: new Date("2026-09-28T00:00:00Z"), max: new Date("2026-12-28T00:00:00Z") }, resolution: "week", resolutions: ["week", "month", "quarter", "year"] })}
-                // The series picked, as Plan.pick returns them: the Series tab lists each, with its eye.
-                pick={Plan.pick("ex.planNestedAll.series", [
+                // The series, picked since the library lists the Series tab: it lists each, with its eye.
+                series={[
                     Plan.series.span(Works, {
                         key: "works", title: "Jobs", label: (w) => w.name, edit: true,
                         runs: Plan.items("jobs", { from: "start", to: "end" }, (job) => ({ label: job.product, state: job.state })),
@@ -286,7 +286,8 @@ export const planNestedAll = example({
                         key: "alarm-tiles", title: "Alarm tiles", label: (w) => w.name,
                         events: Plan.items("alarms", { at: "at" }, (alarm) => ({ state: variant("confirmed", null), label: some(alarm.code) })),
                     }),
-                ], { hidden: ["load-line", "alarm-marks", "job-chips", "alarm-tiles"] })}
+                ]}
+                hidden={["load-line", "alarm-marks", "job-chips", "alarm-tiles"]}
                 library={[Plan.library.series()]}
                 // The works' save door: a moved job and a typed hour are drafts, saved to the record by key.
                 record={works}

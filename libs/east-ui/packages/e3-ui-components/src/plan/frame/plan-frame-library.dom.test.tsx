@@ -13,7 +13,7 @@
 import { describe, test, expect } from "vitest";
 import { cleanup, fireEvent, render, within } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
-import { East, none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { DictType, East, FloatType, StringType, StructType, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
 import { UIStore, getRegisteredPlatformImplementations, system } from "@elaraai/east-ui-components";
 import { markOf } from "@elaraai/east-ui-components/testing";
@@ -23,7 +23,7 @@ import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
 import { EastChakraPlan, type PlanRootValue, type PlanValue } from "../index.js";
 import { rowKeyOf, type PlanRowId } from "../model.js";
 import { oneBlock, rowId } from "../plan.test-utils.js";
-import { act, entry, planHarness, settle, slot, tabs } from "./harness.test-utils.js";
+import { act, entry, planHarness, rowAt, settle, slot, tabs } from "./harness.test-utils.js";
 
 const h = planHarness();
 
@@ -469,6 +469,90 @@ describe("the Series tab over a canvas whose series are picked (#590)", () => {
         const fresh = fakePick(["c"]);
         renderPicked(fresh).unmount();
         expect(fresh.state.read()).toEqual(["c"]);
+    });
+
+    /** A part of a press: one row beneath it. */
+    const Part = StructType({ v: FloatType });
+    /** A press, drawn three ways, with its parts beneath. */
+    const Press = StructType({ v: FloatType, parts: DictType(StringType, Part) });
+
+    /**
+     * Two presses, each one row a view — its jobs, its load, its sheets — the first with a part beneath it, their
+     * series picked through the Series tab under the Plan's id, the ones `hidden` names off to start.
+     */
+    const viewsPlan = (hidden: string[]) => ({ fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+        const data = $.const(new Map([
+            ["p03", { v: 1.0, parts: new Map([["k1", { v: 5.0 }]]) }],
+            ["p04", { v: 2.0, parts: new Map() }],
+        ]), DictType(StringType, Press));
+        return Plan({
+            id: "views",
+            axis: Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "week" }),
+            data,
+            series: [Plan.series.views(Press, {
+                key: "presses", title: "Presses",
+                children: Plan.children("parts", [
+                    Plan.series.heat(Part, { key: "parts", title: "Parts", label: (_part, key) => key, cells: () => Plan.heatCells([]) }),
+                ]),
+            }, [
+                Plan.series.span(Press, { key: "press-jobs", title: "Jobs", label: (_press, key) => key, runs: () => [] }),
+                Plan.series.heat(Press, { key: "press-load", title: "Load", label: (_press, key) => key, cells: () => Plan.heatCells([]) }),
+                Plan.series.table(Press, { key: "press-sheets", title: "Sheets", label: (_press, key) => key, cells: () => Plan.tableCells([]) }),
+            ])],
+            hidden,
+            library: [Plan.library.series()],
+        });
+    }))) });
+
+    test("a `views` is listed as its members, each switched alone: a member off takes its rows, the entry's children nest under the first left, and what is off is kept under the Plan's id (#1541)", async () => {
+        const first = await h.mount(viewsPlan(["press-sheets"]), DRAG);
+        await settle();
+        const { container } = first;
+        await openTab(container, "Series");
+        // No line for the views themselves: each member its own, the one `hidden` names off to start.
+        expect(lines(container)).toEqual([["Jobs", true], ["Load", true], ["Sheets", false]]);
+        const jobs = entry("press-jobs", "p03");
+        const load = entry("press-load", "p03");
+        const sheets = entry("press-sheets", "p03");
+        const part = entry("parts", "p03", "k1");
+        const drawn = (c: HTMLElement) => [jobs, load, sheets, part].map((id) => draws(c, id));
+        /** Folds or opens a row by its gutter. */
+        const fold = async (c: HTMLElement, id: PlanRowId) => {
+            fireEvent.click(slot(c, "main")!.querySelector<HTMLElement>(`${rowAt(id)} [role='rowheader']`)!);
+            await settle();
+        };
+        expect(drawn(container)).toEqual([true, true, false, true]);
+        // The part nests under the first view row: folding the jobs takes it, the load beside them stays.
+        await fold(container, jobs);
+        expect(drawn(container)).toEqual([true, true, false, false]);
+        await fold(container, jobs);
+        expect(drawn(container)).toEqual([true, true, false, true]);
+        // The jobs off: their rows alone go, and the part nests under the load, the first left.
+        await toggle(container, "Jobs");
+        expect(drawn(container)).toEqual([false, true, false, true]);
+        expect(draws(container, entry("press-load", "p04"))).toBe(true);
+        await fold(container, load);
+        expect(drawn(container)).toEqual([false, true, false, false]);
+        await fold(container, load);
+        expect(drawn(container)).toEqual([false, true, false, true]);
+        // Every member off: no row of the press, and none beneath one.
+        await toggle(container, "Load");
+        expect(drawn(container)).toEqual([false, false, false, false]);
+        // The sheets on: the part nests under them.
+        await toggle(container, "Sheets");
+        expect(drawn(container)).toEqual([false, false, true, true]);
+        expect(lines(container)).toEqual([["Jobs", false], ["Load", false], ["Sheets", true]]);
+        // Kept for the viewer under the Plan's id, the pick's key.
+        expect(localStorage.getItem(keptName("pick.plan.views.pick"))).toBe(JSON.stringify(["press-jobs", "press-load"]));
+        first.unmount();
+
+        // A reload: the pick as its program seeds it, the browser's storage kept.
+        resetKept();
+        const again = await h.mount(viewsPlan(["press-sheets"]), DRAG);
+        await settle();
+        expect(drawn(again.container)).toEqual([false, false, true, true]);
+        await openTab(again.container, "Series");
+        expect(lines(again.container)).toEqual([["Jobs", false], ["Load", false], ["Sheets", true]]);
     });
 
     test("an empty Series tab explains that there is nothing to hide", async () => {
