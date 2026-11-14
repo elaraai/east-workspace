@@ -22,6 +22,7 @@ import { pinnedFetch } from '../tls/tls.js';
 import { DEFAULT_RACK_POLICY, setMode, setRule, type RackPolicy } from '../routing/policy.js';
 import { openRackRunner, type OpenRackRunnerOptions } from './rack-runner.js';
 import type { RackPlacementEvent } from './rack-body.js';
+import type { RackLeaseEvent } from '../protocol/task-envelope.js';
 import { describeRackSummary } from './summary.js';
 
 const cleanup: Array<() => Promise<void>> = [];
@@ -299,4 +300,14 @@ it('says a transfer\'s retry, places work by the reason its rack gave, and sums 
     { workspace: 'dev', taskName: 'length', rackLabel: 'test rack', outcome: 'error', reason: some('input-transfer-failed: injected transfer failure') },
     { workspace: 'dev', taskName: 'length', rackLabel: 'test rack', outcome: 'success', reason: none },
   ]);
+});
+
+it('asks of a rack what the task\'s rule stands for: its size\'s cores, and its memory limit as its cap', async () => {
+  const f = await fixture(); const agent = await f.agent();
+  const rack = await f.open({ policy: setRule(f.policy, 'length', 'rack', { size: 'small', memoryLimit: 1024 ** 3 }) });
+  const running = rack.runner.execute(f.storage, f.hash, f.inputs, { taskName: 'length' });
+  const grant = await agent.claim(); assert(grant);
+  assert.deepEqual((JSON.parse(grant.eventJson) as RackLeaseEvent).resources, { kind: 'task', cores: 2, memoryBytes: 1024 ** 3, gpu: false });
+  const done = await agent.execute(grant); assert.equal(done.status, 'success', done.error);
+  assert.equal((await running).state, 'success');
 });

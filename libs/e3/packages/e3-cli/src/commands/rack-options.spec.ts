@@ -32,4 +32,6 @@ it('prints nothing for work that was never a rack\'s, and of a unit only what we
     '  [RACK] score output transfer retried (3 of 5): HTTP 503');
   assert.equal(rackPlacementLine({ kind: 'placed', ...unit, where: 'local', reason: 'fallback:guest-crashed: out of memory', detail: { code: 'guest-crashed', detail: 'out of memory' } }),
     '  [LOCAL] score (guest-crashed: out of memory)');
+  assert.equal(rackPlacementLine({ kind: 'placed', ...unit, where: 'local', reason: 'memory-limit-exceeded',
+    detail: { code: 'memory-limit-exceeded', needsBytes: 3 * 1024 ** 3, limitBytes: 2 * 1024 ** 3 } }), '  [LOCAL] score (memory-limit-exceeded: needs 3 GB, limit 2 GB)');
 });

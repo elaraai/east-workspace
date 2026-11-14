@@ -99,7 +99,9 @@ it('checks reducers even when the first request is a merge with cached maps', as
   assert.deepEqual(await evaluator.evaluate({ ...request, options: {} }), { eligible: false, reason: 'no-task-name' });
   assert.deepEqual(await evaluator.evaluate({ ...request, options: { taskName: 'other' } }), { eligible: false, reason: 'not-selected' });
   const override = new EligibilityEvaluator(setRule(policy, 'train', 'rack', { allowHostCoupled: true }));
-  assert.deepEqual(await override.evaluate(request), { eligible: true, tier: 'node', size: 'large', timeoutMinutes: 1440 });
+  assert.deepEqual(await override.evaluate(request), { eligible: true, tier: 'node', size: 'large', timeoutMinutes: 1440, memoryLimit: null, gpu: false });
+  const limited = new EligibilityEvaluator(setRule(policy, 'train', 'rack', { allowHostCoupled: true, size: 'small', memoryLimit: 8 * 1024 ** 3, gpu: true }));
+  assert.deepEqual(await limited.evaluate(request), { eligible: true, tier: 'node', size: 'small', timeoutMinutes: 1440, memoryLimit: 8 * 1024 ** 3, gpu: true });
   const envTask = { ...task, environment: some('b'.repeat(64)) };
   assert.deepEqual(await new EligibilityEvaluator(policy).evaluate({ ...request, task: envTask }), { eligible: false, reason: 'environment' });
   const badTask = { ...task, body: variant('east', { program: 'c'.repeat(64) }) };

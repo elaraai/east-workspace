@@ -34,6 +34,52 @@ export const RACK_PROTOCOL_HEADER = 'x-e3-rack-protocol';
 export const RACK_TRANSFERS_AT_ONCE = 8;
 
 /**
+ * How long work that a rack's offer does not hold is passed over, in ms, by
+ * smaller work behind it in the queue, before it holds the line at that rack:
+ * as long as the local budget lets a unit that does not fit be passed.
+ */
+export const RACK_PASS_OVER_MS = 10_000;
+
+/**
+ * The header of a poll answered with no work (`204`) while work the offer did
+ * not hold waits: a {@link RackWaiting}, as JSON.
+ */
+export const RACK_WAITING_HEADER = 'x-e3-rack-waiting';
+
+/**
+ * What the oldest lease a rack's offer did not hold asks of it, and how long
+ * it has waited: the rack holds that much back, across its sources, until it
+ * can offer it.
+ */
+export interface RackWaiting extends RackResources {
+  /** How long the lease has been queued, in ms */
+  readonly ms: number;
+}
+
+/**
+ * Reads a poll's waiting header.
+ *
+ * @param json - The header's value, or null when the poll had none
+ * @returns What waits, or undefined when nothing does or the header does not
+ *   read
+ *
+ * @example
+ * ```ts
+ * const waiting = readRackWaiting(response.headers.get(RACK_WAITING_HEADER));
+ * if (waiting !== undefined) holdBack(waiting.memoryBytes);
+ * ```
+ */
+export function readRackWaiting(json: string | null): RackWaiting | undefined {
+  if (json === null) return undefined;
+  try {
+    const fields = object(json, 'the waiting header');
+    return { ...resources(fields, 'the waiting header'), ms: count(fields.ms, 'the waiting header\'s ms') };
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * How long a source's listener keeps an idle connection open, in ms, which
  * every reply says in its `Keep-Alive`.
  */

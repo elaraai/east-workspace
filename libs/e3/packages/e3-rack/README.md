@@ -507,6 +507,28 @@ platform it installs environments for, its cores, memory and GPUs and what of
 them is free), and each poll's `offer` says how much the poll may be answered
 with. A lease's event and result were JSON already.
 
+A lease says what it asks of a rack, in its event's `resources`: `{ "kind":
+"unit", "cores": 1, "memoryBytes": 3328599654, "gpu": false }`. `memoryBytes`
+is its **cap**: the most memory the work may use, and what the rack books for
+it, so a rack that books the cap of everything it holds never books more than
+it has. A unit of a split task asks one core and the cap e3 gives a local unit
+that expects the same peak (half as much again); a whole task asks its size's
+cores, and its rule's `--memory-limit`, else its size's memory. A unit whose
+cap would pass its rule's limit is not queued, and runs locally:
+`[LOCAL] score_rows (memory-limit-exceeded: needs 3 GB, limit 2 GB)`.
+
+A poll is answered with the first lease in the queue, in its fair order, that
+the poll's `offer` holds (`leaseFits`). One the offer does not hold is passed
+over, by smaller work behind it, for ten seconds (`RACK_PASS_OVER_MS`), and
+then holds the line: nothing behind it is granted to that rack until the rack
+has room for it. A poll answered with no work (`204`) while such a lease waits
+says what the oldest asks, in `x-e3-rack-waiting`
+(`{"cores":1,"memoryBytes":34359738368,"gpus":0,"ms":12000}`), so the rack
+holds that much back, across its sources, until it can offer it. A lease a
+rack could never hold, with nothing else on it, holds no line there. A lease
+that names no resources, from a source that does not size its leases, fits
+any offer.
+
 The hub's control socket and a session's data socket answer the same way: the
 BEAST2 of the route's own type, and a refusal as a status with its reason in
 plain text.

@@ -19,8 +19,9 @@ import { RackCompleteRequestType, RackCompleteResponseType, RackEnrollRequestTyp
   RackExtendRequestType, RackHeartbeatRequestType, RackHeartbeatResponseType, RackLeaseGrantType, RackLeaseRequestType,
   RackLogsRequestType, RackStorageRequestType, RackStorageResponseType, type RackLeaseGrant, type RackLeaseRef,
   type RackLogChunk, type RackObjectCommit, type RackStorageRequest } from '../protocol/rack-wire.js';
-import { RACK_PROTOCOL, RACK_PROTOCOL_HEADER, RACK_TRANSFERS_AT_ONCE, readRackHello, readRackRefusal, type RackHello, type RackOffer, type RackReport } from '../protocol/rack-json.js';
-import type { RackLeaseEvent, RackLeaseResult, RackTransferRetry } from '../protocol/task-envelope.js';
+import { RACK_PROTOCOL, RACK_PROTOCOL_HEADER, RACK_TRANSFERS_AT_ONCE, RACK_WAITING_HEADER, readRackHello, readRackRefusal, readRackWaiting,
+  type RackHello, type RackOffer, type RackReport, type RackResources, type RackWaiting } from '../protocol/rack-json.js';
+import { readRackLeaseResources, type RackLeaseEvent, type RackLeaseResources, type RackLeaseResult, type RackTransferRetry } from '../protocol/task-envelope.js';
 
 /** Configures deterministic failures of an in-process protocol peer. */
 export interface TestRackAgentFaults {
@@ -90,8 +91,15 @@ export interface TestRackAgentOptions {
   /** Consumes counters in place, permitting faults to be armed during a test. */
   faults?: TestRackAgentFaults;
   /** What the agent says it is and has, with each heartbeat; by default no
-   *  feature beyond a stock tier's work. */
+   *  feature beyond a stock tier's work, or, with {@link resources}, them. */
   report?: RackReport;
+  /**
+   * All the agent has. With it the agent admits work by its resources: it
+   * books each lease it holds at what the lease asks, offers a poll what is
+   * left, and reports both with each heartbeat (the `resources` feature). Its
+   * capacity is then its cores, unless set.
+   */
+  resources?: RackResources;
   /** The rack protocol its requests name: this build's by default, another to
    *  stand for an agent of another release, and null for one from before the
    *  protocol was named, which sends no header. */
@@ -131,6 +139,10 @@ export class TestRackAgent {
   private sourceTransfers = RACK_TRANSFERS_AT_ONCE;
   private inFlight = 0;
   private readonly waiting: Array<() => void> = [];
+  /** What each lease the agent holds books of its resources, by lease. */
+  private readonly booked = new Map<string, RackLeaseResources>();
+  /** What the last idle poll said waits for room on this rack, if anything. */
+  waitingFor: RackWaiting | undefined;
   private readonly storage = new LocalStorage();
   private token = '';
   private readonly abort = new AbortController();
@@ -151,7 +163,7 @@ export class TestRackAgent {
     this.transport = options.fetch ?? (options.certificateSha256 === undefined ? fetch : pinnedFetch(options.certificateSha256));
     this.tiers = options.tiers ?? ['node'];
     this.version = options.agentVersion ?? `0.5.0+e3.${E3_RACK_VERSION}`;
-    this.capacity = options.capacity ?? 1;
+    this.capacity = options.capacity ?? options.resources?.cores ?? 1;
     if (!Number.isSafeInteger(this.capacity) || this.capacity < 1) throw new Error('Test rack capacity must be a positive integer');
     for (const ms of [options.timings?.heartbeatMs ?? 15000, options.timings?.extendMs ?? 20000, options.timings?.transferMs ?? 30000, options.timings?.retryMs ?? 1000]) {
       if (!Number.isFinite(ms) || ms <= 0) throw new Error('Test rack intervals must be positive');
@@ -215,7 +227,8 @@ export class TestRackAgent {
     const heartbeat = setInterval(() => { void this.heartbeat().catch(() => this.abort.abort()); }, this.options.timings?.heartbeatMs ?? 15000);
     try {
       while (!this.abort.signal.aborted) {
-        if (this.active.size >= this.capacity) { await Promise.race([...this.active.values()].map((value) => value.done)); continue; }
+        // No slot, or no core, is free: nothing to offer until an execution ends.
+        if (this.active.size >= this.capacity || (this.active.size > 0 && this.offer().cores <= 0)) { await Promise.race([...this.active.values()].map((value) => value.done)); continue; }
         const lease = await this.claim();
         if (lease) void this.execute(lease).catch((error: unknown) => {
           if (!this.abort.signal.aborted) this.loopError = error;
@@ -256,15 +269,33 @@ export class TestRackAgent {
     return decodeBeast2For(responseType)(new Uint8Array(await response.arrayBuffer()));
   }
 
-  /** What the agent is and has: what its options say, else no feature. */
-  private report(): RackReport { return this.options.report ?? { features: [] }; }
-
-  /** What a poll may be answered with: a core for each free slot, and what
-   *  the report says is free of memory and GPUs, else no bound on memory. */
-  private offer(): RackOffer {
-    const free = this.report().free ?? this.report().resources;
-    return { cores: Math.max(0, this.capacity - this.active.size), memoryBytes: free?.memoryBytes ?? Number.MAX_SAFE_INTEGER, gpus: free?.gpus ?? 0 };
+  /** What of the agent's resources no lease it holds has booked. */
+  private free(all: RackResources): RackResources {
+    let { cores, memoryBytes, gpus } = all;
+    for (const held of this.booked.values()) { cores -= held.cores; memoryBytes -= held.memoryBytes; if (held.gpu) gpus -= 1; }
+    return { cores: Math.max(0, cores), memoryBytes: Math.max(0, memoryBytes), gpus: Math.max(0, gpus) };
   }
+
+  /** What the agent is and has: what its options say, else its resources
+   *  and what is free of them, else no feature. */
+  private report(): RackReport {
+    if (this.options.report !== undefined) return this.options.report;
+    const all = this.options.resources;
+    return all === undefined ? { features: [] } : { features: ['resources'], resources: all, free: this.free(all) };
+  }
+
+  /** What a poll may be answered with: what is free of the agent's
+   *  resources. Without them the agent admits by its slots, as an agent did
+   *  before leases said what they ask: no bound on cores or memory, and the
+   *  GPUs its report says are free. */
+  private offer(): RackOffer {
+    if (this.options.resources !== undefined) return this.free(this.options.resources);
+    const free = this.report().free ?? this.report().resources;
+    return { cores: free?.cores ?? Number.MAX_SAFE_INTEGER, memoryBytes: free?.memoryBytes ?? Number.MAX_SAFE_INTEGER, gpus: free?.gpus ?? 0 };
+  }
+
+  /** What the agent has booked for a lease it holds, when it admits by its resources. */
+  bookedFor(leaseId: string): RackLeaseResources | undefined { return this.booked.get(leaseId); }
 
   /** Reports health and returns the leases the hub asks this agent to stop. */
   async heartbeat(runningLeases: RackLeaseRef[] = [...this.active.values()].filter((value) => !value.silent).map((value) => value.lease)): Promise<ValueTypeOf<typeof RackHeartbeatResponseType>> {
@@ -279,9 +310,14 @@ export class TestRackAgent {
   async claim(): Promise<RackLeaseGrant | null> {
     if (this.faults.claimDelayMs) await delay(this.faults.claimDelayMs, undefined, { signal: this.abort.signal });
     const response = await this.raw('lease', RackLeaseRequestType, { tiers: this.tiers, bootId: this.bootId, offer: JSON.stringify(this.offer()) });
+    this.waitingFor = readRackWaiting(response.headers.get(RACK_WAITING_HEADER));
     if (response.status === 204) return null;
     if (response.status !== 200) throw await this.refused('claim', response);
-    return decodeBeast2For(RackLeaseGrantType)(new Uint8Array(await response.arrayBuffer()));
+    const grant = decodeBeast2For(RackLeaseGrantType)(new Uint8Array(await response.arrayBuffer()));
+    // Booked from the claim until the lease is completed or its execution ends.
+    const needs = this.options.resources === undefined ? undefined : readRackLeaseResources((JSON.parse(grant.eventJson) as RackLeaseEvent).resources);
+    if (needs !== undefined) this.booked.set(grant.leaseId, needs);
+    return grant;
   }
 
   /** Resolves storage descriptors and write receipts for a held lease. */
@@ -296,9 +332,11 @@ export class TestRackAgent {
   }
 
   /** Posts an outcome without hiding accepted-and-discarded semantics. */
-  complete(lease: RackLeaseRef, result: RackLeaseResult): Promise<ValueTypeOf<typeof RackCompleteResponseType>> {
-    return this.post('complete', RackCompleteRequestType, { repo: lease.repo, leaseId: lease.leaseId,
-      resultJson: JSON.stringify(result), inlineOutput: none, outputUploadId: none }, RackCompleteResponseType);
+  async complete(lease: RackLeaseRef, result: RackLeaseResult): Promise<ValueTypeOf<typeof RackCompleteResponseType>> {
+    try {
+      return await this.post('complete', RackCompleteRequestType, { repo: lease.repo, leaseId: lease.leaseId,
+        resultJson: JSON.stringify(result), inlineOutput: none, outputUploadId: none }, RackCompleteResponseType);
+    } finally { this.booked.delete(lease.leaseId); }
   }
 
   /**
@@ -415,7 +453,7 @@ export class TestRackAgent {
   execute(lease: RackLeaseGrant): Promise<RackLeaseResult> {
     if (this.active.has(lease.leaseId)) throw new Error('Test rack lease is already executing');
     const stop = new AbortController();
-    const done = this.executeClaim(lease, stop).finally(() => { this.active.delete(lease.leaseId); });
+    const done = this.executeClaim(lease, stop).finally(() => { this.active.delete(lease.leaseId); this.booked.delete(lease.leaseId); });
     this.active.set(lease.leaseId, { lease, stop, done, silent: false });
     return done;
   }

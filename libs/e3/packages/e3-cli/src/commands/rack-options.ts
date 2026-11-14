@@ -4,6 +4,7 @@
  */
 
 import type { OpenRackRunnerOptions, RackPlacementEvent, RackRunnerHandle } from '@elaraai/e3-rack';
+import { formatSize } from '../format.js';
 
 /** Rack flags shared by dataflow run and watch. */
 export interface RackFlags {
@@ -51,7 +52,9 @@ export async function openRack(options: OpenRackRunnerOptions): Promise<RackRunn
  * - `[RACK] train input transfer retried (2 of 5): connection reset`;
  * - `[LOCAL] train (input-transfer-failed: connection reset)` for a rack's
  *   work that this machine runs after all, with the rack's reason when its
- *   result gave one, a task's or a unit's alike.
+ *   result gave one, a task's or a unit's alike;
+ * - `[LOCAL] score (memory-limit-exceeded: needs 3 GB, limit 2 GB)` for a
+ *   piece whose cap would pass its rule's memory limit.
  *
  * @param event - The event
  * @returns The line, or undefined for an event a run does not print
@@ -59,6 +62,9 @@ export async function openRack(options: OpenRackRunnerOptions): Promise<RackRunn
 export function rackPlacementLine(event: RackPlacementEvent): string | undefined {
   if (event.kind === 'retried') return `  [RACK] ${event.taskName} ${event.retry.transfer} transfer retried (${event.retry.attempt} of ${event.retry.of}): ${event.retry.cause}`;
   if (event.where === 'rack') return event.role === 'unit' ? undefined : `  [RACK] ${event.taskName} → ${event.rackLabel}`;
+  if (event.detail?.code === 'memory-limit-exceeded' && event.detail.needsBytes !== undefined && event.detail.limitBytes !== undefined) {
+    return `  [LOCAL] ${event.taskName} (memory-limit-exceeded: needs ${formatSize(event.detail.needsBytes)}, limit ${formatSize(event.detail.limitBytes)})`;
+  }
   if (event.detail !== undefined) return `  [LOCAL] ${event.taskName} (${event.reason.replace(/^fallback:/, '')})`;
   if (event.role === 'unit') return undefined;
   return event.reason === 'spill' || event.reason.startsWith('fallback:') || event.reason.startsWith('no-rack-for-tier:')

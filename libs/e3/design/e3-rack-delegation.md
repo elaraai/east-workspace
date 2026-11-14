@@ -74,6 +74,19 @@ protocol; what grows is JSON text inside them, read for the fields a build
 knows: a heartbeat's `report` (features, target platform, resources and what
 is free) and a poll's `offer` (what the poll may be answered with).
 
+A lease's event carries what it asks of a rack (`resources`: its kind, a
+unit's or a task's, its cores, its cap in bytes and whether it takes a GPU),
+which the launching machine computes: a unit's from e3-core's own cap rule
+over what its stage measured (`unitCap`), a task's from its rule's size and
+memory limit. The cap is what a rack books, so the sum of what it holds never
+passes what it has. The shared routes answer a poll with the first lease, in
+the queue's fair order, that the poll's offer holds; one it does not hold is
+passed over for ten seconds and then holds the line at that rack, as a unit
+that does not fit the local budget does there, unless the rack could never
+hold it (`canEverHold`: the hub knows each rack's whole resources from its
+report). An idle poll says what the oldest such lease asks
+(`x-e3-rack-waiting`).
+
 Streamed object bodies are raw bytes. Existing `eventJson` and `resultJson`
 remain JSON strings for compatibility with the pinned cloud agent; replacing
 them requires a negotiated protocol change, not silently changing the decoder.

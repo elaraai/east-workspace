@@ -5,13 +5,13 @@
 
 import type { TaskBodyRequest } from '@elaraai/e3-core';
 import { decodeTaskObject } from '@elaraai/e3-types';
-import { selectTask, type RackPolicy } from './policy.js';
+import { selectTask, type RackComputeSize, type RackPolicy } from './policy.js';
 import { rackTierFor, type IneligibleReason, type RackTier } from './tiers.js';
 import { scanProgram } from './host-coupling.js';
 
 /** A request's rack destination, or why it remains local. */
 export type Eligibility =
-  | { eligible: true; tier: RackTier; size: string; timeoutMinutes: number }
+  | { eligible: true; tier: RackTier; size: RackComputeSize; timeoutMinutes: number; memoryLimit: number | null; gpu: boolean }
   | { eligible: false; reason: IneligibleReason };
 
 /**
@@ -66,7 +66,7 @@ export class EligibilityEvaluator {
         }
         if (blocked.size > 0) return { eligible: false, reason: `host-coupled:${[...blocked].sort().join(',')}` };
       }
-      return { eligible: true, tier: tier.tier, size: selection.size, timeoutMinutes: selection.timeoutMinutes };
+      return { eligible: true, tier: tier.tier, size: selection.size, timeoutMinutes: selection.timeoutMinutes, memoryLimit: selection.memoryLimit, gpu: selection.gpu };
     } catch {
       return { eligible: false, reason: 'unscannable' };
     }

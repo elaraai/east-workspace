@@ -24,7 +24,7 @@ import { StoreRackDispatch, bootPendingApproval, bundledE3Version, agentVersionA
 import { createRackRoutes, type RackLeaseSignal } from '../server/rack-routes.js';
 import { RackRegistrationType, RackSecurityPolicyType } from '../protocol/registration.js';
 import { RACK_LISTENER_IDLE_MS, RACK_PROTOCOL, type RackReport } from '../protocol/rack-json.js';
-import { describeRackReason, isLeaseEventV2, leaseInputs, leaseTaskHash, type RackLeaseEvent } from '../protocol/task-envelope.js';
+import { describeRackReason, isLeaseEventV2, leaseFits, leaseInputs, leaseTaskHash, readRackLeaseResources, type RackLeaseEvent } from '../protocol/task-envelope.js';
 import { decodeRunnerEvent } from '../runner-event.js';
 import { ApproveRackType, AttachLeaseResultType, CancelLeaseResultType, CreateLeaseResultType, CreateLeaseType, EmptyType, HubConfigType,
   HubEnrollResultType, HubEnrollType, HubHelloType, HubOutcomeType, HubStatusType, OpenSessionResultType, OpenSessionType,
@@ -80,6 +80,8 @@ export interface RackHubOptions {
   now?: () => number;
   /** Test tuning; production uses sixty seconds. */
   visibilityMs?: number;
+  /** Test tuning; production holds an idle rack's poll for the routes' own window. */
+  leaseWindowMs?: number;
   /** Test tuning; production retries a failed listener every ten seconds. */
   listenerRetryMs?: number;
   /** Test tuning; production sweeps every five seconds. */
@@ -271,6 +273,7 @@ export class RackHub {
     const runner = decodeRunnerEvent(value.runnerEvent);
     if (runner.mode !== 'task' && runner.mode !== 'unit') throw new Error('Local rack delegation supports tasks and units only');
     if (value.environment !== undefined) throw new Error('Local rack environments are not supported');
+    readRackLeaseResources(value.resources);
     if (!['node', 'py', 'py-datascience', 'c', 'full'].includes(request.tier) || !['serverless', 'small', 'medium', 'large', 'xlarge'].includes(request.computeSize)) throw new Error('Invalid rack tier or compute size');
     const closure = value.closure;
     if ('hashes' in closure) {
@@ -502,6 +505,7 @@ export class RackHub {
     app.route('/', this.bridge.dataRoutes());
     app.route('/', createRackRoutes(this.identity, this.registry, this.leases, this.bridge, this.bridge.attempts, {
       coordinator: this.coordinator, now: this.now, signal: this.abort.signal, visibilityMs: this.options.visibilityMs,
+      leaseWindowMs: this.options.leaseWindowMs,
       onLeaseSignal: (signal) => this.signal(signal),
       // A heartbeat that was read is of this protocol: what was wrong is not.
       onReport: (rackId, report) => { this.reports.set(rackId, report); this.problems.delete(rackId); },
@@ -510,6 +514,14 @@ export class RackHub {
         const problem = `speaks ${named === undefined ? 'a rack protocol from before it was named' : `rack protocol ${named}`}, not ${RACK_PROTOCOL}; update the rack`;
         if (this.problems.get(rackId) !== problem) this.options.log?.(`rack ${rackId} refused: it ${problem}`);
         this.problems.set(rackId, problem);
+      },
+      // The queue is in memory: a poll looks well down it for work its rack's
+      // offer holds. A rack that reports its resources could hold what they
+      // hold; one that does not report them is asked as before.
+      claimLookahead: 64,
+      canEverHold: (rack, needs) => {
+        const all = this.reports.get(rack.rackId)?.resources;
+        return all === undefined || leaseFits(needs, all);
       },
       canClaim: (rack, lease) => {
         const sub = this.subscriptions.get(lease.leaseId);
