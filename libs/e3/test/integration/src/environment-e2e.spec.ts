@@ -37,17 +37,28 @@
  * flavors need network access for the third-party deps the stand-in registry
  * forwards to npmjs/PyPI; suites self-skip when the toolchain or the local
  * stack is unavailable.
+ *
+ * And on a RACK (#1633): the same bundle, in another fresh repo, runs with its
+ * task leased to a rack. The launching machine installs the environment a
+ * second time, for the rack's platform, packs it as layers, and the rack
+ * composes it from them and installs nothing; the output is the local run's.
+ * The rack is the test agent, which runs on this machine, so the platform is
+ * this machine's own. On a Windows launching machine no environment is
+ * installed for another platform, and the task stays local by that name.
  */
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, rmSync, existsSync, readFileSync, writeFileSync, symlinkSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync, symlinkSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { pathToFileURL } from 'node:url';
 import { East, IntegerType, FloatType, ArrayType, FunctionType, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
+import { hostEnvironmentPlatform } from '@elaraai/e3-core';
+import { TestRackAgent } from '@elaraai/e3-rack/testing';
 import { createTestDir, removeTestDir, runE3Command } from './helpers.js';
 import { ensureLocalStack, injectLocalNpmRegistry, injectLocalPythonIndex, localStackUnavailable, stopLocalStack } from './localStack.js';
 
@@ -203,6 +214,98 @@ async function importDeployRun(
   return get.stdout;
 }
 
+/**
+ * Imports the zip into another fresh repo, deploys it, and runs the dataflow
+ * with `task` selected for a rack of `tier`: the test agent, enrolled with a
+ * hub of this test's own. Asserts the run built the environment's layers for
+ * the rack's platform and leased the task to the rack, which composed the
+ * environment from them; on a Windows launching machine, that the task stayed
+ * local by that name.
+ *
+ * @returns The dataset's value, as `importDeployRun` returns the local run's
+ */
+async function importDeployRunOnRack(
+  testDir: string, zipPath: string, pkgRef: string, task: string, tier: string, outputPath: string, cwd: string = testDir,
+): Promise<string> {
+  // A short home: its sockets' paths have a hundred bytes.
+  const home = mkdtempSync(join(tmpdir(), 'e3r-'));
+  const repoDir = join(testDir, 'rack-repo');
+  const cli = (...args: string[]) => runE3Command(args, cwd, { env: { E3_RACK_HOME: home } });
+  const ok = async (...args: string[]): Promise<string> => {
+    const result = await cli(...args);
+    assert.strictEqual(result.exitCode, 0, `e3 ${args.join(' ')} failed:\n${result.stderr}\n${result.stdout}`);
+    return result.stdout;
+  };
+  let agent: TestRackAgent | undefined;
+  try {
+    for (const args of [
+      ['repo', 'create', repoDir],
+      ['package', 'import', repoDir, zipPath],
+      ['workspace', 'create', repoDir, 'ws'],
+      ['workspace', 'deploy', repoDir, 'ws', pkgRef],
+      ['rack', 'policy', repoDir, 'set', task, 'rack'],
+    ]) await ok(...args);
+
+    if (process.platform === 'win32') {
+      const local = await ok('dataflow', 'run', repoDir, 'ws', '--rack');
+      assert.ok(local.includes(`[LOCAL] ${task} (environment:windows-host)`), `the task stays on a Windows launching machine, by that name:\n${local}`);
+      assert.doesNotMatch(local, /\[ENV\]|\[RACK\]/, 'nothing is built for a rack, and nothing leased');
+      return await ok('dataset', 'get', repoDir, `ws.${outputPath}`);
+    }
+
+    await ok('rack', 'config', '--listen', '127.0.0.1:0');
+    const listener = /Listener: up (https:\/\/\S+) \(certificate SHA-256 ((?:[0-9A-F]{2}:){31}[0-9A-F]{2})\)/.exec(await ok('rack', 'status'));
+    assert.ok(listener, 'the hub\'s listener is up');
+    const token = /^Enrollment token: (e3rk_enroll_\S+)$/m.exec(await ok('rack', 'enroll', '--label', 'env', '--no-wait'))?.[1];
+    assert.ok(token, 'an enrollment token is minted');
+    agent = await TestRackAgent.enroll(listener[1]!, token, { label: 'env', certificateSha256: listener[2]!, tiers: [tier] });
+
+    // The run builds the environment's layers before it leases the task, so
+    // the rack's polls are idle until then.
+    let ended = false;
+    const running = cli('dataflow', 'run', repoDir, 'ws', '--rack').finally(() => { ended = true; });
+    let grant: Awaited<ReturnType<TestRackAgent['claim']>> = null;
+    while (grant === null && !ended) grant = await agent.claim();
+    if (grant === null) {
+      const run = await running;
+      assert.fail(`the task was never leased to the rack:\n${run.stderr}\n${run.stdout}`);
+    }
+    const remote = await agent.execute(grant);
+    assert.strictEqual(remote.status, 'success', remote.error);
+    const run = await running;
+    assert.strictEqual(run.exitCode, 0, `the run failed:\n${run.stderr}\n${run.stdout}`);
+
+    const platform = hostEnvironmentPlatform();
+    assert.ok(platform !== null, 'this machine is one an environment is installed for');
+    assert.ok(run.stdout.includes(`environments for ${platform})`), `the run says the rack composes environments:\n${run.stdout}`);
+    assert.match(run.stdout, new RegExp(`^ {2}\\[ENV\\] [0-9a-f]{12} for ${platform}: building$`, 'm'), run.stdout);
+    assert.match(run.stdout, /^ {2}\[ENV\] [0-9a-f]{12} built in \d+ s: \d+ layers, \S+ \S+ \(\d+ new\)$/m, run.stdout);
+    assert.ok(run.stdout.includes(`[RACK] ${task} → env`), `the task ran on the rack:\n${run.stdout}`);
+    assert.doesNotMatch(run.stdout, /\[LOCAL\]/, 'and nothing of it here');
+    assert.match(run.stdout, /^Rack summary: 1 task on env · .* · 0 ran locally$/m);
+    // The rack ran it from the layers: its environment is a link to what it
+    // composed, where an install would have left a directory.
+    const envHash = (JSON.parse(grant.eventJson) as { environment?: string }).environment;
+    assert.ok(envHash !== undefined, 'the lease names the environment');
+    assert.ok(existsSync(agent.composedAt(envHash)), 'composed from its layers');
+
+    // A second run of the workspace builds nothing: the repository keeps the layers.
+    const again = cli('dataflow', 'run', repoDir, 'ws', '--rack', '--force');
+    const second = await agent.runOne();
+    assert.strictEqual(second?.status, 'success', second?.error);
+    const rerun = await again;
+    assert.strictEqual(rerun.exitCode, 0, `the second run failed:\n${rerun.stderr}\n${rerun.stdout}`);
+    assert.doesNotMatch(rerun.stdout, /\[ENV\]/, 'nothing is built again');
+    assert.ok(rerun.stdout.includes(`[RACK] ${task} → env`));
+
+    return await ok('dataset', 'get', repoDir, `ws.${outputPath}`);
+  } finally {
+    await agent?.close().catch(() => { /* its hub is stopped next */ });
+    await cli('rack', 'stop').catch(() => { /* none was started */ });
+    rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  }
+}
+
 describe('execution environments e2e — scaffolded python platform travels with the package', () => {
   const hasUv = toolAvailable('uv', ['--version']);
   let testDir: string;
@@ -249,6 +352,10 @@ describe('execution environments e2e — scaffolded python platform travels with
 
       const output = await importDeployRun(testDir, zipPath, 'envpy@1.0.0', 'mean');
       assert.match(output, /2(\.0*)?/, `expected mean of [1,2,3], got: ${output}`);
+
+      // On a rack, which composes the environment from layers built for its
+      // platform: the same value.
+      assert.strictEqual(await importDeployRunOnRack(testDir, zipPath, 'envpy@1.0.0', 'mean', 'py', 'mean'), output);
     });
 });
 
@@ -299,6 +406,10 @@ describe('execution environments e2e — scaffolded node platform travels with t
 
       const output = await importDeployRun(testDir, zipPath, 'envnode@1.0.0', 'scaled');
       assert.match(output, /42/, `expected ceil(21 * 2.0) = 42, got: ${output}`);
+
+      // On a rack, which composes the environment from layers built for its
+      // platform: the same value.
+      assert.strictEqual(await importDeployRunOnRack(testDir, zipPath, 'envnode@1.0.0', 'scaled', 'node', 'scaled'), output);
     });
 });
 

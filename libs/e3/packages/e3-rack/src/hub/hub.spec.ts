@@ -6,16 +6,16 @@
 import { afterEach, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes, randomUUID, createHash } from 'node:crypto';
-import { mkdtemp, realpath, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
 import { setTimeout as delay } from 'node:timers/promises';
 import { East, IntegerType, StringType, decodeBeast2For, encodeBeast2For, none, some, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import { decodeTaskObject } from '@elaraai/e3-types';
-import { LocalStorage, inputsHash, packageImport, packageRead, processOwner, repoInit, uuidv7 } from '@elaraai/e3-core';
+import { LocalStorage, environmentLayerPath, environmentLayersDir, hostEnvironmentPlatform, inputsHash, packageImport, packageRead, processOwner, repoInit, uuidv7 } from '@elaraai/e3-core';
 import { RackHub, type RackHubOptions } from './hub.js';
 import { defaultHubConfig, loadHubCertificate, saveHubConfig, type HubConfig } from './config.js';
 import { readHubLock } from './lock.js';
@@ -33,6 +33,7 @@ import { SlowLink, type SlowLinkOptions } from '../testing/slow-link.js';
 import { certificateSha256, createHubCertificate, pinnedFetch } from '../tls/tls.js';
 import { writeStateFile } from '../state-file.js';
 import { taskClosure } from '../lease/closure.js';
+import { envManifestKey, envManifestName, type EnvLayerManifest } from '../server/env-publication.js';
 import type { RackLeaseEvent, RackLeaseResources } from '../protocol/task-envelope.js';
 
 const cleanup: Array<() => Promise<void>> = [];
@@ -77,7 +78,7 @@ async function fixture(options: RackHubOptions = {}, port = 0, overrides: Partia
     const cancel = (id: string) => socketRequest(socket, 'POST', `${path}/leases/${encodeURIComponent(id)}/cancel`, { responseType: CancelLeaseResultType });
     return { ...opened, close, create, events, cancel, logs };
   };
-  const agent = async (as: Pick<TestRackAgentOptions, 'report' | 'protocol' | 'capacity' | 'transfersAtOnce' | 'timings' | 'faults' | 'resources'> = {}, origin?: string) => {
+  const agent = async (as: Pick<TestRackAgentOptions, 'report' | 'protocol' | 'capacity' | 'transfersAtOnce' | 'timings' | 'faults' | 'resources'> & { version?: string } = {}, origin?: string) => {
     const mint = await socketRequest(socket, 'POST', '/v1/enroll', { requestType: HubEnrollType,
       body: { label: none, ttlMinutes: none }, responseType: HubEnrollResultType });
     assert.equal(mint.certificateSha256.type === 'some' ? mint.certificateSha256.value : undefined, pin);
@@ -550,7 +551,7 @@ it('grants a lease to a rack whose offer holds it, lets smaller work pass a larg
   const session = await f.session();
   const agent = await f.agent({ resources: { cores: 4, memoryBytes: 8 * GiB, gpus: 0 } });
   const rack = async () => (await f.status()).capacity.racks[0]!;
-  assert.deepEqual((await rack()).features, ['resources']);
+  assert.deepEqual((await rack()).features, hostEnvironmentPlatform() === null ? ['resources'] : ['resources', 'environments']);
   // Each lease is its own work: its inputs name it.
   const piece = (name: string, memoryBytes: number) => session.create(event([name.repeat(64)], { kind: 'unit', cores: 1, memoryBytes, gpu: false }));
   const failed = { taskName: 'task', status: 'failed' as const };
@@ -589,4 +590,51 @@ it('grants a lease to a rack whose offer holds it, lets smaller work pass a larg
   const after = await agent.claim(); assert.equal(after?.leaseId, small.leaseId);
   assert.equal(agent.waitingFor, undefined);
   await assert.rejects(session.create({ ...event(['7'.repeat(64)]), resources: { kind: 'unit', cores: 0, memoryBytes: GiB, gpu: false } }), /a lease's cores is a whole number of one or more/);
+});
+
+it('leases work that names an environment only to a rack that composes environments for a platform its session keeps the layers for, and serves it the manifest built with the lease\'s own e3 release', async () => {
+  const f = await fixture({ leaseWindowMs: 40 });
+  const [release, platform] = ['9.9.9', 'x86_64-manylinux_2_28'];
+  const envHash = 'e'.repeat(64);
+  // What a launching machine keeps of an environment it built: a layer, and the manifests that name it, by release and platform.
+  const layer = Buffer.from('a layer of the environment, as its session keeps it');
+  const digest = `sha256:${createHash('sha256').update(layer).digest('hex')}`;
+  await mkdir(dirname(environmentLayerPath(f.repo, digest)), { recursive: true });
+  await writeFile(environmentLayerPath(f.repo, digest), layer);
+  const manifestOf = (e3Version: string): EnvLayerManifest => ({ envHash, e3Version, baseImage: 'rack-tier:node', baseTier: 'node',
+    layers: [{ digest, sizeBytes: layer.length, mediaType: 'application/vnd.oci.image.layer.v1.tar+gzip' }] });
+  await mkdir(join(environmentLayersDir(f.repo), 'manifests'), { recursive: true });
+  for (const built of [release, E3_RACK_VERSION]) {
+    await writeFile(join(environmentLayersDir(f.repo), 'manifests', envManifestName(envManifestKey(envHash, built, platform))!), JSON.stringify(manifestOf(built)));
+  }
+
+  const session = await f.session(f.repo, release);
+  await assert.rejects(session.create({ ...event(['1'.repeat(64)]), environment: 'not a hash' }), /Invalid environment/);
+  const lease = await session.create({ ...event(['1'.repeat(64)]), environment: envHash });
+  const version = `0.5.0+e3.${release}`;
+  // A rack that composes nothing, one that composes for another platform, and one that names a platform but not the feature.
+  const never = [
+    await f.agent({ version, report: { features: [] } }),
+    await f.agent({ version, report: { features: ['environments'], target: 'aarch64-apple-darwin' } }),
+    await f.agent({ version, report: { features: [], target: platform } }),
+  ];
+  for (const rack of never) assert.equal(await rack.claim(), null, 'never granted the lease');
+  const composing = await f.agent({ version, report: { features: ['environments'], target: platform } });
+  const grant = await composing.claim();
+  assert.equal(grant?.leaseId, lease.leaseId);
+
+  const { env } = await composing.storageRequest(grant!, { envManifest: some(envHash) });
+  assert(env.type === 'some');
+  assert.deepEqual(JSON.parse(env.value.manifestJson), manifestOf(release), 'the manifest built with the lease\'s release, not the hub\'s own');
+  assert.deepEqual(env.value.layers.map((served) => [served.digest, served.sizeBytes]), [[digest, BigInt(layer.length)]]);
+  const served = await f.fetch(env.value.layers[0]!.url);
+  assert.equal(served.status, 200);
+  assert.deepEqual(Buffer.from(await served.arrayBuffer()), layer);
+  await assert.rejects(composing.storageRequest(grant!, { envManifest: some('f'.repeat(64)) }), /HTTP 403 forbidden/);
+
+  // A lease that names an environment its session keeps no layers of is granted to no rack.
+  const other = await session.create({ ...event(['2'.repeat(64)]), environment: 'd'.repeat(64) });
+  await composing.complete(grant!, { taskName: 'task', status: 'failed' });
+  assert.equal(await composing.claim(), null);
+  assert.equal((await session.cancel(other.leaseId)).status, 'cancelled');
 });

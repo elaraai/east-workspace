@@ -22,6 +22,7 @@ import { InMemoryRackLeaseStore } from '../lease/in-memory-lease-store.js';
 import type { RackLeaseRecord } from '../lease/lease-store.js';
 import { StoreRackDispatch, bootPendingApproval, bundledE3Version, agentVersionAtLeast, DEFAULT_HEALTHY_WINDOW_MS } from '../server/dispatch.js';
 import { createRackRoutes, type RackLeaseSignal } from '../server/rack-routes.js';
+import { envManifestKey, type EnvIndexStore, type EnvLayerManifest } from '../server/env-publication.js';
 import { RackRegistrationType, RackSecurityPolicyType } from '../protocol/registration.js';
 import { RACK_LISTENER_IDLE_MS, RACK_PROTOCOL, type RackReport } from '../protocol/rack-json.js';
 import { describeRackReason, isLeaseEventV2, leaseFits, leaseInputs, leaseTaskHash, readRackLeaseResources, type RackLeaseEvent } from '../protocol/task-envelope.js';
@@ -92,6 +93,11 @@ export interface RackHubOptions {
  * Hosts one user's rack queue, fleet and repository-owning sessions.
  * The hub interprets the rack/control protocol only. A live session of the
  * same repository and exact e3 release performs every repository operation.
+ *
+ * Work that declares an environment is leased to a rack that composes
+ * environments, for whose platform the work's session keeps the
+ * environment's layers. The hub keeps none: it asks the session, and serves
+ * the layers through its data plane as it serves objects.
  * @example
  * const hub = new RackHub({ foreground: true });
  * if (await hub.start()) await hub.closed;
@@ -131,6 +137,25 @@ export class RackHub {
   private stopping?: Promise<void>;
   private draining = false;
   private idleSince: number;
+  /**
+   * Where the shared routes find a lease's environment: the manifest its
+   * session keeps, built with the lease's e3 release for the platform of the
+   * rack that holds the lease. The hub publishes none of its own.
+   */
+  private readonly envIndex: EnvIndexStore = {
+    put: () => Promise.reject(new Error('A rack hub publishes no environment: each session keeps its own')),
+    get: async (envHash, e3Version) => {
+      const { repo, leaseId } = this.coordinator.lease();
+      const lease = await this.leases.get(repo, leaseId);
+      const target = lease?.claimedBy === undefined ? undefined : this.reports.get(lease.claimedBy)?.target;
+      if (target === undefined) return null;
+      const manifestKey = envManifestKey(envHash, e3Version, target);
+      const json = await this.bridge.readEnvManifest(manifestKey);
+      if (json === null) return null;
+      const manifest = JSON.parse(json) as EnvLayerManifest;
+      return { envHash, e3Version, baseImage: manifest.baseImage, baseTier: manifest.baseTier, manifestKey, layerCount: manifest.layers.length, publishedAtMs: 0 };
+    },
+  };
 
   /** @param options - State home, idle policy, diagnostics and lifecycle clocks */
   constructor(private readonly options: RackHubOptions = {}) {
@@ -167,7 +192,8 @@ export class RackHub {
             return session !== undefined && !session.dead ? [session.registration] : [];
           });
         },
-        advertiseOrigin: () => this.config.advertiseUrl.type === 'some' ? this.config.advertiseUrl.value : undefined });
+        advertiseOrigin: () => this.config.advertiseUrl.type === 'some' ? this.config.advertiseUrl.value : undefined,
+        target: (rackId) => this.reports.get(rackId)?.target });
       this.dispatch = new StoreRackDispatch(this.leases, this.registry, { coordinator: this.coordinator, now: this.now,
         visibilityMs: this.options.visibilityMs, endings: { stopped: this.bridge.attempts.stopped, writes: this.bridge } });
       // The rack listener binds before the control socket answers: a client
@@ -272,7 +298,7 @@ export class RackHub {
     if (!isLeaseEventV2(value)) throw new Error('Expected a v2 rack lease');
     const runner = decodeRunnerEvent(value.runnerEvent);
     if (runner.mode !== 'task' && runner.mode !== 'unit') throw new Error('Local rack delegation supports tasks and units only');
-    if (value.environment !== undefined) throw new Error('Local rack environments are not supported');
+    if (value.environment !== undefined && (typeof value.environment !== 'string' || !isObjectHash(value.environment))) throw new Error('Invalid environment');
     readRackLeaseResources(value.resources);
     if (!['node', 'py', 'py-datascience', 'c', 'full'].includes(request.tier) || !['serverless', 'small', 'medium', 'large', 'xlarge'].includes(request.computeSize)) throw new Error('Invalid rack tier or compute size');
     const closure = value.closure;
@@ -525,6 +551,7 @@ export class RackHub {
     app.route('/', createRackRoutes(this.identity, this.registry, this.leases, this.bridge, this.bridge.attempts, {
       coordinator: this.coordinator, now: this.now, signal: this.abort.signal, visibilityMs: this.options.visibilityMs,
       leaseWindowMs: this.options.leaseWindowMs,
+      envIndex: this.envIndex, e3Version: E3_RACK_VERSION,
       onLeaseSignal: (signal) => this.signal(signal),
       // A heartbeat that was read is of this protocol: what was wrong is not.
       onReport: (rackId, report) => { this.reports.set(rackId, report); this.problems.delete(rackId); },
@@ -542,7 +569,7 @@ export class RackHub {
         const all = this.reports.get(rack.rackId)?.resources;
         return all === undefined || leaseFits(needs, all);
       },
-      canClaim: (rack, lease) => {
+      canClaim: async (rack, lease) => {
         const sub = this.subscriptions.get(lease.leaseId);
         if (sub === undefined || sub.endedAt !== undefined || sub.subscribers.size === 0) return false;
         // v2 completion does not carry an attempt id. A previous claimant
@@ -550,7 +577,20 @@ export class RackHub {
         if (sub.claimants.has(rack.rackId)) return false;
         if (!rack.healthy || this.now() - rack.lastSeenAt.getTime() > DEFAULT_HEALTHY_WINDOW_MS) return false;
         const bundled = bundledE3Version(rack.agentVersion);
-        return bundled !== null && agentVersionAtLeast(bundled, sub.version);
+        if (bundled === null || !agentVersionAtLeast(bundled, sub.version)) return false;
+        // Work that declares an environment is a rack's that composes
+        // environments, when its session keeps the layers built for that
+        // rack's platform: another rack is never granted it.
+        const environment = lease.event.environment;
+        if (environment === undefined) return true;
+        const report = this.reports.get(rack.rackId);
+        if (report?.target === undefined || !report.features.includes('environments')) return false;
+        try {
+          return await this.bridge.readEnvManifest(envManifestKey(environment, sub.version, report.target)) !== null;
+        } catch (error) {
+          this.options.log?.(`rack lease ${lease.leaseId}: its environment's layers could not be asked for: ${messageOf(error)}`);
+          return false;
+        }
       },
     }));
     let server: Server | HttpsServer | undefined;

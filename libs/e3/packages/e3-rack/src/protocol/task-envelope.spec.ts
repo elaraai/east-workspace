@@ -20,7 +20,7 @@ it('reads a result\'s reason for the fields it knows, keeps a code of a later re
     { code: 'source-unreachable', ms: '120000' }, { code: 'guest-crashed', detail: 7 }]) {
     assert.throws(() => readRackReason(bad), /a reason/, JSON.stringify(bad));
   }
-  assert.deepEqual([...RACK_REASON_CODES].sort(), ['guest-crashed', 'input-transfer-failed', 'memory-limit-exceeded', 'outgrew-cap', 'output-transfer-failed',
+  assert.deepEqual([...RACK_REASON_CODES].sort(), ['environment-failed', 'guest-crashed', 'input-transfer-failed', 'memory-limit-exceeded', 'outgrew-cap', 'output-transfer-failed',
     'requeued-pressure', 'source-unreachable', 'task-error']);
 });
 

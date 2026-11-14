@@ -10,6 +10,7 @@ import { RackSession } from '../client/session.js';
 import { loadPolicy, policyTargetsRack, type RackPolicy } from '../routing/policy.js';
 import { compatibleRacks, rackResources, rackWidth } from './capacity.js';
 import { createRackBody, type RackPlacementEvent } from './rack-body.js';
+import type { RackEnvironmentEvent } from './environment.js';
 import { RackTally, type RackRunSummary } from './summary.js';
 
 /** Configures rack delegation for one run or one watch session. */
@@ -33,6 +34,9 @@ export interface OpenRackRunnerOptions {
   waitForRackMs?: number;
   /** Receives task/unit placement notifications. */
   onPlacement?: (event: RackPlacementEvent) => void;
+  /** Told an environment's layers are being built for a rack's platform, and
+   *  what the build came to. */
+  onEnvironment?: (event: RackEnvironmentEvent) => void;
   /** The process's existing budget, preserved for every local body. */
   budget?: Budget;
   /** Settings preserved for every local process and detached call. */
@@ -113,9 +117,11 @@ export async function openRackRunner(options: OpenRackRunnerOptions): Promise<Ra
             : `No healthy compatible rack; running locally (${capacity.racks.map((rack) => `${rack.label}: ${rack.problem.type === 'some' ? rack.problem.value : rack.pendingApproval ? 'boot needs approval' : !rack.healthy ? 'unhealthy' : rack.bundledE3.type === 'none' ? 'bundled e3 version missing' : `e3 ${rack.bundledE3.value} is incompatible`}`).join(', ')})`;
         // A rack that admits by its resources is said by them; one that
         // admits by slots, by its slots.
+        // One that composes environments says the platform it runs them on.
         description = (formatBytes) => text ?? racks.map((rack) => {
           const all = rackResources(rack);
-          const e3 = `e3 ${rack.bundledE3.type === 'some' ? rack.bundledE3.value : 'unknown'}`;
+          const e3 = `e3 ${rack.bundledE3.type === 'some' ? rack.bundledE3.value : 'unknown'}` +
+            (rack.features.includes('environments') && rack.target.type === 'some' ? `, environments for ${rack.target.value}` : '');
           return all === undefined ? `${rack.label} (${Number(rack.capacity)} slots, ${e3})`
             : `${rack.label} (${all.cores} ${all.cores === 1 ? 'core' : 'cores'}, ${formatBytes(all.memoryBytes)}${all.gpus > 0 ? `, ${all.gpus} ${all.gpus === 1 ? 'GPU' : 'GPUs'}` : ''}, ${e3})`;
         }).join(', ');
@@ -132,7 +138,7 @@ export async function openRackRunner(options: OpenRackRunnerOptions): Promise<Ra
     } while (Date.now() <= deadline);
     const runner = new LocalTaskRunner(options.repoPath, options.budget, { ...options.settings,
       body: createRackBody({ session: attached, policy, workspace: options.workspace, rackOnly: options.rackOnly,
-        unreachableWaitMs: options.unreachableWaitMs,
+        unreachableWaitMs: options.unreachableWaitMs, onEnvironment: options.onEnvironment,
         onPlacement: (event) => { tally.add(event); options.onPlacement?.(event); } }),
       // Racks that cap each unit stop one that outgrows what it was started
       // expecting, and the body leases it again asking more: a split task's
