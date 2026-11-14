@@ -21,7 +21,7 @@
 
 import { useCallback, useMemo } from "react";
 import { DateTimeType, OptionType, SortedMap, StringType, compareFor, equalFor, none, printFor, some, variant, type ValueTypeOf } from "@elaraai/east";
-import { recordChoicesOf, type RecordSliceBindType, type RecordSliceChoiceType, type RecordSliceWhereType } from "@elaraai/east-ui/internal";
+import { recordSliceBase, recordSliceChoices, type RecordSliceBindType, type RecordSliceChoiceType, type RecordSliceWhereType } from "@elaraai/east-ui/internal";
 import { useSlicesReactivity, useTrackedEvaluation } from "@elaraai/east-ui-components";
 
 /** One record Slice's controls. */
@@ -66,27 +66,28 @@ export function backlogWhere(where: ValueTypeOf<RecordSliceWhereType>, start: st
 }
 
 /**
- * A kind's start Unset under its page's scope alone (#1621): every unscheduled event its source holds, whatever the
- * viewer's choices — on a page with no scope, every one its record holds.
+ * A kind's start Unset among the rows its page holds (#1621, `recordSliceBase`): every unscheduled event its source
+ * holds, whatever the viewer's choices — on a page with no scope, every one its record holds.
  *
- * @param scope - The source's page's scope (`config.scope`), empty on a page that holds none
+ * @param part - The kind's source's part of the slice
  * @param start - The kind's start field
  * @returns The narrowing
  */
-export function backlogWhole(scope: ValueTypeOf<RecordSliceWhereType>, start: string): SortedMap<string, ValueTypeOf<RecordSliceChoiceType>> {
-    return backlogWhere(scope, start);
+export function backlogWhole(part: Pick<Bind, "config">, start: string): SortedMap<string, ValueTypeOf<RecordSliceChoiceType>> {
+    return backlogWhere(recordSliceBase(part), start);
 }
 
 /**
- * Whether the viewer's choices narrow a kind's backlog: a choice of theirs in force but its window, which a backlog
- * event has none of. Its page's scope is none (#1621): the viewer neither made it nor can clear it.
+ * Whether the viewer's choices narrow a kind's backlog: a choice of theirs in force (`recordSliceChoices`) but its
+ * window, which a backlog event has none of. Its page's scope is none (#1621): the viewer neither made it nor can
+ * clear it.
  *
  * @param part - The kind's source's part of the slice
  * @param start - The kind's start field
  * @returns Whether a choice of the viewer's narrows the backlog
  */
 export function backlogNarrowed(part: Pick<Bind, "config" | "read">, start: string): boolean {
-    return [...recordChoicesOf(part.config.scope, part.read().where).keys()].some((field) => !stringEqual(field, start));
+    return [...recordSliceChoices(part).keys()].some((field) => !stringEqual(field, start));
 }
 
 /**
@@ -107,7 +108,7 @@ export function useBacklogNarrowing<P extends BacklogPart>(eventParts: readonly 
         for (const { kind, part } of narrowing) {
             const start = kind.schedule.start;
             // Each a read of a narrowing alone, never a read by area (#1432); the whole is the page's scope's (#1621).
-            const all = part.countWhere({ where: backlogWhole(part.config.scope, start), area: none });
+            const all = part.countWhere({ where: backlogWhole(part, start), area: none });
             const shown = part.countWhere({ where: backlogWhere(part.read().where, start), area: none });
             if (all.type === "none" || shown.type === "none") return none;
             hidden += all.value - shown.value;

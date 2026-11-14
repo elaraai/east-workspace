@@ -58,8 +58,8 @@ import type { HiddenPicks } from "../shared/schedule/hidden-pick.js";
 import type { KindKeys } from "../shared/schedule/kind-keys.js";
 import type { RowCodec } from "../shared/schedule/records.js";
 import { readToken, readsRows, useSearchRecords, type SoughtSource } from "../shared/schedule/search-records.js";
-import type { HiddenWords } from "../shared/schedule/words.js";
-import type { SchematicMessages, SchematicWords } from "./messages.js";
+import { dimmedWords } from "../shared/schedule/words.js";
+import type { SchematicWords } from "./messages.js";
 
 const compareKey = compareFor(StringType);
 const keyEqual = equalFor(StringType);
@@ -126,21 +126,10 @@ export function foundMark(item: FoundItem, hiddenLayers: ReadonlySet<string>): F
 }
 
 /**
- * The words a line names the choices that leave an item out in, where the narrowing draws what it leaves out as context
- * (`narrowed="dim"`): they dim it, never hide it.
- *
- * @param m - The Schematic's message table
- * @returns Its dimmed words, as the shared hidden pick's line takes them
- */
-function dimmedWords(m: SchematicMessages): HiddenWords {
-    return { hiddenByFilters: m.dimmedByFilters, hiddenBy: m.dimmedBy };
-}
-
-/**
  * How a found item reads in Find's list: its key, its label when it is not its key, its kind's name, what keeps it off
  * the canvas — its layer, or no position — and, last, which of the rail's choices leave it out, as every builder's line
  * names them (`hiddenLine`): `hidden by the filters` until e3 has said which — or, where the narrowing draws what it
- * leaves out as context, `dimmed by the filters`, then the choices that dim it.
+ * leaves out as context, `dimmed by the filters`, then the choices that dim it (`dimmedWords`).
  *
  * @param item - The item
  * @param mark - What keeps it off the canvas but the filters

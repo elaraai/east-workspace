@@ -6,8 +6,8 @@
  *
  * Every builder's Search Records (`search-records.ts`, #1398, #1621): the one
  * engine that seeks, lists and picks for the Plan, the Calendar, the
- * Allocation, the Roster, the Flowchart and the Schematic, each builder naming
- * its sources, its lines and its pick, and rendering.
+ * Allocation, the Roster, the Flowchart, the Schematic and the Sheet, each
+ * builder naming its sources, its lines and its pick, and rendering.
  *
  * - What a query finds among rows held whole, by their keys in East's order at
  *   their key type (`keyMatches`); the key type the box parses at, and a query
@@ -17,21 +17,33 @@
  * - The box over sources held whole (`useSearchRecords`): a find's count and
  *   its lines, in the builder's order; the latest find alone; the latest pick
  *   alone, a query asked again leaving it standing; what tells the builder its
- *   pick stands no more; what moves `requery` and `relist`; and a pick whose
- *   row cannot be read again said on the console.
+ *   pick stands no more; what moves `requery` and `relist`; a pick whose row
+ *   cannot be read again said on the console; and a box the builder names as
+ *   another starting again, the last one's pick left behind.
+ * - A host's paged source, as a Sheet draws it, sought by its own key search:
+ *   asked the box's query as the key search's East value, its matches the one
+ *   run it answers, a list reading them by their places there; a pick of one
+ *   told by its place at once, with nothing read, to a builder that takes
+ *   places; and the box asking its query again as the source moves to another
+ *   snapshot.
  * - On e3 itself, a source sought through its record — the Schematic
  *   examples' racks, their source of the rail narrowed by owner: its matches
  *   placed in the record and listed in place, a gap kept; each row its
  *   narrowing hides said so, as e3 says which choices hide it; a narrowing that
- *   moved since the find the one a list asks under; and the box asking its
- *   query again as the record moves, and listing its lines again as the
- *   narrowing does.
+ *   moved since the find the one a list asks under; a pick's place known with
+ *   nothing read only where its source hides no row (`pickPlace`); and the box
+ *   asking its query again as the record moves, and listing its lines again
+ *   as the narrowing does.
  * - On a page whose sources hold a scope (#1621) — the scoped-page example's
  *   runs and crew, scoped to a press: the press's runs alone, sought through
  *   the index on exactly the press, a block of matches for each press of the
- *   page's and a list across the blocks; rows a builder holds whole sought
- *   among those the scope holds; and the box asking its query again as the
- *   page's scope moves.
+ *   page's and a list across the blocks, each row it reads carrying its place
+ *   among the page's rows; rows a builder holds whole sought among those the
+ *   scope holds; and the box asking its query again as the page's scope moves.
+ * - Where a key is among a builder's rows (`useSeekPlace`, the Sheet's Go to
+ *   issue): its first match's place, the latest ask alone answering, and none
+ *   asked before what the matches are read from moved, or as the builder let
+ *   it go.
  *
  * Each builder's lines and picks are its own DOM tests'.
  */
@@ -43,7 +55,8 @@ import {
     ArrayType, East, EastTypeType, IntegerType, SortedMap, StringType, StructType, compareFor, equalFor, none, printFor, some, toEastTypeValue, variant,
     type ValueTypeOf, type option,
 } from "@elaraai/east";
-import { RecordSliceWhereType, bindRecord, type DatasetKeyQuery, type RecordSliceBindType, type RecordSliceEntry } from "@elaraai/east-ui/internal";
+import { SeekQueryType, type SeekRangeType } from "@elaraai/east-ui";
+import { RecordSliceWhereType, bindRecord, toSeekQuery, type DatasetKeyQuery, type RecordSliceBindType, type RecordSliceEntry } from "@elaraai/east-ui/internal";
 import { formatters, getRegisteredPlatformImplementations, registerReactiveTracker, type KeySearchSource, type ReactiveTracker } from "@elaraai/east-ui-components";
 import { Data } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/schematic/schematic";
@@ -53,8 +66,8 @@ import { datasetPathToString } from "../../platform/dataset-store.js";
 import { hiddenByText, hiddenLine, hiddenOf, useSourceHidden, type HiddenWords, type SourceHidden } from "./hidden.js";
 import { STRING_KEYS, kindKeys, type KindKeys } from "./kind-keys.js";
 import {
-    boxKeyType, keyMatches, kindQuery, listFound, readToken, readsRows, scopeHeld, searchRuns, stretchesAt, useSearchRecords,
-    type Found, type PickTurn, type RecordSought, type SearchRecordsOptions, type WholeSought,
+    boxKeyType, keyMatches, kindQuery, listFound, pickPlace, readToken, readsRows, scopeHeld, searchRuns, stretchesAt, useSearchRecords, useSeekPlace,
+    type Found, type PagedSought, type PickTurn, type RecordSought, type SearchRecordsOptions, type SeekingSource, type WholeSought,
 } from "./search-records.js";
 
 const h = e3Harness({ "schematic/schematic": ex, "calendar/calendar-scope": scoped }, { measure: false });
@@ -67,6 +80,10 @@ const sameType = equalFor(EastTypeType);
 const whereEqual = equalFor(RecordSliceWhereType);
 const printString = printFor(StringType);
 const printInteger = printFor(IntegerType);
+const seekQueryEqual = equalFor(SeekQueryType);
+
+/** Where a host's paged source says a query lands, as its key search answers it. */
+type SeekRange = ValueTypeOf<SeekRangeType>;
 
 /** The key types the tests key their rows by. */
 const atString = STRING_KEYS.keyType;
@@ -150,8 +167,8 @@ describe("readsRows", () => {
     test("a row a list read no row of lists nothing, its place kept; any other is the builder's item, from its key's text and its row", () => {
         const read = readsRows((id, row) => `${id}:${printInteger(row as bigint)}`);
         const entry: RecordSliceEntry = { ik: variant("by_key", null) };
-        expect(read({ id: "r1", key: "r1", row: 7n, entry })).toEqual(some(some("r1:7")));
-        expect(read({ id: "r2", key: "r2", row: undefined, entry })).toEqual(some(none));
+        expect(read({ id: "r1", key: "r1", row: 7n, entry, place: 0n })).toEqual(some(some("r1:7")));
+        expect(read({ id: "r2", key: "r2", row: undefined, entry, place: 1n })).toEqual(some(none));
     });
 });
 
@@ -413,6 +430,156 @@ describe("useSearchRecords", () => {
         await waitFor(() => expect(said).toHaveBeenCalledWith("[Spec] Search Records could not read the row it found:", refused));
         expect(told.picks).toEqual([]);
     });
+
+    test("a box the builder names as another starts again: what the last one found is let go, a pick of its on its way is left behind, and the builder is told its pick stands no more — never as it renders again under the same name", async () => {
+        const gate = trackedCell(false);
+        const orders = pagedOrders(["A01", "A02"], () => some({ found: true, row: 0n, count: 2n }));
+        // Its rows' page answers once the gate opens: a pick that reads its row is on its way until then.
+        const slow: PagedSought<Item> = { ...orders.source, page: (from, count) => (gate.get() ? orders.source.page(from, count) : none) };
+        const { box, told, rerender } = mountBox({ sources: [slow], resetKey: "rev-1" });
+        await box().find({ prefix: "A" });
+        expect(told.cleared).toBe(1);
+        rerender({ sources: [slow], resetKey: "rev-1" });
+        expect(told.cleared).toBe(1);
+        act(() => { box().jump(1, "pick"); });
+        rerender({ sources: [slow], resetKey: "rev-2" });
+        expect(told.cleared).toBe(2);
+        await act(async () => { gate.set(true); });
+        await settle();
+        expect(told.picks).toEqual([]);
+        expect(await lines(box(), 0, 10)).toEqual([]);
+        // The new box finds and picks as any does.
+        await box().find({ prefix: "A" });
+        act(() => { box().jump(1, "pick"); });
+        await settle();
+        expect(picked(told)).toEqual([[1, "A02", "pick"]]);
+    });
+});
+
+/**
+ * A host's paged source of orders, as a Sheet draws it: `ids` in their keys' order, read by their places, and its key
+ * search answering `answer` — each query it is asked, and each page it reads, kept.
+ *
+ * @param ids - Its rows' keys, in their order
+ * @param answer - What its key search answers, tracked
+ * @param snapshot - Its id — `orders` by default — and the snapshot it serves, where it names one
+ * @returns The source, the queries its key search was asked, and the pages read
+ */
+function pagedOrders(ids: readonly string[], answer: () => option<SeekRange>, snapshot: Partial<Pick<SeekingSource, "id" | "revision" | "query">> = {}) {
+    const asked: ValueTypeOf<SeekQueryType>[] = [];
+    const pages: [bigint, bigint][] = [];
+    const source: PagedSought<Item> = {
+        keys: STRING_KEYS,
+        paged: {
+            id: snapshot.id ?? "orders", revision: snapshot.revision, query: snapshot.query,
+            seek: (query) => {
+                asked.push(query);
+                return answer();
+            },
+        },
+        page: (from, count) => {
+            pages.push([from, count]);
+            return some(items("orders", ids.slice(Number(from), Number(from + count))));
+        },
+    };
+    return { source, asked, pages };
+}
+
+/** Whether every query a key search was asked is the box's, as the key search's East value. */
+const askedAs = (asked: readonly ValueTypeOf<SeekQueryType>[], query: DatasetKeyQuery) =>
+    asked.length > 0 && asked.every((seek) => seekQueryEqual(seek, toSeekQuery(query)));
+
+describe("a paged source, sought by its own key search", () => {
+    test("is asked the box's query as the key search's East value: its matches are the one run it answers, and a list reads them by their places there", async () => {
+        const orders = pagedOrders(["A01", "A02", "A03", "B01", "B02", "C01"], () => some({ found: true, row: 3n, count: 2n }));
+        const { box } = mountBox({ sources: [orders.source] });
+        expect(await box().find({ prefix: "B" })).toEqual({ found: true, row: 0, count: 2 });
+        expect(askedAs(orders.asked, { prefix: "B" })).toBe(true);
+        expect(await lines(box(), 0, 10)).toEqual([[0, "orders B01"], [1, "orders B02"]]);
+        // A list from the middle of the run: its rows from there, at their places among the source's.
+        expect(await lines(box(), 1, 1)).toEqual([[1, "orders B02"]]);
+        expect(orders.pages).toEqual([[3n, 2n], [4n, 1n]]);
+    });
+
+    test("finds nothing where its key search finds nothing, or answers a run of none; and a find waits on a key search still pending", async () => {
+        const missing = pagedOrders(["A01"], () => some({ found: false, row: 1n, count: 0n }));
+        expect(await mountBox({ sources: [missing.source] }).box().find({ key: printString("Z01") })).toEqual({ found: false, row: 0, count: 0 });
+        const empty = pagedOrders(["A01"], () => some({ found: true, row: 0n, count: 0n }));
+        expect(await mountBox({ sources: [empty.source] }).box().find({ prefix: "A" })).toEqual({ found: false, row: 0, count: 0 });
+        // Neither is a run of the list's: a run of none would hold a place no row fills.
+        expect(await searchRuns([missing.source], { key: printString("Z01") }, atString)).toEqual([]);
+        expect(await searchRuns([empty.source], { prefix: "A" }, atString)).toEqual([]);
+        const answer = trackedCell<option<SeekRange>>(none);
+        const slow = pagedOrders(["A01", "A02"], () => answer.get());
+        const { box } = mountBox({ sources: [slow.source] });
+        const finding = box().find({ prefix: "A" });
+        await act(async () => { answer.set(some({ found: true, row: 0n, count: 2n })); });
+        expect(await finding).toEqual({ found: true, row: 0, count: 2 });
+        expect(await lines(box(), 0, 10)).toEqual([[0, "orders A01"], [1, "orders A02"]]);
+    });
+
+    test("the box asks its query again as the source moves to another snapshot — its revision, a live source's narrowing, another source — never as the builder renders again, nor as the snapshot it serves is read again unmoved", async () => {
+        const revision = trackedCell<option<string>>(some("rev-1"));
+        const narrowing = trackedCell("status: Open");
+        const answer = () => some({ found: true, row: 0n, count: 1n });
+        const live = pagedOrders(["A01"], answer, { revision: () => revision.get(), query: () => narrowing.get() });
+        const { box, rerender } = mountBox({ sources: [live.source] });
+        await settle();
+        const requery = box().requery!;
+        rerender({ sources: [live.source] });
+        expect(box().requery).toBe(requery);
+        await act(async () => { revision.set(some("rev-1")); });
+        expect(box().requery).toBe(requery);
+        await act(async () => { revision.set(some("rev-2")); });
+        await waitFor(() => expect(box().requery).toBe(requery + 1));
+        await act(async () => { narrowing.set("status: Closed"); });
+        await waitFor(() => expect(box().requery).toBe(requery + 2));
+        const returns = pagedOrders(["A01"], answer, { id: "returns", revision: () => revision.get(), query: () => narrowing.get() });
+        rerender({ sources: [returns.source] });
+        await waitFor(() => expect(box().requery).toBe(requery + 3));
+    });
+
+    test("a pick of its match goes to a builder that takes places by its place at once, with nothing read — its row's page still on its way — the latest pick alone current; a builder that takes none, or names a source as hiding a row, has its row read again", async () => {
+        const gate = trackedCell(false);
+        const reads: [bigint, bigint][] = [];
+        const orders = pagedOrders(["A01", "A02", "A03", "B01", "B02", "C01"], () => some({ found: true, row: 3n, count: 2n }));
+        // Its rows' page answers once the gate opens: a pick that read its row would wait on it.
+        const slow: PagedSought<Item> = {
+            ...orders.source,
+            page: (from, count) => {
+                reads.push([from, count]);
+                return gate.get() ? orders.source.page(from, count) : none;
+            },
+        };
+        const places: { readonly place: bigint; readonly turn: PickTurn }[] = [];
+        const onPickPlace = (place: bigint, turn: PickTurn) => { places.push({ place, turn }); };
+        const { box, told, rerender } = mountBox({ sources: [slow], onPickPlace });
+        await box().find({ prefix: "B" });
+        // B02, the run's second match: the source's fifth row.
+        act(() => { box().jump(1, "pick"); });
+        expect(places.map(({ place, turn }) => [place, turn.how, turn.current()])).toEqual([[4n, "pick", true]]);
+        act(() => { box().jump(0, "step"); });
+        expect(places.map(({ place, turn }) => [place, turn.how, turn.current()])).toEqual([[4n, "pick", false], [3n, "step", true]]);
+        // A row the find did not find is no pick's.
+        act(() => { box().jump(2, "pick"); });
+        await settle();
+        expect(places).toHaveLength(2);
+        expect(reads).toEqual([]);
+        expect(told.picks).toEqual([]);
+        // A builder that takes no place: its row is read again, and handed over once it is.
+        rerender({ sources: [slow] });
+        act(() => { box().jump(1, "pick"); });
+        await settle();
+        expect(reads).toEqual([[4n, 1n]]);
+        expect(told.picks).toEqual([]);
+        await act(async () => { gate.set(true); });
+        await waitFor(() => expect(picked(told)).toEqual([[1, "B02", "pick"]]));
+        // One that names a source as hiding a row: the row is read, since what hides it is asked of it.
+        rerender({ sources: [slow], onPickPlace, hidings: (rows) => rows.map(() => []) });
+        act(() => { box().jump(0, "pick"); });
+        await waitFor(() => expect(picked(told)).toEqual([[1, "B02", "pick"], [0, "B01", "pick"]]));
+        expect(places).toHaveLength(2);
+    });
 });
 
 /** The racks as a builder's source of the rail: by owner, through their index. */
@@ -430,6 +597,9 @@ async function racks(): Promise<Bind> {
     await h.install({ fn: racksProgram });
     return East.compile(racksProgram, getRegisteredPlatformImplementations())() as unknown as Bind;
 }
+
+/** The racks, as the request log names them. */
+const RACKS = datasetPathToString(ex.schematicRacks.path);
 
 /** Harbour Labs' racks, A01 and A02 — never Northwind Media's A03 and A04, Elmway College's A05 and A06, nor A07, let to no one. */
 const HARBOUR: Where = new SortedMap([["owner", variant("values", [printString("Harbour Labs")])]], compareString);
@@ -525,6 +695,56 @@ describe("a source sought through e3", () => {
         await waitFor(() => expect(box().requery).toBeGreaterThan(requery));
         expect(await box().find({ prefix: "A0" }, true)).toEqual({ found: true, row: 0, count: 6 });
     });
+
+    test("a pick's place is known with nothing read where its source hides no row — one with no hidden pick, as the builder names it now — never where its narrowing may hide the row, nor for a row held whole, nor one the find did not find", async () => {
+        const part = await racks();
+        const { result } = renderHook(() => useSourceHidden("Spec", part));
+        await waitFor(() => expect(result.current.ready).toBe(true));
+        const plain: RecordSought<string> = { part, keys: STRING_KEYS, read: ({ id }) => some(some(id)) };
+        const runs = await searchRuns([plain], { prefix: "A0" }, atString);
+        expect([pickPlace(runs, 0), pickPlace(runs, 6)]).toEqual([0n, 6n]);
+        expect(pickPlace(runs, 7)).toBeUndefined();
+        // Named now with a hidden pick — its rows narrowed since the find: the narrowing may hide the row, so it is read.
+        expect(pickPlace(runs, 2, [sought(part, result.current)])).toBeUndefined();
+        const narrowed = await searchRuns([sought(part, result.current)], { prefix: "A0" }, atString);
+        expect(pickPlace(narrowed, 2)).toBeUndefined();
+        // …and named now with none, its place again.
+        expect(pickPlace(narrowed, 2, [plain])).toBe(2n);
+        // Rows held whole have no place.
+        const whole = await searchRuns([held(() => some(items("rack", ["A01", "A02"])))], { prefix: "A" }, atString);
+        expect(whole.map(({ count }) => count)).toEqual([2]);
+        expect(pickPlace(whole, 0)).toBeUndefined();
+    });
+
+    test("a pick of a match with no hidden pick goes to a builder that takes places by its place at once, and its row is never read; with a hidden pick its row is read, and what hides it handed over", async () => {
+        const part = await racks();
+        const hidden = renderHook(() => useSourceHidden("Spec", part));
+        await waitFor(() => expect(hidden.result.current.ready).toBe(true));
+        const places: bigint[] = [];
+        const picks: Found<string>[] = [];
+        const { result, rerender } = renderHook(({ pick }: { pick: SourceHidden | undefined }) => {
+            const sources = useMemo((): RecordSought<string>[] => [{ part, keys: STRING_KEYS, pick, read: ({ id }) => some(some(id)) }], [pick]);
+            return useSearchRecords<string>({
+                name: "Spec", resetKey: "spec", sources, line: ({ item }) => ({ label: item, text: item }),
+                onPick: (found) => { picks.push(found); }, onPickPlace: (place) => { places.push(place); },
+            });
+        }, { initialProps: { pick: undefined as SourceHidden | undefined } });
+        const box = (): KeySearchSource => result.current!;
+        expect(await box().find({ prefix: "A0" })).toEqual({ found: true, row: 0, count: 7 });
+        const before = h.requests(undefined, RACKS).length;
+        act(() => { box().jump(2, "pick"); });
+        expect(places).toEqual([2n]);
+        await settle();
+        expect(h.requests(undefined, RACKS).slice(before)).toEqual([]);
+        expect(picks).toEqual([]);
+        // Harbour Labs' racks alone: the narrowing hides A03, so a pick of it reads its row and says so.
+        await narrow(part, HARBOUR);
+        await waitFor(() => expect(whereEqual(hidden.result.current.where!, HARBOUR)).toBe(true));
+        rerender({ pick: hidden.result.current });
+        act(() => { box().jump(2, "pick"); });
+        await waitFor(() => expect(picks.map(({ at, item, hidden: by }) => [at, item, by !== undefined])).toEqual([[2, "A03", true]]));
+        expect(places).toEqual([2n]);
+    });
 });
 
 /**
@@ -606,6 +826,20 @@ describe("on a page whose sources hold a scope (#1621)", () => {
         expect(placed(gap)).toEqual([[3, "r6"], [5, "r4"], [6, "r5"]]);
     });
 
+    test("each row a list reads carries its place among the page's rows — what a builder whose rows are those rows goes to it by, the Sheet's — however far apart the blocks it reads them from", async () => {
+        const { runs } = (await pressPages())(["P-2", "P-1"]);
+        const atPlace = runsOf(runs, ({ id, place }) => some(some(`${id}@${printInteger(place)}`)));
+        // `"r3".."r6"`: P-1's r3, then P-2's r4 and r5 — a block of each press's, with P-1's r6 and r7 between them.
+        const blocks = await searchRuns([atPlace], { from: [printString("r3")], to: [printString("r6")] }, atString);
+        expect(blocks.map(({ start, count }) => [start, count])).toEqual([[2n, 1], [5n, 2]]);
+        const placed = (listed: readonly Found<string>[]) => listed.map(({ at, item }) => [at, item]);
+        expect(placed(await listFound(blocks, 0, 3))).toEqual([[0, "r3@2"], [1, "r4@5"], [2, "r5@6"]]);
+        // A list from inside a block: the row at its own place still.
+        expect(placed(await listFound(blocks, 2, 1))).toEqual([[2, "r5@6"]]);
+        // A pick that reads nothing goes to the place a list reads the row at.
+        expect([0, 1, 2].map((row) => pickPlace(blocks, row))).toEqual([2n, 5n, 6n]);
+    });
+
     test("rows a builder holds whole — the Roster's people — are sought among those the scope holds, asked of e3: a key of no row is held by none, and a source with no scope holds every row", async () => {
         const { crew, templates } = (await pressPages())(["P-1"]);
         const kept = await scopeHeld(crew, ["c1", "c2", "c3", "c4", "c9"]);
@@ -631,5 +865,55 @@ describe("on a page whose sources hold a scope (#1621)", () => {
         rerender({ part: page(["P-2"]).runs });
         await waitFor(() => expect(box().requery).toBeGreaterThan(requery));
         expect(await box().find({ prefix: "r" }, true)).toEqual({ found: true, row: 0, count: 3 });
+    });
+});
+
+describe("useSeekPlace", () => {
+    test("where a key is among a builder's rows, as the box seeks it: its first match's place — on a scoped page among the scope's rows, of a paged source among its own — none for a key no row holds, and no seek with no source", async () => {
+        const { runs } = (await pressPages())(["P-2", "P-1"]);
+        const scopedSeek = renderHook(() => useSeekPlace([{ part: runs, keys: STRING_KEYS, read: () => some(none) }])).result.current!;
+        // Asked as the page mounts, before the record has said its revision: what it then says is no move of its rows.
+        expect(await scopedSeek({ key: printString("r5") })).toBe(6n);
+        expect(await scopedSeek({ prefix: "r" })).toBe(0n);
+        expect(await scopedSeek({ key: printString("r9") })).toBeUndefined();
+        const orders = pagedOrders(["A01", "A02", "B01"], () => some({ found: true, row: 2n, count: 1n }));
+        const pagedSeek = renderHook(() => useSeekPlace([orders.source])).result.current!;
+        expect(await pagedSeek({ key: printString("B01") })).toBe(2n);
+        expect(askedAs(orders.asked, { key: printString("B01") })).toBe(true);
+        expect(renderHook(() => useSeekPlace<Item>([])).result.current).toBeUndefined();
+    });
+
+    test("the latest ask alone answers: an older one, one whose source moved between the ask and the answer, and one the builder let go of as it unmounted answer none", async () => {
+        const revision = trackedCell<option<string>>(some("rev-1"));
+        const answer = trackedCell<option<SeekRange>>(none);
+        const orders = pagedOrders(["A01", "A02", "A03"], () => answer.get(), { revision: () => revision.get() });
+        const { result, unmount } = renderHook(() => {
+            const sources = [orders.source];
+            // The box beside it, whose `requery` says the source moved.
+            const box = useSearchRecords<Item>({ name: "Spec", resetKey: "spec", sources, line: ({ item }) => ({ label: item.id, text: item.id }), onPick: () => {} });
+            return { seek: useSeekPlace(sources)!, box: box! };
+        });
+        // Two asks before the source answers: the later alone is answered.
+        const older = result.current.seek({ key: printString("A01") });
+        const newer = result.current.seek({ key: printString("A02") });
+        await act(async () => { answer.set(some({ found: true, row: 1n, count: 1n })); });
+        expect(await older).toBeUndefined();
+        expect(await newer).toBe(1n);
+        // Asked, and the source moves to another revision before it answers: the place is its old rows', and it answers none.
+        await act(async () => { answer.set(none); });
+        const before = result.current.seek({ key: printString("A03") });
+        const requery = result.current.box.requery!;
+        await act(async () => { revision.set(some("rev-2")); });
+        await waitFor(() => expect(result.current.box.requery).toBe(requery + 1));
+        await settle();
+        await act(async () => { answer.set(some({ found: true, row: 2n, count: 1n })); });
+        expect(await before).toBeUndefined();
+        expect(await result.current.seek({ key: printString("A03") })).toBe(2n);
+        // Asked, and let go of as the builder unmounts: none.
+        await act(async () => { answer.set(none); });
+        const dropped = result.current.seek({ key: printString("A03") });
+        unmount();
+        await act(async () => { answer.set(some({ found: true, row: 2n, count: 1n })); });
+        expect(await dropped).toBeUndefined();
     });
 });

@@ -109,12 +109,13 @@ export { recordSliceWindow, recordSliceDomain, recordSliceWindowFits, setRecordS
 // area index's cells, counted and read, the bounds of a density raster's searches and the entries of some of their runs,
 // and another record's rows under the keys the cells' and the runs' entries name — the Schematic's window and its details
 // (#1393); and a generated index's `on` printer, which those searches name its leading values with (#1432); and where a
-// key lands among the rows a page holds of a source — the scope's, on a scoped page — those rows by their place, and which
-// of them a narrowing holds: every builder's Search Records (#1621).
+// key lands among the rows a page holds of a source — the scope's, on a scoped page — those rows by their place, which of
+// them a narrowing holds, and where a narrowing's rows sit among them: every builder's Search Records, and the Sheet's rows
+// and its lens (#1621).
 export {
     recordSliceSeeded, recordSlicePlace, recordSliceWithin, recordSliceWithinAt, recordSliceSeek, recordSliceCellRuns, recordSliceCellEntries,
     recordSliceCellJoins, recordSliceContainsAll, recordSliceReadEntries, recordSliceRows, recordSliceRevision, recordSlicePage, recordSliceBounds, recordSliceRunEntries, recordSliceRunJoins,
-    recordSliceOnPrinter, recordSlicePosition, recordSliceKeySearch, recordSliceBasePage, recordSliceBaseWithinAt,
+    recordSliceOnPrinter, recordSlicePosition, recordSliceKeySearch, recordSliceBasePage, recordSliceBaseWithinAt, recordSliceBasePlace,
 } from "./platform/slice/record.js";
 // The UI store, tracked reads, and the boundary a renderer's East calls run in.
 export { getStore, initializeStore, trackKey } from "./platform/state-runtime.js";

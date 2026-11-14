@@ -131,7 +131,7 @@ export function useSheetInspector(value: SheetRootValue, sheetDecode: SheetDecod
     const { cardRef, runEffects } = sheetEffects;
     const { insertWhenClosed, pendingInsertFocus } = sheetGestures;
     const { styles } = sheetOpenEditor;
-    const { issueSought, onIssue, revealRef, rowsPick, seek } = sheetJumps;
+    const { goToPlace, issueSought, onIssue, revealRef, rowsPick, seekPlace } = sheetJumps;
     const { wholeCount } = sheetViewTabs;
     const { drawAction } = sheetActions;
     // ── The inspector's reads and gestures (#1188) ────────────────────────
@@ -546,27 +546,28 @@ export function useSheetInspector(value: SheetRootValue, sheetDecode: SheetDecod
                 link={meta.kind === "link" && it.kind === "real" ? linkCellCtx(it.row, meta) : undefined} />
         );
     }, [rowAt, columnAt, registers, styles, unitAt, linkCellCtx]);
-    const seekSearch = seek.search;
     const goToIssue = useCallback((issue: EditIssue) => {
         onIssue(issue);
-        // On a paged sheet the issue's row may not be in yet: its key is sought, and the row lands where the key
-        // search's would — under the lens, where the narrowing keeps it (#1349).
+        // On a paged sheet the issue's row may not be in yet: its key is sought as the key search seeks it, leaving the
+        // box as it is, and the row lands where a pick of it would — under the lens, where the narrowing keeps it (#1349).
         const resident = body.some((it) => (it.kind === "group" ? stringEqual(it.row.id, issue.entry)
             : it.kind === "real" ? stringEqual(it.group?.row.id ?? it.row.id, issue.entry) : false));
-        if (resident || seekSearch === undefined) return;
+        if (resident || seekPlace === undefined) return;
         // A seek takes the key's `.east` text: a String key's is quoted, any other key's is its id.
         const literal = keyIsText ? printString(issue.entry) : issue.entry;
-        void seekSearch.find({ key: literal }).then((range) => {
-            if (!range.found) return;
+        void seekPlace({ key: literal }).then((found) => {
+            // None found, or a later Go to issue — or rows that moved since — answered in its place.
+            if (found === undefined) return;
+            const place = Number(found);
             // A row the narrowing hides, known so (the hidden pick): the filters hiding it cleared — those e3 named, else
             // every one — and the issue's cell gone to once the narrowing they leave draws its row. Else the row is sought
             // where it is, and a jump that finds it hidden reveals it so.
             const state = rowsPick.rows.stateOf(issue.entry);
-            if (state !== undefined && state.hidden) { revealRef.current(range.row, issue.entry, true); return; }
-            issueSought.current = { entry: issue.entry, row: range.row };
-            seekSearch.jump(range.row);
-        }).catch(() => { /* superseded or cleared */ });
-    }, [onIssue, body, seekSearch, keyIsText, rowsPick, issueSought, revealRef]);
+            if (state !== undefined && state.hidden) { revealRef.current(place, issue.entry, true); return; }
+            issueSought.current = { entry: issue.entry, row: place };
+            goToPlace(place);
+        }).catch((error: unknown) => { console.error("[Sheet] Go to issue could not seek its row:", error); });
+    }, [onIssue, body, seekPlace, keyIsText, rowsPick, issueSought, revealRef, goToPlace]);
     // A conflict's row as the sheet shows it, in the cards of the history's popover: its first text column's text —
     // `Panel cutting` — where it holds one, else its key. A row the draft removed is off the rows shown, and is named
     // all the same: by the row the session holds of what the record does, wherever the sheet has scrolled to. Read as

@@ -66,6 +66,7 @@
 
 import { StringType, equalFor, none, some } from "@elaraai/east";
 import type { Origin } from "@elaraai/east-ui-components";
+import type { SourceUnheld } from "../shared/schedule/unheld.js";
 import type { FlowchartEdit, FlowchartFieldWrites, FlowchartMove, FlowchartNewKey, FlowchartTransitionWrite } from "./editing.js";
 import type { FlowchartWaiting } from "./drafted.js";
 import type { FlowchartModel, FlowchartRow, FlowchartRows, FlowchartTransitionRoles, ModelNode } from "./model.js";
@@ -174,10 +175,10 @@ export interface FlowchartHolding {
 }
 
 /**
- * Why the flowchart may not hold every row of a kind (#1580): the rail hides some; its page's scope holds only some
- * (#1621), which no choice of the viewer's clears; or the kind takes no edit now.
+ * Why the flowchart may not hold every row of a kind (#1580): its source holds only some ({@link SourceUnheld}: its
+ * page's scope, or the rail's filters), or the kind takes no edit now.
  */
-export type FlowchartUnheld = "filtered" | "scoped" | "busy";
+export type FlowchartUnheld = SourceUnheld | "busy";
 
 /** Why a gesture records nothing (#1549), as the footer says it. */
 export type FlowchartRefusal =

@@ -8,16 +8,19 @@
  * records it draws, by primary key — never a field search, which is the rail's,
  * and never what the builder draws. One engine seeks, lists and picks for every
  * builder — the Plan's rows, the Calendar's event kinds, the Allocation's bins,
- * the Roster's people, the Flowchart's states and the Schematic's kinds; a
- * builder names its sources, how a found row reads as its item, its line's
- * words and what a pick does, and renders.
+ * the Roster's people, the Flowchart's states, the Schematic's kinds and the
+ * Sheet's rows; a builder names its sources, how a found row reads as its item,
+ * its line's words and what a pick does, and renders.
  *
  * - **A source sought through e3** is sought in its record with no choice of
  *   the viewer's: `recordSliceKeySearch` places the query's matches among the
  *   rows the page holds of the record — the record's own, or, on a page whose
  *   source holds a scope, the scope's alone, a block for each of its values
  *   that holds one — and `recordSliceBasePage` reads the rows a list shows by
- *   their place there.
+ *   their place there, which each row it reads carries.
+ * - **A paged source** — a host's `Data.bindPaged` that a Sheet draws — is
+ *   sought by its own `seek`, which places the query's matches in one run among
+ *   its rows, and a list reads them by their place there.
  * - **A source read whole** is sought among its rows, their keys in East's
  *   order at its key type, as the server finds a key (`findKeyInline`), or as
  *   the source matches them; on a page whose source holds a scope, among the
@@ -39,29 +42,44 @@
  * layout lays an event on, a bin's lane, the people the rail shows), which are
  * asked the same. A pick reads its row again and hands it to the builder, the
  * latest pick alone: a newer pick, a new query or a clear leaves one on its way
- * behind, and a query asked again leaves it standing. The box asks its query
- * again as a source's record moves to another revision, as its page's scope
- * moves, and as what else the builder says its matches are read from moves;
+ * behind, and a query asked again leaves it standing. A row nothing can hide —
+ * a paged source's, or one of a source sought through e3 with no hidden pick,
+ * where the builder names no other source as hiding a row — goes to a builder
+ * that takes places by its place at once, with nothing read
+ * ({@link pickPlace}): the Sheet, which reads its window where it goes. The box
+ * asks its query again as a source's record moves to another revision, as its
+ * page's scope moves, as a paged source moves to another snapshot, and as what
+ * else the builder says its matches are read from moves;
  * and lists its lines again as e3 says what hides a row, as a source's
- * narrowing moves, and as what else the builder's lines read moves.
+ * narrowing moves, and as what else the builder's lines read moves. A box the
+ * builder names as another (`resetKey`) starts again: what the last one found
+ * is let go, a find or a pick of its on their way is left behind, and the
+ * builder is told its pick stands no more.
+ *
+ * A builder that goes to a row by its key alone — the Sheet's Go to issue —
+ * asks where it is among its rows as the box would seek it
+ * ({@link useSeekPlace}), the latest ask alone answering, and none asked
+ * before those rows moved.
  *
  * @packageDocumentation
  */
 
-import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { EastTypeType, StringType, equalFor, none, parseFor, printFor, some, type EastTypeValue, type ValueTypeOf, type option } from "@elaraai/east";
+import type { SeekQueryType, SeekRangeType } from "@elaraai/east-ui";
 import {
-    RecordSliceWhereType, findKeyInline, parseKeyInput, recordScopedWhere,
+    RecordSliceWhereType, findKeyInline, parseKeyInput, recordSliceBase, recordSliceScoped, toSeekQuery,
     type DatasetKeyMatchRange, type DatasetKeyQuery, type RecordSliceBindType, type RecordSliceEntry,
 } from "@elaraai/east-ui/internal";
 import { useTrackedEvaluation, type KeySearchJump, type KeySearchSource } from "@elaraai/east-ui-components";
 import {
-    awaitTracked, recordSliceBasePage, recordSliceKeySearch, recordSliceRevision, recordSliceRows, recordSliceWithin,
+    awaitTracked, recordSliceBasePage, recordSliceKeySearch, recordSliceRevision, recordSliceRows, recordSliceWithin, snapshotOf,
 } from "@elaraai/east-ui-components/internal";
 import { askHiding, hiddenOf, useMoves, useRelist, type RowHidden, type RowHiding, type SourceHidden } from "./hidden.js";
 import { STRING_KEYS, type KindKeys } from "./kind-keys.js";
 
 const sameType = equalFor(EastTypeType);
+const stringEqual = equalFor(StringType);
 const readString = parseFor(StringType);
 const printWhere = printFor(RecordSliceWhereType);
 
@@ -141,7 +159,7 @@ export function rowsWithin(part: RecordPart, where: ValueTypeOf<typeof RecordSli
  * @returns The texts of the keys the scope holds; `none` while e3 has not said
  */
 export function scopeHolds(part: RecordPart, ids: readonly string[], keys: KindKeys = STRING_KEYS): option<ReadonlySet<string>> {
-    const held = rowsWithin(part, recordScopedWhere(part.config.scope, new Map()), ids, keys);
+    const held = rowsWithin(part, recordSliceBase(part), ids, keys);
     return held.type === "none" ? none : some(new Set(ids.filter((id) => held.value.get(id) === true)));
 }
 
@@ -155,7 +173,7 @@ export function scopeHolds(part: RecordPart, ids: readonly string[], keys: KindK
  * @returns The texts of the keys the scope holds; `undefined` with no part, or a page with no scope, which holds every row
  */
 export async function scopeHeld(part: RecordPart | undefined, ids: readonly string[], keys: KindKeys = STRING_KEYS): Promise<ReadonlySet<string> | undefined> {
-    if (part === undefined || part.config.scope.size === 0) return undefined;
+    if (part === undefined || !recordSliceScoped(part)) return undefined;
     return awaitTracked(() => scopeHolds(part, ids, keys));
 }
 
@@ -169,6 +187,11 @@ export interface RecordRow {
     readonly row: unknown;
     /** Its entry, as the binding read it: the key of the index the row was read through among it. */
     readonly entry: RecordSliceEntry;
+    /**
+     * Its place among the rows the page holds of the record — the record's own, or its scope's (#1621): where a builder
+     * whose rows are those rows, in their order, goes to it (the Sheet).
+     */
+    readonly place: bigint;
 }
 
 /**
@@ -230,12 +253,98 @@ export interface WholeSought<T> {
     readonly token?: (() => string) | undefined;
 }
 
-/** A source Search Records seeks: through e3, or among rows held whole. */
-export type SoughtSource<T> = RecordSought<T> | WholeSought<T>;
+/** A paged source as Search Records seeks it: its id, its key search, and the snapshot it serves where it names one. */
+export interface SeekingSource {
+    /** Its id: what tells it from another source. */
+    readonly id: string;
+    /** Its key search, as the source answers it: a tracked read, `none` while it is pending. */
+    readonly seek: (query: ValueTypeOf<SeekQueryType>) => option<ValueTypeOf<SeekRangeType>>;
+    /** The snapshot it serves — a pinned or live source's — tracked; absent on a `paged` source, whose rows are its id's. */
+    readonly revision?: (() => option<string>) | undefined;
+    /** The narrowing it serves — a live source's — tracked. */
+    readonly query?: (() => string) | undefined;
+}
+
+/**
+ * A paged source Search Records seeks by its own key search (see the module
+ * docs): a host's `Data.bindPaged` a builder reads its rows from by their
+ * place — the Sheet's — whose `seek` places a query's matches in one run among
+ * them.
+ *
+ * @typeParam T - What the builder reads a found row as
+ */
+export interface PagedSought<T> {
+    /** Its keys: the key type a query is read at. */
+    readonly keys: KindKeys;
+    /** The source: what a query is sought through, and what tells the box it moved to another snapshot. */
+    readonly paged: SeekingSource;
+    /** Its rows `[from, from + count)` by their place, as the builder reads them: a tracked read, `none` while it is pending. */
+    readonly page: (from: bigint, count: bigint) => option<readonly T[]>;
+}
+
+/** A source Search Records seeks: through e3, by its own key search, or among rows held whole. */
+export type SoughtSource<T> = RecordSought<T> | PagedSought<T> | WholeSought<T>;
+
+/** A source whose matches have places among the rows a builder draws of it: one sought through e3, or a paged source. */
+export type PlacedSource<T> = RecordSought<T> | PagedSought<T>;
 
 /** Whether a source is sought through e3. */
 function throughE3<T>(source: SoughtSource<T>): source is RecordSought<T> {
     return "part" in source;
+}
+
+/** Whether a source is sought by its own key search. */
+function bySeek<T>(source: SoughtSource<T>): source is PagedSought<T> {
+    return "paged" in source;
+}
+
+/**
+ * What a source's matches are read from, as it stands, tracked: its record's
+ * revision and its page's scope; a paged source's id, and the snapshot it
+ * serves where it names one (`snapshotOf`) — its revision, and a live source's
+ * narrowing with it; a source read whole's token.
+ *
+ * @param source - The source
+ * @returns Its token; `none` while its record, or the snapshot it serves, has not said
+ */
+function soughtToken<T>(source: SoughtSource<T>): option<string> {
+    if (bySeek(source)) {
+        const at = snapshotOf(source.paged);
+        if (at === undefined) return some(source.paged.id);
+        return at.type === "none" ? none : some(`${source.paged.id}\u0000${at.value}`);
+    }
+    if (!throughE3(source)) return some(source.token?.() ?? "");
+    const revision = recordSliceRevision(source.part);
+    return revision.type === "none" ? none : some(`${revision.value}\u0000${printWhere(recordSliceBase(source.part))}`);
+}
+
+/**
+ * What every source's matches are read from, as it stands, tracked ({@link soughtToken}).
+ *
+ * @param sources - The sources
+ * @returns Their tokens, in order; `none` while any has not said
+ */
+function soughtAt<T>(sources: readonly SoughtSource<T>[]): option<string> {
+    const tokens: string[] = [];
+    for (const source of sources) {
+        const token = soughtToken(source);
+        if (token.type === "none") return none;
+        tokens.push(token.value);
+    }
+    return some(tokens.join("\n"));
+}
+
+/**
+ * What every source's matches are read from ({@link soughtAt}): as it stands
+ * as this is called, or, while a source has not said, as it stands once each
+ * has.
+ *
+ * @param sources - The sources
+ * @returns Their tokens, in order
+ */
+async function soughtAtNow<T>(sources: readonly SoughtSource<T>[]): Promise<string> {
+    const now = soughtAt(sources);
+    return now.type === "some" ? now.value : awaitTracked(() => soughtAt(sources));
 }
 
 /** A row Search Records found: its place in the list, the builder's item, and what hides it. */
@@ -271,7 +380,18 @@ export interface SearchRecordsOptions<T> {
     readonly line: (found: Found<T>) => { readonly label: string; readonly text: string };
     /** Told the row a pick lands on, and the pick's turn. */
     readonly onPick: (found: Found<T>, turn: PickTurn) => void;
-    /** Told the last pick stands no more: the search cleared, or a new query asked in its place — never one asked again. */
+    /**
+     * Told the place a pick lands on, among the rows its source's page holds, and the pick's turn — at once, with nothing
+     * read — where nothing can hide the row ({@link pickPlace}), of a builder that names no other source as hiding one
+     * ({@link hidings}). What a builder that goes to a row by its place gives (the Sheet): its window is read where it
+     * goes, and one that cannot be read is shown there. Without it, and for any other row, a pick reads its row again
+     * ({@link onPick}).
+     */
+    readonly onPickPlace?: ((place: bigint, turn: PickTurn) => void) | undefined;
+    /**
+     * Told the last pick stands no more: the search cleared, a new query asked in its place — never one asked again — or
+     * the box named as another (`resetKey`).
+     */
     readonly onCleared?: (() => void) | undefined;
     /** What the box says where no key matches. */
     readonly noMatchesText?: string | undefined;
@@ -295,7 +415,10 @@ export interface SearchRecordsOptions<T> {
 export interface FoundRun<T> {
     /** The source. */
     readonly source: SoughtSource<T>;
-    /** Where it starts among the rows the source's page holds — the record's own, or its scope's (#1621); 0 for a source read whole. */
+    /**
+     * Where it starts among the rows the source's page holds — the record's own, or its scope's (#1621) — or among a paged
+     * source's rows; 0 for a source read whole.
+     */
     readonly start: bigint;
     /** How many matches it holds. */
     readonly count: number;
@@ -410,8 +533,9 @@ export function kindQuery(query: DatasetKeyQuery, box: EastTypeValue, keyed: Kin
 /**
  * Seeks a query in each source, in order (see the module docs): a source
  * sought through e3 a block of matches at a time — one with no scope, one for
- * each of the scope's values that holds one — and a source read whole its
- * matches, on a scoped page those its scope holds alone.
+ * each of the scope's values that holds one — a paged source the one run its
+ * own key search answers, and a source read whole its matches, on a scoped
+ * page those its scope holds alone.
  *
  * @param sources - The sources, in the builder's order
  * @param query - The query the box parsed
@@ -426,6 +550,11 @@ export async function searchRuns<T>(sources: readonly SoughtSource<T>[], query: 
         if (throughE3(source)) {
             const blocks = await awaitTracked(() => recordSliceKeySearch(source.part, asked));
             return blocks.flatMap((block) => (block.count === 0n ? [] : [{ source, start: block.row, count: Number(block.count), rows: undefined }]));
+        }
+        if (bySeek(source)) {
+            // The query as the key search's East value: what every source's `seek` reads.
+            const range = await awaitTracked(() => source.paged.seek(toSeekQuery(asked)));
+            return range.found && range.count > 0n ? [{ source, start: range.row, count: Number(range.count), rows: undefined }] : [];
         }
         const rows = await awaitTracked(source.rows);
         const all = source.matches === undefined ? keyMatches(rows, source.idOf, asked, source.keys) : source.matches(rows, asked);
@@ -470,6 +599,27 @@ function sourceNow<T>(source: RecordSought<T>, current: readonly SoughtSource<T>
 }
 
 /**
+ * Where a list's row is among the rows its source's page holds, where a pick
+ * of it needs nothing read (see the module docs): the row is a match of a
+ * source that places its matches and hides none of them — a paged source, whose
+ * `seek` placed it, or one sought through e3 that, as the builder names it now,
+ * has no hidden pick. A row of a source with a hidden pick is read again, since
+ * its narrowing may hide it; a row held whole has no place.
+ *
+ * @param runs - What the find found
+ * @param row - The list's row
+ * @param current - The sources as the builder names them now ({@link ListOptions.sources}); by default, those the find sought
+ * @returns Its place; `undefined` for a row the find did not find, and for one a pick reads again
+ */
+export function pickPlace<T>(runs: readonly FoundRun<T>[], row: number, current?: readonly SoughtSource<T>[]): bigint | undefined {
+    const [stretch] = stretchesAt(runs, row, 1);
+    if (stretch === undefined) return undefined;
+    const { source } = stretch.run;
+    const placed = bySeek(source) || (throughE3(source) && sourceNow(source, current).pick === undefined);
+    return placed ? stretch.run.start + BigInt(stretch.offset) : undefined;
+}
+
+/**
  * Which of the rows a list read of a source its narrowing hides, as far as is
  * known, asked of e3 with which choices hide those it does (its hidden pick):
  * over the rows the list read, where they carry them (`askListed`) — known at
@@ -500,9 +650,11 @@ async function hidesListed<T>(source: RecordSought<T>, from: bigint, rows: reado
 /**
  * Reads the rows `[row, row + limit)` of what a find found, as a list shows them
  * (see the module docs): a source sought through e3 a page of the rows its page
- * holds at a time, each read as the builder reads it now, and which its
- * narrowing now hides asked of e3; a source read whole's matches as they were
- * found; and what hides each row, the builder's sources beside a source's own.
+ * holds at a time, each read as the builder reads it now, its place there with
+ * it, and which its narrowing now hides asked of e3; a paged source a page of
+ * its rows at a time, by their place; a source read whole's matches as they
+ * were found; and what hides each row, the builder's sources beside a source's
+ * own.
  *
  * @param runs - What the find found
  * @param row - The list's first row
@@ -513,12 +665,17 @@ async function hidesListed<T>(source: RecordSought<T>, from: bigint, rows: reado
 export async function listFound<T>(runs: readonly FoundRun<T>[], row: number, limit: number, options: ListOptions<T> = {}): Promise<Found<T>[]> {
     const { sources: current, hidings, known = true } = options;
     const stretches = await Promise.all(stretchesAt(runs, row, limit).map(async ({ run, offset, n, at }): Promise<Listed<T>[]> => {
-        if (!throughE3(run.source)) return (run.rows ?? []).slice(offset, offset + n).map((item, i) => ({ at: at + i, item, own: NO_HIDINGS }));
-        const source = sourceNow(run.source, current);
+        const { source: sought } = run;
         const from = run.start + BigInt(offset);
+        if (bySeek(sought)) {
+            const page = await awaitTracked(() => sought.page(from, BigInt(n)));
+            return page.slice(0, n).map((item, i) => ({ at: at + i, item, own: NO_HIDINGS }));
+        }
+        if (!throughE3(sought)) return (run.rows ?? []).slice(offset, offset + n).map((item, i) => ({ at: at + i, item, own: NO_HIDINGS }));
+        const source = sourceNow(sought, current);
         const entries = await awaitTracked(() => recordSliceBasePage(source.part, from, BigInt(n)));
-        const rows = entries.map((entry): RecordRow => ({
-            id: source.keys.textOf(entry.key), key: entry.key, row: entry.row?.type === "some" ? entry.row.value : undefined, entry,
+        const rows = entries.map((entry, i): RecordRow => ({
+            id: source.keys.textOf(entry.key), key: entry.key, row: entry.row?.type === "some" ? entry.row.value : undefined, entry, place: from + BigInt(i),
         }));
         const hides = await hidesListed(source, from, rows);
         const items = await Promise.all(rows.map((listed) => awaitTracked(() => source.read(listed))));
@@ -530,6 +687,56 @@ export async function listFound<T>(runs: readonly FoundRun<T>[], row: number, li
     const more = hidings === undefined ? undefined : await hidings(listed.map(({ item }) => item));
     if (more !== undefined) askHiding(more.flat(), known);
     return listed.map(({ at, item, own }, i) => ({ at, item, hidden: hiddenOf([...own, ...(more?.[i] ?? NO_HIDINGS)]) }));
+}
+
+/**
+ * What tells the box its matches are read from another state (see the module
+ * docs): each source's record's revision and its page's scope, each paged
+ * source's snapshot, each source read whole's token — tracked, so a window the
+ * builder reads moves none of it — and what else the builder names.
+ *
+ * @param sources - The sources
+ * @param by - What else the matches are read from, each another object as it moves
+ * @returns A number that moves as any of them does
+ */
+function useSoughtMoves<T>(sources: readonly SoughtSource<T>[], by: readonly unknown[]): number {
+    // A source that has not said is `-`: what it says then moves the box, as any move does.
+    const readTokens = useCallback(() => sources.map((source): string => {
+        const token = soughtToken(source);
+        return token.type === "some" ? token.value : "-";
+    }).join("\n"), [sources]);
+    const { result } = useTrackedEvaluation(readTokens);
+    return useMoves([result.ok ? result.value : "", ...by]);
+}
+
+/**
+ * Where a key is among a builder's rows, as the box seeks it (see the module
+ * docs), for a builder that goes to a row by its key alone — the Sheet's Go to
+ * issue: the place of the first match, among the rows its page holds of a
+ * source sought through e3, or among a paged source's own rows. The latest ask
+ * alone answers: an older one, one whose sources moved between the ask and
+ * the answer — their records' revisions or their pages' scopes, a paged
+ * source's snapshot, as each stood once it had said — and one the builder let
+ * go of as it unmounted answer `undefined`, as one that finds nothing does.
+ *
+ * @param sources - The sources, in the builder's order
+ * @returns What seeks a query, answering its first match's place; `undefined` with no source to seek
+ */
+export function useSeekPlace<T>(sources: readonly PlacedSource<T>[]): ((query: DatasetKeyQuery) => Promise<bigint | undefined>) | undefined {
+    // What an ask reads, and what it is checked against as it answers: the sources as the builder names them now.
+    const sourcesNow = useRef(sources);
+    useLayoutEffect(() => { sourcesNow.current = sources; });
+    const asked = useRef(0);
+    useEffect(() => () => { asked.current++; }, []);
+    const seek = useCallback(async (query: DatasetKeyQuery): Promise<bigint | undefined> => {
+        const mine = ++asked.current;
+        const sought = sourcesNow.current;
+        const at = await soughtAtNow(sought);
+        const [first] = await searchRuns(sought, query, boxKeyType(sought.map((source) => source.keys)));
+        const now = await soughtAtNow(sourcesNow.current);
+        return mine !== asked.current || !stringEqual(now, at) ? undefined : first?.start;
+    }, []);
+    return sources.length === 0 ? undefined : seek;
 }
 
 /**
@@ -576,6 +783,13 @@ export function useSearchRecords<T>(options: SearchRecordsOptions<T>): KeySearch
     const jump = useCallback((row: number, how: KeySearchJump) => {
         const turn = ++picked.current;
         const current = () => turn === picked.current;
+        // A row nothing can hide, picked by a builder that goes to a row by its place: told at once, with nothing read.
+        const { onPickPlace, hidings, sources: now } = latest.current;
+        const place = onPickPlace === undefined || hidings !== undefined ? undefined : pickPlace(found.current, row, now);
+        if (onPickPlace !== undefined && place !== undefined) {
+            onPickPlace(place, { how, current });
+            return;
+        }
         void listed(row, 1).then(([hit]) => {
             if (hit !== undefined && current()) latest.current.onPick(hit, { how, current });
         }).catch((error: unknown) => { console.error(`[${latest.current.name}] Search Records could not read the row it found:`, error); });
@@ -586,16 +800,16 @@ export function useSearchRecords<T>(options: SearchRecordsOptions<T>): KeySearch
         found.current = [];
         latest.current.onCleared?.();
     }, []);
-    // The box asks its query again as what its matches are read from moves: each source's record's revision and its
-    // page's scope, each source read whole's token — tracked, so a window the builder reads moves none of it — and what
-    // else the builder names.
-    const readTokens = useCallback(() => sources.map((source): string => {
-        if (!throughE3(source)) return source.token?.() ?? "";
-        const revision = recordSliceRevision(source.part);
-        return `${revision.type === "some" ? revision.value : "-"}\u0000${printWhere(source.part.config.scope)}`;
-    }).join("\n"), [sources]);
-    const { result } = useTrackedEvaluation(readTokens);
-    const requery = useMoves([result.ok ? result.value : "", ...(requeryBy ?? NOTHING)]);
+    // A box the builder names as another starts again, empty: what the last one found, and a find or a pick of its on
+    // their way, are the last one's.
+    const boxOf = useRef(resetKey);
+    useLayoutEffect(() => {
+        if (stringEqual(boxOf.current, resetKey)) return;
+        boxOf.current = resetKey;
+        clear();
+    }, [resetKey, clear]);
+    // The box asks its query again as what its matches are read from moves.
+    const requery = useSoughtMoves(sources, requeryBy ?? NOTHING);
     // It lists its lines again as e3 says what hides a row and as a source's narrowing moves — each pick another object
     // then — and as what else the builder's lines read moves.
     const picks = sources.flatMap((source) => (throughE3(source) && source.pick !== undefined ? [source.pick] : []));

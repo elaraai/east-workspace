@@ -73,6 +73,7 @@
 import { StringType, equalFor, some, type ValueTypeOf, type option } from "@elaraai/east";
 import { Schematic } from "@elaraai/e3-ui/internal";
 import { kindKeys, type KindKeys } from "../shared/schedule/kind-keys.js";
+import type { SourceUnheld } from "../shared/schedule/unheld.js";
 import { entityId, refOfId, type SchematicDrawn, type SchematicRef } from "./canvas/drawn.js";
 import type { SchematicValue } from "./data.js";
 import type { SchematicMove, SchematicNewKey } from "./editing.js";
@@ -222,10 +223,10 @@ export function placeholderRefusal(kinds: EditKinds, item: EditItem): EditRefusa
 }
 
 /**
- * Why the Schematic may not hold every row of a link or net kind (#1580): the rail's filters leave some out; its page's
- * scope holds only some (#1621), which no choice of the viewer's clears; or they are not read.
+ * Why the Schematic may not hold every row of a link or net kind (#1580): its source holds only some
+ * ({@link SourceUnheld}: its page's scope, or the rail's filters), or they are not read.
  */
-export type SchematicUnheld = "filtered" | "scoped" | "unread";
+export type SchematicUnheld = SourceUnheld | "unread";
 
 /** Why a gesture records nothing (#1549), as the footer says it. */
 export type SchematicKeyRefusal =

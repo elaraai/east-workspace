@@ -1056,7 +1056,9 @@ Each wire changed under this rule, with the kind it is.
   (`RecordSliceWhereType`). The record bind's platform function
   (`slice_bind_record`) takes a fifth type parameter, the scoped fields — a
   Struct with a Null field named for each — and the handle it answers
-  (`RecordSliceHandleType`) gains them as `scoped`, after `source`. A program
+  (`RecordSliceHandleType`) gains them as `scoped`, after `source`, and
+  `pageBase`, after `pageWhere`: a page of the rows the page holds of the
+  source, the scope's on a scoped page, which a Sheet's rows read. A program
   that binds a record Slice holds the bind's type parameters in its IR: one an
   earlier SDK exported names four, and is refused as it is checked, naming the
   count (`Platform function 'slice_bind_record' expects 5 type parameters,

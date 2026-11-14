@@ -44,7 +44,7 @@
 
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { BlobType, StringType, SortedSet, compareFor, equalFor, type ValueTypeOf, type option } from "@elaraai/east";
-import { RecordSliceWhereType } from "@elaraai/east-ui/internal";
+import { RecordSliceWhereType, recordSliceScoped } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined, useTrackedEvaluation } from "@elaraai/east-ui-components";
 import { recordSliceRows } from "@elaraai/east-ui-components/internal";
 import { kindKeys } from "../shared/schedule/kind-keys.js";
@@ -256,7 +256,7 @@ export function useFlowchartData(value: FlowchartValue, attempt = 0): FlowchartD
         const states = rows.states as FlowchartStored<FlowchartStateRoles> | undefined;
         const transitions = rows.transitions as FlowchartStored<FlowchartTransitionRoles> | undefined;
         const statesPart = sourcePart(chrome, "states");
-        const part = statesPart !== undefined && (value.narrowed.type === "hide" || statesPart.config.scope.size > 0) ? statesPart : undefined;
+        const part = statesPart !== undefined && (value.narrowed.type === "hide" || recordSliceScoped(statesPart)) ? statesPart : undefined;
         if (part !== undefined && states !== undefined && transitions !== undefined) {
             const far = new SortedSet<string>([], compareString);
             for (const entry of transitions.values()) {

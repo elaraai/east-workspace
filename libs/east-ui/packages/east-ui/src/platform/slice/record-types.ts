@@ -283,7 +283,11 @@ export type RecordSliceBindType = typeof RecordSliceBindType;
  * Struct whose values say nothing: the names are known where the page is
  * built, though the scope's values are the page's to give when it runs, so a
  * builder that writes a new row's scoped fields adds code for those fields
- * alone, and none over a source with no scope.
+ * alone, and none over a source with no scope. `pageBase` pages the rows the
+ * page holds of the source, whatever the viewer chooses (#1621): the record's
+ * own, in its order, or on a scoped page the scope's, through the index on
+ * exactly its fields, in their keys' order under each of its values — a
+ * Sheet's rows over the source, which its key search seeks.
  * @typeParam C - The collection type one narrowed window serves.
  * @typeParam M - Each index's metadata, as the binding's type holds it.
  * @typeParam N - The binding's nested part, as its type holds it.
@@ -303,6 +307,8 @@ export function RecordSliceHandleType<C extends EastType | string, M extends Eas
     return StructType({ ...RecordSliceBindType.fields, data: LiveSourceType(collection),
         /** Read a captured narrowing — and a read by area's clause — without replacing the shared controls' state. */
         pageWhere: FunctionType([RecordSliceReadType, IntegerType, IntegerType], OptionType(collection)),
+        /** Read a window of the rows the page holds of the source: the record's own, or the scope's, in their keys' order under each of its values. */
+        pageBase: FunctionType([IntegerType, IntegerType], OptionType(collection)),
         indexes,
         nested,
         source,
@@ -395,6 +401,7 @@ export const RecordSlicePrimitives = {
     togglePreset: op("toggle_preset", [StringType], NullType),
     setResolution: op("set_resolution", [OptionType(TimeResolutionType)], NullType),
     pageWhere: op("page_where", [RecordSliceReadType, IntegerType, IntegerType], OptionType("C")),
+    pageBase: op("page_base", [IntegerType, IntegerType], OptionType("C")),
     dataPage: op("data_page", [IntegerType, IntegerType], OptionType("C")),
     dataSeek: op("data_seek", [SeekQueryType], OptionType(SeekRangeType)),
     dataQuery: op("data_query", [], StringType),

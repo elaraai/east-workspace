@@ -31,10 +31,9 @@ import { act, render, cleanup, fireEvent, waitFor } from "@testing-library/react
 import { ChakraProvider, useSlotRecipe } from "@chakra-ui/react";
 import { IntegerType, StringType, StructType, none, toEastTypeValue, variant } from "@elaraai/east";
 import { Editing } from "@elaraai/east-ui/internal";
-import { system, formatters, EditSession, historyToolbarItem, editingMessages, Toolbar, type ToolbarItem } from "@elaraai/east-ui-components";
+import { system, formatters, EditSession, historyToolbarItem, editingMessages, Toolbar, type KeySearchSource, type ToolbarItem } from "@elaraai/east-ui-components";
 import { SheetTabs, type SheetTabView } from "./Tabs.js";
 import { useSheetToolbarItemsFor, type SheetToolbarProps, type SheetToolbarTabs } from "./Toolbar.js";
-import type { SheetSearch } from "./use-seek.js";
 
 /** The toolbar's items on the shared toolbar's one row — as the Sheet's frame lays them out. */
 function SheetToolbar(props: SheetToolbarProps) {
@@ -110,8 +109,8 @@ function historyItem(): ToolbarItem {
     return historyToolbarItem({ session, words: { ...formatters("en-US"), m: editingMessages }, editing: false, onAction: noop, onIssue: noop });
 }
 
-/** A paged source's key search, finding nothing — what the toolbar mounts over its `seek`. */
-const SEARCH: SheetSearch = {
+/** The sheet's Search Records, finding nothing — what the toolbar mounts. */
+const SEARCH: KeySearchSource = {
     resetKey: "r1", keyType: toEastTypeValue(StringType),
     find: async () => ({ found: false, row: 0, count: 0 }), listRange: async () => [], jump: noop, clear: noop,
 };
@@ -330,7 +329,7 @@ function SearchViewsHost({ created, found }: { created: () => void; found: () =>
     const styles = useSlotRecipe({ key: "sheet" })({}) as unknown as Record<string, Record<string, unknown>>;
     const [views, setViews] = useState<SheetTabView[]>(VIEWS);
     const [active, setActive] = useState<string | null>("router");
-    const search: SheetSearch = { ...SEARCH, find: async () => { found(); return { found: false, row: 0, count: 0 }; } };
+    const search: KeySearchSource = { ...SEARCH, find: async () => { found(); return { found: false, row: 0, count: 0 }; } };
     return <SheetToolbar styles={styles} count="" partial={false} search={search}
         tabs={tabsOf(styles, views, active, {
             onSwitch: setActive, onCreate: created,

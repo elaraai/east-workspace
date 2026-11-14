@@ -8,15 +8,19 @@
  * rows, and the rows of the segments that hold them near the view, each read
  * by position with one ask of which of them the narrowing holds. What it has
  * read it lays out ({@link layoutLens}): the narrowing's rows, one after
- * another in the record's order.
+ * another in the order of the rows the page holds — the record's own, or on a
+ * scoped page the scope's alone (#1621), through the index on exactly its
+ * fields, in their keys' order under each of its values.
  *
- * - **Placement.** `recordSlicePlace` reads where the narrowing's rows sit,
- *   segment by segment, from the index alone, its windows landing a few at a
- *   time: the lens draws as they land.
+ * - **Placement.** `recordSliceBasePlace` reads where the narrowing's rows sit
+ *   among the page's rows, segment by segment, from the index alone, its
+ *   windows landing a few at a time: the lens draws as they land. On a scoped
+ *   page a segment is the rows one record segment holds of one of the scope's
+ *   values.
  * - **Segments near the view.** Each segment of matches the view meets, and
  *   the nearest beyond it either side, is read — its rows through the sheet's
  *   rows source, by position, and which of them the narrowing holds through
- *   `recordSliceWithinAt`, over the same page — a turn at a time, at most the
+ *   `recordSliceBaseWithinAt`, over the same page — a turn at a time, at most the
  *   lens's budget of pages in flight, so the record Slice's and the paging
  *   runtime's bounded caches hold every page it waits on; what has landed is
  *   kept while the view wants it, so a view meeting more segments than one
@@ -46,12 +50,11 @@
  */
 
 import { useCallback, useMemo, useRef, useState } from "react";
-import { StringType, equalFor, equivalentFor, none, printFor, type option, type ValueTypeOf } from "@elaraai/east";
+import { StringType, equalFor, equivalentFor, none, printFor, type ValueTypeOf } from "@elaraai/east";
 import { Sheet } from "@elaraai/e3-ui/internal";
-import type { SeekQueryType, SeekRangeType } from "@elaraai/east-ui";
 import { RecordSliceWhereType, type RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { useTrackedEvaluation } from "@elaraai/east-ui-components";
-import { entryLookup, recordSlicePlace, recordSliceSeek, recordSliceWithinAt, type EntryLookup } from "@elaraai/east-ui-components/internal";
+import { entryLookup, recordSliceBasePlace, recordSliceBaseWithinAt, type EntryLookup } from "@elaraai/east-ui-components/internal";
 import { sourceChange } from "../shared/windowed.js";
 import {
     layoutLens, lensDemand, lensPieces, lensReadInTurns, lensRegions,
@@ -71,22 +74,6 @@ const printWhere = printFor(RecordSliceWhereType);
 const stringEqual = equalFor(StringType);
 /** Whether two sources serve the same rows: the same id and equivalent functions, as the paged driver asks (#809). */
 const sourceEquivalent = equivalentFor(Sheet.Types.Root.fields.rows.cases.paged);
-
-/** No narrowing: the record's own rows, in its order. */
-const WHOLE_RECORD: Where = new Map();
-
-/**
- * Where a key lands among a `rows` source's record's own rows, in the
- * record's order (#1349): what the sheet's key search seeks over a record. A
- * tracked read: none while it is pending.
- *
- * @param part - The `rows` source's part of the slice
- * @param query - The key query, in the record's primary key's order
- * @returns Where it lands; none while pending
- */
-export function seekRecord(part: ValueTypeOf<RecordSliceBindType>, query: ValueTypeOf<typeof SeekQueryType>): option<ValueTypeOf<typeof SeekRangeType>> {
-    return recordSliceSeek(part, WHOLE_RECORD, query);
-}
 
 /** One line naming why a read failed. */
 function readFailure(err: unknown): string {
@@ -171,10 +158,10 @@ interface LensView {
 export interface RecordLens {
     /** The layout drawn: the narrowing's, the last one while a new narrowing or revision is read, or — switched off — the last one, kept for its host. */
     layout: LensLayout | undefined;
-    /** The rows that layout draws, in the record's order, and each one's position. */
+    /** The rows that layout draws, in the order of the rows the page holds, and each one's position among them. */
     rows: readonly SheetRowValue[];
     positions: readonly number[];
-    /** The record's rows, once placed. */
+    /** The rows the page holds — the record's, or on a scoped page the scope's (#1621) — once placed. */
     total: number | undefined;
     /** How many rows the narrowing holds, once placed. */
     matches: number | undefined;
@@ -228,9 +215,12 @@ export interface RecordLens {
 
 /** What {@link useRecordLens} lays out over. */
 export interface RecordLensInput {
-    /** The record's own rows, every one in its order — `undefined` while the lens is off. */
+    /**
+     * The rows the page holds of the record, every one in their order — the record's own, or on a scoped page the
+     * scope's (#1621) — `undefined` while the lens is off.
+     */
     source: SheetPagedSourceValue | undefined;
-    /** The `rows` source's part of the slice: what places the narrowing and asks which rows it holds. */
+    /** The `rows` source's part of the slice: what places the narrowing among those rows and asks which of them it holds. */
     part: ValueTypeOf<RecordSliceBindType> | undefined;
     /** The narrowing. */
     where: Where | undefined;
@@ -294,7 +284,7 @@ export function useRecordLens(input: RecordLensInput): RecordLens {
         let placement: LensPlacement | undefined;
         let placementError: string | undefined;
         try {
-            const placed = recordSlicePlace(part, where);
+            const placed = recordSliceBasePlace(part, where);
             if (placed.type === "some") {
                 placement = {
                     records: Number(placed.value.records),
@@ -338,7 +328,7 @@ export function useRecordLens(input: RecordLensInput): RecordLens {
                         }
                     }
                     if (!cache.hits.has(p.key)) {
-                        const asked = recordSliceWithinAt(part, where, BigInt(p.from), BigInt(p.count));
+                        const asked = recordSliceBaseWithinAt(part, where, BigInt(p.from), BigInt(p.count));
                         if (asked.type === "some") cache.hits.set(p.key, asked.value);
                     }
                 } catch (err) {
