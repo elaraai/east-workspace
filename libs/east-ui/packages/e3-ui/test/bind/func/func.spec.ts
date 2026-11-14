@@ -7,7 +7,8 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import {
-    ArrayType, DictType, East, Expr, FloatType, FunctionType, IntegerType, NullType, OptionType, StringType, StructType, equalFor, isTypeEqual, variant,
+    ArrayType, DictType, East, Expr, FloatType, FunctionType, IntegerType, NullType, OptionType, StringType, StructType, equalFor, isTypeEqual, printFor,
+    variant,
     type BlockBuilder, type EastType,
 } from "@elaraai/east";
 import { Reactive, Stat, Button, UIComponentType } from "@elaraai/east-ui/internal";
@@ -31,6 +32,7 @@ const describeDef = e3.function("describe",
 // each record it lists, and its handle's call takes them.
 const boardDef = e3.record("func_spec_board", DictType(StringType, StructType({ press: StringType })), {
     initial: new Map(),
+    indexes: (index) => ({ by_press: index.on(["press"]) }),
     mutations: (mutation) => ({ patch: mutation.patch() }),
 });
 const pressesDef = e3.record("func_spec_presses", DictType(StringType, StringType), {
@@ -39,6 +41,10 @@ const pressesDef = e3.record("func_spec_presses", DictType(StringType, StringTyp
 });
 const jobsOnDef = e3.function("jobs_on", { inputs: [boardDef, pressesDef], drafts: [boardDef, pressesDef], args: [StringType], output: IntegerType },
     (_$, board, _presses, _press) => board.size());
+
+// A function that reads one record by an index of it, drafted, and another as saved (#1622).
+const busyOnDef = e3.function("busy_on", { inputs: [pressesDef, e3.index(boardDef.indexes.by_press)], drafts: [boardDef], args: [StringType], output: IntegerType },
+    (_$, _presses, byPress, press) => byPress.prefix({ ik: press }).size());
 
 describeEast("Func", (test) => {
     Assert.examples(test, {
@@ -147,17 +153,21 @@ describe("Func.bind of a function that lists drafts", () => {
         assert.ok(isTypeEqual(plain.fields["call"]!, FunctionType([IntegerType, FloatType], NullType)), "the arguments alone");
     });
 
-    test("binding.drafts names the records the function lists, in the order listed, and none for a function that lists none", () => {
+    test("binding.drafts names the records the function lists, in the order listed, and binding.reads those it reads, itself or by an index, in name order — none of either for a function of values", () => {
         // Compiled against a platform whose every read, write and call refuses: a binding is read without one.
         const bindings = East.compile(East.function([], ArrayType(FuncBindingType), ($) => {
             const count = $.let(Func.bind(jobsOnDef));
+            const busy = $.let(Func.bind(busyOnDef));
             const plain = $.let(Func.bind(forecastDef));
-            return [count.binding, plain.binding];
+            return [count.binding, busy.binding, plain.binding];
         }), refusingPlatform)();
-        assert.ok(equalFor(ArrayType(FuncBindingType))(bindings, [
-            { name: "jobs_on", drafts: ["func_spec_board", "func_spec_presses"] },
-            { name: "forecast", drafts: [] },
-        ]));
+        const expected = [
+            { name: "jobs_on", drafts: ["func_spec_board", "func_spec_presses"], reads: ["func_spec_board", "func_spec_presses"] },
+            // The presses are read as saved: read, and not listed
+            { name: "busy_on", drafts: ["func_spec_board"], reads: ["func_spec_board", "func_spec_presses"] },
+            { name: "forecast", drafts: [], reads: [] },
+        ];
+        assert.ok(equalFor(ArrayType(FuncBindingType))(bindings, expected), printFor(ArrayType(FuncBindingType))(bindings));
     });
 
     test("a drafted record is its name and the commit it stood at, and the error's kinds gain conflict: the draft — its record, its mutation and its place among the call's drafts — and the refusal's words", () => {

@@ -109,7 +109,7 @@ export function useFuncCall<R>(
         if (!ready || signature.inputs === null) return null;
         // A handle of a function that lists no drafts: the tags refuse one that does where the page is built.
         const handleType = toEastTypeValue(FuncBindHandleType(signature.inputs, signature.output));
-        return defaultFuncRuntime.buildHandle(handleType, name!, []) as FuncHandle;
+        return defaultFuncRuntime.buildHandle(handleType, name!, [], []) as FuncHandle;
         // A new workspace is a new channel: rebuild the handle over it.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [ready, name, workspace, signature]);

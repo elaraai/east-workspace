@@ -103,7 +103,7 @@ async function waitFor(cond: () => boolean, what: string): Promise<void> {
 }
 
 test("#106 — a Func.bind handle ENCODES (its methods carry IR)", () => {
-    const handle = newRuntime().buildHandle(handleTypeValue, "forecast", []);
+    const handle = newRuntime().buildHandle(handleTypeValue, "forecast", [], []);
     // Today (pre-fix): throws "Cannot serialize function: no IR attached".
     assert.doesNotThrow(() => encodeBeast2For(HandleType)(handle as never));
 });
@@ -111,7 +111,7 @@ test("#106 — a Func.bind handle ENCODES (its methods carry IR)", () => {
 test("#106 — a captured Func.bind handle round-trips and re-binds to the DECODER's runtime", async () => {
     // Encode a payload whose onRun callback captures handle.call.
     const PayloadType = StructType({ onRun: FunctionType([IntegerType, FloatType], NullType) });
-    const handleEnc = newRuntime().buildHandle(handleTypeValue, "forecast", []);
+    const handleEnc = newRuntime().buildHandle(handleTypeValue, "forecast", [], []);
     const bytes = encodeBeast2For(PayloadType)({ onRun: handleEnc.call } as never);
 
     // Decode against a FRESH runtime — the call must reach THAT runtime's api.
@@ -131,7 +131,7 @@ test("#106 — a captured Func.bind handle round-trips and re-binds to the DECOD
 });
 
 test("#106 — after decode, read()/status() are defensive (none/idle) on a fresh runtime", () => {
-    const handleEnc = newRuntime().buildHandle(handleTypeValue, "forecast", []);
+    const handleEnc = newRuntime().buildHandle(handleTypeValue, "forecast", [], []);
     const bytes = encodeBeast2For(HandleType)(handleEnc as never);
 
     const runtimeDec = newRuntime();
@@ -156,13 +156,13 @@ test("#106 — createScopedFuncPlatform ships the backing primitives (e3 ui() ta
 });
 
 test("#1620 — a handle of a function that lists drafts encodes whole and decodes on another runtime: its binding names the records listed, and drafted() is empty before any call", () => {
-    const handleEnc = newRuntime().buildHandle(draftsHandleTypeValue, "forecast", ["jobs", "presses"]);
+    const handleEnc = newRuntime().buildHandle(draftsHandleTypeValue, "forecast", ["jobs", "presses"], ["jobs", "presses"]);
     const bytes = encodeBeast2For(DraftsHandleType)(handleEnc as never);
 
     const runtimeDec = newRuntime();
     const decoded = decodeBeast2For(DraftsHandleType, { platform: runtimeDec.buildPrimitives() })(bytes);
     assert.ok(
-        equalFor(FuncBindingType)(decoded.binding, { name: "forecast", drafts: ["jobs", "presses"] }),
+        equalFor(FuncBindingType)(decoded.binding, { name: "forecast", drafts: ["jobs", "presses"], reads: ["jobs", "presses"] }),
         printFor(FuncBindingType)(decoded.binding),
     );
     assert.ok(equalFor(ArrayType(FuncDraftedType))(decoded.drafted(), []), "drafted() answers for a result, and there is none yet");
@@ -172,7 +172,7 @@ test("#1620 — a handle of a function that lists drafts encodes whole and decod
 
 test("#1620 — a captured call with drafts round-trips and re-binds: the drafts it is given reach the decoder's runtime after the arguments, as given", async () => {
     const PayloadType = StructType({ onRun: FunctionType([IntegerType, FloatType, DraftsType], NullType) });
-    const handleEnc = newRuntime().buildHandle(draftsHandleTypeValue, "forecast", ["jobs", "presses"]);
+    const handleEnc = newRuntime().buildHandle(draftsHandleTypeValue, "forecast", ["jobs", "presses"], ["jobs", "presses"]);
     const bytes = encodeBeast2For(PayloadType)({ onRun: handleEnc.call } as never);
 
     const receivedDec: Received[] = [];
@@ -198,7 +198,7 @@ test("#1620 — drafted() answers for the result read() gives: empty until a cal
     const printDrafted = printFor(ArrayType(FuncDraftedType));
     let stood: FuncDrafted[] = [{ record: "jobs", commit: "c1" }, { record: "presses", commit: "p4" }];
     const runtime = newRuntime([], 42.0, () => stood);
-    const handle = runtime.buildHandle(draftsHandleTypeValue, "forecast", ["jobs", "presses"]) as DraftsHandle;
+    const handle = runtime.buildHandle(draftsHandleTypeValue, "forecast", ["jobs", "presses"], ["jobs", "presses"]) as DraftsHandle;
     const succeeded = async (result: number): Promise<void> => {
         await waitFor(() => handle.status().type === "succeeded" && handle.read().value === result, "the call's success");
     };
@@ -229,30 +229,35 @@ test("#1620 — drafted() answers for the result read() gives: empty until a cal
 
 test("#1620 — a handle is its binding's and its form's: one name bound as a function that lists drafts and as one that lists none is two handles, each built once, and each bind's binding is its own", () => {
     const runtime = newRuntime();
-    const plain = runtime.buildHandle(handleTypeValue, "forecast", []);
-    const drafted = runtime.buildHandle(draftsHandleTypeValue, "forecast", ["jobs"]);
+    const plain = runtime.buildHandle(handleTypeValue, "forecast", [], []);
+    const drafted = runtime.buildHandle(draftsHandleTypeValue, "forecast", ["jobs"], ["jobs"]);
     assert.notEqual(plain.call, drafted.call);
     assert.deepEqual([Object.hasOwn(plain, "drafted"), Object.hasOwn(drafted, "drafted")], [false, true], "a handle has what its type names");
     // Built once: a bind again is handed the same calls and reads
-    const again = runtime.buildHandle(draftsHandleTypeValue, "forecast", ["jobs"]);
+    const again = runtime.buildHandle(draftsHandleTypeValue, "forecast", ["jobs"], ["jobs"]);
     for (const method of ["call", "read", "drafted", "status", "error", "pending", "cancel"]) assert.equal(again[method], drafted[method], `${method}, built once`);
-    assert.equal(runtime.buildHandle(handleTypeValue, "forecast", []).call, plain.call, "built once");
-    // Under a binding of its own: a page that changes its binding's Array changes its own, and a later bind's names what the function lists
+    assert.equal(runtime.buildHandle(handleTypeValue, "forecast", [], []).call, plain.call, "built once");
+    // Under a binding of its own: a page that changes one of its binding's Arrays changes its own, and a later bind's names what the function lists and reads
     assert.notEqual(again.binding, drafted.binding);
     (again.binding as ValueTypeOf<typeof FuncBindingType>).drafts.push("presses");
-    assert.ok(equalFor(FuncBindingType)(drafted.binding as ValueTypeOf<typeof FuncBindingType>, { name: "forecast", drafts: ["jobs"] }));
-    assert.ok(equalFor(FuncBindingType)(runtime.buildHandle(draftsHandleTypeValue, "forecast", ["jobs"]).binding as ValueTypeOf<typeof FuncBindingType>,
-        { name: "forecast", drafts: ["jobs"] }));
+    (again.binding as ValueTypeOf<typeof FuncBindingType>).reads.push("presses");
+    assert.ok(equalFor(FuncBindingType)(drafted.binding as ValueTypeOf<typeof FuncBindingType>, { name: "forecast", drafts: ["jobs"], reads: ["jobs"] }));
+    assert.ok(equalFor(FuncBindingType)(runtime.buildHandle(draftsHandleTypeValue, "forecast", ["jobs"], ["jobs"]).binding as ValueTypeOf<typeof FuncBindingType>,
+        { name: "forecast", drafts: ["jobs"], reads: ["jobs"] }));
 
-    // A function that lists other records is another binding
-    const wider = runtime.buildHandle(draftsHandleTypeValue, "forecast", ["jobs", "presses"]);
+    // A function that lists other records, or reads others, is another binding
+    const wider = runtime.buildHandle(draftsHandleTypeValue, "forecast", ["jobs", "presses"], ["jobs", "presses"]);
     assert.notEqual(wider.call, drafted.call);
-    assert.ok(equalFor(FuncBindingType)(wider.binding as ValueTypeOf<typeof FuncBindingType>, { name: "forecast", drafts: ["jobs", "presses"] }));
-    assert.ok(equalFor(FuncBindingType)(drafted.binding as ValueTypeOf<typeof FuncBindingType>, { name: "forecast", drafts: ["jobs"] }));
-    assert.ok(equalFor(FuncBindingType)(plain.binding as ValueTypeOf<typeof FuncBindingType>, { name: "forecast", drafts: [] }));
+    const reader = runtime.buildHandle(draftsHandleTypeValue, "forecast", ["jobs"], ["jobs", "presses"]);
+    assert.notEqual(reader.call, drafted.call);
+    assert.notEqual(reader.call, wider.call, "the records listed and the records read are two lists");
+    assert.ok(equalFor(FuncBindingType)(wider.binding as ValueTypeOf<typeof FuncBindingType>, { name: "forecast", drafts: ["jobs", "presses"], reads: ["jobs", "presses"] }));
+    assert.ok(equalFor(FuncBindingType)(reader.binding as ValueTypeOf<typeof FuncBindingType>, { name: "forecast", drafts: ["jobs"], reads: ["jobs", "presses"] }));
+    assert.ok(equalFor(FuncBindingType)(drafted.binding as ValueTypeOf<typeof FuncBindingType>, { name: "forecast", drafts: ["jobs"], reads: ["jobs"] }));
+    assert.ok(equalFor(FuncBindingType)(plain.binding as ValueTypeOf<typeof FuncBindingType>, { name: "forecast", drafts: [], reads: [] }));
 });
 
-test("#1620 — a page exported before Func.bind named the records a function lists is refused as it is checked: its bind passes the name alone", () => {
+test("#1620, #1622 — a page exported before Func.bind named the records a function lists and reads is refused as it is checked: its bind passes the name alone", () => {
     // What an earlier SDK wrote into a page's IR: `function_bind` of the name, and nothing else
     const before = East.genericPlatform("function_bind", ["H"], [StringType], "H", { optional: true });
     const page = East.function([], HandleType, ($) => {
@@ -261,6 +266,6 @@ test("#1620 — a page exported before Func.bind named the records a function li
     const runtime = newRuntime();
     assert.throws(
         () => East.compile(page, [runtime.buildPlatform(null), ...runtime.buildPrimitives()]),
-        /Platform function 'function_bind' expects 2 arguments but got 1/,
+        /Platform function 'function_bind' expects 3 arguments but got 1/,
     );
 });

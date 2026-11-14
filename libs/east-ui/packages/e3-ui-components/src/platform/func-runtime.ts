@@ -680,17 +680,19 @@ export class FuncRuntime extends TrackedChannelStore<FuncEntry> {
      * @param name - The function's name in the deployed package
      * @param drafts - The records the function lists in its `drafts`, by name:
      *   what the handle's `binding` carries
+     * @param reads - The records the function reads, by name, which the
+     *   handle's `binding` carries too
      * @returns The handle: the cached methods, and a binding of its own
      */
-    buildHandle(handleType: EastTypeValue, name: string, drafts: readonly string[]): Record<string, unknown> {
-        // Each bind is given a binding of its own: page code may change the Array it holds, and one
+    buildHandle(handleType: EastTypeValue, name: string, drafts: readonly string[], reads: readonly string[]): Record<string, unknown> {
+        // Each bind is given a binding of its own: page code may change the Arrays it holds, and one
         // shared by every cached handle would then name other records for every later bind
-        const binding = { name, drafts: [...drafts] };
-        // Compiled-handle cache (issue #106 perf): the function's name, the records it lists and the
-        // handle's form fix the method IRs, which are identical across renders; methods resolve api/ws
-        // live. The key is plain text, read with no East value printed on a bind's per-frame path; no
-        // name e3 makes holds a NUL.
-        const cacheKey = [takesDrafts(handleType) ? "drafts" : "plain", name, ...drafts].join("\u0000");
+        const binding = { name, drafts: [...drafts], reads: [...reads] };
+        // Compiled-handle cache (issue #106 perf): the function's name, the records it lists and reads
+        // and the handle's form fix the method IRs, which are identical across renders; methods resolve
+        // api/ws live. The key is plain text, read with no East value printed on a bind's per-frame path;
+        // no name e3 makes holds a NUL or is empty, and the empty part stands between the two lists.
+        const cacheKey = [takesDrafts(handleType) ? "drafts" : "plain", name, ...drafts, "", ...reads].join("\u0000");
         const cached = this.handleCache.get(cacheKey);
         if (cached) return { ...cached, binding };
 
@@ -746,7 +748,7 @@ export class FuncRuntime extends TrackedChannelStore<FuncEntry> {
      *  for manifest scoping. */
     buildPlatform(allowed: ReadonlySet<string> | null): PlatformFunction {
         return funcBindPlatformFn.implement((handleType: EastTypeValue) =>
-            (nameArg: unknown, draftsArg: unknown) => {
+            (nameArg: unknown, draftsArg: unknown, readsArg: unknown) => {
                 const name = nameArg as string;
                 if (allowed && !allowed.has(name)) {
                     throw new Error(
@@ -754,7 +756,7 @@ export class FuncRuntime extends TrackedChannelStore<FuncEntry> {
                         `bind it in the task body so derivation records it`,
                     );
                 }
-                return this.buildHandle(handleType, name, draftsArg as string[]);
+                return this.buildHandle(handleType, name, draftsArg as string[], readsArg as string[]);
             },
         );
     }

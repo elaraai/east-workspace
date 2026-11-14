@@ -277,9 +277,9 @@ describe("a bound function's call over drafts (#1620)", () => {
     test("a handle names the records its function lists, and one of a function that lists none keeps the call it had: no drafted(), its arguments alone, and no draft sent", async () => {
         const { page } = await opened();
         assert.deepEqual([page.count.binding, page.load.binding, page.forecast.binding], [
-            { name: "jobs_on", drafts: ["press_jobs"] },
-            { name: "press_load", drafts: ["press_jobs", "presses"] },
-            { name: "forecast", drafts: [] },
+            { name: "jobs_on", drafts: ["press_jobs"], reads: ["press_jobs"] },
+            { name: "press_load", drafts: ["press_jobs", "presses"], reads: ["press_jobs", "presses"] },
+            { name: "forecast", drafts: [], reads: [] },
         ]);
         assert.deepEqual(["drafted" in page.count, "drafted" in page.forecast], [true, false]);
         page.forecast.call(12n, 1.5);

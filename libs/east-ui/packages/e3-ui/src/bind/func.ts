@@ -169,10 +169,16 @@ export type FuncDraftedType = typeof FuncDraftedType;
  *   in the order listed: the records a call may pass drafts of. Empty for a
  *   function that lists none. A draft of any other record ends the call
  *   `invalid`, at the server
+ * @property reads - The records the function reads, each taken as an input
+ *   itself or by an index of it, by name, in name order, each once. Empty for
+ *   a function that reads none. One it reads and does not list in `drafts` it
+ *   reads as saved: a builder whose unsaved edits are of that record refuses
+ *   the function as its optimiser (east-workspace#1622)
  */
 export const FuncBindingType = StructType({
     name: StringType,
     drafts: ArrayType(StringType),
+    reads: ArrayType(StringType),
 });
 
 /**
@@ -361,13 +367,14 @@ export function boundFuncSignature(handle: unknown, builder: string, prop: strin
  * field and the output type from `read`, and a handle with `drafted` is one
  * whose call takes drafts), so there are no duplicate signature arguments to
  * drift out of sync. Its arguments are the function's name, a literal, which
- * manifest derivation reads, and the names of the records the function lists
- * in its `drafts`, which the handle's `binding` carries.
+ * manifest derivation reads; the names of the records the function lists in
+ * its `drafts`; and the names of the records it reads — both of which the
+ * handle's `binding` carries.
  */
 export const funcBindPlatformFn = East.genericPlatform(
     "function_bind",
     ["H"],
-    [StringType, ArrayType(StringType)],
+    [StringType, ArrayType(StringType), ArrayType(StringType)],
     "H",
     { optional: true },
 );
@@ -569,6 +576,8 @@ function bindFunction<Inputs extends EastType[], Output extends EastType>(
 function bindFunction(fn: FunctionDef): Expr {
     // The records the function lists, as the deployed package names them
     const drafts = fn.drafts.map(record => record.name);
+    // The records it reads, itself or by an index of it, each once, in name order
+    const reads = [...new Set(fn.inputs.flatMap(input => (input.kind === "index" ? [input.record.name] : "recordKind" in input ? [input.name] : [])))].sort();
     // The handle's `call` takes the arguments alone: a function's inputs are
     // read by the server from the workspace, never sent from the page. A
     // function that lists drafts takes them after its arguments.
@@ -579,7 +588,7 @@ function bindFunction(fn: FunctionDef): Expr {
     // manifest derivation (`derive.ts`) handles. `fn.name` is a static JS
     // string at IR-build time, so this holds by construction.
     const nameValue = East.value(fn.name, StringType);
-    return funcBindPlatformFn([handleType], nameValue, East.value(drafts, ArrayType(StringType)));
+    return funcBindPlatformFn([handleType], nameValue, East.value(drafts, ArrayType(StringType)), East.value(reads, ArrayType(StringType)));
 }
 
 /**

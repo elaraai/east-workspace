@@ -109,7 +109,7 @@ function ended(runtime: FuncRuntime, name: string, handle: { status: () => { typ
 function bound(name = "forecast") {
     const runtime = new FuncRuntime();
     runtime.initialize(createDefaultFunctionApi(h.e3.apiUrl, h.e3.repo, h.options), h.workspace);
-    const handle = runtime.buildHandle(forecastHandleType(), name, []) as Handle;
+    const handle = runtime.buildHandle(forecastHandleType(), name, [], []) as Handle;
     return { runtime, handle };
 }
 
@@ -206,7 +206,7 @@ describe("FuncRuntime — call lifecycle", () => {
         runtime.initialize(createDefaultFunctionApi(h.e3.apiUrl, h.e3.repo, h.options), h.workspace);
         type QuoteHandle = ValueTypeOf<ReturnType<typeof FuncBindHandleType<[ArrayType<typeof ex.OrderLineType>], typeof ex.QuoteType>>>;
         const handle = runtime.buildHandle(
-            toEastTypeValue(FuncBindHandleType([ArrayType(ex.OrderLineType)], ex.QuoteType)), ex.quoteFn.name, []) as QuoteHandle;
+            toEastTypeValue(FuncBindHandleType([ArrayType(ex.OrderLineType)], ex.QuoteType)), ex.quoteFn.name, [], []) as QuoteHandle;
         const order = [{ sku: "bolt", quantity: 120n }, { sku: "nut", quantity: 60n }];
         handle.call(order);
         await h.settle();
@@ -272,7 +272,7 @@ describe("FuncRuntime — call lifecycle", () => {
 
     test("a new call clears the previous error on success", async () => {
         const { runtime } = bound();
-        const handle = runtime.buildHandle(forecastHandleType(), "checked_forecast", []) as Handle;
+        const handle = runtime.buildHandle(forecastHandleType(), "checked_forecast", [], []) as Handle;
         handle.call(1n, -1.0);
         await h.settle();
         assert.equal(handle.status().type, "failed");
@@ -406,7 +406,7 @@ describe("FuncRuntime — its page going", () => {
         const page = new EventTarget();
         const runtime = new FuncRuntime({ page });
         runtime.initialize(createDefaultFunctionApi(h.e3.apiUrl, h.e3.repo, h.options, { startWaitMs: 0 }), h.workspace);
-        const handle = runtime.buildHandle(forecastHandleType(), "forecast", []) as Handle;
+        const handle = runtime.buildHandle(forecastHandleType(), "forecast", [], []) as Handle;
         const units = h.e3.holdUnits();
         handle.call(1n, 1.0);
         await units.holding;
@@ -440,7 +440,7 @@ describe("FuncRuntime — its page going", () => {
         const page = new EventTarget();
         const runtime = new FuncRuntime({ page });
         runtime.initialize(createDefaultFunctionApi(h.e3.apiUrl, h.e3.repo, h.options), h.workspace);
-        const handle = runtime.buildHandle(forecastHandleType(), "forecast", []) as Handle;
+        const handle = runtime.buildHandle(forecastHandleType(), "forecast", [], []) as Handle;
         const units = h.e3.holdUnits();
         handle.call(1n, 1.0);
         await units.holding;
@@ -517,7 +517,7 @@ describe("FuncRuntime — signature validation", () => {
         const runtime = new FuncRuntime();
         runtime.initialize(createDefaultFunctionApi(h.e3.apiUrl, h.e3.repo, h.options), h.workspace);
         type TreeHandle = ValueTypeOf<ReturnType<typeof FuncBindHandleType<[typeof ex.TreeType], IntegerType>>>;
-        const handle = runtime.buildHandle(binding, ex.countTreeFn.name, []) as TreeHandle;
+        const handle = runtime.buildHandle(binding, ex.countTreeFn.name, [], []) as TreeHandle;
         handle.call({ label: "root", children: [{ label: "a", children: [] }, { label: "b", children: [] }] });
         await h.settle();
         assert.equal(handle.error().type, "none");
@@ -550,7 +550,7 @@ describe("FuncRuntime — signature validation", () => {
 describe("FuncRuntime — shared channel + reactivity", () => {
     test("two handles bound to the same name share the tracked channel", async () => {
         const { runtime, handle } = bound();
-        const observer = runtime.buildHandle(forecastHandleType(), "forecast", []) as Handle;
+        const observer = runtime.buildHandle(forecastHandleType(), "forecast", [], []) as Handle;
         handle.call(1n, 11.0);
         await h.settle();
         assert.equal(observer.status().type, "succeeded");
@@ -638,7 +638,7 @@ describe("FuncRuntime — scoping + lifecycle", () => {
 
     test("calling without a workspace throws a clear error", () => {
         const runtime = new FuncRuntime();
-        const handle = runtime.buildHandle(forecastHandleType(), "forecast", []) as Handle;
+        const handle = runtime.buildHandle(forecastHandleType(), "forecast", [], []) as Handle;
         assert.throws(() => handle.call(1n, 1.0), /no workspace configured/);
     });
 });
