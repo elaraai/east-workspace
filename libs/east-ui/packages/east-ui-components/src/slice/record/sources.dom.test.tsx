@@ -49,13 +49,13 @@ const field = (fieldId: string, label: string, values: readonly string[]): Field
 function part(key: string, fields: Field[], presets: { id: string; name: string; where: State["where"] }[]) {
     const config = decodeBeast2For(RecordSliceConfigType)(encodeBeast2For(RecordSliceConfigType)({
         fields, indexes: fields.map(f => ({ name: f.fieldId, fields: [f.fieldId], sets: new Set<string>(), structured: false, interval: none, area: none, series: none, summary: none, entries: false })),
-        range: none, search: [], presets,
+        range: none, search: [], presets, scope: new Map(),
     }));
     if (getStore().read(key) === undefined) getStore().write(key, encode({ where: new Map(), preset: none, resolution: none }));
     const read = (): State => { trackKey(key); return decode(getStore().read(key)!); };
     const write = (state: State) => { getStore().write(key, encode(state)); return null; };
     const choose = (id: string, choice: ValueTypeOf<RecordSliceChoiceType> | undefined) => {
-        const where = recordChoiceWhere(config.indexes, read().where, id, choice);
+        const where = recordChoiceWhere(config, read().where, id, choice);
         if (where === null) throw new Error("Choose a preceding field");
         return write({ ...read(), where, preset: none });
     };

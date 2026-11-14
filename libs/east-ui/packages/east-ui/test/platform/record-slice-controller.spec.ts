@@ -6,7 +6,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-    DateTimeType, IntegerType, OptionType, SetType, StringType, StructType, decodeBeast2For, encodeBeast2For, equalFor, none, parseFor, printFor, some, variant,
+    DateTimeType, IntegerType, OptionType, SetType, StringType, StructType, decodeBeast2For, encodeBeast2For, equalFor, isFrozenValue, none, parseFor, printFor, some, variant,
     type ValueTypeOf,
 } from "@elaraai/east";
 import { RecordSliceConfigType, RecordSliceStateType, RecordSliceChoiceType, RecordSliceController, type RecordSliceBinding } from "@elaraai/east-ui/internal";
@@ -20,10 +20,22 @@ const config = decodeBeast2For(Config)(encodeBeast2For(Config)({
         { fieldId: "due", label: "Due", kind: "integer", optional: true, multiple: true, set: false, values: [{ value: ".none", label: "Unset" }], format: none },
     ],
     indexes: [{ name: "by_status_due", fields: ["status", "due"], sets: new Set(), structured: true, interval: none, area: none, series: none, summary: none, entries: false }],
-    range: some("due"), search: ["status"], presets: [],
+    range: some("due"), search: ["status"], presets: [], scope: new Map(),
 }));
 const Row = StructType({ status: StringType, due: OptionType(IntegerType) });
 const values = (...v: string[]) => variant("values", v);
+type Choice = ValueTypeOf<RecordSliceChoiceType>;
+const sameChoice = equalFor(RecordSliceChoiceType);
+const encodeState = encodeBeast2For(RecordSliceStateType);
+/** A state as the record Slice's runtime keeps it: its bytes, read back as a frozen East value. */
+const frozenState = decodeBeast2For(RecordSliceStateType, { frozen: true });
+/** Whether a narrowing holds exactly these choices, field by field. */
+function holds(actual: ReadonlyMap<string, Choice>, expected: readonly (readonly [string, Choice])[]): boolean {
+    return actual.size === expected.length && expected.every(([field, choice]) => {
+        const held = actual.get(field);
+        return held !== undefined && sameChoice(held, choice);
+    });
+}
 /** An Integer read from its East text. */
 function parseInteger(text: string): bigint {
     const read = parseFor(IntegerType)(text);
@@ -40,8 +52,10 @@ function state(): ValueTypeOf<RecordSliceStateType> {
 }
 
 // Two trillion-entry runs, almost all unset. A boundary query must jump over
-// the unset range; iterating entries would never complete this fixture.
-function fixture() {
+// the unset range; iterating entries would never complete this fixture. Given a
+// scope, it is a page that holds those fields (#1621): the rail offers the
+// others, and the store starts with no choice.
+function fixture(scope?: ReadonlyMap<string, Choice>) {
     const size = 1_000_000_000_000n;
     const pages: { offset: bigint; limit: bigint }[] = [];
     let pending = false;
@@ -69,8 +83,11 @@ function fixture() {
             return some([{ ik: variant("by_status_due", { status: late ? "late" : "held", due }) }]);
         },
     };
-    let current = state();
-    const controller = new RecordSliceController(binding, config, Row, () => current, next => { current = next; });
+    const paged = scope === undefined ? config
+        : { ...config, fields: config.fields.filter(field => !scope.has(field.fieldId)), search: [], scope: new Map(scope) };
+    let current = scope === undefined ? state()
+        : decodeBeast2For(RecordSliceStateType)(encodeBeast2For(RecordSliceStateType)({ where: new Map(), preset: none, resolution: none }));
+    const controller = new RecordSliceController(binding, paged, Row, () => current, next => { current = next; });
     return { controller, pages, pending(value: boolean) { pending = value; }, failed(value: boolean) { failed = value; }, move() { revision = "B"; } };
 }
 
@@ -116,7 +133,7 @@ function intervals() {
             name: "jobs_by_press_time", fields: ["press"], sets: new Set(), structured: true,
             interval: some({ from: "start", to: "end", optional: true }), area: none, series: none, summary: none, entries: false,
         }],
-        range: some("start"), search: [], presets: [],
+        range: some("start"), search: [], presets: [], scope: new Map(),
     }));
     const Key = StructType({ on: StructType({ press: StringType }), node: IntegerType, at: OptionType(DateTimeType) });
     const instant = (text: string): Date => {
@@ -181,7 +198,7 @@ test("a field named `area`, `__area`, `tile` or `__tile` is offered, chosen and 
         fields: names.map(name => ({ fieldId: name, label: name, kind: "string", optional: false, multiple: true, set: false,
             values: [{ value: '"a"', label: "A" }, { value: '"b"', label: "B" }], format: none })),
         indexes: names.map(name => ({ name: `by_${name}`, fields: [name], sets: new Set<string>(), structured: false, interval: none, area: none, series: none, summary: none, entries: false })),
-        range: none, search: [], presets: [],
+        range: none, search: [], presets: [], scope: new Map(),
     }));
     // Each field's index files its `a` rows first, as many as its place among the names plus one, then ten `b` rows.
     const printString = printFor(StringType);
@@ -610,7 +627,7 @@ function facets() {
             { name: "by_status_region", fields: ["status", "region"], sets: new Set(), structured: true, interval: none, area: none, series: none, summary: none, entries: false },
             { name: "by_region_status", fields: ["region", "status"], sets: new Set(), structured: true, interval: none, area: none, series: none, summary: none, entries: false },
         ],
-        range: none, search: [], presets: [],
+        range: none, search: [], presets: [], scope: new Map(),
     }));
     const printString = printFor(StringType);
     // Each index's groups in its order: their keys as `.east` literals, in its fields' order, and how many rows each holds.
@@ -672,7 +689,7 @@ function services() {
             { name: "by_status", fields: ["status"], sets: new Set(), structured: false, interval: none, area: none, series: none, summary: none, entries: false },
             { name: "by_service", fields: ["byService"], sets: new Set(), structured: false, interval: none, area: none, series: none, summary: none, entries: true },
         ],
-        range: none, search: [], presets: [],
+        range: none, search: [], presets: [], scope: new Map(),
     }));
     const printString = printFor(StringType);
     const held: readonly (readonly [string, bigint])[] = [["Economy", 1n], ["Priority", 2n], ["Standard", 4n]];
@@ -722,4 +739,226 @@ test("an entries field's keys each count the stations holding them, whatever els
     assert.deepEqual([...where().keys()], ["byService"], "the status cleared, the picks kept");
     controller.choose("byService", undefined);
     assert.equal(where().size, 0);
+});
+
+/**
+ * A press's page (#1621): 26 jobs by press and status — P-1 holds 3 held and 5 late, P-2 7 held and 11 late — the page's
+ * scope its press unless the test gives another, and the rail's one field the status. The record is indexed by press
+ * then status unless the test lists other indexes; each search is answered from those groups in its index's order,
+ * and kept as it was asked.
+ */
+function pressPage(options: { scope?: readonly (readonly [string, Choice])[]; indexes?: readonly string[]; row?: StructType } = {}) {
+    const config = decodeBeast2For(Config)(encodeBeast2For(Config)({
+        fields: [
+            { fieldId: "status", label: "Status", kind: "string", optional: false, multiple: true, set: false, values: [
+                { value: '"held"', label: "Held" }, { value: '"late"', label: "Late" },
+            ], format: none },
+        ],
+        indexes: (options.indexes ?? ["by_press_status"]).map(name => ({
+            name, fields: name.slice(3).split("_"), sets: new Set<string>(), structured: true, interval: none, area: none, series: none, summary: none, entries: false,
+        })),
+        range: none, search: ["status"],
+        presets: [{ id: "late", name: "Late", where: new Map([["status", values('"late"')]]) }],
+        scope: new Map(options.scope ?? [["press", values('"P-1"')]]),
+    }));
+    const printString = printFor(StringType);
+    type Group = { readonly press: string; readonly status: string; readonly count: bigint };
+    const ordered: Readonly<Record<string, readonly Group[]>> = {
+        by_press_status: [
+            { press: "P-1", status: "held", count: 3n }, { press: "P-1", status: "late", count: 5n },
+            { press: "P-2", status: "held", count: 7n }, { press: "P-2", status: "late", count: 11n },
+        ],
+        by_status_press: [
+            { press: "P-1", status: "held", count: 3n }, { press: "P-2", status: "held", count: 7n },
+            { press: "P-1", status: "late", count: 5n }, { press: "P-2", status: "late", count: 11n },
+        ],
+    };
+    const seeks: string[] = [];
+    const pages: bigint[] = [];
+    const binding: RecordSliceBinding = {
+        id: "jobs", recordId: "jobs", defaultIndex: "primary", revision: () => some("A"), refresh: () => null,
+        total: () => some(26n), entryKeys: () => [],
+        seek(index, query) {
+            // A search by its leading fields, with a prefix of the field after them or none; or by a prefix of its first.
+            const asked = query.type === "fields" ? query.value : query.type === "prefix" ? { values: [], prefix: some(query.value) } : undefined;
+            assert.ok(asked !== undefined, `a search by fields or by a prefix: ${query.type}`);
+            seeks.push([index, ...asked.values, ...(asked.prefix.type === "some" ? [`${asked.prefix.value}…`] : [])].join(" "));
+            const fields = index.slice(3).split("_") as ("press" | "status")[];
+            let row = 0n;
+            let at: bigint | undefined;
+            let count = 0n;
+            for (const held of ordered[index]!) {
+                const keys = fields.map(field => held[field]);
+                if (asked.values.every((value, i) => value === printString(keys[i]!))
+                    && (asked.prefix.type === "none" || keys[asked.values.length]!.startsWith(asked.prefix.value))) {
+                    at ??= row;
+                    count += held.count;
+                }
+                row += held.count;
+            }
+            return some({ found: count > 0n, row: at ?? row, count });
+        },
+        page(index, offset, limit) {
+            pages.push(offset);
+            assert.equal(limit, 1n, "a search reads one entry a value");
+            let row = 0n;
+            for (const held of ordered[index]!) {
+                if (offset < row + held.count) return some([{ ik: variant(index, { press: held.press, status: held.status }) }]);
+                row += held.count;
+            }
+            return some([]);
+        },
+    };
+    // The store keeps a state as the runtime keeps it: its bytes, read back as a frozen East value.
+    let current = frozenState(encodeState({ where: new Map(), preset: none, resolution: none }));
+    const controller = new RecordSliceController(binding, config, options.row ?? StructType({ press: StringType, status: StringType }),
+        () => current, next => { current = frozenState(encodeState(next)); });
+    return {
+        controller, seeks, pages,
+        /** What the store keeps. */
+        stored: () => current,
+        /** The store's bytes read again: an equal state, and another object. */
+        reread: () => { current = frozenState(encodeState(current)); },
+        /** The status's chips: each value's label, its count and whether it is chosen. */
+        chips: () => controller.values("status").map(choice => [choice.label, choice.count, choice.selected]),
+    };
+}
+const P1 = values('"P-1"');
+
+test("a scoped source's narrowing is the viewer's choices with the page's scope laid over them: the store keeps the choices alone, and its count, its chips and every search are the page's (#1621)", () => {
+    const page = pressPage();
+    const { controller } = page;
+    // Nothing chosen: every read carries the scope, and the store holds nothing.
+    assert.ok(holds(controller.readState().where, [["press", P1]]));
+    assert.equal(page.stored().where.size, 0);
+    assert.ok(Object.is(controller.readState(), controller.readState()), "the same state while the store's is the same");
+    assert.equal(controller.count().value, 8n, "the count is the page's: the press's jobs, of the record's 26");
+    assert.equal(controller.total().value, 8n, "and so is the total a count is out of: the rows the scope holds, never the record's 26");
+    assert.deepEqual(page.chips(), [["Held", some(3n), false], ["Late", some(5n), false]]);
+    // A choice on another field keeps the scope beside it.
+    const before = controller.readState();
+    controller.choose("status", values('"late"'));
+    assert.ok(holds(page.stored().where, [["status", values('"late"')]]), "the store keeps the choice alone");
+    assert.ok(holds(controller.readState().where, [["press", P1], ["status", values('"late"')]]));
+    assert.ok(!Object.is(controller.readState(), before), "another state once the store's is another");
+    assert.equal(controller.count().value, 5n);
+    assert.equal(controller.total().value, 8n, "a choice narrows the count, and the total stays the page's");
+    assert.deepEqual(page.chips(), [["Held", some(3n), false], ["Late", some(5n), true]]);
+    assert.ok(page.seeks.length > 0 && page.seeks.every(seek => seek.startsWith('by_press_status "P-1"')), `every search names the press: ${page.seeks.join("; ")}`);
+});
+
+test("a scoped source's narrowing and its config are frozen East values, which a page's East code reads and cannot change in place; the store's state read again, equal, answers the very state read before, by East's own `Is` (#1621)", () => {
+    const page = pressPage();
+    const { controller } = page;
+    const read = controller.readState();
+    assert.ok(isFrozenValue(read) && isFrozenValue(read.where), "the state the page reads, and its narrowing");
+    assert.ok(isFrozenValue(controller.config) && isFrozenValue(controller.config.scope), "the config the handle carries, and its scope");
+    assert.ok(isFrozenValue(fixture().controller.config), "an unscoped source's config as well");
+    // The store's bytes read again: an equal state, and another object.
+    page.reread();
+    assert.ok(Object.is(controller.readState(), read), "the very state read before");
+    controller.choose("status", values('"late"'));
+    const chosen = controller.readState();
+    assert.ok(!Object.is(chosen, read) && isFrozenValue(chosen), "another choice is another state, frozen as well");
+});
+
+test("Clear all and a preset leave the page's scope as it is, and no choice changes a scoped field (#1621)", () => {
+    const page = pressPage();
+    const { controller } = page;
+    controller.togglePreset("late");
+    assert.ok(holds(controller.readState().where, [["press", P1], ["status", values('"late"')]]), "a preset's narrowing stands beside the scope");
+    assert.deepEqual(controller.readState().preset, some("late"));
+    assert.ok(holds(page.stored().where, [["status", values('"late"')]]));
+    controller.clearAll();
+    assert.ok(holds(controller.readState().where, [["press", P1]]), "Clear all clears the viewer's choices, and the scope stays");
+    assert.equal(page.stored().where.size, 0);
+    controller.togglePreset("late");
+    controller.togglePreset("late");
+    assert.ok(holds(controller.readState().where, [["press", P1]]), "a preset toggled off leaves the scope too");
+    assert.deepEqual(controller.readState().preset, none);
+    // The scoped field is no field of the rail: it takes no choice, is not cleared, and offers no values.
+    const held = /'press' is held by the page's scope, which no choice changes/;
+    assert.throws(() => controller.choose("press", values('"P-2"')), held);
+    assert.throws(() => controller.choose("press", undefined), held);
+    assert.throws(() => controller.values("press"), held);
+    assert.throws(() => controller.suggest("press", "P"), held);
+    assert.ok(holds(controller.readState().where, [["press", P1]]));
+});
+
+test("a state written with the scope's own clause is kept without it; one that holds another clause for a scoped field is refused, and nothing is written (#1621)", () => {
+    const page = pressPage();
+    const { controller } = page;
+    // What the controller reads, written back with a choice added: as a saved view or a custom control writes it.
+    const read = controller.readState();
+    controller.write({ ...read, where: new Map([...read.where, ["status", values('"held"')]]) });
+    assert.ok(holds(page.stored().where, [["status", values('"held"')]]), "the scope's clause is the page's, and the store does not keep it");
+    assert.ok(holds(controller.readState().where, [["press", P1], ["status", values('"held"')]]));
+    // Another press, or another kind of clause for it: refused whole.
+    const held = /'press' is held by the page's scope, which no choice changes/;
+    assert.throws(() => controller.write({ ...read, where: new Map([["press", values('"P-2"')], ["status", values('"late"')]]) }), held);
+    assert.throws(() => controller.write({ ...read, where: new Map([["press", variant("prefix", "P")]]) }), held);
+    assert.ok(holds(page.stored().where, [["status", values('"held"')]]), "a refused write leaves the store as it was");
+    // A state that names no scoped field is the choices alone, as the store keeps them.
+    controller.write({ ...read, where: new Map() });
+    assert.equal(page.stored().where.size, 0);
+    assert.ok(holds(controller.readState().where, [["press", P1]]));
+});
+
+test("the scope's values are read at their field's type and held once each; a scope the record cannot hold is refused as the controller is made (#1621)", () => {
+    const twice = pressPage({ scope: [["press", values('"P-1"', '"P-2"', '"P-1"')]] });
+    assert.ok(holds(twice.controller.config.scope, [["press", values('"P-1"', '"P-2"')]]), "each value once, in the order given");
+    assert.equal(twice.controller.count().value, 26n);
+    assert.deepEqual(twice.seeks, ['by_press_status "P-1"', 'by_press_status "P-2"'], "a search a value");
+    assert.throws(() => pressPage({ scope: [["press", values("P-1")]] }), /The page's scope of 'press' holds a value its type does not read/);
+    assert.throws(() => pressPage({ scope: [["machine", values('"M-1"')]] }), /The page's scope names 'machine', which is no field of the record's rows or of its indexes' keys/);
+    assert.throws(() => pressPage({ scope: [["press", variant("prefix", "P")]] }), /The page's scope of 'press' is a list of exact values, and holds a prefix/);
+    // A field that fans out over a Set is read by exactly one value of it.
+    const fanned = StructType({ press: SetType(StringType), status: StringType });
+    assert.throws(() => pressPage({ row: fanned, scope: [["press", values('"P-1"', '"P-2"')]] }),
+        /The page's scope of 'press' holds 2 values, and a field that fans out over a Set is read by exactly one/);
+    assert.equal(pressPage({ row: fanned }).controller.count().value, 8n);
+});
+
+test("a scope that holds no value reads no row: the count is none of the record's, a page is empty, no row is held, and nothing is asked of the record (#1621)", () => {
+    const page = pressPage({ scope: [["press", values()]] });
+    const { controller } = page;
+    assert.equal(controller.unread, true);
+    const where = controller.readState().where;
+    assert.ok(holds(where, [["press", values()]]));
+    assert.deepEqual(controller.plan(where), { index: "primary", queries: [], empty: true });
+    assert.deepEqual(controller.count(), some(0n));
+    assert.deepEqual(controller.total(), some(0n), "the rows the page holds: none");
+    assert.deepEqual(controller.windows.page(controller.plan(where), 0n, 50n), some([]));
+    assert.deepEqual(page.chips(), [["Held", some(0n), false], ["Late", some(0n), false]]);
+    const job = { key: "J-1", row: { press: "P-1", status: "late" } };
+    assert.deepEqual(controller.within(where, [job, job]), some([false, false]));
+    assert.deepEqual(controller.position(where, job.key, job.row), some(null));
+    assert.deepEqual(controller.suggest("status", "la"), some([]));
+    // A choice still stands beside it, and still reads nothing.
+    controller.choose("status", values('"late"'));
+    assert.ok(holds(page.stored().where, [["status", values('"late"')]]));
+    assert.deepEqual(controller.count(), some(0n));
+    assert.deepEqual([page.seeks, page.pages], [[], []], "nothing is asked of the record");
+    // A narrowing that leaves the scope out is read as it is given: the record's own rows.
+    assert.equal(controller.count(new Map()).value, 26n);
+    assert.equal(pressPage().controller.unread, false);
+});
+
+test("a search suggests the page's values alone: it reads an index that takes the scope's fields before the searched one, and is refused, naming that index, where none is listed (#1621)", () => {
+    // An index led by the status is listed first, and takes an exact status beside the press: the search does not read it.
+    const page = pressPage({ indexes: ["by_status_press", "by_press_status"] });
+    const found = page.controller.suggest("status", "la");
+    assert.deepEqual(found.type === "some" ? found.value.map(choice => [choice.label, choice.count]) : found, [["late", some(5n)]]);
+    const prefixes = page.seeks.filter(seek => seek.endsWith("…"));
+    assert.deepEqual(prefixes, ['by_press_status "P-1" la…'], "the text is searched under the press");
+    assert.deepEqual(page.pages, [3n], "one entry read: the press's first late job");
+    assert.throws(() => pressPage({ indexes: ["by_status_press"] }).controller.suggest("status", "la"),
+        /Searching 'status' reads an index led by the page's scope, then it — by_press_status: index\.on\(\["press", "status"\]\) among the record's indexes/);
+});
+
+test("a range's extent on a scoped page is the page's: its boundary entries are read under the scope's values alone (#1621)", () => {
+    const { controller, pages } = fixture(new Map([["status", values('"held"')]]));
+    assert.deepEqual(controller.domain("due"), some({ from: ".some 4", to: ".some 80" }), "the held jobs' due dates, and none of the late ones'");
+    assert.equal(pages.length, 3, "one run: its first entry, its last, and its first set");
+    assert.ok(pages.every(page => page.offset < 1_000_000_000_000n), "no entry of another status is read");
 });

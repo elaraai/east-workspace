@@ -200,10 +200,10 @@ const CHOOSE_FIRST = "Choose a preceding field first.";
  */
 function proposalFor(slice: Bind, field: Field, choice: Choice, words: ReturnType<typeof useFormatters>): { hint?: string; disabled: boolean; never?: true } {
     const state = slice.read();
-    const next = recordChoiceWhere(slice.config.indexes, state.where, field.fieldId, choice);
+    const next = recordChoiceWhere(slice.config, state.where, field.fieldId, choice);
     if (next === null) {
         const offered = new Set(slice.config.fields.map(f => f.fieldId));
-        const needs = recordChoiceNeeds(slice.config.indexes, state.where, field.fieldId, choice.type, offered);
+        const needs = recordChoiceNeeds(slice.config, state.where, field.fieldId, choice.type, offered);
         if (needs === null) return { disabled: true, never: true };
         const labels = needs.map(name => slice.config.fields.find(f => f.fieldId === name)?.label ?? name);
         const named = labels.length < 2 ? labels.join("") : `${labels.slice(0, -1).join(", ")} and ${labels.at(-1)!}`;

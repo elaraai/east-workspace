@@ -270,6 +270,105 @@ describe("Data.bindPaged over indexes refuses what a Slice cannot read", () => {
     });
 });
 
+// A source's scope (#1621): exact values of fields an index is led by, which every read of the source carries. What a
+// Slice cannot read beside it is refused as the record is bound, naming the field and the index to declare: these
+// records are the scope's own.
+describe("Slice.bindRecord's scope is refused where no listed index reads it, naming the fix (#1621)", () => {
+    const Job = StructType({ press: StringType, status: StringType, due: IntegerType, tags: SetType(StringType), owner: OptionType(StringType) });
+    const jobs = e3.record("scoped_jobs", DictType(StringType, Job), {
+        initial: new Map(),
+        indexes: (index) => ({
+            by_press: index.on(["press"]),
+            by_status: index.on(["status"]),
+            by_due: index.on(["due"]),
+            by_press_status: index.on(["press", "status"]),
+            by_press_due: index.on(["press", "due"]),
+            by_tags: index.on(["tags"]),
+            by_owner: index.on(["owner"]),
+        }),
+    });
+    const Station = StructType({ hub: StringType, byService: DictType(StringType, IntegerType) });
+    const stations = e3.record("scoped_stations", DictType(StringType, Station), {
+        initial: new Map(),
+        indexes: (index) => ({ by_hub: index.on(["hub"]), by_service: index.entries("byService") }),
+    });
+    /** Each listed index read beside the press: the scope's own, and the status's and the due date's after it. */
+    const pressLed = Data.bindPaged(jobs, { indexes: ["by_press", "by_press_status", "by_press_due"] });
+    const press = { press: ["P-1"] };
+
+    hostTest("a scope names fields an index is led by: one no listed index is led by, an entries index's Dict field, and fields no one index is led by together are refused", () => {
+        const apart = Data.bindPaged(jobs, { indexes: ["by_press", "by_status"] });
+        // @ts-expect-error 'owner' is no field of this binding's listed indexes
+        assert.throws(() => bindRecord("jobs", apart, { scope: { owner: ["Ada"] } }), {
+            message: `Slice.bindRecord: the scope's 'owner' needs an index led by it — by_owner: index.on(["owner"]) among the record's indexes, listed in Data.bindPaged's indexes`,
+        });
+        assert.throws(() => bindRecord("stations", Data.bindPaged(stations, { indexes: ["by_hub", "by_service"] }), {
+            // @ts-expect-error an entries index's Dict field narrows no row: no scope takes it
+            scope: { byService: ["Standard"] },
+        }), { message: "Slice.bindRecord: the scope's 'byService' is a Dict field an entries index files, whose keys weigh the rows and narrow none — scope a field an index is led by" });
+        assert.throws(() => bindRecord("jobs", apart, { scope: { press: ["P-1"], status: ["held"] } }), {
+            message: `Slice.bindRecord: the scope ('press', 'status') needs one index led by exactly its fields — by_press_status: index.on(["press", "status"]) among the record's indexes, listed in Data.bindPaged's indexes`,
+        });
+    });
+
+    hostTest("a scoped field is no field of the rail: it is refused in fields, initial, every preset, range and search", () => {
+        const held = (where: string) => ({ message: `Slice.bindRecord: 'press' is in the scope, which every read holds and the rail shows no control for — leave it out of ${where}` });
+        assert.throws(() => bindRecord("jobs", pressLed, { scope: press, fields: { press: {}, status: { hints: ["held"] } } }), held("fields"));
+        assert.throws(() => bindRecord("jobs", pressLed, { scope: press, initial: { press: ["P-2"] } }), held("initial and every preset"));
+        assert.throws(() => bindRecord("jobs", pressLed, { scope: press, presets: [{ id: "p2", name: "P-2", where: { press: ["P-2"] } }] }), held("initial and every preset"));
+        assert.throws(() => bindRecord("jobs", pressLed, { scope: press, fields: {}, search: ["press"] }), held("search"));
+        assert.throws(() => bindRecord("jobs", Data.bindPaged(jobs, { indexes: ["by_due"] }), { scope: { due: [3n] }, fields: {}, range: "due" }), {
+            message: "Slice.bindRecord: 'due' is in the scope, which every read holds and the rail shows no control for — leave it out of range",
+        });
+    });
+
+    hostTest("each field the rail offers beside a scope needs an index led by the scope's fields, then it; an entries field offers none beside one; and a narrowing beside it needs one index for the whole", () => {
+        const apart = Data.bindPaged(jobs, { indexes: ["by_press", "by_status"] });
+        const unanswered = `Slice.bindRecord: narrowing by 'status' beside the scope ('press') needs one index led by the scope's fields, then it — by_press_status: index.on(["press", "status"]) among the record's indexes, listed in Data.bindPaged's indexes`;
+        assert.throws(() => bindRecord("jobs", apart, { scope: press }), { message: `${unanswered}; or list the fields the rail offers in fields, without it` });
+        assert.throws(() => bindRecord("jobs", apart, { scope: press, fields: { status: { hints: ["held"] } } }), { message: unanswered });
+        assert.throws(() => bindRecord("stations", Data.bindPaged(stations, { indexes: ["by_hub", "by_service"] }), { scope: { hub: ["North"] } }), {
+            message: "Slice.bindRecord: 'byService' is a Dict field the rail counts by its entries index, across the whole record, and this source is scoped — list the fields the rail offers in fields, without it",
+        });
+        assert.throws(() => bindRecord("jobs", pressLed, { scope: press, initial: { status: ["held"], due: { from: 1n, to: 5n } } }), {
+            message: "Slice.bindRecord: this narrowing, beside the scope ('press'), needs one index on the scope's fields and its exact fields followed by its range or prefix",
+        });
+        assert.doesNotThrow(() => bindRecord("jobs", pressLed, { scope: press, initial: { status: ["held"] } }), "each narrowing beside the press has its index");
+    });
+
+    hostTest("a scope's values are of its field's type: a list written with one at least — exactly one for a Set field — each a value or an East expression, or one East expression of an Array", () => {
+        assert.throws(() => bindRecord("jobs", pressLed, { scope: { press: [] }, fields: {} }),
+            /^Error: Slice\.bindRecord: the scope's 'press' \(\.String\) lists no value, and would read no rows — list at least one, or leave 'press' out of the scope$/);
+        // @ts-expect-error a press is a String
+        assert.throws(() => bindRecord("jobs", pressLed, { scope: { press: [4n] }, fields: {} }),
+            /the scope's 'press' takes values of its type, \.String, and was given a value of type \.Integer$/);
+        // @ts-expect-error nor an expression of an Integer
+        assert.throws(() => bindRecord("jobs", pressLed, { scope: { press: [East.value(4n)] }, fields: {} }),
+            /the scope's 'press' takes values of its type, \.String, and was given an expression of type \.Integer$/);
+        // @ts-expect-error nor an expression of an Array of them
+        assert.throws(() => bindRecord("jobs", pressLed, { scope: { press: East.value([4n], ArrayType(IntegerType)) }, fields: {} }),
+            /the scope's 'press' takes values of its type, \.String, and was given an Array of values of type \.Integer$/);
+        assert.doesNotThrow(() => bindRecord("jobs", pressLed, { scope: { press: East.value(["P-1", "P-2"], ArrayType(StringType)) }, fields: {} }), "a list of the page's own");
+        const tagged = Data.bindPaged(jobs, { indexes: ["by_tags"] });
+        assert.throws(() => bindRecord("jobs", tagged, { scope: { tags: ["rush", "late"] } }),
+            /the scope's 'tags' fans out over a Set, which a narrowing reads by exactly one value, and lists 2$/);
+        assert.throws(() => bindRecord("jobs", tagged, { scope: { tags: East.value(["rush"], ArrayType(StringType)) } }),
+            /the scope's 'tags' fans out over a Set, which a narrowing reads by exactly one value — write its list in the code, with one value$/);
+        assert.doesNotThrow(() => bindRecord("jobs", tagged, { scope: { tags: ["rush"] } }));
+        assert.doesNotThrow(() => bindRecord("jobs", Data.bindPaged(jobs, { indexes: ["by_owner"] }), { scope: { owner: [East.value("Ada")] } }),
+            "an optional field takes an expression of the value it holds");
+    });
+
+    hostTest("the handle names the scoped fields in its type, and a page's parameter is a scope's value", () => {
+        const Handle = typeOf(bindRecord("jobs", pressLed, { scope: press }));
+        assert.ok(isTypeEqual(Handle.fields.scoped!, StructType({ press: NullType })));
+        assert.ok(isTypeEqual(typeOf(bindRecord("jobs", pressLed)).fields.scoped!, StructType({})), "a source with no scope names none");
+        // A page whose press is its parameter binds a handle of the type a scope written in the code gives.
+        assert.doesNotThrow(() => East.function([StringType], Handle, ($, chosen) =>
+            $.return(bindRecord("jobs", Data.bindPaged(jobs, { indexes: ["by_press", "by_press_status", "by_press_due"] }), { scope: { press: [chosen] } }))));
+    });
+});
+
 /** A binding's East type. */
 const typeOf = (source: unknown) => Expr.type(source as ExprType<StructType>) as StructType;
 /**

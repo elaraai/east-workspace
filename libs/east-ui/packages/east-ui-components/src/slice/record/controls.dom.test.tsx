@@ -35,7 +35,7 @@ function fixture(fields: Field[]) {
     const config = decodeBeast2For(RecordSliceConfigType)(encodeBeast2For(RecordSliceConfigType)({
         fields, indexes: fields.map(f => ({ name: f.fieldId, fields: [f.fieldId], sets: new Set(f.set ? [f.fieldId] : []), structured: false, interval: none, area: none, series: none, summary: none, entries: false })),
         range: fields.some(f => f.kind === "datetime") ? some(fields.find(f => f.kind === "datetime")!.fieldId) : none,
-        search: fields.filter(f => f.kind === "string").map(f => f.fieldId), presets: [],
+        search: fields.filter(f => f.kind === "string").map(f => f.fieldId), presets: [], scope: new Map(),
     }));
     const key = "record.controls";
     const encode = encodeBeast2For(RecordSliceStateType);
@@ -46,7 +46,7 @@ function fixture(fields: Field[]) {
     const read = () => { trackKey(key); return decode(getStore().read(key)!); };
     const write = (state: ValueTypeOf<RecordSliceStateType>) => { getStore().write(key, encode(state)); return null; };
     const choose = (id: string, choice: ValueTypeOf<RecordSliceChoiceType> | undefined) => {
-        const where = recordChoiceWhere(config.indexes, read().where, id, choice);
+        const where = recordChoiceWhere(config, read().where, id, choice);
         if (where === null) throw new Error("Choose a preceding field");
         return write({ ...read(), where, preset: none });
     };
