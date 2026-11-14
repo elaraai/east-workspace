@@ -14,8 +14,9 @@
  * chips) and event rows — sliced and planned as one surface.
  *
  * A canvas is DEFINED as `data` + `series`: a keyed source of entries, and a
- * list of `Plan.series.*` row recipes over them (`Plan.pick` makes the list
- * pickable). The list IS the layout — each series contributes its rows in
+ * list of `Plan.series.*` row recipes over them (pickable where the library
+ * lists `Plan.library.series()`, `hidden` naming the ones off to start). The
+ * list IS the layout — each series contributes its rows in
  * declared order, as blocks (#823: a data series one block of its entries'
  * rows, a section its header and then its members') — and the rows are an
  * ordered STREAM (`Array<PlanRow>`, #822), each parent followed by its subtree. The kind
@@ -40,7 +41,8 @@
  * envelope, the row streams and their re-basing) · `factories.ts` (the kind
  * factories, the per-kind constructors and chart-layer consumption) ·
  * `series.ts` (`Plan.series.*`, `Plan.children` and their application to
- * `data`) · `pick.ts` (`Plan.pick` / `Plan.pickItems`) · `root.ts` (the
+ * `data`) · `pick.ts` (which series show: `hidden`, the Series tab's pick,
+ * `Plan.pickItems`) · `root.ts` (the
  * canvas's root, the internal namespace's `Plan.Root`) · `plan.ts` (`<Plan>`
  * itself, its payload and its `Plan` carrier, #1191) with `over.ts`
  * (`Plan.over`, read-only rows over a dataset), `refs.ts` (`Plan.eventRef`,
@@ -183,7 +185,7 @@ import {
 } from "./series.js";
 import { createPlanRoot } from "./root.js";
 import { createItems, createValues } from "./reads.js";
-import { createPlanPick, createPlanPickItems } from "./pick.js";
+import { createPlanPickItems } from "./pick.js";
 import { PlanComponent, PlanTag, createPlanPayload, type PlanTagType } from "./plan.js";
 import { createOver } from "./over.js";
 import { createEventRef } from "./refs.js";
@@ -404,7 +406,7 @@ export {
     type PlanTableParts,
 } from "./factories.js";
 export { type PlanEditingConfig, type PlanBindHandle, type PlanConfig, type PlanCanvasOptions, createPlanRoot, buildPlanRoot } from "./root.js";
-export { type PlanPickOptions, createPlanPick, createPlanPickItems } from "./pick.js";
+export { type PlanShown, createPlanPickItems, planShown } from "./pick.js";
 export {
     PlanSeriesType,
     type PlanSeriesArm,
@@ -611,11 +613,8 @@ export interface PlanNamespace extends PlanTagType {
     band: typeof createBand;
     /** Pins a chart row to an explicit pixel height. */
     fixed: typeof createFixedHeight;
-    /** Binds the canvas's row series to a persisted pick (#590) — pass it as
-     *  `<Plan pick>` and the canvas shows the picked series and mounts the
-     *  library, which lists sections and kinds. */
-    pick: typeof createPlanPick;
-    /** The library entries for the canvas's series — no state binding. */
+    /** What the library's Series tab lists of a series list (#590, #1541): each series at the top of the list, a
+     *  `views` as its members — no state binding. */
     pickItems: typeof createPlanPickItems;
     /** The Plan East types. */
     Types: {
@@ -830,7 +829,6 @@ const PLAN_MEMBERS = {
     scatter: createScatter,
     band: createBand,
     fixed: createFixedHeight,
-    pick: createPlanPick,
     pickItems: createPlanPickItems,
     Types: {
         Root: PlanRootType,
@@ -928,8 +926,10 @@ const PLAN_MEMBERS = {
  *   pinned rows of any source under the ruler.
  * - **`data` and `series`**: a keyed collection of raw entries, or a paged
  *   source of one, and one `Plan.series.*` value per row series, whose
- *   accessors derive each canvas row from the raw fields (`Plan.pick` makes
- *   the list one the user picks from). The list IS the layout — one block per
+ *   accessors derive each canvas row from the raw fields. `hidden` names the
+ *   series off to start, and where `library` lists `Plan.library.series()`
+ *   the viewer picks from the list in the Series tab, kept under the Plan's
+ *   `id`. The list IS the layout — one block per
  *   series, top to bottom — and hierarchy comes only from the data's own
  *   nesting (#822): a series' `children` walk what an entry holds, to any
  *   depth (`Plan.children` steps down to another entry type), and a flat

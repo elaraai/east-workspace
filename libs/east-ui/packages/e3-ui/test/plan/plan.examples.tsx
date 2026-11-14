@@ -447,8 +447,9 @@ export const planTargetOps = e3.input("plan_target_ops", DictType(StringType, Ta
  * - **Expand in place** on a row of every kind: each row declares it as data
  *   (`detail`), the root renders the plot (`expandRender`) and the gutter
  *   (`expandGutter`), and the unfocused rows collapse to strips.
- * - **The series are picked** (`Plan.pick`): the library's Series tab lists
- *   them, one hidden to start.
+ * - **The series are picked**: the library lists the Series tab
+ *   (`Plan.library.series()`), which lists each with its eye — the finishers'
+ *   three views each alone — and `hidden` names the one off to start.
  * - **A bound `ui` state** held by the host, its controls beside the frame: a
  *   picker brings a press into view, buttons fold and open the halls and
  *   expand the KPI, and a readout says what the state holds.
@@ -484,7 +485,7 @@ export const planTargetState = example({
         "lane", "lanes", "AM", "PM", "tile", "marker", "tone", "color", "colorPalette", "stretch", "pulse", "icon",
         "lifecycle", "confirmed", "recommended", "same kind", "own entry", "duplicate",
         "one asset", "multiple views", "literal", "Plan.span", "series.rows", "kind factory", "chrome",
-        "pick", "Plan.pick", "library", "Plan.library.series", "Series tab", "hidden", "eye",
+        "pick", "picked", "library", "Plan.library.series", "Series tab", "hidden", "eye", "views member",
         "ui", "UiState", "Plan.uiState", "State.bind", "controlled", "selected", "fold", "open", "charts",
         "scroll to row", "external", "write back", "Select", "Button",
         "fill", "height", "bounded", "Box", "scroll", "virtual", "virtualization", "id",
@@ -576,7 +577,7 @@ export const planTargetState = example({
             // series, top to bottom, a section titling the blocks beneath
             // it. Every one is picked (below), so the whole list is an East
             // value typed by the constructor. ──
-            const all = $.const([
+            const all = [
                 // The KPI, pinned under the ruler: its gutter opens the spark
                 // to the expanded chart, and it declares expand-in-place too,
                 // its plot keeping its value scale.
@@ -798,12 +799,7 @@ export const planTargetState = example({
                         ],
                     }),
                 ]),
-            ], ArrayType(Plan.Types.Series(TargetOpsRow)));
-            // The series are PICKED: the library's Series tab lists every one
-            // by title, subtitle and kind, each with its eye, and the canvas
-            // shows those switched on, in this order. Which are off is the
-            // viewer's own state, persisted under its key; Programs starts off.
-            const shown = $.let(Plan.pick("ex.plan.target.pick", all, { hidden: ["programs"] }));
+            ];
             const axis = $.const(Plan.axis({
                 window: { min: week(27n), max: week(39n) },
                 resolution: "week", resolutions: ["month", "week", "day"], now: week(31n),
@@ -1014,7 +1010,12 @@ export const planTargetState = example({
                                 }),
                             ]}
                             data={rows}
-                            pick={shown}
+                            // The series are PICKED, since the library lists the Series tab: it lists every one
+                            // by title, subtitle and kind, each with its eye — the finishers' three views each
+                            // alone — and the canvas shows those switched on, in this order. Which are off is the
+                            // viewer's own state, kept under the Plan's id; Programs starts off.
+                            series={all}
+                            hidden={["programs"]}
                             // The series, and the deliveries in the window: the
                             // tab follows the rail's `deliveries` source.
                             library={[

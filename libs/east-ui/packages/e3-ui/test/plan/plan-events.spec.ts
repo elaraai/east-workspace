@@ -150,8 +150,8 @@ describe("the payload (PB8, PB11)", () => {
     });
 
     test("the keys a Plan keeps its viewer's state under follow its `id`", () => {
-        assert.deepEqual(planKeys(undefined), { frame: "plan.frame", series: "plan.series", library: "plan.library", surface: "plan.surface" });
-        assert.deepEqual(planKeys("ops"), { frame: "plan.ops.frame", series: "plan.ops.series", library: "plan.library.ops", surface: "plan.ops.surface" });
+        assert.deepEqual(planKeys(undefined), { frame: "plan.frame", series: "plan.series", pick: "plan.pick", library: "plan.library", surface: "plan.surface" });
+        assert.deepEqual(planKeys("ops"), { frame: "plan.ops.frame", series: "plan.ops.series", pick: "plan.ops.pick", library: "plan.library.ops", surface: "plan.ops.surface" });
     });
 });
 
