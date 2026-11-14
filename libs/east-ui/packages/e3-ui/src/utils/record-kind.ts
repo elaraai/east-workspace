@@ -152,19 +152,20 @@ export function kindWholeRows(handle: ExprType<EastType>, keyType: EastType, row
  * `none` while a search or a page is in flight.
  *
  * Through its source a kind reads what its narrowing holds and nothing else:
- * the source's choices, each as the rail holds it. Read with `every`, it reads
- * every row through its source instead, and never the narrowing, so a choice
- * reads none of its rows again: the renderer draws the rows the narrowing
- * leaves out as context, from the source's shown keys. An entry's row is its
- * `row` — the source joins it — or its `value`, for an index that carries the
- * whole row.
+ * the source's choices, each as the rail holds it, with its page's scope
+ * (#1621). Read with `every`, it reads every row through its source instead —
+ * every row its page's scope holds, which no choice changes, on a scoped page —
+ * and never the viewer's choices, so a choice reads none of its rows again: the
+ * renderer draws the rows the choices leave out as context, from the source's
+ * shown keys. An entry's row is its `row` — the source joins it — or its
+ * `value`, for an index that carries the whole row.
  *
  * @param part - The kind's source of the slice, bound once in the builder's payload (`recordSources(…).bind($)`)
  * @param source - The source's name
  * @param keyType - The kind's record's key type
  * @param rowType - The kind's record's row type
  * @param where - The kind, as a refusal names it
- * @param every - Whether it reads every row, the narrowing read nowhere: what the narrowing leaves out draws as context
+ * @param every - Whether it reads every row — every row its page's scope holds (#1621) — the viewer's choices read nowhere: what they leave out draws as context
  * @param remedy - How the refusal of a source over another record names the source to give
  * @returns `()` → the rows the narrowing holds — or every row — by key; `none` while a search or a page is in flight
  * @throws {Error} When the source narrows another record — its entries keyed or holding rows of other types — or reads
@@ -209,12 +210,13 @@ export function kindSourceRows(part: ExprType<StructType>, source: string, keyTy
         const pageWhere = $.const(bound.pageWhere);
         const id = $.const(bound.data.id);
         const revision = $.const(bound.data.revision);
-        // The read: no narrowing with `every` — every row, the source's state read nowhere, so a choice reads nothing
-        // again and the renderer dims what it leaves out — else the rail's, each of the source's choices. Never a
-        // read by area.
+        // The read: with `every`, the page's scope alone (#1621) — every row, on a page with none — the source's state
+        // read nowhere, so a choice reads nothing again and the renderer dims what it leaves out; else the rail's, each
+        // of the source's choices with the scope. Never a read by area.
         let taken: ExprType<typeof RecordSliceReadType>;
         if (every) {
-            taken = $.const({ where: new Map(), area: none }, RecordSliceReadType);
+            const config = $.const(bound.config);
+            taken = $.let({ where: config.scope, area: none }, RecordSliceReadType);
         } else {
             const read = $.const(bound.read);
             const state = $.const(read());

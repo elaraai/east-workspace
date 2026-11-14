@@ -42,7 +42,8 @@
  * item follow — refused, naming the row, where another row holds that key
  * once the gesture is made, so a swap or a shift passes (#1581), and where a
  * link or net kind that may name a moving item isn't held whole (#1580): its
- * rows the rail's filters hide, or not read, would keep the old key; and where
+ * rows the rail's filters hide, its page's scope leaves out (#1621), or not
+ * read, would keep the old key; and where
  * what follows a moving row — its details, the rows naming it — takes no edit
  * now (#1584), a Save of it in flight. They follow a new item's key typed in
  * the inspector too; and a Shift session follows its net as its sides move it
@@ -220,8 +221,11 @@ export function placeholderRefusal(kinds: EditKinds, item: EditItem): EditRefusa
     return kind === undefined || kind.keys.isKey(item.ref.key) ? undefined : { why: "placeholder", kind: kind.name, item: item.label };
 }
 
-/** Why the Schematic may not hold every row of a link or net kind (#1580): the rail's filters leave some out, or they are not read. */
-export type SchematicUnheld = "filtered" | "unread";
+/**
+ * Why the Schematic may not hold every row of a link or net kind (#1580): the rail's filters leave some out; its page's
+ * scope holds only some (#1621), which no choice of the viewer's clears; or they are not read.
+ */
+export type SchematicUnheld = "filtered" | "scoped" | "unread";
 
 /** Why a gesture records nothing (#1549), as the footer says it. */
 export type SchematicKeyRefusal =
@@ -812,8 +816,8 @@ export interface SchematicKeyHolding {
     /** The links and nets the Schematic holds — drawn, and waiting in their sessions — their drafts in place: what names an item. */
     readonly drawn: Pick<SchematicDrawn, "links" | "nets">;
     /**
-     * Why the Schematic may not hold every row of a link or net kind (#1580): the rail's filters leave some out, or its read
-     * hasn't landed or failed; `undefined` where it holds them all.
+     * Why the Schematic may not hold every row of a link or net kind (#1580): the rail's filters leave some out, its page's
+     * scope holds only some (#1621), or its read hasn't landed or failed; `undefined` where it holds them all.
      *
      * @param slot - The kind's slot
      */

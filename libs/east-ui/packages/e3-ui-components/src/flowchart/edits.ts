@@ -47,8 +47,9 @@
  *   key they build, and what names the row follows — refused, naming the row,
  *   where another row holds that key once the gesture is made, so a swap or a
  *   shift passes (#1581), and while a kind that may name it isn't held whole
- *   (#1580): the rail hides some of its rows, or it takes no edit now — a Save
- *   in flight — so what it leaves would keep the old key.
+ *   (#1580): the rail hides some of its rows, its page's scope holds only some
+ *   (#1621), or it takes no edit now — a Save in flight — so what it leaves
+ *   would keep the old key.
  *
  * A kind read only takes no gesture of its own (R13). Where a gesture reaches
  * past its own kind — the transitions a state's Del deletes, the queues it
@@ -156,8 +157,9 @@ export interface FlowchartHolding {
      */
     readonly moves: (edits: readonly FlowchartEdit[]) => FlowchartMove[];
     /**
-     * Why the flowchart may not hold every row of a kind it writes (#1580): the rail hides some, or the kind takes no edit
-     * now — a Save in flight, or its rows not read; `undefined` where it holds them all, or writes none of the kind.
+     * Why the flowchart may not hold every row of a kind it writes (#1580): the rail hides some, its page's scope holds only
+     * some (#1621), or the kind takes no edit now — a Save in flight, or its rows not read; `undefined` where it holds them
+     * all, or writes none of the kind.
      *
      * @param sort - The kind
      */
@@ -171,8 +173,11 @@ export interface FlowchartHolding {
     readonly created: (sort: FlowchartSort, key: string) => boolean;
 }
 
-/** Why the flowchart may not hold every row of a kind (#1580): the rail hides some, or the kind takes no edit now. */
-export type FlowchartUnheld = "filtered" | "busy";
+/**
+ * Why the flowchart may not hold every row of a kind (#1580): the rail hides some; its page's scope holds only some
+ * (#1621), which no choice of the viewer's clears; or the kind takes no edit now.
+ */
+export type FlowchartUnheld = "filtered" | "scoped" | "busy";
 
 /** Why a gesture records nothing (#1549), as the footer says it. */
 export type FlowchartRefusal =
@@ -751,10 +756,11 @@ function namingSorts(holding: FlowchartHolding, sort: FlowchartSort): readonly F
 
 /**
  * Why a gesture can't move the rows it moves (#1580): the first kind that may
- * name one whose rows the flowchart doesn't all hold — the rail hiding some,
- * which {@link namers} can't follow it in, or taking no edit now, which it
- * leaves. A row a gesture created this session no stored row names, so the rail
- * hiding some refuses it nothing.
+ * name one whose rows the flowchart doesn't all hold — the rail hiding some, or
+ * its page's scope holding only some (#1621), which {@link namers} can't follow
+ * it in, or taking no edit now, which it leaves. A row a gesture created this
+ * session no stored row names, so the rail hiding some, or the scope, refuses it
+ * nothing.
  *
  * @param holding - What the gesture reads
  * @param moves - The rows it moves, each by its kind and its key
@@ -764,7 +770,7 @@ function unheldNamer(holding: FlowchartHolding, moves: readonly { readonly sort:
     for (const move of moves) {
         for (const by of namingSorts(holding, move.sort)) {
             const why = holding.unheld(by);
-            if (why === undefined || (why === "filtered" && holding.created(move.sort, move.key))) continue;
+            if (why === undefined || (why !== "busy" && holding.created(move.sort, move.key))) continue;
             return { refusal: "unheld", sort: move.sort, key: move.key, by, why };
         }
     }

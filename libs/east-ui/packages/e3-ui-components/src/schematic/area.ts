@@ -616,6 +616,8 @@ interface Slot {
     far?: { readonly read: readonly PagedRow[]; readonly rows: SchematicAreaRows };
     /** The narrowing's answers, at a revision and a narrowing. */
     answers?: { readonly revision: string; readonly where: string; held: ReadonlyMap<string, boolean> };
+    /** Under `narrowed="dim"`, its page's scope's answers of its far ends (#1621), at a revision: which of them the page holds at all. */
+    scopeAnswers?: { readonly revision: string; readonly where: string; held: ReadonlyMap<string, boolean> };
     /** Its rows, the narrowing asked of them, for what they were read from. */
     narrowed?: { readonly read: SchematicWindowRead; readonly far: SchematicAreaRows; readonly where: Where; readonly dim: boolean; readonly result: SchematicAreaRead };
     /** Its rows made its stored rows: and what they were made from — the kind itself among it, whose accessors make the roles. */
@@ -1075,36 +1077,46 @@ export class SchematicAreaReader {
 
     /** A kind's rows, its narrowing asked of them (see {@link SchematicAreaReader.narrowed}). */
     private narrow(slot: Slot, part: Part, read: SchematicWindowRead, far: SchematicAreaRows, where: Where, dim: boolean, keys: KindKeys): SchematicAreaRead | Reading {
-        const rows = far.size === 0 ? read.rows : new Map([...read.rows, ...far]);
-        if (where.size === 0) return { rows, matched: undefined, from: [...read.from, far] };
+        // Under `dim`, a far end its page's scope doesn't hold (#1621) is no row of this page, drawn nowhere — not as context:
+        // the window is read under the scope, and a far end, read by key, is held to it.
+        let ends = far;
+        if (dim && far.size > 0 && part.config.scope.size > 0) {
+            const inScope = this.answersOf(slot, part, read.revision, dimWhere(part), far, keys, "scopeAnswers");
+            if (inScope === READING) return READING;
+            ends = new Map([...far].filter(([key]) => inScope.get(key) === true));
+        }
+        const rows = ends.size === 0 ? read.rows : new Map([...read.rows, ...ends]);
+        if (where.size === 0) return { rows, matched: undefined, from: [...read.from, ends] };
         // Read by key, a far end is held to the whole narrowing; a window read through an index that serves it whole, to nothing.
         const residual = dim || read.plan.residual.length > 0;
-        if (!residual && far.size === 0) return { rows, matched: new Set(rows.keys()), from: [...read.from, far] };
-        const held = this.answersOf(slot, part, read.revision, where, residual ? rows : far, keys);
+        if (!residual && ends.size === 0) return { rows, matched: new Set(rows.keys()), from: [...read.from, ends] };
+        const held = this.answersOf(slot, part, read.revision, where, residual ? rows : ends, keys, "answers");
         if (held === READING) return READING;
         if (dim) {
             const matched = new Set<string>();
             for (const key of rows.keys()) if (held.get(key) === true) matched.add(key);
-            return { rows, matched, from: [...read.from, far, held] };
+            return { rows, matched, from: [...read.from, ends, held] };
         }
         const shown = new Map<string, unknown>();
         for (const [key, row] of rows) {
-            const asked = residual || far.has(key);
+            const asked = residual || ends.has(key);
             if (!asked || held.get(key) === true) shown.set(key, row);
         }
-        return { rows: shown, matched: new Set(shown.keys()), from: [...read.from, far, held] };
+        return { rows: shown, matched: new Set(shown.keys()), from: [...read.from, ends, held] };
     }
 
     /**
      * Which of some rows a narrowing holds: each answer kept at its revision and narrowing, by its row's key's text, the
-     * rows not yet answered asked in one request — each by its key read back at the record's key type (#1549).
+     * rows not yet answered asked in one request — each by its key read back at the record's key type (#1549). The
+     * narrowing's answers are kept apart from its page's scope's (#1621), which `dim` asks of the far ends beside them.
      */
-    private answersOf(slot: Slot, part: Part, revision: string, where: Where, rows: SchematicAreaRows, keys: KindKeys): ReadonlyMap<string, boolean> | Reading {
+    private answersOf(slot: Slot, part: Part, revision: string, where: Where, rows: SchematicAreaRows, keys: KindKeys,
+        cache: "answers" | "scopeAnswers"): ReadonlyMap<string, boolean> | Reading {
         const text = printWhere(where);
-        let kept = slot.answers;
+        let kept = slot[cache];
         if (kept === undefined || !stringEqual(kept.revision, revision) || !stringEqual(kept.where, text)) {
             kept = { revision, where: text, held: new Map() };
-            slot.answers = kept;
+            slot[cache] = kept;
         }
         const held = kept.held;
         const asked = [...rows].filter(([key]) => !held.has(key));

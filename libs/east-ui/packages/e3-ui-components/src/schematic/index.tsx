@@ -432,6 +432,8 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
     // Each kind read through its source of the rail.
     const sourced = useMemo(() => new Set([...value.items, ...value.zones, ...value.links, ...value.nets]
         .flatMap((kind) => (sourcePart(chrome, kind.key) === undefined ? [] : [kind.key]))), [value.items, value.zones, value.links, value.nets, chrome]);
+    // Each kind whose source holds its page's scope (#1621): the page holds the scope's rows of it alone, dimmed or not.
+    const scoped = useMemo(() => new Set([...sourced].filter((slot) => (sourcePart(chrome, slot)?.config.scope.size ?? 0) > 0)), [sourced, chrome]);
     // Which drafted rows of the kinds read by area their narrowing holds, by the row each one's session began from (#1393).
     const [draftsNarrowing, setDraftsNarrowing] = useState<SchematicDraftsNarrowing>(NO_DRAFTS_NARROWING);
     // A kind's narrowing resolving — its shown keys, or its drafted rows' answers: the frame is busy, its last membership
@@ -485,8 +487,8 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
         const shown = sourced.has(slot) ? followed.get(slot)?.shown : undefined;
         return shown === undefined || (shown.keys.type === "some" && !shown.ready) ? undefined : shown.keys;
     }, [areas, data.matched, sourced, followed]);
-    const narrowing = useMemo(() => schematicNarrowing({ drawn: drawing, held: data.held, sourced, keys: kindKeys, dim, drafted }),
-        [drawing, data.held, sourced, kindKeys, dim, drafted]);
+    const narrowing = useMemo(() => schematicNarrowing({ drawn: drawing, held: data.held, sourced, scoped, keys: kindKeys, dim, drafted }),
+        [drawing, data.held, sourced, scoped, kindKeys, dim, drafted]);
     // The drawing as every list shows it — Find, the Index, the Choosers, what an item is joined to, the counts.
     const listed = useMemo(() => narrowedDrawing(drawing, narrowing.out), [drawing, narrowing.out]);
     // What `fit` flies the camera to (§10.3): keyed on the narrowing itself — each source's choices, never on which
@@ -944,11 +946,14 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
         setRefusal(said);
         return said;
     }, [kindName, words]);
-    // Why the Schematic may not hold every row of a link or net kind (#1580): the rail's filters leave some out — under
-    // `narrowed="dim"` its source reads every row — or its read hasn't landed, or failed.
+    // Why the Schematic may not hold every row of a link or net kind (#1580): its page's scope holds only some (#1621),
+    // whatever draws what the viewer's choices leave out; the rail's filters leave some out — under `narrowed="dim"` its
+    // source reads every row the scope holds — or its read hasn't landed, or failed.
     const ready = data.ready, failures = data.failures;
     const unheld = useCallback((slot: string): SchematicUnheld | undefined => {
-        if (!dim && (sourcePart(chrome, slot)?.read().where.size ?? 0) > 0) return "filtered";
+        const part = sourcePart(chrome, slot);
+        if (part !== undefined && part.config.scope.size > 0) return "scoped";
+        if (!dim && (part?.read().where.size ?? 0) > 0) return "filtered";
         return !ready || failures.has(slot) ? "unread" : undefined;
     }, [dim, chrome, ready, failures]);
     // Every route's edits recorded with each row whose key its fields build following them: refused where a row holds a

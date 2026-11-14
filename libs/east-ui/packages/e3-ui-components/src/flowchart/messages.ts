@@ -99,14 +99,15 @@ export type FlowchartDropRefusalWord =
  * by its own; a row named in another's field while its key is still to be
  * typed; a kind adding no row, its keys of a type the form can't type; and a
  * row whose key would move, by its name, while the rows of another kind that
- * may name it — `by` — the rail hides some of, or take no edit now (#1580).
+ * may name it — `by` — the rail hides some of, the page's scope holds only some
+ * of (#1621), or take no edit now (#1580).
  */
 export type FlowchartRefusalWord =
     | { readonly refusal: "taken"; readonly sort: FlowchartSort; readonly name: string }
     | { readonly refusal: "taken"; readonly sort: "transitions"; readonly from: string; readonly to: string }
     | { readonly refusal: "placeholder"; readonly sort: FlowchartSort }
     | { readonly refusal: "untyped"; readonly sort: FlowchartSort; readonly type: string }
-    | { readonly refusal: "unheld"; readonly name: string; readonly by: FlowchartSort; readonly why: "filtered" | "busy" };
+    | { readonly refusal: "unheld"; readonly name: string; readonly by: FlowchartSort; readonly why: "filtered" | "scoped" | "busy" };
 
 /**
  * What the inspector shows, in its head and on its rail: one row, by its
@@ -344,7 +345,8 @@ export interface FlowchartMessages extends EditingMessages, HiddenWords, PagedLo
     /**
      * Why a gesture records nothing (#1549), in the footer — `A move from Mix to Proof is there already`, `Type the new
      * lane's key first`, `Scan isn't changed: the rail hides some transitions that may name it — clear its choices, then
-     * try again` (#1580).
+     * try again` (#1580), `Scan isn't changed: this page holds only some transitions, and one it does not may name it —
+     * edit it where they are all held` (#1621).
      */
     gestureRefused: (p: FlowchartRefusalWord) => string;
     /** How many states a lane holds — `Holds 3 states`; `name` as a sentence says it. */
@@ -653,9 +655,12 @@ export function flowchartMessagesOf(nouns: FlowchartNouns): FlowchartMessages {
                     : `${capital(aNoun(ONE[p.sort]))} ${p.name} is there already`;
                 case "placeholder": return `Type the new ${ONE[p.sort]}'s key first`;
                 case "untyped": return keysUntyped(ONE[p.sort], p.type);
-                case "unheld": return p.why === "filtered"
-                    ? `${p.name} isn't changed: the rail hides some ${kindPlural(ONE[p.by])} that may name it — clear its choices, then try again`
-                    : `${p.name} isn't changed: ${kindPlural(ONE[p.by])} that may name it take no edit now — try again in a moment`;
+                case "unheld": switch (p.why) {
+                    case "filtered": return `${p.name} isn't changed: the rail hides some ${kindPlural(ONE[p.by])} that may name it — clear its choices, then try again`;
+                    // A page's scope (#1621) is no choice of the viewer's: nothing on the rail clears it.
+                    case "scoped": return `${p.name} isn't changed: this page holds only some ${kindPlural(ONE[p.by])}, and one it does not may name it — edit it where they are all held`;
+                    case "busy": return `${p.name} isn't changed: ${kindPlural(ONE[p.by])} that may name it take no edit now — try again in a moment`;
+                }
             }
         },
         inspectorLaneStates: ({ n, count, name }) => (n === 0 ? `Holds no ${name}` : `Holds ${count} ${counted(n, name)}`),

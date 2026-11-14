@@ -21,7 +21,10 @@
  *   side of it has no such member left.
  * - **Dimmed** (`narrowed="dim"`): every row is read, and one its kind's
  *   source narrows out draws as context; so does a link ending at one, and a
- *   net whose every member drawn on a side is one. Context is out.
+ *   net whose every member drawn on a side is one. Context is out. On a page
+ *   whose source holds a scope (#1621), every row is every row the scope
+ *   holds: a row beyond it is no row of this page, read nowhere and drawn
+ *   nowhere, so a link or a net ending at one is out, as it is hidden.
  *
  * A kind read by area reads only its window (#1393): a drafted row of it the
  * window doesn't hold, drawn where its draft places it, is the narrowing's or
@@ -105,6 +108,8 @@ export interface SchematicNarrowingArgs {
     readonly held: SchematicHeldRows;
     /** The kinds read through their source of the slice, by slot. */
     readonly sourced: ReadonlySet<string>;
+    /** Those whose source holds its page's scope (#1621), by slot: what the page holds of each is the scope's rows alone. */
+    readonly scoped?: ReadonlySet<string> | undefined;
     /**
      * A kind's source's shown keys, by the kind's slot: `none` while the source narrows nothing; `undefined` for a kind
      * read whole, and for one whose source's keys are not read, or have not yet resolved.
@@ -128,7 +133,14 @@ export interface SchematicNarrowingArgs {
  */
 export function schematicNarrowing(args: SchematicNarrowingArgs): SchematicNarrowing {
     const { drawn, held, sourced, keys, dim, drafted } = args;
+    const scoped = args.scoped ?? NONE;
     const holds = (ref: SchematicRef): boolean => held.get(ref.kind)?.has(ref.key) === true;
+    // An end drawn nowhere, of one of `kinds`, whose read does not hold it.
+    const unheldEnd = (id: string, kinds: ReadonlySet<string>): boolean => {
+        if (items.has(id)) return false;
+        const ref = refOfId(id);
+        return ref !== undefined && kinds.has(ref.kind) && !holds(ref);
+    };
     // A drafted row its read does not hold, as the row its session began from answers: `undefined` for one not asked.
     const answer = (ref: SchematicRef): boolean | undefined => (drafted === undefined || holds(ref) ? undefined : drafted(ref));
     // A row its kind's source narrows out: its read holds it, and its source's shown keys do not — or, a drafted row its
@@ -153,14 +165,21 @@ export function schematicNarrowing(args: SchematicNarrowingArgs): SchematicNarro
             return on.length > 0 && on.every((member) => context.has(member));
         };
         for (const net of drawn.nets) if (outside(net.ref) || dimmed(net.sources) || dimmed(net.destinations)) context.add(net.key);
+        // An end beyond its page's scope (#1621) is no row of this page: a link or a net ending there is out, never context.
+        if (scoped.size > 0) {
+            const beyond = (id: string): boolean => unheldEnd(id, scoped);
+            for (const link of drawn.links) {
+                if (beyond(link.from) || beyond(link.to)) { context.delete(link.key); out.add(link.key); }
+            }
+            const gone = (members: readonly string[]) => members.length > 0 && members.every(beyond);
+            for (const net of drawn.nets) {
+                if (gone(net.sources) || gone(net.destinations)) { context.delete(net.key); out.add(net.key); }
+            }
+        }
         for (const id of context) out.add(id);
     } else {
         // An end the narrowing hides: drawn nowhere, of a kind read through its source whose read does not hold it.
-        const hidden = (id: string): boolean => {
-            if (items.has(id)) return false;
-            const ref = refOfId(id);
-            return ref !== undefined && sourced.has(ref.kind) && !holds(ref);
-        };
+        const hidden = (id: string): boolean => unheldEnd(id, sourced);
         for (const link of drawn.links) if (hidden(link.from) || hidden(link.to)) out.add(link.key);
         const gone = (members: readonly string[]) => members.length > 0 && members.every(hidden);
         for (const net of drawn.nets) if (gone(net.sources) || gone(net.destinations)) out.add(net.key);
