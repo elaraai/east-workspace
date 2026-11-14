@@ -94,6 +94,13 @@ export interface TestRackAgentOptions {
    *  feature beyond a stock tier's work, or, with {@link resources}, them. */
   report?: RackReport;
   /**
+   * What a lease's runner is taken to have peaked at, in bytes, given what it
+   * measured: how a test has work outgrow its cap. The agent stands in for a
+   * cap by it: work whose peak is above the cap its lease asked is completed
+   * `outgrew-cap`, with nothing it wrote sent.
+   */
+  peak?: (lease: RackLeaseGrant, measured: number | undefined) => number | undefined;
+  /**
    * All the agent has. With it the agent admits work by its resources: it
    * books each lease it holds at what the lease asks, offers a poll what is
    * left, and reports both with each heartbeat (the `resources` feature). Its
@@ -141,6 +148,9 @@ export class TestRackAgent {
   private readonly waiting: Array<() => void> = [];
   /** What each lease the agent holds books of its resources, by lease. */
   private readonly booked = new Map<string, RackLeaseResources>();
+  /** The most the agent has held booked at once, when it admits by its
+   *  resources: leases, cores and bytes of memory. */
+  readonly bookedMost = { leases: 0, cores: 0, memoryBytes: 0 };
   /** What the last idle poll said waits for room on this rack, if anything. */
   waitingFor: RackWaiting | undefined;
   private readonly storage = new LocalStorage();
@@ -316,7 +326,13 @@ export class TestRackAgent {
     const grant = decodeBeast2For(RackLeaseGrantType)(new Uint8Array(await response.arrayBuffer()));
     // Booked from the claim until the lease is completed or its execution ends.
     const needs = this.options.resources === undefined ? undefined : readRackLeaseResources((JSON.parse(grant.eventJson) as RackLeaseEvent).resources);
-    if (needs !== undefined) this.booked.set(grant.leaseId, needs);
+    if (needs !== undefined) {
+      this.booked.set(grant.leaseId, needs);
+      const held = [...this.booked.values()];
+      this.bookedMost.leases = Math.max(this.bookedMost.leases, held.length);
+      this.bookedMost.cores = Math.max(this.bookedMost.cores, held.reduce((sum, lease) => sum + lease.cores, 0));
+      this.bookedMost.memoryBytes = Math.max(this.bookedMost.memoryBytes, held.reduce((sum, lease) => sum + lease.memoryBytes, 0));
+    }
     return grant;
   }
 
@@ -505,6 +521,16 @@ export class TestRackAgent {
         ? await taskExecute(this.storage, this.repo, run.taskHash, [...run.inputHashes], options)
         : await taskExecuteUnit(this.storage, this.repo, run.taskHash, splitUnitFromWire(run.unit), options);
       if (chunks.length > 0) await this.logs(lease, chunks);
+      // The cap the lease asked, stood in for by the peak its runner is taken
+      // to have reached: above it, the work was stopped, and nothing is sent.
+      const peakBytes = this.options.peak === undefined ? result.peakBytes : this.options.peak(lease, result.peakBytes);
+      const needs = readRackLeaseResources(event.resources);
+      if (needs !== undefined && peakBytes !== undefined && peakBytes > needs.memoryBytes) {
+        const stopped: RackLeaseResult = { taskName: event.taskName, status: 'failed', state: 'error', peakBytes: needs.memoryBytes,
+          error: `the runner outgrew its cap of ${needs.memoryBytes} bytes`, reason: { code: 'outgrew-cap', capBytes: needs.memoryBytes, peakBytes }, ...retries() };
+        if (!this.abort.signal.aborted) await this.complete(lease, stopped);
+        return stopped;
+      }
       if (result.state === 'success' && result.outputHash !== null) {
         transfers.transfer = 'output';
         const readers = gcObjectReaders(this.storage, this.repo);
@@ -532,7 +558,7 @@ export class TestRackAgent {
       const output: RackLeaseResult = { taskName: event.taskName, status: result.state === 'success' ? 'success' : 'failed',
         state: result.state, ...(result.outputHash === null ? {} : { outputHash: result.outputHash }),
         ...(result.exitCode == null ? {} : { exitCode: result.exitCode }), ...(result.error == null ? {} : { error: result.error }),
-        ...(result.peakBytes === undefined ? {} : { peakBytes: result.peakBytes }), cancelled: signal.aborted,
+        ...(peakBytes === undefined ? {} : { peakBytes }), cancelled: signal.aborted,
         ...(result.state === 'failed' ? { reason: { code: 'task-error' } } : {}), ...retries() };
       if (!this.consume('dropCompletionNext') && !this.abort.signal.aborted) await this.complete(lease, output);
       return output;

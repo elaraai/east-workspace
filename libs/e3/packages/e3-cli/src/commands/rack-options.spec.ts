@@ -12,6 +12,12 @@ const unit = { taskName: 'score', role: 'unit' as const };
 
 it('prints a line for a task a rack claims, a transfer retried, and a rack\'s work this machine runs after all', () => {
   assert.equal(rackPlacementLine({ kind: 'placed', ...task, where: 'rack', rackLabel: 'rack-a', leaseId: 'a' }), '  [RACK] train → rack-a');
+  assert.equal(rackPlacementLine({ kind: 'placed', ...task, where: 'rack', rackLabel: 'rack-a', leaseId: 'a', needs: { kind: 'task', cores: 8, memoryBytes: 16 * 1024 ** 3, gpu: false } }),
+    '  [RACK] train → rack-a (cap 16 GB)');
+  assert.equal(rackPlacementLine({ kind: 'outgrew', ...task, where: 'rack', rackLabel: 'rack-a', leaseId: 'a', capBytes: 16 * 1024 ** 3 }),
+    '  [RACK] train failed: memory-limit-exceeded (cap 16 GB); raise --memory-limit or --size');
+  assert.equal(rackPlacementLine({ kind: 'outgrew', ...unit, where: 'rack', rackLabel: 'rack-a', leaseId: 'u', capBytes: 3 * 1024 ** 3, againBytes: 4.5 * 1024 ** 3 }),
+    '  [RACK] score outgrew its 3 GB cap on rack-a: runs again under 4.5 GB');
   assert.equal(rackPlacementLine({ kind: 'retried', ...task, where: 'rack', rackLabel: 'rack-a', leaseId: 'a', retry: { transfer: 'input', attempt: 2, of: 5, cause: 'connection reset' } }),
     '  [RACK] train input transfer retried (2 of 5): connection reset');
   assert.equal(rackPlacementLine({ kind: 'placed', ...task, where: 'local', reason: 'fallback:input-transfer-failed: connection reset',
