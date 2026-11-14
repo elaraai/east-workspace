@@ -10,14 +10,17 @@
  * API over the harness's fetch. Its parts are ordinary record Slices under
  * their own keys, a choice in one never reaches another, its presets and Clear
  * all are East functions over its parts, and it reads each record through its
- * indexes only; each part carries how the rail names its source (#1339).
+ * indexes only; each part carries how the rail names its source (#1339). A
+ * record Slice hands a page's East code its narrowing as a frozen East value,
+ * and a page's scope (#1621) is read through the binding of the scope it holds.
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { East, Expr, decodeBeast2For, equalFor, encodeBeast2For, none, some, variant } from "@elaraai/east";
+import { East, Expr, NullType, StringType, decodeBeast2For, equalFor, encodeBeast2For, none, some, variant } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui";
 import { RecordSliceStateType, RecordSlicesChromeType, recordSlicesChrome } from "@elaraai/east-ui/internal";
 import { createRecordSliceImplementation, StateRuntime, UIStore } from "@elaraai/east-ui-components/platform";
+import { recordSlicePlace } from "@elaraai/east-ui-components/internal";
 import { Data } from "@elaraai/e3-ui/internal";
 import * as ax from "@elaraai/e3-ui/examples/allocation/allocation";
 import type { E3Request } from "../src/e3-web.test-utils.js";
@@ -42,6 +45,13 @@ const Yard = Expr.type(yard);
 const program = East.function([], Yard, $ => $.return(yard));
 const resources = East.function([], Expr.type(Slice.rows(yard, "resources")), $ => $.return(Slice.rows(yard, "resources")));
 const chrome = East.function([], RecordSlicesChromeType, $ => $.return(recordSlicesChrome({ slice: yard })));
+
+// The bays bound alone (#1621): a source with no scope, a page scoped to the north, and a page whose area is its parameter.
+const lanes = Data.bindPaged(bays, { indexes: ["yard_bays_by_area"] });
+const plain = Slice.bindRecord("test.bays", lanes, { fields: { area: { label: "Area" } } });
+const scoped = Slice.bindRecord("test.bays.north", lanes, { scope: { area: ["North"] } });
+const Bays = Expr.type(scoped);
+const page = East.function([StringType], Bays, ($, area) => $.return(Slice.bindRecord("test.bays.page", lanes, { scope: { area: [area] } })));
 
 /** Whether a request names the bays or the kilns. */
 const ofYard = (request: E3Request) => request.dataset === `records.${bays.name}` || request.dataset === `records.${kilns.name}`;
@@ -179,6 +189,71 @@ test("the handle and its chrome survive serialization; the decoded product's fun
     assert.equal(stored(there.store).where.size, 0, "the chrome's Clear all is the product's");
     here.runtime.clear();
     there.runtime.clear();
+});
+
+test("what a record Slice's read hands a page's East code is a frozen East value: a body that changes it in place is refused, naming the fix, and the narrowing and the page's scope stand in every read (#1621)", async () => {
+    const here = host();
+    // A body that adds a choice to the narrowing it read, and one that takes the page's scope out of it.
+    const adds = East.function([], NullType, $ => {
+        const slice = $.const(plain);
+        $(slice.read().where.insert("area", variant("values", ['"North"'])));
+        return null;
+    });
+    const drops = East.function([], NullType, $ => {
+        const slice = $.const(scoped);
+        $(slice.read().where.delete("area"));
+        return null;
+    });
+    const frozen = /cannot mutate a frozen value \(task inputs are immutable\) — copy first/;
+    assert.throws(() => East.compile(adds, here.implementations)(), frozen);
+    assert.throws(() => East.compile(drops, here.implementations)(), frozen);
+    // Read again, each is as its store and its scope hold it, and so is every read of its rows.
+    const bound = East.compile(East.function([], Expr.type(plain), $ => $.return(plain)), here.implementations)();
+    const north = East.compile(East.function([], Bays, $ => $.return(scoped)), here.implementations)();
+    assert.equal(bound.read().where.size, 0, "no choice was added");
+    assert.deepEqual(north.read().where.get("area"), variant("values", ['"North"']), "the page's scope is in what is read");
+    assert.deepEqual((await h.ready(() => bound.data.page(0n, 10n))).map(row => row.key), ["B-1", "B-2", "B-3"]);
+    assert.deepEqual((await h.ready(() => north.data.page(0n, 10n))).map(row => row.key), ["B-1", "B-2"], "the north bays alone");
+    // What a count is out of: the record's rows, and on the scoped page the rows its scope holds.
+    assert.equal(await h.ready(() => bound.total()), 3n);
+    assert.equal(await h.ready(() => north.total()), 2n, "the north bays, never the record's three");
+    here.runtime.clear();
+});
+
+test("a narrowing another writer moves and moves back before it is read again is the state read before, by East's own Is over two frozen states; moved and left, it is another (#1621)", () => {
+    const here = host();
+    const bound = East.compile(East.function([], Expr.type(plain), $ => $.return(plain)), here.implementations)();
+    const before = bound.read();
+    const encode = encodeBeast2For(RecordSliceStateType);
+    const south = encode({ ...before, where: new Map([["area", variant("values", ['"South"'])]]) });
+    // A link, storage or a host writes the store twice with no read between: it holds other bytes, equal to those read.
+    here.store.write("test.bays", south);
+    here.store.write("test.bays", encode(before));
+    assert.ok(Object.is(bound.read(), before), "the state read before");
+    here.store.write("test.bays", south);
+    const moved = bound.read();
+    assert.ok(!Object.is(moved, before));
+    assert.deepEqual(moved.where.get("area"), variant("values", ['"South"']));
+    here.runtime.clear();
+});
+
+test("a page whose scope's values change, and change back, under one key, reads through the binding of the scope it holds: a reader given its handle reads its own narrowing (#1621)", async () => {
+    const here = host();
+    const open = East.compile(page, here.implementations);
+    const north = open("North");
+    const south = open("South");
+    assert.equal(north.key, south.key);
+    // Each handle's own reads are its scope's.
+    assert.equal(await h.ready(() => north.count()), 2n);
+    assert.equal(await h.ready(() => south.count()), 1n);
+    assert.deepEqual([await h.ready(() => north.total()), await h.ready(() => south.total())], [2n, 1n], "each page's total its own scope's");
+    // A reader that takes the handle and places the narrowing it holds: the north's, though the south's binding is the later.
+    assert.equal((await h.ready(() => recordSlicePlace(north))).total, 2n);
+    assert.equal((await h.ready(() => recordSlicePlace(south))).total, 1n);
+    // Back to the north: the binding it made is the one it reads through.
+    const again = open("North");
+    assert.equal((await h.ready(() => recordSlicePlace(again))).total, 2n);
+    here.runtime.clear();
 });
 
 test("refusals name the fix", () => {

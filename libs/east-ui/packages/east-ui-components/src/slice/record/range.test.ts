@@ -43,6 +43,7 @@ const config: Config = decodeBeast2For(RecordSliceConfigType)(encodeBeast2For(Re
         { id: "jobs", name: "J-1 jobs", where: new Map([["job", JOB]]) },
         { id: "fortnight", name: "This fortnight", where: new Map([["due", WINDOW]]) },
     ],
+    scope: new Map(),
 }));
 
 /** A record Slice holding `state`: what a window write reads and writes, nothing else of it called. */

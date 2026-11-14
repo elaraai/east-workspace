@@ -413,7 +413,7 @@ test.each([["exactly", false], ["beside another write", true]] as const)("a Save
     // A Record's reader of its record by key: what a Save's new row is read back by, wherever the rows drawn are.
     const slice: ValueTypeOf<RecordSliceBindType> = {
         key: "items", sourceId: "items-source",
-        config: { fields: [], indexes: [], range: none, search: [], presets: [] },
+        config: { fields: [], indexes: [], range: none, search: [], presets: [], scope: new Map() },
         read: () => ({ where: new Map(), preset: none, resolution: none }),
         write: () => null, choose: () => null, range: () => null, prefix: () => null, clear: () => null, clearAll: () => null,
         count: () => none, countWhere: () => none, total: () => none, domain: () => none, values: () => [], suggest: () => none,

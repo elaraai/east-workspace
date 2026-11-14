@@ -282,5 +282,5 @@ test("neither a series nor a summary index serves the rail's narrowing: an ordin
     const tiled = indexes.filter(index => tilingOf(index) !== undefined);
     assert.equal(planRecordSlice(tiled, where([["press", values('"P-1005"')]]), "primary"), null);
     assert.equal(planRecordSlice(tiled, where([["state", values(".late")]]), "primary"), null);
-    assert.equal(recordChoiceWhere(tiled, where([]), "state", values(".late")), null, "no choice is offered through one");
+    assert.equal(recordChoiceWhere({ indexes: tiled, scope: new Map() }, where([]), "state", values(".late")), null, "no choice is offered through one");
 });

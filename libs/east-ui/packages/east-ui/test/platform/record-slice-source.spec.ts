@@ -703,3 +703,28 @@ test("a revision not known for a moment lets nothing kept go: known again, the s
     unwrap(engine.cellRuns("jobs_by_press_week", [cellA]));
     assert.equal(source.batches.length, asked[0]! + 1);
 });
+
+test("a plan that holds no row reads nothing: no run, a count of none, an empty page, no key found, no entry held and nothing placed — and the source is not asked (#1621)", () => {
+    // What a narrowing plans to where its page's scope holds no value.
+    const nothing: RecordSlicePlan = { index: "primary", queries: [], empty: true };
+    const source = placingSource(100n, new Map([['"a"', { row: 10n, count: 10n }]]));
+    let totals = 0;
+    const engine = new RecordSliceSource<bigint>({ ...source.reader, total(index) { totals++; return source.reader.total(index); } });
+    assert.deepEqual(unwrap(engine.resolve(nothing)), { index: "primary", revision: "A", runs: [], total: 0n });
+    assert.deepEqual(unwrap(engine.page(nothing, 0n, 50n)), []);
+    assert.deepEqual(unwrap(engine.seek(nothing, variant("key", '"a"'))), { found: false, row: 0n, count: 0n });
+    const entries = [10n, 11n].map(row => ({ ik: `${row}`, key: row }));
+    assert.deepEqual(unwrap(engine.within(nothing, entries)), [false, false]);
+    assert.equal(totals, 0, "its runs, its pages, its searches and its memberships ask the source nothing");
+    // A placement says how many rows the record holds, and places none of them.
+    assert.deepEqual(unwrap(engine.place(nothing)), { segments: [], placed: 0n, total: 0n, records: 100n, complete: true });
+    assert.equal(totals, 1);
+    assert.deepEqual([source.placed, source.asked], [[], []], "no placement and no membership is read");
+    // The record's own rows, beside it, are still the whole source: the two plans are kept apart.
+    assert.equal(unwrap(engine.resolve({ index: "primary", queries: [] })).total, 100n);
+    assert.equal(unwrap(engine.resolve(nothing)).total, 0n);
+    // While the revision is unknown, nothing is answered.
+    source.revision(none);
+    assert.deepEqual(engine.resolve(nothing), none);
+    assert.deepEqual(engine.place(nothing), none);
+});

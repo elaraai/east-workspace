@@ -6,7 +6,7 @@
 /** Serializable record Slice handles over the shared UI store. */
 import {
     East, StringType, IntegerType, FunctionType, OptionType, RefType, StructType, fromEastTypeValue,
-    encodeBeast2For, decodeBeast2For, printFor, printType, ref, some, none, variant,
+    encodeBeast2For, decodeBeast2For, equalFor, isFor, printFor, printType, ref, some, none, variant,
     type EastType, type EastTypeValue, type ExprType, type ValueTypeOf, type option, type ref as Ref,
 } from "@elaraai/east";
 import type { PlatformFunction } from "@elaraai/east/internal";
@@ -45,6 +45,11 @@ type Descriptor = [string, RecordSliceBinding & BindingDeclarations, Config, Sta
 export const RECORD_SLICE_DATA_MARK = "@slice:";
 const encodeState = encodeBeast2For(RecordSliceStateType);
 const decodeState = decodeBeast2For(RecordSliceStateType);
+/** The store's state as a frozen East value (#1621): what `read` hands a page's East code, which cannot change it in place. */
+const decodeFrozenState = decodeBeast2For(RecordSliceStateType, { frozen: true });
+/** East's own `Is` over a narrowing state: two frozen states compare by value. */
+const sameState = isFor(RecordSliceStateType);
+const sameConfig = equalFor(RecordSliceConfigType);
 const printConfig = printFor(RecordSliceConfigType);
 const printWhere = printFor(RecordSliceWhereType);
 const printRead = printFor(RecordSliceReadType);
@@ -146,14 +151,18 @@ function bind(types: EastType[], descriptor: Descriptor): BindingEntry {
         throw new Error("Record Slice needs a window of joined record entries");
     }
     const row = collection.value.fields.row.cases.some;
+    const seed = decodeFrozenState(encodeState(initial));
     let lastBytes: Uint8Array | undefined;
-    let lastState = initial;
+    let lastState = seed;
     const read = (): State => {
         trackKey(key);
         const bytes = getStore().read(key);
-        if (bytes !== lastBytes) {
+        // The store keeps the buffer it holds until other bytes are written: the same buffer holds the same state.
+        if (!Object.is(bytes, lastBytes)) {
             lastBytes = bytes;
-            lastState = bytes === undefined ? initial : decodeState(bytes);
+            const next = bytes === undefined ? seed : decodeFrozenState(bytes);
+            // Bytes that hold the state already read answer that state, so what reads it is not made again.
+            if (!sameState(next, lastState)) lastState = next;
         }
         return lastState;
     };
@@ -206,7 +215,8 @@ const operations: Record<keyof typeof RecordSlicePrimitives, Operation> = {
     clearAll: c => c.clearAll(),
     count: c => c.count(),
     countWhere: (c, read) => c.count((read as Read).where, areaOf(read as Read)),
-    total: c => c.source.total("primary"),
+    // The rows the source holds: on a scoped source, those its page's scope holds (#1621).
+    total: c => c.total(),
     domain: (c, field) => c.domain(field as string),
     values: (c, field) => c.values(field as string),
     suggest: (c, field, text) => c.suggest(field as string, text as string),
@@ -248,7 +258,7 @@ export function createRecordSliceImplementation(platforms: () => PlatformFunctio
             // One handle per binding, whatever its narrowing (#1354): the bind reads no state, so the builder that binds
             // it is not built again when a choice changes. Its narrowed data reads the narrowing when its reads run.
             if (entry.handle !== undefined) return entry.handle;
-            const [key, source, config] = entry.descriptor;
+            const [key, source] = entry.descriptor;
             const compile = (name: keyof typeof RecordSlicePrimitives, inputs: EastType[], output: EastType) => {
                 let factory = entry.factories.get(name);
                 if (factory === undefined) {
@@ -271,15 +281,19 @@ export function createRecordSliceImplementation(platforms: () => PlatformFunctio
                 }
                 return factory(entry.shared as never);
             };
-            const methods: Record<string, unknown> = { key, config, sourceId: source.recordId };
+            // The controller's config, frozen, its scope's values read and printed once (#1621): what the handle's config is.
+            const methods: Record<string, unknown> = { key, config: entry.controller.config, sourceId: source.recordId };
             for (const [name, type] of Object.entries(RecordSliceBindType.fields)) {
                 if (type.type === "Function") methods[name] = compile(name as keyof typeof RecordSlicePrimitives, type.inputs, type.output);
             }
             const dataType = LiveSourceType(types[1]!);
+            // The scoped fields, as the handle's type names them (#1621): a Null field for each, whose value says nothing.
+            const scopedType = types[4];
+            const scoped = Object.fromEntries(scopedType?.type === "Struct" ? Object.keys(scopedType.fields).map(field => [field, null]) : []);
             const handle = { ...methods,
                 // The binding's declarations, as it gives them (#1435): what the narrowed rows' record declares; and the binding
                 // itself (#1438), what a reader of their nested series index reads through.
-                indexes: source.indexes, nested: source.nested, source,
+                indexes: source.indexes, nested: source.nested, source, scoped,
                 pageWhere: compile("pageWhere", [RecordSliceReadType, IntegerType, IntegerType], dataType.fields.page.output),
                 data: {
                     // The source, never its narrowing: its reads read the narrowing as it stands, and `query` names it,
@@ -328,20 +342,26 @@ registerPlatformImplementation(RecordSliceImpl);
 export function recordSliceSeeded(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">): boolean {
     const store = getStore();
     const seed = seeds.get(store)?.get(slice.key);
-    return seed !== undefined && store.read(slice.key) === seed;
+    // The very bytes the binding wrote: the store keeps them until other bytes are written, however equal.
+    return seed !== undefined && Object.is(store.read(slice.key), seed);
 }
 
 /**
  * The controller a record Slice's handle reads through, in the page's store:
- * the one its binding made, by the handle's key — the latest, should a
- * redeployed binding have made another.
+ * the one its binding made, by the handle's key and its config — the latest,
+ * should a redeployed binding have made another. The config holds the page's
+ * scope (#1621), so a page whose scope's values change, and change back, reads
+ * through the binding of the scope it holds, though the key is the same.
  *
  * @param slice - The record Slice
  * @returns Its controller; `undefined` when no binding of it lives in the page's store
  */
-function boundController(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">): RecordSliceController | undefined {
+function boundController(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key" | "config">): RecordSliceController | undefined {
     let found: RecordSliceController | undefined;
-    for (const entry of bindings.get(getStore())?.values() ?? []) if (entry.descriptor[0] === slice.key) found = entry.controller;
+    for (const entry of bindings.get(getStore())?.values() ?? []) {
+        // Compared by value: a handle decoded from a payload holds a copy of its controller's config.
+        if (entry.descriptor[0] === slice.key && sameConfig(entry.controller.config, slice.config)) found = entry.controller;
+    }
     return found;
 }
 
@@ -352,7 +372,7 @@ function boundController(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">): 
  * @returns Its controller
  * @throws {Error} When no binding of it lives in the page's store
  */
-function controllerOf(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">): RecordSliceController {
+function controllerOf(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key" | "config">): RecordSliceController {
     const found = boundController(slice);
     if (found === undefined) throw new Error(`The record Slice '${slice.key}' is bound in no store this page holds`);
     return found;
@@ -369,7 +389,7 @@ function controllerOf(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">): Rec
  * @returns Its printer
  * @throws {Error} When no binding of the slice lives in the page's store, or the index's key holds no `on`
  */
-export function recordSliceOnPrinter(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, index: string): RecordOnPrinter {
+export function recordSliceOnPrinter(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key" | "config">, index: string): RecordOnPrinter {
     return controllerOf(slice).printOn(index);
 }
 
@@ -386,7 +406,7 @@ export function recordSliceOnPrinter(slice: Pick<ValueTypeOf<RecordSliceBindType
  * @returns The placement so far; none while its bounds or its first window are pending
  * @throws {Error} With no narrowing, or when its binding reads no placements
  */
-export function recordSlicePlace(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, where?: Where): option<RecordSlicePlacement> {
+export function recordSlicePlace(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key" | "config">, where?: Where): option<RecordSlicePlacement> {
     return controllerOf(slice).place(where);
 }
 
@@ -401,7 +421,7 @@ export function recordSlicePlace(slice: Pick<ValueTypeOf<RecordSliceBindType>, "
  * @returns Whether the narrowing holds each row, in order; none while pending
  * @throws {Error} When its binding reads no memberships
  */
-export function recordSliceWithin(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, where: Where, rows: readonly { key: unknown; row: unknown }[]): option<boolean[]> {
+export function recordSliceWithin(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key" | "config">, where: Where, rows: readonly { key: unknown; row: unknown }[]): option<boolean[]> {
     return controllerOf(slice).within(where, rows);
 }
 
@@ -418,7 +438,7 @@ export function recordSliceWithin(slice: Pick<ValueTypeOf<RecordSliceBindType>, 
  *   batches none of its reads, or a Slice no binding in the page's store made, whose entries are asked one at a time
  */
 export function recordSliceContainsAll(
-    slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, where: Where, ids: readonly string[], held: ReadonlyMap<string, Uint8Array> | undefined,
+    slice: Pick<ValueTypeOf<RecordSliceBindType>, "key" | "config">, where: Where, ids: readonly string[], held: ReadonlyMap<string, Uint8Array> | undefined,
 ): option<ReadonlyMap<string, boolean>> | undefined {
     return boundController(slice)?.containsAll(where, ids, held);
 }
@@ -434,7 +454,7 @@ export function recordSliceContainsAll(
  *   none while pending; `undefined` for a binding whose runtime batches none of its reads, or a Slice no binding in the
  *   page's store made, whose entries are read one at a time
  */
-export function recordSliceReadEntries(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, ids: readonly string[]): option<ReadonlyMap<string, option<unknown>>> | undefined {
+export function recordSliceReadEntries(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key" | "config">, ids: readonly string[]): option<ReadonlyMap<string, option<unknown>>> | undefined {
     return boundController(slice)?.readEntries(ids);
 }
 
@@ -453,7 +473,7 @@ export function recordSliceReadEntries(slice: Pick<ValueTypeOf<RecordSliceBindTy
  * @returns Whether the narrowing holds each row read, in order; none while the rows or the read are pending
  * @throws {Error} When its binding reads no memberships, or reads its record's own rows without joining them
  */
-export function recordSliceWithinAt(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, where: Where, offset: bigint, limit: bigint): option<boolean[]> {
+export function recordSliceWithinAt(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key" | "config">, where: Where, offset: bigint, limit: bigint): option<boolean[]> {
     return controllerOf(slice).withinAt(where, offset, limit);
 }
 
@@ -469,7 +489,7 @@ export function recordSliceWithinAt(slice: Pick<ValueTypeOf<RecordSliceBindType>
  * @param keys - The keys, East values of the record's key type
  * @returns Each key's row, in order; none while the read is pending
  */
-export function recordSliceRows(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, keys: readonly unknown[]): option<option<unknown>[]> {
+export function recordSliceRows(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key" | "config">, keys: readonly unknown[]): option<option<unknown>[]> {
     return controllerOf(slice).rows(keys);
 }
 
@@ -484,7 +504,7 @@ export function recordSliceRows(slice: Pick<ValueTypeOf<RecordSliceBindType>, "k
  * @param query - The key query, in the narrowing's index's order — its primary key's with no narrowing
  * @returns Where it lands, in the narrowing's rows; none while pending
  */
-export function recordSliceSeek(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, where: Where, query: Query): option<ValueTypeOf<typeof SeekRangeType>> {
+export function recordSliceSeek(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key" | "config">, where: Where, query: Query): option<ValueTypeOf<typeof SeekRangeType>> {
     const controller = controllerOf(slice);
     return controller.windows.seek(controller.plan(where), query);
 }
@@ -501,7 +521,7 @@ export function recordSliceSeek(slice: Pick<ValueTypeOf<RecordSliceBindType>, "k
  * @param row - The row, as the record holds it at its current revision
  * @returns Its place, `null` where the narrowing does not hold it; none while pending
  */
-export function recordSlicePosition(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, where: Where, key: unknown, row: unknown): option<bigint | null> {
+export function recordSlicePosition(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key" | "config">, where: Where, key: unknown, row: unknown): option<bigint | null> {
     return controllerOf(slice).position(where, key, row);
 }
 
@@ -521,7 +541,7 @@ export function recordSlicePosition(slice: Pick<ValueTypeOf<RecordSliceBindType>
  * @param limit - How many rows it holds at most
  * @returns The window's entries, in order; none while pending
  */
-export function recordSlicePage(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, read: Read, offset: bigint, limit: bigint): option<unknown[]> {
+export function recordSlicePage(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key" | "config">, read: Read, offset: bigint, limit: bigint): option<unknown[]> {
     const controller = controllerOf(slice);
     return controller.windows.page(controller.plan(read.where, areaOf(read)), offset, limit);
 }
@@ -534,7 +554,7 @@ export function recordSlicePage(slice: Pick<ValueTypeOf<RecordSliceBindType>, "k
  * @param slice - The record Slice
  * @returns The record's revision; none while it is not yet known
  */
-export function recordSliceRevision(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">): option<string> {
+export function recordSliceRevision(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key" | "config">): option<string> {
     return controllerOf(slice).source.revision();
 }
 
@@ -546,7 +566,7 @@ export function recordSliceRevision(slice: Pick<ValueTypeOf<RecordSliceBindType>
  * @returns The controller
  * @throws {Error} When the binding lists no series, summary or area index of that name
  */
-function cellsOf(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, index: string): RecordSliceController {
+function cellsOf(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key" | "config">, index: string): RecordSliceController {
     const controller = controllerOf(slice);
     const listed = controller.config.indexes.find(candidate => candidate.name === index);
     if (listed === undefined || (tilingOf(listed) === undefined && listed.area.type !== "some")) {
@@ -570,7 +590,7 @@ function cellsOf(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, index: st
  * @returns Each cell's runs, by its name; none while any is pending
  * @throws {Error} When the binding lists no such index, or two cells share a name
  */
-export function recordSliceCellRuns(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, index: string, cells: readonly RecordSliceCell[]): option<Map<string, RecordSliceCellRuns>> {
+export function recordSliceCellRuns(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key" | "config">, index: string, cells: readonly RecordSliceCell[]): option<Map<string, RecordSliceCellRuns>> {
     return cellsOf(slice, index).windows.cellRuns(index, cells);
 }
 
@@ -587,7 +607,7 @@ export function recordSliceCellRuns(slice: Pick<ValueTypeOf<RecordSliceBindType>
  * @returns Each cell's entries, by its name, in its searches' order; none while pending
  * @throws {Error} As {@link recordSliceCellRuns} does, and when the entries read disagree with their bounds
  */
-export function recordSliceCellEntries(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, index: string, cells: readonly RecordSliceCell[]): option<Map<string, RecordSliceEntry[]>> {
+export function recordSliceCellEntries(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key" | "config">, index: string, cells: readonly RecordSliceCell[]): option<Map<string, RecordSliceEntry[]>> {
     return cellsOf(slice, index).windows.cellEntries(index, cells);
 }
 
@@ -607,7 +627,7 @@ export function recordSliceCellEntries(slice: Pick<ValueTypeOf<RecordSliceBindTy
  * @throws {Error} As {@link recordSliceCellEntries} does, and when the binding's runtime reads no Dict by runs
  */
 export function recordSliceCellJoins(
-    slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, index: string, cells: readonly RecordSliceCell[], dict: string,
+    slice: Pick<ValueTypeOf<RecordSliceBindType>, "key" | "config">, index: string, cells: readonly RecordSliceCell[], dict: string,
 ): option<Map<string, RecordSliceJoined[]>> {
     return cellsOf(slice, index).windows.cellJoins(index, cells, dict);
 }
@@ -620,7 +640,7 @@ export function recordSliceCellJoins(
  * @returns The controller
  * @throws {Error} When the binding lists no index of that name
  */
-function listing(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, index: string): RecordSliceController {
+function listing(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key" | "config">, index: string): RecordSliceController {
     const controller = controllerOf(slice);
     if (!controller.config.indexes.some(candidate => candidate.name === index)) {
         throw new Error(`The record Slice '${slice.key}' lists no index '${index}' to read: list it in Data.bindPaged's indexes`);
@@ -642,7 +662,7 @@ function listing(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, index: st
  * @returns Each search's bounds, in order; none while any is pending
  * @throws {Error} When the binding lists no index of that name, or the source answers a search with bounds no search has
  */
-export function recordSliceBounds(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, index: string, queries: readonly ValueTypeOf<typeof SeekQueryType>[]): option<ValueTypeOf<typeof SeekRangeType>[]> {
+export function recordSliceBounds(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key" | "config">, index: string, queries: readonly ValueTypeOf<typeof SeekQueryType>[]): option<ValueTypeOf<typeof SeekRangeType>[]> {
     return listing(slice, index).windows.bounds(index, queries);
 }
 
@@ -661,7 +681,7 @@ export function recordSliceBounds(slice: Pick<ValueTypeOf<RecordSliceBindType>, 
  * @throws {Error} When the binding lists no index of that name, the runs are not ascending, disjoint and each non-empty, or
  *   the entries read disagree with them
  */
-export function recordSliceRunEntries(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, index: string, runs: readonly ValueTypeOf<typeof SeekRangeType>[]): option<RecordSliceEntry[]> {
+export function recordSliceRunEntries(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key" | "config">, index: string, runs: readonly ValueTypeOf<typeof SeekRangeType>[]): option<RecordSliceEntry[]> {
     return listing(slice, index).windows.runEntries(index, runs);
 }
 
@@ -682,7 +702,7 @@ export function recordSliceRunEntries(slice: Pick<ValueTypeOf<RecordSliceBindTyp
  * @throws {Error} As {@link recordSliceRunEntries} does, and when the binding's runtime reads no Dict by runs
  */
 export function recordSliceRunJoins(
-    slice: Pick<ValueTypeOf<RecordSliceBindType>, "key">, index: string, runs: readonly ValueTypeOf<typeof SeekRangeType>[], dict: string,
+    slice: Pick<ValueTypeOf<RecordSliceBindType>, "key" | "config">, index: string, runs: readonly ValueTypeOf<typeof SeekRangeType>[], dict: string,
 ): option<RecordSliceJoined[]> {
     return listing(slice, index).windows.runJoins(index, runs, dict);
 }

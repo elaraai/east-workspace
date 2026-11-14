@@ -53,7 +53,7 @@ function config(search: readonly string[]): Config {
             index("name", ["name"]), index("by_description", ["description"]), index("by_description_name", ["description", "name"]),
             index("lane", ["lane"], ["lane"]), index("stateCount", ["stateCount"]),
         ],
-        range: none, search: [...search], presets: [],
+        range: none, search: [...search], presets: [], scope: new Map(),
     };
 }
 

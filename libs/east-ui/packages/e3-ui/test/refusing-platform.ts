@@ -166,13 +166,15 @@ const functions = funcBindPlatformFn.implement((handleType: EastTypeValue) => (n
  * narrowed rows, a live source named as the runtime names it.
  */
 const slices = recordSliceBindPlatform.implement((...types: EastTypeValue[]) => (keyArg: unknown, sourceArg: unknown, config: unknown) => {
-    const [sourceType, collection, metadata, nested] = types.map(fromEastTypeValue) as [EastType, EastType, EastType, EastType];
+    const [sourceType, collection, metadata, nested, scopedType] = types.map(fromEastTypeValue) as [EastType, EastType, EastType, EastType, EastType];
     const key = keyArg as string;
     const source = sourceArg as { id: string; recordId: string; indexes: unknown; nested: unknown };
     const what = `Slice.bindRecords(${key})`;
+    // The scoped fields, as the handle's type names them (#1621): a Null field for each, as the runtime gives them.
+    const scoped = Object.fromEntries(scopedType.type === "Struct" ? Object.keys(scopedType.fields).map((field) => [field, null]) : []);
     return {
-        ...refusingFields(RecordSliceHandleType(collection, metadata, nested, sourceType), what),
-        key, config, sourceId: source.recordId, indexes: source.indexes, nested: source.nested, source,
+        ...refusingFields(RecordSliceHandleType(collection, metadata, nested, sourceType, scopedType), what),
+        key, config, sourceId: source.recordId, indexes: source.indexes, nested: source.nested, source, scoped,
         data: { ...refusingFields(LiveSourceType(collection), `${what}.data`), id: `${source.id}@slice:${key}`, seek: some(refusal(`${what}.data.seek`)) },
     };
 });

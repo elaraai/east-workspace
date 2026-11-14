@@ -54,7 +54,7 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { SortedMap, StringType, compareFor, equalFor, none, printFor, some, type EastTypeValue, type option, type ValueTypeOf } from "@elaraai/east";
 import {
     RecordSliceWhereType, recordChoiceWhere, recordPlanIndex,
-    type RecordSliceBindType, type RecordSliceChoiceType, type RecordSliceEntry, type RecordSliceFieldType, type RecordSliceIndexType,
+    type RecordSliceBindType, type RecordSliceChoiceType, type RecordSliceEntry, type RecordSliceFieldType, type RecordSliceIndexType, type RecordSlicePaths,
 } from "@elaraai/east-ui/internal";
 import { useSliceReactivity, useTrackedEvaluation, type Formatters } from "@elaraai/east-ui-components";
 import { awaitTracked, recordChoiceLabel, recordSlicePage, recordSliceRevision, recordSliceRows, recordSliceWithin } from "@elaraai/east-ui-components/internal";
@@ -112,20 +112,20 @@ function narrowingOrder(indexes: readonly Index[], where: Where): string[] {
  * module docs): each choice alone where the index rules let it stand alone,
  * else with the choices before it, as the rail holds it.
  *
- * @param indexes - The record's indexes, as its source lists them
+ * @param paths - The record's indexes, as its source lists them, and its page's scope (#1621)
  * @param where - The narrowing
  * @returns One question for each choice, in the narrowing's order
  */
-export function hidingQuestions(indexes: readonly Index[], where: Where): HidingQuestion[] {
-    const order = narrowingOrder(indexes, where);
+export function hidingQuestions(paths: RecordSlicePaths, where: Where): HidingQuestion[] {
+    const order = narrowingOrder(paths.indexes, where);
     return order.map((field, at) => {
-        const alone = recordChoiceWhere(indexes, WHOLE_RECORD, field, where.get(field)!);
+        const alone = recordChoiceWhere(paths, WHOLE_RECORD, field, where.get(field)!);
         if (alone !== null) return { field, where: alone };
         // As the rail holds it: after the choices before it — and, where those are no path an index answers, the ones
         // after it too, until they are one.
         for (let end = at + 1; end <= order.length; end++) {
             const path: Where = new Map(order.slice(0, end).map((f) => [f, where.get(f)!] as const));
-            if (recordPlanIndex(indexes, path) !== undefined) return { field, where: path };
+            if (recordPlanIndex(paths.indexes, path) !== undefined) return { field, where: path };
         }
         return { field, where };
     });
@@ -191,17 +191,17 @@ export interface HiddenAnswer {
  * rail clears a choice — dropping one that cannot stand without it — and any
  * that could not be told apart from them still standing.
  *
- * @param indexes - The record's indexes, as its source lists them
+ * @param paths - The record's indexes, as its source lists them, and its page's scope (#1621)
  * @param where - The narrowing
  * @param verdict - Which choices hide the row
  * @returns The answer: what hides it, what a pick clears besides, and the narrowing it leaves
  */
-export function clearingOf(indexes: readonly Index[], where: Where, verdict: HidingVerdict): HiddenAnswer {
+export function clearingOf(paths: RecordSlicePaths, where: Where, verdict: HidingVerdict): HiddenAnswer {
     let next: Where = where;
-    for (const field of verdict.by) next = recordChoiceWhere(indexes, next, field, undefined) ?? next;
-    for (const field of verdict.unknown) if (next.has(field)) next = recordChoiceWhere(indexes, next, field, undefined) ?? next;
+    for (const field of verdict.by) next = recordChoiceWhere(paths, next, field, undefined) ?? next;
+    for (const field of verdict.unknown) if (next.has(field)) next = recordChoiceWhere(paths, next, field, undefined) ?? next;
     const left = next;
-    const also = narrowingOrder(indexes, where).filter((field) => !verdict.by.some((f) => stringEqual(f, field)) && !left.has(field));
+    const also = narrowingOrder(paths.indexes, where).filter((field) => !verdict.by.some((f) => stringEqual(f, field)) && !left.has(field));
     return { by: verdict.by, also, where: left };
 }
 
@@ -335,8 +335,8 @@ export function useHiddenRows(input: HiddenRowsInput): HiddenRows {
     const answer = useCallback((at: Asked, ids: readonly string[], rows: readonly { key: unknown; row: unknown }[]) => {
         const { part, where, name } = latest.current;
         if (part === undefined || where === undefined) return;
-        const indexes = part.config.indexes;
-        const questions = hidingQuestions(indexes, where);
+        const paths = part.config;
+        const questions = hidingQuestions(paths, where);
         void awaitTracked(() => {
             // Every question asked in one turn, so its reads go together.
             const asked = questions.map((q) => recordSliceWithin(part, q.where, rows));
@@ -350,7 +350,7 @@ export function useHiddenRows(input: HiddenRowsInput): HiddenRows {
             if (!Object.is(now(), at)) return;
             ids.forEach((id, j) => {
                 const verdict = hidingOf(questions, answers.map((a) => a[j]!));
-                at.states.set(id, { hidden: true, answer: verdict === undefined ? undefined : clearingOf(indexes, where, verdict) });
+                at.states.set(id, { hidden: true, answer: verdict === undefined ? undefined : clearingOf(paths, where, verdict) });
             });
             setVersion((v) => v + 1);
         }, (error: unknown) => {
