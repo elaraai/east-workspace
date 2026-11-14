@@ -381,6 +381,9 @@ test("Sheet: narrowed, its Filters set, its tabs and its count stay whole beside
         await settled(page);
     }
     await expect(button).toHaveAttribute("data-active", "");
+    // The pointer off the page: it rests where it last pressed, in the Filters view, and a frame narrowed and brought to
+    // the window's middle can put a tab of the pane strip under it, whose hover draws the tab's ink.
+    await page.mouse.move(0, 0);
     for (const width of [390, 324, 294]) {
         await sizeBuilder(page, entry, ROOT, width);
         expect(await phoneFaults(entry, "Sheet"), `at ${width}px`).toEqual([]);
