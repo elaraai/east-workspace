@@ -43,9 +43,33 @@ its resources a split task's pieces are queued together and none can run the
 rack out of memory; give the task's rule a `--memory-limit` near what a piece
 needs, so its first run, which nothing has measured, is as wide as its later
 ones. Calls, mutations and intake stay local. Stock runner
-configurations qualify; commands, custom environments/platforms and unscannable
-IR stay local. Host file/environment/network access stays local unless a rule
-deliberately grants `--allow-host-access` and its resources exist on the rack.
+configurations qualify, and so does a task that declares a `python` or `node`
+environment, with the project platform packages its runner names; commands, a
+platform package with no environment (`non-stock-platform:<name>`) and
+unscannable IR stay local. Host file/environment/network access stays local
+unless a rule deliberately grants `--allow-host-access` and its resources exist
+on the rack.
+
+**A task that declares an environment** needs nothing new in its package. On a
+rack whose agent composes environments (`environments` among its features in
+`e3 rack list`; `Rack: <rack> (…, environments for x86_64-manylinux_2_28)` as
+a run starts), the launching machine installs the environment a second time
+for the rack's platform, with the same frozen installs, packs it as layers the
+rack fetches through the hub, and prints `[ENV] 3f9a2b1c0d4e for
+x86_64-manylinux_2_28: building` then `[ENV] 3f9a2b1c0d4e built in 48 s: 4
+layers, 2.1 GB (1 new)`. No container runtime on either machine; nothing is
+compiled for the rack; a second run builds nothing, and a change to the
+project's code makes one small new layer. The layers are kept in the
+repository's `rack/env-layers`, which `e3 repo gc` sweeps. ❗ What cannot go
+stays local, with its reason on the task's `[LOCAL]` line: `environment:tools`
+/ `environment:image` (its kind), `environment:windows-host` (a Windows
+launching machine), `no-rack-for-environment:<tier>` (no rack composes them),
+`environment:no-wheel:<package>` and `environment:native-package:<package>`
+(nothing is compiled for another platform), `environment:pnpm` (a pnpm before
+11, for another platform), `environment:build-failed` (the tool's message is
+in `e3 task logs`). A task's tier is its runner's; `--gpu` puts an `east-py`
+task on `py-datascience`, and is refused for another runner
+(`gpu-not-east-py`).
 
 The listener serves HTTPS with the hub's own self-signed certificate, made on
 first use and kept in `hub-tls.beast2`; a rack pins it by its SHA-256, which
@@ -157,11 +181,11 @@ sessions of the same canonical repository and e3 release.
 
 | Signature | Description | Example |
 | --- | --- | --- |
-| `openRackRunner({ repoPath, workspace, storage, label, budget?, settings?, policy?, rackOnly?, unreachableWaitMs? })` | Opens a runner/session; preserve the caller's existing budget and process settings, use `rackSlots` to extend orchestrator width, and close in `finally`. Under `rackOnly`, work waits `unreachableWaitMs` (two minutes) for an unhealthy rack before it runs locally. | `const rack = await openRackRunner({ repoPath, workspace: 'dev', storage, label: 'run', budget });` |
+| `openRackRunner({ repoPath, workspace, storage, label, budget?, settings?, policy?, rackOnly?, unreachableWaitMs?, onPlacement?, onEnvironment? })` | Opens a runner/session; preserve the caller's existing budget and process settings, use `rackSlots` to extend orchestrator width, and close in `finally`. Under `rackOnly`, work waits `unreachableWaitMs` (two minutes) for an unhealthy rack before it runs locally. `onPlacement` is told where each task or unit runs; `onEnvironment` that an environment's layers are being built for a rack, and what the build came to. | `const rack = await openRackRunner({ repoPath, workspace: 'dev', storage, label: 'run', budget });` |
 | `createDataflowRunnerFactory(options?)` | Pass to `createServer({ dataflowRunner })`; one session per API dataflow, using the server's shared budget. Explicit server opt-in overrides policy.enabled; rules still apply. | `const server = await createServer({ reposDir: './repos', dataflowRunner: createDataflowRunnerFactory() });` |
 
 The API server's optional rack package is needed only for
 `e3-api-server --repos ./repos --rack`. Portable handlers receive a runner
-factory and do not import hub code. Custom environments, remote function
-delegation, automatic reconnect after hub restart and embedded UI integration
-are deferred.
+factory and do not import hub code. `tools` and `image` environments on a
+rack, remote function delegation, automatic reconnect after hub restart and
+embedded UI integration are deferred.

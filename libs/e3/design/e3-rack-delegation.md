@@ -1,17 +1,23 @@
 # Local rack delegation
 
-Design of record for [#863](https://github.com/elaraai/east-workspace/issues/863).
+Design of record for [#863](https://github.com/elaraai/east-workspace/issues/863),
+with its follow-ons: a rack that scales as a local run does
+([#1634](https://github.com/elaraai/east-workspace/issues/1634)) and tasks that
+declare an environment
+([#1633](https://github.com/elaraai/east-workspace/issues/1633)).
 The [reconciliation](e3-rack-reconciliation.md) links all ten children and
 records how current workspace and e3-cloud main change the original design.
 The [setup guide](../packages/e3-rack/README.md) contains runnable commands.
 
 ## Goals and non-goals
 
-Delegate expensive stock-runtime task bodies from a local repository, preserve
+Delegate expensive task bodies from a local repository, those of stock
+runtimes and those that declare an environment of their own, preserve
 ordinary e3 cache/results/history, and share one rack fleet across local
 projects. Keep planning, repository ownership and local fallback on the
-developer machine. Defer custom environments, remote function calls, automatic
-reattachment after hub restart and embedded UI integration.
+developer machine. Defer `tools` and `image` environments, environments from a
+Windows launching machine, remote function calls, automatic reattachment after
+hub restart and embedded UI integration.
 
 ## Topology
 
@@ -185,13 +191,111 @@ repository's first upgrade step of its own (`rack-policy-limits`, in e3-core,
 with both forms frozen there), which carries a policy an earlier release stored
 into this form when the repository is opened.
 
-Eligibility checks task name/selection, environment, stock runtime/platform
-configuration, East body and every executable program (including dict merge
-and fold combine). It does not depend on a map unit running first. Custom
-commands/environments/platforms and unscannable bodies remain local. The host
-guard rejects file, environment and network dependencies unless deliberately
+Eligibility checks task name/selection, the environment's kind, the
+runtime/platform configuration, East body and every executable program
+(including dict merge and fold combine). It does not depend on a map unit
+running first. Custom commands, a platform package named by a task that
+declares no environment, and unscannable bodies remain local. The host guard
+rejects file, environment and network dependencies unless deliberately
 overridden per rule. Images are node, py, py-datascience, c and full; claims
 also enforce health, approval and the lease's bundled-e3 version floor.
+
+A task's tier is its runner's (`east-node` → `node`, `east-c` → `c`,
+`east-py` → `py`), `py-datascience` when its platforms name
+`east-py-datascience`, and `py-datascience` when its rule asks for a GPU, the
+tier a rack gives its GPU to. Only an `east-py` task may ask for one
+(`gpu-not-east-py` otherwise); with no GPU on any rack the task runs locally
+(`no-rack-holds:gpu`).
+
+## Environments
+
+A task that declares a `python`, `node` or `workspace_node` environment, and
+with it the project platform packages its runner names, runs on a rack that
+composes environments. No container runtime takes part, on any machine: the
+launching machine installs the environment a second time, for the rack's
+platform, with the frozen installs a local run uses; packs it as layers; and
+the hub serves them to the rack as it serves task objects.
+
+**The build (e3-core).** `materializeEnvironmentFor` installs an environment
+for a platform that is not this machine's, in a directory its caller names:
+wheels only (`--python-platform`, `--no-build`), the project's own packages
+built to wheels here and refused unless pure, npm and pnpm asked for the
+platform's packages, and no install script run. A python environment carries
+the platform's build of the Python its virtualenv was made with
+(`.python/`, reached by a relative link), so it is whole wherever its tree is
+put: a tier supplies the operating system and, on the GPU tier, the device and
+its driver. What no install makes for another platform is refused by name
+(`EnvironmentTargetRefused`), never compiled.
+
+**Layers (e3-core, `storage/local/environment-layers.ts`).** The tree is
+packed as gzip tar layers, each entry under `var/task/.e3-env/`, where a guest
+finds a composed environment: the interpreter; what the lock installs, a
+gigabyte of files a layer, in sorted order; and what the project's own
+packages installed. The same files pack to the same bytes (entries sorted,
+times and owners zeroed, two modes, one gzip setting), so an environment whose
+lock did not change shares its interpreter and package layers with the one
+before it, and a change to the project's code makes one small layer. Entries
+are plain: files, directories, and links that stay inside the tree; anything
+else refuses the pack, and the unpack. They are kept beside the repository,
+not in its object store:
+
+```
+<repo>/rack/env-layers/
+  blobs/sha256-<hex>                                 each layer once
+  manifests/<envHash>-<e3 release>-<platform>.json   the EnvLayerManifest
+  building/                                          a build's claim and scratch tree
+```
+
+One build runs at a time for a manifest, in a repository: a second run that
+needs it, in this process or another, waits for the first. `e3 repo gc`
+removes a manifest whose environment spec nothing reaches, each layer no kept
+manifest names, and a dead build's leavings, as it sweeps `<repo>/envs`. The
+packer is e3-core's because the rack package holds no tar library; what a
+manifest says is the rack package's (`EnvLayerManifest`, as a deployment
+publishes one: `baseTier` the lease's tier, `baseImage` `rack-tier:<tier>`,
+since it was built from no image).
+
+**The launching side (`runner/rack-body.ts`, `runner/environment.ts`).** Before
+it creates a lease that names an environment, the body makes sure the
+repository keeps the layers for the platform of each rack that could take the
+work (`publishEnvLayers`), once for an environment and a platform in a run,
+and tells its caller (`onEnvironment`: `building`, `built`), which the CLI
+prints as `[ENV]` lines. A run whose repository keeps them prints neither. The
+lease names the environment (`RackLeaseEvent.environment`), and its closure
+holds the environment's spec and files, as it always did.
+
+**Serving.** The session's data server gains two reads under its own
+credential: a manifest by its name, and a layer, from a byte on, only when the
+manifest asked with names it. The hub's bridge reads the manifest through the
+lease's session (`readEnvManifest`: a lease reads its own environment's) and
+issues a capability for a layer, bound to the lease and its attempt as an
+object's is, served with the same bound and ranges (`presignEnvLayer`). The
+hub's `EnvIndexStore` keeps nothing: it asks the lease's session for the
+manifest built with the lease's e3 release for the claiming rack's platform.
+The shared route reads the manifest for the release the lease names. `submit`
+takes a lease that names an environment, and `canClaim` grants it only to a
+rack that reports `environments` and whose `target` is a platform the session
+keeps the layers for: another rack is never granted it.
+
+**The rack.** A rack that composes environments says so in its report, with
+the platform it runs them on. For a lease that names one it asks
+`/api/rack/storage` for the manifest and its layers, composes them over the
+tier's image for that lease, and its guest names the composed tree in
+`E3_BAKED_ENV_HASH` and `E3_BAKED_ENV_DIR`; e3-core links `<repo>/envs/<hash>`
+to it (`prebuiltEnvironment`, `linkPrebuiltEnvironment`) and installs nothing.
+One it cannot compose ends its lease `environment-failed`, and the work runs
+locally.
+
+| The task | Reason on its `[LOCAL]` line |
+| --- | --- |
+| Declares a `tools` or an `image` environment | `environment:tools`, `environment:image` |
+| Launching machine is Windows | `environment:windows-host` |
+| No healthy rack of its tier composes environments | `no-rack-for-environment:<tier>` |
+| A dependency has no wheel for the rack's platform | `environment:no-wheel:<package>` |
+| A project package holds native code | `environment:native-package:<package>` |
+| A pnpm lock, where pnpm installs for its own platform alone | `environment:pnpm` |
+| The build fails | `environment:build-failed`, the tool's words in the task's log |
+| Names a platform package and declares no environment | `non-stock-platform:<name>` |
 
 ## Execution semantics
 
@@ -232,7 +336,7 @@ planning and final assembly stay local; both pieces and merge bodies delegate.
 A lease's result gives its `reason` when it did not succeed: a code and what
 it carries (`protocol/task-envelope.ts`: `outgrew-cap`, `memory-limit-exceeded`,
 `input-transfer-failed`, `output-transfer-failed`, `source-unreachable`,
-`guest-crashed`, `requeued-pressure`, `task-error`), read for the fields a build
+`guest-crashed`, `environment-failed`, `requeued-pressure`, `task-error`), read for the fields a build
 knows, and a code it does not know is a rack's fault it cannot name. It also
 lists the tries of its transfers that were followed by another. The body places
 the work by the reason, a placement event carries it (`kind`, `detail`), a run
@@ -256,7 +360,11 @@ before replies lost their envelope: it is asked to drain, as an older one is.
 
 Task/package/repository object and execution schemas do not change. The
 policy is repository state, and an incompatible change to it ships a repository
-upgrade step, as the rule's `memoryLimit` and `gpu` did. Hub files are outside repositories: a stable envelope stores release,
+upgrade step, as the rule's `memoryLimit` and `gpu` did. The layers a
+repository keeps of an environment (`rack/env-layers`) are what a build made
+and can make again: each manifest names the e3 release that built it, in its
+name and in itself, a release reads only its own, and gc removes what nothing
+needs. Hub files are outside repositories: a stable envelope stores release,
 format (initially 1) and encoded payload. Unknown formats fail explicitly; a
 future change must migrate or refuse them before decoding. The hub's TLS
 certificate and key are such a file (`hub-tls.beast2`), private like its
@@ -293,7 +401,10 @@ Worker provisioning and the final source/lifecycle CLI remain companion work.
 ## Testing
 
 `TestRackAgent` speaks the real wire, stages the input closure, executes stock
-e3-core runners and uploads every written object. Protocol fixtures validate
+e3-core runners and uploads every written object. It reports that it composes
+environments for the platform of the machine it runs on, and for a lease that
+names one it fetches the layers, checks each against its digest and size,
+unpacks them, and links the tree as the pre-built environment. Protocol fixtures validate
 current-cloud encoding independently. Contract tests cover identity, stores,
 leases, transfer receipts/retries, revocation, lost leases, takeover, cancellation
 and cache/hash parity. CLI and local API tests exercise the complete attachment

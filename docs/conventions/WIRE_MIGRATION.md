@@ -942,3 +942,21 @@ Each wire changed under this rule, with the kind it is.
   policy release 1.0.107 stored. An earlier release refuses a repository that
   has had the step, naming this release, as it refuses any step it does not
   know.
+- **A lease may name an environment, and a local repository keeps the layers
+  of one built for a rack (#1633)** — no type changes. A lease's event already
+  carried `environment`, and the storage route already answered a manifest and
+  its layers (`RackStorageRequestType.envManifest`,
+  `RackStorageResponseType.env`): the local hub refused both, and now serves
+  them from the session that owns the repository. A result's `reason` gains
+  the code `environment-failed`, which a reader that does not know it takes as
+  a rack's fault, as it takes any. What is kept is new, of a local
+  repository's own layout: `rack/env-layers`, the gzip tar layers of an
+  environment installed for a rack's platform (`blobs/sha256-<hex>`) and the
+  manifests that name them (`manifests/<envHash>-<e3 release>-<platform>.json`,
+  e3-rack's `EnvLayerManifest`, JSON). It is what a build made and can make
+  again, never state: a manifest names the release that built it, in its name
+  and in itself; a release reads only the manifests of its own name, and builds
+  what it does not find; an earlier release never looks there; and gc removes a
+  manifest whose environment nothing reaches and each layer no kept manifest
+  names. So no repository upgrade step ships, and a later release that packs
+  layers otherwise builds its own beside these.
