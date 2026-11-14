@@ -99,7 +99,7 @@ export interface TestRackAgentOptions {
    * cap by it: work whose peak is above the cap its lease asked is completed
    * `outgrew-cap`, with nothing it wrote sent.
    */
-  peak?: (lease: RackLeaseGrant, measured: number | undefined) => number | undefined;
+  peak?: (lease: RackLeaseGrant, measured: number | undefined) => number | undefined | Promise<number | undefined>;
   /**
    * All the agent has. With it the agent admits work by its resources: it
    * books each lease it holds at what the lease asks, offers a poll what is
@@ -523,7 +523,7 @@ export class TestRackAgent {
       if (chunks.length > 0) await this.logs(lease, chunks);
       // The cap the lease asked, stood in for by the peak its runner is taken
       // to have reached: above it, the work was stopped, and nothing is sent.
-      const peakBytes = this.options.peak === undefined ? result.peakBytes : this.options.peak(lease, result.peakBytes);
+      const peakBytes = this.options.peak === undefined ? result.peakBytes : await this.options.peak(lease, result.peakBytes);
       const needs = readRackLeaseResources(event.resources);
       if (needs !== undefined && peakBytes !== undefined && peakBytes > needs.memoryBytes) {
         const stopped: RackLeaseResult = { taskName: event.taskName, status: 'failed', state: 'error', peakBytes: needs.memoryBytes,
