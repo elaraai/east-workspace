@@ -329,6 +329,20 @@ and narrowly, where a genuine incompatibility surfaces as a named skip rather
 than as six confusing failures elsewhere. See
 `docs/conventions/BEAST2_WIRE_VERSION.md`.
 
+#### 4.0.2 On a rack (2026-11-14)
+
+A `python`, `node` or `workspace_node` environment is also installed for a
+platform that is not the installing machine's, so a task that declares one
+runs on a rack (#1633): `materializeEnvironmentFor` runs the same frozen
+installs asked for the rack's platform, with nothing compiled, a python
+environment carrying its own interpreter; the tree is packed as layers kept
+under `<repo>/rack/env-layers`, and the rack composes it from them. The spec,
+its hash and its capture are untouched: what a task's cache key covers is as
+this document says. A `tools` or `image` environment is not installed for
+another platform, and its task stays on the launching machine. The same e2e
+suite runs its python and node bundles through a rack that composes them. See
+[e3-rack-delegation.md](e3-rack-delegation.md) › Environments.
+
 ### 4.1 The one schema change (both cases together)
 
 BEAST2 variant tags are positional indexes into the **alphabetically sorted** case list (`libs/east/src/types.ts:346–348`; decoder dispatch `beast2/index.ts:349–360` — both re-verified). New cases are appended so the sorted order only grows at the end: `image, node, python, tools, workspace_node`. This is required not for old-reader compat but so a **repo's own** persisted specs keep decoding across future edits — reordering the cases re-tags every later case and mis-decodes stored specs. Verified this pass (`final-variant-probe.mjs`): a 5-case reader round-trips every case and decodes existing python/node/image bytes unchanged (tags 0–2 unmoved); the rejected `node_workspace` name would have re-tagged `python`, mis-decoding every stored python spec — the rename to `workspace_node` (sorts last) avoids that.

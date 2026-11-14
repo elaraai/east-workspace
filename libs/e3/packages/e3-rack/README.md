@@ -253,13 +253,69 @@ leased once more. It does not force ineligible tasks onto a rack.
 Rack flags apply to local dataflows and watch with `--start`, and are refused
 for remote repository URLs. Calls, mutations and intake remain local.
 
-Only stock runner configurations can delegate. Custom commands, environments,
-platform extensions and unscannable programs stay local. Programs that access
+Stock runner configurations delegate, and so does a task that declares a
+`python` or `node` environment, with the project platform packages its runner
+names: see [Tasks that declare an environment](#tasks-that-declare-an-environment).
+Custom commands, a platform package named by a task that declares no
+environment, and unscannable programs stay local. Programs that access
 host files, environment variables or network resources also stay local by
 default: their dependencies may exist only on this machine. A task rule's
 `--allow-host-access` deliberately overrides that guard, for a rack that
 provides those resources itself. The companion agent's task VMs have no network
 device, host files or injected environment, so such a task fails there.
+
+### Tasks that declare an environment
+
+A task whose models are the project's own platform functions declares an
+environment (`environment: { python: { project } }`, or one e3 derives from a
+`{ custom: '<package>' }` platform), and nothing changes in the package for a
+rack. It runs on a rack whose agent composes environments, which `e3 rack
+list` shows among the rack's features and a run says on its first line:
+
+```sh
+e3 rack policy . set 'train_*' rack --gpu      # this task wants the rack's GPU
+e3 dataflow run . dev --rack
+```
+
+```text
+Rack: workshop (56 cores, 262 GB, 1 GPU, e3 1.0.108, environments for x86_64-manylinux_2_28)
+  [ENV] 3f9a2b1c0d4e for x86_64-manylinux_2_28: building
+  [ENV] 3f9a2b1c0d4e built in 48 s: 4 layers, 2.1 GB (1 new)
+  [RACK] train_model → workshop (cap 16 GB)
+  [LOCAL] convert_report (environment:tools)
+  [LOCAL] fit_curves (environment:native-package:fastfit)
+```
+
+Before it leases such a task, this machine installs the environment a second
+time, for the rack's platform, with the same frozen installs a local run uses
+(`uv sync --frozen`, `npm ci`), and packs it as layers that the rack fetches
+through the hub as it fetches task data. **No container runtime is needed, on
+this machine or the rack**, and the rack needs no route to a package index.
+Nothing is compiled for the rack: its dependencies are wheels, and a python
+environment carries its own interpreter, its own runner and its own packages,
+the GPU ones included. A second run builds nothing. After a change to the
+project's code only the small layer that holds it is new: the interpreter and
+the third-party packages are the same bytes, and the rack already has them.
+The layers are kept under the repository's `rack/env-layers`, and `e3 repo gc`
+removes those of an environment nothing uses any more.
+
+A task whose environment cannot go to a rack runs here, and says why on its
+`[LOCAL]` line; a build's own message is in the task's log (`e3 task logs`).
+
+| The task | Reason | Why |
+| --- | --- | --- |
+| Declares a `tools` or an `image` environment | `environment:tools`, `environment:image` | A `tools` environment is files of this machine's platform; an `image` is a server's. |
+| This machine is Windows | `environment:windows-host` | An environment built there has another layout than a Linux guest's. |
+| No healthy rack of its tier composes environments | `no-rack-for-environment:<tier>` | Its agent is from before environments, or reports no platform. |
+| A dependency has no wheel for the rack's platform | `environment:no-wheel:<package>` | Nothing is compiled for another platform. |
+| A project package compiles native code | `environment:native-package:<package>` | The same. |
+| A `node` environment with a pnpm lock, on a pnpm that installs for its own platform alone | `environment:pnpm` | pnpm takes a platform's flags from version 11; built anyway when this machine is of the rack's platform. |
+| The build fails | `environment:build-failed` | The tool's own message is in the task's log. |
+| Names a platform package and declares no environment | `non-stock-platform:<name>` | A rack has nowhere to find the package. |
+| Its rule says `--gpu` and it is not an `east-py` task | `gpu-not-east-py` | The GPU tier is python's. |
+
+A task's tier is its runner's, `py-datascience` when it names
+`east-py-datascience`, and `py-datascience` when its rule says `--gpu`.
 
 ## Execution and recovery
 
@@ -312,6 +368,7 @@ Rack summary: 1 task and 12 units on workshop · 1 waited for capacity (longest 
 | --- | --- | --- | --- |
 | `input-transfer-failed`, `output-transfer-failed` | `attempts`, `cause` | The rack, after its five tries. | Runs locally; under `--rack-only`, is leased once more first. |
 | `guest-crashed` | `detail` | The rack. | Runs locally: a rack's fault never fails a run. |
+| `environment-failed` | `detail` | The rack, when it could not compose the lease's environment from its layers. | Runs locally. |
 | `source-unreachable` | `ms` | The rack, whose source has not answered for two minutes; the launching machine, when the racks that run the work's tier are enrolled but not healthy. | Runs locally: at once, or under `--rack-only` once two minutes have passed with none healthy. |
 | `task-error` | | The rack: the task's own failure. | Its failure is its verdict, unless the policy retries failures locally. |
 | `outgrew-cap` | `capBytes`, `peakBytes` | The rack, when the cap stopped the work. | A unit of a split task is leased again under a cap half as large again, and its stopped attempt is no failure in the task's history. A whole task fails, `memory-limit-exceeded (cap 16 GB); raise --memory-limit or --size`, and is not run again unless the policy retries failures locally. |
@@ -555,6 +612,25 @@ platform it installs environments for, its cores, memory and GPUs and what of
 them is free), and each poll's `offer` says how much the poll may be answered
 with. A lease's event and result were JSON already.
 
+An agent that composes environments reports the feature `environments` and its
+`target`, the platform it runs them on as e3-core names one
+(`x86_64-manylinux_2_28`). A lease that names an environment
+(`event.environment`, the spec's hash) is granted only to such an agent, for
+whose platform the source keeps the environment's layers. The agent asks
+`/api/rack/storage` with `envManifest` set to that hash, and is answered the
+manifest (`EnvLayerManifest`, JSON: `baseTier` the lease's tier, `baseImage`
+`rack-tier:<tier>`) and, for each layer in the order it is applied, its digest
+(`sha256:<hex>` of its bytes), its size and a data URL, served with the
+bound, the ranges and the tries of any transfer. A layer is a gzip tar
+(`application/vnd.oci.image.layer.v1.tar+gzip`) whose entries are files,
+directories and links that stay inside the tree, all under
+`var/task/.e3-env/`: the interpreter, what the lock installs, and the
+project's own files. The agent checks each against its digest, composes them
+over the tier's image for that lease alone, and names the tree to its guest in
+`E3_BAKED_ENV_HASH` and `E3_BAKED_ENV_DIR`; e3-core in the guest links the
+environment to it and installs nothing. An environment it cannot compose ends
+its lease with the reason `environment-failed`.
+
 A lease says what it asks of a rack, in its event's `resources`: `{ "kind":
 "unit", "cores": 1, "memoryBytes": 3328599654, "gpu": false }`. `memoryBytes`
 is its **cap**: the most memory the work may use, and what the rack books for
@@ -593,5 +669,6 @@ release, and pin the hub's certificate; an older bundle falls back locally.
 
 See [the epic reconciliation](../../design/e3-rack-reconciliation.md) for the
 changes required by current cloud and workspace APIs, wire migration rules,
-and the remaining companion work. Custom environments, remote function calls,
+and the remaining companion work. `tools` and `image` environments on a rack,
+environments from a Windows launching machine, remote function calls,
 automatic reconnect after hub restart and embedded UI integration are deferred.
