@@ -1984,7 +1984,7 @@ describeEast("Plan", (test) => {
         $(Assert.equal(pair.get(1n).icon.unwrap("some").name, "table-cells-large"));
     });
 
-    test("`series` and `pick` are exclusive — exactly one, or the Plan refuses (#590)", $ => {
+    test("`data` is laid out by its `series`, and the removed `pick` is refused naming `hidden` (#1541)", $ => {
         const Row = StructType({ v: FloatType });
         const data = $.const(new Map([["a", { v: 1.0 }], ["b", { v: 2.0 }]]), DictType(StringType, Row));
         const all = $.const([
@@ -1995,16 +1995,18 @@ describeEast("Plan", (test) => {
             Plan.series.events(Row, { key: "ms", title: "Marks", label: (_r, k) => k, marks: _r => [] }),
         ], ArrayType(Plan.Types.Series(Row)));
         const axis = Plan.axis({ window: { min: W27, max: END }, resolution: "week" });
-        // `series` and `pick` are alternatives — the handle already carries the
-        // list, so giving both would say it twice.
-        $(Assert.equal(East.value((() => {
-            try { Plan.Root({ axis, data, series: all, pick: undefined as never }); return true; }
-            catch { return false; }
-        })()), true));
-        $(Assert.equal(East.value((() => {
-            try { Plan.Root({ axis, data }); return false; }
-            catch { return true; }
-        })()), true));
+        const refusal = (build: () => unknown): string => {
+            try { build(); return ""; } catch (e) { return e instanceof Error ? e.message : String(e); }
+        };
+        $(Assert.equal(East.value(refusal(() => Plan.Root({ axis, data, series: all }))), ""));
+        $(Assert.equal(East.value(refusal(() => Plan.Root({ axis, data }))),
+            "Plan: `data` is laid out by its `series` — give the list, which is the layout: series={[Plan.series.span(…), …]}"));
+        // The pick's own prop, whatever it holds: `series` with `hidden` replaces it.
+        const removed = "Plan: `pick` is removed (#1541) — `series` is the list, its series picked where `library` lists " +
+            "Plan.library.series(), kept under the Plan's `id`, and `hidden` names the ones off to start: give `series` the " +
+            "list Plan.pick was given and `hidden` the keys it hid, series={[…]} hidden={[\"utilisation\"]}";
+        $(Assert.equal(East.value(refusal(() => Plan.Root({ axis, data, pick: all } as never))), removed));
+        $(Assert.equal(East.value(refusal(() => Plan.Payload({ axis, data, pick: all } as never))), removed));
     });
 
     test("a paged source keeps its handle's id — the derived source is the author's source (#822)", $ => {

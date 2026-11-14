@@ -97,6 +97,13 @@ leave e3-ui's `Schedule`. The payload is a UI task's output, carried by its
 package: no repository upgrade step. See
 [Review removed (#1260)](#review-removed-1260) below.
 
+**#1541 gives the Plan one save door and one series list**: the rows save
+through `record`, the record they are read from, and `editing` goes;
+`series` is the list, `hidden` names the series off to start, and `pick` and
+`Plan.pick` go. The wire does not change, so no stored value re-emits. See
+[One save door, one series list (#1541)](#one-save-door-one-series-list-1541)
+below.
+
 The public API break alongside it: the `Gantt` / `Planner` / `AlignedStack`
 exports (tags, factories, `*.Types`) are gone from `@elaraai/east-ui` and
 `@elaraai/east-ui/internal`, as are `EastChakraGantt` / `EastChakraPlanner`
@@ -149,7 +156,7 @@ path.
 | `Plan.link({ from: "p03", to: "p04", … })` | `Plan.link({ from: Plan.ref("presses", "p03"), to: Plan.ref("presses", "p04"), … })` | `planTargetState` |
 | `{ key }` / a row key String in a callback | the `Plan.Types.RowId`: compare with `East.equal(ev.row, Plan.ref(…))`, or read the entry's key with `id.unwrap("entry").path.get(0n)` | `planTargetState` |
 | a drop's `into.row` equal to the data key | the id's text — key host tables by `East.print(Plan.ref(series, …path))` (an id is a variant, so it cannot be a `Dict` key itself), or read it back with `row.parse(Plan.Types.RowId)` | `planRowDrop` |
-| `Plan.pick(key, all, { data, hidden })` — per-series row counts | `Plan.pick(key, all, { hidden })` — the library lists series by title, subtitle and kind icon; a count means something only with every entry in hand | `planTargetState` |
+| `Plan.pick(key, all, { data, hidden })` — per-series row counts | `Plan.pick(key, all, { hidden })` — the library lists series by title, subtitle and kind icon; a count means something only with every entry in hand. Since #1541, `series` with `hidden` (below) | `planTargetState` |
 | fit-to-data — an axis with no `window` and no bound slice fitted itself to the rows (inline only) | state `axis.window`, or bind a slice whose range supplies it. Written in place, the canvas is refused at build; a bound or stored axis draws the `NO WINDOW` diagnostic. A slice-bound canvas with no stated window takes its window from the slice's range — the Plan's own brush then cannot clear it (other slice chrome still can). | `planTargetState`, `planNumberAxis` |
 | series keys unique per source; a repeat silently replaced rows (`LAST_WINS`) | series keys unique across the WHOLE series tree — a repeat is a build-time error naming both sites; a repeated run-time id (hand-built rows sharing a key) draws a `DUPLICATE ID` row diagnostic | — |
 | `data: Dict<String, R>` only | `Dict<K, R>` for any `K`; accessors receive `(entry, key: K)`; a series whose accessors read a non-String key declares `keyType` (and a bound list types itself `Plan.Types.Series(R, K)`) | — |
@@ -787,6 +794,57 @@ lean rows with the items of a cell read. A record Slice's handle
 
 A `Plan` value serialized before them does not decode against them; stored
 `UIComponentType` values re-emit. No author changes a line.
+
+## One save door, one series list (#1541)
+
+Before #1541 a Plan's rows were saved through an `editing` object taking a
+commit of the host's own (`onApply`), an adapter over rows held in page state
+(`onUpdate`), an observer and a check, and its series were picked through a
+handle the author bound beside the Plan (`Plan.pick`) and passed in place of
+`series`. Now the rows save through the record they are read from, and the
+series are one list the Plan picks from itself.
+
+The wire does not change: the root's `editing` and `pick` are what they were.
+
+### Removals and their replacements
+
+| Removed | Replacement | Example |
+|---|---|---|
+| `editing={{ onApply: Record.onApply(record, { keyed: true }) }}` | `record={Record.bind(record)}`: the record the rows are read from — `data`'s, or the `slice`'s `rows` source's — its record declaring `patch: mutation.patch()`. Save commits the drafts to it by key, as one checked batch | `planRowDrop`, `planNestedAll` |
+| `editing.onPatch`, `editing.ready` | the props `onPatch` and `ready`, each beside `record` | `planRowDrop` |
+| `editing.onUpdate`, and an `onApply` of the host's own | none: `record` is the Plan's one save door, so a Plan over data that is no record does not edit. Keep the rows in a record | `planRowDrop` |
+| `Plan.pick(key, all, { hidden })`, passed as `pick` | `series={all}` and `hidden={[…]}`, the keys off to start. Where `library` lists `Plan.library.series()` the Series tab switches each series on and off, kept under the Plan's `id`; without it nothing is bound, and `hidden` names the series the Plan does not draw | `planTargetState`, `planNestedAll` |
+
+Each is refused at build, naming its replacement: `editing` by each of its
+parts, `pick` by `series` and `hidden`.
+
+### Behaviour that changed
+
+- **A `views` is listed as its members.** The Series tab lists each series at
+  the top of the list whole — a section or a group leaves with its subtree —
+  and each member of a `views` there alone, since each is a row of its own
+  beside the others. A member switched off takes its rows alone, and the
+  entry's children nest under the first member left, which carries the fold.
+  With every member off the entry draws no row, and none beneath one.
+- **What `hidden` may name.** A series at the top of `series`, or a member of
+  a `views` there, by its key. A key naming no series, a series nested in
+  another, or a `views` itself is refused at build, listing the keys it may
+  name. A list known only as it runs (an East expression) is listed whole, a
+  series a line, and a key naming none of them is ignored.
+- **The pick is the Plan's.** Its state is kept under `plan.<id>.pick`
+  (`plan.pick` with no `id`), and what the tab switches is kept for the viewer
+  under that key. A viewer's choice made through an earlier `Plan.pick` key is
+  not carried over.
+- **A draft draws as the canvas does.** The editing session makes a drafted
+  entry's rows with the same series left out. A gesture still writes the data
+  whichever series show.
+- **A canvas's series are written out once.** Every window, every window with
+  the drafts in place and every drafted entry is made by one function the root
+  holds, so a Plan's program no longer grows with the places its rows are made.
+
+### Renderer (`@elaraai/e3-ui-components`)
+
+Nothing changes: the tab's lines are the pick's items, as before.
 
 ## Extracted contracts (do this first when migrating imports)
 
