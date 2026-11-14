@@ -653,7 +653,7 @@ const editingPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Ro
             key: "presses", title: "Presses", label: (m) => m.name, edit: true,
             runs: Plan.items("jobs", { from: "start", to: "end" }, (job) => ({ label: job.product, state: job.state })),
         })],
-        editing: { onApply: Record.onApply(record, { keyed: true }) },
+        record,
     });
 }))) };
 
@@ -870,7 +870,7 @@ describe("a gesture drafts its row whole (#1438)", () => {
                     key: "presses", title: "Presses", label: (m) => m.name, edit: true,
                     runs: Plan.items("jobs", { from: "start", to: "end" }, (job) => ({ label: job.product, state: job.state })),
                 })],
-                editing: { onApply: Record.onApply(record, { keyed: true }), ready },
+                record, ready,
             });
         }))) };
         const { container: c } = await h.mount(readyPlan, { drag: true });

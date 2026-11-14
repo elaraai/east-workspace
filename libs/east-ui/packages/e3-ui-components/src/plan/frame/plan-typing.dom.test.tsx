@@ -84,7 +84,7 @@ const ledgersTyped = (resolution: keyof typeof WINDOWS, { resolutions, sliced = 
                 cells: Plan.tableCells(Plan.values("readings", (v) => ({ value: some(v) }))), edit: true,
             })]),
         })],
-        editing: { onApply: Record.onApply(record, { keyed: true }) },
+        record,
     });
 }))) });
 

@@ -490,7 +490,7 @@ describeEast("Plan", (test) => {
             } catch (e) { return e instanceof Error ? e.message : String(e); }
         };
         const removed = (prop: string) => `Plan.series.span "s": \`${prop}\` is removed (#1260) — a Plan approves and rejects nothing: ` +
-            "its changes are drafts of the root's `editing` session";
+            "its changes are drafts, saved through the Plan's `record`";
         $(Assert.equal(East.value(refusal("review", { verdict: "approval" })), removed("review")));
         $(Assert.equal(East.value(refusal("approval", () => none)), removed("approval")));
     });
@@ -523,7 +523,7 @@ describeEast("Plan", (test) => {
         }))), 'Plan.children: "runs" is an Integer — child rows are a Dict, keyed by an id'));
     });
 
-    test("editing is checked at build — one apply, a live handle for onUpdate, a revision for a paged apply, and every callback's signature (#880)", $ => {
+    test("the canvas's session is checked at build — a revision for a paged apply, and every callback's signature (#880); the inline `onUpdate` adapter is gone (#1541)", $ => {
         const Job = StructType({ start: DateTimeType, end: DateTimeType });
         const Row = StructType({ jobs: DictType(StringType, Job) });
         const Rows = DictType(StringType, Row);
@@ -539,9 +539,11 @@ describeEast("Plan", (test) => {
             try { Plan.Root({ axis, data: source, series, editing }); return ""; } catch (e) { return e instanceof Error ? e.message : String(e); }
         };
         const onApply = East.function([Editing.Types.ChangeSet(Row, StringType)], Editing.Types.ApplyResult, () => variant("applied", { revision: none }));
+        // A Plan saves through a record's patch door alone: the adapter that wrote a whole collection back is refused by name.
         const onUpdate = East.function([Rows], NullType, () => null);
-        $(Assert.equal(East.value(refusal({ onApply, onUpdate }).includes("not both")), true));
-        $(Assert.equal(East.value(refusal({ onUpdate }).includes("editing.onUpdate requires data={liveHandle}")), true));
+        $(Assert.equal(East.value(refusal({ onUpdate } as never)), "Plan: `editing.onUpdate` is removed (#1541) — a Plan saves through a record's patch door alone, so one over " +
+            "data that is no record does not edit: bind the record the rows are read from and give it as `record` (Record.bind(record), " +
+            "its record declaring patch: mutation.patch())"));
         // A paged source without revision and refresh — the shape that
         // predates them — cannot check a batch.
         const paged = East.value({
@@ -583,7 +585,7 @@ describeEast("Plan", (test) => {
         $(Assert.equal(East.value(drag.includes("`onDrag` is removed (#880)") && drag.includes("`edit: { create }`")), true));
         const review = refusal({ review: { columnLabel: "Decision", onRerun: noop } });
         $(Assert.equal(East.value(review), "Plan: `review` is removed (#1260) — a Plan approves and rejects nothing: its changes are drafts of the " +
-            "`editing` session, undone, redone, discarded or saved together"));
+            "editing session, undone, redone, discarded or saved together"));
     });
 
     test("the removed applyMode and editing.mode fail by name: every edit waits for Save (#1536, #1584)", $ => {

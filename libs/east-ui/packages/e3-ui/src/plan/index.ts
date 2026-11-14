@@ -730,7 +730,7 @@ export interface PlanNamespace extends PlanTagType {
         RowEdits: typeof PlanRowEditsType;
         /** How a row's elements move — its item type, and whether they resize (#825). */
         MoveEdits: typeof PlanMoveEditsType;
-        /** `PatchEvent(R)` — what `editing.onPatch` receives for entries of `R` (#880). */
+        /** `PatchEvent(R)` — what `onPatch` receives for entries of `R` (#880). */
         PatchEvent: typeof PlanPatchEventTypeFor;
         /** The root's editing declaration on the wire — the shared session's fields and the canvas's own (#880). */
         Editing: typeof PlanEditingType;
@@ -922,9 +922,10 @@ const PLAN_MEMBERS = {
  *
  * - **The rows** come from event kinds over records (`resources` and
  *   `events`, `Schedule`'s, which a Calendar takes too), from `data` laid out
- *   by `series` and edited through `editing`, and from `rows` (hand-built rows
- *   and `Plan.over(data, [series…])`), read only — in that order down the
- *   canvas, pinned rows of any source under the ruler.
+ *   by `series` — edited where the Plan is given the `record` they are read
+ *   from, its one save door — and from `rows` (hand-built rows and
+ *   `Plan.over(data, [series…])`), read only — in that order down the canvas,
+ *   pinned rows of any source under the ruler.
  * - **`data` and `series`**: a keyed collection of raw entries, or a paged
  *   source of one, and one `Plan.series.*` value per row series, whose
  *   accessors derive each canvas row from the raw fields (`Plan.pick` makes

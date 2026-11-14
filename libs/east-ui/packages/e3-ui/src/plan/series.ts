@@ -2234,7 +2234,7 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
     // lose it silently.
     for (const removed of ["review", "approval"] as const) {
         if (removed in (cfg as object)) {
-            throw new Error(`${where}: \`${removed}\` is removed (#1260) — a Plan approves and rejects nothing: its changes are drafts of the root's \`editing\` session`);
+            throw new Error(`${where}: \`${removed}\` is removed (#1260) — a Plan approves and rejects nothing: its changes are drafts, saved through the Plan's \`record\``);
         }
     }
     // What a gesture writes (#880, #825, #1436) — through the collection its

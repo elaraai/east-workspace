@@ -53,7 +53,7 @@ import e3 from "@elaraai/e3";
 // (#1178): the source is an `e3.input` or an `e3.record` declared beside the
 // example, its small literal default the dataset's initial value, bound in the
 // body with `Data.bind`; a record an editing session commits to is paged with
-// `Data.bindPaged` and written through its patch door (`Record.onApply`). A
+// `Data.bindPaged` and written through its patch door (the Plan's `record`). A
 // fixture made by a rule rather than written out — a slice's horizon, a
 // stress source — is made where data is made, by an `e3.task` over a count.
 // `State` holds only what the viewer owns: a configurator's axes, a pick, a
@@ -1993,8 +1993,8 @@ export const planDropCards = e3.input("plan_drop_cards", DictType(StringType, Dr
  *  3. **As a draft.** A drop is a gesture of the editing session: the entry is
  *     drafted with the new item in its list and its rows derived again —
  *     drawn at once with the pending mark, undone with ⌘Z — and Save writes
- *     every draft as ONE checked batch, one commit through the record's patch
- *     door (`Record.onApply`).
+ *     every draft as ONE checked batch, one commit through the patch door of
+ *     the record the Plan is given (`record`).
  *
  * A press's run moves along its press or onto another press and resizes by
  * either end: its runs' read names the jobs and the times a move writes
@@ -2025,13 +2025,13 @@ export const planRowDrop = example({
         "Plan", "library", "panel", "Plan.library.tab", "palette", "DnD", "drag", "drop", "canDrop",
         "edit", "items", "Plan.items", "Plan.values", "create", "minted id", "add", "target", "surface", "cell", "slot", "row kind", "selective", "veto",
         "invalid", "span", "buckets", "events", "cards", "chart", "heat", "table", "section", "row id", "row text",
-        "droppable", "inert", "bucket instant", "editing", "session", "onApply", "onPatch", "ready",
+        "droppable", "inert", "bucket instant", "editing", "session", "record", "save door", "onPatch", "ready",
         "Readiness", "Editing.Types.Readiness", "draft", "drafts", "transaction", "Save", "undo", "redo",
         "discard", "history", "pending", "Plan.Types.PatchEvent", "Reactive", "State", "re-derive", "#880",
         "move", "resize", "run", "key", "start", "end", "Shift", "snap", "cross-row", "Plan.Types.Move", "#825",
         "nested", "children", "Plan.children", "top-level entry", "rollup",
         "auto-scroll", "keyboard", "Space", "screen reader", "announcements", "#608", "footer", "#1259",
-        "Record", "Record.bind", "Record.onApply", "e3.record", "patch", "commit", "Data.bindPaged", "Data.bind",
+        "Record", "Record.bind", "e3.record", "patch", "commit", "Data.bindPaged", "Data.bind",
     ],
     description: "The Plan's editing session over an e3 record — cards dragged from the Plan's library panel land only on a series that declares `edit`, `canDrop` admits only the matching family, runs move and resize, a gesture on a hall's press drafts the hall, `ready` refuses a crowded press, and every gesture is a draft saved as one checked batch, one commit through the record's patch door",
     fn: East.function([], UIComponentType, (_$) => (
@@ -2126,14 +2126,18 @@ export const planRowDrop = example({
                     // The palette — the Plan's own library panel, its cards
                     // grouped by family. A card drags onto the rows that take
                     // one; `canDrop` is the policy. A drop becomes a draft of
-                    // the session — without `editing` no card lands, since
+                    // the session — without `record` no card lands, since
                     // nothing could hold it.
                     library={[Plan.library.tab(palette, {
                         name: "Palette", icon: "palette",
                         label: c => c.name, meta: c => some(c.note), group: c => c.family,
                     })]}
                     canDrop={canDrop}
-                    editing={{ onApply: Record.onApply(record, { keyed: true }), onPatch, ready }}
+                    // The rows' save door: the record they are read from.
+                    // Save writes every draft through its patch mutation.
+                    record={record}
+                    onPatch={onPatch}
+                    ready={ready}
                     series={[
                         // INERT — a chart plots a derived series, so there
                         // is nothing a card could become here.
