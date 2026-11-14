@@ -13,6 +13,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { ArrayType, IntegerType, some, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import { Budget, InMemoryStateStore, LocalOrchestrator, LocalStorage, LocalTaskRunner, datasetWrite, inputsHash,
@@ -59,7 +60,15 @@ it('runs a split of more than a hundred pieces wholly on a rack: its units queue
   const hash = (await packageRead(storage, repo, 'scale', '1.0.0')).tasks.get('score')!;
   const inputs = [await datasetWrite(storage, repo, rows, type)];
 
+  // The rack caps each unit, so a run whose own guard runs starts a stage's
+  // units together; where no guard runs (Windows), it measures one first.
+  const together = process.platform !== 'win32';
+
   // A rack of 8 cores and 16 GiB, whose every unit is taken to peak at 100 MiB.
+  // Where a stage's units are leased together, the first of a run's units to
+  // end is held until the rack is known to hold eight: units leased one after
+  // another's end would never be eight while the first is held, so how fast
+  // either side is decides nothing.
   const placements: RackPlacementEvent[] = [];
   const claimed = () => placements.flatMap((event) => event.kind === 'placed' && event.where === 'rack' ? [event] : []);
   let ended = 0; let claimedAtFirstEnd = 0;
@@ -67,7 +76,13 @@ it('runs a split of more than a hundred pieces wholly on a rack: its units queue
   const agent = await TestRackAgent.enroll(mint.apiUrl, mint.enrollmentToken, {
     certificateSha256: mint.certificateSha256.type === 'some' ? mint.certificateSha256.value : undefined,
     resources: { cores: 8, memoryBytes: 16 * GiB, gpus: 0 },
-    peak: () => { if (ended++ === 0) claimedAtFirstEnd = claimed().length; return 100 * MiB; },
+    peak: async () => {
+      if (ended++ === 0) {
+        for (let waited = 0; together && claimed().length < 8 && waited < 60_000; waited += 10) await delay(10);
+        claimedAtFirstEnd = claimed().length;
+      }
+      return 100 * MiB;
+    },
   });
   cleanup.push(() => agent.close());
 
@@ -80,9 +95,6 @@ it('runs a split of more than a hundred pieces wholly on a rack: its units queue
     onPlacement: (event) => { placements.push(event); } });
   cleanup.push(() => rack.close());
   assert.equal(rack.rackSlots, 8);
-  // The rack caps each unit, so a run whose own guard runs starts a stage's
-  // units together; where no guard runs (Windows), it measures one first.
-  const together = process.platform !== 'win32';
   assert.equal(rack.runner.firstWave, together ? 'estimate' : 'measure');
   agent.start();
 
@@ -109,6 +121,7 @@ it('runs a split of more than a hundred pieces wholly on a rack: its units queue
   assert(caps.length > 100);
   if (together) {
     assert(caps.every((cap) => cap === unitCap(100 * MiB)), 'each unit asks half as much again as the task was measured to need');
+    // Eight or more: a unit that ends while the first is held makes room for the next.
     assert(claimedAtFirstEnd >= 8, `the rack held ${claimedAtFirstEnd} units before the first had ended: none waited for another to finish before it was leased`);
   }
   assert.equal(second, first, 'the same output');
