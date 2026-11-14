@@ -23,6 +23,7 @@ import { useRelist, useSourceHidden, type RowHiding, type SourceHidden } from ".
 import type { FoundBin } from "./find.js";
 import type { AllocationValue } from "./model.js";
 import { narrowingPart, narrowingSlot, type NarrowedSource } from "./narrowed.js";
+import { one } from "./nouns.js";
 import { rowHiding } from "./table-rows.js";
 
 /**
@@ -51,6 +52,9 @@ export interface HiddenBins {
 
 /** The sources the rail narrows a bin by, in the board's order. */
 const SOURCES: readonly NarrowedSource[] = ["lanes", "resources", "arrivals"];
+
+/** The app's noun for the row of each source a bin stands on: what its line names where the source's page does not hold it (#1621). */
+const NOUN_OF = { lanes: "lane", resources: "resource", arrivals: "arrival" } as const satisfies Record<NarrowedSource, "lane" | "resource" | "arrival">;
 
 /**
  * The row of a source a bin stands on: its lane, its arrival — a reservation has none — or the resource it is shown on,
@@ -86,9 +90,9 @@ export function useHiddenBins(value: AllocationValue, shown: BinShown): HiddenBi
             const hides = rowHiding(bin.lane, { arrival: bin.arrival, parts: bin.parts }, shown.lanes, shown.resources, shown.arrivals);
             return order.flatMap(source => {
                 const pick = picks[source], row = rowOf(source, bin);
-                return hides[source] && pick.part !== undefined && row !== undefined ? [{ pick, id: row }] : [];
+                return hides[source] && pick.part !== undefined && row !== undefined ? [{ pick, id: row, what: one(value.labels[NOUN_OF[source]]) }] : [];
             });
         };
         return { hidingsOf, relist };
-    }, [lanes, resources, arrivals, order, shown, relist]);
+    }, [lanes, resources, arrivals, order, shown, relist, value.labels]);
 }

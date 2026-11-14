@@ -509,7 +509,13 @@ write of the rail like a chip's (`clearHidden`); a clear that throws is said
 where the builder says a gesture's error, the keyboard left where it is — then
 goes to the row as the builder goes, and, once the narrowing they leave draws
 it, selects it where the builder selects it only then and hands it the
-keyboard (`usePickHandOff`). Each source's pick is read in a component of its
+keyboard (`usePickHandOff`). A row its source's page's scope does not hold
+(#1621) — a run's crew member of another press's, a draft that left the scope
+— is hidden by no choice and brought by none (`hiddenByScope`): its line says
+what it stands on is not on this page (`notOnPageText`, the noun the
+builder's own: the Calendar's resource kind, the Allocation's lane, arrival
+or resource), names no filter, and a pick clears nothing of that source.
+Each source's pick is read in a component of its
 own, in order (`HideSources`), over the one chain every builder reads its
 sources by (`each-source.tsx`, which `FollowSources` reads over too). A
 builder supplies only its own:
