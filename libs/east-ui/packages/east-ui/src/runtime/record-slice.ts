@@ -11,7 +11,7 @@ import {
 import { recordSliceFieldSchema, recordSliceFieldTypes, type RecordSliceFieldSchema } from "../platform/slice/record.js";
 import {
     MAX_RECORD_SLICE_RUNS, planRecordSlice, recordChoiceWhere, recordEntriesFields, recordIndexFields, recordIndexGenerated, recordPlanIndex,
-    recordScopeEmpty, recordScopedWhere,
+    recordScopeEmpty, recordScopeSearchIndex, recordScopedWhere,
     type RecordSlicePlan,
 } from "../platform/slice/record-plan.js";
 import { recordOnPrinters, recordOnTypeOf, type RecordOnPrinters } from "../platform/slice/record-on.js";
@@ -56,6 +56,81 @@ const encodeState = encodeBeast2For(RecordSliceStateType);
 const frozenState = decodeBeast2For(RecordSliceStateType, { frozen: true });
 const encodeConfig = encodeBeast2For(RecordSliceConfigType);
 const frozenConfig = decodeBeast2For(RecordSliceConfigType, { frozen: true });
+
+type Query = ValueTypeOf<SeekQueryType>;
+/** A run of rows, as a seek places one: where it starts, and how many it holds. */
+type Range = { found: boolean; row: bigint; count: bigint };
+
+/**
+ * A key type's leaves, in its order (#1621), as e3's key search flattens a key
+ * (`flattenKeyFields`): a Struct's fields, each flattened in turn, else the key
+ * itself — the order a key compares in, so a bound on a leading part of them is
+ * one contiguous run.
+ * @param type - The key type
+ * @returns Each leaf's type, in order
+ */
+function keyLeaves(type: EastType): EastType[] {
+    return type.type === "Struct" ? Object.values(type.fields as Record<string, EastType>).flatMap(keyLeaves) : [type];
+}
+
+/**
+ * A key's leaves' values, in its type's order ({@link keyLeaves}).
+ * @param type - The key type
+ * @param value - The key
+ * @returns Each leaf's value, in order
+ */
+function leafValues(type: EastType, value: unknown): unknown[] {
+    if (type.type !== "Struct") return [value];
+    return Object.entries(type.fields as Record<string, EastType>).flatMap(([name, field]) => leafValues(field, (value as Record<string, unknown>)[name]));
+}
+
+/**
+ * The value just after another in East's order, where its type has one to
+ * write (#1621): what ends a run of keys at one value, half open — a String's
+ * with a NUL after it, the next whole number, the next millisecond, `true`
+ * after `false`, the next Float.
+ * @param type - The value's type
+ * @param value - The value
+ * @returns The value after it; `undefined` where its type has none, or it is the last of its type
+ */
+function successorOf(type: EastType, value: unknown): unknown {
+    switch (type.type) {
+        case "String": return `${value as string}\u0000`;
+        case "Integer": return (value as bigint) + 1n;
+        case "DateTime": return new Date((value as Date).getTime() + 1);
+        case "Boolean": return value === false ? true : undefined;
+        case "Float": {
+            const x = value as number;
+            if (Number.isNaN(x) || x === Infinity) return undefined;
+            // -0 sorts before 0 in East's order: 0 is its successor.
+            if (Object.is(x, -0)) return 0;
+            const view = new DataView(new ArrayBuffer(8));
+            view.setFloat64(0, x === 0 ? 0 : x);
+            const bits = view.getBigUint64(0);
+            view.setBigUint64(0, x > 0 || Object.is(x, 0) ? bits + 1n : bits - 1n);
+            return view.getFloat64(0);
+        }
+        default: return undefined;
+    }
+}
+
+/**
+ * The String just past every String a prefix starts (#1621), in East's order
+ * by code point: the prefix with its last character's code point one higher,
+ * the surrogates' block passed over, a last character at the last code point
+ * dropped and the one before it raised.
+ * @param prefix - The prefix
+ * @returns The String; `undefined` for an empty prefix, which every String starts, or one of last code points alone
+ */
+function prefixSuccessor(prefix: string): string | undefined {
+    const points = [...prefix].map(c => c.codePointAt(0)!);
+    while (points.length > 0) {
+        let next = points.pop()! + 1;
+        if (next === 0xD800) next = 0xE000;
+        if (next <= 0x10FFFF) return String.fromCodePoint(...points, next);
+    }
+    return undefined;
+}
 
 /** A primary identity as the record names it: its key's `.east` text, as a search takes it, and the key. */
 interface Identity {
@@ -143,6 +218,13 @@ export class RecordSliceController {
     readonly readState: () => State;
     /** Whether the page's scope holds no value of one of its fields (#1621): the source then reads no rows. */
     readonly unread: boolean;
+    /**
+     * The narrowing the rows a page holds of its source are (#1621): its scope alone — none on a page with no scope, the
+     * record's own rows. What a reader of those rows by their place — a builder's Search Records and its lines — reads.
+     */
+    readonly base: Where;
+    /** The plan {@link base} is read by, made once it is first read. */
+    private basePlanned: RecordSlicePlan | undefined;
 
     /**
      * @param source - Bound indexed reads.
@@ -206,6 +288,7 @@ export class RecordSliceController {
         }
         this.config = frozenConfig(encodeConfig(scope.size === 0 ? config : { ...config, scope }));
         this.unread = [...scope.values()].some(clause => clause.type === "values" && clause.value.length === 0);
+        this.base = recordScopedWhere(scope, new Map());
         if (scope.size === 0) {
             this.readState = readState;
         } else {
@@ -695,6 +778,179 @@ export class RecordSliceController {
     }
 
     /**
+     * The index a scoped source's rows are read in their keys' order through (#1621): the one on exactly the scope's
+     * fields ({@link recordScopeSearchIndex}), which the record Slice's bind requires of a scoped source.
+     * @returns The index; `undefined` on a page with no scope
+     * @throws {Error} When the source lists none, naming the one to declare
+     */
+    private scopeIndex(): Config["indexes"][number] | undefined {
+        const scoped = [...this.config.scope.keys()];
+        if (scoped.length === 0) return undefined;
+        const index = recordScopeSearchIndex(this.config.indexes, scoped);
+        if (index === undefined) {
+            throw new Error(`Search Records finds a row among the page's scope by its key, through an index on exactly the scope's fields — ` +
+                `by_${scoped.join("_")}: index.on([${scoped.map(name => JSON.stringify(name)).join(", ")}]) among the record's indexes, listed in Data.bindPaged's indexes`);
+        }
+        return index;
+    }
+
+    /**
+     * The plan the rows a page holds of its source are read by (#1621): with no scope, the record's own, in its order;
+     * on a scoped page, the scope's, through the index on exactly its fields, so they run in their keys' order under
+     * each of the scope's values — the order its Search Records seeks them in.
+     */
+    private basePlan(): RecordSlicePlan {
+        if (this.basePlanned !== undefined) return this.basePlanned;
+        const index = this.scopeIndex();
+        const plan = index === undefined ? this.plan(new Map())
+            : this.unread ? { index: index.name, queries: [], empty: true as const }
+                : planRecordSlice([index], this.base, this.source.defaultIndex, undefined, this.printOn)!;
+        this.basePlanned = plan;
+        return plan;
+    }
+
+    /**
+     * A window of the rows a page holds of its source, in their order (#1621): the record's own, with no scope; the
+     * scope's, in their keys' order under each of its values. What a builder's Search Records lists its matches from,
+     * by the places {@link keySearch} gives them.
+     * @param offset - The window's first row, among the page's rows
+     * @param limit - How many rows it holds at most
+     * @returns The window's entries, in order; none while pending
+     */
+    basePage(offset: bigint, limit: bigint): option<RecordSliceEntry[]> {
+        return this.windows.page(this.basePlan(), offset, limit);
+    }
+
+    /**
+     * Which of the rows a page holds of its source `[offset, offset + limit)`, in their order, a narrowing holds
+     * (#1621): {@link withinAt} over those rows — the scope's, on a scoped page — rather than the record's own.
+     * @param where - The narrowing
+     * @param offset - The first row, among the page's rows
+     * @param limit - How many rows
+     * @returns Whether the narrowing holds each row read, in order; none while the rows or the read are pending
+     * @throws {Error} When the binding reads the rows without joining them, or reads no memberships
+     */
+    baseWithinAt(where: Where, offset: bigint, limit: bigint): option<boolean[]> {
+        return this.withinOver(this.basePlan(), where, offset, limit);
+    }
+
+    /**
+     * Where a key query over the record's primary key lands among the rows a page holds of its source (#1621): what
+     * each builder's Search Records seeks. With no scope, in the record's own order: one block, as a seek with no
+     * narrowing places it. On a scoped page, among the scope's rows ({@link basePage}): through the index on exactly
+     * the scope's fields, the query restated as a range of that index's flattened key — each of the scope's values,
+     * then the primary key's bounds — one block a value that holds a match, each placed after the rows of the values
+     * before it. A key whose last part has no value after it to write is found by the first row at or past it.
+     * @param query - The key query, as a Search Records box makes it: over the record's primary key
+     * @returns Each block of matches, in the page's rows' order; none while a read is pending
+     * @throws {Error} When the source lists no index on exactly its scope's fields, or the query names a part of the key
+     *   a range cannot bound: a prefix of a key whose first part is no String
+     */
+    keySearch(query: Query): option<Range[]> {
+        const index = this.scopeIndex();
+        if (index === undefined) {
+            const found = this.windows.seek(this.plan(new Map()), query);
+            return found.type === "none" ? none : some(found.value.found ? [found.value] : []);
+        }
+        const base = this.basePlan();
+        if (base.empty === true) return some([]);
+        const runs = this.windows.resolve(base);
+        if (runs.type === "none") return none;
+        const bounds = this.keyBounds(query);
+        const blocks: Range[] = [];
+        let pending = false;
+        for (const values of this.scopeValues(index)) {
+            // The value's own run, read alone: a range open at its end is held to it.
+            const plan = planRecordSlice([index], new Map(index.fields.map((field, i) => [field, variant("values", [values[i]!])] as const)),
+                this.source.defaultIndex, undefined, this.printOn)!;
+            const own = this.windows.resolve(plan);
+            if (own.type === "none") { pending = true; continue; }
+            const run = own.value.runs[0];
+            if (run === undefined) continue;
+            const found = this.windows.seek(plan, variant("range", { from: [...values, ...bounds.from], to: bounds.to === undefined ? [] : [...values, ...bounds.to] }));
+            if (found.type === "none") { pending = true; continue; }
+            let at = found.value;
+            if (bounds.exact !== undefined && at.count > 0n) {
+                // A key with no value after it to write: the first row at or past it is it, or no row is.
+                const first = this.windows.page(plan, at.row, 1n);
+                if (first.type === "none") { pending = true; continue; }
+                const entry = first.value[0];
+                at = entry !== undefined && equalFor(this.primaryKey)(entry.key, bounds.exact) ? { found: true, row: at.row, count: 1n } : { found: false, row: at.row, count: 0n };
+            }
+            if (at.count === 0n) continue;
+            // Its place among the page's rows: after the rows of every value before it in the index's order.
+            let before = 0n;
+            for (const other of runs.value.runs) if (other.row < run.row) before += other.count;
+            blocks.push({ found: true, row: before + at.row, count: at.count });
+        }
+        if (pending) return none;
+        blocks.sort((a, b) => (a.row < b.row ? -1 : a.row > b.row ? 1 : 0));
+        return some(blocks);
+    }
+
+    /** Each of the scope's values, as the index on exactly its fields keys a run of it: its fields' literals, in their order. */
+    private scopeValues(index: Config["indexes"][number]): string[][] {
+        let combinations: string[][] = [[]];
+        for (const field of index.fields) {
+            const clause = this.config.scope.get(field);
+            const values = clause?.type === "values" ? clause.value : [];
+            combinations = combinations.flatMap(leading => values.map(value => [...leading, value]));
+        }
+        return combinations;
+    }
+
+    /**
+     * A key query's bounds over the record's primary key's leaves (#1621), as literals: a range from `from`, up to `to`
+     * where one can be written; an exact key with no value after it to write, open at its end, which the first row at or
+     * past it answers (`exact`).
+     */
+    private keyBounds(query: Query): { readonly from: string[]; readonly to: string[] | undefined; readonly exact?: unknown } {
+        const leaves = keyLeaves(this.primaryKey);
+        const printLeaf = (i: number, value: unknown) => printFor(leaves[i]!)(value);
+        // The last of some leading leaves' values raised to the next its type writes: what ends the keys they lead.
+        const raised = (values: readonly unknown[]): string[] | undefined => {
+            const last = values.length - 1;
+            const next = successorOf(leaves[last]!, values[last]);
+            return next === undefined ? undefined : [...values.slice(0, last).map((value, i) => printLeaf(i, value)), printLeaf(last, next)];
+        };
+        switch (query.type) {
+            case "key": {
+                const parsed = parseFor(this.primaryKey)(query.value);
+                if (!parsed.success) throw new Error(`Search Records reads a key of the record's key type: ${parsed.error}`);
+                const values = leafValues(this.primaryKey, parsed.value);
+                const to = raised(values);
+                return { from: values.map((value, i) => printLeaf(i, value)), to, ...(to === undefined ? { exact: parsed.value } : {}) };
+            }
+            case "prefix": {
+                if (leaves[0]?.type !== "String") throw new Error("Search Records finds a key by its start where the key's first part is a String");
+                const after = prefixSuccessor(query.value);
+                return { from: [printLeaf(0, query.value)], to: after === undefined ? undefined : [printLeaf(0, after)] };
+            }
+            case "fields": {
+                const { values, prefix } = query.value;
+                if (prefix.type === "some") {
+                    const at = values.length;
+                    if (leaves[at]?.type !== "String") throw new Error("Search Records finds a key by the start of a part that is a String");
+                    const after = prefixSuccessor(prefix.value);
+                    return { from: [...values, printLeaf(at, prefix.value)], to: after === undefined ? undefined : [...values, printLeaf(at, after)] };
+                }
+                const read = values.map((text, i) => {
+                    const parsed = parseFor(leaves[i]!)(text);
+                    if (!parsed.success) throw new Error(`Search Records reads each part of a key at its type: ${parsed.error}`);
+                    return parsed.value;
+                });
+                const to = read.length === 0 ? undefined : raised(read);
+                if (read.length > 0 && to === undefined) throw new Error("Search Records finds keys by their leading parts where the last of them has a value after it to write");
+                return { from: [...values], to };
+            }
+            case "range": {
+                const { from, to } = query.value;
+                return { from: [...from], to: to.length === 0 ? undefined : [...to] };
+            }
+        }
+    }
+
+    /**
      * Some rows' maintained entries of an index, each beside the row it is one of: each row's keys, as the binding
      * maintains them — an East function of the row, evaluated row by row.
      */
@@ -733,7 +989,15 @@ export class RecordSliceController {
      * @throws {Error} When the binding reads its own rows without joining them, or reads no memberships
      */
     withinAt(where: Where, offset: bigint, limit: bigint): option<boolean[]> {
-        const page = this.windows.page(this.plan(new Map()), offset, limit);
+        return this.withinOver(this.plan(new Map()), where, offset, limit);
+    }
+
+    /**
+     * {@link withinAt} over the rows a plan reads, `[offset, offset + limit)` in its order: the record's own, or the rows a
+     * page holds of its source ({@link baseWithinAt}).
+     */
+    private withinOver(rows: RecordSlicePlan, where: Where, offset: bigint, limit: bigint): option<boolean[]> {
+        const page = this.windows.page(rows, offset, limit);
         if (page.type === "none") return none;
         const plan = this.plan(where);
         // A narrowing that holds no row holds none of these; no narrowing holds every row.

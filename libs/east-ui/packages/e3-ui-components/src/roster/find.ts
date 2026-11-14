@@ -9,6 +9,8 @@
  * rail's. It is the shared key search's item over the complete staff the
  * Roster calculates over, read whole: their keys in East's order, as the
  * server finds a key (`findKeyInline`) — a key's start, a quoted key, a range.
+ * On a page whose people's source holds a scope (#1621), it lists the people
+ * the scope holds alone, asked of e3 (`scopeHeld`).
  * A line names a person by their key, their name and their group; one the
  * rail's narrowing hides says so, as every builder's does (the shared hidden
  * pick, `shared/schedule/hidden.ts`) — `· hidden by Group: picking — picking
@@ -25,6 +27,7 @@ import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
 import { StringType, compareFor, equalFor, toEastTypeValue, type EastTypeValue, type option } from "@elaraai/east";
 import { findKeyInline, type DatasetKeyMatchRange, type DatasetKeyQuery } from "@elaraai/east-ui/internal";
 import type { KeySearchSource } from "@elaraai/east-ui-components";
+import { scopeHeld } from "../shared/schedule/found-blocks.js";
 import { askHiding, hiddenLine, hiddenOf, useRelist, type RowHidden, type SourceHidden } from "../shared/schedule/hidden.js";
 import type { RosterWords } from "./messages.js";
 import type { Person, RosterValue } from "./model.js";
@@ -101,9 +104,15 @@ export function useRosterFind({ people, visible, settled, groups, hidden, words,
     useLayoutEffect(() => { latest.current = { people, visible, settled, groups, hidden, words, onPick }; });
     // What the last find found; the box asks for its lines, and jumps to one, with what it captured before the find answered.
     const found = useRef<readonly Person[]>([]);
+    // The finds asked: one answered after a newer one asked finds nothing here.
+    const asked = useRef(0);
     const find = useCallback(async (query: DatasetKeyQuery): Promise<DatasetKeyMatchRange> => {
-        const matches = findPeople(latest.current.people, query);
-        found.current = matches;
+        const mine = ++asked.current;
+        const all = findPeople(latest.current.people, query);
+        // On a scoped page, the people its scope holds alone (#1621): the rest are no one of this page's.
+        const held = await scopeHeld(latest.current.hidden.part, all.map(person => person.key));
+        const matches = held === undefined ? all : all.filter(person => held.has(person.key));
+        if (mine === asked.current) found.current = matches;
         return { found: matches.length > 0, row: 0, count: matches.length };
     }, []);
     const of = useCallback((person: Person): FoundPerson => {
@@ -125,7 +134,7 @@ export function useRosterFind({ people, visible, settled, groups, hidden, words,
         const person = found.current[row];
         if (person !== undefined) latest.current.onPick(of(person));
     }, [of]);
-    const clear = useCallback(() => { found.current = []; }, []);
+    const clear = useCallback(() => { asked.current++; found.current = []; }, []);
     const any = people.length > 0;
     // The box asks its query again as the staff or what the rail shows of them move: a line says who it hides.
     const requery = useRequery(people, visible);

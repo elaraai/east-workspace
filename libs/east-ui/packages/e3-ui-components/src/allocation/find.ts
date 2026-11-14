@@ -6,11 +6,13 @@
 /**
  * Search Records (#1398): the board's toolbar's key search over its bins'
  * record by primary key — never a field search, which is the rail's, and never
- * what the day draws. The record is sought through e3 with no narrowing, as
- * the Schematic's Find seeks its kinds': `recordSliceSeek` places the query's
- * run in the record's own order through the bins' source of the slice, and
- * `recordSlicePage` reads the rows a list shows by position, each read for
- * its roles by the bin kind's `read`. A line names a bin by its key, its
+ * what the day draws. The record is sought through e3 with no choice of the
+ * viewer's, as the Schematic's Find seeks its kinds': `recordSliceKeySearch`
+ * places the query's run in the record's own order through the bins' source of
+ * the slice — on a page whose source holds a scope (#1621), among the scope's
+ * rows alone, a run of matches for each of its values — and
+ * `recordSliceBasePage` reads the rows a list shows by their place there, each
+ * read for its roles by the bin kind's `read`. A line names a bin by its key, its
  * arrival — or that it is a reservation — its lane and its time, and its day;
  * a pick hands the board the bin (`onPick`), which steps to its day and
  * selects it there, and the box shows its key. A bin the rail's narrowing
@@ -27,10 +29,11 @@
  */
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { StringType, equalFor, none, toEastTypeValue, type EastTypeValue, type ValueTypeOf, type option } from "@elaraai/east";
-import type { DatasetKeyMatchRange, DatasetKeyQuery, RecordSliceBindType, RecordSliceWhereType } from "@elaraai/east-ui/internal";
+import { StringType, equalFor, toEastTypeValue, type EastTypeValue, type ValueTypeOf, type option } from "@elaraai/east";
+import type { DatasetKeyMatchRange, DatasetKeyQuery, RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { useTrackedEvaluation, type Formatters, type KeySearchSource } from "@elaraai/east-ui-components";
-import { awaitTracked, formatDatePattern, recordSlicePage, recordSliceRevision, recordSliceSeek, toSeekQuery } from "@elaraai/east-ui-components/internal";
+import { awaitTracked, formatDatePattern, recordSliceBasePage, recordSliceKeySearch, recordSliceRevision, toSeekQuery } from "@elaraai/east-ui-components/internal";
+import { blocksAt, type FoundBlock } from "../shared/schedule/found-blocks.js";
 import { hiddenLine } from "../shared/schedule/hidden.js";
 import type { HiddenBins } from "./hidden.js";
 import type { AllocationWords } from "./messages.js";
@@ -40,8 +43,6 @@ import { one } from "./nouns.js";
 /** A bin's key is a String: the search's text parses against that. */
 const KEY_TYPE: EastTypeValue = toEastTypeValue(StringType);
 const keyEqual = equalFor(StringType);
-/** No narrowing: the record's own rows, in its order. */
-const WHOLE: ValueTypeOf<typeof RecordSliceWhereType> = new Map();
 /** An empty box lists the first of the record's bins. */
 const BROWSE_QUERY: DatasetKeyQuery = { prefix: "" };
 
@@ -100,25 +101,25 @@ export interface AllocationFindProps {
 export function useAllocationFind({ value, domain, part, words, hidden, onPick }: AllocationFindProps): KeySearchSource | undefined {
     const latest = useRef({ value, domain, part, words, hidden, onPick });
     useLayoutEffect(() => { latest.current = { value, domain, part, words, hidden, onPick }; });
-    // What the last find found: the run of the record's rows it placed; a find answered after a newer one asked finds nothing here.
-    const found = useRef({ start: 0, count: 0 });
+    // What the last find found: the blocks of the page's rows it placed; a find answered after a newer one asked finds nothing here.
+    const found = useRef<readonly FoundBlock[]>([]);
     const asked = useRef(0);
     const find = useCallback(async (query: DatasetKeyQuery): Promise<DatasetKeyMatchRange> => {
         const mine = ++asked.current;
         const source = latest.current.part;
         if (source === undefined) return { found: false, row: 0, count: 0 };
-        const at = await awaitTracked(() => recordSliceSeek(source, WHOLE, toSeekQuery(query)));
-        const run = at.found ? { start: Number(at.row), count: Number(at.count) } : { start: 0, count: 0 };
-        if (mine === asked.current) found.current = run;
-        return { found: run.count > 0, row: 0, count: run.count };
+        const blocks = await awaitTracked(() => recordSliceKeySearch(source, toSeekQuery(query)));
+        if (mine === asked.current) found.current = blocks;
+        const count = Number(blocks.reduce((sum, block) => sum + block.count, 0n));
+        return { found: count > 0, row: 0, count };
     }, []);
     /** The bins at the list's rows `[row, row + limit)`. */
     const binsAt = useCallback(async (row: number, limit: number): Promise<FoundBin[]> => {
         const { part: source, value: board, domain: rows } = latest.current;
-        const run = found.current;
-        const n = Math.max(0, Math.min(limit, run.count - row));
-        if (source === undefined || n === 0) return [];
-        const entries = await awaitTracked(() => recordSlicePage(source, { where: WHOLE, area: none }, BigInt(run.start + row), BigInt(n))) as readonly RecordEntry[];
+        if (source === undefined) return [];
+        const pages = await Promise.all(blocksAt(found.current, row, limit).map(({ from, n }) =>
+            awaitTracked(() => recordSliceBasePage(source, from, BigInt(n)))));
+        const entries = pages.flat() as readonly RecordEntry[];
         return entries.flatMap((entry): FoundBin[] => {
             if (entry.row.type !== "some") return [];
             const roles = board.bin.read(rows.encodeRow(entry.row.value));
@@ -142,7 +143,7 @@ export function useAllocationFind({ value, domain, part, words, hidden, onPick }
         void binsAt(row, 1).then(([bin]) => { if (bin !== undefined) latest.current.onPick(bin); })
             .catch((error: unknown) => { console.error("[Allocation] Search Records could not read the bin it found:", error); });
     }, [binsAt]);
-    const clear = useCallback(() => { asked.current++; found.current = { start: 0, count: 0 }; }, []);
+    const clear = useCallback(() => { asked.current++; found.current = []; }, []);
     // The box asks its query again as the record moves to another revision — tracked, so a day the board reads moves none of it.
     const readRevision = useCallback(() => {
         if (part === undefined) return "";

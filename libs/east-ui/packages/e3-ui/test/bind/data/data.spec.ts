@@ -311,6 +311,15 @@ describe("Slice.bindRecord's scope is refused where no listed index reads it, na
         });
     });
 
+    hostTest("a scope needs a plain index on exactly its fields, its rows in their keys' order, which Search Records finds a row among by its key: one led by the scope's fields and another after them alone is refused, naming the one to declare", () => {
+        assert.throws(() => bindRecord("jobs", Data.bindPaged(jobs, { indexes: ["by_press_status"] }), { scope: press, fields: { status: { hints: ["held"] } } }), {
+            message: "Slice.bindRecord: Search Records finds a row among the scope's ('press') by its key, through an index on exactly the scope's fields, " +
+                `whose rows run in their keys' order — by_press: index.on(["press"]) among the record's indexes, listed in Data.bindPaged's indexes`,
+        });
+        assert.doesNotThrow(() => bindRecord("jobs", Data.bindPaged(jobs, { indexes: ["by_press_status", "by_press"] }), { scope: press, fields: { status: { hints: ["held"] } } }),
+            "listed after the other, it is found");
+    });
+
     hostTest("a scoped field is no field of the rail: it is refused in fields, initial, every preset, range and search", () => {
         const held = (where: string) => ({ message: `Slice.bindRecord: 'press' is in the scope, which every read holds and the rail shows no control for — leave it out of ${where}` });
         assert.throws(() => bindRecord("jobs", pressLed, { scope: press, fields: { press: {}, status: { hints: ["held"] } } }), held("fields"));

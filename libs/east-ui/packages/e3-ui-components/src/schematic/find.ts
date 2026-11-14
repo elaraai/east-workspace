@@ -11,10 +11,12 @@
  * (`focusKeySearch`).
  *
  * - **A kind read through its source of the slice** is sought in its record's
- *   own order, through e3: `recordSliceSeek` with no narrowing places the
- *   query's run, `recordSlicePage` reads the rows a list shows by position,
- *   each made its roles by the kind's `read`, and `recordSliceWithin` asks, in
- *   one request, which of them the rail's narrowing holds.
+ *   own order, through e3: `recordSliceKeySearch` with no choice of the
+ *   viewer's places the query's run — on a page whose source holds a scope
+ *   (#1621), among the scope's rows alone, a run of matches for each of its
+ *   values — `recordSliceBasePage` reads the rows a list shows by their place
+ *   there, each made its roles by the kind's `read`, and `recordSliceWithin`
+ *   asks, in one request, which of them the rail's narrowing holds.
  * - **A kind read whole** is sought in its rows — every row of its record —
  *   its keys in East's order, as the server finds a key (`findKeyInline`).
  *
@@ -53,13 +55,13 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
-    EastTypeType, StringType, compareFor, equalFor, match, none, parseFor, printFor, type EastTypeValue, type ValueTypeOf, type option,
+    EastTypeType, StringType, compareFor, equalFor, match, parseFor, printFor, type EastTypeValue, type ValueTypeOf, type option,
 } from "@elaraai/east";
 import {
     RecordSliceWhereType, findKeyInline, parseKeyInput, type DatasetKeyMatchRange, type DatasetKeyQuery, type RecordSliceBindType,
 } from "@elaraai/east-ui/internal";
 import { useTrackedEvaluation, type KeySearchSource } from "@elaraai/east-ui-components";
-import { awaitTracked, recordSlicePage, recordSliceRevision, recordSliceSeek, recordSliceWithin, toSeekQuery } from "@elaraai/east-ui-components/internal";
+import { awaitTracked, recordSliceBasePage, recordSliceKeySearch, recordSliceRevision, recordSliceWithin, toSeekQuery } from "@elaraai/east-ui-components/internal";
 import { entityId, type ItemRoles, type SchematicRef } from "./canvas/drawn.js";
 import { hiddenLine, hiddenOf, useRelist, type RowHidden, type SourceHidden } from "../shared/schedule/hidden.js";
 import type { HiddenPicks } from "../shared/schedule/hidden-pick.js";
@@ -89,9 +91,6 @@ function rowsToken(rows: option<ReadonlyMap<string, unknown>>): string {
     }
     return `rows:${id}`;
 }
-
-/** No narrowing: a record's own rows, in its order. */
-const WHOLE: ValueTypeOf<typeof RecordSliceWhereType> = new Map();
 
 /** An empty box lists the first of the matches each item kind keyed by String holds: one keyed otherwise is sought as typed. */
 const BROWSE_QUERY: DatasetKeyQuery = { prefix: "" };
@@ -248,11 +247,14 @@ export function kindQuery(query: DatasetKeyQuery, box: EastTypeValue, keyed: Kin
     return parsed.kind === "query" ? parsed.query : undefined;
 }
 
-/** One kind's matches: a run of its record's rows, from `start`, or a kind read whole's keys. */
+/**
+ * One kind's matches, or a block of them: a run of the rows its page holds of its record, from `start`, or a kind read
+ * whole's keys.
+ */
 export interface FindRun {
     /** The kind. */
     readonly kind: FindKind;
-    /** Where its matches start, in its record's own order: a kind read through its source. */
+    /** Where its matches start, among the rows its page holds of its record — the record's own, or its scope's (#1621). */
     readonly start: number;
     /** How many it finds. */
     readonly count: number;
@@ -312,7 +314,7 @@ async function matchesOf(run: FindRun, offset: number, n: number, pick: SourceHi
     const part = kind.part;
     const from = run.start + offset;
     // Each entry by its key's text (#1549), the narrowing asked of it at its key.
-    const entries = await awaitTracked(() => recordSlicePage(part, { where: WHOLE, area: none }, BigInt(from), BigInt(n))) as readonly RecordEntry[];
+    const entries = await awaitTracked(() => recordSliceBasePage(part, BigInt(from), BigInt(n))) as readonly RecordEntry[];
     const listed = entries.map((entry) => ({ key: kind.keys.textOf(entry.key), at: entry.key, row: someOf(entry.row) }));
     const rows = listed.flatMap(({ key, at, row }) => (row === undefined ? [] : [{ key, at, row }]));
     const where = part.read().where;
@@ -376,19 +378,20 @@ export function useSchematicFind({ kinds, words, picks, hiddenLayers, dim, onPic
         if (again !== true) latest.current.onCleared();
         const mine = ++asked.current;
         const { kinds: sought, keyType: box } = latest.current;
-        const runs = await Promise.all(sought.map(async (kind): Promise<FindRun> => {
+        const runs = (await Promise.all(sought.map(async (kind): Promise<FindRun[]> => {
             // Text that reads as no key of the kind's finds none of its rows.
             const kindAsked = kindQuery(query, box, kind.keys);
-            if (kindAsked === undefined) return { kind, start: 0, count: 0, keys: undefined };
+            if (kindAsked === undefined) return [];
             if (kind.part !== undefined) {
                 const part = kind.part;
-                const range = await awaitTracked(() => recordSliceSeek(part, WHOLE, toSeekQuery(kindAsked)));
-                return { kind, start: range.found ? Number(range.row) : 0, count: range.found ? Number(range.count) : 0, keys: undefined };
+                // A block of matches each: one with no scope, one for each of the scope's values that holds one (#1621).
+                const blocks = await awaitTracked(() => recordSliceKeySearch(part, toSeekQuery(kindAsked)));
+                return blocks.map((block) => ({ kind, start: Number(block.row), count: Number(block.count), keys: undefined }));
             }
             const rows = await awaitTracked(() => kind.rows());
             const keys = wholeMatches([...rows.keys()], kindAsked, kind.keys);
-            return { kind, start: 0, count: keys.length, keys };
-        }));
+            return [{ kind, start: 0, count: keys.length, keys }];
+        }))).flat();
         if (mine === asked.current) found.current = runs;
         const count = runs.reduce((sum, run) => sum + run.count, 0);
         return { found: count > 0, row: 0, count };

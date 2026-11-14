@@ -94,6 +94,8 @@ export const schematicStressRacks = e3.record("schematic_stress_racks", StressRa
         }),
         // A choice no area index leads: a window under it asks which of its racks the choice holds.
         schematic_stress_racks_by_model: index.on(["model"]),
+        // A page scoped to some halls finds a rack among theirs by its key through it (#1621): their racks in their keys' order.
+        schematic_stress_racks_by_hall: index.on(["hall"]),
     }),
     mutations: (mutation) => ({
         // The racks' patch door: each Save of the floor writes through it, and the budget run fills the floor through it.
