@@ -1650,7 +1650,7 @@ export type PlanRowsType = typeof PlanRowsType;
 // ============================================================================
 
 /**
- * What a Plan's `editing.onPatch` receives for entries of `R` (#880) — the
+ * What a Plan's `onPatch` receives for entries of `R` (#880) — the
  * shared patch event (`Editing.Types.PatchEvent`) over the Plan's drafts,
  * which are whole entries (`Editing.Types.DraftField(R)`): every gesture
  * writes a complete entry, so a draft is always its `value`.

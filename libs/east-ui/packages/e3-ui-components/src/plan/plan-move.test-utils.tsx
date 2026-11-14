@@ -5,8 +5,9 @@
 
 /**
  * The Plan's moves under test (#825) — ONE canvas, built by the e3-ui
- * factory and COMPILED over a `State.bind` handle written through the
- * `onUpdate` adapter, whose presses hold four collections, each a Dict keyed
+ * factory and COMPILED over a `State.bind` handle the canvas builder's
+ * `onApply` seam commits to whole (`state-apply.test-utils.ts`; a Plan itself
+ * saves through a record alone, #1541), whose presses hold four collections, each a Dict keyed
  * by an item's id and read by name (#1436), each a series that takes moves:
  *
  * - `jobs` — runs (a span series) of the `Job` item type;
@@ -36,6 +37,7 @@ import { layOut } from "@elaraai/east-ui-components/testing";
 import { act } from "../test-runs.test-utils.js";
 import { EastChakraPlan, type PlanRootValue } from "./index.js";
 import { rowKey, rowSel } from "./plan.test-utils.js";
+import { stateApply } from "./state-apply.test-utils.js";
 
 // ── The canvas's data ───────────────────────────────────────────────────────
 
@@ -151,7 +153,7 @@ export async function mountMoves(options: { veto?: boolean; seed?: Map<string, P
             series: SERIES,
             ...(options.id !== false ? { id: SURFACE } : {}),
             ...(options.veto === true ? { canDrop: NOT_M2_JOBS } : {}),
-            editing: { onUpdate: presses.write },
+            editing: { onApply: stateApply(Presses, STATE_KEY, presses) },
         });
     }), getRegisteredPlatformImplementations());
     const patches: MovePatch[] = [];

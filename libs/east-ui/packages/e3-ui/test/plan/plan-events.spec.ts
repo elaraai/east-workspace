@@ -28,7 +28,7 @@ import {
 } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import { Slice, UIComponentType } from "@elaraai/east-ui";
-import { Text } from "@elaraai/east-ui/internal";
+import { Editing, Text } from "@elaraai/east-ui/internal";
 import { Data, Plan, PlanPayloadType, Record, Schedule, planKeys } from "@elaraai/e3-ui/internal";
 import { Plan as PublicPlan } from "@elaraai/e3-ui";
 import * as ex from "./plan-events.examples.js";
@@ -186,10 +186,10 @@ describe("the Plan's refusals (PB8)", () => {
         }), /^Plan: events\.job's resource field holds String keys of resources\.presses, which is keyed by \.Integer — key the resources by String$/);
     });
 
-    test("`series`, `pick` and `editing` with no `data` to read", () => {
+    test("`series` with no `data` to read, and the canvas's own session with none", () => {
         const rows = [Plan.events({ key: "ms", label: "Milestones" })];
         assert.match(refusal(() => Plan.Payload({ axis, rows, series: [MARKS] })), /^Plan: `series` reads `data`'s entries — pass `data` with it, or place read-only rows with `rows`$/);
-        assert.match(refusal(() => Plan.Payload({ axis, rows, editing: {} })), /^Plan: `editing` reads `data`'s entries/);
+        assert.match(refusal(() => Plan.Root({ axis, editing: {} } as never)), /^Plan: `data` is required — a canvas is its data plus the series over it$/);
     });
 
     test("a `rows` item that is neither a hand-built row nor Plan.over's", () => {
@@ -204,6 +204,80 @@ describe("the Plan's refusals (PB8)", () => {
         const candidate = East.function([Schedule.Types.Candidate], OptionType(StringType), () => none);
         assert.match(refusal(($) => Plan.Payload({ axis, data: $.const(ROWS, Rows), series: [MARKS], canDrop: candidate })),
             /^Plan: `canDrop` over Schedule\.Types\.Candidate vets an event kind's drop, and this Plan has no event kinds$/);
+    });
+});
+
+describe("the rows' save door: `record`, with `onPatch` and `ready` as props (#1541, U4)", () => {
+    const axis = Plan.axis({ window: WINDOW, resolution: "day" });
+    const Job = ex.PrintJob;
+    const series = [Plan.series.span(Job, { key: "jobs", title: "Jobs", label: (j) => j.title,
+        runs: (j, k) => [Plan.run({ key: k, start: j.start.unwrap("some"), end: j.end.unwrap("some"), label: j.title, state: "confirmed" })] })];
+    const onPatch = East.function([Plan.Types.PatchEvent(Job)], NullType, () => null);
+    const ready = East.function([Job, StringType], Editing.Types.Readiness, () => variant("ready", null));
+    const jobIndex = () => Data.bindPaged(ex.planPrintJobs, { indexes: ["plan_print_jobs_by_time"] });
+
+    test("a Plan saves its rows through `record`, the record they are read from — paged whole, read whole, or the slice's `rows` source — and takes `onPatch` and `ready` beside it", () => {
+        for (const rows of ["paged", "whole", "slice"] as const) {
+            assert.equal(refusal(($) => {
+                const record = $.let(Record.bind(ex.planPrintJobs));
+                const payload = Plan.Payload({
+                    axis, series, record, onPatch, ready,
+                    ...(rows === "paged" ? { data: $.let(Data.bindPaged(ex.planPrintJobs)) } : rows === "whole" ? { data: record }
+                        : { slice: { slice: Slice.bindRecords(`spec.record.${rows}`, { rows: { source: jobIndex(), fields: { start: { label: "Dates" } } } }) } }),
+                });
+                assert.ok(isTypeEqual(Expr.type(payload as unknown as Expr) as EastType, PlanPayloadType));
+            }), "", rows);
+        }
+    });
+
+    test("`editing` is refused by name, naming the prop that replaces each of its parts", () => {
+        const refused = /^Plan: `editing` is removed \(#1541\) — the rows save through `record`, the record they are read from, bound with its patch mutation: record=\{Record\.bind\(record\)\} in place of `editing\.onApply` \(Record\.onApply\(record, \{ keyed: true \}\)\); `editing\.onPatch` is the prop `onPatch`, and `editing\.ready` the prop `ready`; `editing\.onUpdate` has none — a Plan over data that is no record does not edit$/;
+        assert.match(refusal(($) => Plan.Payload({ axis, data: $.const(ROWS, Rows), series: [MARKS], editing: {} } as never)), refused);
+        assert.match(refusal(($) => {
+            const record = $.let(Record.bind(ex.planPrintJobs));
+            return Plan.Payload({ axis, data: record, series, editing: { onApply: Record.onApply(record, { keyed: true }), onPatch, ready } } as never);
+        }), refused);
+    });
+
+    test("the canvas's own session takes no `onUpdate`: a Plan over data that is no record does not edit", () => {
+        assert.match(refusal(($) => Plan.Root({ axis, data: $.const(ROWS, Rows), series: [MARKS], editing: { onUpdate: East.function([Rows], NullType, () => null) } as never })),
+            /^Plan: `editing\.onUpdate` is removed \(#1541\) — a Plan saves through a record's patch door alone, so one over data that is no record does not edit: bind the record the rows are read from and give it as `record` \(Record\.bind\(record\), its record declaring patch: mutation\.patch\(\)\)$/);
+    });
+
+    test("the canvas's own session takes `record` or `onApply`, the commit itself — not both", () => {
+        const onApply = East.function([Editing.Types.ChangeSet(Job, StringType)], Editing.Types.ApplyResult, () => variant("applied", { revision: none }));
+        assert.match(refusal(($) => {
+            const record = $.let(Record.bind(ex.planPrintJobs));
+            return Plan.Root({ axis, data: record, series, editing: { record, onApply } });
+        }), /^Plan: editing takes `record`, whose patch door commits each batch, or `onApply`, the commit itself — not both$/);
+    });
+
+    test("`onPatch` and `ready` observe and check the drafts `record` saves: without it each is refused, naming it", () => {
+        const data = ($: BlockBuilder<NullType>) => $.let(Data.bindPaged(ex.planPrintJobs));
+        assert.match(refusal(($) => Plan.Payload({ axis, data: data($), series, onPatch })),
+            /^Plan: `onPatch` observes the drafts `record` saves, and this Plan has no `record` — give it the record the rows are read from, bound with its patch mutation: record=\{Record\.bind\(record\)\}$/);
+        assert.match(refusal(($) => Plan.Payload({ axis, data: data($), series, ready })),
+            /^Plan: `ready` checks the drafts `record` saves, and this Plan has no `record` — give it the record the rows are read from, bound with its patch mutation: record=\{Record\.bind\(record\)\}$/);
+    });
+
+    test("`record` with no rows to save — a Plan of event kinds or `rows` alone — is refused, naming how the rows are read", () => {
+        assert.match(refusal(($) => Plan.Payload({ axis, rows: [Plan.events({ key: "ms", label: "Milestones" })], record: $.let(Record.bind(ex.planPrintJobs)) })),
+            /^Plan: `record` saves the rows `data` or the slice's `rows` source reads, and this Plan has neither — pass the rows with it: data=\{Data\.bindPaged\(record\)\}, or slice=\{\{ slice: Slice\.bindRecords\(key, \{ rows: \{ source: Data\.bindPaged\(record, \{ indexes \}\) \} \}\) \}\}$/);
+    });
+
+    test("`record` is the record the rows are read from: one holding other entries, one that is no bound record, and one not bound with its patch mutation are each refused", () => {
+        assert.match(refusal(($) => Plan.Payload({ axis, data: $.const(ROWS, Rows), series: [MARKS], record: $.let(Record.bind(ex.planPrintJobs)) })),
+            /^Plan: `record` saves the rows by key, so it is the record they are read from — and this record holds \.Dict .+ where the rows are \.Dict .+$/);
+        const bound = "Plan: `record` is the record the rows are read from, bound with its patch mutation — Record.bind(record), its record declaring patch: mutation.patch()";
+        assert.equal(refusal(($) => Plan.Payload({ axis, data: $.const(ROWS, Rows), series: [MARKS], record: {} as never })), `${bound} — and this one is no bound record`);
+        assert.equal(refusal(($) => Plan.Payload({ axis, data: $.const(ROWS, Rows), series: [MARKS], record: $.const(ROWS, Rows) as never })),
+            `${bound} — and this one is .Dict (key=.String, value=.Struct [(name="v", type=.Float)])`);
+        // The presses' record declares no patch mutation: its handle has no patch door.
+        assert.match(refusal(($) => {
+            const presses = $.let(Record.bind(ex.planPrintPresses, []));
+            const rows = [Plan.series.events(ex.PrintPress, { key: "presses", title: "Presses", label: (p) => p.name, marks: () => [] })];
+            return Plan.Payload({ axis, data: presses, series: rows, record: presses as never });
+        }), /^Record\.onApply: "patch" is not bound as this record's patch door — bind the record with patch: mutation\.patch\(\) among the mutations it declares$/);
     });
 });
 
