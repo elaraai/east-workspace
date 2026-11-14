@@ -42,7 +42,7 @@ type RecordKeyOf<T> = T extends DictType<infer K extends EastType, unknown> ? K 
  * a body that reads what such an index carries declares its parameter by it.
  */
 export type IndexEntriesOf<D> = D extends RecordIndexDef<string, infer T, infer IK, infer P>
-  ? DictType<StructType<{ ik: IK; k: D extends { readonly summary: object } ? NullType : RecordKeyOf<T> }>, P>
+  ? DictType<StructType<{ ik: IK; k: D extends { readonly summary: object } | { readonly span: object } ? NullType : RecordKeyOf<T> }>, P>
   : never;
 
 /** The words for what `e3.index` was given, when it is no index a record carries: what it is, by its kind. */

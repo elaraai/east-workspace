@@ -30,10 +30,11 @@
  */
 
 import {
-  ArrayType, DateTimeType, DictType, East, Expr, OptionType, SetType, isTypeEqual, none, printType, some, variant,
+  ArrayType, DateTimeType, DictType, East, Expr, FloatType, OptionType, SetType, isTypeEqual, none, printType, some, variant,
   type BlockBuilder, type EastType, type ExprType, type IntegerType, type KeyBound, type NullType, type StructType, type SubtypeExprOrValue,
 } from '@elaraai/east';
 import { RecordLevelType, RecordSummaryTotalsType } from '@elaraai/e3-types';
+import { AREA_FINEST_LEVEL, AREA_FNS, AREA_UNPLACED } from './record-area.js';
 import { INTERVAL_LEAF } from './record-interval.js';
 import { optionField, type OptionField, type RowType } from './record-keys.js';
 import { RECORD_TILES, TILE_FNS, type RecordTile } from './record-tiles.js';
@@ -474,6 +475,215 @@ function summaryReaders(entries: Entries): SummaryReaders {
   };
 }
 
+// ── Area indexes: `within`, `unplaced` ───────────────────────────────────────
+
+/** A window of the plane: its minimum corner, and its width and height. */
+export interface AreaWindow {
+  /** The window's least `x`. */
+  x: SubtypeExprOrValue<FloatType>;
+  /** Its least `y`. */
+  y: SubtypeExprOrValue<FloatType>;
+  /** Its width; a negative one holds no row. */
+  width: SubtypeExprOrValue<FloatType>;
+  /** Its height; a negative one holds no row. */
+  height: SubtypeExprOrValue<FloatType>;
+}
+
+/**
+ * An area index's readers (`index.area`).
+ *
+ * @typeParam IK - The index's key type, `{ on, area }`
+ * @typeParam P - What the index carries: the row
+ * @typeParam K - The row's key type
+ */
+export interface AreaReaders<IK extends EastType = EastType, P extends EastType = EastType, K extends EastType = EastType> {
+  /**
+   * The rows whose box meets the window, its edges included: a box that
+   * touches the window is in it. A cell at each level coarser than the one
+   * whose cells are an eighth of the window's larger side, and a range of
+   * cells at that level: at most 266 runs, as a page's read of a viewport.
+   *
+   * @param window - The leading fields, each exactly, and the window
+   * @returns The read: each row once, and its key
+   * @throws {Error} Where the function is built, when a leading field is left out or of another type, naming them;
+   *   an East runtime error when the window is not finite
+   */
+  within(window: LeadingOn<IK> & AreaWindow): IndexRead<P, K>;
+  /**
+   * The rows not yet placed: those whose `x` or `y` is none. One run.
+   *
+   * @param where - The leading fields, each exactly
+   * @returns The read
+   * @throws {Error} Where the function is built, when the box's place is no Option field — every row is then
+   *   placed — or a leading field is left out or of another type
+   */
+  unplaced(where?: LeadingOn<IK>): IndexRead<P, K>;
+}
+
+/** A reader's number, as an expression. */
+function float(entries: Entries, reader: string, name: string, value: unknown): ExprType<FloatType> {
+  if (value === undefined) throw new Error(`${entries.name} ${reader}: \`${name}\` is left out — a window is { x, y, width, height }, each a Float`);
+  return East.value(value as never, FloatType);
+}
+
+/** The larger of two Floats. */
+const larger = (a: ExprType<FloatType>, b: ExprType<FloatType>): ExprType<FloatType> => a.greaterEqual(b).ifElse(() => a, () => b);
+/** The smaller of two Floats. */
+const smaller = (a: ExprType<FloatType>, b: ExprType<FloatType>): ExprType<FloatType> => a.lessEqual(b).ifElse(() => a, () => b);
+
+function areaReaders(entries: Entries): AreaReaders {
+  const area = entries.def.area!;
+  const rowType = entries.carried as RowType;
+  const xField = optionField(rowType, area.x, FloatType);
+  const yField = optionField(rowType, area.y, FloatType);
+  if (xField === undefined || yField === undefined) {
+    throw new Error(`${entries.name}: an area index carries its rows, and these carry no '${area.x}' and '${area.y}' to test a window by`);
+  }
+  /** A row's place along an axis: the field itself, or an Option's value — a row a window's runs hold is placed. */
+  const placeOf = (row: Expr, field: OptionField<FloatType>): ExprType<FloatType> =>
+    field.optional ? East.field(row, field.field, OptionType(FloatType)).unwrap('some', () => 0.0) : East.field(row, field.field, FloatType);
+  /** A row's size along an axis: its field's, or none for a point. */
+  const sizeOf = (row: Expr, field: string | undefined): ExprType<FloatType> => field === undefined ? East.value(0.0, FloatType) : East.field(row, field, FloatType);
+  // The domain is the finest cell's side times 2^27 either side of zero: a power of two, so every edge is exact.
+  const half = area.cell * 2 ** (AREA_FINEST_LEVEL - 1);
+  const finest = BigInt(AREA_FINEST_LEVEL);
+  return {
+    within: (window) => {
+      const given = (window ?? {}) as { on?: unknown; x?: unknown; y?: unknown; width?: unknown; height?: unknown };
+      const written = {
+        on: leadingOn(entries, 'within', given.on),
+        x: float(entries, 'within', 'x', given.x), y: float(entries, 'within', 'y', given.y),
+        width: float(entries, 'within', 'width', given.width), height: float(entries, 'within', 'height', given.height),
+      };
+      return readOf(entries.k, entries.carried, ($, give) => {
+        const on = $.const(written.on);
+        const fromX = $.const(written.x);
+        const fromY = $.const(written.y);
+        const width = $.const(written.width);
+        const height = $.const(written.height);
+        // A number less itself is zero exactly when it is finite.
+        $.if([fromX, fromY, width, height].reduce((finite, value) => finite.and(() => value.subtract(value).equal(0.0)), East.value(true)).not(), ($) => {
+          $.error(`${entries.name} within: a window's x, y, width and height are finite numbers`);
+        });
+        $.if(width.greaterEqual(0.0).and(() => height.greaterEqual(0.0)), ($) => {
+          const toX = $.const(fromX.add(width));
+          const toY = $.const(fromY.add(height));
+          const morton = $.const(AREA_FNS.mortonCode);
+          // The deepest level read: the deepest whose cell is at least an eighth of the window's larger side.
+          const eighth = $.const(larger(width, height).divide(8.0));
+          const deepest = $.let(finest);
+          const finestSide = $.let(area.cell);
+          $.while(deepest.greater(0n).and(() => finestSide.less(eighth)), ($) => {
+            $.assign(finestSide, finestSide.multiply(2.0));
+            $.assign(deepest, deepest.subtract(1n));
+          });
+          // From the root down: a level's cell side, its cells along an axis, a cell's step at the finest level, and the
+          // codes under one cell.
+          const level = $.let(0n);
+          const side = $.let(half * 2);
+          const count = $.let(1n);
+          const step = $.let(1n << finest);
+          const under = $.let(1n << (2n * finest));
+          $.while(level.lessEqual(deepest), ($) => {
+            // A row filed in a cell lies within it grown by a quarter of its side: the cells whose grown bounds meet
+            // the window, along each axis. The root is read whatever the window: a row outside the domain files under it.
+            const reach = $.const(side.divide(4.0));
+            const last = $.const(count.subtract(1n).toFloat());
+            const cellAt = (at: ExprType<FloatType>) => East.Float.roundFloor(smaller(larger(at.add(half).divide(side), East.value(0.0, FloatType)), last));
+            const meets = (index: ExprType<IntegerType>, from: ExprType<FloatType>, to: ExprType<FloatType>) => {
+              const start = index.toFloat().multiply(side).subtract(half);
+              return level.equal(0n).or(() => start.subtract(reach).lessEqual(to).and(() => start.add(side).add(reach).greaterEqual(from)));
+            };
+            const firstX = $.const(cellAt(fromX.subtract(side).subtract(reach)));
+            const lastX = $.const(cellAt(toX.add(side).add(reach)));
+            const firstY = $.const(cellAt(fromY.subtract(side).subtract(reach)));
+            const lastY = $.const(cellAt(toY.add(side).add(reach)));
+            $.for(East.Array.range(firstX, lastX.add(1n)), ($, ix) => {
+              $.if(meets(ix, fromX, toX), ($) => {
+                $.for(East.Array.range(firstY, lastY.add(1n)), ($, iy) => {
+                  $.if(meets(iy, fromY, toY), ($) => {
+                    // A coarser cell by its own key: the rows filed in it. A cell of the deepest level by the range
+                    // from its key to its last descendant's: the rows filed in it or in a finer cell inside it.
+                    const code = $.const(morton(ix.multiply(step), iy.multiply(step)));
+                    const start = $.const(code.multiply(32n).add(level));
+                    const end = $.const(level.less(deepest).ifElse(() => start.add(1n), () => code.add(under).multiply(32n)));
+                    const run = entries.dict.range({ from: { ik: { on, area: start } }, to: { ik: { on, area: end } } } as never);
+                    $.for(run as Entries['dict'], ($, row, entry) => {
+                      // The row's box, by its corner or its centre, whichever way its sides run.
+                      const x = $.const(placeOf(row, xField));
+                      const y = $.const(placeOf(row, yField));
+                      const w = $.const(sizeOf(row, area.width));
+                      const h = $.const(sizeOf(row, area.height));
+                      const [minX, maxX, minY, maxY] = area.at === 'centre'
+                        ? [x.subtract(w.abs().divide(2.0)), x.add(w.abs().divide(2.0)), y.subtract(h.abs().divide(2.0)), y.add(h.abs().divide(2.0))]
+                        : [smaller(x, x.add(w)), larger(x, x.add(w)), smaller(y, y.add(h)), larger(y, y.add(h))];
+                      $.if(minX.lessEqual(toX).and(() => maxX.greaterEqual(fromX)).and(() => minY.lessEqual(toY)).and(() => maxY.greaterEqual(fromY)), ($) => {
+                        give($, row, rowKey(entry));
+                      });
+                    });
+                  });
+                });
+              });
+            });
+            $.assign(level, level.add(1n));
+            $.assign(side, side.divide(2.0));
+            $.assign(count, count.multiply(2n));
+            $.assign(step, step.divide(2n));
+            $.assign(under, under.divide(4n));
+          });
+        });
+      });
+    },
+    unplaced: (where) => {
+      if (!xField.optional) {
+        throw new Error(
+          `${entries.name} unplaced: the index's place, '${area.x}' and '${area.y}', is Float fields, so every row is placed — ` +
+          `a row not yet placed is one whose place is an Option<Float> left none`,
+        );
+      }
+      const written = leadingOn(entries, 'unplaced', (where as { on?: unknown } | undefined)?.on);
+      return readOf(entries.k, entries.carried, ($, give) => {
+        const on = $.const(written);
+        $.for(entries.dict.prefix({ ik: { on, area: AREA_UNPLACED } } as never), ($, row, entry) => { give($, row, rowKey(entry)); });
+      });
+    },
+  };
+}
+
+// ── Entries indexes: `of` ────────────────────────────────────────────────────
+
+/**
+ * An entries index's readers (`index.entries`).
+ *
+ * @typeParam IK - The index's key type: the field's key
+ * @typeParam P - What the index carries: the field's value
+ * @typeParam K - The row's key type
+ */
+export interface EntriesReaders<IK extends EastType = EastType, P extends EastType = EastType, K extends EastType = EastType> {
+  /**
+   * A key's entry on every row that holds one: the value the row's field
+   * holds under the key. One run.
+   *
+   * @param key - The field's key, whole
+   * @returns The read: each entry's value, and its row's key
+   * @throws {Error} Where the function is built, when the key is not of the field's key type
+   */
+  of(key: SubtypeExprOrValue<IK>): IndexRead<P, K>;
+}
+
+function entriesReaders(entries: Entries): EntriesReaders {
+  return {
+    of: (key) => {
+      if (key === undefined) throw new Error(`${entries.name} of: the key is left out — a key of the rows' '${entries.def.entries!.field}'`);
+      // The key whole: a row files an entry for each key its field holds, so a part of one would give a row several.
+      const written = East.value(key as never, entries.ik);
+      return readOf(entries.k, entries.carried, ($, give) => {
+        $.for(entries.dict.prefix({ ik: written } as never), ($, value, entry) => { give($, value, rowKey(entry)); });
+      });
+    },
+  };
+}
+
 // ── The readers of an index ──────────────────────────────────────────────────
 
 /** A Dict record's key type. */
@@ -481,8 +691,9 @@ type RecordKeyOf<T> = T extends DictType<infer K extends EastType, unknown> ? K 
 
 /**
  * The readers of an index, by its kind: a series index's `events`, a summary
- * index's `totals`, an interval index's `overlapping` and `unset`, and a
- * plain index's `of` and `between`.
+ * index's `totals`, an interval index's `overlapping` and `unset`, an area
+ * index's `within` and `unplaced`, an entries index's `of`, and a plain
+ * index's `of` and `between`.
  *
  * @typeParam D - The index, as `record.indexes.<name>` types it
  */
@@ -491,7 +702,9 @@ export type IndexReadersOf<D> =
     ? D extends { readonly series: object } ? SeriesReaders<IK, P, RecordKeyOf<T>>
       : D extends { readonly summary: object } ? SummaryReaders<IK>
       : D extends { readonly interval: object } ? IntervalReaders<IK, P, RecordKeyOf<T>>
-      : D extends { readonly area: object } | { readonly nested: object } | { readonly entries: object } ? Record<never, never>
+      : D extends { readonly area: object } ? AreaReaders<IK, P, RecordKeyOf<T>>
+      : D extends { readonly entries: object } ? EntriesReaders<IK, P, RecordKeyOf<T>>
+      : D extends { readonly nested: object } ? Record<never, never>
       : PlainReaders<IK, P, D extends { readonly span: object } ? NullType : RecordKeyOf<T>>
     : Record<never, never>;
 
@@ -517,6 +730,8 @@ export function indexReaders(input: IndexInputDef, entries: unknown): object {
   if (def.series !== undefined) return seriesReaders(held);
   if (def.summary !== undefined) return summaryReaders(held);
   if (def.interval !== undefined) return intervalReaders(held);
-  if (def.area !== undefined || def.nested !== undefined || def.entries !== undefined) return {};
+  if (def.area !== undefined) return areaReaders(held);
+  if (def.entries !== undefined) return entriesReaders(held);
+  if (def.nested !== undefined) return {};
   return plainReaders(held);
 }

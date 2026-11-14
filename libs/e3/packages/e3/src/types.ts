@@ -478,7 +478,7 @@ export interface RecordIndexDef<
   readonly entries?: {
     readonly field: string;
     readonly lean: { toIR(): unknown };
-    readonly rows: RecordIndexDef;
+    readonly rows: RecordIndexDef<string, T>;
   } | undefined;
   /** `(K, V) -> IK`, or `(K, V) -> Set<IK>` when {@link multi} — or, for a
    *  summary, `(K, V) -> Dict<IK, Totals>`, and for a nested series index or an

@@ -24,9 +24,10 @@ import {
   type ArrayType, type DictType, type EastType, type OptionType, type RecursiveType, type RecursiveTypeMarker, type RefType,
   type SetType, type StructType,
 } from '@elaraai/east';
-import type { RecordNestedDecl, RecordRollup } from '@elaraai/e3-types';
+import type { NestedSpanKeyType, RecordNestedDecl, RecordRollup, RecordSummaryTotalsType } from '@elaraai/e3-types';
 import { optionField, type OptionField, type RowType } from './record-keys.js';
 import type { RecordTile } from './record-tiles.js';
+import type { RecordIndexDef } from './types.js';
 
 // ── The builders ──────────────────────────────────────────────────────────────
 
@@ -228,14 +229,19 @@ export type PlacesOf<V, C> = VariantType<{
 
 /**
  * What a nested series index's definition carries for its binding (#1435): its
- * collections as written, its tile and summary tile as written, and its
- * declaration as an East value, the field names as data.
+ * collections as written, its tile and summary tile as written, its
+ * declaration as an East value, the field names as data, and its span typed
+ * as the index it is.
  */
 export interface NestedOf<S> {
   readonly collections: S extends { collections: infer C } ? C : never;
   readonly tile: S extends { tile: infer T extends RecordTile } ? T : RecordTile;
   readonly summary: S extends { summary: infer U extends RecordTile } ? U : undefined;
   readonly declaration: RecordNestedDecl;
+  /** Its span (#1438): each collection's tiles across the record's rows, keyed `{ collection, tile }` and summed as a
+   *  summary's totals are. */
+  readonly span: RecordIndexDef<string, EastType, typeof NestedSpanKeyType, typeof RecordSummaryTotalsType, readonly string[] | undefined>
+    & { readonly span: { readonly of: string; readonly tile: RecordTile } };
 }
 
 // ── The declaration, checked ──────────────────────────────────────────────────

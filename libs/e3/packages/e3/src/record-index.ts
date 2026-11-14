@@ -329,14 +329,16 @@ export function plainDefinition(
  * lean rows beside it.
  *
  * @typeParam F - The field, as written
+ * @typeParam T - The owning record's state type, which types its lean rows
  */
-export interface EntriesOf<F extends string = string> {
+export interface EntriesOf<F extends string = string, T extends EastType = EastType> {
   /** The Dict field of the record's rows it files, entry by entry. */
   readonly field: F;
   /** The row with the field emptied, `(K, V) -> V`. */
   readonly lean: { toIR(): unknown };
-  /** Its lean rows: the record's rows by key, the field emptied — an index of the record's beside it, named by e3-types' `entriesRowsName`. */
-  readonly rows: RecordIndexDef;
+  /** Its lean rows: the record's rows by key, the field emptied — an index of the record's beside it, named by
+   *  e3-types' `entriesRowsName`, each row under its own key and carrying the row. */
+  readonly rows: RecordIndexDef<string, T, KeyOf<T>, RowOf<T>, undefined>;
 }
 
 /**

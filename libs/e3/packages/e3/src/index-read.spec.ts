@@ -527,6 +527,223 @@ describe('a summary index\'s readers', () => {
   });
 });
 
+// ── Area and entries indexes ─────────────────────────────────────────────────
+
+/** A rack on a floor: its zone, its place — its box's centre — or none yet, and its size, in metres. */
+const RackRow = StructType({ zone: StringType, x: OptionType(FloatType), y: OptionType(FloatType), w: FloatType, h: FloatType, name: StringType });
+const RacksType = DictType(StringType, RackRow);
+type Rack = ValueTypeOf<typeof RackRow>;
+const racks = record('racks', RacksType, {
+  initial: new Map(),
+  indexes: (index) => ({
+    by_area: index.area({ x: 'x', y: 'y', width: 'w', height: 'h', at: 'centre', cell: 0.01 }),
+    by_zone_area: index.area({ on: ['zone'], x: 'x', y: 'y', width: 'w', height: 'h', cell: 0.5 }),
+    points: index.area({ x: 'x', y: 'y', cell: 0.01 }),
+  }),
+});
+
+/** A marker on a floor, always placed: a point. */
+const MarkRow = StructType({ x: FloatType, y: FloatType });
+const marks = record('marks', DictType(StringType, MarkRow), { initial: new Map(), indexes: (index) => ({ marks_by_area: index.area({ x: 'x', y: 'y', cell: 1 }) }) });
+
+const ZONES = ['inbound', 'storage', 'dispatch'];
+
+/** The racks the readers read: across a floor of a hundred metres by sixty, a fifth of a metre to thirty wide; some not
+ *  yet placed, and the ones an index files under its root: outside its domain, wider than half of it, and not finite. */
+function seededRacks(): SortedMap<string, Rack> {
+  const draw = stream(1385);
+  const rows = new SortedMap<string, Rack>(undefined, keyOrder);
+  const rack = (n: number, x: number | undefined, y: number | undefined, w: number, h: number): Rack =>
+    decodeBeast2For(RackRow)(encodeBeast2For(RackRow)({ zone: ZONES[n % 3]!, x: x === undefined ? none : some(x), y: y === undefined ? none : some(y), w, h, name: `Rack ${n}` }));
+  for (let n = 0; n < 600; n++) {
+    const size = n % 25 === 0 ? 5 + draw() * 25 : 0.2 + draw() * 2;
+    const key = `R-${String(n).padStart(4, '0')}`;
+    if (n % 40 === 13) rows.set(key, rack(n, undefined, undefined, size, size));
+    else rows.set(key, rack(n, draw() * 100, draw() * 60, size, n % 3 === 0 ? size : size / 2));
+  }
+  rows.set('E-touches', rack(0, 51, 30, 2, 2));
+  rows.set('E-outside-the-domain', rack(0, 5_000_000, 10, 1, 1));
+  rows.set('E-half-placed', rack(0, 10, undefined, 1, 1));
+  rows.set('E-wider-than-the-domain', rack(0, 50, 30, 3_000_000, 1));
+  rows.set('E-not-finite', rack(0, Infinity, 30, 1, 1));
+  return rows;
+}
+
+const RACKS = seededRacks();
+
+/** The windows the area readers read: a rack's own, a room, the floor, one past it, a point, and seeded ones. */
+function areaWindows(): Array<{ x: number; y: number; width: number; height: number }> {
+  const draw = stream(266);
+  const out = [
+    { x: 40, y: 20, width: 10, height: 10 },
+    { x: 0, y: 0, width: 100, height: 60 },
+    { x: -1_000, y: -1_000, width: 10_000_000, height: 10_000_000 },
+    { x: 52, y: 20, width: 5, height: 20 },
+    { x: 50, y: 30, width: 0, height: 0 },
+    { x: 10, y: 10, width: -1, height: 5 },
+    { x: 4_999_990, y: 0, width: 20, height: 20 },
+  ];
+  for (let n = 0; n < 40; n++) {
+    const side = n % 4 === 0 ? 0.5 + draw() * 2 : 2 + draw() ** 2 * 80;
+    out.push({ x: draw() * 110 - 5, y: draw() * 70 - 5, width: side, height: side * (0.3 + draw()) });
+  }
+  return out;
+}
+
+const AREA_WINDOWS = areaWindows();
+
+/** The racks of a zone, or of every zone, whose box meets a window, edges included: a loop over them all, the box by
+ *  its centre or by its corner. */
+const racksIn = (centred: boolean, sized: boolean) => East.compile(East.function(
+  [RacksType, OptionType(StringType), FloatType, FloatType, FloatType, FloatType], RacksType,
+  ($, rows, zone, x, y, width, height) => rows.filter(($, rack) => {
+    $.if(East.less(width, 0.0).or(() => East.less(height, 0.0)), ($) => { $.return(false); });
+    $.if(zone.match({ none: () => false, some: (_$, z) => East.notEqual(rack.zone, z) }), ($) => { $.return(false); });
+    $.match(rack.x, {
+      some: ($, rx) => {
+        $.match(rack.y, {
+          some: ($, ry) => {
+            const w = $.const(sized ? rack.w : East.value(0.0));
+            const h = $.const(sized ? rack.h : East.value(0.0));
+            const minX = $.const(centred ? rx.subtract(w.divide(2.0)) : rx);
+            const minY = $.const(centred ? ry.subtract(h.divide(2.0)) : ry);
+            $.return(East.lessEqual(minX, x.add(width)).and(() => East.greaterEqual(minX.add(w), x))
+              .and(() => East.lessEqual(minY, y.add(height))).and(() => East.greaterEqual(minY.add(h), y)));
+          },
+        });
+      },
+    });
+    return false;
+  }),
+), []);
+
+describe('an area index\'s readers', () => {
+  const window = (w: { x: number; y: number; width: number; height: number }): string => `${w.width} by ${w.height} at ${w.x}, ${w.y}`;
+
+  it('within: the rows whose box meets a window, each once with its row, for seeded windows — boxes by their centre', () => {
+    const byArea = index(racks.indexes.by_area);
+    const within = East.compile(East.function([byArea.type, FloatType, FloatType, FloatType, FloatType], RacksType, ($, entries, x, y, width, height) =>
+      byArea.read(entries).within({ x, y, width, height }).collect($)), []);
+    const counted = East.compile(East.function([byArea.type, FloatType, FloatType, FloatType, FloatType], IntegerType, ($, entries, x, y, width, height) => {
+      const given = $.let(0n);
+      byArea.read(entries).within({ x, y, width, height }).each($, ($) => { $.assign(given, given.add(1n)); });
+      return given;
+    }), []);
+    const held = entriesOf(racks, racks.indexes.by_area, RACKS);
+    const oracle = racksIn(true, true);
+    let rows = 0;
+    for (const w of AREA_WINDOWS) {
+      const expected = oracle(RACKS, none, w.x, w.y, w.width, w.height);
+      rows += expected.size;
+      assertEast(RacksType, within(held, w.x, w.y, w.width, w.height), expected, `the racks within ${window(w)}`);
+      assert.equal(counted(held, w.x, w.y, w.width, w.height), BigInt(expected.size), `each once within ${window(w)}`);
+    }
+    assert.ok(rows > 2000, `the windows hold racks to read: ${rows}`);
+
+    // The edges: a box that touches the window is in it; a row outside the domain, and one wider than it, are read from the root
+    const touching = within(held, 52, 20, 5, 20);
+    assert.equal(touching.has('E-touches'), true, 'a rack whose side is the window\'s edge');
+    assert.equal(within(held, 52.001, 20, 5, 20).has('E-touches'), false, 'and is out of one a millimetre on');
+    assert.equal(within(held, 4_999_990, 0, 20, 20).has('E-outside-the-domain'), true, 'a rack outside the index\'s domain');
+    assert.equal(touching.has('E-wider-than-the-domain'), true, 'a rack wider than half the domain');
+    assert.equal(touching.has('E-half-placed'), false, 'a rack with no y is not placed');
+  });
+
+  it('within: under each leading field, exactly — boxes by their corner', () => {
+    const byZone = index(racks.indexes.by_zone_area);
+    const within = East.compile(East.function([byZone.type, StringType, FloatType, FloatType, FloatType, FloatType], RacksType, ($, entries, zone, x, y, width, height) =>
+      byZone.read(entries).within({ on: { zone }, x, y, width, height }).collect($)), []);
+    const held = entriesOf(racks, racks.indexes.by_zone_area, RACKS);
+    const oracle = racksIn(false, true);
+    for (const w of AREA_WINDOWS) {
+      for (const zone of ZONES) {
+        assertEast(RacksType, within(held, zone, w.x, w.y, w.width, w.height), oracle(RACKS, some(zone), w.x, w.y, w.width, w.height), `the ${zone} racks within ${window(w)}`);
+      }
+    }
+  });
+
+  it('within: points, which have no size', () => {
+    const points = index(racks.indexes.points);
+    const within = East.compile(East.function([points.type, FloatType, FloatType, FloatType, FloatType], RacksType, ($, entries, x, y, width, height) =>
+      points.read(entries).within({ x, y, width, height }).collect($)), []);
+    const held = entriesOf(racks, racks.indexes.points, RACKS);
+    const oracle = racksIn(false, false);
+    for (const w of AREA_WINDOWS) {
+      assertEast(RacksType, within(held, w.x, w.y, w.width, w.height), oracle(RACKS, none, w.x, w.y, w.width, w.height), `the points within ${window(w)}`);
+    }
+  });
+
+  it('within: refuses a window that is not finite, as it runs', () => {
+    const byArea = index(racks.indexes.by_area);
+    const within = East.compile(East.function([byArea.type, FloatType], IntegerType, ($, entries, width) =>
+      byArea.read(entries).within({ x: 0, y: 0, width, height: 1 }).collect($).size()), []);
+    const held = entriesOf(racks, racks.indexes.by_area, RACKS);
+    assert.throws(() => within(held, Infinity), /e3\.index 'racks\.by_area' within: a window's x, y, width and height are finite numbers/);
+    assert.throws(() => within(held, NaN), /are finite numbers/);
+  });
+
+  it('unplaced: the rows with no place', () => {
+    const byArea = index(racks.indexes.by_area);
+    const unplaced = East.compile(East.function([byArea.type], DictType(StringType, StringType), ($, entries) => {
+      const names = $.let(new Map(), DictType(StringType, StringType));
+      byArea.read(entries).unplaced().each($, ($, rack, key) => { $(names.insert(key, rack.name)); });
+      return names;
+    }), []);
+    const expected = new SortedMap([...RACKS].filter(([, rack]) => rack.x.type === 'none' || rack.y.type === 'none').map(([key, rack]): [string, string] => [key, rack.name]), keyOrder);
+    assert.ok(expected.size > 10);
+    assertEast(DictType(StringType, StringType), unplaced(entriesOf(racks, racks.indexes.by_area, RACKS)), expected, 'the racks not yet placed');
+    const byZone = index(racks.indexes.by_zone_area);
+    const inZone = East.compile(East.function([byZone.type, StringType], IntegerType, ($, entries, zone) => byZone.read(entries).unplaced({ on: { zone } }).collect($).size()), []);
+    assert.equal(inZone(entriesOf(racks, racks.indexes.by_zone_area, RACKS), 'storage'),
+      BigInt([...RACKS.values()].filter((rack) => rack.zone === 'storage' && (rack.x.type === 'none' || rack.y.type === 'none')).length));
+  });
+});
+
+describe('an entries index\'s readers', () => {
+  /** A station: its name, and the parcels it handled, by service. */
+  const StationRow = StructType({ name: StringType, byService: DictType(StringType, IntegerType) });
+  const StationsType = DictType(StringType, StationRow);
+  const stations = record('stations', StationsType, { initial: new Map(), indexes: (index) => ({ by_service: index.entries('byService') }) });
+  const SERVICES = ['economy', 'express', 'freight', 'returns'];
+  const rows = new SortedMap<string, ValueTypeOf<typeof StationRow>>(undefined, keyOrder);
+  for (let n = 0; n < 120; n++) {
+    const handled = new SortedMap<string, bigint>(SERVICES.filter((_service, at) => (n + at) % 3 !== 0).map((service, at): [string, bigint] => [service, BigInt(n * 10 + at)]), keyOrder);
+    rows.set(`S-${String(n).padStart(3, '0')}`, decodeBeast2For(StationRow)(encodeBeast2For(StationRow)({ name: `Station ${n}`, byService: handled })));
+  }
+
+  it('of: a key\'s entry on every row that holds one, with its value', () => {
+    const byService = index(stations.indexes.by_service);
+    const of = East.compile(East.function([byService.type, StringType], DictType(StringType, IntegerType), ($, entries, service) =>
+      byService.read(entries).of(service).collect($)), []);
+    const held = entriesOf(stations, stations.indexes.by_service, rows);
+    for (const service of [...SERVICES, 'overnight']) {
+      const expected = new SortedMap([...rows].flatMap(([key, station]): [string, bigint][] => {
+        const parcels = station.byService.get(service);
+        return parcels === undefined ? [] : [[key, parcels]];
+      }), keyOrder);
+      assertEast(DictType(StringType, IntegerType), of(held, service), expected, `the stations' ${service} parcels`);
+    }
+  });
+
+  it('reads its lean rows as a plain index: each row by its key, its field emptied', () => {
+    const lean = index(stations.indexes.by_service.entries.rows);
+    const named = East.compile(East.function([lean.type, StringType, StringType], DictType(StringType, StringType), ($, entries, from, to) => {
+      const names = $.let(new Map(), DictType(StringType, StringType));
+      lean.read(entries).between({ from, to }).each($, ($, station, key) => {
+        $.if(East.equal(station.byService.size(), 0n), ($) => { $(names.insert(key, station.name)); });
+      });
+      return names;
+    }), []);
+    const expected = new SortedMap([...rows].filter(([key]) => key >= 'S-010' && key < 'S-020').map(([key, station]): [string, string] => [key, station.name]), keyOrder);
+    assertEast(DictType(StringType, StringType), named(entriesOf(stations, stations.indexes.by_service.entries.rows, rows), 'S-010', 'S-020'), expected, 'ten stations, lean');
+  });
+
+  it('refuses a key that is not the field\'s, where the reader is called', () => {
+    const byService = index(stations.indexes.by_service);
+    assert.throws(() => East.function([byService.type], NullType, (_$, entries) => { byService.read(entries).of(7n as never); return null; }));
+  });
+});
+
 describe('where a reader is refused', () => {
   /** Builds a function over an index's entries, for the refusal its body raises. */
   const over = <I extends IndexInputDef>(at: I, body: (entries: Parameters<I['read']>[0]) => unknown) => () =>
@@ -565,6 +782,14 @@ describe('where a reader is refused', () => {
     const inTime = index(shifts.indexes.shifts_in_time);
     assert.throws(over(inTime, (entries) => inTime.read(entries).unset()),
       /^Error: e3\.index 'shifts\.shifts_in_time' unset: the index's start, 'start', is a DateTime field, so every row has one/);
+  });
+
+  it('refuses the rows not yet placed of an index whose place is no Option, and a window\'s part left out, naming it', () => {
+    const byArea = index(marks.indexes.marks_by_area);
+    assert.throws(over(byArea, (entries) => byArea.read(entries).unplaced()),
+      /^Error: e3\.index 'marks\.marks_by_area' unplaced: the index's place, 'x' and 'y', is Float fields, so every row is placed/);
+    assert.throws(over(byArea, (entries) => byArea.read(entries).within({ x: 0, y: 0, width: 1 } as never)),
+      /within: `height` is left out — a window is \{ x, y, width, height \}, each a Float/);
   });
 
   it('refuses a key that is no leading part of a plain index\'s, in the range read\'s words', () => {

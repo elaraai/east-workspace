@@ -349,7 +349,7 @@ export interface IndexBuilder<T extends EastType> {
    * ```
    */
   entries<const F extends DictField<RowOf<T>>>(field: F, options?: PartRunner):
-    IndexDraft<DictKeyOf<RowOf<T>, F>, DictValueOf<RowOf<T>, F>, undefined, { readonly entries: EntriesOf<F> }>;
+    IndexDraft<DictKeyOf<RowOf<T>, F>, DictValueOf<RowOf<T>, F>, undefined, { readonly entries: EntriesOf<F, T> }>;
 }
 
 /**
