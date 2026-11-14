@@ -31,7 +31,7 @@
 
 import {
   ArrayType, DateTimeType, DictType, East, Expr, FloatType, OptionType, SetType, isTypeEqual, none, printType, some, variant,
-  type BlockBuilder, type EastType, type ExprType, type IntegerType, type KeyBound, type NullType, type StructType, type SubtypeExprOrValue,
+  type BlockBuilder, type EastType, type ExprType, type IntegerType, type KeyBound, type StructType, type SubtypeExprOrValue,
 } from '@elaraai/east';
 import { RecordLevelType, RecordSummaryTotalsType } from '@elaraai/e3-types';
 import { AREA_FINEST_LEVEL, AREA_FNS, AREA_UNPLACED } from './record-area.js';
@@ -161,7 +161,8 @@ function instant(entries: Entries, reader: string, name: string, at: unknown): E
  *
  * @typeParam IK - The index's key type
  * @typeParam P - What the index carries
- * @typeParam K - The row's key type
+ * @typeParam K - The row's key type; for a span, whose entry stands for every row of its key and names none, the
+ *   index key, which a read gives in a row's key's place
  */
 export interface PlainReaders<IK extends EastType = EastType, P extends EastType = EastType, K extends EastType = EastType> {
   /**
@@ -193,6 +194,11 @@ function giveRun<Ret>(
   $: BlockBuilder<Ret>, entries: Entries, run: Expr, once: boolean, give: ($: BlockBuilder<Ret>, carried: Expr, key: Expr) => void,
 ): void {
   const dict = run as Entries['dict'];
+  if (summedEntries(entries)) {
+    // An entry that stands for every row of its key names none: the read gives its index key in a row's key's place.
+    $.for(dict, ($, carried, entry) => { give($, carried, East.field(entry, 'ik')); });
+    return;
+  }
   if (!once) {
     $.for(dict, ($, carried, entry) => { give($, carried, rowKey(entry)); });
     return;
@@ -203,22 +209,27 @@ function giveRun<Ret>(
   });
 }
 
+/** Whether an index's entry stands for every row of its key, and names none: a summary's, a nested series index's span's. */
+const summedEntries = (entries: Entries): boolean => entries.def.summary !== undefined || entries.def.span !== undefined;
+
 function plainReaders(entries: Entries): PlainReaders {
   // One whole key's rows are filed under it once each; a key that is a struct may be given by its first fields.
-  const fanned = entries.def.multi;
+  const fanned = entries.def.multi && !summedEntries(entries);
+  // What a read gives beside what the index carries: the row's key, or the index key of an entry that names no row.
+  const given = summedEntries(entries) ? entries.ik : entries.k;
   return {
     of: (key) => {
       if (key === undefined) throw new Error(`${entries.name} of: the index key is left out — the key the rows are filed under, or its first fields`);
       // The run is made here, where a key that is no leading part of the index's is refused.
       const run = entries.dict.prefix({ ik: key } as never);
-      return readOf(entries.k, entries.carried, ($, give) => { giveRun($, entries, run, fanned && entries.ik.type === 'Struct', give); });
+      return readOf(given, entries.carried, ($, give) => { giveRun($, entries, run, fanned && entries.ik.type === 'Struct', give); });
     },
     between: (bounds) => {
       const run = entries.dict.range({
         ...(bounds.from !== undefined && { from: { ik: bounds.from } }),
         ...(bounds.to !== undefined && { to: { ik: bounds.to } }),
       } as never);
-      return readOf(entries.k, entries.carried, ($, give) => { giveRun($, entries, run, fanned, give); });
+      return readOf(given, entries.carried, ($, give) => { giveRun($, entries, run, fanned, give); });
     },
   };
 }
@@ -705,7 +716,7 @@ export type IndexReadersOf<D> =
       : D extends { readonly area: object } ? AreaReaders<IK, P, RecordKeyOf<T>>
       : D extends { readonly entries: object } ? EntriesReaders<IK, P, RecordKeyOf<T>>
       : D extends { readonly nested: object } ? Record<never, never>
-      : PlainReaders<IK, P, D extends { readonly span: object } ? NullType : RecordKeyOf<T>>
+      : PlainReaders<IK, P, D extends { readonly span: object } ? IK : RecordKeyOf<T>>
     : Record<never, never>;
 
 /**

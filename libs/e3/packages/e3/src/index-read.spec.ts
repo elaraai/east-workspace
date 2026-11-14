@@ -185,7 +185,8 @@ const WINDOWS = windows();
  *  whatever a compiled function takes them as, which is the index's own entries' type. */
 function entriesOf(rec: RecordDef, declared: RecordIndexDef, rows: unknown): never {
   const def = builtIndex(rec, declared);
-  const summary = def.summary !== undefined;
+  // A summary's entries, and a span's, are summed by their merge and name no row
+  const summary = def.summary !== undefined || def.span !== undefined;
   const entryType = StructType({ ik: def.keyType, k: summary ? NullType : (rec.type as EastType & { key: EastType }).key });
   const entries = new SortedMap<unknown, unknown>(undefined, compareFor(entryType) as never);
   const merge = summary ? summaryMergeProgram(def).compile([]) as (entry: unknown, a: RecordSummaryTotals, b: RecordSummaryTotals) => RecordSummaryTotals : undefined;
@@ -736,6 +737,28 @@ describe('an entries index\'s readers', () => {
     }), []);
     const expected = new SortedMap([...rows].filter(([key]) => key >= 'S-010' && key < 'S-020').map(([key, station]): [string, string] => [key, station.name]), keyOrder);
     assertEast(DictType(StringType, StringType), named(entriesOf(stations, stations.indexes.by_service.entries.rows, rows), 'S-010', 'S-020'), expected, 'ten stations, lean');
+  });
+
+  it('reads a nested series index\'s span as a plain index, giving each tile\'s key in a row\'s key\'s place', () => {
+    const Machine = StructType({ name: StringType, load: DictType(DateTimeType, FloatType) });
+    const machines = record('machines', DictType(StringType, Machine), {
+      initial: new Map(),
+      indexes: (index) => ({ machines_in_time: index.nested({ collections: { load: index.nested.values() }, tile: 'week', summary: 'month' }) }),
+    });
+    const fleet = new SortedMap<string, ValueTypeOf<typeof Machine>>(undefined, keyOrder);
+    for (let n = 0; n < 6; n++) {
+      const load = new SortedMap<Date, number>(Array.from({ length: 5 }, (_, day): [Date, number] => [instant(OCT_5 + BigInt(n * 20 + day) * DAY), n + day / 10]), compareFor(DateTimeType));
+      fleet.set(`M-${n}`, decodeBeast2For(Machine)(encodeBeast2For(Machine)({ name: `Machine ${n}`, load })));
+    }
+    const span = index(machines.indexes.machines_in_time.nested.span);
+    const SpanKey = span.index.keyType;
+    const months = East.compile(East.function([span.type], DictType(SpanKey, RecordSummaryTotalsType), ($, entries) =>
+      span.read(entries).of({ collection: variant('step', { key: 'load', rest: variant('end', null) }) }).collect($)), []);
+    const read = months(entriesOf(machines, machines.indexes.machines_in_time.nested.span, fleet));
+    // The fleet's values run from October into January: a month's entry counts the values in it, across the machines
+    assert.ok(read.size >= 3, `the months the load touches: ${read.size}`);
+    assert.equal([...read.values()].reduce((sum, totals) => sum + totals.count, 0n), 30n, 'every value counted once, in its month');
+    assert.ok([...read.keys()].every((key) => key.collection.type === 'step'), 'each under the collection\'s place');
   });
 
   it('refuses a key that is not the field\'s, where the reader is called', () => {
