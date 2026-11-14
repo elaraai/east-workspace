@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 from east.expression.errors import ExpressionError, _trace_bail
 from east.expression.expr.base import Expression, _deprecated_alias, _fn_init, _widened_callback
+from east.expression.key_range import key_bound, key_range_end
 from east.expression.lift import _body, _lift, _trace_inner_fn, if_else
 from east.expression.location import location_id as _loc_id
 from east.expression.nodes import (
@@ -210,6 +211,43 @@ class DictExpression(Expression):
         """Traced DictCopy (shallow)."""
         return self._expr(
             _builtin("DictCopy", self.east_type, [self._key(), self._value()], [self.ir]),
+            self.east_type)
+
+    def range(self, from_: Any = None, to: Any = None) -> DictExpression:
+        """Traced DictRange: the entries from the first key at or past
+        ``from_`` up to, and not including, the first at or past ``to`` — a
+        new dict, never frozen (TS ``range({ from, to })``; ``from_`` as
+        ``if_`` and ``for_`` are spelled).
+
+        A bound is the whole key or, for a struct key, its first fields in
+        any order — ``{"press": "P1"}``, ``{"press": "P1", "day": day}`` — the
+        last of them, where it is a struct itself, cut short the same way. A
+        bound left out is that end of the dict; ``from_`` past ``to`` gives
+        an empty dict. The range is found by a search and never by a walk of
+        the dict; over a lazily opened dict only the range's own segments are
+        read. A bound that is no leading part of the key is refused where
+        the function is built, naming the key's fields in order."""
+        k_t, v_t = self._key(), self._value()
+        from_t, from_node = key_range_end("from", k_t, from_)
+        to_t, to_node = key_range_end("to", k_t, to)
+        return self._expr(
+            _builtin("DictRange", self.east_type, [k_t, v_t, from_t, to_t],
+                     [self.ir, from_node, to_node]),
+            self.east_type)
+
+    def prefix(self, fields: Any) -> DictExpression:
+        """Traced DictPrefix: the entries whose key begins with ``fields`` —
+        the first fields of a struct key, ``{"press": "P1"}`` — as a new dict,
+        never frozen (TS ``prefix``).
+
+        A key that is not a struct has no prefix: it is refused where the
+        function is built, naming ``get`` for one key and ``range`` for the
+        keys between two."""
+        k_t, v_t = self._key(), self._value()
+        bound = key_bound("prefix", k_t, fields)
+        return self._expr(
+            _builtin("DictPrefix", self.east_type, [k_t, v_t, bound.east_type],
+                     [self.ir, bound.ir]),
             self.east_type)
 
     def keys(self) -> SetExpression:

@@ -19,6 +19,11 @@ drift. A row says:
   ``"trim"`` — a nullary/narrowed producer);
 - ``operator`` — the row is an operator spelling (the #624 exactness
   table: only where python and East semantics coincide).
+- ``optional`` — argument slots that are Options a keyword spells: a
+  key range's two ends (#1616). ``some(x)`` prints the keyword with ``x``
+  (``from_=x``) and ``none`` leaves the keyword out, as the surface is
+  written; an end held as an option value has no such spelling, and the
+  call prints raw.
 
 Every builtin with a python spelling has a row; the rest print through the
 raw ``East.builtin(...)`` form and are listed by ``RAW_ONLY`` — a ratchet the
@@ -40,6 +45,8 @@ class Spelling:
     template: str
     callbacks: dict[int, str] = field(default_factory=dict)
     operator: bool = False
+    #: argument slots that are Options a keyword spells (a key range's ends)
+    optional: frozenset[int] = frozenset()
     #: the argument that must be an expression for the template to apply
     #: (a namespace spelling works on plain values too)
     note: str = ""
@@ -147,6 +154,8 @@ _HAND: dict[str, Spelling] = {
     "SetIsSubset": _s("{0}.is_subset_of({1})"),
     "SetIsDisjoint": _s("{0}.is_disjoint_from({1})"),
     "SetCopy": _s("{0}.copy()"),
+    "SetRange": _s("{0}.range(from_={1}, to={2})", optional=frozenset({1, 2})),
+    "SetPrefix": _s("{0}.prefix({1})"),
     "SetUnionInPlace": _s("{0}.union_in_place({1})"),
     "SetToArray": _s("{0}.to_array({1})", {1: CB}),
     "SetToSet": _s("{0}.to_set({1})", {1: CB}),
@@ -180,6 +189,9 @@ _HAND: dict[str, Spelling] = {
     "DictDelete": _s("{0}.delete({1})"),
     "DictTryDelete": _s("{0}.try_delete({1})"),
     "DictCopy": _s("{0}.copy()"),
+    # A key range (#1616): each end an Option the keyword spells.
+    "DictRange": _s("{0}.range(from_={1}, to={2})", optional=frozenset({1, 2})),
+    "DictPrefix": _s("{0}.prefix({1})"),
     "DictKeys": _s("{0}.keys()"),
     "DictGetKeys": _s("{0}.get_keys({1}, {2})", {2: CB}),
     "DictMap": _s("{0}.map({1})", {1: CB}),

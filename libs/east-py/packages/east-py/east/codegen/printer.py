@@ -146,6 +146,8 @@ _V_NAME = re.compile(r"v_(\d+)")
 _SLOT = re.compile(r"\{(T\d+|\d+)\}")
 #: A template head that is a method on a slot: ``{0}.map``.
 _METHOD_HEAD = re.compile(r"^\{(\d+)\}\.([A-Za-z_]\w*)$")
+#: An optional slot whose argument the surface writes by leaving its keyword out.
+_OMITTED = object()
 #: An operator template: ``({0} + {1})`` / ``(-{0})``.
 _BINARY = re.compile(r"^\(\{(\d+)\} (\S+) \{(\d+)\}\)$")
 _UNARY = re.compile(r"^\((\S+?)\{(\d+)\}\)$")
@@ -1182,7 +1184,21 @@ class _Printer:
     def render_row(self, row: Any, args: list, p: Any, scope: _Scope,
                    pre: list[Doc], depth: int) -> Doc | None:
         texts: list[Doc] = []
+        #: the optional slots left out: a key range's end that is ``none``
+        omitted: set[str] = set()
         for i, arg in enumerate(args):
+            if i in row.optional:
+                # An Option a keyword spells (a key range's end, #1616):
+                # `some(x)` is the keyword with `x`, `none` leaves it out.
+                payload = self.optional_argument(row, i, arg, p)
+                if payload is None:
+                    return None
+                if payload is _OMITTED:
+                    omitted.add(str(i))
+                    texts.append("")
+                else:
+                    texts.append(self.value_doc(payload, scope, pre, depth, typed=False))
+                continue
             adapter = row.callbacks.get(i)
             if adapter is None:
                 # The first operand is always a traced Expression: python
@@ -1209,20 +1225,50 @@ class _Printer:
             return texts[int(name)]
 
         try:
-            return self.template_doc(row.template, slot)
+            return self.template_doc(row.template, slot, omitted)
         except IndexError:
             return None
 
-    def template_doc(self, template: str, slot: Any) -> Doc:
+    @staticmethod
+    def optional_argument(row: Any, index: int, arg: Any, p: Any) -> Any:
+        """What an optional slot's argument prints as: the payload node of a
+        ``some``, ``_OMITTED`` for a ``none`` the surface writes by leaving
+        the keyword out, or ``None`` when the call has no keyword spelling
+        and prints raw.
+
+        Rebuilding must give the node back, so a ``none`` is left out only
+        when its bound's type parameter is the key's own — the type the
+        surface gives an end left out — and a ``some`` only when its payload
+        is of the bound's type. The bounds' types are the builtin's last
+        type parameters, in the slots' order, and the key's is its first."""
+        if arg.type != "Variant":
+            return None
+        tps = list(p["type_parameters"])
+        rank = sorted(row.optional).index(index)
+        at = len(tps) - len(row.optional) + rank
+        if at < 1 or at >= len(tps):
+            return None
+        case = arg.value["case"]
+        if case == "none":
+            if not _is_null_value(arg.value["value"]) or type_key(tps[at]) != type_key(tps[0]):
+                return None
+            return _OMITTED
+        if case != "some" or type_key(arg.value["value"].value["type"]) != type_key(tps[at]):
+            return None
+        return arg.value["value"]
+
+    def template_doc(self, template: str, slot: Any, omitted: set[str] | frozenset[str] = frozenset()) -> Doc:
         """A spelling template as a document: a method on a slot
         (``{0}.map({1})``) is a member-chain segment on that argument, any
         other call lays its arguments out as one, an operator row breaks
         before its operator, and a template that is not a call is filled in
-        as it stands."""
+        as it stands. An argument that names a slot in ``omitted`` is left
+        out of the call."""
         call = _parse_call_template(template)
         if call is not None:
             head, arg_templates = call
-            args = [_fill(a, slot) for a in arg_templates]
+            args = [_fill(a, slot) for a in arg_templates
+                    if not any(m.group(1) in omitted for m in _SLOT.finditer(a))]
             method = _METHOD_HEAD.match(head)
             if method is not None:
                 return self.method_call(slot(method.group(1)), method.group(2), args)

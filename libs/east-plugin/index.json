@@ -1,10 +1,10 @@
 {
   "version": 2,
   "stats": {
-    "totalEntries": 1355,
-    "totalFiles": 224,
+    "totalEntries": 1363,
+    "totalFiles": 225,
     "packages": {
-      "east": 587,
+      "east": 595,
       "east-node-std": 55,
       "east-node-io": 63,
       "east-py-datascience": 94,
@@ -13754,6 +13754,323 @@
       "returns": "42",
       "builtins": [
         "IntegerToFloat"
+      ]
+    },
+    {
+      "id": "east:key_range.examples.ts:dictRange",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/key_range.examples.ts",
+      "suite": "",
+      "test": "Read the entries of a Dict between two bounds: a press's sheets from 1 June up to, and not including, 1 July",
+      "keywords": [
+        "dict",
+        "DictType",
+        "range",
+        "from",
+        "to",
+        "between",
+        "key range",
+        "bounds",
+        "struct key",
+        "index",
+        "slice"
+      ],
+      "imports": [
+        "import {"
+      ],
+      "languages": [
+        "typescript",
+        "python"
+      ],
+      "ir": "{\"type\":\"Function\",\"value\":{\"type\":{\"type\":\"Function\",\"value\":{\"inputs\":[],\"output\":{\"type\":\"Integer\",\"value\":null}}},\"loc_id\":\"0\",\"captures\":[],\"parameters\":[],\"body\":{\"type\":\"Block\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"statements\":[{\"type\":\"Let\",\"value\":{\"type\":{\"type\":\"Null\",\"value\":null},\"loc_id\":\"0\",\"variable\":{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Dict\",\"value\":{\"key\":{\"type\":\"Struct\",\"value\":[{\"name\":\"press\",\"type\":{\"type\":\"String\",\"value\":null}},{\"name\":\"day\",\"type\":{\"type\":\"DateTime\",\"value\":null}},{\"name\":\"job\",\"type\":{\"type\":\"String\",\"value\":null}}]},\"value\":{\"type\":\"Integer\",\"value\":null}}},\"loc_id\":\"0\",\"name\":\"sheets\",\"mutable\":false,\"captured\":false}},\"value\":{\"type\":\"NewDict\",\"value\":{\"type\":{\"type\":\"Dict\",\"value\":{\"key\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"6#variable/Variable/type/Dict/key/Struct\"}},\"value\":{\"type\":\"Integer\",\"value\":null}}},\"loc_id\":\"0\",\"values\":[{\"key\":{\"type\":\"Struct\",\"value\":{\"type\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"8#variable/Variable/type/Dict/key/Struct\"}},\"loc_id\":\"0\",\"fields\":[{\"name\":\"press\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"P1\"}}}},{\"name\":\"day\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"DateTime\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"DateTime\",\"value\":\"2026-05-31T00:00:00.000+00:00\"}}}},{\"name\":\"job\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"J1\"}}}}]}},\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"400\"}}}},{\"key\":{\"type\":\"Struct\",\"value\":{\"type\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"8#variable/Variable/type/Dict/key/Struct\"}},\"loc_id\":\"0\",\"fields\":[{\"name\":\"press\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"P1\"}}}},{\"name\":\"day\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"DateTime\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"DateTime\",\"value\":\"2026-06-01T00:00:00.000+00:00\"}}}},{\"name\":\"job\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"J2\"}}}}]}},\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"250\"}}}},{\"key\":{\"type\":\"Struct\",\"value\":{\"type\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"8#variable/Variable/type/Dict/key/Struct\"}},\"loc_id\":\"0\",\"fields\":[{\"name\":\"press\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"P1\"}}}},{\"name\":\"day\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"DateTime\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"DateTime\",\"value\":\"2026-06-30T00:00:00.000+00:00\"}}}},{\"name\":\"job\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"J3\"}}}}]}},\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"100\"}}}},{\"key\":{\"type\":\"Struct\",\"value\":{\"type\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"8#variable/Variable/type/Dict/key/Struct\"}},\"loc_id\":\"0\",\"fields\":[{\"name\":\"press\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"P1\"}}}},{\"name\":\"day\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"DateTime\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"DateTime\",\"value\":\"2026-07-01T00:00:00.000+00:00\"}}}},{\"name\":\"job\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"J4\"}}}}]}},\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"900\"}}}},{\"key\":{\"type\":\"Struct\",\"value\":{\"type\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"8#variable/Variable/type/Dict/key/Struct\"}},\"loc_id\":\"0\",\"fields\":[{\"name\":\"press\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"P2\"}}}},{\"name\":\"day\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"DateTime\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"DateTime\",\"value\":\"2026-06-10T00:00:00.000+00:00\"}}}},{\"name\":\"job\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"J5\"}}}}]}},\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"700\"}}}}]}}}},{\"type\":\"Let\",\"value\":{\"type\":{\"type\":\"Null\",\"value\":null},\"loc_id\":\"0\",\"variable\":{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Dict\",\"value\":{\"key\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"8#0/Let/variable/Variable/type/Dict/key/Struct\"}},\"value\":{\"type\":\"Integer\",\"value\":null}}},\"loc_id\":\"0\",\"name\":\"june\",\"mutable\":true,\"captured\":false}},\"value\":{\"type\":\"Builtin\",\"value\":{\"type\":{\"type\":\"Dict\",\"value\":{\"key\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"8#0/Let/variable/Variable/type/Dict/key/Struct\"}},\"value\":{\"type\":\"Integer\",\"value\":null}}},\"loc_id\":\"0\",\"builtin\":\"DictRange\",\"type_parameters\":[{\"type\":\"Struct\",\"value\":{\"$ref\":\"7#0/Let/variable/Variable/type/Dict/key/Struct\"}},{\"type\":\"Integer\",\"value\":null},{\"type\":\"Struct\",\"value\":[{\"name\":\"press\",\"type\":{\"type\":\"String\",\"value\":null}},{\"name\":\"day\",\"type\":{\"type\":\"DateTime\",\"value\":null}}]},{\"type\":\"Struct\",\"value\":{\"$ref\":\"2#2/Struct\"}}],\"arguments\":[{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Dict\",\"value\":{\"key\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"11#0/Let/variable/Variable/type/Dict/key/Struct\"}},\"value\":{\"type\":\"Integer\",\"value\":null}}},\"loc_id\":\"0\",\"name\":\"sheets\",\"mutable\":false,\"captured\":false}},{\"type\":\"Variant\",\"value\":{\"type\":{\"type\":\"Variant\",\"value\":[{\"name\":\"none\",\"type\":{\"type\":\"Null\",\"value\":null}},{\"name\":\"some\",\"type\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"8#type_parameters/2/Struct\"}}}]},\"loc_id\":\"0\",\"case\":\"some\",\"value\":{\"type\":\"Struct\",\"value\":{\"type\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"7#type_parameters/2/Struct\"}},\"loc_id\":\"0\",\"fields\":[{\"name\":\"press\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"P1\"}}}},{\"name\":\"day\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"DateTime\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"DateTime\",\"value\":\"2026-06-01T00:00:00.000+00:00\"}}}}]}}}},{\"type\":\"Variant\",\"value\":{\"type\":{\"type\":\"Variant\",\"value\":{\"$ref\":\"4#1/Variant/type/Variant\"}},\"loc_id\":\"0\",\"case\":\"some\",\"value\":{\"type\":\"Struct\",\"value\":{\"type\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"7#type_parameters/2/Struct\"}},\"loc_id\":\"0\",\"fields\":[{\"name\":\"press\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"P1\"}}}},{\"name\":\"day\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"DateTime\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"DateTime\",\"value\":\"2026-07-01T00:00:00.000+00:00\"}}}}]}}}}]}}}},{\"type\":\"Builtin\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"builtin\":\"DictReduce\",\"type_parameters\":[{\"type\":\"Struct\",\"value\":{\"$ref\":\"5#0/Let/variable/Variable/type/Dict/key/Struct\"}},{\"type\":\"Integer\",\"value\":null},{\"type\":\"Integer\",\"value\":null}],\"arguments\":[{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Dict\",\"value\":{\"key\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"9#0/Let/variable/Variable/type/Dict/key/Struct\"}},\"value\":{\"type\":\"Integer\",\"value\":null}}},\"loc_id\":\"0\",\"name\":\"june\",\"mutable\":true,\"captured\":false}},{\"type\":\"Function\",\"value\":{\"type\":{\"type\":\"Function\",\"value\":{\"inputs\":[{\"type\":\"Integer\",\"value\":null},{\"type\":\"Integer\",\"value\":null},{\"type\":\"Struct\",\"value\":{\"$ref\":\"10#0/Let/variable/Variable/type/Dict/key/Struct\"}}],\"output\":{\"type\":\"Integer\",\"value\":null}}},\"loc_id\":\"0\",\"captures\":[],\"parameters\":[{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"name\":\"previous\",\"mutable\":false,\"captured\":false}},{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"name\":\"value\",\"mutable\":false,\"captured\":false}},{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"10#0/Let/variable/Variable/type/Dict/key/Struct\"}},\"loc_id\":\"0\",\"name\":\"_4\",\"mutable\":false,\"captured\":false}}],\"body\":{\"type\":\"Builtin\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"builtin\":\"IntegerAdd\",\"type_parameters\":[],\"arguments\":[{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"name\":\"previous\",\"mutable\":false,\"captured\":false}},{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"name\":\"value\",\"mutable\":false,\"captured\":false}}]}}}},{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"0\"}}}]}}]}}}}",
+      "ts": "// Generated by east-node transpile — East IR printed as the East.function\n// builder surface. Rebuilding this module yields the same IR (normalized).\nimport { East, IntegerType, StringType, DateTimeType, DictType, StructType } from \"@elaraai/east\";\n\nexport const dictRange = East.function([], IntegerType, ($) => {\n  const sheets = $.const(\n    new Map([\n      [{ press: \"P1\", day: new Date(\"2026-05-31T00:00:00.000Z\"), job: \"J1\" }, 400n],\n      [{ press: \"P1\", day: new Date(\"2026-06-01T00:00:00.000Z\"), job: \"J2\" }, 250n],\n      [{ press: \"P1\", day: new Date(\"2026-06-30T00:00:00.000Z\"), job: \"J3\" }, 100n],\n      [{ press: \"P1\", day: new Date(\"2026-07-01T00:00:00.000Z\"), job: \"J4\" }, 900n],\n      [{ press: \"P2\", day: new Date(\"2026-06-10T00:00:00.000Z\"), job: \"J5\" }, 700n],\n    ]),\n    DictType(StructType({ press: StringType, day: DateTimeType, job: StringType }), IntegerType),\n  );\n  const june = $.let(\n    sheets.range({\n      from: { press: \"P1\", day: new Date(\"2026-06-01T00:00:00.000Z\") },\n      to: { press: \"P1\", day: new Date(\"2026-07-01T00:00:00.000Z\") },\n    }),\n  );\n  return june.reduce(($, previous, value, _4) => previous.add(value), 0n);\n});\n",
+      "python": "# Generated by east-py transpile — East IR printed as the East.function\n# builder surface. Rebuilding this module yields the same IR (normalized).\nfrom east import East, IntegerType, StringType, DateTimeType, StructType\nfrom datetime import datetime, timezone\n\n@East.function([], IntegerType)\ndef dictRange(b):\n    sheets = b.const(\n        East.new_dict(\n            StructType([('press', StringType), ('day', DateTimeType), ('job', StringType)]),\n            IntegerType,\n            [\n                (\n                    {\n                        'press': 'P1',\n                        'day': datetime(2026, 5, 31, 0, 0, 0, tzinfo=timezone.utc),\n                        'job': 'J1',\n                    },\n                    400,\n                ),\n                (\n                    {\n                        'press': 'P1',\n                        'day': datetime(2026, 6, 1, 0, 0, 0, tzinfo=timezone.utc),\n                        'job': 'J2',\n                    },\n                    250,\n                ),\n                (\n                    {\n                        'press': 'P1',\n                        'day': datetime(2026, 6, 30, 0, 0, 0, tzinfo=timezone.utc),\n                        'job': 'J3',\n                    },\n                    100,\n                ),\n                (\n                    {\n                        'press': 'P1',\n                        'day': datetime(2026, 7, 1, 0, 0, 0, tzinfo=timezone.utc),\n                        'job': 'J4',\n                    },\n                    900,\n                ),\n                (\n                    {\n                        'press': 'P2',\n                        'day': datetime(2026, 6, 10, 0, 0, 0, tzinfo=timezone.utc),\n                        'job': 'J5',\n                    },\n                    700,\n                ),\n            ],\n        ),\n    )\n    june = b.let(\n        sheets.range(\n            from_={'press': 'P1', 'day': datetime(2026, 6, 1, 0, 0, 0, tzinfo=timezone.utc)},\n            to={'press': 'P1', 'day': datetime(2026, 7, 1, 0, 0, 0, tzinfo=timezone.utc)},\n        ),\n    )\n    return june.reduce(lambda b, previous, value, _4: (previous + value), 0)\n",
+      "signature": {
+        "inputs": [],
+        "output": "IntegerType",
+        "async": false
+      },
+      "inputs": "[]",
+      "returns": "\"350\"",
+      "builtins": [
+        "DictRange",
+        "DictReduce",
+        "IntegerAdd"
+      ]
+    },
+    {
+      "id": "east:key_range.examples.ts:dictRangeOpenEnd",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/key_range.examples.ts",
+      "suite": "",
+      "test": "Leave a bound out of a Dict's range for that end of the Dict: every entry from press P2 on",
+      "keywords": [
+        "dict",
+        "DictType",
+        "range",
+        "from",
+        "open end",
+        "to the end",
+        "key range",
+        "bounds"
+      ],
+      "imports": [
+        "import {"
+      ],
+      "languages": [
+        "typescript",
+        "python"
+      ],
+      "ir": "{\"type\":\"Function\",\"value\":{\"type\":{\"type\":\"Function\",\"value\":{\"inputs\":[],\"output\":{\"type\":\"Integer\",\"value\":null}}},\"loc_id\":\"0\",\"captures\":[],\"parameters\":[],\"body\":{\"type\":\"Block\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"statements\":[{\"type\":\"Let\",\"value\":{\"type\":{\"type\":\"Null\",\"value\":null},\"loc_id\":\"0\",\"variable\":{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Dict\",\"value\":{\"key\":{\"type\":\"Struct\",\"value\":[{\"name\":\"press\",\"type\":{\"type\":\"String\",\"value\":null}},{\"name\":\"day\",\"type\":{\"type\":\"DateTime\",\"value\":null}},{\"name\":\"job\",\"type\":{\"type\":\"String\",\"value\":null}}]},\"value\":{\"type\":\"Integer\",\"value\":null}}},\"loc_id\":\"0\",\"name\":\"sheets\",\"mutable\":false,\"captured\":false}},\"value\":{\"type\":\"NewDict\",\"value\":{\"type\":{\"type\":\"Dict\",\"value\":{\"key\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"6#variable/Variable/type/Dict/key/Struct\"}},\"value\":{\"type\":\"Integer\",\"value\":null}}},\"loc_id\":\"0\",\"values\":[{\"key\":{\"type\":\"Struct\",\"value\":{\"type\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"8#variable/Variable/type/Dict/key/Struct\"}},\"loc_id\":\"0\",\"fields\":[{\"name\":\"press\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"P1\"}}}},{\"name\":\"day\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"DateTime\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"DateTime\",\"value\":\"2026-05-31T00:00:00.000+00:00\"}}}},{\"name\":\"job\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"J1\"}}}}]}},\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"400\"}}}},{\"key\":{\"type\":\"Struct\",\"value\":{\"type\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"8#variable/Variable/type/Dict/key/Struct\"}},\"loc_id\":\"0\",\"fields\":[{\"name\":\"press\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"P1\"}}}},{\"name\":\"day\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"DateTime\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"DateTime\",\"value\":\"2026-06-01T00:00:00.000+00:00\"}}}},{\"name\":\"job\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"J2\"}}}}]}},\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"250\"}}}},{\"key\":{\"type\":\"Struct\",\"value\":{\"type\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"8#variable/Variable/type/Dict/key/Struct\"}},\"loc_id\":\"0\",\"fields\":[{\"name\":\"press\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"P1\"}}}},{\"name\":\"day\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"DateTime\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"DateTime\",\"value\":\"2026-06-30T00:00:00.000+00:00\"}}}},{\"name\":\"job\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"J3\"}}}}]}},\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"100\"}}}},{\"key\":{\"type\":\"Struct\",\"value\":{\"type\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"8#variable/Variable/type/Dict/key/Struct\"}},\"loc_id\":\"0\",\"fields\":[{\"name\":\"press\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"P1\"}}}},{\"name\":\"day\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"DateTime\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"DateTime\",\"value\":\"2026-07-01T00:00:00.000+00:00\"}}}},{\"name\":\"job\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"J4\"}}}}]}},\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"900\"}}}},{\"key\":{\"type\":\"Struct\",\"value\":{\"type\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"8#variable/Variable/type/Dict/key/Struct\"}},\"loc_id\":\"0\",\"fields\":[{\"name\":\"press\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"P2\"}}}},{\"name\":\"day\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"DateTime\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"DateTime\",\"value\":\"2026-06-10T00:00:00.000+00:00\"}}}},{\"name\":\"job\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"J5\"}}}}]}},\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"700\"}}}}]}}}},{\"type\":\"Builtin\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"builtin\":\"DictSize\",\"type_parameters\":[{\"type\":\"Struct\",\"value\":{\"$ref\":\"5#0/Let/variable/Variable/type/Dict/key/Struct\"}},{\"type\":\"Integer\",\"value\":null}],\"arguments\":[{\"type\":\"Builtin\",\"value\":{\"type\":{\"type\":\"Dict\",\"value\":{\"key\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"9#0/Let/variable/Variable/type/Dict/key/Struct\"}},\"value\":{\"type\":\"Integer\",\"value\":null}}},\"loc_id\":\"0\",\"builtin\":\"DictRange\",\"type_parameters\":[{\"type\":\"Struct\",\"value\":{\"$ref\":\"8#0/Let/variable/Variable/type/Dict/key/Struct\"}},{\"type\":\"Integer\",\"value\":null},{\"type\":\"Struct\",\"value\":[{\"name\":\"press\",\"type\":{\"type\":\"String\",\"value\":null}}]},{\"type\":\"Struct\",\"value\":{\"$ref\":\"8#0/Let/variable/Variable/type/Dict/key/Struct\"}}],\"arguments\":[{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Dict\",\"value\":{\"key\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"12#0/Let/variable/Variable/type/Dict/key/Struct\"}},\"value\":{\"type\":\"Integer\",\"value\":null}}},\"loc_id\":\"0\",\"name\":\"sheets\",\"mutable\":false,\"captured\":false}},{\"type\":\"Variant\",\"value\":{\"type\":{\"type\":\"Variant\",\"value\":[{\"name\":\"none\",\"type\":{\"type\":\"Null\",\"value\":null}},{\"name\":\"some\",\"type\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"8#type_parameters/2/Struct\"}}}]},\"loc_id\":\"0\",\"case\":\"some\",\"value\":{\"type\":\"Struct\",\"value\":{\"type\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"7#type_parameters/2/Struct\"}},\"loc_id\":\"0\",\"fields\":[{\"name\":\"press\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"P2\"}}}}]}}}},{\"type\":\"Variant\",\"value\":{\"type\":{\"type\":\"Variant\",\"value\":[{\"name\":\"none\",\"type\":{\"type\":\"Null\",\"value\":null}},{\"name\":\"some\",\"type\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"13#0/Let/variable/Variable/type/Dict/key/Struct\"}}}]},\"loc_id\":\"0\",\"case\":\"none\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Null\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Null\",\"value\":null}}}}}]}}]}}]}}}}",
+      "ts": "// Generated by east-node transpile — East IR printed as the East.function\n// builder surface. Rebuilding this module yields the same IR (normalized).\nimport { East, IntegerType, StringType, DateTimeType, DictType, StructType } from \"@elaraai/east\";\n\nexport const dictRangeOpenEnd = East.function([], IntegerType, ($) => {\n  const sheets = $.const(\n    new Map([\n      [{ press: \"P1\", day: new Date(\"2026-05-31T00:00:00.000Z\"), job: \"J1\" }, 400n],\n      [{ press: \"P1\", day: new Date(\"2026-06-01T00:00:00.000Z\"), job: \"J2\" }, 250n],\n      [{ press: \"P1\", day: new Date(\"2026-06-30T00:00:00.000Z\"), job: \"J3\" }, 100n],\n      [{ press: \"P1\", day: new Date(\"2026-07-01T00:00:00.000Z\"), job: \"J4\" }, 900n],\n      [{ press: \"P2\", day: new Date(\"2026-06-10T00:00:00.000Z\"), job: \"J5\" }, 700n],\n    ]),\n    DictType(StructType({ press: StringType, day: DateTimeType, job: StringType }), IntegerType),\n  );\n  return sheets.range({ from: { press: \"P2\" } }).size();\n});\n",
+      "python": "# Generated by east-py transpile — East IR printed as the East.function\n# builder surface. Rebuilding this module yields the same IR (normalized).\nfrom east import East, IntegerType, StringType, DateTimeType, StructType\nfrom datetime import datetime, timezone\n\n@East.function([], IntegerType)\ndef dictRangeOpenEnd(b):\n    sheets = b.const(\n        East.new_dict(\n            StructType([('press', StringType), ('day', DateTimeType), ('job', StringType)]),\n            IntegerType,\n            [\n                (\n                    {\n                        'press': 'P1',\n                        'day': datetime(2026, 5, 31, 0, 0, 0, tzinfo=timezone.utc),\n                        'job': 'J1',\n                    },\n                    400,\n                ),\n                (\n                    {\n                        'press': 'P1',\n                        'day': datetime(2026, 6, 1, 0, 0, 0, tzinfo=timezone.utc),\n                        'job': 'J2',\n                    },\n                    250,\n                ),\n                (\n                    {\n                        'press': 'P1',\n                        'day': datetime(2026, 6, 30, 0, 0, 0, tzinfo=timezone.utc),\n                        'job': 'J3',\n                    },\n                    100,\n                ),\n                (\n                    {\n                        'press': 'P1',\n                        'day': datetime(2026, 7, 1, 0, 0, 0, tzinfo=timezone.utc),\n                        'job': 'J4',\n                    },\n                    900,\n                ),\n                (\n                    {\n                        'press': 'P2',\n                        'day': datetime(2026, 6, 10, 0, 0, 0, tzinfo=timezone.utc),\n                        'job': 'J5',\n                    },\n                    700,\n                ),\n            ],\n        ),\n    )\n    return sheets.range(from_={'press': 'P2'}).size()\n",
+      "signature": {
+        "inputs": [],
+        "output": "IntegerType",
+        "async": false
+      },
+      "inputs": "[]",
+      "returns": "\"1\"",
+      "builtins": [
+        "DictRange",
+        "DictSize"
+      ]
+    },
+    {
+      "id": "east:key_range.examples.ts:dictPrefix",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/key_range.examples.ts",
+      "suite": "",
+      "test": "Read the entries of a Dict whose key begins with given fields: every sheet of press P1",
+      "keywords": [
+        "dict",
+        "DictType",
+        "prefix",
+        "begins with",
+        "leading fields",
+        "struct key",
+        "key range",
+        "index"
+      ],
+      "imports": [
+        "import {"
+      ],
+      "languages": [
+        "typescript",
+        "python"
+      ],
+      "ir": "{\"type\":\"Function\",\"value\":{\"type\":{\"type\":\"Function\",\"value\":{\"inputs\":[],\"output\":{\"type\":\"Integer\",\"value\":null}}},\"loc_id\":\"0\",\"captures\":[],\"parameters\":[],\"body\":{\"type\":\"Block\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"statements\":[{\"type\":\"Let\",\"value\":{\"type\":{\"type\":\"Null\",\"value\":null},\"loc_id\":\"0\",\"variable\":{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Dict\",\"value\":{\"key\":{\"type\":\"Struct\",\"value\":[{\"name\":\"press\",\"type\":{\"type\":\"String\",\"value\":null}},{\"name\":\"day\",\"type\":{\"type\":\"DateTime\",\"value\":null}},{\"name\":\"job\",\"type\":{\"type\":\"String\",\"value\":null}}]},\"value\":{\"type\":\"Integer\",\"value\":null}}},\"loc_id\":\"0\",\"name\":\"sheets\",\"mutable\":false,\"captured\":false}},\"value\":{\"type\":\"NewDict\",\"value\":{\"type\":{\"type\":\"Dict\",\"value\":{\"key\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"6#variable/Variable/type/Dict/key/Struct\"}},\"value\":{\"type\":\"Integer\",\"value\":null}}},\"loc_id\":\"0\",\"values\":[{\"key\":{\"type\":\"Struct\",\"value\":{\"type\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"8#variable/Variable/type/Dict/key/Struct\"}},\"loc_id\":\"0\",\"fields\":[{\"name\":\"press\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"P1\"}}}},{\"name\":\"day\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"DateTime\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"DateTime\",\"value\":\"2026-05-31T00:00:00.000+00:00\"}}}},{\"name\":\"job\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"J1\"}}}}]}},\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"400\"}}}},{\"key\":{\"type\":\"Struct\",\"value\":{\"type\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"8#variable/Variable/type/Dict/key/Struct\"}},\"loc_id\":\"0\",\"fields\":[{\"name\":\"press\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"P1\"}}}},{\"name\":\"day\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"DateTime\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"DateTime\",\"value\":\"2026-06-01T00:00:00.000+00:00\"}}}},{\"name\":\"job\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"J2\"}}}}]}},\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"250\"}}}},{\"key\":{\"type\":\"Struct\",\"value\":{\"type\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"8#variable/Variable/type/Dict/key/Struct\"}},\"loc_id\":\"0\",\"fields\":[{\"name\":\"press\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"P1\"}}}},{\"name\":\"day\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"DateTime\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"DateTime\",\"value\":\"2026-06-30T00:00:00.000+00:00\"}}}},{\"name\":\"job\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"J3\"}}}}]}},\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"100\"}}}},{\"key\":{\"type\":\"Struct\",\"value\":{\"type\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"8#variable/Variable/type/Dict/key/Struct\"}},\"loc_id\":\"0\",\"fields\":[{\"name\":\"press\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"P1\"}}}},{\"name\":\"day\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"DateTime\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"DateTime\",\"value\":\"2026-07-01T00:00:00.000+00:00\"}}}},{\"name\":\"job\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"J4\"}}}}]}},\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"900\"}}}},{\"key\":{\"type\":\"Struct\",\"value\":{\"type\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"8#variable/Variable/type/Dict/key/Struct\"}},\"loc_id\":\"0\",\"fields\":[{\"name\":\"press\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"P2\"}}}},{\"name\":\"day\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"DateTime\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"DateTime\",\"value\":\"2026-06-10T00:00:00.000+00:00\"}}}},{\"name\":\"job\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"J5\"}}}}]}},\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"700\"}}}}]}}}},{\"type\":\"Builtin\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"builtin\":\"DictReduce\",\"type_parameters\":[{\"type\":\"Struct\",\"value\":{\"$ref\":\"5#0/Let/variable/Variable/type/Dict/key/Struct\"}},{\"type\":\"Integer\",\"value\":null},{\"type\":\"Integer\",\"value\":null}],\"arguments\":[{\"type\":\"Builtin\",\"value\":{\"type\":{\"type\":\"Dict\",\"value\":{\"key\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"9#0/Let/variable/Variable/type/Dict/key/Struct\"}},\"value\":{\"type\":\"Integer\",\"value\":null}}},\"loc_id\":\"0\",\"builtin\":\"DictPrefix\",\"type_parameters\":[{\"type\":\"Struct\",\"value\":{\"$ref\":\"8#0/Let/variable/Variable/type/Dict/key/Struct\"}},{\"type\":\"Integer\",\"value\":null},{\"type\":\"Struct\",\"value\":[{\"name\":\"press\",\"type\":{\"type\":\"String\",\"value\":null}}]}],\"arguments\":[{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Dict\",\"value\":{\"key\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"12#0/Let/variable/Variable/type/Dict/key/Struct\"}},\"value\":{\"type\":\"Integer\",\"value\":null}}},\"loc_id\":\"0\",\"name\":\"sheets\",\"mutable\":false,\"captured\":false}},{\"type\":\"Struct\",\"value\":{\"type\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"5#type_parameters/2/Struct\"}},\"loc_id\":\"0\",\"fields\":[{\"name\":\"press\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"P1\"}}}}]}}]}},{\"type\":\"Function\",\"value\":{\"type\":{\"type\":\"Function\",\"value\":{\"inputs\":[{\"type\":\"Integer\",\"value\":null},{\"type\":\"Integer\",\"value\":null},{\"type\":\"Struct\",\"value\":{\"$ref\":\"10#0/Let/variable/Variable/type/Dict/key/Struct\"}}],\"output\":{\"type\":\"Integer\",\"value\":null}}},\"loc_id\":\"0\",\"captures\":[],\"parameters\":[{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"name\":\"previous\",\"mutable\":false,\"captured\":false}},{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"name\":\"value\",\"mutable\":false,\"captured\":false}},{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"10#0/Let/variable/Variable/type/Dict/key/Struct\"}},\"loc_id\":\"0\",\"name\":\"_3\",\"mutable\":false,\"captured\":false}}],\"body\":{\"type\":\"Builtin\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"builtin\":\"IntegerAdd\",\"type_parameters\":[],\"arguments\":[{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"name\":\"previous\",\"mutable\":false,\"captured\":false}},{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"name\":\"value\",\"mutable\":false,\"captured\":false}}]}}}},{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"0\"}}}]}}]}}}}",
+      "ts": "// Generated by east-node transpile — East IR printed as the East.function\n// builder surface. Rebuilding this module yields the same IR (normalized).\nimport { East, IntegerType, StringType, DateTimeType, DictType, StructType } from \"@elaraai/east\";\n\nexport const dictPrefix = East.function([], IntegerType, ($) => {\n  const sheets = $.const(\n    new Map([\n      [{ press: \"P1\", day: new Date(\"2026-05-31T00:00:00.000Z\"), job: \"J1\" }, 400n],\n      [{ press: \"P1\", day: new Date(\"2026-06-01T00:00:00.000Z\"), job: \"J2\" }, 250n],\n      [{ press: \"P1\", day: new Date(\"2026-06-30T00:00:00.000Z\"), job: \"J3\" }, 100n],\n      [{ press: \"P1\", day: new Date(\"2026-07-01T00:00:00.000Z\"), job: \"J4\" }, 900n],\n      [{ press: \"P2\", day: new Date(\"2026-06-10T00:00:00.000Z\"), job: \"J5\" }, 700n],\n    ]),\n    DictType(StructType({ press: StringType, day: DateTimeType, job: StringType }), IntegerType),\n  );\n  return sheets.prefix({ press: \"P1\" }).reduce(($, previous, value, _3) => previous.add(value), 0n);\n});\n",
+      "python": "# Generated by east-py transpile — East IR printed as the East.function\n# builder surface. Rebuilding this module yields the same IR (normalized).\nfrom east import East, IntegerType, StringType, DateTimeType, StructType\nfrom datetime import datetime, timezone\n\n@East.function([], IntegerType)\ndef dictPrefix(b):\n    sheets = b.const(\n        East.new_dict(\n            StructType([('press', StringType), ('day', DateTimeType), ('job', StringType)]),\n            IntegerType,\n            [\n                (\n                    {\n                        'press': 'P1',\n                        'day': datetime(2026, 5, 31, 0, 0, 0, tzinfo=timezone.utc),\n                        'job': 'J1',\n                    },\n                    400,\n                ),\n                (\n                    {\n                        'press': 'P1',\n                        'day': datetime(2026, 6, 1, 0, 0, 0, tzinfo=timezone.utc),\n                        'job': 'J2',\n                    },\n                    250,\n                ),\n                (\n                    {\n                        'press': 'P1',\n                        'day': datetime(2026, 6, 30, 0, 0, 0, tzinfo=timezone.utc),\n                        'job': 'J3',\n                    },\n                    100,\n                ),\n                (\n                    {\n                        'press': 'P1',\n                        'day': datetime(2026, 7, 1, 0, 0, 0, tzinfo=timezone.utc),\n                        'job': 'J4',\n                    },\n                    900,\n                ),\n                (\n                    {\n                        'press': 'P2',\n                        'day': datetime(2026, 6, 10, 0, 0, 0, tzinfo=timezone.utc),\n                        'job': 'J5',\n                    },\n                    700,\n                ),\n            ],\n        ),\n    )\n    return sheets.prefix({'press': 'P1'}).reduce(\n        lambda b, previous, value, _3: (previous + value),\n        0,\n    )\n",
+      "signature": {
+        "inputs": [],
+        "output": "IntegerType",
+        "async": false
+      },
+      "inputs": "[]",
+      "returns": "\"1650\"",
+      "builtins": [
+        "DictPrefix",
+        "DictReduce",
+        "IntegerAdd"
+      ]
+    },
+    {
+      "id": "east:key_range.examples.ts:dictRangeOfRange",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/key_range.examples.ts",
+      "suite": "",
+      "test": "Narrow a range again: of press P1's sheets, the ones from 1 June on",
+      "keywords": [
+        "dict",
+        "DictType",
+        "range",
+        "prefix",
+        "narrow",
+        "range of a range",
+        "key range"
+      ],
+      "imports": [
+        "import {"
+      ],
+      "languages": [
+        "typescript",
+        "python"
+      ],
+      "ir": "{\"type\":\"Function\",\"value\":{\"type\":{\"type\":\"Function\",\"value\":{\"inputs\":[],\"output\":{\"type\":\"Integer\",\"value\":null}}},\"loc_id\":\"0\",\"captures\":[],\"parameters\":[],\"body\":{\"type\":\"Block\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"statements\":[{\"type\":\"Let\",\"value\":{\"type\":{\"type\":\"Null\",\"value\":null},\"loc_id\":\"0\",\"variable\":{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Dict\",\"value\":{\"key\":{\"type\":\"Struct\",\"value\":[{\"name\":\"press\",\"type\":{\"type\":\"String\",\"value\":null}},{\"name\":\"day\",\"type\":{\"type\":\"DateTime\",\"value\":null}},{\"name\":\"job\",\"type\":{\"type\":\"String\",\"value\":null}}]},\"value\":{\"type\":\"Integer\",\"value\":null}}},\"loc_id\":\"0\",\"name\":\"sheets\",\"mutable\":false,\"captured\":false}},\"value\":{\"type\":\"NewDict\",\"value\":{\"type\":{\"type\":\"Dict\",\"value\":{\"key\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"6#variable/Variable/type/Dict/key/Struct\"}},\"value\":{\"type\":\"Integer\",\"value\":null}}},\"loc_id\":\"0\",\"values\":[{\"key\":{\"type\":\"Struct\",\"value\":{\"type\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"8#variable/Variable/type/Dict/key/Struct\"}},\"loc_id\":\"0\",\"fields\":[{\"name\":\"press\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"P1\"}}}},{\"name\":\"day\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"DateTime\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"DateTime\",\"value\":\"2026-05-31T00:00:00.000+00:00\"}}}},{\"name\":\"job\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"J1\"}}}}]}},\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"400\"}}}},{\"key\":{\"type\":\"Struct\",\"value\":{\"type\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"8#variable/Variable/type/Dict/key/Struct\"}},\"loc_id\":\"0\",\"fields\":[{\"name\":\"press\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"P1\"}}}},{\"name\":\"day\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"DateTime\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"DateTime\",\"value\":\"2026-06-01T00:00:00.000+00:00\"}}}},{\"name\":\"job\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"J2\"}}}}]}},\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"250\"}}}},{\"key\":{\"type\":\"Struct\",\"value\":{\"type\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"8#variable/Variable/type/Dict/key/Struct\"}},\"loc_id\":\"0\",\"fields\":[{\"name\":\"press\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"P1\"}}}},{\"name\":\"day\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"DateTime\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"DateTime\",\"value\":\"2026-06-30T00:00:00.000+00:00\"}}}},{\"name\":\"job\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"J3\"}}}}]}},\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"100\"}}}},{\"key\":{\"type\":\"Struct\",\"value\":{\"type\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"8#variable/Variable/type/Dict/key/Struct\"}},\"loc_id\":\"0\",\"fields\":[{\"name\":\"press\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"P1\"}}}},{\"name\":\"day\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"DateTime\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"DateTime\",\"value\":\"2026-07-01T00:00:00.000+00:00\"}}}},{\"name\":\"job\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"J4\"}}}}]}},\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"900\"}}}},{\"key\":{\"type\":\"Struct\",\"value\":{\"type\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"8#variable/Variable/type/Dict/key/Struct\"}},\"loc_id\":\"0\",\"fields\":[{\"name\":\"press\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"P2\"}}}},{\"name\":\"day\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"DateTime\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"DateTime\",\"value\":\"2026-06-10T00:00:00.000+00:00\"}}}},{\"name\":\"job\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"J5\"}}}}]}},\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"700\"}}}}]}}}},{\"type\":\"Let\",\"value\":{\"type\":{\"type\":\"Null\",\"value\":null},\"loc_id\":\"0\",\"variable\":{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Dict\",\"value\":{\"key\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"8#0/Let/variable/Variable/type/Dict/key/Struct\"}},\"value\":{\"type\":\"Integer\",\"value\":null}}},\"loc_id\":\"0\",\"name\":\"ofPress\",\"mutable\":true,\"captured\":false}},\"value\":{\"type\":\"Builtin\",\"value\":{\"type\":{\"type\":\"Dict\",\"value\":{\"key\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"8#0/Let/variable/Variable/type/Dict/key/Struct\"}},\"value\":{\"type\":\"Integer\",\"value\":null}}},\"loc_id\":\"0\",\"builtin\":\"DictPrefix\",\"type_parameters\":[{\"type\":\"Struct\",\"value\":{\"$ref\":\"7#0/Let/variable/Variable/type/Dict/key/Struct\"}},{\"type\":\"Integer\",\"value\":null},{\"type\":\"Struct\",\"value\":[{\"name\":\"press\",\"type\":{\"type\":\"String\",\"value\":null}}]}],\"arguments\":[{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Dict\",\"value\":{\"key\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"11#0/Let/variable/Variable/type/Dict/key/Struct\"}},\"value\":{\"type\":\"Integer\",\"value\":null}}},\"loc_id\":\"0\",\"name\":\"sheets\",\"mutable\":false,\"captured\":false}},{\"type\":\"Struct\",\"value\":{\"type\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"5#type_parameters/2/Struct\"}},\"loc_id\":\"0\",\"fields\":[{\"name\":\"press\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"P1\"}}}}]}}]}}}},{\"type\":\"Builtin\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"builtin\":\"DictSize\",\"type_parameters\":[{\"type\":\"Struct\",\"value\":{\"$ref\":\"5#0/Let/variable/Variable/type/Dict/key/Struct\"}},{\"type\":\"Integer\",\"value\":null}],\"arguments\":[{\"type\":\"Builtin\",\"value\":{\"type\":{\"type\":\"Dict\",\"value\":{\"key\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"9#0/Let/variable/Variable/type/Dict/key/Struct\"}},\"value\":{\"type\":\"Integer\",\"value\":null}}},\"loc_id\":\"0\",\"builtin\":\"DictRange\",\"type_parameters\":[{\"type\":\"Struct\",\"value\":{\"$ref\":\"8#0/Let/variable/Variable/type/Dict/key/Struct\"}},{\"type\":\"Integer\",\"value\":null},{\"type\":\"Struct\",\"value\":[{\"name\":\"press\",\"type\":{\"type\":\"String\",\"value\":null}},{\"name\":\"day\",\"type\":{\"type\":\"DateTime\",\"value\":null}}]},{\"type\":\"Struct\",\"value\":{\"$ref\":\"8#0/Let/variable/Variable/type/Dict/key/Struct\"}}],\"arguments\":[{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Dict\",\"value\":{\"key\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"12#0/Let/variable/Variable/type/Dict/key/Struct\"}},\"value\":{\"type\":\"Integer\",\"value\":null}}},\"loc_id\":\"0\",\"name\":\"ofPress\",\"mutable\":true,\"captured\":false}},{\"type\":\"Variant\",\"value\":{\"type\":{\"type\":\"Variant\",\"value\":[{\"name\":\"none\",\"type\":{\"type\":\"Null\",\"value\":null}},{\"name\":\"some\",\"type\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"8#type_parameters/2/Struct\"}}}]},\"loc_id\":\"0\",\"case\":\"some\",\"value\":{\"type\":\"Struct\",\"value\":{\"type\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"7#type_parameters/2/Struct\"}},\"loc_id\":\"0\",\"fields\":[{\"name\":\"press\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"P1\"}}}},{\"name\":\"day\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"DateTime\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"DateTime\",\"value\":\"2026-06-01T00:00:00.000+00:00\"}}}}]}}}},{\"type\":\"Variant\",\"value\":{\"type\":{\"type\":\"Variant\",\"value\":[{\"name\":\"none\",\"type\":{\"type\":\"Null\",\"value\":null}},{\"name\":\"some\",\"type\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"13#0/Let/variable/Variable/type/Dict/key/Struct\"}}}]},\"loc_id\":\"0\",\"case\":\"none\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Null\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Null\",\"value\":null}}}}}]}}]}}]}}}}",
+      "ts": "// Generated by east-node transpile — East IR printed as the East.function\n// builder surface. Rebuilding this module yields the same IR (normalized).\nimport { East, IntegerType, StringType, DateTimeType, DictType, StructType } from \"@elaraai/east\";\n\nexport const dictRangeOfRange = East.function([], IntegerType, ($) => {\n  const sheets = $.const(\n    new Map([\n      [{ press: \"P1\", day: new Date(\"2026-05-31T00:00:00.000Z\"), job: \"J1\" }, 400n],\n      [{ press: \"P1\", day: new Date(\"2026-06-01T00:00:00.000Z\"), job: \"J2\" }, 250n],\n      [{ press: \"P1\", day: new Date(\"2026-06-30T00:00:00.000Z\"), job: \"J3\" }, 100n],\n      [{ press: \"P1\", day: new Date(\"2026-07-01T00:00:00.000Z\"), job: \"J4\" }, 900n],\n      [{ press: \"P2\", day: new Date(\"2026-06-10T00:00:00.000Z\"), job: \"J5\" }, 700n],\n    ]),\n    DictType(StructType({ press: StringType, day: DateTimeType, job: StringType }), IntegerType),\n  );\n  const ofPress = $.let(sheets.prefix({ press: \"P1\" }));\n  return ofPress.range({ from: { press: \"P1\", day: new Date(\"2026-06-01T00:00:00.000Z\") } }).size();\n});\n",
+      "python": "# Generated by east-py transpile — East IR printed as the East.function\n# builder surface. Rebuilding this module yields the same IR (normalized).\nfrom east import East, IntegerType, StringType, DateTimeType, StructType\nfrom datetime import datetime, timezone\n\n@East.function([], IntegerType)\ndef dictRangeOfRange(b):\n    sheets = b.const(\n        East.new_dict(\n            StructType([('press', StringType), ('day', DateTimeType), ('job', StringType)]),\n            IntegerType,\n            [\n                (\n                    {\n                        'press': 'P1',\n                        'day': datetime(2026, 5, 31, 0, 0, 0, tzinfo=timezone.utc),\n                        'job': 'J1',\n                    },\n                    400,\n                ),\n                (\n                    {\n                        'press': 'P1',\n                        'day': datetime(2026, 6, 1, 0, 0, 0, tzinfo=timezone.utc),\n                        'job': 'J2',\n                    },\n                    250,\n                ),\n                (\n                    {\n                        'press': 'P1',\n                        'day': datetime(2026, 6, 30, 0, 0, 0, tzinfo=timezone.utc),\n                        'job': 'J3',\n                    },\n                    100,\n                ),\n                (\n                    {\n                        'press': 'P1',\n                        'day': datetime(2026, 7, 1, 0, 0, 0, tzinfo=timezone.utc),\n                        'job': 'J4',\n                    },\n                    900,\n                ),\n                (\n                    {\n                        'press': 'P2',\n                        'day': datetime(2026, 6, 10, 0, 0, 0, tzinfo=timezone.utc),\n                        'job': 'J5',\n                    },\n                    700,\n                ),\n            ],\n        ),\n    )\n    ofPress = b.let(sheets.prefix({'press': 'P1'}))\n    return ofPress.range(\n        from_={'press': 'P1', 'day': datetime(2026, 6, 1, 0, 0, 0, tzinfo=timezone.utc)},\n    ).size()\n",
+      "signature": {
+        "inputs": [],
+        "output": "IntegerType",
+        "async": false
+      },
+      "inputs": "[]",
+      "returns": "\"3\"",
+      "builtins": [
+        "DictPrefix",
+        "DictRange",
+        "DictSize"
+      ]
+    },
+    {
+      "id": "east:key_range.examples.ts:dictRangeStartsWith",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/key_range.examples.ts",
+      "suite": "",
+      "test": "Read the entries of a Dict whose String key starts with given letters, as a range from them up to the next",
+      "keywords": [
+        "dict",
+        "DictType",
+        "range",
+        "String key",
+        "starts with",
+        "startsWith",
+        "prefix",
+        "key range"
+      ],
+      "imports": [
+        "import {"
+      ],
+      "languages": [
+        "typescript",
+        "python"
+      ],
+      "ir": "{\"type\":\"Function\",\"value\":{\"type\":{\"type\":\"Function\",\"value\":{\"inputs\":[],\"output\":{\"type\":\"Integer\",\"value\":null}}},\"loc_id\":\"0\",\"captures\":[],\"parameters\":[],\"body\":{\"type\":\"Block\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"statements\":[{\"type\":\"Let\",\"value\":{\"type\":{\"type\":\"Null\",\"value\":null},\"loc_id\":\"0\",\"variable\":{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Dict\",\"value\":{\"key\":{\"type\":\"String\",\"value\":null},\"value\":{\"type\":\"Integer\",\"value\":null}}},\"loc_id\":\"0\",\"name\":\"stock\",\"mutable\":false,\"captured\":false}},\"value\":{\"type\":\"NewDict\",\"value\":{\"type\":{\"type\":\"Dict\",\"value\":{\"key\":{\"type\":\"String\",\"value\":null},\"value\":{\"type\":\"Integer\",\"value\":null}}},\"loc_id\":\"0\",\"values\":[{\"key\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"aa\"}}},\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"1\"}}}},{\"key\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"ab\"}}},\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"2\"}}}},{\"key\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"abc\"}}},\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"4\"}}}},{\"key\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"ac\"}}},\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"8\"}}}},{\"key\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"b\"}}},\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"16\"}}}}]}}}},{\"type\":\"Builtin\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"builtin\":\"DictReduce\",\"type_parameters\":[{\"type\":\"String\",\"value\":null},{\"type\":\"Integer\",\"value\":null},{\"type\":\"Integer\",\"value\":null}],\"arguments\":[{\"type\":\"Builtin\",\"value\":{\"type\":{\"type\":\"Dict\",\"value\":{\"key\":{\"type\":\"String\",\"value\":null},\"value\":{\"type\":\"Integer\",\"value\":null}}},\"loc_id\":\"0\",\"builtin\":\"DictRange\",\"type_parameters\":[{\"type\":\"String\",\"value\":null},{\"type\":\"Integer\",\"value\":null},{\"type\":\"String\",\"value\":null},{\"type\":\"String\",\"value\":null}],\"arguments\":[{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Dict\",\"value\":{\"key\":{\"type\":\"String\",\"value\":null},\"value\":{\"type\":\"Integer\",\"value\":null}}},\"loc_id\":\"0\",\"name\":\"stock\",\"mutable\":false,\"captured\":false}},{\"type\":\"Variant\",\"value\":{\"type\":{\"type\":\"Variant\",\"value\":[{\"name\":\"none\",\"type\":{\"type\":\"Null\",\"value\":null}},{\"name\":\"some\",\"type\":{\"type\":\"String\",\"value\":null}}]},\"loc_id\":\"0\",\"case\":\"some\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"ab\"}}}}},{\"type\":\"Variant\",\"value\":{\"type\":{\"type\":\"Variant\",\"value\":{\"$ref\":\"4#1/Variant/type/Variant\"}},\"loc_id\":\"0\",\"case\":\"some\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"ac\"}}}}}]}},{\"type\":\"Function\",\"value\":{\"type\":{\"type\":\"Function\",\"value\":{\"inputs\":[{\"type\":\"Integer\",\"value\":null},{\"type\":\"Integer\",\"value\":null},{\"type\":\"String\",\"value\":null}],\"output\":{\"type\":\"Integer\",\"value\":null}}},\"loc_id\":\"0\",\"captures\":[],\"parameters\":[{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"name\":\"previous\",\"mutable\":false,\"captured\":false}},{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"name\":\"value\",\"mutable\":false,\"captured\":false}},{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"name\":\"_3\",\"mutable\":false,\"captured\":false}}],\"body\":{\"type\":\"Builtin\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"builtin\":\"IntegerAdd\",\"type_parameters\":[],\"arguments\":[{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"name\":\"previous\",\"mutable\":false,\"captured\":false}},{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"name\":\"value\",\"mutable\":false,\"captured\":false}}]}}}},{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"0\"}}}]}}]}}}}",
+      "ts": "// Generated by east-node transpile — East IR printed as the East.function\n// builder surface. Rebuilding this module yields the same IR (normalized).\nimport { East, IntegerType, StringType, DictType } from \"@elaraai/east\";\n\nexport const dictRangeStartsWith = East.function([], IntegerType, ($) => {\n  const stock = $.const(\n    new Map([[\"aa\", 1n], [\"ab\", 2n], [\"abc\", 4n], [\"ac\", 8n], [\"b\", 16n]]),\n    DictType(StringType, IntegerType),\n  );\n  return stock.range({ from: \"ab\", to: \"ac\" }).reduce(\n    ($, previous, value, _3) => previous.add(value),\n    0n,\n  );\n});\n",
+      "python": "# Generated by east-py transpile — East IR printed as the East.function\n# builder surface. Rebuilding this module yields the same IR (normalized).\nfrom east import East, IntegerType, StringType, DictType\n\n@East.function([], IntegerType)\ndef dictRangeStartsWith(b):\n    stock = b.const(\n        {'aa': 1, 'ab': 2, 'abc': 4, 'ac': 8, 'b': 16},\n        DictType(StringType, IntegerType),\n    )\n    return stock.range(from_='ab', to='ac').reduce(\n        lambda b, previous, value, _3: (previous + value),\n        0,\n    )\n",
+      "signature": {
+        "inputs": [],
+        "output": "IntegerType",
+        "async": false
+      },
+      "inputs": "[]",
+      "returns": "\"6\"",
+      "builtins": [
+        "DictRange",
+        "DictReduce",
+        "IntegerAdd"
+      ]
+    },
+    {
+      "id": "east:key_range.examples.ts:dictPrefixNested",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/key_range.examples.ts",
+      "suite": "",
+      "test": "Give a prefix through nested structs, as an index's key is read: every entry of one hall",
+      "keywords": [
+        "dict",
+        "DictType",
+        "prefix",
+        "nested struct",
+        "index",
+        "leading fields",
+        "key range",
+        "tile"
+      ],
+      "imports": [
+        "import {"
+      ],
+      "languages": [
+        "typescript",
+        "python"
+      ],
+      "ir": "{\"type\":\"Function\",\"value\":{\"type\":{\"type\":\"Function\",\"value\":{\"inputs\":[],\"output\":{\"type\":\"Integer\",\"value\":null}}},\"loc_id\":\"0\",\"captures\":[],\"parameters\":[],\"body\":{\"type\":\"Block\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"statements\":[{\"type\":\"Let\",\"value\":{\"type\":{\"type\":\"Null\",\"value\":null},\"loc_id\":\"0\",\"variable\":{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Dict\",\"value\":{\"key\":{\"type\":\"Struct\",\"value\":[{\"name\":\"ik\",\"type\":{\"type\":\"Struct\",\"value\":[{\"name\":\"on\",\"type\":{\"type\":\"Struct\",\"value\":[{\"name\":\"hall\",\"type\":{\"type\":\"String\",\"value\":null}},{\"name\":\"press\",\"type\":{\"type\":\"String\",\"value\":null}}]}},{\"name\":\"level\",\"type\":{\"type\":\"Variant\",\"value\":[{\"name\":\"day\",\"type\":{\"type\":\"Null\",\"value\":null}},{\"name\":\"week\",\"type\":{\"type\":\"Null\",\"value\":null}}]}},{\"name\":\"tile\",\"type\":{\"type\":\"Integer\",\"value\":null}}]}},{\"name\":\"k\",\"type\":{\"type\":\"String\",\"value\":null}}]},\"value\":{\"type\":\"Integer\",\"value\":null}}},\"loc_id\":\"0\",\"name\":\"index\",\"mutable\":false,\"captured\":false}},\"value\":{\"type\":\"NewDict\",\"value\":{\"type\":{\"type\":\"Dict\",\"value\":{\"key\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"6#variable/Variable/type/Dict/key/Struct\"}},\"value\":{\"type\":\"Integer\",\"value\":null}}},\"loc_id\":\"0\",\"values\":[{\"key\":{\"type\":\"Struct\",\"value\":{\"type\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"8#variable/Variable/type/Dict/key/Struct\"}},\"loc_id\":\"0\",\"fields\":[{\"name\":\"ik\",\"value\":{\"type\":\"Struct\",\"value\":{\"type\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"12#variable/Variable/type/Dict/key/Struct/0/type/Struct\"}},\"loc_id\":\"0\",\"fields\":[{\"name\":\"on\",\"value\":{\"type\":\"Struct\",\"value\":{\"type\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"16#variable/Variable/type/Dict/key/Struct/0/type/Struct/0/type/Struct\"}},\"loc_id\":\"0\",\"fields\":[{\"name\":\"hall\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"H1\"}}}},{\"name\":\"press\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"P1\"}}}}]}}},{\"name\":\"level\",\"value\":{\"type\":\"Variant\",\"value\":{\"type\":{\"type\":\"Variant\",\"value\":{\"$ref\":\"16#variable/Variable/type/Dict/key/Struct/0/type/Struct/1/type/Variant\"}},\"loc_id\":\"0\",\"case\":\"day\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Null\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Null\",\"value\":null}}}}}},{\"name\":\"tile\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"4\"}}}}]}}},{\"name\":\"k\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"j1\"}}}}]}},\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"1\"}}}},{\"key\":{\"type\":\"Struct\",\"value\":{\"type\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"8#variable/Variable/type/Dict/key/Struct\"}},\"loc_id\":\"0\",\"fields\":[{\"name\":\"ik\",\"value\":{\"type\":\"Struct\",\"value\":{\"type\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"12#variable/Variable/type/Dict/key/Struct/0/type/Struct\"}},\"loc_id\":\"0\",\"fields\":[{\"name\":\"on\",\"value\":{\"type\":\"Struct\",\"value\":{\"type\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"16#variable/Variable/type/Dict/key/Struct/0/type/Struct/0/type/Struct\"}},\"loc_id\":\"0\",\"fields\":[{\"name\":\"hall\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"H1\"}}}},{\"name\":\"press\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"P2\"}}}}]}}},{\"name\":\"level\",\"value\":{\"type\":\"Variant\",\"value\":{\"type\":{\"type\":\"Variant\",\"value\":{\"$ref\":\"16#variable/Variable/type/Dict/key/Struct/0/type/Struct/1/type/Variant\"}},\"loc_id\":\"0\",\"case\":\"week\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Null\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Null\",\"value\":null}}}}}},{\"name\":\"tile\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"0\"}}}}]}}},{\"name\":\"k\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"j2\"}}}}]}},\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"2\"}}}},{\"key\":{\"type\":\"Struct\",\"value\":{\"type\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"8#variable/Variable/type/Dict/key/Struct\"}},\"loc_id\":\"0\",\"fields\":[{\"name\":\"ik\",\"value\":{\"type\":\"Struct\",\"value\":{\"type\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"12#variable/Variable/type/Dict/key/Struct/0/type/Struct\"}},\"loc_id\":\"0\",\"fields\":[{\"name\":\"on\",\"value\":{\"type\":\"Struct\",\"value\":{\"type\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"16#variable/Variable/type/Dict/key/Struct/0/type/Struct/0/type/Struct\"}},\"loc_id\":\"0\",\"fields\":[{\"name\":\"hall\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"H2\"}}}},{\"name\":\"press\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"P3\"}}}}]}}},{\"name\":\"level\",\"value\":{\"type\":\"Variant\",\"value\":{\"type\":{\"type\":\"Variant\",\"value\":{\"$ref\":\"16#variable/Variable/type/Dict/key/Struct/0/type/Struct/1/type/Variant\"}},\"loc_id\":\"0\",\"case\":\"day\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Null\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Null\",\"value\":null}}}}}},{\"name\":\"tile\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"4\"}}}}]}}},{\"name\":\"k\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"j3\"}}}}]}},\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"4\"}}}}]}}}},{\"type\":\"Builtin\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"builtin\":\"DictReduce\",\"type_parameters\":[{\"type\":\"Struct\",\"value\":{\"$ref\":\"5#0/Let/variable/Variable/type/Dict/key/Struct\"}},{\"type\":\"Integer\",\"value\":null},{\"type\":\"Integer\",\"value\":null}],\"arguments\":[{\"type\":\"Builtin\",\"value\":{\"type\":{\"type\":\"Dict\",\"value\":{\"key\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"9#0/Let/variable/Variable/type/Dict/key/Struct\"}},\"value\":{\"type\":\"Integer\",\"value\":null}}},\"loc_id\":\"0\",\"builtin\":\"DictPrefix\",\"type_parameters\":[{\"type\":\"Struct\",\"value\":{\"$ref\":\"8#0/Let/variable/Variable/type/Dict/key/Struct\"}},{\"type\":\"Integer\",\"value\":null},{\"type\":\"Struct\",\"value\":[{\"name\":\"ik\",\"type\":{\"type\":\"Struct\",\"value\":[{\"name\":\"on\",\"type\":{\"type\":\"Struct\",\"value\":[{\"name\":\"hall\",\"type\":{\"type\":\"String\",\"value\":null}}]}}]}}]}],\"arguments\":[{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Dict\",\"value\":{\"key\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"12#0/Let/variable/Variable/type/Dict/key/Struct\"}},\"value\":{\"type\":\"Integer\",\"value\":null}}},\"loc_id\":\"0\",\"name\":\"index\",\"mutable\":false,\"captured\":false}},{\"type\":\"Struct\",\"value\":{\"type\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"5#type_parameters/2/Struct\"}},\"loc_id\":\"0\",\"fields\":[{\"name\":\"ik\",\"value\":{\"type\":\"Struct\",\"value\":{\"type\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"9#type_parameters/2/Struct/0/type/Struct\"}},\"loc_id\":\"0\",\"fields\":[{\"name\":\"on\",\"value\":{\"type\":\"Struct\",\"value\":{\"type\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"13#type_parameters/2/Struct/0/type/Struct/0/type/Struct\"}},\"loc_id\":\"0\",\"fields\":[{\"name\":\"hall\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"H1\"}}}}]}}}]}}}]}}]}},{\"type\":\"Function\",\"value\":{\"type\":{\"type\":\"Function\",\"value\":{\"inputs\":[{\"type\":\"Integer\",\"value\":null},{\"type\":\"Integer\",\"value\":null},{\"type\":\"Struct\",\"value\":{\"$ref\":\"10#0/Let/variable/Variable/type/Dict/key/Struct\"}}],\"output\":{\"type\":\"Integer\",\"value\":null}}},\"loc_id\":\"0\",\"captures\":[],\"parameters\":[{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"name\":\"previous\",\"mutable\":false,\"captured\":false}},{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"name\":\"value\",\"mutable\":false,\"captured\":false}},{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"10#0/Let/variable/Variable/type/Dict/key/Struct\"}},\"loc_id\":\"0\",\"name\":\"_3\",\"mutable\":false,\"captured\":false}}],\"body\":{\"type\":\"Builtin\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"builtin\":\"IntegerAdd\",\"type_parameters\":[],\"arguments\":[{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"name\":\"previous\",\"mutable\":false,\"captured\":false}},{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"name\":\"value\",\"mutable\":false,\"captured\":false}}]}}}},{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"Integer\",\"value\":\"0\"}}}]}}]}}}}",
+      "ts": "// Generated by east-node transpile — East IR printed as the East.function\n// builder surface. Rebuilding this module yields the same IR (normalized).\nimport { East, variant, NullType, IntegerType, StringType, DictType, StructType, VariantType } from \"@elaraai/east\";\n\nexport const dictPrefixNested = East.function([], IntegerType, ($) => {\n  const index = $.const(\n    new Map([\n      [\n        { ik: { on: { hall: \"H1\", press: \"P1\" }, level: variant(\"day\", null), tile: 4n }, k: \"j1\" },\n        1n,\n      ],\n      [\n        {\n          ik: { on: { hall: \"H1\", press: \"P2\" }, level: variant(\"week\", null), tile: 0n },\n          k: \"j2\",\n        },\n        2n,\n      ],\n      [\n        { ik: { on: { hall: \"H2\", press: \"P3\" }, level: variant(\"day\", null), tile: 4n }, k: \"j3\" },\n        4n,\n      ],\n    ]),\n    DictType(StructType({\n      ik: StructType({\n        on: StructType({ hall: StringType, press: StringType }),\n        level: VariantType({ day: NullType, week: NullType }),\n        tile: IntegerType,\n      }),\n      k: StringType,\n    }), IntegerType),\n  );\n  return index.prefix({ ik: { on: { hall: \"H1\" } } }).reduce(\n    ($, previous, value, _3) => previous.add(value),\n    0n,\n  );\n});\n",
+      "python": "# Generated by east-py transpile — East IR printed as the East.function\n# builder surface. Rebuilding this module yields the same IR (normalized).\nfrom east import East, variant, east_null, NullType, IntegerType, StringType, StructType, VariantType\n\n@East.function([], IntegerType)\ndef dictPrefixNested(b):\n    index = b.const(\n        East.new_dict(\n            StructType([\n                ('ik', StructType([\n                    ('on', StructType([('hall', StringType), ('press', StringType)])),\n                    ('level', VariantType([('day', NullType), ('week', NullType)])),\n                    ('tile', IntegerType),\n                ])),\n                ('k', StringType),\n            ]),\n            IntegerType,\n            [\n                (\n                    {\n                        'ik': {\n                            'on': {'hall': 'H1', 'press': 'P1'},\n                            'level': variant('day', east_null),\n                            'tile': 4,\n                        },\n                        'k': 'j1',\n                    },\n                    1,\n                ),\n                (\n                    {\n                        'ik': {\n                            'on': {'hall': 'H1', 'press': 'P2'},\n                            'level': variant('week', east_null),\n                            'tile': 0,\n                        },\n                        'k': 'j2',\n                    },\n                    2,\n                ),\n                (\n                    {\n                        'ik': {\n                            'on': {'hall': 'H2', 'press': 'P3'},\n                            'level': variant('day', east_null),\n                            'tile': 4,\n                        },\n                        'k': 'j3',\n                    },\n                    4,\n                ),\n            ],\n        ),\n    )\n    return index.prefix({'ik': {'on': {'hall': 'H1'}}}).reduce(\n        lambda b, previous, value, _3: (previous + value),\n        0,\n    )\n",
+      "signature": {
+        "inputs": [],
+        "output": "IntegerType",
+        "async": false
+      },
+      "inputs": "[]",
+      "returns": "\"3\"",
+      "builtins": [
+        "DictPrefix",
+        "DictReduce",
+        "IntegerAdd"
+      ]
+    },
+    {
+      "id": "east:key_range.examples.ts:setRange",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/key_range.examples.ts",
+      "suite": "",
+      "test": "Read the elements of a Set between two bounds: the names from b up to, and not including, d",
+      "keywords": [
+        "set",
+        "SetType",
+        "range",
+        "from",
+        "to",
+        "between",
+        "key range",
+        "bounds"
+      ],
+      "imports": [
+        "import {"
+      ],
+      "languages": [
+        "typescript",
+        "python"
+      ],
+      "ir": "{\"type\":\"Function\",\"value\":{\"type\":{\"type\":\"Function\",\"value\":{\"inputs\":[],\"output\":{\"type\":\"Set\",\"value\":{\"type\":\"String\",\"value\":null}}}},\"loc_id\":\"0\",\"captures\":[],\"parameters\":[],\"body\":{\"type\":\"Block\",\"value\":{\"type\":{\"type\":\"Set\",\"value\":{\"type\":\"String\",\"value\":null}},\"loc_id\":\"0\",\"statements\":[{\"type\":\"Let\",\"value\":{\"type\":{\"type\":\"Null\",\"value\":null},\"loc_id\":\"0\",\"variable\":{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Set\",\"value\":{\"type\":\"String\",\"value\":null}},\"loc_id\":\"0\",\"name\":\"names\",\"mutable\":false,\"captured\":false}},\"value\":{\"type\":\"NewSet\",\"value\":{\"type\":{\"type\":\"Set\",\"value\":{\"type\":\"String\",\"value\":null}},\"loc_id\":\"0\",\"values\":[{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"ant\"}}},{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"bee\"}}},{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"bison\"}}},{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"cat\"}}},{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"dog\"}}},{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"eel\"}}}]}}}},{\"type\":\"Builtin\",\"value\":{\"type\":{\"type\":\"Set\",\"value\":{\"type\":\"String\",\"value\":null}},\"loc_id\":\"0\",\"builtin\":\"SetRange\",\"type_parameters\":[{\"type\":\"String\",\"value\":null},{\"type\":\"String\",\"value\":null},{\"type\":\"String\",\"value\":null}],\"arguments\":[{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Set\",\"value\":{\"type\":\"String\",\"value\":null}},\"loc_id\":\"0\",\"name\":\"names\",\"mutable\":false,\"captured\":false}},{\"type\":\"Variant\",\"value\":{\"type\":{\"type\":\"Variant\",\"value\":[{\"name\":\"none\",\"type\":{\"type\":\"Null\",\"value\":null}},{\"name\":\"some\",\"type\":{\"type\":\"String\",\"value\":null}}]},\"loc_id\":\"0\",\"case\":\"some\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"b\"}}}}},{\"type\":\"Variant\",\"value\":{\"type\":{\"type\":\"Variant\",\"value\":{\"$ref\":\"4#1/Variant/type/Variant\"}},\"loc_id\":\"0\",\"case\":\"some\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"d\"}}}}}]}}]}}}}",
+      "ts": "// Generated by east-node transpile — East IR printed as the East.function\n// builder surface. Rebuilding this module yields the same IR (normalized).\nimport { East, StringType, SetType } from \"@elaraai/east\";\n\nexport const setRange = East.function([], SetType(StringType), ($) => {\n  const names = $.const(new Set([\"ant\", \"bee\", \"bison\", \"cat\", \"dog\", \"eel\"]), SetType(StringType));\n  return names.range({ from: \"b\", to: \"d\" });\n});\n",
+      "python": "# Generated by east-py transpile — East IR printed as the East.function\n# builder surface. Rebuilding this module yields the same IR (normalized).\nfrom east import East, StringType, SetType\n\n@East.function([], SetType(StringType))\ndef setRange(b):\n    names = b.const(East.new_set(StringType, ['ant', 'bee', 'bison', 'cat', 'dog', 'eel']))\n    return names.range(from_='b', to='d')\n",
+      "signature": {
+        "inputs": [],
+        "output": "SetType(StringType)",
+        "async": false
+      },
+      "inputs": "[]",
+      "returns": "[\"bee\",\"bison\",\"cat\"]",
+      "builtins": [
+        "SetRange"
+      ]
+    },
+    {
+      "id": "east:key_range.examples.ts:setPrefix",
+      "skill": "east",
+      "package": "east",
+      "file": "east/test/key_range.examples.ts",
+      "suite": "",
+      "test": "Read the elements of a Set that begin with given fields: the days one press ran",
+      "keywords": [
+        "set",
+        "SetType",
+        "prefix",
+        "begins with",
+        "leading fields",
+        "struct element",
+        "key range"
+      ],
+      "imports": [
+        "import {"
+      ],
+      "languages": [
+        "typescript",
+        "python"
+      ],
+      "ir": "{\"type\":\"Function\",\"value\":{\"type\":{\"type\":\"Function\",\"value\":{\"inputs\":[],\"output\":{\"type\":\"Integer\",\"value\":null}}},\"loc_id\":\"0\",\"captures\":[],\"parameters\":[],\"body\":{\"type\":\"Block\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"statements\":[{\"type\":\"Let\",\"value\":{\"type\":{\"type\":\"Null\",\"value\":null},\"loc_id\":\"0\",\"variable\":{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Set\",\"value\":{\"type\":\"Struct\",\"value\":[{\"name\":\"press\",\"type\":{\"type\":\"String\",\"value\":null}},{\"name\":\"day\",\"type\":{\"type\":\"DateTime\",\"value\":null}}]}},\"loc_id\":\"0\",\"name\":\"runs\",\"mutable\":false,\"captured\":false}},\"value\":{\"type\":\"NewSet\",\"value\":{\"type\":{\"type\":\"Set\",\"value\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"5#variable/Variable/type/Set/Struct\"}}},\"loc_id\":\"0\",\"values\":[{\"type\":\"Struct\",\"value\":{\"type\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"7#variable/Variable/type/Set/Struct\"}},\"loc_id\":\"0\",\"fields\":[{\"name\":\"press\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"P1\"}}}},{\"name\":\"day\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"DateTime\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"DateTime\",\"value\":\"2026-06-01T00:00:00.000+00:00\"}}}}]}},{\"type\":\"Struct\",\"value\":{\"type\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"7#variable/Variable/type/Set/Struct\"}},\"loc_id\":\"0\",\"fields\":[{\"name\":\"press\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"P1\"}}}},{\"name\":\"day\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"DateTime\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"DateTime\",\"value\":\"2026-06-02T00:00:00.000+00:00\"}}}}]}},{\"type\":\"Struct\",\"value\":{\"type\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"7#variable/Variable/type/Set/Struct\"}},\"loc_id\":\"0\",\"fields\":[{\"name\":\"press\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"P2\"}}}},{\"name\":\"day\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"DateTime\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"DateTime\",\"value\":\"2026-06-01T00:00:00.000+00:00\"}}}}]}}]}}}},{\"type\":\"Builtin\",\"value\":{\"type\":{\"type\":\"Integer\",\"value\":null},\"loc_id\":\"0\",\"builtin\":\"SetSize\",\"type_parameters\":[{\"type\":\"Struct\",\"value\":{\"$ref\":\"5#0/Let/variable/Variable/type/Set/Struct\"}}],\"arguments\":[{\"type\":\"Builtin\",\"value\":{\"type\":{\"type\":\"Set\",\"value\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"8#0/Let/variable/Variable/type/Set/Struct\"}}},\"loc_id\":\"0\",\"builtin\":\"SetPrefix\",\"type_parameters\":[{\"type\":\"Struct\",\"value\":{\"$ref\":\"8#0/Let/variable/Variable/type/Set/Struct\"}},{\"type\":\"Struct\",\"value\":[{\"name\":\"press\",\"type\":{\"type\":\"String\",\"value\":null}}]}],\"arguments\":[{\"type\":\"Variable\",\"value\":{\"type\":{\"type\":\"Set\",\"value\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"11#0/Let/variable/Variable/type/Set/Struct\"}}},\"loc_id\":\"0\",\"name\":\"runs\",\"mutable\":false,\"captured\":false}},{\"type\":\"Struct\",\"value\":{\"type\":{\"type\":\"Struct\",\"value\":{\"$ref\":\"5#type_parameters/1/Struct\"}},\"loc_id\":\"0\",\"fields\":[{\"name\":\"press\",\"value\":{\"type\":\"Value\",\"value\":{\"type\":{\"type\":\"String\",\"value\":null},\"loc_id\":\"0\",\"value\":{\"type\":\"String\",\"value\":\"P1\"}}}}]}}]}}]}}]}}}}",
+      "ts": "// Generated by east-node transpile — East IR printed as the East.function\n// builder surface. Rebuilding this module yields the same IR (normalized).\nimport { East, IntegerType, StringType, DateTimeType, SetType, StructType } from \"@elaraai/east\";\n\nexport const setPrefix = East.function([], IntegerType, ($) => {\n  const runs = $.const(\n    new Set([\n      { press: \"P1\", day: new Date(\"2026-06-01T00:00:00.000Z\") },\n      { press: \"P1\", day: new Date(\"2026-06-02T00:00:00.000Z\") },\n      { press: \"P2\", day: new Date(\"2026-06-01T00:00:00.000Z\") },\n    ]),\n    SetType(StructType({ press: StringType, day: DateTimeType })),\n  );\n  return runs.prefix({ press: \"P1\" }).size();\n});\n",
+      "python": "# Generated by east-py transpile — East IR printed as the East.function\n# builder surface. Rebuilding this module yields the same IR (normalized).\nfrom east import East, IntegerType, StringType, DateTimeType, StructType\nfrom datetime import datetime, timezone\n\n@East.function([], IntegerType)\ndef setPrefix(b):\n    runs = b.const(\n        East.new_set(\n            StructType([('press', StringType), ('day', DateTimeType)]),\n            [\n                {'press': 'P1', 'day': datetime(2026, 6, 1, 0, 0, 0, tzinfo=timezone.utc)},\n                {'press': 'P1', 'day': datetime(2026, 6, 2, 0, 0, 0, tzinfo=timezone.utc)},\n                {'press': 'P2', 'day': datetime(2026, 6, 1, 0, 0, 0, tzinfo=timezone.utc)},\n            ],\n        ),\n    )\n    return runs.prefix({'press': 'P1'}).size()\n",
+      "signature": {
+        "inputs": [],
+        "output": "IntegerType",
+        "async": false
+      },
+      "inputs": "[]",
+      "returns": "\"2\"",
+      "builtins": [
+        "SetPrefix",
+        "SetSize"
       ]
     },
     {
@@ -55219,6 +55536,116 @@
       "inputs": "[]",
       "builtins": [
         "IntegerToFloat"
+      ]
+    },
+    {
+      "skill": "east-py",
+      "suite": "",
+      "test": "Read the entries of a Dict whose String key starts with given letters, as a range from them up to the next",
+      "keywords": [
+        "dict",
+        "DictType",
+        "range",
+        "String key",
+        "starts with",
+        "startsWith",
+        "prefix",
+        "key range",
+        "eager",
+        "East values",
+        "value"
+      ],
+      "returns": "\"6\"",
+      "id": "east:key_range.examples.ts:dictRangeStartsWith:eager",
+      "package": "east-values",
+      "file": "east/test/key_range.examples.ts",
+      "imports": [],
+      "languages": [
+        "python"
+      ],
+      "python": "# The same example over East values: each eager method runs in east-c now.\nfrom east import East, IntegerType, StringType, DictType\nfrom east import coerce_to\n\nstock = coerce_to({'aa': 1, 'ab': 2, 'abc': 4, 'ac': 8, 'b': 16}, DictType(StringType, IntegerType))\nresult = stock.range(from_='ab', to='ac').reduce(lambda b, previous, value, _3: previous + value, 0)\n",
+      "signature": {
+        "inputs": [],
+        "output": "IntegerType",
+        "async": false
+      },
+      "inputs": "[]",
+      "builtins": [
+        "DictRange",
+        "DictReduce",
+        "IntegerAdd"
+      ]
+    },
+    {
+      "skill": "east-py",
+      "suite": "",
+      "test": "Read the elements of a Set between two bounds: the names from b up to, and not including, d",
+      "keywords": [
+        "set",
+        "SetType",
+        "range",
+        "from",
+        "to",
+        "between",
+        "key range",
+        "bounds",
+        "eager",
+        "East values",
+        "value"
+      ],
+      "returns": "[\"bee\",\"bison\",\"cat\"]",
+      "id": "east:key_range.examples.ts:setRange:eager",
+      "package": "east-values",
+      "file": "east/test/key_range.examples.ts",
+      "imports": [],
+      "languages": [
+        "python"
+      ],
+      "python": "# The same example over East values: each eager method runs in east-c now.\nfrom east import East, StringType, SetType\nfrom east import coerce_to\n\nnames = East.new_set(StringType, ['ant', 'bee', 'bison', 'cat', 'dog', 'eel'])\nresult = names.range(from_='b', to='d')\n",
+      "signature": {
+        "inputs": [],
+        "output": "SetType(StringType)",
+        "async": false
+      },
+      "inputs": "[]",
+      "builtins": [
+        "SetRange"
+      ]
+    },
+    {
+      "skill": "east-py",
+      "suite": "",
+      "test": "Read the elements of a Set that begin with given fields: the days one press ran",
+      "keywords": [
+        "set",
+        "SetType",
+        "prefix",
+        "begins with",
+        "leading fields",
+        "struct element",
+        "key range",
+        "eager",
+        "East values",
+        "value"
+      ],
+      "returns": "\"2\"",
+      "id": "east:key_range.examples.ts:setPrefix:eager",
+      "package": "east-values",
+      "file": "east/test/key_range.examples.ts",
+      "imports": [],
+      "languages": [
+        "python"
+      ],
+      "python": "# The same example over East values: each eager method runs in east-c now.\nfrom east import East, IntegerType, StringType, DateTimeType, StructType\nfrom datetime import datetime, timezone\nfrom east import coerce_to\n\nruns = East.new_set(StructType([('press', StringType), ('day', DateTimeType)]), [{'press': 'P1', 'day': datetime(2026, 6, 1, 0, 0, 0, tzinfo=timezone.utc)}, {'press': 'P1', 'day': datetime(2026, 6, 2, 0, 0, 0, tzinfo=timezone.utc)}, {'press': 'P2', 'day': datetime(2026, 6, 1, 0, 0, 0, tzinfo=timezone.utc)}])\nresult = runs.prefix({'press': 'P1'}).size()\n",
+      "signature": {
+        "inputs": [],
+        "output": "IntegerType",
+        "async": false
+      },
+      "inputs": "[]",
+      "builtins": [
+        "SetPrefix",
+        "SetSize"
       ]
     },
     {

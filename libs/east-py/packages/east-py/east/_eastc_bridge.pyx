@@ -1911,6 +1911,41 @@ def recursive_type_id(object py_wrapper):
         _eastc.east_type_release(c_type)
 
 
+def key_bound_refusal(str name, object key_type, object bound_type):
+    """Why a bound of a key range is refused, or ``None`` for one that is taken.
+
+    east-c's ``east_key_bound_refusal`` (#1616): the one copy of the rule C
+    and python share, in the words TypeScript refuses in. ``name`` is
+    ``"from"``, ``"to"`` or ``"prefix"``; ``bound_type`` is the bound's East
+    type, or ``None`` for a bound whose fields are not the key's first, which
+    is refused as no leading part of the key.
+    """
+    cdef _eastc.EastKeyBoundName which
+    if name == "from":
+        which = _eastc.EAST_KEY_BOUND_FROM
+    elif name == "to":
+        which = _eastc.EAST_KEY_BOUND_TO
+    elif name == "prefix":
+        which = _eastc.EAST_KEY_BOUND_PREFIX
+    else:
+        raise ValueError(f"a key range's bound is 'from', 'to' or 'prefix', not {name!r}")
+    cdef _eastc.EastType* c_key = py_type_to_c(key_type)
+    cdef _eastc.EastType* c_bound = NULL
+    cdef char* words = NULL
+    try:
+        if bound_type is not None:
+            c_bound = py_type_to_c(bound_type)
+        words = _eastc.east_key_bound_refusal(which, c_key, c_bound)
+        if words == NULL:
+            return None
+        return words.decode("utf-8")
+    finally:
+        free(words)
+        if c_bound != NULL:
+            _eastc.east_type_release(c_bound)
+        _eastc.east_type_release(c_key)
+
+
 def canonicalize_type(object py_type):
     """Normalize a type value to the canonical in-process form.
 

@@ -921,3 +921,19 @@ cdef extern from "east/type_of_type.h":
     EastSourceMap *east_source_map_new()
     void east_source_map_retain(EastSourceMap *sm)
     void east_source_map_release(EastSourceMap *sm)
+
+
+# ─── key_bound.h ────────────────────────────────────────────────────────
+
+cdef extern from "east/key_bound.h":
+    # A bound of a key range (#1616): which bound a refusal names.
+    ctypedef enum EastKeyBoundName:
+        EAST_KEY_BOUND_FROM
+        EAST_KEY_BOUND_TO
+        EAST_KEY_BOUND_PREFIX
+
+    # Why a bound's type is refused, in the words every runtime says, or NULL
+    # for one that is taken; the caller frees the string. A NULL bound_type is
+    # refused as no leading part of the key.
+    char *east_key_bound_refusal(EastKeyBoundName name, EastType *key_type, EastType *bound_type)
+
