@@ -43,9 +43,18 @@ type BTree<K, T> = sorted_btree.default<K, T>;
  * A test of a key that is false, then true, over the keys in order: whether a
  * key is at or past a bound.
  *
+ * A test of a bound that is a whole key, asked "at or past", may also say
+ * which key the bound is (`isBound`): the first key the test can hold for. A
+ * reader of keys it has not decoded — a pager, by its segments' first keys —
+ * places the bound at such a key without reading the keys before it. A tree
+ * held in memory never asks.
+ *
  * @typeParam K - The type of the keys
  */
-export type KeyTest<K> = (key: K) => boolean;
+export type KeyTest<K> = ((key: K) => boolean) & {
+    /** Whether `key` is the bound itself: the least key the test holds for. */
+    readonly isBound?: (key: K) => boolean;
+};
 
 /** The probe that stands just before the first key the `from` test holds for. */
 const FROM: object = Object.freeze({ bound: "from" });

@@ -32,12 +32,17 @@ export function boundReader(loc_id: bigint, source_map: SourceMap | null, name: 
   }
   // The bound's leaves are as many of the key's first: read once here, compared by each leaf's own order.
   const paths = keyLeaves(B).map((leaf) => leaf.path);
-  const compare = compareKeyToBoundFor(keyLeaves(K), paths.length);
+  const leaves = keyLeaves(K);
+  const compare = compareKeyToBoundFor(leaves, paths.length);
   const values = (bound: unknown): unknown[] => paths.map((path) => keyLeafAt(bound, path));
+  // A bound that gives every leaf is a whole key: its test says which key it is, so a pager
+  // places it at a segment's first key without reading the segment before.
+  const whole = paths.length === leaves.length;
   return {
     atOrPast: (bound) => {
       const given = values(bound);
-      return (key) => compare(key, given) >= 0;
+      const test = (key: unknown): boolean => compare(key, given) >= 0;
+      return whole ? Object.assign(test, { isBound: (key: unknown): boolean => compare(key, given) === 0 }) : test;
     },
     past: (bound) => {
       const given = values(bound);

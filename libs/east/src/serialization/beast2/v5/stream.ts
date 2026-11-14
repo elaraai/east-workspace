@@ -36,6 +36,7 @@ import { SourceMap } from "../../../location.js";
 import { compareFor } from "../../../comparison.js";
 import { SortedSet } from "../../../containers/sortedset.js";
 import { SortedMap } from "../../../containers/sortedmap.js";
+import type { KeyTest } from "../../../containers/range.js";
 import { type Beast2DecodeOptions, buildPlatformContext, checkDecodeType } from "../shared.js";
 import { writeTypeSection, readTypeSection, asTypeValue } from "./type-section.js";
 import { type Beast2Codec, FrameReader, openFramePrefix, writeFrame } from "./frames.js";
@@ -1121,6 +1122,10 @@ interface CachedSegment {
   weight: number;
   /** The run of misses that decoded it. */
   run: number;
+  /** A Set or Dict segment's keys in order, once an end of a key range has
+   *  been placed in it ({@link Beast2Pages.rowRange}): a segment is a tree,
+   *  which finds a key and not a row, and an end is a row. */
+  keys?: any[];
 }
 
 /** The bytes a fence probe reads first: the frame header plus enough of the
@@ -1802,6 +1807,142 @@ export class Beast2Pages<T extends EastType = EastType> {
       throw new Error(`beast2 v5: segmentDisjoint() addresses Set and Dict roots; this blob holds Array — use segment()`);
     }
     return this.decodeDisjoint(i, { prev: undefined, has: false }, this.verifyFences());
+  }
+
+  /**
+   * Decodes one segment of a Set or Dict through the cache, as a keyed read
+   * reads the segment its key is in: the fences verified, the segment checked
+   * against the next fence, and kept for the reads after it. What a range of
+   * the collection reads its first and last segments by, so that many short
+   * ranges of one segment decode it once.
+   *
+   * @param i - zero-based segment index
+   * @returns the segment's decoded collection, frozen: the cache's own
+   * @throws {Error} As {@link segmentDisjoint} throws.
+   * @internal
+   */
+  segmentKept(i: number): ValueTypeOf<T> {
+    if (this.kind === "Array") {
+      throw new Error(`beast2 v5: a key range addresses Set and Dict roots`);
+    }
+    return this.decodeDisjoint(i, { prev: undefined, has: false }, this.verifyFences(), true);
+  }
+
+  /**
+   * The segment that holds `row`, a row of the collection.
+   *
+   * @param row - zero-based row, below {@link elementCount}
+   * @returns the zero-based segment index
+   * @internal
+   */
+  segmentOfRow(row: number): number {
+    return this.rowSegment(row).seg;
+  }
+
+  /**
+   * The rows before segment `s`.
+   *
+   * @param s - zero-based segment index
+   * @returns the row of the segment's first element
+   * @internal
+   */
+  rowsBefore(s: number): number {
+    return s === 0 ? 0 : this.cumulative[s - 1]!;
+  }
+
+  /**
+   * The rows of a Set or Dict between two bounds (Set/Dict roots only): from
+   * the first key the `from` test holds for up to, and not including, the
+   * first the `to` test holds for. With {@link slice} it reads a key range of
+   * a blob at the cost of the range.
+   *
+   * Each bound is a test of a key that is false, then true, over the keys in
+   * order — "is this key at or past the bound?" — as `SortedMap.range` takes
+   * one. An end is placed by the fences, which are verified once per reader
+   * and read no segment, and then by the one segment that can hold it, read
+   * through the cache: the fences are bisected for the first the test holds
+   * for, and the segment before it searched, since its last keys may pass.
+   * No segment is read where that fence is the window's first row, or where
+   * the test says the fence is the bound itself (`isBound`: a bound that is a
+   * whole key); with no fence passing, the window's last segment is read.
+   *
+   * `lo` and `hi` hold the ends to a window of rows — those of a range a
+   * narrower range is taken of — so an end is never placed by a segment
+   * outside it.
+   *
+   * @param from - the test the range's first key is the first to pass;
+   *   `undefined` for the window's first row
+   * @param to - the test the range stops before the first key to pass;
+   *   `undefined` for the window's end
+   * @param lo - the window's first row; 0 when left out
+   * @param hi - the row the window stops before; {@link elementCount} when left out
+   * @returns the rows `[lo, hi)` of the range; `hi` equals `lo` for a range
+   *   that holds nothing, an inverted one among them
+   * @throws {Error} When the root is an Array, the blob is not
+   *   self-contained, or the blob violates the canonical-order contract.
+   *
+   * @example
+   * ```ts
+   * const pages = openBeast2PagesFor(DictType(IntegerType, StringType))(blob);
+   * const { lo, hi } = pages.rowRange((key) => key >= 100n, (key) => key >= 200n);
+   * pages.slice(lo, hi - lo);  // the entries keyed 100 to 199
+   * ```
+   */
+  rowRange(
+    from: KeyTest<ValueTypeOf<T> extends Map<infer K, any> ? K : ValueTypeOf<T> extends Set<infer E> ? E : never> | undefined,
+    to: KeyTest<ValueTypeOf<T> extends Map<infer K, any> ? K : ValueTypeOf<T> extends Set<infer E> ? E : never> | undefined,
+    lo = 0,
+    hi = this.elementCount,
+  ): { lo: number; hi: number } {
+    if (this.kind === "Array") {
+      throw new Error(`beast2 v5: a key range addresses Set and Dict roots`);
+    }
+    if (!this.selfContained) {
+      throw new Error(`beast2 v5: blob has cross-segment aliasing — random access needs self-contained segments`);
+    }
+    if (hi <= lo) return { lo, hi: lo };
+    if (from === undefined && to === undefined) return { lo, hi };
+    const fences = this.verifyFences();
+    const first = from === undefined ? lo : this.placeEnd(from as KeyTest<any>, lo, hi, fences);
+    const end = to === undefined ? hi : this.placeEnd(to as KeyTest<any>, lo, hi, fences);
+    return { lo: first, hi: Math.max(first, end) };
+  }
+
+  /** The row an end names among rows `[lo, hi)`, which hold at least one: the
+   *  first of them whose key `test` holds for, or `hi` when it holds for
+   *  none. The rule east-c's pager places an end by, so the two decode the
+   *  same segments. */
+  private placeEnd(test: KeyTest<any>, lo: number, hi: number, fences: any[]): number {
+    const firstSeg = this.rowSegment(lo).seg;
+    const lastSeg = this.rowSegment(hi - 1).seg;
+    // A window that starts inside a segment has no fence at its first row, so
+    // that segment is never skipped on a fence's word.
+    let a = lo === this.rowsBefore(firstSeg) ? firstSeg : firstSeg + 1;
+    let b = lastSeg + 1;
+    while (a < b) {
+      const mid = (a + b) >> 1;
+      if (test(fences[mid])) b = mid;
+      else a = mid + 1;
+    }
+    const passing = a;  // the first segment whose fence passes; one past the last when none does
+    if (passing === firstSeg) return lo;
+    if (passing <= lastSeg && test.isBound !== undefined && test.isBound(fences[passing])) {
+      return this.rowsBefore(passing);
+    }
+    const s = passing - 1;
+    this.decodeDisjoint(s, { prev: undefined, has: false }, fences, true);
+    // The newest segment is never let go, so the cache holds it.
+    const kept = this.segmentCache.get(s)!;
+    const keys = kept.keys ??= Array.from(this.kind === "Set" ? (kept.seg as Set<any>).values() : (kept.seg as Map<any, any>).keys());
+    const base = this.rowsBefore(s);
+    let i = Math.max(lo, base) - base;
+    let j = Math.min(hi, base + keys.length) - base;
+    while (i < j) {
+      const mid = (i + j) >> 1;
+      if (test(keys[mid])) j = mid;
+      else i = mid + 1;
+    }
+    return base + i;
   }
 
   /**

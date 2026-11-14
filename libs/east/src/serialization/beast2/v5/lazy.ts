@@ -17,6 +17,10 @@
  *   the owning segment through the fences and streams from there,
  * - keyed lookups (`get` / `has`, Array index reads) decode one segment via
  *   the fence index,
+ * - a key range of a Set or Dict (`range`) is a lazy value of its own, read
+ *   through the same pager ({@link Beast2PagesView}): making it reads
+ *   nothing, its size places its two ends, a keyed read tests its bounds
+ *   first, and iterating it reads its segments, each once,
  *
  * and every other operation — mutation, set algebra — transparently
  * hydrates the container (the whole-decode that would have happened anyway)
@@ -54,6 +58,7 @@ import { Beast2Pages, type Beast2PagesOptions, type SegmentDecoder } from "./str
 import { countPagedLoopSegment, type LoopProjector } from "./project.js";
 import { type Beast2SyncRangeReader } from "./range.js";
 import { type Beast2ManifestSource } from "./manifest.js";
+import { Beast2PagesView, type KeyedPages } from "./view.js";
 
 /** The canonical-order violation error, in the eager decoders' words —
  *  the same sentence on every runtime for the same blob. */
@@ -78,7 +83,7 @@ function served<R>(read: () => R): R {
  *  its verified fences (every fence probed and checked to ascend, once per
  *  pager, exactly as a keyed read does) with the keys before it skipped.
  *  East values are never `undefined`, which here means no lower bound. */
-function* lazyDictEntries<K, V>(pages: Beast2Pages, cmp: (a: K, b: K) => number, from?: K): Generator<[K, V]> {
+function* lazyDictEntries<K, V>(pages: KeyedPages, cmp: (a: K, b: K) => number, from?: K): Generator<[K, V]> {
   let prev: K | undefined;
   let has = false;
   const start = from === undefined ? 0 : served(() => pages.segmentFor(from as never));
@@ -97,7 +102,7 @@ function* lazyDictEntries<K, V>(pages: Beast2Pages, cmp: (a: K, b: K) => number,
 /** Streams a Set blob's elements segment by segment in canonical order,
  *  validating the cross-segment ascent the eager decoder enforces — from the
  *  first element, or from `from`, exactly as {@link lazyDictEntries}. */
-function* lazySetKeys<K>(pages: Beast2Pages, cmp: (a: K, b: K) => number, from?: K): Generator<K> {
+function* lazySetKeys<K>(pages: KeyedPages, cmp: (a: K, b: K) => number, from?: K): Generator<K> {
   let prev: K | undefined;
   let has = false;
   const start = from === undefined ? 0 : served(() => pages.segmentFor(from as never));
@@ -159,8 +164,10 @@ export type Beast2LazyStats = {
 };
 
 /** A lazy value's account of its reads: its pager's, and what reading it
- *  whole added — `undefined` until an operation the pager cannot serve has. */
-function statsOf(pages: Beast2Pages, wholeBytes: number | undefined): Beast2LazyStats {
+ *  whole added — `undefined` until an operation the pager cannot serve has. A
+ *  range's reads are its source's pager's, and counted there. */
+function statsOf(read: KeyedPages, wholeBytes: number | undefined): Beast2LazyStats {
+  const pages = read instanceof Beast2PagesView ? read.source : read as Beast2Pages;
   return {
     segments: pages.segmentCount,
     segmentsDecoded: pages.segmentsDecoded,
@@ -181,7 +188,7 @@ function grownSince(resident: (() => number) | undefined, before: number): numbe
  *  and by `whole` when it has none or the projected decode fails — as east-c's
  *  paged loop retries one, so a back-reference that crosses the projection
  *  decodes whole, and a corrupt segment fails in the whole decode's words. */
-function loopSegment(pages: Beast2Pages, i: number, projection: SegmentDecoder | null, whole: () => unknown): unknown {
+function loopSegment(pages: KeyedPages, i: number, projection: SegmentDecoder | null, whole: () => unknown): unknown {
   if (projection !== null) {
     try {
       const segment = pages.segmentProjected(i, projection);
@@ -200,7 +207,7 @@ function loopSegment(pages: Beast2Pages, i: number, projection: SegmentDecoder |
  *  paged loop walks them: every segment fence verified before the first
  *  element, and each segment checked against the next fence as it is read. A
  *  Dict's segments decode their values by `projection`, when one is given. */
-function* walkDisjoint<E>(pages: Beast2Pages, projection: SegmentDecoder | null): Generator<E> {
+function* walkDisjoint<E>(pages: KeyedPages, projection: SegmentDecoder | null): Generator<E> {
   for (let i = 0; i < pages.segmentCount; i++) {
     yield* served(() => loopSegment(pages, i, projection, () => pages.segmentDisjoint(i))) as Iterable<E>;
   }
@@ -226,7 +233,7 @@ class LazySortedMap<K, V> extends SortedMap<K, V> {
   // its own internals — so the flag guards the mutators and the frozen
   // registry carries the brand (see openBeast2LazyFor).
   constructor(
-    private readonly pages: Beast2Pages,
+    private readonly pages: KeyedPages,
     private readonly wire: EastTypeValue,
     private readonly cmp: (a: K, b: K) => number,
     private readonly frozen: boolean = false,
@@ -277,7 +284,6 @@ class LazySortedMap<K, V> extends SortedMap<K, V> {
 
   override get(key: K): V | undefined {
     if (this.hydrated) return super.get(key);
-    if (this.pages.elementCount === 0) return undefined;
     return served(() => this.pages.get(key as never)) as V | undefined;
   }
 
@@ -368,9 +374,16 @@ class LazySortedMap<K, V> extends SortedMap<K, V> {
     return super.entries(firstKey);
   }
 
+  /** A range of a map still read from its pager is a lazy map of its own,
+   *  read through the same pager: a new collection, not frozen whatever this
+   *  one is, whose entries decode as this one's do. It holds what the pager
+   *  holds, so reading this map whole afterwards, or changing it, changes no
+   *  range taken before. A map already read whole gives the range of what it
+   *  holds now. */
   override range(from?: KeyTest<K>, to?: KeyTest<K>): SortedMap<K, V> {
-    this.hydrate();
-    return super.range(from, to);
+    if (this.hydrated) return super.range(from, to);
+    const view = new Beast2PagesView(this.pages as Beast2Pages | Beast2PagesView, from as KeyTest<unknown> | undefined, to as KeyTest<unknown> | undefined);
+    return new LazySortedMap<K, V>(view, this.wire, this.cmp, false, this.resident);
   }
 
   override [Symbol.iterator](): MapIterator<[K, V]> {
@@ -399,7 +412,7 @@ class LazySortedSet<K> extends SortedSet<K> {
   // its own internals — so the flag guards the mutators and the frozen
   // registry carries the brand (see openBeast2LazyFor).
   constructor(
-    private readonly pages: Beast2Pages,
+    private readonly pages: KeyedPages,
     private readonly cmp: (a: K, b: K) => number,
     private readonly frozen: boolean = false,
     private readonly resident?: () => number,
@@ -449,7 +462,6 @@ class LazySortedSet<K> extends SortedSet<K> {
 
   override has(key: K): boolean {
     if (this.hydrated) return super.has(key);
-    if (this.pages.elementCount === 0) return false;
     return served(() => this.pages.get(key as never)) !== undefined;
   }
 
@@ -511,9 +523,12 @@ class LazySortedSet<K> extends SortedSet<K> {
     return super.symmetricDifference(other);
   }
 
+  /** A range of a set still read from its pager is a lazy set of its own,
+   *  read through the same pager, as a lazy map's range is. */
   override range(from?: KeyTest<K>, to?: KeyTest<K>): SortedSet<K> {
-    this.hydrate();
-    return super.range(from, to);
+    if (this.hydrated) return super.range(from, to);
+    const view = new Beast2PagesView(this.pages as Beast2Pages | Beast2PagesView, from as KeyTest<unknown> | undefined, to as KeyTest<unknown> | undefined);
+    return new LazySortedSet<K>(view, this.cmp, false, this.resident);
   }
 
   override isSubsetOf(other: ReadonlySetLike<unknown>): boolean {
