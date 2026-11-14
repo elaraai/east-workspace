@@ -22,11 +22,13 @@
  * signatures with the TypeScript compiler. `floatOnly`
  * marks the stdlib constructors TypeScript declares for Float only
  * (`East.Vector.zeros(n)`), which print raw for any other element type;
- * `adapter` names the two argument shapes the surface takes
+ * `adapter` names the three argument shapes the surface takes
  * as host values rather than expressions — a `RegExp` (`{R}` stands for
- * the pattern and flags arguments) and a CSV options object (`{C}` stands
+ * the pattern and flags arguments), a CSV options object (`{C}` stands
  * for the config struct argument, dropped with its comma when every
- * option is `none`) — which print from literal arguments only. A slot's
+ * option is `none`) and a key range's bounds (`{B}` stands for the two
+ * option arguments, `{ from: …, to: … }` with an end left out for `none`,
+ * and nothing when both are) — which print from literal arguments only. A slot's
  * order is the surface's, not the IR's: `durationMilliseconds` emits its
  * receiver second.
  *
@@ -50,8 +52,8 @@ export interface Spelling {
   inferred?: number[];
   /** The row applies only when the type parameter is Float. */
   floatOnly?: boolean;
-  /** A host-value argument shape: a RegExp or a CSV options object. */
-  adapter?: "regex" | "csv";
+  /** A host-value argument shape: a RegExp, a CSV options object, or a key range's bounds. */
+  adapter?: "regex" | "csv" | "range";
 }
 
 /** The spelling rows, by builtin name. */
@@ -158,6 +160,8 @@ export const SPELLINGS: Record<string, Spelling> = {
   DictMerge: { template: "{0}.merge({1}, {2}, {3}, {4})", callbacks: [3, 4], inferred: [2] },
   DictMergeAll: { template: "{0}.mergeAll({1}, {2}, {3})", callbacks: [2, 3], exprs: [1] },
   DictPop: { template: "{0}.pop({1})" },
+  DictPrefix: { template: "{0}.prefix({1})" },
+  DictRange: { template: "{0}.range({B})", adapter: "range" },
   DictReduce: { template: "{0}.reduce({1}, {2})", callbacks: [1], inferred: [2] },
   DictScan: { template: "{0}.scan({1}, {2})", callbacks: [1], inferred: [2] },
   DictSize: { template: "{0}.size()" },
@@ -257,6 +261,8 @@ export const SPELLINGS: Record<string, Spelling> = {
   SetIsSubset: { template: "{0}.isSubsetOf({1})" },
   SetMap: { template: "{0}.map({1})", callbacks: [1] },
   SetMapReduce: { template: "{0}.mapReduce({1}, {2})", callbacks: [1, 2] },
+  SetPrefix: { template: "{0}.prefix({1})" },
+  SetRange: { template: "{0}.range({B})", adapter: "range" },
   SetReduce: { template: "{0}.reduce({1}, {2})", callbacks: [1], inferred: [2] },
   SetScan: { template: "{0}.scan({1}, {2})", callbacks: [1], inferred: [2] },
   SetSize: { template: "{0}.size()" },
