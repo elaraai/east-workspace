@@ -40,9 +40,9 @@ split task's piece its rack stopped at its cap (a whole task fails instead:
 with `Rack summary: 1 task and 12 units on <rack> · 0 waited for capacity · 0
 ran again (cap) · 1 transfer retried · 0 ran locally`. On a rack that admits by
 its resources a split task's pieces are queued together and none can run the
-rack out of memory; give the task's rule a `--memory-limit` near what a piece
-needs, so its first run, which nothing has measured, is as wide as its later
-ones. Calls, mutations and intake stay local. Stock runner
+rack out of memory; a first run books each piece at the cap of e3's estimate,
+as a local run reserves it, so it is as wide as a later run and measures no
+piece first. Calls, mutations and intake stay local. Stock runner
 configurations qualify, and so does a task that declares a `python` or `node`
 environment, with the project platform packages its runner names; commands, a
 platform package with no environment (`non-stock-platform:<name>`) and

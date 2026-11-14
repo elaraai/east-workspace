@@ -853,9 +853,11 @@ and 2 GiB, `small` 2 and 4, `medium` 4 and 8, `large` 8 and 16, `xlarge` 16
 and 32) and its rule's `--memory-limit`, else its size's memory. A piece that
 outgrows its cap is stopped and runs again under a cap half as large again; a
 whole task that does fails, naming `--memory-limit` and `--size`.
-`--memory-limit` is a ceiling on one piece's cap, never a request: set it near
-what a piece needs, so a task's first run, which nothing has measured, is as
-wide as its later ones. `--gpu` asks for a rack's GPU (an `east-py` task's).
+A task's first run, which nothing has measured, books each piece at the cap
+of e3's estimate, as a local run reserves it, so it is as wide as a later run,
+and no piece runs first to measure the rest. `--memory-limit` is a ceiling on
+one piece's cap, never a request. `--gpu` asks for a rack's GPU (an `east-py`
+task's).
 `e3 rack list` shows each rack's cores, memory and GPUs, and what is free. A
 run says what happens, and sums its rack work up as it ends:
 

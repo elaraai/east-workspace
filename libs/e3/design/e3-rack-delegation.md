@@ -311,8 +311,15 @@ session records the stopped attempt `interrupted`, with the local run's log
 line, and the next lease asks `unitCap` of the cap it reached; past its rule's
 limit, or every rack's memory, the unit runs locally. A whole task its cap
 stopped fails (`memory-limit-exceeded`), as a task the local guard stops does.
-A unit whose expectation is a guess from its rows is capped as an unmeasured
-one, since e3-core caps no local unit by a guess. The racks are full when no compatible rack's free
+A first run's unit, whose expectation is e3-core's estimate (the runner's own
+memory and what the largest piece holds of its rows), is booked and capped at
+`unitCap` of the estimate, as a measured one is: locally that estimate is the
+unit's reservation, so a first run on a rack is as wide as one locally. A local
+unit on an estimate has no cap of its own and is stopped only when the whole
+budget is passed; a rack's unit is its VM, whose memory is its cap, so one the
+estimate is low for is stopped at its cap and leased again under a larger one.
+Only a unit that expects nothing books its rule's limit, else its size's
+memory. The racks are full when no compatible rack's free
 resources hold the lease, less the work already queued; work no rack could
 ever hold is not queued, and runs locally. Split-task
 planning and final assembly stay local; both pieces and merge bodies delegate.
