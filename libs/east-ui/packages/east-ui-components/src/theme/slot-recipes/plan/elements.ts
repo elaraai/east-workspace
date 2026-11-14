@@ -20,6 +20,9 @@ import { moveGhostBase } from "../time/move-ghost.js";
 import { timeResizeEdge } from "../time/resize.js";
 import { CONFLICT_RING } from "../../conflict-ring.js";
 import { lifecycleStates } from "./states.js";
+import {
+    PLAN_STATUS_COLOR, PLAN_STATUS_OPEN_RING, PLAN_STATUS_RING, planElementConflicts, planElementOverlap, planElementStatus, planStatusTones,
+} from "./status.js";
 import { PLAN_DRAFT_HALO, PLAN_OVERLAP_RING, planElementConflict, planElementDrafted, planElementFocus, planElementSelected } from "./focus.js";
 
 /** The slots this part styles. */
@@ -35,6 +38,13 @@ const grab = { "&[data-draggable]": { cursor: "grab" } } satisfies SystemStyleOb
 /** Hide text below one whole mono glyph plus an ellipsis. Quantities follow
  * the label: removing only the label promotes a clipped quantity into its line. */
 const hideShortText = { "@container (width < 2ch)": { display: "none" } } satisfies SystemStyleObject;
+
+/** The inset ring a confirmed bar draws: 1.5px of the brand, which every ring round it keeps inside. */
+const BAR_CONFIRMED = "inset 0 0 0 1.5px {colors.brand.solid}";
+
+/** A diamond's edge, in the custom property its status's tone sets: the brand, with none. The recipe's own property,
+ *  so not a `--plan-…` name, which is the canvas's geometry. */
+const DIAMOND_EDGE = "inset 0 0 0 1.5px var(--diamond-edge)";
 
 /** Their base styles. */
 export const elementsBase = {
@@ -79,18 +89,17 @@ export const elementsBase = {
         // its removal on nothing.
         ...lifecycleStates({
             obs: { background: "brand.emphasized", color: "bg.surface" },
-            appr: { background: "bg.surface", color: "fg.default", boxShadow: "inset 0 0 0 1.5px {colors.brand.solid}" },
+            appr: { background: "bg.surface", color: "fg.default", boxShadow: BAR_CONFIRMED },
             prop: { background: "{colors.brandTint}" },
             propRemoved: { background: "transparent", color: "fg.muted" },
         }),
         // An event its drafts changed (#1196): the tint in a brand border, in its state's place.
         ...planElementDrafted,
-        // over-dwell / flagged — the warn ring rides any state.
-        "&[data-stuck]": { boxShadow: "0 0 0 1.5px {colors.status.warn}" },
-        // An event in an overlap pair (#1198) — the same warn ring; a
-        // confirmed bar keeps its inset brand ring inside it.
-        "&[data-overlap]": { boxShadow: PLAN_OVERLAP_RING },
-        "&[data-overlap][data-state='appr']": { boxShadow: `inset 0 0 0 1.5px {colors.brand.solid}, ${PLAN_OVERLAP_RING}` },
+        // Its status (#1541, U8): its tone's ring, which rides any state — a warning's is the over-dwell ring — and
+        // the open ring a tentative one draws as. A confirmed bar keeps its inset brand ring inside it.
+        ...planElementStatus(BAR_CONFIRMED),
+        // An event in an overlap pair (#1198) — the warn ring, in its status's place.
+        ...planElementOverlap(BAR_CONFIRMED),
         // runs past the window — mask-fade right, never a fabricated end.
         "&[data-runoff]": {
             maskImage: "linear-gradient(to right, black 84%, transparent 99%)",
@@ -112,9 +121,8 @@ export const elementsBase = {
         },
         ...planElementSelected,
         ...planElementFocus,
-        ...planElementConflict,
-        // A confirmed bar keeps its inset brand ring inside the warn.
-        "&:is([data-conflict], [data-bounds])[data-state='appr']": { boxShadow: `inset 0 0 0 1.5px {colors.brand.solid}, ${CONFLICT_RING}` },
+        // A conflict's ring, last: a confirmed bar keeps its inset brand ring inside the warn, an open one its own.
+        ...planElementConflicts(BAR_CONFIRMED),
     },
     // A span's label — whole, or ellipsized when it alone does not fit, its
     // line the bar's inside height (#1258). Below a letter and the ellipsis
@@ -217,27 +225,34 @@ export const elementsBase = {
         top: "50%",
         borderRadius: "1px",
         background: "bg.surface",
-        boxShadow: "inset 0 0 0 1.5px {colors.brand.solid}, 0 0 0 2px {colors.bg.surface}",
+        // Its edge and an applied one's fill are one colour: the brand, or its status's tone (#1541).
+        "--diamond-edge": "{colors.brand.solid}",
+        boxShadow: `${DIAMOND_EDGE}, 0 0 0 2px {colors.bg.surface}`,
         zIndex: 4,
-        "&[data-applied]": { background: "{colors.brand.solid}" },
+        "&[data-applied]": { background: "var(--diamond-edge)" },
         // An EVENT-ROW decision mark (K7 — the diamond carries `data-mark`)
         // is the canvas's mark diamond, the §8 sheet's "◇/◆ 11px rotate-45
         // r1" — a link meets its corners (#1258); a span row's decision
         // diamond on a run transition stays the 9px above.
         "&[data-mark]": { width: "var(--plan-mark-diamond-w)", height: "var(--plan-mark-diamond-w)" },
+        // Its status (#1541, U8): the diamond's edge, and an applied one's fill, in the tone's colour, under every ring
+        // round it; a tentative one draws open, applied or not.
+        ...planStatusTones,
+        "&[data-tone]": { "--diamond-edge": PLAN_STATUS_COLOR },
+        "&[data-tone][data-ring]": { background: "bg.surface" },
         // ── R3 SHAPE KEEPS ITS SILHOUETTE, LOSES ITS SIZE (#591) ──
         // Milestone / decision / exception are told apart BY OUTLINE, so
         // the outline is the payload: shrink it, never make it
         // transparent — that would erase the row's whole meaning.
         "&[data-ctx]": { width: "6px", height: "6px", borderRadius: 0},
         // An event's decision mark its drafts changed (#1196): the tint's ring round its own.
-        "&[data-draft]": { boxShadow: `inset 0 0 0 1.5px {colors.brand.solid}, ${PLAN_DRAFT_HALO}` },
+        "&[data-draft]": { boxShadow: `${DIAMOND_EDGE}, ${PLAN_DRAFT_HALO}` },
         ...grab,
         ...planElementSelected,
         ...planElementFocus,
         // A conflict not yet chosen, or a number outside its field's bounds: the warn ring round its own brand edge, which
         // is its outline; over the bar it sits on still, as the other marks' rings are over theirs.
-        "&:is([data-conflict], [data-bounds])": { boxShadow: `inset 0 0 0 1.5px {colors.brand.solid}, ${CONFLICT_RING}` },
+        "&:is([data-conflict], [data-bounds])": { boxShadow: `${DIAMOND_EDGE}, ${CONFLICT_RING}` },
     },
     // ── Chart rows — the marks, axis ticks + ref labels ──
     // A chart row's marks (#949): the svg fills the plot, and every mark's
@@ -387,10 +402,19 @@ export const elementsBase = {
         "&[data-draft]": { boxShadow: PLAN_DRAFT_HALO },
         // An event in an overlap pair (#1198): the warn ring, round the dot.
         "&[data-overlap]": { boxShadow: PLAN_OVERLAP_RING },
+        // Its status (#1541, U8): the dot in the tone's colour; a tentative one an open dot, its ring inside its
+        // edge, which the drafted halo and the overlap ring draw round.
+        ...planStatusTones,
+        "&[data-tone]": { background: PLAN_STATUS_COLOR },
+        "&[data-tone][data-ring]": { background: "transparent", boxShadow: PLAN_STATUS_OPEN_RING },
+        "&[data-tone][data-ring][data-draft]": { boxShadow: `${PLAN_STATUS_OPEN_RING}, ${PLAN_DRAFT_HALO}` },
+        "&[data-tone][data-ring][data-overlap]": { boxShadow: `${PLAN_STATUS_OPEN_RING}, ${PLAN_OVERLAP_RING}` },
         ...grab,
         ...planElementSelected,
         ...planElementFocus,
         ...planElementConflict,
+        // An open dot keeps its ring inside the warn.
+        "&[data-tone][data-ring]:is([data-conflict], [data-bounds])": { boxShadow: `${PLAN_STATUS_OPEN_RING}, ${CONFLICT_RING}` },
     },
     // An exception's triangle draws no overlap ring: it is the warn mark
     // already, and a ring round a border-drawn triangle is its square box —
@@ -419,6 +443,10 @@ export const elementsBase = {
             borderRightWidth: "3.5px",
             borderBottomWidth: "6px",
         },
+        // Its status (#1541, U8): the triangle in the tone's colour. A border-drawn triangle has no inside to open,
+        // so a tentative one draws as any other.
+        ...planStatusTones,
+        "&[data-tone]": { borderBottomColor: PLAN_STATUS_COLOR },
         ...grab,
         ...planElementSelected,
         ...planElementFocus,
@@ -442,6 +470,12 @@ export const elementsBase = {
         color: "{colors.brand.solid}",
         zIndex: 3,
         "&[data-kind='exception']": { color: "{colors.status.warn}" },
+        // Its status (#1541, U8): the icon in the tone's colour, in its kind's place; a tentative one in the tone's
+        // ring, round its box — a solid glyph has no open form — which a drafted halo, an overlap's ring and a
+        // conflict's, each after it and as strong, take the place of.
+        ...planStatusTones,
+        "&[data-tone]": { color: PLAN_STATUS_COLOR },
+        "&[data-ring]:where([data-tone])": { borderRadius: "full", boxShadow: PLAN_STATUS_RING },
         // ── R4 ICONS (#591) ──
         // A K7 override swaps a mark's default geometry for the host's own
         // 12px FA icon. At strip size a detailed glyph is an unreadable

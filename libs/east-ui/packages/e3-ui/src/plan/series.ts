@@ -27,7 +27,7 @@
  * Every row has a typed id — `{ series, path }`, the path the entry keys that
  * lead to it — and every series is a REAL EAST VALUE (the `DataBindHandleType`
  * pattern): its `derive` is a reified East function from the source to its
- * rows, so a series list can be bound, picked (`Plan.pick`) and stored. Each
+ * rows, so a series list can be bound and stored. Each
  * builder also records how to BUILD the series for any collection type, which
  * is what lets a step-down compile its child series for the child collection's
  * type, the root compile them for a source keyed by any type, and the root
@@ -57,6 +57,7 @@ import {
     NullType,
     OptionType,
     RefType,
+    SetType,
     StringType,
     StructType,
     VariantType,
@@ -205,7 +206,7 @@ export type PlanSeriesArm =
  * move to another row carries (#825): the source row's write takes the item
  * out of its list into it, as bytes, and the target row's write puts it into
  * its own list — the two rows may be different series' and different
- * entries'. A series list is an East value (a pick, a stored list), so the
+ * entries'. A series list may be an East value (a bound or stored list), so the
  * writer travels with the series rather than being rebuilt by the canvas.
  *
  * @param r - The entry type value
@@ -262,8 +263,8 @@ export type PlanSeriesValue<K extends PlanAxisKindLiteral = never, U = unknown> 
 
 /**
  * The `series` prop's input — a TS array of series values (the common case)
- * or an East expression of the series array (a `$.const`-bound list, a picked
- * list, a stored list). The array form checks each series' kind against `K`
+ * or an East expression of the series array (a `$.const`-bound list, a
+ * stored list). The array form checks each series' kind against `K`
  * (the root's axis kind) and its keys at build time; an East expression is
  * kind-erased, and a repeated key there renders as row diagnostics.
  *
@@ -1027,18 +1028,34 @@ export interface PlanViewsSeriesConfig<
 const PathType = ArrayType(StringType);
 const IdOptType = OptionType(PlanRowIdType);
 
-/** A series' rows for entries of a collection, as one stream: `(collection, prefix path, parent id) → rows`. */
-type EmitFn = ExprType<FunctionType<[EastType, ArrayType<StringType>, OptionType<PlanRowIdType>], PlanRowsCollectionType>>;
-/** A series' BLOCKS for entries of a collection (#823): `(collection, prefix path, parent id) → blocks`. */
-type BlocksFn = ExprType<FunctionType<[EastType, ArrayType<StringType>, OptionType<PlanRowIdType>], PlanBlocksType>>;
+/**
+ * The keys of the series a canvas leaves out (#1541, U3): what a viewer
+ * switched off in the library's Series tab, or what the Plan's `hidden` names.
+ * Every series' rows are made with it in hand — a series whose key it holds
+ * makes none, its subtree's with them, and a `views` leaves out each member it
+ * holds, the entry's children nesting under the first that is left.
+ *
+ * @internal
+ */
+export const PlanHiddenType = SetType(StringType);
+/** Type representing {@link PlanHiddenType}. */
+export type PlanHiddenType = typeof PlanHiddenType;
+
+/** No series left out. */
+const noneHidden = (): ExprType<PlanHiddenType> => East.value(new Set<string>(), PlanHiddenType);
+
+/** A series' rows for entries of a collection, as one stream: `(collection, prefix path, parent id, hidden) → rows`. */
+type EmitFn = ExprType<FunctionType<[EastType, ArrayType<StringType>, OptionType<PlanRowIdType>, PlanHiddenType], PlanRowsCollectionType>>;
+/** A series' BLOCKS for entries of a collection (#823): `(collection, prefix path, parent id, hidden) → blocks`. */
+type BlocksFn = ExprType<FunctionType<[EastType, ArrayType<StringType>, OptionType<PlanRowIdType>, PlanHiddenType], PlanBlocksType>>;
 /** One entry's row: `(value, key, id, parent, hasChildren, collapsed) → row`. */
 type EntryRowFn = ExprType<FunctionType<[EastType, EastType, PlanRowIdType, OptionType<PlanRowIdType>, BooleanType, BooleanType], PlanRowType>>;
 /** An entry's membership: `(value, key) → Boolean`. */
 type MatchFn = ExprType<FunctionType<[EastType, EastType], BooleanType>>;
 /** An entry's collapse: `(value, key) → Boolean`. */
 type CollapsedFn = ExprType<FunctionType<[EastType, EastType], BooleanType>>;
-/** An entry's children rows: `(value, key, id, path) → rows`. */
-type ChildrenFn = ExprType<FunctionType<[EastType, EastType, PlanRowIdType, ArrayType<StringType>], PlanRowsCollectionType>>;
+/** An entry's children rows: `(value, key, id, path, hidden) → rows`. */
+type ChildrenFn = ExprType<FunctionType<[EastType, EastType, PlanRowIdType, ArrayType<StringType>, PlanHiddenType], PlanRowsCollectionType>>;
 /**
  * A series' writer for entries of a collection (#880): `(entry, key, path,
  * depth, series, gesture, carried) → the entry written`. `path[0 … depth)`
@@ -1071,6 +1088,10 @@ interface PlanSeriesSpec {
     readonly key: string;
     /** The series title. */
     readonly title: string;
+    /** The series' role line, as its builder was given it: what the Series tab lists it with (#1541). */
+    readonly subtitle: string | undefined;
+    /** Its icon, as its builder was given it; none, its kind's. */
+    readonly icon: PlanIconInput | undefined;
     /** The series' kind. */
     readonly arm: PlanSeriesArm;
     /** The series nested inside this one — section / views members and step-down series — for the key walk. */
@@ -1183,7 +1204,7 @@ function nestFactsOf(spec: PlanSeriesSpec): PlanSeriesNestFacts {
  * nests: `facts(spec)` for any of them.
  *
  * @param series - The series value
- * @returns Its facts; `undefined` for a value no builder made in place (a bound, picked or stored one)
+ * @returns Its facts; `undefined` for a value no builder made in place (a bound or stored one)
  * @internal
  */
 export function planSeriesNestOf(series: unknown): PlanSeriesNestFacts | undefined {
@@ -1257,17 +1278,30 @@ function segmentOf(keyType: EastType): (key: ExprType<EastType>) => ExprType<Str
  * or rows no entry produces (`fixed: true`: hand-built rows), under the parent
  * the block nests in.
  *
+ * A series the canvas leaves out (#1541, U3) makes no block: its key is in
+ * `hidden`.
+ *
  * @param collection - The collection type the rows are built for
+ * @param key - The series' key
  * @param rows - The series' rows emitter for that collection
  * @param fixed - Whether no entry produces the rows
- * @param charts - How many chart rows each entry makes, when every entry makes as many (#1398) — a fixed block's none
+ * @param charts - How many chart rows each entry makes, when every entry makes as many (#1398) — a fixed block's none;
+ *   or, where what is left out changes it (a `views` with a chart member), the count from what is hidden
  * @returns The block list's emitter
  */
-function oneBlock(collection: EastType, rows: EmitFn, fixed: boolean, charts: number | undefined): BlocksFn {
-    const each = fixed || charts === undefined ? none : some(BigInt(charts));
-    return East.function([collection, PathType, IdOptType], PlanBlocksType, ($, coll, prefix, parent) => {
-        const block = $.let(East.value({ fixed, parent, charts: each, rows: rows(coll, prefix, parent) }, PlanBlockType), PlanBlockType);
-        return East.value([block], PlanBlocksType);
+function oneBlock(
+    collection: EastType, key: string, rows: EmitFn, fixed: boolean,
+    charts: number | undefined | ((hidden: ExprType<PlanHiddenType>) => ExprType<OptionType<IntegerType>>),
+): BlocksFn {
+    const ChartsType = OptionType(IntegerType);
+    return East.function([collection, PathType, IdOptType, PlanHiddenType], PlanBlocksType, ($, coll, prefix, parent, hidden) => {
+        const out = $.let([], PlanBlocksType);
+        $.if(hidden.has(key).not(), ($2) => {
+            const each = $2.let(typeof charts === "function" ? charts(hidden)
+                : East.value(fixed || charts === undefined ? none : some(BigInt(charts)), ChartsType), ChartsType);
+            $2(out.pushLast(East.value({ fixed, parent, charts: each, rows: rows(coll, prefix, parent, hidden) }, PlanBlockType)));
+        });
+        return out;
     }) as unknown as BlocksFn;
 }
 
@@ -2234,7 +2268,7 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
     // lose it silently.
     for (const removed of ["review", "approval"] as const) {
         if (removed in (cfg as object)) {
-            throw new Error(`${where}: \`${removed}\` is removed (#1260) — a Plan approves and rejects nothing: its changes are drafts of the root's \`editing\` session`);
+            throw new Error(`${where}: \`${removed}\` is removed (#1260) — a Plan approves and rejects nothing: its changes are drafts, saved through the Plan's \`record\``);
         }
     }
     // What a gesture writes (#880, #825, #1436) — through the collection its
@@ -2376,8 +2410,9 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
             const of = childOf(kt);
             const cc = (Expr.type(of) as unknown as { output: EastType }).output;
             const walk = walkFor(cc);
-            return East.function([rowType, kt, PlanRowIdType, PathType], PlanRowsCollectionType,
-                (_$, value, key, id, path) => walk(of(value, key), path, id)) as unknown as ChildrenFn;
+            // A tree's rows are this series' own at every depth: what is hidden leaves none of them out apart.
+            return East.function([rowType, kt, PlanRowIdType, PathType, PlanHiddenType], PlanRowsCollectionType,
+                (_$, value, key, id, path, _hidden) => walk(of(value, key), path, id)) as unknown as ChildrenFn;
         }
         const parts = steps.map((step, i) => {
             const at = `${where} › children[${i}]`;
@@ -2387,12 +2422,12 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
             const blocks = step.series.map((s) => nestedSpec(s, at).emitter(cc, at));
             return { of, cc, blocks };
         });
-        return East.function([rowType, kt, PlanRowIdType, PathType], PlanRowsCollectionType, ($, value, key, id, path) => {
+        return East.function([rowType, kt, PlanRowIdType, PathType, PlanHiddenType], PlanRowsCollectionType, ($, value, key, id, path, hidden) => {
             const out = $.let([], PlanRowsCollectionType);
             const under = $.let(East.value(some(id), IdOptType), IdOptType);
             for (const part of parts) {
                 const coll = $.let(part.of(value, key), part.cc);
-                for (const block of part.blocks) $(out.append(block(coll, path, under)));
+                for (const block of part.blocks) $(out.append(block(coll, path, under, hidden)));
             }
             return out;
         }) as unknown as ChildrenFn;
@@ -2709,6 +2744,8 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
     const spec: PlanSeriesSpec = {
         key: cfg.key,
         title: cfg.title,
+        subtitle: cfg.subtitle,
+        icon: cfg.icon,
         arm: recipe.arm,
         nested,
         nests: children !== undefined,
@@ -2737,33 +2774,36 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
                 const collapsed = collapsedFor(kt);
                 const below = childrenFor(kt);
                 const seg = segmentOf(kt);
-                return East.function([collection, PathType, IdOptType], PlanRowsCollectionType, ($, coll, prefix, parent) => {
+                return East.function([collection, PathType, IdOptType, PlanHiddenType], PlanRowsCollectionType, ($, coll, prefix, parent, hidden) => {
                     // Every function the loop calls, bound ONCE (see the walk).
                     const entryRow = $.const(row);
                     const member = match === undefined ? undefined : $.const(match);
                     const collapse = collapsed === undefined ? undefined : $.const(collapsed);
                     const childRows = below === undefined ? undefined : $.const(below);
                     const out = $.let([], PlanRowsCollectionType);
-                    $.for(coll as ExprType<ArrayType<EastType>>, ($2, value, key) => {
-                        const emit = ($3: typeof $2) => {
-                            const segs = $3.let(East.value([seg(key as ExprType<EastType>)], PathType), PathType);
-                            const path = $3.let(prefix.concat(segs), PathType);
-                            const id = $3.let(East.value(variant("entry", { series: cfg.key, path }), PlanRowIdType), PlanRowIdType);
-                            const fold = $3.let(collapse === undefined
-                                ? East.value(false, BooleanType)
-                                : collapse(value, key), BooleanType);
-                            if (childRows === undefined) {
-                                $3(out.pushLast(entryRow(value, key, id, parent, false, fold)));
-                                return;
-                            }
-                            // The children are built first: a row rolls up
-                            // (span bands) only when it has child rows.
-                            const sub = $3.let(childRows(value, key, id, path), PlanRowsCollectionType);
-                            $3(out.pushLast(entryRow(value, key, id, parent, sub.size().greater(0n), fold)));
-                            $3(out.append(sub));
-                        };
-                        if (member === undefined) emit($2);
-                        else $2.if(member(value, key), emit);
+                    // A series the canvas leaves out makes no row, and so none beneath one (#1541, U3).
+                    $.if(hidden.has(cfg.key).not(), ($1) => {
+                        $1.for(coll as ExprType<ArrayType<EastType>>, ($2, value, key) => {
+                            const emit = ($3: typeof $2) => {
+                                const segs = $3.let(East.value([seg(key as ExprType<EastType>)], PathType), PathType);
+                                const path = $3.let(prefix.concat(segs), PathType);
+                                const id = $3.let(East.value(variant("entry", { series: cfg.key, path }), PlanRowIdType), PlanRowIdType);
+                                const fold = $3.let(collapse === undefined
+                                    ? East.value(false, BooleanType)
+                                    : collapse(value, key), BooleanType);
+                                if (childRows === undefined) {
+                                    $3(out.pushLast(entryRow(value, key, id, parent, false, fold)));
+                                    return;
+                                }
+                                // The children are built first: a row rolls up
+                                // (span bands) only when it has child rows.
+                                const sub = $3.let(childRows(value, key, id, path, hidden), PlanRowsCollectionType);
+                                $3(out.pushLast(entryRow(value, key, id, parent, sub.size().greater(0n), fold)));
+                                $3(out.append(sub));
+                            };
+                            if (member === undefined) emit($2);
+                            else $2.if(member(value, key), emit);
+                        });
                     });
                     return out;
                 }) as unknown as EmitFn;
@@ -2771,7 +2811,7 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
         },
         // One block of the entries' rows — what a paged canvas pages (#823).
         blocks(collection, at) {
-            return blockLists.get(collection, () => oneBlock(collection, spec.emitter(collection, at), false, charts));
+            return blockLists.get(collection, () => oneBlock(collection, cfg.key, spec.emitter(collection, at), false, charts));
         },
         entryParts(entry, kt, at) {
             assertEntry(entry, rowType, at);
@@ -2836,15 +2876,16 @@ function viewsSpec(rowType: EastType, cfg: PlanViewsSeriesConfig<EastType, EastT
     const childOf = (kt: EastType) => childOfs.get(kt, () => building(where, kt, () =>
         reifyAccessor([rowType, kt], (v: ExprType<EastType>, k: ExprType<EastType>) => bare!(nodeOf(v), k))) as unknown as
         ExprType<FunctionType<[EastType, EastType], EastType>>);
-    const walks = new ByType<ExprType<FunctionType<[EastType, ArrayType<StringType>, PlanRowIdType], PlanRowsCollectionType>>>();
+    const walks = new ByType<ExprType<FunctionType<[EastType, ArrayType<StringType>, PlanRowIdType, PlanHiddenType], PlanRowsCollectionType>>>();
 
     /**
      * The subtree below one entry, over the child collection type `cc`: every
      * level's matched entries in pre-order, each drawn as its members' rows —
-     * adjacent, in declared order, those whose own `match` takes it — with its
-     * children after all of them, nested under the first that shows.
+     * adjacent, in declared order, those whose own `match` takes it and the
+     * canvas does not leave out (#1541, U3) — with its children after all of
+     * them, nested under the first that shows.
      */
-    const walkFor = (cc: EastType): ExprType<FunctionType<[EastType, ArrayType<StringType>, PlanRowIdType], PlanRowsCollectionType>> =>
+    const walkFor = (cc: EastType): ExprType<FunctionType<[EastType, ArrayType<StringType>, PlanRowIdType, PlanHiddenType], PlanRowsCollectionType>> =>
         walks.get(cc, () => {
             const at = `${where} › children`;
             const { entry, key: kc } = shapeOf(cc, at);
@@ -2876,28 +2917,28 @@ function viewsSpec(rowType: EastType, cfg: PlanViewsSeriesConfig<EastType, EastT
                 $(frames.reverseInPlace());
                 return frames;
             });
-            return East.function([cc, PathType, PlanRowIdType], PlanRowsCollectionType, ($, coll, path0, parent0) => {
+            return East.function([cc, PathType, PlanRowIdType, PlanHiddenType], PlanRowsCollectionType, ($, coll, path0, parent0, hidden) => {
                 // Every function the loop calls, bound ONCE (see the data walk).
                 const frames = $.const(framesOf);
                 const childrenOf = $.const(next);
                 const rowsOf = parts.map((p) => $.const(p.row));
                 const showsOf = parts.map((p) => (p.match === undefined ? undefined : $.const(p.match)));
                 const collapse = collapsed === undefined ? undefined : $.const(collapsed);
+                // Whether the canvas leaves each member in, read once (#1541, U3).
+                const ons = memberSpecs.map((m) => $.let(hidden.has(m.key).not(), BooleanType));
                 const out = $.let([], PlanRowsCollectionType);
                 const stack = $.let(frames(coll, path0, parent0), Frames);
                 $.while(stack.size().greater(0n), ($2) => {
                     const f = $2.let(stack.popLast(), Frame);
                     const ids = memberSpecs.map((m) =>
                         $2.let(East.value(variant("entry", { series: m.key, path: f.path }), PlanRowIdType), PlanRowIdType));
-                    const present = showsOf.map((shows) => (shows === undefined
-                        ? undefined
-                        : $2.let(shows(f.value, f.key), BooleanType)));
+                    const present = showsOf.map((shows, i) => (shows === undefined
+                        ? ons[i]!
+                        : $2.let(ons[i]!.and(() => shows(f.value, f.key)), BooleanType)));
                     // The first member whose row shows — the entry's children nest under it.
                     const first = $2.let(-1n, IntegerType);
                     for (let i = parts.length - 1; i >= 0; i--) {
-                        const shows = present[i];
-                        if (shows === undefined) $2.assign(first, BigInt(i));
-                        else $2.if(shows, ($3) => { $3.assign(first, BigInt(i)); });
+                        $2.if(present[i]!, ($3) => { $3.assign(first, BigInt(i)); });
                     }
                     const firstId = $2.let(ids[0]!, PlanRowIdType);
                     for (let i = 1; i < ids.length; i++) {
@@ -2915,13 +2956,10 @@ function viewsSpec(rowType: EastType, cfg: PlanViewsSeriesConfig<EastType, EastT
                         const isFirst = $2.let(first.equal(BigInt(i)), BooleanType);
                         const hasChildren = $2.let(isFirst.and(() => below.size().greater(0n)), BooleanType);
                         const viewRow = rowsOf[i]!;
-                        const push = ($3: typeof $2) => {
+                        $2.if(present[i]!, ($3) => {
                             $3(out.pushLast(viewRow(f.value, f.key, ids[i]!, parent, hasChildren,
                                 isFirst.ifElse(() => fold, () => noFold))));
-                        };
-                        const shows = present[i];
-                        if (shows === undefined) push($2);
-                        else $2.if(shows, push);
+                        });
                     });
                     $2(stack.append(below));
                 });
@@ -2934,8 +2972,8 @@ function viewsSpec(rowType: EastType, cfg: PlanViewsSeriesConfig<EastType, EastT
         if (bare === undefined) return host.childrenFor!(kt);
         const of = childOf(kt);
         const walk = walkFor((Expr.type(of) as unknown as { output: EastType }).output);
-        return East.function([rowType, kt, PlanRowIdType, PathType], PlanRowsCollectionType,
-            (_$, value, key, id, path) => walk(of(value, key), path, id)) as unknown as ChildrenFn;
+        return East.function([rowType, kt, PlanRowIdType, PathType, PlanHiddenType], PlanRowsCollectionType,
+            (_$, value, key, id, path, hidden) => walk(of(value, key), path, id, hidden)) as unknown as ChildrenFn;
     };
 
     const walkWriters = new ByType<WriteFn | undefined>();
@@ -3009,9 +3047,22 @@ function viewsSpec(rowType: EastType, cfg: PlanViewsSeriesConfig<EastType, EastT
     const memberCharts = chartsOf(memberSpecs);
     const charts = entryCharts(memberCharts,
         cfg.children === undefined ? 0 : bare !== undefined ? memberCharts : chartsOf(host.nested), cfg.match !== undefined);
+    // With a member left out (#1541, U3) an entry makes the chart rows of the members left in: the same for every
+    // entry still, so a block says it of what is hidden. Where the count varies by entry it stays unsaid.
+    const chartsShown = charts === undefined || charts === 0 ? charts
+        : (hidden: ExprType<PlanHiddenType>): ExprType<OptionType<IntegerType>> => Expr.block(($) => {
+            const count = $.let(0n, IntegerType);
+            for (const m of memberSpecs) {
+                if (m.charts === undefined || m.charts === 0) continue;
+                $.if(hidden.has(m.key).not(), ($2) => { $2.assign(count, count.add(BigInt(m.charts!))); });
+            }
+            return East.value(some(count), OptionType(IntegerType));
+        });
     const spec: PlanSeriesSpec = {
         key: cfg.key,
         title: cfg.title,
+        subtitle: cfg.subtitle,
+        icon: cfg.icon,
         arm: "views",
         nested: [...memberSpecs, ...host.nested],
         nests: cfg.children !== undefined,
@@ -3028,64 +3079,64 @@ function viewsSpec(rowType: EastType, cfg: PlanViewsSeriesConfig<EastType, EastT
                 const hostKids = childrenFor(kt);
                 const hostCollapse = host.collapsedFor!(kt);
                 const seg = segmentOf(kt);
-                return East.function([collection, PathType, IdOptType], PlanRowsCollectionType, ($, coll, prefix, parent) => {
+                return East.function([collection, PathType, IdOptType, PlanHiddenType], PlanRowsCollectionType, ($, coll, prefix, parent, hidden) => {
                     // Every function the loop calls, bound ONCE (see the data walk).
                     const rowsOf = parts.map((p) => $.const(p.row));
                     const showsOf = parts.map((p) => (p.match === undefined ? undefined : $.const(p.match)));
                     const member = hostParts.match === undefined ? undefined : $.const(hostParts.match);
                     const childRows = hostKids === undefined ? undefined : $.const(hostKids);
                     const collapse = hostCollapse === undefined ? undefined : $.const(hostCollapse);
+                    // Whether the canvas leaves each member in, read once (#1541, U3).
+                    const ons = memberSpecs.map((m) => $.let(hidden.has(m.key).not(), BooleanType));
                     const out = $.let([], PlanRowsCollectionType);
-                    $.for(coll as ExprType<ArrayType<EastType>>, ($2, value, key) => {
-                        const emit = ($3: typeof $2) => {
-                            const segs = $3.let(East.value([seg(key as ExprType<EastType>)], PathType), PathType);
-                            const path = $3.let(prefix.concat(segs), PathType);
-                            const ids = memberSpecs.map((m) =>
-                                $3.let(East.value(variant("entry", { series: m.key, path }), PlanRowIdType), PlanRowIdType));
-                            const present = showsOf.map((shows) => (shows === undefined
-                                ? undefined
-                                : $3.let(shows(value, key), BooleanType)));
-                            // The first member whose row shows — the entry's
-                            // children nest under it.
-                            const first = $3.let(-1n, IntegerType);
-                            for (let i = parts.length - 1; i >= 0; i--) {
-                                const shows = present[i];
-                                if (shows === undefined) $3.assign(first, BigInt(i));
-                                else $3.if(shows, ($4) => { $4.assign(first, BigInt(i)); });
-                            }
-                            let sub: ExprType<PlanRowsCollectionType> | undefined;
-                            if (childRows !== undefined) {
-                                const firstId = $3.let(ids[0]!, PlanRowIdType);
-                                for (let i = 1; i < ids.length; i++) {
-                                    $3.if(first.equal(BigInt(i)), ($4) => { $4.assign(firstId, ids[i]!); });
+                    // The views left out make no row, and so none beneath one.
+                    $.if(hidden.has(cfg.key).not(), ($1) => {
+                        $1.for(coll as ExprType<ArrayType<EastType>>, ($2, value, key) => {
+                            const emit = ($3: typeof $2) => {
+                                const segs = $3.let(East.value([seg(key as ExprType<EastType>)], PathType), PathType);
+                                const path = $3.let(prefix.concat(segs), PathType);
+                                const ids = memberSpecs.map((m) =>
+                                    $3.let(East.value(variant("entry", { series: m.key, path }), PlanRowIdType), PlanRowIdType));
+                                const present = showsOf.map((shows, i) => (shows === undefined
+                                    ? ons[i]!
+                                    : $3.let(ons[i]!.and(() => shows(value, key)), BooleanType)));
+                                // The first member whose row shows — the entry's
+                                // children nest under it.
+                                const first = $3.let(-1n, IntegerType);
+                                for (let i = parts.length - 1; i >= 0; i--) {
+                                    $3.if(present[i]!, ($4) => { $4.assign(first, BigInt(i)); });
                                 }
-                                sub = $3.let(first.greaterEqual(0n).ifElse(
-                                    () => childRows(value, key, firstId, path),
-                                    () => East.value([], PlanRowsCollectionType)), PlanRowsCollectionType);
-                            }
-                            const fold = $3.let(collapse === undefined
-                                ? East.value(false, BooleanType)
-                                : collapse(value, key), BooleanType);
-                            const noFold = $3.let(East.value(false, BooleanType), BooleanType);
-                            parts.forEach((_p, i) => {
-                                const isFirst = $3.let(first.equal(BigInt(i)), BooleanType);
-                                const kids = sub;
-                                const hasChildren = $3.let(kids === undefined
+                                let sub: ExprType<PlanRowsCollectionType> | undefined;
+                                if (childRows !== undefined) {
+                                    const firstId = $3.let(ids[0]!, PlanRowIdType);
+                                    for (let i = 1; i < ids.length; i++) {
+                                        $3.if(first.equal(BigInt(i)), ($4) => { $4.assign(firstId, ids[i]!); });
+                                    }
+                                    sub = $3.let(first.greaterEqual(0n).ifElse(
+                                        () => childRows(value, key, firstId, path, hidden),
+                                        () => East.value([], PlanRowsCollectionType)), PlanRowsCollectionType);
+                                }
+                                const fold = $3.let(collapse === undefined
                                     ? East.value(false, BooleanType)
-                                    : isFirst.and(() => kids.size().greater(0n)), BooleanType);
-                                const viewRow = rowsOf[i]!;
-                                const push = ($4: typeof $3) => {
-                                    $4(out.pushLast(viewRow(value, key, ids[i]!, parent, hasChildren,
-                                        isFirst.ifElse(() => fold, () => noFold))));
-                                };
-                                const shows = present[i];
-                                if (shows === undefined) push($3);
-                                else $3.if(shows, push);
-                            });
-                            if (sub !== undefined) $3(out.append(sub));
-                        };
-                        if (member === undefined) emit($2);
-                        else $2.if(member(value, key), emit);
+                                    : collapse(value, key), BooleanType);
+                                const noFold = $3.let(East.value(false, BooleanType), BooleanType);
+                                parts.forEach((_p, i) => {
+                                    const isFirst = $3.let(first.equal(BigInt(i)), BooleanType);
+                                    const kids = sub;
+                                    const hasChildren = $3.let(kids === undefined
+                                        ? East.value(false, BooleanType)
+                                        : isFirst.and(() => kids.size().greater(0n)), BooleanType);
+                                    const viewRow = rowsOf[i]!;
+                                    $3.if(present[i]!, ($4) => {
+                                        $4(out.pushLast(viewRow(value, key, ids[i]!, parent, hasChildren,
+                                            isFirst.ifElse(() => fold, () => noFold))));
+                                    });
+                                });
+                                if (sub !== undefined) $3(out.append(sub));
+                            };
+                            if (member === undefined) emit($2);
+                            else $2.if(member(value, key), emit);
+                        });
                     });
                     return out;
                 }) as unknown as EmitFn;
@@ -3093,7 +3144,7 @@ function viewsSpec(rowType: EastType, cfg: PlanViewsSeriesConfig<EastType, EastT
         },
         // One block of the entries' view rows — what a paged canvas pages (#823).
         blocks(collection, at) {
-            return blockLists.get(collection, () => oneBlock(collection, spec.emitter(collection, at), false, charts));
+            return blockLists.get(collection, () => oneBlock(collection, cfg.key, spec.emitter(collection, at), false, chartsShown));
         },
         // An entry's view rows are its members' own (each at the entry's path,
         // under its member's key), and the rows below them the views' (#880).
@@ -3154,6 +3205,8 @@ function sectionSpec(cfg: PlanSectionSeriesConfig<PlanAxisKindLiteral>, members:
     return {
         key: cfg.key,
         title: cfg.title,
+        subtitle: cfg.subtitle,
+        icon: cfg.icon,
         arm: "section",
         nested: memberSpecs,
         nests: false,
@@ -3168,11 +3221,15 @@ function sectionSpec(cfg: PlanSectionSeriesConfig<PlanAxisKindLiteral>, members:
         emitter(collection, at) {
             return emitters.get(collection, () => {
                 const blocks = memberSpecs.map((m) => m.emitter(collection, `${at} › ${where}`));
-                return East.function([collection, PathType, IdOptType], PlanRowsCollectionType, ($, coll, prefix, parent) => {
-                    const id = $.let(East.value(variant("section", { series: cfg.key, path: prefix }), PlanRowIdType), PlanRowIdType);
-                    const under = $.let(East.value(some(id), IdOptType), IdOptType);
-                    const out = $.let(East.value([header(id, parent)], PlanRowsCollectionType), PlanRowsCollectionType);
-                    for (const block of blocks) $(out.append(block(coll, prefix, under)));
+                return East.function([collection, PathType, IdOptType, PlanHiddenType], PlanRowsCollectionType, ($, coll, prefix, parent, hidden) => {
+                    const out = $.let([], PlanRowsCollectionType);
+                    // A section the canvas leaves out makes no header, and none of its members' rows (#1541, U3).
+                    $.if(hidden.has(cfg.key).not(), ($2) => {
+                        const id = $2.let(East.value(variant("section", { series: cfg.key, path: prefix }), PlanRowIdType), PlanRowIdType);
+                        const under = $2.let(East.value(some(id), IdOptType), IdOptType);
+                        $2(out.pushLast(header(id, parent)));
+                        for (const block of blocks) $2(out.append(block(coll, prefix, under, hidden)));
+                    });
                     return out;
                 }) as unknown as EmitFn;
             });
@@ -3184,12 +3241,15 @@ function sectionSpec(cfg: PlanSectionSeriesConfig<PlanAxisKindLiteral>, members:
         blocks(collection, at) {
             return blockLists.get(collection, () => {
                 const members = memberSpecs.map((m) => m.blocks(collection, `${at} › ${where}`));
-                return East.function([collection, PathType, IdOptType], PlanBlocksType, ($, coll, prefix, parent) => {
-                    const id = $.let(East.value(variant("section", { series: cfg.key, path: prefix }), PlanRowIdType), PlanRowIdType);
-                    const under = $.let(East.value(some(id), IdOptType), IdOptType);
-                    const head = $.let(East.value({ fixed: true, parent, charts: none, rows: [header(id, parent)] }, PlanBlockType), PlanBlockType);
-                    const out = $.let(East.value([head], PlanBlocksType), PlanBlocksType);
-                    for (const member of members) $(out.append(member(coll, prefix, under)));
+                return East.function([collection, PathType, IdOptType, PlanHiddenType], PlanBlocksType, ($, coll, prefix, parent, hidden) => {
+                    const out = $.let([], PlanBlocksType);
+                    // A section the canvas leaves out makes no block: neither its header's nor its members' (#1541, U3).
+                    $.if(hidden.has(cfg.key).not(), ($2) => {
+                        const id = $2.let(East.value(variant("section", { series: cfg.key, path: prefix }), PlanRowIdType), PlanRowIdType);
+                        const under = $2.let(East.value(some(id), IdOptType), IdOptType);
+                        $2(out.pushLast(East.value({ fixed: true, parent, charts: none, rows: [header(id, parent)] }, PlanBlockType)));
+                        for (const member of members) $2(out.append(member(coll, prefix, under, hidden)));
+                    });
                     return out;
                 }) as unknown as BlocksFn;
             });
@@ -3224,12 +3284,17 @@ function sectionSpec(cfg: PlanSectionSeriesConfig<PlanAxisKindLiteral>, members:
 function rowsSpec(identity: PlanSeriesIdentity, rows: PlanRowsValue): PlanSeriesSpec {
     const emitters = new ByType<EmitFn>();
     const blockLists = new ByType<BlocksFn>();
+    // Hand-built rows the canvas leaves out are none (#1541, U3).
     const emitter = (collection: EastType): EmitFn => emitters.get(collection, () =>
-        East.function([collection, PathType, IdOptType], PlanRowsCollectionType,
-            (_$, _coll, prefix, parent) => REBASE_ROWS(rows, identity.key, prefix, parent)) as unknown as EmitFn);
+        East.function([collection, PathType, IdOptType, PlanHiddenType], PlanRowsCollectionType,
+            (_$, _coll, prefix, parent, hidden) => hidden.has(identity.key).ifElse(
+                () => East.value([], PlanRowsCollectionType),
+                () => REBASE_ROWS(rows, identity.key, prefix, parent))) as unknown as EmitFn);
     return {
         key: identity.key,
         title: identity.title,
+        subtitle: identity.subtitle,
+        icon: identity.icon,
         arm: "rows",
         nested: [],
         nests: false,
@@ -3241,7 +3306,7 @@ function rowsSpec(identity: PlanSeriesIdentity, rows: PlanRowsValue): PlanSeries
         // A FIXED block: no entry produces hand-built rows, so every window
         // serves them alike and the canvas draws them once (#823).
         blocks(collection) {
-            return blockLists.get(collection, () => oneBlock(collection, emitter(collection), true, undefined));
+            return blockLists.get(collection, () => oneBlock(collection, identity.key, emitter(collection), true, undefined));
         },
         // No entry produces them, so no gesture is written into one (#880).
         writer() {
@@ -3341,9 +3406,11 @@ function seriesValue(
     const source = DictType(kt, rowType);
     const where = `Plan.series.${spec.arm} "${spec.key}"`;
     const blocks = spec.blocks(source, where);
+    // The value's own `derive` leaves nothing out: a canvas that does applies the series it was given as a list by
+    // their specs, what is hidden in hand (`applySeries`).
     const derive = East.function([source], PlanBlocksType, ($, data) => {
         const top = $.let(East.value([], PathType), PathType);
-        return blocks(data, top, East.value(none, IdOptType));
+        return blocks(data, top, East.value(none, IdOptType), noneHidden());
     });
     const value = East.value(
         variant(spec.arm, {
@@ -3379,6 +3446,73 @@ export function applySeriesValue(
         views:   (_$, v) => v.derive(d),
         rows:    (_$, v) => v.derive(d),
     }) as PlanBlocksValue;
+}
+
+/**
+ * One series value's key (the exhaustive-arm read): what a canvas leaves a
+ * series out by where it was given no list to read its key off (#1541, U3).
+ *
+ * @param s - The series value
+ * @returns Its key
+ */
+function seriesValueKey(s: PlanSeriesValue<PlanAxisKindLiteral>): ExprType<StringType> {
+    return s.match({
+        span:    (_$, v) => v.key,
+        buckets: (_$, v) => v.key,
+        chart:   (_$, v) => v.key,
+        heat:    (_$, v) => v.key,
+        table:   (_$, v) => v.key,
+        cards:   (_$, v) => v.key,
+        events:  (_$, v) => v.key,
+        group:   (_$, v) => v.key,
+        section: (_$, v) => v.key,
+        views:   (_$, v) => v.key,
+        rows:    (_$, v) => v.key,
+    }) as ExprType<StringType>;
+}
+
+/**
+ * One line of the library's Series tab for `data`'s series (#1541, U3): a
+ * series a viewer switches on and off by its key.
+ *
+ * @internal
+ * @property key - The series' key: what the viewer's hidden set holds it by
+ * @property title - Its name
+ * @property subtitle - Its role line, when its builder was given one
+ * @property icon - Its icon, when its builder was given one; none, its kind's
+ * @property arm - Its kind
+ */
+export interface PlanPickable {
+    readonly key: string;
+    readonly title: string;
+    readonly subtitle: string | undefined;
+    readonly icon: PlanIconInput | undefined;
+    readonly arm: PlanSeriesArm;
+}
+
+/**
+ * What the Series tab lists of a series list (#1541, U3), in the order the
+ * canvas draws them: each series at the top of the list by its key — a
+ * section, a group and their like whole, its subtree leaving with it — and,
+ * for a `views`, each of its members alone, since each is a row of its own
+ * beside the others.
+ *
+ * @param series - The `series` input
+ * @returns The lines; `undefined` for an East expression of a list, or a list holding a series no `Plan.series.*`
+ *   builder made in place, whose series are not known until it runs
+ * @internal
+ */
+export function planPickables(series: unknown): readonly PlanPickable[] | undefined {
+    if (!Array.isArray(series)) return undefined;
+    const lines: PlanPickable[] = [];
+    const line = (spec: PlanSeriesSpec): PlanPickable => ({ key: spec.key, title: spec.title, subtitle: spec.subtitle, icon: spec.icon, arm: spec.arm });
+    for (const one of series) {
+        const spec = specOf(one);
+        if (spec === undefined) return undefined;
+        if (spec.arm === "views" && spec.nest !== undefined) lines.push(...spec.nest.members.map(line));
+        else lines.push(line(spec));
+    }
+    return lines;
 }
 
 /**
@@ -3439,7 +3573,7 @@ export interface PlanSeriesFacts {
  * @param series - The series value
  * @param collection - The collection type it is laid out over (`Dict<K, R>`)
  * @param where - Who is asking, for messages
- * @returns Its facts; `undefined` for a series value no `Plan.series.*` builder made in place (a bound, picked or stored one)
+ * @returns Its facts; `undefined` for a series value no `Plan.series.*` builder made in place (a bound or stored one)
  * @throws {Error} When the series is built over entries of another type than the collection's
  * @internal
  */
@@ -3484,8 +3618,8 @@ export function planSeriesKeys(series: unknown): readonly string[] | undefined {
  * @remarks
  * A TS array is built for the source's own collection type (so a source keyed
  * by any type works with series whose accessors ignore the key); an East
- * expression maps at evaluation, so a `$.const`-bound, picked or stored list
- * works identically, its series built for their declared key type.
+ * expression maps at evaluation, so a `$.const`-bound or stored list works
+ * identically, its series built for their declared key type.
  *
  * The blocks stay apart so a paged canvas can page each data series on its
  * own: applied to one window of a source, this is every block's share of that
@@ -3493,24 +3627,67 @@ export function planSeriesKeys(series: unknown): readonly string[] | undefined {
  *
  * @param series - The `series` input
  * @param data - The source collection (a whole `Dict`, or one paged window of it)
+ * @param hidden - The keys of the series the canvas leaves out (#1541, U3), read where it is written: a series
+ *   whose key it holds makes no block, a nested one no row, and a `views` leaves out each member it holds; left out,
+ *   every series shows
  * @returns The blocks
  */
-export function applySeries(series: PlanSeriesInput, data: ExprType<EastType>): PlanBlocksValue {
+export function applySeries(series: PlanSeriesInput, data: ExprType<EastType>, hidden?: ExprType<PlanHiddenType>): PlanBlocksValue {
     const collection = Expr.type(data as unknown as Expr) as EastType;
-    if (Array.isArray(series)) {
-        const lists = series.map((s) => {
-            const spec = specOf(s);
-            return spec !== undefined
-                ? spec.blocks(collection, `Plan.series.${spec.arm} "${spec.key}"`)(
-                    data, East.value([], PathType), East.value(none, IdOptType)) as PlanBlocksValue
-                : applySeriesValue(s, data);
-        });
-        return lists.reduce<PlanBlocksValue>(
-            (acc, list) => acc.concat(list) as PlanBlocksValue,
-            East.value([], PlanBlocksType),
-        );
+    if (hidden === undefined) {
+        if (Array.isArray(series)) {
+            const lists = series.map((s) => {
+                const spec = specOf(s);
+                return spec !== undefined
+                    ? spec.blocks(collection, `Plan.series.${spec.arm} "${spec.key}"`)(
+                        data, East.value([], PathType), East.value(none, IdOptType), noneHidden()) as PlanBlocksValue
+                    : applySeriesValue(s, data);
+            });
+            return lists.reduce<PlanBlocksValue>(
+                (acc, list) => acc.concat(list) as PlanBlocksValue,
+                East.value([], PlanBlocksType),
+            );
+        }
+        return series.map((_$, s) => applySeriesValue(s as PlanSeriesValue, data)).flatMap((_$, list) => list) as PlanBlocksValue;
     }
-    return series.map((_$, s) => applySeriesValue(s as PlanSeriesValue, data)).flatMap((_$, list) => list) as PlanBlocksValue;
+    // What the canvas leaves out, read once: every series' rows are made with it in hand (#1541, U3).
+    return Expr.block(($) => {
+        const off = $.let(hidden, PlanHiddenType);
+        if (!Array.isArray(series)) {
+            // A list known only as it runs: each series whole, by its key.
+            return series.filter((_$2, s) => off.has(seriesValueKey(s as PlanSeriesValue)).not())
+                .map((_$2, s) => applySeriesValue(s as PlanSeriesValue, data)).flatMap((_$2, list) => list);
+        }
+        const out = $.let([], PlanBlocksType);
+        for (const s of series) {
+            const spec = specOf(s);
+            if (spec !== undefined) {
+                $(out.append(spec.blocks(collection, `Plan.series.${spec.arm} "${spec.key}"`)(
+                    data, East.value([], PathType), East.value(none, IdOptType), off)));
+            } else {
+                // A series bound elsewhere: whole, by its key.
+                $.if(off.has(seriesValueKey(s)).not(), ($2) => { $2(out.append(applySeriesValue(s, data))); });
+            }
+        }
+        return out;
+    }) as PlanBlocksValue;
+}
+
+/**
+ * A canvas's series as ONE function over its source (#1541, U3): `(collection,
+ * hidden) → blocks`, {@link applySeries} written out once. A canvas makes its
+ * rows in several places — each window, each window with the drafts in place,
+ * one drafted entry — and holds this in a variable they all call, where the
+ * series written out at each would copy every series' code into each.
+ *
+ * @param series - The `series` input
+ * @param collection - The source's collection type (`Dict<K, R>`): what every place it is called over holds
+ * @returns The function
+ * @internal
+ */
+export function seriesApplyFn(series: PlanSeriesInput, collection: EastType): ExprType<FunctionType<[EastType, PlanHiddenType], PlanBlocksType>> {
+    return East.function([collection, PlanHiddenType], PlanBlocksType, (_$, data, hidden) => applySeries(series, data, hidden)) as unknown as
+        ExprType<FunctionType<[EastType, PlanHiddenType], PlanBlocksType>>;
 }
 
 /** One series value's `write` (the exhaustive-arm read). */
@@ -3539,7 +3716,7 @@ function seriesValueWrite(s: PlanSeriesValue<PlanAxisKindLiteral>): TopWriteFn {
  *
  * @remarks
  * The `applySeries` rule: a TS array is built for the source's own collection
- * type, and an East list (a `$.const` list, a pick's) writes through each
+ * type, and an East list (a `$.const` list) writes through each
  * series value's own `write`, built for its declared key type.
  *
  * @param series - The `series` input

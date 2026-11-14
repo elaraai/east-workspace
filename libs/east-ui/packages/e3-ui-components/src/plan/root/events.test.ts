@@ -97,11 +97,11 @@ const BLOCKS: PlanWireBlock[] = [
                 lanes: [],
                 events: [{
                     key: elementKey("check", "K-1"), at: at("2026-10-06"), lane: none, label: none, icon: none, state: confirmed,
-                    tone: none, color: none, colorPalette: none, stretch: none, content: none, animation: none,
+                    status: none, color: none, colorPalette: none, stretch: none, content: none, animation: none,
                 }],
                 markers: [],
             })),
-            row(marks, variant("events", { marks: [{ key: elementKey("stop", "S-1"), at: at("2026-10-07"), kind: variant("milestone", null), icon: none, label: none }] })),
+            row(marks, variant("events", { marks: [{ key: elementKey("stop", "S-1"), at: at("2026-10-07"), kind: variant("milestone", null), status: none, icon: none, label: none }] })),
         ],
     },
     {

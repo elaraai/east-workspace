@@ -45,6 +45,7 @@ describeEast("Plan", (test) => {
         planRowDrop: ex.planRowDrop,
         planNumberAxis: ex.planNumberAxis,
         planOrdinalAxis: ex.planOrdinalAxis,
+        planStatuses: ex.planStatuses,
         // From east-ui's Slice examples, which drove a Plan (#1177).
         slicePlanChrome: ex.slicePlanChrome,
     });
@@ -490,7 +491,7 @@ describeEast("Plan", (test) => {
             } catch (e) { return e instanceof Error ? e.message : String(e); }
         };
         const removed = (prop: string) => `Plan.series.span "s": \`${prop}\` is removed (#1260) — a Plan approves and rejects nothing: ` +
-            "its changes are drafts of the root's `editing` session";
+            "its changes are drafts, saved through the Plan's `record`";
         $(Assert.equal(East.value(refusal("review", { verdict: "approval" })), removed("review")));
         $(Assert.equal(East.value(refusal("approval", () => none)), removed("approval")));
     });
@@ -523,7 +524,7 @@ describeEast("Plan", (test) => {
         }))), 'Plan.children: "runs" is an Integer — child rows are a Dict, keyed by an id'));
     });
 
-    test("editing is checked at build — one apply, a live handle for onUpdate, a revision for a paged apply, and every callback's signature (#880)", $ => {
+    test("the canvas's session is checked at build — a revision for a paged apply, and every callback's signature (#880); the inline `onUpdate` adapter is gone (#1541)", $ => {
         const Job = StructType({ start: DateTimeType, end: DateTimeType });
         const Row = StructType({ jobs: DictType(StringType, Job) });
         const Rows = DictType(StringType, Row);
@@ -539,9 +540,11 @@ describeEast("Plan", (test) => {
             try { Plan.Root({ axis, data: source, series, editing }); return ""; } catch (e) { return e instanceof Error ? e.message : String(e); }
         };
         const onApply = East.function([Editing.Types.ChangeSet(Row, StringType)], Editing.Types.ApplyResult, () => variant("applied", { revision: none }));
+        // A Plan saves through a record's patch door alone: the adapter that wrote a whole collection back is refused by name.
         const onUpdate = East.function([Rows], NullType, () => null);
-        $(Assert.equal(East.value(refusal({ onApply, onUpdate }).includes("not both")), true));
-        $(Assert.equal(East.value(refusal({ onUpdate }).includes("editing.onUpdate requires data={liveHandle}")), true));
+        $(Assert.equal(East.value(refusal({ onUpdate } as never)), "Plan: `editing.onUpdate` is removed (#1541) — a Plan saves through a record's patch door alone, so one over " +
+            "data that is no record does not edit: bind the record the rows are read from and give it as `record` (Record.bind(record), " +
+            "its record declaring patch: mutation.patch())"));
         // A paged source without revision and refresh — the shape that
         // predates them — cannot check a batch.
         const paged = East.value({
@@ -583,7 +586,7 @@ describeEast("Plan", (test) => {
         $(Assert.equal(East.value(drag.includes("`onDrag` is removed (#880)") && drag.includes("`edit: { create }`")), true));
         const review = refusal({ review: { columnLabel: "Decision", onRerun: noop } });
         $(Assert.equal(East.value(review), "Plan: `review` is removed (#1260) — a Plan approves and rejects nothing: its changes are drafts of the " +
-            "`editing` session, undone, redone, discarded or saved together"));
+            "editing session, undone, redone, discarded or saved together"));
     });
 
     test("the removed applyMode and editing.mode fail by name: every edit waits for Save (#1536, #1584)", $ => {
@@ -648,14 +651,15 @@ describeEast("Plan", (test) => {
         const r = $.let(Plan.run({
             key: "r", start: W27, end: W28, label: "RUN",
             quantity: Plan.quantity(96, { unit: "k sheets", format: Format.Number({ maximumFractionDigits: 0n }) }),
-            state: "actual", status: "warning", moved: 3, icon: "truck",
+            state: "actual", status: Plan.status("Over dwell", "warning"), moved: 3, icon: "truck",
         }));
         const q = $.let(r.quantity.unwrap("some"));
         $(Assert.equal(q.value, 96.0));
         $(Assert.equal(q.unit.unwrap("some"), "k sheets"));
         $(Assert.equal(q.format.unwrap("some").hasTag("number"), true));
         $(Assert.equal(q.text.hasTag("none"), true));
-        $(Assert.equal(r.status.unwrap("some").hasTag("warning"), true));
+        $(Assert.equal(r.status.unwrap("some").tone.hasTag("warning"), true));
+        $(Assert.equal(r.status.unwrap("some").label, "Over dwell"));
         $(Assert.equal(r.moved.unwrap("some"), 3n));
         $(Assert.equal(r.icon.unwrap("some").prefix, "fas"));
         $(Assert.equal(r.icon.unwrap("some").name, "truck"));
@@ -932,7 +936,7 @@ describeEast("Plan", (test) => {
             lanes: [Plan.lane({ key: "am", label: "AM" }), Plan.lane({ key: "pm" })],
             events: [Plan.event({
                 key: "e1", at: W27, lane: "am", label: "X", state: "recommended",
-                tone: "warning", color: "teal.solid", colorPalette: "teal",
+                status: Plan.status("Late", "warning"), color: "teal.solid", colorPalette: "teal",
                 stretch: "horizontal", content: { horizontal: "center", vertical: "end" },
                 animation: "pulse",
             })],
@@ -945,7 +949,7 @@ describeEast("Plan", (test) => {
         const e = $.let(b.events.get(0n));
         $(Assert.equal(e.lane.unwrap("some"), "am"));
         $(Assert.equal(e.state.unwrap("proposed").hasTag("recommended"), true));
-        $(Assert.equal(e.tone.unwrap("some").hasTag("warning"), true));
+        $(Assert.equal(e.status.unwrap("some").tone.hasTag("warning"), true));
         $(Assert.equal(e.color.unwrap("some"), "teal.solid"));
         $(Assert.equal(e.colorPalette.unwrap("some").hasTag("teal"), true));
         $(Assert.equal(e.stretch.unwrap("some").hasTag("horizontal"), true));
@@ -1982,7 +1986,7 @@ describeEast("Plan", (test) => {
         $(Assert.equal(pair.get(1n).icon.unwrap("some").name, "table-cells-large"));
     });
 
-    test("`series` and `pick` are exclusive — exactly one, or the Plan refuses (#590)", $ => {
+    test("`data` is laid out by its `series`, and the removed `pick` is refused naming `hidden` (#1541)", $ => {
         const Row = StructType({ v: FloatType });
         const data = $.const(new Map([["a", { v: 1.0 }], ["b", { v: 2.0 }]]), DictType(StringType, Row));
         const all = $.const([
@@ -1993,16 +1997,18 @@ describeEast("Plan", (test) => {
             Plan.series.events(Row, { key: "ms", title: "Marks", label: (_r, k) => k, marks: _r => [] }),
         ], ArrayType(Plan.Types.Series(Row)));
         const axis = Plan.axis({ window: { min: W27, max: END }, resolution: "week" });
-        // `series` and `pick` are alternatives — the handle already carries the
-        // list, so giving both would say it twice.
-        $(Assert.equal(East.value((() => {
-            try { Plan.Root({ axis, data, series: all, pick: undefined as never }); return true; }
-            catch { return false; }
-        })()), true));
-        $(Assert.equal(East.value((() => {
-            try { Plan.Root({ axis, data }); return false; }
-            catch { return true; }
-        })()), true));
+        const refusal = (build: () => unknown): string => {
+            try { build(); return ""; } catch (e) { return e instanceof Error ? e.message : String(e); }
+        };
+        $(Assert.equal(East.value(refusal(() => Plan.Root({ axis, data, series: all }))), ""));
+        $(Assert.equal(East.value(refusal(() => Plan.Root({ axis, data }))),
+            "Plan: `data` is laid out by its `series` — give the list, which is the layout: series={[Plan.series.span(…), …]}"));
+        // The pick's own prop, whatever it holds: `series` with `hidden` replaces it.
+        const removed = "Plan: `pick` is removed (#1541) — `series` is the list, its series picked where `library` lists " +
+            "Plan.library.series(), kept under the Plan's `id`, and `hidden` names the ones off to start: give `series` the " +
+            "list Plan.pick was given and `hidden` the keys it hid, series={[…]} hidden={[\"utilisation\"]}";
+        $(Assert.equal(East.value(refusal(() => Plan.Root({ axis, data, pick: all } as never))), removed));
+        $(Assert.equal(East.value(refusal(() => Plan.Payload({ axis, data, pick: all } as never))), removed));
     });
 
     test("a paged source keeps its handle's id — the derived source is the author's source (#822)", $ => {

@@ -65,7 +65,10 @@
  *
  * The page's clock is held, so the pause runs only as a test moves it on: an
  * edit is never sent before the test says the pause is over, however slow the
- * machine. Every wait is a poll on the page's state, never a fixed pause.
+ * machine. Every wait is a poll on the page's state, never a fixed pause. An
+ * Escape over a panel a click has just opened goes by `escapeLayer`: the panel
+ * shows at once and hears the key a frame later, and a key pressed inside that
+ * frame — 47ms after the click, on a loaded runner — closes nothing.
  *
  * Run: `pnpm exec playwright test autosave`.
  */
@@ -74,7 +77,7 @@ import { expect, test, type Locator, type Page } from "playwright/test";
 import { leaveBuilder, visitBuilder } from "./builder-page";
 import { e3Requests, holdE3, installE3Faults, releaseE3 } from "./e3-faults";
 import { OPTIMISE_BUILDERS } from "./optimise-eye";
-import { settled } from "./settle";
+import { escapeLayer, settled } from "./settle";
 
 /** The work orders with the shop's optimiser: a Sheet over a record, its history bar the shared one. */
 const ORDERS = OPTIMISE_BUILDERS.Sheet;
@@ -157,7 +160,7 @@ async function turnOn(page: Page, chevron: Locator): Promise<void> {
     await rowOf(page).click();
     await expect(switchOf(page)).toBeChecked();
     await expect(chevron).toHaveAttribute("data-on", "");
-    await page.keyboard.press("Escape");
+    await escapeLayer(page);
     await expect(panel).toBeHidden();
 }
 
@@ -250,7 +253,7 @@ test("Save and its chevron are one box of two parts, and Save alone answers to i
         };
     });
     expect(laid).toEqual({ height: 32, short: 0, label: 0, control: 0, size: [36, 20] });
-    await page.keyboard.press("Escape");
+    await escapeLayer(page);
     await expect(panelOf(page)).toBeHidden();
     await turnOn(page, chevron);
 
@@ -375,7 +378,7 @@ test("an optimiser's result is never saved by itself: what was changed before it
     // The panel says why they wait.
     await chevron.click();
     await expect(panelOf(page).locator("[data-history-autosave-held]")).toHaveText("Elara's changes, and what you changed after them, are saved when you press Save.");
-    await page.keyboard.press("Escape");
+    await escapeLayer(page);
     await expect(panelOf(page)).toBeHidden();
     // However long they wait, they are not sent: a press of Save sends them, the second commit and no third.
     await later(page, 10 * 60_000);
@@ -500,7 +503,7 @@ test("on, nothing of a record is saved by itself while one of its conflicts wait
     await conflicts.click();
     await page.locator("[data-conflict-card] [data-choice='draft']").first().click();
     await expect(toolbar.locator("[data-conflicts]:not([data-settled])")).toHaveCount(0);
-    await page.keyboard.press("Escape");
+    await escapeLayer(page);
     await settled(page);
     expect(await commits(page)).toBe(1);
     await later(page, 2 * PAUSE_MS + 10 * 60_000);
@@ -614,7 +617,7 @@ test("where its author says Autosave begins on, it is on from the first, nothing
     await expect(switchOf(page)).not.toBeChecked();
     await expect(chevron).not.toHaveAttribute("data-on", "");
     expect(await kept()).toBe(1);
-    await page.keyboard.press("Escape");
+    await escapeLayer(page);
     await expect(panelOf(page)).toBeHidden();
     // Through a reload, which starts the page's e3 again with its setting on: the viewer's choice stands over it.
     await page.reload();

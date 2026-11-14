@@ -219,8 +219,8 @@ export const planWorks = e3.record("plan_works", WorksByKey, {
 export const planNestedAll = example({
     keywords: [
         "Plan", "Slice", "Slice.bindRecords", "rows", "rail", "paged", "Data.bindPaged", "index.nested", "nested series index",
-        "cell", "subtotals", "bands", "rollup", "tree", "children", "shading", "cap", "large record", "stress", "pick", "Plan.pick",
-        "library", "Plan.library.series", "Series tab", "Record.onApply", "keyed", "editing", "Save", "chart", "events", "marks",
+        "cell", "subtotals", "bands", "rollup", "tree", "children", "shading", "cap", "large record", "stress", "pick", "picked", "hidden",
+        "library", "Plan.library.series", "Series tab", "record", "Record.bind", "save door", "editing", "Save", "chart", "events", "marks",
         "cards", "chips", "buckets", "tiles", "#1438",
     ],
     description: "Every series a Plan reads a cell at a time, over a hundred works and ten years: each works' jobs as runs and its alarms as decisions, its load as a heat strip, its crews' hours as a table whose works row draws their sums as e3 keeps them, and its parts as a tree whose folded parents draw their bands from the jobs e3 files under them; and, switched off to start, its load as a line, its alarms as marks and as tiles, and its jobs as chips — paged by rows and by time, each series switched on and off from the library's Series tab; a moved job drafts its works read whole and saves by key",
@@ -242,8 +242,8 @@ export const planNestedAll = example({
             }));
             return <Box width="100%" height="760px"><Plan id="planNestedAll" slice={{ slice }}
                 axis={Plan.axis({ window: { min: new Date("2026-09-28T00:00:00Z"), max: new Date("2026-12-28T00:00:00Z") }, resolution: "week", resolutions: ["week", "month", "quarter", "year"] })}
-                // The series picked, as Plan.pick returns them: the Series tab lists each, with its eye.
-                pick={Plan.pick("ex.planNestedAll.series", [
+                // The series, picked since the library lists the Series tab: it lists each, with its eye.
+                series={[
                     Plan.series.span(Works, {
                         key: "works", title: "Jobs", label: (w) => w.name, edit: true,
                         runs: Plan.items("jobs", { from: "start", to: "end" }, (job) => ({ label: job.product, state: job.state })),
@@ -286,9 +286,11 @@ export const planNestedAll = example({
                         key: "alarm-tiles", title: "Alarm tiles", label: (w) => w.name,
                         events: Plan.items("alarms", { at: "at" }, (alarm) => ({ state: variant("confirmed", null), label: some(alarm.code) })),
                     }),
-                ], { hidden: ["load-line", "alarm-marks", "job-chips", "alarm-tiles"] })}
+                ]}
+                hidden={["load-line", "alarm-marks", "job-chips", "alarm-tiles"]}
                 library={[Plan.library.series()]}
-                editing={{ onApply: Record.onApply(works, { keyed: true }) }}
+                // The works' save door: a moved job and a typed hour are drafts, saved to the record by key.
+                record={works}
                 style={{ height: "fill" }} />
             </Box>;
         }}</Reactive>
@@ -342,7 +344,7 @@ export const planConflictWorks = e3.record("plan_conflict_works", DictType(Strin
  * you to choose. Each press saves their change again.
  */
 export const planConflictsTable = example({
-    keywords: ["Plan", "conflict", "conflicts", "someone else", "Choose", "table", "typed", "crew", "hours", "Plan.series.table", "Plan.children", "Record.onApply", "mutate", "Button", "Save"],
+    keywords: ["Plan", "conflict", "conflicts", "someone else", "Choose", "table", "typed", "crew", "hours", "Plan.series.table", "Plan.children", "record", "Record.bind", "save door", "mutate", "Button", "Save"],
     description: "Your edits meeting someone else's save, in one window — type a crew's hours for a week, then press Someone else saves, which saves another person's change to the same works (every crew's hours 10 more in every week), so yours conflict, named by the works and the crew, and wait to be chosen",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
@@ -374,7 +376,8 @@ export const planConflictsTable = example({
                             })]),
                         }),
                     ]}
-                    editing={{ onApply: Record.onApply(works, { keyed: true }) }}
+                    // The works' save door: a typed hour is a draft, saved to the record by key.
+                    record={works}
                     style={{ height: "fill" }} />
                 </Box>
             </VStack>;

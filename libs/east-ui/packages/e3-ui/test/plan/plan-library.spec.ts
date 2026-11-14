@@ -69,31 +69,40 @@ function customersOf($: BlockBuilder<never>, name = "Customers") {
 // ============================================================================
 
 describe("the Series tab (PB29)", () => {
-    test("the Series tab is a Plan's with anything a viewer can hide: `data`'s series when they are picked, and nothing else", () => {
+    test("the Series tab is a Plan's with anything a viewer can hide: `data`'s `series` are picked through it, a list or an East expression of one (#1541)", () => {
         const Row = StructType({ v: FloatType });
         const marks = Plan.series.events(Row, { key: "marks", title: "Marks", label: (_r, k) => k, marks: () => [] });
         assert.equal(refusal(($) => {
             const data = $.const(new Map([["a", { v: 1.0 }]]), DictType(StringType, Row));
             const all = $.const([marks], ArrayType(Plan.Types.Series(Row)));
-            const picked = $.let(Plan.pick("lib.pick", all));
-            return Plan.Payload({ axis: Plan.axis({ window: WINDOW, resolution: "day" }), data, pick: picked, library: [Plan.library.series()] });
+            return Plan.Payload({ axis: Plan.axis({ window: WINDOW, resolution: "day" }), data, series: all, library: [Plan.library.series()] });
         }), "");
-        assert.match(refusal(($) => {
+        assert.equal(refusal(($) => {
             const data = $.const(new Map([["a", { v: 1.0 }]]), DictType(StringType, Row));
             return Plan.Payload({ axis: Plan.axis({ window: WINDOW, resolution: "day" }), data, series: [marks], library: [Plan.library.series()] });
-        }), /^Plan: the library lists Plan\.library\.series\(\), and this Plan has nothing a viewer can hide — it lists event kinds, resource kinds and their measures, `rows`, and `data`'s series when they are picked \(`pick`\)$/);
+        }), "");
+        // A Plan with nothing to hide — no series, no kinds, no rows — has no Series tab.
+        assert.match(refusal(() => Plan.Payload({ axis: Plan.axis({ window: WINDOW, resolution: "day" }), rows: [], library: [Plan.library.series()] })),
+            /^Plan: the library lists Plan\.library\.series\(\), and this Plan has nothing a viewer can hide — it lists event kinds, resource kinds and their measures, `rows`, and `data`'s `series`$/);
     });
 
-    test("a pick matches its series' kinds once: its id, title, subtitle and icon, read by each of its derivations, call one identity, where each wrote its match out again", () => {
+    test("the tab's lines of a list known only as it runs match its series' kinds once: id, title, subtitle and icon call one identity; a list written in place is read as the Plan is built, with no match", () => {
         const Row = StructType({ v: FloatType });
         const marks = Plan.series.events(Row, { key: "marks", title: "Marks", label: (_r, k) => k, marks: () => [] });
         const kinds = Object.keys(Plan.Types.Series(Row).cases);
         const sameName = equalFor(StringType);
-        let matches = 0;
-        walkIR(East.function([], NullType, ($) => { $(Plan.pick("lib.pick", [marks])); }).toIR().ir, (node) => {
-            if (node.type === "Match" && kinds.every((kind) => node.value.cases.some((arm) => sameName(arm.case, kind)))) matches += 1;
-        });
-        assert.equal(matches, 1);
+        const matchesOf = (lines: ($: BlockBuilder<NullType>) => ReturnType<typeof Plan.pickItems>): number => {
+            let matches = 0;
+            walkIR(East.function([], NullType, ($) => { $.let(lines($)); }).toIR().ir, (node) => {
+                if (node.type === "Match" && kinds.every((kind) => node.value.cases.some((arm) => sameName(arm.case, kind)))) matches += 1;
+            });
+            return matches;
+        };
+        assert.equal(matchesOf(($) => {
+            const all = $.const([marks], ArrayType(Plan.Types.Series(Row)));
+            return Plan.pickItems(all);
+        }), 1);
+        assert.equal(matchesOf(() => Plan.pickItems([marks])), 0);
     });
 });
 

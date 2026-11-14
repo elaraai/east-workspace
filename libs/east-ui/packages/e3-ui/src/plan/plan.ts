@@ -13,8 +13,10 @@
  * - **event kinds over records**: `resources`, the rows, and `events`, the
  *   kinds placed on them — `Schedule`'s, the very values a Calendar takes,
  *   each kind a record of its own committed through its patch mutation;
- * - **`data` and its `series`** (or `pick`): a keyed source's entries laid out
- *   by `Plan.series.*`, on any axis, edited in place through `editing` (#880);
+ * - **`data` and its `series`**: a keyed source's entries laid out by
+ *   `Plan.series.*`, on any axis, `hidden` naming the series off to start and
+ *   the library's Series tab picking among them (#1541), edited in place and
+ *   saved through `record`, the record they are read from (#880, #1541);
  * - **`rows`**: hand-built rows (`Plan.chart`, …) and `Plan.over(data,
  *   [series…])`, read only.
  *
@@ -99,7 +101,8 @@ import {
     PlanAxisType, PlanBlockType, PlanBlocksType, PlanLinkType, PlanRowsCollectionType, PlanRunRefType, type PlanAxisKindLiteral, type PlanRowsValue,
 } from "./types.js";
 import { WINDOWLESS_AXES, axisKindOf, linkEventKinds } from "./builders.js";
-import { buildPlanRoot, type PlanConfig } from "./root.js";
+import { buildPlanRoot, type PlanConfig, type PlanRecordHandle } from "./root.js";
+import { pickRefusal, planShown } from "./pick.js";
 import { nestedPartOf } from "./nested-checks.js";
 import { overSeriesKeys, type PlanOverRows } from "./over.js";
 import { planSeriesKeys, type PlanSeriesInput } from "./series.js";
@@ -120,7 +123,8 @@ export {
 /**
  * The names a Plan keeps its viewer's state under, by its `id`: its frame's
  * panes (their open tab and collapsed state), the series this viewer hides,
- * its library's drag-source id, and the Plan's drop target.
+ * the pick over `data`'s series, its library's drag-source id, and the Plan's
+ * drop target.
  *
  * @remarks
  * As the Sheet's `sheetKeys` and Studio's `builderKeys`: two Plans on one
@@ -134,6 +138,8 @@ export function planKeys(id: string | undefined): {
     frame: string;
     /** The series, kinds and measures this viewer hides. */
     series: string;
+    /** The pick over `data`'s series (#1541): the State key what a viewer switches of them is held under. */
+    pick: string;
     /** The library's drag-source id: what the Plan takes cards from. */
     library: string;
     /** The Plan's drop target: where the library's cards and the canvas's elements land. */
@@ -143,6 +149,7 @@ export function planKeys(id: string | undefined): {
     return {
         frame: `plan${suffix}.frame`,
         series: `plan${suffix}.series`,
+        pick: `plan${suffix}.pick`,
         library: `plan.library${suffix}`,
         surface: `plan${suffix}.surface`,
     };
@@ -323,16 +330,16 @@ export function planVocabulary(given: PlanVocabularyProp | undefined): ValueType
  * @typeParam L - The `series` prop's type, inferred: held to the declarations ({@link PlanNestedChecked})
  */
 export interface PlanProps<K extends PlanAxisKindLiteral = PlanAxisKindLiteral, D = unknown, S = unknown, L = unknown>
-    extends Omit<PlanConfig<K>, "data" | "canDrop" | "series"> {
-    /** The rows' source — a keyed collection, a bind handle over one or a paged source of one, laid out by `series` or `pick` (see {@link PlanConfig}). Leave it out for a Plan of event kinds or `rows` alone, and beside `slice`'s `rows` source, which gives the rows. */
+    extends Omit<PlanConfig<K>, "data" | "canDrop" | "series" | "editing" | "picked"> {
+    /** The rows' source — a keyed collection, a bind handle over one or a paged source of one, laid out by `series` (see {@link PlanConfig}). Leave it out for a Plan of event kinds or `rows` alone, and beside `slice`'s `rows` source, which gives the rows. */
     data?: D & PlanConfig<K>["data"];
     /** The row series over the rows (see {@link PlanConfig}), each held to the rows' nested series index where they carry one (#1435). */
     series?: L & PlanSeriesInput<NoInfer<K>> & PlanNestedChecked<NoInfer<L>, NoInfer<PlanRowsNestedOf<D, S>>>;
     /**
      * The narrowing (#1344): `slice={{ slice: Slice.bindRecords(key, { rows, … }) }}`, one rail on the toolbar, with
      * its `affordances` and `persist`. Its `rows` source gives the canvas its rows, paged from it in its index's order —
-     * `data` then gives none — laid out by `series`, edits reaching the record through `editing.onApply`
-     * (`Record.onApply(record, { keyed: true })`). A source named after an event kind's slot narrows that kind's events
+     * `data` then gives none — laid out by `series`, edits reaching the record through `record`
+     * (`Record.bind(record)`). A source named after an event kind's slot narrows that kind's events
      * and its backlog through the source's interval index, its `range` the kind's start field; one named after a
      * resource kind's slot narrows that kind's rows — a paged kind's (`Schedule.resources(Data.bindPaged(record), …)`)
      * are paged from the source itself, `Data.bindPaged(record, { indexes })` over the kind's own record, the narrowing's
@@ -346,6 +353,23 @@ export interface PlanProps<K extends PlanAxisKindLiteral = PlanAxisKindLiteral, 
      * nothing names are refused.
      */
     slice?: S & RecordSlicesChromeOptions;
+    /**
+     * The rows' save door (#1541): the record they are read from — `data`'s, or the `slice`'s `rows` source's — bound
+     * with its patch mutation, `Record.bind(record)`, its record declaring `patch: mutation.patch()`. With it every
+     * dropped card and every moved, resized or typed element is a draft of the entry it was made on, each gesture one
+     * undoable step, and Save commits them to the record by key as one checked batch: a batch against a record that
+     * moved is refused, never rebased. It is the Plan's one save door for its rows, so a Plan over `data` that is no
+     * record does not edit: without `record` the rows take no gesture. An event kind saves through its own record
+     * (`Schedule.events`).
+     */
+    record?: PlanRecordHandle;
+    /** Observes every gesture on the rows — `Fn(Plan.Types.PatchEvent(R)) → Null`, `R` the rows' entry type. It observes the drafts `record` saves, so it needs `record`. */
+    onPatch?: ExprType<EastType>;
+    /**
+     * The author's check over one drafted entry — `Fn(R, K) → Editing.Types.Readiness`, `R` and `K` the rows' entry and
+     * key types: a refusal holds Save and names the entry. It checks the drafts `record` saves, so it needs `record`.
+     */
+    ready?: ExprType<EastType>;
     /** The resource kinds, by slot — `Schedule.resources(rows, { … })`, or a paged read of them: the rows events are placed on, in this order. */
     resources?: Readonly<Record<string, ScheduleResourceKind<EastType, EastType>>>;
     /** The event kinds, by slot — `Schedule.events(record, { … })`, each a record of its own: at least one, when given. An event is scheduled in time, so they need a time axis. */
@@ -413,6 +437,18 @@ const ROWS = "rows";
 
 /** The record rail's controls a Plan mounts unless its `slice` lists its own: the field chips, the presets, the summary and the horizon brush. */
 const PLAN_AFFORDANCES: readonly RecordSliceAffordance[] = ["fields", "presets", "summary", "brush"];
+
+/**
+ * The words `<Plan>` refuses `editing` in (#1541, U4), naming the prop that replaces each of its parts.
+ *
+ * @returns The refusal
+ */
+function editingRefusal(): string {
+    return "Plan: `editing` is removed (#1541) — the rows save through `record`, the record they are read from, bound with its patch " +
+        "mutation: record={Record.bind(record)} in place of `editing.onApply` (Record.onApply(record, { keyed: true })); " +
+        "`editing.onPatch` is the prop `onPatch`, and `editing.ready` the prop `ready`; `editing.onUpdate` has none — a Plan over " +
+        "data that is no record does not edit";
+}
 
 /** What a Plan's slice narrows, as the refusal of a source nothing names says it. */
 const NARROWS = "its rows, its event kinds, its resource kinds, and the templates lists and tabs that name a source";
@@ -592,8 +628,23 @@ function checkedRowsRange(source: string, config: ExprType<RecordSliceConfigType
  * @internal
  */
 export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
-    const { resources, events, rows, date, autosave, canDrop, optimise, library, inspector, vocabulary, slice, ...canvas } = props as PlanAnyProps;
+    const { resources, events, rows, date, autosave, canDrop, optimise, library, inspector, vocabulary, slice, record, onPatch, ready, ...canvas } = props as PlanAnyProps;
     const words = planVocabulary(vocabulary);
+    // The save door (#1541, U4): `record`, with `onPatch` and `ready` props of their own. `editing` is refused by name.
+    if ("editing" in canvas) throw new Error(editingRefusal());
+    // Which series show (#1541, U3): `series` with `hidden`, picked where the library lists the Series tab. `pick` is
+    // refused by name, and the pick's own key is the Plan's to give.
+    if ("pick" in canvas) throw new Error(pickRefusal());
+    if ("picked" in canvas) throw new Error("Plan: `picked` is the canvas's own — `data`'s series are picked where `library` lists Plan.library.series()");
+    for (const [prop, does] of [["onPatch", "observes"], ["ready", "checks"]] as const) {
+        if ((prop === "onPatch" ? onPatch : ready) !== undefined && record === undefined) {
+            throw new Error(`Plan: \`${prop}\` ${does} the drafts \`record\` saves, and this Plan has no \`record\` — give it the record the rows are read ` +
+                "from, bound with its patch mutation: record={Record.bind(record)}");
+        }
+    }
+    // The canvas's editing session, as its root takes it: built from the record.
+    const editing = record === undefined ? undefined
+        : { record: record as PlanRecordHandle, ...(onPatch === undefined ? {} : { onPatch: onPatch as ExprType<EastType> }), ...(ready === undefined ? {} : { ready: ready as ExprType<EastType> }) };
     // The narrowing's form #1344 retired, refused by name for an app that still passes it: the bare handle.
     if (slice instanceof Expr || (slice !== undefined && (typeof slice !== "object" || slice === null || !("slice" in slice)))) {
         throw new Error("Plan: `slice` takes { slice } — slice={{ slice: Slice.bindRecords(key, { rows, … }) }}: the bare handle is not taken");
@@ -650,6 +701,10 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
     if (canvas.data === undefined && !pagesRows && events === undefined && rows === undefined) {
         throw new Error("Plan: needs its rows — `data` and its `series`, `slice`'s `rows` source, event kinds (`events` over `resources`), or read-only `rows`");
     }
+    if (record !== undefined && canvas.data === undefined && !pagesRows) {
+        throw new Error("Plan: `record` saves the rows `data` or the slice's `rows` source reads, and this Plan has neither — pass the rows with it: " +
+            "data={Data.bindPaged(record)}, or slice={{ slice: Slice.bindRecords(key, { rows: { source: Data.bindPaged(record, { indexes }) } }) }}");
+    }
     // The canvas's rows never follow the dates (#1344): an axis stating no window takes it from a source holding it,
     // and a slice of the rows' sources alone — `rows`, the resource kinds' — holds none.
     const rowSources = [ROWS, ...resourceKinds.map(([slot]) => slot)];
@@ -701,8 +756,9 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
     }
     const veto = East.value(eventCanDrop === undefined ? none : some(eventCanDrop), OptionType(PlanEventCanDropType));
     const settings = East.value({ date: date === undefined ? none : some(date), autosave: autosave ?? false } as never, PlanSettingsType);
-    // `data`'s series a viewer can hide are its picked ones, through the pick.
-    const picked = canvas.pick !== undefined;
+    // `data`'s series a viewer can hide are picked where the library lists the Series tab (#1541, U3), kept under the
+    // Plan's `id`.
+    const picked = canvas.series !== undefined && (library ?? []).some((tab) => tab.kind === "series");
     return Expr.block(($) => {
         const bound = sources.bind($);
         // The canvas's rows never follow the dates (#1344): a range on the `rows` source or a resource kind's, which its
@@ -720,17 +776,16 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
         // The canvas first, then the event kinds' rows, then the library: each refuses in that order.
         // The binding the `rows` source narrows (#1438): what the canvas reads its rows' nested series index through.
         const rowsBinding = pagesRows ? (bound.parts[ROWS] as unknown as { source: ExprType<StructType> }).source : undefined;
-        // The pick held once: every read of its series reads this variable, where the handle written out at each would
-        // copy all its series' code into each. A constant: a function captures it as its value, never as a box of its
-        // own each evaluation (#1599).
-        const pick = canvas.pick === undefined ? undefined : $.const(canvas.pick as never) as unknown as ExprType<StructType>;
+        // What the canvas shows of its series (#1541, U3): the pick, bound and held here once — a constant, which a
+        // function captures as its value, never as a box of its own each evaluation (#1599) — and the keys left out.
+        const shown = planShown($, canvas.series, canvas.hidden, picked ? planKeys(canvas.id).pick : undefined);
         const plan = buildPlanRoot(
-            { ...canvas, data, axis, links, ...(canvasCanDrop === undefined ? {} : { canDrop: canvasCanDrop }) } as Parameters<typeof buildPlanRoot>[0],
+            { ...canvas, data, axis, links, ...(editing === undefined ? {} : { editing }), ...(canvasCanDrop === undefined ? {} : { canDrop: canvasCanDrop }) } as Parameters<typeof buildPlanRoot>[0],
             rows === undefined ? (events !== undefined && data === undefined ? East.value([], PlanBlocksType) : undefined) : rowsBlocks(rows),
             sources.chrome,
             rowsNested,
             rowsBinding,
-            pick,
+            shown,
         );
         if (events !== undefined) {
             checkPagedKinds(resourceKinds, data);

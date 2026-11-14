@@ -14,8 +14,9 @@
  * chips) and event rows — sliced and planned as one surface.
  *
  * A canvas is DEFINED as `data` + `series`: a keyed source of entries, and a
- * list of `Plan.series.*` row recipes over them (`Plan.pick` makes the list
- * pickable). The list IS the layout — each series contributes its rows in
+ * list of `Plan.series.*` row recipes over them (pickable where the library
+ * lists `Plan.library.series()`, `hidden` naming the ones off to start). The
+ * list IS the layout — each series contributes its rows in
  * declared order, as blocks (#823: a data series one block of its entries'
  * rows, a section its header and then its members') — and the rows are an
  * ordered STREAM (`Array<PlanRow>`, #822), each parent followed by its subtree. The kind
@@ -40,7 +41,8 @@
  * envelope, the row streams and their re-basing) · `factories.ts` (the kind
  * factories, the per-kind constructors and chart-layer consumption) ·
  * `series.ts` (`Plan.series.*`, `Plan.children` and their application to
- * `data`) · `pick.ts` (`Plan.pick` / `Plan.pickItems`) · `root.ts` (the
+ * `data`) · `pick.ts` (which series show: `hidden`, the Series tab's pick,
+ * `Plan.pickItems`) · `root.ts` (the
  * canvas's root, the internal namespace's `Plan.Root`) · `plan.ts` (`<Plan>`
  * itself, its payload and its `Plan` carrier, #1191) with `over.ts`
  * (`Plan.over`, read-only rows over a dataset), `refs.ts` (`Plan.eventRef`,
@@ -109,6 +111,7 @@ import {
     PlanBlocksType,
     PlanFoldType,
     PlanQuantityType,
+    PlanStatusType,
     PlanHeatScaleType,
     PlanGroupSummaryType,
     PlanUiStateType,
@@ -128,6 +131,7 @@ import {
     createAxis,
     at,
     createQuantity,
+    createStatus,
     createUiState,
     createRun,
     createDecision,
@@ -183,7 +187,7 @@ import {
 } from "./series.js";
 import { createPlanRoot } from "./root.js";
 import { createItems, createValues } from "./reads.js";
-import { createPlanPick, createPlanPickItems } from "./pick.js";
+import { createPlanPickItems } from "./pick.js";
 import { PlanComponent, PlanTag, createPlanPayload, type PlanTagType } from "./plan.js";
 import { createOver } from "./over.js";
 import { createEventRef } from "./refs.js";
@@ -293,6 +297,7 @@ export {
     PlanFoldType,
     type PlanFoldLiteral,
     PlanQuantityType,
+    PlanStatusType,
     PlanHeatScaleType,
     PlanGroupSummaryType,
     PlanUiStateType,
@@ -351,6 +356,7 @@ export {
     type PlanIconInput,
     type PlanFoldInput,
     type PlanQuantityOptions,
+    type PlanStatusOptions,
     type PlanHeatScaleInput,
     type PlanCellsFoldOptions,
     type PlanUiStateInput,
@@ -404,7 +410,7 @@ export {
     type PlanTableParts,
 } from "./factories.js";
 export { type PlanEditingConfig, type PlanBindHandle, type PlanConfig, type PlanCanvasOptions, createPlanRoot, buildPlanRoot } from "./root.js";
-export { type PlanPickOptions, createPlanPick, createPlanPickItems } from "./pick.js";
+export { type PlanShown, createPlanPickItems, planShown } from "./pick.js";
 export {
     PlanSeriesType,
     type PlanSeriesArm,
@@ -495,6 +501,9 @@ export interface PlanNamespace extends PlanTagType {
     /** Builds a quantity — a number with its unit and format (#824) — for a
      *  run's or a link's `quantity`. */
     quantity: typeof createQuantity;
+    /** Builds an item's status (#1541) — its words, its tone and whether it draws as an open ring — for the
+     *  `status` of a run, a tile, a chip or a mark: `Plan.status("Over dwell", "warning")`. */
+    status: typeof createStatus;
     /** Builds a bound `ui` state's seed (#824) — `State.bind([Plan.Types.UiState], key, Plan.uiState())`. */
     uiState: typeof createUiState;
     /** Span-row stream builder (`series.rows` chrome + nested `rows:` input). */
@@ -611,11 +620,8 @@ export interface PlanNamespace extends PlanTagType {
     band: typeof createBand;
     /** Pins a chart row to an explicit pixel height. */
     fixed: typeof createFixedHeight;
-    /** Binds the canvas's row series to a persisted pick (#590) — pass it as
-     *  `<Plan pick>` and the canvas shows the picked series and mounts the
-     *  library, which lists sections and kinds. */
-    pick: typeof createPlanPick;
-    /** The library entries for the canvas's series — no state binding. */
+    /** What the library's Series tab lists of a series list (#590, #1541): each series at the top of the list, a
+     *  `views` as its members — no state binding. */
     pickItems: typeof createPlanPickItems;
     /** The Plan East types. */
     Types: {
@@ -730,7 +736,7 @@ export interface PlanNamespace extends PlanTagType {
         RowEdits: typeof PlanRowEditsType;
         /** How a row's elements move — its item type, and whether they resize (#825). */
         MoveEdits: typeof PlanMoveEditsType;
-        /** `PatchEvent(R)` — what `editing.onPatch` receives for entries of `R` (#880). */
+        /** `PatchEvent(R)` — what `onPatch` receives for entries of `R` (#880). */
         PatchEvent: typeof PlanPatchEventTypeFor;
         /** The root's editing declaration on the wire — the shared session's fields and the canvas's own (#880). */
         Editing: typeof PlanEditingType;
@@ -750,6 +756,8 @@ export interface PlanNamespace extends PlanTagType {
         Fold: typeof PlanFoldType;
         /** A quantity — a number, its unit and format (#824). */
         Quantity: typeof PlanQuantityType;
+        /** An item's status — its words, its tone and whether it draws as an open ring (#1541): what `Plan.status` builds. */
+        Status: typeof PlanStatusType;
         /** A heat scale — min, max and the warn threshold. */
         HeatScale: typeof PlanHeatScaleType;
         /** What a collapsed group strip shows (#824). */
@@ -772,6 +780,7 @@ const PLAN_MEMBERS = {
     axis: createAxis,
     at,
     quantity: createQuantity,
+    status: createStatus,
     uiState: createUiState,
     span: createSpan,
     buckets: createBuckets,
@@ -830,7 +839,6 @@ const PLAN_MEMBERS = {
     scatter: createScatter,
     band: createBand,
     fixed: createFixedHeight,
-    pick: createPlanPick,
     pickItems: createPlanPickItems,
     Types: {
         Root: PlanRootType,
@@ -897,6 +905,7 @@ const PLAN_MEMBERS = {
         ElementRef: PlanElementRefType,
         Fold: PlanFoldType,
         Quantity: PlanQuantityType,
+        Status: PlanStatusType,
         HeatScale: PlanHeatScaleType,
         GroupSummary: PlanGroupSummaryType,
         UiState: PlanUiStateType,
@@ -922,13 +931,16 @@ const PLAN_MEMBERS = {
  *
  * - **The rows** come from event kinds over records (`resources` and
  *   `events`, `Schedule`'s, which a Calendar takes too), from `data` laid out
- *   by `series` and edited through `editing`, and from `rows` (hand-built rows
- *   and `Plan.over(data, [series…])`), read only — in that order down the
- *   canvas, pinned rows of any source under the ruler.
+ *   by `series` — edited where the Plan is given the `record` they are read
+ *   from, its one save door — and from `rows` (hand-built rows and
+ *   `Plan.over(data, [series…])`), read only — in that order down the canvas,
+ *   pinned rows of any source under the ruler.
  * - **`data` and `series`**: a keyed collection of raw entries, or a paged
  *   source of one, and one `Plan.series.*` value per row series, whose
- *   accessors derive each canvas row from the raw fields (`Plan.pick` makes
- *   the list one the user picks from). The list IS the layout — one block per
+ *   accessors derive each canvas row from the raw fields. `hidden` names the
+ *   series off to start, and where `library` lists `Plan.library.series()`
+ *   the viewer picks from the list in the Series tab, kept under the Plan's
+ *   `id`. The list IS the layout — one block per
  *   series, top to bottom — and hierarchy comes only from the data's own
  *   nesting (#822): a series' `children` walk what an entry holds, to any
  *   depth (`Plan.children` steps down to another entry type), and a flat

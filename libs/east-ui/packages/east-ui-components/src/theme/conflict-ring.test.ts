@@ -81,7 +81,28 @@ describe("the conflict ring", () => {
         for (const [name, edge] of [["bar", "1.5px"], ["tile", "1px"], ["cardChip", "1px"]] as const) {
             expect(shadow(slot(planSlotRecipe, name), "&:is([data-conflict], [data-bounds])[data-state='appr']"), name).toBe(`inset 0 0 0 ${edge} {colors.brand.solid}, ${CONFLICT_RING}`);
         }
-        expect(shadow(slot(planSlotRecipe, "diamond"), "&:is([data-conflict], [data-bounds])")).toBe(`inset 0 0 0 1.5px {colors.brand.solid}, ${CONFLICT_RING}`);
+        // A diamond's edge is one property: the brand, or its status's tone (#1541), inside the warn either way.
+        expect(slot(planSlotRecipe, "diamond")["--diamond-edge"]).toBe("{colors.brand.solid}");
+        expect(shadow(slot(planSlotRecipe, "diamond"), "&:is([data-conflict], [data-bounds])")).toBe(`inset 0 0 0 1.5px var(--diamond-edge), ${CONFLICT_RING}`);
+    });
+
+    test("on a Plan item its status's ring gives way to it, and an item its status draws open keeps its own ring inside it (#1541)", () => {
+        const open = "inset 0 0 0 1.5px var(--status-ink)";
+        for (const name of ["bar", "tile", "cardChip"]) {
+            const box = slot(planSlotRecipe, name);
+            expect(shadow(box, "&:is([data-conflict], [data-bounds])[data-ring]:where([data-tone]:not([data-draft]))"), name).toBe(`${open}, ${CONFLICT_RING}`);
+            // Each ring a box wears is written after the one it takes the place of, and is as strong: its status's, an
+            // overlap's, then the conflict's — plain, then on a confirmed box, then on an open one.
+            const keys = Object.keys(box);
+            const order = [
+                "&[data-tone]", "&[data-overlap]", "&[data-overlap][data-state='appr']", "&[data-overlap][data-tone='danger']",
+                "&:is([data-conflict], [data-bounds])", "&:is([data-conflict], [data-bounds])[data-state='appr']",
+                "&:is([data-conflict], [data-bounds])[data-ring]:where([data-tone]:not([data-draft]))",
+            ].map((key) => keys.indexOf(key));
+            expect(order.every((at) => at >= 0), name).toBe(true);
+            expect(order, name).toEqual([...order].sort((a, b) => a - b));
+        }
+        expect(shadow(slot(planSlotRecipe, "milestoneDot"), "&[data-tone][data-ring]:is([data-conflict], [data-bounds])")).toBe(`${open}, ${CONFLICT_RING}`);
     });
 
     test("a bin holding a conflict rises over the link layer when hovered or selected, as any bin does", () => {

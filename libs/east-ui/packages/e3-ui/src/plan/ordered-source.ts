@@ -11,10 +11,17 @@ import {
 import { CarriedEntryType, CarriedWindowType, type ResolvedRowSource } from "@elaraai/east-ui/internal";
 import { orderedRowSource } from "../utils/ordered-source.js";
 import { PlanBlocksType, PlanEditingType, PlanRowsCollectionType } from "./types.js";
-import { applySeries, type PlanSeriesInput } from "./series.js";
+import type { PlanBlocksValue } from "./types.js";
 import { PlanNestedShadingType, planNestedShaded } from "./nested-read.js";
 
 type Ordered = Extract<ResolvedRowSource, { kind: "ordered" }>;
+
+/**
+ * A canvas's series over a collection of its rows: its blocks, what the canvas
+ * leaves out left out — the one function its root holds, called wherever its
+ * rows are made (`seriesApplyFn`, #1541).
+ */
+export type PlanSeriesApply = (rows: ExprType<EastType>) => PlanBlocksValue;
 
 /**
  * A window's blocks in its index's order: `(blocks, the texts of its entries'
@@ -42,9 +49,10 @@ export function orderedPlanSource(source: Ordered) {
     // A window's stored entries, each under its key's text, in the index's order (#1599).
     const carriedOf = East.function([_entries], ArrayType(CarriedEntryType), (_$, values) =>
         values.map((_$2, value) => ({ id: idOf(value.key!), entry: East.Blob.encodeBeast(valueOf(value), "v2") })));
-    const make = (series: PlanSeriesInput, values: ExprType<EastType>): ExprType<PlanBlocksType> => {
+    // A window's blocks, in the index's order: the canvas's series over its rows (`apply`, #1541).
+    const make = (apply: PlanSeriesApply, values: ExprType<EastType>): ExprType<PlanBlocksType> => {
         const input = values as ExprType<typeof _entries>;
-        return order(applySeries(series, rows(input)), keys(input));
+        return order(apply(rows(input)), keys(input));
     };
     // The canvas's editing session, its window's entry ids and its blocks put in the index's order. The session is held
     // once: a field read of the expression itself would write the whole session out again for each field it keeps.
@@ -85,12 +93,12 @@ export function orderedPlanSource(source: Ordered) {
      * drafted, shading)` → the window's lean rows, each drafted row whole in its place, filled with the items the
      * cells hold of it by the binding's fill, the series run over them, in the index's order, the shading in place.
      *
-     * @param series - The series
+     * @param apply - The canvas's series over a collection of its rows
      * @param fill - The binding's fill of a page, `(Dict<K, R>, Blob) → Dict<K, R>`
      * @param booked - The keys of the series whose rows shade by the share booked
      * @returns The function
      */
-    const nestedRows = (series: PlanSeriesInput, fill: ExprType<EastType>, booked: ReadonlySet<string>) => {
+    const nestedRows = (apply: PlanSeriesApply, fill: ExprType<EastType>, booked: ReadonlySet<string>) => {
         const rowType: EastType = resolved.elementType;
         const filling = fill as unknown as ExprType<FunctionType<[DictType<EastType, EastType>, BlobType], DictType<EastType, EastType>>>;
         return East.function([IntegerType, IntegerType, BlobType, DictType(StringType, BlobType), PlanNestedShadingType], OptionType(PlanBlocksType),
@@ -111,7 +119,7 @@ export function orderedPlanSource(source: Ordered) {
                             none: () => row,
                         })));
                         const filled = $2.let(fillPage(held, cells));
-                        const blocks = $2.let(sort(applySeries(series, filled), ids(values)));
+                        const blocks = $2.let(sort(apply(filled), ids(values)));
                         const shaded = $2.let(some(shade(blocks, shading, bars)), OptionType(PlanBlocksType));
                         return shaded;
                     },

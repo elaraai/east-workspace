@@ -15,10 +15,11 @@
 
 import type { SystemStyleObject } from "@chakra-ui/react";
 import { coarseHitArea } from "../../../style/hit-area.js";
-import { CONFLICT_RING, CONFLICT_RING_INSET, CONFLICT_RING_INSIDE_FOCUS } from "../../conflict-ring.js";
+import { CONFLICT_RING_INSET, CONFLICT_RING_INSIDE_FOCUS } from "../../conflict-ring.js";
 import { fieldInRingedControl } from "../../field-chrome.js";
 import { lifecycleStates } from "./states.js";
-import { PLAN_OVERLAP_RING, planElementConflict, planElementDrafted, planElementFocus, planElementSelected } from "./focus.js";
+import { planElementConflicts, planElementOverlap, planElementStatus } from "./status.js";
+import { planElementDrafted, planElementFocus, planElementSelected } from "./focus.js";
 
 /**
  * The no-data hatch (#1039): a 45° rule in the ink at 7% across what no value shades — a heat cell, and the Calendar's
@@ -47,6 +48,9 @@ const wholeOrNone = {
     alignContent: "flex-start",
     "&::before": { content: '""', height: "100%" },
 } satisfies SystemStyleObject;
+
+/** The inset ring a confirmed tile and a confirmed chip draw: 1px of the brand, which every ring round it keeps inside. */
+const CONFIRMED = "inset 0 0 0 1px {colors.brand.solid}";
 
 /** Their base styles — typed whole: the shared tap halo's style object is too wide to infer into them. */
 export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> = {
@@ -260,24 +264,19 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         // 2px radius, a proposal sits on the tint and its grip glyph dims.
         ...lifecycleStates({
             obs: { background: "brand.emphasized", color: "bg.surface" },
-            appr: { background: "bg.surface", color: "fg.default", boxShadow: "inset 0 0 0 1px {colors.brand.solid}" },
+            appr: { background: "bg.surface", color: "fg.default", boxShadow: CONFIRMED },
             marked: { borderRadius: "2px" },
             prop: { background: "{colors.brandTint}", "& svg": { opacity: 0.8 } },
             propRemoved: { background: "bg.surface", color: "fg.muted" },
         }),
         // An event its drafts changed (#1196): the tint in a brand border, in its state's place.
         ...planElementDrafted,
-        "&[data-tone='warning']": { boxShadow: "0 0 0 1.5px {colors.status.warn}" },
-        "&[data-tone='danger']":  { boxShadow: "0 0 0 1.5px {colors.status.neg}" },
-        "&[data-tone='success']": { boxShadow: "0 0 0 1.5px {colors.status.pos}" },
-        "&[data-tone='info']":    { boxShadow: "0 0 0 1.5px {colors.status.info}" },
-        // An event in an overlap pair (#1198): the warn ring, in a tone's
-        // place — a confirmed tile keeps its inset brand ring inside it, and a
-        // danger tone, the worse, keeps its own (the worst wins, as a cell's
-        // marker does, #615).
-        "&[data-overlap]": { boxShadow: PLAN_OVERLAP_RING },
-        "&[data-overlap][data-state='appr']": { boxShadow: `inset 0 0 0 1px {colors.brand.solid}, ${PLAN_OVERLAP_RING}` },
-        "&[data-overlap][data-tone='danger']": { boxShadow: "0 0 0 1.5px {colors.status.neg}" },
+        // Its status (#1541, U8): its tone's ring, and the open ring a tentative one draws as. A confirmed tile
+        // keeps its inset brand ring inside it.
+        ...planElementStatus(CONFIRMED),
+        // An event in an overlap pair (#1198): the warn ring, in its status's place — a danger status, the worse,
+        // keeps its own (the worst wins, as a cell's marker does, #615).
+        ...planElementOverlap(CONFIRMED),
         "&[data-pulse]": {
             animation: "elara-pulse 1.6s ease-in-out infinite",
             "@media (prefers-reduced-motion: reduce)": { animation: "none" },
@@ -304,9 +303,8 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         },
         ...planElementSelected,
         ...planElementFocus,
-        ...planElementConflict,
-        // A confirmed tile keeps its inset brand ring inside the warn.
-        "&:is([data-conflict], [data-bounds])[data-state='appr']": { boxShadow: `inset 0 0 0 1px {colors.brand.solid}, ${CONFLICT_RING}` },
+        // A conflict's ring, last: a confirmed tile keeps its inset brand ring inside the warn, an open one its own.
+        ...planElementConflicts(CONFIRMED),
     },
     // A tile's label (`data-plan-label`) — a labelled tile's, or a resting
     // proposal's `plan`. Its own flex item, so a label wider than the tile
@@ -440,16 +438,17 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         // warn ink.
         ...lifecycleStates({
             obs: { background: "brand.emphasized", color: "bg.surface" },
-            appr: { background: "bg.surface", color: "fg.default", boxShadow: "inset 0 0 0 1px {colors.brand.solid}" },
+            appr: { background: "bg.surface", color: "fg.default", boxShadow: CONFIRMED },
             prop: { background: "{colors.brandTint}" },
             propRemoved: { background: "bg.surface", color: "{colors.status.warn}" },
         }),
         // An event its drafts changed (#1196): the tint in a brand border, in its state's place.
         ...planElementDrafted,
-        // An event in an overlap pair (#1198): the warn ring — a confirmed
-        // chip keeps its inset brand ring inside it.
-        "&[data-overlap]": { boxShadow: PLAN_OVERLAP_RING },
-        "&[data-overlap][data-state='appr']": { boxShadow: `inset 0 0 0 1px {colors.brand.solid}, ${PLAN_OVERLAP_RING}` },
+        // Its status (#1541, U8): its tone's ring, and the open ring a tentative one draws as. A confirmed chip
+        // keeps its inset brand ring inside it.
+        ...planElementStatus(CONFIRMED),
+        // An event in an overlap pair (#1198): the warn ring, in its status's place.
+        ...planElementOverlap(CONFIRMED),
         // A chip that moves (#825) is picked up anywhere but its ends.
         "&[data-draggable]": { cursor: "grab" },
         // ── R1 GEOMETRY SHRINKS (#591) ──
@@ -468,9 +467,8 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         },
         ...planElementSelected,
         ...planElementFocus,
-        ...planElementConflict,
-        // A confirmed chip keeps its inset brand ring inside the warn.
-        "&:is([data-conflict], [data-bounds])[data-state='appr']": { boxShadow: `inset 0 0 0 1px {colors.brand.solid}, ${CONFLICT_RING}` },
+        // A conflict's ring, last: a confirmed chip keeps its inset brand ring inside the warn, an open one its own.
+        ...planElementConflicts(CONFIRMED),
     },
     // A chip's icon (`data-plan-icon`) — Font Awesome's, 1.25em wide in the
     // chip's font; a chip narrower inside than that draws none, never a part

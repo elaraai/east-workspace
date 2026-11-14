@@ -97,6 +97,20 @@ leave e3-ui's `Schedule`. The payload is a UI task's output, carried by its
 package: no repository upgrade step. See
 [Review removed (#1260)](#review-removed-1260) below.
 
+**#1541 gives the Plan one save door and one series list**: the rows save
+through `record`, the record they are read from, and `editing` goes;
+`series` is the list, `hidden` names the series off to start, and `pick` and
+`Plan.pick` go. The wire does not change, so no stored value re-emits. See
+[One save door, one series list (#1541)](#one-save-door-one-series-list-1541)
+below.
+
+**#1541 breaks the Plan wire for an item's status**, with its authoring API:
+a run, a tile, a chip and a mark each carry `status`, what
+`Plan.status(words, tone, { ring? })` builds, where a run carried a tone, a
+tile a `tone`, and a chip and a mark none. See
+[An item's status, from its map (#1541)](#an-items-status-from-its-map-1541)
+below. Stored `UIComponentType` values re-emit.
+
 The public API break alongside it: the `Gantt` / `Planner` / `AlignedStack`
 exports (tags, factories, `*.Types`) are gone from `@elaraai/east-ui` and
 `@elaraai/east-ui/internal`, as are `EastChakraGantt` / `EastChakraPlanner`
@@ -149,7 +163,7 @@ path.
 | `Plan.link({ from: "p03", to: "p04", … })` | `Plan.link({ from: Plan.ref("presses", "p03"), to: Plan.ref("presses", "p04"), … })` | `planTargetState` |
 | `{ key }` / a row key String in a callback | the `Plan.Types.RowId`: compare with `East.equal(ev.row, Plan.ref(…))`, or read the entry's key with `id.unwrap("entry").path.get(0n)` | `planTargetState` |
 | a drop's `into.row` equal to the data key | the id's text — key host tables by `East.print(Plan.ref(series, …path))` (an id is a variant, so it cannot be a `Dict` key itself), or read it back with `row.parse(Plan.Types.RowId)` | `planRowDrop` |
-| `Plan.pick(key, all, { data, hidden })` — per-series row counts | `Plan.pick(key, all, { hidden })` — the library lists series by title, subtitle and kind icon; a count means something only with every entry in hand | `planTargetState` |
+| `Plan.pick(key, all, { data, hidden })` — per-series row counts | `Plan.pick(key, all, { hidden })` — the library lists series by title, subtitle and kind icon; a count means something only with every entry in hand. Since #1541, `series` with `hidden` (below) | `planTargetState` |
 | fit-to-data — an axis with no `window` and no bound slice fitted itself to the rows (inline only) | state `axis.window`, or bind a slice whose range supplies it. Written in place, the canvas is refused at build; a bound or stored axis draws the `NO WINDOW` diagnostic. A slice-bound canvas with no stated window takes its window from the slice's range — the Plan's own brush then cannot clear it (other slice chrome still can). | `planTargetState`, `planNumberAxis` |
 | series keys unique per source; a repeat silently replaced rows (`LAST_WINS`) | series keys unique across the WHOLE series tree — a repeat is a build-time error naming both sites; a repeated run-time id (hand-built rows sharing a key) draws a `DUPLICATE ID` row diagnostic | — |
 | `data: Dict<String, R>` only | `Dict<K, R>` for any `K`; accessors receive `(entry, key: K)`; a series whose accessors read a non-String key declares `keyType` (and a bound list types itself `Plan.Types.Series(R, K)`) | — |
@@ -788,6 +802,123 @@ lean rows with the items of a cell read. A record Slice's handle
 A `Plan` value serialized before them does not decode against them; stored
 `UIComponentType` values re-emit. No author changes a line.
 
+## One save door, one series list (#1541)
+
+Before #1541 a Plan's rows were saved through an `editing` object taking a
+commit of the host's own (`onApply`), an adapter over rows held in page state
+(`onUpdate`), an observer and a check, and its series were picked through a
+handle the author bound beside the Plan (`Plan.pick`) and passed in place of
+`series`. Now the rows save through the record they are read from, and the
+series are one list the Plan picks from itself.
+
+The wire does not change: the root's `editing` and `pick` are what they were.
+
+### Removals and their replacements
+
+| Removed | Replacement | Example |
+|---|---|---|
+| `editing={{ onApply: Record.onApply(record, { keyed: true }) }}` | `record={Record.bind(record)}`: the record the rows are read from — `data`'s, or the `slice`'s `rows` source's — its record declaring `patch: mutation.patch()`. Save commits the drafts to it by key, as one checked batch | `planRowDrop`, `planNestedAll` |
+| `editing.onPatch`, `editing.ready` | the props `onPatch` and `ready`, each beside `record` | `planRowDrop` |
+| `editing.onUpdate`, and an `onApply` of the host's own | none: `record` is the Plan's one save door, so a Plan over data that is no record does not edit. Keep the rows in a record | `planRowDrop` |
+| `Plan.pick(key, all, { hidden })`, passed as `pick` | `series={all}` and `hidden={[…]}`, the keys off to start. Where `library` lists `Plan.library.series()` the Series tab switches each series on and off, kept under the Plan's `id`; without it nothing is bound, and `hidden` names the series the Plan does not draw | `planTargetState`, `planNestedAll` |
+
+Each is refused at build, naming its replacement: `editing` by each of its
+parts, `pick` by `series` and `hidden`.
+
+### Behaviour that changed
+
+- **A `views` is listed as its members.** The Series tab lists each series at
+  the top of the list whole — a section or a group leaves with its subtree —
+  and each member of a `views` there alone, since each is a row of its own
+  beside the others. A member switched off takes its rows alone, and the
+  entry's children nest under the first member left, which carries the fold.
+  With every member off the entry draws no row, and none beneath one.
+- **What `hidden` may name.** A series at the top of `series`, or a member of
+  a `views` there, by its key. A key naming no series, a series nested in
+  another, or a `views` itself is refused at build, listing the keys it may
+  name. A list known only as it runs (an East expression) is listed whole, a
+  series a line, and a key naming none of them is ignored.
+- **The pick is the Plan's.** Its state is kept under `plan.<id>.pick`
+  (`plan.pick` with no `id`), and what the tab switches is kept for the viewer
+  under that key. A viewer's choice made through an earlier `Plan.pick` key is
+  not carried over.
+- **A draft draws as the canvas does.** The editing session makes a drafted
+  entry's rows with the same series left out. A gesture still writes the data
+  whichever series show.
+- **A canvas's series are written out once.** Every window, every window with
+  the drafts in place and every drafted entry is made by one function the root
+  holds, so a Plan's program no longer grows with the places its rows are made.
+
+### Renderer (`@elaraai/e3-ui-components`)
+
+Nothing changes: the tab's lines are the pick's items, as before.
+
+## An item's status, from its map (#1541)
+
+Before #1541 a run's map returned a tone alone as `status` (`"warning"` drew
+the over-dwell ring), a tile's returned one as `tone`, and a chip and a mark
+had no status. Now the map of any data series item — a run, a tile, a chip or
+a mark — returns `status: Plan.status(words, tone, { ring? })`: its words,
+its tone (success, warning, danger, info or neutral), and whether it draws as
+an open ring. It is what an event kind's status case gives an event
+(`Schedule.events`' `status: { field, cases }`, unchanged), and the same type:
+`Plan.Types.Status` is `Schedule.Types.Status`.
+
+### The wire
+
+- `Plan.Types.Run.status` is `Option<Plan.Types.Status>`
+  (`{ label, tone, ring }`), where it was an `Option` of a tone.
+- `Plan.Types.BucketEvent.tone` is gone, and `status`, the same `Option`,
+  stands in its place.
+- `Plan.Types.Chip` gains `status` after `state`, and `Plan.Types.EventMark`
+  after `kind`.
+
+A stored `UIComponentType` value re-emits (`WIRE_MIGRATION.md`).
+
+### Removals and their replacements
+
+| Removed | Replacement | Example |
+|---|---|---|
+| a run map's `status: "warning"` (a tone, or an `Option` of one) | `status: Plan.status("Over dwell", "warning")`; an `Option` of a status passes as it is | `planTargetState`, `planStatuses` |
+| a tile map's `tone: "warning"` | `status: Plan.status("Late", "warning")` | `planTargetState`, `planStatuses` |
+| `Plan.run({ status: "warning" })`, `Plan.event({ tone: "warning" })` | the same `status` | `planStatuses` |
+
+Each is refused at build, naming `Plan.status`: a bare tone given as
+`status`, and a tile's `tone`.
+
+### Behaviour that changed
+
+- **Every tone draws.** A bar, a tile and a chip wear a 1.5px ring in the
+  tone's colour, just outside the box, whatever their lifecycle look. A bar
+  drew a warning's alone before, and a chip none. A mark draws its glyph in
+  the tone: a milestone's dot, a decision's diamond, an exception's triangle
+  and an icon.
+- **`ring: true` draws the item open.** A bar, a tile and a chip lose their
+  fill and wear the ring just inside their edge; a milestone's dot is an open
+  dot; a decision's diamond is open, applied or not; an icon wears the ring
+  round it. An exception's triangle has no inside to open and draws as any
+  other. An item its drafts changed keeps the drafted look.
+- **A danger outranks an overlap.** An item in an overlap pair wears the warn
+  ring in its status's place, but a danger status keeps its own, as a tile's
+  did.
+- **Its name says its words.** An item's accessible name ends in its status's
+  words (`…, actual, Over dwell`), where a run's and a tile's said the tone's
+  name (`…, actual, warning`).
+- **An event kind's chips take the warning ring.** An event whose status case
+  has the warning tone rings its bar and its tile, as before, and now its
+  chip; its mark is an exception, as before. A case of any other tone draws
+  nothing on the Plan, and a warning case with `ring: true` draws the ring,
+  not the open form: an event kind's events draw as they did.
+
+### Renderer (`@elaraai/e3-ui-components`)
+
+Each of the four elements sets `data-tone` and `data-ring` from its status
+(`shared/status.ts`), and the recipes draw them (`planElementStatus`,
+`planStatusTones`). A bar's `data-stuck` is gone: it is `data-tone="warning"`.
+`PlanMessages.tileName` takes `status` where it took `tone`, and `chipName`
+and `markName` gain it: a host's translation of those three takes the
+status's words.
+
 ## Extracted contracts (do this first when migrating imports)
 
 The shared audit vocabulary outlived the Planner and moved to `contracts/`:
@@ -867,8 +998,9 @@ Plan.series.buckets(Row, {
 })
 ```
 
-- `Planner.event` tiles → `Plan.event` (same `tone` / `color` /
-  `colorPalette` / `stretch` / `content` / `animation` channels);
+- `Planner.event` tiles → `Plan.event` (same `color` / `colorPalette` /
+  `stretch` / `content` / `animation` channels; its `tone` is a `status`,
+  `Plan.status(words, tone)`, since #1541);
   AM/PM buckets → `lanes`; `Planner.marker` → `Plan.marker`.
 - `popover` / `hovercard` move OFF the tile onto the root's generalized
   `popover` / `hover` resolvers over `Plan.Types.ElementRef`.

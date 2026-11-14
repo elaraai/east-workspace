@@ -47,7 +47,7 @@ function run(key: string, start: Date, end: Date, state: unknown, opts?: { quant
             ? some({ value: opts.quantity, unit: opts.unit !== undefined ? some(opts.unit) : none, format: none, text: opts.text !== undefined ? some(opts.text) : none })
             : none,
         state,
-        status: opts?.stuck === true ? some(variant("warning", null)) : none,
+        status: opts?.stuck === true ? some({ label: "Over dwell", tone: variant("warning", null), ring: false }) : none,
         moved: none, icon: none,
     };
 }
@@ -167,7 +167,7 @@ describe("Plan typed axis (#631) — every row kind on every axis kind", () => {
         planRow("buckets", variant("buckets", {
             lanes: [],
             events: [{ key: "e", at: a.at2, lane: none, label: none, icon: none, state: variant("confirmed", null),
-                tone: none, color: none, colorPalette: none, stretch: none, content: none, animation: none }],
+                status: none, color: none, colorPalette: none, stretch: none, content: none, animation: none }],
             markers: [],
         })),
         planRow("chart", variant("chart", {
@@ -183,10 +183,10 @@ describe("Plan typed axis (#631) — every row kind on every axis kind", () => {
         })),
         planRow("table", tableKindOf([{ at: a.at2, value: some(7), text: none, tone: none }])),
         planRow("cards", variant("cards", {
-            chips: [{ key: "c", from: a.at2, to: a.at5, label: "C", state: variant("confirmed", null), icon: none }],
+            chips: [{ key: "c", from: a.at2, to: a.at5, label: "C", state: variant("confirmed", null), status: none, icon: none }],
         })),
         planRow("events", variant("events", {
-            marks: [{ key: "m", at: a.at2, kind: variant("milestone", null), icon: none, label: none }],
+            marks: [{ key: "m", at: a.at2, kind: variant("milestone", null), status: none, icon: none, label: none }],
         })),
         planRow("group", variant("group", {
             summary: variant("cells", variant("heat", {

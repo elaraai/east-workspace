@@ -48,9 +48,10 @@ describe("element names (#819)", () => {
         const run = {
             key: "j4642", start: t("2026-06-29T00:00:00"), end: t("2026-07-27T00:00:00"), label: "J-4642",
             quantity: some({ value: 96, unit: some("k sheets"), format: none, text: none }), state: variant("actual", null),
-            status: some(variant("warning", null)), moved: some(2n), icon: none,
+            status: some({ label: "Over dwell", tone: variant("warning", null), ring: false }), moved: some(2n), icon: none,
         };
-        expect(runName(run as never, scale, w)).toBe("J-4642, Jun 29, 2026 – Jul 27, 2026, actual, 96 k sheets, moved 2 times, warning");
+        // Its status says its own words (#1541), never its tone's name.
+        expect(runName(run as never, scale, w)).toBe("J-4642, Jun 29, 2026 – Jul 27, 2026, actual, 96 k sheets, moved 2 times, Over dwell");
         const plain = { ...run, quantity: none, status: none, moved: none, state: variant("confirmed", null) };
         expect(runName(plain as never, scale, w)).toBe("J-4642, Jun 29, 2026 – Jul 27, 2026, confirmed");
     });
@@ -72,22 +73,29 @@ describe("element names (#819)", () => {
             .toBe("Decision, Jul 13, 2026, applied");
         const ev = {
             key: "e1", at: t("2026-07-06T00:00:00"), lane: some("am"), label: none, icon: none,
-            state: variant("proposed", variant("added", null)), tone: some(variant("warning", null)),
+            state: variant("proposed", variant("added", null)), status: some({ label: "Late", tone: variant("warning", null), ring: false }),
             color: none, colorPalette: none, stretch: none, content: none, animation: none,
         };
-        expect(tileName(ev as never, scale.buckets[1]!, "AM", scale, w)).toBe("Event, Week of Jul 6, 2026, AM, proposed, warning");
-        expect(tileName({ ...ev, label: some("Proof"), tone: none } as never, scale.buckets[1]!, undefined, scale, w))
+        expect(tileName(ev as never, scale.buckets[1]!, "AM", scale, w)).toBe("Event, Week of Jul 6, 2026, AM, proposed, Late");
+        expect(tileName({ ...ev, label: some("Proof"), status: none } as never, scale.buckets[1]!, undefined, scale, w))
             .toBe("Proof, Week of Jul 6, 2026, proposed");
-        expect(chipName({
+        const chip = {
             key: "c1", from: t("2026-06-29T00:00:00"), to: t("2026-07-13T00:00:00"), label: "CREW A",
-            state: variant("confirmed", null), icon: none,
-        } as never, scale, w)).toBe("CREW A, Jun 29, 2026 – Jul 13, 2026, confirmed");
-        const mark = (kind: unknown, label?: string) => ({
+            state: variant("confirmed", null), status: none, icon: none,
+        };
+        expect(chipName(chip as never, scale, w)).toBe("CREW A, Jun 29, 2026 – Jul 13, 2026, confirmed");
+        // A tentative status says its words as any other does: its open ring is a look.
+        expect(chipName({ ...chip, status: some({ label: "Short", tone: variant("info", null), ring: true }) } as never, scale, w))
+            .toBe("CREW A, Jun 29, 2026 – Jul 13, 2026, confirmed, Short");
+        const mark = (kind: unknown, label?: string, status?: string) => ({
             key: "k", at: t("2026-06-29T00:00:00"), kind, icon: none, label: label !== undefined ? some(label) : none,
+            status: status !== undefined ? some({ label: status, tone: variant("danger", null), ring: false }) : none,
         }) as never;
         expect(markName(mark(variant("milestone", null), "KICKOFF"), scale, w)).toBe("KICKOFF, milestone, Jun 29, 2026");
         expect(markName(mark(variant("decision", { applied: false })), scale, w)).toBe("Decision, pending, Jun 29, 2026");
         expect(markName(mark(variant("exception", null)), scale, w)).toBe("Exception, Jun 29, 2026");
+        expect(markName(mark(variant("milestone", null), "KICKOFF", "Missed"), scale, w)).toBe("KICKOFF, milestone, Jun 29, 2026, Missed");
+        expect(markName(mark(variant("milestone", null), undefined, "Missed"), scale, w)).toBe("Milestone, Jun 29, 2026, Missed");
     });
 
     test("a colour-only cell says its value: heat depth, booked weight, segment shares, table numerals", () => {

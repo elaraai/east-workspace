@@ -39,10 +39,12 @@ import {
 import {
     EventStateType,
     IconType,
+    StatusTokenType,
     StatusValueType,
     TimeResolutionType,
     type EventStateLiteral,
     type IconName,
+    type StatusTokenLiteral,
     type StatusValueLiteral,
 } from "@elaraai/east-ui";
 import {
@@ -101,6 +103,7 @@ import {
     PlanLinkType,
     PlanRunRefType,
     PlanRunType,
+    PlanStatusType,
     PlanDecisionMarkType,
     PlanBucketEventType,
     PlanChipType,
@@ -495,6 +498,76 @@ export function createQuantity(
 }
 
 // ============================================================================
+// Statuses (#1541, U8)
+// ============================================================================
+
+/**
+ * How a status draws — see {@link Plan.status}.
+ *
+ * @property ring - Whether the item draws as an open ring, as a tentative status does
+ */
+export interface PlanStatusOptions {
+    /** Whether the item draws as an open ring, as a tentative status does (default `false`). */
+    ring?: SubtypeExprOrValue<BooleanType> | boolean;
+}
+
+/**
+ * Builds an item's status (#1541, U8): its words, its tone, and whether it
+ * draws as an open ring. What the map of any data series item returns as
+ * `status` — a run, a tile, a chip or a mark — and what `Plan.run`,
+ * `Plan.event`, `Plan.chip` and `Plan.mark` take. It gives an item what an
+ * event kind's status case gives an event.
+ *
+ * @remarks
+ * A bar, a tile and a chip wear a 1.5px ring in the tone's colour, whatever
+ * their lifecycle look; a mark draws its glyph in it. With `ring`, a bar, a
+ * tile, a chip and a mark's dot draw open: no fill, the ring just inside the
+ * edge. The words are what the item's accessible name says of its status.
+ *
+ * @param words - The status's words (`"Over dwell"`)
+ * @param tone - Its tone: `"success"`, `"warning"`, `"danger"`, `"info"` or `"neutral"`, or a `StatusTokenType` expression
+ * @param options - Whether it draws as an open ring ({@link PlanStatusOptions})
+ * @returns An East expression of {@link PlanStatusType}
+ */
+export function createStatus(
+    words: SubtypeExprOrValue<StringType>,
+    tone: SubtypeExprOrValue<StatusTokenType> | StatusTokenLiteral,
+    options?: PlanStatusOptions,
+): ExprType<PlanStatusType> {
+    return East.value({
+        label: words,
+        tone:  typeof tone === "string" ? resolveTag(tone, StatusTokenType) : tone,
+        ring:  options?.ring ?? false,
+    }, PlanStatusType);
+}
+
+/** Whether a look's field is a bare tone: a tone's name, a tone's value, or an expression of one. */
+function isBareTone(v: unknown): boolean {
+    if (typeof v === "string") return true;
+    if (isVariant(v)) return v.type !== "some" && v.type !== "none";
+    if (v instanceof Expr) return (Expr.type(v as Expr) as { type: string }).type === "Variant" && !isOptionLike(v);
+    return false;
+}
+
+/**
+ * An item's status, as its element holds it (#1541, U8): absent, `none`; a
+ * `Plan.status(…)` value, or an `Option` of one, as it is. A bare tone — what
+ * a run's `status` took before — is refused, naming `Plan.status`.
+ *
+ * @param status - The look's `status`
+ * @param item - What the item is, for the refusal (`a run`)
+ * @returns The field as an `Option` expression
+ * @throws {Error} When `status` is a tone alone
+ */
+function statusLook(status: unknown, item: string): ExprType<OptionType<PlanStatusType>> {
+    if (isBareTone(status)) {
+        throw new Error(`Plan: ${item}'s \`status\` is a status, its words with its tone (#1541) — give Plan.status(words, tone, { ring? }): `
+            + `status: Plan.status("Over dwell", "warning")`);
+    }
+    return lookOption(status, PlanStatusType);
+}
+
+// ============================================================================
 // Looks — what a named read's `draw` gives (#1436)
 // ============================================================================
 
@@ -516,7 +589,7 @@ export type PlanLookOption<T extends EastType, S = never> = SubtypeExprOrValue<T
  * @property label - The bar text
  * @property state - The lifecycle state
  * @property quantity - The quantity the bar prints and a parent's band sums
- * @property status - The status tint
+ * @property status - The status (`Plan.status(words, tone, { ring? })`)
  * @property moved - The same-status churn counter
  * @property icon - The leading glyph
  */
@@ -527,8 +600,8 @@ export interface PlanRunLook {
     state: SubtypeExprOrValue<EventStateType> | EventStateLiteral;
     /** The quantity — `Plan.quantity(96, { unit: "k sheets" })`, or an `Option` of one. */
     quantity?: PlanLookOption<PlanQuantityType>;
-    /** The status tint — `"warning"` draws the over-dwell ring. */
-    status?: PlanLookOption<StatusValueType, StatusValueLiteral>;
+    /** The status — `Plan.status("Over dwell", "warning")` rings the bar in its tone; an `Option` of one passes as it is. */
+    status?: PlanLookOption<PlanStatusType>;
     /** The same-status churn counter. */
     moved?: PlanLookOption<IntegerType, number>;
     /** The leading glyph. */
@@ -566,7 +639,7 @@ export interface PlanPortLook {
  * @property lane - The lane key
  * @property label - The tile text
  * @property icon - The leading glyph
- * @property tone - The semantic tint
+ * @property status - The status (`Plan.status(words, tone, { ring? })`)
  * @property color - A raw colour token
  * @property colorPalette - A brand palette
  * @property stretch - The fill axis
@@ -582,8 +655,8 @@ export interface PlanBucketEventLook {
     label?: PlanLookOption<StringType>;
     /** The leading glyph. */
     icon?: PlanIconInput | SubtypeExprOrValue<OptionType<IconType>>;
-    /** The semantic tint. */
-    tone?: PlanLookOption<StatusValueType, StatusValueLiteral>;
+    /** The status — `Plan.status("Late", "warning")` rings the tile in its tone; an `Option` of one passes as it is. */
+    status?: PlanLookOption<PlanStatusType>;
     /** A raw colour token (`"teal.solid"`). */
     color?: PlanLookOption<StringType>;
     /** A brand palette (`"teal"`). */
@@ -619,6 +692,7 @@ export interface PlanCellMarkerLook {
  *
  * @property label - The chip text
  * @property state - The lifecycle state
+ * @property status - The status (`Plan.status(words, tone, { ring? })`)
  * @property icon - The leading glyph
  */
 export interface PlanChipLook {
@@ -626,6 +700,8 @@ export interface PlanChipLook {
     label: SubtypeExprOrValue<StringType>;
     /** The lifecycle state. */
     state: SubtypeExprOrValue<EventStateType> | EventStateLiteral;
+    /** The status — `Plan.status("Short", "warning")` rings the chip in its tone; an `Option` of one passes as it is. */
+    status?: PlanLookOption<PlanStatusType>;
     /** The leading glyph. */
     icon?: PlanIconInput | SubtypeExprOrValue<OptionType<IconType>>;
 }
@@ -635,12 +711,15 @@ export interface PlanChipLook {
  * on an events series' `marks`.
  *
  * @property kind - `"milestone"` / `"exception"` / `Plan.markKind.decision(applied)`
+ * @property status - The status (`Plan.status(words, tone, { ring? })`)
  * @property icon - A glyph swap
  * @property label - The caption
  */
 export interface PlanEventMarkLook {
     /** The mark kind. */
     kind: SubtypeExprOrValue<PlanEventMarkKindType> | "milestone" | "exception";
+    /** The status — `Plan.status("Missed", "danger")` draws the glyph in its tone; an `Option` of one passes as it is. */
+    status?: PlanLookOption<PlanStatusType>;
     /** A glyph swap (still kind-coloured). */
     icon?: PlanIconInput | SubtypeExprOrValue<OptionType<IconType>>;
     /** The caption. */
@@ -764,7 +843,7 @@ export function runLookFields(look: PlanRunLook, where = "Plan.run icon") {
         label:    look.label,
         quantity: lookOption(look.quantity, PlanQuantityType),
         state:    resolvePlanEventState(look.state),
-        status:   lookOption(look.status, StatusValueType, (s: StatusValueLiteral) => resolveTag(s, StatusValueType)),
+        status:   statusLook(look.status, "a run"),
         moved:    lookOption(look.moved, IntegerType, asInteger),
         icon:     lookOption(look.icon, IconType, (i: PlanIconInput) => resolveIcon(i, where)),
     };
@@ -788,14 +867,23 @@ function contentOf(content: PlanBucketEventInput["content"]): SubtypeExprOrValue
     }, PlanContentType);
 }
 
-/** A tile's look, resolved (#1436). @internal */
+/**
+ * A tile's look, resolved (#1436).
+ *
+ * @throws {Error} When the look gives `tone`, which a tile's `status` took the place of (#1541)
+ * @internal
+ */
 export function bucketEventLookFields(look: PlanBucketEventLook, where = "Plan.event icon") {
+    if ((look as { tone?: unknown }).tone !== undefined) {
+        throw new Error("Plan: a tile's `tone` is removed (#1541) — its `status` says it, its words with its tone: "
+            + "status: Plan.status(\"Late\", \"warning\")");
+    }
     return {
         lane:         lookOption(look.lane, StringType),
         label:        lookOption(look.label, StringType),
         icon:         lookOption(look.icon, IconType, (i: PlanIconInput) => resolveIcon(i, where)),
         state:        resolvePlanEventState(look.state),
-        tone:         lookOption(look.tone, StatusValueType, (t: StatusValueLiteral) => resolveTag(t, StatusValueType)),
+        status:       statusLook(look.status, "a tile"),
         color:        lookOption(look.color, StringType),
         colorPalette: lookOption(look.colorPalette, ColorSchemeType, (c: ColorSchemeLiteral) => resolveTag(c, ColorSchemeType)),
         stretch:      lookOption(look.stretch, PlanStretchType, (s: PlanStretchLiteral) => resolveTag(s, PlanStretchType)),
@@ -816,18 +904,20 @@ export function cellMarkerLookFields(look: PlanCellMarkerLook) {
 /** A chip's look, resolved (#1436). @internal */
 export function chipLookFields(look: PlanChipLook, where = "Plan.chip icon") {
     return {
-        label: look.label,
-        state: resolvePlanEventState(look.state),
-        icon:  lookOption(look.icon, IconType, (i: PlanIconInput) => resolveIcon(i, where)),
+        label:  look.label,
+        state:  resolvePlanEventState(look.state),
+        status: statusLook(look.status, "a chip"),
+        icon:   lookOption(look.icon, IconType, (i: PlanIconInput) => resolveIcon(i, where)),
     };
 }
 
 /** A mark's look, resolved (#1436). @internal */
 export function eventMarkLookFields(look: PlanEventMarkLook, where = "Plan.mark icon") {
     return {
-        kind:  typeof look.kind === "string" ? East.value(variant(look.kind, null), PlanEventMarkKindType) : look.kind,
-        icon:  lookOption(look.icon, IconType, (i: PlanIconInput) => resolveIcon(i, where)),
-        label: lookOption(look.label, StringType),
+        kind:   typeof look.kind === "string" ? East.value(variant(look.kind, null), PlanEventMarkKindType) : look.kind,
+        status: statusLook(look.status, "a mark"),
+        icon:   lookOption(look.icon, IconType, (i: PlanIconInput) => resolveIcon(i, where)),
+        label:  lookOption(look.label, StringType),
     };
 }
 
@@ -907,7 +997,7 @@ export type PlanLookKind = keyof typeof PLAN_LOOKS;
  * @property label - The bar text (`"RUN · J-4642"`)
  * @property quantity - Optional quantity (`Plan.quantity(96, { unit: "k sheets" })`) — printed after the label, summed into rollup bands per unit
  * @property state - The lifecycle state (string shorthand or `EventStateType`)
- * @property status - Optional status tint (`"warning"` ⇒ the over-dwell ring)
+ * @property status - Optional status (`Plan.status("Over dwell", "warning")` ⇒ the over-dwell ring)
  * @property moved - Optional same-status churn counter (`moved ×k`)
  * @property icon - Optional leading FA glyph (10px, inherits bar text colour)
  */
@@ -925,8 +1015,8 @@ export interface PlanRunInput<S extends PlanInstantInput = PlanInstantInput, E e
     quantity?: SubtypeExprOrValue<PlanQuantityType>;
     /** The lifecycle state — a string shorthand or an `EventStateType` value. */
     state: SubtypeExprOrValue<EventStateType> | EventStateLiteral;
-    /** Optional status tint — `"warning"` draws the `.stuck` over-dwell ring. */
-    status?: SubtypeExprOrValue<StatusValueType> | StatusValueLiteral;
+    /** Optional status — `Plan.status("Over dwell", "warning")` rings the bar in its tone (a warning's is the over-dwell ring). */
+    status?: SubtypeExprOrValue<PlanStatusType>;
     /** Optional same-status churn counter (rendered `moved ×k`, never extra bars). */
     moved?: SubtypeExprOrValue<IntegerType> | number;
     /** Optional leading FA glyph (10px, inherits the bar text colour). */
@@ -1027,7 +1117,7 @@ export function createPort<A extends PlanInstantInput>(input: PlanPortInput<A>):
  * @property label - Optional tile text; omitted ⇒ the resting ✓ / `plan` chip
  * @property icon - Optional leading FA glyph (icon-only tile when `label` omitted)
  * @property state - The lifecycle state (string shorthand or value)
- * @property tone - Optional semantic tile tint
+ * @property status - Optional status (`Plan.status(words, tone, { ring? })`)
  * @property color - Optional raw colour token override
  * @property colorPalette - Optional brand palette override
  * @property stretch - Optional fill axis (`"horizontal"` / `"vertical"` / `"both"`)
@@ -1047,8 +1137,8 @@ export interface PlanBucketEventInput<A extends PlanInstantInput = PlanInstantIn
     icon?: PlanIconInput;
     /** The lifecycle state — a string shorthand or an `EventStateType` value. */
     state: SubtypeExprOrValue<EventStateType> | EventStateLiteral;
-    /** Optional semantic tile tint (keeps the state's border-style). */
-    tone?: SubtypeExprOrValue<StatusValueType> | StatusValueLiteral;
+    /** Optional status — `Plan.status("Late", "warning")` rings the tile in its tone (it keeps its state's border style). */
+    status?: SubtypeExprOrValue<PlanStatusType>;
     /** Optional raw colour token override (`"teal.solid"`). */
     color?: SubtypeExprOrValue<StringType>;
     /** Optional brand palette override (`"teal"`, `"purple"`). */
@@ -1337,6 +1427,7 @@ export function createCellMarker<A extends PlanInstantInput>(input: PlanCellMark
  * @property to - Chip end (exclusive)
  * @property label - The chip text (`"80h"`, `"+64h"`)
  * @property state - The lifecycle state (string shorthand or value)
+ * @property status - Optional status (`Plan.status(words, tone, { ring? })`)
  * @property icon - Optional leading FA glyph
  */
 export interface PlanChipInput<F extends PlanInstantInput = PlanInstantInput, T extends PlanInstantInput = PlanInstantInput> {
@@ -1350,6 +1441,8 @@ export interface PlanChipInput<F extends PlanInstantInput = PlanInstantInput, T 
     label: SubtypeExprOrValue<StringType>;
     /** The lifecycle state — confirmed tint · proposed dashed · removed strikethrough · estimated ghost. */
     state: SubtypeExprOrValue<EventStateType> | EventStateLiteral;
+    /** Optional status — `Plan.status("Short", "warning")` rings the chip in its tone. */
+    status?: SubtypeExprOrValue<PlanStatusType>;
     /** Optional leading FA glyph (shift-type etc.). */
     icon?: PlanIconInput;
 }
@@ -1381,6 +1474,7 @@ export function createChip<F extends PlanInstantInput, T extends PlanInstantInpu
  * @property key - Stable mark identity
  * @property at - The instant
  * @property kind - `"milestone"` / `"exception"` / `Plan.markKind.decision(applied)`
+ * @property status - Optional status (`Plan.status(words, tone, { ring? })`): the glyph in its tone
  * @property icon - Optional FA glyph swap (12px, kind-coloured)
  * @property label - Optional caption (printed when there is room)
  */
@@ -1391,6 +1485,8 @@ export interface PlanEventMarkInput<A extends PlanInstantInput = PlanInstantInpu
     at: A;
     /** The mark kind — `"milestone"` / `"exception"` string shorthand or a `PlanEventMarkKindType` value (see `Plan.markKind`). */
     kind: SubtypeExprOrValue<PlanEventMarkKindType> | "milestone" | "exception";
+    /** Optional status — `Plan.status("Missed", "danger")` draws the glyph in its tone, in its kind's colour's place. */
+    status?: SubtypeExprOrValue<PlanStatusType>;
     /** Optional FA glyph swap (12px, still kind-coloured). */
     icon?: PlanIconInput;
     /** Optional caption (printed when there is room). */

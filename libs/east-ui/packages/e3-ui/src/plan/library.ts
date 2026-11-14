@@ -13,8 +13,7 @@
  *   they are due;
  * - `Plan.library.series()`: what the canvas shows that a viewer can hide,
  *   each with an eye — the resource kinds and their measures, the event
- *   kinds, `data`'s series when they are picked (`pick`), and the Plan's
- *   `rows`;
+ *   kinds, `data`'s `series`, and the Plan's `rows`;
  * - `Plan.library.tab(rows, { … })`: cards of the author's own.
  *
  * Left out, or empty, the Plan has no library pane.
@@ -67,7 +66,7 @@ import { PlanRowsCollectionType } from "./types.js";
  * The id the Series tab lists a thing by, and a viewer's hidden set holds it by
  * (PB29): one namespace per source, so no two collide — a resource kind and an
  * event kind by slot, a measure, a hand-built row and a `Plan.over` series by
- * key. `data`'s picked series are the pick's own, by their bare keys.
+ * key. `data`'s series are the canvas's pick's own, by their bare keys.
  *
  * @internal
  */
@@ -114,8 +113,9 @@ export type PlanLibraryRowsItemType = typeof PlanLibraryRowsItemType;
 
 /**
  * What the Series tab lists (PB29), each a pick item with its eye, in the
- * order the canvas draws them. `data`'s series, when they are picked, sit
- * between the two lists: they are the pick's own (the root's `pick`).
+ * order the canvas draws them. `data`'s series sit between the two lists:
+ * they are the canvas's pick's own (the root's `pick`, #1541), a `views` as
+ * its members.
  *
  * @property kinds - The resource kinds, each followed by its measures, then the event kinds
  * @property rows - The Plan's `rows`: a hand-built row by its key, each series of a `Plan.over` by its own
@@ -194,8 +194,10 @@ export function libraryBacklog(): PlanLibraryTab {
  * The library's Series tab — `Plan.library.series()`: what the canvas shows
  * that a viewer can hide, each with an eye (PB29). Hiding an event kind hides
  * its elements everywhere, a resource kind its rows, a measure or one of the
- * Plan's `rows` that row; `data`'s series show and hide through their `pick`.
- * What a viewer hides is kept for them.
+ * Plan's `rows` that row; each of `data`'s `series` its rows — a section or a
+ * group with its subtree, a `views` one member at a time — the Plan's `hidden`
+ * naming the ones off to start (#1541). What a viewer hides is kept for them,
+ * under the Plan's `id`.
  *
  * @returns The tab
  */
@@ -381,7 +383,7 @@ export interface PlanLibraryContext {
     readonly events: readonly (readonly [string, AnyEventKind])[];
     /** The Plan's `rows`, when given. */
     readonly rows: readonly unknown[] | undefined;
-    /** Whether `data`'s series are picked (`pick`), so the Series tab lists them too. */
+    /** Whether the Plan has `data`'s `series`: the Series tab lists them too, through the canvas's pick (#1541). */
     readonly picked: boolean;
     /** The Plan's `Slice.bindRecords` sources, which an author's tab's `source` must be one of; none, a tab may name none (#1343, #1344). */
     readonly sources?: readonly string[] | undefined;
@@ -404,7 +406,7 @@ function item(id: string, title: string, subtitle: string | undefined, icon: str
     }, PickItemType);
 }
 
-/** The glyph a hand-built row's kind is listed with: its series kind's (`Plan.pick`'s). */
+/** The glyph a hand-built row's kind is listed with: its series kind's. */
 const ROW_ICONS = {
     group: KIND_ICONS.group,
     span: KIND_ICONS.span,
@@ -516,7 +518,7 @@ export function buildLibrary(tabs: readonly PlanLibraryTab[] | undefined, ctx: P
         }
         if (tab.kind === "series" && ctx.resources.length === 0 && ctx.events.length === 0 && (ctx.rows ?? []).length === 0 && !ctx.picked) {
             throw new Error("Plan: the library lists Plan.library.series(), and this Plan has nothing a viewer can hide — it lists " +
-                "event kinds, resource kinds and their measures, `rows`, and `data`'s series when they are picked (`pick`)");
+                "event kinds, resource kinds and their measures, `rows`, and `data`'s `series`");
         }
     }
     const wires = (tabs ?? []).map((tab): ExprType<PlanLibraryTabType> => {

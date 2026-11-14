@@ -50,7 +50,7 @@ function run(key: string, start: Date, end: Date, state: unknown, opts?: { quant
             ? some({ value: opts.quantity, unit: opts.unit !== undefined ? some(opts.unit) : none, format: none, text: opts.text !== undefined ? some(opts.text) : none })
             : none,
         state,
-        status: opts?.stuck === true ? some(variant("warning", null)) : none,
+        status: opts?.stuck === true ? some({ label: "Over dwell", tone: variant("warning", null), ring: false }) : none,
         moved: none, icon: none,
     };
 }
@@ -215,7 +215,7 @@ function bucketEvent(key: string, at: Date, state: unknown, opts?: { lane?: stri
         lane: opts?.lane !== undefined ? some(opts.lane) : none,
         label: opts?.label !== undefined ? some(opts.label) : none,
         icon: none, state,
-        tone: opts?.tone !== undefined ? some(variant(opts.tone, null)) : none,
+        status: opts?.tone !== undefined ? some({ label: "Late", tone: variant(opts.tone, null), ring: false }) : none,
         color: none, colorPalette: none,
         stretch: opts?.stretch !== undefined ? some(variant(opts.stretch, null)) : none,
         content: none, animation: none,
@@ -232,11 +232,11 @@ describe("Plan element clicks (#569, #824)", () => {
                 lanes: [], events: [bucketEvent("e1", at, variant("confirmed", null))], markers: [],
             })),
             planRow("e", variant("events", {
-                marks: [{ key: "k1", at: t(at), kind: variant("milestone", null), icon: none, label: none }],
+                marks: [{ key: "k1", at: t(at), kind: variant("milestone", null), status: none, icon: none, label: none }],
             })),
             planRow("c", variant("cards", {
                 chips: [{ key: "c1", from: t(W27), to: t(new Date("2026-07-13Z")), label: "CREW A",
-                    state: variant("confirmed", null), icon: none }],
+                    state: variant("confirmed", null), status: none, icon: none }],
             })),
             planRow("h", variant("heat", {
                 cells: variant("heat", {

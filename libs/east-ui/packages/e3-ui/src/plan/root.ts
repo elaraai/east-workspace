@@ -30,6 +30,7 @@ import {
     StringType,
     StructType,
     isTypeEqual,
+    printType,
     ref,
     toEastTypeValue,
     variant,
@@ -45,7 +46,6 @@ import {
     UIComponentType,
     type DensityLiteral,
     type PagedSourceLike,
-    type PickHandle,
     type StatusValueLiteral,
 } from "@elaraai/east-ui";
 import {
@@ -58,10 +58,8 @@ import {
     CarriedEntryType,
     CarriedWindowType,
     buildCarriedRowSource,
-    buildKeyedInlineApply,
     buildPagedWindow,
     checkedEditingCallback,
-    pickActive,
     resolveRowSource,
     resolveTag,
     type RecordSlicesChromeType,
@@ -86,15 +84,17 @@ import {
     PLAN_PAGE_SIZE,
     type PlanAxisKindLiteral,
     type PlanAxisInput,
+    type PlanBlocksValue,
 } from "./types.js";
-import { orderedPlanSource } from "./ordered-source.js";
+import { Record } from "../bind/record.js";
+import { orderedPlanSource, type PlanSeriesApply } from "./ordered-source.js";
 import { PlanRootType } from "./ir.js";
 import { WINDOWLESS_AXES, axisKindOf, axisResolutionsOf } from "./builders.js";
 import { checkPlanNested, nestedPartOf, planNestedIndex, type PlanNestedIndex, type PlanNestedRead } from "./nested-checks.js";
 import { planNestedRestatement } from "./nested-patch.js";
 import { PlanNestedType, planNestedUses } from "./nested-read.js";
-import { pickedSeriesOf } from "./pick.js";
-import { applySeries, checkSeries, seriesWriteFn, PlanCarriedType, PlanSeriesType, type PlanSeriesInput } from "./series.js";
+import { pickRefusal, planShown, type PlanShown } from "./pick.js";
+import { checkSeries, seriesApplyFn, seriesWriteFn, PlanCarriedType, PlanHiddenType, type PlanSeriesInput } from "./series.js";
 
 
 // ============================================================================
@@ -102,40 +102,56 @@ import { applySeries, checkSeries, seriesWriteFn, PlanCarriedType, PlanSeriesTyp
 // ============================================================================
 
 /**
- * The Plan's editing session (#880) — the Sheet's, over the canvas's entries:
+ * The record a Plan's rows save through (#1541, U4): the record they are read from, bound with its patch mutation —
+ * what `Record.bind(record)`, its record declaring `patch: mutation.patch()`, returns for a `Dict`.
+ */
+export interface PlanRecordHandle {
+    /** The record's entries. */
+    read: (...args: never[]) => Expr<DictType<EastType, EastType>>;
+    /** The record's binding. */
+    binding: unknown;
+}
+
+/**
+ * The canvas's editing session (#880) — the Sheet's, over the canvas's entries:
  * every dropped card and every moved or resized element (#825) is a DRAFT of
  * the entry it was made on, each gesture one undoable transaction, and Save
  * one checked, idempotent batch against the base the drafts began from.
  *
  * @remarks
+ * `<Plan>` builds it from its props (#1541, U4): `record`, the Plan's one save
+ * door, with `onPatch` and `ready`. A Plan over `data` that is no record does
+ * not edit. The canvas's own declaration, which `Plan.Root` takes, has the seam
+ * under `record` too: `onApply`, the commit itself, which a record's is built
+ * as (`Record.onApply(record, { keyed: true })`) and a test of the wire may
+ * give of its own.
+ *
  * The entries are `data`'s top-level entries: a gesture on a row at any depth
  * drafts the entry its row came from (the whole subtree rides in it), and the
  * canvas draws a draft by deriving the entry's rows again — exactly what
  * Save leaves. The callbacks are East functions over the canvas's own entry
  * type `R` and key type `K`:
  *
- * - `onApply(Editing.Types.ChangeSet(R, K)) → Editing.Types.ApplyResult`
- *   commits a batch — sync or async. Its base is the inline `Dict`'s snapshot,
- *   or a paged source's revision; a batch against a source that moved is
- *   refused, never rebased.
- * - `onUpdate(Dict<K, R>)` is the inline adapter instead: with
- *   `data={liveHandle}` it applies each batch with `Editing.apply` over the
- *   handle's latest `Dict` and writes the whole result — idempotent across
- *   retries. Exclusive with `onApply`.
+ * - `record` commits a batch to the record the entries are read from, through
+ *   its patch door, each change its entry's insert, update or delete by key.
+ *   Its base is the inline `Dict`'s snapshot, or a paged source's revision; a
+ *   batch against a record that moved is refused, never rebased.
+ * - `onApply(Editing.Types.ChangeSet(R, K)) → Editing.Types.ApplyResult` is the
+ *   commit as a function, sync or async. Exclusive with `record`.
  * - `onPatch(Plan.Types.PatchEvent(R))` observes every gesture.
  * - `ready(R, K) → Editing.Types.Readiness` is the author's check over one
  *   drafted entry; a refusal holds Save and names the entry.
  *
- * @property onApply - Commit one checked batch (sync or async)
- * @property onUpdate - The inline adapter's writer — the whole collection with the batch applied (requires `data={liveHandle}`)
+ * @property record - The record the entries are read from, bound with its patch mutation: what Save commits to
+ * @property onApply - Commit one checked batch (sync or async): the seam `record` fills
  * @property onPatch - Observe every gesture
  * @property ready - The author's readiness check over a drafted entry
  */
 export interface PlanEditingConfig {
-    /** Commit one checked batch — `Fn(Editing.Types.ChangeSet(R, K)) → Editing.Types.ApplyResult`, sync or async. */
+    /** The record the entries are read from, bound with its patch mutation — `Record.bind(record)`: Save commits each batch to it by key. Exclusive with `onApply`. */
+    record?: PlanRecordHandle;
+    /** Commit one checked batch — `Fn(Editing.Types.ChangeSet(R, K)) → Editing.Types.ApplyResult`, sync or async: the seam `record` fills. */
     onApply?: ExprType<EastType>;
-    /** The inline adapter's writer — `Fn(Dict<K, R>) → Null`; requires `data={liveHandle}`, exclusive with `onApply`. */
-    onUpdate?: ExprType<EastType>;
     /** Observe every gesture — `Fn(Plan.Types.PatchEvent(R)) → Null`. */
     onPatch?: ExprType<EastType>;
     /** The author's check over one drafted entry — `Fn(R, K) → Editing.Types.Readiness`. */
@@ -143,9 +159,8 @@ export interface PlanEditingConfig {
 }
 
 /**
- * A whole-value bind handle (`State.bind` / `Data.bind`) over a keyed
- * collection — accepted as `data`. The canvas reads it as the inline arm, and
- * `editing.onUpdate` writes each applied batch back through it (#880).
+ * A whole-value bind handle (`State.bind` / `Data.bind` / `Record.bind`) over a
+ * keyed collection — accepted as `data`. The canvas reads it as the inline arm.
  */
 export interface PlanBindHandle {
     /** The handle's read. */
@@ -167,16 +182,17 @@ export interface PlanBindHandle {
  *
  * @typeParam K - The canvas's axis kind — inferred from `axis`
  * @property axis - The shared axis declaration (`Plan.axis` / `.time` / `.number` / `.ordinal`)
- * @property data - The source — a `Dict<K, R>` value/expression, a bind handle over one, or a paged source of one; pairs with `series` or `pick`
- * @property series - The row series over `data` — `Plan.series.*` values; the list IS the layout; exclusive with `pick`
- * @property pick - A bound series library (`Plan.pick`) — the canvas shows the picked series and mounts the library panel; exclusive with `series`
+ * @property data - The source — a `Dict<K, R>` value/expression, a bind handle over one, or a paged source of one; pairs with `series`
+ * @property series - The row series over `data` — `Plan.series.*` values; the list IS the layout
+ * @property hidden - The keys of the series off to start (#1541, U3): a series at the top of `series`, or a member of a `views` there
+ * @property picked - The State key the series' pick is kept under, where they are picked: what `<Plan>` gives where its library lists the Series tab
  * @property links - The link graph (R1) — run-edge quantity links (`Plan.link` values)
  * @property grain - Initial grain (`"group"` / `"resource"`; default resource)
  * @property popover - Generalized click-popover resolver over the element ref (`none` result ⇒ no surface)
  * @property hover - Generalized hovercard resolver over the element ref (`none` result ⇒ no surface)
  * @property expandRender - The R2 developer render for rows declaring `expand` (called with the row's id)
  * @property expandGutter - The R2 gutter render — fills the expanded row's grown gutter cell (called with the row's id)
- * @property editing - The editing session (#880) — every dropped card, move and resize a draft, saved as one checked batch
+ * @property editing - The editing session (#880) — every dropped card, move and resize a draft, saved as one checked batch; `<Plan>` builds it from `record`, `onPatch` and `ready` (#1541)
  * @property footer - Status-footer items
  * @property id - DnD target identity — what a Library beside the Plan reaches it by
  * @property sources - The ids of the Libraries beside the Plan whose cards it takes; its own library panel's need none
@@ -196,8 +212,7 @@ export interface PlanConfig<K extends PlanAxisKindLiteral = PlanAxisKindLiteral>
     axis: PlanAxisInput<K>;
     /** The source — a KEYED collection: a `Dict<K, R>` value or expression (a
      *  `$.let`-bound map, `Data.bind(...).read()`) or a whole-value bind handle
-     *  over one (`data={handle}` — what `editing.onUpdate` writes back
-     *  through) for the INLINE arm, or a `$.let`-bound paged handle over one
+     *  over one (`data={handle}`) for the INLINE arm, or a `$.let`-bound paged handle over one
      *  (`Data.bindPaged(ops)`) for the PAGED arm; the East type is the
      *  discriminant. Any key type: a row's path
      *  starts with its entry's key (the String itself, any other key as its
@@ -220,23 +235,34 @@ export interface PlanConfig<K extends PlanAxisKindLiteral = PlanAxisKindLiteral>
      *  series on a `"number"` axis fails to compile here. */
     series?: PlanSeriesInput<NoInfer<K>>;
     /**
-     * A bound series library from `Plan.pick` — the pickable form of `series`.
+     * The keys of the series off to start (#1541, U3) — a series at the top of
+     * `series`, or a member of a `views` there, each by its one key.
      *
      * @remarks
-     * Exclusive with `series`, because the handle already CARRIES the series
-     * list; passing both would say it twice and leave the two free to disagree.
-     * Give one or the other: `series` for a fixed canvas, `pick` for a canvas
-     * whose rows the user chooses.
+     * Where the Plan's library lists `Plan.library.series()` the series are
+     * picked: the Series tab lists each with its eye — a `views` as its
+     * members, each switched alone — what a viewer switches there is kept
+     * under the Plan's `id`, and `hidden` is what a viewer who has switched
+     * nothing sees off. A Plan without the tab binds no state, and `hidden`
+     * names the series it does not draw.
      *
-     * The Plan does the rest — it feeds itself the picked series (in the pick's
-     * order, which is the layout) and mounts the library panel as chrome, the
-     * way a Plan's `slice` mounts the rail.
-     *
-     * A pick is STATE, so a Plan carrying one must sit inside a `Reactive` —
-     * `Plan.pick` binds through `State.bind`, and a bind outside a reactive
-     * evaluation promotes the enclosing function to async.
+     * A key naming no series, a series nested in another (which shows and
+     * hides with it) or a `views` itself (its members show and hide each
+     * alone) is refused as the Plan is built.
      */
-    pick?: PickHandle<ReturnType<typeof PlanSeriesType>>;
+    hidden?: readonly string[];
+    /**
+     * The State key `data`'s series are picked under — what `<Plan>` gives
+     * where its library lists the Series tab (#1541, U3), its `id`'s
+     * (`planKeys`). With it the canvas binds the pick, carries it for the tab
+     * and leaves out what a viewer switches off. A pick is STATE, so such a
+     * canvas sits inside a `Reactive`: it binds through `State.bind`, and a
+     * bind outside a reactive evaluation promotes the enclosing function to
+     * async.
+     *
+     * @internal
+     */
+    picked?: string;
     /** The link graph (R1) — run-edge quantity links (`Plan.link` values, map-derivable
      *  from data, their ends `Plan.ref(series, …path)`); the links-focus control gathers a
      *  row's transitive family over it. */
@@ -259,8 +285,9 @@ export interface PlanConfig<K extends PlanAxisKindLiteral = PlanAxisKindLiteral>
      *  their place once the row has the canvas. Called with the same row id
      *  as `expandRender`. */
     expandGutter?: SubtypeExprOrValue<FunctionType<[PlanRowIdType], UIComponentType>>;
-    /** The editing session (#880) — see {@link PlanEditingConfig}. Without it the canvas takes no gesture: no card
-     *  lands and nothing moves. */
+    /** The canvas's editing session (#880) — see {@link PlanEditingConfig}. Without it the canvas takes no gesture: no
+     *  card lands and nothing moves. `<Plan>` takes none: it builds the session from its `record`, `onPatch` and `ready`
+     *  (#1541). */
     editing?: PlanEditingConfig;
     /** Status-footer items (`end: true` right-aligns). */
     footer?: {
@@ -276,7 +303,7 @@ export interface PlanConfig<K extends PlanAxisKindLiteral = PlanAxisKindLiteral>
      *  panel needs neither — an author's tab's cards land without them (#1259). A card lands only on a row whose
      *  series declares `edit: { create }` (how it becomes an item, under the id the canvas mints, #1436). The
      *  canvas's own elements move whether or not it has an `id` — where their series declares `edit`, its elements
-     *  read with `Plan.items` (#825, #1436). Each is a draft of the root's `editing` session. */
+     *  read with `Plan.items` (#825, #1436). Each is a draft of the editing session, saved through `record`. */
     id?: string;
     /** The ids of the Libraries beside the Plan whose cards it takes (`add`), reached by its `id` — its own
      *  library panel's need none (omit = no Library beside it). */
@@ -341,19 +368,24 @@ function seriesSourceOf(list: ExprType<EastType>): EastType | undefined {
  * @typeParam K - The canvas's axis kind, inferred from `config.axis`; every series must lie within it
  * @param config - The canvas's configuration ({@link PlanConfig})
  * @returns An East expression of {@link PlanRootType}
- * @throws {Error} When `data` is not a keyed source, `series` / `pick` are both or neither given, two series share a
- *   key, a bound series list reads another key type than `data`, or the axis states no window — the canvas alone
- *   holds no slice, whose sources' ranges are a Plan's window (`<Plan slice>`, #1344)
+ * @throws {Error} When `data` is not a keyed source or has no `series`, two series share a key, `hidden` names a key
+ *   no viewer could switch back on, the removed `pick` is given, a bound series list reads another key type than
+ *   `data`, or the axis states no window — the canvas alone holds no slice, whose sources' ranges are a Plan's window
+ *   (`<Plan slice>`, #1344)
  *
  * @remarks
  * Window and resolution have no callbacks by design: they are writes to the
  * ranges and resolutions of a Plan's slice — hosts observe the slice — or,
  * while no source of it holds the window, the canvas's own (#1344). A change
  * to the data — a dropped card, a moved or resized element — is a draft of the
- * `editing` session, saved as one checked batch (#880, #825).
+ * editing session, saved as one checked batch (#880, #825).
  */
 export function createPlanRoot<K extends PlanAxisKindLiteral = PlanAxisKindLiteral>(config: PlanConfig<K>): ExprType<PlanRootType> {
-    return buildPlanRoot(config, undefined, none);
+    if ("pick" in (config as object)) throw new Error(pickRefusal());
+    if (config.hidden === undefined && config.picked === undefined) return buildPlanRoot(config, undefined, none);
+    // What it shows of its series (#1541, U3), worked out in a block of its own: a pick is bound in it once.
+    return Expr.block(($) => buildPlanRoot(config, undefined, none, undefined, undefined,
+        planShown($, config.series, config.hidden, config.picked))) as ExprType<PlanRootType>;
 }
 
 /**
@@ -375,17 +407,17 @@ export type PlanCanvasOptions = Omit<PlanConfig, "data"> & { data?: PlanConfig["
  * @param chrome - The chrome of the Plan's `Slice.bindRecords`; `none` with no slice
  * @param rowsNested - The nested part of the Slice's `rows` source, where it gives the canvas its rows
  * @param rowsBinding - The binding the Slice's `rows` source narrows, there: what its nested index is read through
- * @param pickHeld - The pick, held in a variable of the block the root is built in: what the root's reads of its
- *   series read. `config.pick` still says which series it lists; written out at each read, it would copy every series'
- *   code into each
+ * @param shown - What it shows of its series (#1541, U3), worked out in the block the root is built in
+ *   ({@link planShown}): the pick the Series tab switches them through, and the keys left out, read wherever rows are
+ *   made. None, every series shows and nothing picks
  * @returns An East expression of {@link PlanRootType}
  * @throws {Error} As {@link createPlanRoot} does — an axis stating no window is taken beside a slice, a source of which
- *   holds the window in its `range`; and with no `data`, a `series`, `pick` or `editing`, each of which reads it
+ *   holds the window in its `range`; and with no `data`, a `series` or `editing`, each of which reads it
  * @internal
  */
 export function buildPlanRoot(config: PlanCanvasOptions, extra: ExprType<PlanBlocksType> | undefined,
     chrome: option<ExprType<RecordSlicesChromeType>>, rowsNested?: EastType, rowsBinding?: ExprType<StructType>,
-    pickHeld?: ExprType<StructType>): ExprType<PlanRootType> {
+    shown?: PlanShown): ExprType<PlanRootType> {
     // A canvas is DEFINED as data + series (+ the root resolvers) — there
     // is no rows-authoring channel; the IR's inline arm is what inline
     // application collapses to. A Plan of event kinds or `rows` alone has no data.
@@ -396,13 +428,13 @@ export function buildPlanRoot(config: PlanCanvasOptions, extra: ExprType<PlanBlo
     // caller would otherwise lose them silently.
     if ("onDrag" in (config as object)) {
         throw new Error(
-            "Plan: `onDrag` is removed (#880) — a card dropped on a row is a draft of the `editing` session: declare " +
-            "`edit: { create }` on the series it lands on, and commit with `editing.onApply` (or `onUpdate`)");
+            "Plan: `onDrag` is removed (#880) — a card dropped on a row is a draft of the editing session: declare " +
+            "`edit: { create }` on the series it lands on, and save through `record`, the record the rows are read from");
     }
     if ("review" in (config as object)) {
         throw new Error(
             "Plan: `review` is removed (#1260) — a Plan approves and rejects nothing: its changes are drafts of the " +
-            "`editing` session, undone, redone, discarded or saved together");
+            "editing session, undone, redone, discarded or saved together");
     }
     if ("applyMode" in (config as object)) {
         throw new Error("Plan: `applyMode` is removed (#1536) — every edit waits for Save: the Plan's changes are drafts, undone, " +
@@ -412,18 +444,20 @@ export function buildPlanRoot(config: PlanCanvasOptions, extra: ExprType<PlanBlo
         throw new Error("Plan: `editing.mode` is removed (#1536) — every edit waits for Save: the session's drafts are undone, " +
             "redone, discarded or saved together");
     }
+    if (typeof config.editing === "object" && "onUpdate" in config.editing) {
+        throw new Error("Plan: `editing.onUpdate` is removed (#1541) — a Plan saves through a record's patch door alone, so one over " +
+            "data that is no record does not edit: bind the record the rows are read from and give it as `record` (Record.bind(record), " +
+            "its record declaring patch: mutation.patch())");
+    }
+    if ("pick" in (config as object)) throw new Error(pickRefusal());
     if (config.data === undefined) {
-        for (const prop of ["series", "pick", "editing"] as const) {
+        for (const prop of ["series", "editing"] as const) {
             if (config[prop] !== undefined) {
                 throw new Error(`Plan: \`${prop}\` reads \`data\`'s entries — pass \`data\` with it, or place read-only rows with \`rows\``);
             }
         }
-    } else if ((config.series === undefined) === (config.pick === undefined)) {
-        throw new Error(
-            "Plan: give exactly one of `series` or `pick` — `series` for a fixed canvas, " +
-            "`pick` for a pickable one. A `Plan.pick` handle already carries the series list, " +
-            "so passing both says it twice and lets the two disagree.",
-        );
+    } else if (config.series === undefined) {
+        throw new Error("Plan: `data` is laid out by its `series` — give the list, which is the layout: series={[Plan.series.span(…), …]}");
     }
     // There is no fit to the data (#822): every canvas states its window, or
     // its slice holds it, a source's `range` — inline and paged alike — never
@@ -443,34 +477,25 @@ export function buildPlanRoot(config: PlanCanvasOptions, extra: ExprType<PlanBlo
         : rowsNested ?? nestedPartOf(Expr.type(East.value(config.data as SubtypeExprOrValue<EastType>) as Expr) as EastType);
     let reads: readonly PlanNestedRead[] = [];
     if (nested !== undefined) {
-        // What each series reads is known as the Plan is built: from the list it was given, or the one its pick was. A pick
-        // read through an East variable is an expression whose series the build cannot see.
-        const declared = config.pick !== undefined ? pickedSeriesOf(config.pick) : config.series;
+        // What each series reads is known as the Plan is built, from the list it was given: an East expression of one is
+        // a list whose series the build cannot see.
+        const declared = config.series;
         const index = planNestedIndex(nested);
         if (index !== undefined && !Array.isArray(declared)) {
-            throw new Error(config.pick !== undefined
-                ? "Plan: its rows are read through a nested series index, a cell at a time, by what each series reads — known as the Plan is " +
-                    "built — and its pick is an East expression whose series it cannot see. Give `pick` Plan.pick(key, [Plan.series.span(…), …]) " +
-                    "as it returns it: its series a list, and the pick held in no East variable ($.let)"
-                : "Plan: its rows are read through a nested series index, a cell at a time, by what each series reads — known as the Plan is " +
-                    "built — and its `series` are an East expression of a list. Give `series` the list itself: [Plan.series.span(…), …]");
+            throw new Error("Plan: its rows are read through a nested series index, a cell at a time, by what each series reads — known as the Plan is " +
+                "built — and its `series` are an East expression of a list. Give `series` the list itself: [Plan.series.span(…), …]");
         }
         reads = checkPlanNested(declared, { index, axisKind: axisKindOf(config.axis), resolutions: axisResolutionsOf(config.axis) });
     }
     if (config.series !== undefined) checkSeries(config.series, "Plan", axisKindOf(config.axis));
     const data = config.data;
-    if (data === undefined) return rootOf(config, East.value(variant("inline", extra!), PlanRowsType), undefined, chrome, undefined);
-    // A pick feeds the canvas its SURVIVING series; everything downstream sees
-    // one series input either way.
-    const pick = pickHeld ?? config.pick;
-    const seriesInput: PlanSeriesInput = pick !== undefined
-        ? (pickActive(pick as never) as unknown as PlanSeriesInput)
-        : config.series as PlanSeriesInput;
-    // A gesture writes the data, whichever series show (#1440): the editing session is built over every series a pick
-    // holds, so a number written as its series is switched off — its field leaving with its row — lands, never refused.
-    const editSeries: PlanSeriesInput = pick !== undefined
-        ? ((pick as unknown as ExprType<StructType<{ all: ArrayType<EastType> }>>).all as unknown as PlanSeriesInput)
-        : seriesInput;
+    if (data === undefined) return rootOf(config, East.value(variant("inline", extra!), PlanRowsType), undefined, chrome, undefined, undefined);
+    // The canvas applies the list it was given, leaving out what is hidden (#1541, U3): the pick's state where the
+    // series are picked, read wherever rows are made, or the keys `hidden` names. A gesture writes the data whichever
+    // series show (#1440): the session's writer is built over the whole list, so a number written as its series is
+    // switched off — its field leaving with its row — lands, never refused.
+    const seriesInput = config.series as PlanSeriesInput;
+    const hidden = shown?.hidden;
     // The shared row-source resolution (#567): inline collection, paged
     // source, or a whole-value bind handle — one dispatch, one vocabulary,
     // and the series pipeline is the `make` that turns each window's entries
@@ -497,7 +522,7 @@ export function buildPlanRoot(config: PlanCanvasOptions, extra: ExprType<PlanBlo
         if (reads !== undefined && !isTypeEqual(reads, resolved.collectionType)) {
             throw new Error(
                 "Plan: the series list is typed for another source than `data` — a list bound as an East value " +
-                "(a `$.const` list, a `Plan.pick`) is built for the entries' declared key type, String unless a " +
+                "(a `$.const` list) is built for the entries' declared key type, String unless a " +
                 "series says `keyType`. Declare `keyType` on each series and type the list " +
                 "`Plan.Types.Series(R, keyType)`, or pass the series as a TS array, which is built for `data` itself.",
             );
@@ -510,35 +535,42 @@ export function buildPlanRoot(config: PlanCanvasOptions, extra: ExprType<PlanBlo
     // gesture reads its row whole, by key — and rows held whole are read from as they are: neither carries any.
     const carries = config.editing !== undefined && resolved.kind === "paged" && planNestedIndex(nested) === undefined;
     const entryId = planEntryId((resolved.collectionType as DictType<EastType, EastType>).key);
-    // The canvas's BLOCKS, in layout order (#823): inline, the whole source's;
-    // paged, each window's share of every block — one read serves them all.
-    // A Plan's `rows` follow as fixed blocks, which every window serves alike.
-    const rowsValue = buildCarriedRowSource(
-        incoming,
-        PlanBlocksType,
-        (source) => {
-            const blocks = ordered === undefined ? applySeries(seriesInput, source) : ordered.make(seriesInput, source);
-            return extra === undefined ? blocks : blocks.concat(extra);
-        },
-        !carries ? undefined : ordered !== undefined ? ordered.carried
-            : (source) => (source as unknown as ExprType<DictType<EastType, EastType>>).toArray((_$, value, key) => ({ id: entryId(key), entry: East.Blob.encodeBeast(value, "v2") })),
-    ) as unknown as ExprType<PlanRowsType>;
-    const editing = config.editing === undefined ? undefined : buildPlanEditing(resolved, editSeries, config.editing, planNestedIndex(nested));
-    // Paged beside their nested series index (#1438): the seam the reader reads the index's cells through, and the window
-    // its rows are drawn from with what it read — the binding's, or the one the Slice's `rows` source narrows.
-    const index = planNestedIndex(nested);
-    const binding = (rowsBinding ?? config.data) as unknown as { id: ExprType<StringType>; fill: { unwrap(): ExprType<EastType> } };
-    const uses = index === undefined ? [] : planNestedUses(reads, index);
-    const nestedSeam = index === undefined || ordered === undefined ? undefined : East.value({
-        index: index.name,
-        source: binding.id,
-        tile: variant(index.tile, null),
-        summary: index.summary === undefined ? none : some(variant(index.summary, null)),
-        uses,
-        rows: ordered.nestedRows(seriesInput, binding.fill.unwrap(), new Set(uses.filter((use) => use.shade.type === "booked").map((use) => use.series))),
-    } as never, PlanNestedType) as ExprType<PlanNestedType>;
-    return rootOf(pick === config.pick ? config : { ...config, pick } as PlanCanvasOptions, rowsValue,
-        editing === undefined ? undefined : ordered?.editing(editing) ?? editing, chrome, nestedSeam);
+    return Expr.block(($) => {
+        // The series over a collection of the source's rows, written out once (#1541): a canvas makes its rows in
+        // several places — each window, each window with the drafts in place, one drafted entry — and every one
+        // calls this function, where the series written out at each would copy every series' code into each. What
+        // is hidden is read at each call, so a window read later sees what the viewer has switched since.
+        const applied = $.const(seriesApplyFn(seriesInput, resolved.collectionType));
+        const apply: PlanSeriesApply = (source) => applied(source, hidden ?? East.value(new Set<string>(), PlanHiddenType)) as PlanBlocksValue;
+        // The canvas's BLOCKS, in layout order (#823): inline, the whole source's;
+        // paged, each window's share of every block — one read serves them all.
+        // A Plan's `rows` follow as fixed blocks, which every window serves alike.
+        const rowsValue = buildCarriedRowSource(
+            incoming,
+            PlanBlocksType,
+            (source) => {
+                const blocks = ordered === undefined ? apply(source) : ordered.make(apply, source);
+                return extra === undefined ? blocks : blocks.concat(extra);
+            },
+            !carries ? undefined : ordered !== undefined ? ordered.carried
+                : (source) => (source as unknown as ExprType<DictType<EastType, EastType>>).toArray((_$, value, key) => ({ id: entryId(key), entry: East.Blob.encodeBeast(value, "v2") })),
+        ) as unknown as ExprType<PlanRowsType>;
+        const editing = config.editing === undefined ? undefined : buildPlanEditing(resolved, seriesInput, apply, config.editing, planNestedIndex(nested));
+        // Paged beside their nested series index (#1438): the seam the reader reads the index's cells through, and the window
+        // its rows are drawn from with what it read — the binding's, or the one the Slice's `rows` source narrows.
+        const index = planNestedIndex(nested);
+        const binding = (rowsBinding ?? config.data) as unknown as { id: ExprType<StringType>; fill: { unwrap(): ExprType<EastType> } };
+        const uses = index === undefined ? [] : planNestedUses(reads, index);
+        const nestedSeam = index === undefined || ordered === undefined ? undefined : East.value({
+            index: index.name,
+            source: binding.id,
+            tile: variant(index.tile, null),
+            summary: index.summary === undefined ? none : some(variant(index.summary, null)),
+            uses,
+            rows: ordered.nestedRows(apply, binding.fill.unwrap(), new Set(uses.filter((use) => use.shade.type === "booked").map((use) => use.series))),
+        } as never, PlanNestedType) as ExprType<PlanNestedType>;
+        return rootOf(config, rowsValue, editing === undefined ? undefined : ordered?.editing(editing) ?? editing, chrome, nestedSeam, shown?.pick);
+    }) as ExprType<PlanRootType>;
 }
 
 /**
@@ -549,10 +581,12 @@ export function buildPlanRoot(config: PlanCanvasOptions, extra: ExprType<PlanBlo
  * @param editing - Its editing session over `data`, if it has one
  * @param chrome - The chrome of the Plan's `Slice.bindRecords`; `none` with no slice
  * @param nested - What its paged rows' reader reads of their nested series index, if it reads it (#1438)
+ * @param pick - The pick over `data`'s series, where they are picked (#1541, U3)
  * @returns An East expression of {@link PlanRootType}
  */
 function rootOf(config: PlanCanvasOptions, rowsValue: ExprType<PlanRowsType>, editing: ExprType<PlanEditingType> | undefined,
-    chrome: option<ExprType<RecordSlicesChromeType>>, nested: ExprType<PlanNestedType> | undefined): ExprType<PlanRootType> {
+    chrome: option<ExprType<RecordSlicesChromeType>>, nested: ExprType<PlanNestedType> | undefined,
+    pick: ExprType<PickBindType> | undefined): ExprType<PlanRootType> {
     const style = config.style;
     const styleValue = style !== undefined
         ? some(East.value({
@@ -584,9 +618,7 @@ function rootOf(config: PlanCanvasOptions, rowsValue: ExprType<PlanRowsType>, ed
         editing:  editing !== undefined ? some(editing) : none,
         // The library rides as chrome, like the slice rail: the non-generic
         // contract only, since the payload must stay a closed East type.
-        pick:     config.pick !== undefined
-            ? some(East.value((config.pick as unknown as ExprType<StructType<{ pick: PickBindType }>>).pick, PickBindType))
-            : none,
+        pick:     pick !== undefined ? some(East.value(pick, PickBindType)) : none,
         slice:    chrome,
         nested:   nested !== undefined ? some(nested) : none,
         footer:   (config.footer ?? []).map(f => East.value({
@@ -626,6 +658,30 @@ function planEntryId(keyType: EastType): ExprType<FunctionType<[EastType], Strin
 }
 
 /**
+ * A record's commit of the canvas's batches (#1541, U4): `Record.onApply(record, { keyed: true })`, the record held to
+ * the rows it saves — it is the record they are read from, so it holds their entries under their keys.
+ *
+ * @param record - The record, bound with its patch mutation
+ * @param sourceType - The rows' source: `Dict<K, R>`
+ * @returns The commit: an async East function over `Editing.Types.ChangeSet(R, K)`
+ * @throws {Error} Naming `record` and the remedy: no bound record, one that is no Dict or is not bound with its patch
+ *   mutation, or one holding other entries than the rows'
+ */
+function planRecordApply(record: PlanRecordHandle, sourceType: DictType<EastType, EastType>): ExprType<EastType> {
+    const bound = "Plan: `record` is the record the rows are read from, bound with its patch mutation — Record.bind(record), its record declaring patch: mutation.patch()";
+    if (!(record instanceof Expr)) throw new Error(`${bound} — and this one is no bound record`);
+    const type = Expr.type(record as unknown as Expr) as EastType;
+    const read = type.type === "Struct" ? (type.fields as Readonly<globalThis.Record<string, EastType>>)["read"] : undefined;
+    if (read === undefined || read.type !== "Function") throw new Error(`${bound} — and this one is ${printType(type)}`);
+    const recordType = read.output as EastType;
+    if (!isTypeEqual(recordType, sourceType)) {
+        throw new Error("Plan: `record` saves the rows by key, so it is the record they are read from — and this record holds " +
+            `${printType(recordType)} where the rows are ${printType(sourceType)}`);
+    }
+    return Record.onApply(record as never, { keyed: true }) as unknown as ExprType<EastType>;
+}
+
+/**
  * The canvas's editing declaration (#880) — the shared session's fields over
  * the source's top-level entries, and the canvas's own: its blocks with the
  * drafted entries in place, one entry's blocks, the gestures written into
@@ -638,12 +694,16 @@ function planEntryId(keyType: EastType): ExprType<FunctionType<[EastType], Strin
  * an entry read back for a gesture is a window the canvas already holds.
  *
  * @param resolved - The resolved `data` — a keyed collection, inline or paged
- * @param series - The series input the canvas applies
+ * @param series - The series input, whole: what a gesture is written through, whichever series show (#1440)
+ * @param apply - The canvas's series over a collection of its rows, what it leaves out left out (#1541, U3): a draft
+ *   draws as the canvas does
  * @param input - The author's editing declaration
+ * @param nested - The rows' nested series index, where they are read beside it (#1438)
  * @returns The editing declaration, on the wire
  * @throws {Error} When the declaration is inconsistent, or a callback has another signature
  */
-function buildPlanEditing(resolved: ResolvedRowSource, series: PlanSeriesInput, input: PlanEditingConfig, nested?: PlanNestedIndex): ExprType<PlanEditingType> {
+function buildPlanEditing(resolved: ResolvedRowSource, series: PlanSeriesInput, apply: PlanSeriesApply, input: PlanEditingConfig,
+    nested?: PlanNestedIndex): ExprType<PlanEditingType> {
     const sourceType = resolved.collectionType as DictType<EastType, EastType>;
     const entryType = sourceType.value;
     const keyType = sourceType.key;
@@ -651,15 +711,14 @@ function buildPlanEditing(resolved: ResolvedRowSource, series: PlanSeriesInput, 
     const batchType = EditingChangeSetTypeFor(entryType, keyType);
     const eventType = EditingPatchEventTypeWith(entryType, draftType);
     const DraftsType = DictType(StringType, BlobType);
-    if (input.onApply !== undefined && input.onUpdate !== undefined) {
-        throw new Error("Plan: editing takes onApply or the inline onUpdate adapter, not both");
+    if (input.onApply !== undefined && input.record !== undefined) {
+        throw new Error("Plan: editing takes `record`, whose patch door commits each batch, or `onApply`, the commit itself — not both");
     }
-    if (input.onUpdate !== undefined && (resolved.kind !== "inline" || resolved.live === undefined)) {
-        throw new Error(
-            "Plan: editing.onUpdate requires data={liveHandle}, so each batch reads the latest entries — pass the bound " +
-            "handle itself, or commit with onApply");
-    }
-    if (resolved.kind !== "inline" && !resolved.pinned && input.onApply !== undefined) {
+    // The record's commit (#1541, U4): each batch's changes its entries' inserts, updates and deletes by key, through its
+    // patch door. It is the record the rows are read from, so its entries are theirs.
+    const recordApply = input.record === undefined ? undefined : planRecordApply(input.record, sourceType);
+    const applyInput = recordApply ?? input.onApply;
+    if (resolved.kind !== "inline" && !resolved.pinned && applyInput !== undefined) {
         throw new Error(
             "Plan: editing a paged source needs its revision and refresh — a pinned source (Data.bindPaged's handle): " +
             "a batch is checked against the revision it began at, and the drafts retire once the source reads back at " +
@@ -729,7 +788,7 @@ function buildPlanEditing(resolved: ResolvedRowSource, series: PlanSeriesInput, 
             const all = $.const(inline);
             const drafted = $.let(draft(all, drafts));
             // Held whole, the source is read from as it is: nothing is carried.
-            $.assign(result, some({ rows: applySeries(series, drafted), entries: East.value([], ArrayType(CarriedEntryType)) }));
+            $.assign(result, some({ rows: apply(drafted), entries: East.value([], ArrayType(CarriedEntryType)) }));
         } else {
             const read = $.const(window!);
             const stored = $.const(carried);
@@ -738,7 +797,7 @@ function buildPlanEditing(resolved: ResolvedRowSource, series: PlanSeriesInput, 
                 some: ($2, entries) => {
                     const drafted = $2.let(draft(entries, drafts));
                     // One read: the blocks with the drafts in place, and the entries as the source holds them.
-                    $2.assign(result, some({ rows: applySeries(series, drafted), entries: stored(entries) }));
+                    $2.assign(result, some({ rows: apply(drafted), entries: stored(entries) }));
                 },
             });
         }
@@ -754,7 +813,7 @@ function buildPlanEditing(resolved: ResolvedRowSource, series: PlanSeriesInput, 
             const bytes = $2.let(drafts.has(carriedEntry.id).ifElse(() => drafts.get(carriedEntry.id), () => carriedEntry.entry));
             $2(held.insert(parse(carriedEntry.id), bytes.decodeBeast(entryType, "v2")));
         });
-        return applySeries(series, held);
+        return apply(held);
     });
 
     // One entry's blocks — what a draft is compared by, row by row.
@@ -762,7 +821,7 @@ function buildPlanEditing(resolved: ResolvedRowSource, series: PlanSeriesInput, 
         const parse = $.const(keyOf);
         const one = $.let(new Map(), sourceType);
         $(one.insert(parse(id), bytes.decodeBeast(entryType, "v2")));
-        return applySeries(series, one);
+        return apply(one);
     });
 
     // Gestures written into their entries, through the series that made each
@@ -832,13 +891,12 @@ function buildPlanEditing(resolved: ResolvedRowSource, series: PlanSeriesInput, 
         });
     });
 
-    // The authoritative apply: the author's, or the inline adapter over the
-    // live handle's latest Dict (#879's protocol, keyed).
+    // The authoritative apply: the record's commit, or the seam's own function.
     const live = resolved.kind === "inline" ? resolved.live : undefined;
     const reader = live !== undefined
         ? (live as unknown as ExprType<StructType<{ read: FunctionType<[], DictType<EastType, EastType>> }>>).read
         : undefined;
-    const authorApply = input.onApply === undefined ? undefined : checkedEditingCallback("Plan", input.onApply, [batchType], EditingApplyResultType,
+    const authorApply = applyInput === undefined ? undefined : checkedEditingCallback("Plan", applyInput, [batchType], EditingApplyResultType,
         "onApply", true, "over Editing.Types.ChangeSet(R, K) — this canvas's entry and key types — returning Editing.Types.ApplyResult");
     // A paged source is one of the contract's shapes, both of which carry `id`.
     const sourceId: ExprType<StringType> = resolved.kind === "paged"
@@ -847,12 +905,7 @@ function buildPlanEditing(resolved: ResolvedRowSource, series: PlanSeriesInput, 
             : authorApply !== undefined ? East.print(East.Blob.encodeBeast(authorApply, "v2"))
                 : East.value("readonly-inline", StringType);
     let onApply: ExprType<typeof EditingWireApplyType> | undefined;
-    if (input.onUpdate !== undefined && reader !== undefined) {
-        const writer = checkedEditingCallback("Plan", input.onUpdate, [sourceType], NullType, "onUpdate", false,
-            "over the whole Dict<K, R> the batch leaves, returning Null");
-        onApply = East.value(variant("sync", buildKeyedInlineApply(sourceType, sourceId, reader as unknown as ExprType<FunctionType>,
-            writer as unknown as ExprType<FunctionType>)), EditingWireApplyType);
-    } else if (authorApply !== undefined) {
+    if (authorApply !== undefined) {
         const typedBatch = batchType as unknown as StructType<Record<never, never>>;
         // Over rows read beside their nested series index (#1438), each change's patch restated by key before the author's
         // apply: a collection's whole `replace` the operations it stands for, so a commit names only what it changed.

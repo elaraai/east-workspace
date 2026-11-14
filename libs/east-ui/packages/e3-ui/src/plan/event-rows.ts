@@ -81,7 +81,7 @@ import { PlanEventShadeType, shadedKind } from "./shade.js";
 export { PlanEventShadeType } from "./shade.js";
 import {
     PlanBlockType, PlanBlocksType, PlanBucketEventType, PlanChipType, PlanEventMarkKindType, PlanEventMarkType, PlanLaneType,
-    PlanRollupType, PlanRowIdType, PlanRowType, PlanRowsCollectionType, PlanRunType, type PlanDrawLiteral,
+    PlanRollupType, PlanRowIdType, PlanRowType, PlanRowsCollectionType, PlanRunType, PlanStatusType, type PlanDrawLiteral,
 } from "./types.js";
 import { planGutter, planRow } from "./assemble.js";
 import { bucketsKind, cardsKind, eventsKind, spanKind } from "./factories.js";
@@ -248,12 +248,16 @@ const elementKey = East.function([PlanEventItemType], StringType, ($, item) => {
     return East.print(ref);
 });
 
-/** The warning an element is ringed with: its status's, when the status's tone is a warning (`Plan Builder Spec.md` §4.1). */
-const warningOf = East.function([OptionType(ScheduleStatusType)], OptionType(StatusValueType), ($, status) => {
-    const out = $.let(none, OptionType(StatusValueType));
+/**
+ * The warning an element is ringed with: its status's, when the status's tone is a warning (`Plan Builder Spec.md`
+ * §4.1) — its words with it, which the element's name says, drawn as the warn ring whether or not its case is an open
+ * ring. An event kind's status of any other tone draws nothing on its element, as before `Plan.status` (#1541).
+ */
+const warningOf = East.function([OptionType(ScheduleStatusType)], OptionType(PlanStatusType), ($, status) => {
+    const out = $.let(none, OptionType(PlanStatusType));
     $.match(status, {
         some: ($2, s) => {
-            $2.if(s.tone.hasTag("warning"), ($3) => { $3.assign(out, some(variant("warning", null))); });
+            $2.if(s.tone.hasTag("warning"), ($3) => { $3.assign(out, some({ label: s.label, tone: s.tone, ring: false })); });
         },
     });
     return out;
@@ -287,7 +291,7 @@ const placedTiles = East.function([PlacedListType], ArrayType(PlanBucketEventTyp
         label: some(p.item.title),
         icon: some(p.icon),
         state: p.item.state,
-        tone: ring(p.item.status),
+        status: ring(p.item.status),
         color: none,
         colorPalette: none,
         stretch: none,
@@ -296,20 +300,22 @@ const placedTiles = East.function([PlacedListType], ArrayType(PlanBucketEventTyp
     }, PlanBucketEventType));
 });
 
-/** The events as chips over the buckets they span. */
+/** The events as chips over the buckets they span, a warning ringing its chip as it does a bar and a tile (#1541). */
 const placedChips = East.function([PlacedListType], ArrayType(PlanChipType), ($, list) => {
     const keyOf = $.const(elementKey);
+    const ring = $.const(warningOf);
     return list.map(($2, p) => East.value({
         key: keyOf(p.item),
         from: variant("time", p.start),
         to: variant("time", p.end),
         label: p.item.title,
         state: p.item.state,
+        status: ring(p.item.status),
         icon: some(p.icon),
     }, PlanChipType));
 });
 
-/** The events as marks at their start: an exception where a warning rings it, else a milestone. */
+/** The events as marks at their start: an exception where a warning rings it, else a milestone — its kind says the warning, so it carries no status. */
 const placedMarks = East.function([PlacedListType], ArrayType(PlanEventMarkType), ($, list) => {
     const keyOf = $.const(elementKey);
     const ring = $.const(warningOf);
@@ -320,6 +326,7 @@ const placedMarks = East.function([PlacedListType], ArrayType(PlanEventMarkType)
             key: keyOf(p.item),
             at: variant("time", p.start),
             kind,
+            status: none,
             icon: some(p.icon),
             label: some(p.item.title),
         }, PlanEventMarkType);

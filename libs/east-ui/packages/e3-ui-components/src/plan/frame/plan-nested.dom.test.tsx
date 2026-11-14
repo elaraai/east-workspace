@@ -106,7 +106,7 @@ const slicePlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Root
 /** The thousand machines paged lean, their series picked: the library's Series tab lists them, each with its eye. */
 const pickedPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const machines = $.const(Data.bindPaged(ex.machines, { indexes: ["machines_by_name", "machines_in_time"] }));
-    return Plan({ axis: axis(), data: machines, pick: Plan.pick("plan.nested.dom.pick", machineSeries()), library: [Plan.library.series()] });
+    return Plan({ id: "nested-dom", axis: axis(), data: machines, series: machineSeries(), library: [Plan.library.series()] });
 }))) };
 
 /** The same machines' first twelve read whole: what the paged Plan draws the same as, for them. */
@@ -653,7 +653,7 @@ const editingPlan = { fn: East.function([], UIComponentType, (_$) => Reactive.Ro
             key: "presses", title: "Presses", label: (m) => m.name, edit: true,
             runs: Plan.items("jobs", { from: "start", to: "end" }, (job) => ({ label: job.product, state: job.state })),
         })],
-        editing: { onApply: Record.onApply(record, { keyed: true }) },
+        record,
     });
 }))) };
 
@@ -870,7 +870,7 @@ describe("a gesture drafts its row whole (#1438)", () => {
                     key: "presses", title: "Presses", label: (m) => m.name, edit: true,
                     runs: Plan.items("jobs", { from: "start", to: "end" }, (job) => ({ label: job.product, state: job.state })),
                 })],
-                editing: { onApply: Record.onApply(record, { keyed: true }), ready },
+                record, ready,
             });
         }))) };
         const { container: c } = await h.mount(readyPlan, { drag: true });

@@ -16,6 +16,9 @@
  * that holds no discrete objects, or no editing session would hold the item —
  * drags nothing from its panel.
  *
+ * The presses are a record on e3 itself, read whole and saved through its
+ * patch door: a Plan saves through `record` alone (#1541).
+ *
  * Pointer geometry is stubbed through `document.elementFromPoint` (jsdom has
  * no layout), as in `../plan-drop.dom.test.tsx`; a keyboard carry steps
  * between stubbed rects (#608).
@@ -24,16 +27,18 @@
 import { describe, test, expect } from "vitest";
 import { fireEvent, render, within } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
-import { BooleanType, DateTimeType, DictType, East, NullType, StringType, StructType, variant } from "@elaraai/east";
+import { BooleanType, DictType, East, NullType, StringType, StructType, variant, type ValueTypeOf } from "@elaraai/east";
 import { DragEventType, Reactive, State, UIComponentType } from "@elaraai/east-ui/internal";
 import { DragLayerProvider, editingMessages, getRegisteredPlatformImplementations, system } from "@elaraai/east-ui-components";
 import { announced, layOut, pointAt, press, stubScrollIntoView, tick } from "@elaraai/east-ui-components/testing";
-import { Plan, PlanPayloadType } from "@elaraai/e3-ui/internal";
+import { Plan, PlanPayloadType, Record } from "@elaraai/e3-ui/internal";
+import * as fx from "@elaraai/e3-ui/fixtures/plan/plan-palette";
+import { E3Surface } from "../../e3-web-mount.test-utils.js";
 import { EastChakraPlanPayload, type PlanValue } from "./index.js";
 import { entry, planHarness, rowAt, settle, slot } from "./harness.test-utils.js";
 import { offering } from "../../shared/schedule/keys.test-utils.js";
 
-const h = planHarness();
+const h = planHarness({ "plan/plan-palette.fixtures": fx });
 
 /** Each Plan is mounted under the page's drag layer, so its cards drag. */
 const DRAG = { drag: true } as const;
@@ -42,16 +47,13 @@ const W27 = new Date("2026-06-29T00:00:00Z");
 const W28 = new Date("2026-07-06T00:00:00Z");
 const W39 = new Date("2026-09-21T00:00:00Z");
 
-/** A press's job. */
-const Job = StructType({ start: DateTimeType, end: DateTimeType });
-/** A press: its name, and its jobs, by id. */
-const Press = StructType({ name: StringType, jobs: DictType(StringType, Job) });
+/** A press: its name, and its jobs, by id — the presses' record's (`plan-palette.fixtures`), which holds two with no job on either. */
+const Press = fx.Press;
 /** A palette card: its name, and the family of thing it is. */
 const Card = StructType({ name: StringType, family: StringType });
 
-const PRESSES = new Map([["p1", { name: "Press 1", jobs: new Map() }], ["p2", { name: "Press 2", jobs: new Map() }]]);
 /** The presses, each running a job in the first week. */
-const BUSY = new Map([
+const BUSY: ReadonlyMap<string, ValueTypeOf<typeof Press>> = new Map([
     ["p1", { name: "Press 1", jobs: new Map([["j1", { start: W27, end: W28 }]]) }],
     ["p2", { name: "Press 2", jobs: new Map([["j2", { start: W27, end: W28 }]]) }],
 ]);
@@ -68,19 +70,20 @@ const STEPS = Plan.axis.number({ window: { min: 1, max: 13 }, step: 1 });
  * card dropped on it, a week long from the bucket it lands in — its id the
  * one the renderer mints, its run labelled with it — and `canDrop` takes a
  * job only; with `move`, a press's jobs move but no card becomes one.
- * Misplaced, each press runs a job — its instants times — on an axis held in
- * a variable on the number arm, so each draws as its diagnostic. Not
- * editable, the Plan has no editing session to hold a gesture.
+ * Misplaced, the presses' jobs — their instants times — ride an axis held in
+ * a variable on the number arm, so a press running one draws as its
+ * diagnostic. Not editable, the Plan is given no `record`, so it has no
+ * editing session to hold a gesture.
  *
  * @param takes - What the presses' series declares: `create`, or a move's fields alone
- * @param options - `misplaced`: whether the presses' jobs ride another arm than the axis's; `editable`: whether the Plan has `editing` (it has unless false)
+ * @param options - `misplaced`: whether the presses' jobs ride another arm than the axis's; `editable`: whether the Plan saves through the presses' record (it does unless false)
  * @returns The Plan's program
  */
 function palettePlan(takes: "create" | "move", { misplaced = false, editable = true }: { misplaced?: boolean; editable?: boolean } = {}) {
-    const seed = misplaced ? BUSY : PRESSES;
     const axisValue = misplaced ? STEPS : WEEKS;
     return { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-        const presses = $.const(State.bind([DictType(StringType, Press)], "plan-1259.presses", seed));
+        // The presses' record, read whole: the rows, and what Save commits to.
+        const presses = $.const(Record.bind(fx.presses, ["patch"]));
         const cards = $.const(CARDS, DictType(StringType, Card));
         const lastBind = $.const(State.bind([StringType], "plan-1259.last", "none"));
         const onPatch = $.const(East.function([Plan.Types.PatchEvent(Press)], NullType, ($2, event) => {
@@ -109,7 +112,7 @@ function palettePlan(takes: "create" | "move", { misplaced = false, editable = t
                     ? { create: (drop) => ({ start: drop.at.unwrap("time"), end: drop.at.unwrap("time").addWeeks(1n) }) }
                     : true,
             })],
-            ...(editable ? { editing: { onUpdate: presses.write, onPatch } } : {}),
+            ...(editable ? { record: presses, onPatch } : {}),
             canDrop,
             library: [Plan.library.tab(cards, { name: "Palette", icon: "palette", label: (c) => c.name, group: (c) => c.family })],
             footer: [{ text: East.str`LAST · ${last}`, end: true }],
@@ -117,24 +120,30 @@ function palettePlan(takes: "create" | "move", { misplaced = false, editable = t
     }))) };
 }
 
+/** A Plan of a heat row per press, its palette the library panel, saving through the presses' record. */
+const heatPlan = East.function([], PlanPayloadType, ($) => {
+    const presses = $.const(Record.bind(fx.presses, ["patch"]));
+    const cards = $.const(CARDS, DictType(StringType, Card));
+    return Plan.Payload({
+        axis: Plan.axis({ window: { min: W27, max: W39 }, resolution: "week" }),
+        data: presses,
+        series: [Plan.series.heat(Press, { key: "load", title: "Load", label: (p) => p.name, cells: () => Plan.heatCells([]) })],
+        record: presses,
+        library: [Plan.library.tab(cards, { name: "Palette", label: (c) => c.name })],
+    });
+});
+
 /**
- * A Plan of a heat row per press, its palette the library panel — each row
- * flagged on the wire to take a card, as no series could flag a heat row.
+ * The heat Plan's payload — each row flagged on the wire to take a card, as
+ * no series could flag a heat row. It is built once the presses it reads
+ * whole have loaded.
  *
  * @returns The payload
  */
-function flaggedHeat(): PlanValue {
-    const payload = East.compile(East.function([], PlanPayloadType, ($) => {
-        const presses = $.const(State.bind([DictType(StringType, Press)], "plan-1259.heat", PRESSES));
-        const cards = $.const(CARDS, DictType(StringType, Card));
-        return Plan.Payload({
-            axis: Plan.axis({ window: { min: W27, max: W39 }, resolution: "week" }),
-            data: presses,
-            series: [Plan.series.heat(Press, { key: "load", title: "Load", label: (p) => p.name, cells: () => Plan.heatCells([]) })],
-            editing: { onUpdate: presses.write },
-            library: [Plan.library.tab(cards, { name: "Palette", label: (c) => c.name })],
-        });
-    }), getRegisteredPlatformImplementations())();
+async function flaggedHeat(): Promise<PlanValue> {
+    const loaded = await h.install({ fn: heatPlan });
+    const payload = East.compile(heatPlan, getRegisteredPlatformImplementations())();
+    loaded();
     if (payload.plan.rows.type !== "inline") throw new Error("expected an inline canvas");
     const blocks = payload.plan.rows.value.map((b) => ({ ...b, rows: b.rows.map((r) => ({ ...r, edits: { ...r.edits, drop: true } })) }));
     return { ...payload, plan: { ...payload.plan, rows: variant("inline", blocks) as PlanValue["plan"]["rows"] } };
@@ -246,6 +255,8 @@ describe("the library panel's cards on the rows that take them (#1259)", () => {
     });
 
     test("a Plan whose rows that make an item of a card cannot be placed — their instants ride another arm — drags nothing from its panel", async () => {
+        // Each press runs a job, as another session leaves them.
+        await h.commit(fx.presses, new Map(BUSY));
         const { container: c } = await h.mount(palettePlan("create", { misplaced: true }), DRAG);
         await settle();
         // Each press draws as its diagnostic, which takes no drop.
@@ -254,7 +265,7 @@ describe("the library panel's cards on the rows that take them (#1259)", () => {
         expect(panel(c).querySelector("[data-draggable]")).toBeNull();
     });
 
-    test("a Plan with no `editing` drags nothing from its panel — though its rows make an item of a card, nothing would hold one", async () => {
+    test("a Plan with no `record` drags nothing from its panel — though its rows make an item of a card, nothing would hold one", async () => {
         const { container: c } = await h.mount(palettePlan("create", { editable: false }), DRAG);
         await settle();
         expect(c.querySelectorAll("[data-plan-row]")).toHaveLength(2);
@@ -264,10 +275,11 @@ describe("the library panel's cards on the rows that take them (#1259)", () => {
     });
 
     test("a row of a kind that holds no discrete objects takes no card, whatever its flag says — so the panel drags nothing", async () => {
+        const payload = await flaggedHeat();
         const { container: c } = render(
             <ChakraProvider value={system}>
                 <DragLayerProvider>
-                    <EastChakraPlanPayload value={flaggedHeat()} storageKey="plan-1259-heat" />
+                    <E3Surface><EastChakraPlanPayload value={payload} storageKey="plan-1259-heat" /></E3Surface>
                 </DragLayerProvider>
             </ChakraProvider>,
         );

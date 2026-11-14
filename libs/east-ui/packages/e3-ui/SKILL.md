@@ -155,12 +155,14 @@ Task → What do you need?
     │   ├─ …on paged resources: read a cell at a time         → the kind's source lists index.series + index.summary beside its interval index
     │   ├─ A link between two runs, or two events             → Plan.link({ from: Plan.ref(…), fromRun, … }) / Plan.link({ from: Plan.eventRef(kind, key), … })
     │   ├─ Its library pane: templates, backlog, series, cards → library={[Plan.library.events(), Plan.library.backlog(), Plan.library.series(), Plan.library.tab(rows, {…})]}
+    │   ├─ Which series show, and the viewer's own choice     → hidden={["utilisation"]}, the keys off to start: a series of `series`, or a member of a views · with Plan.library.series() the Series tab switches each, a views' members each alone, kept under id
+    │   ├─ A run's, a tile's, a chip's or a mark's status      → its map's status: Plan.status("Over dwell", "warning"), its words and its tone · { ring: true } draws it as an open ring, as a tentative one · an Option of one passes as it is
     │   ├─ The app's own words for what it draws              → vocabulary={{ unassigned, backlog, rows, dueThisWeek, confirmed, … }}
     │   ├─ Its inspector pane: what is selected               → inspector (+ an event kind's own: Schedule.events(record, { inspector }))
     │   ├─ Drags of templates, backlog cards and events       → built in with resources + events (+ library); canDrop={fn(Schedule.Types.Candidate) => Option<String>}
     │   ├─ The app's optimiser over the window and the backlog → optimise={Func.bind(e3.function)} from Plan.Types.OptimiseRequest({ job: Job }, { presses: Press }) to Plan.Types.OptimiseResult({ job: Job })
     │   ├─ Overlap warnings, without dropping overlapping events → Schedule.events(record, { overlaps: "warn" | "allow" })
-    │   └─ Dropped cards and moves of data rows as drafts      → a series' edit + editing={{ onUpdate | onApply }}
+    │   └─ Dropped cards and moves of data rows as drafts      → a series' edit + record={Record.bind(rows)}, the record its data is read from (+ onPatch, ready)
     │
     ├─ Let planners type rows in place — the Sheet
     │   ├─ An e3 record edited as a sheet                     → <Sheet record={…} columns={{…}} /> (record = Record.bind(r))
