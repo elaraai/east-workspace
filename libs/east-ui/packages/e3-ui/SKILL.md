@@ -380,12 +380,12 @@ changed under the edit (`e3-ui:func.examples.tsx:funcBindDrafts`).
 - **It renders in its own frame**: one toolbar, the canvas, a footer, and the
   panes its props ask for (`library`, `inspector`). Give it a box with a height.
 - **One rail narrows it**: `slice={{ slice: Slice.bindRecords(key, { … }) }}`,
-  each source named after what it narrows (an event kind's slot, a resource
-  kind's slot, `rows`, a templates list's `source`), each
-  `Data.bindPaged(record, { indexes })` over that record's declared indexes.
-  Sources with a `range` share the one time window. Calculations (coverage,
-  costs, loads, checks) read every record, whatever the rail hides.
-  Templates lists are records, each naming its rail `source`.
+  each source named after what it narrows (a kind's slot, `rows`, a templates
+  list's `source`) over its record's indexes (`Data.bindPaged(record, { indexes })`);
+  `range` sources share one window. Calculations read every row, hidden or not.
+  A page for one press scopes a source (`scope: { press: [press] }`): every read
+  and Search Records keep to the press, the rail has no control for it, a new event
+  takes it; it lists `index.on(["press"])`, per field offered `index.on(["press", "crew"])`, and read by area `index.area({ on: ["press"], … })`.
 - **Large records are read through their indexes** (declared in the record,
   the **e3** skill): an event kind through an interval index
   (`index.interval({ from: "start", to: "end" })`) with `range: "start"` and

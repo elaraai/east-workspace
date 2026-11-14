@@ -103,13 +103,13 @@ function racksPart(): Bind {
         fields, indexes: fields.map((f) => ({
             name: f.fieldId, fields: [f.fieldId], sets: new Set<string>(), structured: false, interval: none, area: none, series: none, summary: none, entries: false,
         })),
-        range: none, search: ["name"], presets: [],
+        range: none, search: ["name"], presets: [], scope: new Map(),
     }));
     getStore().write(key, encodeState({ where: new Map(), preset: none, resolution: none }));
     const read = (): State => { trackKey(key); return decodeState(getStore().read(key)!); };
     const write = (state: State) => { getStore().write(key, encodeState(state)); return null; };
     const choose = (id: string, choice: ValueTypeOf<RecordSliceChoiceType> | undefined) => {
-        const where = recordChoiceWhere(config.indexes, read().where, id, choice);
+        const where = recordChoiceWhere(config, read().where, id, choice);
         if (where === null) throw new Error("Choose a preceding field");
         return write({ ...read(), where, preset: none });
     };

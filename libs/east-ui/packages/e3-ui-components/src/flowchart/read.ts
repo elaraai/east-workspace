@@ -18,7 +18,10 @@
  *   type (#1549): found, the state the narrowing hides holds it, and the
  *   transition is hidden with it; absent — or a text no key of theirs prints
  *   as — the end is a ghost, and Issues lists it. Under `"dim"` every row is
- *   read, so an end no state holds is absent.
+ *   read, so an end no state holds is absent — but on a page whose states'
+ *   source holds a scope (#1621), where every row is every row the scope holds:
+ *   an end beyond it is read by key as under `"hide"`, and its transition is
+ *   hidden with it, never drawn as context.
  * - **The last settled read stands** while a newer one is in flight, so a new
  *   narrowing keeps what the canvas drew, busy, and the footer's loading line
  *   says what is read (`reading`) and whether it is a new narrowing
@@ -41,7 +44,7 @@
 
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { BlobType, StringType, SortedSet, compareFor, equalFor, type ValueTypeOf, type option } from "@elaraai/east";
-import { RecordSliceWhereType } from "@elaraai/east-ui/internal";
+import { RecordSliceWhereType, recordSliceScoped } from "@elaraai/east-ui/internal";
 import { getSomeorUndefined, useTrackedEvaluation } from "@elaraai/east-ui-components";
 import { recordSliceRows } from "@elaraai/east-ui-components/internal";
 import { kindKeys } from "../shared/schedule/kind-keys.js";
@@ -70,7 +73,7 @@ export type FlowchartStored<R> = ReadonlyMap<string, FlowchartStoredRow<R>>;
 
 /** Each kind's stored rows the settled read holds; `undefined` for a kind the Flowchart is not given. */
 export interface FlowchartHeld {
-    /** The states: the rows the narrowing keeps, or every row under `"dim"`. */
+    /** The states: the rows the narrowing keeps, or every row under `"dim"` — every row its page's scope holds (#1621). */
     readonly states: FlowchartStored<FlowchartStateRoles>;
     /** The transitions. */
     readonly transitions: FlowchartStored<FlowchartTransitionRoles> | undefined;
@@ -246,12 +249,14 @@ export function useFlowchartData(value: FlowchartValue, attempt = 0): FlowchartD
         take("lanes", getSomeorUndefined(value.lanes));
         take("decisions", getSomeorUndefined(value.decisions));
 
-        // Under hide, the ends of the transitions kept that no state read holds: read by key through the states' source,
+        // Under hide — or under dim, where the states' source holds its page's scope (#1621), which reads none of its rows
+        // beyond it — the ends of the transitions kept that no state read holds: read by key through the states' source,
         // every such end in one request (D7). Found, the transition is hidden with it; absent, the end is a ghost.
         let hiddenWith: ReadonlySet<string> = NO_KEYS;
         const states = rows.states as FlowchartStored<FlowchartStateRoles> | undefined;
         const transitions = rows.transitions as FlowchartStored<FlowchartTransitionRoles> | undefined;
-        const part = value.narrowed.type === "hide" ? sourcePart(chrome, "states") : undefined;
+        const statesPart = sourcePart(chrome, "states");
+        const part = statesPart !== undefined && (value.narrowed.type === "hide" || recordSliceScoped(statesPart)) ? statesPart : undefined;
         if (part !== undefined && states !== undefined && transitions !== undefined) {
             const far = new SortedSet<string>([], compareString);
             for (const entry of transitions.values()) {

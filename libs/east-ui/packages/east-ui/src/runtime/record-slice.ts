@@ -5,20 +5,24 @@
 
 /** Record narrowing, shared by the platform handle and its controls. */
 import {
-    StringType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, parseFor, printFor, some, variant,
+    StringType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, isFor, none, parseFor, printFor, some, toEastTypeValue, variant,
     type EastType, type StructType, type ValueTypeOf, type option,
 } from "@elaraai/east";
+import { keyQueryRange, toSeekQuery, type DatasetKeyQuery } from "../collections/value-tree/key-search.js";
 import { recordSliceFieldSchema, recordSliceFieldTypes, type RecordSliceFieldSchema } from "../platform/slice/record.js";
 import {
-    MAX_RECORD_SLICE_RUNS, planRecordSlice, recordChoiceWhere, recordEntriesFields, recordIndexFields, recordIndexGenerated, recordPlanIndex,
+    MAX_RECORD_SLICE_RUNS, planRecordSlice, recordChoiceWhere, recordChoicesOf, recordEntriesFields, recordIndexFields, recordIndexGenerated,
+    recordPlanIndex, recordScopeEmpty, recordScopeSearchIndex, recordScopedWhere,
     type RecordSlicePlan,
 } from "../platform/slice/record-plan.js";
 import { recordOnPrinters, recordOnTypeOf, type RecordOnPrinters } from "../platform/slice/record-on.js";
-import type {
-    RecordSliceAreaType, RecordSliceConfigType, RecordSliceStateType, RecordSliceWhereType, RecordSliceChoiceType, RecordSliceCountType,
-    RecordSliceDomainType,
+import {
+    RecordSliceChoiceType, RecordSliceConfigType, RecordSliceStateType,
+    type RecordSliceAreaType, type RecordSliceWhereType, type RecordSliceCountType, type RecordSliceDomainType,
 } from "../platform/slice/record-types.js";
-import { RecordSliceSource, type RecordSliceEntryKey, type RecordSlicePlacement, type RecordSliceReader } from "./record-slice-source.js";
+import {
+    RecordSliceSource, type RecordSliceEntryKey, type RecordSlicePlacedSegment, type RecordSlicePlacement, type RecordSliceReader,
+} from "./record-slice-source.js";
 import type { SeekQueryType } from "../contracts/source.js";
 
 type Config = ValueTypeOf<RecordSliceConfigType>;
@@ -48,6 +52,28 @@ interface RowEntries {
 
 const stringEqual = equalFor(StringType);
 const printString = printFor(StringType);
+const sameChoice = equalFor(RecordSliceChoiceType);
+/** East's own `Is` over a narrowing state: the same object, or, the two being frozen, equal ones. */
+const sameState = isFor(RecordSliceStateType);
+const encodeState = encodeBeast2For(RecordSliceStateType);
+const frozenState = decodeBeast2For(RecordSliceStateType, { frozen: true });
+const encodeConfig = encodeBeast2For(RecordSliceConfigType);
+const frozenConfig = decodeBeast2For(RecordSliceConfigType, { frozen: true });
+
+/** A run of rows, as a seek places one: where it starts, and how many it holds. */
+type Range = { found: boolean; row: bigint; count: bigint };
+
+/** One of a page's scope's values that holds rows, as the page's rows hold them (#1621). */
+interface ScopeBlock {
+    /** Its fields' literals, in the order of the index on exactly the scope's fields. */
+    readonly values: readonly string[];
+    /** The narrowing that holds it alone: each of the scope's fields held to its one value. */
+    readonly where: Where;
+    /** Its rows, read alone through that index: in their keys' order. */
+    readonly plan: RecordSlicePlan;
+    /** Its first row among the page's rows: after the rows of every value before it in the index's order. */
+    readonly offset: bigint;
+}
 
 /** A primary identity as the record names it: its key's `.east` text, as a search takes it, and the key. */
 interface Identity {
@@ -88,6 +114,14 @@ export interface RecordSliceBinding extends RecordSliceReader<RecordSliceEntry> 
 /**
  * Validates all custom-control input and delegates every record query to the
  * indexed binding. It never evaluates a predicate over a record row.
+ *
+ * A source's scope is a narrowing its page holds (#1621). The store keeps the
+ * viewer's own choices, and the state this controller reads is those choices
+ * with the scope laid over them: the narrowing every read of the source
+ * carries — its count, its narrowed data's pages and seeks, and whatever a
+ * reader takes from `read`. A read given a narrowing of its own reads that
+ * narrowing as it is given, so one that is to hold the scope names it. No
+ * choice changes a scoped field, and a scope whose list is empty reads no row.
  */
 export class RecordSliceController {
     /** Bounded, revision-aware windows shared by counts and data. */
@@ -112,19 +146,44 @@ export class RecordSliceController {
     readonly printOn: RecordOnPrinters;
     /** The entries fields (#1522): each a Dict field whose picked keys weigh a reader's rows and narrow none. */
     private readonly weighing: ReadonlySet<string>;
+    /**
+     * Author-derived field metadata and paths, and the page's scope as every read carries it (#1621): each scoped
+     * field's values read at its type and printed again, each once. Frozen: the handle hands it to a page's East code,
+     * which cannot change it in place.
+     */
+    readonly config: Config;
+    /**
+     * The narrowing every read of the source carries, tracked as the store's read is: the viewer's choices, as the
+     * store keeps them, with the page's scope laid over them (#1621). Frozen, as the store's state is, since `read`
+     * hands it to a page's East code, which cannot change it in place; and the same state while the store's is the
+     * same, by East's own `Is`, which compares two frozen states by value.
+     */
+    readonly readState: () => State;
+    /** Whether the page's scope holds no value of one of its fields (#1621): the source then reads no rows. */
+    readonly unread: boolean;
+    /**
+     * The narrowing the rows a page holds of its source are (#1621): its scope alone — none on a page with no scope, the
+     * record's own rows. What a reader of those rows by their place — a builder's Search Records and its lines — reads.
+     */
+    readonly base: Where;
+    /** The plan {@link base} is read by, made once it is first read. */
+    private basePlanned: RecordSlicePlan | undefined;
 
     /**
      * @param source - Bound indexed reads.
-     * @param config - Author-derived field metadata and paths.
+     * @param config - Author-derived field metadata and paths, and the page's scope.
      * @param row - Record row type recovered from the platform's source type.
-     * @param readState - Tracked state read.
+     * @param readState - Tracked read of the state the store keeps: the viewer's choices, a frozen East value, which a
+     *   source with no scope answers a page's East code as it is.
      * @param writeState - Shared store write, including persistence.
      * @param primaryKey - Original key type; String ids stay raw, other ids are East literals.
      * @param indexes - Type metadata for computed fields, carried by the source.
      * @param indexKeys - Each index's key type, by its name (`IndexedSourceType`'s `IK`): a generated index's `on` (#1432).
+     * @throws {Error} When the scope names a field neither the record's rows nor its indexes' keys hold, or holds anything but a list of exact
+     *   values, a value its field's type does not read, or other than one value of a field that fans out over a Set
      */
-    constructor(readonly source: RecordSliceBinding, readonly config: Config, row: StructType,
-        readonly readState: () => State, private readonly writeState: (state: State) => void, private readonly primaryKey: EastType = StringType, indexes?: StructType,
+    constructor(readonly source: RecordSliceBinding, config: Config, row: StructType,
+        readState: () => State, private readonly writeState: (state: State) => void, private readonly primaryKey: EastType = StringType, indexes?: StructType,
         private readonly indexKeys: Readonly<Record<string, EastType>> = {}) {
         this.printOn = recordOnPrinters(indexKeys);
         this.weighing = recordEntriesFields(config.indexes);
@@ -148,9 +207,50 @@ export class RecordSliceController {
             this.parse.set(field.fieldId, parseFor(schema.key));
             this.print.set(field.fieldId, printFor(schema.key));
         }
+        // The page's scope: its values are the page's to give when it runs, so each is read here at its field's type.
+        const scope = new Map<string, Choice>();
+        for (const [field, clause] of config.scope) {
+            const type = fieldTypes[field];
+            if (type === undefined) throw new Error(`The page's scope names '${field}', which is no field of the record's rows or of its indexes' keys`);
+            if (clause.type !== "values") throw new Error(`The page's scope of '${field}' is a list of exact values, and holds a ${clause.type}`);
+            const schema = recordSliceFieldSchema(type, field);
+            const parse = parseFor(schema.key);
+            const print = printFor(schema.key);
+            const values = [...new Set(clause.value.map((text) => {
+                const read = parse(text);
+                if (!read.success) throw new Error(`The page's scope of '${field}' holds a value its type does not read: ${read.error}`);
+                return print(read.value);
+            }))];
+            if (schema.set && values.length !== 1) {
+                throw new Error(`The page's scope of '${field}' holds ${values.length} values, and a field that fans out over a Set is read by exactly one`);
+            }
+            // A search through an index the scope leads prints the scoped fields of its key as it does any other's.
+            this.parse.set(field, parse);
+            this.print.set(field, print);
+            scope.set(field, variant("values", values));
+        }
+        this.config = frozenConfig(encodeConfig(scope.size === 0 ? config : { ...config, scope }));
+        this.unread = [...scope.values()].some(clause => clause.type === "values" && clause.value.length === 0);
+        this.base = recordScopedWhere(scope, new Map());
+        if (scope.size === 0) {
+            this.readState = readState;
+        } else {
+            let kept: State | undefined;
+            let carried: State | undefined;
+            this.readState = () => {
+                const state = readState();
+                if (kept === undefined || carried === undefined || !sameState(state, kept)) {
+                    kept = state;
+                    carried = frozenState(encodeState({ ...state, where: recordScopedWhere(scope, state.where) }));
+                }
+                return carried;
+            };
+        }
     }
 
+    /** A field the rail offers, as a choice of it is read. A scoped field is none: the page holds it (#1621). */
     private schema(field: string): RecordSliceFieldSchema {
+        if (this.config.scope.has(field)) throw new Error(`'${field}' is held by the page's scope, which no choice changes`);
         const schema = this.schemas.get(field);
         if (schema === undefined) throw new Error(`Unknown field '${field}'`);
         return schema;
@@ -185,31 +285,48 @@ export class RecordSliceController {
         return variant("range", { from: print(from), to: print(to) });
     }
 
-    /** Validate the whole state before a custom control or saved view writes it. */
+    /**
+     * Validate the whole state before a custom control or saved view writes it. The store keeps the viewer's choices
+     * (#1621): a scoped field's clause is the page's, so a state that holds the scope's own — one made from what
+     * `readState` answers — is kept without it, and one that holds another clause for it is refused. The choices are
+     * planned with the scope, as every read of them will be.
+     * @param state - The state: its choices, with or without the scope's clauses.
+     * @returns Null.
+     * @throws {Error} When a choice is invalid, a scoped field holds another clause than the scope's, no index answers
+     *   the choices and the scope together, or the preset is unknown
+     */
     write(state: State): null {
-        const where = new Map([...state.where].map(([field, choice]) => [field, this.validate(field, choice)]));
-        this.plan(where);
+        const where = new Map<string, Choice>();
+        for (const [field, choice] of state.where) {
+            const held = this.config.scope.get(field);
+            if (held === undefined) where.set(field, this.validate(field, choice));
+            else if (!sameChoice(held, choice)) throw new Error(`'${field}' is held by the page's scope, which no choice changes`);
+        }
+        this.plan(recordScopedWhere(this.config.scope, where));
         if (state.preset.type === "some" && !this.config.presets.some(preset => preset.id === state.preset.value)) throw new Error("Unknown preset");
         this.writeState({ ...state, where });
         return null;
     }
 
     /**
-     * Compile a supported narrowing, refusing an incompatible saved/custom state.
+     * Compile a supported narrowing, refusing an incompatible saved/custom state. The narrowing is planned as it is
+     * given: the one `readState` answers holds the page's scope, and one a reader makes holds it where the reader put
+     * it there. A narrowing whose scoped field holds no value holds no row (#1621), and its plan searches nothing.
      * @param where - The narrowing.
      * @param area - A read by area's clause, beside it (#1432).
      * @returns The plan.
      */
     plan(where: Where, area?: Area): RecordSlicePlan {
+        if (recordScopeEmpty(this.config.scope, where)) return { index: this.source.defaultIndex, queries: [], empty: true };
         const plan = planRecordSlice(this.config.indexes, where, this.source.defaultIndex, area, this.printOn);
         if (plan === null) throw new Error("These choices cannot be combined; clear a field and try again");
         return plan;
     }
 
-    /** The next valid state for one choice; shared with prospective counts. */
+    /** The next valid state for one choice, the page's scope with it; shared with prospective counts. */
     proposed(field: string, choice: Choice | undefined): Where {
         this.schema(field);
-        const next = recordChoiceWhere(this.config.indexes, this.readState().where, field,
+        const next = recordChoiceWhere(this.config, this.readState().where, field,
             choice === undefined ? undefined : this.validate(field, choice));
         if (next === null) throw new Error("Choose the preceding fields before this field");
         this.plan(next);
@@ -221,10 +338,10 @@ export class RecordSliceController {
         return this.write({ ...this.readState(), where: this.proposed(field, choice), preset: none });
     }
 
-    /** Clear narrowing while preserving presentation resolution. */
+    /** Clear the viewer's choices while preserving presentation resolution; the page's scope stays (#1621). */
     clearAll(): null { return this.write({ ...this.readState(), where: new Map(), preset: none }); }
 
-    /** Set or clear a named narrowing. */
+    /** Set or clear a named narrowing; the page's scope stays beside either (#1621). */
     togglePreset(id: string): null {
         const state = this.readState();
         if (state.preset.type === "some" && state.preset.value === id) return this.clearAll();
@@ -245,6 +362,16 @@ export class RecordSliceController {
     }
 
     /**
+     * The rows the source holds, what a narrowed count is out of: the record's primary rows, or on a scoped source the
+     * rows its page's scope holds (#1621), since every read of the source carries the scope. A viewer of a scoped page
+     * is told no count of the rows beyond it.
+     * @returns The count, none while pending.
+     */
+    total(): option<bigint> {
+        return this.config.scope.size === 0 ? this.source.total("primary") : this.count(this.config.scope);
+    }
+
+    /**
      * Measure a numeric/date field using only boundary index entries. Leading
      * choices remain applied; this field's own range is ignored. Unset entries
      * are skipped with one exact search, never by walking their rows.
@@ -252,7 +379,9 @@ export class RecordSliceController {
     domain(field: string): option<ValueTypeOf<RecordSliceDomainType>> {
         const schema = this.schema(field);
         if (schema.set || !["datetime", "integer", "float"].includes(schema.kind)) throw new Error("This field has no range");
-        const proposal = recordChoiceWhere(this.config.indexes, this.readState().where, field,
+        // A scope that holds no value holds no row, and so no extent.
+        if (this.unread) return none;
+        const proposal = recordChoiceWhere(this.config, this.readState().where, field,
             variant("range", { from: "", to: "" }));
         if (proposal === null) return none;
         const index = recordPlanIndex(this.config.indexes, proposal);
@@ -442,6 +571,8 @@ export class RecordSliceController {
         if (this.source.withinAll === undefined || this.source.rowsAll === undefined) return undefined;
         if (ids.length === 0) return some(new Map());
         const plan = this.plan(where);
+        // A narrowing that holds no row holds none of these.
+        if (plan.empty === true) return some(new Map(ids.map(id => [id, false] as const)));
         // The runs and the rows are asked in the one pass, never one after the other.
         const runs = this.windows.resolve(plan);
         const asked = this.rowsAsked(plan.index, ids, held);
@@ -486,6 +617,8 @@ export class RecordSliceController {
     /** An entry's membership, its row read or held: the row read once, its maintained keys sought. */
     private membership(where: Where, id: string, readRow: () => option<option<Uint8Array>>): option<boolean> {
         const plan = this.plan(where);
+        // A narrowing that holds no row holds no entry, whatever the record holds.
+        if (plan.empty === true) return some(false);
         const runs = this.windows.resolve(plan);
         const row = readRow();
         if (runs.type === "none" || row.type === "none") return none;
@@ -510,7 +643,7 @@ export class RecordSliceController {
      * Where a narrowing's rows sit in the record (#1349): how many of them each
      * record segment holds, read from the index alone, as far as they are
      * placed. With no narrowing every row is the record's own, and there is
-     * nothing to place.
+     * nothing to place. A narrowing that holds no row (#1621) places none.
      *
      * @param where - The narrowing; the one the Slice holds when absent
      * @returns The placement so far, or none while the narrowing's bounds or its first window are pending
@@ -518,7 +651,7 @@ export class RecordSliceController {
      */
     place(where: Where = this.readState().where): option<RecordSlicePlacement> {
         const plan = this.plan(where);
-        if (plan.queries.length === 0) throw new Error("A placement places a narrowing's rows, and nothing narrows this record");
+        if (plan.queries.length === 0 && plan.empty !== true) throw new Error("A placement places a narrowing's rows, and nothing narrows this record");
         return this.windows.place(plan);
     }
 
@@ -535,7 +668,8 @@ export class RecordSliceController {
      */
     within(where: Where, rows: readonly { key: unknown; row: unknown }[]): option<boolean[]> {
         const plan = this.plan(where);
-        // No narrowing holds every row.
+        // A narrowing that holds no row holds none of these; no narrowing holds every row.
+        if (plan.empty === true) return some(rows.map(() => false));
         if (plan.queries.length === 0) return some(rows.map(() => true));
         return this.held(plan, this.entriesOf(plan.index, rows), rows.length);
     }
@@ -557,6 +691,8 @@ export class RecordSliceController {
      */
     position(where: Where, key: unknown, row: unknown): option<bigint | null> {
         const plan = this.plan(where);
+        // A narrowing that holds no row holds this one nowhere.
+        if (plan.empty === true) return some(null);
         const keys = plan.index === "primary" ? [this.printKey(key)] : this.source.entryKeys(plan.index, key, row);
         let run: { row: bigint; count: bigint } | undefined;
         let pending = false;
@@ -582,6 +718,199 @@ export class RecordSliceController {
             else high = middle;
         }
         return some(low);
+    }
+
+    /**
+     * The index a scoped source's rows are read in their keys' order through (#1621): the one on exactly the scope's
+     * fields ({@link recordScopeSearchIndex}), which the record Slice's bind requires of a scoped source.
+     * @returns The index; `undefined` on a page with no scope
+     * @throws {Error} When the source lists none, naming the one to declare
+     */
+    private scopeIndex(): Config["indexes"][number] | undefined {
+        const scoped = [...this.config.scope.keys()];
+        if (scoped.length === 0) return undefined;
+        const index = recordScopeSearchIndex(this.config.indexes, scoped);
+        if (index === undefined) {
+            throw new Error(`Search Records finds a row among the page's scope by its key, through an index on exactly the scope's fields — ` +
+                `by_${scoped.join("_")}: index.on([${scoped.map(name => JSON.stringify(name)).join(", ")}]) among the record's indexes, listed in Data.bindPaged's indexes`);
+        }
+        return index;
+    }
+
+    /**
+     * The plan the rows a page holds of its source are read by (#1621): with no scope, the record's own, in its order;
+     * on a scoped page, the scope's, through the index on exactly its fields, so they run in their keys' order under
+     * each of the scope's values — the order its Search Records seeks them in.
+     */
+    private basePlan(): RecordSlicePlan {
+        if (this.basePlanned !== undefined) return this.basePlanned;
+        const index = this.scopeIndex();
+        const plan = index === undefined ? this.plan(new Map())
+            : this.unread ? { index: index.name, queries: [], empty: true as const }
+                : planRecordSlice([index], this.base, this.source.defaultIndex, undefined, this.printOn)!;
+        this.basePlanned = plan;
+        return plan;
+    }
+
+    /**
+     * A window of the rows a page holds of its source, in their order (#1621): the record's own, with no scope; the
+     * scope's, in their keys' order under each of its values. What a builder's Search Records lists its matches from,
+     * by the places {@link keySearch} gives them.
+     * @param offset - The window's first row, among the page's rows
+     * @param limit - How many rows it holds at most
+     * @returns The window's entries, in order; none while pending
+     */
+    basePage(offset: bigint, limit: bigint): option<RecordSliceEntry[]> {
+        return this.windows.page(this.basePlan(), offset, limit);
+    }
+
+    /**
+     * Which of the rows a page holds of its source `[offset, offset + limit)`, in their order, a narrowing holds
+     * (#1621): {@link withinAt} over those rows — the scope's, on a scoped page — rather than the record's own.
+     * @param where - The narrowing
+     * @param offset - The first row, among the page's rows
+     * @param limit - How many rows
+     * @returns Whether the narrowing holds each row read, in order; none while the rows or the read are pending
+     * @throws {Error} When the binding reads the rows without joining them, or reads no memberships
+     */
+    baseWithinAt(where: Where, offset: bigint, limit: bigint): option<boolean[]> {
+        return this.withinOver(this.basePlan(), where, offset, limit);
+    }
+
+    /**
+     * Where a narrowing's rows sit among the rows a page holds of its source (#1621), as far as they are placed: what a
+     * reader that lays them out among the page's rows reads — the Sheet's lens — as {@link place} places them in the
+     * record. With no scope the page's rows are the record's own, and this is {@link place}. On a scoped page they run
+     * value by value of the scope, each value's in their keys' order, which is the record's: each value's rows are
+     * placed in the record, and the narrowing's rows of that value beside them, so each record segment that holds some
+     * of the narrowing's is one stretch of the page's rows — the value's rows it holds, after those the segments before
+     * it hold. A value's stretches are given once its own rows are all placed; until then its matches are unplaced.
+     *
+     * @param where - The narrowing, the page's scope with it; the one the Slice holds when absent
+     * @returns The placement so far, its segments and its row count the page's rows'; none while a read is pending
+     * @throws {Error} When nothing but the page's scope narrows its rows, or the binding reads no placements
+     */
+    basePlace(where: Where = this.readState().where): option<RecordSlicePlacement> {
+        const index = this.scopeIndex();
+        if (index === undefined) return this.place(where);
+        const choices = recordChoicesOf(this.config.scope, where);
+        if (choices.size === 0) throw new Error("A placement places a narrowing's rows among the page's, and nothing but the page's scope narrows them");
+        const base = this.basePlan();
+        // A scope that holds no value holds no row of the page's to place a narrowing's among.
+        if (base.empty === true) return some({ segments: [], placed: 0n, total: 0n, records: 0n, complete: true });
+        const runs = this.windows.resolve(base);
+        if (runs.type === "none") return none;
+        const { blocks, pending: unbound } = this.scopeBlocks(index, runs.value.runs);
+        const segments: RecordSlicePlacedSegment[] = [];
+        let pending = unbound;
+        let complete = true;
+        let placed = 0n;
+        let total = 0n;
+        for (const block of blocks) {
+            const own = this.windows.place(block.plan);
+            const chosen = this.place(recordScopedWhere(block.where, choices));
+            if (own.type === "none" || chosen.type === "none") { pending = true; continue; }
+            total += chosen.value.total;
+            // Where the value's stretches start is the rows of it each record segment before them holds: all of them placed.
+            if (!own.value.complete) { complete = false; continue; }
+            complete &&= chosen.value.complete;
+            placed += chosen.value.placed;
+            const matches = new Map(chosen.value.segments.map((segment) => [segment.offset, segment.rows] as const));
+            let at = block.offset;
+            for (const segment of own.value.segments) {
+                const rows = matches.get(segment.offset) ?? 0n;
+                if (rows > 0n) segments.push({ offset: at, count: segment.rows, rows });
+                at += segment.rows;
+            }
+        }
+        if (pending) return none;
+        segments.sort((a, b) => (a.offset < b.offset ? -1 : a.offset > b.offset ? 1 : 0));
+        return some({ segments, placed, total, records: runs.value.total, complete });
+    }
+
+    /**
+     * Where a key query over the record's primary key lands among the rows a page holds of its source (#1621): what
+     * each builder's Search Records seeks. With no scope, in the record's own order: one block, as a seek with no
+     * narrowing places it. On a scoped page, among the scope's rows ({@link basePage}): through the index on exactly
+     * the scope's fields, the query restated as one range of the primary key's leaves ({@link keyQueryRange}) after
+     * the literals of each of the scope's values — one block a value that holds a match, each placed after the rows
+     * of the values before it. A scope's field is one a narrowing chooses (a primitive, a variant of unit cases, or
+     * an Option of one, held whole or in a Set), so each of its values is one leaf of the index's key.
+     * @param query - The key query, as a Search Records box makes it: over the record's primary key
+     * @returns Each block of matches, in the page's rows' order; none while a read is pending
+     * @throws {Error} When the source lists no index on exactly its scope's fields, or the query's leading parts are
+     *   exact and East writes no value after the last of them, naming the part ({@link keyQueryRange})
+     */
+    keySearch(query: DatasetKeyQuery): option<Range[]> {
+        const index = this.scopeIndex();
+        if (index === undefined) {
+            const found = this.windows.seek(this.plan(new Map()), toSeekQuery(query));
+            return found.type === "none" ? none : some(found.value.found ? [found.value] : []);
+        }
+        const base = this.basePlan();
+        if (base.empty === true) return some([]);
+        const runs = this.windows.resolve(base);
+        if (runs.type === "none") return none;
+        const range = keyQueryRange(toEastTypeValue(this.primaryKey), query);
+        if (range === null) return some([]);
+        const { blocks: values, pending: unbound } = this.scopeBlocks(index, runs.value.runs);
+        const blocks: Range[] = [];
+        let pending = unbound;
+        for (const value of values) {
+            // Sought among the value's own rows: a range open at its end is held to them.
+            const to = range.to === undefined ? [] : [...value.values, ...range.to];
+            const found = this.windows.seek(value.plan, variant("range", { from: [...value.values, ...range.from], to }));
+            if (found.type === "none") { pending = true; continue; }
+            let at = found.value;
+            if (range.exact !== undefined && at.count > 0n) {
+                // A key with no value after it to write: the first row at or past it is it, or no row is.
+                const first = this.windows.page(value.plan, at.row, 1n);
+                if (first.type === "none") { pending = true; continue; }
+                const entry = first.value[0];
+                at = entry !== undefined && equalFor(this.primaryKey)(entry.key, range.exact) ? { found: true, row: at.row, count: 1n } : { found: false, row: at.row, count: 0n };
+            }
+            if (at.count === 0n) continue;
+            blocks.push({ found: true, row: value.offset + at.row, count: at.count });
+        }
+        if (pending) return none;
+        blocks.sort((a, b) => (a.row < b.row ? -1 : a.row > b.row ? 1 : 0));
+        return some(blocks);
+    }
+
+    /**
+     * Each of the scope's values that holds rows, as the page's rows hold them (#1621): its rows read alone, through the
+     * index on exactly the scope's fields, and placed after the rows of every value before it in the index's order.
+     * What {@link keySearch} seeks within and {@link basePlace} places by.
+     * @param index - The index on exactly the scope's fields
+     * @param runs - The page's rows' runs of that index: one a value that holds rows
+     * @returns The values whose bounds have landed, and whether any value's are still pending
+     */
+    private scopeBlocks(index: Config["indexes"][number], runs: readonly Range[]): { blocks: ScopeBlock[]; pending: boolean } {
+        const blocks: ScopeBlock[] = [];
+        let pending = false;
+        for (const values of this.scopeValues(index)) {
+            const where: Where = new Map(index.fields.map((field, i) => [field, variant("values", [values[i]!])] as const));
+            const plan = planRecordSlice([index], where, this.source.defaultIndex, undefined, this.printOn)!;
+            const own = this.windows.resolve(plan);
+            if (own.type === "none") { pending = true; continue; }
+            const run = own.value.runs[0];
+            if (run === undefined) continue;
+            let offset = 0n;
+            for (const other of runs) if (other.row < run.row) offset += other.count;
+            blocks.push({ values, where, plan, offset });
+        }
+        return { blocks, pending };
+    }
+
+    /** Each of the scope's values, as the index on exactly its fields keys a run of it: its fields' literals, in their order. */
+    private scopeValues(index: Config["indexes"][number]): string[][] {
+        let combinations: string[][] = [[]];
+        for (const field of index.fields) {
+            const clause = this.config.scope.get(field);
+            const values = clause?.type === "values" ? clause.value : [];
+            combinations = combinations.flatMap(leading => values.map(value => [...leading, value]));
+        }
+        return combinations;
     }
 
     /**
@@ -623,10 +952,19 @@ export class RecordSliceController {
      * @throws {Error} When the binding reads its own rows without joining them, or reads no memberships
      */
     withinAt(where: Where, offset: bigint, limit: bigint): option<boolean[]> {
-        const page = this.windows.page(this.plan(new Map()), offset, limit);
+        return this.withinOver(this.plan(new Map()), where, offset, limit);
+    }
+
+    /**
+     * {@link withinAt} over the rows a plan reads, `[offset, offset + limit)` in its order: the record's own, or the rows a
+     * page holds of its source ({@link baseWithinAt}).
+     */
+    private withinOver(rows: RecordSlicePlan, where: Where, offset: bigint, limit: bigint): option<boolean[]> {
+        const page = this.windows.page(rows, offset, limit);
         if (page.type === "none") return none;
         const plan = this.plan(where);
-        // No narrowing holds every row.
+        // A narrowing that holds no row holds none of these; no narrowing holds every row.
+        if (plan.empty === true) return some(page.value.map(() => false));
         if (plan.queries.length === 0) return some(page.value.map(() => true));
         // The page's entries are made once, by the page read and the index: a membership asked again — every
         // evaluation that reads it while its answer is in flight — evaluates no row's maintained keys again.
@@ -649,7 +987,7 @@ export class RecordSliceController {
     /** Labels a typical exact choice would replace, for advance explanation. */
     replaces(field: string): string[] {
         const state = this.readState();
-        const where = recordChoiceWhere(this.config.indexes, state.where, field, variant("values", [""]));
+        const where = recordChoiceWhere(this.config, state.where, field, variant("values", [""]));
         if (where === null) return [];
         return this.config.fields.filter(value => state.where.has(value.fieldId) && !where.has(value.fieldId)).map(value => value.label);
     }
@@ -710,13 +1048,23 @@ export class RecordSliceController {
         if (schema.kind !== "string" || this.weighing.has(field)) throw new Error("This field does not support text search");
         const exact = this.print.get(field)!(schema.optional ? some(text) : text);
         const proposal = this.proposed(field, variant("values", [exact]));
+        // A scope that holds no value holds no row, and so no value to suggest.
+        if (this.unread) return some([]);
+        // The values found are the page's (#1621): the search reads an index that takes every scoped field before the field.
+        const scoped = [...this.config.scope.keys()];
+        const led = this.config.indexes.filter(candidate => scoped.every((name) => {
+            const at = candidate.fields.indexOf(name);
+            return at >= 0 && at < candidate.fields.indexOf(field);
+        }));
         // A prefix searches a plain index's key, where one takes the field; else a generated one's, whose leading
         // values are its key's `on` (#1432).
-        const index = recordPlanIndex(this.config.indexes.filter(candidate => !recordIndexGenerated(candidate)), proposal);
+        const index = recordPlanIndex(led.filter(candidate => !recordIndexGenerated(candidate)), proposal);
         if (index === undefined) {
-            const generated = recordPlanIndex(this.config.indexes, proposal);
+            const generated = recordPlanIndex(led, proposal);
             if (generated === undefined || !generated.fields.includes(field)) {
-                throw new Error(`Searching '${field}' reads an index led by it — by_${field}: index.on(["${field}"]) among the record's indexes, listed in Data.bindPaged's indexes`);
+                const path = [...scoped, field];
+                throw new Error(`Searching '${field}' reads an index led by ${scoped.length === 0 ? "it" : "the page's scope, then it"} — by_${path.join("_")}: ` +
+                    `index.on([${path.map(name => JSON.stringify(name)).join(", ")}]) among the record's indexes, listed in Data.bindPaged's indexes`);
             }
             return this.suggestOn(generated, field, text, proposal, schema.optional);
         }

@@ -291,14 +291,18 @@ describe("Slice.Filter — add-filter builder applies (in a Slice.Edit popover)"
         await pickOption(user, "Field", "Sessions");
         await pickOption(user, "Operator", "in");
         // Commit one tag per paste+Enter, clearing between entries — per-key
-        // typing (and back-to-back entries) race Zag's rAF input-clear under
-        // jsdom and concatenate digits (cf. the spinbutton note above).
-        const tags = screen.getByPlaceholderText("a, b, c");
+        // typing races Zag's rAF input-clear under jsdom and concatenates
+        // digits (cf. the spinbutton note above). Zag clears the input a
+        // frame after it takes a tag (`clearInputValue`), so each entry waits
+        // for that clear: on a slow runner the frame otherwise lands after
+        // the next paste, and wipes that entry.
+        const tags = screen.getByPlaceholderText("a, b, c") as HTMLInputElement;
         for (const entry of ["10", "20", "abc"]) {
             await user.click(tags);
             await user.clear(tags);
             await user.paste(entry);
             await user.keyboard("{Enter}");
+            await waitFor(() => expect(tags.value).toBe(""));
         }
         fireEvent.click(screen.getByText("Add"));
 

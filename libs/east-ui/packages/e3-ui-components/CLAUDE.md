@@ -248,6 +248,8 @@ component is not automatically a correct reference for every shared behavior.
 | Author-bound Slice and window | `src/plan/root/sources.ts`, `src/plan/root/window.ts`, `src/plan/shell/Toolbar.tsx`; e3-ui's `slicePlanChrome`, `planWindows` and `planPrintWorks` examples |
 | Drafts, validation, Save, retry, undo/redo | Shared `EditSession`, `EditHistory`, `historyToolbarItem` and `SessionBanners`; `src/shared/schedule/editing.ts` where the domain is event records; `src/shared/schedule/records.ts` for a builder over the app's own records (a minted key, a window kept at its revision, Publish after Save) |
 | Library cards/search/tabs and inspector fields | Shared Library, Fields and FieldForm; existing builder integrations |
+| Search Records: a builder's toolbar key search over its records | `src/shared/schedule/search-records.ts` (`useSearchRecords`: one engine that seeks, lists and picks, its rules held in `search-records.test.ts`); a builder's `find.ts` — the Sheet's `use-jumps.ts` — names its sources, what a found row reads as, its line's words and what a pick does |
+| A page's scope (#1621): the rows a page holds, the viewer's choices among them, whether a builder holds a kind whole | east-ui's `platform/slice/record-plan.ts` (`recordSliceBase`, `recordSliceScoped`, `recordSliceChoices`, `recordSliceChoicesOf`, `recordSliceChosen`, `recordSliceScopedWhere`, held in `record-needs.spec.ts`); `src/shared/schedule/unheld.ts` (`sourceUnheld`) and `words.ts` (`unheldByScopeText`, `dimmedWords`), each with its test. A renderer never reads a source's `config.scope` |
 | Drag targets, keyboard drag, ghosts and cancellation | `east-ui-components/src/dnd/` |
 | A part's own pointers, off the drag layer: a canvas that pans and pinches, a lane drawn on, a drag a part draws itself | `east-ui-components/src/pointer/` (`useSurfaceGestures`, `followPointer`, `./internal`); below, "A part's own pointers"; the Schematic's canvas, `src/schematic/canvas/CLAUDE.md` invariants 33 and 34 |
 | Typography, icons and visual states | `east-ui-components/src/theme/text-styles.ts`, slot recipes, `theme/icon-size.ts` |
@@ -437,11 +439,13 @@ with one popup and normal keyboard focus return. Never copy another control
 family into a builder.
 
 Trace every choice to the source. Plan pages its `rows` source and reads each
-event kind through its own (#1344), the Sheet draws its `rows` source's
-narrowing over the record's rows as the lens (#1349: e3 places the narrowing's
-rows from the index, `recordSlicePlace`, and the lens reads the segments that
-hold them near the view, a page and one `recordSliceWithinAt` each, never a
-segment with no match) and the Flowchart reads its states and
+event kind through its own (#1344), the Sheet draws its viewer's narrowing
+over the rows its page holds — the record's, or on a scoped page the scope's
+alone, numbered 1 to N (#1621) — as the lens (#1349: e3 places the narrowing's
+rows among them from the index, `recordSliceBasePlace`, and the lens reads the
+segments that hold them near the view, a page and one
+`recordSliceBaseWithinAt` each, never a segment with no match) and the
+Flowchart reads its states and
 transitions complete through their sources (#1502), Calendar event kinds read its interval queries, the
 Roster and the Allocation read their period's events through their kind's
 source, the period their navigation writes into it
@@ -461,6 +465,24 @@ events by key`, each builder's message table (`messages.ts`) — and, where
 nothing matches, where a bin's key is, or to search by an event's key. It
 lists the rows a query finds wherever they are — read through the source by their place, never only what is
 drawn.
+
+One engine does it for every builder (`shared/schedule/search-records.ts`'
+`useSearchRecords`, its rules held in `search-records.test.ts`, on e3): it
+seeks each source — through e3 in its record, a block of matches for each
+value of a page's scope (#1621), a host's paged source by its own `seek`, or
+among rows held whole, by their keys at their key type — lists the matches as
+one list, a row keeping its place, asks which of a list's rows the narrowing
+hides through each source's hidden pick, and hands the builder the latest
+pick alone: a newer pick, a new query or a clear leaves one on its way
+behind, and a query asked again leaves it standing. A pick reads its row
+again, but a row nothing can hide — a paged source's, or one of a source with
+no hidden pick — goes to a builder that takes places by its place at once,
+with nothing read (`pickPlace`, `onPickPlace`: the Sheet's, whose window is
+read where it goes). A box the builder names as another (`resetKey`) starts
+again, the last one's pick left behind. Each builder's `find.ts` — the
+Sheet's `use-jumps.ts` — names its sources, what a found row reads as, its
+line's words and what a pick does, and keeps nothing else: a rule of seeking,
+listing or picking goes in the engine, with its test.
 
 A row the rail's narrowing hides is one shared behaviour, the hidden pick
 (`shared/schedule/hidden.ts`, `hidden-pick.tsx`), in every builder's Search
@@ -487,13 +509,22 @@ write of the rail like a chip's (`clearHidden`); a clear that throws is said
 where the builder says a gesture's error, the keyboard left where it is — then
 goes to the row as the builder goes, and, once the narrowing they leave draws
 it, selects it where the builder selects it only then and hands it the
-keyboard (`usePickHandOff`). Each source's pick is read in a component of its
+keyboard (`usePickHandOff`). A row its source's page's scope does not hold
+(#1621) — a run's crew member of another press's, a draft that left the scope
+— is hidden by no choice and brought by none (`hiddenByScope`): its line says
+what it stands on is not on this page (`notOnPageText`, the noun the
+builder's own: the Calendar's resource kind, the Allocation's lane, arrival
+or resource), names no filter, and a pick clears nothing of that source.
+Each source's pick is read in a component of its
 own, in order (`HideSources`), over the one chain every builder reads its
 sources by (`each-source.tsx`, which `FollowSources` reads over too). A
 builder supplies only its own:
 
 - **The Sheet**: its `rows` source, read through its lens at the lens's
   revision (`useHidden`); the lens's jump lands the row at its row number.
+  Its box is its snapshot's: it starts afresh with each narrowing and each
+  revision of the rows (#1345). Go to issue asks the engine where its key is
+  (`useSeekPlace`), leaving the box as it is.
 - **The Allocation**: what hides a bin is what hides its row in the layout
   shown (`allocation/hidden.ts` over `table-rows.ts`' `rowHiding`) — on the
   Table its lane, its arrival or every resource it has parts on, on the
@@ -520,9 +551,10 @@ builder supplies only its own:
   the month and the agenda narrow no event by its resource, and name none.
 - **The Plan**: the source of the rows it pages, its `rows` source or a paged
   resource kind's (`plan/find.ts`, #1513): the box seeks and
-  lists the whole record as the binding reads it with no narrowing — by key
-  where it joins its rows, a lean binding by its default index — a line naming
-  what hides a row; a
+  lists the rows the page holds of the record — the record's own, or, on a
+  page whose source holds a scope, the scope's alone (#1621) — as the binding
+  reads them with no choice of the viewer's — by key where it joins its rows,
+  a lean binding by its default index — a line naming what hides a row; a
   pick asks e3 where the row stands among the narrowing's rows, from the row's
   index keys and, among rows sharing one, by halves (`recordSlicePosition`), and
   clears what hides it first where the narrowing holds none of it. The canvas

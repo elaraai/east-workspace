@@ -4,10 +4,11 @@
  */
 
 import { useCallback } from "react";
-import { none, type ValueTypeOf } from "@elaraai/east";
+import type { ValueTypeOf } from "@elaraai/east";
 import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { useTrackedEvaluation } from "@elaraai/east-ui-components";
 import type { SheetSavedView } from "./values.js";
+import { viewRowsRead } from "./view-state.js";
 
 interface Count { count: number | undefined; error?: string }
 
@@ -16,6 +17,8 @@ interface Count { count: number | undefined; error?: string }
  * the `rows` source, counted through the record's indexes — the rows the tab
  * shows — and the whole record's for All. A view that holds no `rows`
  * narrowing counts every row. Pending counts never become resident-row counts.
+ * On a scoped page (#1621) the whole is the rows its scope holds, and a view,
+ * which holds its viewer's choices alone, counts them under the scope.
  *
  * @param rows - The `rows` source's part of the sheet's slice; `undefined` with no `rows` source
  * @param views - The saved views
@@ -28,8 +31,7 @@ export function useRecordViewCounts(rows: ValueTypeOf<RecordSliceBindType> | und
         const total = rows.total();
         for (const view of views) {
             try {
-                // A saved view's narrowing, read alone: never a read by area (#1432).
-                const count = rows.countWhere({ where: view.narrowing.get("rows")?.where ?? new Map(), area: none });
+                const count = rows.countWhere(viewRowsRead(rows, view));
                 counts.set(view.id, { count: count.type === "some" ? Number(count.value) : undefined });
             } catch (error) {
                 counts.set(view.id, { count: undefined, error: error instanceof Error ? error.message : String(error) });

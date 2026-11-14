@@ -24,12 +24,14 @@
  *
  * In a toolbar's row the strip stands as tall as every control there, 28px
  * (`toolbar-row.ts`, ruled 23 Oct 2026), its segments filling it, each label
- * centred; in a popover or an inspector it keeps the spec's 25px.
+ * on a line as tall as the 26px of room inside the strip's edge, so it starts
+ * a whole number of pixels under it (#1636); in a popover or an inspector it
+ * keeps the spec's 25px.
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { coarseHitArea } from "../../style/hit-area.js";
-import { IN_TOOLBAR_ROW, TOOLBAR_CONTROL_HEIGHT } from "../toolbar-row.js";
+import { IN_TOOLBAR_ROW, TOOLBAR_CONTROL_HEIGHT, toolbarControlBox } from "../toolbar-row.js";
 
 /** A segment's tap halo, its height alone; on a coarse pointer the segment is at least 44 wide beside it. */
 const HALO = coarseHitArea({ position: true, axis: "block" }) as { position: string; _coarse: Record<string, unknown> };
@@ -66,8 +68,8 @@ export const segSlotRecipe = defineSlotRecipe({
             whiteSpace: "nowrap",
             // A segment's icon (the Allocation's Table · Timeline), before its label.
             "& [data-seg-icon]": { marginInlineEnd: "6px" },
-            // In a row, the strip's height its own: the segment fills it, its label centred.
-            [IN_TOOLBAR_ROW]: { paddingBlock: "0" },
+            // In a row, the strip's height its own: the segment fills it, its label on a line the room's height.
+            [IN_TOOLBAR_ROW]: { paddingBlock: "0", lineHeight: toolbarControlBox().lineHeight },
             ...HALO,
             _coarse: { ...HALO._coarse, minWidth: "44px" },
             // The strip's 6px corner, less its border, on the end segments.

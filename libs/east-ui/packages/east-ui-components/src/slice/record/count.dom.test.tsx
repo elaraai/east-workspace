@@ -26,7 +26,7 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 function fixture() {
     initializeStore(new UIStore());
     const config = decodeBeast2For(RecordSliceConfigType)(encodeBeast2For(RecordSliceConfigType)({
-        fields: [], indexes: [], range: none, search: [], presets: [],
+        fields: [], indexes: [], range: none, search: [], presets: [], scope: new Map(),
     }));
     const key = "record.count";
     const encode = encodeBeast2For(RecordSliceStateType);

@@ -77,7 +77,7 @@ export function setRecordSliceWindow(slice: Bind, min: number, max: number): voi
     const literal = (value: number) => printRecordChoice(field, field.kind === "datetime" ? new Date(value)
         : field.kind === "integer" ? BigInt(Math.round(value)) : value);
     const state = slice.read();
-    const where = recordChoiceWhere(slice.config.indexes, state.where, field.fieldId,
+    const where = recordChoiceWhere(slice.config, state.where, field.fieldId,
         variant("range", { from: literal(min), to: literal(max) }));
     if (where === null) throw new Error("Choose a preceding field before changing this range");
     slice.write({ ...state, where, preset: presetHolds(slice, state, where, field.fieldId) ? state.preset : none });
@@ -97,7 +97,7 @@ export function recordSliceWindowFits(slice: Bind): boolean {
     const field = rangeField(slice);
     if (field === undefined) return false;
     const state = slice.read();
-    const where = recordChoiceWhere(slice.config.indexes, state.where, field.fieldId, variant("range", { from: "", to: "" }));
+    const where = recordChoiceWhere(slice.config, state.where, field.fieldId, variant("range", { from: "", to: "" }));
     if (where === null) return false;
     for (const [id] of state.where) if (!stringEqual(id, field.fieldId) && !where.has(id)) return false;
     return true;

@@ -25,8 +25,9 @@
  *   readable and selectable, no record taking an edit until the new rows land;
  *   and a read that fails is said once on the canvas, in a box at its top-left
  *   with Retry, as the footer's loading line says it (R5). Under `narrowed:
- *   "dim"` every row is read and what the rail leaves out is drawn dimmed, its
- *   keys the source's shown keys (`FollowSources`);
+ *   "dim"` every row is read — every row its page's scope holds, on a scoped
+ *   page (#1621) — and what the rail leaves out is drawn dimmed, its keys the
+ *   source's shown keys (`FollowSources`);
  * - **the details** (`details.ts`): a state's and a transition's details read
  *   as their kind is — whole, or by the keys of the rows drawn, every key in
  *   one request — in a reader of their own, counted into the flowchart's bins;
@@ -84,6 +85,7 @@ import { FollowSources, type FollowedSources } from "../shared/schedule/follow-s
 import type { SourceHiding } from "../shared/schedule/hidden.js";
 import { HideSources, useHiddenPick, type HiddenPicks, type HiddenSource } from "../shared/schedule/hidden-pick.js";
 import { draftedRow, rowCodec } from "../shared/schedule/records.js";
+import { sourceUnheld } from "../shared/schedule/unheld.js";
 import { sourcePart, type KeyVisibilityWords } from "../shared/schedule/visibility.js";
 import { NARROW_WIDTH } from "../shared/schedule/window.js";
 import { kindPlural } from "../shared/schedule/words.js";
@@ -400,13 +402,13 @@ function FlowchartFrame({ value, data, attempt, readAgain, storageKey, words, no
         unqueues: editing.unqueues, wholeLaneOrders: editing.wholeLaneOrders,
         newKey: (sort, made, madeUp, minted) => editing.newKey(sort, made, madeUp, minted),
         moves: (edits) => editing.moves(edits),
-        // A state or a transition the rail narrows reads only its narrowing, under `"hide"`; under `"dim"` it reads every
-        // row, and a lane or a decision is read whole (#1580).
+        // A state or a transition is read through its source, which may hold only some of its rows (`sourceUnheld`: its
+        // page's scope, #1621, or the rail's filters, which under `"dim"` leave none out); a lane or a decision is read
+        // whole (#1580).
         unheld: (sort) => {
             if (!editing.editable(sort)) return undefined;
-            const narrows = (sort === "states" || sort === "transitions") && value.narrowed.type !== "dim";
-            if (narrows && (sourcePart(chrome, sort)?.read().where.size ?? 0) > 0) return "filtered";
-            return editing.available(sort) ? undefined : "busy";
+            const part = sort === "states" || sort === "transitions" ? sourcePart(chrome, sort) : undefined;
+            return sourceUnheld(part, value.narrowed.type === "dim") ?? (editing.available(sort) ? undefined : "busy");
         },
         created: (sort, key) => editing.drafts[sort].get(key)?.created === true,
     }), [model, drafted, editing, value.narrowed, chrome]);

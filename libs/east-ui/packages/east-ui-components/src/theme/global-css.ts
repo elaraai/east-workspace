@@ -50,6 +50,7 @@ import { defineGlobalStyles, type SystemStyleObject } from "@chakra-ui/react";
 import { faBan } from "@fortawesome/free-solid-svg-icons";
 import { headingStyles } from "./text-styles.js";
 import { iconMask } from "./icon-mask.js";
+import { oneLineBox } from "./one-line-box.js";
 import { TOUCH_FONT_FLOOR } from "./field-chrome.js";
 
 /* Reduced-motion reset. Built via `Record<string, SystemStyleObject>` and
@@ -190,18 +191,19 @@ export const globalCss = defineGlobalStyles({
 
     /* A bare <kbd> is the design system's key cap (parts-kbd-avatar): 20px
      * tall, mono 11 / 500 in `--ink-2`, case kept, on `--paper-2` in a 1px
-     * `--rule-strong` ring — flat, no shadow. */
+     * `--rule-strong` ring — flat, no shadow. Its key is set on the 18px of
+     * room inside the ring, so it starts a whole number of pixels under it
+     * (#1636). */
     "kbd": {
         display: "inline-flex",
         alignItems: "center",
         justifyContent: "center",
-        height: "20px",
+        ...oneLineBox(20),
         minWidth: "20px",
         paddingInline: "{spacing.1}",
         fontFamily: "mono",
         fontSize: "{fontSizes.label.lg}",
         fontWeight: "{fontWeights.medium}",
-        lineHeight: "1",
         background: "bg.canvas",
         borderWidth: "1px",
         borderColor: "border.strong",

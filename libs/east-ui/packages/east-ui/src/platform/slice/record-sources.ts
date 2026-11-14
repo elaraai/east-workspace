@@ -75,7 +75,7 @@ export type RecordSlicesHandle<S> = ExprType<ReturnType<typeof RecordSlicesHandl
  * every source's narrowing at once; a source it does not name is cleared.
  *
  * @param key - Stable UI state key.
- * @param parts - Each source by name: an indexed binding (`Data.bindPaged(record, { indexes })`), how the rail names it (`label`, `icon`), and its fields, range, search and initial narrowing.
+ * @param parts - Each source by name: an indexed binding (`Data.bindPaged(record, { indexes })`), how the rail names it (`label`, `icon`), its fields, range, search and initial narrowing, and the scope its page holds (`scope`, #1621), which the product's Clear all and its presets leave as it is.
  * @param options - Presets over the sources.
  * @returns A serializable handle with each source's typed narrowed data.
  * @throws {Error} When there is no source, a preset repeats, a preset names a source the Slice lacks, a part declares its own presets, a label is empty or an icon is not a Font Awesome solid one; and as `Slice.bindRecord` refuses a part, naming its source

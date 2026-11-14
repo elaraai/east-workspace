@@ -8,9 +8,12 @@
  * past the cap counted none of, never 0 — and the hidden pick's words for a
  * row the rail's narrowing hides (`hidden.ts`): what a builder's message table
  * gives its line ({@link HiddenWords}) and their English — hidden by the
- * choices, or dimmed by them where the narrowing draws the row as context —
- * here, with no DOM to load, so a builder's message table that says them loads
- * with none.
+ * choices, or dimmed by them where the narrowing draws the row as context
+ * ({@link dimmedWords}), or not on this page, where its page's scope does not
+ * hold what it stands on ({@link notOnPageText}) — and what a refusal says of
+ * a kind its page's scope holds only some rows of ({@link unheldByScopeText})
+ * — here, with no DOM to load, so a builder's message table that says them
+ * loads with none.
  *
  * @packageDocumentation
  */
@@ -91,6 +94,12 @@ export interface HiddenWords {
      * Status: Ready — picking it clears that filter` ({@link hiddenByText} in English).
      */
     readonly hiddenBy: (p: { readonly filters: readonly string[]; readonly also: readonly string[] }) => string;
+    /**
+     * Of a row that stands on one its page's scope does not hold (#1621): what it stands on is not on this page — `its
+     * crew is not on this page` — after what the viewer's choices hide of it, where they hide it too (`hidden`). A
+     * table that words none says the shared English ({@link notOnPageText}).
+     */
+    readonly notOnPage?: ((p: { readonly what: readonly string[]; readonly hidden: string | undefined }) => string) | undefined;
 }
 
 /**
@@ -110,4 +119,60 @@ export function hiddenByText(filters: readonly string[], also: readonly string[]
     const one = filters.length === 1;
     const extra = also.length === 0 ? "" : `, and ${also.join("; ")} with ${one ? "it" : "them"}`;
     return `${verb} by ${filters.join("; ")} — picking it clears ${one ? "that filter" : "those filters"}${extra}`;
+}
+
+/**
+ * The English of a row that stands on one its page's scope does not hold
+ * (#1621): `not on this page` of the row itself; `its crew is not on this
+ * page` of what it stands on, as the builder names it; and after the choices
+ * that hide it too, `hidden by Status: Ready — picking it clears that filter;
+ * its crew is not on this page`. A scope is no choice of the viewer's: the
+ * words name no filter of it, and nothing a pick clears.
+ *
+ * @param what - What the row stands on that the page does not hold, as running text names it; none for the row itself
+ * @param hidden - What the viewer's choices hide of it, as its line says it ({@link hiddenByText}); `undefined` where none does
+ * @returns The words
+ */
+export function notOnPageText(what: readonly string[], hidden?: string): string {
+    const off = what.length === 0 ? "not on this page" : `its ${joinedWords(what, "and")} ${what.length === 1 ? "is" : "are"} not on this page`;
+    return hidden === undefined ? off : `${hidden}; ${off}`;
+}
+
+/**
+ * A builder's words for a row a narrowing draws as context where it leaves it
+ * out (`narrowed="dim"`), as its message table holds them beside its
+ * {@link HiddenWords}.
+ */
+export interface DimmedWords {
+    /** Until e3 has said which choices dim it — `dimmed by the filters`. */
+    readonly dimmedByFilters: HiddenWords["hiddenByFilters"];
+    /** Once it has: the choices that dim it, and those a pick clears with them — `dimmed by Status: Ready — …`. */
+    readonly dimmedBy: HiddenWords["hiddenBy"];
+}
+
+/**
+ * The words a line names the choices that leave a row out in, where the
+ * narrowing draws what it leaves out as context (`narrowed="dim"`): they dim
+ * it, never hide it. What a builder that dims gives the hidden pick's line
+ * (`hidden.ts`' `hiddenLine`) in place of its hidden words.
+ *
+ * @param m - The builder's message table
+ * @returns Its dimmed words, as the hidden pick's line takes them
+ */
+export function dimmedWords(m: DimmedWords): HiddenWords {
+    return { hiddenByFilters: m.dimmedByFilters, hiddenBy: m.dimmedBy };
+}
+
+/**
+ * Why a row isn't changed where a kind that may name it is one its page's
+ * scope holds only some rows of (#1621), as a builder's refusal says it after
+ * the row's name: `this page holds only some transitions, and one it does not
+ * may name it — edit it where they are all held`. A scope is no choice of the
+ * viewer's, so the words name no Clear: they say where the edit can be made.
+ *
+ * @param kinds - The kind's name in the plural, as running text writes it
+ * @returns The clause
+ */
+export function unheldByScopeText(kinds: string): string {
+    return `this page holds only some ${kinds}, and one it does not may name it — edit it where they are all held`;
 }

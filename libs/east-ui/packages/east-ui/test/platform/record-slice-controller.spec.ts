@@ -6,10 +6,15 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-    DateTimeType, IntegerType, OptionType, SetType, StringType, StructType, decodeBeast2For, encodeBeast2For, equalFor, none, parseFor, printFor, some, variant,
-    type ValueTypeOf,
+    BooleanType, DateTimeType, IntegerType, OptionType, SetType, StringType, StructType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, isFrozenValue,
+    none, parseFor, printFor, some, toEastTypeValue, variant,
+    type EastType, type ValueTypeOf,
 } from "@elaraai/east";
-import { RecordSliceConfigType, RecordSliceStateType, RecordSliceChoiceType, RecordSliceController, type RecordSliceBinding } from "@elaraai/east-ui/internal";
+import {
+    RecordSliceConfigType, RecordSliceStateType, RecordSliceChoiceType, RecordSliceController, findKeyInline,
+    type DatasetKeyQuery, type RecordSliceBinding, type RecordSlicePlacement, type SeekQueryValue,
+} from "@elaraai/east-ui/internal";
+import { queriesOf } from "../collections/key-queries.js";
 
 const Config = RecordSliceConfigType;
 const config = decodeBeast2For(Config)(encodeBeast2For(Config)({
@@ -20,10 +25,22 @@ const config = decodeBeast2For(Config)(encodeBeast2For(Config)({
         { fieldId: "due", label: "Due", kind: "integer", optional: true, multiple: true, set: false, values: [{ value: ".none", label: "Unset" }], format: none },
     ],
     indexes: [{ name: "by_status_due", fields: ["status", "due"], sets: new Set(), structured: true, interval: none, area: none, series: none, summary: none, entries: false }],
-    range: some("due"), search: ["status"], presets: [],
+    range: some("due"), search: ["status"], presets: [], scope: new Map(),
 }));
 const Row = StructType({ status: StringType, due: OptionType(IntegerType) });
 const values = (...v: string[]) => variant("values", v);
+type Choice = ValueTypeOf<RecordSliceChoiceType>;
+const sameChoice = equalFor(RecordSliceChoiceType);
+const encodeState = encodeBeast2For(RecordSliceStateType);
+/** A state as the record Slice's runtime keeps it: its bytes, read back as a frozen East value. */
+const frozenState = decodeBeast2For(RecordSliceStateType, { frozen: true });
+/** Whether a narrowing holds exactly these choices, field by field. */
+function holds(actual: ReadonlyMap<string, Choice>, expected: readonly (readonly [string, Choice])[]): boolean {
+    return actual.size === expected.length && expected.every(([field, choice]) => {
+        const held = actual.get(field);
+        return held !== undefined && sameChoice(held, choice);
+    });
+}
 /** An Integer read from its East text. */
 function parseInteger(text: string): bigint {
     const read = parseFor(IntegerType)(text);
@@ -40,8 +57,10 @@ function state(): ValueTypeOf<RecordSliceStateType> {
 }
 
 // Two trillion-entry runs, almost all unset. A boundary query must jump over
-// the unset range; iterating entries would never complete this fixture.
-function fixture() {
+// the unset range; iterating entries would never complete this fixture. Given a
+// scope, it is a page that holds those fields (#1621): the rail offers the
+// others, and the store starts with no choice.
+function fixture(scope?: ReadonlyMap<string, Choice>) {
     const size = 1_000_000_000_000n;
     const pages: { offset: bigint; limit: bigint }[] = [];
     let pending = false;
@@ -69,8 +88,11 @@ function fixture() {
             return some([{ ik: variant("by_status_due", { status: late ? "late" : "held", due }) }]);
         },
     };
-    let current = state();
-    const controller = new RecordSliceController(binding, config, Row, () => current, next => { current = next; });
+    const paged = scope === undefined ? config
+        : { ...config, fields: config.fields.filter(field => !scope.has(field.fieldId)), search: [], scope: new Map(scope) };
+    let current = scope === undefined ? state()
+        : decodeBeast2For(RecordSliceStateType)(encodeBeast2For(RecordSliceStateType)({ where: new Map(), preset: none, resolution: none }));
+    const controller = new RecordSliceController(binding, paged, Row, () => current, next => { current = next; });
     return { controller, pages, pending(value: boolean) { pending = value; }, failed(value: boolean) { failed = value; }, move() { revision = "B"; } };
 }
 
@@ -116,7 +138,7 @@ function intervals() {
             name: "jobs_by_press_time", fields: ["press"], sets: new Set(), structured: true,
             interval: some({ from: "start", to: "end", optional: true }), area: none, series: none, summary: none, entries: false,
         }],
-        range: some("start"), search: [], presets: [],
+        range: some("start"), search: [], presets: [], scope: new Map(),
     }));
     const Key = StructType({ on: StructType({ press: StringType }), node: IntegerType, at: OptionType(DateTimeType) });
     const instant = (text: string): Date => {
@@ -181,7 +203,7 @@ test("a field named `area`, `__area`, `tile` or `__tile` is offered, chosen and 
         fields: names.map(name => ({ fieldId: name, label: name, kind: "string", optional: false, multiple: true, set: false,
             values: [{ value: '"a"', label: "A" }, { value: '"b"', label: "B" }], format: none })),
         indexes: names.map(name => ({ name: `by_${name}`, fields: [name], sets: new Set<string>(), structured: false, interval: none, area: none, series: none, summary: none, entries: false })),
-        range: none, search: [], presets: [],
+        range: none, search: [], presets: [], scope: new Map(),
     }));
     // Each field's index files its `a` rows first, as many as its place among the names plus one, then ten `b` rows.
     const printString = printFor(StringType);
@@ -610,7 +632,7 @@ function facets() {
             { name: "by_status_region", fields: ["status", "region"], sets: new Set(), structured: true, interval: none, area: none, series: none, summary: none, entries: false },
             { name: "by_region_status", fields: ["region", "status"], sets: new Set(), structured: true, interval: none, area: none, series: none, summary: none, entries: false },
         ],
-        range: none, search: [], presets: [],
+        range: none, search: [], presets: [], scope: new Map(),
     }));
     const printString = printFor(StringType);
     // Each index's groups in its order: their keys as `.east` literals, in its fields' order, and how many rows each holds.
@@ -672,7 +694,7 @@ function services() {
             { name: "by_status", fields: ["status"], sets: new Set(), structured: false, interval: none, area: none, series: none, summary: none, entries: false },
             { name: "by_service", fields: ["byService"], sets: new Set(), structured: false, interval: none, area: none, series: none, summary: none, entries: true },
         ],
-        range: none, search: [], presets: [],
+        range: none, search: [], presets: [], scope: new Map(),
     }));
     const printString = printFor(StringType);
     const held: readonly (readonly [string, bigint])[] = [["Economy", 1n], ["Priority", 2n], ["Standard", 4n]];
@@ -722,4 +744,621 @@ test("an entries field's keys each count the stations holding them, whatever els
     assert.deepEqual([...where().keys()], ["byService"], "the status cleared, the picks kept");
     controller.choose("byService", undefined);
     assert.equal(where().size, 0);
+});
+
+/**
+ * A press's page (#1621): 26 jobs by press and status — P-1 holds 3 held and 5 late, P-2 7 held and 11 late — the page's
+ * scope its press unless the test gives another, and the rail's one field the status. The record is indexed by press
+ * then status unless the test lists other indexes; each search is answered from those groups in its index's order,
+ * and kept as it was asked.
+ */
+function pressPage(options: { scope?: readonly (readonly [string, Choice])[]; indexes?: readonly string[]; row?: StructType } = {}) {
+    const config = decodeBeast2For(Config)(encodeBeast2For(Config)({
+        fields: [
+            { fieldId: "status", label: "Status", kind: "string", optional: false, multiple: true, set: false, values: [
+                { value: '"held"', label: "Held" }, { value: '"late"', label: "Late" },
+            ], format: none },
+        ],
+        indexes: (options.indexes ?? ["by_press_status"]).map(name => ({
+            name, fields: name.slice(3).split("_"), sets: new Set<string>(), structured: true, interval: none, area: none, series: none, summary: none, entries: false,
+        })),
+        range: none, search: ["status"],
+        presets: [{ id: "late", name: "Late", where: new Map([["status", values('"late"')]]) }],
+        scope: new Map(options.scope ?? [["press", values('"P-1"')]]),
+    }));
+    const printString = printFor(StringType);
+    type Group = { readonly press: string; readonly status: string; readonly count: bigint };
+    const ordered: Readonly<Record<string, readonly Group[]>> = {
+        by_press_status: [
+            { press: "P-1", status: "held", count: 3n }, { press: "P-1", status: "late", count: 5n },
+            { press: "P-2", status: "held", count: 7n }, { press: "P-2", status: "late", count: 11n },
+        ],
+        by_status_press: [
+            { press: "P-1", status: "held", count: 3n }, { press: "P-2", status: "held", count: 7n },
+            { press: "P-1", status: "late", count: 5n }, { press: "P-2", status: "late", count: 11n },
+        ],
+    };
+    const seeks: string[] = [];
+    const pages: bigint[] = [];
+    const binding: RecordSliceBinding = {
+        id: "jobs", recordId: "jobs", defaultIndex: "primary", revision: () => some("A"), refresh: () => null,
+        total: () => some(26n), entryKeys: () => [],
+        seek(index, query) {
+            // A search by its leading fields, with a prefix of the field after them or none; or by a prefix of its first.
+            const asked = query.type === "fields" ? query.value : query.type === "prefix" ? { values: [], prefix: some(query.value) } : undefined;
+            assert.ok(asked !== undefined, `a search by fields or by a prefix: ${query.type}`);
+            seeks.push([index, ...asked.values, ...(asked.prefix.type === "some" ? [`${asked.prefix.value}…`] : [])].join(" "));
+            const fields = index.slice(3).split("_") as ("press" | "status")[];
+            let row = 0n;
+            let at: bigint | undefined;
+            let count = 0n;
+            for (const held of ordered[index]!) {
+                const keys = fields.map(field => held[field]);
+                if (asked.values.every((value, i) => value === printString(keys[i]!))
+                    && (asked.prefix.type === "none" || keys[asked.values.length]!.startsWith(asked.prefix.value))) {
+                    at ??= row;
+                    count += held.count;
+                }
+                row += held.count;
+            }
+            return some({ found: count > 0n, row: at ?? row, count });
+        },
+        page(index, offset, limit) {
+            pages.push(offset);
+            assert.equal(limit, 1n, "a search reads one entry a value");
+            let row = 0n;
+            for (const held of ordered[index]!) {
+                if (offset < row + held.count) return some([{ ik: variant(index, { press: held.press, status: held.status }) }]);
+                row += held.count;
+            }
+            return some([]);
+        },
+    };
+    // The store keeps a state as the runtime keeps it: its bytes, read back as a frozen East value.
+    let current = frozenState(encodeState({ where: new Map(), preset: none, resolution: none }));
+    const controller = new RecordSliceController(binding, config, options.row ?? StructType({ press: StringType, status: StringType }),
+        () => current, next => { current = frozenState(encodeState(next)); });
+    return {
+        controller, seeks, pages,
+        /** What the store keeps. */
+        stored: () => current,
+        /** The store's bytes read again: an equal state, and another object. */
+        reread: () => { current = frozenState(encodeState(current)); },
+        /** The status's chips: each value's label, its count and whether it is chosen. */
+        chips: () => controller.values("status").map(choice => [choice.label, choice.count, choice.selected]),
+    };
+}
+const P1 = values('"P-1"');
+
+test("a scoped source's narrowing is the viewer's choices with the page's scope laid over them: the store keeps the choices alone, and its count, its chips and every search are the page's (#1621)", () => {
+    const page = pressPage();
+    const { controller } = page;
+    // Nothing chosen: every read carries the scope, and the store holds nothing.
+    assert.ok(holds(controller.readState().where, [["press", P1]]));
+    assert.equal(page.stored().where.size, 0);
+    assert.ok(Object.is(controller.readState(), controller.readState()), "the same state while the store's is the same");
+    assert.equal(controller.count().value, 8n, "the count is the page's: the press's jobs, of the record's 26");
+    assert.equal(controller.total().value, 8n, "and so is the total a count is out of: the rows the scope holds, never the record's 26");
+    assert.deepEqual(page.chips(), [["Held", some(3n), false], ["Late", some(5n), false]]);
+    // A choice on another field keeps the scope beside it.
+    const before = controller.readState();
+    controller.choose("status", values('"late"'));
+    assert.ok(holds(page.stored().where, [["status", values('"late"')]]), "the store keeps the choice alone");
+    assert.ok(holds(controller.readState().where, [["press", P1], ["status", values('"late"')]]));
+    assert.ok(!Object.is(controller.readState(), before), "another state once the store's is another");
+    assert.equal(controller.count().value, 5n);
+    assert.equal(controller.total().value, 8n, "a choice narrows the count, and the total stays the page's");
+    assert.deepEqual(page.chips(), [["Held", some(3n), false], ["Late", some(5n), true]]);
+    assert.ok(page.seeks.length > 0 && page.seeks.every(seek => seek.startsWith('by_press_status "P-1"')), `every search names the press: ${page.seeks.join("; ")}`);
+});
+
+test("a scoped source's narrowing and its config are frozen East values, which a page's East code reads and cannot change in place; the store's state read again, equal, answers the very state read before, by East's own `Is` (#1621)", () => {
+    const page = pressPage();
+    const { controller } = page;
+    const read = controller.readState();
+    assert.ok(isFrozenValue(read) && isFrozenValue(read.where), "the state the page reads, and its narrowing");
+    assert.ok(isFrozenValue(controller.config) && isFrozenValue(controller.config.scope), "the config the handle carries, and its scope");
+    assert.ok(isFrozenValue(fixture().controller.config), "an unscoped source's config as well");
+    // The store's bytes read again: an equal state, and another object.
+    page.reread();
+    assert.ok(Object.is(controller.readState(), read), "the very state read before");
+    controller.choose("status", values('"late"'));
+    const chosen = controller.readState();
+    assert.ok(!Object.is(chosen, read) && isFrozenValue(chosen), "another choice is another state, frozen as well");
+});
+
+test("Clear all and a preset leave the page's scope as it is, and no choice changes a scoped field (#1621)", () => {
+    const page = pressPage();
+    const { controller } = page;
+    controller.togglePreset("late");
+    assert.ok(holds(controller.readState().where, [["press", P1], ["status", values('"late"')]]), "a preset's narrowing stands beside the scope");
+    assert.deepEqual(controller.readState().preset, some("late"));
+    assert.ok(holds(page.stored().where, [["status", values('"late"')]]));
+    controller.clearAll();
+    assert.ok(holds(controller.readState().where, [["press", P1]]), "Clear all clears the viewer's choices, and the scope stays");
+    assert.equal(page.stored().where.size, 0);
+    controller.togglePreset("late");
+    controller.togglePreset("late");
+    assert.ok(holds(controller.readState().where, [["press", P1]]), "a preset toggled off leaves the scope too");
+    assert.deepEqual(controller.readState().preset, none);
+    // The scoped field is no field of the rail: it takes no choice, is not cleared, and offers no values.
+    const held = /'press' is held by the page's scope, which no choice changes/;
+    assert.throws(() => controller.choose("press", values('"P-2"')), held);
+    assert.throws(() => controller.choose("press", undefined), held);
+    assert.throws(() => controller.values("press"), held);
+    assert.throws(() => controller.suggest("press", "P"), held);
+    assert.ok(holds(controller.readState().where, [["press", P1]]));
+});
+
+test("a state written with the scope's own clause is kept without it; one that holds another clause for a scoped field is refused, and nothing is written (#1621)", () => {
+    const page = pressPage();
+    const { controller } = page;
+    // What the controller reads, written back with a choice added: as a saved view or a custom control writes it.
+    const read = controller.readState();
+    controller.write({ ...read, where: new Map([...read.where, ["status", values('"held"')]]) });
+    assert.ok(holds(page.stored().where, [["status", values('"held"')]]), "the scope's clause is the page's, and the store does not keep it");
+    assert.ok(holds(controller.readState().where, [["press", P1], ["status", values('"held"')]]));
+    // Another press, or another kind of clause for it: refused whole.
+    const held = /'press' is held by the page's scope, which no choice changes/;
+    assert.throws(() => controller.write({ ...read, where: new Map([["press", values('"P-2"')], ["status", values('"late"')]]) }), held);
+    assert.throws(() => controller.write({ ...read, where: new Map([["press", variant("prefix", "P")]]) }), held);
+    assert.ok(holds(page.stored().where, [["status", values('"held"')]]), "a refused write leaves the store as it was");
+    // A state that names no scoped field is the choices alone, as the store keeps them.
+    controller.write({ ...read, where: new Map() });
+    assert.equal(page.stored().where.size, 0);
+    assert.ok(holds(controller.readState().where, [["press", P1]]));
+});
+
+test("the scope's values are read at their field's type and held once each; a scope the record cannot hold is refused as the controller is made (#1621)", () => {
+    const twice = pressPage({ scope: [["press", values('"P-1"', '"P-2"', '"P-1"')]] });
+    assert.ok(holds(twice.controller.config.scope, [["press", values('"P-1"', '"P-2"')]]), "each value once, in the order given");
+    assert.equal(twice.controller.count().value, 26n);
+    assert.deepEqual(twice.seeks, ['by_press_status "P-1"', 'by_press_status "P-2"'], "a search a value");
+    assert.throws(() => pressPage({ scope: [["press", values("P-1")]] }), /The page's scope of 'press' holds a value its type does not read/);
+    assert.throws(() => pressPage({ scope: [["machine", values('"M-1"')]] }), /The page's scope names 'machine', which is no field of the record's rows or of its indexes' keys/);
+    assert.throws(() => pressPage({ scope: [["press", variant("prefix", "P")]] }), /The page's scope of 'press' is a list of exact values, and holds a prefix/);
+    // A field that fans out over a Set is read by exactly one value of it.
+    const fanned = StructType({ press: SetType(StringType), status: StringType });
+    assert.throws(() => pressPage({ row: fanned, scope: [["press", values('"P-1"', '"P-2"')]] }),
+        /The page's scope of 'press' holds 2 values, and a field that fans out over a Set is read by exactly one/);
+    assert.equal(pressPage({ row: fanned }).controller.count().value, 8n);
+});
+
+test("a scope that holds no value reads no row: the count is none of the record's, a page is empty, no row is held, and nothing is asked of the record (#1621)", () => {
+    const page = pressPage({ scope: [["press", values()]] });
+    const { controller } = page;
+    assert.equal(controller.unread, true);
+    const where = controller.readState().where;
+    assert.ok(holds(where, [["press", values()]]));
+    assert.deepEqual(controller.plan(where), { index: "primary", queries: [], empty: true });
+    assert.deepEqual(controller.count(), some(0n));
+    assert.deepEqual(controller.total(), some(0n), "the rows the page holds: none");
+    assert.deepEqual(controller.windows.page(controller.plan(where), 0n, 50n), some([]));
+    assert.deepEqual(page.chips(), [["Held", some(0n), false], ["Late", some(0n), false]]);
+    const job = { key: "J-1", row: { press: "P-1", status: "late" } };
+    assert.deepEqual(controller.within(where, [job, job]), some([false, false]));
+    assert.deepEqual(controller.position(where, job.key, job.row), some(null));
+    assert.deepEqual(controller.suggest("status", "la"), some([]));
+    // A choice still stands beside it, and still reads nothing.
+    controller.choose("status", values('"late"'));
+    assert.ok(holds(page.stored().where, [["status", values('"late"')]]));
+    assert.deepEqual(controller.count(), some(0n));
+    assert.deepEqual([page.seeks, page.pages], [[], []], "nothing is asked of the record");
+    // A narrowing that leaves the scope out is read as it is given: the record's own rows.
+    assert.equal(controller.count(new Map()).value, 26n);
+    assert.equal(pressPage().controller.unread, false);
+});
+
+test("a search suggests the page's values alone: it reads an index that takes the scope's fields before the searched one, and is refused, naming that index, where none is listed (#1621)", () => {
+    // An index led by the status is listed first, and takes an exact status beside the press: the search does not read it.
+    const page = pressPage({ indexes: ["by_status_press", "by_press_status"] });
+    const found = page.controller.suggest("status", "la");
+    assert.deepEqual(found.type === "some" ? found.value.map(choice => [choice.label, choice.count]) : found, [["late", some(5n)]]);
+    const prefixes = page.seeks.filter(seek => seek.endsWith("…"));
+    assert.deepEqual(prefixes, ['by_press_status "P-1" la…'], "the text is searched under the press");
+    assert.deepEqual(page.pages, [3n], "one entry read: the press's first late job");
+    assert.throws(() => pressPage({ indexes: ["by_status_press"] }).controller.suggest("status", "la"),
+        /Searching 'status' reads an index led by the page's scope, then it — by_press_status: index\.on\(\["press", "status"\]\) among the record's indexes/);
+});
+
+test("a range's extent on a scoped page is the page's: its boundary entries are read under the scope's values alone (#1621)", () => {
+    const { controller, pages } = fixture(new Map([["status", values('"held"')]]));
+    assert.deepEqual(controller.domain("due"), some({ from: ".some 4", to: ".some 80" }), "the held jobs' due dates, and none of the late ones'");
+    assert.equal(pages.length, 3, "one run: its first entry, its last, and its first set");
+    assert.ok(pages.every(page => page.offset < 1_000_000_000_000n), "no entry of another status is read");
+});
+
+/** A DateTime read from its East text. */
+function dateTime(text: string): Date {
+    const read = parseFor(DateTimeType)(text);
+    assert.ok(read.success, text);
+    return read.value;
+}
+
+/** A key query as the grammar writes it, from the East value a source's `seek` is asked. */
+function asKeyQuery(query: SeekQueryValue): DatasetKeyQuery {
+    switch (query.type) {
+        case "key": return { key: query.value };
+        case "prefix": return { prefix: query.value };
+        case "fields": return query.value.prefix.type === "some" ? { fields: [...query.value.values], prefix: query.value.prefix.value } : { fields: [...query.value.values] };
+        case "range": return { from: [...query.value.from], to: [...query.value.to] };
+    }
+}
+
+/**
+ * A record of jobs on presses (#1621), keyed at `keyType`, read in its own order (`primary`) and through `by_press`,
+ * whose entries run by press and then by key: each search answered as e3 answers it — through the index, the key,
+ * prefix and fields forms address its `ik`, and a range its flattened `{ik, k}` — and kept as it was asked.
+ */
+function scopedJobs(keyType: EastType, jobs: readonly { readonly press: string; readonly key: unknown }[], scope: readonly string[]) {
+    const printString = printFor(StringType);
+    const Key = toEastTypeValue(keyType);
+    const Ik = toEastTypeValue(StructType({ press: StringType }));
+    const Entry = toEastTypeValue(StructType({ ik: StructType({ press: StringType }), k: keyType }));
+    const own = jobs.map(job => job.key).sort(compareFor(Key));
+    const entries = jobs.map(job => ({ ik: { press: job.press }, k: job.key })).sort(compareFor(Entry));
+    const compareIk = compareFor(Ik);
+    /** A search of the index: of `ik` alone, a key a run of its entries; a range, of `{ik, k}`. */
+    const seekIndex = (query: SeekQueryValue) => {
+        if (query.type === "range") return findKeyInline(Entry, entries, asKeyQuery(query));
+        if (query.type !== "key") return findKeyInline(Ik, entries.map(entry => entry.ik), asKeyQuery(query));
+        const parsed = parseFor(Ik)(query.value);
+        assert.ok(parsed.success, query.value);
+        const row = entries.findIndex(entry => compareIk(entry.ik, parsed.value) >= 0);
+        const start = row === -1 ? entries.length : row;
+        let count = 0;
+        while (start + count < entries.length && compareIk(entries[start + count]!.ik, parsed.value) === 0) count++;
+        return { found: count > 0, row: start, count };
+    };
+    const asked: { readonly index: string; readonly query: SeekQueryValue }[] = [];
+    const binding: RecordSliceBinding = {
+        id: "jobs", recordId: "jobs", defaultIndex: "primary", revision: () => some("A"), refresh: () => null,
+        total: () => some(BigInt(jobs.length)), entryKeys: () => [],
+        seek(index, query) {
+            asked.push({ index, query });
+            const found = index === "primary" ? findKeyInline(Key, own, asKeyQuery(query)) : seekIndex(query);
+            return some({ found: found.count > 0, row: BigInt(found.row), count: BigInt(found.count) });
+        },
+        page(index, offset, limit) {
+            const rows = index === "primary"
+                ? own.map(key => ({ ik: variant("primary", key), key }))
+                : entries.map(entry => ({ ik: variant(index, entry.ik), key: entry.k }));
+            return some(rows.slice(Number(offset), Number(offset + limit)));
+        },
+    };
+    const config = decodeBeast2For(Config)(encodeBeast2For(Config)({
+        fields: [],
+        indexes: [{ name: "by_press", fields: ["press"], sets: new Set<string>(), structured: true, interval: none, area: none, series: none, summary: none, entries: false }],
+        range: none, search: [], presets: [],
+        scope: new Map(scope.length === 0 ? [] : [["press", values(...scope.map(press => printString(press)))]]),
+    }));
+    let current = frozenState(encodeState({ where: new Map(), preset: none, resolution: none }));
+    const controller = new RecordSliceController(binding, config, StructType({ press: StringType }),
+        () => current, next => { current = frozenState(encodeState(next)); }, keyType);
+    return { controller, asked };
+}
+
+/**
+ * What a key search of a scoped page finds: for each of the scope's values in the index's order, what a search of its
+ * rows alone finds — their keys in East's order — placed after the rows of the values before it; with no scope, what a
+ * search of every row finds.
+ */
+function searchedAlone(keyType: EastType, jobs: readonly { readonly press: string; readonly key: unknown }[], scope: readonly string[], query: DatasetKeyQuery) {
+    const Key = toEastTypeValue(keyType);
+    const samePress = equalFor(StringType);
+    const blocks: { found: boolean; row: bigint; count: bigint }[] = [];
+    let before = 0n;
+    const presses = scope.length === 0 ? [undefined] : [...scope].sort(compareFor(StringType));
+    for (const press of presses) {
+        const keys = jobs.filter(job => press === undefined || samePress(job.press, press)).map(job => job.key).sort(compareFor(Key));
+        const found = findKeyInline(Key, keys, query);
+        if (found.count > 0) blocks.push({ found: true, row: before + BigInt(found.row), count: BigInt(found.count) });
+        before += BigInt(keys.length);
+    }
+    return blocks;
+}
+
+const MAX_INTEGER = (1n << 63n) - 1n;
+/** Each key type a search of a scoped page is held at: the jobs, the page's presses, and keys of no job among the probes. */
+const SCOPED_SEARCHES: { readonly name: string; readonly keyType: EastType; readonly jobs: readonly { press: string; key: unknown }[]; readonly scope: readonly string[]; readonly misses: readonly unknown[] }[] = [
+    {
+        name: "String keys, a press of the scope holding none",
+        keyType: StringType,
+        jobs: [
+            { press: "P-1", key: "J-001" }, { press: "P-1", key: "J-002" }, { press: "P-1", key: "J-010" }, { press: "P-1", key: "J-011" },
+            { press: "P-1", key: "K-1" }, { press: "P-1", key: "\u{10FFFF}" },
+            { press: "P-2", key: "J-003" }, { press: "P-2", key: "J-012" }, { press: "P-2", key: "K-2" },
+            { press: "P-3", key: "J-004" }, { press: "P-3", key: "J-0045" }, { press: "P-3", key: "J-005" }, { press: "P-3", key: "Z" },
+        ],
+        scope: ["P-3", "P-1", "P-4"],
+        misses: ["", "J", "J-0", "J-00", "J-01", "J-006", "K", "Z\u0000", "\u{10FFFF}\u{10FFFF}"],
+    },
+    {
+        name: "Struct keys, whose leading field two presses share",
+        keyType: StructType({ line: StringType, seq: IntegerType }),
+        jobs: [
+            { press: "P-1", key: { line: "A", seq: 1n } }, { press: "P-1", key: { line: "A", seq: 2n } }, { press: "P-1", key: { line: "A", seq: MAX_INTEGER } },
+            { press: "P-1", key: { line: "AB", seq: 5n } }, { press: "P-1", key: { line: "B", seq: 0n } },
+            { press: "P-2", key: { line: "A", seq: 3n } }, { press: "P-2", key: { line: "C", seq: 1n } },
+            { press: "P-3", key: { line: "A", seq: 0n } }, { press: "P-3", key: { line: "A\u0000", seq: 1n } }, { press: "P-3", key: { line: "B", seq: -1n } },
+        ],
+        scope: ["P-1", "P-3"],
+        misses: [{ line: "A", seq: 4n }, { line: "", seq: 0n }, { line: "Z", seq: 0n }],
+    },
+    {
+        name: "Struct keys ending in a Boolean, whose last value carries",
+        keyType: StructType({ lot: StringType, rework: BooleanType }),
+        jobs: [
+            { press: "P-1", key: { lot: "L1", rework: false } }, { press: "P-1", key: { lot: "L1", rework: true } }, { press: "P-1", key: { lot: "L2", rework: true } },
+            { press: "P-2", key: { lot: "L1", rework: false } }, { press: "P-2", key: { lot: "L1\u0000", rework: false } },
+        ],
+        scope: ["P-1"],
+        misses: [{ lot: "L0", rework: true }, { lot: "L1\u0000", rework: true }],
+    },
+    {
+        name: "DateTime keys, the last instant East writes among them, an instant past it after",
+        keyType: DateTimeType,
+        jobs: [
+            { press: "P-1", key: dateTime("2024-01-01T00:00:00.000") }, { press: "P-1", key: dateTime("9999-12-31T23:59:59.999") },
+            { press: "P-1", key: new Date(Date.UTC(10000, 0, 1)) }, { press: "P-2", key: dateTime("9999-12-31T23:59:59.998") },
+        ],
+        scope: ["P-1"],
+        misses: [dateTime("2024-01-01T00:00:00.001")],
+    },
+];
+
+test("a key search of a scoped page finds, among each of the scope's values' rows in their keys' order, what a search of those rows alone finds: a block a value holding a match, after the rows of the values before it; and with no scope, what a search of every row finds (#1621)", () => {
+    for (const { name, keyType, jobs, scope, misses } of SCOPED_SEARCHES) {
+        // The keys no literal writes are among the rows, never the probes.
+        const printable = jobs.map(job => job.key).filter(key => parseFor(toEastTypeValue(keyType))(printFor(toEastTypeValue(keyType))(key as never)).success);
+        const queries = queriesOf(keyType, [...printable, ...misses]);
+        for (const page of [scope, []]) {
+            const { controller, asked } = scopedJobs(keyType, jobs, page);
+            for (const query of queries) {
+                const found = controller.keySearch(query);
+                assert.equal(found.type, "some", `${name}: ${JSON.stringify(query)} is answered at once`);
+                assert.deepEqual(found.value, searchedAlone(keyType, jobs, page, query), `${name}, scope ${JSON.stringify(page)}: ${JSON.stringify(query)}`);
+            }
+            if (page.length === 0) continue;
+            // The scoped page's searches read the index under the scope's presses alone, and never the record's own order.
+            const inScope = new Set(page.map(press => printFor(StringType)(press)));
+            assert.ok(asked.every(({ index }) => index === "by_press"), `${name}: every search reads by_press`);
+            const pressesAsked = asked.map(({ query }) => query.type === "range" ? query.value.from[0] : query.type === "fields" ? query.value.values[0] : undefined);
+            assert.ok(pressesAsked.every(press => press !== undefined && inScope.has(press)), `${name}: every search names a press of the scope`);
+        }
+    }
+});
+
+test("a key search of a scoped page East writes no end for is refused, naming the part; one no key matches finds nothing and asks nothing (#1621)", () => {
+    const Timed = StructType({ when: DateTimeType, id: StringType });
+    const { controller, asked } = scopedJobs(Timed, [{ press: "P-1", key: { when: dateTime("9999-12-31T23:59:59.999"), id: "a" } }], ["P-1"]);
+    assert.throws(() => controller.keySearch({ fields: ["9999-12-31T23:59:59.999"] }), /'when' \(DateTime\).*from\.\.to/);
+    const before = asked.length;
+    assert.deepEqual(controller.keySearch({ key: "not a key" }), some([]));
+    assert.deepEqual(controller.keySearch({ fields: ["9999-12-31T23:59:59.999", "\"a\"", "1"] }), some([]));
+    assert.equal(asked.length, before, "nothing more is asked of the record");
+});
+
+/** A run on a press, made by a crew member: a row of the record a press's page is scoped over (#1621). */
+interface PressRun { readonly key: string; readonly press: string; readonly crew: string }
+
+/** How many rows a segment of the runs' record holds. */
+const SEGMENT = 3;
+const PressRow = StructType({ press: StringType, crew: StringType });
+/** Each index of the runs' record: its key's type, and a row's key in it. */
+const PRESS_INDEXES: Readonly<Record<string, { readonly type: EastType; readonly of: (row: ValueTypeOf<typeof PressRow>) => unknown }>> = {
+    by_press: { type: StructType({ press: StringType }), of: row => ({ press: row.press }) },
+    by_press_crew: { type: StructType({ press: StringType, crew: StringType }), of: row => ({ press: row.press, crew: row.crew }) },
+};
+
+/**
+ * A record of runs on presses (#1621), its rows stored {@link SEGMENT} to a segment in their keys' order, and read
+ * through `by_press` — on exactly the scope's field, its entries by press and then by key — and `by_press_crew`, which
+ * answers a crew chosen on a press's page. Each search, page, placement and membership is answered from the entries as
+ * e3 answers it; a placement of one press's entries may be held to its first few, as e3 places a window at a time.
+ */
+function pressRuns(runs: readonly PressRun[], scope: readonly string[] | undefined) {
+    const printString = printFor(StringType);
+    const compareKey = compareFor(StringType);
+    const sameKey = equalFor(StringType);
+    const samePress = equalFor(StringType);
+    const own = [...runs].sort((a, b) => compareKey(a.key, b.key));
+    const rowOf = (key: string) => { const run = own.find(r => sameKey(r.key, key))!; return { press: run.press, crew: run.crew }; };
+    const entriesOf = (index: string) => {
+        const { type, of } = PRESS_INDEXES[index]!;
+        return own.map(run => ({ ik: of(run), k: run.key })).sort(compareFor(StructType({ ik: type, k: StringType })));
+    };
+    const pressOf = (entry: { readonly ik: unknown }) => (entry.ik as { readonly press: string }).press;
+    const pages: { readonly index: string; readonly offset: bigint; readonly limit: bigint }[] = [];
+    /** Each placement asked: its index, and the presses its runs' entries are of. */
+    const placements: { readonly index: string; readonly presses: readonly string[] }[] = [];
+    const held: { index: string; press: string; upTo: number }[] = [];
+    let pending = false;
+    const binding: RecordSliceBinding = {
+        id: "runs", recordId: "runs", defaultIndex: "primary", revision: () => some("A"), refresh: () => null,
+        total: () => some(BigInt(own.length)),
+        entryKeys: (index, _key, row) => [printFor(PRESS_INDEXES[index]!.type)(PRESS_INDEXES[index]!.of(row as ValueTypeOf<typeof PressRow>) as never)],
+        seek(index, query) {
+            if (index === "primary") {
+                const found = findKeyInline(toEastTypeValue(StringType), own.map(run => run.key), asKeyQuery(query));
+                return some({ found: found.count > 0, row: BigInt(found.row), count: BigInt(found.count) });
+            }
+            const { type } = PRESS_INDEXES[index]!;
+            const entries = entriesOf(index);
+            const found = query.type === "range" ? findKeyInline(toEastTypeValue(StructType({ ik: type, k: StringType })), entries, asKeyQuery(query))
+                : findKeyInline(toEastTypeValue(type), entries.map(entry => entry.ik), asKeyQuery(query));
+            return some({ found: found.count > 0, row: BigInt(found.row), count: BigInt(found.count) });
+        },
+        page(index, offset, limit) {
+            pages.push({ index, offset, limit });
+            const rows = index === "primary"
+                ? own.map(run => ({ ik: variant("primary", run.key), key: run.key, row: some(rowOf(run.key)) }))
+                : entriesOf(index).map(entry => ({ ik: variant(index, entry.ik), key: entry.k, row: some(rowOf(entry.k)) }));
+            return some(rows.slice(Number(offset), Number(offset + limit)));
+        },
+        withinAll(index, ranges, asked) {
+            const { type } = PRESS_INDEXES[index]!;
+            const sameEntry = equalFor(StructType({ ik: type, k: StringType }));
+            const parseIk = parseFor(type);
+            const entries = entriesOf(index);
+            return some(asked.map(({ ik, key }) => {
+                const parsed = parseIk(ik);
+                assert.ok(parsed.success, ik);
+                const at = BigInt(entries.findIndex(entry => sameEntry(entry, { ik: parsed.value, k: key as string })));
+                return at >= 0n && ranges.some(range => at >= range.row && at < range.row + range.count);
+            }));
+        },
+        placeAll(index, ranges) {
+            const entries = entriesOf(index);
+            const inRuns = ranges.flatMap(range => entries.slice(Number(range.row), Number(range.row + range.count)));
+            placements.push({ index, presses: [...new Set(inRuns.map(pressOf))] });
+            if (pending) return none;
+            const hold = held.find(h => h.index === index && inRuns.every(entry => samePress(pressOf(entry), h.press)));
+            const placed = inRuns.slice(0, hold === undefined ? inRuns.length : hold.upTo);
+            const bySegment = new Map<number, number>();
+            for (const entry of placed) {
+                const segment = Math.floor(own.findIndex(run => sameKey(run.key, entry.k)) / SEGMENT);
+                bySegment.set(segment, (bySegment.get(segment) ?? 0) + 1);
+            }
+            const segments = [...bySegment].sort(([a], [b]) => a - b).map(([segment, rows]) => ({
+                offset: BigInt(segment * SEGMENT), count: BigInt(Math.min(SEGMENT, own.length - segment * SEGMENT)), rows: BigInt(rows),
+            }));
+            return some({ segments, placed: BigInt(placed.length), total: BigInt(inRuns.length), records: BigInt(own.length), complete: placed.length === inRuns.length });
+        },
+    };
+    const field = (fieldId: string) => ({ fieldId, label: fieldId, kind: "string", optional: false, multiple: true, set: false, values: [], format: none });
+    const index = (name: string, fields: string[]) => ({ name, fields, sets: new Set<string>(), structured: true, interval: none, area: none, series: none, summary: none, entries: false });
+    const scopeClause = values(...(scope ?? []).map(press => printString(press)));
+    const config = decodeBeast2For(Config)(encodeBeast2For(Config)({
+        fields: scope === undefined ? [field("press"), field("crew")] : [field("crew")],
+        indexes: [index("by_press", ["press"]), index("by_press_crew", ["press", "crew"])],
+        range: none, search: [], presets: [],
+        scope: new Map(scope === undefined ? [] : [["press", scopeClause]]),
+    }));
+    let current = frozenState(encodeState({ where: new Map(), preset: none, resolution: none }));
+    const controller = new RecordSliceController(binding, config, PressRow, () => current, next => { current = frozenState(encodeState(next)); });
+    /** The narrowing a read of the page carries: the page's scope, and the crews the viewer chose. */
+    const narrowing = (crews: readonly string[], presses: readonly string[] = []): Where => new Map([
+        ...(scope === undefined ? presses.length === 0 ? [] : [["press", values(...presses.map(press => printString(press)))] as const] : [["press", scopeClause] as const]),
+        ...(crews.length === 0 ? [] : [["crew", values(...crews.map(crew => printString(crew)))] as const]),
+    ]);
+    return {
+        controller, pages, placements, narrowing,
+        /** Hold the placements of one press's entries of an index to their first few. */
+        hold(index: string, press: string, upTo: number) { held.push({ index, press, upTo }); },
+        pending(value: boolean) { pending = value; },
+    };
+}
+type Where = ValueTypeOf<typeof RecordSliceStateType>["where"];
+
+/**
+ * Where a crew's runs sit among a press's page's rows, worked out row by row: the page's rows are each of the scope's
+ * presses' runs, the presses in East's order and each one's runs in their keys' order; each record segment's runs of one
+ * press are one stretch of them, holding as many of the crew's as it does.
+ */
+function placedAmongPresses(runs: readonly PressRun[], scope: readonly string[], crews: readonly string[]): RecordSlicePlacement {
+    const compareKey = compareFor(StringType);
+    const same = equalFor(StringType);
+    const own = [...runs].sort((a, b) => compareKey(a.key, b.key));
+    const segmentOf = (run: PressRun) => Math.floor(own.findIndex(other => same(other.key, run.key)) / SEGMENT);
+    const segments: RecordSlicePlacement["segments"][number][] = [];
+    let at = 0n;
+    let total = 0n;
+    for (const press of [...new Set(scope)].sort(compareKey)) {
+        const ofPress = own.filter(run => same(run.press, press));
+        for (let i = 0; i < ofPress.length;) {
+            const segment = segmentOf(ofPress[i]!);
+            let j = i;
+            let rows = 0n;
+            for (; j < ofPress.length && segmentOf(ofPress[j]!) === segment; j++) if (crews.some(crew => same(crew, ofPress[j]!.crew))) rows++;
+            if (rows > 0n) segments.push({ offset: at + BigInt(i), count: BigInt(j - i), rows });
+            total += rows;
+            i = j;
+        }
+        at += BigInt(ofPress.length);
+    }
+    return { segments, placed: total, total, records: at, complete: true };
+}
+
+/** Runs on three presses, stored three to a segment, each press's runs falling in several. */
+const PRESS_RUNS: readonly PressRun[] = [
+    { key: "R-01", press: "P-2", crew: "C-1" }, { key: "R-02", press: "P-1", crew: "C-2" }, { key: "R-03", press: "P-1", crew: "C-1" },
+    { key: "R-04", press: "P-3", crew: "C-1" }, { key: "R-05", press: "P-2", crew: "C-2" }, { key: "R-06", press: "P-1", crew: "C-1" },
+    { key: "R-07", press: "P-2", crew: "C-1" }, { key: "R-08", press: "P-1", crew: "C-3" }, { key: "R-09", press: "P-3", crew: "C-2" },
+    { key: "R-10", press: "P-1", crew: "C-1" }, { key: "R-11", press: "P-2", crew: "C-3" }, { key: "R-12", press: "P-1", crew: "C-2" },
+    { key: "R-13", press: "P-2", crew: "C-1" },
+];
+
+test("a narrowing's rows are placed among a scoped page's rows — each of the scope's values' rows in their keys' order — as a row-by-row count places them: each record segment's rows of one value one stretch, after the values before it; each stretch's rows the page's rows there, holding what the placement says; and no row of another press read (#1621)", () => {
+    const sameKey = equalFor(StringType);
+    for (const scope of [["P-2", "P-1", "P-9"], ["P-1"], ["P-3", "P-2"]]) {
+        for (const crews of [["C-1"], ["C-1", "C-2"], ["C-3"], ["C-9"]]) {
+            const f = pressRuns(PRESS_RUNS, scope);
+            const where = f.narrowing(crews);
+            const expected = placedAmongPresses(PRESS_RUNS, scope, crews);
+            assert.deepEqual(f.controller.basePlace(where), some(expected), `scope ${JSON.stringify(scope)}, crews ${JSON.stringify(crews)}`);
+            // The page's rows are the scope's, in that order: what each stretch reads, and asks the narrowing of.
+            const presses = new Set(scope);
+            const rows = f.controller.basePage(0n, expected.records);
+            assert.equal(rows.type, "some");
+            const inScope = [...PRESS_RUNS].filter(run => presses.has(run.press))
+                .sort((a, b) => compareFor(StringType)(a.press, b.press) || compareFor(StringType)(a.key, b.key));
+            assert.deepEqual(rows.value.map(entry => entry.key), inScope.map(run => run.key), "the page's rows: each press's, in their keys' order");
+            for (const segment of expected.segments) {
+                const held = f.controller.baseWithinAt(where, segment.offset, segment.count);
+                assert.equal(held.type, "some");
+                assert.equal(BigInt(held.value.filter(inside => inside).length), segment.rows, `the stretch at ${segment.offset} holds what it was placed with`);
+                const page = f.controller.basePage(segment.offset, segment.count);
+                assert.ok(page.type === "some" && page.value.every((entry, i) => sameKey(entry.key as string, inScope[Number(segment.offset) + i]!.key)));
+            }
+            assert.ok(f.pages.every(page => page.index === "by_press"), "the page's rows are read through the index on exactly the scope's fields");
+            assert.ok(f.placements.every(placement => placement.presses.every(press => presses.has(press))), "no press beyond the scope is placed");
+        }
+    }
+});
+
+test("on a page with no scope a narrowing's rows are placed among the record's own, as the record places them; a scope that holds no value places none, asking nothing; a narrowing of nothing but the scope places nothing, refused (#1621)", () => {
+    const unscoped = pressRuns(PRESS_RUNS, undefined);
+    const where = unscoped.narrowing(["C-1"], ["P-1", "P-2"]);
+    const placed = unscoped.controller.basePlace(where);
+    assert.equal(placed.type, "some");
+    assert.deepEqual(placed, unscoped.controller.place(where), "the record's own placement");
+    assert.equal(placed.value.records, BigInt(PRESS_RUNS.length));
+    const empty = pressRuns(PRESS_RUNS, []);
+    assert.deepEqual(empty.controller.basePlace(empty.narrowing(["C-1"])), some({ segments: [], placed: 0n, total: 0n, records: 0n, complete: true }));
+    assert.deepEqual([empty.pages, empty.placements], [[], []], "nothing is asked of the record");
+    const scoped = pressRuns(PRESS_RUNS, ["P-1"]);
+    assert.throws(() => scoped.controller.basePlace(scoped.narrowing([])), /nothing but the page's scope narrows them/);
+});
+
+test("a narrowing's rows on a scoped page are placed as far as the record has placed them: a value whose own rows are not all placed gives no stretch, its matches unplaced; one whose matches are partly placed gives the stretches placed; a placement on its way is none (#1621)", () => {
+    const scope = ["P-2", "P-1"];
+    const all = placedAmongPresses(PRESS_RUNS, scope, ["C-1"]);
+    const ofPress = (press: string) => placedAmongPresses(PRESS_RUNS, [press], ["C-1"]);
+    // P-1's rows come first among the page's, so P-2's stretches stand after them.
+    const after = ofPress("P-1").records;
+    const shifted = ofPress("P-2").segments.map(segment => ({ ...segment, offset: segment.offset + after }));
+    {
+        // P-2's own rows placed two of five: where its stretches start is not known yet.
+        const f = pressRuns(PRESS_RUNS, scope);
+        f.hold("by_press", "P-2", 2);
+        assert.deepEqual(f.controller.basePlace(f.narrowing(["C-1"])), some({
+            segments: ofPress("P-1").segments, placed: ofPress("P-1").placed, total: all.total, records: all.records, complete: false,
+        }));
+    }
+    {
+        // P-1's crew runs placed one of three: its first stretch alone, P-2's whole.
+        const f = pressRuns(PRESS_RUNS, scope);
+        f.hold("by_press_crew", "P-1", 1);
+        assert.deepEqual(f.controller.basePlace(f.narrowing(["C-1"])), some({
+            segments: [ofPress("P-1").segments[0]!, ...shifted], placed: 1n + ofPress("P-2").placed, total: all.total, records: all.records, complete: false,
+        }));
+    }
+    {
+        const f = pressRuns(PRESS_RUNS, scope);
+        f.pending(true);
+        assert.deepEqual(f.controller.basePlace(f.narrowing(["C-1"])), none);
+        f.pending(false);
+        assert.deepEqual(f.controller.basePlace(f.narrowing(["C-1"])), some(all));
+    }
 });

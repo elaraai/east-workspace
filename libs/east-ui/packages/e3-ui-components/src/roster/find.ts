@@ -6,54 +6,40 @@
 /**
  * Search Records (#1398): the Roster toolbar's key search over its people by
  * their keys — primary-key navigation, never a field search, which is the
- * rail's. It is the shared key search's item over the complete staff the
- * Roster calculates over, read whole: their keys in East's order, as the
- * server finds a key (`findKeyInline`) — a key's start, a quoted key, a range.
+ * rail's. It is every builder's Search Records
+ * (`shared/schedule/search-records.ts`) over the complete staff the Roster
+ * calculates over, read whole: their keys in East's order, as the server finds
+ * a key — a key's start, a quoted key, a range — and, on a page whose people's
+ * source holds a scope (#1621), the people the scope holds alone, asked of e3.
  * A line names a person by their key, their name and their group; one the
  * rail's narrowing hides says so, as every builder's does (the shared hidden
  * pick, `shared/schedule/hidden.ts`) — `· hidden by Group: picking — picking
  * it clears that filter` once e3 has said, `· hidden by the filters` until
- * then — asked of e3 for the people the box lists that the people's source
- * hides, and listed again as the answers land. A pick selects the person — in
- * the People layout their row is brought into view, once the narrowing draws
- * it — and the box shows their key; the Roster clears what hides them first.
+ * then — asked of e3 for the people the box lists that the rail does not show,
+ * and listed again as the answers land, and as who the rail shows moves. A pick
+ * selects the person — in the People layout their row is brought into view,
+ * once the narrowing draws it — and the box shows their key; the Roster clears
+ * what hides them first.
  *
  * @packageDocumentation
  */
 
-import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
-import { StringType, compareFor, equalFor, toEastTypeValue, type EastTypeValue, type option } from "@elaraai/east";
-import { findKeyInline, type DatasetKeyMatchRange, type DatasetKeyQuery } from "@elaraai/east-ui/internal";
+import { useLayoutEffect, useMemo, useRef } from "react";
+import { StringType, equalFor, some, type option } from "@elaraai/east";
 import type { KeySearchSource } from "@elaraai/east-ui-components";
-import { askHiding, hiddenLine, hiddenOf, useRelist, type RowHidden, type SourceHidden } from "../shared/schedule/hidden.js";
+import { hiddenLine, type RowHidden, type SourceHidden } from "../shared/schedule/hidden.js";
+import { STRING_KEYS } from "../shared/schedule/kind-keys.js";
+import { useSearchRecords, type SoughtSource } from "../shared/schedule/search-records.js";
 import type { RosterWords } from "./messages.js";
 import type { Person, RosterValue } from "./model.js";
 
-/** A person's key is a String: the search's text parses against that. */
-const KEY_TYPE: EastTypeValue = toEastTypeValue(StringType);
-const compareKey = compareFor(StringType);
 const keyEqual = equalFor(StringType);
-/** An empty box lists the first of the staff. */
-const BROWSE_QUERY: DatasetKeyQuery = { prefix: "" };
 
 /** A person found, and what hides them. */
 export interface FoundPerson {
     readonly person: Person;
     /** What hides them, as far as e3 has said — the people's source; `undefined` for one the rail's narrowing shows. */
     readonly hidden: readonly RowHidden[] | undefined;
-}
-
-/**
- * The people a query finds, in East's order of their keys.
- *
- * @param people - The staff, in any order
- * @param query - The query the box parsed
- * @returns The people it finds, in key order
- */
-export function findPeople(people: readonly Person[], query: DatasetKeyQuery): Person[] {
-    const sorted = [...people].sort((a, b) => compareKey(a.key, b.key));
-    const range = findKeyInline(KEY_TYPE, sorted.map(person => person.key), query);
-    return range.found ? sorted.slice(range.row, range.row + range.count) : [];
 }
 
 /**
@@ -97,49 +83,30 @@ export interface RosterFindProps {
  * @returns The source; `undefined` with no one to seek
  */
 export function useRosterFind({ people, visible, settled, groups, hidden, words, onPick }: RosterFindProps): KeySearchSource | undefined {
-    const latest = useRef({ people, visible, settled, groups, hidden, words, onPick });
-    useLayoutEffect(() => { latest.current = { people, visible, settled, groups, hidden, words, onPick }; });
-    // What the last find found; the box asks for its lines, and jumps to one, with what it captured before the find answered.
-    const found = useRef<readonly Person[]>([]);
-    const find = useCallback(async (query: DatasetKeyQuery): Promise<DatasetKeyMatchRange> => {
-        const matches = findPeople(latest.current.people, query);
-        found.current = matches;
-        return { found: matches.length > 0, row: 0, count: matches.length };
-    }, []);
-    const of = useCallback((person: Person): FoundPerson => {
-        const { visible: shows, hidden: pick } = latest.current;
-        // One the rail's shown people leave out: what hides them, but where e3 says the narrowing holds them, the rail's
-        // shown people catching up.
-        return { person, hidden: shows.type === "none" || shows.value.has(person.key) ? undefined : hiddenOf([{ pick, id: person.key }]) };
-    }, []);
-    // A pick shows the person's key in the box: what its query is typed against.
-    const listRange = useCallback(async (row: number, limit: number) => {
-        const listed = found.current.slice(row, row + limit);
-        const { visible: shows, settled: read, groups: named, hidden: pick, words } = latest.current;
-        // Which choices hide the people the narrowing hides, asked of e3 — whether it hides them too, while the people it
-        // shows are the last narrowing's: a line says the filters do until it has said which.
-        if (shows.type === "some") askHiding(listed.filter(person => !shows.value.has(person.key)).map(person => ({ pick, id: person.key })), read);
-        return listed.map((person, i) => ({ row: row + i, label: foundPersonLine(of(person), named, words), text: person.key }));
-    }, [of]);
-    const jump = useCallback((row: number) => {
-        const person = found.current[row];
-        if (person !== undefined) latest.current.onPick(of(person));
-    }, [of]);
-    const clear = useCallback(() => { found.current = []; }, []);
-    const any = people.length > 0;
-    // The box asks its query again as the staff or what the rail shows of them move: a line says who it hides.
-    const requery = useRequery(people, visible);
-    // And lists its lines again as e3 says what hides a person.
-    const relist = useRelist([hidden]);
-    return useMemo(() => (any ? { resetKey: "roster", requery, relist, keyType: KEY_TYPE, find, listRange, jump, clear, browseQuery: BROWSE_QUERY,
-        noMatchesText: "No matching people. Search by a person's key." } : undefined), [any, requery, relist, find, listRange, jump, clear]);
-}
-
-/** A count that moves each time the staff or the rail's narrowing of them is another object. */
-function useRequery(people: readonly Person[], visible: option<ReadonlySet<string>>): number {
-    const seen = useRef({ people, visible, n: 0 });
-    if (!Object.is(seen.current.people, people) || !Object.is(seen.current.visible, visible)) {
-        seen.current = { people, visible, n: seen.current.n + 1 };
-    }
-    return seen.current.n;
+    const latest = useRef({ visible, groups, hidden, words, onPick });
+    useLayoutEffect(() => { latest.current = { visible, groups, hidden, words, onPick }; });
+    // The people's source narrows them on the rail, whose page's scope they are listed under (#1621).
+    const scope = hidden.part;
+    const sources = useMemo((): SoughtSource<Person>[] => (people.length === 0 ? [] : [{
+        rows: () => some(people), idOf: (person) => person.key, keys: STRING_KEYS, scope,
+    }]), [people, scope]);
+    return useSearchRecords({
+        name: "Roster", resetKey: "roster", sources,
+        // A pick shows the person's key in the box: what its query is typed against.
+        line: ({ item: person, hidden: hides }) => ({
+            label: foundPersonLine({ person, hidden: hides }, latest.current.groups, latest.current.words), text: person.key,
+        }),
+        onPick: ({ item: person, hidden: hides }) => { latest.current.onPick({ person, hidden: hides }); },
+        noMatchesText: "No matching people. Search by a person's key.",
+        // One the rail's shown people leave out is hidden by the people's source — known so while the people it shows are
+        // the narrowing's own, read — but where e3 says the narrowing holds them, the rail's shown people catching up.
+        hidings: (found) => {
+            const { visible: shows, hidden: pick } = latest.current;
+            return found.map((person) => (shows.type === "none" || shows.value.has(person.key) ? [] : [{ pick, id: person.key }]));
+        },
+        hidingsKnown: settled,
+        // The box asks its query again as the staff moves, and lists its lines again as who the rail shows moves.
+        requeryBy: [people],
+        relistBy: [hidden, visible, settled, groups],
+    });
 }

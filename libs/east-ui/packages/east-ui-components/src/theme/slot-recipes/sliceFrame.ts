@@ -32,6 +32,7 @@
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { coarseHitArea } from "../../style/hit-area.js";
 import { fontAwesomeSize } from "../icon-size.js";
+import { oneLineBox } from "../one-line-box.js";
 
 export const sliceFrameSlotRecipe = defineSlotRecipe({
     className: "elara-slice-frame",
@@ -341,11 +342,13 @@ export const sliceFrameSlotRecipe = defineSlotRecipe({
             },
         },
         // The `/` hint and the × clear button share one 16 px box, so the pill
-        // keeps its height whether the box is empty or carries a value.
+        // keeps its height whether the box is empty or carries a value. The
+        // hint's mark is set on the 14 px of room inside its edge, so it starts
+        // a whole number of pixels under it (#1636).
         searchKbd: {
             display: "inline-flex",
             alignItems: "center",
-            height: "16px",
+            ...oneLineBox(16),
             boxSizing: "border-box",
             paddingX: "5px",
             background: "bg.canvas",
@@ -355,7 +358,6 @@ export const sliceFrameSlotRecipe = defineSlotRecipe({
             fontSize: "9px",
             fontWeight: "semibold",
             color: "fg.muted",
-            lineHeight: "1",
         },
         // The clear (×) affordance — shown only when the search box carries a
         // value; clicking it empties the input AND the committed search. On a

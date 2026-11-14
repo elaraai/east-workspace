@@ -5,13 +5,13 @@
 
 /** Typed record Slice authoring. Query execution belongs to the renderer. */
 import {
-    ArrayType, East, Expr, FloatType, OptionType, StringType, StructType, VariantType, SetType,
-    compareFor, isSubtype, isTypeEqual, isValueOf, none, printFor, some, variant,
-    type EastType, type ExprType, type SubtypeExprOrValue, type ValueTypeOf,
+    ArrayType, BooleanType, DateTimeType, East, Expr, FloatType, IntegerType, NullType, OptionType, StringType, StructType, VariantType, SetType,
+    compareFor, isSubtype, isTypeEqual, isValueOf, none, printFor, printType, some, variant,
+    type ArrayExpr, type EastType, type ExprType, type SubtypeExprOrValue, type ValueTypeOf,
 } from "@elaraai/east";
 import { IndexedEntryType, IndexedSourceType, type IndexedSource } from "../../contracts/indexed-source.js";
 import { toValueFormat, type SliceFieldFormat } from "./index.js";
-import { planRecordSlice, recordEntriesFields, recordIndexFields } from "./record-plan.js";
+import { planRecordSlice, recordEntriesFields, recordIndexFields, recordPlanIndex, recordScopeAreaIndex, recordScopeSearchIndex } from "./record-plan.js";
 import { readAreaMarker } from "./record-area.js";
 import { readIntervalMarker } from "./record-interval.js";
 import { readTileMarker, tilingOf } from "./record-series.js";
@@ -72,6 +72,16 @@ type Choice<T extends EastType> = readonly RecordSliceValue<T>[] | (T extends Se
         : Scalar<T> extends StringType ? { prefix: string } : never);
 /** Typed per-field narrowing; clauses must be answerable by one declared index. */
 export type RecordSliceWhere<R extends StructType, M extends StructType> = { [F in Field<M>]?: Choice<FieldType<R, M, F>> };
+/** One exact value of a scope's list: a value as `initial` takes one, or an East expression of the field's type — a page's parameter. */
+type ScopeValue<T extends EastType> = RecordSliceValue<T> | ExprType<Key<T>> | ExprType<Scalar<T>>;
+/**
+ * A page's scope (#1621): a field of the rows to the list of its exact values the page holds — written in the code,
+ * each a value or an East expression, or the whole list one East expression. An entries index's Dict field takes none.
+ */
+export type RecordSliceScope<R extends StructType, M extends StructType> = {
+    [F in Exclude<Field<M>, EntriesField<M>>]?: readonly ScopeValue<FieldType<R, M, F>>[]
+        | ExprType<ArrayType<Key<FieldType<R, M, F>>>> | ExprType<ArrayType<Scalar<FieldType<R, M, F>>>>;
+};
 
 /** A value a field offers: the value alone, shown as it is, or with the words the rail shows it by. */
 export type RecordSliceHint<V> = V | { readonly value: V; readonly label: string };
@@ -86,6 +96,17 @@ export interface RecordSliceOptions<R extends StructType, M extends StructType> 
     search?: SearchField<R, M> | readonly SearchField<R, M>[];
     /** Narrowing seeded on first bind. */
     initial?: RecordSliceWhere<R, M>;
+    /**
+     * The page's scope (#1621): a narrowing the page holds and the viewer cannot clear — a field of the rows to a list
+     * of its exact values, each a value as `initial` takes one or an East expression of the field's type, so a page's
+     * parameter goes in (`scope: { press: [press] }`). Every read of the source carries it beside the rail's choices;
+     * the rail offers no control of a scoped field, and Clear all and a preset leave it. Each field the rail offers is
+     * answered by one listed index led by the scope's fields (`index.on(["press", "start"])`), and a source read by
+     * area lists an area index led by exactly them (`index.area({ on: ["press"], … })`). A list written here is never
+     * empty; one that is an East expression may be, and the source then reads no rows. A scope is no access rule: e3
+     * serves the record's other rows to whoever may read it.
+     */
+    scope?: RecordSliceScope<R, M>;
     /** Named narrowings, selected one at a time. */
     presets?: readonly { id: string; name: string; where: RecordSliceWhere<R, M> }[];
 }
@@ -173,11 +194,66 @@ function label(name: string): string {
     return text.charAt(0).toUpperCase() + text.slice(1).toLowerCase();
 }
 
+/** A value written in the code, as the field holds it: a unit variant's case by its name, an optional field's value in its Option, `null` its none. */
+function written(schema: RecordSliceFieldSchema, input: unknown): unknown {
+    const value = schema.kind === "enum" && isValueOf(input, StringType) ? variant(input as string, null) : input;
+    return schema.optional ? input === null ? none : some(value) : value;
+}
+
 function literal(schema: RecordSliceFieldSchema, input: unknown): string {
-    let value = schema.kind === "enum" && isValueOf(input, StringType) ? variant(input as string, null) : input;
-    if (schema.optional) value = input === null ? none : some(value);
+    const value = written(schema, input);
     if (!isValueOf(value, schema.key)) throw new Error(`Slice.bindRecord: invalid ${schema.kind} choice`);
     return printFor(schema.key)(value);
+}
+
+/** The types a value written in the code may be, by what East takes it for: how a refusal names the type of one. */
+const WRITTEN = [StringType, IntegerType, FloatType, BooleanType, DateTimeType, NullType] as const;
+
+/**
+ * A scoped field's exact values, as the literals a narrowing holds (#1621): a
+ * list written in the code, each of its values a value or an East expression
+ * of the field's type, or the whole list one East expression. An expression is
+ * printed where the page runs, so a page's parameter goes in.
+ * @param field - The scoped field, named in a refusal.
+ * @param schema - Its control information: the type its values are of.
+ * @param list - The list the author gave.
+ * @returns The literals: an Array of them, or an East expression of one.
+ * @throws {Error} When the list is written empty, a Set field's is not one written value, or a value is of another
+ *   type than the field's — naming the field and both types.
+ */
+function scopeValues(field: string, schema: RecordSliceFieldSchema, list: unknown): SubtypeExprOrValue<ArrayType<StringType>> {
+    const takes = `'${field}' takes values of its type, ${printType(schema.key)}${schema.optional ? ` (or ${printType(schema.inner)}, a value it holds)` : ""}`;
+    /** An expression of the field's type printed as it is, or as the value an optional field holds. */
+    const printed = (value: Expr, type: EastType, given: string): ExprType<StringType> => {
+        if (isTypeEqual(type, schema.key)) return East.print(value);
+        if (schema.optional && isTypeEqual(type, schema.inner)) return East.print(East.value(some(value) as never, schema.key) as Expr);
+        throw new Error(`Slice.bindRecord: the scope's ${takes}, and was given ${given} of type ${printType(type)}`);
+    };
+    if (list instanceof Expr) {
+        const type = Expr.type(list);
+        if (type.type !== "Array") {
+            throw new Error(`Slice.bindRecord: the scope's ${takes}, as a list — [value, …] or an East expression of an Array — and was given an expression of type ${printType(type)}`);
+        }
+        if (schema.set) {
+            throw new Error(`Slice.bindRecord: the scope's '${field}' fans out over a Set, which a narrowing reads by exactly one value — write its list in the code, with one value`);
+        }
+        const element = type.value as EastType;
+        return (list as ArrayExpr<EastType>).map((_$, value) => printed(value as Expr, element, "an Array of values"));
+    }
+    if (!Array.isArray(list)) throw new Error(`Slice.bindRecord: the scope's ${takes}, as a list — [value, …] or an East expression of an Array`);
+    if (list.length === 0) {
+        throw new Error(`Slice.bindRecord: the scope's '${field}' (${printType(schema.key)}) lists no value, and would read no rows — list at least one, or leave '${field}' out of the scope`);
+    }
+    if (schema.set && list.length !== 1) {
+        throw new Error(`Slice.bindRecord: the scope's '${field}' fans out over a Set, which a narrowing reads by exactly one value, and lists ${list.length}`);
+    }
+    return (list as unknown[]).map((value) => {
+        if (value instanceof Expr) return printed(value, Expr.type(value), "an expression");
+        const own = written(schema, value);
+        if (isValueOf(own, schema.key)) return printFor(schema.key)(own);
+        const type = WRITTEN.find(candidate => isValueOf(value, candidate));
+        throw new Error(`Slice.bindRecord: the scope's ${takes}, and was given ${type === undefined ? "a value of no type it takes" : `a value of type ${printType(type)}`}`);
+    });
 }
 
 /**
@@ -204,10 +280,25 @@ function literal(schema: RecordSliceFieldSchema, input: unknown): string {
  * entries — and narrow none of the rows, so they stand beside every other
  * field's choices.
  *
+ * A source's `scope` is a narrowing its page holds (#1621): exact values of
+ * indexed fields, each a value or an East expression, which every read of the
+ * source carries beside the rail's choices. The rail offers no control of a
+ * scoped field, and Clear all and a preset leave the scope as it is. Each
+ * field the rail offers — its `range` and its `search` among them — is
+ * answered by one listed index led by the scope's fields, and the scope by one
+ * alone; a source read by area — one that lists an area index — lists one led
+ * by exactly the scope's fields, through which its window reads no row beyond
+ * the scope; otherwise the build refuses, naming the index to declare. The
+ * handle names the scoped fields in its type (`scoped`).
+ *
  * @param key - Stable UI state key.
  * @param source - A field-index binding, such as Data.bindPaged(record, { indexes }).
- * @param options - Fields, initial narrowing, range, search and presets.
+ * @param options - Fields, initial narrowing, the page's scope, range, search and presets.
  * @returns A serializable handle with typed narrowed data.
+ * @throws {Error} When the source is no indexed record binding; when a field, a narrowing, the range or a search field
+ *   has no listed index to answer it; and when the scope names a field no listed index is led by, holds a value of
+ *   another type than its field's or a list written empty, or leaves a field the rail offers with no index led by the
+ *   scope's fields — each naming the field, and the types or the index to declare
  */
 export function bindRecord<K extends EastType, R extends StructType, P extends EastType, M extends StructType, IK extends VariantType, N extends EastType,
     Maint extends EastType>(
@@ -215,7 +306,7 @@ export function bindRecord<K extends EastType, R extends StructType, P extends E
     source: IndexedSource<K, R, P, M, IK, N, Maint>,
     options: RecordSliceOptions<NoInfer<R>, NoInfer<M>> = {},
 ): ExprType<ReturnType<typeof RecordSliceHandleType<ArrayType<ReturnType<typeof IndexedEntryType<K, R, P, IK>>>, M, N,
-    ReturnType<typeof IndexedSourceType<K, R, P, M, IK, N, Maint>>>>> {
+    ReturnType<typeof IndexedSourceType<K, R, P, M, IK, N, Maint>>, StructType>>> {
     const sourceType = Expr.type(source);
     if (sourceType.type !== "Struct" || sourceType.fields.page?.type !== "Function" || sourceType.fields.indexes?.type !== "Struct") {
         throw new Error("Slice.bindRecord needs Data.bindPaged(record, { indexes }); a plain paged binding cannot be narrowed");
@@ -295,11 +386,66 @@ export function bindRecord<K extends EastType, R extends StructType, P extends E
     // A series or a summary index offers nothing: a reader reads its cells. An interval's start is a range the rail reads.
     const indexedFields = new Set(indexes.flatMap(index => tilingOf(index) !== undefined ? [] : recordIndexFields(index)));
     const printOn = recordOnPrinters(entry.fields.ik.cases as Record<string, EastType>);
-    const offered = options.fields === undefined ? [...indexedFields] : Object.keys(options.fields);
+    // The page's scope (#1621): exact values of fields an index is led by, which every read of the source carries.
+    const scope = new Map<string, variant<"values", SubtypeExprOrValue<ArrayType<StringType>>>>();
+    for (const [field, list] of Object.entries((options.scope ?? {}) as Record<string, unknown>)) {
+        if (list === undefined) continue;
+        if (weighing.has(field)) {
+            throw new Error(`Slice.bindRecord: the scope's '${field}' is a Dict field an entries index files, whose keys weigh the rows and narrow none — scope a field an index is led by`);
+        }
+        if (!indexedFields.has(field) || fieldTypes[field] === undefined) {
+            throw new Error(`Slice.bindRecord: the scope's '${field}' needs an index led by it — by_${field}: index.on(["${field}"]) among the record's indexes, listed in Data.bindPaged's indexes`);
+        }
+        scope.set(field, variant("values", scopeValues(field, recordSliceFieldSchema(fieldTypes[field]!, field), list)));
+    }
+    const scoped = [...scope.keys()];
+    const declare = (path: readonly string[]) => `by_${path.join("_")}: index.on([${path.map(name => JSON.stringify(name)).join(", ")}]) among the record's indexes, listed in Data.bindPaged's indexes`;
+    /** A narrowing as the matcher reads it beside the scope: each scoped field an exact choice, whatever its values are when the page runs. */
+    const beside = (where: ReadonlyMap<string, ValueTypeOf<RecordSliceChoiceType>>) =>
+        new Map<string, ValueTypeOf<RecordSliceChoiceType>>([...where, ...scoped.map(name => [name, variant("values", [""])] as const)]);
+    if (scoped.length > 0 && recordPlanIndex(indexes, beside(new Map())) === undefined) {
+        throw new Error(`Slice.bindRecord: the scope (${scoped.map(name => `'${name}'`).join(", ")}) needs one index led by exactly its fields — ${declare(scoped)}`);
+    }
+    // Search Records seeks the page's keys among the scope's rows (#1621), which run in their keys' order only through a
+    // plain index on exactly the scope's fields: an interval, an area or a series index led by them orders them otherwise.
+    if (scoped.length > 0 && recordScopeSearchIndex(indexes, scoped) === undefined) {
+        throw new Error(`Slice.bindRecord: Search Records finds a row among the scope's (${scoped.map(name => `'${name}'`).join(", ")}) by its key, ` +
+            `through an index on exactly the scope's fields, whose rows run in their keys' order — ${declare(scoped)}`);
+    }
+    // A source read by area — one that lists an area index — reads its window, and the density past it, under the scope
+    // only through an area index led by exactly the scope's fields (#1621): any other reads rows the scope does not hold.
+    const boxed = indexes.find(index => index.area.type === "some");
+    if (scoped.length > 0 && boxed !== undefined && boxed.area.type === "some" && recordScopeAreaIndex(indexes, scoped) === undefined) {
+        const box = boxed.area.value;
+        const sides = box.width.type === "some" && box.height.type === "some" ? `, width: "${box.width.value}", height: "${box.height.value}"` : "";
+        throw new Error(`Slice.bindRecord: a scoped source read by area reads its window among the scope's (${scoped.map(name => `'${name}'`).join(", ")}) ` +
+            `through an area index led by exactly the scope's fields — by_${scoped.join("_")}_area: index.area({ on: [${scoped.map(name => JSON.stringify(name)).join(", ")}], ` +
+            `x: "${box.x}", y: "${box.y}"${sides}, at: "${box.centre ? "centre" : "corner"}", cell }) among the record's indexes, as '${boxed.name}' boxes its rows, ` +
+            "listed in Data.bindPaged's indexes");
+    }
+    /** What a refusal says of a scoped field named where the rail's own fields go. */
+    const held = (field: string, where: string) =>
+        new Error(`Slice.bindRecord: '${field}' is in the scope, which every read holds and the rail shows no control for — leave it out of ${where}`);
+    for (const field of Object.keys(options.fields ?? {})) if (scope.has(field)) throw held(field, "fields");
+    const offered = options.fields === undefined ? [...indexedFields].filter(field => !scope.has(field)) : Object.keys(options.fields);
+    /** Whether a listed index is led by the scope's fields and takes the field after them: what answers a choice of it on this page. */
+    const answered = (field: string) => indexes.some(index => {
+        if (tilingOf(index) !== undefined || index.entries) return false;
+        const path = recordIndexFields(index);
+        return scoped.every(name => path.indexOf(name) >= 0 && path.indexOf(name) < scoped.length) && path.indexOf(field) >= scoped.length;
+    });
     const schemas = new Map<string, RecordSliceFieldSchema>();
     const fields: ValueTypeOf<RecordSliceFieldType>[] = offered.map(field => {
         if (!indexedFields.has(field) || fieldTypes[field] === undefined) {
             throw new Error(`Slice.bindRecord: narrowing by '${field}' needs an index on it — by_${field}: index.on(["${field}"]) among the record's indexes, listed in Data.bindPaged's indexes`);
+        }
+        if (scoped.length > 0 && weighing.has(field)) {
+            throw new Error(`Slice.bindRecord: '${field}' is a Dict field the rail counts by its entries index, across the whole record, and this source is scoped — ` +
+                `${options.fields === undefined ? "list the fields the rail offers in fields, without it" : "leave it out of fields"}`);
+        }
+        if (scoped.length > 0 && !answered(field)) {
+            throw new Error(`Slice.bindRecord: narrowing by '${field}' beside the scope (${scoped.map(name => `'${name}'`).join(", ")}) needs one index led by the scope's fields, then it — ` +
+                `${declare([...scoped, field])}${options.fields === undefined ? "; or list the fields the rail offers in fields, without it" : ""}`);
         }
         const schema = recordSliceFieldSchema(fieldTypes[field]!, field);
         schemas.set(field, schema);
@@ -327,6 +473,7 @@ export function bindRecord<K extends EastType, R extends StructType, P extends E
     const makeWhere = (input: Record<string, unknown>): ValueTypeOf<RecordSliceWhereType> => {
         const where = new Map<string, ValueTypeOf<RecordSliceChoiceType>>();
         for (const [field, choice] of Object.entries(input)) {
+            if (scope.has(field)) throw held(field, "initial and every preset");
             const schema = getField(field);
             if (Array.isArray(choice)) {
                 const one = schema.set && !weighing.has(field);
@@ -343,17 +490,24 @@ export function bindRecord<K extends EastType, R extends StructType, P extends E
                 where.set(field, variant("range", { from, to }));
             } else throw new Error(`Slice.bindRecord: '${field}' needs values, a range or a prefix`);
         }
-        if (planRecordSlice(indexes, where, "primary", undefined, printOn) === null) throw new Error("Slice.bindRecord: this narrowing needs one index on its exact fields followed by its range or prefix");
+        if (scoped.length === 0) {
+            if (planRecordSlice(indexes, where, "primary", undefined, printOn) === null) throw new Error("Slice.bindRecord: this narrowing needs one index on its exact fields followed by its range or prefix");
+        } else if (recordPlanIndex(indexes, beside(where)) === undefined) {
+            // The scope's values are the page's when it runs: the narrowing is matched beside it by its shape.
+            throw new Error(`Slice.bindRecord: this narrowing, beside the scope (${scoped.map(name => `'${name}'`).join(", ")}), needs one index on the scope's fields and its exact fields followed by its range or prefix`);
+        }
         return where;
     };
     const range = options.range;
     if (range !== undefined) {
+        if (scope.has(range)) throw held(range, "range");
         const schema = getField(range);
         if (schema.set || !["datetime", "integer", "float"].includes(schema.kind)) throw new Error(`Slice.bindRecord: range '${range}' must be DateTime, Integer or Float`);
     }
     const search = options.search === undefined ? fields.filter(field => field.kind === "string" && !weighing.has(field.fieldId)).map(field => field.fieldId)
         : typeof options.search === "string" ? [options.search] : [...options.search];
     for (const field of search) {
+        if (scope.has(field)) throw held(field, "search");
         if (weighing.has(field)) throw new Error(`Slice.bindRecord: '${field}' is a Dict field the rail lists by its hints, and is not searched — leave it out of search`);
         if (getField(field).kind !== "string") throw new Error(`Slice.bindRecord: search '${field}' must be String`);
     }
@@ -377,7 +531,9 @@ export function bindRecord<K extends EastType, R extends StructType, P extends E
         presetIds.add(preset.id);
         return { id: preset.id, name: preset.name, where: makeWhere(preset.where) };
     });
-    const config = { fields, indexes, range: range === undefined ? none : some(range), search, presets };
-    return recordSliceBindPlatform([sourceType, output.cases.some, metadata, nested], key, source as never,
+    const config = { fields, indexes, range: range === undefined ? none : some(range), search, presets, scope };
+    // The scoped fields, named in the handle's type: a builder writes a new row's scoped fields from them (#1621).
+    const scopedType = StructType(scoped.map(name => [name, NullType] as const));
+    return recordSliceBindPlatform([sourceType, output.cases.some, metadata, nested, scopedType], key, source as never,
         East.value(config, RecordSliceConfigType), East.value(initial, RecordSliceStateType)) as never;
 }

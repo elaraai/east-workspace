@@ -13,6 +13,11 @@
  * who, and Pending while a draft changes the row. The page's clock is held at
  * the day the proposal walks, so each age is one count whenever the suite
  * runs; a spec that holds the clock keeps Playwright's own page.
+ *
+ * A chip's words and the initials stand a whole number of pixels under their
+ * box's top edge (#1636). The page rounds an edge and a line of words to the
+ * pixel each by itself: a fraction between them puts the words a row higher in
+ * the box on one page than on another, by where the page stands the grid.
  */
 
 import { expect, test, type Locator, type Page } from "playwright/test";
@@ -21,11 +26,14 @@ import { token } from "./tokens";
 
 const ROUTE = "e3/record/record/recordLooks";
 
-/** Each density, as its control names it: its rows' height, a chip's and the initials', and the type each is set in. */
+/**
+ * Each density, as its control names it: its rows' height, a chip's and the initials', the type each is set in, and how
+ * far under its box's top edge each one's words start.
+ */
 const DENSITIES = [
-    { name: "COMFORTABLE", row: 36, chip: 22, avatar: 24, chipType: "label-md", initialsType: "label-sm" },
-    { name: "COMPACT", row: 32, chip: 15, avatar: 20, chipType: "label-xs", initialsType: "label-xs" },
-    { name: "CONDENSED", row: 28, chip: 15, avatar: 20, chipType: "label-xs", initialsType: "label-xs" },
+    { name: "COMFORTABLE", row: 36, chip: 22, avatar: 24, chipType: "label-md", initialsType: "label-sm", chipWords: 4, initialsWords: 6 },
+    { name: "COMPACT", row: 32, chip: 15, avatar: 20, chipType: "label-xs", initialsType: "label-xs", chipWords: 2, initialsWords: 4 },
+    { name: "CONDENSED", row: 28, chip: 15, avatar: 20, chipType: "label-xs", initialsType: "label-xs", chipWords: 2, initialsWords: 4 },
 ] as const;
 
 /** A colour that paints nothing. */
@@ -78,8 +86,13 @@ function measure(entry: Locator) {
         const look = (el: HTMLElement) => {
             const s = getComputedStyle(el);
             const b = el.getBoundingClientRect();
+            // Its words' own box, as the page lays their line out.
+            const words = document.createRange();
+            words.selectNodeContents(el);
             return {
                 text: el.textContent, width: b.width, height: b.height, left: b.left, right: b.right, mid: b.left + b.width / 2,
+                // How far under its top edge its words start, to the 64th of a pixel the page lays out in.
+                words: Math.round((words.getBoundingClientRect().top - b.top) * 64) / 64,
                 bg: s.backgroundColor, ink: s.color, edge: s.borderTopColor, edgeStyle: s.borderTopStyle, edgeWidth: s.borderTopWidth,
                 radius: s.borderTopLeftRadius, size: s.fontSize, family: s.fontFamily, weight: s.fontWeight, italic: s.fontStyle === "italic",
             };
@@ -149,6 +162,8 @@ for (const theme of ["light", "dark"] as const) {
             expect([m.avatar.text, m.avatar.width, m.avatar.height, m.avatar.radius, m.avatar.bg, m.avatar.edge, m.avatar.ink, m.avatar.size, m.avatar.weight, m.avatar.family], at)
                 .toEqual(["AM", density.avatar, density.avatar, "9999px", t["bg-subtle"], t["border-strong"], t["fg-strong"], type[density.initialsType], "600", mono]);
             expect(gapOf(m.avatar, m.title), at).toBe(8);
+            // …their words a whole number of pixels under the ring's top edge, so the two land on the page's pixels together (#1636).
+            expect(m.avatar.words, `the initials under their ring's edge, ${at}`).toBe(density.initialsWords);
             expect([m.title.text, m.title.size, m.title.weight, m.title.ink], at).toEqual(["A. Morgan", type.body, "500", t.fg]);
             // C2: no one is a dashed ring the initials' size, and the words beside it.
             expect([m.nobody.width, m.nobody.height, m.nobody.edgeStyle, m.nobody.edge], at).toEqual([density.avatar, density.avatar, "dashed", t["border-strong"]]);
@@ -162,6 +177,9 @@ for (const theme of ["light", "dark"] as const) {
                 expect([chip.height, chip.size, chip.weight, chip.family, chip.edgeWidth], `${chip.text}, ${at}`).toEqual([density.chip, type[density.chipType], "600", mono, "1px"]);
             }
             for (const column of [m.forklift, m.nights, m.days]) expect(new Set(column.map((chip) => chip.width)).size, `${column.map((chip) => chip.text).join("/")}, ${at}`).toBe(1);
+            // Its words a whole number of pixels under its top edge: at a fraction the edge and the words round apart, and the
+            // words stand a row higher in the chip wherever the page puts the grid on a whole pixel (#1636).
+            for (const chip of [...m.forklift, ...m.nights, ...m.days]) expect(chip.words, `${chip.text}'s words under its edge, ${at}`).toBe(density.chipWords);
             m.forklift.forEach((chip, r) => expect(Math.abs(chip.mid - m.forkliftCells[r]!.mid), `${chip.text} centred, ${at}`).toBeLessThanOrEqual(1));
             // C5: a scale's first empty, then up the heat ramp; a toggle's on at its top; a valence's wash, edge and text step.
             const looks = (chips: typeof m.forklift) => chips.map((chip) => [chip.text, chip.bg, chip.ink, chip.edge]);

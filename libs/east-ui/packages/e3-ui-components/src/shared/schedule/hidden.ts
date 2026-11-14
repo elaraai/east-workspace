@@ -32,6 +32,12 @@
  *   and the narrowing left holds the row: every choice in it holds it. While
  *   e3 has not said, a pick clears every choice of the source; a window a
  *   builder's navigation writes into the source is kept ({@link clearHidden}).
+ * - **A row that is not on the page** (#1621). A source's page's scope is no
+ *   choice of the viewer's. A row it does not hold — the crew member of
+ *   another press's that a run stands on, a draft that left the scope — is
+ *   hidden by no choice, and none brings it ({@link hiddenByScope}): its line
+ *   says what the row stands on is not on this page, naming no filter, and a
+ *   pick clears nothing of that source.
  * - **What it reads.** Only the rows it is asked of — a listing's, by the page
  *   the listing read them from (`askListed`), or rows by their ids, a
  *   source at a time ({@link askHiding}) — each question's membership of all of
@@ -54,12 +60,12 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { SortedMap, StringType, compareFor, equalFor, none, printFor, some, type EastTypeValue, type option, type ValueTypeOf } from "@elaraai/east";
 import {
     RecordSliceWhereType, recordChoiceWhere, recordPlanIndex,
-    type RecordSliceBindType, type RecordSliceChoiceType, type RecordSliceEntry, type RecordSliceFieldType, type RecordSliceIndexType,
+    type RecordSliceBindType, type RecordSliceChoiceType, type RecordSliceEntry, type RecordSliceFieldType, type RecordSliceIndexType, type RecordSlicePaths,
 } from "@elaraai/east-ui/internal";
 import { useSliceReactivity, useTrackedEvaluation, type Formatters } from "@elaraai/east-ui-components";
-import { awaitTracked, recordChoiceLabel, recordSlicePage, recordSliceRevision, recordSliceRows, recordSliceWithin } from "@elaraai/east-ui-components/internal";
-import { STRING_KEYS, kindKeys } from "./kind-keys.js";
-import type { HiddenWords } from "./words.js";
+import { awaitTracked, recordChoiceLabel, recordSliceBasePage, recordSliceRevision, recordSliceRows, recordSliceWithin } from "@elaraai/east-ui-components/internal";
+import { STRING_KEYS, kindKeys, type KindKeys } from "./kind-keys.js";
+import { notOnPageText, type HiddenWords } from "./words.js";
 
 type Where = ValueTypeOf<typeof RecordSliceWhereType>;
 type Index = ValueTypeOf<RecordSliceIndexType>;
@@ -112,20 +118,20 @@ function narrowingOrder(indexes: readonly Index[], where: Where): string[] {
  * module docs): each choice alone where the index rules let it stand alone,
  * else with the choices before it, as the rail holds it.
  *
- * @param indexes - The record's indexes, as its source lists them
+ * @param paths - The record's indexes, as its source lists them, and its page's scope (#1621)
  * @param where - The narrowing
  * @returns One question for each choice, in the narrowing's order
  */
-export function hidingQuestions(indexes: readonly Index[], where: Where): HidingQuestion[] {
-    const order = narrowingOrder(indexes, where);
+export function hidingQuestions(paths: RecordSlicePaths, where: Where): HidingQuestion[] {
+    const order = narrowingOrder(paths.indexes, where);
     return order.map((field, at) => {
-        const alone = recordChoiceWhere(indexes, WHOLE_RECORD, field, where.get(field)!);
+        const alone = recordChoiceWhere(paths, WHOLE_RECORD, field, where.get(field)!);
         if (alone !== null) return { field, where: alone };
         // As the rail holds it: after the choices before it — and, where those are no path an index answers, the ones
         // after it too, until they are one.
         for (let end = at + 1; end <= order.length; end++) {
             const path: Where = new Map(order.slice(0, end).map((f) => [f, where.get(f)!] as const));
-            if (recordPlanIndex(indexes, path) !== undefined) return { field, where: path };
+            if (recordPlanIndex(paths.indexes, path) !== undefined) return { field, where: path };
         }
         return { field, where };
     });
@@ -191,17 +197,17 @@ export interface HiddenAnswer {
  * rail clears a choice — dropping one that cannot stand without it — and any
  * that could not be told apart from them still standing.
  *
- * @param indexes - The record's indexes, as its source lists them
+ * @param paths - The record's indexes, as its source lists them, and its page's scope (#1621)
  * @param where - The narrowing
  * @param verdict - Which choices hide the row
  * @returns The answer: what hides it, what a pick clears besides, and the narrowing it leaves
  */
-export function clearingOf(indexes: readonly Index[], where: Where, verdict: HidingVerdict): HiddenAnswer {
+export function clearingOf(paths: RecordSlicePaths, where: Where, verdict: HidingVerdict): HiddenAnswer {
     let next: Where = where;
-    for (const field of verdict.by) next = recordChoiceWhere(indexes, next, field, undefined) ?? next;
-    for (const field of verdict.unknown) if (next.has(field)) next = recordChoiceWhere(indexes, next, field, undefined) ?? next;
+    for (const field of verdict.by) next = recordChoiceWhere(paths, next, field, undefined) ?? next;
+    for (const field of verdict.unknown) if (next.has(field)) next = recordChoiceWhere(paths, next, field, undefined) ?? next;
     const left = next;
-    const also = narrowingOrder(indexes, where).filter((field) => !verdict.by.some((f) => stringEqual(f, field)) && !left.has(field));
+    const also = narrowingOrder(paths.indexes, where).filter((field) => !verdict.by.some((f) => stringEqual(f, field)) && !left.has(field));
     return { by: verdict.by, also, where: left };
 }
 
@@ -235,15 +241,33 @@ export function hidingWords(fields: readonly Field[], where: Where, answer: Hidd
 // that says them loads with no DOM.
 export { hiddenByText, type HiddenWords } from "./words.js";
 
+/**
+ * Whether what hides a row is its page's scope (#1621): the scope's own
+ * clause is among what its questions say hides it. No choice of the viewer's
+ * hides such a row and none brings it: it is no row of this page, so nothing is
+ * named as a filter of it, and a pick clears nothing.
+ *
+ * @param paths - The record's indexes, as its source lists them, and its page's scope
+ * @param verdict - Which of the narrowing's fields hide the row ({@link hidingOf})
+ * @returns Whether the page's scope does not hold the row
+ */
+export function hiddenByScope(paths: RecordSlicePaths, verdict: HidingVerdict): boolean {
+    return verdict.by.some((field) => paths.scope.has(field));
+}
+
 /** What the narrowing holds of a row it was asked of, and — of one it hides — what e3 said hides it, once it has. */
 export type HiddenState =
     /** The narrowing holds it, or the record holds no row by its key: nothing hides it. */
     | { readonly hidden: false }
-    /** The narrowing hides it: what does, `undefined` until e3 has said — or where it could not. */
-    | { readonly hidden: true; readonly answer: HiddenAnswer | undefined };
+    /**
+     * The narrowing hides it: what does, `undefined` until e3 has said — or where it could not — and whether it is the
+     * page's scope that does not hold it (#1621), when no choice hides it and `answer` stays `undefined`.
+     */
+    | { readonly hidden: true; readonly answer: HiddenAnswer | undefined; readonly offPage: boolean };
 
 const SHOWN: HiddenState = { hidden: false };
-const HIDDEN: HiddenState = { hidden: true, answer: undefined };
+const HIDDEN: HiddenState = { hidden: true, answer: undefined, offPage: false };
+const OFF_PAGE: HiddenState = { hidden: true, answer: undefined, offPage: true };
 
 /** What the hidden pick has asked and been told, at one source, revision and narrowing. */
 interface Asked {
@@ -265,19 +289,18 @@ export interface HiddenRowsInput {
     readonly where: Where | undefined;
     /** The record's revision the builder reads at: what the answers are kept by, with the source and the narrowing. */
     readonly revision: string | undefined;
-    /** A row's record key, by its id: none for an id that names no key. */
-    readonly keyOf: (id: string) => option<unknown>;
-    /** A row's id, by its record key. */
-    readonly idOf: (key: unknown) => string;
+    /** Its rows' keys (#1549): a row's id is its key's text, read back at the record's key type — an id no key prints as names none. */
+    readonly keys: KindKeys;
 }
 
 /** The hidden pick's reads, and what they have been told. */
 export interface HiddenRows {
     /**
-     * Asks which choices hide the rows a listing of the record holds from its row `from` that the narrowing hides — the
-     * key search's lines: their rows are those the listing read, so nothing is read again for them.
+     * Asks which choices hide the rows a listing of the rows the page holds of the record — the record's own, or its
+     * scope's (#1621) — holds from its row `from` that the narrowing hides: the key search's lines. Their rows are those
+     * the listing read, so nothing is read again for them.
      *
-     * @param from - The listing's first row, in the record's order
+     * @param from - The listing's first row, among the page's rows
      * @param ids - Each listed row's id, in order
      * @param held - Whether the narrowing holds each, as the listing read it
      */
@@ -335,8 +358,8 @@ export function useHiddenRows(input: HiddenRowsInput): HiddenRows {
     const answer = useCallback((at: Asked, ids: readonly string[], rows: readonly { key: unknown; row: unknown }[]) => {
         const { part, where, name } = latest.current;
         if (part === undefined || where === undefined) return;
-        const indexes = part.config.indexes;
-        const questions = hidingQuestions(indexes, where);
+        const paths = part.config;
+        const questions = hidingQuestions(paths, where);
         void awaitTracked(() => {
             // Every question asked in one turn, so its reads go together.
             const asked = questions.map((q) => recordSliceWithin(part, q.where, rows));
@@ -350,7 +373,9 @@ export function useHiddenRows(input: HiddenRowsInput): HiddenRows {
             if (!Object.is(now(), at)) return;
             ids.forEach((id, j) => {
                 const verdict = hidingOf(questions, answers.map((a) => a[j]!));
-                at.states.set(id, { hidden: true, answer: verdict === undefined ? undefined : clearingOf(indexes, where, verdict) });
+                // A row its page's scope does not hold is no row of this page: no choice hides it, and a pick clears none.
+                at.states.set(id, verdict !== undefined && hiddenByScope(paths, verdict) ? OFF_PAGE
+                    : { hidden: true, answer: verdict === undefined ? undefined : clearingOf(paths, where, verdict), offPage: false });
             });
             setVersion((v) => v + 1);
         }, (error: unknown) => {
@@ -361,7 +386,7 @@ export function useHiddenRows(input: HiddenRowsInput): HiddenRows {
 
     const askListed = useCallback((from: number, ids: readonly string[], holds: readonly boolean[]) => {
         const at = now();
-        const { part, idOf, name } = latest.current;
+        const { part, keys, name } = latest.current;
         if (at === undefined || part === undefined) return;
         const asking: number[] = [];
         ids.forEach((id, i) => {
@@ -372,13 +397,13 @@ export function useHiddenRows(input: HiddenRowsInput): HiddenRows {
             asking.push(i);
         });
         if (asking.length === 0) return;
-        // Their rows as the record holds them: the page the listing read them from, held already.
-        void awaitTracked(() => recordSlicePage(part, { where: WHOLE_RECORD, area: none }, BigInt(from), BigInt(ids.length))).then((page) => {
+        // Their rows as the record holds them: the page of the page's rows the listing read them from, held already.
+        void awaitTracked(() => recordSliceBasePage(part, BigInt(from), BigInt(ids.length))).then((page) => {
             if (!Object.is(now(), at)) return;
             const entries = page as readonly RecordSliceEntry[];
             const rows = asking.map((i) => {
                 const entry = entries[i];
-                if (entry === undefined || entry.row?.type !== "some" || !stringEqual(idOf(entry.key), ids[i]!)) {
+                if (entry === undefined || entry.row?.type !== "some" || !stringEqual(keys.textOf(entry.key), ids[i]!)) {
                     throw new Error("The record's rows moved while they were listed");
                 }
                 return { key: entry.key, row: entry.row.value };
@@ -391,7 +416,7 @@ export function useHiddenRows(input: HiddenRowsInput): HiddenRows {
 
     const askIds = useCallback((ids: readonly string[], hidden = false) => {
         const at = now();
-        const { part, where, keyOf, name } = latest.current;
+        const { part, where, keys, name } = latest.current;
         if (at === undefined || part === undefined || where === undefined) return;
         const asking: { id: string; key: unknown }[] = [];
         for (const id of ids) {
@@ -399,8 +424,8 @@ export function useHiddenRows(input: HiddenRowsInput): HiddenRows {
             if (hidden && !at.states.has(id)) at.states.set(id, HIDDEN);
             if (at.asked.has(id)) continue;
             at.asked.add(id);
-            const key = keyOf(id);
-            if (key.type === "some") asking.push({ id, key: key.value });
+            const key = keys.keyOf(id);
+            if (key !== undefined) asking.push({ id, key });
         }
         if (asking.length === 0) return;
         void awaitTracked(() => {
@@ -523,11 +548,7 @@ export function useSourceHidden(name: string, part: Bind | undefined, window?: s
     const holds = kept.current !== undefined && (was === undefined || text === undefined ? was === text : stringEqual(was, text));
     if (!holds) kept.current = { text, where: read };
     const where = kept.current!.where;
-    const keyOf = (id: string): option<unknown> => {
-        const key = keys.keyOf(id);
-        return key === undefined ? none : some(key);
-    };
-    return useHidden({ name, part, where, revision: usePartRevision(part), keyOf, idOf: keys.textOf, window });
+    return useHidden({ name, part, where, revision: usePartRevision(part), keys, window });
 }
 
 /**
@@ -562,6 +583,11 @@ export interface RowHiding {
     readonly pick: SourceHidden;
     /** The source's row the row stands on, by its id. */
     readonly id: string;
+    /**
+     * What the row stands on there, as running text names it — a resource kind's name, a lane — said where the source's
+     * page does not hold it (#1621): `its crew is not on this page`; none for the row itself.
+     */
+    readonly what?: string | undefined;
 }
 
 /** A source that hides a row, as a pick clears it: its hidden pick, and what e3 said hides the row there. */
@@ -570,6 +596,13 @@ export interface SourceHiding {
     readonly pick: SourceHidden;
     /** What e3 said hides the source's row; `undefined` until it has — or where it could not — when a pick clears every choice of the source. */
     readonly answer: HiddenAnswer | undefined;
+    /**
+     * Whether it is the source's page's scope that does not hold its row (#1621): no choice hides it, so a pick clears
+     * nothing of the source, and its line says the row is not on this page.
+     */
+    readonly offPage?: boolean | undefined;
+    /** What the row stands on there, as its line names it ({@link RowHiding.what}). */
+    readonly what?: string | undefined;
 }
 
 /** A source that hides a row: the source's row the row stands on, and what e3 said hides that. */
@@ -586,7 +619,7 @@ export function hiddenOf(hidings: readonly RowHiding[]): readonly RowHidden[] | 
     const hidden = hidings.flatMap((hiding): RowHidden[] => {
         const state = hiding.pick.rows.stateOf(hiding.id);
         if (state !== undefined && !state.hidden) return [];
-        return [{ ...hiding, answer: state?.hidden === true ? state.answer : undefined }];
+        return [{ ...hiding, answer: state?.hidden === true ? state.answer : undefined, offPage: state?.hidden === true && state.offPage }];
     });
     return hidden.length === 0 ? undefined : hidden;
 }
@@ -613,21 +646,24 @@ export function askHiding(hidings: readonly RowHiding[], known: boolean): void {
 /**
  * Clears what hides a row, as the rail clears a choice — each source's choices e3 named and what goes with them, else,
  * while it has not said, every choice of the source; each source's window kept — one write of the rail a source. A
- * source whose narrowing holds no choice hides nothing: nothing of it is written.
+ * source whose narrowing holds no choice hides nothing: nothing of it is written. Nor is anything of a source whose
+ * page's scope does not hold the row (#1621): no choice of the viewer's hides it there, and none brings it.
  *
  * @param hidden - Each source that hides the row, and what e3 said hides it there
  * @throws {Error} Where a source's narrowing could not be written: the sources before it are cleared
  */
 export function clearHidden(hidden: readonly SourceHiding[]): void {
-    for (const { pick, answer } of hidden) {
-        if (pick.part === undefined || pick.where === undefined || pick.where.size === 0) continue;
+    for (const { pick, answer, offPage } of hidden) {
+        if (offPage === true || pick.part === undefined || pick.where === undefined || pick.where.size === 0) continue;
         clearHiding(pick.part, answer, pick.window);
     }
 }
 
 /**
  * What a row's line says of what hides it: that the filters do, until e3 has said for each source that hides it; then
- * the choices that do, every source's in the order given, each as the rail words it, in the builder's words.
+ * the choices that do, every source's in the order given, each as the rail words it, in the builder's words. A source
+ * whose page's scope does not hold the row (#1621) names no filter: the line says what the row stands on there is not on
+ * this page, after what the viewer's choices hide of it elsewhere.
  *
  * @param hidden - Each source that hides the row, and what e3 said hides it there: one at least
  * @param formatters - The app's formatters, which word a date or a number of a choice
@@ -635,6 +671,17 @@ export function clearHidden(hidden: readonly SourceHiding[]): void {
  * @returns The words
  */
 export function hiddenLine(hidden: readonly SourceHiding[], formatters: Formatters, words: HiddenWords): string {
+    const off = hidden.filter((source) => source.offPage === true);
+    const by = hidden.filter((source) => source.offPage !== true);
+    const chosen = by.length === 0 ? undefined : hiddenByChoices(by, formatters, words);
+    if (off.length === 0) return chosen ?? words.hiddenByFilters();
+    // What it stands on that the page does not hold, each named once, in the order given.
+    const what = off.flatMap((source) => (source.what === undefined ? [] : [source.what])).filter((name, i, all) => all.findIndex((other) => stringEqual(other, name)) === i);
+    return words.notOnPage === undefined ? notOnPageText(what, chosen) : words.notOnPage({ what, hidden: chosen });
+}
+
+/** What a row's line says of the sources whose choices hide it ({@link hiddenLine}). */
+function hiddenByChoices(hidden: readonly SourceHiding[], formatters: Formatters, words: HiddenWords): string {
     const said: HidingWords[] = [];
     for (const { pick, answer } of hidden) {
         if (answer === undefined || pick.part === undefined) return words.hiddenByFilters();

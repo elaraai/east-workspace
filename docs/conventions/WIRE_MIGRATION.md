@@ -1050,3 +1050,24 @@ Each wire changed under this rule, with the kind it is.
   new type. A UI task's output is not stored state, and a call's drafts ride
   the function routes' request, whose change is #1619's (above), so no
   repository upgrade step ships with it.
+- **east-ui's record Slice takes its page's scope (#1621)** — package-borne.
+  A source's config (`RecordSliceConfigType`) gains `scope`, after `presets`:
+  each scoped field's exact values, as `.east` literals, in a `values` clause
+  (`RecordSliceWhereType`). The record bind's platform function
+  (`slice_bind_record`) takes a fifth type parameter, the scoped fields — a
+  Struct with a Null field named for each — and the handle it answers
+  (`RecordSliceHandleType`) gains them as `scoped`, after `source`, and
+  `pageBase`, after `pageWhere`: a page of the rows the page holds of the
+  source, the scope's on a scoped page, which a Sheet's rows read. A program
+  that binds a record Slice holds the bind's type parameters in its IR: one an
+  earlier SDK exported names four, and is refused as it is checked, naming the
+  count (`Platform function 'slice_bind_record' expects 5 type parameters,
+  got 4`) — re-export its package. The config travels in the handle every
+  payload with a rail over records embeds (`RecordSliceBindType`'s `config`),
+  east-ui's and each e3-ui builder's, so a UI value encoded under either type
+  does not decode under the other, and the dataflow computes each UI task's
+  output again under the new type. The narrowing the store keeps
+  (`RecordSliceStateType`) is unchanged, and holds the viewer's choices alone,
+  never the scope, so a narrowing kept or a view saved under the earlier type
+  still decodes. A UI task's output is not stored state, so no repository
+  upgrade step ships with it.

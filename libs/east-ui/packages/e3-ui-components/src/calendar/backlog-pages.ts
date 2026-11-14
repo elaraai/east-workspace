@@ -24,7 +24,8 @@
  *   as drafted, in place.
  * - **Its count** ({@link CalendarBacklogPages.count}): the events it lists,
  *   each paged kind's an index count — and while a kind's source narrows it,
- *   `N of M`, every unscheduled event its record holds counted beside them. The
+ *   `N of M`, every unscheduled event its record holds counted beside them, or
+ *   on a scoped page every one its scope holds, which is no choice (#1621). The
  *   list counts nothing ({@link CalendarBacklogPages.total}) until every count
  *   is read, so the list and the tab's count swap together.
  * - **What a card is** ({@link CalendarBacklogPages.served}): each event it has
@@ -57,7 +58,7 @@ import {
 } from "@elaraai/east";
 import { RecordSliceWhereType, type RecordSliceEntry } from "@elaraai/east-ui/internal";
 import { recordSlicePage, recordSliceRevision, type LibraryPageSource } from "@elaraai/east-ui-components/internal";
-import { backlogWhere, backlogWhole } from "../shared/schedule/backlog.js";
+import { backlogNarrowed, backlogWhere, backlogWhole } from "../shared/schedule/backlog.js";
 import { EMPTY_SCHEDULE_DRAFTS, type ScheduleEventDraftsValue } from "../shared/schedule/editing.js";
 import { eventKey, type CalendarItem, type CalendarKind } from "./model.js";
 import type { CalendarEventPart } from "./window.js";
@@ -277,11 +278,11 @@ export class CalendarBacklogPages implements LibraryPageSource<BacklogPageEvent>
         let shown = hand.length, total = hand.length, narrowing = false;
         for (const [i, { kind, part }] of this.kinds.entries()) {
             shown += Number(counts[i]!);
-            const where = part.read().where;
-            // A source's choices but its window narrow its backlog: then `M` counts every unscheduled event of its record.
-            if ([...where.keys()].some((field) => !stringEqual(field, kind.schedule.start))) {
+            // A source's choices but its window narrow its backlog: then `M` counts every unscheduled event its source
+            // holds — its record's, or on a scoped page its scope's, which is no choice (#1621).
+            if (backlogNarrowed(part, kind.schedule.start)) {
                 narrowing = true;
-                const all = part.countWhere({ where: backlogWhole(kind.schedule.start), area: none });
+                const all = part.countWhere({ where: backlogWhole(part, kind.schedule.start), area: none });
                 if (all.type !== "some") return undefined;
                 total += Number(all.value);
             } else {
