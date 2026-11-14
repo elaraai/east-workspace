@@ -22,11 +22,9 @@
  * - A run made on the page takes its press from the scope and its crew member
  *   from the row it lands on; a scope of several presses leaves a template's
  *   own. A draft that leaves the scope stays a draft, and its Save commits it.
- * - Search Records finds the press's runs alone, by their keys: through the
- *   index on exactly the press, each search a range of the press and the key
- *   together, a block of matches for each press of the page's, in the order the
- *   index files them. Rows a builder holds whole, as the Roster its people, are
- *   held to the scope by asking e3 which of them it holds.
+ *
+ * What Search Records finds on such a page — every builder's, one engine — is
+ * the engine's own test's (`src/shared/schedule/search-records.test.ts`).
  */
 
 import { test, describe } from "node:test";
@@ -35,16 +33,15 @@ import {
     East, OptionType, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, printFor, some, variant,
     type BlockBuilder, type ExprType, type ValueTypeOf, type option,
 } from "@elaraai/east";
-import { Slice, type SeekQueryType } from "@elaraai/east-ui";
+import { Slice } from "@elaraai/east-ui";
 import { Editing } from "@elaraai/east-ui/internal";
 import { StateRuntime, UIStore, createRecordSliceImplementation } from "@elaraai/east-ui-components/platform";
-import { recordSliceBasePage, recordSliceKeySearch, recordSlicePlace } from "@elaraai/east-ui-components/internal";
+import { recordSlicePlace } from "@elaraai/east-ui-components/internal";
 import {
     Calendar, CalendarPayloadType, Data, Plan, PlanPayloadType, Record, Schedule, Sheet, SheetPayloadType, createCalendarPayload, createSheetPayload,
 } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/calendar/calendar-scope";
 import { datasetPathToString } from "../src/platform/dataset-store.js";
-import { scopeHeld, scopeHolds } from "../src/shared/schedule/found-blocks.js";
 import type { SheetSavedView } from "../src/sheet/values.js";
 import { clearNarrowing, narrowingEqual, narrowingOf, viewRowsRead, writeNarrowing } from "../src/sheet/view-state.js";
 import { e3Spec } from "./fixtures/e3.js";
@@ -257,60 +254,6 @@ describe("a press's own page reads that press alone (#1621)", () => {
         // The All tab clears the choices, and the press stays.
         writeNarrowing(chromeOf(p2), clearNarrowing(narrowingOf(chromeOf(p2))));
         assert.deepEqual(await keysOf(p2.narrowed.get("rows")), ["r4", "r5", "r8"]);
-    });
-});
-
-/** A Calendar's source of its rail, by its name. */
-function partOf(payload: CalendarPayload, source: string) {
-    if (payload.slice.type !== "some") assert.fail("the Calendar has no rail");
-    const part = payload.slice.value.slice.parts.find((p) => p.source === source);
-    if (part === undefined) assert.fail(`the rail has no \`${source}\` source`);
-    return part.slice;
-}
-
-/** Each run a key search's blocks hold, in the page's rows' order: read back by their place there. */
-async function foundRuns(part: ReturnType<typeof partOf>, query: ValueTypeOf<typeof SeekQueryType>): Promise<{ blocks: bigint[][]; keys: string[] }> {
-    const blocks = await h.ready(() => recordSliceKeySearch(part, query));
-    const keys: string[] = [];
-    for (const block of blocks) {
-        const entries = await h.ready(() => recordSliceBasePage(part, block.row, block.count)) as readonly { key: string }[];
-        keys.push(...entries.map((entry) => entry.key));
-    }
-    return { blocks: blocks.map((block) => [block.row, block.count]), keys };
-}
-
-describe("Search Records on a press's page finds the press's runs alone, by their keys (#1621)", () => {
-    test("a key's start finds the press's runs in their keys' order, each search naming the press — never another press's run", async () => {
-        const part = partOf(await calendarFor(["P-1"]), "run");
-        const before = runReads().length;
-        assert.deepEqual(await foundRuns(part, variant("prefix", "r")), { blocks: [[0n, 5n]], keys: ["r1", "r2", "r3", "r6", "r7"] });
-        // Through the index on exactly the press, its search bounding the press and the key together.
-        const reads = runReads().slice(before);
-        assert.deepEqual([...new Set(reads.flatMap((request) => { const index = request.query.get("index"); return index === null ? [] : [index]; }))], ["press_runs_by_press"]);
-        const ranges = reads.flatMap((request) => request.searches.flatMap((search) => ("from" in search ? [search.from] : [])));
-        assert.ok(ranges.length > 0 && ranges.every((from) => from[0] === printString("P-1")), "every range names the press first");
-        assert.deepEqual(reads.filter((request) => request.kind === "read"), [], "the runs are never read whole");
-    });
-
-    test("a key finds its run among the press's — at its place there — and another press's run is no match", async () => {
-        const part = partOf(await calendarFor(["P-1"]), "run");
-        assert.deepEqual(await foundRuns(part, variant("key", printString("r6"))), { blocks: [[3n, 1n]], keys: ["r6"] });
-        assert.deepEqual(await foundRuns(part, variant("key", printString("r4"))), { blocks: [], keys: [] }, "r4 is Press 2's");
-        assert.deepEqual(await foundRuns(part, variant("prefix", "x")), { blocks: [], keys: [] });
-    });
-
-    test("on a page of two presses, a block of matches each, in the order the index files the presses — however the scope lists them — the second's after the first's rows", async () => {
-        const part = partOf(await calendarFor(["P-2", "P-1"]), "run");
-        assert.deepEqual(await foundRuns(part, variant("prefix", "r")), { blocks: [[0n, 5n], [5n, 3n]], keys: ["r1", "r2", "r3", "r6", "r7", "r4", "r5", "r8"] });
-        assert.deepEqual(await foundRuns(part, variant("prefix", "r5")), { blocks: [[6n, 1n]], keys: ["r5"] });
-    });
-
-    test("rows a builder holds whole — the Roster's people — are held to the scope by asking e3 which of them it holds: a key of no row is held by none, and a source with no scope holds every row", async () => {
-        const payload = await calendarFor(["P-1"]);
-        const held = await h.ready(() => scopeHolds(partOf(payload, "crew"), ["c1", "c2", "c3", "c4", "c9"]));
-        assert.deepEqual([...held].sort(compareFor(StringType)), ["c1", "c2"]);
-        assert.equal(await scopeHeld(partOf(payload, "runTemplates"), ["flyers"]), undefined, "the templates are not scoped");
-        assert.equal(await scopeHeld(undefined, ["c1"]), undefined);
     });
 });
 

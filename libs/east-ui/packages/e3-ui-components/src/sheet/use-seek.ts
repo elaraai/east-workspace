@@ -38,7 +38,8 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { StringType, toEastTypeValue, type EastTypeValue, type option } from "@elaraai/east";
 import { type DatasetKeyMatchRange, type DatasetKeyQuery, useTrackedEvaluation } from "@elaraai/east-ui-components";
 import { pagedSnapshot, pagedSnapshotEqual, pagedSnapshotKey } from "./paged-snapshot.js";
-import { awaitTracked, toSeekQuery } from "@elaraai/east-ui-components/internal";
+import { toSeekQuery } from "@elaraai/east-ui/internal";
+import { awaitTracked } from "@elaraai/east-ui-components/internal";
 import type { SheetPagedSourceValue, SheetRowValue } from "./values.js";
 
 /** A sheet's keys are Strings — the search input parses against that. */

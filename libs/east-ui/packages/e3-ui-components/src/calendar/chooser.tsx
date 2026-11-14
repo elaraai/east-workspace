@@ -35,9 +35,9 @@ import { createContext, useCallback, useContext, type ReactNode } from "react";
 import { Box } from "@chakra-ui/react";
 import { StringType, equalFor, toEastTypeValue, type EastTypeValue, type ValueTypeOf } from "@elaraai/east";
 import type { FieldSpecValue } from "@elaraai/east-ui";
-import type { DatasetKeyMatchRange, DatasetKeyQuery, RecordSliceBindType } from "@elaraai/east-ui/internal";
+import { toSeekQuery, type DatasetKeyMatchRange, type DatasetKeyQuery, type RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { DatasetKeySearch, useSliceReactivity, useTrackedEvaluation } from "@elaraai/east-ui-components";
-import { awaitTracked, recordSliceWithinAt, toSeekQuery } from "@elaraai/east-ui-components/internal";
+import { awaitTracked, recordSliceWithinAt } from "@elaraai/east-ui-components/internal";
 import type { CalendarPagedValue } from "./pages.js";
 
 /** A resource's key is a String: what the box parses a typed key as. */

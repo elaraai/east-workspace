@@ -14,7 +14,7 @@ import {
     RecordSliceController, RecordSliceBindType, RecordSliceConfigType, RecordSliceReadType, RecordSliceStateType,
     RecordSliceWhereType, RecordSlicePrimitives, recordSliceBindPlatform, LiveSourceType, tilingOf,
     recordSliceReadPlatform, type RecordSliceBinding, type RecordSliceReader, type RecordSliceEntry, type RecordSlicePlacement,
-    type RecordSliceCell, type RecordSliceCellRuns, type RecordSliceJoined, type RecordOnPrinter,
+    type RecordSliceCell, type RecordSliceCellRuns, type RecordSliceJoined, type RecordOnPrinter, type DatasetKeyQuery,
 } from "@elaraai/east-ui/internal";
 import { SeekQueryType, SeekRangeType } from "@elaraai/east-ui";
 import { enableSlicePersistence, scheduleSlicePersist, type SlicePersistMode } from "./index.js";
@@ -518,10 +518,10 @@ export function recordSliceSeek(slice: Pick<ValueTypeOf<RecordSliceBindType>, "k
  * {@link recordSlicePlace} is.
  *
  * @param slice - The record Slice
- * @param query - The key query, over the record's primary key
+ * @param query - The key query, over the record's primary key, as a Search Records box makes it
  * @returns Each block of matches, in the page's rows' order; none while pending
  */
-export function recordSliceKeySearch(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key" | "config">, query: Query): option<ValueTypeOf<typeof SeekRangeType>[]> {
+export function recordSliceKeySearch(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key" | "config">, query: DatasetKeyQuery): option<ValueTypeOf<typeof SeekRangeType>[]> {
     return controllerOf(slice).keySearch(query);
 }
 

@@ -17,7 +17,8 @@
 
 import { StringType, compareFor, toEastTypeValue, type EastTypeValue } from "@elaraai/east";
 import type { DatasetKeyMatchRange, DatasetKeyQuery, DatasetKeySearchProps } from "@elaraai/east-ui-components";
-import { createTrackedRead, toSeekQuery, type SeekQueryValue } from "@elaraai/east-ui-components/internal";
+import { toSeekQuery, type SeekQueryValue } from "@elaraai/east-ui/internal";
+import { createTrackedRead } from "@elaraai/east-ui-components/internal";
 import type { PlanRowValue } from "../model.js";
 import type { PlanPagedSourceValue } from "../use-plan-paging.js";
 import { soughtKeyOf } from "../use-seek.js";
