@@ -160,6 +160,13 @@ not silent reattachment to a new process mid-run.
 Policy is repository state at `rack/policy.beast2`. CLI overrides select whether
 to attach; enabled is false by default. First matching whole-name glob wins.
 Unmatched tasks stay local in opt-in mode; auto mode selects eligible tasks.
+A rule's size is a shorthand for cores and memory (`RACK_SIZES`, public, since
+the launching machine computes what a lease asks of a rack). Its `memoryLimit`
+is a ceiling, in bytes, on what one piece of its work may be capped at, never a
+request, and its `gpu` asks for a rack's GPU. Both came with the local
+repository's first upgrade step of its own (`rack-policy-limits`, in e3-core,
+with both forms frozen there), which carries a policy an earlier release stored
+into this form when the repository is opened.
 
 Eligibility checks task name/selection, environment, stock runtime/platform
 configuration, East body and every executable program (including dict merge
@@ -215,9 +222,9 @@ Agents advertise `+e3.<release>`; bundled e3 must meet the project's floor. Loca
 positional BEAST2 structs. A hub whose hello does not read at all is one from
 before replies lost their envelope: it is asked to drain, as an older one is.
 
-Task/package/repository object and execution schemas do not change. The new
-policy is repository state, and future incompatible changes need a repository
-upgrade. Hub files are outside repositories: a stable envelope stores release,
+Task/package/repository object and execution schemas do not change. The
+policy is repository state, and an incompatible change to it ships a repository
+upgrade step, as the rule's `memoryLimit` and `gpu` did. Hub files are outside repositories: a stable envelope stores release,
 format (initially 1) and encoded payload. Unknown formats fail explicitly; a
 future change must migrate or refuse them before decoding. The hub's TLS
 certificate and key are such a file (`hub-tls.beast2`), private like its

@@ -1778,7 +1778,7 @@ export interface RepositoryUpgrade {
 export interface StorageBackend {
   /**
    * The upgrades of this backend's own layout, in the order they apply: none
-   * yet for the local and in-memory backends. An open applies them before the
+   * yet for the in-memory backend. An open applies them before the
    * steps every backend shares, since those go through this backend's stores,
    * which read its current layout.
    */

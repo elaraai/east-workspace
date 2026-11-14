@@ -214,11 +214,29 @@ Policies live in `<repo>/rack/policy.beast2`. Rules match the entire task name
 with `*` and `?`; the first matching rule wins. By default, unmatched tasks
 stay local. Rules and placement do not change task or cache hashes.
 
+A rule's `--size` is a shorthand for cores and memory (`RACK_SIZES`):
+
+| Size | Cores | Memory |
+| --- | --- | --- |
+| `serverless` | 2 | 2 GiB |
+| `small` | 2 | 4 GiB |
+| `medium` | 4 | 8 GiB |
+| `large` | 8 | 16 GiB |
+| `xlarge` | 16 | 32 GiB |
+
+`--memory-limit 8G` is a ceiling on what one piece of the rule's work may be
+capped at on a rack, read as `--memory` is. It is no request: e3 measures what
+a piece needs. `--gpu` asks for a rack's GPU. Setting a rule again replaces it
+whole. A policy an earlier release stored is carried into this release's form
+when its repository is next opened, every rule as it was.
+
 ```sh
 e3 rack policy . show
 e3 rack policy . enable                  # opt in without a flag on each run
 e3 rack policy . mode auto               # route eligible unmatched tasks too
 e3 rack policy . set 'ingest_*' local
+e3 rack policy . set 'score_*' rack --memory-limit 8G
+e3 rack policy . set 'embed_*' rack --size xlarge --gpu
 e3 rack policy . defaults --no-spill --claim-timeout 30
 e3 dataflow run . dev --no-rack           # override the saved opt-in
 e3 dataflow run . dev --rack-only         # wait when compatible racks are busy

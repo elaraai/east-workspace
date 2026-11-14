@@ -141,8 +141,10 @@ it('shows a rack whose agent asks in another rack protocol as incompatible, with
 
 it('round-trips policy, auto-starts and stops the hub, and delegates an enabled CLI run', async () => {
   const f = await enrolled();
-  ok(await f.cli('rack', 'policy', '.', 'set', 'train_*', 'rack', '--size', 'xlarge'));
-  assert.match(ok(await f.cli('rack', 'policy', '.', 'show')), /1\. train_\* → rack, size=xlarge/);
+  ok(await f.cli('rack', 'policy', '.', 'set', 'train_*', 'rack', '--size', 'xlarge', '--memory-limit', '8G', '--gpu'));
+  assert.match(ok(await f.cli('rack', 'policy', '.', 'show')), /^1\. train_\* → rack, size=xlarge, timeout=default, allow-host-access=false, memory-limit=8 GB, gpu$/m);
+  const refused = await f.cli('rack', 'policy', '.', 'set', 'train_*', 'rack', '--memory-limit', 'plenty');
+  assert.notEqual(refused.exitCode, 0); assert.match(refused.stderr, /--memory-limit must be a memory size, such as 8G or 512M/);
   ok(await f.cli('rack', 'policy', '.', 'set', 'train_*', 'rack', '--size', 'large'));
   const policy = ok(await f.cli('rack', 'policy', '.', 'show'));
   assert.match(policy, /1\. train_\* → rack, size=large/); assert(!policy.includes('2. train_'));
