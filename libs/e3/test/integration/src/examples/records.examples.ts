@@ -3,7 +3,7 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
-import { East, DictType, IntegerType, NullType, StringType, StructType } from '@elaraai/east';
+import { East, DictType, IntegerType, NullType, StringType, StructType, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import { example } from './example.js';
 
@@ -76,5 +76,39 @@ export const recordMigration = example({
       ],
     });
     return e3.package('planning', '2.0.0', plans);
+  },
+});
+
+export const recordIndexInput = example({
+  keywords: ['e3', 'record', 'index', 'e3.index', 'input', 'function', 'task', 'prefix', 'range', 'run of an index', 'read by index', 'inputs'],
+  description: 'Read a record through one of its indexes inside a function and a task: `e3.index(record.indexes.<name>)` in the inputs hands the body the index\'s entries, read a run at a time with `prefix` and `range`',
+  fn: () => {
+    const JobType = StructType({ title: StringType, press: StringType });
+    const JobsType = DictType(StringType, JobType);
+    const jobs = e3.record('jobs', JobsType, {
+      initial: new Map([['j1', { title: 'Annual report', press: 'P1' }], ['j2', { title: 'Posters', press: 'P2' }]]),
+      indexes: (index) => ({ jobs_by_press: index.on(['press']) }),
+      mutations: (mutation) => ({ patch: mutation.patch() }),
+    });
+    // The body is given the index's entries, Dict<{ ik, k }, P>: `ik` the index's key, `k` the row's key,
+    // and P what the index carries (nothing here). A press's entries are one run, so its size costs the
+    // run's two ends, never the index.
+    const byPress = e3.index(jobs.indexes.jobs_by_press);
+    const jobsOnPress = e3.function('jobs_on_press', { inputs: [byPress], args: [StringType], output: IntegerType },
+      ($, jobsByPress, press) => jobsByPress.prefix({ ik: press }).size());
+    // To read more of a row than the index carries, take the record beside it and read the row by the
+    // entry's `k`: both are read at one state of the record.
+    const titlesOnPress = e3.function('titles_on_press', { inputs: [byPress, jobs], args: [StringType], output: DictType(StringType, StringType) },
+      ($, jobsByPress, jobs, press) => {
+        const titles = $.let(new Map(), DictType(StringType, StringType));
+        $.for(jobsByPress.prefix({ ik: press }), ($, _carried, key) => { $(titles.insert(key.k, jobs.get(key.k).title)); });
+        return titles;
+      });
+    // A task takes it the same way; its body's parameter is the input's type. It is decided again when
+    // the record changes, and runs again when the index it reads did.
+    const watched = e3.input('watched', StringType, variant('value', 'P1'));
+    const watchedJobs = e3.task('watched_jobs', [byPress, watched],
+      East.function([byPress.type, StringType], IntegerType, ($, jobsByPress, press) => jobsByPress.prefix({ ik: press }).size()));
+    return e3.package('pressroom', '1.0.0', jobsOnPress, titlesOnPress, watchedJobs);
   },
 });

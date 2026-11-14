@@ -1,6 +1,6 @@
 ---
 name: e3
-description: "East Execution Engine (e3): durable, content-addressed dataflow for East programs. Use when (1) authoring a package with @elaraai/e3 — e3.input, e3.task, e3.streamTask with e3.output and e3.partition (bounded memory, work split over an input), e3.customTask, e3.function, e3.package, e3.export, East.importFunction; (2) records — audited state written only through mutations (e3.record with mutation.reduce/edit/patch), their indexes (index.on/key/keys, interval, area, series, summary, nested, entries) and migrations (migration.value/rows/rekey); (3) the e3 CLI — repo, package, workspace, dataset, task, dataflow run, run, call, mutate, seed, history, watch, convert, auth, and the cores and memory a run may use; (4) driving e3 from code (@elaraai/e3-api-client, @elaraai/e3-core, e3-api-server); (5) caching, reactive re-runs and garbage collection; (6) delegating task bodies to a rack (e3 rack); (7) e3 in a browser with @elaraai/e3-web. UI tasks are e3-ui's ui()."
+description: "East Execution Engine (e3): durable, content-addressed dataflow for East programs. Use when (1) authoring a package with @elaraai/e3 — e3.input, e3.task, e3.streamTask with e3.output and e3.partition (bounded memory, work split over an input), e3.customTask, e3.function, e3.package, e3.export, East.importFunction; (2) records — audited state written only through mutations (e3.record with mutation.reduce/edit/patch), their indexes (index.on/key/keys, interval, area, series, summary, nested, entries; e3.index reads one in a task or function) and migrations (migration.value/rows/rekey); (3) the e3 CLI — repo, package, workspace, dataset, task, dataflow run, run, call, mutate, seed, history, watch, convert, auth, and the cores and memory a run may use; (4) driving e3 from code (@elaraai/e3-api-client, @elaraai/e3-core, e3-api-server); (5) caching, reactive re-runs and garbage collection; (6) delegating task bodies to a rack (e3 rack); (7) e3 in a browser with @elaraai/e3-web. UI tasks are e3-ui's ui()."
 ---
 
 # East Execution Engine (e3)
@@ -79,7 +79,8 @@ What do you need?
 │   │   ├─ Read a block of keys over time tiles, or their totals → index.series | index.summary
 │   │   ├─ Read what rows nest (jobs, a value a day, child rows, trees) a tile at a time, with totals and subtotals
 │   │   │   → index.nested({ collections, tile, summary? })
-│   │   └─ Read a few keys of a Dict field across every row (each row's figures by category) → index.entries(field)
+│   │   ├─ Read a few keys of a Dict field across every row (each row's figures by category) → index.entries(field)
+│   │   └─ Read an index inside a task or a function → e3.index(record.indexes.<name>) among its inputs: the entries, by prefix and range
 │   ├─ A record's type changes   → migrations: (migration) => [migration.value | rows | rekey(name, fn), …], in order (reference/record-migrations.md)
 │   ├─ A UI task                 → ui(name, [inputs], fn) from @elaraai/e3-ui (the e3-ui skill)
 │   ├─ A function written in python or another node package → East.importFunction(pkg, name, FunctionType) in the body
@@ -158,7 +159,10 @@ is written segment by segment, but the body builds it whole: an output too large
 to hold is emitted instead (`e3.streamTask`). `config` is
 `{ runner?, environment?, role? }` — `role` is what e3-ui's `ui()` sets.
 
-Task inputs, on every runtime (a mutation's state included):
+An input is a dataset — an input, a task's output, a record — or an index of
+a record, `e3.index(record.indexes.<name>)`: its entries, read by `prefix` and
+`range` without the record's rows (reference/record-indexes.md). Task inputs, on
+every runtime (a mutation's state included):
 - are **deeply frozen**: mutating one raises `cannot mutate a frozen value (task
   inputs are immutable) — copy first`; derive a changed value from `.copy()`;
 - open **lazily**, whatever their size: size, iteration and keyed gets read a
@@ -393,7 +397,7 @@ const change = e3.streamTask('change', {
 |---|---|
 | `e3.customTask(name, inputs, outputType, command, { environment? })` | A task that runs a bash script: `command($, inputPaths, outputPath)` builds it from the staged beast2 input files, and it writes the output as a beast2 file. |
 | `e3.function(name, fn, { runner?, environment? })` | A named function, called by name with arguments (`e3 call`, the API, `Func.bind`) and its result returned inline: not in the dataflow. An argument is a value, or in a call through a workspace one of its datasets, read where it is stored. A call through a workspace is the server's: it outlives the request that starts it — the client starts it and polls it to its end — and runs until its timeout, the server's ceiling (ten minutes locally) unless it asks for less; it can be cancelled; and the server keeps it for its lifetime, an hour for a success or a cancel and a week for any other end: who made it, its arguments and drafts, the versions of the inputs it read, its value and its logs (reference/from-code.md). A call through the package runs within one request and keeps nothing. A result is at most 1 MiB, so a large one belongs in a task. A `custom` runner must speak the runner CLI (`<command> -i <arg>… -o <out> <ir>`). |
-| `e3.function(name, { inputs, drafts?, args, output, runner?, environment?, async? }, fn)` | A function that reads the workspace as well: `inputs` (an input, a task's output or a record, as a task takes them) are read as stored when each call launches, pinned at their hashes and named in the result's `inputs`; the caller passes `args` alone. The body takes the inputs, then the arguments. `e3.package` collects the inputs and what they depend on; nothing reruns when one changes. The inputs are read one at a time and the call waits for no run, so a call during a run may read one input before the run rewrites it and another after: the hashes in `inputs` say which. Called through a workspace only (`e3 call -w`); an unassigned input is `invalid`, naming it and why. `drafts` lists the records, each among `inputs`, that a call may lay **unsaved edits** over: a draft is a mutation call that is not committed, `{ record, mutation, args }` (`e3 call -w <ws> <fn> [args…] --draft <record>.<mutation> [args…]`, reference/cli.md). A call's drafts run in the order passed, as a Save runs them, each over the state the one before it left, and the body reads each drafted record at the state that leaves; a dataset argument naming a drafted record is read as saved, at the state the drafts were laid over. Nothing is saved: no commit, no record moved, no task re-run — the record and what reads it stay as they were for every reader. The call keeps its drafts as it keeps its arguments, for whoever may read the call, and each draft's mutation runs as a Save's does, an execution recorded and cached. The result's `inputs` name the drafted state's hash, and its `drafts` the commit each drafted record stood at. A draft of a record the function does not list, or one the record does not take (an unknown mutation, arguments of the wrong number or type), is `invalid`, naming the draft; one the record refuses ends the call as its Save would end, the body not run: `failed` or `timed_out` (the first line of stderr says which draft, or that the drafts were all laid as the timeout ended), or `conflict` when the record changed under the edit. Listing a record is the author's word that the body is fit to run over edits nobody saved, so a function that sends a message or writes elsewhere lists none. ❗ Refused: an `e3.partition` input, the `custom` runtime with inputs, and in `drafts` what is no record or a record no input reads. `FunctionSpec` names the spec's type. |
+| `e3.function(name, { inputs, drafts?, args, output, runner?, environment?, async? }, fn)` | A function that reads the workspace as well: `inputs` (an input, a task's output, a record or an index of one, `e3.index(record.indexes.<name>)`, as a task takes them) are read as stored when each call launches, pinned at their hashes and named in the result's `inputs`; the caller passes `args` alone. The body takes the inputs, then the arguments. `e3.package` collects the inputs and what they depend on; nothing reruns when one changes. The inputs are read one at a time and the call waits for no run, so a call during a run may read one input before the run rewrites it and another after: the hashes in `inputs` say which. A record and its indexes are read at one state of it. Called through a workspace only (`e3 call -w`); an unassigned input is `invalid`, naming it and why. `drafts` lists the records, each read by one of `inputs` (itself, or an index of it), that a call may lay **unsaved edits** over: a draft is a mutation call that is not committed, `{ record, mutation, args }` (`e3 call -w <ws> <fn> [args…] --draft <record>.<mutation> [args…]`, reference/cli.md). A call's drafts run in the order passed, as a Save runs them, each over the state the one before it left, and the body reads each drafted record, and its indexes, at the state that leaves; a dataset argument naming a drafted record is read as saved, at the state the drafts were laid over. Nothing is saved: no commit, no record moved, no task re-run — the record and what reads it stay as they were for every reader. The call keeps its drafts as it keeps its arguments, for whoever may read the call, and each draft's mutation runs as a Save's does, an execution recorded and cached. The result's `inputs` name the drafted state's hash, and its `drafts` the commit each drafted record stood at. A draft of a record the function does not list, or one the record does not take (an unknown mutation, arguments of the wrong number or type), is `invalid`, naming the draft; one the record refuses ends the call as its Save would end, the body not run: `failed` or `timed_out` (the first line of stderr says which draft, or that the drafts were all laid as the timeout ended), or `conflict` when the record changed under the edit. Listing a record is the author's word that the body is fit to run over edits nobody saved, so a function that sends a message or writes elsewhere lists none. ❗ Refused: an `e3.partition` input, the `custom` runtime with inputs, and in `drafts` what is no record or a record no input reads. `FunctionSpec` names the spec's type. |
 | `e3.package(name, version, ...items)` | Bundles the items and everything they depend on — pass the last tasks, records and functions; a package passed in contributes its contents. The name and version must be valid file names. |
 | `e3.export(pkg, zipPath, { functions?, cores? })` | Writes the package zip, resolving every `East.importFunction` (a workspace package is exported by the export itself, `cores` packages at once, the CPUs by default; `functions` lists manifests built elsewhere). |
 
@@ -492,7 +496,8 @@ cheap. A view reads every field of the rows it shows, so keep a bulky payload it
 does not display in a second record keyed the same way.
 
 A record's indexes (`index.on` / `key` / `keys`, `interval`, `area`,
-`series`, `summary`, `nested`, `entries`) are in
+`series`, `summary`, `nested`, `entries`), and reading one inside a task or a
+function (`e3.index`), are in
 [reference/record-indexes.md](reference/record-indexes.md), and its migrations
 in [reference/record-migrations.md](reference/record-migrations.md).
 
@@ -510,7 +515,9 @@ comment or an import added above a function — re-runs the task. One that leave
 them where they were — another function, the end of a module, another package —
 re-runs only the tasks whose environment it is in, their runner's `{ custom }`
 packages. A change to an input re-runs its
-consumers, even during a run. A split task is cached a unit at a time: each piece
+consumers, even during a run. A task that reads an index of a record is keyed
+by the index, so a write to the record that leaves the index as it was is
+served from the cache. A split task is cached a unit at a time: each piece
 and each merge is its own execution, and pieces are cut by content, so an append
 or an insertion re-runs only the pieces it reaches and the merges above them.
 
@@ -520,7 +527,7 @@ Read the one a task needs; each holds its subject whole.
 
 | File | Holds |
 |---|---|
-| [reference/record-indexes.md](reference/record-indexes.md) | Secondary indexes, interval and area indexes, series and summary indexes, nested series indexes, entries indexes |
+| [reference/record-indexes.md](reference/record-indexes.md) | Secondary indexes, interval and area indexes, series and summary indexes, nested series indexes, entries indexes, and reading an index inside a task or a function (`e3.index`) |
 | [reference/record-migrations.md](reference/record-migrations.md) | `migration.value` / `rows` / `rekey`, and how a record's type changes |
 | [reference/cli.md](reference/cli.md) | Every `e3` command: repositories, packages, workspaces, datasets, tasks, runs, calls, records, watch, convert, auth, gc |
 | [reference/from-code.md](reference/from-code.md) | `@elaraai/e3-api-client`, `@elaraai/e3-core`, `e3-api-server` |

@@ -1,7 +1,7 @@
 {
   "version": 2,
   "stats": {
-    "totalEntries": 1363,
+    "totalEntries": 1364,
     "totalFiles": 225,
     "packages": {
       "east": 595,
@@ -10,7 +10,7 @@
       "east-py-datascience": 94,
       "east-ui": 308,
       "e3-ui": 209,
-      "e3": 25,
+      "e3": 26,
       "e3-ui-cli": 8,
       "e3-create": 6
     }
@@ -48002,7 +48002,7 @@
         "audited state"
       ],
       "imports": [
-        "import { East, DictType, IntegerType, NullType, StringType, StructType } from '@elaraai/east';",
+        "import { East, DictType, IntegerType, NullType, StringType, StructType, variant } from '@elaraai/east';",
         "import e3 from '@elaraai/e3';",
         "import { example } from './example.js';"
       ],
@@ -48030,7 +48030,7 @@
         "e3 mutate"
       ],
       "imports": [
-        "import { East, DictType, IntegerType, NullType, StringType, StructType } from '@elaraai/east';",
+        "import { East, DictType, IntegerType, NullType, StringType, StructType, variant } from '@elaraai/east';",
         "import e3 from '@elaraai/e3';",
         "import { example } from './example.js';"
       ],
@@ -48056,7 +48056,7 @@
         "deploy"
       ],
       "imports": [
-        "import { East, DictType, IntegerType, NullType, StringType, StructType } from '@elaraai/east';",
+        "import { East, DictType, IntegerType, NullType, StringType, StructType, variant } from '@elaraai/east';",
         "import e3 from '@elaraai/e3';",
         "import { example } from './example.js';"
       ],
@@ -48064,6 +48064,37 @@
         "typescript"
       ],
       "source": "// Change a record's type between package versions with a migration step: a deploy runs the steps a workspace has not applied, in order\n() => {\n    const RowV1Type = StructType({ title: StringType });\n    const RowV2Type = StructType({ title: StringType, owner: StringType });\n    const plans = e3.record('plans', DictType(StringType, RowV2Type), {\n      initial: new Map(),\n      migrations: (migration) => [\n        migration.rows('add_owner', East.function([StringType, RowV1Type], RowV2Type,\n          ($, _id, row) => ({ title: row.title, owner: 'unassigned' }))),\n      ],\n    });\n    return e3.package('planning', '2.0.0', plans);\n  }"
+    },
+    {
+      "id": "e3:records.examples.ts:recordIndexInput",
+      "skill": "e3",
+      "package": "e3",
+      "file": "e3/test/integration/src/examples/records.examples.ts",
+      "suite": "e3.record",
+      "test": "Read a record through one of its indexes inside a function and a task: `e3.index(record.indexes.<name>)` in the inputs hands the body the index's entries, read a run at a time with `prefix` and `range`",
+      "keywords": [
+        "e3",
+        "record",
+        "index",
+        "e3.index",
+        "input",
+        "function",
+        "task",
+        "prefix",
+        "range",
+        "run of an index",
+        "read by index",
+        "inputs"
+      ],
+      "imports": [
+        "import { East, DictType, IntegerType, NullType, StringType, StructType, variant } from '@elaraai/east';",
+        "import e3 from '@elaraai/e3';",
+        "import { example } from './example.js';"
+      ],
+      "languages": [
+        "typescript"
+      ],
+      "source": "// Read a record through one of its indexes inside a function and a task: `e3.index(record.indexes.<name>)` in the inputs hands the body the index's entries, read a run at a time with `prefix` and `range`\n() => {\n    const JobType = StructType({ title: StringType, press: StringType });\n    const JobsType = DictType(StringType, JobType);\n    const jobs = e3.record('jobs', JobsType, {\n      initial: new Map([['j1', { title: 'Annual report', press: 'P1' }], ['j2', { title: 'Posters', press: 'P2' }]]),\n      indexes: (index) => ({ jobs_by_press: index.on(['press']) }),\n      mutations: (mutation) => ({ patch: mutation.patch() }),\n    });\n    // The body is given the index's entries, Dict<{ ik, k }, P>: `ik` the index's key, `k` the row's key,\n    // and P what the index carries (nothing here). A press's entries are one run, so its size costs the\n    // run's two ends, never the index.\n    const byPress = e3.index(jobs.indexes.jobs_by_press);\n    const jobsOnPress = e3.function('jobs_on_press', { inputs: [byPress], args: [StringType], output: IntegerType },\n      ($, jobsByPress, press) => jobsByPress.prefix({ ik: press }).size());\n    // To read more of a row than the index carries, take the record beside it and read the row by the\n    // entry's `k`: both are read at one state of the record.\n    const titlesOnPress = e3.function('titles_on_press', { inputs: [byPress, jobs], args: [StringType], output: DictType(StringType, StringType) },\n      ($, jobsByPress, jobs, press) => {\n        const titles = $.let(new Map(), DictType(StringType, StringType));\n        $.for(jobsByPress.prefix({ ik: press }), ($, _carried, key) => { $(titles.insert(key.k, jobs.get(key.k).title)); });\n        return titles;\n      });\n    // A task takes it the same way; its body's parameter is the input's type. It is decided again when\n    // the record changes, and runs again when the index it reads did.\n    const watched = e3.input('watched', StringType, variant('value', 'P1'));\n    const watchedJobs = e3.task('watched_jobs', [byPress, watched],\n      East.function([byPress.type, StringType], IntegerType, ($, jobsByPress, press) => jobsByPress.prefix({ ik: press }).size()));\n    return e3.package('pressroom', '1.0.0', jobsOnPress, titlesOnPress, watchedJobs);\n  }"
     },
     {
       "id": "e3:streams.examples.ts:partitionMerge",

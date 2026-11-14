@@ -9,6 +9,7 @@ Secondary, interval and area, series and summary, nested series, and entries ind
 - Series and summary indexes — `index.series`, `index.summary`
 - Nested series indexes — `index.nested`
 - Entries indexes — `index.entries(field)`
+- Reading an index inside a task or a function — `e3.index(record.indexes.<name>)`
 
 ## Secondary indexes — `index.on([...fields])`, `index.key(fn)`, `index.keys(fn)`
 
@@ -374,3 +375,79 @@ an insert, one whose value changed an update by the value's patch — and the
 lean rows where it changed the row's other fields. After a patch, an edit or a
 reduce alike, a maintained entries index, its lean rows and the indexes beside
 them are what `e3 reindex` rebuilds, byte for byte.
+
+## Reading an index inside a task or a function — `e3.index(record.indexes.<name>)`
+
+A page reads an index through the API (`index=<name>`, `Data.bindPaged`). A
+task, a stream task or a function reads one by taking it as an input:
+`e3.index(record.indexes.<name>)` in its `inputs`. The body is given the
+index's entries — the collection the record's state holds, `Dict<{ ik, k }, P>`,
+opened lazily and frozen as any input is — where a body given the record gets
+its rows in the record's own order, and reads every one to find a few.
+
+```typescript
+const JobType = StructType({ title: StringType, press: StringType });
+const jobs = e3.record('jobs', DictType(StringType, JobType), {
+  initial: new Map(),
+  indexes: (index) => ({ jobs_by_press: index.on(['press']) }),
+  mutations: (mutation) => ({ patch: mutation.patch() }),
+});
+const byPress = e3.index(jobs.indexes.jobs_by_press);
+
+// A function: how many jobs a press holds, read from the index alone.
+const jobsOnPress = e3.function('jobs_on_press', { inputs: [byPress], args: [StringType], output: IntegerType },
+  ($, jobsByPress, press) => jobsByPress.prefix({ ik: press }).size());
+
+// More of a row than the index carries: the record beside it, read by the entry's `k`.
+const titlesOnPress = e3.function('titles_on_press', { inputs: [byPress, jobs], args: [StringType], output: DictType(StringType, StringType) },
+  ($, jobsByPress, jobs, press) => {
+    const titles = $.let(new Map(), DictType(StringType, StringType));
+    $.for(jobsByPress.prefix({ ik: press }), ($, _carried, key) => { $(titles.insert(key.k, jobs.get(key.k).title)); });
+    return titles;
+  });
+
+// A task takes it the same way. Its body's parameter is the input's type.
+const watched = e3.input('watched', StringType, variant('value', 'P1'));
+const watchedJobs = e3.task('watched_jobs', [byPress, watched],
+  East.function([byPress.type, StringType], IntegerType, ($, jobsByPress, press) => jobsByPress.prefix({ ik: press }).size()));
+```
+
+**The entries.** `ik` is the index's key and `k` the row's, `ik` first, so
+every entry of one index key is one contiguous run, in the record's key order,
+and a range of index keys is one run too. `P` is what the index carries. The
+input's `type` is the type the state holds, so a task's body declares its
+parameter by it:
+
+| Index | `ik` | `k` | Carries |
+|---|---|---|---|
+| `index.on(['press'])` | the field's value | the row's key | nothing (Null), or its `value` |
+| `index.on(['press', 'due'])` | `{ press, due }` | the row's key | nothing, or its `value` |
+| `index.key(fn)`, `index.keys(fn)` | what `fn` returns, or an element of its Set | the row's key | nothing, or its `value` |
+| `index.entries('byService')` | the field's key | the row's key | that key's value |
+| `index.interval`, `index.area`, `index.series` | the generated key above | the row's key | nothing for an interval; the row for an area or a series |
+| `index.summary` | `{ on, key, tile }` | Null: an entry stands for every row of its key | `{ count, ms }` |
+| `index.nested` | `{ collection, row, path, run, level, tile, item }` | the row's key | the item, the totals or the subtotal |
+
+It takes the indexes e3 keeps beside one as well: a nested series index's span
+(`machines.indexes.machines_in_time.nested.span`, keyed `{ collection, tile }`,
+its `k` Null) and an entries index's lean rows
+(`stations.indexes.stations_by_service.entries.rows`). Beside a nested series
+index or an entries index, an index that carries nothing or the row carries the
+lean row, and its `type` says so.
+
+**What a read costs.** A body reads the entries with `prefix` and `range`, by
+key, by size and by a loop, as it reads any lazily opened Dict: a run costs the
+segment each of its ends lands in and the segments between them, never the
+index, and the size of a run costs its two ends alone. A body that uses the
+input any other way decodes the index whole, as it would any input; a runner's
+`-v` says which, an input at a time.
+
+| Rule | |
+|---|---|
+| **One state** | The inputs of one record — the record, and any of its indexes — are read at one state of it, so a body never meets an index entry for a row it reads otherwise |
+| **A task** | is decided again whenever its record changes, and runs again when the index it reads did: its execution is keyed by the index, so a write that leaves the index as it was is served by the cache |
+| **A function** | reads the index as the record is stored when the call starts. Its result's `inputs` name the record, the index and the hash the record was pinned at, which its other inputs of that record name too |
+| **Drafts** | A function may list the record in `drafts` whether it reads the record or an index of it: a call's drafts are laid over the record, and its indexes hold them as they would after the Save |
+| **No state yet** | A record with no state makes a task wait and a call `invalid`, as it does for the record as an input |
+| **The package** | `e3.package` collects the index's record |
+| **Refused where declared** | Anything but an index its record carries by name, naming what was given; a task's parameter that is not the input's `type`; an index inside `e3.partition` (every piece reads it whole: pass the `e3.index` itself); an index as an input of `e3.customTask`, whose command reads files; a function on the `custom` runtime, which takes no inputs |
