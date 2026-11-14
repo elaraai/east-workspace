@@ -22,8 +22,8 @@
 import {
     ArrayType, BlobType, BooleanType, DictType, EastTypeType, FloatType, FunctionType, NullType, OptionType, StringType, StructType, VariantType,
 } from "@elaraai/east";
-import { StatusTokenType } from "@elaraai/east-ui";
 import { KindSideFields } from "../utils/record-kind.js";
+import { StatusLookType } from "../utils/status.js";
 
 // ============================================================================
 // The value types the accessors return
@@ -224,13 +224,14 @@ export const SchematicGeometryType = VariantType({
 export type SchematicGeometryType = typeof SchematicGeometryType;
 
 /**
- * How one case of an item's status shows: on its card's dot and its marker.
+ * How one case of an item's status shows, on its card's dot and its marker:
+ * the builders' one status ({@link StatusLookType}).
  *
  * @property label - Its words
  * @property tone - Its tone: success, warning, danger, info or neutral
  * @property ring - Whether it draws as an open ring, as a tentative status does
  */
-export const SchematicStatusType = StructType({ label: StringType, tone: StatusTokenType, ring: BooleanType });
+export const SchematicStatusType = StatusLookType;
 
 /** Type representing a status case's look. */
 export type SchematicStatusType = typeof SchematicStatusType;

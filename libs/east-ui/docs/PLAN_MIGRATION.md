@@ -104,6 +104,13 @@ through `record`, the record they are read from, and `editing` goes;
 [One save door, one series list (#1541)](#one-save-door-one-series-list-1541)
 below.
 
+**#1541 breaks the Plan wire for an item's status**, with its authoring API:
+a run, a tile, a chip and a mark each carry `status`, what
+`Plan.status(words, tone, { ring? })` builds, where a run carried a tone, a
+tile a `tone`, and a chip and a mark none. See
+[An item's status, from its map (#1541)](#an-items-status-from-its-map-1541)
+below. Stored `UIComponentType` values re-emit.
+
 The public API break alongside it: the `Gantt` / `Planner` / `AlignedStack`
 exports (tags, factories, `*.Types`) are gone from `@elaraai/east-ui` and
 `@elaraai/east-ui/internal`, as are `EastChakraGantt` / `EastChakraPlanner`
@@ -846,6 +853,72 @@ parts, `pick` by `series` and `hidden`.
 
 Nothing changes: the tab's lines are the pick's items, as before.
 
+## An item's status, from its map (#1541)
+
+Before #1541 a run's map returned a tone alone as `status` (`"warning"` drew
+the over-dwell ring), a tile's returned one as `tone`, and a chip and a mark
+had no status. Now the map of any data series item — a run, a tile, a chip or
+a mark — returns `status: Plan.status(words, tone, { ring? })`: its words,
+its tone (success, warning, danger, info or neutral), and whether it draws as
+an open ring. It is what an event kind's status case gives an event
+(`Schedule.events`' `status: { field, cases }`, unchanged), and the same type:
+`Plan.Types.Status` is `Schedule.Types.Status`.
+
+### The wire
+
+- `Plan.Types.Run.status` is `Option<Plan.Types.Status>`
+  (`{ label, tone, ring }`), where it was an `Option` of a tone.
+- `Plan.Types.BucketEvent.tone` is gone, and `status`, the same `Option`,
+  stands in its place.
+- `Plan.Types.Chip` gains `status` after `state`, and `Plan.Types.EventMark`
+  after `kind`.
+
+A stored `UIComponentType` value re-emits (`WIRE_MIGRATION.md`).
+
+### Removals and their replacements
+
+| Removed | Replacement | Example |
+|---|---|---|
+| a run map's `status: "warning"` (a tone, or an `Option` of one) | `status: Plan.status("Over dwell", "warning")`; an `Option` of a status passes as it is | `planTargetState`, `planStatuses` |
+| a tile map's `tone: "warning"` | `status: Plan.status("Late", "warning")` | `planTargetState`, `planStatuses` |
+| `Plan.run({ status: "warning" })`, `Plan.event({ tone: "warning" })` | the same `status` | `planStatuses` |
+
+Each is refused at build, naming `Plan.status`: a bare tone given as
+`status`, and a tile's `tone`.
+
+### Behaviour that changed
+
+- **Every tone draws.** A bar, a tile and a chip wear a 1.5px ring in the
+  tone's colour, just outside the box, whatever their lifecycle look. A bar
+  drew a warning's alone before, and a chip none. A mark draws its glyph in
+  the tone: a milestone's dot, a decision's diamond, an exception's triangle
+  and an icon.
+- **`ring: true` draws the item open.** A bar, a tile and a chip lose their
+  fill and wear the ring just inside their edge; a milestone's dot is an open
+  dot; a decision's diamond is open, applied or not; an icon wears the ring
+  round it. An exception's triangle has no inside to open and draws as any
+  other. An item its drafts changed keeps the drafted look.
+- **A danger outranks an overlap.** An item in an overlap pair wears the warn
+  ring in its status's place, but a danger status keeps its own, as a tile's
+  did.
+- **Its name says its words.** An item's accessible name ends in its status's
+  words (`…, actual, Over dwell`), where a run's and a tile's said the tone's
+  name (`…, actual, warning`).
+- **An event kind's chips take the warning ring.** An event whose status case
+  has the warning tone rings its bar and its tile, as before, and now its
+  chip; its mark is an exception, as before. A case of any other tone draws
+  nothing on the Plan, and a warning case with `ring: true` draws the ring,
+  not the open form: an event kind's events draw as they did.
+
+### Renderer (`@elaraai/e3-ui-components`)
+
+Each of the four elements sets `data-tone` and `data-ring` from its status
+(`shared/status.ts`), and the recipes draw them (`planElementStatus`,
+`planStatusTones`). A bar's `data-stuck` is gone: it is `data-tone="warning"`.
+`PlanMessages.tileName` takes `status` where it took `tone`, and `chipName`
+and `markName` gain it: a host's translation of those three takes the
+status's words.
+
 ## Extracted contracts (do this first when migrating imports)
 
 The shared audit vocabulary outlived the Planner and moved to `contracts/`:
@@ -925,8 +998,9 @@ Plan.series.buckets(Row, {
 })
 ```
 
-- `Planner.event` tiles → `Plan.event` (same `tone` / `color` /
-  `colorPalette` / `stretch` / `content` / `animation` channels);
+- `Planner.event` tiles → `Plan.event` (same `color` / `colorPalette` /
+  `stretch` / `content` / `animation` channels; its `tone` is a `status`,
+  `Plan.status(words, tone)`, since #1541);
   AM/PM buckets → `lanes`; `Planner.marker` → `Plan.marker`.
 - `popover` / `hovercard` move OFF the tile onto the root's generalized
   `popover` / `hover` resolvers over `Plan.Types.ElementRef`.

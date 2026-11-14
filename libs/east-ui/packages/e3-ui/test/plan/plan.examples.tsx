@@ -146,7 +146,7 @@ const TileLook = Plan.Types.BucketEvent.fields;
 /** A tile stored as it draws, under its id: its week, its lane and every channel of its look. */
 export const TargetTile = StructType({
     at: DateTimeType, lane: TileLook.lane, label: TileLook.label, icon: TileLook.icon, state: TileLook.state,
-    tone: TileLook.tone, color: TileLook.color, colorPalette: TileLook.colorPalette, stretch: TileLook.stretch,
+    status: TileLook.status, color: TileLook.color, colorPalette: TileLook.colorPalette, stretch: TileLook.stretch,
     content: TileLook.content, animation: TileLook.animation,
 });
 
@@ -257,26 +257,26 @@ export const planTargetOps = e3.input("plan_target_ops", DictType(StringType, Ta
       lanes: [{ key: "am", label: some("AM") }, { key: "pm", label: some("PM") }] }),
       tiles: new Map([
           ["m1", { at: new Date("2026-06-29T00:00:00Z"), lane: some("am"), label: none, icon: none, state: variant("confirmed", null),
-            tone: none, color: none, colorPalette: none, stretch: none, content: none, animation: none }],
+            status: none, color: none, colorPalette: none, stretch: none, content: none, animation: none }],
           ["m2", { at: new Date("2026-06-29T00:00:00Z"), lane: some("pm"), label: none, icon: none, state: variant("confirmed", null),
-            tone: some(variant("warning", null)), color: none, colorPalette: none, stretch: none, content: none, animation: none }],
+            status: some({ label: "Running late", tone: variant("warning", null), ring: false }), color: none, colorPalette: none, stretch: none, content: none, animation: none }],
           ["m3", { at: new Date("2026-07-06T00:00:00Z"), lane: some("am"), label: none, icon: none, state: variant("proposed", variant("recommended", null)),
-            tone: none, color: none, colorPalette: none, stretch: none, content: none, animation: some(variant("pulse", null)) }],
+            status: none, color: none, colorPalette: none, stretch: none, content: none, animation: some(variant("pulse", null)) }],
           ["m4", { at: new Date("2026-07-13T00:00:00Z"), lane: none, label: some("MIXED"), icon: none, state: variant("confirmed", null),
-            tone: none, color: none, colorPalette: none, stretch: some(variant("horizontal", null)),
+            status: none, color: none, colorPalette: none, stretch: some(variant("horizontal", null)),
             content: some({ horizontal: some(variant("center", null)), vertical: none }), animation: none }],
           ["m5", { at: new Date("2026-07-20T00:00:00Z"), lane: some("pm"), label: none,
             icon: some({ prefix: "fas", name: "truck", label: none, style: none }),
             state: variant("proposed", variant("recommended", null)),
-            tone: none, color: none, colorPalette: none, stretch: none, content: none, animation: none }],
+            status: none, color: none, colorPalette: none, stretch: none, content: none, animation: none }],
           ["m6", { at: new Date("2026-07-27T00:00:00Z"), lane: some("am"), label: some("PROOF"), icon: none, state: variant("estimated", null),
-            tone: none, color: none, colorPalette: none, stretch: none, content: none, animation: none }],
+            status: none, color: none, colorPalette: none, stretch: none, content: none, animation: none }],
           // The colour channels: `color` is a raw token override,
           // `colorPalette` recolours the whole lifecycle treatment.
           ["m7", { at: new Date("2026-08-03T00:00:00Z"), lane: some("am"), label: some("S-A"), icon: none, state: variant("confirmed", null),
-            tone: none, color: some("teal.solid"), colorPalette: none, stretch: none, content: none, animation: none }],
+            status: none, color: some("teal.solid"), colorPalette: none, stretch: none, content: none, animation: none }],
           ["m8", { at: new Date("2026-08-03T00:00:00Z"), lane: some("pm"), label: some("S-B"), icon: none, state: variant("confirmed", null),
-            tone: none, color: none, colorPalette: some(variant("brand", null)), stretch: none, content: none, animation: none }],
+            status: none, color: none, colorPalette: some(variant("brand", null)), stretch: none, content: none, animation: none }],
       ]),
       alerts: atInstants([[new Date("2026-07-13T00:00:00Z"), { status: variant("danger", null), message: "capacity breach" }]]) }],
     // ── The halls' presses and loads: each names its hall, and the data
@@ -482,7 +482,7 @@ export const planTargetState = example({
         "estimated", "removed", "rejected", "proposal", "flavours", "stacked", "gutter", "two-line",
         "children", "Plan.children", "nested", "recursive", "RecursiveType", "groupToDicts", "grouping",
         "summaryAggregate", "collapsed", "member count", "heterogeneous",
-        "lane", "lanes", "AM", "PM", "tile", "marker", "tone", "color", "colorPalette", "stretch", "pulse", "icon",
+        "lane", "lanes", "AM", "PM", "tile", "marker", "status", "Plan.status", "color", "colorPalette", "stretch", "pulse", "icon",
         "lifecycle", "confirmed", "recommended", "same kind", "own entry", "duplicate",
         "one asset", "multiple views", "literal", "Plan.span", "series.rows", "kind factory", "chrome",
         "pick", "picked", "library", "Plan.library.series", "Series tab", "hidden", "eye", "views member",
@@ -548,7 +548,11 @@ export const planTargetState = example({
                     some: (_$2, t) => East.value(some(Plan.quantity(t, { unit: "k sheets", format: sheetsFormat })), OptionType(Plan.Types.Quantity)),
                     none: () => East.value(none, OptionType(Plan.Types.Quantity)),
                 }),
-                status: job.alert,
+                // Its status (#1541): the job's raw alert is a tone alone, and the map gives it its words.
+                status: job.alert.match({
+                    some: (_$2, tone) => East.value(some(Plan.status("Over dwell", tone)), OptionType(Plan.Types.Status)),
+                    none: () => East.value(none, OptionType(Plan.Types.Status)),
+                }),
             });
             // A shift's look: its hours print as the chip label, an ADDED
             // proposal wearing the `+` prefix — display derives from the
@@ -617,7 +621,7 @@ export const planTargetState = example({
                         expand: r => r.kind.unwrap("van").detail,
                         lanes: r => r.kind.unwrap("van").lanes,
                         events: Plan.items("tiles", { at: "at" }, (tile) => ({
-                            state: tile.state, lane: tile.lane, label: tile.label, icon: tile.icon, tone: tile.tone, color: tile.color,
+                            state: tile.state, lane: tile.lane, label: tile.label, icon: tile.icon, status: tile.status, color: tile.color,
                             colorPalette: tile.colorPalette, stretch: tile.stretch, content: tile.content, animation: tile.animation,
                         })),
                         markers: Plan.values("alerts", (alert) => ({ message: alert.message, status: alert.status })),
@@ -2709,5 +2713,150 @@ export const slicePlanChrome = example({
             }}</Reactive>
         );
     }),
+    inputs: [],
+});
+
+// ============================================================================
+// planStatuses — an item's status from its map (#1541, U8)
+// ============================================================================
+
+/** How a piece of work stands, as the works record it: the app's own status, which each series' map turns into the
+ *  words, the tone and the ring the Plan draws. */
+export const StatusStanding = VariantType({
+    blocked: NullType, done: NullType, late: NullType, noted: NullType, parked: NullType, tentative: NullType,
+});
+/** A job on the press, under its id: its window, its lifecycle and how it stands, where anything is to be said. */
+export const StatusJob = StructType({
+    title: StringType, start: DateTimeType, end: DateTimeType, state: EventStateType, standing: OptionType(StatusStanding),
+});
+/** A delivery slot, under its id: its week. */
+export const StatusDrop = StructType({ at: DateTimeType, title: StringType, state: EventStateType, standing: OptionType(StatusStanding) });
+/** A crew's shift, under its id: the weeks it covers, and its hours as they print. */
+export const StatusShift = StructType({
+    from: DateTimeType, to: DateTimeType, hours: StringType, state: EventStateType, standing: OptionType(StatusStanding),
+});
+/** A check on the press, under its id: its instant. */
+export const StatusCheck = StructType({ at: DateTimeType, title: StringType, standing: OptionType(StatusStanding) });
+/** A press and what is planned on it: its jobs, its deliveries, its crew's shifts and its checks. */
+export const StatusPressRow = StructType({
+    name: StringType,
+    jobs: DictType(StringType, StatusJob), drops: DictType(StringType, StatusDrop),
+    shifts: DictType(StringType, StatusShift), checks: DictType(StringType, StatusCheck),
+});
+
+/** One press over seven weeks: in each week a job, a delivery, a shift and a check that stand the same way — the
+ *  first week's with nothing to say, then one of each standing. */
+export const planStatusPresses = e3.record("plan_status_presses", DictType(StringType, StatusPressRow), {
+    initial: new Map([
+        ["P03", {
+            name: "Press 3",
+            jobs: new Map([
+                ["j1", { title: "J-5101", start: new Date("2026-06-29T00:00:00Z"), end: new Date("2026-07-06T00:00:00Z"), state: variant("actual", null), standing: none }],
+                ["j2", { title: "J-5102", start: new Date("2026-07-06T00:00:00Z"), end: new Date("2026-07-13T00:00:00Z"), state: variant("actual", null), standing: some(variant("late", null)) }],
+                ["j3", { title: "J-5103", start: new Date("2026-07-13T00:00:00Z"), end: new Date("2026-07-20T00:00:00Z"), state: variant("confirmed", null), standing: some(variant("blocked", null)) }],
+                ["j4", { title: "J-5104", start: new Date("2026-07-20T00:00:00Z"), end: new Date("2026-07-27T00:00:00Z"), state: variant("confirmed", null), standing: some(variant("done", null)) }],
+                ["j5", { title: "J-5105", start: new Date("2026-07-27T00:00:00Z"), end: new Date("2026-08-03T00:00:00Z"), state: variant("confirmed", null), standing: some(variant("noted", null)) }],
+                ["j6", { title: "J-5106", start: new Date("2026-08-03T00:00:00Z"), end: new Date("2026-08-10T00:00:00Z"), state: variant("proposed", variant("recommended", null)), standing: some(variant("parked", null)) }],
+                ["j7", { title: "J-5107", start: new Date("2026-08-10T00:00:00Z"), end: new Date("2026-08-17T00:00:00Z"), state: variant("confirmed", null), standing: some(variant("tentative", null)) }],
+            ]),
+            drops: new Map([
+                ["d1", { at: new Date("2026-06-29T00:00:00Z"), title: "D-1", state: variant("actual", null), standing: none }],
+                ["d2", { at: new Date("2026-07-06T00:00:00Z"), title: "D-2", state: variant("actual", null), standing: some(variant("late", null)) }],
+                ["d3", { at: new Date("2026-07-13T00:00:00Z"), title: "D-3", state: variant("confirmed", null), standing: some(variant("blocked", null)) }],
+                ["d4", { at: new Date("2026-07-20T00:00:00Z"), title: "D-4", state: variant("confirmed", null), standing: some(variant("done", null)) }],
+                ["d5", { at: new Date("2026-07-27T00:00:00Z"), title: "D-5", state: variant("confirmed", null), standing: some(variant("noted", null)) }],
+                ["d6", { at: new Date("2026-08-03T00:00:00Z"), title: "D-6", state: variant("proposed", variant("recommended", null)), standing: some(variant("parked", null)) }],
+                ["d7", { at: new Date("2026-08-10T00:00:00Z"), title: "D-7", state: variant("confirmed", null), standing: some(variant("tentative", null)) }],
+            ]),
+            shifts: new Map([
+                ["s1", { from: new Date("2026-06-29T00:00:00Z"), to: new Date("2026-07-06T00:00:00Z"), hours: "80h", state: variant("confirmed", null), standing: none }],
+                ["s2", { from: new Date("2026-07-06T00:00:00Z"), to: new Date("2026-07-13T00:00:00Z"), hours: "64h", state: variant("confirmed", null), standing: some(variant("late", null)) }],
+                ["s3", { from: new Date("2026-07-13T00:00:00Z"), to: new Date("2026-07-20T00:00:00Z"), hours: "48h", state: variant("confirmed", null), standing: some(variant("blocked", null)) }],
+                ["s4", { from: new Date("2026-07-20T00:00:00Z"), to: new Date("2026-07-27T00:00:00Z"), hours: "80h", state: variant("confirmed", null), standing: some(variant("done", null)) }],
+                ["s5", { from: new Date("2026-07-27T00:00:00Z"), to: new Date("2026-08-03T00:00:00Z"), hours: "72h", state: variant("confirmed", null), standing: some(variant("noted", null)) }],
+                ["s6", { from: new Date("2026-08-03T00:00:00Z"), to: new Date("2026-08-10T00:00:00Z"), hours: "40h", state: variant("proposed", variant("recommended", null)), standing: some(variant("parked", null)) }],
+                ["s7", { from: new Date("2026-08-10T00:00:00Z"), to: new Date("2026-08-17T00:00:00Z"), hours: "80h", state: variant("confirmed", null), standing: some(variant("tentative", null)) }],
+            ]),
+            checks: new Map([
+                ["c1", { at: new Date("2026-06-29T00:00:00Z"), title: "PLATES", standing: none }],
+                ["c2", { at: new Date("2026-07-06T00:00:00Z"), title: "INK", standing: some(variant("late", null)) }],
+                ["c3", { at: new Date("2026-07-13T00:00:00Z"), title: "ROLLERS", standing: some(variant("blocked", null)) }],
+                ["c4", { at: new Date("2026-07-20T00:00:00Z"), title: "PROOF", standing: some(variant("done", null)) }],
+                ["c5", { at: new Date("2026-07-27T00:00:00Z"), title: "WASH", standing: some(variant("noted", null)) }],
+                ["c6", { at: new Date("2026-08-03T00:00:00Z"), title: "BLANKET", standing: some(variant("parked", null)) }],
+                ["c7", { at: new Date("2026-08-10T00:00:00Z"), title: "SERVICE", standing: some(variant("tentative", null)) }],
+            ]),
+        }],
+    ]),
+});
+
+/**
+ * An item's status from its map (#1541): `Plan.status(words, tone, { ring? })`,
+ * returned as `status` by the map of a run, a tile, a chip and a mark. The
+ * works record how each piece of work stands in their own words, and one
+ * function turns that into what the Plan draws: a ring in the tone's colour
+ * round a bar, a tile and a chip, a mark's dot in it, and a tentative one
+ * drawn open. An item with no status draws as its lifecycle alone.
+ */
+export const planStatuses = example({
+    keywords: [
+        "Plan", "Plan.status", "status", "tone", "ring", "open ring", "tentative", "success", "warning", "danger", "info",
+        "neutral", "run", "tile", "chip", "mark", "Plan.items", "span", "buckets", "cards", "events", "Data.bind", "bound",
+        "e3.record", "#1541",
+    ],
+    description: "An item's status from its map — a job, a delivery, a shift and a check each stand in the works' own words, and each series' map returns Plan.status(words, tone, { ring }) for it: a ring in the tone's colour round a bar, a tile and a chip, a mark's dot in it, and a tentative one drawn open",
+    fn: East.function([], UIComponentType, (_$) => (
+        <Reactive>{$ => {
+            const presses = $.let(Data.bind(planStatusPresses));
+            // How the works' own standing shows: its words, its tone, and the open ring a tentative one draws as.
+            const shown = $.const(East.function([OptionType(StatusStanding)], OptionType(Plan.Types.Status), (_$2, standing) => standing.match({
+                some: (_$3, stands) => East.value(some(stands.match({
+                    blocked: () => Plan.status("Blocked", "danger"),
+                    done: () => Plan.status("Done", "success"),
+                    late: () => Plan.status("Late", "warning"),
+                    noted: () => Plan.status("Noted", "info"),
+                    parked: () => Plan.status("Parked", "neutral"),
+                    tentative: () => Plan.status("Tentative", "warning", { ring: true }),
+                })), OptionType(Plan.Types.Status)),
+                none: () => East.value(none, OptionType(Plan.Types.Status)),
+            })));
+            return (
+                <Plan
+                    axis={Plan.axis({
+                        window: { min: new Date("2026-06-29T00:00:00Z"), max: new Date("2026-08-24T00:00:00Z") },
+                        resolution: "week", resolutions: ["week", "day"], now: new Date("2026-07-27T00:00:00Z"),
+                    })}
+                    data={presses}
+                    series={[
+                        Plan.series.span(StatusPressRow, {
+                            key: "jobs", title: "Jobs", label: (press) => press.name, sub: () => some("jobs"),
+                            runs: Plan.items("jobs", { from: "start", to: "end" }, (job) => ({
+                                label: job.title, state: job.state, status: shown(job.standing),
+                            })),
+                        }),
+                        Plan.series.buckets(StatusPressRow, {
+                            key: "drops", title: "Deliveries", label: () => "Deliveries",
+                            events: Plan.items("drops", { at: "at" }, (drop) => ({
+                                label: drop.title, state: drop.state, status: shown(drop.standing),
+                            })),
+                        }),
+                        Plan.series.cards(StatusPressRow, {
+                            key: "shifts", title: "Shifts", label: () => "Shifts",
+                            chips: Plan.items("shifts", { from: "from", to: "to" }, (shift) => ({
+                                label: shift.hours, state: shift.state, status: shown(shift.standing),
+                            })),
+                        }),
+                        Plan.series.events(StatusPressRow, {
+                            key: "checks", title: "Checks", label: () => "Checks",
+                            marks: Plan.items("checks", { at: "at" }, (check) => ({
+                                kind: "milestone", label: check.title, status: shown(check.standing),
+                            })),
+                        }),
+                    ]}
+                    footer={[{ text: "1 PRESS · 6 STATUSES" }]}
+                />
+            );
+        }}</Reactive>
+    )),
     inputs: [],
 });

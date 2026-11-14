@@ -360,7 +360,7 @@ describe("Plan derived heat / table aggregates", () => {
         const rows = [
             trow("ok", undefined, heat(n(2))),
             trow("bad", undefined, heat(t(W27))),
-            trow("worse", undefined, variant("events", { marks: [{ key: "m", at: o("FINISH"), kind: variant("milestone", null), icon: none, label: none }] })),
+            trow("worse", undefined, variant("events", { marks: [{ key: "m", at: o("FINISH"), kind: variant("milestone", null), status: none, icon: none, label: none }] })),
             trow("empty", undefined, variant("events", { marks: [] })),
         ];
         expect(axisKindMismatches(indexRows(rows), "number")).toEqual([

@@ -45,6 +45,7 @@ describeEast("Plan", (test) => {
         planRowDrop: ex.planRowDrop,
         planNumberAxis: ex.planNumberAxis,
         planOrdinalAxis: ex.planOrdinalAxis,
+        planStatuses: ex.planStatuses,
         // From east-ui's Slice examples, which drove a Plan (#1177).
         slicePlanChrome: ex.slicePlanChrome,
     });
@@ -650,14 +651,15 @@ describeEast("Plan", (test) => {
         const r = $.let(Plan.run({
             key: "r", start: W27, end: W28, label: "RUN",
             quantity: Plan.quantity(96, { unit: "k sheets", format: Format.Number({ maximumFractionDigits: 0n }) }),
-            state: "actual", status: "warning", moved: 3, icon: "truck",
+            state: "actual", status: Plan.status("Over dwell", "warning"), moved: 3, icon: "truck",
         }));
         const q = $.let(r.quantity.unwrap("some"));
         $(Assert.equal(q.value, 96.0));
         $(Assert.equal(q.unit.unwrap("some"), "k sheets"));
         $(Assert.equal(q.format.unwrap("some").hasTag("number"), true));
         $(Assert.equal(q.text.hasTag("none"), true));
-        $(Assert.equal(r.status.unwrap("some").hasTag("warning"), true));
+        $(Assert.equal(r.status.unwrap("some").tone.hasTag("warning"), true));
+        $(Assert.equal(r.status.unwrap("some").label, "Over dwell"));
         $(Assert.equal(r.moved.unwrap("some"), 3n));
         $(Assert.equal(r.icon.unwrap("some").prefix, "fas"));
         $(Assert.equal(r.icon.unwrap("some").name, "truck"));
@@ -934,7 +936,7 @@ describeEast("Plan", (test) => {
             lanes: [Plan.lane({ key: "am", label: "AM" }), Plan.lane({ key: "pm" })],
             events: [Plan.event({
                 key: "e1", at: W27, lane: "am", label: "X", state: "recommended",
-                tone: "warning", color: "teal.solid", colorPalette: "teal",
+                status: Plan.status("Late", "warning"), color: "teal.solid", colorPalette: "teal",
                 stretch: "horizontal", content: { horizontal: "center", vertical: "end" },
                 animation: "pulse",
             })],
@@ -947,7 +949,7 @@ describeEast("Plan", (test) => {
         const e = $.let(b.events.get(0n));
         $(Assert.equal(e.lane.unwrap("some"), "am"));
         $(Assert.equal(e.state.unwrap("proposed").hasTag("recommended"), true));
-        $(Assert.equal(e.tone.unwrap("some").hasTag("warning"), true));
+        $(Assert.equal(e.status.unwrap("some").tone.hasTag("warning"), true));
         $(Assert.equal(e.color.unwrap("some"), "teal.solid"));
         $(Assert.equal(e.colorPalette.unwrap("some").hasTag("teal"), true));
         $(Assert.equal(e.stretch.unwrap("some").hasTag("horizontal"), true));

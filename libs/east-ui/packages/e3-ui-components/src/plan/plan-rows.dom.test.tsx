@@ -5,7 +5,7 @@
  * @vitest-environment jsdom
  *
  * Plan renderer DOM tests — the recipe's `data-*` state contract: run bars
- * carry the §4.3 truth table on `data-state` (+ `data-stuck` /
+ * carry the §4.3 truth table on `data-state` (+ its status's `data-tone` /
  * `data-runoff`), rollup bands their `×k · qty` caption, the ruler its ISO
  * week ticks + NOW chip, group strips toggle their subtree in place, heat
  * cells carry `data-nodata` / `data-warn` / `data-level`, bucket tiles wear
@@ -53,7 +53,7 @@ function run(key: string, start: Date, end: Date, state: unknown, opts?: { quant
             ? some({ value: opts.quantity, unit: opts.unit !== undefined ? some(opts.unit) : none, format: none, text: opts.text !== undefined ? some(opts.text) : none })
             : none,
         state,
-        status: opts?.stuck === true ? some(variant("warning", null)) : none,
+        status: opts?.stuck === true ? some({ label: "Over dwell", tone: variant("warning", null), ring: false }) : none,
         moved: none, icon: none,
     };
 }
@@ -133,7 +133,7 @@ function renderPlan(value: PlanRootValue, key = "plan") {
 }
 
 describe("Plan span rows (§4·K1)", () => {
-    test("run bars carry the state truth table on data-state, the stuck ring and the runoff mask", () => {
+    test("run bars carry the state truth table on data-state, a status's tone and the runoff mask", () => {
         const { container } = renderPlan(planRoot([
             planRow("m1", spanKind([
                 run("obs1", new Date("2026-06-29Z"), new Date("2026-07-13Z"), variant("actual", null), { quantity: 96, unit: "k sheets" }),
@@ -151,7 +151,10 @@ describe("Plan span rows (§4·K1)", () => {
         expect(states).toContainEqual(["prop1", "prop"]);
         expect(states).toContainEqual(["ghost1", "estimated"]);
         expect(states).toContainEqual(["rej1", "rejected"]);
-        expect(container.querySelector('[data-run="prop1"]')!.hasAttribute("data-stuck")).toBe(true);
+        // Its status rings it in its tone, whatever its state (#1541); a bar with none wears no tone.
+        expect(container.querySelector('[data-run="prop1"]')!.getAttribute("data-tone")).toBe("warning");
+        expect(container.querySelector('[data-run="prop1"]')!.hasAttribute("data-ring")).toBe(false);
+        expect([...container.querySelectorAll("[data-run]")].filter((bar) => bar.hasAttribute("data-tone")).map((bar) => bar.getAttribute("data-run"))).toEqual(["prop1"]);
         expect(container.querySelector('[data-run="runoff1"]')!.hasAttribute("data-runoff")).toBe(true);
         expect(screen.getByText("96 k sheets")).toBeTruthy();
     });
@@ -334,7 +337,7 @@ function bucketEvent(key: string, at: Date, state: unknown, opts?: { lane?: stri
         lane: opts?.lane !== undefined ? some(opts.lane) : none,
         label: opts?.label !== undefined ? some(opts.label) : none,
         icon: none, state,
-        tone: opts?.tone !== undefined ? some(variant(opts.tone, null)) : none,
+        status: opts?.tone !== undefined ? some({ label: "Late", tone: variant(opts.tone, null), ring: false }) : none,
         color: none, colorPalette: none,
         stretch: opts?.stretch !== undefined ? some(variant(opts.stretch, null)) : none,
         content: none, animation: none,
@@ -538,11 +541,11 @@ describe("Plan cards rows (§4·K6)", () => {
             planRow("ops", variant("cards", {
                 chips: [
                     { key: "c1", from: t(new Date("2026-06-29Z")), to: t(new Date("2026-07-13Z")), label: "CREW A",
-                        state: variant("confirmed", null), icon: none },
+                        state: variant("confirmed", null), status: none, icon: none },
                     { key: "c2", from: t(new Date("2026-07-13Z")), to: t(new Date("2026-07-27Z")), label: "+64h",
-                        state: variant("proposed", variant("recommended", null)), icon: none },
+                        state: variant("proposed", variant("recommended", null)), status: none, icon: none },
                     { key: "c3", from: t(new Date("2026-07-27Z")), to: t(new Date("2026-08-10Z")), label: "CREW B",
-                        state: variant("proposed", variant("removed", null)), icon: none },
+                        state: variant("proposed", variant("removed", null)), status: none, icon: none },
                 ],
             })),
         ]));
@@ -559,13 +562,13 @@ describe("Plan event rows (§4·K7)", () => {
             planRow("mile", variant("events", {
                 marks: [
                     { key: "k1", at: t(new Date("2026-06-29Z")), kind: variant("milestone", null),
-                        icon: none, label: some("KICKOFF") },
+                        status: none, icon: none, label: some("KICKOFF") },
                     { key: "k2", at: t(new Date("2026-07-13Z")), kind: variant("decision", { applied: true }),
-                        icon: none, label: none },
+                        status: none, icon: none, label: none },
                     { key: "k3", at: t(new Date("2026-07-27Z")), kind: variant("exception", null),
-                        icon: none, label: none },
+                        status: none, icon: none, label: none },
                     { key: "k4", at: t(new Date("2026-08-10Z")), kind: variant("milestone", null),
-                        icon: some({ prefix: "fas", name: "flag", label: none, style: none }), label: none },
+                        status: none, icon: some({ prefix: "fas", name: "flag", label: none, style: none }), label: none },
                 ],
             })),
         ]));

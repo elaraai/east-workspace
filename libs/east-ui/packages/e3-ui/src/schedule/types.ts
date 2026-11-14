@@ -17,10 +17,11 @@ import {
     StringType, StructType, VariantType,
 } from "@elaraai/east";
 import { RecordCommitInfoType } from "@elaraai/e3-types";
-import { EventStateType, StatusTokenType, StatusValueType, TimeStepType } from "@elaraai/east-ui";
+import { EventStateType, StatusValueType, TimeStepType } from "@elaraai/east-ui";
 import { EditingReadinessType, EditingType, FieldSpecType } from "@elaraai/east-ui/internal";
 import { PlanDrawType, PlanQuantityType, PlanRollupType } from "../plan/types.js";
 import { RowInspectorType } from "../utils/row-inspector.js";
+import { StatusLookType } from "../utils/status.js";
 
 // ============================================================================
 // What an author meets
@@ -50,13 +51,14 @@ export const ScheduleEventRefType = StructType({ kind: StringType, key: StringTy
 export type ScheduleEventRefType = typeof ScheduleEventRefType;
 
 /**
- * How one case of an event's status shows.
+ * How one case of an event's status shows: the builders' one status
+ * ({@link StatusLookType}), which a Plan item's `Plan.status` gives too.
  *
  * @property label - Its words
  * @property tone - Its tone: success, warning, danger, info or neutral
  * @property ring - Whether it draws as an open ring, as a tentative status does
  */
-export const ScheduleStatusType = StructType({ label: StringType, tone: StatusTokenType, ring: BooleanType });
+export const ScheduleStatusType = StatusLookType;
 
 /** Type representing {@link ScheduleStatusType}. */
 export type ScheduleStatusType = typeof ScheduleStatusType;
