@@ -14,7 +14,9 @@
  * of whom the scope holds. A choice builds the Calendar no more (#1354), on a
  * scoped source as on any. The press chosen above the Calendar is a page of its
  * own — its runs, its backlog and its choices — and the first press's choices
- * are kept for it.
+ * are kept for it. Search Records finds the press's runs alone, by their keys;
+ * a run a choice of crew member hides names that choice, never the press, and a
+ * pick of it clears that choice alone.
  */
 import { describe, expect, test } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
@@ -67,6 +69,20 @@ async function choosePress(c: HTMLElement, label: string) {
     // The page's own Select comes first, before the Calendar's.
     await click(c.querySelector<HTMLElement>("[data-scope=select][data-part=trigger]"));
     await click(within(screen.getByRole("listbox")).getAllByRole("option").find(option => option.textContent === label));
+}
+
+/** Search Records' box, in the toolbar's row. */
+const searchBox = (c: HTMLElement) => slot(c, "toolbar").querySelector<HTMLElement>("[data-toolbar-item='seek'] [data-part='dataset-key-search']")!;
+/** The box's list — the listbox its input controls — its lines as they read. */
+const lines = (c: HTMLElement) => {
+    const list = document.getElementById(searchBox(c).querySelector("input")!.getAttribute("aria-controls") ?? "");
+    return list === null ? [] : [...list.querySelectorAll('[role="option"]')].map((option) => option.textContent ?? "");
+};
+/** A query put in the box at once, as a paste is. */
+async function pasteIntoSearch(c: HTMLElement, typed: string) {
+    const input = searchBox(c).querySelector<HTMLInputElement>("input")!;
+    await act(async () => { input.focus(); fireEvent.input(input, { target: { value: typed } }); });
+    await settle();
 }
 
 /** The page mounted over a store of its own, Press 1's runs drawn. */
@@ -136,5 +152,42 @@ describe("a press's own page (#1621)", () => {
         await waitFor(() => expect(drawn(container)).toEqual(["r1", "r3"]));
         expect(tabs(container)[1]).toBe("Backlog 0 of 2");
         expect(h.requests("read", RUNS)).toEqual([]);
+    });
+
+    test("Search Records finds the press's runs alone, by their keys — never another press's — and a run a choice of crew member hides names that choice, never the press", async () => {
+        const { container, store } = await open();
+        const keysListed = () => lines(container).map((line) => line.split(" · ")[0]);
+        // r6 is the record's sixth run and the press's fourth: found at its place among the press's.
+        await pasteIntoSearch(container, "r6");
+        await waitFor(() => expect(keysListed()).toEqual(["r6"]), { timeout: 10_000 });
+        await pasteIntoSearch(container, "r");
+        await waitFor(() => expect(keysListed()).toEqual(["r1", "r2", "r3", "r6", "r7"]), { timeout: 10_000 });
+        // A crew member chosen: the press's runs another member works, or none does, are hidden by that choice alone.
+        await narrow(store, "P-1", crew("c1", whereOf(store, "P-1").get("start")!));
+        await waitFor(() => {
+            const hidden = lines(container).filter((line) => line.includes("hidden by"));
+            expect(hidden.map((line) => line.split(" · ")[0])).toEqual(["r2", "r6", "r7"]);
+            expect(hidden.every((line) => line.includes("Crew") && !line.includes("Press"))).toBe(true);
+        }, { timeout: 10_000 });
+        expect(keysListed()).toEqual(["r1", "r2", "r3", "r6", "r7"]);
+        expect(h.requests("read", RUNS)).toEqual([]);
+    });
+
+    test("a pick of a run the choice of crew member hides clears that choice alone: the press stays, and the run is drawn among the press's, selected", async () => {
+        const { container, store } = await open();
+        const start = whereOf(store, "P-1").get("start")!;
+        await narrow(store, "P-1", crew("c1", start));
+        expect(drawn(container)).toEqual(["r1", "r3"]);
+        await pasteIntoSearch(container, "r2");
+        await waitFor(() => expect(lines(container)).toHaveLength(1), { timeout: 10_000 });
+        await waitFor(() => expect(lines(container)[0]).toContain("hidden by Crew"), { timeout: 10_000 });
+        await act(async () => { fireEvent.keyDown(searchBox(container).querySelector("input")!, { key: "Enter" }); });
+        await settle();
+        await waitFor(() => expect(event(container, "r2")?.getAttribute("aria-pressed")).toBe("true"), { timeout: 10_000 });
+        // The choice is gone and the dates stay; the press, which the store never held, still holds every read.
+        expect([...whereOf(store, "P-1").keys()]).toEqual(["start"]);
+        expect(whereOf(store, "P-1").get("start")).toEqual(start);
+        expect(drawn(container)).toEqual(["r1", "r2", "r3"]);
+        expect(tabs(container)[1]).toBe("Backlog 2");
     });
 });

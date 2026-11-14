@@ -510,6 +510,54 @@ export function recordSliceSeek(slice: Pick<ValueTypeOf<RecordSliceBindType>, "k
 }
 
 /**
+ * Where a key query over a record Slice's record's primary key lands among
+ * the rows its page holds (#1621): what each builder's Search Records seeks.
+ * With no scope, in the record's own order, one block; on a scoped page, among
+ * the scope's rows, in their keys' order under each of its values — one block
+ * for each value that holds a match. A tracked read, as
+ * {@link recordSlicePlace} is.
+ *
+ * @param slice - The record Slice
+ * @param query - The key query, over the record's primary key
+ * @returns Each block of matches, in the page's rows' order; none while pending
+ */
+export function recordSliceKeySearch(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key" | "config">, query: Query): option<ValueTypeOf<typeof SeekRangeType>[]> {
+    return controllerOf(slice).keySearch(query);
+}
+
+/**
+ * A window of the rows a record Slice's page holds (#1621), in their order:
+ * the record's own, with no scope; the scope's, in their keys' order under each
+ * of its values. What a Search Records box lists the matches
+ * {@link recordSliceKeySearch} placed by. A tracked read, as
+ * {@link recordSlicePlace} is.
+ *
+ * @param slice - The record Slice
+ * @param offset - The window's first row, among the page's rows
+ * @param limit - How many rows it holds at most
+ * @returns The window's entries, each its key and its row joined; none while pending
+ */
+export function recordSliceBasePage(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key" | "config">, offset: bigint, limit: bigint): option<RecordSliceEntry[]> {
+    return controllerOf(slice).basePage(offset, limit);
+}
+
+/**
+ * Which of the rows a record Slice's page holds `[offset, offset + limit)`, in
+ * their order, a narrowing holds (#1621): {@link recordSliceWithinAt} over those
+ * rows — the scope's, on a scoped page. A tracked read, as
+ * {@link recordSlicePlace} is.
+ *
+ * @param slice - The record Slice
+ * @param where - The narrowing
+ * @param offset - The first row, among the page's rows
+ * @param limit - How many rows
+ * @returns Whether the narrowing holds each row, in order; none while pending
+ */
+export function recordSliceBaseWithinAt(slice: Pick<ValueTypeOf<RecordSliceBindType>, "key" | "config">, where: Where, offset: bigint, limit: bigint): option<boolean[]> {
+    return controllerOf(slice).baseWithinAt(where, offset, limit);
+}
+
+/**
  * Where a row stands among a record Slice's narrowing's rows, in their order
  * (#1513): what a reader that pages the narrowing's rows goes to a row by — the
  * Plan's Search Records, once a pick has cleared what hid it. A tracked read, as

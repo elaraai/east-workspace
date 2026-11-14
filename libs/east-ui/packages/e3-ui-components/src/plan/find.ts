@@ -6,11 +6,14 @@
 /**
  * Search Records over the source of the rows a Plan pages (#1513) — its `rows`
  * source, or a paged resource kind's, whose windows are its narrowing's rows just
- * as theirs are: navigation over the whole
- * record, never a field search, which is the rail's. The box seeks and lists the
- * rows as the binding reads them with no narrowing — by primary key where it
- * joins its rows, else by its default index, a lean binding reading no rows by
- * their keys — so it finds a row the rail hides, and a line says what hides it (the shared hidden pick,
+ * as theirs are: navigation over the rows the page holds, never a field search,
+ * which is the rail's. The box seeks and lists the rows as the binding reads
+ * them with no choice of the viewer's (`recordSliceKeySearch`) — the record's
+ * own, by primary key where it joins its rows, else by its default index, a
+ * lean binding reading no rows by their keys; on a page whose source holds a
+ * scope (#1621), the scope's rows alone, in their keys' order under each of its
+ * values, a block of matches each — so it finds a row the rail's choices hide,
+ * and a line says what hides it (the shared hidden pick,
  * `shared/schedule/hidden.ts`). The canvas pages the narrowing's rows in its
  * index's order, so a row's place in the record says nothing of its place on
  * the canvas: a pick asks e3 where the row stands among the rows the narrowing
@@ -23,17 +26,16 @@
  */
 
 import { useCallback, useMemo, useRef, useState } from "react";
-import { StringType, isValueOf, none, printFor, some, type ValueTypeOf } from "@elaraai/east";
+import { StringType, isValueOf, none, printFor, some } from "@elaraai/east";
 import { RecordSliceWhereType, type RecordSliceEntry } from "@elaraai/east-ui/internal";
 import type { DatasetKeyMatchRange, DatasetKeyQuery, KeySearchSource } from "@elaraai/east-ui-components";
-import { awaitTracked, recordSlicePage, recordSlicePosition, recordSliceRows, recordSliceSeek, toSeekQuery } from "@elaraai/east-ui-components/internal";
+import { awaitTracked, recordSliceBasePage, recordSliceKeySearch, recordSlicePosition, recordSliceRows, toSeekQuery } from "@elaraai/east-ui-components/internal";
+import { blocksAt, type FoundBlock } from "../shared/schedule/found-blocks.js";
 import { CANVAS_KEY_TYPE } from "./controller/seek.js";
 import type { PlanController } from "./controller/index.js";
 import { hiddenLine, usePartRevision, useMoves, useRelist, type SourceHidden, type SourceHiding } from "../shared/schedule/hidden.js";
 import type { PlanSourcePart } from "./root/sources.js";
 import type { PlanWords } from "./words.js";
-
-type Where = ValueTypeOf<typeof RecordSliceWhereType>;
 
 const printWhere = printFor(RecordSliceWhereType);
 /** The box's `resetKey`: what tells this search from a paged source's own. */
@@ -48,9 +50,6 @@ const PLAN_ROWS_FIND = "plan-rows";
 export function isPlanRowsFind(search: KeySearchSource | undefined): boolean {
     return search?.resetKey === PLAN_ROWS_FIND;
 }
-
-/** No narrowing: the record's rows, as the binding reads them by default. */
-const WHOLE_RECORD: Where = new Map();
 
 /**
  * What hides a row as far as e3 has said: nothing while it has not been asked of, or the narrowing holds it.
@@ -89,22 +88,30 @@ export interface PlanRowsFindProps {
 export function usePlanRowsFind({ part, pick, clear, controller, words, onError }: PlanRowsFindProps): KeySearchSource | undefined {
     const latest = useRef({ part, pick, clear, controller, words, onError });
     latest.current = { part, pick, clear, controller, words, onError };
-    // The keys the box's lines name, by their place in the record: a pick goes to the row its line named.
+    // The keys the box's lines name, by their place in its list: a pick goes to the row its line named.
     const [listed] = useState(() => new Map<number, string>());
+    // What the last find found: each block of matches among the rows the page holds, a list's rows one block after another.
+    const found = useRef<readonly FoundBlock[]>([]);
+    // The finds asked: one answered after a newer one asked finds nothing here.
+    const asked = useRef(0);
     // The latest pick: a clear of the box, or another pick, leaves one on its way behind.
     const going = useRef(0);
     const find = useCallback(async (query: DatasetKeyQuery): Promise<DatasetKeyMatchRange> => {
+        const mine = ++asked.current;
         const source = latest.current.part;
         if (source === undefined) return { found: false, row: 0, count: 0 };
         const seekQuery = toSeekQuery(query);
-        const range = await awaitTracked(() => recordSliceSeek(source, WHOLE_RECORD, seekQuery));
-        return { found: range.found, row: Number(range.row), count: Number(range.count) };
+        const blocks = await awaitTracked(() => recordSliceKeySearch(source, seekQuery));
+        if (mine === asked.current) found.current = blocks;
+        const count = blocks.reduce((sum, block) => sum + block.count, 0n);
+        return { found: count > 0n, row: 0, count: Number(count) };
     }, []);
     const listRange = useCallback(async (row: number, limit: number) => {
         const source = latest.current.part;
         if (source === undefined) return [];
-        const page = await awaitTracked(() => recordSlicePage(source, { where: WHOLE_RECORD, area: none }, BigInt(row), BigInt(limit)));
-        const entries = page as readonly RecordSliceEntry[];
+        const pages = await Promise.all(blocksAt(found.current, row, limit).map(({ from, n }) =>
+            awaitTracked(() => recordSliceBasePage(source, from, BigInt(n)))));
+        const entries = pages.flat() as readonly RecordSliceEntry[];
         const ids = entries.map((entry) => entry.key as string);
         ids.forEach((id, i) => listed.set(row + i, id));
         // Which of them the narrowing hides and what hides those, asked of e3: a line says so as the answers land.
@@ -153,6 +160,8 @@ export function usePlanRowsFind({ part, pick, clear, controller, words, onError 
     const clearBox = useCallback(() => {
         going.current += 1;
         listed.clear();
+        asked.current += 1;
+        found.current = [];
         latest.current.controller.leaveRow();
     }, [listed]);
     // The box asks its query again as the record moves, and lists its lines again as e3 says what hides a row.

@@ -11,7 +11,7 @@ import {
 } from "@elaraai/east";
 import { IndexedEntryType, IndexedSourceType, type IndexedSource } from "../../contracts/indexed-source.js";
 import { toValueFormat, type SliceFieldFormat } from "./index.js";
-import { planRecordSlice, recordEntriesFields, recordIndexFields, recordPlanIndex } from "./record-plan.js";
+import { planRecordSlice, recordEntriesFields, recordIndexFields, recordPlanIndex, recordScopeSearchIndex } from "./record-plan.js";
 import { readAreaMarker } from "./record-area.js";
 import { readIntervalMarker } from "./record-interval.js";
 import { readTileMarker, tilingOf } from "./record-series.js";
@@ -402,6 +402,12 @@ export function bindRecord<K extends EastType, R extends StructType, P extends E
         new Map<string, ValueTypeOf<RecordSliceChoiceType>>([...where, ...scoped.map(name => [name, variant("values", [""])] as const)]);
     if (scoped.length > 0 && recordPlanIndex(indexes, beside(new Map())) === undefined) {
         throw new Error(`Slice.bindRecord: the scope (${scoped.map(name => `'${name}'`).join(", ")}) needs one index led by exactly its fields — ${declare(scoped)}`);
+    }
+    // Search Records seeks the page's keys among the scope's rows (#1621), which run in their keys' order only through a
+    // plain index on exactly the scope's fields: an interval, an area or a series index led by them orders them otherwise.
+    if (scoped.length > 0 && recordScopeSearchIndex(indexes, scoped) === undefined) {
+        throw new Error(`Slice.bindRecord: Search Records finds a row among the scope's (${scoped.map(name => `'${name}'`).join(", ")}) by its key, ` +
+            `through an index on exactly the scope's fields, whose rows run in their keys' order — ${declare(scoped)}`);
     }
     /** What a refusal says of a scoped field named where the rail's own fields go. */
     const held = (field: string, where: string) =>

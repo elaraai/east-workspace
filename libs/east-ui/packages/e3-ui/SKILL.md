@@ -384,8 +384,8 @@ changed under the edit (`e3-ui:func.examples.tsx:funcBindDrafts`).
   list's `source`) over its record's indexes (`Data.bindPaged(record, { indexes })`);
   `range` sources share one window. Calculations read every row, hidden or not.
   A page for one press scopes a source (`scope: { press: [press] }`): every read
-  carries the press, the rail has no control for it, a new event takes it, and
-  each field offered needs an index on the press first (`index.on(["press", "crew"])`).
+  and Search Records keep to the press, the rail has no control for it, a new event
+  takes it; it lists `index.on(["press"])`, and per field offered `index.on(["press", "crew"])`.
 - **Large records are read through their indexes** (declared in the record,
   the **e3** skill): an event kind through an interval index
   (`index.interval({ from: "start", to: "end" })`) with `range: "start"` and

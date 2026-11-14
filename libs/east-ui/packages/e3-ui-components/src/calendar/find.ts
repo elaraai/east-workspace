@@ -10,10 +10,12 @@
  * kind's own record, as the Schematic's Find seeks its kinds'.
  *
  * - **A kind narrowed through its source of the slice** is sought through e3
- *   with no narrowing: `recordSliceSeek` places the query's run in the
- *   record's own order, and `recordSlicePage` reads the rows a list shows by
- *   position, each read as an event by its key (the kind's `event`, its drafts
- *   in place).
+ *   with no choice of the viewer's: `recordSliceKeySearch` places the query's
+ *   run in the record's own order — on a page whose source holds a scope
+ *   (#1621), among the scope's rows alone, a run of matches for each of its
+ *   values — and `recordSliceBasePage` reads the rows a list shows by their
+ *   place there, each read as an event by its key (the kind's `event`, its
+ *   drafts in place).
  * - **A kind read whole** is sought in its events — every one its record
  *   holds, scheduled or in its backlog — their keys in East's order, as the
  *   server finds a key (`findKeyInline`).
@@ -42,10 +44,10 @@
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { StringType, compareFor, equalFor, none, some, toEastTypeValue, type EastTypeValue, type ValueTypeOf, type option } from "@elaraai/east";
-import { findKeyInline, type DatasetKeyMatchRange, type DatasetKeyQuery, type RecordSliceBindType, type RecordSliceWhereType } from "@elaraai/east-ui/internal";
+import { findKeyInline, type DatasetKeyMatchRange, type DatasetKeyQuery, type RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { useTrackedEvaluation, type KeySearchSource } from "@elaraai/east-ui-components";
 import {
-    awaitTracked, recordSlicePage, recordSliceRevision, recordSliceRows, recordSliceSeek, recordSliceWithin, recordSliceWithinAt, toSeekQuery,
+    awaitTracked, recordSliceBasePage, recordSliceBaseWithinAt, recordSliceKeySearch, recordSliceRevision, recordSliceRows, recordSliceWithin, toSeekQuery,
 } from "@elaraai/east-ui-components/internal";
 import { EMPTY_SCHEDULE_DRAFTS, heldRowOf, type ScheduleEditing, type ScheduleHeldRows } from "../shared/schedule/editing.js";
 import { askHiding, hiddenLine, hiddenOf, useRelist, type RowHidden, type RowHiding, type SourceHidden } from "../shared/schedule/hidden.js";
@@ -60,8 +62,6 @@ const keyEqual = equalFor(StringType);
 /** East's order of String keys. */
 const compareKeys = compareFor(StringType);
 
-/** No narrowing: a record's own rows, in its order. */
-const WHOLE: ValueTypeOf<typeof RecordSliceWhereType> = new Map();
 /** An empty box lists the first of the events every kind's record holds. */
 const BROWSE_QUERY: DatasetKeyQuery = { prefix: "" };
 /** The whole of time, for a kind read whole: every event its record holds. */
@@ -72,12 +72,15 @@ type RecordPart = ValueTypeOf<RecordSliceBindType>;
 /** An entry of a record's window, as every record Slice binding reads one: its key — a kind's are Strings — and its row. */
 interface RecordEntry { readonly key: string }
 
-/** One kind's matches: a run of its record's rows, from `start`, or a kind read whole's events. */
+/**
+ * One kind's matches, or a block of them: a run of the rows its page holds of its record, from `start`, or a kind read
+ * whole's events.
+ */
 interface FindRun {
     readonly kind: CalendarKind;
     /** Its source of the slice; `undefined` for a kind read whole. */
     readonly part: RecordPart | undefined;
-    /** Where its matches start, in its record's own order: a kind read through its source. */
+    /** Where its matches start, among the rows its page holds of its record — the record's own, or its scope's (#1621). */
     readonly start: number;
     readonly count: number;
     /** A kind read whole's matches, in its keys' order. */
@@ -227,22 +230,23 @@ export function useCalendarFind({ kinds, parts, editing, range, format, onPick, 
     const find = useCallback(async (query: DatasetKeyQuery): Promise<DatasetKeyMatchRange> => {
         const mine = ++asked.current;
         const seek = toSeekQuery(query);
-        const runs = await Promise.all(latest.current.kinds.flatMap((kind): Promise<FindRun>[] => {
+        const runs = (await Promise.all(latest.current.kinds.flatMap((kind): Promise<FindRun[]>[] => {
             const part = partOf(kind);
             if (part !== undefined) {
-                return [awaitTracked(() => recordSliceSeek(part, WHOLE, seek)).then((at): FindRun =>
-                    ({ kind, part, start: at.found ? Number(at.row) : 0, count: at.found ? Number(at.count) : 0, items: undefined }))];
+                // A block of matches each: one with no scope, one for each of the scope's values that holds one (#1621).
+                return [awaitTracked(() => recordSliceKeySearch(part, seek)).then((blocks): FindRun[] =>
+                    blocks.map((block) => ({ kind, part, start: Number(block.row), count: Number(block.count), items: undefined })))];
             }
             // A kind read a window at a time with no source of the slice has no index to seek: it lists nothing.
             if (kind.entries.type === "some") return [];
             const drafts = draftsOf(kind);
             return [Promise.all([awaitTracked(() => kind.items(EVER.from, EVER.to, drafts, none)),
                 kind.backlog ? awaitTracked(() => kind.unscheduled(EVER.from, EVER.to, drafts, none)) : Promise.resolve([] as CalendarItem[])])
-                .then(([scheduled, backlog]): FindRun => {
+                .then(([scheduled, backlog]): FindRun[] => {
                     const items = wholeEventMatches([...scheduled, ...backlog], query);
-                    return { kind, part: undefined, start: 0, count: items.length, items };
+                    return [{ kind, part: undefined, start: 0, count: items.length, items }];
                 })];
-        }));
+        }))).flat();
         if (mine === asked.current) found.current = runs;
         const count = runs.reduce((sum, run) => sum + run.count, 0);
         return { found: count > 0, row: 0, count };
@@ -253,12 +257,12 @@ export function useCalendarFind({ kinds, parts, editing, range, format, onPick, 
             if (run.items !== undefined) return run.items.slice(offset, offset + n).map((item, i) => ({ at: at + i, item, kind: run.kind.name, hidings: NO_HIDINGS }));
             const part = run.part!;
             const from = BigInt(run.start + offset);
-            const entries = await awaitTracked(() => recordSlicePage(part, { where: WHOLE, area: none }, from, BigInt(n))) as readonly RecordEntry[];
+            const entries = await awaitTracked(() => recordSliceBasePage(part, from, BigInt(n))) as readonly RecordEntry[];
             // Which of them the kind's choices hide, asked of e3 over the page just read — its narrowing but the window,
             // which hides no event — and which choices hide those (the hidden pick): nothing is asked with no choice.
             const pick = latest.current.picks.get(run.kind.key);
             const where = pick?.where;
-            const shown = where === undefined || where.size === 0 ? undefined : await awaitTracked(() => recordSliceWithinAt(part, where, from, BigInt(n)));
+            const shown = where === undefined || where.size === 0 ? undefined : await awaitTracked(() => recordSliceBaseWithinAt(part, where, from, BigInt(n)));
             if (pick !== undefined && shown !== undefined) pick.rows.askListed(Number(from), entries.map(entry => entry.key), shown);
             const { range: window, held } = latest.current;
             const drafts = draftsOf(run.kind);

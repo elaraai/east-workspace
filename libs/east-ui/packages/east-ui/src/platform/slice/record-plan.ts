@@ -48,6 +48,23 @@ export function recordIndexGenerated(index: Index): boolean {
 }
 
 /**
+ * The index a scoped source's rows are read in their keys' order through
+ * (#1621) — what a builder's Search Records seeks the page's keys through, and
+ * what lists them: one on exactly the scope's fields, a plain index —
+ * `index.on`, or `index.key` over them — with none of e3's own parts beside
+ * them, so its key is the scope's values and then the row's primary key, and
+ * its rows run in their primary keys' order under each of the scope's values.
+ * @param indexes - Available paths.
+ * @param scoped - The scope's fields.
+ * @returns The first such listed index; `undefined` where none is listed, or the source has no scope.
+ */
+export function recordScopeSearchIndex(indexes: readonly Index[], scoped: readonly string[]): Index | undefined {
+    if (scoped.length === 0) return undefined;
+    return indexes.find(index => !recordIndexGenerated(index) && !index.entries && index.fields.length === scoped.length
+        && scoped.every(field => index.fields.includes(field)));
+}
+
+/**
  * The fields an entries index offers (#1522): each a Dict field of the rows,
  * whose picked keys weigh a reader's rows — the picked entries are what it
  * draws of each row — and never narrow them.

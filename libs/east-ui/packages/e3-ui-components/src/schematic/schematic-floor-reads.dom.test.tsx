@@ -118,15 +118,18 @@ const SCOPED = "schematic.floor.scoped";
 
 /**
  * The floor on a page whose scope holds Halls 1 to 3 (#1621): their 6,000 racks, past the 5,000 a window draws, read by
- * area — their source lists the area index over every hall's racks and the one the hall leads — and dimmed, the viewer's
- * choices drawn as context. The rail offers no field: the scope holds the only one a listed index leads first.
+ * area — their source lists the area index over every hall's racks, the one the hall leads, and the halls' racks in their
+ * keys' order, which Find seeks a rack among them by — and dimmed, the viewer's choices drawn as context. The rail offers
+ * no field: the scope holds the only one a listed index leads first.
  */
 const scopedFloor = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const racks = $.let(Data.bindPaged(ex.schematicStressRacks));
     const halls = $.let(Data.bind(ex.schematicStressHalls));
     const slice = $.let(Slice.bindRecords(SCOPED, {
         racks: {
-            source: Data.bindPaged(ex.schematicStressRacks, { indexes: ["schematic_stress_racks_by_area", "schematic_stress_racks_by_hall_area"] }),
+            source: Data.bindPaged(ex.schematicStressRacks, {
+                indexes: ["schematic_stress_racks_by_area", "schematic_stress_racks_by_hall_area", "schematic_stress_racks_by_hall"],
+            }),
             scope: { hall: ["Hall 1", "Hall 2", "Hall 3"] },
             fields: {},
         },

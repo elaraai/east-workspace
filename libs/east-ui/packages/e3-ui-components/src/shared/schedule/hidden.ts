@@ -57,7 +57,7 @@ import {
     type RecordSliceBindType, type RecordSliceChoiceType, type RecordSliceEntry, type RecordSliceFieldType, type RecordSliceIndexType, type RecordSlicePaths,
 } from "@elaraai/east-ui/internal";
 import { useSliceReactivity, useTrackedEvaluation, type Formatters } from "@elaraai/east-ui-components";
-import { awaitTracked, recordChoiceLabel, recordSlicePage, recordSliceRevision, recordSliceRows, recordSliceWithin } from "@elaraai/east-ui-components/internal";
+import { awaitTracked, recordChoiceLabel, recordSliceBasePage, recordSliceRevision, recordSliceRows, recordSliceWithin } from "@elaraai/east-ui-components/internal";
 import { STRING_KEYS, kindKeys } from "./kind-keys.js";
 import type { HiddenWords } from "./words.js";
 
@@ -274,10 +274,11 @@ export interface HiddenRowsInput {
 /** The hidden pick's reads, and what they have been told. */
 export interface HiddenRows {
     /**
-     * Asks which choices hide the rows a listing of the record holds from its row `from` that the narrowing hides — the
-     * key search's lines: their rows are those the listing read, so nothing is read again for them.
+     * Asks which choices hide the rows a listing of the rows the page holds of the record — the record's own, or its
+     * scope's (#1621) — holds from its row `from` that the narrowing hides: the key search's lines. Their rows are those
+     * the listing read, so nothing is read again for them.
      *
-     * @param from - The listing's first row, in the record's order
+     * @param from - The listing's first row, among the page's rows
      * @param ids - Each listed row's id, in order
      * @param held - Whether the narrowing holds each, as the listing read it
      */
@@ -372,8 +373,8 @@ export function useHiddenRows(input: HiddenRowsInput): HiddenRows {
             asking.push(i);
         });
         if (asking.length === 0) return;
-        // Their rows as the record holds them: the page the listing read them from, held already.
-        void awaitTracked(() => recordSlicePage(part, { where: WHOLE_RECORD, area: none }, BigInt(from), BigInt(ids.length))).then((page) => {
+        // Their rows as the record holds them: the page of the page's rows the listing read them from, held already.
+        void awaitTracked(() => recordSliceBasePage(part, BigInt(from), BigInt(ids.length))).then((page) => {
             if (!Object.is(now(), at)) return;
             const entries = page as readonly RecordSliceEntry[];
             const rows = asking.map((i) => {

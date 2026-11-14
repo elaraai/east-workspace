@@ -41,6 +41,8 @@ export const pressRuns = e3.record("press_runs", DictType(StringType, PressRun),
         ["r8", { title: "Labels", press: "P-2", crew: none, start: none, end: none, hours: 3.0, due: some(new Date("2026-10-05T00:00:00Z")) }],
     ]),
     indexes: (index) => ({
+        // A press's runs in their keys' order: what Search Records finds a run among the press's by its key through.
+        press_runs_by_press: index.on(["press"]),
         // A press's page reads its runs through the press and the dates in view together: the scope's field first. A run
         // with no start stays selectable, so the press's backlog is read through it too.
         press_runs_by_press_time: index.interval({ on: ["press"], from: "start", to: "end" }),
@@ -73,7 +75,7 @@ export const calendarScoped = example({
         const crew = $.let(Data.bind(pressCrew));
         const runs = $.let(Record.bind(pressRuns));
         const templates = $.let(Data.bind(pressRunTemplates));
-        const runIndex = $.let(Data.bindPaged(pressRuns, { indexes: ["press_runs_by_press_time", "press_runs_by_press_crew_time"] }));
+        const runIndex = $.let(Data.bindPaged(pressRuns, { indexes: ["press_runs_by_press", "press_runs_by_press_time", "press_runs_by_press_crew_time"] }));
         const crewIndex = $.let(Data.bindPaged(pressCrew, { indexes: ["press_crew_by_press"] }));
         const templateIndex = $.let(Data.bindPaged(pressRunTemplates, { indexes: ["press_run_templates_by_group"] }));
         const runEntries = $.let(Data.bindPaged(pressRuns));

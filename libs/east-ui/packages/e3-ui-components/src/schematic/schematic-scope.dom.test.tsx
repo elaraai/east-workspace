@@ -20,6 +20,8 @@
  *   far end, read by key as a run reaching the view draws it, is held to the
  *   scope and drawn nowhere — not as context — and the frame it reaches is
  *   joined to none of them.
+ * - **Find** lists the racks the scope holds alone, by their keys: on a page of
+ *   two owners, each owner's in turn, in the order their index files them.
  *
  * jsdom lays nothing out: the canvas is given the box a page would give it,
  * 1080 × 540 px at the client origin, and each card a test presses answers at
@@ -51,10 +53,10 @@ const RACKS_DATASET = `records.${ex.schematicRacks.name}`;
 /** The racks the floor places. */
 const PLACED = ["A01", "A02", "A03", "A04", "A05"];
 
-/** An owner's page: its key, the owner it is for, and how the viewer's narrowing draws. */
+/** An owner's page: its key, the owners it is for, and how the viewer's narrowing draws. */
 interface OwnerPage {
     readonly key: string;
-    readonly owner: string;
+    readonly owners: readonly string[];
     readonly show: "hide" | "dim";
 }
 
@@ -63,13 +65,13 @@ interface OwnerPage {
  * leads and the index by owner the scope asks for — scoped to the owner, editable through their patch door, with the
  * Backlog in the library. The rail offers no field: the scope holds the only one a listed index leads first.
  */
-const ownerFloor = ({ key, owner, show }: OwnerPage) => ({ fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+const ownerFloor = ({ key, owners, show }: OwnerPage) => ({ fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const racks = $.let(Record.bind(ex.schematicRacks, ["patch"]));
     const rackEntries = $.let(Data.bindPaged(ex.schematicRacks));
     const slice = $.let(Slice.bindRecords(`schematic.scope.${key}`, {
         racks: {
             source: Data.bindPaged(ex.schematicRacks, { indexes: ["schematic_racks_by_owner", "schematic_racks_by_area", "schematic_racks_by_owner_area"] }),
-            scope: { owner: [owner] },
+            scope: { owner: [...owners] },
             fields: {},
         },
     }));
@@ -129,7 +131,7 @@ const rack = (key: string) => entityId({ kind: "racks", key });
 test("an owner's page draws that owner's racks alone, read through the area index the owner leads — hidden or dimmed alike, no other owner's rack drawn as context, nor read: the scope is no choice of the viewer's (#1621)", async () => {
     for (const show of ["hide", "dim"] as const) {
         const before = indexesRead().length;
-        const { container, unmount } = await open({ key: `elmway-${show}`, owner: "Elmway College", show }, "A05");
+        const { container, unmount } = await open({ key: `elmway-${show}`, owners: ["Elmway College"], show }, "A05");
         expect(drawnRacks(container), show).toEqual(["A05"]);
         expect(card(container, "racks", "A05")!.hasAttribute("data-context"), show).toBe(false);
         // Every read of the racks by area went through the index the owner leads: never the one over every owner's racks.
@@ -142,14 +144,14 @@ test("an owner's page draws that owner's racks alone, read through the area inde
 });
 
 test("its Backlog pages the owner's racks with no position and counts them alone: `Backlog 1`, never `1 of 2`, every owner's (#1621)", async () => {
-    const { container } = await open({ key: "elmway-backlog", owner: "Elmway College", show: "hide" }, "A05");
+    const { container } = await open({ key: "elmway-backlog", owners: ["Elmway College"], show: "hide" }, "A05");
     await waitFor(() => expect(cards(container).map((c) => c.key)).toEqual([rack("A06")]));
     expect(tab(container)).toBe("Backlog 1");
     expect(cards(container).map((c) => [c.context, c.drags])).toEqual([[false, true]]);
 });
 
 test("emptied, its Backlog says so plainly — never that the filters match nothing, and no Clear filters, which could not clear the scope (#1621)", async () => {
-    const { container } = await open({ key: "northwind", owner: "Northwind Media", show: "hide" }, "A03");
+    const { container } = await open({ key: "northwind", owners: ["Northwind Media"], show: "hide" }, "A03");
     expect(drawnRacks(container)).toEqual(["A03", "A04"]);
     await waitFor(() => expect(tab(container)).toBe("Backlog 0"));
     const backlog = pane(container).querySelector<HTMLElement>('[role="tab"]')!;
@@ -158,6 +160,35 @@ test("emptied, its Backlog says so plainly — never that the filters match noth
     await waitFor(() => expect(emptyState(container)).not.toBeNull());
     expect(emptyState(container)).toEqual(["Nothing in the backlog", null]);
     expect(panel(container).querySelector("[data-library-empty][data-narrowed]")).toBeNull();
+});
+
+/** Find's box, in the toolbar's row. */
+const findBox = (container: HTMLElement) => slot(container, "toolbar").querySelector<HTMLElement>("[data-toolbar-item='seek'] [data-part='dataset-key-search']")!;
+/** The keys Find's lines name, in order. */
+const foundKeys = () => [...document.querySelectorAll('[role="option"]')].map((option) => (option.textContent ?? "").split(" · ")[0]);
+/** A query put in Find's box at once, as a paste is. */
+async function find(container: HTMLElement, typed: string) {
+    const input = findBox(container).querySelector<HTMLInputElement>("input")!;
+    await act(async () => { input.focus(); fireEvent.input(input, { target: { value: typed } }); });
+    await settle();
+}
+
+test("Find lists the racks the page's scope holds alone, by their keys — the one with no position among them — and on a page of two owners, each owner's in turn, in the order their index files them (#1621)", async () => {
+    const one = await open({ key: "elmway-find", owners: ["Elmway College"], show: "hide" }, "A05");
+    await find(one.container, "A");
+    await waitFor(() => expect(foundKeys()).toEqual(["A05", "A06"]), { timeout: 10_000 });
+    // A06 is the record's sixth rack and the page's second: found at its place among the page's.
+    await find(one.container, "A06");
+    await waitFor(() => expect(foundKeys()).toEqual(["A06"]), { timeout: 10_000 });
+    one.unmount();
+    // Listed Northwind first, the owners are filed by name: Elmway's racks, then Northwind's.
+    const two = await open({ key: "two-owners-find", owners: ["Northwind Media", "Elmway College"], show: "hide" }, "A05");
+    await find(two.container, "A0");
+    await waitFor(() => expect(foundKeys()).toEqual(["A05", "A06", "A03", "A04"]), { timeout: 10_000 });
+    // From A04 on: Elmway's two, then Northwind's A04 — matches no one run of the page's rows holds.
+    await find(two.container, '"A04"..');
+    await waitFor(() => expect(foundKeys()).toEqual(["A05", "A06", "A04"]), { timeout: 10_000 });
+    expect(h.requests("read", RACKS_DATASET)).toEqual([]);
 });
 
 /**

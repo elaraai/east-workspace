@@ -10,11 +10,13 @@
  *
  * - **States read through their source of the rail** are sought in their
  *   record through e3, as the Schematic's kinds are (`schematic/find.ts`):
- *   `recordSliceSeek` with no narrowing places the query's matches by key,
- *   `recordSlicePage` reads the rows a list shows by their place, each made
- *   its roles by the kind's `read`, and `recordSliceWithin` asks, in one
- *   request, which of them the rail's narrowing holds — so a state the
- *   narrowing hides is found by its key.
+ *   `recordSliceKeySearch` with no choice of the viewer's places the query's
+ *   matches by key — on a page whose source holds a scope (#1621), among the
+ *   scope's rows alone, a block of matches for each of its values —
+ *   `recordSliceBasePage` reads the rows a list shows by their place there,
+ *   each made its roles by the kind's `read`, and `recordSliceWithin` asks, in
+ *   one request, which of them the rail's narrowing holds — so a state the
+ *   rail's choices hide is found by its key.
  * - **The states the canvas draws** are sought by key and by label: those a
  *   key's start, a quoted key or a range finds, and — for bare text — those
  *   whose label holds it, in any case. Beside a record sought through e3 they
@@ -41,10 +43,11 @@
  */
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { StringType, equalFor, match, none, printFor, type ValueTypeOf, type option } from "@elaraai/east";
+import { StringType, equalFor, match, printFor, type ValueTypeOf, type option } from "@elaraai/east";
 import { RecordSliceWhereType, findKeyInline, type DatasetKeyMatchRange, type DatasetKeyQuery, type RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { useTrackedEvaluation, type KeySearchSource } from "@elaraai/east-ui-components";
-import { awaitTracked, recordSlicePage, recordSliceRevision, recordSliceSeek, recordSliceWithin, toSeekQuery } from "@elaraai/east-ui-components/internal";
+import { awaitTracked, recordSliceBasePage, recordSliceKeySearch, recordSliceRevision, recordSliceWithin, toSeekQuery } from "@elaraai/east-ui-components/internal";
+import { blocksAt, type FoundBlock } from "../shared/schedule/found-blocks.js";
 import { askHiding, hiddenLine, hiddenOf, useRelist, type RowHidden, type SourceHidden } from "../shared/schedule/hidden.js";
 import { STRING_KEYS, type KindKeys } from "../shared/schedule/kind-keys.js";
 import type { RowCodec } from "../shared/schedule/records.js";
@@ -54,9 +57,6 @@ import type { FlowchartStateRoles } from "./model.js";
 
 const keyEqual = equalFor(StringType);
 const printWhere = printFor(RecordSliceWhereType);
-
-/** No narrowing: the record's own rows, in its order. */
-const WHOLE: ValueTypeOf<typeof RecordSliceWhereType> = new Map();
 
 /** An empty box lists the first of the states. */
 const BROWSE_QUERY: DatasetKeyQuery = { prefix: "" };
@@ -151,10 +151,13 @@ export function drawnMatches(states: readonly FindableState[], query: DatasetKey
         : text !== undefined && text.length > 0 && state.label !== undefined && state.label.toLocaleLowerCase(locale).includes(text)));
 }
 
-/** What the last find found: the record's matches, from `start` in its own order — sought through e3 — then the drawn states'. */
+/** What the last find found: the record's matches, among the rows its page holds — sought through e3 — then the drawn states'. */
 interface Found {
-    /** The record's matches: the states' source, where they start, and how many; `undefined` for states read whole. */
-    readonly record: { readonly part: RecordPart; readonly start: number; readonly count: number } | undefined;
+    /**
+     * The record's matches: the states' source, each block of them among the rows its page holds (#1621), and how many in
+     * all; `undefined` for states read whole.
+     */
+    readonly record: { readonly part: RecordPart; readonly blocks: readonly FoundBlock[]; readonly count: number } | undefined;
     /** The drawn states' matches, in key order. */
     readonly drawn: readonly FindableState[];
 }
@@ -210,8 +213,8 @@ export function useFlowchartFind({ part, read, codec, keys, drawn, stored, pick,
         const { part: source, keys: stateKeys, drawn: states, stored: held, words: w } = latest.current;
         let record: Found["record"];
         if (source !== undefined) {
-            const range = await awaitTracked(() => recordSliceSeek(source, WHOLE, toSeekQuery(query)));
-            record = { part: source, start: range.found ? Number(range.row) : 0, count: range.found ? Number(range.count) : 0 };
+            const blocks = await awaitTracked(() => recordSliceKeySearch(source, toSeekQuery(query)));
+            record = { part: source, blocks, count: Number(blocks.reduce((sum, block) => sum + block.count, 0n)) };
         }
         const matches = drawnMatches(states, query, w.locale, (key) => source !== undefined && held.has(key), stateKeys);
         if (mine === asked.current) found.current = { record, drawn: matches };
@@ -226,30 +229,32 @@ export function useFlowchartFind({ part, read, codec, keys, drawn, stored, pick,
         const inRecord = record?.count ?? 0;
         if (record !== undefined && row < inRecord) {
             const { part: source } = record;
-            const from = record.start + row;
-            const n = Math.min(limit, inRecord - row);
-            // Each entry by its key's text (#1549), the narrowing asked of it at its key.
-            const entries = await awaitTracked(() => recordSlicePage(source, { where: WHOLE, area: none }, BigInt(from), BigInt(n))) as readonly RecordEntry[];
-            const listed = entries.map((entry) => ({ key: stateKeys.textOf(entry.key), at: entry.key, row: someOf(entry.row) }));
-            const present = listed.flatMap(({ key, at, row: value }) => (value === undefined ? [] : [{ key, at, row: value }]));
-            const where = source.read().where;
-            const within = where.size === 0 ? undefined
-                : await awaitTracked(() => recordSliceWithin(source, where, present.map(({ at, row: value }) => ({ key: at, row: value }))));
-            // Whether the narrowing holds each row read; every entry of the page with it — one with no row asks nothing.
-            const held = present.map((_row, i) => within === undefined || within[i] === true);
-            let at = 0;
-            const holds = listed.map(({ row: value }) => (value === undefined ? true : held[at++]!));
-            if (within !== undefined && hidden !== undefined) hidden.rows.askListed(from, listed.map(({ key }) => key), holds);
             // A state the canvas draws is named as it draws it, the drafts in place.
             const labels = new Map(states.map((state) => [state.key, state.label] as const));
-            present.forEach(({ key, row: value }, i) => out.push({
-                at: row + i,
-                state: {
-                    key,
-                    label: labels.has(key) ? labels.get(key) : labelOf(readRoles(rows.encode(value), key)),
-                    hidden: held[i] || hidden === undefined ? undefined : hiddenOf([{ pick: hidden, id: key }]),
-                },
-            }));
+            // Each stretch of the list read from its block, among the rows the page holds of the record.
+            for (const stretch of blocksAt(record.blocks, row, Math.min(limit, inRecord - row))) {
+                const from = stretch.from;
+                // Each entry by its key's text (#1549), the narrowing asked of it at its key.
+                const entries = await awaitTracked(() => recordSliceBasePage(source, from, BigInt(stretch.n))) as readonly RecordEntry[];
+                const listed = entries.map((entry) => ({ key: stateKeys.textOf(entry.key), at: entry.key, row: someOf(entry.row) }));
+                const present = listed.flatMap(({ key, at, row: value }) => (value === undefined ? [] : [{ key, at, row: value }]));
+                const where = source.read().where;
+                const within = where.size === 0 ? undefined
+                    : await awaitTracked(() => recordSliceWithin(source, where, present.map(({ at, row: value }) => ({ key: at, row: value }))));
+                // Whether the narrowing holds each row read; every entry of the page with it — one with no row asks nothing.
+                const held = present.map((_row, i) => within === undefined || within[i] === true);
+                let at = 0;
+                const holds = listed.map(({ row: value }) => (value === undefined ? true : held[at++]!));
+                if (within !== undefined && hidden !== undefined) hidden.rows.askListed(Number(from), listed.map(({ key }) => key), holds);
+                present.forEach(({ key, row: value }, i) => out.push({
+                    at: stretch.at + i,
+                    state: {
+                        key,
+                        label: labels.has(key) ? labels.get(key) : labelOf(readRoles(rows.encode(value), key)),
+                        hidden: held[i] || hidden === undefined ? undefined : hiddenOf([{ pick: hidden, id: key }]),
+                    },
+                }));
+            }
         }
         const from = Math.max(row, inRecord) - inRecord;
         const to = row + limit - inRecord;
