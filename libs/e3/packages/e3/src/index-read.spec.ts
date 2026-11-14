@@ -16,18 +16,20 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, SetType, SortedMap, SortedSet,
-  StringType, StructType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, parseFor, printFor, some, variant,
+  ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, RecursiveType, SetType, SortedMap,
+  SortedSet, StringType, StructType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, parseFor, printFor, some, variant,
   type EastType, type ValueTypeOf,
 } from '@elaraai/east';
-import { RecordSummaryTotalsType, type RecordSummaryTotals } from '@elaraai/e3-types';
+import { RecordLevelType, RecordNestedTotalsType, RecordSummaryTotalsType, type RecordSummaryTotals } from '@elaraai/e3-types';
 import { function_ } from './function.js';
 import { index } from './index-input.js';
+import { NestedUnderType } from './index-read.js';
 import { input as input_ } from './input.js';
 import { output } from './output.js';
 import { record } from './record.js';
+import { NESTED_FNS } from './record-nested-programs.js';
 import { builtIndex, indexBuildProgram, summaryMergeProgram } from './record-programs.js';
-import { TILE_FNS } from './record-tiles.js';
+import { TILE_FNS, type RecordTile } from './record-tiles.js';
 import { partition, streamTask, task } from './task.js';
 import type { IndexInputDef, IRBundle, RecordDef, RecordIndexDef } from './types.js';
 
@@ -764,6 +766,528 @@ describe('an entries index\'s readers', () => {
   it('refuses a key that is not the field\'s, where the reader is called', () => {
     const byService = index(stations.indexes.by_service);
     assert.throws(() => East.function([byService.type], NullType, (_$, entries) => { byService.read(entries).of(7n as never); return null; }));
+  });
+});
+
+// ── A nested series index ────────────────────────────────────────────────────
+
+/** A check on a team: its note, and the instant it was made. */
+const CheckRow = StructType({ note: StringType, at: DateTimeType });
+const ChecksType = DictType(StringType, CheckRow);
+const HoursType = DictType(DateTimeType, FloatType);
+const NotesType = DictType(DateTimeType, StringType);
+/** A team of a yard: its jobs, its checks, the hours it logged, a value a day, and the teams within it, to any depth. */
+const TeamRow = RecursiveType((self) => StructType({
+  name: StringType, jobs: JobsType, checks: ChecksType, hours: HoursType, teams: DictType(StringType, self),
+}));
+/** A yard: its visits, its notes, each at an instant, and its teams. */
+const YardRow = StructType({ name: StringType, visits: JobsType, notes: NotesType, teams: DictType(StringType, TeamRow) });
+const YardsType = DictType(StringType, YardRow);
+type Team = ValueTypeOf<typeof TeamRow>;
+type Yard = ValueTypeOf<typeof YardRow>;
+
+const yards = record('yards', YardsType, {
+  initial: new Map(),
+  indexes: (index) => ({
+    yards_in_time: index.nested({
+      collections: {
+        visits: index.nested.items({ from: 'start', to: 'end' }),
+        notes: index.nested.values(),
+        teams: index.nested.rows({
+          jobs: index.nested.items({ from: 'start', to: 'end' }, { rollup: true }),
+          checks: index.nested.items({ at: 'at' }),
+          hours: index.nested.values({ rollup: ['sum', { fold: 'last', aggregate: 'max' }] }),
+          teams: index.nested.recursive(),
+        }),
+      },
+      tile: 'week',
+      summary: 'month',
+    }),
+  }),
+});
+
+/** Whether a team logs hours of its own, and the teams within it. */
+interface TeamSeed { readonly hours: boolean; readonly teams: Readonly<Record<string, TeamSeed>> }
+/** A team with none within it, which logs hours. */
+const CREW: TeamSeed = { hours: true, teams: {} };
+/** A yard's teams: two, two within each, and one more within the first of those. */
+const teamSeeds = (second: boolean): Readonly<Record<string, TeamSeed>> => ({
+  'T-1': { hours: false, teams: { 'T-1a': { hours: false, teams: { 'T-1a-i': CREW } }, 'T-1b': CREW } },
+  // In the second yard this team logs hours of its own: it draws them, and keeps no subtotal of the teams within it.
+  'T-2': { hours: second, teams: { 'T-2a': CREW, 'T-2b': CREW } },
+});
+/** The seeded jobs the first yard's visits and its deepest team's jobs hold whatever else they are dealt: the edges, by name. */
+const EDGES = [
+  'E-ends-at-from', 'E-instant-at-from', 'E-instant-at-to', 'E-starts-at-to', 'E-no-end', 'E-no-start', 'E-ends-before-start',
+  'E-past-a-year', 'E-a-millisecond-in',
+];
+const instantOrder = compareFor(DateTimeType);
+
+/**
+ * The yards the nested readers read: the seeded jobs dealt out among each
+ * yard's visits and each of its teams' jobs; checks and notes at seeded
+ * instants, and at the edges of the week from Monday 12 October; and a value a
+ * day, most days from August to the year's end, for each team that logs hours.
+ */
+function seededYards(): ValueTypeOf<typeof YardsType> {
+  const draw = stream(1434);
+  const dealt: Jobs[] = [];
+  const hand = (): Jobs => {
+    const held: Jobs = new SortedMap(undefined, keyOrder);
+    dealt.push(held);
+    return held;
+  };
+  const instants = (count: number): Date[] => [
+    ...Array.from({ length: count }, () => instant(OCT_5 + BigInt(Math.floor((draw() - 0.5) * 400)) * DAY + BigInt(Math.floor(draw() * 24)) * HOUR)),
+    at('2026-10-12T00:00:00.000'), at('2026-10-19T00:00:00.000'),
+  ];
+  const team = (key: string, seed: TeamSeed): Team => ({
+    name: `Team ${key}`,
+    jobs: hand(),
+    checks: new SortedMap(instants(15).map((made, n): [string, ValueTypeOf<typeof CheckRow>] => [`C-${String(n).padStart(2, '0')}`, { note: `Check ${n}`, at: made }]), keyOrder),
+    // Quarters of an hour, so a sum is exact in whatever order it is added.
+    hours: new SortedMap(seed.hours
+      ? Array.from({ length: 150 }, (_, day): [Date, number] => [instant(OCT_5 + BigInt(day - 60) * DAY + 6n * HOUR), Math.floor(draw() * 64) / 4]).filter(() => draw() > 0.2)
+      : [], instantOrder),
+    teams: new SortedMap(Object.entries(seed.teams).map(([below, within]): [string, Team] => [below, team(below, within)]), keyOrder),
+  });
+  const rows = new SortedMap<string, Yard>(undefined, keyOrder);
+  for (const [key, seeds] of [['Y-1', teamSeeds(false)], ['Y-2', teamSeeds(true)]] as const) {
+    rows.set(key, {
+      name: `Yard ${key}`,
+      visits: hand(),
+      notes: new SortedMap(instants(25).map((made, n): [Date, string] => [made, `Note ${n}`]), instantOrder),
+      teams: new SortedMap(Object.entries(seeds).map(([below, within]): [string, Team] => [below, team(below, within)]), keyOrder),
+    });
+  }
+  let n = 0;
+  for (const [key, row] of ROWS) dealt[n++ % dealt.length]!.set(key, row);
+  // The first yard's visits are dealt first, and its deepest team's jobs fourth: T-1, T-1a, then T-1a-i.
+  for (const name of EDGES) {
+    const row = ROWS.get(name);
+    assert.ok(row !== undefined, `the seeded jobs hold ${name}`);
+    dealt[0]!.set(name, row);
+    dealt[3]!.set(name, row);
+  }
+  return decodeBeast2For(YardsType)(encodeBeast2For(YardsType)(rows));
+}
+
+const YARDS = seededYards();
+
+/** Every team beneath some teams, each with the keys from them down to it. */
+function teamsBeneath(teams: ReadonlyMap<string, Team>, path: readonly string[] = []): Array<{ path: string[]; team: Team }> {
+  return [...teams].flatMap(([key, team]) => [{ path: [...path, key], team }, ...teamsBeneath(team.teams, [...path, key])]);
+}
+
+/** Every team of every yard, by its yard and the keys from the yard down. */
+const TEAMS = [...YARDS].flatMap(([yard, row]) => teamsBeneath(row.teams).map((found) => ({ yard, ...found })));
+
+const PathType = ArrayType(StringType);
+const MonthTotals = DictType(DateTimeType, RecordNestedTotalsType);
+const TileFloats = DictType(DateTimeType, FloatType);
+const BeneathType = DictType(NestedUnderType, JobRow);
+
+// The plain tests, each a loop over what a node holds
+
+/** A node's checks made in `[from, to)`. */
+const checksIn = East.compile(East.function([ChecksType, DateTimeType, DateTimeType], ChecksType, (_$, checks, from, to) =>
+  checks.filter((_$, check) => East.greaterEqual(check.at, from).and(() => East.less(check.at, to)))), []);
+/** A node's hours logged in `[from, to)`. */
+const hoursIn = East.compile(East.function([HoursType, DateTimeType, DateTimeType], HoursType, (_$, hours, from, to) =>
+  hours.filter((_$, _value, logged) => East.greaterEqual(logged, from).and(() => East.less(logged, to)))), []);
+/** A yard's notes made in `[from, to)`. */
+const notesIn = East.compile(East.function([NotesType, DateTimeType, DateTimeType], NotesType, (_$, notes, from, to) =>
+  notes.filter((_$, _note, made) => East.greaterEqual(made, from).and(() => East.less(made, to)))), []);
+
+/**
+ * Some jobs' totals a month: for each month that overlaps a window, how many
+ * of them touch it and the milliseconds of it they cover — a loop over them
+ * all, a month at a time.
+ */
+const jobMonths = East.compile(East.function([ArrayType(JobRow), DateTimeType, DateTimeType], MonthTotals, ($, jobs, from, to) => {
+  const months = $.let(new Map(), MonthTotals);
+  $.if(East.less(from, to), ($) => {
+    const startOf = $.const(TILE_FNS.tileStart);
+    const nextOf = $.const(TILE_FNS.tileNext);
+    const month = $.const(variant('month', null), RecordLevelType);
+    const tile = $.let(startOf(month, from));
+    $.while(East.less(tile, to), ($) => {
+      const next = $.const(nextOf(month, tile));
+      const count = $.let(0n);
+      const ms = $.let(0n);
+      $.for(jobs, ($, job) => {
+        $.match(job.start, {
+          some: ($, start) => {
+            const end = $.const(job.end.unwrap('some', () => start));
+            // An instant touches the month it is in, and covers none of it.
+            $.if(East.lessEqual(end, start).and(() => East.greaterEqual(start, tile)).and(() => East.less(start, next)), ($) => {
+              $.assign(count, count.add(1n));
+            });
+            $.if(East.greater(end, start).and(() => East.less(start, next)).and(() => East.greater(end, tile)), ($) => {
+              $.assign(count, count.add(1n));
+              $.assign(ms, ms.add(East.min(end, next).toEpochMilliseconds().subtract(East.max(start, tile).toEpochMilliseconds())));
+            });
+          },
+        });
+      });
+      $.if(East.greater(count, 0n), ($) => { $(months.insert(tile, { count, ms, values: none })); });
+      $.assign(tile, next);
+    });
+  });
+  return months;
+}), []);
+
+/** Some instants' totals a month: for each month that overlaps a window, how many are in it. */
+const instantMonths = East.compile(East.function([ArrayType(DateTimeType), DateTimeType, DateTimeType], MonthTotals, ($, instants, from, to) => {
+  const months = $.let(new Map(), MonthTotals);
+  $.if(East.less(from, to), ($) => {
+    const startOf = $.const(TILE_FNS.tileStart);
+    const nextOf = $.const(TILE_FNS.tileNext);
+    const month = $.const(variant('month', null), RecordLevelType);
+    const tile = $.let(startOf(month, from));
+    $.while(East.less(tile, to), ($) => {
+      const next = $.const(nextOf(month, tile));
+      const count = $.let(0n);
+      $.for(instants, ($, made) => {
+        $.if(East.greaterEqual(made, tile).and(() => East.less(made, next)), ($) => { $.assign(count, count.add(1n)); });
+      });
+      $.if(East.greater(count, 0n), ($) => { $(months.insert(tile, { count, ms: 0n, values: none })); });
+      $.assign(tile, next);
+    });
+  });
+  return months;
+}), []);
+
+/** A node's hours' totals a month: how many, their sum, the least, the greatest and the latest, taken in the order logged. */
+const hourMonths = East.compile(East.function([HoursType, DateTimeType, DateTimeType], MonthTotals, ($, hours, from, to) => {
+  const months = $.let(new Map(), MonthTotals);
+  $.if(East.less(from, to), ($) => {
+    const startOf = $.const(TILE_FNS.tileStart);
+    const nextOf = $.const(TILE_FNS.tileNext);
+    const month = $.const(variant('month', null), RecordLevelType);
+    const tile = $.let(startOf(month, from));
+    $.while(East.less(tile, to), ($) => {
+      const next = $.const(nextOf(month, tile));
+      const count = $.let(0n);
+      const sum = $.let(0.0);
+      const least = $.let(0.0);
+      const greatest = $.let(0.0);
+      const last = $.let(0.0);
+      $.for(hours, ($, value, logged) => {
+        $.if(East.greaterEqual(logged, tile).and(() => East.less(logged, next)), ($) => {
+          $.assign(least, East.equal(count, 0n).ifElse(() => value, () => East.min(least, value)));
+          $.assign(greatest, East.equal(count, 0n).ifElse(() => value, () => East.max(greatest, value)));
+          $.assign(sum, sum.add(value));
+          $.assign(last, value);
+          $.assign(count, count.add(1n));
+        });
+      });
+      $.if(East.greater(count, 0n), ($) => { $(months.insert(tile, { count, ms: 0n, values: some({ sum, min: least, max: greatest, last }) })); });
+      $.assign(tile, next);
+    });
+  });
+  return months;
+}), []);
+
+/** Some Floats' sum, added in order. */
+const totalOf = East.compile(East.function([ArrayType(FloatType)], FloatType, (_$, values) => values.reduce((_$, sum, value) => sum.add(value), 0.0)), []);
+/** The greatest of some Floats, of which there is one at least. */
+const greatestOf = East.compile(East.function([ArrayType(FloatType)], FloatType, (_$, values) =>
+  values.reduce((_$, most, value) => East.max(most, value), values.get(0n))), []);
+/** A node's Dict keys as the index's key holds them: a path. */
+const pathOf = East.compile(NESTED_FNS.pathOf, []);
+const tileStartOf = East.compile(TILE_FNS.tileStart, []);
+const tileNextOf = East.compile(TILE_FNS.tileNext, []);
+
+/** The tiles of a level that overlap a window, each with the start of the one after it. */
+function tilesIn(level: RecordTile, from: Date, to: Date): Array<{ tile: Date; next: Date }> {
+  const tiles: Array<{ tile: Date; next: Date }> = [];
+  if (instantOrder(from, to) >= 0) return tiles;
+  for (let tile = tileStartOf(variant(level, null), from); instantOrder(tile, to) < 0; tile = tileNextOf(variant(level, null), tile)) {
+    tiles.push({ tile, next: tileNextOf(variant(level, null), tile) });
+  }
+  return tiles;
+}
+
+/** A rollup of the hours, as the yards declare it: how a team's own hours in a tile fold, and how the teams within one are aggregated. */
+type HoursRollup = { readonly fold: 'sum'; readonly aggregate: 'sum' } | { readonly fold: 'last'; readonly aggregate: 'max' };
+
+/** What some teams draw in a tile, aggregated; none where none of them draws. */
+function gathered(draws: readonly (number | undefined)[], rollup: HoursRollup): number | undefined {
+  const held = draws.flatMap((draw) => (draw === undefined ? [] : [draw]));
+  if (held.length === 0) return undefined;
+  return rollup.aggregate === 'sum' ? totalOf(held) : greatestOf(held);
+}
+
+/**
+ * What a team draws of its hours in a tile by a rollup: its own in the tile,
+ * folded, where it logs any at all; else what the teams within it draw,
+ * aggregated.
+ */
+function drawn(team: Team, tile: Date, next: Date, rollup: HoursRollup): number | undefined {
+  if (team.hours.size === 0) return gathered([...team.teams.values()].map((within) => drawn(within, tile, next, rollup)), rollup);
+  const logged = [...hoursIn(team.hours, tile, next).values()];
+  if (logged.length === 0) return undefined;
+  return rollup.fold === 'sum' ? totalOf(logged) : logged[logged.length - 1];
+}
+
+describe('a nested series index\'s readers', () => {
+  const inTime = index(yards.indexes.yards_in_time);
+  const held = entriesOf(yards, yards.indexes.yards_in_time, YARDS);
+  const WINDOW = [inTime.type, StringType, PathType, DateTimeType, DateTimeType] as const;
+  /** A node, as a failure names it. */
+  const node = (yard: string, path: readonly string[]): string => [yard, ...path].join(' › ');
+
+  it('items: a node\'s own items that overlap a window, each once with its id, at every level it files at, for seeded windows', () => {
+    const jobsOf = East.compile(East.function([...WINDOW], JobsType, ($, entries, yard, path, from, to) =>
+      inTime.read(entries).items({ collection: ['teams', 'jobs'], row: yard, path, from, to }).collect($)), []);
+    let given = 0;
+    for (const { yard, path, team } of TEAMS) {
+      for (const w of WINDOWS) {
+        const expected = jobsIn(team.jobs, none, none, w.from, w.to);
+        given += expected.size;
+        assertEast(JobsType, jobsOf(held, yard, path, w.from, w.to), expected, `the jobs of ${node(yard, path)} in ${window(w)}`);
+      }
+    }
+    assert.ok(given > 2000, `the windows hold jobs to read: ${given}`);
+
+    // The row's own, its path left out
+    const visitsOf = East.compile(East.function([inTime.type, StringType, DateTimeType, DateTimeType], JobsType, ($, entries, yard, from, to) =>
+      inTime.read(entries).items({ collection: ['visits'], row: yard, from, to }).collect($)), []);
+    for (const [yard, row] of YARDS) {
+      for (const w of WINDOWS) assertEast(JobsType, visitsOf(held, yard, w.from, w.to), jobsIn(row.visits, none, none, w.from, w.to), `the visits to ${yard} in ${window(w)}`);
+    }
+  });
+
+  it('items: the window\'s edges, an item past a year once, and no row or node that is not there', () => {
+    const idsOf = East.compile(East.function([...WINDOW], ArrayType(StringType), ($, entries, yard, path, from, to) => {
+      const ids = $.let([], ArrayType(StringType));
+      inTime.read(entries).items({ collection: ['teams', 'jobs'], row: yard, path, from, to }).each($, ($, _job, id) => { $(ids.pushLast(id)); });
+      return ids;
+    }), []);
+    const deepest = ['T-1', 'T-1a', 'T-1a-i'];
+    const week = idsOf(held, 'Y-1', deepest, at('2026-10-12T00:00:00.000'), at('2026-10-19T00:00:00.000'));
+    const edges = new SortedSet(week.filter((id) => EDGES.some((name) => keyOrder(name, id) === 0)), keyOrder);
+    assertEast(SetType(StringType), edges, new SortedSet(['E-instant-at-from', 'E-no-end', 'E-ends-before-start', 'E-past-a-year', 'E-a-millisecond-in'], keyOrder),
+      'the edges inside the week');
+    // Two years hold the job past a year under each of three: a body is given it once
+    const years = idsOf(held, 'Y-1', deepest, at('2025-06-01T00:00:00.000'), at('2027-06-01T00:00:00.000'));
+    assert.equal(years.filter((id) => keyOrder(id, 'E-past-a-year') === 0).length, 1, 'a job past a year, once');
+    assert.equal(new SortedSet(years, keyOrder).size, years.length, 'each job once');
+    assert.deepEqual(idsOf(held, 'Y-9', deepest, at('2025-06-01T00:00:00.000'), at('2027-06-01T00:00:00.000')), [], 'no such yard');
+    assert.deepEqual(idsOf(held, 'Y-1', ['T-1', 'T-9'], at('2025-06-01T00:00:00.000'), at('2027-06-01T00:00:00.000')), [], 'no such team');
+  });
+
+  it('items: instants, by the instant each is at; and values, each with its instant', () => {
+    const checksOf = East.compile(East.function([...WINDOW], ChecksType, ($, entries, yard, path, from, to) =>
+      inTime.read(entries).items({ collection: ['teams', 'checks'], row: yard, path, from, to }).collect($)), []);
+    const hoursOf = East.compile(East.function([...WINDOW], HoursType, ($, entries, yard, path, from, to) =>
+      inTime.read(entries).items({ collection: ['teams', 'hours'], row: yard, path, from, to }).collect($)), []);
+    let checks = 0;
+    let hours = 0;
+    for (const { yard, path, team } of TEAMS) {
+      for (const w of WINDOWS) {
+        const made = checksIn(team.checks, w.from, w.to);
+        const logged = hoursIn(team.hours, w.from, w.to);
+        checks += made.size;
+        hours += logged.size;
+        assertEast(ChecksType, checksOf(held, yard, path, w.from, w.to), made, `the checks of ${node(yard, path)} in ${window(w)}`);
+        assertEast(HoursType, hoursOf(held, yard, path, w.from, w.to), logged, `the hours of ${node(yard, path)} in ${window(w)}`);
+      }
+    }
+    assert.ok(checks > 500 && hours > 2000, `the windows hold checks and hours to read: ${checks}, ${hours}`);
+    // A check at the window's first instant is inside it, and one at its end outside
+    const week = checksOf(held, 'Y-1', ['T-2'], at('2026-10-12T00:00:00.000'), at('2026-10-19T00:00:00.000'));
+    assert.ok(week.has('C-15') && !week.has('C-16'), 'the checks at the week\'s edges');
+
+    // Values that are no numbers, on the row itself
+    const notesOf = East.compile(East.function([inTime.type, StringType, DateTimeType, DateTimeType], NotesType, ($, entries, yard, from, to) =>
+      inTime.read(entries).items({ collection: ['notes'], row: yard, from, to }).collect($)), []);
+    for (const [yard, row] of YARDS) {
+      for (const w of WINDOWS) assertEast(NotesType, notesOf(held, yard, w.from, w.to), notesIn(row.notes, w.from, w.to), `the notes of ${yard} in ${window(w)}`);
+    }
+  });
+
+  it('subtree: the items of every node beneath a node that overlap a window, each once, with the keys down to the node holding it', () => {
+    const beneathOf = East.compile(East.function([...WINDOW], BeneathType, ($, entries, yard, path, from, to) =>
+      inTime.read(entries).subtree({ collection: ['teams', 'jobs'], row: yard, path, from, to }).collect($)), []);
+    // The yards themselves, each team, and one with none within it
+    const parents = [
+      ...[...YARDS].map(([yard, row]) => ({ yard, path: [] as string[], teams: row.teams })),
+      ...TEAMS.map(({ yard, path, team }) => ({ yard, path, teams: team.teams })),
+    ];
+    let given = 0;
+    for (const { yard, path, teams } of parents) {
+      for (const w of WINDOWS.slice(0, 30)) {
+        const expected = new SortedMap<ValueTypeOf<typeof NestedUnderType>, Job>(undefined, compareFor(NestedUnderType));
+        for (const within of teamsBeneath(teams)) {
+          for (const [id, row] of jobsIn(within.team.jobs, none, none, w.from, w.to)) expected.set({ path: pathOf(within.path), id }, row);
+        }
+        given += expected.size;
+        assertEast(BeneathType, beneathOf(held, yard, path, w.from, w.to), expected, `the jobs beneath ${node(yard, path)} in ${window(w)}`);
+      }
+    }
+    assert.ok(given > 2000, `the windows hold jobs beneath to read: ${given}`);
+  });
+
+  it('totals, subtreeTotals: a node\'s totals a month, and those of the items beneath it, for each month that overlaps a window', () => {
+    const totalsOf = (place: readonly ['teams', 'jobs'] | readonly ['teams', 'checks'] | readonly ['teams', 'hours']) =>
+      East.compile(East.function([...WINDOW], MonthTotals, ($, entries, yard, path, from, to) =>
+        inTime.read(entries).totals({ collection: place, row: yard, path, from, to }).collect($)), []);
+    const jobTotals = totalsOf(['teams', 'jobs']);
+    const checkTotals = totalsOf(['teams', 'checks']);
+    const hourTotals = totalsOf(['teams', 'hours']);
+    const beneathTotals = East.compile(East.function([...WINDOW], MonthTotals, ($, entries, yard, path, from, to) =>
+      inTime.read(entries).subtreeTotals({ collection: ['teams', 'jobs'], row: yard, path, from, to }).collect($)), []);
+    let months = 0;
+    for (const { yard, path, team } of TEAMS) {
+      for (const w of WINDOWS.slice(0, 30)) {
+        const where = `${node(yard, path)} in ${window(w)}`;
+        const expected = jobMonths([...team.jobs.values()], w.from, w.to);
+        months += expected.size;
+        assertEast(MonthTotals, jobTotals(held, yard, path, w.from, w.to), expected, `the jobs' months of ${where}`);
+        assertEast(MonthTotals, checkTotals(held, yard, path, w.from, w.to), instantMonths([...team.checks.values()].map((check) => check.at), w.from, w.to),
+          `the checks' months of ${where}`);
+        assertEast(MonthTotals, hourTotals(held, yard, path, w.from, w.to), hourMonths(team.hours, w.from, w.to), `the hours' months of ${where}`);
+        assertEast(MonthTotals, beneathTotals(held, yard, path, w.from, w.to),
+          jobMonths(teamsBeneath(team.teams).flatMap((within) => [...within.team.jobs.values()]), w.from, w.to), `the months of the jobs beneath ${where}`);
+      }
+    }
+    assert.ok(months > 1000, `the windows hold months to read: ${months}`);
+
+    // The row's own collections, and what is beneath the row
+    const rowTotals = (place: readonly ['visits'] | readonly ['notes']) =>
+      East.compile(East.function([inTime.type, StringType, DateTimeType, DateTimeType], MonthTotals, ($, entries, yard, from, to) =>
+        inTime.read(entries).totals({ collection: place, row: yard, from, to }).collect($)), []);
+    const visitTotals = rowTotals(['visits']);
+    const noteTotals = rowTotals(['notes']);
+    for (const [yard, row] of YARDS) {
+      for (const w of WINDOWS.slice(0, 30)) {
+        assertEast(MonthTotals, visitTotals(held, yard, w.from, w.to), jobMonths([...row.visits.values()], w.from, w.to), `the visits' months of ${yard} in ${window(w)}`);
+        assertEast(MonthTotals, noteTotals(held, yard, w.from, w.to), instantMonths([...row.notes.keys()], w.from, w.to), `the notes' months of ${yard} in ${window(w)}`);
+        assertEast(MonthTotals, beneathTotals(held, yard, [], w.from, w.to),
+          jobMonths(teamsBeneath(row.teams).flatMap((within) => [...within.team.jobs.values()]), w.from, w.to), `the months of the jobs beneath ${yard} in ${window(w)}`);
+      }
+    }
+  });
+
+  it('subtotals: a parent\'s subtotals by a rollup at a level, for each tile that overlaps a window; none for a node that draws its own', () => {
+    const rollups: HoursRollup[] = [{ fold: 'sum', aggregate: 'sum' }, { fold: 'last', aggregate: 'max' }];
+    const levels: RecordTile[] = ['week', 'month', 'quarter', 'year'];
+    const parents = [
+      ...[...YARDS].map(([yard, row]) => ({ yard, path: [] as string[], hours: 0, teams: row.teams })),
+      ...TEAMS.map(({ yard, path, team }) => ({ yard, path, hours: team.hours.size, teams: team.teams })),
+    ];
+    let subtotals = 0;
+    for (const rollup of rollups) {
+      for (const level of levels) {
+        const subtotalsOf = East.compile(East.function([...WINDOW], TileFloats, ($, entries, yard, path, from, to) =>
+          inTime.read(entries).subtotals({
+            collection: ['teams', 'hours'], row: yard, path, from, to, level,
+            rollup: rollup.fold === 'sum' ? 'sum' : { fold: 'last', aggregate: 'max' },
+          }).collect($)), []);
+        for (const { yard, path, hours, teams } of parents) {
+          for (const w of WINDOWS.slice(0, 12)) {
+            const expected = new SortedMap<Date, number>(undefined, instantOrder);
+            // A node that logs hours of its own draws them, and keeps no subtotal
+            if (hours === 0) {
+              for (const { tile, next } of tilesIn(level, w.from, w.to)) {
+                const drew = gathered([...teams.values()].map((within) => drawn(within, tile, next, rollup)), rollup);
+                if (drew !== undefined) expected.set(tile, drew);
+              }
+            }
+            subtotals += expected.size;
+            assertEast(TileFloats, subtotalsOf(held, yard, path, w.from, w.to), expected,
+              `the ${rollup.fold} of hours a ${level} beneath ${node(yard, path)} in ${window(w)}`);
+          }
+        }
+      }
+    }
+    assert.ok(subtotals > 500, `the windows hold subtotals to read: ${subtotals}`);
+
+    // The level left out is the index's tile
+    const weeks = East.compile(East.function([inTime.type, StringType, DateTimeType, DateTimeType], TileFloats, ($, entries, yard, from, to) =>
+      inTime.read(entries).subtotals({ collection: ['teams', 'hours'], row: yard, rollup: 'sum', from, to }).collect($)), []);
+    const read = weeks(held, 'Y-1', at('2026-10-05T00:00:00.000'), at('2026-11-02T00:00:00.000'));
+    assert.equal(read.size, 4, 'four weeks of October');
+  });
+
+  it('types what a read gives by the collection\'s place, and refuses a place the index does not file', () => {
+    East.function([inTime.type, StringType, DateTimeType, DateTimeType], FloatType, ($, entries, yard, from, to) => {
+      const readers = inTime.read(entries);
+      const total = $.let(0.0);
+      const latest = $.let(from);
+      // A value is its collection's Float, at its instant; an item its struct, by its id
+      readers.items({ collection: ['teams', 'hours'], row: yard, path: ['T-1', 'T-1b'], from, to }).each($, ($, hours, logged) => {
+        $.assign(total, total.add(hours));
+        $.assign(latest, logged);
+      });
+      readers.items({ collection: ['teams', 'jobs'], row: yard, path: ['T-1'], from, to }).each($, ($, job, id) => {
+        $.if(East.equal(id, 'W-0001'), ($) => { $.assign(total, total.add(job.sheets)); });
+      });
+      readers.subtree({ collection: ['teams', 'jobs'], row: yard, from, to }).each($, ($, job, under) => {
+        $.if(East.equal(under.id, 'W-0001'), ($) => { $.assign(total, total.add(job.sheets)); });
+      });
+      // @ts-expect-error — the index files no collection at ['teams']: its rows hold the collections
+      assert.throws(() => readers.items({ collection: ['teams'], row: yard, from, to }), /items: the index files no collection at \["teams"\]/);
+      // @ts-expect-error — nor at a field it does not name
+      assert.throws(() => readers.totals({ collection: ['crews'], row: yard, from, to }), /totals: the index files no collection at \["crews"\]/);
+      return total;
+    });
+  });
+
+  it('refuses what the index does not keep, where the reader is called, naming what it does', () => {
+    const over = (body: (readers: ReturnType<typeof inTime.read>) => unknown) => () =>
+      East.function([inTime.type], NullType, (_$, entries) => { body(inTime.read(entries)); return null; });
+    const from = at('2026-10-12T00:00:00.000');
+    const to = at('2026-10-19T00:00:00.000');
+    assert.throws(over((readers) => readers.items({ collection: ['teams', 'tasks'] as never, row: 'Y-1', from, to })),
+      /^Error: e3\.index 'yards\.yards_in_time' items: the index files no collection at \["teams","tasks"\] — it files \['notes'\], \['visits'\], \['teams', 'checks'\], \['teams', 'hours'\], \['teams', 'jobs'\], each by its field names from the row down$/);
+    assert.throws(over((readers) => readers.items({ collection: ['visits'], from, to } as never)), /items: `row` is left out — the key of the record's row the node is in/);
+    assert.throws(over((readers) => readers.items({ collection: ['visits'], row: 'Y-1', from } as never)), /items: `to` is left out — a window is \[from, to\), each a DateTime/);
+    assert.throws(over((readers) => readers.subtree({ collection: ['visits'], row: 'Y-1', from, to })),
+      /^Error: e3\.index 'yards\.yards_in_time' subtree: the collection at \['visits'\] is not rolled up, so no node holds the items beneath it — declare it index\.nested\.items\(times, \{ rollup: true \}\)$/);
+    assert.throws(over((readers) => readers.subtreeTotals({ collection: ['teams', 'hours'], row: 'Y-1', from, to })), /subtreeTotals: the collection at \['teams', 'hours'\] is not rolled up/);
+    assert.throws(over((readers) => readers.subtotals({ collection: ['teams', 'hours'], row: 'Y-1', rollup: 'mean', from, to })),
+      /^Error: e3\.index 'yards\.yards_in_time' subtotals: the collection at \['teams', 'hours'\] keeps no subtotal by mean — it keeps sum, \{ fold: 'last', aggregate: 'max' \}$/);
+    assert.throws(over((readers) => readers.subtotals({ collection: ['teams', 'jobs'], row: 'Y-1', rollup: 'sum', from, to })),
+      /subtotals: the collection at \['teams', 'jobs'\] keeps no subtotal by sum — it keeps none: declare index\.nested\.values\(\{ rollup \}\)/);
+    assert.throws(over((readers) => readers.subtotals({ collection: ['teams', 'hours'], row: 'Y-1', rollup: 'median' as never, from, to })),
+      /subtotals: the collection at \['teams', 'hours'\] rolls up by "median", which is no rollup/);
+    assert.throws(over((readers) => readers.subtotals({ collection: ['teams', 'hours'], row: 'Y-1', rollup: 'sum', level: 'day', from, to })),
+      /subtotals: the index keeps subtotals at week, month, quarter, year, and none at "day"/);
+
+    // An index that declares no summary keeps no totals
+    const Shed = StructType({ name: StringType, visits: JobsType });
+    const sheds = record('sheds', DictType(StringType, Shed), {
+      initial: new Map(),
+      indexes: (index) => ({ sheds_in_time: index.nested({ collections: { visits: index.nested.items({ from: 'start', to: 'end' }) }, tile: 'day' }) }),
+    });
+    const shedsInTime = index(sheds.indexes.sheds_in_time);
+    assert.throws(() => East.function([shedsInTime.type], NullType, (_$, entries) => {
+      shedsInTime.read(entries).totals({ collection: ['visits'], row: 'S-1', from, to });
+      return null;
+    }), /^Error: e3\.index 'sheds\.sheds_in_time' totals: the index keeps no totals — declare the tile they are kept by, as index\.nested\(\{ …, summary: 'month' \}\)$/);
+  });
+
+  it('arrives on the body\'s parameter in a function with a spec', () => {
+    const fn = function_('hours_of_team', {
+      inputs: [inTime],
+      args: [StringType, PathType, DateTimeType, DateTimeType],
+      output: FloatType,
+    }, ($, yardsInTime, yard, path, from, to) => {
+      const hours = $.let(0.0);
+      yardsInTime.items({ collection: ['teams', 'hours'], row: yard, path, from, to }).each($, ($, logged) => { $.assign(hours, hours.add(logged)); });
+      return hours;
+    });
+    const run = (fn.body as IRBundle).compile([]) as (...args: unknown[]) => number;
+    const from = at('2026-10-05T00:00:00.000');
+    const to = at('2026-11-02T00:00:00.000');
+    const crew = TEAMS.find((found) => found.team.hours.size > 0);
+    assert.ok(crew !== undefined);
+    const logged = [...hoursIn(crew.team.hours, from, to).values()];
+    assert.ok(logged.length > 10);
+    assert.equal(run(held, crew.yard, crew.path, from, to), totalOf(logged));
   });
 });
 

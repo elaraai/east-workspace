@@ -1754,7 +1754,7 @@ const NodePlaceType = StructType({ collection: RecordNestedPathType, path: Recor
  * @param entryValue - The entry value, `P`
  * @returns The item
  */
-function itemOf(decl: NestedDeclaration, collection: NestedCollection, itemType: EastType, entryValue: EastType): FunctionExpr<[EastType], EastType> {
+export function itemOf(decl: NestedDeclaration, collection: NestedCollection, itemType: EastType, entryValue: EastType): FunctionExpr<[EastType], EastType> {
   const names: string[] = [];
   for (let group = decl.groups[collection.group]!, name = collection.field; ;) {
     names.unshift(name);

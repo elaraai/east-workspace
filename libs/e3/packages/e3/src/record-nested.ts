@@ -340,8 +340,14 @@ function isKeyOf<T extends object>(table: T, name: unknown): name is keyof T & s
   return typeof name === 'string' && Object.hasOwn(table, name);
 }
 
-/** A rollup's words, as a refusal names it: one name where the fold is the aggregate, else both. */
-function rollupWords(rollup: RecordRollup): string {
+/**
+ * A rollup's words, as a refusal names it: one name where the fold is the
+ * aggregate, else both.
+ *
+ * @param rollup - The rollup, as an index keeps it
+ * @returns Its words, as a declaration writes it
+ */
+export function rollupWords(rollup: RecordRollup): string {
   const fold = rollup.fold.type;
   const aggregate = rollup.aggregate.type;
   return fold === aggregate ? fold : `{ fold: '${fold}', aggregate: '${aggregate}' }`;
@@ -356,8 +362,16 @@ function writtenWords(input: unknown): string {
   return String(input);
 }
 
-/** A rollup as an index keeps it, from one as written, refused in words where it is none. */
-function rollupOf(where: string, input: unknown): RecordRollup {
+/**
+ * A rollup as an index keeps it, from one as written, refused in words where
+ * it is none.
+ *
+ * @param where - What names the rollup, for the refusal
+ * @param input - The rollup as written: a name, or `{ fold, aggregate }`
+ * @returns The rollup
+ * @throws {Error} When `input` is no rollup, naming what one is
+ */
+export function rollupOf(where: string, input: unknown): RecordRollup {
   if (input === 'count') return { fold: FOLDS.count, aggregate: variant('count', null) };
   if (isKeyOf(AGGREGATES, input)) return { fold: FOLDS[input], aggregate: AGGREGATES[input] };
   if (typeof input === 'object' && input !== null && !Array.isArray(input)) {

@@ -141,6 +141,11 @@ export default e3;
 export { input, record, mutation, task, customTask, streamTask, partition, index, output, function_, package_ as package, export_ as export };
 export type { StreamTaskSpec } from './task.js';
 export type { IndexEntriesOf } from './index-input.js';
+export { NestedUnderType } from './index-read.js';
+export type {
+  IndexRead, IndexReadersOf, PlainReaders, IntervalReaders, SeriesReaders, SummaryReaders, AreaReaders, EntriesReaders, NestedReaders,
+  TimeWindow, KeyWindow, AreaWindow, NestedWindow, LeadingOn,
+} from './index-read.js';
 export type { FunctionSpec } from './function.js';
 
 // Singleton tree definitions
