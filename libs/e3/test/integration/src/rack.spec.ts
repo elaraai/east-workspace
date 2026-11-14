@@ -154,7 +154,7 @@ it('lists a rack that admits by its resources with all it has and what is free, 
   const output = ok(await running);
   assert.match(output, new RegExp(`^Rack: t \\(4 cores, 8 GB, 1 GPU, e3 \\S+${platform === null ? '' : `, environments for ${platform}`}\\)$`, 'm'));
   assert.match(output, /^ {2}\[RACK\] train_a → t \(cap 4 GB\)$/m);
-  assert.match(output, /^Rack summary: 1 task on t · 0 waited for capacity · 0 ran again \(cap\) · 0 transfers retried · 0 ran locally$/m);
+  assert.match(output, /^Rack summary: 1 task on t · 0 waited for capacity · 0 ran again · 0 transfers retried · 0 ran locally$/m);
 });
 
 it('round-trips policy, auto-starts and stops the hub, and delegates an enabled CLI run', async () => {
@@ -170,7 +170,7 @@ it('round-trips policy, auto-starts and stops the hub, and delegates an enabled 
   const running = f.cli('dataflow', 'run', '.', 'ws1');
   const remote = await f.agent.runOne(); assert.equal(remote?.status, 'success');
   const output = ok(await running); assert.match(output, /Rack: t/); assert.match(output, /\[RACK\] train_a → t/);
-  assert.match(output, /^Rack summary: 1 task on t · 0 waited for capacity · 0 ran again \(cap\) · 0 transfers retried · 0 ran locally$/m);
+  assert.match(output, /^Rack summary: 1 task on t · 0 waited for capacity · 0 ran again · 0 transfers retried · 0 ran locally$/m);
   assert.match(ok(await f.cli('rack', 'status')), /^Last outcomes:\n {2}\S+ {2}ws1\.train_a {2}t {2}success$/m);
   const remoteDataset = ok(await f.cli('dataset', 'get', '.', 'ws1.train_a'));
   const logs = ok(await f.cli('task', 'logs', '.', 'ws1.train_a'));

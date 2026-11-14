@@ -22,12 +22,13 @@ it('asks of a rack what a whole task\'s size stands for, capped at its rule\'s m
 
 it('asks one core for a unit of a split task, and the cap a local unit expecting the same peak is given', () => {
   assert.equal(unitCap(2 * GiB), 3 * GiB);
-  assert.deepEqual(leaseResources({ unit, options: { expectedPeakBytes: 2 * GiB } }, rule), { kind: 'unit', cores: 1, memoryBytes: 3 * GiB, gpu: false });
-  assert.deepEqual(leaseResources({ unit, options: { expectedPeakBytes: 2 * GiB } }, { ...rule, memoryLimit: 3 * GiB }), { kind: 'unit', cores: 1, memoryBytes: 3 * GiB, gpu: false },
+  // It reserves what it expects, as a local unit does, and is capped half as much again.
+  assert.deepEqual(leaseResources({ unit, options: { expectedPeakBytes: 2 * GiB } }, rule), { kind: 'unit', cores: 1, memoryBytes: 3 * GiB, reserveBytes: 2 * GiB, gpu: false });
+  assert.deepEqual(leaseResources({ unit, options: { expectedPeakBytes: 2 * GiB } }, { ...rule, memoryLimit: 3 * GiB }), { kind: 'unit', cores: 1, memoryBytes: 3 * GiB, reserveBytes: 2 * GiB, gpu: false },
     'a cap of exactly the limit is within it');
   // A first run's estimate is booked as a measured peak is: the first run is as wide as a later one.
   assert.deepEqual(leaseResources({ unit, options: { expectedPeakBytes: 2 * GiB, expectedPeakGuessed: true } }, { ...rule, memoryLimit: 8 * GiB }),
-    { kind: 'unit', cores: 1, memoryBytes: 3 * GiB, gpu: false });
+    { kind: 'unit', cores: 1, memoryBytes: 3 * GiB, reserveBytes: 2 * GiB, gpu: false });
   // A unit that expects nothing at all: its rule's limit, else its size's memory.
   assert.deepEqual(leaseResources({ unit, options: {} }, rule), { kind: 'unit', cores: 1, memoryBytes: 16 * GiB, gpu: false });
   assert.deepEqual(leaseResources({ unit, options: {} }, { ...rule, memoryLimit: 8 * GiB }), { kind: 'unit', cores: 1, memoryBytes: 8 * GiB, gpu: false });

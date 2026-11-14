@@ -24,7 +24,7 @@ import { RackCompleteRequestType, RackCompleteResponseType, RackEnrollRequestTyp
   type RackLogChunk, type RackObjectCommit, type RackStorageRequest } from '../protocol/rack-wire.js';
 import { RACK_PROTOCOL, RACK_PROTOCOL_HEADER, RACK_TRANSFERS_AT_ONCE, RACK_WAITING_HEADER, readRackHello, readRackRefusal, readRackWaiting,
   type RackHello, type RackOffer, type RackReport, type RackResources, type RackWaiting } from '../protocol/rack-json.js';
-import { readRackLeaseResources, type RackLeaseEvent, type RackLeaseResources, type RackLeaseResult, type RackTransferRetry } from '../protocol/task-envelope.js';
+import { leaseReserve, readRackLeaseResources, type RackLeaseEvent, type RackLeaseResources, type RackLeaseResult, type RackTransferRetry } from '../protocol/task-envelope.js';
 
 /** Configures deterministic failures of an in-process protocol peer. */
 export interface TestRackAgentFaults {
@@ -41,6 +41,10 @@ export interface TestRackAgentFaults {
   /** Fails this many tries of an object transfer before a byte of them is
    *  sent, as a link that is down does. */
   failTransferNext?: number;
+  /** Stops this many units once their runner has ended, nothing they wrote
+   *  sent, as a rack's guard stops the newest work it holds when its host runs
+   *  short: completed `requeued-pressure`, at the peak they reached. */
+  pressureNext?: number;
 }
 
 /** What an agent's object transfers came to, counted as they ran. */
@@ -108,9 +112,10 @@ export interface TestRackAgentOptions {
   peak?: (lease: RackLeaseGrant, measured: number | undefined) => number | undefined | Promise<number | undefined>;
   /**
    * All the agent has. With it the agent admits work by its resources: it
-   * books each lease it holds at what the lease asks, offers a poll what is
-   * left, and reports both with each heartbeat (the `resources` feature). Its
-   * capacity is then its cores, unless set.
+   * books each lease it holds at what the lease reserves (its cap, when it
+   * reserves nothing less), offers a poll what is left, and reports both with
+   * each heartbeat (the `resources` feature). Its capacity is then its cores,
+   * unless set.
    */
   resources?: RackResources;
   /** The rack protocol its requests name: this build's by default, another to
@@ -160,7 +165,7 @@ export class TestRackAgent {
   /** What each lease the agent holds books of its resources, by lease. */
   private readonly booked = new Map<string, RackLeaseResources>();
   /** The most the agent has held booked at once, when it admits by its
-   *  resources: leases, cores and bytes of memory. */
+   *  resources: leases, cores, and bytes of memory reserved. */
   readonly bookedMost = { leases: 0, cores: 0, memoryBytes: 0 };
   /** What the last idle poll said waits for room on this rack, if anything. */
   waitingFor: RackWaiting | undefined;
@@ -293,7 +298,7 @@ export class TestRackAgent {
   /** What of the agent's resources no lease it holds has booked. */
   private free(all: RackResources): RackResources {
     let { cores, memoryBytes, gpus } = all;
-    for (const held of this.booked.values()) { cores -= held.cores; memoryBytes -= held.memoryBytes; if (held.gpu) gpus -= 1; }
+    for (const held of this.booked.values()) { cores -= held.cores; memoryBytes -= leaseReserve(held); if (held.gpu) gpus -= 1; }
     return { cores: Math.max(0, cores), memoryBytes: Math.max(0, memoryBytes), gpus: Math.max(0, gpus) };
   }
 
@@ -346,7 +351,7 @@ export class TestRackAgent {
       const held = [...this.booked.values()];
       this.bookedMost.leases = Math.max(this.bookedMost.leases, held.length);
       this.bookedMost.cores = Math.max(this.bookedMost.cores, held.reduce((sum, lease) => sum + lease.cores, 0));
-      this.bookedMost.memoryBytes = Math.max(this.bookedMost.memoryBytes, held.reduce((sum, lease) => sum + lease.memoryBytes, 0));
+      this.bookedMost.memoryBytes = Math.max(this.bookedMost.memoryBytes, held.reduce((sum, lease) => sum + leaseReserve(lease), 0));
     }
     return grant;
   }
@@ -605,6 +610,13 @@ export class TestRackAgent {
       // to have reached: above it, the work was stopped, and nothing is sent.
       const peakBytes = this.options.peak === undefined ? result.peakBytes : await this.options.peak(lease, result.peakBytes);
       const needs = readRackLeaseResources(event.resources);
+      if (needs?.kind === 'unit' && this.consume('pressureNext')) {
+        const reached = peakBytes ?? leaseReserve(needs);
+        const stopped: RackLeaseResult = { taskName: event.taskName, status: 'failed', state: 'error', peakBytes: reached,
+          error: 'the rack stopped the unit: its host ran short of memory', reason: { code: 'requeued-pressure', peakBytes: reached }, ...retries() };
+        if (!this.abort.signal.aborted) await this.complete(lease, stopped);
+        return stopped;
+      }
       if (needs !== undefined && peakBytes !== undefined && peakBytes > needs.memoryBytes) {
         const stopped: RackLeaseResult = { taskName: event.taskName, status: 'failed', state: 'error', peakBytes: needs.memoryBytes,
           error: `the runner outgrew its cap of ${needs.memoryBytes} bytes`, reason: { code: 'outgrew-cap', capBytes: needs.memoryBytes, peakBytes }, ...retries() };

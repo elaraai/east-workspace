@@ -277,7 +277,7 @@ it('says a transfer\'s retry, places work by the reason its rack gave, and sums 
   assert.equal((await running).state, 'success');
   assert.deepEqual(retried(f.placements), [{ transfer: 'input', attempt: 2, of: 5, cause: 'injected transfer failure' }]);
   assert.equal(f.budget.peak, 0, 'nothing ran locally');
-  assert.equal(describeRackSummary(rack.takeSummary()), 'Rack summary: 1 task on test rack · 0 waited for capacity · 0 ran again (cap) · 1 transfer retried · 0 ran locally');
+  assert.equal(describeRackSummary(rack.takeSummary()), 'Rack summary: 1 task on test rack · 0 waited for capacity · 0 ran again · 1 transfer retried · 0 ran locally');
 
   // Every try fails: the rack ends the lease with its reason, and the work runs locally by it.
   f.placements.length = 0;
@@ -295,7 +295,7 @@ it('says a transfer\'s retry, places work by the reason its rack gave, and sums 
   assert(retried(f.placements).length >= 4, 'each failed try that was followed by another is said');
   assert.match((await f.storage.logs.read(f.repo, f.hash, inputsHash(other), result.executionId, 'stderr')).data,
     /e3: rack attempt failed on test rack: input-transfer-failed: injected transfer failure — running locally/);
-  assert.match(describeRackSummary(rack.takeSummary())!, /^Rack summary: 1 task on test rack · 0 waited for capacity · 0 ran again \(cap\) · \d+ transfers retried · 1 ran locally$/);
+  assert.match(describeRackSummary(rack.takeSummary())!, /^Rack summary: 1 task on test rack · 0 waited for capacity · 0 ran again · \d+ transfers retried · 1 ran locally$/);
 
   // The hub's status lists how its last leases ended, the latest first, each with its reason.
   const outcomes = (await f.client.status()).outcomes;
@@ -338,7 +338,7 @@ it('widens a run by a rack\'s cores, queues work the rack has no room for and sa
   const next = await agent.runOne(); assert.equal(next?.status, 'success', next?.error); assert.equal((await second).state, 'success');
   const claims = f.placements.flatMap((event) => event.kind === 'placed' && event.where === 'rack' ? [event.waitedMs] : []);
   assert.equal(claims.length, 2); assert.equal(claims[0], undefined); assert(claims[1] !== undefined && claims[1] >= 0, 'the lease that waited says for how long');
-  assert.match(describeRackSummary(rack.takeSummary())!, /^Rack summary: 2 tasks on test rack · 1 waited for capacity \(longest \d+ s\) · 0 ran again \(cap\) · 0 transfers retried · 0 ran locally$/);
+  assert.match(describeRackSummary(rack.takeSummary())!, /^Rack summary: 2 tasks on test rack · 1 waited for capacity \(longest \d+ s\) · 0 ran again · 0 transfers retried · 0 ran locally$/);
   assert.equal(f.budget.peak, 0, 'nothing ran locally');
 
   // An `xlarge` task asks 32 GiB, which this rack does not have at all: it is not queued, and runs locally.
@@ -369,7 +369,8 @@ it('leases a unit its rack stopped at its cap again under a larger one, tells th
   const ran = await agent.runOne(); assert.equal(ran?.status, 'success', ran?.error);
   const result = await running; assert.equal(result.state, 'success', result.error);
   assert.deepEqual(requeues, [{ reason: 'cap', peak: cap, reserves: cap }], 'the run hears it as it hears a local unit its cap killed');
-  assert.deepEqual(f.placements.flatMap((event) => event.kind === 'placed' && event.where === 'rack' ? [event.needs?.memoryBytes] : []), [cap, again], 'the next lease asks half as much again');
+  assert.deepEqual(f.placements.flatMap((event) => event.kind === 'placed' && event.where === 'rack' ? [[event.needs?.memoryBytes, event.needs?.reserveBytes]] : []),
+    [[cap, 100 * MiB], [again, cap]], 'the next lease asks half as much again, reserving what the unit reached');
   const outgrew = f.placements.find((event) => event.kind === 'outgrew'); assert(outgrew?.kind === 'outgrew');
   assert.deepEqual([outgrew.capBytes, outgrew.againBytes, outgrew.rackLabel], [cap, again, 'test rack']);
   // The stopped attempt is no failure of the task's: it was stopped, and says why in its log.
@@ -378,7 +379,7 @@ it('leases a unit its rack stopped at its cap again under a larger one, tells th
   assert.match((await f.storage.logs.read(f.repo, f.hash, inputsHash(f.inputs), attempts[0]!.executionId, 'stderr')).data,
     new RegExp(`e3: the runner outgrew its cap of ${Math.round(cap / MiB)} MiB on its rack: it runs again under a cap of ${Math.round(again / MiB)} MiB`));
   assert.equal(f.budget.peak, 0, 'nothing ran locally');
-  assert.equal(describeRackSummary(rack.takeSummary()), 'Rack summary: 2 units on test rack · 0 waited for capacity · 1 ran again (cap) · 0 transfers retried · 0 ran locally');
+  assert.equal(describeRackSummary(rack.takeSummary()), 'Rack summary: 2 units on test rack · 0 waited for capacity · 1 ran again · 0 transfers retried · 0 ran locally');
 
   // A unit whose next cap would pass its rule's memory limit runs locally instead, under the local budget.
   f.placements.length = 0;
@@ -390,6 +391,46 @@ it('leases a unit its rack stopped at its cap again under a larger one, tells th
   const local = f.placements.find((event) => event.kind === 'placed' && event.where === 'local'); assert(local?.kind === 'placed' && local.where === 'local');
   assert.deepEqual([local.reason, local.detail], ['memory-limit-exceeded', { code: 'memory-limit-exceeded', needsBytes: again, limitBytes: cap }]);
   assert.equal(f.budget.peak, 1);
+});
+
+it('books a unit at what it reserves, so a rack holds as many as a local run would, and runs again reserving what it reached a unit its rack stopped for its host\'s memory', async () => {
+  const MiB = 1024 ** 2;
+  const f = await fixture();
+  // Two cores and 200 MiB: two units reserving 100 MiB each fit, where the first's cap (164 MiB) would leave room for no second.
+  const agent = await f.agent({ resources: { cores: 2, memoryBytes: 200 * MiB, gpus: 0 }, peak: () => 120 * MiB, faults: { pressureNext: 1 } });
+  const rack = await f.open({ policy: { ...f.policy, spill: false } });
+  const requeues: UnitRequeue[] = [];
+  const unit = (inputs: string[]) => ({ inputs, merge: null, own: false });
+  const other = [await datasetWrite(f.storage, f.repo, 'another', StringType)];
+  const options = { taskName: 'length', expectedPeakBytes: 100 * MiB, onRequeued: (requeue: UnitRequeue) => { requeues.push(requeue); } };
+  const first = rack.runner.executeUnit(f.storage, f.hash, unit(f.inputs), options);
+  const second = rack.runner.executeUnit(f.storage, f.hash, unit(other), options);
+  const a = await agent.claim(); const b = await agent.claim(); assert(a && b, 'both units are held at once');
+  assert.deepEqual(agent.bookedFor(a.leaseId), { kind: 'unit', cores: 1, memoryBytes: unitCap(100 * MiB), reserveBytes: 100 * MiB, gpu: false });
+  assert.equal(agent.bookedMost.memoryBytes, 200 * MiB, 'the rack books what they reserve');
+
+  // The rack's host runs short, and it stops the newest: it runs again reserving what it reached, once the rack has room for that.
+  const stopped = await agent.execute(b);
+  assert.deepEqual(stopped.reason, { code: 'requeued-pressure', peakBytes: 120 * MiB });
+  assert.equal((await agent.execute(a)).status, 'success');
+  const again = await agent.runOne(); assert.equal(again?.status, 'success', again?.error);
+  for (const result of await Promise.all([first, second])) assert.equal(result.state, 'success', result.error ?? '');
+  assert.deepEqual(requeues, [{ reason: 'budget', peak: 120 * MiB, reserves: 120 * MiB }], 'the run hears it as it hears a unit the local guard stopped');
+  const event = f.placements.find((placed) => placed.kind === 'stopped'); assert(event?.kind === 'stopped');
+  assert.deepEqual([event.peakBytes, event.againBytes, event.rackLabel], [120 * MiB, 120 * MiB, 'test rack']);
+  const leases = f.placements.flatMap((placed) => placed.kind === 'placed' && placed.where === 'rack' ? [placed.needs] : []);
+  assert.deepEqual(leases.at(-1), { kind: 'unit', cores: 1, memoryBytes: unitCap(120 * MiB), reserveBytes: 120 * MiB, gpu: false });
+  // The stopped attempt is no failure of the task's; whichever unit was the newest, the other ran once.
+  const histories = await Promise.all([f.inputs, other].map(async (inputs) => {
+    const attempts = await f.storage.refs.executionListAttempts(f.repo, f.hash, inputsHash(inputs));
+    return { inputs, attempts, statuses: attempts.map((attempt) => attempt.status?.type) };
+  }));
+  const stoppedUnit = histories.find((history) => history.statuses.length === 2); assert(stoppedUnit, 'one unit ran again');
+  assert.deepEqual(histories.map((history) => history.statuses).sort((x, y) => x.length - y.length), [['success'], ['interrupted', 'success']]);
+  assert.match((await f.storage.logs.read(f.repo, f.hash, inputsHash(stoppedUnit.inputs), stoppedUnit.attempts[0]!.executionId, 'stderr')).data,
+    /e3: its rack stopped the runner at 120 MiB, its host short of memory: it runs again reserving 120 MiB/);
+  assert.equal(f.budget.peak, 0, 'nothing ran locally');
+  assert.match(describeRackSummary(rack.takeSummary())!, /^Rack summary: 3 units on test rack · 1 waited for capacity \(longest \d+ s\) · 1 ran again · 0 transfers retried · 0 ran locally$/);
 });
 
 it('fails a whole task its rack stopped at its cap, by name, and does not run it again unless the policy retries failures locally', async () => {
@@ -410,7 +451,7 @@ it('fails a whole task its rack stopped at its cap, by name, and does not run it
   assert.deepEqual(attempts.map((attempt) => attempt.status?.type), ['failed'], 'its cap is its failure, as the local guard\'s stop is');
   assert.equal((await f.client.status()).capacity.queued, 0n, 'it is not leased again');
   assert.equal(f.budget.peak, 0, 'nor run locally');
-  assert.equal(describeRackSummary(rack.takeSummary()), 'Rack summary: 1 task on test rack · 0 waited for capacity · 0 ran again (cap) · 0 transfers retried · 0 ran locally');
+  assert.equal(describeRackSummary(rack.takeSummary()), 'Rack summary: 1 task on test rack · 0 waited for capacity · 0 ran again · 0 transfers retried · 0 ran locally');
 
   // Under a policy that retries failures locally it runs here, where nothing caps it.
   const retrying = await f.open({ policy: { ...policy, retryTaskFailuresLocally: true } });

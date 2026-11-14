@@ -7,7 +7,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { EnvironmentTargetRefused, ExecutionAttempt, touchReachable, unitCap, uuidv7, type ExecutionResult, type TaskBodyExecutor, type TaskBodyRequest } from '@elaraai/e3-core';
 import type { LeaseHandle, LeaseUpdate, RackSession } from '../client/session.js';
 import { recordClosure, stagedObjects, taskClosure } from '../lease/closure.js';
-import { RACK_LEASE_VERSION, describeRackReason, readRackReason, readRackRetries, type RackLeaseEvent, type RackLeaseResources, type RackReason, type RackTransferRetry } from '../protocol/task-envelope.js';
+import { RACK_LEASE_VERSION, describeRackReason, leaseReserve, readRackReason, readRackRetries, type RackLeaseEvent, type RackLeaseResources, type RackReason, type RackTransferRetry } from '../protocol/task-envelope.js';
 import { splitUnitToWire } from '../runner-event.js';
 import { EligibilityEvaluator, type Eligibility } from '../routing/eligibility.js';
 import { RACK_SIZES, type RackPolicy } from '../routing/policy.js';
@@ -33,13 +33,17 @@ import type { RackResources } from '../protocol/rack-json.js';
  *   for how long once a rack claims it (`waitedMs`);
  * - `outgrew`: its rack stopped it at its cap. A unit of a split task runs
  *   again under a larger one (`againBytes`); a whole task does not, and
- *   fails.
+ *   fails;
+ * - `stopped`: its rack's host ran short of memory, and the rack stopped it,
+ *   the newest work it held, at `peakBytes`: a unit runs again reserving what
+ *   it reached (`againBytes`), as the local budget's guard runs one again.
  *
  * A claim says what the lease asked of its rack (`needs`).
  */
 export type RackPlacementEvent =
   | { kind: 'placed'; taskName: string; role: 'task' | 'unit'; where: 'rack'; rackLabel: string; leaseId: string; needs?: RackLeaseResources; waitedMs?: number }
   | { kind: 'outgrew'; taskName: string; role: 'task' | 'unit'; where: 'rack'; rackLabel: string; leaseId: string; capBytes: number; againBytes?: number }
+  | { kind: 'stopped'; taskName: string; role: 'task' | 'unit'; where: 'rack'; rackLabel: string; leaseId: string; peakBytes: number; againBytes: number }
   | { kind: 'waiting'; taskName: string; role: 'task' | 'unit'; where: 'rack'; rackLabel: string; leaseId: string; needs: RackLeaseResources; free?: RackResources }
   | { kind: 'placed'; taskName: string; role: 'task' | 'unit'; where: 'local'; reason: string; detail?: RackReason }
   | { kind: 'retried'; taskName: string; role: 'task' | 'unit'; where: 'rack'; rackLabel: string; leaseId: string; retry: RackTransferRetry };
@@ -92,17 +96,17 @@ function composes(rack: SnapshotRack): rack is SnapshotRack & { target: { type: 
  * What a body's lease asks of a rack, and what the rack books for it.
  *
  * @remarks
- * A unit of a split task takes one core and the cap e3-core gives a local
- * unit that expects the same peak (`unitCap`): half as much again as it is
- * expected to need. What it expects is its stage's measured peak, the task's
- * previous peak, or, the first time the task runs, e3-core's estimate of the
- * largest piece (the runner's own memory and what the piece holds of its
- * rows), which a local unit reserves: so a first run is as wide as a later
- * one, and a piece the estimate is low for outgrows its cap and is leased
- * again under a larger one, as the local guard stops one and runs it again.
- * Only a unit that expects nothing at all is given its rule's memory limit,
- * else its size's memory. A whole task takes its size's cores, and its rule's
- * memory limit, else its size's memory, as its cap.
+ * A unit of a split task takes one core, reserves what it expects to need,
+ * and is capped where e3-core caps a local unit that expects the same peak
+ * (`unitCap`): half as much again. What it expects is its stage's measured
+ * peak, the task's previous peak, or, the first time the task runs, e3-core's
+ * estimate of the largest piece (the runner's own memory and what the piece
+ * holds of its rows), which a local unit reserves too: so a rack holds as
+ * many units as a local run of its memory would, and a first run is as wide
+ * as a later one. Only a unit that expects nothing at all is given its rule's
+ * memory limit, else its size's memory, as its reservation and its cap. A
+ * whole task takes its size's cores, and its rule's memory limit, else its
+ * size's memory, as both.
  *
  * @param request - The task body or unit
  * @param verdict - Its rule's size, memory limit and GPU
@@ -115,9 +119,15 @@ export function leaseResources(request: Pick<TaskBodyRequest, 'unit' | 'options'
   if (request.unit === undefined) return { kind: 'task', cores: size.cores, memoryBytes: fallback, gpu: verdict.gpu };
   const expected = request.options.expectedPeakBytes;
   if (expected === undefined || expected <= 0) return { kind: 'unit', cores: 1, memoryBytes: fallback, gpu: verdict.gpu };
-  const cap = unitCap(expected);
+  return unitResources(expected, verdict);
+}
+
+/** A unit that reserves `reserve` bytes, capped at `unitCap` of it; or the
+ *  reason it cannot be a rack's: that cap passes its rule's memory limit. */
+function unitResources(reserve: number, verdict: Extract<Eligibility, { eligible: true }>): RackLeaseResources | RackReason {
+  const cap = unitCap(reserve);
   if (verdict.memoryLimit !== null && cap > verdict.memoryLimit) return { code: 'memory-limit-exceeded', needsBytes: cap, limitBytes: verdict.memoryLimit };
-  return { kind: 'unit', cores: 1, memoryBytes: cap, gpu: verdict.gpu };
+  return { kind: 'unit', cores: 1, memoryBytes: cap, reserveBytes: reserve, gpu: verdict.gpu };
 }
 
 /**
@@ -415,7 +425,8 @@ export function createRackBody(options: RackBodyOptions): TaskBodyExecutor {
             if (verdict.memoryLimit !== null && again > verdict.memoryLimit) {
               return await runLocal('memory-limit-exceeded', { code: 'memory-limit-exceeded', needsBytes: again, limitBytes: verdict.memoryLimit });
             }
-            const larger = { ...resources, memoryBytes: again };
+            // It reserves what it reached, as a local unit its cap stopped does.
+            const larger = { ...resources, memoryBytes: again, reserveBytes: cap };
             const nowhere = unheld(larger);
             if (nowhere !== null) return await nowhere();
             resources = larger;
@@ -427,6 +438,23 @@ export function createRackBody(options: RackBodyOptions): TaskBodyExecutor {
           if (policy.retryTaskFailuresLocally) return await fallback(result.error, 'the task outgrew its cap');
           return { inputsHash: request.ids.inHash, executionId: attempt.executionId, cached: false, state: 'failed', outputHash: null, exitCode: -1, duration: duration(),
             error: `memory-limit-exceeded: the task outgrew its cap of ${Math.round(cap / 1024 ** 2)} MiB on rack ${rackLabel}; raise --memory-limit or --size`, cancelled: false, ...peak };
+        }
+        if (reason?.code === 'requeued-pressure' && resources.kind === 'unit') {
+          // The rack's host ran short of memory, and the rack stopped the
+          // newest work it held: this unit, which did not outgrow its own
+          // cap. It runs again reserving what it reached, at least what it
+          // reserved, as the local budget's guard runs one again; past its
+          // rule's limit, or every rack's memory, it runs locally.
+          const reached = Math.max(reason.peakBytes ?? 0, leaseReserve(resources));
+          const again = unitResources(reached, verdict);
+          request.options.onRequeued?.({ reason: 'budget', peak: reason.peakBytes ?? reached, reserves: reached });
+          options.onPlacement?.({ kind: 'stopped', ...placement, where: 'rack', rackLabel, leaseId, peakBytes: reason.peakBytes ?? reached, againBytes: reached });
+          untee?.(); untee = undefined;
+          if ('code' in again) return await runLocal(again.code, again);
+          const nowhere = unheld(again);
+          if (nowhere !== null) return await nowhere();
+          resources = again;
+          continue leases;
         }
         if (result.cancelled === true) {
           // To e3-core a cancelled result is its own abort's: the task goes back

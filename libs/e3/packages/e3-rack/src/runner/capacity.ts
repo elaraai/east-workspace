@@ -4,7 +4,7 @@
  */
 
 import type { CapacitySnapshot } from '../protocol/control.js';
-import { agentVersionAtLeast, leaseFits, type RackLeaseResources, type RackResources } from '../protocol/index.js';
+import { agentVersionAtLeast, leaseFits, leaseFitsRack, leaseReserve, type RackLeaseResources, type RackResources } from '../protocol/index.js';
 import { E3_RACK_VERSION } from '../version.js';
 
 /**
@@ -47,8 +47,8 @@ export function rackFree(rack: SnapshotRack): RackResources | undefined {
 
 /**
  * How many more leases asking this much a rack holds now: what its free
- * cores, memory and GPUs each hold, the least of them. A rack that admits by
- * its slots holds its free slots.
+ * cores, memory (by each lease's reservation) and GPUs each hold, the least
+ * of them. A rack that admits by its slots holds its free slots.
  *
  * @param rack - A rack of the snapshot
  * @param needs - What one lease asks
@@ -60,12 +60,13 @@ export function rackRoom(rack: SnapshotRack, needs: RackLeaseResources): number 
   const free = rackFree(rack);
   if (free === undefined) return Math.max(0, Number(rack.capacity) - Number(rack.busy));
   if (!leaseFits(needs, free)) return 0;
-  return Math.min(Math.floor(free.cores / needs.cores), Math.floor(free.memoryBytes / needs.memoryBytes), needs.gpu ? free.gpus : Infinity);
+  return Math.min(Math.floor(free.cores / needs.cores), Math.floor(free.memoryBytes / leaseReserve(needs)), needs.gpu ? free.gpus : Infinity);
 }
 
 /**
- * Whether a rack could hold a lease's work with nothing else on it. A rack
- * that admits by its slots is taken to.
+ * Whether a rack could hold a lease's work with nothing else on it: its whole
+ * resources hold the work's cores, GPU and cap. A rack that admits by its
+ * slots is taken to.
  *
  * @param rack - A rack of the snapshot
  * @param needs - What the lease asks
@@ -73,7 +74,7 @@ export function rackRoom(rack: SnapshotRack, needs: RackLeaseResources): number 
  */
 export function rackCouldHold(rack: SnapshotRack, needs: RackLeaseResources): boolean {
   const all = rackResources(rack);
-  return all === undefined || leaseFits(needs, all);
+  return all === undefined || leaseFitsRack(needs, all);
 }
 
 /**

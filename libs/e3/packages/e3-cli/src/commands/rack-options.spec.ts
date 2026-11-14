@@ -18,6 +18,8 @@ it('prints a line for a task a rack claims, a transfer retried, and a rack\'s wo
     '  [RACK] train failed: memory-limit-exceeded (cap 16 GB); raise --memory-limit or --size');
   assert.equal(rackPlacementLine({ kind: 'outgrew', ...unit, where: 'rack', rackLabel: 'rack-a', leaseId: 'u', capBytes: 3 * 1024 ** 3, againBytes: 4.5 * 1024 ** 3 }),
     '  [RACK] score outgrew its 3 GB cap on rack-a: runs again under 4.5 GB');
+  assert.equal(rackPlacementLine({ kind: 'stopped', ...unit, where: 'rack', rackLabel: 'rack-a', leaseId: 'u', peakBytes: 2 * 1024 ** 3, againBytes: 2 * 1024 ** 3 }),
+    '  [RACK] score stopped on rack-a at 2 GB, its host short of memory: runs again reserving 2 GB');
   assert.equal(rackPlacementLine({ kind: 'retried', ...task, where: 'rack', rackLabel: 'rack-a', leaseId: 'a', retry: { transfer: 'input', attempt: 2, of: 5, cause: 'connection reset' } }),
     '  [RACK] train input transfer retried (2 of 5): connection reset');
   assert.equal(rackPlacementLine({ kind: 'placed', ...task, where: 'local', reason: 'fallback:input-transfer-failed: connection reset',

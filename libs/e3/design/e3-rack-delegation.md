@@ -81,12 +81,16 @@ knows: a heartbeat's `report` (features, target platform, resources and what
 is free) and a poll's `offer` (what the poll may be answered with).
 
 A lease's event carries what it asks of a rack (`resources`: its kind, a
-unit's or a task's, its cores, its cap in bytes and whether it takes a GPU),
-which the launching machine computes: a unit's from e3-core's own cap rule
-over what its stage measured (`unitCap`), a task's from its rule's size and
-memory limit. The cap is what a rack books, so the sum of what it holds never
-passes what it has. The shared routes answer a poll with the first lease, in
-the queue's fair order, that the poll's offer holds; one it does not hold is
+unit's or a task's, its cores, its cap in bytes, what it reserves, and whether
+it takes a GPU), which the launching machine computes: a unit reserves what its
+stage measured, or e3-core's estimate, and is capped by e3-core's own rule
+(`unitCap`); a task reserves its cap, from its rule's size and memory limit.
+A rack books what its leases reserve, as the local budget does, lets each
+grow to its cap, and guards its host's memory as the local guard does: when
+the host runs short it stops the newest work it holds (`requeued-pressure`).
+A rack is granted only work whose cap all its memory holds. The shared routes
+answer a poll with the first lease, in the queue's fair order, that the poll's
+offer holds by what it reserves; one it does not hold is
 passed over for ten seconds and then holds the line at that rack, as a unit
 that does not fit the local budget does there, unless the rack could never
 hold it (`canEverHold`: the hub knows each rack's whole resources from its
@@ -308,16 +312,21 @@ and e3-core starts a split task's stages with every unit at once under a
 guarded budget, as it does with no body. A lease that ends `outgrew-cap` is a
 unit's requeue: the body tells the run (`onRequeued`, reason `cap`), the
 session records the stopped attempt `interrupted`, with the local run's log
-line, and the next lease asks `unitCap` of the cap it reached; past its rule's
-limit, or every rack's memory, the unit runs locally. A whole task its cap
+line, and the next lease asks `unitCap` of the cap it reached, reserving that
+cap; past its rule's limit, or every rack's memory, the unit runs locally. A
+lease that ends `requeued-pressure` is a unit the rack's guard stopped: the
+body tells the run (`onRequeued`, reason `budget`), the session records the
+attempt `interrupted`, and the next lease reserves what the unit reached, at
+least what it reserved, as the local guard's requeue does. A whole task its cap
 stopped fails (`memory-limit-exceeded`), as a task the local guard stops does.
 A first run's unit, whose expectation is e3-core's estimate (the runner's own
-memory and what the largest piece holds of its rows), is booked and capped at
-`unitCap` of the estimate, as a measured one is: locally that estimate is the
-unit's reservation, so a first run on a rack is as wide as one locally. A local
-unit on an estimate has no cap of its own and is stopped only when the whole
-budget is passed; a rack's unit is its VM, whose memory is its cap, so one the
-estimate is low for is stopped at its cap and leased again under a larger one.
+memory and what the largest piece holds of its rows), reserves the estimate
+and is capped at `unitCap` of it, as a measured one is: locally that estimate
+is the unit's reservation, so a first run on a rack is as wide as one locally.
+A local unit on an estimate has no cap of its own and is stopped only when the
+whole budget is passed; a rack's unit is its VM, which may grow to its cap and
+no further, so one the estimate is low for is stopped at its cap and leased
+again under a larger one.
 Only a unit that expects nothing books its rule's limit, else its size's
 memory. The racks are full when no compatible rack's free
 resources hold the lease, less the work already queued; work no rack could
@@ -334,6 +343,7 @@ planning and final assembly stay local; both pieces and merge bodies delegate.
 | Task failure (including signal exit) | Record failed and return the verdict; retry locally only if explicitly configured. |
 | Infrastructure failure or lost lease | End the rack attempt and run locally with a fresh execution identity. Under rack-only, work whose transfer failed its tries is leased once more first. |
 | A unit its cap stopped | Lease it again under a cap half as large again; past its rule's limit or every rack's memory, run it locally. |
+| A unit the rack stopped for its host's memory | Lease it again reserving what it reached (`requeued`, reason `budget`); past its rule's limit or every rack's memory, run it locally. |
 | A task its cap stopped | Record failed (`memory-limit-exceeded`); retry locally only if explicitly configured. |
 | Timeout | Record an error; no local retry. The host also enforces the deadline. |
 | One subscriber cancels | Detach it and record its cancellation; preserve shared work. |

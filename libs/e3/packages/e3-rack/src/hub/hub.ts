@@ -25,7 +25,7 @@ import { createRackRoutes, type RackLeaseSignal } from '../server/rack-routes.js
 import { envManifestKey, type EnvIndexStore, type EnvLayerManifest } from '../server/env-publication.js';
 import { RackRegistrationType, RackSecurityPolicyType } from '../protocol/registration.js';
 import { RACK_LISTENER_IDLE_MS, RACK_PROTOCOL, type RackReport } from '../protocol/rack-json.js';
-import { describeRackReason, isLeaseEventV2, leaseFits, leaseInputs, leaseTaskHash, readRackLeaseResources, type RackLeaseEvent } from '../protocol/task-envelope.js';
+import { describeRackReason, isLeaseEventV2, leaseFitsRack, leaseInputs, leaseReserve, leaseTaskHash, readRackLeaseResources, type RackLeaseEvent } from '../protocol/task-envelope.js';
 import { decodeRunnerEvent } from '../runner-event.js';
 import { ApproveRackType, AttachLeaseResultType, CancelLeaseResultType, CreateLeaseResultType, CreateLeaseType, EmptyType, HubConfigType,
   HubEnrollResultType, HubEnrollType, HubHelloType, HubOutcomeType, HubStatusType, OpenSessionResultType, OpenSessionType,
@@ -379,7 +379,7 @@ export class RackHub {
           let needs: ReturnType<typeof readRackLeaseResources>;
           try { needs = readRackLeaseResources(lease.event.resources); } catch { needs = undefined; }
           if (needs === undefined) continue;
-          cores -= needs.cores; memoryBytes -= needs.memoryBytes; if (needs.gpu) gpus -= 1;
+          cores -= needs.cores; memoryBytes -= leaseReserve(needs); if (needs.gpu) gpus -= 1;
         }
         const said = report?.free ?? all;
         const count = (ours: number, theirs: number) => BigInt(Math.max(0, Math.min(ours, theirs)));
@@ -567,7 +567,7 @@ export class RackHub {
       claimLookahead: 64,
       canEverHold: (rack, needs) => {
         const all = this.reports.get(rack.rackId)?.resources;
-        return all === undefined || leaseFits(needs, all);
+        return all === undefined || leaseFitsRack(needs, all);
       },
       canClaim: async (rack, lease) => {
         const sub = this.subscriptions.get(lease.leaseId);
