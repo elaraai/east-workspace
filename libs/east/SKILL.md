@@ -138,7 +138,10 @@ Task → What do you need?
     │   │       .toTree(Node, parent, build) (an element / a key is its own key; Dict callbacks take (value, key));
     │   │       Dict only: .flattenTree(children), the nodes back again (reference/trees-and-recursion.md);
     │   │       group .groupReduce(), .groupSize(), .groupSum(), .groupMean(), .groupToArrays(), .groupToSets(),
-    │   │       .groupToDicts(), .groupEvery(), .groupSome()
+    │   │       .groupToDicts(), .groupEvery(), .groupSome();
+    │   │       a key range .range({ from?, to? }) — the entries from the first key at or past `from` up to the first
+    │   │       at or past `to` — and .prefix({ … }), those whose key begins with given fields: a bound is the key, or
+    │   │       a struct key's first fields; a new collection, found by a search and never a walk
     │   ├─ Dict → .size(), .has(), .get(), .tryGet(), .keys(), .getKeys(), .insert(), .insertOrUpdate(), .update(),
     │   │   .merge() (ONE key, as Array's and Ref's), .getOrInsert(), .delete(), .tryDelete(), .pop(), .swap(),
     │   │   .clear(), .unionInPlace(), .mergeAll(), .copy(), .union() (whole dicts; in east-py .merge() is its
@@ -188,9 +191,11 @@ Task → What do you need?
     ├─ A JSON contract for a type → jsonSchemaFor(T) · back from a vendored schema → typeFromJsonSchema(schema)
     └─ Data larger than memory → reference/beast2.md; inside a body blob.openBeast(T),
         and a file on the runner's disk FileSystem.openBeast(T, path) (east-node-std / east-c-std / east-py-std)
-        └─ A loop over a lazy input (a large task input, an openBeast) decodes only the fields its body reads:
-            read the row through fields (row.total, $.for(row.lines, …)), not bound whole ($.let(row));
-            a runner's -v says "paged loops: N segments decoded to the fields read, M in full"
+        ├─ A loop over a lazy input (a large task input, an openBeast) decodes only the fields its body reads:
+        │   read the row through fields (row.total, $.for(row.lines, …)), not bound whole ($.let(row));
+        │   a runner's -v says "paged loops: N segments decoded to the fields read, M in full"
+        └─ The entries between two keys of a lazy Set or Dict → d.range({ from, to }) · d.prefix({ … }): read at the
+            cost of the range, never of the collection — its size by its two ends, a loop by its segments
 ```
 
 ## Types and their values
