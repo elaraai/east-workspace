@@ -30,8 +30,15 @@ TLS, and embedded UI server integration remain deferred.
 
 *Since this review:* the hub serves TLS with its own certificate, which racks
 pin by its SHA-256, and racks may reach it through SSH tunnels or relays as
-well as directly; data URLs are built on the advertised origin. The
-[design of record](e3-rack-delegation.md) describes both.
+well as directly; data URLs are built on the advertised origin. The rack
+machine protocol is numbered, and a rack and its source of other protocols
+refuse each other by name (rack protocol 3, #1634): replies no longer hold an
+envelope, so the statement below that control and protocol responses are
+`ResponseType` envelopes no longer holds. A rack admits work by its cores and
+memory, and each lease says what it asks (#1634). A task that declares a
+`python` or `node` environment runs on a rack that composes environments
+(#1633): custom environments are no longer deferred, `tools` and `image` ones
+are. The [design of record](e3-rack-delegation.md) describes each.
 
 ## Changes required in each child
 

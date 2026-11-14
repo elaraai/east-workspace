@@ -8,20 +8,32 @@ import { join } from 'node:path';
 import { ArrayType, BooleanType, IntegerType, NullType, OptionType, StringType, StructType, VariantType, decodeBeast2For, encodeBeast2For, none, some, variant, type ValueTypeOf } from '@elaraai/east';
 import { atomicWriteFile } from '@elaraai/e3-core';
 
-/** The VM shapes the rack agent supports. */
+/** The sizes a rule names: shorthands for cores and memory ({@link RACK_SIZES}). */
 export const RackComputeSizeType = VariantType({ serverless: NullType, small: NullType, medium: NullType, large: NullType, xlarge: NullType });
-/** A whole-task-name glob and its execution policy; first match wins. */
+/**
+ * A whole-task-name glob and its execution policy; first match wins.
+ *
+ * `memoryLimit` is a ceiling, in bytes, on what one piece of the rule's work
+ * may be capped at on a rack: a task's cap, and the most a split task's piece
+ * is given when it runs again after outgrowing its cap. It is no request: e3
+ * measures what a piece needs. `gpu` asks for a rack's GPU.
+ */
 export const RackRuleType = StructType({
   tasks: StringType,
   target: VariantType({ rack: NullType, local: NullType }),
   size: OptionType(RackComputeSizeType),
   timeoutMinutes: OptionType(IntegerType),
   allowHostCoupled: BooleanType,
+  memoryLimit: OptionType(IntegerType),
+  gpu: BooleanType,
 });
 /**
  * Stores this repository's rack opt-in. Runtime policy never affects hashes.
- * This is repository state: a future shape change needs a repository upgrade
- * under WIRE_MIGRATION.md, not a fallback decoder or an in-place widening.
+ * This is repository state: a shape change needs a repository upgrade under
+ * WIRE_MIGRATION.md, not a fallback decoder or an in-place widening. A rule's
+ * `memoryLimit` and `gpu` came with one: e3-core's local-repository step
+ * `rack-policy-limits` carries a policy an earlier release stored into this
+ * form when the repository is opened, and its frozen form is this type's.
  */
 export const RackPolicyType = StructType({
   enabled: BooleanType,
@@ -37,8 +49,29 @@ export const RackPolicyType = StructType({
 export type RackPolicy = ValueTypeOf<typeof RackPolicyType>;
 /** A task's rule. */
 export type RackRule = ValueTypeOf<typeof RackRuleType>;
-/** An agent VM shape. */
+/** A size's name. */
 export type RackComputeSize = ValueTypeOf<typeof RackComputeSizeType>['type'];
+
+/**
+ * What each size stands for: the cores a task of that size is given on a
+ * rack, and its memory, in bytes. The launching machine computes what a
+ * task's lease asks of a rack from it.
+ *
+ * | Size | Cores | Memory |
+ * |---|---|---|
+ * | `serverless` | 2 | 2 GiB |
+ * | `small` | 2 | 4 GiB |
+ * | `medium` | 4 | 8 GiB |
+ * | `large` | 8 | 16 GiB |
+ * | `xlarge` | 16 | 32 GiB |
+ */
+export const RACK_SIZES: Readonly<Record<RackComputeSize, { readonly cores: number; readonly memoryBytes: number }>> = {
+  serverless: { cores: 2, memoryBytes: 2 * 1024 ** 3 },
+  small: { cores: 2, memoryBytes: 4 * 1024 ** 3 },
+  medium: { cores: 4, memoryBytes: 8 * 1024 ** 3 },
+  large: { cores: 8, memoryBytes: 16 * 1024 ** 3 },
+  xlarge: { cores: 16, memoryBytes: 32 * 1024 ** 3 },
+};
 
 /** Conservative defaults: disabled, with explicit task selection required. */
 export const DEFAULT_RACK_POLICY: RackPolicy = {
@@ -78,6 +111,7 @@ function validate(policy: RackPolicy): void {
       positive(rule.timeoutMinutes.value, 'timeoutMinutes');
       if (Number(rule.timeoutMinutes.value) > Number.MAX_SAFE_INTEGER / 60_000) throw new RackPolicyError('timeoutMinutes is too large');
     }
+    if (rule.memoryLimit.type === 'some') positive(rule.memoryLimit.value, 'memoryLimit');
   }
 }
 
@@ -139,6 +173,11 @@ export interface TaskSelection {
   timeoutMinutes: number;
   /** Whether the author deliberately overrides the host-access guard. */
   allowHostCoupled: boolean;
+  /** The ceiling on what one piece of the task's work may be capped at on a
+   *  rack, in bytes; null when its rule sets none. */
+  memoryLimit: number | null;
+  /** Whether the task asks for a rack's GPU. */
+  gpu: boolean;
   /** First matching rule, or null for policy defaults. */
   ruleIndex: number | null;
 }
@@ -159,6 +198,8 @@ export function selectTask(policy: RackPolicy, taskName: string): TaskSelection 
     size: rule?.size.type === 'some' ? rule.size.value.type : policy.defaultSize.type,
     timeoutMinutes: Number(rule?.timeoutMinutes.type === 'some' ? rule.timeoutMinutes.value : policy.defaultTimeoutMinutes),
     allowHostCoupled: rule?.allowHostCoupled ?? false,
+    memoryLimit: rule?.memoryLimit.type === 'some' ? Number(rule.memoryLimit.value) : null,
+    gpu: rule?.gpu ?? false,
     ruleIndex: index < 0 ? null : index,
   };
 }
@@ -171,6 +212,11 @@ export interface RuleSettings {
   timeoutMinutes?: number;
   /** Deliberate override of the host-access guard. */
   allowHostCoupled?: boolean;
+  /** The ceiling on what one piece of the rule's work may be capped at on a
+   *  rack, in bytes. */
+  memoryLimit?: number;
+  /** Asks for a rack's GPU. */
+  gpu?: boolean;
 }
 
 /**
@@ -188,8 +234,12 @@ export function setRule(policy: RackPolicy, tasks: string, target: 'rack' | 'loc
   if (settings.timeoutMinutes !== undefined && (!Number.isSafeInteger(settings.timeoutMinutes) || settings.timeoutMinutes <= 0)) {
     throw new RackPolicyError('timeoutMinutes must be a positive safe integer');
   }
+  if (settings.memoryLimit !== undefined && (!Number.isSafeInteger(settings.memoryLimit) || settings.memoryLimit <= 0)) {
+    throw new RackPolicyError('memoryLimit must be a positive safe integer of bytes');
+  }
   const rule: RackRule = { tasks, target: variant(target, null), size: settings.size === undefined ? none : some(variant(settings.size, null)),
-    timeoutMinutes: settings.timeoutMinutes === undefined ? none : some(BigInt(settings.timeoutMinutes)), allowHostCoupled: settings.allowHostCoupled ?? false };
+    timeoutMinutes: settings.timeoutMinutes === undefined ? none : some(BigInt(settings.timeoutMinutes)), allowHostCoupled: settings.allowHostCoupled ?? false,
+    memoryLimit: settings.memoryLimit === undefined ? none : some(BigInt(settings.memoryLimit)), gpu: settings.gpu ?? false };
   const index = next.rules.findIndex((r) => r.tasks === tasks);
   if (index < 0) next.rules.push(rule); else next.rules[index] = rule;
   validate(next);

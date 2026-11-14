@@ -22,6 +22,7 @@ import { repoGc, markReachable, sweepBatch } from './gc.js';
 import { executionPath, packageStagingPath, transferStagingPath } from './storage/local/localHelpers.js';
 import { objectWrite } from './storage/local/LocalObjectStore.js';
 import { sweepEnvironments } from './execution/environment.js';
+import { environmentLayerPath, environmentLayersDir } from './storage/local/environment-layers.js';
 import { getPidStartTime } from './execution/processHelpers.js';
 import { createTestRepo, removeTestRepo, deadPid } from './test-helpers.js';
 import { InMemoryStorage } from './storage/in-memory/InMemoryStorage.js';
@@ -206,15 +207,24 @@ describe('gc', () => {
       await storage.refs.packageWrite(testRepoPath, 'env-test', '1.0.0', pkg);
       const built = join(testRepoPath, 'envs', spec);
       mkdirSync(join(built, 'bin'), { recursive: true });
+      // The layers kept of it for a rack: a manifest, and the layer it names.
+      const layer = `sha256:${'e'.repeat(64)}`;
+      const manifest = join(environmentLayersDir(testRepoPath), 'manifests', `${spec}-1.0.0-x86_64-manylinux_2_28.json`);
+      mkdirSync(join(environmentLayersDir(testRepoPath), 'manifests'), { recursive: true });
+      mkdirSync(join(environmentLayersDir(testRepoPath), 'blobs'), { recursive: true });
+      writeFileSync(manifest, JSON.stringify({ layers: [{ digest: layer }] }));
+      writeFileSync(environmentLayerPath(testRepoPath, layer), 'a layer');
 
       await repoGc(storage, testRepoPath, { minAge: 0 });
       assert.ok(existsSync(built), 'a package still names the spec');
+      assert.ok(existsSync(manifest) && existsSync(environmentLayerPath(testRepoPath, layer)), 'and its layers are kept');
 
       await storage.refs.packageRemove(testRepoPath, 'env-test', '1.0.0');
       await repoGc(storage, testRepoPath, { minAge: 0, dryRun: true });
-      assert.ok(existsSync(built), 'a dry run removes nothing');
+      assert.ok(existsSync(built) && existsSync(manifest), 'a dry run removes nothing');
       await repoGc(storage, testRepoPath, { minAge: 0 });
       assert.ok(!existsSync(built), 'nothing names the spec any more');
+      assert.ok(!existsSync(manifest) && !existsSync(environmentLayerPath(testRepoPath, layer)), 'nor its layers');
     });
 
     it('removes the build of a builder that has exited, and keeps a live one\'s', async () => {

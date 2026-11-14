@@ -331,7 +331,7 @@ program
       .option('-v, --verbose', "Pass -v to each task's runner (timing/perf to stderr)")
       .option('--rack', 'Delegate eligible tasks to this machine\'s enrolled rack')
       .option('--no-rack', 'Run locally even when the repository rack policy is enabled')
-      .option('--rack-only', 'Wait for rack capacity instead of spilling locally; infrastructure failures may fall back')
+      .option('--rack-only', 'Wait for rack capacity instead of spilling locally; an unhealthy rack is given two minutes, and a failed transfer one more lease, before work runs locally')
       .action(withDefaultRepo(startCommand))
   );
 

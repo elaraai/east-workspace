@@ -8,7 +8,8 @@ import { ExecutionAttempt, touchReachable, type StorageBackend } from '@elaraai/
 import type { ExecutionOwner } from '@elaraai/e3-types';
 import type { RackLeaseRecord } from '../lease/lease-store.js';
 import { closureHashes } from '../lease/closure.js';
-import { isLeaseEventV2, leaseInputs, leaseRecordsUnit, type RackLeaseResult } from '../protocol/task-envelope.js';
+import { unitCap } from '@elaraai/e3-core';
+import { isLeaseEventV2, leaseInputs, leaseRecordsUnit, readRackLeaseResources, type RackLeaseResult } from '../protocol/task-envelope.js';
 import type { RackAttemptStore } from '../server/rack-routes.js';
 
 /**
@@ -62,6 +63,29 @@ export function sessionAttempts(storage: StorageBackend, repo: string, owner: ()
       const current = await statusOf(lease);
       if (current !== null && current.type !== 'running') return;
       await storage.logs.flush(repo, lease.taskHash, lease.inputsHash, attempt.ids.executionId);
+      if (result.reason?.code === 'outgrew-cap') {
+        // The rack stopped the work at its cap. A unit of a split task runs
+        // again under a larger one, so its attempt was stopped, not failed:
+        // it is no failure in the task's history. A whole task is not run
+        // again, and its cap is its failure, as the local guard's stop is.
+        const mib = (bytes: number) => `${Math.round(bytes / 1024 ** 2)} MiB`;
+        const cap = result.reason.capBytes ?? 0;
+        let unit = false;
+        try { unit = readRackLeaseResources(lease.event.resources)?.kind === 'unit'; } catch { /* a lease that names no resources is a task's */ }
+        if (!unit) {
+          await attempt.recordStopped('failed', `memory-limit-exceeded: the task outgrew its cap of ${mib(cap)} on its rack; raise --memory-limit or --size`, result.peakBytes);
+          return;
+        }
+        const cause = `the runner outgrew its cap of ${mib(cap)} on its rack: it runs again under a cap of ${mib(unitCap(cap))}`;
+        await storage.logs.append(repo, lease.taskHash, lease.inputsHash, attempt.ids.executionId, 'stderr', `e3: ${cause}\n`);
+        await storage.logs.flush(repo, lease.taskHash, lease.inputsHash, attempt.ids.executionId);
+        await storage.refs.executionWrite(repo, lease.taskHash, lease.inputsHash, attempt.ids.executionId, variant('interrupted', {
+          executionId: attempt.ids.executionId, inputHashes: attempt.inputHashes,
+          startedAt: new Date(attempt.ids.startTime), completedAt: new Date(), pid: 0n, unit: attempt.unit,
+          reason: { kind: variant('host', 'rack.outgrew_cap'), message: cause },
+        }));
+        return;
+      }
       if (result.cancelled) await attempt.recordStopped('cancelled', result.error ?? 'Rack work was cancelled');
       else if (result.state === 'error') await attempt.recordError(result.error ?? 'Rack execution failed', result.exitCode);
       else if (result.status === 'success') {

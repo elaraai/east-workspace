@@ -5,17 +5,17 @@
 
 import { afterEach, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { randomUUID, createHash } from 'node:crypto';
-import { mkdtemp, realpath, rm } from 'node:fs/promises';
+import { randomBytes, randomUUID, createHash } from 'node:crypto';
+import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
 import { setTimeout as delay } from 'node:timers/promises';
 import { East, IntegerType, StringType, decodeBeast2For, encodeBeast2For, none, some, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import { decodeTaskObject } from '@elaraai/e3-types';
-import { LocalStorage, inputsHash, packageImport, packageRead, processOwner, repoInit, uuidv7 } from '@elaraai/e3-core';
+import { LocalStorage, environmentLayerPath, environmentLayersDir, hostEnvironmentPlatform, inputsHash, packageImport, packageRead, processOwner, repoInit, uuidv7 } from '@elaraai/e3-core';
 import { RackHub, type RackHubOptions } from './hub.js';
 import { defaultHubConfig, loadHubCertificate, saveHubConfig, type HubConfig } from './config.js';
 import { readHubLock } from './lock.js';
@@ -23,16 +23,18 @@ import { socketRequest } from '../client/local-http.js';
 import { startSessionDataServer } from '../client/session-data-server.js';
 import { HUB_CONFIG_FILE, hubSocketPath } from '../paths.js';
 import { E3_RACK_VERSION, HUB_PROTOCOL } from '../version.js';
-import { ResponseType } from '@elaraai/e3-types';
 import { ApproveRackType, AttachLeaseResultType, CancelLeaseResultType, CreateLeaseType, CreateLeaseResultType, EmptyType, HubConfigType,
-  HubEnrollResultType, HubEnrollType, HubStatusType, OpenSessionType, OpenSessionResultType, SessionPollType, SessionPollResultType } from '../protocol/control.js';
+  HubEnrollResultType, HubEnrollType, HubStatusType, OpenSessionType, OpenSessionResultType, RemoveRackResultType, SessionPollType, SessionPollResultType } from '../protocol/control.js';
 import { RackRegistrationType, RackSecurityPolicyType } from '../protocol/registration.js';
 import { RackHeartbeatRequestType, RackHeartbeatResponseType } from '../protocol/rack-wire.js';
-import { TestRackAgent } from '../testing/test-rack-agent.js';
+import { RACK_LISTENER_IDLE_MS, RACK_PROTOCOL, RACK_TRANSFERS_AT_ONCE, readRackHello, readRackRefusal } from '../protocol/rack-json.js';
+import { TestRackAgent, type TestRackAgentOptions } from '../testing/test-rack-agent.js';
+import { SlowLink, type SlowLinkOptions } from '../testing/slow-link.js';
 import { certificateSha256, createHubCertificate, pinnedFetch } from '../tls/tls.js';
 import { writeStateFile } from '../state-file.js';
 import { taskClosure } from '../lease/closure.js';
-import type { RackLeaseEvent } from '../protocol/task-envelope.js';
+import { envManifestKey, envManifestName, type EnvLayerManifest } from '../server/env-publication.js';
+import type { RackLeaseEvent, RackLeaseResources } from '../protocol/task-envelope.js';
 
 const cleanup: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -76,18 +78,32 @@ async function fixture(options: RackHubOptions = {}, port = 0, overrides: Partia
     const cancel = (id: string) => socketRequest(socket, 'POST', `${path}/leases/${encodeURIComponent(id)}/cancel`, { responseType: CancelLeaseResultType });
     return { ...opened, close, create, events, cancel, logs };
   };
-  const agent = async () => {
+  const agent = async (as: Pick<TestRackAgentOptions, 'report' | 'protocol' | 'capacity' | 'transfersAtOnce' | 'timings' | 'faults' | 'resources'> & { version?: string } = {}, origin?: string) => {
     const mint = await socketRequest(socket, 'POST', '/v1/enroll', { requestType: HubEnrollType,
       body: { label: none, ttlMinutes: none }, responseType: HubEnrollResultType });
     assert.equal(mint.certificateSha256.type === 'some' ? mint.certificateSha256.value : undefined, pin);
-    const agent = await TestRackAgent.enroll(mint.apiUrl, mint.enrollmentToken, { certificateSha256: pin });
+    const agent = await TestRackAgent.enroll(origin ?? mint.apiUrl, mint.enrollmentToken, { certificateSha256: pin, ...as });
     cleanup.push(() => agent.close());
     return agent;
   };
-  return { home, hub, socket, repo, storage, status, session, agent, config, pin, fetch };
+  /** A slow link to the hub's listener, and the origin an agent reaches the hub at through it. */
+  const link = async (faults: Omit<SlowLinkOptions, 'target'>) => {
+    const listener = (await status()).rackListener; assert(listener.type === 'up');
+    const url = new URL(listener.value.origin);
+    const link = await SlowLink.open({ target: { host: url.hostname, port: Number(url.port) }, ...faults });
+    cleanup.push(() => link.close());
+    return { link, origin: `${url.protocol}//${url.hostname}:${link.port}` };
+  };
+  /** Objects of random bytes in the session's repository, by hash. */
+  const objects = async (count: number, size: number) => {
+    const written = new Map<string, Buffer>();
+    for (let n = 0; n < count; n++) { const bytes = randomBytes(size); written.set(await storage.objects.write(repo, bytes), bytes); }
+    return written;
+  };
+  return { home, hub, socket, repo, storage, status, session, agent, link, objects, config, pin, fetch };
 }
-function event(input: string[] = []): RackLeaseEvent {
-  return { version: 2, taskName: 'task', workspace: 'dev', closure: { hashes: input },
+function event(input: string[] = [], resources?: RackLeaseResources): RackLeaseEvent {
+  return { version: 2, taskName: 'task', workspace: 'dev', closure: { hashes: input }, ...(resources !== undefined && { resources }),
     runnerEvent: { mode: 'task', repo: 'replaced-by-hub', taskHash: 'a'.repeat(64), inputHashes: input, launchId: uuidv7(), timeoutMs: 30000 } };
 }
 
@@ -184,10 +200,10 @@ it('quarantines a rebooted rack until its boot is approved, only while the polic
   const policy = () => socketRequest(f.socket, 'GET', '/v1/security', { responseType: RackSecurityPolicyType });
   assert.deepEqual(await policy(), { requireStartApproval: false });
   const reboot = async (bootId: string) => {
-    const response = await agent.raw('heartbeat', RackHeartbeatRequestType, { healthy: true, freeCapacity: 1n, runningLeases: [], agentVersion: `0.5.0+e3.${E3_RACK_VERSION}`, bootId, cacheBytes: 0n });
+    const response = await agent.raw('heartbeat', RackHeartbeatRequestType, { healthy: true, freeCapacity: 1n, runningLeases: [], agentVersion: `0.5.0+e3.${E3_RACK_VERSION}`, bootId, cacheBytes: 0n,
+      report: JSON.stringify({ features: [] }) });
     assert.equal(response.status, 200);
-    const reply = decodeBeast2For(ResponseType(RackHeartbeatResponseType))(new Uint8Array(await response.arrayBuffer()));
-    assert(reply.type === 'success'); return reply.value;
+    return decodeBeast2For(RackHeartbeatResponseType)(new Uint8Array(await response.arrayBuffer()));
   };
   const pending = async () => (await f.status()).capacity.racks[0]!.pendingApproval;
   // Without the policy a reboot is admitted as the first boot was.
@@ -328,4 +344,297 @@ it('enrolls through a listener on every address only once an origin is advertise
   await socketRequest(f.socket, 'POST', '/v1/config', { requestType: HubConfigType,
     body: { ...f.config, advertiseUrl: some('https://rack-source.example.invalid') }, responseType: HubConfigType });
   assert.equal((await enroll()).apiUrl, 'https://rack-source.example.invalid');
+});
+
+it('says what it speaks to anyone who reaches its listener, what each rack reports of itself, and why a rack that asks in another protocol cannot be used', async () => {
+  const lines: string[] = [];
+  const f = await fixture({ log: (line) => { lines.push(line); } });
+  const status = await f.status(); assert(status.rackListener.type === 'up');
+  const hello = await f.fetch(`${status.rackListener.value.origin}/api/rack/hello`);
+  assert.deepEqual(readRackHello(await hello.text()), { protocol: RACK_PROTOCOL, e3: E3_RACK_VERSION, limits: { transfersAtOnce: RACK_TRANSFERS_AT_ONCE } });
+
+  const agent = await f.agent({ report: { features: ['resources', 'environments'], target: 'x86_64-manylinux_2_28' } });
+  const rack = async () => (await f.status()).capacity.racks[0]!;
+  const reported = await rack();
+  assert.deepEqual(reported.features, ['resources', 'environments']);
+  assert.deepEqual(reported.target, some('x86_64-manylinux_2_28'));
+  assert.deepEqual(reported.problem, none);
+
+  // The same rack, its agent now one of another release: refused by name each
+  // time it asks, said once in the log, and in the status for as long as it holds.
+  const heartbeat = { healthy: true, freeCapacity: 1n, runningLeases: [], agentVersion: `0.5.0+e3.${E3_RACK_VERSION}`, bootId: agent.bootId, cacheBytes: 0n,
+    report: JSON.stringify({ features: [] }) };
+  for (let asked = 0; asked < 2; asked++) {
+    const refused = await agent.raw('heartbeat', RackHeartbeatRequestType, heartbeat, 2);
+    assert.equal(refused.status, 426); await refused.arrayBuffer();
+  }
+  assert.deepEqual((await rack()).problem, some(`speaks rack protocol 2, not ${RACK_PROTOCOL}; update the rack`));
+  assert.deepEqual((await rack()).features, ['resources', 'environments'], 'a refused heartbeat is not read');
+  assert.equal(lines.filter((line) => line.includes(`rack ${agent.rackId} refused: it speaks rack protocol 2`)).length, 1);
+  const unnamed = await agent.raw('heartbeat', RackHeartbeatRequestType, heartbeat, null);
+  assert.equal(unnamed.status, 426); await unnamed.arrayBuffer();
+  assert.deepEqual((await rack()).problem, some(`speaks a rack protocol from before it was named, not ${RACK_PROTOCOL}; update the rack`));
+
+  // Its agent updated, its next heartbeat is read and the problem is gone.
+  await agent.heartbeat();
+  assert.deepEqual((await rack()).problem, none);
+  // A rack that is removed takes what was known of it along.
+  await socketRequest(f.socket, 'DELETE', `/v1/racks/${agent.rackId}`, { responseType: RemoveRackResultType });
+  assert.equal((await f.status()).capacity.racks.length, 0);
+});
+
+it('never enrols an agent of another rack protocol, and keeps its token for the agent that replaces it', async () => {
+  const f = await fixture();
+  const mint = await socketRequest(f.socket, 'POST', '/v1/enroll', { requestType: HubEnrollType, body: { label: none, ttlMinutes: none }, responseType: HubEnrollResultType });
+  await assert.rejects(TestRackAgent.enroll(mint.apiUrl, mint.enrollmentToken, { certificateSha256: f.pin, protocol: 2 }),
+    /HTTP 426 upgrade-required: this source speaks rack protocol 3, and the request names 2: update the rack's agent/);
+  assert.equal((await f.status()).racks.length, 0);
+  const agent = await TestRackAgent.enroll(mint.apiUrl, mint.enrollmentToken, { certificateSha256: f.pin });
+  cleanup.push(() => agent.close());
+  assert.equal((await f.status()).racks.length, 1);
+});
+
+it('serves one rack eight transfers at once, tells it to ask again for a ninth, and serves another rack meanwhile', async () => {
+  const f = await fixture();
+  const session = await f.session();
+  const inputs = await f.objects(1, 8192); const [input] = [...inputs.keys()];
+  await session.create(event([input!]));
+  const first = await f.agent(); const grant = await first.claim(); assert(grant);
+  const others = await f.objects(1, 8192); const [other] = [...others.keys()];
+  await session.create(event([other!]));
+  const second = await f.agent(); const otherGrant = await second.claim(); assert(otherGrant);
+  const read = async (agent: TestRackAgent, lease: typeof grant, hash: string) => {
+    const descriptor = (await agent.storageRequest(lease, { need: [hash] })).objects[0]; assert(descriptor?.type === 'url');
+    return f.fetch(descriptor.value.url);
+  };
+
+  // Eight uploads whose bodies have not ended are in flight for as long as the test holds them.
+  // Each sends half its body at once: a request's head goes out with its first bytes.
+  const stop = new AbortController();
+  const held = await Promise.all(Array.from({ length: RACK_TRANSFERS_AT_ONCE }, async () => {
+    const bytes = randomBytes(64);
+    const hash = createHash('sha256').update(bytes).digest('hex');
+    const target = (await first.storageRequest(grant, { outputs: [{ hash, size: BigInt(bytes.length) }] })).targets[0]!.target; assert(target.type === 'put');
+    let body!: ReadableStreamDefaultController<Uint8Array>;
+    const response = f.fetch(target.value.url, { method: 'PUT', signal: stop.signal, duplex: 'half',
+      body: new ReadableStream<Uint8Array>({ start(controller) { body = controller; controller.enqueue(bytes.subarray(0, 32)); } }) } as RequestInit);
+    response.catch(() => {}); // those still held when the test ends are aborted
+    return { bytes, body, response };
+  }));
+  // Each is counted once its request reaches the hub: until then a read is served.
+  let refused: Response | undefined;
+  for (let asked = 0; asked < 200 && refused === undefined; asked++) {
+    const response = await read(first, grant, input!);
+    if (response.status === 429) refused = response;
+    else { assert.equal(response.status, 200); await response.arrayBuffer(); await delay(10); }
+  }
+  assert(refused, 'a ninth transfer is refused while eight are in flight');
+  assert.equal(refused.headers.get('retry-after'), '1');
+  assert.deepEqual(readRackRefusal(await refused.text()), { code: 'busy', message: '8 transfers are in flight for this rack', retryAfterMs: 500 });
+
+  // The bound is each rack's own.
+  const elsewhere = await read(second, otherGrant, other!);
+  assert.equal(elsewhere.status, 200); assert.deepEqual(Buffer.from(await elsewhere.arrayBuffer()), others.get(other!));
+
+  // One of the eight ends, and the rack has a transfer free again.
+  held[0]!.body.enqueue(held[0]!.bytes.subarray(32)); held[0]!.body.close();
+  const put = await held[0]!.response; assert.equal(put.status, 200); await put.arrayBuffer();
+  let served: Response | undefined;
+  for (let asked = 0; asked < 200 && served === undefined; asked++) {
+    const response = await read(first, grant, input!);
+    if (response.status === 200) served = response; else { assert.equal(response.status, 429); await response.arrayBuffer(); await delay(10); }
+  }
+  assert(served, 'a transfer is served once one of the eight has ended');
+  assert.deepEqual(Buffer.from(await served.arrayBuffer()), inputs.get(input!));
+  stop.abort();
+});
+
+it('reads an object from a byte on, so a transfer a link cut short goes on from where it stopped', async () => {
+  const f = await fixture();
+  const session = await f.session();
+  const size = 1024 * 1024;
+  const inputs = await f.objects(1, size); const [hash] = [...inputs.keys()]; const bytes = inputs.get(hash!)!;
+  await session.create(event([hash!]));
+  const { link, origin } = await f.link({});
+  const agent = await f.agent({ timings: { retryMs: 1 } }, origin); const grant = await agent.claim(); assert(grant);
+
+  const descriptor = (await agent.storageRequest(grant, { need: [hash!] })).objects[0]; assert(descriptor?.type === 'url');
+  assert(descriptor.value.url.startsWith(`${origin}/api/rack/data/`), 'a data URL is on the origin the rack asked at');
+  const whole = await f.fetch(descriptor.value.url);
+  assert.equal(whole.status, 200); assert.equal(whole.headers.get('accept-ranges'), 'bytes'); await whole.arrayBuffer();
+  const rest = await f.fetch(descriptor.value.url, { headers: { range: 'bytes=1000000-' } });
+  assert.equal(rest.status, 206);
+  assert.equal(rest.headers.get('content-range'), `bytes 1000000-${size - 1}/${size}`);
+  assert.equal(rest.headers.get('content-length'), String(size - 1000000));
+  assert.deepEqual(Buffer.from(await rest.arrayBuffer()), bytes.subarray(1000000));
+  const past = await f.fetch(descriptor.value.url, { headers: { range: `bytes=${size}-` } });
+  assert.equal(past.status, 416); assert.equal(past.headers.get('content-range'), `bytes */${size}`); await past.arrayBuffer();
+  // A range it does not serve is answered with the whole object, as a server may.
+  const other = await f.fetch(descriptor.value.url, { headers: { range: 'bytes=0-99' } });
+  assert.equal(other.status, 200); assert.equal((await other.arrayBuffer()).byteLength, size);
+
+  // The link drops the connection a third of the way through the body.
+  link.cutAfter(350_000);
+  const before = link.carried.towardsAgent;
+  await agent.fetch(grant, [hash!]);
+  assert.equal(link.cuts, 1);
+  assert.equal(agent.transfers.resumed, 1, 'the second try was answered from the byte the first reached');
+  const carried = link.carried.towardsAgent - before;
+  assert(carried >= size && carried < size + 64 * 1024, `the bytes the first try carried were not sent again: the link carried ${carried} for an object of ${size}`);
+  assert.equal(agent.transfers.retried, 1);
+  assert(await agent.holds(hash!), 'the object arrived whole: the agent\'s store took it under its own hash');
+});
+
+it('gives a transfer five tries, and fails its lease\'s fetch only when the fifth has failed', async () => {
+  const f = await fixture();
+  const session = await f.session();
+  const inputs = await f.objects(2, 8192); const [recovers, fails] = [...inputs.keys()];
+  await session.create(event([recovers!, fails!]));
+  const agent = await f.agent({ timings: { retryMs: 1 }, faults: {} }); const grant = await agent.claim(); assert(grant);
+  agent.faults.failTransferNext = 4;
+  await agent.fetch(grant, [recovers!]);
+  assert.equal(agent.transfers.retried, 4); assert(await agent.holds(recovers!));
+  agent.faults.failTransferNext = 5;
+  await assert.rejects(agent.fetch(grant, [fails!]), new RegExp(`Rack input ${fails} failed after 5 tries: injected transfer failure`));
+  assert.equal(await agent.holds(fails!), false);
+  // A request its source refuses is not sent again: a URL that is not this rack's to read.
+  const before = agent.transfers.retried;
+  const ended = (await agent.storageRequest(grant, { need: [fails!] })).objects[0]; assert(ended?.type === 'url');
+  const wrong = await f.fetch(ended.value.url, { method: 'PUT', body: new Uint8Array(1) });
+  assert.equal(wrong.status, 404); await wrong.arrayBuffer();
+  assert.equal(agent.transfers.retried, before);
+});
+
+it('keeps an idle connection of a rack for seventy-five seconds, and says so in every reply', async () => {
+  const f = await fixture();
+  const status = await f.status(); assert(status.rackListener.type === 'up');
+  const hello = await f.fetch(`${status.rackListener.value.origin}/api/rack/hello`);
+  assert.equal(hello.headers.get('keep-alive'), `timeout=${RACK_LISTENER_IDLE_MS / 1000}`); await hello.arrayBuffer();
+  assert.equal(RACK_LISTENER_IDLE_MS, 75_000);
+});
+
+it('carries a burst of input transfers over a slow link with no failed transfer, never more than eight of a rack\'s in flight', async () => {
+  const f = await fixture();
+  const session = await f.session();
+  // A link of 8 MiB/s that every connection shares, and three leases of eight inputs each, fetched at once.
+  const { origin } = await f.link({ delayMs: 5, bytesPerSecond: 8 * 1024 * 1024 });
+  const agent = await f.agent({ capacity: 3 }, origin);
+  const leases = [];
+  for (let n = 0; n < 3; n++) {
+    const inputs = await f.objects(8, 192 * 1024);
+    await session.create(event([...inputs.keys()]));
+    const grant = await agent.claim(); assert(grant);
+    leases.push({ grant, inputs });
+  }
+  await Promise.all(leases.map(({ grant, inputs }) => agent.fetch(grant, [...inputs.keys()])));
+  for (const { inputs } of leases) for (const hash of inputs.keys()) assert(await agent.holds(hash));
+  assert.equal(agent.transfers.peak, RACK_TRANSFERS_AT_ONCE, 'the agent has as many in flight as its source\'s hello allows, and no more');
+  assert.equal(agent.transfers.busy, 0, 'the hub never had a ninth to refuse');
+  assert.equal(agent.transfers.retried, 0);
+
+  // An agent that does not hold itself to the limit is held to it by the hub, and loses nothing by it.
+  const greedy = await f.agent({ transfersAtOnce: 24 }, origin);
+  const inputs = await f.objects(24, 64 * 1024);
+  await session.create(event([...inputs.keys()]));
+  const grant = await greedy.claim(); assert(grant);
+  await greedy.fetch(grant, [...inputs.keys()]);
+  for (const hash of inputs.keys()) assert(await greedy.holds(hash));
+  assert(greedy.transfers.peak > RACK_TRANSFERS_AT_ONCE, `the agent asked for ${greedy.transfers.peak} at once`);
+  assert(greedy.transfers.busy > 0, 'the hub told it to ask again');
+  assert.equal(greedy.transfers.retried, 0, 'being told to wait is no failed try');
+});
+
+it('grants a lease to a rack whose offer holds it, lets smaller work pass a larger lease for ten seconds, then holds the line for it', async () => {
+  let time = Date.now();
+  const GiB = 1024 ** 3;
+  const f = await fixture({ now: () => time, leaseWindowMs: 40 });
+  const session = await f.session();
+  const agent = await f.agent({ resources: { cores: 4, memoryBytes: 8 * GiB, gpus: 0 } });
+  const rack = async () => (await f.status()).capacity.racks[0]!;
+  assert.deepEqual((await rack()).features, hostEnvironmentPlatform() === null ? ['resources'] : ['resources', 'environments']);
+  // Each lease is its own work: its inputs name it.
+  const piece = (name: string, memoryBytes: number) => session.create(event([name.repeat(64)], { kind: 'unit', cores: 1, memoryBytes, gpu: false }));
+  const failed = { taskName: 'task', status: 'failed' as const };
+
+  const first = await piece('1', 3 * GiB);
+  const held = await agent.claim(); assert.equal(held?.leaseId, first.leaseId);
+  assert.deepEqual(agent.bookedFor(first.leaseId), { kind: 'unit', cores: 1, memoryBytes: 3 * GiB, gpu: false }, 'the rack books the lease at its cap');
+  // The status says all the rack has, and what this hub's leases leave of it before the rack next reports.
+  assert.deepEqual((await rack()).resources, some({ cores: 4n, memoryBytes: BigInt(8 * GiB), gpus: 0n }));
+  assert.deepEqual((await rack()).free, some({ cores: 3n, memoryBytes: BigInt(5 * GiB), gpus: 0n }));
+
+  // A lease of 6 GiB, and two of 3 GiB behind it: the rack has 5 GiB free.
+  const large = await piece('2', 6 * GiB); const second = await piece('3', 3 * GiB); const third = await piece('4', 3 * GiB);
+  const passed = await agent.claim(); assert.equal(passed?.leaseId, second.leaseId, 'smaller work passes a lease the offer does not hold');
+  assert.equal(agent.waitingFor, undefined);
+  // 2 GiB free: nothing queued fits, and the idle poll says what the oldest waits for.
+  assert.equal(await agent.claim(), null);
+  assert.deepEqual(agent.waitingFor, { cores: 1, memoryBytes: 6 * GiB, gpus: 0, ms: 0 });
+
+  // Ten seconds on, the large lease holds the line: 5 GiB free again, and the 3 GiB lease behind it is not granted.
+  time += 10_001; await agent.heartbeat([held, passed]);
+  await agent.complete(held, failed);
+  assert.equal(await agent.claim(), null, 'nothing behind a lease that holds the line is granted to this rack');
+  assert.deepEqual(agent.waitingFor, { cores: 1, memoryBytes: 6 * GiB, gpus: 0, ms: 10_001 });
+  // The rack has room for it: it is granted, and then the work behind it.
+  await agent.complete(passed, failed);
+  const granted = await agent.claim(); assert.equal(granted?.leaseId, large.leaseId);
+  await agent.complete(granted, failed);
+  const last = await agent.claim(); assert.equal(last?.leaseId, third.leaseId);
+  await agent.complete(last, failed);
+
+  // A lease this rack could never hold, however long it waits, holds no line at it.
+  await piece('5', 16 * GiB);
+  time += 10_001; await agent.heartbeat();
+  const small = await piece('6', GiB);
+  const after = await agent.claim(); assert.equal(after?.leaseId, small.leaseId);
+  assert.equal(agent.waitingFor, undefined);
+  await assert.rejects(session.create({ ...event(['7'.repeat(64)]), resources: { kind: 'unit', cores: 0, memoryBytes: GiB, gpu: false } }), /a lease's cores is a whole number of one or more/);
+});
+
+it('leases work that names an environment only to a rack that composes environments for a platform its session keeps the layers for, and serves it the manifest built with the lease\'s own e3 release', async () => {
+  const f = await fixture({ leaseWindowMs: 40 });
+  const [release, platform] = ['9.9.9', 'x86_64-manylinux_2_28'];
+  const envHash = 'e'.repeat(64);
+  // What a launching machine keeps of an environment it built: a layer, and the manifests that name it, by release and platform.
+  const layer = Buffer.from('a layer of the environment, as its session keeps it');
+  const digest = `sha256:${createHash('sha256').update(layer).digest('hex')}`;
+  await mkdir(dirname(environmentLayerPath(f.repo, digest)), { recursive: true });
+  await writeFile(environmentLayerPath(f.repo, digest), layer);
+  const manifestOf = (e3Version: string): EnvLayerManifest => ({ envHash, e3Version, baseImage: 'rack-tier:node', baseTier: 'node',
+    layers: [{ digest, sizeBytes: layer.length, mediaType: 'application/vnd.oci.image.layer.v1.tar+gzip' }] });
+  await mkdir(join(environmentLayersDir(f.repo), 'manifests'), { recursive: true });
+  for (const built of [release, E3_RACK_VERSION]) {
+    await writeFile(join(environmentLayersDir(f.repo), 'manifests', envManifestName(envManifestKey(envHash, built, platform))!), JSON.stringify(manifestOf(built)));
+  }
+
+  const session = await f.session(f.repo, release);
+  await assert.rejects(session.create({ ...event(['1'.repeat(64)]), environment: 'not a hash' }), /Invalid environment/);
+  const lease = await session.create({ ...event(['1'.repeat(64)]), environment: envHash });
+  const version = `0.5.0+e3.${release}`;
+  // A rack that composes nothing, one that composes for another platform, and one that names a platform but not the feature.
+  const never = [
+    await f.agent({ version, report: { features: [] } }),
+    await f.agent({ version, report: { features: ['environments'], target: 'aarch64-apple-darwin' } }),
+    await f.agent({ version, report: { features: [], target: platform } }),
+  ];
+  for (const rack of never) assert.equal(await rack.claim(), null, 'never granted the lease');
+  const composing = await f.agent({ version, report: { features: ['environments'], target: platform } });
+  const grant = await composing.claim();
+  assert.equal(grant?.leaseId, lease.leaseId);
+
+  const { env } = await composing.storageRequest(grant!, { envManifest: some(envHash) });
+  assert(env.type === 'some');
+  assert.deepEqual(JSON.parse(env.value.manifestJson), manifestOf(release), 'the manifest built with the lease\'s release, not the hub\'s own');
+  assert.deepEqual(env.value.layers.map((served) => [served.digest, served.sizeBytes]), [[digest, BigInt(layer.length)]]);
+  const served = await f.fetch(env.value.layers[0]!.url);
+  assert.equal(served.status, 200);
+  assert.deepEqual(Buffer.from(await served.arrayBuffer()), layer);
+  await assert.rejects(composing.storageRequest(grant!, { envManifest: some('f'.repeat(64)) }), /HTTP 403 forbidden/);
+
+  // A lease that names an environment its session keeps no layers of is granted to no rack.
+  const other = await session.create({ ...event(['2'.repeat(64)]), environment: 'd'.repeat(64) });
+  await composing.complete(grant!, { taskName: 'task', status: 'failed' });
+  assert.equal(await composing.claim(), null);
+  assert.equal((await session.cancel(other.leaseId)).status, 'cancelled');
 });

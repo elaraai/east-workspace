@@ -7,13 +7,13 @@ Part of the `e3` skill.
 | Signature | Description | Example |
 | --- | --- | --- |
 | `e3 rack enroll --listen <host:port> [--allow <ip,...>] [--advertise-url <origin>] [--label <label>] [--no-wait]` | Starts the user-wide hub and prints the source origin, the hub's certificate SHA-256, the matching release and a single-use token for the companion's hidden prompts. Waits for a new registration, not activation. Behind an SSH reverse tunnel, listen on the loopback and advertise the relay's origin. | `e3 rack enroll --listen 127.0.0.1:7331 --allow 127.0.0.1 --advertise-url https://relay.example:7401` |
-| `e3 rack policy [repo] set <glob> rack\|local [--size <size>] [--timeout <min>] [--allow-host-access]` | First whole-task-name match wins; `*` and `?` are wildcards. Size: serverless, small, medium, large, xlarge. | `e3 rack policy . set 'train_*' rack --size large` |
+| `e3 rack policy [repo] set <glob> rack\|local [--size <size>] [--memory-limit <size>] [--gpu] [--timeout <min>] [--allow-host-access]` | First whole-task-name match wins; `*` and `?` are wildcards; setting a rule again replaces it whole. Size: serverless (2 cores, 2 GiB), small (2, 4 GiB), medium (4, 8 GiB), large (8, 16 GiB), xlarge (16, 32 GiB). `--memory-limit 8G` is a ceiling on one piece's cap, never a request; `--gpu` asks for a rack's GPU. | `e3 rack policy . set 'train_*' rack --size large` |
 | `e3 rack policy [repo] enable\|disable\|mode <opt-in\|auto>` | Enable/disable saved opt-in; `mode auto` selects eligible unmatched tasks. Defaults: disabled, opt-in. | `e3 rack policy . enable` |
 | `e3 rack policy [repo] defaults [--no-spill] [--claim-timeout <sec>] [--retry-task-failures-locally]` | Defaults: large, 1440-minute timeout, spill on, 30-second claim recheck, no task-failure retry. | `e3 rack policy . defaults --no-spill` |
 | `e3 rack policy [repo] show\|unset <glob>\|reset` | Inspect rules, remove an exact pattern, or delete the saved policy. | `e3 rack policy . show` |
-| `e3 dataflow run <repo> <ws> --rack\|--no-rack\|--rack-only` | Select rack routing for this run; rack-only disables capacity spill but keeps infrastructure fallback. ❗ Refused for remote URLs. | `e3 dataflow run . dev --rack` |
+| `e3 dataflow run <repo> <ws> --rack\|--no-rack\|--rack-only` | Select rack routing for this run; rack-only disables capacity spill but keeps infrastructure fallback: work waits two minutes for an unhealthy rack to come back, and is leased once more after a failed transfer, before it runs locally. ❗ Refused for remote URLs. | `e3 dataflow run . dev --rack` |
 | `e3 watch <source> <repo> <ws> --start --rack` | Reuses a rack session across watch runs and refreshes capacity; a second Ctrl-C stops the watch at once. ❗ `--rack` and `--rack-only` require `--start`. | `e3 watch src/main.ts . dev --start --rack` |
-| `e3 rack status\|list\|remove <id-or-label>\|approve <id-or-label>\|stop` | Inspect fleet, revoke a rack, admit the boot a quarantined rack last reported, or stop the shared hub. Status never starts an absent hub. | `e3 rack status` |
+| `e3 rack status\|list\|remove <id-or-label>\|approve <id-or-label>\|stop` | Inspect fleet, revoke a rack, admit the boot a quarantined rack last reported, or stop the shared hub. Status never starts an absent hub, and lists how its last leases ended, each with its reason. | `e3 rack status` |
 | `e3 rack config [--listen <host:port>] [--allow <ip,...>] [--idle-exit <min>] [--advertise-url <origin>] [--tls\|--no-tls] [--require-approval\|--no-require-approval]` | Configure the shared listener (off by default; HTTPS with the hub's own certificate unless `--no-tls`); every rack and data URL is built on `--advertise-url` when set; zero idle-exit disables automatic shutdown; `--require-approval` quarantines a rack after each reboot until `e3 rack approve` admits it (enrollment admits the first boot). ❗ Plain HTTP only on the loopback or a private address, with `--allow`. | `e3 rack config --listen 10.0.0.5:7331` |
 
 The local process owns graph planning, repository and cache. After a cache
@@ -21,10 +21,55 @@ miss, eligible plain task, map and merge bodies can execute on the rack; input
 closures and every output object transfer by hash. The session verifies the
 whole output graph before success. Placement never changes task/cache hashes.
 Local bodies and fallback share the original cores/memory budget; rack bodies
-use remote capacity. Calls, mutations and intake stay local. Stock runner
-configurations qualify; commands, custom environments/platforms and unscannable
-IR stay local. Host file/environment/network access stays local unless a rule
-deliberately grants `--allow-host-access` and its resources exist on the rack.
+use remote capacity: each lease asks its cores and its cap (a split task's
+piece one core and half as much again as it was measured to need; a task its
+size's cores, and its `--memory-limit`, else its size's memory), a rack is
+given only what its free resources hold, and a run is as much wider as the
+racks have cores. `e3 rack list` shows each rack's resources and what is free. A run prints `[RACK] <task> → <rack>` when a rack claims a
+task, `[RACK] <task> input transfer retried (2 of 5): <cause>` for a transfer
+given another try, `[LOCAL] <task> (<reason>)` for a rack's work this machine
+runs after all (`spill`, `no-rack-for-tier:<tier>`, or the rack's reason, such
+as `input-transfer-failed: <cause>` or `guest-crashed: <detail>`, or
+`memory-limit-exceeded: needs 3 GB, limit 2 GB` for work whose cap passes its
+rule's limit or every rack's memory),
+`[RACK] <task> waiting: needs 4 GB, <rack> has 1 GB free` for work queued with
+no rack having room for it,
+`[RACK] <task> outgrew its 3 GB cap on <rack>: runs again under 4.5 GB` for a
+split task's piece its rack stopped at its cap (a whole task fails instead:
+`memory-limit-exceeded (cap 16 GB); raise --memory-limit or --size`), and ends
+with `Rack summary: 1 task and 12 units on <rack> · 0 waited for capacity · 0
+ran again (cap) · 1 transfer retried · 0 ran locally`. On a rack that admits by
+its resources a split task's pieces are queued together and none can run the
+rack out of memory; give the task's rule a `--memory-limit` near what a piece
+needs, so its first run, which nothing has measured, is as wide as its later
+ones. Calls, mutations and intake stay local. Stock runner
+configurations qualify, and so does a task that declares a `python` or `node`
+environment, with the project platform packages its runner names; commands, a
+platform package with no environment (`non-stock-platform:<name>`) and
+unscannable IR stay local. Host file/environment/network access stays local
+unless a rule deliberately grants `--allow-host-access` and its resources exist
+on the rack.
+
+**A task that declares an environment** needs nothing new in its package. On a
+rack whose agent composes environments (`environments` among its features in
+`e3 rack list`; `Rack: <rack> (…, environments for x86_64-manylinux_2_28)` as
+a run starts), the launching machine installs the environment a second time
+for the rack's platform, with the same frozen installs, packs it as layers the
+rack fetches through the hub, and prints `[ENV] 3f9a2b1c0d4e for
+x86_64-manylinux_2_28: building` then `[ENV] 3f9a2b1c0d4e built in 48 s: 4
+layers, 2.1 GB (1 new)`. No container runtime on either machine; nothing is
+compiled for the rack; a second run builds nothing, and a change to the
+project's code makes one small new layer. The layers are kept in the
+repository's `rack/env-layers`, which `e3 repo gc` sweeps. ❗ What cannot go
+stays local, with its reason on the task's `[LOCAL]` line: `environment:tools`
+/ `environment:image` (its kind), `environment:windows-host` (a Windows
+launching machine), `no-rack-for-environment:<tier>` (no rack composes them),
+`environment:no-wheel:<package>` and `environment:native-package:<package>`
+(nothing is compiled for another platform), `environment:pnpm` (a pnpm before
+11, for another platform), `environment:build-failed` (the tool's message is
+in `e3 task logs`). A task's tier is its runner's; `--gpu` puts an `east-py`
+task on `py-datascience`, and is refused for another runner
+(`gpu-not-east-py`).
 
 The listener serves HTTPS with the hub's own self-signed certificate, made on
 first use and kept in `hub-tls.beast2`; a rack pins it by its SHA-256, which
@@ -118,7 +163,14 @@ run waits up to 10 seconds for an enrolled rack to report healthy (with none
 enrolled, or a policy that selects no task for a rack, it starts at once): run
 `e3 rack hub` as a service, or set `--idle-exit 0`, for a hub racks can always
 reach. A data URL lasts 15 minutes, which a transfer may use whole; an object is
-at most 5 GiB. The control schema currently requires protocol 2 exactly.
+at most 5 GiB. The hub serves one rack eight transfers at once (one more is told
+to ask again), and reads an object from a byte on (`Range`), so a transfer a slow
+link cut short resumes; it keeps a rack's idle connection for 75 seconds.
+A hub and the e3 that calls it speak control protocol 3 exactly:
+a hub an older e3 started is asked to exit once idle, and `e3 rack stop` with
+that e3 replaces it now. A rack's agent and its source speak rack protocol 3:
+an agent of another protocol is refused by name each time it asks, and
+`e3 rack list` shows its rack as `incompatible: …; update the rack` until it is.
 Agents must report bundled e3 at least the project's release. Infrastructure
 failure falls back locally with a separate execution attempt, as does an
 attempt the rack stopped on its own; the run's own cancellation and the task's
@@ -129,11 +181,11 @@ sessions of the same canonical repository and e3 release.
 
 | Signature | Description | Example |
 | --- | --- | --- |
-| `openRackRunner({ repoPath, workspace, storage, label, budget?, settings?, policy?, rackOnly? })` | Opens a runner/session; preserve the caller's existing budget and process settings, use `rackSlots` to extend orchestrator width, and close in `finally`. | `const rack = await openRackRunner({ repoPath, workspace: 'dev', storage, label: 'run', budget });` |
+| `openRackRunner({ repoPath, workspace, storage, label, budget?, settings?, policy?, rackOnly?, unreachableWaitMs?, onPlacement?, onEnvironment? })` | Opens a runner/session; preserve the caller's existing budget and process settings, use `rackSlots` to extend orchestrator width, and close in `finally`. Under `rackOnly`, work waits `unreachableWaitMs` (two minutes) for an unhealthy rack before it runs locally. `onPlacement` is told where each task or unit runs; `onEnvironment` that an environment's layers are being built for a rack, and what the build came to. | `const rack = await openRackRunner({ repoPath, workspace: 'dev', storage, label: 'run', budget });` |
 | `createDataflowRunnerFactory(options?)` | Pass to `createServer({ dataflowRunner })`; one session per API dataflow, using the server's shared budget. Explicit server opt-in overrides policy.enabled; rules still apply. | `const server = await createServer({ reposDir: './repos', dataflowRunner: createDataflowRunnerFactory() });` |
 
 The API server's optional rack package is needed only for
 `e3-api-server --repos ./repos --rack`. Portable handlers receive a runner
-factory and do not import hub code. Custom environments, remote function
-delegation, automatic reconnect after hub restart and embedded UI integration
-are deferred.
+factory and do not import hub code. `tools` and `image` environments on a
+rack, remote function delegation, automatic reconnect after hub restart and
+embedded UI integration are deferred.

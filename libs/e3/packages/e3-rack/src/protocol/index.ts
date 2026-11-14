@@ -4,6 +4,7 @@
  */
 
 export * from './rack-wire.js';
+export * from './rack-json.js';
 export * from './registration.js';
 export * from './task-envelope.js';
 export * from './control.js';

@@ -3,7 +3,8 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
-import type { OpenRackRunnerOptions, RackPlacementEvent, RackRunnerHandle } from '@elaraai/e3-rack';
+import type { OpenRackRunnerOptions, RackEnvironmentEvent, RackPlacementEvent, RackRunnerHandle } from '@elaraai/e3-rack';
+import { formatSize } from '../format.js';
 
 /** Rack flags shared by dataflow run and watch. */
 export interface RackFlags {
@@ -44,11 +45,83 @@ export async function openRack(options: OpenRackRunnerOptions): Promise<RackRunn
   return openRackRunner(options);
 }
 
-/** Prints task placement; existing split progress already describes units. */
-export function printRackPlacement(event: RackPlacementEvent): void {
-  if (event.role === 'unit') return;
-  if (event.where === 'rack') console.log(`  [RACK] ${event.taskName} → ${event.rackLabel}`);
-  else if (event.reason === 'spill' || event.reason.startsWith('fallback:') || event.reason.startsWith('no-rack-for-tier:')) {
-    console.log(`  [LOCAL] ${event.taskName} (${event.reason})`);
+/**
+ * The line a run prints for a placement event, when it prints one:
+ * - `[RACK] train → rack-a (cap 16 GB)` when a rack claims a task (split
+ *   progress already describes its units);
+ * - `[RACK] score outgrew its 3 GB cap on rack-a: runs again under 4.5 GB`
+ *   for a unit its rack stopped at its cap, and `[RACK] train failed:
+ *   memory-limit-exceeded (cap 16 GB); raise --memory-limit or --size` for a
+ *   whole task, which e3 does not run again;
+ * - `[RACK] train input transfer retried (2 of 5): connection reset`;
+ * - `[RACK] train waiting: needs 4 GB, rack-a has 1 GB free` for work queued
+ *   with no rack having room for it, a task's or a unit's alike, once;
+ * - `[LOCAL] train (input-transfer-failed: connection reset)` for a rack's
+ *   work that this machine runs after all, with the rack's reason when its
+ *   result gave one, a task's or a unit's alike;
+ * - `[LOCAL] score (memory-limit-exceeded: needs 3 GB, limit 2 GB)` for a
+ *   piece whose cap would pass its rule's memory limit;
+ * - `[LOCAL] fit (environment:native-package:fastfit)` for a task whose
+ *   environment cannot go to a rack, and `[LOCAL] fit
+ *   (no-rack-for-environment:py)` where no rack composes environments.
+ *
+ * @param event - The event
+ * @returns The line, or undefined for an event a run does not print
+ */
+export function rackPlacementLine(event: RackPlacementEvent): string | undefined {
+  if (event.kind === 'retried') return `  [RACK] ${event.taskName} ${event.retry.transfer} transfer retried (${event.retry.attempt} of ${event.retry.of}): ${event.retry.cause}`;
+  if (event.kind === 'waiting') {
+    return `  [RACK] ${event.taskName} waiting: needs ${formatSize(event.needs.memoryBytes)}, ${event.rackLabel} has ${event.free === undefined ? 'no free slot' : `${formatSize(event.free.memoryBytes)} free`}`;
   }
+  if (event.kind === 'outgrew') {
+    return event.againBytes !== undefined
+      ? `  [RACK] ${event.taskName} outgrew its ${formatSize(event.capBytes)} cap on ${event.rackLabel}: runs again under ${formatSize(event.againBytes)}`
+      : `  [RACK] ${event.taskName} failed: memory-limit-exceeded (cap ${formatSize(event.capBytes)}); raise --memory-limit or --size`;
+  }
+  if (event.where === 'rack') {
+    return event.role === 'unit' ? undefined : `  [RACK] ${event.taskName} → ${event.rackLabel}${event.needs === undefined ? '' : ` (cap ${formatSize(event.needs.memoryBytes)})`}`;
+  }
+  if (event.detail?.code === 'memory-limit-exceeded' && event.detail.needsBytes !== undefined && event.detail.limitBytes !== undefined) {
+    return `  [LOCAL] ${event.taskName} (memory-limit-exceeded: needs ${formatSize(event.detail.needsBytes)}, limit ${formatSize(event.detail.limitBytes)})`;
+  }
+  if (event.detail !== undefined) return `  [LOCAL] ${event.taskName} (${event.reason.replace(/^fallback:/, '')})`;
+  if (event.role === 'unit') return undefined;
+  return event.reason === 'spill' || event.reason === 'source-unreachable' || event.reason.startsWith('fallback:') || event.reason.startsWith('no-rack-') ||
+    event.reason.startsWith('environment:')
+    ? `  [LOCAL] ${event.taskName} (${event.reason})` : undefined;
+}
+
+/**
+ * The line a run prints when an environment's layers are built for a rack:
+ * - `[ENV] 3f9a2b1c0d4e for x86_64-manylinux_2_28: building`, when the
+ *   repository keeps none for the platform yet;
+ * - `[ENV] 3f9a2b1c0d4e built in 48 s: 4 layers, 2.1 GB (1 new)`, once it does.
+ *
+ * A run whose repository keeps the layers already prints neither.
+ *
+ * @param event - The event
+ * @returns The line
+ */
+export function rackEnvironmentLine(event: RackEnvironmentEvent): string {
+  const name = event.envHash.slice(0, 12);
+  if (event.kind === 'building') return `  [ENV] ${name} for ${event.platform}: building`;
+  return `  [ENV] ${name} built in ${Math.round(event.ms / 1000)} s: ${event.layers} ${event.layers === 1 ? 'layer' : 'layers'}, ${formatSize(event.bytes)} (${event.fresh} new)`;
+}
+
+/** Prints an environment event's line. */
+export function printRackEnvironment(event: RackEnvironmentEvent): void {
+  console.log(rackEnvironmentLine(event));
+}
+
+/** Prints a placement event's line, when a run prints one for it. */
+export function printRackPlacement(event: RackPlacementEvent): void {
+  const line = rackPlacementLine(event);
+  if (line !== undefined) console.log(line);
+}
+
+/** Prints what the run's rack work came to, when any went to a rack or came back from one. */
+export async function printRackSummary(rack: RackRunnerHandle): Promise<void> {
+  const { describeRackSummary } = await import('@elaraai/e3-rack');
+  const line = describeRackSummary(rack.takeSummary());
+  if (line !== undefined) console.log(line);
 }

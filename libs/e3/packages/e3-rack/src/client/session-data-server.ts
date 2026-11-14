@@ -4,17 +4,18 @@
  */
 
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, open, readFile, unlink } from 'node:fs/promises';
+import { mkdir, open, readFile, stat, unlink } from 'node:fs/promises';
 import { dirname } from 'node:path';
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { ArrayType, BooleanType, StringType, decodeBeast2For, encodeBeast2For, equalFor } from '@elaraai/east';
-import { atomicWriteFile, isObjectHash, transferStagingPath, touchReachable, type StorageBackend } from '@elaraai/e3-core';
+import { atomicWriteFile, environmentLayerPath, isObjectHash, readEnvironmentManifest, transferStagingPath, touchReachable, type StorageBackend } from '@elaraai/e3-core';
 import type { ExecutionOwner } from '@elaraai/e3-types';
-import { decodeBody, sendSuccess } from '../server/beast2.js';
+import { answer, decodeBody } from '../server/beast2.js';
 import { ensureRackHome, rackHome, sessionSocketPath } from '../paths.js';
 import { InMemoryLeaseCoordinator } from '../lease/coordinator.js';
 import type { RackLeaseRecord } from '../lease/lease-store.js';
 import { isLeaseEventV2, type RackLeaseResult } from '../protocol/task-envelope.js';
+import type { EnvLayerManifest } from '../server/env-publication.js';
 import { LeaseDataType, LeaseOutcomeType, LeaseRunningType, LeaseStoppedType, SessionLogsType,
   SessionUploadStateType, SessionUploadType, TouchObjectsType, VerifyOutputType, type SessionUpload } from '../protocol/session-data.js';
 import { closeSocketServer, serveOnSocket } from './local-http.js';
@@ -41,7 +42,9 @@ export interface SessionDataOptions {
 }
 
 /**
- * Serves repository objects, staged uploads, logs and execution records locally.
+ * Serves repository objects, staged uploads, logs and execution records locally,
+ * and the layers the repository keeps of an environment built for a rack: a
+ * manifest by its name, and a layer the manifest names, from a byte on.
  *
  * Uploads stream to immutable files on the repository's device. Hash, length,
  * declaration and receipt must all match before adoption. Temporary metadata
@@ -88,23 +91,69 @@ export async function startSessionDataServer(options: SessionDataOptions): Promi
     return size;
   };
 
+  // Answers bytes of a known size, whole or from a byte on (`Range:
+  // bytes=N-`), the one form a resumed transfer needs: any other range is
+  // answered whole. `end` is told once nothing more will be read.
+  const ranged = (c: Context, size: number, read: (offset: number, length: number) => Promise<Uint8Array>, end?: () => Promise<void>): Response => {
+    const whole = { 'content-type': 'application/octet-stream', 'content-length': String(size), 'accept-ranges': 'bytes' };
+    const from = /^bytes=(\d+)-$/.exec(c.req.header('range') ?? '')?.[1];
+    const start = from === undefined ? 0 : Number(from);
+    const unread = c.req.method === 'HEAD' ? new Response(null, { headers: whole })
+      : from !== undefined && (!Number.isSafeInteger(start) || start >= size) ? new Response(null, { status: 416, headers: { 'content-range': `bytes */${size}` } })
+        : null;
+    if (unread !== null) { void end?.().catch(() => {}); return unread; }
+    const headers = from === undefined ? whole
+      : { ...whole, 'content-length': String(size - start), 'content-range': `bytes ${start}-${size - 1}/${size}` };
+    let offset = start;
+    let ended = false;
+    const finish = async (): Promise<void> => { if (!ended) { ended = true; await end?.().catch(() => {}); } };
+    const body = new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        try {
+          if (offset >= size) { await finish(); controller.close(); return; }
+          const bytes = await read(offset, Math.min(CHUNK_BYTES, size - offset));
+          if (bytes.length === 0) throw new Error('The bytes ended before their declared size');
+          offset += bytes.length;
+          controller.enqueue(bytes);
+        } catch (err) { await finish(); controller.error(err); }
+      },
+      cancel: finish,
+    });
+    return new Response(body, { status: from === undefined ? 200 : 206, headers });
+  };
+
   app.on(['HEAD', 'GET'], '/v1/objects/:hash', async (c) => {
     const hash = hashOf(c.req.param('hash'));
     if (!(await storage.objects.touch(repo, [hash]))[0]) return c.body(null, 404);
     const { size } = await storage.objects.stat(repo, hash);
-    const headers = { 'content-type': 'application/octet-stream', 'content-length': String(size) };
-    if (c.req.method === 'HEAD') return new Response(null, { headers });
-    let offset = 0;
-    const body = new ReadableStream<Uint8Array>({ async pull(controller) {
-      try {
-        if (offset >= size) { controller.close(); return; }
-        const bytes = await storage.objects.readRange(repo, hash, offset, Math.min(CHUNK_BYTES, size - offset));
-        if (bytes.length === 0) throw new Error('Object ended before its declared size');
-        offset += bytes.length;
-        controller.enqueue(bytes);
-      } catch (err) { controller.error(err); }
-    } });
-    return new Response(body, { headers });
+    return ranged(c, size, (offset, length) => storage.objects.readRange(repo, hash, offset, length));
+  });
+
+  // The manifest that names an environment's layers, as the repository keeps
+  // it: built for one platform and e3 release, which its name says.
+  const manifestOf = async (name: string): Promise<string | null> => {
+    try { return await readEnvironmentManifest(repo, name); } catch { return null; }
+  };
+  app.get('/v1/env/manifests/:name', async (c) => {
+    const manifest = await manifestOf(c.req.param('name'));
+    return manifest === null ? c.body(null, 404) : new Response(manifest, { headers: { 'content-type': 'application/json' } });
+  });
+  // A layer, by the SHA-256 it is named by: served only when the manifest
+  // asked with names it, so a lease reads its own environment's layers and no
+  // other file of the repository.
+  app.on(['HEAD', 'GET'], '/v1/env/layers/:sha256', async (c) => {
+    const digest = `sha256:${c.req.param('sha256')}`;
+    const manifest = await manifestOf(c.req.query('manifest') ?? '');
+    if (manifest === null) return c.body(null, 404);
+    if (!(JSON.parse(manifest) as EnvLayerManifest).layers.some((layer) => layer.digest === digest)) return c.text('The manifest names no such layer', 403);
+    const path = environmentLayerPath(repo, digest);
+    let size: number;
+    try { ({ size } = await stat(path)); } catch { return c.body(null, 404); }
+    const file = await open(path, 'r');
+    return ranged(c, size, async (offset, length) => {
+      const { bytesRead, buffer } = await file.read(Buffer.allocUnsafe(length), 0, length, offset);
+      return buffer.subarray(0, bytesRead);
+    }, () => file.close());
   });
   app.post('/v1/objects', async (c) => {
     const reader = c.req.raw.body?.getReader();
@@ -117,12 +166,12 @@ export async function startSessionDataServer(options: SessionDataOptions): Promi
       if (length > 4096) { await reader.cancel(); return c.text('Inline object exceeds 4096 bytes', 413); }
       chunks.push(value);
     }
-    return sendSuccess(StringType, await storage.objects.write(repo, Buffer.concat(chunks)));
+    return answer(StringType, await storage.objects.write(repo, Buffer.concat(chunks)));
   });
-  app.post('/v1/touch', async (c) => sendSuccess(ArrayType(BooleanType), await storage.objects.touch(repo, await decodeBody(c, TouchObjectsType))));
+  app.post('/v1/touch', async (c) => answer(ArrayType(BooleanType), await storage.objects.touch(repo, await decodeBody(c, TouchObjectsType))));
   app.post('/v1/verify', async (c) => {
     const { hash } = await decodeBody(c, VerifyOutputType);
-    return sendSuccess(BooleanType, await touchReachable(storage, repo, [hashOf(hash)]));
+    return answer(BooleanType, await touchReachable(storage, repo, [hashOf(hash)]));
   });
 
   app.put('/v1/uploads/:id', async (c) => {
@@ -181,17 +230,17 @@ export async function startSessionDataServer(options: SessionDataOptions): Promi
     return serial.run(repo, id, async () => {
       let state: ReturnType<typeof decodeUpload>;
       try { state = decodeUpload(await readFile(files.meta)); } catch (err) {
-        if ((err as NodeJS.ErrnoException).code === 'ENOENT') return sendSuccess(BooleanType, false);
+        if ((err as NodeJS.ErrnoException).code === 'ENOENT') return answer(BooleanType, false);
         throw err;
       }
-      if (!sameUpload(state.declaration, info)) return sendSuccess(BooleanType, false);
-      if (state.committed) return sendSuccess(BooleanType, (await storage.objects.touch(repo, [info.hash]))[0]!);
+      if (!sameUpload(state.declaration, info)) return answer(BooleanType, false);
+      if (state.committed) return answer(BooleanType, (await storage.objects.touch(repo, [info.hash]))[0]!);
       const data = paths(state.fileId).data;
       const adopted = await storage.objects.adoptFile(repo, data, info.hash);
       if (adopted.size !== Number(info.size)) throw new Error('Adopted upload has a different size');
       await atomicWriteFile(files.meta, encodeUpload({ declaration: info, fileId: state.fileId, committed: true }));
       await remove(data);
-      return sendSuccess(BooleanType, true);
+      return answer(BooleanType, true);
     });
   });
   app.delete('/v1/uploads/:id', async (c) => {
@@ -201,7 +250,7 @@ export async function startSessionDataServer(options: SessionDataOptions): Promi
       try { await remove(paths(decodeUpload(await readFile(files.meta)).fileId).data); }
       catch (err) { if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err; }
       await remove(files.meta);
-      return sendSuccess(BooleanType, true);
+      return answer(BooleanType, true);
     });
   });
   app.post('/v1/logs', async (c) => {
@@ -211,33 +260,33 @@ export async function startSessionDataServer(options: SessionDataOptions): Promi
       options.onLog?.(request.executionId, chunk.stream.type, chunk.data);
     }
     await storage.logs.flush(repo, request.taskHash, request.inputsHash, request.executionId);
-    return sendSuccess(BooleanType, true);
+    return answer(BooleanType, true);
   });
   app.post('/v1/logs/tee', async (c) => {
     const request = await decodeBody(c, SessionLogsType);
     for (const chunk of request.chunks) options.onLog?.(request.executionId, chunk.stream.type, chunk.data);
-    return sendSuccess(BooleanType, true);
+    return answer(BooleanType, true);
   });
-  app.post('/v1/attempts/closure', async (c) => sendSuccess(ArrayType(StringType), [...await attempts.closure(leaseOf((await decodeBody(c, LeaseDataType)).leaseJson))]));
+  app.post('/v1/attempts/closure', async (c) => answer(ArrayType(StringType), [...await attempts.closure(leaseOf((await decodeBody(c, LeaseDataType)).leaseJson))]));
   app.post('/v1/attempts/running', async (c) => {
     const request = await decodeBody(c, LeaseRunningType);
     hubOwner = request.owner;
     const lease = leaseOf(request.leaseJson);
     await serial.run(repo, lease.leaseId, () => attempts.running(lease, request.owner.bootId));
-    return sendSuccess(BooleanType, true);
+    return answer(BooleanType, true);
   });
   app.post('/v1/attempts/stopped', async (c) => {
     const request = await decodeBody(c, LeaseStoppedType);
     const lease = leaseOf(request.leaseJson);
     await serial.run(repo, lease.leaseId, () => attempts.stopped(lease, request.cancelled ? 'cancelled' : 'interrupted', request.cause));
-    return sendSuccess(BooleanType, true);
+    return answer(BooleanType, true);
   });
   app.post('/v1/attempts/outcome', async (c) => {
     const request = await decodeBody(c, LeaseOutcomeType);
     const lease = leaseOf(request.leaseJson);
     const result = JSON.parse(request.resultJson) as RackLeaseResult;
     await serial.run(repo, lease.leaseId, () => attempts.outcome(lease, result));
-    return sendSuccess(BooleanType, true);
+    return answer(BooleanType, true);
   });
   const server = await serveOnSocket(app, socketPath);
   let closing: Promise<void> | undefined;

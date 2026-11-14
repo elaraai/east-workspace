@@ -85,6 +85,8 @@ What do you need?
 │   └─ Bundle and export         → e3.package(name, version, ...items); e3.export(pkg, zipPath)
 ├─ Operate it from the shell     → the e3 CLI (reference/cli.md): deploy, run, read and write datasets, mutate records, gc
 ├─ Delegate local task bodies to a rack → e3 rack enroll + policy; dataflow run --rack, watch --start --rack (reference/rack.md)
+│   ├─ A split task's pieces fill the rack → each piece leased at its memory cap; --memory-limit bounds it, --gpu asks for the GPU
+│   └─ A task with its own python/node environment → nothing new in the package: its layers are built for the rack's platform
 └─ Drive it from code
     ├─ A server, over HTTP       → @elaraai/e3-api-client (reference/from-code.md)
     ├─ A local repository        → @elaraai/e3-core
@@ -236,6 +238,10 @@ const shout = e3.task('shout', [greet.output],
   derivation: `{ python: { project } }`, `{ node: { project } }`,
   `{ tools: { files: [...] } }` (prebuilt binaries on PATH, such as a C runner)
   or `{ image: { digest: 'repo@sha256:<64 hex>' } }` (cloud; a tag is refused).
+  A task with a `python` or `node` environment also runs on a rack
+  (`e3 dataflow run --rack`): the launching machine installs the environment
+  for the rack's platform and sends it as layers, with no container runtime;
+  `tools` and `image` environments stay local there (reference/rack.md).
 
 ```python
 # packages/pricing/src/pricing/__init__.py — the member's root module
@@ -518,7 +524,7 @@ Read the one a task needs; each holds its subject whole.
 | [reference/cli.md](reference/cli.md) | Every `e3` command: repositories, packages, workspaces, datasets, tasks, runs, calls, records, watch, convert, auth, gc |
 | [reference/from-code.md](reference/from-code.md) | `@elaraai/e3-api-client`, `@elaraai/e3-core`, `e3-api-server` |
 | [reference/browser.md](reference/browser.md) | `@elaraai/e3-web`: serveUnits, serveE3, createWebE3, and what a browser cannot do |
-| [reference/rack.md](reference/rack.md) | `e3 rack enroll` / `policy`, routing a run to a rack, `@elaraai/e3-rack` |
+| [reference/rack.md](reference/rack.md) | `e3 rack enroll` / `policy`, routing a run to a rack, how a rack is filled and what a run prints, tasks with an environment on a rack, `@elaraai/e3-rack` |
 | [reference/repository.md](reference/repository.md) | A local repository's layout, and upgrades |
 
 ## Related skills

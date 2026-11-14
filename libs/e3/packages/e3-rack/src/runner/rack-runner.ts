@@ -8,8 +8,10 @@ import { LocalTaskRunner, type Budget, type LocalTaskRunnerOptions, type Storage
 import { connectHub } from '../client/connect.js';
 import { RackSession } from '../client/session.js';
 import { loadPolicy, policyTargetsRack, type RackPolicy } from '../routing/policy.js';
-import { compatibleRacks } from './capacity.js';
+import { compatibleRacks, rackResources, rackWidth } from './capacity.js';
 import { createRackBody, type RackPlacementEvent } from './rack-body.js';
+import type { RackEnvironmentEvent } from './environment.js';
+import { RackTally, type RackRunSummary } from './summary.js';
 
 /** Configures rack delegation for one run or one watch session. */
 export interface OpenRackRunnerOptions {
@@ -25,10 +27,16 @@ export interface OpenRackRunnerOptions {
   policy?: RackPolicy;
   /** Keeps eligible work queued when capacity is busy. */
   rackOnly?: boolean;
+  /** How long work waits, under `rackOnly`, for a rack that runs its tier to
+   *  be healthy before it runs locally, in ms; two minutes unless set. */
+  unreachableWaitMs?: number;
   /** Milliseconds to await a healthy compatible rack; defaults to ten seconds. */
   waitForRackMs?: number;
   /** Receives task/unit placement notifications. */
   onPlacement?: (event: RackPlacementEvent) => void;
+  /** Told an environment's layers are being built for a rack's platform, and
+   *  what the build came to. */
+  onEnvironment?: (event: RackEnvironmentEvent) => void;
   /** The process's existing budget, preserved for every local body. */
   budget?: Budget;
   /** Settings preserved for every local process and detached call. */
@@ -45,12 +53,20 @@ export interface OpenRackRunnerOptions {
 export interface RackRunnerHandle {
   /** Core's LocalTaskRunner, with the delegation body when connected. */
   readonly runner: TaskRunner;
-  /** Total compatible rack capacity in the latest snapshot. */
+  /** The work the compatible racks of the latest snapshot can hold at once:
+   *  their cores, or the slots of one that admits by slots. A run is that
+   *  much wider. */
   readonly rackSlots: number;
-  /** Describes usable racks or why work will run locally. */
-  describe(): string;
+  /**
+   * Describes usable racks or why work will run locally.
+   * @param formatBytes - How a memory size reads; by default as `262 GiB`
+   */
+  describe(formatBytes?: (bytes: number) => string): string;
   /** Refreshes capacity before a watch run without replacing its session. */
   refreshSlots(): Promise<number>;
+  /** What the rack work since the last take came to: a run's summary, read
+   *  with `describeRackSummary`. */
+  takeSummary(): RackRunSummary;
   /** Unsubscribes from shared work and closes the private data socket. */
   close(): Promise<void>;
 }
@@ -68,15 +84,22 @@ export interface RackRunnerHandle {
  */
 export async function openRackRunner(options: OpenRackRunnerOptions): Promise<RackRunnerHandle> {
   const local = new LocalTaskRunner(options.repoPath, options.budget, options.settings);
+  const tally = new RackTally();
+  const takeSummary = () => tally.take();
   let session: RackSession | undefined;
   let slots = 0;
-  let description = 'No healthy compatible rack; running locally';
+  // Whether every compatible rack admits work by its resources, and so caps
+  // each unit at what its lease asks.
+  let capped = false;
+  const gib = (bytes: number) => `${Math.round(bytes / 1024 ** 3 * 10) / 10} GiB`;
+  let description: (formatBytes: (bytes: number) => string) => string = () => 'No healthy compatible rack; running locally';
+  const describe = (formatBytes: (bytes: number) => string = gib) => description(formatBytes);
   try {
     const policy = options.policy ?? await loadPolicy(options.repoPath);
     // A policy that selects no task for a rack needs no session: nothing it
     // routes would wait for one.
     if (!policyTargetsRack(policy)) {
-      return { runner: local, rackSlots: 0, describe: () => 'Rack policy selects no task for a rack; running locally', refreshSlots: () => Promise.resolve(0), close: () => Promise.resolve() };
+      return { runner: local, rackSlots: 0, describe: () => 'Rack policy selects no task for a rack; running locally', refreshSlots: () => Promise.resolve(0), takeSummary, close: () => Promise.resolve() };
     }
     const client = await connectHub({ home: options.home, log: options.log, signal: options.signal });
     session = await RackSession.open(client, options);
@@ -87,11 +110,22 @@ export async function openRackRunner(options: OpenRackRunnerOptions): Promise<Ra
         const capacity = await attached.refreshCapacity();
         const racks = compatibleRacks(capacity);
         enrolled = capacity.racks.length;
-        slots = racks.reduce((sum, rack) => sum + Number(rack.capacity), 0);
-        description = racks.length > 0 ? racks.map((rack) => `${rack.label} (${Number(rack.capacity)} slots, e3 ${rack.bundledE3.type === 'some' ? rack.bundledE3.value : 'unknown'})`).join(', ')
+        slots = racks.reduce((sum, rack) => sum + rackWidth(rack), 0);
+        capped = racks.length > 0 && racks.every((rack) => rackResources(rack) !== undefined);
+        const text = racks.length > 0 ? undefined
           : capacity.racks.length === 0 ? 'No connected rack; running locally'
-            : `No healthy compatible rack; running locally (${capacity.racks.map((rack) => `${rack.label}: ${rack.pendingApproval ? 'boot needs approval' : !rack.healthy ? 'unhealthy' : rack.bundledE3.type === 'none' ? 'bundled e3 version missing' : `e3 ${rack.bundledE3.value} is incompatible`}`).join(', ')})`;
-      } catch (error) { slots = 0; enrolled = 0; description = `Rack unavailable: ${error instanceof Error ? error.message : String(error)}; running locally`; }
+            : `No healthy compatible rack; running locally (${capacity.racks.map((rack) => `${rack.label}: ${rack.problem.type === 'some' ? rack.problem.value : rack.pendingApproval ? 'boot needs approval' : !rack.healthy ? 'unhealthy' : rack.bundledE3.type === 'none' ? 'bundled e3 version missing' : `e3 ${rack.bundledE3.value} is incompatible`}`).join(', ')})`;
+        // A rack that admits by its resources is said by them; one that
+        // admits by slots, by its slots.
+        // One that composes environments says the platform it runs them on.
+        description = (formatBytes) => text ?? racks.map((rack) => {
+          const all = rackResources(rack);
+          const e3 = `e3 ${rack.bundledE3.type === 'some' ? rack.bundledE3.value : 'unknown'}` +
+            (rack.features.includes('environments') && rack.target.type === 'some' ? `, environments for ${rack.target.value}` : '');
+          return all === undefined ? `${rack.label} (${Number(rack.capacity)} slots, ${e3})`
+            : `${rack.label} (${all.cores} ${all.cores === 1 ? 'core' : 'cores'}, ${formatBytes(all.memoryBytes)}${all.gpus > 0 ? `, ${all.gpus} ${all.gpus === 1 ? 'GPU' : 'GPUs'}` : ''}, ${e3})`;
+        }).join(', ');
+      } catch (error) { slots = 0; capped = false; enrolled = 0; const text = `Rack unavailable: ${error instanceof Error ? error.message : String(error)}; running locally`; description = () => text; }
       return slots;
     };
     // Waits for an enrolled rack to report healthy, up to the deadline. With
@@ -103,11 +137,18 @@ export async function openRackRunner(options: OpenRackRunnerOptions): Promise<Ra
       await delay(Math.min(250, deadline - Date.now()), undefined, { signal: options.signal }).catch(() => {});
     } while (Date.now() <= deadline);
     const runner = new LocalTaskRunner(options.repoPath, options.budget, { ...options.settings,
-      body: createRackBody({ session: attached, policy, workspace: options.workspace, rackOnly: options.rackOnly, onPlacement: options.onPlacement }) });
-    return { runner, get rackSlots() { return slots; }, describe: () => description, refreshSlots, close: () => attached.close() };
+      body: createRackBody({ session: attached, policy, workspace: options.workspace, rackOnly: options.rackOnly,
+        unreachableWaitMs: options.unreachableWaitMs, onEnvironment: options.onEnvironment,
+        onPlacement: (event) => { tally.add(event); options.onPlacement?.(event); } }),
+      // Racks that cap each unit stop one that outgrows what it was started
+      // expecting, and the body leases it again asking more: a split task's
+      // stage then queues every unit at once, as a guarded local run starts
+      // them. Read as each stage starts, from the latest snapshot.
+      get bodyStopsUnits() { return capped; } });
+    return { runner, get rackSlots() { return slots; }, describe, refreshSlots, takeSummary, close: () => attached.close() };
   } catch (error) {
     await session?.close().catch(() => {});
-    description = `${error instanceof Error ? error.message : String(error)}; running locally`;
-    return { runner: local, rackSlots: 0, describe: () => description, refreshSlots: () => Promise.resolve(0), close: () => Promise.resolve() };
+    const text = `${error instanceof Error ? error.message : String(error)}; running locally`;
+    return { runner: local, rackSlots: 0, describe: () => text, refreshSlots: () => Promise.resolve(0), takeSummary, close: () => Promise.resolve() };
   }
 }

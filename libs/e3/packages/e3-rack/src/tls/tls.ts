@@ -8,6 +8,7 @@ import { Agent, request } from 'node:https';
 import { isIP } from 'node:net';
 import { Readable } from 'node:stream';
 import { connect } from 'node:tls';
+import { RACK_AGENT_IDLE_MS } from '../protocol/rack-json.js';
 
 // A hub's certificate is trusted by its SHA-256 fingerprint, which the hub
 // prints at enrollment, never by a name or a public authority: a rack reaches
@@ -133,6 +134,12 @@ function presentedCertificate(host: string, port: number, timeoutMs: number): Pr
  * request then verifies the server against that certificate alone, and its
  * fingerprint again, so a different certificate is refused before any
  * request or credential is written.
+ *
+ * The agent closes a connection it has not used for
+ * {@link RACK_AGENT_IDLE_MS}, sooner than a hub's listener does, and sooner
+ * still when the origin says it keeps one for less: a request is never sent
+ * on a connection the origin has just closed, whose close is still on its way
+ * over a slow link.
  * @param origin - An https:// origin
  * @param certificateSha256 - The pinned fingerprint
  * @param timeoutMs - The first handshake's deadline
@@ -149,7 +156,7 @@ export async function pinnedHttpsAgent(origin: string, certificateSha256: string
   const presented = await presentedCertificate(host, Number(url.port || 443), timeoutMs);
   const found = new X509Certificate(presented).fingerprint256;
   if (found !== pin) throw new Error(`${url.host} presented certificate SHA-256 ${found}, not the pinned ${pin}`);
-  return new Agent({ ca: presented, keepAlive: true, checkServerIdentity: (_host, certificate) =>
+  return new Agent({ ca: presented, keepAlive: true, timeout: RACK_AGENT_IDLE_MS, checkServerIdentity: (_host, certificate) =>
     certificate.fingerprint256 === pin ? undefined : Object.assign(new Error(`${url.host} presented certificate SHA-256 ${certificate.fingerprint256}, not the pinned ${pin}`), { code: 'ERR_RACK_CERTIFICATE_PIN' }) });
 }
 

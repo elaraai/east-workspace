@@ -22,6 +22,7 @@
  */
 
 import type { RunnerDetachedEvent, RunnerRun, RunnerTaskEvent, RunnerUnitEvent } from '../runner-event.js';
+import type { RackResources } from './rack-json.js';
 
 /** The version of the lease event this build writes and reads. */
 export const RACK_LEASE_VERSION = 2;
@@ -34,6 +35,65 @@ export const RACK_LEASE_VERSION = 2;
 export type RackLeaseClosure =
   | { readonly hashes: readonly string[] }
   | { readonly object: string; readonly count: number };
+
+/**
+ * What a lease's work asks of a rack, and what the rack books for it while it
+ * runs: its cores, and its cap, which is the most memory it may use. A rack
+ * that books the cap of everything it holds never books more than it has.
+ */
+export interface RackLeaseResources {
+  /** A unit of a split task, which e3 runs again under a larger cap when it
+   *  outgrows this one; or a whole task, which it does not */
+  readonly kind: 'unit' | 'task';
+  /** The cores it is given */
+  readonly cores: number;
+  /** Its cap, in bytes */
+  readonly memoryBytes: number;
+  /** Whether it takes a GPU, whole */
+  readonly gpu: boolean;
+}
+
+/**
+ * Reads what a lease's event asks of a rack.
+ *
+ * @param value - The event's `resources`, as its JSON holds them
+ * @returns The resources, or undefined for an event that names none: work
+ *   from a source that does not size its leases
+ * @throws {Error} When it is not a unit's or a task's cores, cap and GPU
+ *
+ * @example
+ * ```ts
+ * const needs = readRackLeaseResources(lease.event.resources);
+ * if (needs !== undefined && !leaseFits(needs, offer)) continue;
+ * ```
+ */
+export function readRackLeaseResources(value: unknown): RackLeaseResources | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error('a lease\'s resources are a JSON object');
+  const { kind, cores, memoryBytes, gpu } = value as Record<string, unknown>;
+  if (kind !== 'unit' && kind !== 'task') throw new Error('a lease\'s resources are a unit\'s or a task\'s');
+  for (const [name, count] of [['cores', cores], ['memoryBytes', memoryBytes]] as const) {
+    if (typeof count !== 'number' || !Number.isSafeInteger(count) || count < 1) throw new Error(`a lease's ${name} is a whole number of one or more`);
+  }
+  if (typeof gpu !== 'boolean') throw new Error('a lease takes a GPU or does not');
+  return { kind, cores: cores as number, memoryBytes: memoryBytes as number, gpu };
+}
+
+/**
+ * Whether a rack that offers this much can hold a lease's work now.
+ *
+ * @param needs - What the lease asks
+ * @param offer - What the rack's poll may be answered with
+ * @returns Whether the cores, the cap and the GPU are all within the offer
+ *
+ * @example
+ * ```ts
+ * leaseFits({ kind: 'unit', cores: 1, memoryBytes: 3 * 1024 ** 3, gpu: false }, { cores: 4, memoryBytes: 8 * 1024 ** 3, gpus: 0 }); // true
+ * ```
+ */
+export function leaseFits(needs: RackLeaseResources, offer: RackResources): boolean {
+  return needs.cores <= offer.cores && needs.memoryBytes <= offer.memoryBytes && (!needs.gpu || offer.gpus >= 1);
+}
 
 /**
  * A lease's work, v2 (#214): a dataflow task, a unit of a split task, or a
@@ -65,6 +125,154 @@ export interface RackLeaseEvent {
   readonly program?: string;
   /** Every object the guest may read */
   readonly closure: RackLeaseClosure;
+  /**
+   * What the work asks of a rack: a poll is answered with it only when the
+   * rack's offer holds it, and the rack caps the work at it. Read with
+   * {@link readRackLeaseResources}; absent from a source that does not size
+   * its leases, whose work a rack admits as it did before.
+   */
+  readonly resources?: RackLeaseResources;
+}
+
+/**
+ * Why a lease ended as it did: a word a program reads, and what that word
+ * carries. Each is printed on its line and counted in a run's summary.
+ *
+ * | Code | Carries | Who sets it |
+ * |---|---|---|
+ * | `outgrew-cap` | `capBytes`, `peakBytes` | the rack, when the cap stopped the work |
+ * | `memory-limit-exceeded` | `needsBytes`, `limitBytes` | the launching machine, when a cap would pass its ceiling |
+ * | `input-transfer-failed`, `output-transfer-failed` | `attempts`, `cause` | the rack, after its tries |
+ * | `source-unreachable` | `ms` | the rack |
+ * | `guest-crashed` | `detail` | the rack |
+ * | `environment-failed` | `detail` | the rack, when it could not compose the lease's environment |
+ * | `requeued-pressure` | `peakBytes` | a rack that runs several units in one VM (reserved) |
+ * | `task-error` | | the rack: the task's own failure |
+ */
+export const RACK_REASON_CODES = ['outgrew-cap', 'memory-limit-exceeded', 'input-transfer-failed', 'output-transfer-failed',
+  'source-unreachable', 'guest-crashed', 'environment-failed', 'requeued-pressure', 'task-error'] as const;
+
+/** A reason's code this build knows. */
+export type RackReasonCode = typeof RACK_REASON_CODES[number];
+
+/**
+ * Why a lease ended as it did. JSON: a reader takes the fields it knows, and
+ * a code it does not know is a rack's fault it cannot name.
+ */
+export interface RackReason {
+  /** One of {@link RACK_REASON_CODES}, or a later release's */
+  readonly code: string;
+  /** The cap the work ran under, in bytes */
+  readonly capBytes?: number;
+  /** The most the work was measured using, in bytes */
+  readonly peakBytes?: number;
+  /** What the work would be capped at, in bytes */
+  readonly needsBytes?: number;
+  /** The ceiling that is less than it, in bytes */
+  readonly limitBytes?: number;
+  /** The tries a transfer was given */
+  readonly attempts?: number;
+  /** What the last try failed of */
+  readonly cause?: string;
+  /** How long the source had not answered, in ms */
+  readonly ms?: number;
+  /** What is known of the guest's end */
+  readonly detail?: string;
+}
+
+/** A try of a transfer that failed and was followed by another. */
+export interface RackTransferRetry {
+  /** An input read, or an output written */
+  readonly transfer: 'input' | 'output';
+  /** The try that follows: 2 for the first retry */
+  readonly attempt: number;
+  /** The tries a transfer is given */
+  readonly of: number;
+  /** What the try before it failed of */
+  readonly cause: string;
+}
+
+const REASON_NUMBERS = ['capBytes', 'peakBytes', 'needsBytes', 'limitBytes', 'attempts', 'ms'] as const;
+const REASON_TEXTS = ['cause', 'detail'] as const;
+
+/**
+ * Reads a lease result's reason.
+ *
+ * @param value - The result's `reason`, as its JSON holds it
+ * @returns The reason with the fields this build knows, or undefined when the
+ *   result has none
+ * @throws {Error} When it is not an object with a code, or a field this
+ *   build reads is of the wrong kind
+ *
+ * @example
+ * ```ts
+ * const reason = readRackReason(result.reason);
+ * if (reason?.code === 'outgrew-cap') requeue(reason.capBytes);
+ * ```
+ */
+export function readRackReason(value: unknown): RackReason | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new Error('a reason is a JSON object');
+  const fields = value as Record<string, unknown>;
+  if (typeof fields.code !== 'string' || !/^[a-z][a-z0-9-]{0,63}$/.test(fields.code)) throw new Error('a reason has a code');
+  const reason: { -readonly [K in keyof RackReason]: RackReason[K] } = { code: fields.code };
+  for (const name of REASON_NUMBERS) {
+    const field = fields[name];
+    if (field === undefined) continue;
+    if (typeof field !== 'number' || !Number.isSafeInteger(field) || field < 0) throw new Error(`a reason's ${name} is a whole number`);
+    reason[name] = field;
+  }
+  for (const name of REASON_TEXTS) {
+    const field = fields[name];
+    if (field === undefined) continue;
+    if (typeof field !== 'string') throw new Error(`a reason's ${name} is text`);
+    // A line of a run's output, not a log: what is longer is cut.
+    reason[name] = field.slice(0, 500);
+  }
+  return reason;
+}
+
+/**
+ * Reads the retries a lease result lists.
+ *
+ * @param value - The result's `retries`, as its JSON holds them
+ * @returns The retries, none when the result lists none
+ * @throws {Error} When it is not a list of retries, or lists more than a
+ *   lease's transfers could make
+ *
+ * @example
+ * ```ts
+ * for (const retry of readRackRetries(result.retries)) console.log(`${retry.transfer} transfer retried (${retry.attempt} of ${retry.of}): ${retry.cause}`);
+ * ```
+ */
+export function readRackRetries(value: unknown): RackTransferRetry[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > 4096) throw new Error('retries are a list');
+  return value.map((entry: unknown) => {
+    if (typeof entry !== 'object' || entry === null) throw new Error('a retry is a JSON object');
+    const { transfer, attempt, of, cause } = entry as Record<string, unknown>;
+    if (transfer !== 'input' && transfer !== 'output') throw new Error('a retry is of an input or an output');
+    for (const count of [attempt, of]) if (typeof count !== 'number' || !Number.isSafeInteger(count) || count < 1) throw new Error('a retry counts its tries');
+    if (typeof cause !== 'string') throw new Error('a retry has a cause');
+    return { transfer, attempt: attempt as number, of: of as number, cause: cause.slice(0, 500) };
+  });
+}
+
+/**
+ * A reason as a run prints it between brackets: its code, and what the code
+ * carries that is text. A size it carries is for its reader to format.
+ *
+ * @param reason - The reason
+ * @returns Such as `input-transfer-failed: connection reset`
+ *
+ * @example
+ * ```ts
+ * console.log(`[LOCAL] ${taskName} (${describeRackReason(reason)})`);
+ * ```
+ */
+export function describeRackReason(reason: RackReason): string {
+  const said = reason.cause ?? reason.detail;
+  return said === undefined || said === '' ? reason.code : `${reason.code}: ${said}`;
 }
 
 /**
@@ -92,6 +300,11 @@ export interface RackLeaseResult {
   cancelled?: boolean;
   /** How long it ran, in ms */
   duration?: number;
+  /** Why it ended as it did, when it did not succeed: read with {@link readRackReason} */
+  reason?: RackReason;
+  /** The tries of its transfers that failed and were followed by another:
+   *  read with {@link readRackRetries} */
+  retries?: RackTransferRetry[];
   /** A function lease's detached call's outcome (#83). `status` mirrors it
    *  (`success` ⇔ kind 'success') so the lease store's validation applies
    *  unchanged. */

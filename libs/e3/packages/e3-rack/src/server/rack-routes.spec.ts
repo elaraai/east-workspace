@@ -9,7 +9,7 @@ import { once } from 'node:events';
 import { Server } from 'node:http';
 import { createAdaptorServer } from '@hono/node-server';
 import { BooleanType, decodeBeast2For, encodeBeast2For, none, some, variant, type EastType, type ValueTypeOf } from '@elaraai/east';
-import { BEAST2_CONTENT_TYPE, ResponseType } from '@elaraai/e3-types';
+import { BEAST2_CONTENT_TYPE } from '@elaraai/e3-types';
 import { uuidv7 } from '@elaraai/e3-core';
 import { InMemoryMachineIdentityStore } from '../identity/in-memory-identity-store.js';
 import { generateEnrollmentToken, ROTATION_AGE_MS, ROTATION_GRACE_MS } from '../identity/machine-identity.js';
@@ -23,7 +23,8 @@ import {
   RackEnrollRequestType, RackEnrollResponseType, RackHeartbeatRequestType, RackHeartbeatResponseType,
   RackLeaseRequestType, RackLeaseGrantType, RackCompleteRequestType, RackCompleteResponseType,
   RackStorageRequestType, RackStorageResponseType, RackLogsRequestType,
-  type RackLeaseEvent, type RackLeaseResult,
+  RACK_PROTOCOL, RACK_PROTOCOL_HEADER, readRackHello, readRackRefusal,
+  type RackLeaseEvent, type RackLeaseResult, type RackOffer, type RackReport,
 } from '../protocol/index.js';
 
 const cleanups: Array<() => Promise<void>> = [];
@@ -67,7 +68,7 @@ it('omits negative source clock observations and timings on unauthenticated requ
   await f.success(response, RackLeaseGrantType);
   assert.equal(response.headers.get('x-e3-rack-claim-kind'), 'initial');
   assert.equal(response.headers.get('x-e3-rack-queue-ms'), null);
-  const refused = await f.raw('lease', RackLeaseRequestType, { tiers: ['node'], bootId: 'boot' }, 'invalid');
+  const refused = await f.raw('lease', RackLeaseRequestType, { tiers: ['node'], bootId: 'boot', offer: f.offer }, 'invalid');
   assert.equal(refused.status, 401);
   assert.equal(refused.headers.get('x-e3-rack-claim-kind'), null);
   assert.equal(refused.headers.get('x-e3-rack-queue-ms'), null);
@@ -120,20 +121,24 @@ async function fixture(options: RackRouteOptions = {}) {
   assert(address !== null && typeof address !== 'string');
   const origin = `http://127.0.0.1:${address.port}`;
   let token = '';
-  const raw = async <T extends EastType>(path: string, type: T, value: ValueTypeOf<T>, bearer = token) => fetch(`${origin}/api/rack/${path}`, {
-    method: 'POST', headers: { 'content-type': BEAST2_CONTENT_TYPE, authorization: `Bearer ${bearer}` },
+  const raw = async <T extends EastType>(path: string, type: T, value: ValueTypeOf<T>, bearer = token, protocol: string | null = String(RACK_PROTOCOL)) => fetch(`${origin}/api/rack/${path}`, {
+    method: 'POST', headers: { 'content-type': BEAST2_CONTENT_TYPE, authorization: `Bearer ${bearer}`, ...(protocol === null ? {} : { [RACK_PROTOCOL_HEADER]: protocol }) },
     body: encodeBeast2For(type)(value), signal: AbortSignal.timeout(5000),
   });
-  const envelope = async <T extends EastType>(response: Response, type: T) => {
-    assert.equal(response.status, 200);
-    return decodeBeast2For(ResponseType(type))(new Uint8Array(await response.arrayBuffer()));
+  /** A refusal: its status, and its code in the JSON body. */
+  const refusal = async (response: Response, status: number, code: string): Promise<string> => {
+    assert.equal(response.status, status);
+    const body = readRackRefusal(await response.text());
+    assert(body !== null, 'a refusal\'s body is JSON');
+    assert.equal(body.code, code);
+    return body.message;
   };
   const success = async <T extends EastType>(response: Response, type: T): Promise<ValueTypeOf<T>> => {
-    const result = await envelope(response, type);
-    assert.equal(result.type, 'success');
-    if (result.type !== 'success') throw new Error('Expected success');
-    return result.value;
+    assert.equal(response.status, 200);
+    return decodeBeast2For(type)(new Uint8Array(await response.arrayBuffer()));
   };
+  const offer = JSON.stringify({ cores: 1, memoryBytes: 2 ** 40, gpus: 0 });
+  const report = JSON.stringify({ features: [] });
   const enroll = async (version = '0.5.0+e3.1.0.85', activate = true, capacity = 2n) => {
     const mint = generateEnrollmentToken();
     await identities.putEnrollmentToken(mint.tokenHash, new Date(time + 60_000));
@@ -141,7 +146,7 @@ async function fixture(options: RackRouteOptions = {}) {
     const response = await success(await raw('enroll', RackEnrollRequestType, request), RackEnrollResponseType);
     token = response.rackToken;
     if (activate) await success(await raw('heartbeat', RackHeartbeatRequestType, {
-      healthy: true, freeCapacity: capacity, runningLeases: [], agentVersion: version, bootId: 'boot', cacheBytes: 0n,
+      healthy: true, freeCapacity: capacity, runningLeases: [], agentVersion: version, bootId: 'boot', cacheBytes: 0n, report,
     }), RackHeartbeatResponseType);
     return { ...response, request };
   };
@@ -152,14 +157,14 @@ async function fixture(options: RackRouteOptions = {}) {
     };
     return dispatch.createLease(event, 'node');
   };
-  const claim = () => raw('lease', RackLeaseRequestType, { tiers: ['node'], bootId: 'boot' });
+  const claim = (offered = offer) => raw('lease', RackLeaseRequestType, { tiers: ['node'], bootId: 'boot', offer: offered });
   const complete = (leaseId: string, result: RackLeaseResult = { taskName: 'task', status: 'success', outputHash: output }) =>
     raw('complete', RackCompleteRequestType, { repo: 'repo', leaseId, resultJson: JSON.stringify(result), outputUploadId: none, inlineOutput: none });
   const heartbeat = (leaseId?: string, bearer?: string) => raw('heartbeat', RackHeartbeatRequestType, {
     healthy: true, freeCapacity: 1n, runningLeases: leaseId ? [{ repo: 'repo', leaseId }] : [],
-    agentVersion: '0.5.0+e3.1.0.85', bootId: 'boot', cacheBytes: 0n,
+    agentVersion: '0.5.0+e3.1.0.85', bootId: 'boot', cacheBytes: 0n, report,
   }, bearer);
-  return { identities, registry, leases, coordinator, dispatch, attempts, bridge, calls, raw, envelope, success, enroll, create, claim, complete, heartbeat,
+  return { origin, identities, registry, leases, coordinator, dispatch, attempts, bridge, calls, raw, refusal, success, enroll, create, claim, complete, heartbeat, offer, report,
     advance: (ms: number) => { time += ms; }, setWhole: (value: boolean) => { whole = value; },
     beforeOutcome: (operation: () => Promise<void>) => { beforeOutcome = operation; },
   };
@@ -199,7 +204,8 @@ it('claims one attempt, scopes reads, flushes logs and verifies the whole output
   }), BooleanType);
   assert(f.calls.includes(`log:${attempt.executionId}:stdout:hello`));
   f.setWhole(false);
-  assert.equal((await f.envelope(await f.complete(lease.leaseId), RackCompleteResponseType)).type, 'error');
+  // Not whole in the store: refused as content to put right, the lease kept.
+  await f.refusal(await f.complete(lease.leaseId), 422, 'output-incomplete');
   assert.equal((await f.leases.get('repo', lease.leaseId))!.status, 'claimed');
   assert(!f.calls.includes('outcome'));
   f.setWhole(true);
@@ -257,7 +263,7 @@ it('refuses obsolete agents and checks compatibility when claiming', async () =>
   const f = await fixture({ canClaim: (rack, lease) => bundledE3Version(rack.agentVersion) === lease.event.e3Version });
   const old = await f.enroll('0.4.0');
   const lease = await f.create();
-  assert.equal((await f.envelope(await f.claim(), RackLeaseGrantType)).type, 'error');
+  assert.match(await f.refusal(await f.claim(), 426, 'upgrade-required'), /older than 0\.5\.0/);
   const record = (await f.registry.getRack(old.rackId))!;
   await f.registry.putRack({ ...record, agentVersion: '0.5.0+e3.1.0.84' });
   assert.equal((await f.claim()).status, 204);
@@ -272,10 +278,11 @@ it('refuses obsolete agents and checks compatibility when claiming', async () =>
 it('rejects malformed completion metadata before writing an attempt outcome', async () => {
   const f = await fixture(); await f.enroll(); const lease = await f.create();
   await f.success(await f.claim(), RackLeaseGrantType);
-  for (const invalid of [{ state: 'bogus' }, { state: 'failed' }, { exitCode: 0.5 }, { peakBytes: -1 }, { duration: -1 }, { outputHash: '../other' }, { cancelled: 'yes' }]) {
+  for (const invalid of [{ state: 'bogus' }, { state: 'failed' }, { exitCode: 0.5 }, { peakBytes: -1 }, { duration: -1 }, { outputHash: '../other' }, { cancelled: 'yes' },
+    { reason: 'because' }, { reason: { code: 'Not A Code' } }, { reason: { code: 'outgrew-cap', capBytes: -1 } }, { retries: [{ transfer: 'sideways', attempt: 2, of: 5, cause: '' }] }]) {
     const response = await f.raw('complete', RackCompleteRequestType, { repo: 'repo', leaseId: lease.leaseId,
       resultJson: JSON.stringify({ taskName: 'task', status: 'success', outputHash: output, ...invalid }), outputUploadId: none, inlineOutput: none });
-    assert.equal((await f.envelope(response, RackCompleteResponseType)).type, 'error');
+    await f.refusal(response, 400, 'invalid-request');
   }
   assert(!f.calls.includes('outcome')); assert.equal((await f.leases.get('repo', lease.leaseId))!.status, 'claimed');
 });
@@ -285,11 +292,11 @@ it('validates every output before issuing a capability and rejects oversized com
   await f.success(await f.claim(), RackLeaseGrantType);
   const request = { repo: 'repo', leaseId: lease.leaseId, need: [], output: none, envManifest: none, outputs: [], commits: [] };
   const bad = await f.raw('storage', RackStorageRequestType, { ...request, outputs: [{ hash: output, size: 1n }, { hash: 'bad', size: 2n }] });
-  assert.equal((await f.envelope(bad, RackStorageResponseType)).type, 'error'); assert(!f.calls.includes('target'));
+  await f.refusal(bad, 400, 'invalid-request'); assert(!f.calls.includes('target'));
   await f.success(await f.raw('storage', RackStorageRequestType, { ...request, outputs: [{ hash: output, size: 1n }] }), RackStorageResponseType);
   assert.deepEqual((await f.leases.get('repo', lease.leaseId))!.targets, [output]);
   const overflow = await f.raw('storage', RackStorageRequestType, { ...request, commits: [{ hash: output, size: 1n << 100n, version: 'receipt' }] });
-  assert.equal((await f.envelope(overflow, RackStorageResponseType)).type, 'error'); assert(!f.calls.includes('commit'));
+  await f.refusal(overflow, 400, 'invalid-request'); assert(!f.calls.includes('commit'));
 });
 
 it('does not resurrect a rack when revocation overlaps an in-flight heartbeat update', async () => {
@@ -332,7 +339,7 @@ it('preserves a concurrent drain while updating a polling rack\'s advertised tie
     if (++reads === 2) await f.registry.putRack({ ...current!, healthy: false, capacity: 0n });
     return current;
   };
-  assert.equal((await f.raw('lease', RackLeaseRequestType, { tiers: ['node', 'py'], bootId: 'boot' })).status, 204);
+  assert.equal((await f.raw('lease', RackLeaseRequestType, { tiers: ['node', 'py'], bootId: 'boot', offer: f.offer })).status, 204);
   const current = (await f.registry.getRack(rackId))!;
   assert.equal(current.healthy, false);
   assert.equal(current.capacity, 0n);
@@ -346,7 +353,7 @@ it('activates zero-capacity enrollment, preserves busy capacity, and withdraws i
   assert.equal(await f.dispatch.anyHealthyRackWithTier('node'), false);
   assert.equal((await f.claim()).status, 204);
   const heartbeat = { healthy: false, freeCapacity: 0n, runningLeases: [],
-    agentVersion: '0.5.0+e3.1.0.85', bootId: 'boot', cacheBytes: 0n };
+    agentVersion: '0.5.0+e3.1.0.85', bootId: 'boot', cacheBytes: 0n, report: f.report };
   await f.success(await f.raw('heartbeat', RackHeartbeatRequestType, heartbeat), RackHeartbeatResponseType);
   assert.equal((await f.claim()).status, 204, 'a fenced boot cannot claim');
   await f.success(await f.raw('heartbeat', RackHeartbeatRequestType, { ...heartbeat, healthy: true, freeCapacity: 1n }), RackHeartbeatResponseType);
@@ -378,14 +385,14 @@ it('rejects invalid capacity reports without changing the registration', async (
   const { rackId } = await f.enroll();
   const before = await f.registry.getRack(rackId);
   const heartbeat = { healthy: true, freeCapacity: 1n, runningLeases: [],
-    agentVersion: '0.5.0+e3.1.0.85', bootId: 'boot', cacheBytes: 0n };
+    agentVersion: '0.5.0+e3.1.0.85', bootId: 'boot', cacheBytes: 0n, report: f.report };
   const ref = { repo: 'repo', leaseId: 'lease' };
   for (const invalid of [
     { freeCapacity: -1n }, { freeCapacity: BigInt(Number.MAX_SAFE_INTEGER) + 1n },
     { freeCapacity: BigInt(Number.MAX_SAFE_INTEGER), runningLeases: [ref] }, { runningLeases: [ref, ref] },
   ]) {
     const response = await f.raw('heartbeat', RackHeartbeatRequestType, { ...heartbeat, ...invalid });
-    assert.equal((await f.envelope(response, RackHeartbeatResponseType)).type, 'error');
+    await f.refusal(response, 400, 'invalid-request');
     assert.deepEqual(await f.registry.getRack(rackId), before);
   }
 });
@@ -482,4 +489,57 @@ it('holds the lease fence until every started target operation settles after a f
   assert.equal((await response).status, 500);
   assert.equal((await cancellation)!.status, 'cancelled');
   assert.equal(writes, 8, 'stop scheduling when the first operation fails');
+});
+
+it('answers the hello with the deployment\'s release and its transfer limit, and tells its host what each rack reports and what each poll offers', async () => {
+  const reports: Array<[string, RackReport]> = [];
+  const offers: RackOffer[] = [];
+  const f = await fixture({ e3Version: '1.0.85', transfersAtOnce: 3,
+    onReport: (rackId, report) => { reports.push([rackId, report]); },
+    canClaim: (_rack, _lease, offer) => { offers.push(offer); return true; } });
+  assert.deepEqual(readRackHello(await (await fetch(`${f.origin}/api/rack/hello`)).text()), { protocol: RACK_PROTOCOL, e3: '1.0.85', limits: { transfersAtOnce: 3 } });
+
+  const { rackId } = await f.enroll();
+  assert.deepEqual(reports, [[rackId, { features: [] }]], 'the enrolment\'s first heartbeat');
+  const said = { features: ['resources', 'environments'], target: 'x86_64-manylinux_2_28',
+    resources: { cores: 8, memoryBytes: 2 ** 34, gpus: 1 }, free: { cores: 5, memoryBytes: 2 ** 33, gpus: 0 } };
+  // A field this build does not know is ignored, here and in an offer.
+  await f.success(await f.raw('heartbeat', RackHeartbeatRequestType, { healthy: true, freeCapacity: 1n, runningLeases: [],
+    agentVersion: '0.5.0+e3.1.0.85', bootId: 'boot', cacheBytes: 0n, report: JSON.stringify({ ...said, later: { anything: true } }) }), RackHeartbeatResponseType);
+  assert.deepEqual(reports.at(-1), [rackId, said]);
+
+  await f.create();
+  await f.success(await f.claim(JSON.stringify({ cores: 2, memoryBytes: 4096, gpus: 1, later: 'ignored' })), RackLeaseGrantType);
+  assert.deepEqual(offers, [{ cores: 2, memoryBytes: 4096, gpus: 1 }]);
+});
+
+it('refuses a rack that names another protocol, tells its host which rack and what it named, and never reads its body', async () => {
+  const refusedRacks: Array<[string, string | undefined]> = [];
+  const f = await fixture({ onIncompatible: (rackId, named) => { refusedRacks.push([rackId, named]); } });
+  const { rackId } = await f.enroll();
+  const heartbeat = { healthy: true, freeCapacity: 1n, runningLeases: [], agentVersion: '0.5.0+e3.1.0.85', bootId: 'boot', cacheBytes: 0n, report: f.report };
+  const before = await f.registry.getRack(rackId);
+  assert.match(await f.refusal(await f.raw('heartbeat', RackHeartbeatRequestType, heartbeat, undefined, null), 426, 'upgrade-required'), /names none: update the rack's agent/);
+  assert.match(await f.refusal(await f.raw('heartbeat', RackHeartbeatRequestType, heartbeat, undefined, '2'), 426, 'upgrade-required'), /names 2: update the rack's agent/);
+  assert.deepEqual(refusedRacks, [[rackId, undefined], [rackId, '2']]);
+  assert.deepEqual(await f.registry.getRack(rackId), before, 'a refused heartbeat refreshes nothing');
+  // An enrolment names no rack yet: refused all the same, and no one is told.
+  await f.refusal(await f.raw('enroll', RackEnrollRequestType, { enrollmentToken: 'e3rk_enroll_x', hostInfo: { label: 'old', tiers: ['node'], capacity: 1n, agentVersion: '0.4.0' } }, '', null), 426, 'upgrade-required');
+  assert.equal(refusedRacks.length, 2);
+});
+
+it('answers what its host could not do now as a request to send again, and keeps the lease', async () => {
+  const f = await fixture(); await f.enroll(); const lease = await f.create();
+  await f.success(await f.claim(), RackLeaseGrantType);
+  f.attempts.closure = async () => { throw new Error('the session did not answer'); };
+  const need = { repo: 'repo', leaseId: lease.leaseId, need: [input], output: none, envManifest: none, outputs: [], commits: [] };
+  assert.match(await f.refusal(await f.raw('storage', RackStorageRequestType, need), 503, 'source-unavailable'), /the session did not answer/);
+  f.attempts.logs.append = async () => { throw new Error('the log store is away'); };
+  await f.refusal(await f.raw('logs', RackLogsRequestType, { repo: 'repo', leaseId: lease.leaseId, chunks: [{ stream: variant('stdout', null), data: 'x' }] }), 503, 'source-unavailable');
+  f.beforeOutcome(async () => { throw new Error('the record was not written'); });
+  assert.match(await f.refusal(await f.complete(lease.leaseId), 503, 'source-unavailable'), /outcome was not recorded/);
+  assert.equal((await f.leases.get('repo', lease.leaseId))!.status, 'claimed');
+  // An environment that is not the lease's is not the caller's to read; one
+  // that is, and has no layers published, is not there.
+  await f.refusal(await f.raw('storage', RackStorageRequestType, { ...need, need: [], envManifest: some('e'.repeat(64)) }), 403, 'forbidden');
 });

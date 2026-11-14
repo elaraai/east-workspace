@@ -18,6 +18,7 @@ repo/
 ├── locks/             # locks, their holders, and how far each says it has got
 ├── gc/                # gc beside running work: unreachable notes, a stepped run's parts
 ├── envs/              # built execution environments
+├── rack/              # rack delegation: its policy, and the layers kept of environments built for a rack
 └── tmp/               # scratch and staged uploads
 ```
 

@@ -11,10 +11,10 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { East, IntegerType, StringType, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
-import { LocalStorage, packageImport, repoInit, workspaceCreate, workspaceDeploy } from '@elaraai/e3-core';
+import { LocalStorage, hostEnvironmentPlatform, packageImport, repoInit, workspaceCreate, workspaceDeploy } from '@elaraai/e3-core';
 import { E3_RACK_VERSION, HubClient } from '@elaraai/e3-rack';
-import { RackEnrollRequestType, RackEnrollResponseType, RackHeartbeatRequestType, RackHeartbeatResponseType } from '@elaraai/e3-rack/protocol';
-import { TestRackAgent } from '@elaraai/e3-rack/testing';
+import { RACK_PROTOCOL, RackEnrollRequestType, RackEnrollResponseType, RackHeartbeatRequestType, RackHeartbeatResponseType } from '@elaraai/e3-rack/protocol';
+import { TestRackAgent, type TestRackAgentOptions } from '@elaraai/e3-rack/testing';
 import { runE3Command, spawnE3Command, waitFor, type CliResult } from './helpers.js';
 
 const cleanup: Array<() => Promise<unknown>> = [];
@@ -39,7 +39,7 @@ async function fixture() {
   return { home, repo, env, cli };
 }
 
-async function enrolled() {
+async function enrolled(as: Pick<TestRackAgentOptions, 'resources'> = {}) {
   const f = await fixture();
   ok(await f.cli('rack', 'config', '--listen', '127.0.0.1:0'));
   const status = ok(await f.cli('rack', 'status'));
@@ -57,7 +57,7 @@ async function enrolled() {
     assert(!command.includes(token)); assert(!command.includes(origin)); assert(!command.includes(pin));
     assert.doesNotMatch(command, /--token|--api-url| install /);
   }
-  const agent = await TestRackAgent.enroll(origin, token, { label: 't', certificateSha256: pin }); cleanup.push(() => agent.close());
+  const agent = await TestRackAgent.enroll(origin, token, { label: 't', certificateSha256: pin, ...as }); cleanup.push(() => agent.close());
   assert.match(ok(await f.cli('rack', 'list')), /t\s+.*ready/);
   return { ...f, agent, pin, client: new HubClient(f.home) };
 }
@@ -121,17 +121,48 @@ it('shows a fenced worker as unavailable and a resumed worker as ready', async (
   const f = await enrolled();
   await f.agent.post('heartbeat', RackHeartbeatRequestType, {
     healthy: false, freeCapacity: 0n, runningLeases: [], agentVersion: `${E3_RACK_VERSION}+e3.${E3_RACK_VERSION}`,
-    bootId: 'fenced-fixture', cacheBytes: 0n,
+    bootId: 'fenced-fixture', cacheBytes: 0n, report: JSON.stringify({ features: [] }),
   }, RackHeartbeatResponseType);
   assert.match(ok(await f.cli('rack', 'list')), /0\/0\s+.*unavailable/);
   await f.agent.heartbeat();
   assert.match(ok(await f.cli('rack', 'list')), /t\s+.*ready/);
 });
 
+it('shows a rack whose agent asks in another rack protocol as incompatible, with what to do, until its agent is updated', async () => {
+  const f = await enrolled();
+  const heartbeat = { healthy: true, freeCapacity: 1n, runningLeases: [], agentVersion: `${E3_RACK_VERSION}+e3.${E3_RACK_VERSION}`,
+    bootId: f.agent.bootId, cacheBytes: 0n, report: JSON.stringify({ features: [] }) };
+  const refused = await f.agent.raw('heartbeat', RackHeartbeatRequestType, heartbeat, RACK_PROTOCOL - 1);
+  assert.equal(refused.status, 426); await refused.arrayBuffer();
+  assert.match(ok(await f.cli('rack', 'list')), new RegExp(`t\\s+.*incompatible: speaks rack protocol ${RACK_PROTOCOL - 1}, not ${RACK_PROTOCOL}; update the rack$`, 'm'));
+  await f.agent.heartbeat();
+  assert.match(ok(await f.cli('rack', 'list')), /t\s+.*ready/);
+});
+
+it('lists a rack that admits by its resources with all it has and what is free, and a run says them', async () => {
+  const f = await enrolled({ resources: { cores: 4, memoryBytes: 8 * 1024 ** 3, gpus: 1 } });
+  // The test agent composes environments for the platform of the machine it runs on, where e3 installs one for it.
+  const platform = hostEnvironmentPlatform();
+  const features = platform === null ? 'resources' : 'resources,environments';
+  assert.match(ok(await f.cli('rack', 'list')), new RegExp(`^t {2}.* {2}4 cores \\(4 free\\), 8 GB \\(8 GB free\\), 1 GPU \\(1 free\\) {2}${features} {2}ready$`, 'm'));
+  // A `small` task asks 2 cores and 4 GiB of it.
+  ok(await f.cli('rack', 'policy', '.', 'set', 'train_*', 'rack', '--size', 'small'));
+  const running = f.cli('dataflow', 'run', '.', 'ws1', '--rack');
+  const grant = await f.agent.claim(); assert(grant);
+  assert.match(ok(await f.cli('rack', 'list')), new RegExp(`^t {2}.* {2}4 cores \\(2 free\\), 8 GB \\(4 GB free\\), 1 GPU \\(1 free\\) {2}${features} {2}ready$`, 'm'));
+  assert.equal((await f.agent.execute(grant)).status, 'success');
+  const output = ok(await running);
+  assert.match(output, new RegExp(`^Rack: t \\(4 cores, 8 GB, 1 GPU, e3 \\S+${platform === null ? '' : `, environments for ${platform}`}\\)$`, 'm'));
+  assert.match(output, /^ {2}\[RACK\] train_a → t \(cap 4 GB\)$/m);
+  assert.match(output, /^Rack summary: 1 task on t · 0 waited for capacity · 0 ran again \(cap\) · 0 transfers retried · 0 ran locally$/m);
+});
+
 it('round-trips policy, auto-starts and stops the hub, and delegates an enabled CLI run', async () => {
   const f = await enrolled();
-  ok(await f.cli('rack', 'policy', '.', 'set', 'train_*', 'rack', '--size', 'xlarge'));
-  assert.match(ok(await f.cli('rack', 'policy', '.', 'show')), /1\. train_\* → rack, size=xlarge/);
+  ok(await f.cli('rack', 'policy', '.', 'set', 'train_*', 'rack', '--size', 'xlarge', '--memory-limit', '8G', '--gpu'));
+  assert.match(ok(await f.cli('rack', 'policy', '.', 'show')), /^1\. train_\* → rack, size=xlarge, timeout=default, allow-host-access=false, memory-limit=8 GB, gpu$/m);
+  const refused = await f.cli('rack', 'policy', '.', 'set', 'train_*', 'rack', '--memory-limit', 'plenty');
+  assert.notEqual(refused.exitCode, 0); assert.match(refused.stderr, /--memory-limit must be a memory size, such as 8G or 512M/);
   ok(await f.cli('rack', 'policy', '.', 'set', 'train_*', 'rack', '--size', 'large'));
   const policy = ok(await f.cli('rack', 'policy', '.', 'show'));
   assert.match(policy, /1\. train_\* → rack, size=large/); assert(!policy.includes('2. train_'));
@@ -139,11 +170,13 @@ it('round-trips policy, auto-starts and stops the hub, and delegates an enabled 
   const running = f.cli('dataflow', 'run', '.', 'ws1');
   const remote = await f.agent.runOne(); assert.equal(remote?.status, 'success');
   const output = ok(await running); assert.match(output, /Rack: t/); assert.match(output, /\[RACK\] train_a → t/);
+  assert.match(output, /^Rack summary: 1 task on t · 0 waited for capacity · 0 ran again \(cap\) · 0 transfers retried · 0 ran locally$/m);
+  assert.match(ok(await f.cli('rack', 'status')), /^Last outcomes:\n {2}\S+ {2}ws1\.train_a {2}t {2}success$/m);
   const remoteDataset = ok(await f.cli('dataset', 'get', '.', 'ws1.train_a'));
   const logs = ok(await f.cli('task', 'logs', '.', 'ws1.train_a'));
   assert.match(logs, /e3: running on rack t/);
   const local = ok(await f.cli('dataflow', 'run', '.', 'ws2', '--no-rack'));
-  assert(!local.includes('Rack:')); assert(!local.includes('[RACK]'));
+  assert(!local.includes('Rack:')); assert(!local.includes('[RACK]')); assert(!local.includes('Rack summary'));
   assert.equal(ok(await f.cli('dataset', 'get', '.', 'ws2.train_a')), remoteDataset);
   assert.equal((await f.client.status()).capacity.queued, 0n);
   ok(await f.cli('rack', 'policy', '.', 'unset', 'train_*'));

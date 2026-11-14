@@ -182,9 +182,17 @@ export {
 // is a download
 export { SegmentFetcher } from './segment-fetch.js';
 
-// An execution environment: its local build, and the reading of the files an
-// environment names, which a remote builder does too
-export { materializeEnvironment, decodeEnvironmentFile, nodeLockFilename } from './environment.js';
+// An execution environment: its local build, its install for a platform that
+// is not this machine's (a rack's), and the reading of the files an
+// environment names, which a remote builder does too; and an environment
+// built ahead of the call that declares it — an image's, a rack guest's —
+// with the link that has e3-core take it as built
+export {
+  materializeEnvironment, materializeEnvironmentFor, hostEnvironmentPlatform, EnvironmentTargetRefused,
+  decodeEnvironmentFile, nodeLockFilename,
+  prebuiltEnvironment, linkPrebuiltEnvironment, PREBUILT_ENV_HASH_VAR, PREBUILT_ENV_DIR_VAR,
+  type EnvironmentTarget, type EnvironmentTargetReason, type TargetEnvironment, type PrebuiltEnvironment,
+} from './environment.js';
 
 // Scratch directories of local executions
 export { sweepScratchDirs } from './scratch.js';

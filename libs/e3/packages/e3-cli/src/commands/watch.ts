@@ -38,7 +38,7 @@ import { inputPlanLine, inputPolicy, recordPlanLine, schemaPolicy } from './work
 import { describeUnset } from './start.js';
 import { formatSize } from '../format.js';
 import type { RackRunnerHandle } from '@elaraai/e3-rack';
-import { openRack, rackEnabled, refuseRemoteRack, printRackPlacement, type RackFlags } from './rack-options.js';
+import { openRack, rackEnabled, refuseRemoteRack, printRackEnvironment, printRackPlacement, printRackSummary, type RackFlags } from './rack-options.js';
 
 interface WatchOptions extends BudgetFlags, RackFlags {
   start?: boolean;
@@ -225,8 +225,8 @@ export async function watchCommand(
         rackOpened = true;
         if (await rackEnabled(repoPath, options)) {
           rack = await openRack({ repoPath, workspace, storage, budget, label: `e3 watch ${workspace} (pid ${process.pid})`,
-            rackOnly: options.rackOnly, signal, onPlacement: printRackPlacement, log: console.log });
-          console.log(`Rack: ${rack.describe()}`);
+            rackOnly: options.rackOnly, signal, onPlacement: printRackPlacement, onEnvironment: printRackEnvironment, log: console.log });
+          console.log(`Rack: ${rack.describe(formatSize)}`);
         }
       } else await rack?.refreshSlots();
       const handle = await orchestrator.start(storage, repoPath, workspace, {
@@ -265,6 +265,9 @@ export async function watchCommand(
         console.log(`[${timestamp()}] Dataflow error:`);
         console.log(`  ${formatError(err)}`);
       }
+    } finally {
+      // Each run's rack work is summed up on its own, however the run ended.
+      if (rack !== undefined) await printRackSummary(rack);
     }
   }
 

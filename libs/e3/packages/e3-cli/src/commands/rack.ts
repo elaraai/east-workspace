@@ -8,7 +8,9 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { Command } from 'commander';
 import { DateTimeType, IntegerType, StringType, compareFor, equalFor, none, printFor, some, variant } from '@elaraai/east';
 import type { HubClient, HubConfig, RackComputeSize, RackPolicy, RackSecurityPolicy } from '@elaraai/e3-rack';
+import { parseMemory } from '@elaraai/e3-core';
 import { defaultRepoArg, openRepo, formatError, exitError } from '../utils.js';
+import { formatSize } from '../format.js';
 
 // The rack package, with its hub, routes and TLS, is loaded by the command
 // that needs it: every other e3 command, and shell completion, starts
@@ -18,7 +20,7 @@ const rackLib = (): Promise<RackLib> => import('@elaraai/e3-rack');
 
 type Status = Awaited<ReturnType<HubClient['status']>>;
 interface ConfigFlags { listen?: string | boolean; allow?: string | boolean; idleExit?: string; advertiseUrl?: string; tls?: boolean; requireApproval?: boolean }
-interface PolicyFlags { size?: string; timeout?: string; allowHostAccess?: boolean; spill?: boolean; claimTimeout?: string; retryTaskFailuresLocally?: boolean }
+interface PolicyFlags { size?: string; timeout?: string; allowHostAccess?: boolean; memoryLimit?: string; gpu?: boolean; spill?: boolean; claimTimeout?: string; retryTaskFailuresLocally?: boolean }
 const sizes = ['serverless', 'small', 'medium', 'large', 'xlarge'] as const;
 const equalString = equalFor(StringType);
 const compareInteger = compareFor(IntegerType);
@@ -30,6 +32,12 @@ function integer(text: string, name: string, min = 1, max = Number.MAX_SAFE_INTE
   const value = Number(text);
   if (!Number.isSafeInteger(value) || value < min || value > max) throw new Error(`${name} must be an integer from ${min} to ${max}`);
   return value;
+}
+/** A memory size as `--memory` reads one (`8G`, `512M`, bytes), in bytes. */
+function memory(text: string, name: string): number {
+  const bytes = parseMemory(text);
+  if (bytes === null || bytes <= 0) throw new Error(`${name} must be a memory size, such as 8G or 512M`);
+  return bytes;
 }
 function guarded<A extends unknown[]>(action: (...args: A) => Promise<void>): (...args: A) => Promise<void> {
   return async (...args) => { try { await action(...args); } catch (error) { exitError(formatError(error)); } };
@@ -79,24 +87,38 @@ function findRack(status: Status, name: string): Status['racks'][number] {
 
 function printFleet(lib: RackLib, status: Status): void {
   if (status.racks.length === 0) { console.log('No enrolled racks. Run: e3 rack enroll --listen <address>:7331'); return; }
-  console.log('LABEL  ID  RUNTIMES  BUSY/CAPACITY  AGENT  E3  LAST SEEN  STATE');
+  console.log('LABEL  ID  RUNTIMES  BUSY/CAPACITY  AGENT  E3  LAST SEEN  RESOURCES  FEATURES  STATE');
   for (const rack of status.racks) {
     const capacity = status.capacity.racks.find((entry) => equalString(entry.rackId, rack.rackId));
     const bundled = lib.bundledE3Version(rack.agentVersion);
-    const state = rack.lastBootId.type === 'none' ? 'enrolled-not-started'
+    // A rack whose agent asks in another rack protocol is refused each time it
+    // asks, so it also goes stale: the reason is what is shown.
+    const state = capacity?.problem.type === 'some' ? `incompatible: ${capacity.problem.value}`
+      : rack.lastBootId.type === 'none' ? 'enrolled-not-started'
       : capacity?.pendingApproval ? 'pending-approval'
       : !rack.healthy || compareInteger(rack.capacity, 0n) <= 0 ? 'unavailable' : !capacity?.healthy ? 'stale'
       : rack.tiers.length === 0 ? 'no-runtimes'
       : bundled === null ? 'incompatible: bundled e3 unknown'
         : !lib.agentVersionAtLeast(bundled, lib.E3_RACK_VERSION) ? `incompatible: agent e3 ${bundled} < project e3 ${lib.E3_RACK_VERSION}` : 'ready';
-    console.log(`${rack.label}  ${rack.rackId.slice(0, 12)}  ${rack.tiers.join(',')}  ${Number(capacity?.busy ?? 0n)}/${Number(rack.capacity)}  ${rack.agentVersion}  ${bundled ?? '?'}  ${printFor(DateTimeType)(rack.lastSeenAt)}  ${state}`);
+    // A rack that admits by its resources: all it has, and what nothing has booked.
+    const all = capacity?.resources.type === 'some' ? capacity.resources.value : undefined;
+    const free = capacity?.free.type === 'some' ? capacity.free.value : undefined;
+    const part = (have: string, left: string | undefined) => `${have}${left === undefined ? '' : ` (${left} free)`}`;
+    const counted = (n: bigint, one: string) => `${Number(n)} ${compareInteger(n, 1n) === 0 ? one : `${one}s`}`;
+    const resources = all === undefined ? '-' : [
+      part(counted(all.cores, 'core'), free === undefined ? undefined : `${Number(free.cores)}`),
+      part(formatSize(Number(all.memoryBytes)), free === undefined ? undefined : formatSize(Number(free.memoryBytes))),
+      ...(compareInteger(all.gpus, 0n) > 0 ? [part(counted(all.gpus, 'GPU'), free === undefined ? undefined : `${Number(free.gpus)}`)] : []),
+    ].join(', ');
+    console.log(`${rack.label}  ${rack.rackId.slice(0, 12)}  ${rack.tiers.join(',')}  ${Number(capacity?.busy ?? 0n)}/${Number(rack.capacity)}  ${rack.agentVersion}  ${bundled ?? '?'}  ${printFor(DateTimeType)(rack.lastSeenAt)}  ${resources}  ${capacity === undefined || capacity.features.length === 0 ? '-' : capacity.features.join(',')}  ${state}`);
   }
 }
 
 function printPolicy(policy: RackPolicy): void {
   console.log(`Enabled: ${policy.enabled}\nMode: ${policy.mode.type === 'optIn' ? 'opt-in' : 'auto'}`);
   console.log(`Defaults: size=${policy.defaultSize.type}, timeout=${Number(policy.defaultTimeoutMinutes)} min, spill=${policy.spill}, claim-timeout=${Number(policy.claimTimeoutSeconds)} s, retry-task-failures-locally=${policy.retryTaskFailuresLocally}`);
-  policy.rules.forEach((rule, index) => console.log(`${index + 1}. ${rule.tasks} → ${rule.target.type}, size=${rule.size.type === 'some' ? rule.size.value.type : 'default'}, timeout=${rule.timeoutMinutes.type === 'some' ? Number(rule.timeoutMinutes.value) : 'default'}, allow-host-access=${rule.allowHostCoupled}`));
+  policy.rules.forEach((rule, index) => console.log(`${index + 1}. ${rule.tasks} → ${rule.target.type}, size=${rule.size.type === 'some' ? rule.size.value.type : 'default'}, timeout=${rule.timeoutMinutes.type === 'some' ? Number(rule.timeoutMinutes.value) : 'default'}, allow-host-access=${rule.allowHostCoupled}` +
+    `${rule.memoryLimit.type === 'some' ? `, memory-limit=${formatSize(Number(rule.memoryLimit.value))}` : ''}${rule.gpu ? ', gpu' : ''}`));
 }
 
 /** Creates the rack management and repository policy command group. */
@@ -121,6 +143,10 @@ export function createRackCommand(): Command {
     console.log(`Sessions: ${status.sessions.length}`);
     for (const session of status.sessions) console.log(`  ${session.label}  ${session.repoAlias}  ${session.workspace}  ${Number(session.pending)} pending / ${Number(session.claimed)} claimed  e3 ${session.e3Version}`);
     console.log(`Queue: ${Number(status.capacity.queued)} pending`);
+    if (status.outcomes.length > 0) console.log('Last outcomes:');
+    for (const outcome of status.outcomes) {
+      console.log(`  ${printFor(DateTimeType)(outcome.at)}  ${outcome.workspace}.${outcome.taskName}  ${outcome.rackLabel}  ${outcome.outcome}${outcome.reason.type === 'some' ? ` (${outcome.reason.value})` : ''}`);
+    }
   }));
   rack.command('list').description('List enrolled racks and compatible capacity').action(guarded(async () => {
     const lib = await rackLib();
@@ -219,10 +245,12 @@ export function createRackCommand(): Command {
     .argument('[args...]', '[repo] <action> [pattern target | mode]')
     .option('--size <size>', sizes.join('|')).option('--timeout <min>', 'Task timeout in minutes')
     .option('--allow-host-access', 'Deliberately allow host-coupled platform calls on the rack')
+    .option('--memory-limit <size>', 'The most one piece of the rule\'s work may be capped at on a rack, such as 8G; e3 measures what it needs')
+    .option('--gpu', 'Ask for a rack\'s GPU')
     .option('--spill', 'Run locally when rack capacity is full').option('--no-spill', 'Wait for rack capacity')
     .option('--claim-timeout <sec>', 'Recheck an unclaimed lease after this many seconds')
     .option('--retry-task-failures-locally', 'Rerun task failures locally').option('--no-retry-task-failures-locally', 'Return rack task failures')
-    .addHelpText('after', '\nExamples:\n  e3 rack policy . set "train_*" rack --size large\n  e3 rack policy . enable\n  e3 rack policy . mode auto\n  e3 rack policy . defaults --no-spill\n  e3 rack policy . show')
+    .addHelpText('after', '\nExamples:\n  e3 rack policy . set "train_*" rack --size large\n  e3 rack policy . set "score_*" rack --memory-limit 8G\n  e3 rack policy . enable\n  e3 rack policy . mode auto\n  e3 rack policy . defaults --no-spill\n  e3 rack policy . show')
     .action(guarded(async (args: string[], flags: PolicyFlags) => {
       const lib = await rackLib();
       const verbs = ['show', 'set', 'unset', 'enable', 'disable', 'mode', 'defaults', 'reset'];
@@ -239,7 +267,8 @@ export function createRackCommand(): Command {
       if (action === 'set') {
         if (words[1] !== 'rack' && words[1] !== 'local') throw new Error('Target must be rack or local');
         policy = lib.setRule(policy, words[0]!, words[1], { size: flags.size === undefined ? undefined : sizeOf(flags.size),
-          timeoutMinutes: flags.timeout === undefined ? undefined : integer(flags.timeout, '--timeout'), allowHostCoupled: flags.allowHostAccess });
+          timeoutMinutes: flags.timeout === undefined ? undefined : integer(flags.timeout, '--timeout'), allowHostCoupled: flags.allowHostAccess,
+          memoryLimit: flags.memoryLimit === undefined ? undefined : memory(flags.memoryLimit, '--memory-limit'), gpu: flags.gpu });
       } else if (action === 'unset') policy = lib.removeRule(policy, words[0]!);
       else if (action === 'enable' || action === 'disable') policy = lib.setEnabled(policy, action === 'enable');
       else if (action === 'mode') {

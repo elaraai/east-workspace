@@ -14,7 +14,7 @@ import { createAdaptorServer } from '@hono/node-server';
 import { getConnInfo } from '@hono/node-server/conninfo';
 import { IntegerType, StringType, compareFor, equalFor, none, some, variant, type ValueTypeOf } from '@elaraai/east';
 import { inputsHash, isObjectHash, isProcessAlive } from '@elaraai/e3-core';
-import { decodeBody, sendSuccess } from '../server/beast2.js';
+import { answer, decodeBody } from '../server/beast2.js';
 import { FileMachineIdentityStore } from '../identity/file-identity-store.js';
 import { generateEnrollmentToken } from '../identity/machine-identity.js';
 import { FileRackRegistry } from '../registry/file-rack-registry.js';
@@ -22,11 +22,13 @@ import { InMemoryRackLeaseStore } from '../lease/in-memory-lease-store.js';
 import type { RackLeaseRecord } from '../lease/lease-store.js';
 import { StoreRackDispatch, bootPendingApproval, bundledE3Version, agentVersionAtLeast, DEFAULT_HEALTHY_WINDOW_MS } from '../server/dispatch.js';
 import { createRackRoutes, type RackLeaseSignal } from '../server/rack-routes.js';
+import { envManifestKey, type EnvIndexStore, type EnvLayerManifest } from '../server/env-publication.js';
 import { RackRegistrationType, RackSecurityPolicyType } from '../protocol/registration.js';
-import { isLeaseEventV2, leaseInputs, leaseTaskHash, type RackLeaseEvent } from '../protocol/task-envelope.js';
+import { RACK_LISTENER_IDLE_MS, RACK_PROTOCOL, type RackReport } from '../protocol/rack-json.js';
+import { describeRackReason, isLeaseEventV2, leaseFits, leaseInputs, leaseTaskHash, readRackLeaseResources, type RackLeaseEvent } from '../protocol/task-envelope.js';
 import { decodeRunnerEvent } from '../runner-event.js';
 import { ApproveRackType, AttachLeaseResultType, CancelLeaseResultType, CreateLeaseResultType, CreateLeaseType, EmptyType, HubConfigType,
-  HubEnrollResultType, HubEnrollType, HubHelloType, HubStatusType, OpenSessionResultType, OpenSessionType,
+  HubEnrollResultType, HubEnrollType, HubHelloType, HubOutcomeType, HubStatusType, OpenSessionResultType, OpenSessionType,
   RemoveRackResultType, SessionPollResultType, SessionPollType, type CapacitySnapshot, type OpenSession, type SessionEvent } from '../protocol/control.js';
 import { closeSocketServer, RackHubError, REQUEST_BODY_TIMEOUT_MS, serveOnSocket } from '../client/local-http.js';
 import { rackHome, hubSocketPath } from '../paths.js';
@@ -60,6 +62,8 @@ interface Subscription {
 }
 const equalString = equalFor(StringType);
 const compareInteger = compareFor(IntegerType);
+/** How many of its last leases' ends a hub keeps for its status. */
+const LAST_OUTCOMES = 20;
 const nonterminal = (lease: RackLeaseRecord) => lease.status === 'pending' || lease.status === 'claimed';
 const normalizedAddress = (address: string) => address.replace(/^::ffff:/, '');
 
@@ -77,6 +81,8 @@ export interface RackHubOptions {
   now?: () => number;
   /** Test tuning; production uses sixty seconds. */
   visibilityMs?: number;
+  /** Test tuning; production holds an idle rack's poll for the routes' own window. */
+  leaseWindowMs?: number;
   /** Test tuning; production retries a failed listener every ten seconds. */
   listenerRetryMs?: number;
   /** Test tuning; production sweeps every five seconds. */
@@ -87,6 +93,11 @@ export interface RackHubOptions {
  * Hosts one user's rack queue, fleet and repository-owning sessions.
  * The hub interprets the rack/control protocol only. A live session of the
  * same repository and exact e3 release performs every repository operation.
+ *
+ * Work that declares an environment is leased to a rack that composes
+ * environments, for whose platform the work's session keeps the
+ * environment's layers. The hub keeps none: it asks the session, and serves
+ * the layers through its data plane as it serves objects.
  * @example
  * const hub = new RackHub({ foreground: true });
  * if (await hub.start()) await hub.closed;
@@ -100,6 +111,13 @@ export class RackHub {
   private readonly sessions = new Map<string, Session>();
   private readonly subscriptions = new Map<string, Subscription>();
   private readonly dedupe = new Map<string, string>();
+  /** What each rack last reported of itself, by rack: kept here, since a
+   *  registration is a stored value whose shape does not grow. */
+  private readonly reports = new Map<string, RackReport>();
+  /** Why a rack cannot be used, by rack: it asked in another rack protocol. */
+  private readonly problems = new Map<string, string>();
+  /** How the last leases ended, the latest first: what the status lists. */
+  private readonly outcomes: Array<ValueTypeOf<typeof HubOutcomeType>> = [];
   private readonly mutations = new MutationQueue();
   private readonly coordinator = new SessionLeaseCoordinator();
   private readonly backend: InMemoryRackLeaseStore;
@@ -119,6 +137,25 @@ export class RackHub {
   private stopping?: Promise<void>;
   private draining = false;
   private idleSince: number;
+  /**
+   * Where the shared routes find a lease's environment: the manifest its
+   * session keeps, built with the lease's e3 release for the platform of the
+   * rack that holds the lease. The hub publishes none of its own.
+   */
+  private readonly envIndex: EnvIndexStore = {
+    put: () => Promise.reject(new Error('A rack hub publishes no environment: each session keeps its own')),
+    get: async (envHash, e3Version) => {
+      const { repo, leaseId } = this.coordinator.lease();
+      const lease = await this.leases.get(repo, leaseId);
+      const target = lease?.claimedBy === undefined ? undefined : this.reports.get(lease.claimedBy)?.target;
+      if (target === undefined) return null;
+      const manifestKey = envManifestKey(envHash, e3Version, target);
+      const json = await this.bridge.readEnvManifest(manifestKey);
+      if (json === null) return null;
+      const manifest = JSON.parse(json) as EnvLayerManifest;
+      return { envHash, e3Version, baseImage: manifest.baseImage, baseTier: manifest.baseTier, manifestKey, layerCount: manifest.layers.length, publishedAtMs: 0 };
+    },
+  };
 
   /** @param options - State home, idle policy, diagnostics and lifecycle clocks */
   constructor(private readonly options: RackHubOptions = {}) {
@@ -155,7 +192,8 @@ export class RackHub {
             return session !== undefined && !session.dead ? [session.registration] : [];
           });
         },
-        advertiseOrigin: () => this.config.advertiseUrl.type === 'some' ? this.config.advertiseUrl.value : undefined });
+        advertiseOrigin: () => this.config.advertiseUrl.type === 'some' ? this.config.advertiseUrl.value : undefined,
+        target: (rackId) => this.reports.get(rackId)?.target });
       this.dispatch = new StoreRackDispatch(this.leases, this.registry, { coordinator: this.coordinator, now: this.now,
         visibilityMs: this.options.visibilityMs, endings: { stopped: this.bridge.attempts.stopped, writes: this.bridge } });
       // The rack listener binds before the control socket answers: a client
@@ -241,6 +279,12 @@ export class RackHub {
       this.publish(sub, event);
     } else if (signal.kind === 'completed' && signal.disposition === 'recorded') {
       await this.finish(sub);
+      const result = lease.result;
+      const rack = lease.claimedBy === undefined ? null : await this.registry.getRack(lease.claimedBy);
+      this.outcomes.unshift({ at: new Date(lease.completedAtMs!), workspace: lease.workspace, taskName: lease.event.taskName,
+        rackLabel: rack?.label ?? lease.claimedBy ?? '', outcome: result?.state ?? result?.status ?? 'error',
+        reason: result?.reason === undefined ? none : some(describeRackReason(result.reason)) });
+      this.outcomes.length = Math.min(this.outcomes.length, LAST_OUTCOMES);
       this.publish(sub, variant('completed', { leaseId: lease.leaseId,
         attempt: lease.attempt === undefined ? none : some({ executionId: lease.attempt.executionId, startedAt: new Date(lease.attempt.startedAtMs) }),
         resultJson: JSON.stringify(lease.result), at: new Date(lease.completedAtMs!) }));
@@ -254,7 +298,8 @@ export class RackHub {
     if (!isLeaseEventV2(value)) throw new Error('Expected a v2 rack lease');
     const runner = decodeRunnerEvent(value.runnerEvent);
     if (runner.mode !== 'task' && runner.mode !== 'unit') throw new Error('Local rack delegation supports tasks and units only');
-    if (value.environment !== undefined) throw new Error('Local rack environments are not supported');
+    if (value.environment !== undefined && (typeof value.environment !== 'string' || !isObjectHash(value.environment))) throw new Error('Invalid environment');
+    readRackLeaseResources(value.resources);
     if (!['node', 'py', 'py-datascience', 'c', 'full'].includes(request.tier) || !['serverless', 'small', 'medium', 'large', 'xlarge'].includes(request.computeSize)) throw new Error('Invalid rack tier or compute size');
     const closure = value.closure;
     if ('hashes' in closure) {
@@ -321,16 +366,39 @@ export class RackHub {
     const approval = (await this.registry.getRackSecurityPolicy())?.requireStartApproval ?? false;
     return { racks: (await this.registry.listRacks()).map((rack) => {
       const bundled = bundledE3Version(rack.agentVersion);
+      const report = this.reports.get(rack.rackId);
+      const problem = this.problems.get(rack.rackId);
+      const held = active.filter((lease) => lease.claimedBy === rack.rackId && lease.status === 'claimed');
+      // What is free is the less of what the rack last said and what this
+      // hub's own leases leave of all it has: a rack's report lags a grant
+      // by up to a heartbeat, and it may serve other sources too.
+      const all = report?.resources;
+      const free = all === undefined ? undefined : (() => {
+        let { cores, memoryBytes, gpus } = all;
+        for (const lease of held) {
+          let needs: ReturnType<typeof readRackLeaseResources>;
+          try { needs = readRackLeaseResources(lease.event.resources); } catch { needs = undefined; }
+          if (needs === undefined) continue;
+          cores -= needs.cores; memoryBytes -= needs.memoryBytes; if (needs.gpu) gpus -= 1;
+        }
+        const said = report?.free ?? all;
+        const count = (ours: number, theirs: number) => BigInt(Math.max(0, Math.min(ours, theirs)));
+        return { cores: count(cores, said.cores), memoryBytes: count(memoryBytes, said.memoryBytes), gpus: count(gpus, said.gpus) };
+      })();
       return { rackId: rack.rackId, label: rack.label, tiers: rack.tiers, capacity: rack.capacity,
-        busy: BigInt(active.filter((lease) => lease.claimedBy === rack.rackId && lease.status === 'claimed').length),
-        healthy: healthy.has(rack.rackId), bundledE3: bundled === null ? none : some(bundled), pendingApproval: approval && bootPendingApproval(rack) };
+        busy: BigInt(held.length),
+        healthy: healthy.has(rack.rackId), bundledE3: bundled === null ? none : some(bundled), pendingApproval: approval && bootPendingApproval(rack),
+        features: [...(report?.features ?? [])], target: report?.target === undefined ? none : some(report.target),
+        problem: problem === undefined ? none : some(problem),
+        resources: all === undefined ? none : some({ cores: BigInt(all.cores), memoryBytes: BigInt(all.memoryBytes), gpus: BigInt(all.gpus) }),
+        free: free === undefined ? none : some(free) };
     }), queued: BigInt(active.filter((lease) => lease.status === 'pending').length), mine: { pending: BigInt(pending), claimed: BigInt(claimed) } };
   }
 
   private controlApp(): Hono {
     const app = new Hono();
     app.onError((err, c) => c.text(messageOf(err), 500));
-    app.post('/v1/hello', () => sendSuccess(HubHelloType, this.hello()));
+    app.post('/v1/hello', () => answer(HubHelloType, this.hello()));
     app.post('/v1/sessions', async (c) => {
       const registration = await decodeBody(c, OpenSessionType);
       return this.mutations.run(async () => {
@@ -344,17 +412,17 @@ export class RackHub {
         const alias = `r-${createHash('sha256').update(`${hostname()}\0${registration.repoPath}`).digest('hex').slice(0, 16)}`;
         this.sessions.set(id, { id, alias, registration, lastSeen: this.now(), dead: false, seq: 0n, events: [], waiters: new Set() });
         this.idleSince = this.now();
-        return sendSuccess(OpenSessionResultType, { sessionId: id, repoAlias: alias });
+        return answer(OpenSessionResultType, { sessionId: id, repoAlias: alias });
       });
     });
     app.delete('/v1/sessions/:id', (c) => this.mutations.run(async () => {
       const session = this.sessions.get(c.req.param('id'));
       if (session !== undefined) await this.endSession(session);
-      return sendSuccess(EmptyType, {});
+      return answer(EmptyType, {});
     }));
     app.post('/v1/sessions/:id/leases', async (c) => {
       const request = await decodeBody(c, CreateLeaseType);
-      return this.mutations.run(async () => sendSuccess(CreateLeaseResultType, (await this.submit(this.session(c.req.param('id')), request, false))!));
+      return this.mutations.run(async () => answer(CreateLeaseResultType, (await this.submit(this.session(c.req.param('id')), request, false))!));
     });
     // Attaches to identical work already queued or held, which costs the racks
     // no further capacity, and queues nothing otherwise: how a full fleet is
@@ -363,10 +431,10 @@ export class RackHub {
       const request = await decodeBody(c, CreateLeaseType);
       return this.mutations.run(async () => {
         const attached = await this.submit(this.session(c.req.param('id')), request, true);
-        return sendSuccess(AttachLeaseResultType, attached === null ? none : some(attached));
+        return answer(AttachLeaseResultType, attached === null ? none : some(attached));
       });
     });
-    app.post('/v1/sessions/:id/leases/:leaseId/cancel', (c) => this.mutations.run(async () => sendSuccess(CancelLeaseResultType, {
+    app.post('/v1/sessions/:id/leases/:leaseId/cancel', (c) => this.mutations.run(async () => answer(CancelLeaseResultType, {
       status: await this.unsubscribe(this.session(c.req.param('id')), c.req.param('leaseId')),
     })));
     app.post('/v1/sessions/:id/events', async (c) => {
@@ -386,13 +454,13 @@ export class RackHub {
       });
       this.session(session.id);
       session.lastSeen = this.now();
-      return sendSuccess(SessionPollResultType, { events: [...session.events], capacity: await this.capacity(session.id) });
+      return answer(SessionPollResultType, { events: [...session.events], capacity: await this.capacity(session.id) });
     });
-    app.get('/v1/status', async () => sendSuccess(HubStatusType, { hello: this.hello(), rackListener: this.listener,
+    app.get('/v1/status', async () => answer(HubStatusType, { hello: this.hello(), rackListener: this.listener,
       racks: await this.registry.listRacks(), sessions: await Promise.all([...this.sessions.values()].map(async (session) => ({ sessionId: session.id, repoAlias: session.alias,
         workspace: session.registration.workspace, label: session.registration.label, e3Version: session.registration.e3Version,
-        ...(await this.capacity(session.id)).mine }))), capacity: await this.capacity() }));
-    app.get('/v1/config', () => sendSuccess(HubConfigType, this.config));
+        ...(await this.capacity(session.id)).mine }))), capacity: await this.capacity(), outcomes: [...this.outcomes] }));
+    app.get('/v1/config', () => answer(HubConfigType, this.config));
     app.post('/v1/config', async (c) => {
       const config = await decodeBody(c, HubConfigType);
       return this.mutations.run(async () => {
@@ -402,17 +470,17 @@ export class RackHub {
         // A listener that is not up binds again on any change: an --allow it
         // lacked, or a port that has since come free.
         if (changed || this.listener.type !== 'up') { await this.closeRack(); await this.bindRack(); }
-        return sendSuccess(HubConfigType, this.config);
+        return answer(HubConfigType, this.config);
       });
     });
     // Whether a rack's boots after its first need approval before it is leased
     // work: e3 rack config --require-approval, and e3 rack approve.
-    app.get('/v1/security', async () => sendSuccess(RackSecurityPolicyType, await this.registry.getRackSecurityPolicy() ?? { requireStartApproval: false }));
+    app.get('/v1/security', async () => answer(RackSecurityPolicyType, await this.registry.getRackSecurityPolicy() ?? { requireStartApproval: false }));
     app.post('/v1/security', async (c) => {
       const policy = await decodeBody(c, RackSecurityPolicyType);
       return this.mutations.run(async () => {
         await this.registry.putRackSecurityPolicy(policy);
-        return sendSuccess(RackSecurityPolicyType, policy);
+        return answer(RackSecurityPolicyType, policy);
       });
     });
     app.post('/v1/enroll', async (c) => {
@@ -427,18 +495,20 @@ export class RackHub {
       const { token, tokenHash } = generateEnrollmentToken();
       const expiresAt = new Date(this.now() + ttl * 60000);
       await this.identity.putEnrollmentToken(tokenHash, expiresAt);
-      return sendSuccess(HubEnrollResultType, { enrollmentToken: token, apiUrl: this.config.advertiseUrl.type === 'some' ? this.config.advertiseUrl.value : this.listener.value.origin,
+      return answer(HubEnrollResultType, { enrollmentToken: token, apiUrl: this.config.advertiseUrl.type === 'some' ? this.config.advertiseUrl.value : this.listener.value.origin,
         expiresAt, e3Version: E3_RACK_VERSION, certificateSha256: this.listener.value.certificateSha256 });
     });
     app.delete('/v1/racks/:id', (c) => this.mutations.run(async () => {
       const id = c.req.param('id');
       const removed = await this.coordinator.run('@rack', id, () => this.registry.deleteRack(id));
       await this.identity.deleteRackTokens(id);
+      this.reports.delete(id);
+      this.problems.delete(id);
       for (const sub of this.subscriptions.values()) {
         const lease = this.backend.peek(sub.repo, sub.id);
         if (lease?.status === 'claimed' && lease.claimedBy === id) await this.lose(sub, 'rack deregistered');
       }
-      return sendSuccess(RemoveRackResultType, { removed });
+      return answer(RemoveRackResultType, { removed });
     }));
     app.post('/v1/racks/:id/approve', async (c) => {
       const request = await decodeBody(c, ApproveRackType);
@@ -448,14 +518,14 @@ export class RackHub {
         if (rack.lastBootId.type !== 'some' || !equalString(rack.lastBootId.value, request.bootId)) return c.text('Rack rebooted; refresh before approving', 409);
         const approved = { ...rack, approvedBootId: some(request.bootId) };
         await this.registry.putRack(approved);
-        return sendSuccess(RackRegistrationType, approved);
+        return answer(RackRegistrationType, approved);
       });
     });
-    app.post('/v1/drain', () => { this.draining = true; return sendSuccess(EmptyType, {}); });
+    app.post('/v1/drain', () => { this.draining = true; return answer(EmptyType, {}); });
     app.post('/v1/stop', () => {
       this.draining = true;
       setImmediate(() => { void this.stop().catch((err: unknown) => this.options.log?.(messageOf(err))); });
-      return sendSuccess(EmptyType, {});
+      return answer(EmptyType, {});
     });
     return app;
   }
@@ -480,8 +550,26 @@ export class RackHub {
     app.route('/', this.bridge.dataRoutes());
     app.route('/', createRackRoutes(this.identity, this.registry, this.leases, this.bridge, this.bridge.attempts, {
       coordinator: this.coordinator, now: this.now, signal: this.abort.signal, visibilityMs: this.options.visibilityMs,
+      leaseWindowMs: this.options.leaseWindowMs,
+      envIndex: this.envIndex, e3Version: E3_RACK_VERSION,
       onLeaseSignal: (signal) => this.signal(signal),
-      canClaim: (rack, lease) => {
+      // A heartbeat that was read is of this protocol: what was wrong is not.
+      onReport: (rackId, report) => { this.reports.set(rackId, report); this.problems.delete(rackId); },
+      // Said once in the log, and for as long as it holds in the status.
+      onIncompatible: (rackId, named) => {
+        const problem = `speaks ${named === undefined ? 'a rack protocol from before it was named' : `rack protocol ${named}`}, not ${RACK_PROTOCOL}; update the rack`;
+        if (this.problems.get(rackId) !== problem) this.options.log?.(`rack ${rackId} refused: it ${problem}`);
+        this.problems.set(rackId, problem);
+      },
+      // The queue is in memory: a poll looks well down it for work its rack's
+      // offer holds. A rack that reports its resources could hold what they
+      // hold; one that does not report them is asked as before.
+      claimLookahead: 64,
+      canEverHold: (rack, needs) => {
+        const all = this.reports.get(rack.rackId)?.resources;
+        return all === undefined || leaseFits(needs, all);
+      },
+      canClaim: async (rack, lease) => {
         const sub = this.subscriptions.get(lease.leaseId);
         if (sub === undefined || sub.endedAt !== undefined || sub.subscribers.size === 0) return false;
         // v2 completion does not carry an attempt id. A previous claimant
@@ -489,7 +577,20 @@ export class RackHub {
         if (sub.claimants.has(rack.rackId)) return false;
         if (!rack.healthy || this.now() - rack.lastSeenAt.getTime() > DEFAULT_HEALTHY_WINDOW_MS) return false;
         const bundled = bundledE3Version(rack.agentVersion);
-        return bundled !== null && agentVersionAtLeast(bundled, sub.version);
+        if (bundled === null || !agentVersionAtLeast(bundled, sub.version)) return false;
+        // Work that declares an environment is a rack's that composes
+        // environments, when its session keeps the layers built for that
+        // rack's platform: another rack is never granted it.
+        const environment = lease.event.environment;
+        if (environment === undefined) return true;
+        const report = this.reports.get(rack.rackId);
+        if (report?.target === undefined || !report.features.includes('environments')) return false;
+        try {
+          return await this.bridge.readEnvManifest(envManifestKey(environment, sub.version, report.target)) !== null;
+        } catch (error) {
+          this.options.log?.(`rack lease ${lease.leaseId}: its environment's layers could not be asked for: ${messageOf(error)}`);
+          return false;
+        }
       },
     }));
     let server: Server | HttpsServer | undefined;
@@ -500,8 +601,8 @@ export class RackHub {
         const tls = await loadHubCertificate(this.home);
         pin = certificateSha256(tls.certificatePem);
         created = createAdaptorServer({ fetch: app.fetch, createServer: createHttpsServer,
-          serverOptions: { cert: tls.certificatePem, key: tls.privateKeyPem, requestTimeout: REQUEST_BODY_TIMEOUT_MS } });
-      } else created = createAdaptorServer({ fetch: app.fetch, serverOptions: { requestTimeout: REQUEST_BODY_TIMEOUT_MS } });
+          serverOptions: { cert: tls.certificatePem, key: tls.privateKeyPem, requestTimeout: REQUEST_BODY_TIMEOUT_MS, keepAliveTimeout: RACK_LISTENER_IDLE_MS } });
+      } else created = createAdaptorServer({ fetch: app.fetch, serverOptions: { requestTimeout: REQUEST_BODY_TIMEOUT_MS, keepAliveTimeout: RACK_LISTENER_IDLE_MS } });
       if (!(created instanceof Server) && !(created instanceof HttpsServer)) throw new Error('Rack listener requires HTTP/1');
       const listening = server = created;
       await new Promise<void>((resolve, reject) => {

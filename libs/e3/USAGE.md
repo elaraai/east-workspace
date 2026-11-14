@@ -564,7 +564,8 @@ e3 repo gc <repo> [--dry-run] [--keep-runs <n>] [--keep-days <d>]   # Remove old
 The `repo remove` command will refuse to remove a repository that contains workspaces unless the `-r` (`--recursive`) flag is provided. With `-r`, all workspaces are removed before the repository is deleted.
 
 `repo gc` bounds the history a repository keeps before it removes the objects
-nothing names. It keeps each workspace's last 10 runs (`--keep-runs`), every
+nothing names, the environments built for them, and the layers kept of those
+for a rack. It keeps each workspace's last 10 runs (`--keep-runs`), every
 run from the last 7 days (`--keep-days`) and the run its current state came
 from, with every execution those runs used; every execution a workspace's
 current state is served from, so a re-run stays cached; every execution from
@@ -727,7 +728,7 @@ shows one unit's own runner output.
 ### Dataflow Commands
 
 ```bash
-e3 dataflow run <repo> <ws> [--filter <pattern>] [-j <n>] [--memory <size>] [--force] [-v]
+e3 dataflow run <repo> <ws> [--filter <pattern>] [-j <n>] [--memory <size>] [--force] [-v] [--rack|--no-rack|--rack-only]
 ```
 
 `-j` / `--jobs <n>` and `--memory <size>` are the budget of the runner processes
@@ -819,9 +820,11 @@ e3 rack enroll --listen 127.0.0.1:7331 --allow 127.0.0.1 \
 # Enter the source origin, certificate SHA-256 and token at their hidden
 # prompts; no secret arguments. Enrollment observes registration, not service
 # activation or task readiness.
-e3 rack policy . set 'train_*' rack --size large
+e3 rack policy . set 'train_*' rack --size large --gpu
+e3 rack policy . set 'score_*' rack --memory-limit 8G
 e3 dataflow run . dev --rack
 e3 watch src/index.ts . dev --start --rack
+e3 rack list
 e3 rack status
 e3 task logs . dev.train_model --follow
 ```
@@ -835,16 +838,56 @@ Local work and fallback retain the existing `-j` / `--memory` budget.
 Routing is disabled by default. `e3 rack policy . enable` enables it for future
 runs; `--no-rack` overrides that setting. Rules use whole-name `*` / `?` globs
 and the first match wins. Unmatched tasks stay local unless the policy mode is
-`auto`. Stock runtimes are supported; custom environments and commands remain
-local. Host-dependent platform calls remain local unless a rule explicitly
-uses `--allow-host-access`.
+`auto`. Stock runtimes are supported, and so is a task that declares a
+`python` or `node` environment, with the project platform packages its runner
+names; custom commands remain local. Host-dependent platform calls remain
+local unless a rule explicitly uses `--allow-host-access`.
+
+A rack runs a split task's pieces as a local run does: every piece of a stage
+is leased at once, as many as the rack has room for, and the rest wait in its
+queue. Each lease says the cores it takes and its **cap**, the most memory it
+may use, and a rack books the cap of everything it holds, so it never books
+more than it has: a piece takes one core and half as much again as the task
+was measured to need, a whole task its `--size`'s cores (`serverless` 2 cores
+and 2 GiB, `small` 2 and 4, `medium` 4 and 8, `large` 8 and 16, `xlarge` 16
+and 32) and its rule's `--memory-limit`, else its size's memory. A piece that
+outgrows its cap is stopped and runs again under a cap half as large again; a
+whole task that does fails, naming `--memory-limit` and `--size`.
+`--memory-limit` is a ceiling on one piece's cap, never a request: set it near
+what a piece needs, so a task's first run, which nothing has measured, is as
+wide as its later ones. `--gpu` asks for a rack's GPU (an `east-py` task's).
+`e3 rack list` shows each rack's cores, memory and GPUs, and what is free. A
+run says what happens, and sums its rack work up as it ends:
+
+```text
+Rack: workshop (56 cores, 262 GB, 1 GPU, e3 1.0.108, environments for x86_64-manylinux_2_28)
+  [ENV] 3f9a2b1c0d4e for x86_64-manylinux_2_28: building
+  [ENV] 3f9a2b1c0d4e built in 48 s: 4 layers, 2.1 GB (1 new)
+  [RACK] train_model → workshop (cap 16 GB)
+  [RACK] embed_rows waiting: needs 16 GB, workshop has 9 GB free
+  [RACK] score_rows outgrew its 3 GB cap on workshop: runs again under 4.5 GB
+  [LOCAL] fit_curves (environment:native-package:fastfit)
+Rack summary: 1 task and 12 units on workshop · 1 waited for capacity (longest 38 s) · 1 ran again (cap) · 0 transfers retried · 1 ran locally
+```
+
+For a task that declares an environment, this machine installs the
+environment a second time for the rack's platform, with the same frozen
+installs, and packs it as layers the rack fetches through the hub (`[ENV]`).
+No container runtime is needed on either machine, nothing is compiled for the
+rack, a second run builds nothing, and a change to the project's code makes
+one small new layer. A task whose environment cannot go runs here and says
+why on its `[LOCAL]` line: a `tools` or `image` environment, a Windows
+launching machine, a rack that composes no environment, a dependency with no
+wheel for the rack's platform, or a project package that compiles native code.
 
 Busy racks spill to local execution by default. `--rack-only` waits for
-compatible capacity, while retaining infrastructure fallback. Task failures,
-timeouts and cancellation do not automatically rerun locally. The policy can
-opt into retrying task failures. Rack flags are refused for remote URLs; on a
-local API server use `e3-api-server --repos ./repos --rack` with the optional
-matching `@elaraai/e3-rack` package installed.
+compatible capacity, while retaining infrastructure fallback: work waits two
+minutes for an unhealthy rack to come back, and is leased once more after a
+failed transfer, before it runs locally. A rack's own fault never fails a run.
+Task failures, timeouts and cancellation do not automatically rerun locally.
+The policy can opt into retrying task failures. Rack flags are refused for
+remote URLs; on a local API server use `e3-api-server --repos ./repos --rack`
+with the optional matching `@elaraai/e3-rack` package installed.
 
 Plain HTTP (`e3 rack config --no-tls`) is for a TLS terminator in front of the
 hub, and is served only on the loopback or a private address, to the addresses

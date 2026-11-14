@@ -3,15 +3,22 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 
+import { decodeBeast2For } from '@elaraai/east';
 import type { TaskBodyRequest } from '@elaraai/e3-core';
-import { decodeTaskObject } from '@elaraai/e3-types';
-import { selectTask, type RackPolicy } from './policy.js';
+import { EnvironmentSpecType, decodeTaskObject } from '@elaraai/e3-types';
+import { selectTask, type RackComputeSize, type RackPolicy } from './policy.js';
 import { rackTierFor, type IneligibleReason, type RackTier } from './tiers.js';
 import { scanProgram } from './host-coupling.js';
 
-/** A request's rack destination, or why it remains local. */
+const decodeEnvironmentSpec = decodeBeast2For(EnvironmentSpecType);
+
+/**
+ * A request's rack destination, or why it remains local. Work that declares
+ * an environment names it: a rack is leased it only once the environment's
+ * layers are built for the rack's platform.
+ */
 export type Eligibility =
-  | { eligible: true; tier: RackTier; size: string; timeoutMinutes: number }
+  | { eligible: true; tier: RackTier; size: RackComputeSize; timeoutMinutes: number; memoryLimit: number | null; gpu: boolean; environment: string | null }
   | { eligible: false; reason: IneligibleReason };
 
 /**
@@ -51,8 +58,16 @@ export class EligibilityEvaluator {
     if (selection.target === 'local') return { eligible: false, reason: 'not-selected' };
     try {
       const task = logicalHash === request.taskHash ? request.task : decodeTaskObject(await request.storage.objects.read(request.repo, logicalHash));
-      if (task.environment.type === 'some') return { eligible: false, reason: 'environment' };
-      const tier = rackTierFor(task.runner);
+      // An environment that is files of the launching machine's platform, or
+      // a server's image, is not installed for a rack's; nor is one built on
+      // Windows, whose built environments have another layout.
+      const environment = task.environment.type === 'some' ? task.environment.value : null;
+      if (environment !== null) {
+        const spec = decodeEnvironmentSpec(await request.storage.objects.read(request.repo, environment));
+        if (spec.type === 'tools' || spec.type === 'image') return { eligible: false, reason: `environment:${spec.type}` };
+        if (process.platform === 'win32') return { eligible: false, reason: 'environment:windows-host' };
+      }
+      const tier = rackTierFor(task.runner, { environment: environment !== null, gpu: selection.gpu });
       if ('ineligible' in tier) return { eligible: false, reason: tier.ineligible };
       if (task.body.type !== 'east') return { eligible: false, reason: 'custom-runner' };
       if (!selection.allowHostCoupled) {
@@ -66,7 +81,7 @@ export class EligibilityEvaluator {
         }
         if (blocked.size > 0) return { eligible: false, reason: `host-coupled:${[...blocked].sort().join(',')}` };
       }
-      return { eligible: true, tier: tier.tier, size: selection.size, timeoutMinutes: selection.timeoutMinutes };
+      return { eligible: true, tier: tier.tier, size: selection.size, timeoutMinutes: selection.timeoutMinutes, memoryLimit: selection.memoryLimit, gpu: selection.gpu, environment };
     } catch {
       return { eligible: false, reason: 'unscannable' };
     }

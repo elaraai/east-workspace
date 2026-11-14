@@ -3,13 +3,15 @@
  * Licensed under BSL 1.1. See LICENSE for details.
  */
 import type { MiddlewareHandler } from 'hono';
+import { refuse } from './beast2.js';
 
 /**
  * Bound control messages before BEAST2 decoding, counting streamed bytes
  * even when Content-Length lies. Object transfers use separate routes.
  * @param maxBytes - Maximum encoded body size
  * @param timeoutMs - Maximum time to receive the body
- * @returns Middleware answering 413 on excess and 408 on timeout
+ * @returns Middleware refusing with 413 on excess and 408 on timeout, as the
+ *   machine protocol refuses: a status and JSON
  * @example
  * app.use('/api/rack/enroll', rackBodyLimit(64 * 1024));
  */
@@ -29,7 +31,7 @@ export function rackBodyLimit(maxBytes: number, timeoutMs = 15_000): MiddlewareH
         const chunk = await Promise.race([reader.read(), timeout]);
         if (chunk.done) break;
         bytes += chunk.value.byteLength;
-        if (bytes > maxBytes) return c.text('Rack request body too large', 413);
+        if (bytes > maxBytes) return refuse(413, 'too-large', 'Rack request body too large');
         chunks.push(chunk.value);
       }
       const data = new Uint8Array(bytes);
@@ -37,7 +39,9 @@ export function rackBodyLimit(maxBytes: number, timeoutMs = 15_000): MiddlewareH
       for (const chunk of chunks) { data.set(chunk, offset); offset += chunk.byteLength; }
       c.req.raw = new Request(c.req.raw, { body: data });
     } catch (error) {
-      return c.text('Rack request body could not be received', error instanceof Error && error.message === 'Rack body timeout' ? 408 : 400);
+      return error instanceof Error && error.message === 'Rack body timeout'
+        ? refuse(408, 'timeout', 'Rack request body could not be received')
+        : refuse(400, 'invalid-request', 'Rack request body could not be received');
     } finally {
       clearTimeout(timer);
       void reader.cancel().catch(() => { /* a disconnected peer needs no answer */ });

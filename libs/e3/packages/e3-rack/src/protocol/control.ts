@@ -46,10 +46,23 @@ export const SessionEventType = StructType({ seq: IntegerType, event: VariantTyp
   lost: StructType({ leaseId: StringType, reason: StringType }),
   cancelled: StructType({ leaseId: StringType }),
 }) });
-/** Reports healthy fleet capacity and the requesting session's queue. */
+/** A rack's cores, memory in bytes and GPUs, or the part of them that is free. */
+export const RackResourcesType = StructType({ cores: IntegerType, memoryBytes: IntegerType, gpus: IntegerType });
+/**
+ * Reports healthy fleet capacity and the requesting session's queue. Of each
+ * rack: the `features` and the `target` its last heartbeat reported (none
+ * until one has); its `problem`, why it cannot be used, when it asked in
+ * another rack protocol than this hub speaks; and, of a rack that admits work
+ * by its resources, all it has (`resources`) and what of it nothing has booked
+ * (`free`): the less of what the rack last reported free and what this hub's
+ * own leases leave of it. A rack that reports no resources admits by its
+ * slots, `capacity` and `busy`.
+ */
 export const CapacitySnapshotType = StructType({
   racks: ArrayType(StructType({ rackId: StringType, label: StringType, tiers: ArrayType(StringType), capacity: IntegerType,
-    busy: IntegerType, healthy: BooleanType, bundledE3: OptionType(StringType), pendingApproval: BooleanType })),
+    busy: IntegerType, healthy: BooleanType, bundledE3: OptionType(StringType), pendingApproval: BooleanType,
+    features: ArrayType(StringType), target: OptionType(StringType), problem: OptionType(StringType),
+    resources: OptionType(RackResourcesType), free: OptionType(RackResourcesType) })),
   queued: IntegerType, mine: StructType({ pending: IntegerType, claimed: IntegerType }),
 });
 /** Requests events after a cursor, waiting at most 20 seconds. */
@@ -58,12 +71,19 @@ export const SessionPollType = StructType({ after: IntegerType, waitMs: IntegerT
 export const SessionPollResultType = StructType({ events: ArrayType(SessionEventType), capacity: CapacitySnapshotType });
 /** Reports listener readiness without hiding a failed bind, and the certificate a rack pins when it serves TLS. */
 export const RackListenerType = VariantType({ disabled: NullType, up: StructType({ origin: StringType, certificateSha256: OptionType(StringType) }), down: StructType({ reason: StringType }) });
-/** Reports the hub, attached sessions, fleet and queue. */
+/**
+ * How one lease ended: its work, the rack that ran it, `success`, `failed`
+ * (the task's own verdict) or `error` (the rack's), and the reason its result
+ * gave, as a run prints it.
+ */
+export const HubOutcomeType = StructType({ at: DateTimeType, workspace: StringType, taskName: StringType, rackLabel: StringType,
+  outcome: StringType, reason: OptionType(StringType) });
+/** Reports the hub, attached sessions, fleet and queue, and how its last leases ended, the latest first. */
 export const HubStatusType = StructType({
   hello: HubHelloType, rackListener: RackListenerType, racks: ArrayType(RackRegistrationType),
   sessions: ArrayType(StructType({ sessionId: StringType, repoAlias: StringType, workspace: StringType, label: StringType, e3Version: StringType,
     pending: IntegerType, claimed: IntegerType })),
-  capacity: CapacitySnapshotType,
+  capacity: CapacitySnapshotType, outcomes: ArrayType(HubOutcomeType),
 });
 /** Requests a short-lived enrollment credential. */
 export const HubEnrollType = StructType({ label: OptionType(StringType), ttlMinutes: OptionType(IntegerType) });
