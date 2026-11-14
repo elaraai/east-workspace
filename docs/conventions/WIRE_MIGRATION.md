@@ -1133,3 +1133,54 @@ Each wire changed under this rule, with the kind it is.
   never the scope, so a narrowing kept or a view saved under the earlier type
   still decodes. A UI task's output is not stored state, so no repository
   upgrade step ships with it.
+- **A task's and a function's inputs name the index of a record they read
+  (#1617)** — package-borne, and the task and function routes' answers.
+  `TaskInputType` gains `index`, after `path`: the index of the record at
+  `path` the input reads, by its name on the record, and `none` for the dataset
+  itself. `FunctionObjectType`'s `inputs` is an Array of `FunctionInputType` —
+  a path, and the same `index` — where it was an Array of paths. A task object
+  or a function object an earlier SDK exported does not decode under the new
+  type: a run, a status, a call, a list or a describe of its package is
+  refused, naming the fix — re-export the package. gc walks each as it did: it
+  reads an object under the type its own header names, and what it walks of
+  either — a program, what an output folds with, an environment — is where it
+  was. Packages are re-exported, so no repository upgrade step ships for it.
+  The answers that hold them change with them — a task's details
+  (`TaskDetailsType`'s `inputs`) and a function's signature
+  (`FunctionSignatureType`'s `inputs`) — so an answer of either release does
+  not decode as the other's, and a client refuses a server's answer of the
+  other release, naming both types: `e3`, e3-ui and the server they call are
+  of one release, as they were. A dataflow's graph, which a stored run's state
+  holds, names each input by its dataset's path alone, as it did — an index's
+  by its record's — so no stored run changes, and which index an input reads
+  is the task object's. An execution is keyed by the objects it read: for an
+  index, the manifest its record's state names for it, which a backend finds
+  through the store's own reads (e3-core `inputObject`). No execution recorded
+  before names one, so none is re-keyed.
+- **A call's result and a kept call name the index an input read (#1617)** —
+  the function, one-shot and split-call routes' answers, and stored state.
+  `ExecuteResultType`'s `inputs` and `FunctionCallType`'s are each an Array of
+  `InputReadType` — a path, the `index` of the record there that was read, and
+  the hash the dataset was pinned at — where an entry was a path and a hash.
+  For an index the hash is its record's, the state it was read at, which is
+  the hash the call's other inputs of that record name; a dataset argument, a
+  one-shot's and a split call's among them, names no index. An answer of
+  either release does not decode as the other's, and a client refuses a
+  server's answer of the other release, naming both types. A program that
+  calls `e3_function_call` or `e3_one_shot_execute` holds the result's type in
+  its IR, and one an earlier SDK exported is refused as its runner checks it:
+  re-export its package. A split call's job keeps what it read in a form of
+  its own, a path and a hash, which does not change.
+  The release ships the repository upgrade step `function-call-index-inputs`
+  (e3-core `upgrades/function-call-index-inputs.ts`), after
+  `function-call-drafts`: every call an earlier release kept is rewritten in
+  the new form, each of its inputs naming no index, whatever its state. It
+  reads the form `function-call-drafts` writes, as that step froze it, and
+  each call as its store holds it, and writes it back the same way
+  (`FunctionCallStore.readStored`, which every backend's call store
+  implements). A unit of the step is a call, keyed `<workspace>/<id>`, 16 at
+  a time. A call whose lifetime has ended is carried too, and forgotten at its
+  next read, as it would have been; a call already in the new form is left as
+  it is, and so is one in neither form. gc keeps what a kept call names, an
+  input's hash among them: for an index, its record's state, which names the
+  index's manifest.

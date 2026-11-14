@@ -75,7 +75,7 @@ import type { FunctionCallEnd, StorageBackend } from '../storage/interfaces.js';
 import { uuidv7, uuidv7Timestamp } from '../uuid.js';
 import { workspaceGetPackage } from '../workspaces.js';
 import {
-  NO_CALL_DRAFTS, callDraftsRead, checkCallDrafts, draftedInputs, keptCallArgs, keptCallDrafts, layAndStage, stageCall, storeCallDrafts,
+  NO_CALL_DRAFTS, callDraftsRead, callRead, checkCallDrafts, draftedInputs, keptCallArgs, keptCallDrafts, layAndStage, storeCallDrafts,
   type CallDrafts, type CallStaged,
 } from './functionDrafts.js';
 import type { DetachedResult, TaskRunner } from './interfaces.js';
@@ -682,9 +682,10 @@ export interface FunctionCallRun {
  *    ends `timed_out`, its first line saying so, and its function does not
  *    run.
  * 2. **Its function runs** on `runner` with `runDetached`: its inputs, then its
- *    arguments, each staged as the stored object it is, a dataset argument
- *    naming a drafted record read as saved, at the state the drafts were laid
- *    over, under what is left of its timeout.
+ *    arguments, each staged as the stored object it is — an input that is an
+ *    index of a record as the index's manifest in the state the input names —
+ *    a dataset argument naming a drafted record read as saved, at the state
+ *    the drafts were laid over, under what is left of its timeout.
  *
  * Once it ends:
  * - a value is stored through the store's door, holding the repository's
@@ -1046,7 +1047,9 @@ export async function handleProcessFunctionCall(
  * with the hash it is read at, in parameter order, as its result names them.
  * An input of a record the call drafts names the state its drafts are laid
  * over until they are laid, and the state they left after; a dataset argument
- * naming that record, the state they were laid over (`stageCall`).
+ * naming that record, the state they were laid over (`callRead`). An input
+ * that is an index of a record names the record, the index and the hash the
+ * record was read at.
  *
  * @param job - The call
  * @returns What it read; none for a call of a function with no inputs and
@@ -1059,7 +1062,7 @@ export async function handleProcessFunctionCall(
  * ```
  */
 export function functionCallInputs(job: FunctionCallJob): ExecuteResult['inputs'] {
-  return stageCall(job.call.inputs, keptCallArgs(job.call.args), job.drafted).read;
+  return callRead(job.call.inputs, keptCallArgs(job.call.args), job.drafted);
 }
 
 /**

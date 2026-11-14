@@ -37,7 +37,7 @@ import {
   splitCallResult,
 } from '@elaraai/e3-core/portable';
 import type { DetachedArg, ExecuteCeilings, OneShotGrant, SplitCallJob, SplitCallStore, StorageBackend, TaskRunner } from '@elaraai/e3-core/portable';
-import { type FunctionObject, type PackageObject, type RunnerValue, decodeFunctionObject, pathToString } from '@elaraai/e3-types';
+import { type FunctionObject, type PackageObject, type RunnerValue, decodeFunctionObject, inputLabel, pathToString } from '@elaraai/e3-types';
 import { sendSuccess, sendError } from '../beast2.js';
 import { errorToVariant } from '../errors.js';
 import {
@@ -97,7 +97,7 @@ function signatureOf(name: string, fnObj: FunctionObject): FunctionSignature {
 function callArguments(fnName: string, fnObj: FunctionObject, args: FunctionCallRequest['args']): DetachedArg[] | ExecuteResult {
   if (fnObj.inputs.length > 0) {
     return invalidExecuteResult(
-      `'${fnName}' reads ${fnObj.inputs.map((path) => pathToString(path)).join(', ')} from the workspace it is called through, `
+      `'${fnName}' reads ${fnObj.inputs.map((input) => inputLabel(input)).join(', ')} from the workspace it is called through, `
       + `and a call through the package has none: call it through a workspace it is deployed to, at …/workspaces/<ws>/functions/${fnName}`
     );
   }
@@ -423,7 +423,7 @@ export async function startSplitCall(
         maxResultBytes: BigInt(launched.limits.maxResultBytes),
         maxLogBytes: BigInt(launched.limits.maxLogBytes),
       },
-      read: launched.read,
+      read: [...launched.read],
       status: variant('processing', none),
     });
     await splitCallStore.execute(id, repo);

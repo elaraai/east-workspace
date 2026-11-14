@@ -142,7 +142,7 @@ function executed(call: PreparedQuery, outcome: ExecuteResult["outcome"], stderr
         stderrTruncated: false,
         inputs: call.request.args.map(arg => {
             const { name } = datasetOf(arg);
-            return { path: pathOf(name), hash: hashOf(name) };
+            return { path: pathOf(name), index: none, hash: hashOf(name) };
         }),
         drafts: [],
     };

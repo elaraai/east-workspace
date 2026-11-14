@@ -26,7 +26,11 @@ import {
   IMPORT_PLATFORM, decodeAsyncEastIR, decodeEastIR, literalValueOf, none, some, variant, walkIR, type AsyncFunctionIR, type EastTypeValue, type FunctionIR,
   type IR, type ValueIR,
 } from '@elaraai/east';
-import { pathToString, type CallArg, type ExecuteLimits, type ExecuteResult, type OneShotRequest, type RunnerValue, type TreePath } from '@elaraai/e3-types';
+import {
+  pathToString, type CallArg, type ExecuteLimits, type ExecuteResult, type FunctionInput, type InputRead, type OneShotRequest, type RunnerValue,
+  type TreePath,
+} from '@elaraai/e3-types';
+import { indexNotHeld, inputObject } from '../dataset-open.js';
 import { PermissionDeniedError } from '../errors.js';
 import type { StorageBackend } from '../storage/interfaces.js';
 import { workspaceGetDatasetHash } from '../trees.js';
@@ -155,8 +159,9 @@ export function resolveJobLimits(
  * through a workspace, whose result is its own (`functionCallResult`).
  *
  * @param result - The run's result
- * @param inputs - Each dataset argument's path and the hash it was pinned at,
- *   in argument order; none for a call with value arguments only
+ * @param inputs - Each input's and each dataset argument's path and the hash
+ *   it was pinned at, in parameter order; none for a call with value arguments
+ *   only
  * @returns The call's result
  */
 export function detachedToExecuteResult(result: DetachedResult, inputs: ExecuteResult['inputs'] = []): ExecuteResult {
@@ -322,20 +327,27 @@ export function oneShotPlatformUse(request: OneShotRequest): string | null {
  * and a named function call pin theirs alike.
  *
  * @remarks
- * A named function's inputs — the datasets it declares, which its caller does
- * not pass — are pinned the same way, before the arguments, and come first in
- * what the runner is handed and in what the result names. Each is read as it
- * is stored now, one after another, waiting for no run in progress: a call
- * during a run may read one input before the run rewrites it and another
+ * A named function's inputs — what it declares, which its caller does not
+ * pass — are pinned the same way, before the arguments, and come first in
+ * what the runner is handed and in what the result names. Each dataset is read
+ * as it is stored now, one after another, waiting for no run in progress: a
+ * call during a run may read one input before the run rewrites it and another
  * after, and the result names the hash of each. An input with no value is
  * refused in words that say why, by what it is (`unassignedInput`).
+ *
+ * An input that is an index of a record is pinned at the hash its record
+ * holds, read once however many of the function's inputs read the record: so
+ * the inputs of one record — the record, and any of its indexes — are of one
+ * state of it, and the result names that one hash for each. What the runner is
+ * handed for it is the index's manifest in that state ({@link stagedInputs}); a
+ * state that holds no such index is refused, naming the record and the index.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
  * @param workspace - The workspace whose datasets the call reads
  * @param args - The call's arguments
- * @param options - `inputs`, the datasets the function reads before its
- *   arguments (none by default)
+ * @param options - `inputs`, what the function reads before its arguments
+ *   (none by default)
  * @returns The arguments and what they read, or the `invalid` result an
  *   unassigned dataset answers, naming its path
  */
@@ -344,7 +356,7 @@ export async function pinCallArguments(
   repo: string,
   workspace: string,
   args: readonly CallArg[],
-  options: { inputs?: readonly TreePath[] } = {},
+  options: { inputs?: readonly FunctionInput[] } = {},
 ): Promise<{ args: DetachedArg[]; inputs: ExecuteResult['inputs'] } | ExecuteResult> {
   const pinned: DetachedArg[] = [];
   const inputs: ExecuteResult['inputs'] = [];
@@ -353,26 +365,66 @@ export async function pinCallArguments(
   // The query builder reads a dataset argument's refusal by its words
   // (`Dataset argument <i> is not assigned`), so those stay as they are; an
   // input, which no caller named, is refused naming its path.
-  const pin = async (path: TreePath, refusal: (refType: string) => string): Promise<ExecuteResult | null> => {
+  const read = async (path: TreePath, refusal: (refType: string) => string): Promise<{ hash: string } | { refused: ExecuteResult }> => {
     const { refType, hash } = await workspaceGetDatasetHash(storage, repo, workspace, path);
-    if (refType !== 'value' || hash === null) return invalidExecuteResult(refusal(refType));
-    pinned.push({ dataset: hash });
-    inputs.push({ path, hash });
-    return null;
+    return refType !== 'value' || hash === null ? { refused: invalidExecuteResult(refusal(refType)) } : { hash };
   };
-  for (const path of options.inputs ?? []) {
-    const refused = await pin(path, (refType) => unassignedInput(path, refType));
-    if (refused !== null) return refused;
+  // Each input's dataset is read once: the inputs of one record are of one state.
+  const held = new Map<string, string>();
+  for (const { path, index } of options.inputs ?? []) {
+    const at = pathToString(path);
+    let hash = held.get(at);
+    if (hash === undefined) {
+      const found = await read(path, (refType) => unassignedInput(path, refType));
+      if ('refused' in found) return found.refused;
+      held.set(at, hash = found.hash);
+    }
+    const object = await inputObject(storage, repo, hash, index.type === 'some' ? index.value : null);
+    if (object === null) return invalidExecuteResult(`The function's input ${at} cannot be read: ${indexNotHeld(at, index.value!)}, and nothing ran`);
+    pinned.push({ dataset: object });
+    inputs.push({ path, index, hash });
   }
   for (const [i, arg] of args.entries()) {
     if (arg.type === 'value') {
       pinned.push(arg.value);
       continue;
     }
-    const refused = await pin(arg.value, (refType) => `Dataset argument ${i} is not assigned (ref type: ${refType})`);
-    if (refused !== null) return refused;
+    const found = await read(arg.value, (refType) => `Dataset argument ${i} is not assigned (ref type: ${refType})`);
+    if ('refused' in found) return found.refused;
+    pinned.push({ dataset: found.hash });
+    inputs.push({ path: arg.value, index: none, hash: found.hash });
   }
   return { args: pinned, inputs };
+}
+
+/**
+ * What a runner is handed for the datasets a call read, in order: for each,
+ * the object its dataset was pinned at, or, for an index of a record, the
+ * index's manifest in the state the record was pinned at — the drafted
+ * state's, for a call that laid drafts over the record, whose indexes hold
+ * them as they would after a Save.
+ *
+ * @remarks
+ * Only an index is looked up. A call none of whose inputs is one is answered
+ * at once, with no read and no turn of the event loop between its caller and
+ * its runner: a run hands its runner the call as soon as it has it, as it did
+ * before an input could be an index.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param inputs - The datasets read, each with the hash it was pinned at
+ * @returns The arguments, as `runDetached` stages them: at once, or once each
+ *   index's state has been read
+ * @throws {Error} When an input is an index the pinned state does not hold,
+ *   naming the record and the index
+ */
+export function stagedInputs(storage: StorageBackend, repo: string, inputs: readonly InputRead[]): DetachedArg[] | Promise<DetachedArg[]> {
+  if (inputs.every((input) => input.index.type === 'none')) return inputs.map((input) => ({ dataset: input.hash }));
+  return Promise.all(inputs.map(async (input): Promise<DetachedArg> => {
+    const object = await inputObject(storage, repo, input.hash, input.index.type === 'some' ? input.index.value : null);
+    if (object === null) throw new Error(indexNotHeld(pathToString(input.path), input.index.value!));
+    return { dataset: object };
+  }));
 }
 
 /**

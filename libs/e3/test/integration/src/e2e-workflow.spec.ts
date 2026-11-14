@@ -107,7 +107,7 @@ describe('end-to-end workflow', () => {
           console.log(`  tree: ${item.name} at ${JSON.stringify(item.path)}`);
         } else if (item.kind === 'task') {
           console.log(`  task: ${item.name}`);
-          console.log(`    inputs: ${item.inputs.map(i => JSON.stringify(i.kind === 'partition' ? i.dataset.path : i.path)).join(', ')}`);
+          console.log(`    inputs: ${item.inputs.map(i => JSON.stringify(i.kind === 'partition' ? i.dataset.path : i.kind === 'index' ? i.record.path : i.path)).join(', ')}`);
         }
       }
 

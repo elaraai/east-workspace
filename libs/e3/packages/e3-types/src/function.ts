@@ -22,7 +22,36 @@
 
 import { StructType, StringType, ArrayType, EastTypeType, OptionType, ValueTypeOf, decodeBeast2For } from '@elaraai/east';
 import { RunnerType } from './runner.js';
-import { TreePathType } from './structure.js';
+import { TreePathType, pathToString } from './structure.js';
+
+/**
+ * What a function reads from the workspace a call runs in: a dataset, or an
+ * index of a record, which is read through the record's dataset.
+ *
+ * @property path - The dataset's path: for an index, its record's
+ * @property index - The index of the record at `path` the input reads, by its
+ *   name on the record: the body is given the index's entries,
+ *   `Dict<{ ik, k }, P>`, at the state the record is pinned at. `none` for the
+ *   dataset itself
+ */
+export const FunctionInputType = StructType({
+  path: TreePathType,
+  index: OptionType(StringType),
+});
+export type FunctionInputType = typeof FunctionInputType;
+export type FunctionInput = ValueTypeOf<typeof FunctionInputType>;
+
+/**
+ * An input as a message names it: its dataset's keypath, or, for an index of a
+ * record, the index and its record's keypath.
+ *
+ * @param input - The input: a function's, a task's, or one a call read
+ * @returns `.inputs.prices`, or `the index jobs_by_press of .records.jobs`
+ */
+export function inputLabel(input: Pick<FunctionInput, 'path' | 'index'>): string {
+  const at = pathToString(input.path);
+  return input.index.type === 'some' ? `the index ${input.index.value} of ${at}` : at;
+}
 
 /**
  * Function object stored in the object store, referenced by name from
@@ -33,10 +62,11 @@ export const FunctionObjectType = StructType({
    *  Its parameters are the inputs' types, in `inputs` order, then
    *  `argTypes`. */
   bodyIr: StringType,
-  /** The datasets a call reads from the workspace it runs in, each pinned at
-   *  its hash when the call launches and passed before the caller's
-   *  arguments; empty for a function that reads none. */
-  inputs: ArrayType(TreePathType),
+  /** What a call reads from the workspace it runs in ({@link FunctionInputType}):
+   *  each dataset pinned at its hash when the call launches and passed before
+   *  the caller's arguments, the inputs of one record — the record and any of
+   *  its indexes — at one state of it; empty for a function that reads none. */
+  inputs: ArrayType(FunctionInputType),
   /** The records a call may pass drafts of, by name: each a record one of
    *  `inputs` reads, which the call then reads with its drafts laid over it.
    *  A call that passes a draft of any other record is `invalid`; empty for a

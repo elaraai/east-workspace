@@ -37,6 +37,7 @@ import {
 import {
   DiagnosticType, SplitCallReportType, TASK_OBJECT_KIND, TaskObjectType, decodeTaskObject, decodeUnitPlan, manifestByteSize,
   type ExecuteResult, type PartitionProgress, type SplitCallPlan, type SplitCallProgress, type SplitCallRequest, type TaskOutputKind,
+  type TreePath,
 } from '@elaraai/e3-types';
 import { PermissionDeniedError } from '../errors.js';
 import { executionGet, inputsHash } from '../executions.js';
@@ -91,6 +92,18 @@ export const SplitCallOutcomeType = StructType({
 });
 export type SplitCallOutcome = ValueTypeOf<typeof SplitCallOutcomeType>;
 
+/**
+ * A dataset argument a split call read: its path, and the hash it was pinned
+ * at, as the call's store keeps it. A split call's argument is a dataset
+ * itself, never an index of a record.
+ */
+export interface SplitCallRead {
+  /** The dataset's path. */
+  readonly path: TreePath;
+  /** The hash it was pinned at. */
+  readonly hash: string;
+}
+
 /** A split call launched: the task its job runs, and what it read. */
 export interface SplitCallTask {
   /** The task object's hash. */
@@ -110,7 +123,7 @@ export interface SplitCallTask {
   readonly limits: ResolvedLimits;
   /** Each dataset argument's path and the hash it was pinned at, in argument
    *  order: what the call's result names it read. */
-  readonly read: ExecuteResult['inputs'];
+  readonly read: readonly SplitCallRead[];
 }
 
 /** Options for {@link splitCallPrepare}. */
@@ -291,7 +304,7 @@ export async function splitCallPrepare(
   return withRunningWork(storage, repo, async () => {
     const inputs: string[] = [];
     const objects: number[] = [];
-    const read: ExecuteResult['inputs'] = [];
+    const read: SplitCallRead[] = [];
     for (const [i, { arg, partition }] of request.args.entries()) {
       let hash: string;
       if (arg.type === 'dataset') {
@@ -345,7 +358,7 @@ export async function splitCallPrepare(
       kind: TASK_OBJECT_KIND,
       body: variant('east', { program }),
       runner: request.runner,
-      inputs: request.args.map(({ partition }) => ({ path: [], partition })),
+      inputs: request.args.map(({ partition }) => ({ path: [], index: none, partition })),
       output: { path: [], kind },
       role: variant('data', null),
       environment: none,
@@ -712,7 +725,7 @@ export async function splitCallResult(
   storage: StorageBackend,
   repo: string,
   outcome: SplitCallOutcome,
-  read: ExecuteResult['inputs'],
+  read: readonly SplitCallRead[],
   maxResultBytes: number,
 ): Promise<ExecuteResult> {
   const streams = {
@@ -720,7 +733,7 @@ export async function splitCallResult(
     stderr: outcome.stderr,
     stdoutTruncated: outcome.stdoutTruncated,
     stderrTruncated: outcome.stderrTruncated,
-    inputs: read,
+    inputs: read.map(({ path, hash }) => ({ path, index: none, hash })),
     // A split call is a one-shot's, which lays no draft
     drafts: [],
   };

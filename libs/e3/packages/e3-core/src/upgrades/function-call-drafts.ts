@@ -13,9 +13,10 @@
  * header whose type differs, so every call an earlier release filed is
  * rewritten, whatever its state: it passed no draft, and holds none.
  *
- * Both forms are frozen copies, which nothing but this upgrade reads: the step
+ * Both forms are frozen copies, which nothing but an upgrade reads: the step
  * reads what the releases before it wrote and writes what it shipped, however
- * the kept call changes after.
+ * the kept call changes after, and the step that changes it next reads the
+ * form this one writes (`function-call-index-inputs`).
  *
  * @packageDocumentation
  */

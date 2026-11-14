@@ -70,8 +70,8 @@ import {
   type DetachedArg,
 } from '@elaraai/e3-core';
 import {
-  type CallArg, type FunctionDraft, type FunctionObject, type PackageObject, type RecordSignature, type RunnerValue, type TreePath,
-  decodeFunctionObject, functionDraftEnded, functionDraftsOutlasted, parseKeypath, pathToString,
+  type CallArg, type FunctionDraft, type FunctionInput, type FunctionObject, type PackageObject, type RecordSignature, type RunnerValue,
+  decodeFunctionObject, functionDraftEnded, functionDraftsOutlasted, inputLabel, parseKeypath,
 } from '@elaraai/e3-types';
 import {
   ApiError,
@@ -109,7 +109,7 @@ const OWN_ARGUMENTS_FIRST = "a call's own arguments are written before the first
 /** A function's callable signature, from either a local FunctionObject or a
  *  remote describe. */
 interface CallSignature {
-  inputs: TreePath[];
+  inputs: FunctionInput[];
   argTypes: EastTypeValue[];
   outputType: EastTypeValue;
 }
@@ -133,7 +133,7 @@ export function checkCallArguments(
 ): void {
   if (signature.inputs.length > 0 && workspace === undefined) {
     throw new Error(
-      `Function '${fn}' reads ${signature.inputs.map((path) => pathToString(path)).join(', ')} from the workspace it is called through: pass -w <ws>`
+      `Function '${fn}' reads ${signature.inputs.map((input) => inputLabel(input)).join(', ')} from the workspace it is called through: pass -w <ws>`
     );
   }
   if (rawArgs.length !== signature.argTypes.length) {

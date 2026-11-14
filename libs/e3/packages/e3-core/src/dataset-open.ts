@@ -18,6 +18,12 @@
  * one blob is what an older e3 wrote, and is refused. Writing a collection is
  * the store's door's (`store-collection.ts`).
  *
+ * A record's state names its rows and each of its indexes, and reading the
+ * record reads its rows. An input that is an index of a record reads the
+ * index's collection instead, which {@link inputObject} finds in the state:
+ * the one place a task's or a call's index input becomes the object a runner
+ * is handed.
+ *
  * @packageDocumentation
  */
 
@@ -44,6 +50,7 @@ import {
   type CollectionManifest,
 } from '@elaraai/e3-types';
 import { readInOrder } from './concurrency.js';
+import { hashMemo, memoKey } from './memo.js';
 import type { StorageBackend } from './storage/interfaces.js';
 
 /** The head read the manifest probe starts with — a manifest's own type
@@ -383,6 +390,89 @@ export async function openDatasetObject(
   if (!isCollectionManifestType(typeValue)) return { hash, manifest: null, ...(known !== undefined && { size: known }) };
   const manifest = decodeCollectionManifest(whole ? head : await storage.objects.read(repo, hash));
   return { hash, manifest: manifest.kind === COLLECTION_MANIFEST_KIND ? manifest : null, ...(known !== undefined && { size: known }) };
+}
+
+/** How many record states' index tables {@link recordIndexManifests} keeps. */
+const INDEX_TABLES_KEPT = 1024;
+
+/** The manifest of each index a record's state names, by repository and the
+ *  state's hash; `null` for an object that is no record state. A status is
+ *  computed over a workspace's records every second or so. */
+const indexTables = hashMemo<ReadonlyMap<string, string> | null>(INDEX_TABLES_KEPT);
+
+/**
+ * The manifest of each index a record's state names, by the index's name.
+ *
+ * @remarks
+ * A state is read once per repository and then from memory ({@link hashMemo}):
+ * its hash fixes what it names. Costs one head read, as
+ * {@link openDatasetObject} does, and a state is a small object that head
+ * holds whole.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param hash - A dataset object's hash: a record ref's `value.hash`
+ * @returns Each index's manifest hash by its name; `null` for an object that
+ *   is no record state — a record that declares no index, whose state is its
+ *   rows' manifest, or any other dataset
+ */
+export async function recordIndexManifests(storage: StorageBackend, repo: string, hash: string): Promise<ReadonlyMap<string, string> | null> {
+  const key = memoKey(repo, hash);
+  const known = indexTables.get(key);
+  if (known !== undefined) return known;
+  const head = await storage.objects.readRange(repo, hash, 0, HEAD_PROBE_BYTES);
+  let manifests: ReadonlyMap<string, string> | null = null;
+  let typeValue: EastTypeValue | null;
+  try {
+    typeValue = readBeast2Type(head);
+  } catch {
+    // A type section wider than the probe is no state's, which is one small struct.
+    typeValue = null;
+  }
+  if (typeValue !== null && isRecordStateType(typeValue)) {
+    const state = decodeRecordState(head.length < HEAD_PROBE_BYTES ? head : await storage.objects.read(repo, hash));
+    // A struct of this shape carrying another tag is a user value, not a state.
+    if (state.kind === RECORD_STATE_KIND) manifests = new Map([...state.indexes].map(([name, { manifest }]) => [name, manifest]));
+  }
+  indexTables.set(key, manifests);
+  return manifests;
+}
+
+/**
+ * The object an input reads, given the hash its dataset holds: that hash, or,
+ * for an index of a record, the manifest the record's state names for it.
+ *
+ * @remarks
+ * A runner is handed an index as it is handed a record's rows: a collection's
+ * manifest. This is where the index's is found, behind the storage interface
+ * every backend implements, so no runner tells an index from any other
+ * collection: a task's execution is keyed by the objects it reads, an index's
+ * manifest among them, and a call's inputs are staged by them.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param hash - The hash the input's dataset holds: for a record, its state's
+ * @param index - The index of the record the input reads, by name; `null` for
+ *   the dataset itself
+ * @returns The object's hash; `null` when the dataset's state names no such
+ *   index — it is no record's state with indexes, or was written before the
+ *   index was built
+ */
+export async function inputObject(storage: StorageBackend, repo: string, hash: string, index: string | null): Promise<string | null> {
+  if (index === null) return hash;
+  return (await recordIndexManifests(storage, repo, hash))?.get(index) ?? null;
+}
+
+/**
+ * Why a record's state holds no index an input reads, as a refusal says it.
+ *
+ * @param path - The record's keypath, as a status names it: `.records.jobs`
+ * @param index - The index's name
+ * @returns The words
+ */
+export function indexNotHeld(path: string, index: string): string {
+  return `the record ${path} holds no index '${index}' at the state it stands at: ` +
+    `deploy the package that declares the index again, which builds it`;
 }
 
 /**

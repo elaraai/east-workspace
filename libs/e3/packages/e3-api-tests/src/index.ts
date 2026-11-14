@@ -44,6 +44,7 @@ export {
   createPackageZip,
   createFunctionPackageZip,
   createDraftsPackageZip,
+  createIndexInputsPackageZip,
   DraftJobsType,
   createMultiInputPackageZip,
   createStringPackageZip,
@@ -82,6 +83,7 @@ export { dataflowTests } from './suites/dataflow.js';
 export { functionTests } from './suites/functions.js';
 export { callTests } from './suites/calls.js';
 export { functionDraftTests } from './suites/function-drafts.js';
+export { indexInputTests } from './suites/index-inputs.js';
 export { recordTests } from './suites/records.js';
 export { keyedRecordTests } from './suites/records-keyed.js';
 export { areaRecordTests } from './suites/records-area.js';
@@ -109,6 +111,7 @@ import { dataflowTests } from './suites/dataflow.js';
 import { functionTests } from './suites/functions.js';
 import { callTests } from './suites/calls.js';
 import { functionDraftTests } from './suites/function-drafts.js';
+import { indexInputTests } from './suites/index-inputs.js';
 import { recordTests } from './suites/records.js';
 import { keyedRecordTests } from './suites/records-keyed.js';
 import { areaRecordTests } from './suites/records-area.js';
@@ -142,6 +145,7 @@ export const apiTestSuites: Readonly<Record<string, (setup: TestSetup<TestContex
   functions: functionTests,
   calls: callTests,
   functionDrafts: functionDraftTests,
+  indexInputs: indexInputTests,
   records: recordTests,
   keyedRecords: keyedRecordTests,
   areaRecords: areaRecordTests,

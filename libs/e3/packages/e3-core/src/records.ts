@@ -845,7 +845,7 @@ function programTask(mutObj: MutationObject, argCount: number): Uint8Array {
     kind: TASK_OBJECT_KIND,
     body: variant('east', { program: whole ? mutObj.bodyIr : mutObj.programIr }),
     runner: mutObj.runner,
-    inputs: Array.from({ length: 1 + argCount }, () => ({ path: [], partition: none })),
+    inputs: Array.from({ length: 1 + argCount }, () => ({ path: [], index: none, partition: none })),
     output: { path: [], kind: whole ? variant('value', null) : variant('dict', { merge: none }) },
     role: variant('data', null),
     environment: none,
@@ -1601,7 +1601,7 @@ async function buildRecordIndexes(
       kind: TASK_OBJECT_KIND,
       body: variant('east', { program: indexObj.buildIr }),
       runner: indexObj.runner,
-      inputs: [{ path: [], partition: some({ by: [] }) }],
+      inputs: [{ path: [], index: none, partition: some({ by: [] }) }],
       // A summary's pieces hold the same keys, and its merge sums them (#1039).
       output: { path: [], kind: variant('dict', { merge: indexObj.form.type === 'summary' ? some(indexObj.form.value.mergeIr) : none }) },
       role: variant('data', null),

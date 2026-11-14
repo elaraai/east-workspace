@@ -162,9 +162,9 @@ const PAGER_CACHE_BYTES = 256 * 2 ** 20;
  * - `none`: nothing — the program never reads it, or only its size, which its
  *   index gives;
  * - `scan`: a segment at a time — the program only loops over it (`$.for`);
- * - `keyed`: the segments its reads by key or position reach (`get`, `has`
- *   and the like), as many as the runner's pager keeps — the program reads it
- *   so, and may loop over it too;
+ * - `keyed`: the segments its reads by key or position reach (`get`, `has`,
+ *   `range`, `prefix` and the like), as many as the runner's pager keeps — the
+ *   program reads it so, and may loop over it too;
  * - `whole`: all of it — the program uses it any other way, for which the
  *   runner decodes it whole.
  */
@@ -177,10 +177,12 @@ const READS: readonly InputRead[] = ['none', 'scan', 'keyed', 'whole'];
 const SIZE_BUILTINS: ReadonlySet<string> = new Set(['DictSize', 'SetSize', 'ArraySize']);
 
 /** The builtins a lazily opened input serves by key or position, decoding
- *  only the segments they reach. */
+ *  only the segments they reach: a read of one key, and a key range, which is
+ *  a view its pager serves — placed by its two ends and read through the
+ *  input's own cache, whatever is then read of it. */
 const KEYED_BUILTINS: ReadonlySet<string> = new Set([
-  'DictHas', 'DictGet', 'DictTryGet', 'DictGetOrDefault',
-  'SetHas',
+  'DictHas', 'DictGet', 'DictTryGet', 'DictGetOrDefault', 'DictRange', 'DictPrefix',
+  'SetHas', 'SetRange', 'SetPrefix',
   'ArrayHas', 'ArrayGet', 'ArrayTryGet', 'ArrayGetOrDefault',
 ]);
 
@@ -191,7 +193,8 @@ const KEYED_BUILTINS: ReadonlySet<string> = new Set([
  * @remarks
  * A loop over a parameter is a scan; a builtin that takes the parameter as its
  * collection reads none of it when the index answers it (its size) and is a
- * keyed read when the input serves it by key or position. Any other use —
+ * keyed read when the input serves it by key or position — a key range among
+ * them, which is how a body reads an index of a record. Any other use —
  * passing it on, binding it to another name, any other builtin, which may
  * build as much again — reads it whole, as a runner then decodes it. A
  * closure's capture of it is not a use; what the closure does with it is. A

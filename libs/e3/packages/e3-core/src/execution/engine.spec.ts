@@ -735,6 +735,25 @@ describe('a task split into pieces', () => {
       });
       assert.deepEqual(inputReads(program.toIR().ir, 2), ['keyed', 'whole']);
     });
+
+    it('reads an input it takes a key range of by key, as far as the pager keeps, whatever it then reads of the range (#1616)', () => {
+      const Entries = DictType(StructType({ ik: IntegerType, k: IntegerType }), IntegerType);
+      const Keys = SetType(StructType({ ik: IntegerType, k: IntegerType }));
+      const program = East.function([Entries, Entries, Keys, Keys, Entries], IntegerType, ($, ranged, prefixed, between, led, mapped) => {
+        const total = $.let(0n);
+        // A run of an index, sized and looped over: the range is a view its pager serves
+        $.assign(total, total.add(ranged.range({ from: { ik: 2n }, to: { ik: 5n } }).size()));
+        $.for(prefixed.prefix({ ik: 3n }), ($, value) => {
+          $.assign(total, total.add(value));
+        });
+        $.assign(total, total.add(between.range({ from: { ik: 2n }, to: { ik: 5n } }).size()));
+        $.assign(total, total.add(led.prefix({ ik: 3n }).size()));
+        // A range of what another builtin made is that builtin's read: whole
+        $.assign(total, total.add(mapped.map(($, value) => value).range({ from: { ik: 2n } }).size()));
+        return total;
+      });
+      assert.deepEqual(inputReads(program.toIR().ir, 5), ['keyed', 'keyed', 'keyed', 'keyed', 'whole']);
+    });
   });
 
   describe('a stage that starts with an estimate (#1109)', () => {

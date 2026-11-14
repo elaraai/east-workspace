@@ -18,6 +18,7 @@
 import { decodeEastIR } from '@elaraai/east';
 import { treePathToRefPath, type ExecutionStatus } from '@elaraai/e3-types';
 import type { StorageBackend, LogChunk } from './storage/interfaces.js';
+import { inputObject } from './dataset-open.js';
 import { computeHash } from './objects.js';
 
 // ============================================================================
@@ -181,6 +182,9 @@ export interface CurrentExecutionRef {
  * workspace's record once, the task object from memory once it has been read
  * (`taskObjectRead`), and the task's input refs in one call
  * (`DatasetRefStore.readMany`): a UI polls a task's log every second or so.
+ * An input that is an index of a record is the index's manifest, found in the
+ * record's state, which is read once and then from memory (`inputObject`), as
+ * the dataflow keys the task's executions.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier (for local storage, the path to e3 repository directory)
@@ -206,13 +210,19 @@ export async function executionFindCurrent(
   const currentInputHashes: string[] = [];
   let allInputsAssigned = true;
 
-  for (const refPath of refPaths) {
+  for (const [at, refPath] of refPaths.entries()) {
     const ref = refs.get(refPath);
-    if (ref === undefined || ref.type !== 'value') {
+    // The object the input reads: its dataset's, or, for an index of a
+    // record, the index's manifest at the record's state. A state that holds
+    // no such index has no execution over it.
+    const index = task.inputs[at]!.index;
+    const object = ref === undefined || ref.type !== 'value' ? null
+      : await inputObject(storage, repo, ref.value.hash, index.type === 'some' ? index.value : null);
+    if (object === null) {
       allInputsAssigned = false;
       break;
     }
-    currentInputHashes.push(ref.value.hash);
+    currentInputHashes.push(object);
   }
 
   if (allInputsAssigned) {

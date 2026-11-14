@@ -345,6 +345,8 @@ export {
   readManifest,
   openDatasetObject,
   readDatasetWhole,
+  inputObject,
+  recordIndexManifests,
 } from './dataset-open.js';
 
 // The store's door: the one way a collection reaches the object store, from a
@@ -592,6 +594,7 @@ export {
   layCallDrafts,
   layAndStage,
   stageCall,
+  callRead,
   callDraftsEnd,
   callDraftsRead,
   draftedInputs,

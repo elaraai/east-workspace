@@ -39,6 +39,7 @@ import { StructureType, TreePathType } from './structure.js';
 import { StopReasonType } from './execution.js';
 import { IntakeFileType } from './intake.js';
 import { RunnerType } from './runner.js';
+import { FunctionInputType } from './function.js';
 import { TaskBodyType, TaskInputType, TaskOutputType, TaskPartitionType, TaskRoleType } from './task.js';
 import { DataflowForceType, RequeueReasonType, StageUnitType } from './dataflow.js';
 
@@ -1284,6 +1285,25 @@ export const FunctionDraftedType = StructType({
 });
 
 /**
+ * A dataset a call read, and the hash it was pinned at: one of a function's
+ * inputs, or a dataset argument.
+ *
+ * @property path - The dataset's path: for an index of a record, the record's
+ * @property index - The index of the record at `path` that was read, by its
+ *   name on the record; `none` for the dataset itself, and for a dataset
+ *   argument
+ * @property hash - The hash the dataset at `path` was pinned at. For a record,
+ *   the hash of its state, which names its rows and each of its indexes: so an
+ *   index's entry names the state its entries were read at, and the entries of
+ *   one record a call read name one hash
+ */
+export const InputReadType = StructType({
+  path:  TreePathType,
+  index: OptionType(StringType),
+  hash:  StringType,
+});
+
+/**
  * The terminal result of a function/one-shot call.
  *
  * - `success`: beast2-encoded result value; decode with the function's `outputType`
@@ -1303,15 +1323,19 @@ export const FunctionDraftedType = StructType({
  * call's timeout ended before its function ran`), which
  * `functionDraftsOutlasted` reads.
  *
- * `inputs` names what the call read: each input the function declares, then
- * each dataset argument, with the hash it was pinned at, in parameter order,
- * so an answer can be reproduced and a stale one noticed. An input of a record
- * the call drafted names the drafted state's hash: a state no commit names,
- * which the record itself never stands at. A dataset argument naming that
- * record names the state the drafts were laid over, the one the drafted
- * record's commit names, so a function handed one reads the record before and
- * after the edit. It is empty for a call of a function with no inputs and
- * value arguments only, and for an `invalid` result.
+ * `inputs` names what the call read ({@link InputReadType}): each input the
+ * function declares, then each dataset argument, with the hash its dataset was
+ * pinned at, in parameter order, so an answer can be reproduced and a stale
+ * one noticed. An input that is an index of a record names the record, the
+ * index and the hash the record was pinned at, which is the hash its other
+ * inputs of that record name: they are read at one state. An input of a record
+ * the call drafted, the record or an index of it, names the drafted state's
+ * hash: a state no commit names, which the record itself never stands at. A
+ * dataset argument naming that record names the state the drafts were laid
+ * over, the one the drafted record's commit names, so a function handed one
+ * reads the record before and after the edit. It is empty for a call of a
+ * function with no inputs and value arguments only, and for an `invalid`
+ * result.
  *
  * `drafts` names each record the call drafted, once, in the order its drafts
  * first name them, with the commit it stood at
@@ -1332,7 +1356,7 @@ export const ExecuteResultType = StructType({
   stderr: StringType,
   stdoutTruncated: BooleanType,
   stderrTruncated: BooleanType,
-  inputs: ArrayType(StructType({ path: TreePathType, hash: StringType })),
+  inputs: ArrayType(InputReadType),
   drafts: ArrayType(FunctionDraftedType),
 });
 
@@ -1393,9 +1417,9 @@ export const FunctionCallRequestType = StructType({
  * args.
  *
  * @property name - The function's name
- * @property inputs - The datasets a call reads from the workspace it runs in,
- *   which the caller does not pass; a function with any is called through a
- *   workspace
+ * @property inputs - What a call reads from the workspace it runs in, which
+ *   the caller does not pass: each a dataset, or an index of a record
+ *   (`FunctionInputType`); a function with any is called through a workspace
  * @property drafts - The records a call may pass drafts of, by name: each a
  *   record one of `inputs` reads; empty for a function that takes none
  * @property argTypes - The types of the arguments a caller passes
@@ -1404,7 +1428,7 @@ export const FunctionCallRequestType = StructType({
  */
 export const FunctionSignatureType = StructType({
   name:       StringType,
-  inputs:     ArrayType(TreePathType),
+  inputs:     ArrayType(FunctionInputType),
   drafts:     ArrayType(StringType),
   argTypes:   ArrayType(EastTypeType),
   outputType: EastTypeType,
@@ -1652,10 +1676,12 @@ export const FunctionCallSummaryType = StructType({
  *   `none` for a one-shot call, which runs no package's function
  * @property args - Its arguments, in order: values by their objects, datasets
  *   by the hashes they were pinned at
- * @property inputs - The function's own inputs, each by its path and the hash
- *   it was pinned at, in the order the function declares them. An input of a
- *   record the call drafts names the state the record held as the call
- *   started, and, once its drafts are laid, the drafted state
+ * @property inputs - The function's own inputs ({@link InputReadType}), each
+ *   by its path — with the index's name, for an index of a record — and the
+ *   hash its dataset was pinned at, in the order the function declares them.
+ *   An input of a record the call drafts, the record or an index of it, names
+ *   the state the record held as the call started, and, once its drafts are
+ *   laid, the drafted state
  * @property drafts - The drafts it passed, in order; none for a call that
  *   passed none, and for one refused as it started, which keeps no argument
  *   either. Its result names the commit each drafted record stood at
@@ -1678,7 +1704,7 @@ export const FunctionCallType = StructType({
   state:           FunctionCallStateType,
   package:         OptionType(StructType({ name: StringType, version: StringType })),
   args:            ArrayType(FunctionCallArgType),
-  inputs:          ArrayType(StructType({ path: TreePathType, hash: StringType })),
+  inputs:          ArrayType(InputReadType),
   drafts:          ArrayType(FunctionCallDraftType),
   limits:          StructType({ timeoutMs: IntegerType, maxResultBytes: IntegerType, maxLogBytes: IntegerType }),
   expiresAt:       DateTimeType,
@@ -1989,6 +2015,7 @@ export type DatasetStatusDetail = ValueTypeOf<typeof DatasetStatusDetailType>;
 export type ExecuteLimits = ValueTypeOf<typeof ExecuteLimitsType>;
 export type Diagnostic = ValueTypeOf<typeof DiagnosticType>;
 export type ExecuteResult = ValueTypeOf<typeof ExecuteResultType>;
+export type InputRead = ValueTypeOf<typeof InputReadType>;
 export type CallArg = ValueTypeOf<typeof CallArgType>;
 export type FunctionDraft = ValueTypeOf<typeof FunctionDraftType>;
 export type FunctionDraftConflict = ValueTypeOf<typeof FunctionDraftConflictType>;

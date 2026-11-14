@@ -64,6 +64,7 @@ import {
 } from '../records.js';
 import type { StorageBackend } from '../storage/interfaces.js';
 import type { DetachedArg, TaskRunner } from './interfaces.js';
+import { stagedInputs } from './oneShot.js';
 
 const samePath = equalFor(TreePathType);
 
@@ -106,7 +107,8 @@ interface CheckedRecord {
  *   (`drafts` on `e3.function`): listing one is its author's word that the
  *   function is fit to run over edits nobody saved;
  * - the record must be one of the package's, which one of the function's
- *   inputs reads, and must hold a state, with the commit it stands at;
+ *   inputs reads — the record, or an index of it — and must hold a state, with
+ *   the commit it stands at;
  * - the mutation must be one the record declares, given the arguments it
  *   takes, in number and in type (`recordDraftMutation`).
  *
@@ -157,8 +159,9 @@ export async function checkCallDrafts(
       }
       const record = await recordOfPackage(storage, repo, pkg, draft.record);
       if (record === null) return refuse(at, `record '${draft.record}' not found`);
-      // The input whose dataset is the record's, by the key the store holds both by
-      const path = fn.inputs.find((input) => treePathToRefPath(input) === record.refPath);
+      // The input whose dataset is the record's, by the key the store holds both
+      // by: the record itself, or an index of it, each read at the drafted state
+      const path = fn.inputs.find((input) => treePathToRefPath(input.path) === record.refPath)?.path;
       if (path === undefined) return refuse(at, `the function reads no input of record '${draft.record}'`);
       const head = await recordHead(storage, repo, workspace, draft.record, record);
       if ('invalid' in head) return refuse(at, head.invalid);
@@ -469,7 +472,10 @@ export function callDraftsRead(drafted: readonly FunctionCallDrafted[]): Execute
 /**
  * A call's inputs with each input of a drafted record at another state: the
  * state its drafts are laid over, as the call starts, and the state they left,
- * once they are laid. Every other input is as it was pinned.
+ * once they are laid. Every other input is as it was pinned. An input that is
+ * an index of a drafted record names that state too, and is read as the index
+ * that state holds (`stagedInputs`): the record and its indexes are read at one
+ * state, the drafted one.
  *
  * @param inputs - The function's inputs, each with the hash it was pinned at
  * @param states - Each drafted record's path, and the hash its inputs are read at
@@ -487,7 +493,7 @@ export function draftedInputs(
 ): ExecuteResult['inputs'] {
   return inputs.map((input) => {
     const state = states.find(({ path }) => samePath(path, input.path));
-    return state === undefined ? input : { path: input.path, hash: state.hash };
+    return state === undefined ? input : { ...input, hash: state.hash };
   });
 }
 
@@ -509,7 +515,7 @@ export type StagedCallArg =
  *
  * @example
  * ```ts
- * const { read } = stageCall(job.call.inputs, keptCallArgs(job.call.args), job.drafted);
+ * const read = callRead(job.call.inputs, keptCallArgs(job.call.args), job.drafted);
  * ```
  */
 export function keptCallArgs(args: readonly FunctionCallArg[]): StagedCallArg[] {
@@ -517,51 +523,91 @@ export function keptCallArgs(args: readonly FunctionCallArg[]): StagedCallArg[] 
 }
 
 /**
- * What a call's function is handed, and what the call read.
+ * What a call read: its function's inputs, then each dataset argument, with
+ * the hash each is read at, in order — what its result names, and what
+ * {@link stageCall} hands its function.
  *
  * @remarks
- * The function is handed its inputs, then its arguments, in order. Its inputs
- * of a drafted record are read where the caller passes them: at the state the
- * drafts are laid over as the call starts, and at the state they left once
- * they are laid. A dataset argument that names a record the call drafts is
- * read as saved, at exactly the state the drafts were laid over, the one the
- * result's commit names (east-workspace#1619, rule 6): so a function handed
- * one sees the record before and after the edit side by side, and the result
- * names both hashes. Every other dataset argument is read at the hash it was
- * pinned at.
+ * Its inputs of a drafted record are read where the caller passes them: at
+ * the state the drafts are laid over as the call starts, and at the state they
+ * left once they are laid, an index of the record as that state holds it. A
+ * dataset argument that names a record the call drafts is read as saved, at
+ * exactly the state the drafts were laid over, the one the result's commit
+ * names (east-workspace#1619, rule 6): so a function handed one sees the
+ * record before and after the edit side by side, and the result names both
+ * hashes. Every other dataset argument is read at the hash it was pinned at.
  *
  * @param inputs - The function's inputs, each with the hash it is read at
  * @param args - The call's arguments, in order
  * @param drafted - The records the call drafts: the paths the workspace holds
  *   them at, and the states their drafts are laid over
- * @returns What the function is handed, and what the call read: its inputs,
- *   then each dataset argument, with the hash each is read at
+ * @returns The inputs, then each dataset argument, with the hash each is read
+ *   at
  *
  * @example
  * ```ts
- * const { args, read } = stageCall(inputs, [{ dataset: { path: jobsPath, hash: savedJobs } }], drafted);
+ * const read = callRead(inputs, [{ dataset: { path: jobsPath, hash: savedJobs } }], drafted);
  * // read[inputs.length].hash is the state the drafts were laid over: the record before the edit
  * ```
  */
-export function stageCall(
+export function callRead(
   inputs: ExecuteResult['inputs'],
   args: readonly StagedCallArg[],
   drafted: ReadonlyArray<{ readonly path: TreePath; readonly base: string }>,
-): { args: DetachedArg[]; read: ExecuteResult['inputs'] } {
-  const staged: DetachedArg[] = inputs.map(({ hash }) => ({ dataset: hash }));
+): ExecuteResult['inputs'] {
   const read: ExecuteResult['inputs'] = [...inputs];
   for (const arg of args) {
-    if ('value' in arg) {
-      staged.push(arg.value);
-      continue;
-    }
+    if ('value' in arg) continue;
     const { path } = arg.dataset;
     // A drafted record, as saved: at the state its drafts were laid over, which the argument's own pin may have
     // read after a Save that landed since
     const hash = drafted.find((record) => samePath(record.path, path))?.base ?? arg.dataset.hash;
-    staged.push({ dataset: hash });
-    read.push({ path, hash });
+    read.push({ path, index: none, hash });
   }
+  return read;
+}
+
+/**
+ * What a call's function is handed, and what the call read.
+ *
+ * @remarks
+ * The function is handed its inputs, then its arguments, in order, each read
+ * as {@link callRead} says. An input is handed as the object it reads: its
+ * dataset's, or, for an index of a record, the index's manifest in the state
+ * the input names (`stagedInputs`) — the drafted state's, for a drafted
+ * record, whose indexes hold the drafts as they would after a Save. Only an
+ * index is looked up.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param inputs - The function's inputs, each with the hash it is read at
+ * @param args - The call's arguments, in order
+ * @param drafted - The records the call drafts: the paths the workspace holds
+ *   them at, and the states their drafts are laid over
+ * @returns What the function is handed, and what the call read
+ * @throws {Error} When an input is an index the state it names does not hold,
+ *   naming the record and the index
+ *
+ * @example
+ * ```ts
+ * const { args, read } = await stageCall(storage, repo, inputs, [{ dataset: { path: jobsPath, hash: savedJobs } }], drafted);
+ * await runner.runDetached({ bodyIr, args, runner: fn.runner, limits }, { storage });
+ * ```
+ */
+export async function stageCall(
+  storage: StorageBackend,
+  repo: string,
+  inputs: ExecuteResult['inputs'],
+  args: readonly StagedCallArg[],
+  drafted: ReadonlyArray<{ readonly path: TreePath; readonly base: string }>,
+): Promise<{ args: DetachedArg[]; read: ExecuteResult['inputs'] }> {
+  const read = callRead(inputs, args, drafted);
+  // Each dataset argument as it was read, after the inputs
+  let at = inputs.length;
+  const staged: DetachedArg[] = [
+    ...await stagedInputs(storage, repo, inputs),
+    ...args.map((arg) => ('value' in arg ? arg.value : { dataset: read[at++]!.hash })),
+  ];
   return { args: staged, read };
 }
 
@@ -623,11 +669,12 @@ export type CallStaged =
  *    ({@link callDraftsEnd}), and its function does not run.
  * 2. **Pin.** The function's inputs of each drafted record are read at the
  *    state its drafts left ({@link draftedInputs}), and handed to `pin`.
- * 3. **Stage.** A call whose timeout has ended meanwhile ends `timed_out`, its
- *    function not run, its first line saying its drafts were laid. Otherwise
- *    the function is staged ({@link stageCall}): its inputs, then its
- *    arguments, a dataset argument naming a drafted record read as saved, at
- *    the state the drafts were laid over.
+ * 3. **Stage.** The function is staged ({@link stageCall}): its inputs — an
+ *    index of a record as the index's manifest in the state the input names —
+ *    then its arguments, a dataset argument naming a drafted record read as
+ *    saved, at the state the drafts were laid over. A call whose timeout has
+ *    ended meanwhile ends `timed_out`, its function not run, its first line
+ *    saying its drafts were laid.
  *
  * A call that passed drafts writes the states they leave before anything names
  * them, so its caller holds the repository's running work (`withRunningWork`)
@@ -665,11 +712,11 @@ export async function layAndStage(
   if (call.drafts.length > 0) {
     const laid = await layCallDrafts(storage, runner, repo, call.drafted, call.drafts, options);
     if (laid.kind === 'aborted') return laid;
-    if (laid.kind !== 'laid') return { kind: 'ended', end: callDraftsEnd(laid, options.timeoutMs), read: stageCall(inputs, call.args, call.drafted).read };
+    if (laid.kind !== 'laid') return { kind: 'ended', end: callDraftsEnd(laid, options.timeoutMs), read: callRead(inputs, call.args, call.drafted) };
     inputs = draftedInputs(inputs, laid.states);
     if (options.pin !== undefined && !(await options.pin(inputs))) return { kind: 'unpinned' };
   }
-  const staged = stageCall(inputs, call.args, call.drafted);
+  const staged = await stageCall(storage, repo, inputs, call.args, call.drafted);
   const left = options.deadline - now();
   // Its timeout ended before its function ran: as its drafts were laid, or
   // before it was staged

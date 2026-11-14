@@ -298,6 +298,95 @@ export async function createDraftsPackageZip(
 }
 
 /**
+ * Create a package whose functions and tasks read a record through an index
+ * of it (#1617): `e3.index(record.indexes.<name>)` among their inputs.
+ *
+ * Creates a package with:
+ * - Record: "jobs" (Dict<String, {press, hours}>, holding `j1` on P1 for 2
+ *   hours, `j2` on P2 for 3 and `j3` on P1 for 4), its index "by_press", and
+ *   its writes: `patch`, and `move` (edit, key, press) => that job on that
+ *   press
+ * - Record: "backlog", of the same type and with its own index
+ *   "backlog_by_press", declared with no initial value: unassigned until its
+ *   first state is committed from outside
+ * - Input: "watched" (String, "P1"), the press the tasks count
+ * - Function: "jobs_on_press" - reads the index alone, lists "jobs" as a
+ *   record a call may draft, and is given a press: how many jobs it holds, the
+ *   size of the press's run of the index
+ * - Function: "hours_on_press" - reads the index and "jobs" beside it, and
+ *   lists "jobs": the hours of the press's jobs, each row read by the key its
+ *   index entry names
+ * - Function: "backlog_on_press" - reads the backlog's index
+ * - Task: "watched_jobs" - reads the index and "watched": how many jobs the
+ *   watched press holds
+ * - Task: "watched_backlog" - reads the backlog's index and "watched"
+ *
+ * Every body is East, so every server runs them.
+ *
+ * @param tempDir - Directory to write the zip file
+ * @param name - Package name
+ * @param version - Package version
+ * @returns Path to the created zip file
+ */
+export async function createIndexInputsPackageZip(
+  tempDir: string,
+  name: string,
+  version: string
+): Promise<string> {
+  mkdirSync(tempDir, { recursive: true });
+
+  const jobs = e3.record('jobs', DraftJobsType, {
+    initial: new Map([
+      ['j1', { press: 'P1', hours: 2n }],
+      ['j2', { press: 'P2', hours: 3n }],
+      ['j3', { press: 'P1', hours: 4n }],
+    ]),
+    indexes: (index) => ({
+      by_press: index.on(['press']),
+    }),
+    mutations: (mutation) => ({
+      patch: mutation.patch(),
+      move: mutation.edit(East.function([DraftJobsType, StringType, StringType, e3.mutation.editType(DraftJobsType)], NullType,
+        ($, state, key, press, edit) => {
+          const row = $.let(state.get(key));
+          $(edit.set(key, { press, hours: row.hours }));
+        })),
+    }),
+  });
+  const backlog = e3.record('backlog', DraftJobsType, {
+    indexes: (index) => ({
+      backlog_by_press: index.on(['press']),
+    }),
+  });
+  const watched = e3.input('watched', StringType, variant('value', 'P1'));
+
+  const byPress = e3.index(jobs.indexes.by_press);
+  const backlogByPress = e3.index(backlog.indexes.backlog_by_press);
+  const jobsOnPress = e3.function('jobs_on_press', { inputs: [byPress], drafts: [jobs], args: [StringType], output: IntegerType },
+    ($, jobsByPress, press) => jobsByPress.prefix({ ik: press }).size());
+  const hoursOnPress = e3.function('hours_on_press', { inputs: [byPress, jobs], drafts: [jobs], args: [StringType], output: IntegerType },
+    ($, jobsByPress, jobs, press) => {
+      const total = $.let(0n);
+      $.for(jobsByPress.prefix({ ik: press }), ($, _carried, key) => {
+        $.assign(total, total.add(jobs.get(key.k).hours));
+      });
+      return total;
+    });
+  const backlogOnPress = e3.function('backlog_on_press', { inputs: [backlogByPress], args: [StringType], output: IntegerType },
+    ($, entries, press) => entries.prefix({ ik: press }).size());
+  const watchedJobs = e3.task('watched_jobs', [byPress, watched],
+    East.function([byPress.type, StringType], IntegerType, ($, jobsByPress, press) => jobsByPress.prefix({ ik: press }).size()));
+  const watchedBacklog = e3.task('watched_backlog', [backlogByPress, watched],
+    East.function([backlogByPress.type, StringType], IntegerType, ($, entries, press) => entries.prefix({ ik: press }).size()));
+  const pkg = e3.package(name, version, jobsOnPress, hoursOnPress, backlogOnPress, watchedJobs, watchedBacklog);
+
+  const zipPath = join(tempDir, `${name}-${version}.zip`);
+  await e3.export(pkg, zipPath);
+
+  return zipPath;
+}
+
+/**
  * Create a package with a record + mutations for testing `e3.record`.
  *
  * Creates a package with:

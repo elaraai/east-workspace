@@ -26,12 +26,13 @@ import { TreePathType } from './structure.js';
 describe('TaskObjectType', () => {
   const sales = [variant('field', 'inputs'), variant('field', 'sales')];
   const rates = [variant('field', 'inputs'), variant('field', 'rates')];
+  const jobs = [variant('field', 'records'), variant('field', 'jobs')];
   const totals = [variant('field', 'tasks'), variant('field', 'totals'), variant('field', 'output')];
   const base: TaskObject = {
     kind: TASK_OBJECT_KIND,
     body: variant('east', { program: 'a'.repeat(64) }),
     runner: variant('east_node', { platforms: ['@elaraai/east-node-std'], decode: variant('lazy', null) }),
-    inputs: [{ path: sales, partition: none }],
+    inputs: [{ path: sales, index: none, partition: none }],
     output: { path: totals, kind: variant('value', null) },
     role: variant('data', null),
     environment: none,
@@ -48,13 +49,15 @@ describe('TaskObjectType', () => {
       },
       {
         ...base,
-        inputs: [{ path: sales, partition: some({ by: ['account', 'at.day'] }) }, { path: rates, partition: none }],
+        inputs: [{ path: sales, index: none, partition: some({ by: ['account', 'at.day'] }) }, { path: rates, index: none, partition: none }],
         output: { path: totals, kind: variant('dict', { merge: some('d'.repeat(64)) }) },
       },
       { ...base, output: { path: totals, kind: variant('fold', { zero: 'e'.repeat(64), combine: 'f'.repeat(64) }) } },
       { ...base, output: { path: totals, kind: variant('set', null) } },
       { ...base, runner: variant('east_py', { platforms: ['east-py-std'], decode: variant('whole', null) }) },
       { ...base, role: variant('ui', { paths: [sales], functions: ['forecast'], records: ['plans'], pages: [rates] }) },
+      // An index of a record, read beside the record itself
+      { ...base, inputs: [{ path: jobs, index: some('jobs_by_press'), partition: none }, { path: jobs, index: none, partition: none }] },
     ];
     const encode = encodeBeast2For(TaskObjectType);
     for (const original of tasks) assert.deepEqual(decodeTaskObject(encode(original)), original);
@@ -100,6 +103,21 @@ describe('TaskObjectType', () => {
       role: TaskRoleType,
       environment: OptionType(StringType),
     }))({ ...base, runner: variant('east_node', { platforms: ['@elaraai/east-node-std'] }) });
+    assert.throws(() => decodeTaskObject(older), /exported by an older e3 SDK — re-export it with the current one/);
+  });
+
+  it('refuses a task object whose inputs predate the index they may name, saying to re-export the package', () => {
+    // An input as a package exported before an input could be an index of a
+    // record: its path and its partition alone.
+    const older = encodeBeast2For(StructType({
+      kind: StringType,
+      body: TaskBodyType,
+      runner: RunnerType,
+      inputs: ArrayType(StructType({ path: TreePathType, partition: TaskInputType.fields.partition })),
+      output: TaskOutputType,
+      role: TaskRoleType,
+      environment: OptionType(StringType),
+    }))({ ...base, inputs: [{ path: sales, partition: none }] });
     assert.throws(() => decodeTaskObject(older), /exported by an older e3 SDK — re-export it with the current one/);
   });
 

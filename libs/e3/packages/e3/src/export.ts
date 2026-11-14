@@ -309,9 +309,12 @@ export async function export_<D extends Record<string, unknown>>(pkg: PackageDef
         // customTask leaves TaskDef.runner undefined: its command is what
         // runs, so the runner is the custom runtime with an empty command.
         runner: item.runner ? runnerToVariant(item.runner) : variant('custom', { command: [] as string[] }),
+        // An index is read through its record's dataset, and named beside it.
         inputs: item.inputs.map((input) => input.kind === 'partition'
-          ? { path: input.dataset.path, partition: some({ by: [...input.by] }) }
-          : { path: input.path, partition: none }),
+          ? { path: input.dataset.path, index: none, partition: some({ by: [...input.by] }) }
+          : input.kind === 'index'
+            ? { path: input.record.path, index: some(input.index.name), partition: none }
+            : { path: input.path, index: none, partition: none }),
         output: { path: item.output.path, kind: outputKind },
         role: item.role,
         environment: resolveEnvironment(item.environment, item.runner, item.name),
@@ -337,7 +340,9 @@ export async function export_<D extends Record<string, unknown>>(pkg: PackageDef
     // the raw TS EastType definitions Expr.type yields.
     const fnObject: FunctionObject = {
       bodyIr: bodyIrHash,
-      inputs: fdef.inputs.map((input) => input.path),
+      inputs: fdef.inputs.map((input) => input.kind === 'index'
+        ? { path: input.record.path, index: some(input.index.name) }
+        : { path: input.path, index: none }),
       // A record is named as a call's draft names it, and as `e3 mutate` does.
       drafts: fdef.drafts.map((record) => record.name),
       argTypes: fdef.argTypes.map((t) => toEastTypeValue(t)),

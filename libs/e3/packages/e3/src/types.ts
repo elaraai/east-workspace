@@ -107,6 +107,35 @@ export interface PartitionDef<T extends EastType = EastType> {
 }
 
 /**
+ * An index of a record as an input of a task, a stream task or a function —
+ * what `e3.index` returns.
+ *
+ * The body is given the index's entries, a `Dict<{ ik, k }, P>` opened lazily
+ * and frozen as any input is: `ik` the index's key, `k` the row's, and `P` what
+ * the index carries. It reads them by key, by size, by a loop, and by `range`
+ * and `prefix`, each at the cost of the entries it reaches.
+ *
+ * @typeParam T - The East type of the index's entries, the body's parameter
+ */
+export interface IndexInputDef<T extends EastType = EastType> {
+  readonly kind: 'index';
+  /** The index, as its record carries it by name. */
+  readonly index: RecordIndexDef;
+  /** The record the index is over: the dataset the input is read through, at
+   *  the state it holds, and what `e3.package` collects for it. */
+  readonly record: RecordDef;
+  /** The type of the index's entries, as the record's state holds them:
+   *  `Dict<{ ik, k }, P>`. */
+  readonly type: T;
+}
+
+/**
+ * What a task or a function reads: a dataset, or an index of a record
+ * ({@link IndexInputDef}).
+ */
+export type InputDef = DatasetDef | IndexInputDef;
+
+/**
  * An output kind collecting elements in the order they are emitted — what
  * `e3.output.array` returns.
  *
@@ -196,9 +225,10 @@ export interface TaskDef<TOutput extends EastType = EastType, Path extends TreeP
   readonly body:
     | { readonly kind: 'east'; readonly program: IRBundle | AsyncIRBundle }
     | { readonly kind: 'command'; readonly command: EastIR<[string[], string], string[]> };
-  /** The inputs, in the body's parameter order. A `streamTask`'s may include
-   *  datasets its work can be split over. */
-  readonly inputs: readonly (DatasetDef | PartitionDef)[];
+  /** The inputs, in the body's parameter order: each a dataset, or an index of
+   *  a record. A `streamTask`'s may include datasets its work can be split
+   *  over. */
+  readonly inputs: readonly (InputDef | PartitionDef)[];
   /** Output dataset this task writes to (at `.tasks.${name}.output`) */
   readonly output: DatasetDef<TOutput, Path>;
   /** The output kind a `streamTask` emits into. Absent when the body returns
@@ -256,13 +286,14 @@ export interface FunctionDef<
   /** The function, as its IR bundle: its parameters are the inputs' types,
    *  in {@link inputs} order, then the arguments'. */
   readonly body: IRBundle | AsyncIRBundle;
-  /** The datasets a call reads from the workspace it runs in, each pinned at
-   *  its hash when the call launches; empty for a function that reads none. */
-  readonly inputs: readonly DatasetDef[];
+  /** What a call reads from the workspace it runs in — each a dataset, or an
+   *  index of a record — each dataset pinned at its hash when the call
+   *  launches; empty for a function that reads none. */
+  readonly inputs: readonly InputDef[];
   /** The records a call may pass drafts of — calls of a record's mutations
    *  that are not committed, laid over it for that call alone — each once,
-   *  and each a record among {@link inputs}; empty for a function that takes
-   *  none. */
+   *  and each a record one of the {@link inputs} reads, itself or by an index
+   *  of it; empty for a function that takes none. */
   readonly drafts: [Drafted] extends [true] ? readonly [RecordDef, ...RecordDef[]]
     : [Drafted] extends [false] ? readonly []
     : readonly RecordDef[];

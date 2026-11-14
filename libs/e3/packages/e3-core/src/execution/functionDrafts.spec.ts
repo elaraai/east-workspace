@@ -302,11 +302,12 @@ describe('a call\'s drafts', () => {
       // What e3.function refuses to declare, another exporter could write
       const pkg = await packageRead(storage, REPO, 'drafts', '1.0.0');
       const add = (record: string): FunctionDraft[] => [draft(record, 'add', encodeInt(1n))];
-      assert.deepEqual(await checkCallDrafts(storage, REPO, WS, pkg, { inputs: [TALLY], drafts: ['ghost'] }, add('ghost')),
+      assert.deepEqual(await checkCallDrafts(storage, REPO, WS, pkg, { inputs: [{ path: TALLY, index: none }], drafts: ['ghost'] }, add('ghost')),
         { invalid: 'draft ghost.add (1 of 1): record \'ghost\' not found' });
-      assert.deepEqual(await checkCallDrafts(storage, REPO, WS, pkg, { inputs: [JOBS], drafts: ['tally'] }, add('tally')),
+      assert.deepEqual(await checkCallDrafts(storage, REPO, WS, pkg, { inputs: [{ path: JOBS, index: none }], drafts: ['tally'] }, add('tally')),
         { invalid: 'draft tally.add (1 of 1): the function reads no input of record \'tally\'' });
-      assert.deepEqual(await checkCallDrafts(storage, REPO, WS, pkg, { inputs: [JOBS], drafts: ['jobs'] }, []), [], 'a call that passes none drafts none');
+      assert.deepEqual(await checkCallDrafts(storage, REPO, WS, pkg, { inputs: [{ path: JOBS, index: none }], drafts: ['jobs'] }, []), [],
+        'a call that passes none drafts none');
     });
 
     it('files a call with each draft it passed, its arguments stored, and what laying them reads: each record\'s state and commit, and its mutations', async () => {
@@ -336,7 +337,7 @@ describe('a call\'s drafts', () => {
           mutations: new SortedMap([['add', await mutationOf('tally', 'add')], ['reset', await mutationOf('tally', 'reset')]]),
         },
       ]), 'each drafted record once, in the order its drafts first name them, with the commit it stood at');
-      assert.ok(sameInputs(filed.call.inputs, [{ path: TALLY, hash: tallyHead.state }, { path: JOBS, hash: jobsHead.state }]),
+      assert.ok(sameInputs(filed.call.inputs, [{ path: TALLY, index: none, hash: tallyHead.state }, { path: JOBS, index: none, hash: jobsHead.state }]),
         'its inputs at the states the drafts are laid over');
       assert.equal(runner.getCalls().length, 0, 'the start runs no mutation\'s program');
       const kept = await storage.calls.get(REPO, WS, filed.call.id);
@@ -368,7 +369,7 @@ describe('a call\'s drafts', () => {
       assert.equal(rateInput!.hash, filed.call.inputs[1]!.hash);
 
       if (result === null) assert.fail('the run answers its result');
-      assert.ok(sameInputs(result.inputs, [{ path: JOBS, hash: drafted }, { path: RATE, hash: rateInput!.hash }]), 'its result names the drafted state as read');
+      assert.ok(sameInputs(result.inputs, [{ path: JOBS, index: none, hash: drafted }, { path: RATE, index: none, hash: rateInput!.hash }]), 'its result names the drafted state as read');
       assert.ok(sameRead(result.drafts, [{ record: 'jobs', commit: jobsHead.commit }]), 'and the commit the record stood at');
       const status = await functionCallStatus(storage, REPO, job);
       assert.ok(status.type === 'completed' && sameResult(status.value, result), 'read back, the kept call answers the same');
@@ -403,7 +404,8 @@ describe('a call\'s drafts', () => {
       assert.ok(sameJobs(await jobsAt(drafted), withJ3), 'its input at the drafted state');
       assert.deepEqual(runner.getDetachedCalls()[0]!.args, [{ dataset: drafted }, { dataset: jobsHead.state }],
         'its argument as saved at the state the drafts were laid over, not the Save\'s');
-      assert.ok(sameInputs(result.inputs, [{ path: JOBS, hash: drafted }, { path: JOBS, hash: jobsHead.state }]), 'its result names both states');
+      assert.ok(sameInputs(result.inputs, [{ path: JOBS, index: none, hash: drafted }, { path: JOBS, index: none, hash: jobsHead.state }]),
+        'its result names both states');
       assert.ok(sameRead(result.drafts, [{ record: 'jobs', commit: jobsHead.commit }]), 'and the commit the argument\'s state stood at');
       const status = await functionCallStatus(storage, REPO, job);
       assert.ok(status.type === 'completed' && sameResult(status.value, result), 'read back, the kept call answers the same');
@@ -679,7 +681,7 @@ describe('a call\'s drafts', () => {
       assert.deepEqual(spec!.args, [{ dataset: jobsHead.state }, { dataset: rate }, encodeString('P1')],
         'its inputs as stored, then its argument as passed');
       assert.deepEqual(spec!.limits, LIMITS, 'under the call\'s limits');
-      assert.ok(sameInputs(result.inputs, [{ path: JOBS, hash: jobsHead.state }, { path: RATE, hash: rate }]), 'its result names what it read');
+      assert.ok(sameInputs(result.inputs, [{ path: JOBS, index: none, hash: jobsHead.state }, { path: RATE, index: none, hash: rate }]), 'its result names what it read');
       assert.equal(result.drafts.length, 0, 'and no record drafted');
       assert.equal(runner.getCalls().length, 0, 'no mutation\'s program runs');
       await noCallKept();
@@ -742,7 +744,7 @@ describe('a call\'s drafts', () => {
       assert.equal(failed.stderrTruncated, true);
       assert.equal(first.getCalls().length, 2, 'the draft after it did not run');
       assert.equal(first.getDetachedCalls().length, 0, 'nor the function');
-      assert.ok(sameInputs(failed.inputs, [{ path: TALLY, hash: tallyHead.state }, { path: JOBS, hash: jobsHead.state }]), 'it names its inputs as they were pinned');
+      assert.ok(sameInputs(failed.inputs, [{ path: TALLY, index: none, hash: tallyHead.state }, { path: JOBS, index: none, hash: jobsHead.state }]), 'it names its inputs as they were pinned');
       assert.ok(sameRead(failed.drafts, [{ record: 'tally', commit: tallyHead.commit }]));
       assert.ok(sameResult(failed, await kept('load', [], [add(), add(), add()], failing(), some({ timeoutMs: none, maxResultBytes: none, maxLogBytes: some(8n) }))),
         'the call a store keeps answers the same');
@@ -982,7 +984,7 @@ describe('a call\'s drafts, on the real runner', () => {
     assert.ok(sameLabels(labelsOf(ended), both), 'the body reads the rows with the draft laid, and as saved, side by side');
     const drafted = ended.job!.call.inputs[0]!.hash;
     assert.notEqual(drafted, stood.hash);
-    assert.ok(sameInputs(ended.result!.inputs, [{ path: plansPath, hash: drafted }, { path: plansPath, hash: stood.hash }]),
+    assert.ok(sameInputs(ended.result!.inputs, [{ path: plansPath, index: none, hash: drafted }, { path: plansPath, index: none, hash: stood.hash }]),
       'its result names the drafted state, and the state the drafts were laid over');
     assert.ok(sameRead(ended.result!.drafts, [{ record: 'plans', commit: stood.commit }]), 'which the commit it names stands at');
 

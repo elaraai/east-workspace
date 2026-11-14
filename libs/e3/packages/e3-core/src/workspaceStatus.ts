@@ -29,6 +29,7 @@ import {
 } from '@elaraai/e3-types';
 import { inputsHash } from './executions.js';
 import { OBJECT_CONCURRENCY, eachAtMost } from './concurrency.js';
+import { indexNotHeld, inputObject } from './dataset-open.js';
 import {
   WorkspaceNotFoundError,
   WorkspaceNotDeployedError,
@@ -342,7 +343,7 @@ export async function workspaceStatus(
   });
   const pending: Array<{ node: TaskNode; inHash: string }> = [];
   for (const node of computedTasks) {
-    const found = inProgress.get(node.name) ?? inputsOf(refs, node, outputToTask);
+    const found = inProgress.get(node.name) ?? await inputsOf(storage, repo, refs, node, outputToTask);
     if (typeof found === 'string') pending.push({ node, inHash: found });
     else {
       taskStatus.set(node.name, found);
@@ -496,13 +497,24 @@ function refOf(refs: ReadonlyMap<string, DatasetRef>, path: TreePath): { refType
  * A task's current inputs, from the refs read: the hash of them, when every
  * input is set; or else the status the task reads, waiting for the tasks
  * producing the unset ones, or for an external input to be set.
+ *
+ * An input that is an index of a record is the index's manifest, found in the
+ * state the record's ref holds, as the dataflow keys the task's executions
+ * (`inputObject`): a state is read once and then from memory, so a status
+ * polled over an unchanged record reads nothing more for it.
  */
-function inputsOf(refs: ReadonlyMap<string, DatasetRef>, node: TaskNode, outputToTask: Map<string, string>): string | TaskStatus {
+async function inputsOf(
+  storage: StorageBackend,
+  repo: string,
+  refs: ReadonlyMap<string, DatasetRef>,
+  node: TaskNode,
+  outputToTask: Map<string, string>,
+): Promise<string | TaskStatus> {
   const currentInputHashes: string[] = [];
   let hasUnsetInputs = false;
   const waitingOnTasks: string[] = [];
 
-  for (const inputPath of node.inputPaths) {
+  for (const [at, inputPath] of node.inputPaths.entries()) {
     const inputPathStr = pathToString(inputPath);
     const { refType, hash } = refOf(refs, inputPath);
 
@@ -518,7 +530,12 @@ function inputsOf(refs: ReadonlyMap<string, DatasetRef>, node: TaskNode, outputT
         return { type: 'waiting', reason: `Input '${inputPathStr}' is not set` };
       }
     } else {
-      currentInputHashes.push(hash);
+      const index = node.task.inputs[at]!.index;
+      const object = await inputObject(storage, repo, hash, index.type === 'some' ? index.value : null);
+      // A state that holds no such index: the task cannot read its input
+      // until a deploy has built it
+      if (object === null) return { type: 'waiting', reason: `Input '${inputPathStr}': ${indexNotHeld(inputPathStr, index.value!)}` };
+      currentInputHashes.push(object);
     }
   }
 

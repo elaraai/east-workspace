@@ -156,7 +156,7 @@ export function createInMemoryQueryCall(datasets: readonly InMemoryDataset[]): Q
             }
             read.push(found);
         }
-        const inputs = read.map(d => ({ path: d.path, hash: d.hashOf() }));
+        const inputs = read.map(d => ({ path: d.path, index: none, hash: d.hashOf() }));
         const body = decodeEastIR(request.bodyIr);
         const type = fromEastTypeValue(body.ir.value.type);
         if (type.type !== "Function") throw new Error("createInMemoryQueryCall: a call's body is a function");
@@ -368,7 +368,7 @@ export function createInMemorySplitCall(datasets: readonly InMemoryDataset[], op
                 if (found === undefined) return unassigned(i, arg.value);
                 values.push(found.value);
                 weights.push(found.bytesOf());
-                inputs.push({ path: found.path, hash: found.hashOf() });
+                inputs.push({ path: found.path, index: none, hash: found.hashOf() });
             } else if (arg.type === "value") {
                 values.push(decodeBeast2(arg.value).value);
                 weights.push(arg.value.length);

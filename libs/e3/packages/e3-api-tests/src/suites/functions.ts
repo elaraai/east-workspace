@@ -91,7 +91,7 @@ import {
   type SplitCallStatus,
 } from '@elaraai/e3-api-client';
 import {
-  ExecuteResultType, PermissionDeniedErrorType, TreePathType, WorkspaceNotDeployedErrorType, WorkspaceNotFoundErrorType, type TreePath,
+  ExecuteResultType, FunctionInputType, PermissionDeniedErrorType, WorkspaceNotDeployedErrorType, WorkspaceNotFoundErrorType, type TreePath,
 } from '@elaraai/e3-types';
 import { Console, Time } from '@elaraai/east-node-std';
 
@@ -115,7 +115,8 @@ const PricesType = DictType(StringType, IntegerType);
 /** What a result names it read. */
 const InputsType = ExecuteResultType.fields.inputs;
 /** The inputs a signature names. */
-const PathsType = ArrayType(TreePathType);
+/** What a signature says a function reads of a workspace. */
+const PathsType = ArrayType(FunctionInputType);
 
 const encodeInt = encodeBeast2For(IntegerType);
 const decodeInt = decodeBeast2For(IntegerType);
@@ -176,7 +177,7 @@ function splitOf(body: { toIR(): unknown }, args: SplitCallRequest['args'], outp
 async function pinnedAt(ctx: TestContext, workspace: string, path: TreePath, opts: RequestOptions): Promise<ValueTypeOf<typeof InputsType>[number]> {
   const status = await datasetGetStatus(ctx.config.baseUrl, ctx.repoName, workspace, path, opts);
   if (status.hash.type === 'none') assert.fail(`${status.path} holds no value`);
-  return { path, hash: status.hash.value };
+  return { path, index: none, hash: status.hash.value };
 }
 
 /** A body that calls an east-node-std platform function. */
@@ -266,7 +267,8 @@ export function functionTests(setup: TestSetup<TestContext>): void {
       assert.equal(sig.argTypes.length, 2);
 
       const quote = await functionDescribe(ctx.config.baseUrl, ctx.repoName, PKG, VERSION, 'quote', opts);
-      assert.ok(equalFor(PathsType)(quote.inputs, [VALUE_PATH, PRICES_PATH]), `quote reads ${printFor(PathsType)(quote.inputs)}`);
+      assert.ok(equalFor(PathsType)(quote.inputs, [{ path: VALUE_PATH, index: none }, { path: PRICES_PATH, index: none }]),
+        `quote reads ${printFor(PathsType)(quote.inputs)}`);
       assert.deepEqual(quote.argTypes.map((type) => type.type), ['String']);
       assert.equal(quote.outputType.type, 'Integer');
     });

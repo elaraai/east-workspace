@@ -14,7 +14,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  ArrayType, IntegerType, OptionType, SortedMap, encodeBeast2For, equalFor, none, printFor, some, variant, type ValueTypeOf,
+  ArrayType, IntegerType, OptionType, SortedMap, encodeBeast2For, equalFor, isTypeValueEqual, none, printFor, readBeast2Type, some, toEastTypeValue,
+  variant, type ValueTypeOf,
 } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import {
@@ -33,7 +34,8 @@ import { withRunningWork } from '../running-work.js';
 import { DATAFLOW_EVENTS_APART, dataflowEventsApart } from '../upgrades/dataflow-events-apart.js';
 import { DATAFLOW_FORCE_TASKS, DataflowStateBeforeForceTasksType, dataflowForceTasks } from '../upgrades/dataflow-force-tasks.js';
 import { EXECUTION_STOP_REASONS, ExecutionStatusBeforeReasonsType, executionStopReasons } from '../upgrades/execution-stop-reasons.js';
-import { FUNCTION_CALL_DRAFTS, FunctionCallJobBeforeDraftsType, functionCallDrafts } from '../upgrades/function-call-drafts.js';
+import { FUNCTION_CALL_DRAFTS, FunctionCallJobBeforeDraftsType, FunctionCallJobWithDraftsType, functionCallDrafts } from '../upgrades/function-call-drafts.js';
+import { FUNCTION_CALL_INDEX_INPUTS, functionCallIndexInputs } from '../upgrades/function-call-index-inputs.js';
 import { RUNNING_EXECUTIONS_INDEXED } from '../upgrades/running-executions-indexed.js';
 import { STATUS_REVISION_TOKENS, statusRevisionTokens } from '../upgrades/status-revision-tokens.js';
 import { TASK_RUNS_INDEXED } from '../upgrades/task-runs-indexed.js';
@@ -162,10 +164,16 @@ function callBeforeDrafts(
   };
 }
 
-/** A call a release before `function-call-drafts` kept, as the step carries
- *  it: it passed no draft, and holds none. */
+/** A call a release before `function-call-drafts` kept, as that step and
+ *  `function-call-index-inputs` after it carry it: it passed no draft, and
+ *  holds none; and each of its inputs was a dataset itself, and names no
+ *  index. */
 function withNoDrafts(job: CallBeforeDrafts): FunctionCallJob {
-  return { ...job, call: { ...job.call, drafts: [] }, drafted: [] };
+  return {
+    ...job,
+    call: { ...job.call, inputs: job.call.inputs.map(({ path, hash }) => ({ path, index: none, hash })), drafts: [] },
+    drafted: [],
+  };
 }
 
 /** A kept call's key among a repository's: a unit of `function-call-drafts`. */
@@ -1071,11 +1079,15 @@ export function repositoryRecordTests(setup: BackendSetup): void {
       }
     });
 
-    it('carries every function call an earlier release kept into the form in which a call holds its drafts, whatever its state and though its lifetime has ended, and leaves the rest as they are', async (t) => {
+    it('carries every function call an earlier release kept into the form in which a call holds its drafts and its inputs name the indexes they read, whatever its state and though its lifetime has ended, and leaves the rest as they are', async (t) => {
       const { storage, repo } = await setup(t);
       const record = await repositoryOpen(storage, repo);
-      // A repository an earlier release wrote, which has not had the upgrade.
-      const before = { release: '1.0.107', upgrades: record.upgrades.filter(({ name }) => name !== FUNCTION_CALL_DRAFTS) };
+      // A repository an earlier release wrote, which has had neither upgrade
+      // of a kept call's form.
+      const before = {
+        release: '1.0.107',
+        upgrades: record.upgrades.filter(({ name }) => name !== FUNCTION_CALL_DRAFTS && name !== FUNCTION_CALL_INDEX_INPUTS),
+      };
       await storage.refs.repositoryWrite(repo, before);
 
       // Calls as an earlier release kept them: one running, one that
@@ -1105,9 +1117,14 @@ export function repositoryRecordTests(setup: BackendSetup): void {
       const { replaced, stop } = watchCallReplaces(storage);
       try {
         const opened = await repositoryOpen(storage, repo);
-        assert.deepEqual(opened.upgrades, [...before.upgrades, { name: FUNCTION_CALL_DRAFTS, release: E3_RELEASE }]);
-        assert.deepEqual([...replaced].sort(), [running, succeeded, expired].map(callKey).sort(),
-          'every call in the earlier form is rewritten, whatever its state and though its lifetime has ended, and no other');
+        assert.deepEqual(opened.upgrades, [
+          ...before.upgrades, { name: FUNCTION_CALL_DRAFTS, release: E3_RELEASE }, { name: FUNCTION_CALL_INDEX_INPUTS, release: E3_RELEASE },
+        ]);
+        // Each step rewrites a call once: the first gives it its drafts, the
+        // second each input's index
+        const twice = [running, succeeded, expired].map(callKey);
+        assert.deepEqual([...replaced].sort(), [...twice, ...twice].sort(),
+          'every call in the earlier form is rewritten by each step, whatever its state and though its lifetime has ended, and no other');
 
         const equal = equalFor(FunctionCallJobType);
         const print = printFor(FunctionCallJobType);
@@ -1155,8 +1172,9 @@ export function repositoryRecordTests(setup: BackendSetup): void {
         replaced.length = 0;
         assert.equal(await functionCallDrafts.apply(storage, repo, stopped, 0), null, 'the part that carries the last unit is the step\'s last');
         assert.deepEqual(replaced, [keys[16]]);
+        const written = toEastTypeValue(FunctionCallJobWithDraftsType);
         for (const call of calls) {
-          assert.notEqual(await storage.calls.get(repo, call.workspace, call.call.id), null, 'every call reads, in the current form');
+          assert.ok(isTypeValueEqual(readBeast2Type(await storedCallBytes(storage, repo, call)), written), 'every call is stored in the form the step writes');
         }
 
         // From the start, with time to spare, a part goes through every unit,
@@ -1164,6 +1182,21 @@ export function repositoryRecordTests(setup: BackendSetup): void {
         replaced.length = 0;
         assert.equal(await functionCallDrafts.apply(storage, repo, null, Date.now() + 60_000), null);
         assert.deepEqual(replaced, []);
+
+        // The step after it carries them on in parts the same way, into the
+        // form this release reads.
+        const next = await functionCallIndexInputs.apply(storage, repo, null, 0);
+        assert.equal(next, keys[15]);
+        assert.deepEqual([...replaced].sort(), keys.slice(0, 16));
+        replaced.length = 0;
+        assert.equal(await functionCallIndexInputs.apply(storage, repo, next, 0), null, 'the part that carries the last unit is that step\'s last');
+        assert.deepEqual(replaced, [keys[16]]);
+        for (const call of calls) {
+          assert.notEqual(await storage.calls.get(repo, call.workspace, call.call.id), null, 'every call reads, in the current form');
+        }
+        replaced.length = 0;
+        assert.equal(await functionCallIndexInputs.apply(storage, repo, null, Date.now() + 60_000), null);
+        assert.deepEqual(replaced, [], 'and it rewrites none it carried');
       } finally {
         stop();
       }

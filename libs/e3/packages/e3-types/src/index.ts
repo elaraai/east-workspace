@@ -108,6 +108,9 @@ export {
 
 // Function objects
 export {
+  FunctionInputType,
+  type FunctionInput,
+  inputLabel,
   FunctionObjectType,
   type FunctionObject,
   decodeFunctionObject,
@@ -459,6 +462,7 @@ export {
   ExecuteLimitsType,
   DiagnosticType,
   ExecuteResultType,
+  InputReadType,
   CallArgType,
   FunctionDraftType,
   FunctionDraftConflictType,
@@ -551,6 +555,7 @@ export {
   type ExecuteLimits,
   type Diagnostic,
   type ExecuteResult,
+  type InputRead,
   type CallArg,
   type FunctionDraft,
   type FunctionDraftConflict,

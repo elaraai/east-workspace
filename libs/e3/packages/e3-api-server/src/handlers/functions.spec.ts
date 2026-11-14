@@ -95,7 +95,7 @@ async function seedPackage(storage: InMemoryStorage): Promise<void> {
   const bodyIrHash = await storage.objects.write(REPO, encodeInt(0n)); // stand-in IR blob
   const fnObject = (inputs: typeof N_PATH[], drafts: string[] = []) => ({
     bodyIr: bodyIrHash,
-    inputs,
+    inputs: inputs.map((path) => ({ path, index: none })),
     drafts,
     argTypes: [toEastTypeValue(IntegerType)],
     outputType: toEastTypeValue(IntegerType),
@@ -354,7 +354,7 @@ describe('draft access', () => {
       migrations: [],
     }));
     const planned = await storage.objects.write(REPO, encodeBeast2For(FunctionObjectType)({
-      bodyIr: ir, inputs: [JOBS_PATH], drafts: ['jobs'], argTypes: [], outputType: toEastTypeValue(IntegerType), runner: STOCK, environment: none,
+      bodyIr: ir, inputs: [{ path: JOBS_PATH, index: none }], drafts: ['jobs'], argTypes: [], outputType: toEastTypeValue(IntegerType), runner: STOCK, environment: none,
     }));
     const structure = variant('struct', new Map([
       ['records', variant('struct', new Map([

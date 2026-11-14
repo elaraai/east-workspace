@@ -10,6 +10,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import yauzl from 'yauzl';
 import {
+  ArrayType,
   East,
   IntegerType,
   FloatType,
@@ -18,17 +19,24 @@ import {
   DictType,
   decodeBeast2For,
   encodeBeast2For,
+  equalFor,
+  none,
+  some,
   toEastTypeValue,
   variant,
 } from '@elaraai/east';
 import {
   PackageObjectType,
   PackageDataType,
+  FunctionInputType,
   FunctionObjectType,
+  TaskInputType,
   decodePackageObject,
+  decodeTaskObject,
   pathToString,
 } from '@elaraai/e3-types';
 import { function_ } from './function.js';
+import { index } from './index-input.js';
 import { runnerToVariant } from './runner.js';
 import { package_ } from './package.js';
 import { export_ } from './export.js';
@@ -357,7 +365,7 @@ describe('function_ with drafts', () => {
     };
     assert.throws(() => untyped('unread', unread, () => 0n), {
       message: 'e3.function \'unread\': the record \'jobs\', listed in drafts, is read by none of its inputs — '
-        + 'list it in inputs too, and a call reads it with its drafts laid over it',
+        + 'list it in inputs too, or an index of it, and a call reads it with its drafts laid over it',
     });
   });
 
@@ -382,7 +390,7 @@ describe('function_ with drafts', () => {
       output: IntegerType,
     }, () => 0n), {
       message: 'e3.function \'inline_unread\': the record \'jobs\', listed in drafts, is read by none of its inputs — '
-        + 'list it in inputs too, and a call reads it with its drafts laid over it',
+        + 'list it in inputs too, or an index of it, and a call reads it with its drafts laid over it',
     });
   });
 
@@ -517,7 +525,8 @@ describe('export_ with functions', () => {
     assert.ok(pkgObject.data.refs.get('inputs/greeting'), 'its input');
 
     const fnObject = decodeBeast2For(FunctionObjectType)(objectEntry(entries, pkgObject.functions.get('echo')!)!);
-    assert.deepStrictEqual(fnObject.inputs.map((p) => pathToString(p)), ['.inputs.greeting', '.tasks.shout.output']);
+    assert.deepStrictEqual(fnObject.inputs.map(({ path }) => pathToString(path)), ['.inputs.greeting', '.tasks.shout.output']);
+    assert.ok(fnObject.inputs.every(({ index }) => index.type === 'none'), 'each a dataset itself, and no index of one');
     assert.deepStrictEqual(fnObject.argTypes.map((t) => t.type), ['Integer']);
     assert.strictEqual(fnObject.outputType.type, 'String');
     assert.deepStrictEqual(fnObject.drafts, [], 'and it lists no record a call may draft');
@@ -539,10 +548,45 @@ describe('export_ with functions', () => {
     const pkgObject = decodeBeast2For(PackageObjectType)(objectEntry(entries, decodeBeast2For(StringType)(entries.get('packages/fn-drafts-pkg/1.0.0.beast2')!))!);
 
     const fnObject = decodeBeast2For(FunctionObjectType)(objectEntry(entries, pkgObject.functions.get('jobs_on')!)!);
-    assert.deepStrictEqual(fnObject.inputs.map((p) => pathToString(p)), ['.records.presses', '.records.jobs']);
+    assert.deepStrictEqual(fnObject.inputs.map(({ path }) => pathToString(path)), ['.records.presses', '.records.jobs']);
     assert.deepStrictEqual(fnObject.drafts, ['jobs']);
     // The name is the one the package holds the record under, which a draft and `e3 mutate` address it by
     assert.deepStrictEqual([...pkgObject.records.keys()], ['jobs', 'presses']);
+  });
+
+  it('writes an index of a record as its record\'s path and the index\'s name, in a function and in a task', async () => {
+    const jobs = record('jobs', DictType(StringType, StructType({ press: StringType })), {
+      initial: new Map(),
+      indexes: (index) => ({ jobs_by_press: index.on(['press']) }),
+      mutations: (mutation) => ({ patch: mutation.patch() }),
+    });
+    const byPress = index(jobs.indexes.jobs_by_press);
+    const onPress = function_('on_press', { inputs: [byPress, jobs], drafts: [jobs], args: [StringType], output: IntegerType },
+      ($, jobsByPress, _jobs, press) => jobsByPress.prefix({ ik: press }).size());
+    const counted = task('counted', [byPress], East.function([byPress.type], IntegerType, ($, jobsByPress) => jobsByPress.size()));
+    const pkg = package_('fn-index-pkg', '1.0.0', onPress, counted);
+
+    const zipPath = path.join(tempDir, 'fn-index-pkg-1.0.0.zip');
+    await export_(pkg, zipPath);
+    const entries = await readZip(zipPath);
+    const pkgObject = decodeBeast2For(PackageObjectType)(objectEntry(entries, decodeBeast2For(StringType)(entries.get('packages/fn-index-pkg/1.0.0.beast2')!))!);
+
+    // Each brought the index's record with it, which the package holds once
+    assert.deepStrictEqual([...pkgObject.records.keys()], ['jobs']);
+    assert.ok(pkgObject.data.refs.get('records/jobs'), 'the record\'s dataset');
+
+    const recordPath = [variant('field', 'records'), variant('field', 'jobs')];
+    const fnObject = decodeBeast2For(FunctionObjectType)(objectEntry(entries, pkgObject.functions.get('on_press')!)!);
+    assert.ok(equalFor(ArrayType(FunctionInputType))(fnObject.inputs, [
+      { path: recordPath, index: some('jobs_by_press') },
+      { path: recordPath, index: none },
+    ]), 'the function reads the index through its record\'s path, and the record beside it');
+    assert.deepStrictEqual(fnObject.drafts, ['jobs']);
+
+    const taskObject = decodeTaskObject(objectEntry(entries, pkgObject.tasks.get('counted')!)!);
+    assert.ok(equalFor(ArrayType(TaskInputType))(taskObject.inputs, [
+      { path: recordPath, index: some('jobs_by_press'), partition: none },
+    ]), 'and so does the task, which no piece splits it for');
   });
 
   it('produces identical output for the same package (deterministic)', async () => {

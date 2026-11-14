@@ -288,6 +288,8 @@ export {
   readManifest,
   openDatasetObject,
   readDatasetWhole,
+  inputObject,
+  recordIndexManifests,
 } from './dataset-open.js';
 
 // The store's door: the one way a collection reaches the object store, from a

@@ -120,7 +120,7 @@ function idOfAnHourAgo(): string {
 async function pinnedAt(ctx: TestContext, path: TreePath, opts: RequestOptions): Promise<ValueTypeOf<typeof InputsType>[number]> {
   const status = await datasetGetStatus(ctx.config.baseUrl, ctx.repoName, WS, path, opts);
   if (status.hash.type === 'none') assert.fail(`${status.path} holds no value`);
-  return { path, hash: status.hash.value };
+  return { path, index: none, hash: status.hash.value };
 }
 
 /**

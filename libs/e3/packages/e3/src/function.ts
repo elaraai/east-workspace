@@ -31,18 +31,24 @@ import type {
   SubtypeExprOrValue,
 } from '@elaraai/east';
 import { East, Expr } from '@elaraai/east';
-import type { DatasetDef, DataTreeDef, FunctionDef, PartitionDef, RecordDef, TaskDef } from './types.js';
+import type { DatasetDef, DataTreeDef, FunctionDef, InputDef, PartitionDef, RecordDef, TaskDef } from './types.js';
 import { DEFAULT_RUNNER, runnerToVariant, type FunctionRunner } from './runner.js';
 import { isRecord } from './record.js';
 import { refusePartitioned, type InputExprs } from './task.js';
+import { inputDataset, inputType } from './index-input.js';
 
 /** The expression a function's body receives for each argument. */
 type ArgExprs<T extends readonly EastType[]> = {
   [K in keyof T]: ExprType<T[K]>;
 };
 
-/** The records among a function's inputs: what its `drafts` may list. */
-type RecordsOf<Inputs extends readonly DatasetDef[]> = Extract<Inputs[number], { readonly recordKind: 'record' }>;
+/** The records a function's inputs read, which its `drafts` may list: a record
+ *  among them, and the record of an index among them. An index names its
+ *  record's type loosely, so with any index among the inputs the list takes
+ *  any record, and the definition checks each against the inputs. */
+type RecordsOf<Inputs extends readonly InputDef[]> =
+  | Extract<Inputs[number], { readonly recordKind: 'record' }>
+  | ([Extract<Inputs[number], { readonly kind: 'index' }>] extends [never] ? never : RecordDef);
 
 /**
  * Whether a function's spec lists a record in `drafts`, as its definition's
@@ -69,19 +75,23 @@ type DraftedOf<Listed extends readonly unknown[]> =
  *   any (`FunctionSpec<[typeof jobs], [], IntegerType, [typeof jobs]>`)
  */
 export interface FunctionSpec<
-  Inputs extends readonly DatasetDef[],
+  Inputs extends readonly InputDef[],
   Args extends EastType[],
   Output extends EastType,
   Listed extends readonly RecordsOf<Inputs>[] = readonly [],
 > {
-  /** The datasets each call reads from the workspace it runs in, in the
-   *  body's parameter order before the arguments: an input, a task's output
-   *  or a record of the package. Each is read as it is stored as the call
-   *  starts, pinned at its hash: one after another, waiting for no run, so a
-   *  call during a run may read one before the run rewrites it and another
-   *  after. */
+  /** What each call reads from the workspace it runs in, in the body's
+   *  parameter order before the arguments: an input, a task's output or a
+   *  record of the package, or an index of a record (`e3.index`), whose
+   *  parameter is the index's entries. Each dataset is read as it is stored as
+   *  the call starts, pinned at its hash: one after another, waiting for no
+   *  run, so a call during a run may read one before the run rewrites it and
+   *  another after. The inputs of one record, the record and any of its
+   *  indexes, are read at one state of it. */
   readonly inputs: [...Inputs];
-  /** The records a call may pass drafts of, each a record among `inputs`. A
+  /** The records a call may pass drafts of, each a record one of `inputs`
+   *  reads: the record itself, or an index of it, which then holds the drafts
+   *  as it would after the Save. A
    *  draft is a call of one of the record's mutations that is not committed:
    *  a call reads a drafted record with its drafts laid over it, its indexes
    *  holding them as they would after the Save, and saves nothing. Listing a
@@ -158,14 +168,19 @@ export function function_<Name extends string, Args extends EastType[], Output e
  * The body's parameters are the inputs, in `inputs` order, then the
  * arguments, in `args` order: the SDK builds the East function from their
  * types, an async one with `async: true`. An input is what a task takes — an
- * input, a task's output or a record of the package — and `e3.package`
- * collects each with what it depends on. The function is still no node of
- * the dataflow: nothing reruns when an input changes.
+ * input, a task's output or a record of the package, or an index of a record
+ * (`e3.index`), whose parameter is the index's entries — and `e3.package`
+ * collects each with what it depends on, an index's record with it. The
+ * function is still no node of the dataflow: nothing reruns when an input
+ * changes.
  *
  * A call through a workspace reads each input as it is stored as the call
- * starts, pinned at its hash, and its result names each path and hash. The
+ * starts, pinned at its hash, and its result names each path and hash — and,
+ * for an index, the index, with the hash its record was pinned at. The
  * inputs are read one after another, waiting for no run, so a call during a
- * run may read one input before the run rewrites it and another after. The
+ * run may read one input before the run rewrites it and another after; the
+ * inputs of one record, the record and any of its indexes, are read at one
+ * state of it. The
  * caller passes the arguments alone. An input not assigned — one nothing has
  * set, a task's output no run has produced since the deploy — makes the call
  * `invalid`, naming it, and nothing runs. The package route, which has no
@@ -195,7 +210,8 @@ export function function_<Name extends string, Args extends EastType[], Output e
  * @throws {Error} When the name is empty or the runner is not a known one, an
  *   input is marked with `e3.partition` (a call runs as one unit), the runner
  *   is the `custom` runtime with inputs, or `drafts` lists what is no record,
- *   or a record none of the inputs reads, naming it.
+ *   or a record none of the inputs reads — itself, or by an index of it —
+ *   naming it.
  *
  * @example
  * ```ts
@@ -240,7 +256,7 @@ export function function_<Name extends string, Args extends EastType[], Output e
  */
 export function function_<
   Name extends string,
-  Inputs extends readonly DatasetDef[],
+  Inputs extends readonly InputDef[],
   Args extends EastType[],
   Output extends EastType,
   Listed extends readonly RecordsOf<Inputs>[] = readonly [],
@@ -251,7 +267,7 @@ export function function_<
 ): FunctionDef<Args, Output, DraftedOf<Listed>>;
 export function function_(
   name: string,
-  second: FunctionExpr<EastType[], EastType> | AsyncFunctionExpr<EastType[], EastType> | FunctionSpec<(DatasetDef | RecordDef)[], EastType[], EastType, readonly RecordDef[]>,
+  second: FunctionExpr<EastType[], EastType> | AsyncFunctionExpr<EastType[], EastType> | FunctionSpec<InputDef[], EastType[], EastType, readonly RecordDef[]>,
   third?: { runner?: FunctionRunner, environment?: EnvironmentDecl } | (($: BlockBuilder<EastType>, ...params: Expr[]) => unknown),
 ): FunctionDef {
   if (!name) {
@@ -263,25 +279,24 @@ export function function_(
   }
 
   const spec = second;
-  const inputs = spec.inputs as readonly (DatasetDef | PartitionDef)[];
-  refusePartitioned(`e3.function '${name}'`, inputs, 'and a call runs as one unit');
-  const datasets = inputs as readonly DatasetDef[];
-  if (datasets.length > 0 && spec.runner?.runtime === 'custom') {
+  refusePartitioned(`e3.function '${name}'`, spec.inputs as readonly (InputDef | PartitionDef)[], 'and a call runs as one unit');
+  const inputs: readonly InputDef[] = spec.inputs;
+  if (inputs.length > 0 && spec.runner?.runtime === 'custom') {
     throw new Error(
       `e3.function '${name}': the custom runtime takes no inputs — ` +
       `read them on a stock runtime (east-node, east-py, east-c), or pass them as arguments`
     );
   }
-  const drafts = draftedRecords(`e3.function '${name}'`, spec.drafts ?? [], datasets);
+  const drafts = draftedRecords(`e3.function '${name}'`, spec.drafts ?? [], inputs);
 
   // East gives the body an expression of each parameter's type: the inputs',
   // in the spec's order, then the arguments'.
   const body = third as ($: BlockBuilder<EastType>, ...params: Expr[]) => unknown;
-  const parameters: EastType[] = [...datasets.map((d) => d.type), ...spec.args];
+  const parameters: EastType[] = [...inputs.map(inputType), ...spec.args];
   const bodyFn = spec.async === true
     ? East.asyncFunction(parameters, spec.output, ($, ...params) => body($, ...params) as never)
     : East.function(parameters, spec.output, ($, ...params) => body($, ...params) as never);
-  return define(name, bodyFn, datasets, drafts, spec.runner, spec.environment);
+  return define(name, bodyFn, inputs, drafts, spec.runner, spec.environment);
 }
 
 /**
@@ -292,9 +307,10 @@ export function function_(
  * @param inputs - Its inputs
  * @returns The records
  * @throws {Error} Naming the entry: one that is no record, or a record none
- *   of the inputs reads
+ *   of the inputs reads, itself or by an index of it
  */
-function draftedRecords(owner: string, listed: readonly unknown[], inputs: readonly DatasetDef[]): RecordDef[] {
+function draftedRecords(owner: string, listed: readonly unknown[], inputs: readonly InputDef[]): RecordDef[] {
+  const read = inputs.map(inputDataset);
   const records: RecordDef[] = [];
   for (const entry of listed) {
     if (!isRecord(entry)) {
@@ -304,10 +320,10 @@ function draftedRecords(owner: string, listed: readonly unknown[], inputs: reado
         `a draft is a call of a record's mutation that is not committed, so only an e3.record takes one`
       );
     }
-    if (!inputs.includes(entry)) {
+    if (!read.includes(entry)) {
       throw new Error(
         `${owner}: the record '${entry.name}', listed in drafts, is read by none of its inputs — ` +
-        `list it in inputs too, and a call reads it with its drafts laid over it`
+        `list it in inputs too, or an index of it, and a call reads it with its drafts laid over it`
       );
     }
     if (!records.includes(entry)) records.push(entry);
@@ -323,7 +339,7 @@ function draftedRecords(owner: string, listed: readonly unknown[], inputs: reado
 function define(
   name: string,
   fn: FunctionExpr<EastType[], EastType> | AsyncFunctionExpr<EastType[], EastType>,
-  inputs: readonly DatasetDef[],
+  inputs: readonly InputDef[],
   drafts: readonly RecordDef[],
   runner: FunctionRunner | undefined,
   environment: EnvironmentDecl | undefined,
@@ -338,8 +354,9 @@ function define(
   const eastIR = fn.toIR();
   const fnType = Expr.type<FunctionType<EastType[], EastType> | AsyncFunctionType<EastType[], EastType>>(fn);
 
+  // An index's record is collected as any input is.
   const deps = new Set<DataTreeDef | DatasetDef | TaskDef>();
-  for (const input of inputs) {
+  for (const input of inputs.map(inputDataset)) {
     for (const dep of input.deps) deps.add(dep);
     deps.add(input);
   }

@@ -61,9 +61,9 @@ export interface FunctionCallUnkeptOptions {
  *    lay ends the call as a Save of it would have ended, and its function
  *    does not run.
  * 3. **Run.** Its function, on `runner` with `runDetached`, reading each input
- *    of a drafted record at the state its drafts left, and a dataset argument
- *    naming one as saved, at the state they were laid over, for what is left
- *    of the timeout.
+ *    of a drafted record — the record, or an index of it — at the state its
+ *    drafts left, and a dataset argument naming one as saved, at the state
+ *    they were laid over, for what is left of the timeout.
  *
  * A call that passes drafts holds the repository's running work from its check
  * to its answer: the states its drafts leave are named by nothing, and a

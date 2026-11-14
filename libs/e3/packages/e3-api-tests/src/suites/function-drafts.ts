@@ -196,7 +196,7 @@ async function called(
 async function storedAt(ctx: TestContext, ws: string, path: TreePath, opts: RequestOptions): Promise<Inputs[number]> {
   const status = await datasetGetStatus(ctx.config.baseUrl, ctx.repoName, ws, path, opts);
   if (status.hash.type === 'none') assert.fail(`${status.path} holds no value`);
-  return { path, hash: status.hash.value };
+  return { path, index: none, hash: status.hash.value };
 }
 
 /** The jobs a reader of the workspace reads. */
@@ -334,7 +334,7 @@ export function functionDraftTests(setup: TestSetup<TestContext>): void {
       assert.equal(valueOf(one, IntegerType), 14n, 'the jobs\' 9 hours as saved, and a tally of 5');
       const [jobsRead, tallyRead] = one.inputs;
       if (jobsRead === undefined || tallyRead === undefined || one.inputs.length !== 2) assert.fail(`it names ${printInputs(one.inputs)} as read`);
-      assert.ok(sameInputs([jobsRead, { path: tallyRead.path, hash: stored.tally.hash }], [stored.jobs, stored.tally]),
+      assert.ok(sameInputs([jobsRead, { ...tallyRead, hash: stored.tally.hash }], [stored.jobs, stored.tally]),
         `the record it does not draft is read as stored: ${printInputs(one.inputs)}`);
       assert.notEqual(tallyRead.hash, stored.tally.hash, 'and the one it drafts, at the drafted state');
       assertDrafted(one, [{ record: 'tally', commit: heads.tally }], 'the one record it drafted');

@@ -16,16 +16,18 @@
 import type { AsyncFunctionExpr, AsyncFunctionType, BlockBuilder, CallableAsyncFunctionExpr, CallableFunctionExpr, EastType, ExprType, FunctionExpr, FunctionType } from '@elaraai/east';
 import { Expr, variant, ArrayType, StringType, NullType, East, EastIR, isTypeValueEqual, printType, toEastTypeValue } from '@elaraai/east';
 import type { TaskRole } from '@elaraai/e3-types';
-import type { DatasetDef, DataTreeDef, OutputDef, PartitionDef, TaskDef } from './types.js';
+import type { DatasetDef, DataTreeDef, IndexInputDef, InputDef, OutputDef, PartitionDef, TaskDef } from './types.js';
 import { DEFAULT_RUNNER, type Runner } from './runner.js';
 import { validateEnvironmentDecl, type EnvironmentDecl } from './environment.js';
+import { inputDataset, inputName, inputType } from './index-input.js';
 
 /**
- * Helper type to extract East types from DatasetDef array.
+ * Helper type to extract East types from a task's inputs: a dataset's, or the
+ * entries' of an index of a record.
  * Preserves tuple structure when T is a tuple.
  */
-type ExtractDatasetTypes<T extends readonly DatasetDef[]> = {
-  [K in keyof T]: T[K] extends DatasetDef<infer U> ? U : never;
+type ExtractDatasetTypes<T extends readonly InputDef[]> = {
+  [K in keyof T]: T[K] extends IndexInputDef<infer U> ? U : T[K] extends DatasetDef<infer U> ? U : never;
 } & EastType[];
 
 /** The task-output path tuple for task `Name`. */
@@ -127,18 +129,23 @@ function collectDeps(
  * Task structure:
  * - `.tasks.${name}.output` - The output dataset
  *
+ * An input is a dataset, or an index of a record taken with `e3.index`: the
+ * body's parameter for it is the index's entries, whose type is the input's
+ * `type` (`e3.index(jobs.indexes.jobs_by_press).type`).
+ *
  * @typeParam Name - Task name (literal type)
  * @typeParam Inputs - Input dataset types
  * @typeParam Output - Output type
  * @param name - Task name
- * @param inputs - Input datasets to read from
+ * @param inputs - What it reads: datasets, and indexes of records (`e3.index`)
  * @param fn - Implementation function
  * @param config - The runner the function runs on (default
  *   {@link DEFAULT_RUNNER}), the environment it runs in, and its role: a data
  *   task (the default), or a UI task with the data its surface reads
  * @returns A TaskDef with `.output` for chaining
  * @throws {Error} When an input is marked with `e3.partition`, which only
- *   {@link streamTask} takes.
+ *   {@link streamTask} takes, or the body's parameter for an index is not the
+ *   index's type, naming it.
  *
  * @see {@link streamTask} for an output emitted instead of returned, and work
  * split over an input.
@@ -162,7 +169,7 @@ function collectDeps(
  * );
  * ```
  */
-export function task<Name extends string, Inputs extends readonly DatasetDef[], Output extends EastType>(
+export function task<Name extends string, Inputs extends readonly InputDef[], Output extends EastType>(
   name: Name,
   inputs: [...Inputs],
   fn: FunctionExpr<ExtractDatasetTypes<Inputs>, Output>
@@ -173,15 +180,28 @@ export function task<Name extends string, Inputs extends readonly DatasetDef[], 
 ): TaskDef<Output, TaskOutputPath<Name>>;
 export function task(
   name: string,
-  inputs: DatasetDef[],
+  inputs: InputDef[],
   fn: FunctionExpr<EastType[], EastType> | AsyncFunctionExpr<EastType[], EastType>,
   config?: { runner?: Runner, environment?: EnvironmentDecl, role?: TaskRole },
 ): TaskDef {
   if (config?.environment) validateEnvironmentDecl(config.environment, name);
-  refusePartitioned(`task '${name}'`, inputs as readonly (DatasetDef | PartitionDef)[], 'which only e3.streamTask takes');
+  refusePartitioned(`task '${name}'`, inputs as readonly (InputDef | PartitionDef)[], 'which only e3.streamTask takes');
+  const fnType = Expr.type<FunctionType<EastType[], EastType> | AsyncFunctionType<EastType[], EastType>>(fn);
+  // An index's entries are typed as its record's state holds them, which the
+  // body's parameter must be: a runner decodes an input by it.
+  for (const [at, input] of inputs.entries()) {
+    if (input.kind !== 'index') continue;
+    const declared = fnType.inputs[at];
+    if (declared === undefined || !isTypeValueEqual(toEastTypeValue(declared), toEastTypeValue(input.type))) {
+      throw new Error(
+        `task '${name}': its input '${inputName(input)}' is an index whose entries are ${printType(input.type)}, and the body's parameter for it ` +
+        `${declared === undefined ? 'is missing' : `is ${printType(declared)}`} — declare the parameter as the input's type, e3.index(…).type`
+      );
+    }
+  }
 
   const taskTree = createTaskTree(name);
-  const output = createOutputDataset(name, taskTree, Expr.type<FunctionType<EastType[], EastType> | AsyncFunctionType<EastType[], EastType>>(fn).output);
+  const output = createOutputDataset(name, taskTree, fnType.output);
 
   const taskDef: TaskDef = {
     kind: 'task',
@@ -192,7 +212,7 @@ export function task(
     inputs,
     output,
     role: config?.role ?? variant('data', null),
-    deps: collectDeps(taskTree, output, inputs),
+    deps: collectDeps(taskTree, output, inputs.map(inputDataset)),
     runner: config?.runner ?? DEFAULT_RUNNER,
     environment: config?.environment,
   };
@@ -216,6 +236,8 @@ export function task(
  * @param command - Builds the bash script from the input paths and the output path
  * @param config - The environment the command runs in
  * @returns A TaskDef with `.output` for chaining
+ * @throws {Error} When an input is an index of a record (`e3.index`): a
+ *   command reads its inputs as files, and an index is read by its runs.
  */
 export function customTask<Name extends string, Inputs extends Array<DatasetDef>, Output extends EastType>(
   name: Name,
@@ -225,6 +247,14 @@ export function customTask<Name extends string, Inputs extends Array<DatasetDef>
   config?: { environment?: EnvironmentDecl },
 ): TaskDef<Output, TaskOutputPath<Name>> {
   if (config?.environment) validateEnvironmentDecl(config.environment, name);
+  for (const input of inputs as readonly (InputDef | PartitionDef)[]) {
+    if (input.kind === 'index') {
+      throw new Error(
+        `customTask '${name}': input '${inputName(input)}' is an index of a record, and a custom task's command reads its inputs as files — ` +
+        `read the index in an e3.task or an e3.streamTask, and pass that task's output`
+      );
+    }
+  }
 
   // Create the task's subtree at .tasks.${name}
   const taskTree = createTaskTree(name);
@@ -288,6 +318,8 @@ export function customTask<Name extends string, Inputs extends Array<DatasetDef>
  * @param dataset - The dataset
  * @param config - `by`, the fields rows are grouped by
  * @returns The marked input, to pass in a stream task's `inputs`
+ * @throws {Error} When given an index of a record (`e3.index`): every piece
+ *   reads an index whole, by its runs, so it is passed itself.
  *
  * @example
  * ```ts
@@ -302,6 +334,13 @@ export function customTask<Name extends string, Inputs extends Array<DatasetDef>
  * ```
  */
 export function partition<T extends EastType>(dataset: DatasetDef<T>, config?: { by?: string[] }): PartitionDef<T> {
+  const given = dataset as InputDef;
+  if (given.kind === 'index') {
+    throw new Error(
+      `e3.partition: '${inputName(given)}' is an index of a record, which a stream task's work is not split over — ` +
+      `pass the e3.index itself: every piece reads it whole, a run at a time`
+    );
+  }
   return { kind: 'partition', dataset, by: [...(config?.by ?? [])] };
 }
 
@@ -312,9 +351,10 @@ export function partition<T extends EastType>(dataset: DatasetDef<T>, config?: {
  * @typeParam T - The inputs, some marked with {@link partition}
  * @internal
  */
-export type InputExprs<T extends readonly (DatasetDef | PartitionDef)[]> = {
+export type InputExprs<T extends readonly (InputDef | PartitionDef)[]> = {
   [K in keyof T]:
     T[K] extends PartitionDef<infer U> ? ExprType<U> :
+    T[K] extends IndexInputDef<infer U> ? ExprType<U> :
     T[K] extends DatasetDef<infer U> ? ExprType<U> :
     never;
 };
@@ -330,7 +370,7 @@ export type InputExprs<T extends readonly (DatasetDef | PartitionDef)[]> = {
  *   and saying to pass the dataset itself
  * @internal
  */
-export function refusePartitioned(owner: string, inputs: readonly (DatasetDef | PartitionDef)[], why: string): void {
+export function refusePartitioned(owner: string, inputs: readonly (InputDef | PartitionDef)[], why: string): void {
   for (const input of inputs) {
     if (input.kind === 'partition') {
       throw new Error(`${owner}: input '${input.dataset.name}' is marked with e3.partition, ${why} — pass the dataset itself`);
@@ -346,13 +386,14 @@ export function refusePartitioned(owner: string, inputs: readonly (DatasetDef | 
  * @typeParam Output - The output kind
  */
 export interface StreamTaskSpec<
-  Inputs extends readonly (DatasetDef | PartitionDef)[],
+  Inputs extends readonly (InputDef | PartitionDef)[],
   Output extends OutputDef,
 > {
-  /** The inputs, in the body's parameter order. An input wrapped in
-   *  {@link partition} is one the work may be split over; the others reach
-   *  every piece whole. Each piece reads its inputs as the runner's `decode`
-   *  says: lazily by default. Empty for a producer. */
+  /** The inputs, in the body's parameter order: each a dataset, or an index
+   *  of a record (`e3.index`). An input wrapped in {@link partition} is one
+   *  the work may be split over; the others reach every piece whole, an index
+   *  among them. Each piece reads its inputs as the runner's `decode` says:
+   *  lazily by default. Empty for a producer. */
   readonly inputs: [...Inputs];
   /** The output kind — `e3.output.array`, `set`, `dict` or `fold`. It fixes
    *  `emit`'s signature and how the parts of the output combine. */
@@ -493,7 +534,7 @@ function checkPartitions(name: string, partitions: readonly PartitionDef[]): voi
  */
 export function streamTask<
   Name extends string,
-  const Inputs extends readonly (DatasetDef | PartitionDef)[],
+  const Inputs extends readonly (InputDef | PartitionDef)[],
   Output extends OutputDef,
 >(
   name: Name,
@@ -513,11 +554,11 @@ export function streamTask<
     );
   }
 
-  const inputs = spec.inputs as readonly (DatasetDef | PartitionDef)[];
+  const inputs = spec.inputs as readonly (InputDef | PartitionDef)[];
   checkPartitions(name, inputs.filter((i): i is PartitionDef => i.kind === 'partition'));
-  const datasets = inputs.map((i) => (i.kind === 'partition' ? i.dataset : i));
+  const datasets = inputs.map(inputDataset);
   // The inputs' types and the emit's, in the body's order.
-  const parameters: EastType[] = [...datasets.map((d) => d.type), outputKind.emit];
+  const parameters: EastType[] = [...inputs.map(inputType), outputKind.emit];
 
   // East gives the body an expression of each of those types: the inputs', in
   // the spec's order, and the emit's, as the body's signature names them.

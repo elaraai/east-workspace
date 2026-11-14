@@ -144,7 +144,7 @@ describe('task and function object decoders', () => {
   it('round-trips a current function with an environment hash, and the records it lists in its drafts', () => {
     const fnObj: FunctionObject = {
       bodyIr: 'c'.repeat(64),
-      inputs: [[variant('field', 'records'), variant('field', 'jobs')]],
+      inputs: [{ path: [variant('field', 'records'), variant('field', 'jobs')], index: none }],
       drafts: ['jobs'],
       argTypes: [],
       outputType: toEastTypeValue(IntegerType),

@@ -226,7 +226,7 @@ export function functionCallStoreTests(setup: BackendSetup): void {
       const job = filed(WS, {
         functionObject: fnObject!,
         args: [variant('value', arg!), variant('dataset', { path: [variant('field', 'inputs'), variant('field', 'sales')], hash: dataset! })],
-        inputs: [{ path: [variant('field', 'inputs'), variant('field', 'rate')], hash: input! }],
+        inputs: [{ path: [variant('field', 'inputs'), variant('field', 'rate')], index: none, hash: input! }],
       });
       await storage.calls.create(repo, job);
       await storage.calls.end(repo, WS, job.call.id, ending(variant('succeeded', { value: value! })));
@@ -244,7 +244,7 @@ export function functionCallStoreTests(setup: BackendSetup): void {
       const { storage, repo } = await setup(t);
       const [state, args, base, patch, clear, commit] = ['1', '2', '3', '4', '5', '6'].map((digit) => digit.repeat(64));
       const job = filed(WS, {
-        inputs: [{ path: recordPath('jobs'), hash: state! }],
+        inputs: [{ path: recordPath('jobs'), index: none, hash: state! }],
         drafts: [
           { record: 'jobs', mutation: 'patch', args: some(args!) },
           { record: 'jobs', mutation: 'clear', args: none },
@@ -288,8 +288,8 @@ export function functionCallStoreTests(setup: BackendSetup): void {
       await workspaceCreate(storage, repo, WS);
       const [base, drafted, rate, late] = ['1', '2', '3', '4'].map((digit) => digit.repeat(64));
       const inputs = (jobs: string): FunctionCallJob['call']['inputs'] => [
-        { path: recordPath('jobs'), hash: jobs },
-        { path: [variant('field', 'inputs'), variant('field', 'rate')], hash: rate! },
+        { path: recordPath('jobs'), index: none, hash: jobs },
+        { path: [variant('field', 'inputs'), variant('field', 'rate')], index: none, hash: rate! },
       ];
       const running = filed(WS, { inputs: inputs(base!) });
       await storage.calls.create(repo, running);

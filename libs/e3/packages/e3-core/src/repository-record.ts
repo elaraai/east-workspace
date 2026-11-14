@@ -23,6 +23,7 @@ import { dataflowEventsApart } from './upgrades/dataflow-events-apart.js';
 import { dataflowForceTasks } from './upgrades/dataflow-force-tasks.js';
 import { executionStopReasons } from './upgrades/execution-stop-reasons.js';
 import { functionCallDrafts } from './upgrades/function-call-drafts.js';
+import { functionCallIndexInputs } from './upgrades/function-call-index-inputs.js';
 import { runningExecutionsIndexed } from './upgrades/running-executions-indexed.js';
 import { statusRevisionTokens } from './upgrades/status-revision-tokens.js';
 import { taskRunsIndexed } from './upgrades/task-runs-indexed.js';
@@ -46,6 +47,8 @@ import { taskRunsIndexed } from './upgrades/task-runs-indexed.js';
  *   status is computed over ({@link statusRevisionTokens}).
  * - `function-call-drafts`: a kept function call holds the drafts it passed
  *   ({@link functionCallDrafts}).
+ * - `function-call-index-inputs`: a kept function call's input names the
+ *   index of a record it read ({@link functionCallIndexInputs}).
  *
  * A release that changes a stored form appends its step, and never edits,
  * reorders or removes a step a release has shipped. A test registers a step of
@@ -55,7 +58,7 @@ import { taskRunsIndexed } from './upgrades/task-runs-indexed.js';
  */
 export const REPOSITORY_UPGRADES: RepositoryUpgrade[] = [
   executionStopReasons, dataflowForceTasks, dataflowEventsApart, runningExecutionsIndexed, taskRunsIndexed, statusRevisionTokens,
-  functionCallDrafts,
+  functionCallDrafts, functionCallIndexInputs,
 ];
 
 /** How long an open that owes upgrades waits for work running in the
