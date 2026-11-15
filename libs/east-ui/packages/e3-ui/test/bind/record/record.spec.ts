@@ -8,12 +8,12 @@ import assert from "node:assert/strict";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import {
     ArrayType, AsyncFunctionType, DictType, East, Expr, FunctionType, IntegerType, NullType, OptionType, PatchType, SortedMap, StringType, StructType, VariantType,
-    compareFor, decodeBeast2For, diffFor, encodeBeast2For, equalFor, isTypeEqual, none, some, variant,
-    type BlockBuilder, type EastType, type ExprType, type ValueTypeOf,
+    compareFor, decodeBeast2For, diffFor, encodeBeast2For, equalFor, fromEastTypeValue, isTypeEqual, none, some, variant, walkIR,
+    type BlockBuilder, type EastType, type ExprType, type IR, type ValueTypeOf,
 } from "@elaraai/east";
 import { Editing, Reactive, Stat, Button, UIComponentType } from "@elaraai/east-ui/internal";
-import { FuncDraftType, Record, RecordToDraftResultType, Data, deriveManifest, ui } from "@elaraai/e3-ui";
-import { recordDraftForm } from "@elaraai/e3-ui/internal";
+import { FuncDraftType, Record, RecordOutcomeType, RecordSaveTypeFor, RecordToDraftResultType, Data, deriveManifest, ui } from "@elaraai/e3-ui";
+import { RecordCommitInfoType } from "@elaraai/e3-types";
 import e3 from "@elaraai/e3";
 import { refusingPlatform } from "../../refusing-platform.js";
 import * as ex from "./record.examples.js";
@@ -170,24 +170,69 @@ function typeOf(build: ($: BlockBuilder<NullType>) => Expr): EastType {
     return type!;
 }
 
-// `Record.onApply` (#988): the async onApply each collection takes, built from
-// the handle alone. Its behaviour over a record runs in e3-ui-components'
-// record-apply spec, against the runtime.
+/** A Save with its draft form over a batch, as its two fields: the Save, and the same batch as a draft. */
+function isSaveOver(type: EastType, batch: EastType): boolean {
+    return isTypeEqual(type, RecordSaveTypeFor(batch))
+        && isTypeEqual(type, StructType({
+            apply: AsyncFunctionType([batch], Editing.Types.ApplyResult),
+            toDraft: FunctionType([batch], RecordToDraftResultType),
+        }));
+}
+
+/**
+ * The jobs' record as a handle typed by hand: its read, its history and its commit door, and no draft door — what a
+ * function that takes a record's handle as a parameter may declare, as the Studio's pages do.
+ */
+const JobsCommitHandle = StructType({
+    read: FunctionType([], ex.jobs.type),
+    history: FunctionType([], OptionType(ArrayType(RecordCommitInfoType))),
+    commit: StructType({ patch: AsyncFunctionType([StringType, PatchType(ex.jobs.type)], RecordOutcomeType) }),
+});
+
+/** The type of what `build` returns over a handle of `handleType`, a function's parameter. */
+function typeOver<H extends EastType>(handleType: H, build: (handle: ExprType<H>) => unknown): EastType {
+    let type: EastType | undefined;
+    East.function([handleType], NullType, (_$, handle) => { type = Expr.type(build(handle as ExprType<H>) as Expr) as EastType; });
+    return type!;
+}
+
+/** Each function a program makes as a value: one called where it is made is never a value, so never written. */
+function functionValues(ir: IR): Extract<IR, { type: "Function" | "AsyncFunction" }>[] {
+    const found: Extract<IR, { type: "Function" | "AsyncFunction" }>[] = [];
+    walkIR(ir, (node, { parent }) => {
+        if (node.type !== "Function" && node.type !== "AsyncFunction") return;
+        if (parent !== null && (parent.type === "Call" || parent.type === "CallAsync") && Object.is(parent.value.function, node)) return;
+        found.push(node);
+    });
+    return found;
+}
+
+/** How many times a program writes out a String literal. */
+function literals(ir: IR, text: string): number {
+    let count = 0;
+    walkIR(ir, (node) => {
+        if (node.type === "Value" && node.value.value.type === "String" && node.value.value.value === text) count++;
+    });
+    return count;
+}
+
+// `Record.onApply` (#988): the Save each collection takes, built from the handle alone, and with it the draft form of
+// that Save (#1620). Its behaviour over a record runs in e3-ui-components' record-apply spec, against the runtime.
 describeEast("Record.onApply", (test) => {
-    test("over the record's own entries it takes a Sheet's batch, or with keyed a Plan's", _ => {
+    test("over the record's own entries it answers the Save with its draft form over a Sheet's batch, or with keyed a Plan's", _ => {
         const sheet = typeOf($ => {
             const record = $.let(Record.bind(ex.jobs));
             return Record.onApply(record);
         });
-        assert.ok(isTypeEqual(sheet, AsyncFunctionType([Editing.Types.ChangeSet(ex.JobType)], Editing.Types.ApplyResult)));
+        assert.ok(isSaveOver(sheet, Editing.Types.ChangeSet(ex.JobType)));
         const plan = typeOf($ => {
             const record = $.let(Record.bind(ex.jobs));
             return Record.onApply(record, { keyed: true });
         });
-        assert.ok(isTypeEqual(plan, AsyncFunctionType([Editing.Types.ChangeSet(ex.JobType, StringType)], Editing.Types.ApplyResult)));
+        assert.ok(isSaveOver(plan, Editing.Types.ChangeSet(ex.JobType, StringType)));
     });
 
-    test("over a collection inside one entry it takes that collection's batch", _ => {
+    test("over a collection inside one entry the Save and its draft form take that collection's batch", _ => {
         const inside = typeOf($ => {
             const record = $.let(Record.bind(pages));
             return Record.onApply(record, {
@@ -197,7 +242,51 @@ describeEast("Record.onApply", (test) => {
                 idField: "key",
             });
         });
-        assert.ok(isTypeEqual(inside, AsyncFunctionType([Editing.Types.ChangeSet(Cell)], Editing.Types.ApplyResult)));
+        assert.ok(isSaveOver(inside, Editing.Types.ChangeSet(Cell)));
+    });
+
+    test("a copy bound in a block is the Save with its draft form still: its type holds both", _ => {
+        const copy = typeOf($ => {
+            const record = $.let(Record.bind(ex.jobs));
+            return $.const(Record.onApply(record, { keyed: true }));
+        });
+        assert.ok(isSaveOver(copy, Editing.Types.ChangeSet(ex.JobType, StringType)));
+    });
+
+    test("over a handle that makes no drafts, typed by hand with its read, its history and its commit, it answers the Save alone; one that holds drafts and none of the patch mutation is refused", _ => {
+        const alone = typeOver(JobsCommitHandle, (handle) => Record.onApply(handle, { keyed: true }));
+        assert.ok(isTypeEqual(alone, AsyncFunctionType([Editing.Types.ChangeSet(ex.JobType, StringType)], Editing.Types.ApplyResult)));
+        const Drafting = StructType({ ...JobsCommitHandle.fields, draft: StructType({}) });
+        assert.throws(() => typeOver(Drafting, (handle) => Record.onApply(handle as never, { keyed: true })),
+            /Record\.onApply: "patch" is not bound as this record's patch door/);
+    });
+
+    test("the Save and its draft form call one plan of the write, written out once, and hold what they call: no function the program makes holds the handle", _ => {
+        const refusal = "Rows inside a record entry are checked against the rows the edit began from — a snapshot, never a revision";
+        const options = {
+            entry: "home",
+            get: East.function([Page], ArrayType(Cell), (_$: unknown, page: ExprType<typeof Page>) => page.cells),
+            set: East.function([Page, ArrayType(Cell)], Page, (_$: unknown, page: ExprType<typeof Page>, cells: ExprType<ArrayType<typeof Cell>>) => ({ title: page.title, cells })),
+            idField: "key",
+        };
+        let handleType: EastType | undefined;
+        const program = East.function([], NullType, ($) => {
+            const record = $.let(Record.bind(pages));
+            handleType = Expr.type(record as unknown as Expr) as EastType;
+            $.const(Record.onApply(record, options));
+        }).toIR().ir;
+        assert.equal(literals(program, refusal), 1, "the plan's refusal is written once, for the Save and its draft form");
+        const made = functionValues(program);
+        assert.ok(made.length >= 3, "the plan, the Save and its draft form");
+        const holding = made.flatMap((fn) => fn.value.captures.filter((capture) => isTypeEqual(fromEastTypeValue(capture.value.type), handleType!)));
+        assert.deepEqual(holding.map((capture) => capture.value.name), []);
+        // The Save alone and the draft form alone hold no handle either.
+        const alone = East.function([], NullType, ($) => {
+            const record = $.let(Record.bind(pages));
+            $.const(Record.toDraft(record, options));
+        }).toIR().ir;
+        assert.equal(literals(alone, refusal), 1);
+        assert.deepEqual(functionValues(alone).flatMap((fn) => fn.value.captures.filter((capture) => isTypeEqual(fromEastTypeValue(capture.value.type), handleType!))), []);
     });
 
     test("refuses a record that is not keyed, a handle bound without the patch door, and a get that does not fit", _ => {
@@ -244,7 +333,7 @@ describeEast("Record.onApply", (test) => {
                 idField: "id",
             });
         });
-        assert.ok(isTypeEqual(inside, AsyncFunctionType([Editing.Types.ChangeSet(Entry)], Editing.Types.ApplyResult)));
+        assert.ok(isSaveOver(inside, Editing.Types.ChangeSet(Entry)));
         // An arm that is not a struct is no row; an arm without the id names no entry.
         const Odd = VariantType({ group: Group, note: StringType });
         const Oddly = StructType({ entries: ArrayType(Odd) });
@@ -288,11 +377,12 @@ describeEast("Record.onApply", (test) => {
     });
 }, { platformFns: TestImpl });
 
-// The example of `Record.toDraft` runs against the platform whose every read, write and call refuses: over a record's
-// own entries a draft is built from the batch alone.
-describeEast("Record.toDraft — its example", (test) => {
+// The examples of `Record.toDraft` and of the draft form a Save carries run against the platform whose every read,
+// write and call refuses: over a record's own entries a draft is built from the batch alone.
+describeEast("Record.toDraft — its example, and the draft form a Save carries", (test) => {
     Assert.examples(test, {
         recordToDraft: draftEx.recordToDraft,
+        recordSaveDraft: draftEx.recordSaveDraft,
     });
 }, { platformFns: [...TestImpl, ...refusingPlatform] });
 
@@ -392,33 +482,8 @@ describe("Record.toDraft", () => {
         assert.ok(sameAnswer(toDraft({ ...EDIT, changes: [{ id: "a", patch: change(some(CUT), some(CUT)), place: none }] }), variant("unchanged", null)));
     });
 
-    hostTest("the value Record.onApply answered carries its draft form — Record.toDraft of the same handle and options, built once — and no other function does: a copy bound in a block, or a Save of the host's own", () => {
-        const own = East.asyncFunction([KeyedBatch], Editing.Types.ApplyResult,
-            (_$, _batch) => East.value(variant("applied", { revision: none }), Editing.Types.ApplyResult));
-        const formType = (form: ExprType<FunctionType> | undefined): EastType | undefined => (form === undefined ? undefined : Expr.type(form as unknown as Expr) as EastType);
-        East.function([], NullType, ($) => {
-            const record = $.let(Record.bind(ex.jobs));
-            const keyed = Record.onApply(record, { keyed: true });
-            const form = recordDraftForm(keyed);
-            assert.ok(isTypeEqual(formType(form)!, FunctionType([KeyedBatch], RecordToDraftResultType)), "over the batch its Save takes");
-            assert.equal(recordDraftForm(keyed), form, "built once");
-            assert.ok(isTypeEqual(formType(recordDraftForm(Record.onApply(record)))!, FunctionType([Editing.Types.ChangeSet(ex.JobType)], RecordToDraftResultType)));
-            const layout = $.let(Record.bind(pages));
-            const inside = Record.onApply(layout, {
-                entry: "home",
-                get: East.function([Page], ArrayType(Cell), (_$2, page) => page.cells),
-                set: East.function([Page, ArrayType(Cell)], Page, (_$2, page, cells) => ({ title: page.title, cells })),
-                idField: "key",
-            });
-            assert.ok(isTypeEqual(formType(recordDraftForm(inside))!, FunctionType([Editing.Types.ChangeSet(Cell)], RecordToDraftResultType)));
-            // A copy bound in a block is a function like any other.
-            const copy = $.const(keyed);
-            assert.equal(recordDraftForm(copy), undefined);
-            assert.equal(recordDraftForm(own), undefined);
-            assert.equal(recordDraftForm(undefined), undefined);
-            assert.equal(recordDraftForm("Record.onApply"), undefined);
-        });
-        // The form answers what Record.toDraft answers of the same batch.
+    hostTest("the draft form the Save carries answers what Record.toDraft answers of the same batch, through a copy bound in a block too, and reaches nothing of the record", () => {
+        // Compiled against a platform whose every read, write and call refuses: neither reaches any of them.
         const direct = East.compile(East.function([KeyedBatch], RecordToDraftResultType, ($, batch) => {
             const board = $.let(Record.bind(ex.jobs));
             const draft = $.const(Record.toDraft(board, { keyed: true }));
@@ -426,11 +491,13 @@ describe("Record.toDraft", () => {
         }), refusingPlatform);
         const carried = East.compile(East.function([KeyedBatch], RecordToDraftResultType, ($, batch) => {
             const board = $.let(Record.bind(ex.jobs));
-            const draft = $.const(recordDraftForm(Record.onApply(board, { keyed: true })) as ExprType<FunctionType<[typeof KeyedBatch], RecordToDraftResultType>>);
-            return draft(batch);
+            // The Save as a builder's author may hold it: a copy, bound in a block.
+            const save = $.const(Record.onApply(board, { keyed: true }));
+            return save.toDraft(batch);
         }), refusingPlatform);
         assert.ok(sameAnswer(carried(EDIT), direct(EDIT)));
         assert.equal(carried(EDIT).type, "draft");
+        assert.ok(sameAnswer(carried({ ...EDIT, changes: [] }), variant("unchanged", null)));
     });
 });
 

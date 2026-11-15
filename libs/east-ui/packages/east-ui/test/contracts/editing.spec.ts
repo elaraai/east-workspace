@@ -6,12 +6,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-    ArrayType, BlobType, DictType, East, FunctionType, IntegerType, OptionType, StringType, StructType,
-    decodeBeast2For, diffFor, encodeBeast2For, equalFor, isTypeEqual, none, printFor, some, variant, type ValueTypeOf,
+    ArrayType, AsyncFunctionType, BlobType, DictType, East, Expr, FunctionType, IntegerType, NullType, OptionType, StringType, StructType,
+    decodeBeast2For, diffFor, encodeBeast2For, equalFor, isTypeEqual, none, printFor, some, variant, walkIR,
+    type EastType, type ExprType, type IR, type ValueTypeOf,
 } from "@elaraai/east";
 import { Assert, describeEast, TestImpl } from "@elaraai/east-node-std";
 import {
-    Editing, EditingPatchEventTypeWith, EditingSessionFields, EditingToDraftResultTypeFor, EditingWireToDraftType, buildWireToDraft,
+    Editing, EditingPatchEventTypeWith, EditingSaveTypeFor, EditingSessionFields, EditingToDraftResultTypeFor, EditingWireToDraftType, buildWireToDraft,
+    withEditingSave,
 } from "@elaraai/east-ui/internal";
 import * as ex from "./editing.examples.js";
 
@@ -187,6 +189,112 @@ test("buildWireToDraft refuses a function that is not its batch's draft: another
     const saved = East.function([_Batch], Editing.Types.ApplyResult, (_$, _asked) => East.value(variant("applied", { revision: none }), Editing.Types.ApplyResult));
     assert.throws(() => buildWireToDraft(_Batch, saved), refusal);
     assert.throws(() => buildWireToDraft(_Batch, East.value("a draft", StringType)), refusal);
+});
+
+// ── A Save that carries its draft form (#1620) ───────────────────────────────
+
+/** A source whose draft is a line of text. */
+const Drafted = EditingToDraftResultTypeFor(StringType);
+const Save = EditingSaveTypeFor(_Batch, StringType);
+type SaveFunction = ExprType<AsyncFunctionType<[typeof _Batch], typeof Editing.Types.ApplyResult>>;
+/** A session as a collection builds one over its `onApply`: its Save, which two of its functions call, and its draft form. */
+const Session = StructType({
+    save: AsyncFunctionType([_Batch], Editing.Types.ApplyResult),
+    again: AsyncFunctionType([_Batch], Editing.Types.ApplyResult),
+    draft: OptionType(FunctionType([_Batch], Drafted)),
+});
+/** Builds that session from the apply and the draft form `withEditingSave` hands a collection. */
+const buildSession = (apply: ExprType<EastType> | undefined, toDraft: ExprType<EastType> | undefined): ExprType<typeof Session> => East.value({
+    save: East.asyncFunction([_Batch], Editing.Types.ApplyResult, ($, asked) => {
+        const commit = $.const(apply as SaveFunction);
+        return commit(asked);
+    }),
+    again: East.asyncFunction([_Batch], Editing.Types.ApplyResult, ($, asked) => {
+        const commit = $.const(apply as SaveFunction);
+        return commit(asked);
+    }),
+    draft: toDraft === undefined ? none : some(toDraft),
+} as never, Session);
+/** What marks the Save's own code in a program: its apply answers under it. */
+const SAVED_AS = "saved by the source";
+/** How many times a program writes out a String literal. */
+function literals(ir: IR, text: string): number {
+    let count = 0;
+    walkIR(ir, (node) => {
+        if (node.type === "Value" && node.value.value.type === "String" && node.value.value.value === text) count++;
+    });
+    return count;
+}
+
+test("a Save that carries its draft form is one struct: the write, awaited, and the same batch as a draft of it", () => {
+    assert.ok(isTypeEqual(Save, StructType({
+        apply: AsyncFunctionType([_Batch], Editing.Types.ApplyResult),
+        toDraft: FunctionType([_Batch], Drafted),
+    })));
+});
+
+test("withEditingSave builds a session over a Save from its apply and its draft form, the Save made once however many of the session's functions call it", async () => {
+    const program = East.function([], Session, (_$) => {
+        // A Save as a source makes one: built where it is asked for, as e3-ui's Record.onApply builds a record's.
+        const made = East.function([], Save, (_$2) => ({
+            apply: East.asyncFunction([_Batch], Editing.Types.ApplyResult, (_$3, _asked) => variant("applied", { revision: some(SAVED_AS) })),
+            toDraft: East.function([_Batch], Drafted, (_$3, asked) => variant("draft", asked.label)),
+        }));
+        return withEditingSave(made(), Session, buildSession);
+    });
+    assert.equal(literals(program.toIR().ir, SAVED_AS), 1, "the Save is written out once: bound where the session is made");
+    const session = East.compile(program, [])();
+    const edit = batch([{ id: "a", patch: diff(some(cut), some({ ...cut, qty: 3n })), place: none }]);
+    const applied = variant("applied", { revision: some(SAVED_AS) });
+    assert.ok(equalFor(Editing.Types.ApplyResult)(await session.save(edit), applied));
+    assert.ok(equalFor(Editing.Types.ApplyResult)(await session.again(edit), applied));
+    if (session.draft.type !== "some") assert.fail("a Save's session carries its draft form");
+    assert.ok(equalFor(Drafted)(session.draft.value(edit), variant("draft", "Edit jobs")));
+});
+
+test("withEditingSave hands a function on as it is, with no draft form, and builds the session with no block of its own; with no onApply it hands on none", async () => {
+    const own = East.asyncFunction([_Batch], Editing.Types.ApplyResult, (_$, asked) => variant("applied", { revision: some(asked.requestId) }));
+    const seen: [unknown, unknown][] = [];
+    const returned: ExprType<typeof Session>[] = [];
+    const spied = (apply: ExprType<EastType> | undefined, toDraft: ExprType<EastType> | undefined) => {
+        seen.push([apply, toDraft]);
+        returned.push(buildSession(apply, toDraft));
+        return returned[0]!;
+    };
+    const built = withEditingSave(own, Session, spied);
+    assert.equal(seen.length, 1);
+    assert.equal(seen[0]![0], own, "the function itself");
+    assert.equal(seen[0]![1], undefined, "and no draft form");
+    assert.equal(built, returned[0], "the session as it was built: no block of its own");
+    const session = East.compile(East.function([], Session, (_$) => withEditingSave(own, Session, buildSession)), [])();
+    assert.equal(session.draft.type, "none", "a Save of the host's own carries no draft form");
+    const edit = batch([{ id: "a", patch: diff(some(cut), some({ ...cut, qty: 3n })), place: none }]);
+    assert.ok(equalFor(Editing.Types.ApplyResult)(await session.save(edit), variant("applied", { revision: some("keyed-request") })));
+    // With no onApply the collection builds its session with neither.
+    const none_: [unknown, unknown][] = [];
+    withEditingSave(undefined, NullType, (apply, toDraft) => {
+        none_.push([apply, toDraft]);
+        return East.value(null);
+    });
+    assert.deepEqual(none_, [[undefined, undefined]]);
+});
+
+test("withEditingSave hands a struct that is no Save on as it is, for the collection to refuse in its own words", () => {
+    const handed: (EastType | undefined)[] = [];
+    const spied = (apply: ExprType<EastType> | undefined, toDraft: ExprType<EastType> | undefined) => {
+        handed.push(apply === undefined ? undefined : Expr.type(apply as unknown as Expr) as EastType, toDraft === undefined ? undefined : Expr.type(toDraft as unknown as Expr) as EastType);
+        return East.value(null);
+    };
+    const Half = StructType({ apply: AsyncFunctionType([_Batch], Editing.Types.ApplyResult) });
+    const More = StructType({ ...Save.fields, label: StringType });
+    East.function([Half, More], NullType, (_$, half, more) => {
+        withEditingSave(half, NullType, spied);
+        withEditingSave(more, NullType, spied);
+        return null;
+    });
+    assert.equal(handed.length, 4);
+    assert.ok(isTypeEqual(handed[0]!, Half) && handed[1] === undefined, "a struct of an apply alone");
+    assert.ok(isTypeEqual(handed[2]!, More) && handed[3] === undefined, "a struct of more than the two");
 });
 
 test("an origin names every gesture of every collection — the Plan's resize, drop and verdict among them, a run of the app's optimiser (#1409), a conflict chosen, and a Sheet action column's step (#1480)", () => {

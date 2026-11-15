@@ -9,7 +9,7 @@ import {
     type ExprType,
 } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { SnapGrid, Paged, Text, UIComponentType } from "@elaraai/east-ui/internal";
+import { Editing, EditingSaveTypeFor, EditingToDraftResultTypeFor, SnapGrid, Paged, Text, UIComponentType } from "@elaraai/east-ui/internal";
 import * as ex from "./snap-grid.examples.js";
 
 const Tile = StructType({ id: StringType, row: StringType, span: IntegerType, height: OptionType(IntegerType) });
@@ -195,6 +195,26 @@ describeEast("SnapGrid", (test) => {
         // A row read back by its identity; an unknown one reads nothing.
         $(Assert.equal(editing.readEntry("b", 0n).unwrap("some").decodeBeast(Row, "v2").name, "B"));
         $(Assert.equal(editing.readEntry("z", 0n).hasTag("none"), true));
+    });
+
+    test("an editing canvas handed a Save that carries its draft form commits through its apply, and hands its tiles to nothing as a draft (#1620)", $ => {
+        const rows = $.const([{ id: "a", row: "top", span: 12n, height: none, name: "A" }], Rows);
+        const Batch = Editing.Types.ChangeSet(Row);
+        // A source's Save with its draft form, as e3-ui's Record.onApply answers a record's: a copy, bound in a block.
+        const save = $.const({
+            apply: East.asyncFunction([Batch], Editing.Types.ApplyResult, (_$2, batch) => variant("applied", { revision: some(batch.requestId) })),
+            toDraft: East.function([Batch], EditingToDraftResultTypeFor(StringType), (_$2, batch) => variant("draft", batch.label)),
+        }, EditingSaveTypeFor(Batch, StringType));
+        const grid = $.let(SnapGrid.Root(rows, {
+            cell: r => SnapGrid.cell({ key: r.id, row: r.row, span: r.span, content: Text.Root(r.name) }),
+            edit: { key: "id", row: "row", span: "span" },
+            editing: { onApply: save },
+        }));
+        const editing = $.let(grid.unwrap().unwrap("SnapGrid").editing.unwrap("some"));
+        // The Save is the struct's apply, awaited; a page's tiles are handed to nothing as a draft.
+        $(Assert.equal(editing.onApply.unwrap("some").getTag(), "async"));
+        $(Assert.equal(editing.toDraft.hasTag("none"), true));
+        $(Assert.equal(editing.snapshot.unwrap("some").decodeBeast(Rows, "v2"), rows));
     });
 
     test("SnapGrid.uiState seeds a bound selection, and carries a change asked of the editing canvas (#996)", $ => {

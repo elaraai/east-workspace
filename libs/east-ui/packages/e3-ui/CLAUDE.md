@@ -77,6 +77,16 @@ eight-source Calendar once held 350 MB a mount). An event kind reads its
 part's members inside its own functions. `test/utils/record-sources-captures.spec.ts`
 holds every example to it: no function captures the whole slice.
 
+A record's Save is held the same way (#1620). `Record.onApply` answers one
+East struct, the Save and its draft form (`RecordSaveTypeFor`), built in a
+block that binds the plan of the write and the record's doors once
+(`inWriteBlock`, `bind/record.ts`): the two call one plan, and neither holds
+the handle. A collection takes its `onApply` through east-ui's
+`withEditingSave`, which binds a Save once where the session is made and
+hands the collection its apply and its draft form; a plain function goes
+through as it is, with no draft form. Never read `.apply` or `.toDraft` off
+what an author passed: each read would write the Save out again.
+
 A source's narrowing is read where its rows are read, never where the builder
 is built (#1354). The bind reads no state and returns one handle per binding,
 whatever its narrowing: its narrowed data is a live source

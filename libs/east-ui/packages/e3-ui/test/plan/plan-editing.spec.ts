@@ -20,7 +20,7 @@ import {
     StringType, StructType,
     compareFor, decodeBeast2For, diffFor, encodeBeast2For, equalFor, none, parseFor, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
-import { Editing, EditingRequestStore, Paged } from "@elaraai/east-ui/internal";
+import { Editing, EditingRequestStore, EditingToDraftResultTypeFor, Paged } from "@elaraai/east-ui/internal";
 import { DatasetStatusType, RecordCommitInfoType } from "@elaraai/e3-types";
 import { FuncDraftType, RecordBindHandleType, RecordErrorType, RecordMutateStatusType, RecordOutcomeType } from "@elaraai/e3-ui";
 import { Plan, Record } from "@elaraai/e3-ui/internal";
@@ -605,11 +605,13 @@ test("onApply receives the change set at the canvas's own entry and key types �
 
 // ── A Save handed over as it is — a record's own — and its draft form (#1620) ──
 
+/** A canvas handed the record's own Save as `Record.onApply` answers it, and one handed a copy of it bound in a block. */
+const RecordRoots = StructType({ handed: Plan.Types.Root, copied: Plan.Types.Root });
 /**
  * The halls over a record's handle, as `Record.bind` gives one, the canvas handed the record's own Save: the handle's
  * patch door answers a Save with the patch it was sent, printed, and its draft door answers the patch as a draft.
  */
-const recordHarness = East.function([], Plan.Types.Root, ($) => {
+const recordHarness = East.function([], RecordRoots, ($) => {
     const record = $.let({
         read: East.function([], Halls, (_$2) => SEED),
         status: East.function([], DatasetStatusType, (_$2) => variant("up-to-date", null)),
@@ -633,12 +635,21 @@ const recordHarness = East.function([], Plan.Types.Root, ($) => {
         binding: { name: "spec_halls", mutations: ["patch"] },
     }, RecordBindHandleType(Halls, { patch: [PatchType(Halls)] }));
     const data = $.const(SEED, Halls);
-    return Plan.Root({ axis, data, series: SERIES, editing: { onApply: Record.onApply(record, { keyed: true }) } });
+    // The Save as an author may hold it: a copy, bound in a block.
+    const save = $.const(Record.onApply(record, { keyed: true }));
+    return {
+        handed: Plan.Root({ axis, data, series: SERIES, editing: { onApply: Record.onApply(record, { keyed: true }) } }),
+        copied: Plan.Root({ axis, data, series: SERIES, editing: { onApply: save } }),
+    };
 });
 
-test("a Plan handed a record's Save takes its draft form: the same batch as a draft of the record's patch door, its patch the one that Save sends — and a batch of no change is no draft (#1620)", async () => {
-    const wire = editingOf(recordHarness.toIR().compile([])());
+test("a Plan handed a record's Save takes its draft form: the same batch as a draft of the record's patch door, its patch the one that Save sends — handed a copy of the Save bound in a block, the same draft and the same patch — and a batch of no change is no draft (#1620)", async () => {
+    const roots = recordHarness.toIR().compile([])();
+    const wire = editingOf(roots.handed);
+    const copied = editingOf(roots.copied);
     if (wire.toDraft.type !== "some") return assert.fail("a record's Save carries its draft form");
+    if (copied.toDraft.type !== "some") return assert.fail("a copy of a record's Save carries its draft form");
+    if (copied.onApply.type !== "some" || copied.onApply.value.type !== "async") return assert.fail("a copy of a record's Save is awaited");
     if (wire.onApply.type !== "some" || wire.onApply.value.type !== "async") return assert.fail("a record's Save is awaited");
     const batch = encodeBatch(dropOnP03("r1", variant("snapshot", SEED)));
     const answer = wire.toDraft.value(batch);
@@ -653,6 +664,8 @@ test("a Plan handed a record's Save takes its draft form: the same batch as a dr
     const sent = parseFor(PatchType(Halls))(saved.value.revision.value);
     if (!sent.success) return assert.fail("the door answers with the patch it was sent, printed");
     assert.ok(equalFor(PatchType(Halls))(decodeBeast2For(PatchType(Halls))(draft.args[0]!), sent.value), "one patch for one batch");
+    assert.ok(equalFor(EditingToDraftResultTypeFor(BlobType))(copied.toDraft.value(batch), answer), "the copy gives the draft the Save gives");
+    assert.ok(equalFor(Editing.Types.ApplyResult)(await copied.onApply.value.value(batch), saved), "and sends the patch the Save sends");
     const nothing = wire.toDraft.value(encodeBatch({ ...dropOnP03("r2", variant("snapshot", SEED)), changes: [] }));
     assert.equal(nothing.type, "unchanged");
 });

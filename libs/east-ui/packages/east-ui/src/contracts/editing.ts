@@ -166,6 +166,42 @@ export function EditingToDraftResultTypeFor<D extends EastType>(draftType: D) {
     });
 }
 
+/**
+ * Constructs a Save that carries its draft form: the write a collection's
+ * `onApply` takes, and beside it the same batch answered as a draft of that
+ * write and not written.
+ *
+ * @remarks
+ * A collection's `onApply` takes a function of its batch, or this struct, told
+ * apart by its East type ({@link withEditingSave}): a session handed the
+ * struct carries its `toDraft` too, with nothing more declared. The two are
+ * one value, so a copy bound with `$.const` or `$.let` keeps both. Over an e3
+ * record it is what e3-ui's `Record.onApply` answers.
+ *
+ * @internal
+ * @typeParam B - The batch type the collection hands
+ * @typeParam D - The source's draft type
+ * @param batchType - The batch type: `ChangeSet(E)`, or `ChangeSet(E, K)` for a keyed source
+ * @param draftType - The source's draft type
+ * @returns The struct: `apply`, the Save, awaited; `toDraft`, the batch as a
+ *   draft of it ({@link EditingToDraftResultTypeFor})
+ */
+export function EditingSaveTypeFor<B extends EastType, D extends EastType>(batchType: B, draftType: D) {
+    return StructType({
+        apply: AsyncFunctionType([batchType], EditingApplyResultType),
+        toDraft: FunctionType([batchType], EditingToDraftResultTypeFor(draftType)),
+    });
+}
+
+/**
+ * A Save that carries its draft form, over any batch and any draft
+ * ({@link EditingSaveTypeFor}): what a collection whose `onApply` is typed as
+ * any East expression takes beside a function.
+ *
+ * @internal
+ */
+export type EditingSaveExpr = ExprType<StructType<{ apply: AsyncFunctionType; toDraft: FunctionType }>>;
+
 // ============================================================================
 // Drafts
 // ============================================================================
@@ -846,6 +882,49 @@ export function buildWireToDraft(batchType: EastType, toDraft: ExprType<EastType
         });
         return answer;
     });
+}
+
+/**
+ * Builds a collection's session over the `onApply` its author gave: a function
+ * of the batch, or a Save that carries its draft form
+ * ({@link EditingSaveTypeFor}), told apart by its East type.
+ *
+ * @remarks
+ * A Save is bound once, in a block the session is built in, and its `apply`
+ * and its `toDraft` are bound there beside it: each function of the session
+ * holds the one it calls, and the Save is written out once however many of
+ * them read it. A function goes to `build` as it is, with no draft form, and
+ * the session is built with no block of its own.
+ *
+ * `build` checks the apply it is handed against its batch, as it checks a
+ * function's; a struct that is no Save reaches it as it is, to be refused in
+ * the collection's own words.
+ *
+ * @internal
+ * @typeParam T - The session's type on the wire
+ * @param onApply - The author's `onApply`, or `undefined` when the collection has none
+ * @param sessionType - The session's type on the wire
+ * @param build - Builds the session from the apply and, for a Save, its draft form
+ * @returns The session
+ */
+export function withEditingSave<T extends EastType>(
+    onApply: unknown,
+    sessionType: T,
+    build: (apply: ExprType<EastType> | undefined, toDraft: ExprType<EastType> | undefined) => ExprType<T>,
+): ExprType<T> {
+    if (onApply === undefined) return build(undefined, undefined);
+    const value = East.value(onApply as SubtypeExprOrValue<EastType>) as ExprType<EastType>;
+    const type = Expr.type(value as unknown as Expr) as EastType;
+    const fields = type.type === "Struct" ? Object.keys(type.fields) : [];
+    if (fields.length !== 2 || !fields.includes("apply") || !fields.includes("toDraft")) return build(value, undefined);
+    const save = value as unknown as ExprType<StructType<{ apply: EastType; toDraft: EastType }>>;
+    const made = East.function([], sessionType, ($) => {
+        const held = $.const(save);
+        const apply = $.const(held.apply);
+        const toDraft = $.const(held.toDraft);
+        return build(apply, toDraft) as never;
+    });
+    return made() as ExprType<T>;
 }
 
 // ============================================================================

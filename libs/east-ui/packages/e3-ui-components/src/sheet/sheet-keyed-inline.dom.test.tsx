@@ -42,7 +42,7 @@ const COLUMNS = {
 const BY_TEXT = new SortedMap([["J-0003", { task: "Edge banding", qty: 12n }], ["J-0001", { task: "Panel cutting", qty: 48n }]], compareFor(StringType));
 const BY_NUMBER = new SortedMap([[10n, { task: "Spray finish", qty: 2n }], [9n, { task: "Assembly", qty: 1n }]], compareFor(IntegerType));
 
-/** The record's `onApply`, as `Record.onApply(record, { keyed: true })` types it — the spy below stands in for it. */
+/** The record's Save, as the `apply` of what `Record.onApply(record, { keyed: true })` answers is typed — the spy below stands in for it. */
 const APPLY_TEXT = East.asyncFunction([Editing.Types.ChangeSet(JobType, StringType)], Editing.Types.ApplyResult,
     (_$, _batch) => East.value(variant("applied", { revision: none }), Editing.Types.ApplyResult));
 const APPLY_NUMBER = East.asyncFunction([Editing.Types.ChangeSet(JobType, IntegerType)], Editing.Types.ApplyResult,

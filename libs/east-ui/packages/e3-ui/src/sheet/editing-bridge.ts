@@ -9,8 +9,7 @@ import {
     NullType, OptionType, StringType, StructType, isTypeEqual, none, some, toEastTypeValue, variant,
     type DictType, type EastType, type ExprType, type SubtypeExprOrValue, type VariantType,
 } from "@elaraai/east";
-import { buildInlineApply, buildWireToDraft, type EditingWireToDraftType, type ResolvedRowSource } from "@elaraai/east-ui/internal";
-import { recordDraftForm } from "../bind/record.js";
+import { buildInlineApply, buildWireToDraft, withEditingSave, type EditingWireToDraftType, type ResolvedRowSource } from "@elaraai/east-ui/internal";
 import { SheetRowType, SheetPatchTypeFor, SheetReadyBatchType } from "./types.js";
 import { buildPatchCells, type SheetBridge } from "./bridge.js";
 import { SheetApplyResultType, SheetChangeSetTypeFor, SheetNewRowType, SheetNewGroupType, SheetReadinessType, SheetDraftTypeFor } from "./transactions.js";
@@ -73,6 +72,23 @@ function callback(value: unknown, input: EastType, output: EastType, name: strin
  */
 export function buildSheetEditing(source: ResolvedRowSource, bridge: SheetBridge, idField: string | undefined, input: SheetEditingInput,
     rowOf: ExprType<FunctionType<[EastType, StringType], typeof SheetRowType>>, driverColumn?: string): ExprType<typeof SheetEditingType> {
+    // The Save handed over as a draft (#1620). What `Record.onApply` answered is the Save with its draft form: bound
+    // once where the session is made, its apply the sheet's Apply and its draft form the session's. A Save of the
+    // host's own is a function, and carries none.
+    const keyed = input.applyKeyed !== undefined;
+    return withEditingSave(keyed ? input.applyKeyed : input.onApply, SheetEditingType, (apply, draftForm) => sheetEditing(
+        source, bridge, idField, apply === undefined ? input : keyed ? { ...input, applyKeyed: apply } : { ...input, onApply: apply },
+        draftForm, rowOf, driverColumn));
+}
+
+/**
+ * {@link buildSheetEditing}, over an Apply that is a function of the batch.
+ *
+ * @param draftForm - The Apply's draft form, over the batch the Apply takes; `undefined` for a Save of the host's own
+ */
+function sheetEditing(source: ResolvedRowSource, bridge: SheetBridge, idField: string | undefined, input: SheetEditingInput,
+    draftForm: ExprType<EastType> | undefined, rowOf: ExprType<FunctionType<[EastType, StringType], typeof SheetRowType>>,
+    driverColumn?: string): ExprType<typeof SheetEditingType> {
     // A Dict source is keyed: a keyed paged source, or a record's whole Dict
     // read in key order (#1182) — the only inline Dict the root admits.
     const keyed = source.collectionType.type === "Dict";
@@ -196,12 +212,11 @@ export function buildSheetEditing(source: ResolvedRowSource, bridge: SheetBridge
             onApply = East.value(variant("sync", wrap), SheetWireApplyType);
         }
     }
-    // The Save handed over as a draft (#1620). What `Record.onApply` answered carries its draft form, over the batch
-    // its Apply takes: a record's keyed Apply the session's batch as it comes, an author's the Sheet's own, restated
-    // as it is for the Apply. A Save of the host's own carries none, and the inline adapter is one.
+    // The Save's draft form is over the batch its Apply takes: a record's keyed Apply the session's batch as it
+    // comes, an author's the Sheet's own, restated as it is for the Apply.
     let toDraft: ExprType<typeof EditingWireToDraftType> | undefined;
-    const keyedDraft = input.applyKeyed !== undefined ? recordDraftForm(input.applyKeyed) : undefined;
-    const authorDraft = input.onApply !== undefined && input.onUpdate === undefined ? recordDraftForm(input.onApply) : undefined;
+    const keyedDraft = input.applyKeyed !== undefined ? draftForm : undefined;
+    const authorDraft = input.onApply !== undefined ? draftForm : undefined;
     if (keyedDraft !== undefined) {
         toDraft = buildWireToDraft(wireBatchType, keyedDraft);
     } else if (authorDraft !== undefined && toAuthorBatch === undefined) {

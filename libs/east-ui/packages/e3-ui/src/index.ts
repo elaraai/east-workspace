@@ -89,6 +89,7 @@ export {
     RecordBindingType,
     RecordBindHandleType,
     RecordOutcomeType,
+    RecordSaveTypeFor,
     RecordToDraftResultType,
     type BoundRecord,
     type RecordApplyOptions,

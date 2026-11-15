@@ -50,3 +50,28 @@ export const recordToDraft = example({
     inputs: [],
     returns: "a draft of bindery_jobs.patch",
 });
+
+export const recordSaveDraft = example({
+    keywords: ["Record", "onApply", "Save", "apply", "toDraft", "draft form", "struct", "$.const", "pending Save", "draft", "ChangeSet", "FuncDraftType", "not committed"],
+    description: "What Record.onApply answers is the Save with its draft form, one struct: apply commits a batch, and toDraft answers the same batch as a draft of that commit, with nothing committed. A copy bound in a block keeps both, and a Sheet or a Plan handed it as its onApply takes both",
+    fn: East.function([], StringType, ($) => {
+        const board = $.let(Record.bind(binderyJobs));
+        // One value, held in a block: a Sheet or a Plan takes it as its onApply.
+        const save = $.const(Record.onApply(board, { keyed: true }));
+        const folded = $.const(some({ task: "Fold", qty: 200n }), OptionType(BinderyJobType));
+        const refolded = $.const(some({ task: "Fold", qty: 250n }), OptionType(BinderyJobType));
+        const pending = $.const({
+            requestId: "", base: variant("revision", "a41c09d2"), label: "Fold 250",
+            changes: [{ id: "b1", patch: East.diff(folded, refolded), place: none }],
+        }, Editing.Types.ChangeSet(BinderyJobType, StringType));
+        // `save.apply(pending)` would commit the batch; `save.toDraft(pending)` answers it as a draft of that commit.
+        return save.toDraft(pending).match({
+            draft: (_$, draft) => East.str`a draft of ${draft.record}.${draft.mutation}, of ${East.print(draft.args.size())} argument`,
+            unchanged: _$ => East.str`nothing to send`,
+            rejected: (_$, issues) => East.str`refused: ${issues.map((_$, issue) => issue.message).stringJoin("; ")}`,
+            conflict: (_$, issues) => East.str`changed since the edit began: ${issues.map((_$, issue) => issue.message).stringJoin("; ")}`,
+        });
+    }),
+    inputs: [],
+    returns: "a draft of bindery_jobs.patch, of 1 argument",
+});

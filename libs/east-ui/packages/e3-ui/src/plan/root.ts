@@ -65,11 +65,12 @@ import {
     pickActive,
     resolveRowSource,
     resolveTag,
+    withEditingSave,
+    type EditingSaveExpr,
     type EditingWireToDraftType,
     type RecordSlicesChromeType,
     type ResolvedRowSource,
 } from "@elaraai/east-ui/internal";
-import { recordDraftForm } from "../bind/record.js";
 import {
     PlanAxisType,
     PlanGrainType,
@@ -120,10 +121,11 @@ import { applySeries, checkSeries, seriesWriteFn, PlanCarriedType, PlanSeriesTyp
  * - `onApply(Editing.Types.ChangeSet(R, K)) → Editing.Types.ApplyResult`
  *   commits a batch — sync or async. Its base is the inline `Dict`'s snapshot,
  *   or a paged source's revision; a batch against a source that moved is
- *   refused, never rebased. Handed a record's own Save as it is
+ *   refused, never rebased. Handed a record's own Save
  *   (`Record.onApply(record, { keyed: true })`), the session can hand the same
- *   batch over as the draft of that commit (`Record.toDraft`): the value
- *   carries its draft form, and a Save of the host's own has none.
+ *   batch over as the draft of that commit (`Record.toDraft`): what
+ *   `Record.onApply` answers is the Save with its draft form, and a Save of
+ *   the host's own, a function, has none.
  * - `onUpdate(Dict<K, R>)` is the inline adapter instead: with
  *   `data={liveHandle}` it applies each batch with `Editing.apply` over the
  *   handle's latest `Dict` and writes the whole result — idempotent across
@@ -138,8 +140,9 @@ import { applySeries, checkSeries, seriesWriteFn, PlanCarriedType, PlanSeriesTyp
  * @property ready - The author's readiness check over a drafted entry
  */
 export interface PlanEditingConfig {
-    /** Commit one checked batch — `Fn(Editing.Types.ChangeSet(R, K)) → Editing.Types.ApplyResult`, sync or async. */
-    onApply?: ExprType<EastType>;
+    /** Commit one checked batch — `Fn(Editing.Types.ChangeSet(R, K)) → Editing.Types.ApplyResult`, sync or async, or
+     *  the Save with its draft form that `Record.onApply(record, { keyed: true })` answers. */
+    onApply?: ExprType<EastType> | EditingSaveExpr;
     /** The inline adapter's writer — `Fn(Dict<K, R>) → Null`; requires `data={liveHandle}`, exclusive with `onApply`. */
     onUpdate?: ExprType<EastType>;
     /** Observe every gesture — `Fn(Plan.Types.PatchEvent(R)) → Null`. */
@@ -646,10 +649,28 @@ function planEntryId(keyType: EastType): ExprType<FunctionType<[EastType], Strin
  * @param resolved - The resolved `data` — a keyed collection, inline or paged
  * @param series - The series input the canvas applies
  * @param input - The author's editing declaration
+ * @param nested - The rows' nested series index, where they are read beside it
  * @returns The editing declaration, on the wire
  * @throws {Error} When the declaration is inconsistent, or a callback has another signature
  */
 function buildPlanEditing(resolved: ResolvedRowSource, series: PlanSeriesInput, input: PlanEditingConfig, nested?: PlanNestedIndex): ExprType<PlanEditingType> {
+    // The Save handed over as a draft (#1620). What `Record.onApply` answered is the Save with its draft form: bound
+    // once where the session is made, its apply the session's Save and its draft form the session's. A Save of the
+    // host's own is a function, and carries none.
+    return withEditingSave(input.onApply, PlanEditingType, (apply, draftForm) => planEditing(
+        resolved, series, apply === undefined ? { ...input, onApply: undefined } : { ...input, onApply: apply }, draftForm, nested));
+}
+
+/** A Plan's editing declaration, its `onApply` a function of the batch. */
+type PlanEditingInput = Omit<PlanEditingConfig, "onApply"> & { onApply: ExprType<EastType> | undefined };
+
+/**
+ * {@link buildPlanEditing}, over an `onApply` that is a function of the batch.
+ *
+ * @param draftForm - The Save's draft form, over the batch the Save takes; `undefined` for a Save of the host's own
+ */
+function planEditing(resolved: ResolvedRowSource, series: PlanSeriesInput, input: PlanEditingInput,
+    draftForm: ExprType<EastType> | undefined, nested?: PlanNestedIndex): ExprType<PlanEditingType> {
     const sourceType = resolved.collectionType as DictType<EastType, EastType>;
     const entryType = sourceType.value;
     const keyType = sourceType.key;
@@ -890,9 +911,8 @@ function buildPlanEditing(resolved: ResolvedRowSource, series: PlanSeriesInput, 
                 return restate === undefined ? apply(batch) : apply(restate(batch));
             })), EditingWireApplyType);
         }
-        // What `Record.onApply` answered carries its draft form, over the batch the Save takes — restated by key where
-        // the Save's is, so the draft's patch is the patch that Save commits.
-        const draftForm = recordDraftForm(input.onApply);
+        // The Save's draft form is over the batch the Save takes — restated by key where the Save's is, so the draft's
+        // patch is the patch that Save commits.
         if (draftForm === undefined) return { onApply };
         if (restate === undefined) return { onApply, toDraft: buildWireToDraft(batchType, draftForm) };
         const answerType = (Expr.type(draftForm as unknown as Expr) as FunctionType).output as EastType;

@@ -61,6 +61,8 @@ import {
     EditingWireApplyType,
     buildInlineApply,
     checkedEditingCallback,
+    withEditingSave,
+    type EditingSaveExpr,
 } from "../../contracts/editing.js";
 import {
     SnapGridAlignType,
@@ -314,7 +316,10 @@ export interface SnapGridEditConfig<R extends EastType> {
  * The callbacks are East functions over the SnapGrid's row type `R`:
  *
  * - `onApply(Editing.Types.ChangeSet(R)) → Editing.Types.ApplyResult` commits
- *   a batch — sync or async; `Record.onApply(…)` commits it to an e3 record.
+ *   a batch — sync or async; `Record.onApply(…)` commits it to an e3 record,
+ *   and what it answers is taken as it is: a Save that carries its draft form
+ *   is taken for its apply, since a page's tiles are handed to nothing as a
+ *   draft.
  * - `onUpdate(Array<R>)` is the inline adapter instead: with
  *   `data={liveHandle}` each batch applies with `Editing.apply` over the
  *   handle's latest rows and writes them whole — idempotent across retries.
@@ -335,8 +340,9 @@ export interface SnapGridEditConfig<R extends EastType> {
  * @property ready - The author's readiness check over a drafted row
  */
 export interface SnapGridEditingConfig {
-    /** Commit one checked batch — `Fn(Editing.Types.ChangeSet(R)) → Editing.Types.ApplyResult`, sync or async. */
-    onApply?: ExprType<EastType>;
+    /** Commit one checked batch — `Fn(Editing.Types.ChangeSet(R)) → Editing.Types.ApplyResult`, sync or async, or a Save
+     *  that carries its draft form (e3-ui's `Record.onApply(…)`). */
+    onApply?: ExprType<EastType> | EditingSaveExpr;
     /** The inline adapter's writer — `Fn(Array<R>) → Null`; requires `data={liveHandle}`, exclusive with `onApply`. */
     onUpdate?: ExprType<EastType>;
     /** Observe every gesture — `Fn(SnapGrid.Types.PatchEvent(R)) → Null`. */
@@ -712,6 +718,21 @@ function buildSnapGridEditing(
     resolved: ResolvedRowSource,
     edit: SnapGridEditConfig<EastType>,
     input: SnapGridEditingConfig,
+    toCell: ExprType<FunctionType<[EastType], SnapGridCellType>>,
+): ExprType<SnapGridEditingType> {
+    // A Save that carries its draft form is taken for its apply, bound once where the session is made.
+    return withEditingSave(input.onApply, SnapGridEditingType,
+        (apply) => snapGridEditing(resolved, edit, apply === undefined ? { ...input, onApply: undefined } : { ...input, onApply: apply }, toCell));
+}
+
+/** A SnapGrid's editing declaration, its `onApply` a function of the batch. */
+type SnapGridEditingInput = Omit<SnapGridEditingConfig, "onApply"> & { onApply: ExprType<EastType> | undefined };
+
+/** {@link buildSnapGridEditing}, over an `onApply` that is a function of the batch. */
+function snapGridEditing(
+    resolved: ResolvedRowSource,
+    edit: SnapGridEditConfig<EastType>,
+    input: SnapGridEditingInput,
     toCell: ExprType<FunctionType<[EastType], SnapGridCellType>>,
 ): ExprType<SnapGridEditingType> {
     if (resolved.kind !== "inline" || resolved.collectionType.type !== "Array") {

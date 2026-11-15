@@ -329,7 +329,7 @@ mutation named in the list (with `mutate.status()`, `pending()`, `error()`),
 commits. Builders take `Record.bind(record)` of a record declaring
 `patch: mutation.patch()` and commit every Save through it; a stale Save is a
 conflict naming the entry, and nothing is overwritten. `Record.onApply(record,
-{ keyed? })` adapts a record for a host's `onApply`.
+{ keyed? })` is a host's `onApply`: the Save, `.apply`, with its `.toDraft`.
 
 ### `Func.bind(fn)`
 

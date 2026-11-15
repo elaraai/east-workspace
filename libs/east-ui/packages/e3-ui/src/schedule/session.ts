@@ -11,10 +11,10 @@
  * read of its own entries (`entries`, `Data.bindPaged(record)`), its revision,
  * every entry it reads read by its key.
  *
- * The session hands its pending Save over as a draft too
- * (`Record.toDraft(record, { keyed: true })`, #1620): the batch a Save would
- * commit, as the draft of that commit, which a function called over the
- * builder's unsaved edits takes with its call.
+ * The session hands its pending Save over as a draft too (#1620): the batch a
+ * Save would commit, as the draft of that commit, which a function called
+ * over the builder's unsaved edits takes with its call. It is the draft form
+ * `Record.onApply`'s Save carries, so the two call one plan of the write.
  *
  * An event kind's session (`Schedule.events`) and a builder's periods'
  * (`Schedule.periods`) are this one session, so a builder keeps each record it
@@ -29,6 +29,7 @@ import {
 } from "@elaraai/east";
 import {
     EditingApplyResultType, EditingChangeSetTypeFor, EditingDraftFieldType, EditingType, EditingWireApplyType, buildWireToDraft,
+    withEditingSave,
 } from "@elaraai/east-ui/internal";
 import { Record } from "../bind/record.js";
 import { ScheduleEntriesType } from "./types.js";
@@ -70,15 +71,14 @@ export interface ScheduleRecordSession {
  * @param rowType - The record's row type
  * @param entries - A paged read of the record's own entries, checked (`checkEntries`); `undefined` for a record read whole
  * @returns The session, declared
- * @throws {Error} When the record is not bound with its patch mutation (`Record.onApply`'s refusal, or `Record.toDraft`'s)
+ * @throws {Error} When the record is not bound with its patch mutation (`Record.onApply`'s refusal)
  */
 export function scheduleRecordSession(record: unknown, keyType: EastType, rowType: EastType, entries: ExprType<EastType> | undefined): ScheduleRecordSession {
     const handle = record as globalThis.Record<string, ExprType<EastType>>;
     // The Save: one patch commit through the record's patch door, its entries checked against what the drafts began from.
+    // With it, where the handle makes drafts, the same batch as the draft of that commit: nothing is committed.
     // Declared now, so a record bound without its patch door is refused where the builder's kind is.
-    const apply = Record.onApply(record as never, { keyed: true }) as unknown as ExprType<EastType>;
-    // The same batch as the draft of that commit, built by the Save's own code: nothing is committed.
-    const toDraft = Record.toDraft(record as never, { keyed: true }) as unknown as ExprType<EastType>;
+    const save = Record.onApply(record as never, { keyed: true }) as unknown as ExprType<EastType>;
     const readAll = handle["read"] as unknown as () => ExprType<DictType<EastType, EastType>>;
     const byKey = entries === undefined ? undefined : scheduleEntryByKey(entries, keyType, rowType);
     const lastKey = entries === undefined ? undefined : scheduleLastKey(entries, keyType);
@@ -115,23 +115,27 @@ export function scheduleRecordSession(record: unknown, keyType: EastType, rowTyp
                     $.match(find(id), { held: ($2, row) => { $2.assign(result, encodedEntry(row as ExprType<EastType>)); } });
                     return result;
                 });
-            const onApply = East.asyncFunction([BlobType], EditingApplyResultType, ($, blob) => {
-                const commit = $.const(apply as unknown as ExprType<FunctionType<[typeof batchType], typeof EditingApplyResultType>>);
-                return commit(blob.decodeBeast(batchType, "v2"));
+            // The Save and its draft form are bound once, where the session is made: each of the session's two
+            // functions holds the one it calls.
+            const editing = withEditingSave(save, EditingType, (apply, toDraft) => {
+                const onApply = East.asyncFunction([BlobType], EditingApplyResultType, ($, blob) => {
+                    const commit = $.const(apply as unknown as ExprType<FunctionType<[typeof batchType], typeof EditingApplyResultType>>);
+                    return commit(blob.decodeBeast(batchType, "v2"));
+                });
+                return East.value({
+                    sourceId: (handle["binding"] as unknown as { name: ExprType<StringType> }).name,
+                    entryType: toEastTypeValue(rowType),
+                    idField: none,
+                    draftType: toEastTypeValue(draftType),
+                    children: none,
+                    keyType: some(toEastTypeValue(keyType)),
+                    snapshot: byKey === undefined ? some(East.Blob.encodeBeast(readAll(), "v2")) : none,
+                    readEntry,
+                    onPatch: none,
+                    onApply: some(East.value(variant("async", onApply), EditingWireApplyType)),
+                    toDraft: toDraft === undefined ? none : some(buildWireToDraft(batchType, toDraft)),
+                } as never, EditingType) as unknown as ExprType<typeof EditingType>;
             });
-            const editing = East.value({
-                sourceId: (handle["binding"] as unknown as { name: ExprType<StringType> }).name,
-                entryType: toEastTypeValue(rowType),
-                idField: none,
-                draftType: toEastTypeValue(draftType),
-                children: none,
-                keyType: some(toEastTypeValue(keyType)),
-                snapshot: byKey === undefined ? some(East.Blob.encodeBeast(readAll(), "v2")) : none,
-                readEntry,
-                onPatch: none,
-                onApply: some(East.value(variant("async", onApply), EditingWireApplyType)),
-                toDraft: some(buildWireToDraft(batchType, toDraft)),
-            } as never, EditingType) as unknown as ExprType<typeof EditingType>;
             // The record read by key (#1199): its revision and a move to another, one entry's row, and its largest key.
             const seam = entries === undefined || byKey === undefined || lastKey === undefined
                 ? East.value(none, OptionType(ScheduleEntriesType)) as ExprType<OptionType<typeof ScheduleEntriesType>>

@@ -17,7 +17,9 @@
  * `Record.toDraft` over the same runtime (#1620): the batch a Save takes,
  * answered as a draft of the patch door and never sent — its patch the one
  * that Save then commits, in each of `Record.onApply`'s forms, and its
- * refusals that Save's.
+ * refusals that Save's. What `Record.onApply` answers is the Save with that
+ * draft form beside it: each Save here is its `apply`, and the draft form it
+ * carries answers what `Record.toDraft` does.
  */
 
 import assert from "node:assert/strict";
@@ -85,8 +87,8 @@ const jobs = (whole: boolean) => bound(ex.jobs, JobsHandle, CUT_AND_GLUE, whole)
 /** A Sheet's `onApply` over a record of jobs, compiled against the runtime. */
 function sheetApply(runtime: RecordRuntime): Apply {
     return East.compileAsync(East.asyncFunction([JobsHandle, Editing.Types.ChangeSet(JobType)], Editing.Types.ApplyResult, ($, record, batch) => {
-        const apply = $.const(Record.onApply(record));
-        return apply(batch);
+        const save = $.const(Record.onApply(record));
+        return save.apply(batch);
     }), runtime.buildPrimitives()) as unknown as Apply;
 }
 
@@ -158,8 +160,8 @@ describe("Record.onApply — over the record's own entries", () => {
     test("a Plan's keyed batch commits the same way", async () => {
         const { runtime, handle } = await jobs(true);
         const plan = East.compileAsync(East.asyncFunction([JobsHandle, Editing.Types.ChangeSet(JobType, StringType)], Editing.Types.ApplyResult, ($, record, batch) => {
-            const apply = $.const(Record.onApply(record, { keyed: true }));
-            return apply(batch);
+            const save = $.const(Record.onApply(record, { keyed: true }));
+            return save.apply(batch);
         }), runtime.buildPrimitives()) as unknown as Apply;
         const result = await plan(handle, { ...EDIT, base: variant("snapshot", CUT_AND_GLUE) });
         assert.equal(result.type, "applied");
@@ -307,13 +309,13 @@ describe("Record.onApply — over a collection inside one entry", () => {
     /** A Layout's `onApply` over the home page's cells, compiled against the runtime. */
     function cellsApply(runtime: RecordRuntime): Apply {
         return East.compileAsync(East.asyncFunction([PagesHandle, Editing.Types.ChangeSet(CellType)], Editing.Types.ApplyResult, ($, record, batch) => {
-            const apply = $.const(Record.onApply(record, {
+            const save = $.const(Record.onApply(record, {
                 entry: "home",
                 get: East.function([PageType], ex.PageType.fields.cells, (_$, page) => page.cells),
                 set: East.function([PageType, ex.PageType.fields.cells], PageType, (_$, page, cells) => ({ title: page.title, cells })),
                 idField: "key",
             }));
-            return apply(batch);
+            return save.apply(batch);
         }), runtime.buildPrimitives()) as unknown as Apply;
     }
 
@@ -391,10 +393,27 @@ describe("Record.onApply — over a collection inside one entry", () => {
         }), runtime.buildPrimitives()) as unknown as ToDraft;
     }
 
-    test("Record.toDraft over the entry's rows is a draft of the patch Record.onApply then commits — one entry, its other fields untouched — and sends nothing (#1620)", async () => {
+    /** The draft form the home page's Save carries, compiled against the runtime: `cellsApply`'s Save, its `toDraft`. */
+    function cellsSaveDraft(runtime: RecordRuntime): ToDraft {
+        return East.compile(East.function([PagesHandle, Editing.Types.ChangeSet(CellType)], RecordToDraftResultType, ($, record, batch) => {
+            const save = $.const(Record.onApply(record, {
+                entry: "home",
+                get: East.function([PageType], ex.PageType.fields.cells, (_$, page) => page.cells),
+                set: East.function([PageType, ex.PageType.fields.cells], PageType, (_$, page, cells) => ({ title: page.title, cells })),
+                idField: "key",
+            }));
+            return save.toDraft(batch);
+        }), runtime.buildPrimitives()) as unknown as ToDraft;
+    }
+
+    const draftsEqual = equalFor(RecordToDraftResultType);
+
+    test("Record.toDraft over the entry's rows is a draft of the patch Record.onApply then commits — one entry, its other fields untouched — and sends nothing; the draft form the Save carries answers the same (#1620)", async () => {
         const { runtime, handle } = await pages();
         const drafted = draftedPatch(ex.layoutPages, cellsDraft(runtime)(handle, RESIZE));
+        assert.ok(draftsEqual(cellsSaveDraft(runtime)(handle, RESIZE), cellsDraft(runtime)(handle, RESIZE)), "the Save's own draft form");
         assert.equal(cellsDraft(runtime)(handle, { ...RESIZE, changes: [] }).type, "unchanged");
+        assert.equal(cellsSaveDraft(runtime)(handle, { ...RESIZE, changes: [] }).type, "unchanged");
         assert.deepEqual(h.requests("mutate"), []);
         assert.deepEqual((await h.read(ex.layoutPages)).get("home"), HOME, "the record stays as saved");
 
@@ -405,21 +424,24 @@ describe("Record.onApply — over a collection inside one entry", () => {
 
     test("where Record.onApply refuses before it writes — the entry changed since the edit began, the entry removed, a batch checked by revision — Record.toDraft answers that refusal, and no draft (#1620)", async () => {
         const { cache, runtime, handle } = await pages();
-        const [toDraft, apply] = [cellsDraft(runtime), cellsApply(runtime)];
+        const [toDraft, carried, apply] = [cellsDraft(runtime), cellsSaveDraft(runtime), cellsApply(runtime)];
         const byRevision = { ...RESIZE, base: variant("revision", "r0") };
         assertSameRefusal(toDraft(handle, byRevision), await apply(handle, byRevision), "rejected");
+        assertSameRefusal(carried(handle, byRevision), await apply(handle, byRevision), "rejected");
 
         // Another write moves a cell: the page's rows are no longer the ones the edit began from.
         await h.patch(ex.layoutPages, new SortedMap([["home", { ...HOME, cells: [{ key: "k1", span: 4n }, { key: "k2", span: 12n }] }]], keys));
         await cache.refresh(h.workspace);
         await h.settle();
         assertSameRefusal(toDraft(handle, RESIZE), await apply(handle, RESIZE), "conflict");
+        assertSameRefusal(carried(handle, RESIZE), await apply(handle, RESIZE), "conflict");
 
         // And then removes the page.
         await h.patch(ex.layoutPages, new SortedMap<string, Page>([], keys));
         await cache.refresh(h.workspace);
         await h.settle();
         assertSameRefusal(toDraft(handle, RESIZE), await apply(handle, RESIZE), "conflict");
+        assertSameRefusal(carried(handle, RESIZE), await apply(handle, RESIZE), "conflict");
         assert.deepEqual(h.requests("mutate"), [], "nothing was sent");
     });
 });
@@ -442,13 +464,13 @@ describe("Record.onApply — over a Sheet's groups and loose rows inside one ent
     /** A Sheet's `onApply` over week 42's entries, compiled against the runtime. */
     function entriesApply(runtime: RecordRuntime): Apply {
         return East.compileAsync(East.asyncFunction([WeeksHandle, Editing.Types.ChangeSet(EntryType)], Editing.Types.ApplyResult, ($, record, batch) => {
-            const apply = $.const(Record.onApply(record, {
+            const save = $.const(Record.onApply(record, {
                 entry: "w42",
                 get: East.function([WeekType], WeekType.fields.entries, (_$, week) => week.entries),
                 set: East.function([WeekType, WeekType.fields.entries], WeekType, (_$, week, entries) => ({ title: week.title, entries })),
                 idField: "id",
             }));
-            return apply(batch);
+            return save.apply(batch);
         }), runtime.buildPrimitives()) as unknown as Apply;
     }
 

@@ -1,7 +1,7 @@
 {
   "version": 2,
   "stats": {
-    "totalEntries": 1353,
+    "totalEntries": 1354,
     "totalFiles": 223,
     "packages": {
       "east": 587,
@@ -9,7 +9,7 @@
       "east-node-io": 63,
       "east-py-datascience": 94,
       "east-ui": 308,
-      "e3-ui": 207,
+      "e3-ui": 208,
       "e3": 25,
       "e3-ui-cli": 8,
       "e3-create": 6
@@ -41397,6 +41397,39 @@
         "typescript"
       ],
       "source": "// A pending Save as a draft: Record.toDraft takes the batch Record.onApply takes and answers the patch that Save would commit as a draft of the record's patch mutation, for a function's call, with nothing committed — or the Save's refusal, or unchanged for a batch that changes nothing\n// inputs: []  returns: \"a draft of bindery_jobs.patch\"\nexport const BinderyJobType = StructType({ task: StringType, qty: IntegerType });\n\nexport const binderyJobs = e3.record(\"bindery_jobs\", DictType(StringType, BinderyJobType), {\n    initial: new Map(),\n    mutations: (mutation) => ({\n        patch: mutation.patch(),\n    }),\n});\n\nEast.function([], StringType, ($) => {\n        const board = $.let(Record.bind(binderyJobs));\n        // The twin of `Record.onApply(board, { keyed: true })`: the same options, the same batch.\n        const toDraft = $.const(Record.toDraft(board, { keyed: true }));\n        // What an editing surface hands its Save: each entry's change from what it was as the edit began.\n        const folded = $.const(some({ task: \"Fold\", qty: 200n }), OptionType(BinderyJobType));\n        const refolded = $.const(some({ task: \"Fold\", qty: 250n }), OptionType(BinderyJobType));\n        const absent = $.const(none, OptionType(BinderyJobType));\n        const stitched = $.const(some({ task: \"Stitch\", qty: 250n }), OptionType(BinderyJobType));\n        const pending = $.const({\n            requestId: \"\", base: variant(\"revision\", \"a41c09d2\"), label: \"Fold and stitch 250\",\n            changes: [\n                { id: \"b1\", patch: East.diff(folded, refolded), place: none },\n                { id: \"b2\", patch: East.diff(absent, stitched), place: some(variant(\"keyOrder\", null)) },\n            ],\n        }, Editing.Types.ChangeSet(BinderyJobType, StringType));\n        return toDraft(pending).match({\n            // The draft a bound function that lists the record takes with its call.\n            draft: (_$, draft) => East.str`a draft of ${draft.record}.${draft.mutation}`,\n            unchanged: _$ => East.str`nothing to send`,\n            rejected: (_$, issues) => East.str`refused: ${issues.map((_$, issue) => issue.message).stringJoin(\"; \")}`,\n            conflict: (_$, issues) => East.str`changed since the edit began: ${issues.map((_$, issue) => issue.message).stringJoin(\"; \")}`,\n        });\n    })"
+    },
+    {
+      "id": "e3-ui:record-draft.examples.ts:recordSaveDraft",
+      "skill": "e3-ui",
+      "package": "e3-ui",
+      "file": "east-ui/packages/e3-ui/test/bind/record/record-draft.examples.ts",
+      "suite": "",
+      "test": "What Record.onApply answers is the Save with its draft form, one struct: apply commits a batch, and toDraft answers the same batch as a draft of that commit, with nothing committed. A copy bound in a block keeps both, and a Sheet or a Plan handed it as its onApply takes both",
+      "keywords": [
+        "Record",
+        "onApply",
+        "Save",
+        "apply",
+        "toDraft",
+        "draft form",
+        "struct",
+        "$.const",
+        "pending Save",
+        "draft",
+        "ChangeSet",
+        "FuncDraftType",
+        "not committed"
+      ],
+      "imports": [
+        "import { DictType, East, IntegerType, OptionType, StringType, StructType, example, none, some, variant } from \"@elaraai/east\";",
+        "import { Editing } from \"@elaraai/east-ui\";",
+        "import { Record } from \"@elaraai/e3-ui\";",
+        "import e3 from \"@elaraai/e3\";"
+      ],
+      "languages": [
+        "typescript"
+      ],
+      "source": "// What Record.onApply answers is the Save with its draft form, one struct: apply commits a batch, and toDraft answers the same batch as a draft of that commit, with nothing committed. A copy bound in a block keeps both, and a Sheet or a Plan handed it as its onApply takes both\n// inputs: []  returns: \"a draft of bindery_jobs.patch, of 1 argument\"\nexport const BinderyJobType = StructType({ task: StringType, qty: IntegerType });\n\nexport const binderyJobs = e3.record(\"bindery_jobs\", DictType(StringType, BinderyJobType), {\n    initial: new Map(),\n    mutations: (mutation) => ({\n        patch: mutation.patch(),\n    }),\n});\n\nEast.function([], StringType, ($) => {\n        const board = $.let(Record.bind(binderyJobs));\n        // One value, held in a block: a Sheet or a Plan takes it as its onApply.\n        const save = $.const(Record.onApply(board, { keyed: true }));\n        const folded = $.const(some({ task: \"Fold\", qty: 200n }), OptionType(BinderyJobType));\n        const refolded = $.const(some({ task: \"Fold\", qty: 250n }), OptionType(BinderyJobType));\n        const pending = $.const({\n            requestId: \"\", base: variant(\"revision\", \"a41c09d2\"), label: \"Fold 250\",\n            changes: [{ id: \"b1\", patch: East.diff(folded, refolded), place: none }],\n        }, Editing.Types.ChangeSet(BinderyJobType, StringType));\n        // `save.apply(pending)` would commit the batch; `save.toDraft(pending)` answers it as a draft of that commit.\n        return save.toDraft(pending).match({\n            draft: (_$, draft) => East.str`a draft of ${draft.record}.${draft.mutation}, of ${East.print(draft.args.size())} argument`,\n            unchanged: _$ => East.str`nothing to send`,\n            rejected: (_$, issues) => East.str`refused: ${issues.map((_$, issue) => issue.message).stringJoin(\"; \")}`,\n            conflict: (_$, issues) => East.str`changed since the edit began: ${issues.map((_$, issue) => issue.message).stringJoin(\"; \")}`,\n        });\n    })"
     },
     {
       "id": "e3-ui:record.examples.tsx:recordBindMutate",

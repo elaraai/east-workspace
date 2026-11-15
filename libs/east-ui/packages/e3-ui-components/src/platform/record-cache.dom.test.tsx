@@ -47,7 +47,8 @@ const program = East.function([], undefined, ($) => {
     const record = $.let(Record.bind(ex.workOrders, ["patch"]));
     return {
         slice: bindRecord("record-cache.orders", orders, { fields: { status: { label: "Status", hints: ["late", "open", "planned"] } } }),
-        apply: Record.onApply(record, { keyed: true }),
+        // The record's Save, of what `Record.onApply` answers: its draft form is not asked for here.
+        apply: Record.onApply(record, { keyed: true }).apply,
     };
 });
 
