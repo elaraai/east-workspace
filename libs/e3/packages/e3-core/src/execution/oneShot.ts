@@ -335,12 +335,13 @@ export function oneShotPlatformUse(request: OneShotRequest): string | null {
  * after, and the result names the hash of each. An input with no value is
  * refused in words that say why, by what it is (`unassignedInput`).
  *
- * An input that is an index of a record is pinned at the hash its record
- * holds, read once however many of the function's inputs read the record: so
- * the inputs of one record — the record, and any of its indexes — are of one
- * state of it, and the result names that one hash for each. What the runner is
- * handed for it is the index's manifest in that state ({@link stagedInputs}); a
- * state that holds no such index is refused, naming the record and the index.
+ * Each dataset is read once, however many of the function's inputs and the
+ * call's dataset arguments read it: so the inputs and arguments of one record
+ * — the record, any of its indexes, and an argument naming it — are of one
+ * state of it, and the result names that one hash for each. An input that is
+ * an index of a record is pinned at the hash its record holds, and the runner
+ * is handed the index's manifest in that state ({@link stagedInputs}); a state
+ * that holds no such index is refused, naming the record and the index.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
@@ -369,7 +370,8 @@ export async function pinCallArguments(
     const { refType, hash } = await workspaceGetDatasetHash(storage, repo, workspace, path);
     return refType !== 'value' || hash === null ? { refused: invalidExecuteResult(refusal(refType)) } : { hash };
   };
-  // Each input's dataset is read once: the inputs of one record are of one state.
+  // Each dataset is read once, for the inputs and the arguments alike: those of
+  // one record are of one state of it
   const held = new Map<string, string>();
   for (const { path, index } of options.inputs ?? []) {
     const at = pathToString(path);
@@ -389,10 +391,15 @@ export async function pinCallArguments(
       pinned.push(arg.value);
       continue;
     }
-    const found = await read(arg.value, (refType) => `Dataset argument ${i} is not assigned (ref type: ${refType})`);
-    if ('refused' in found) return found.refused;
-    pinned.push({ dataset: found.hash });
-    inputs.push({ path: arg.value, index: none, hash: found.hash });
+    const at = pathToString(arg.value);
+    let hash = held.get(at);
+    if (hash === undefined) {
+      const found = await read(arg.value, (refType) => `Dataset argument ${i} is not assigned (ref type: ${refType})`);
+      if ('refused' in found) return found.refused;
+      held.set(at, hash = found.hash);
+    }
+    pinned.push({ dataset: hash });
+    inputs.push({ path: arg.value, index: none, hash });
   }
   return { args: pinned, inputs };
 }
@@ -405,24 +412,29 @@ export async function pinCallArguments(
  * them as they would after a Save.
  *
  * @remarks
- * Only an index is looked up. A call none of whose inputs is one is answered
- * at once, with no read and no turn of the event loop between its caller and
- * its runner: a run hands its runner the call as soon as it has it, as it did
- * before an input could be an index.
+ * Only an index is looked up, each side by side; every other input is handed
+ * the object it was pinned at. A call's run stages its inputs before it looks
+ * for a request to stop it (`layAndStage`), so a stop that lands meanwhile is
+ * found before its runner starts.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
  * @param inputs - The datasets read, each with the hash it was pinned at
- * @returns The arguments, as `runDetached` stages them: at once, or once each
- *   index's state has been read
+ * @returns The arguments, as `runDetached` stages them
  * @throws {Error} When an input is an index the pinned state does not hold,
  *   naming the record and the index
+ *
+ * @example
+ * ```ts
+ * const args = await stagedInputs(storage, repo, [{ path: jobsPath, index: some('jobs_by_press'), hash: state }]);
+ * // [{ dataset: <the index's manifest in that state> }]
+ * ```
  */
-export function stagedInputs(storage: StorageBackend, repo: string, inputs: readonly InputRead[]): DetachedArg[] | Promise<DetachedArg[]> {
-  if (inputs.every((input) => input.index.type === 'none')) return inputs.map((input) => ({ dataset: input.hash }));
+export async function stagedInputs(storage: StorageBackend, repo: string, inputs: readonly InputRead[]): Promise<DetachedArg[]> {
   return Promise.all(inputs.map(async (input): Promise<DetachedArg> => {
-    const object = await inputObject(storage, repo, input.hash, input.index.type === 'some' ? input.index.value : null);
-    if (object === null) throw new Error(indexNotHeld(pathToString(input.path), input.index.value!));
+    if (input.index.type === 'none') return { dataset: input.hash };
+    const object = await inputObject(storage, repo, input.hash, input.index.value);
+    if (object === null) throw new Error(indexNotHeld(pathToString(input.path), input.index.value));
     return { dataset: object };
   }));
 }

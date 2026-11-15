@@ -11,7 +11,6 @@
  */
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
-import { execFileSync } from 'node:child_process';
 import { statSync, writeFileSync } from 'node:fs';
 import assert from 'node:assert';
 import { join, dirname } from 'node:path';
@@ -34,7 +33,7 @@ import { workspaceGetDataset, workspaceGetDatasetStatus, workspaceSetDataset } f
 import { packageExport, packageImport } from './package-files.js';
 import { workspaceCreate, workspaceGetPackage } from './workspaces.js';
 import { workspaceDeploy, workspaceExport } from './workspace-files.js';
-import { createTestRepo, removeTestRepo, createTempDir, removeTempDir, withEnv } from './test-helpers.js';
+import { createTestRepo, removeTestRepo, createTempDir, removeTempDir, stockRuntimesOnPath, withEnv } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
 import { objectPath } from './storage/local/localHelpers.js';
 import { LocalTaskRunner } from './execution/LocalTaskRunner.js';
@@ -42,17 +41,6 @@ import { MockTaskRunner, type MockTaskResult } from './execution/MockTaskRunner.
 import { inputsHash } from './executions.js';
 import { uuidv7 } from './uuid.js';
 import type { MutationOutcome, StorageBackend, TaskExecuteOptions, TaskResult, TaskRunner } from './index.js';
-
-/** Whether a runtime's CLI answers on PATH — the multi-runtime suites skip
- *  rather than fail on a developer machine without it. */
-function onPath(command: string, args: string[]): boolean {
-  try {
-    execFileSync(command, args, { stdio: 'ignore', shell: process.platform === 'win32' });
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 const encodeInt = encodeBeast2For(IntegerType);
 const decodeInt = decodeBeast2For(IntegerType);
@@ -1836,7 +1824,7 @@ describe('record indexes', () => {
 
   it('rebuilds an index after a sweep', async () => {
     // The sweep read from the other end: what survives it has to be enough to
-    // run a rebuild, which is the one thing every index of every vintage must
+    // run a rebuild, which is the one thing every index, however old, must
     // stay able to do.
     await recordMutate(storage, realRunner, repo, ws, 'plans', 'seed', [], { actor: 'cli:test' });
     const built = (await state()).indexes.get('by_status')!.manifest;
@@ -2267,11 +2255,14 @@ describe('the mutation delta — cross-runtime parity', () => {
   // executions.
   let realRunner: TaskRunner;
 
+  /** The stock runtimes whose CLIs answer on PATH, east-node first: the
+   *  multi-runtime suites skip rather than fail on a machine without one. */
+  const installed = stockRuntimesOnPath();
   /** The runtimes to compare, minus any that is not installed. */
   const runtimes: Array<{ ws: string; runner: PartRunner }> = [
     { ws: 'node', runner: { runner: { runtime: 'east-node', platforms: ['@elaraai/east-node-std'] } } },
-    ...(onPath('east-c', ['version']) ? [{ ws: 'c', runner: { runner: { runtime: 'east-c' as const, platforms: [] } } }] : []),
-    ...(onPath('east-py', ['version']) ? [{ ws: 'py', runner: { runner: { runtime: 'east-py' as const, platforms: [] } } }] : []),
+    ...(installed.includes('east-c') ? [{ ws: 'c', runner: { runner: { runtime: 'east-c' as const, platforms: [] } } }] : []),
+    ...(installed.includes('east-py') ? [{ ws: 'py', runner: { runner: { runtime: 'east-py' as const, platforms: [] } } }] : []),
   ];
   const missing = runtimes.length < 2
     ? `needs east-c or east-py on PATH beside east-node; have ${runtimes.map((r) => r.ws).join(', ')}`

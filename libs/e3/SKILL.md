@@ -159,10 +159,7 @@ is written segment by segment, but the body builds it whole: an output too large
 to hold is emitted instead (`e3.streamTask`). `config` is
 `{ runner?, environment?, role? }` — `role` is what e3-ui's `ui()` sets.
 
-An input is a dataset — an input, a task's output, a record — or an index of
-a record, `e3.index(record.indexes.<name>)`: its entries, read by `prefix` and
-`range` without the record's rows (reference/record-indexes.md). Task inputs, on
-every runtime (a mutation's state included):
+Task inputs, on every runtime (a mutation's state included):
 - are **deeply frozen**: mutating one raises `cannot mutate a frozen value (task
   inputs are immutable) — copy first`; derive a changed value from `.copy()`;
 - open **lazily**, whatever their size: size, iteration and keyed gets read a
@@ -496,8 +493,7 @@ cheap. A view reads every field of the rows it shows, so keep a bulky payload it
 does not display in a second record keyed the same way.
 
 A record's indexes (`index.on` / `key` / `keys`, `interval`, `area`,
-`series`, `summary`, `nested`, `entries`), and reading one inside a task or a
-function (`e3.index`), are in
+`series`, `summary`, `nested`, `entries`, and `e3.index` to read one) are in
 [reference/record-indexes.md](reference/record-indexes.md), and its migrations
 in [reference/record-migrations.md](reference/record-migrations.md).
 
@@ -515,9 +511,7 @@ comment or an import added above a function — re-runs the task. One that leave
 them where they were — another function, the end of a module, another package —
 re-runs only the tasks whose environment it is in, their runner's `{ custom }`
 packages. A change to an input re-runs its
-consumers, even during a run. A task that reads an index of a record is keyed
-by the index, so a write to the record that leaves the index as it was is
-served from the cache. A split task is cached a unit at a time: each piece
+consumers, even during a run. A split task is cached a unit at a time: each piece
 and each merge is its own execution, and pieces are cut by content, so an append
 or an insertion re-runs only the pieces it reaches and the merges above them.
 

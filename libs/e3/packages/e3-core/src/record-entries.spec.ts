@@ -25,9 +25,8 @@
  */
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
-import { accessSync, constants } from 'node:fs';
 import assert from 'node:assert';
-import { delimiter, join, dirname } from 'node:path';
+import { join, dirname } from 'node:path';
 import {
   DictType, East, IntegerType, NullType, OptionType, PatchType, RecursiveType, SetType, SortedMap, StringType, StructType,
   compareFor, diffFor, encodeBeast2For, equalFor, none, parseFor, printType, some, type EastType, type ValueTypeOf,
@@ -37,23 +36,10 @@ import { recordMutate, recordReindex, readRecordState } from './records.js';
 import { packageImport } from './package-files.js';
 import { workspaceCreate } from './workspaces.js';
 import { workspaceDeploy } from './workspace-files.js';
-import { createTestRepo, removeTestRepo, createTempDir, removeTempDir } from './test-helpers.js';
+import { createTestRepo, removeTestRepo, createTempDir, removeTempDir, stockRuntimesOnPath } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
 import { LocalTaskRunner } from './execution/LocalTaskRunner.js';
 import type { StorageBackend, TaskRunner } from './index.js';
-
-/** Whether a command is on PATH: an executable of its name in one of PATH's directories. */
-function onPath(command: string): boolean {
-  const names = process.platform === 'win32' ? [`${command}.cmd`, `${command}.exe`] : [command];
-  return (process.env.PATH ?? '').split(delimiter).filter((dir) => dir !== '').some((dir) => names.some((name) => {
-    try {
-      accessSync(join(dir, name), constants.X_OK);
-      return true;
-    } catch {
-      return false;
-    }
-  }));
-}
 
 // ── The records ──────────────────────────────────────────────────────────────
 
@@ -225,11 +211,13 @@ describe('the entries index on the real runners', () => {
   let storage: StorageBackend;
   let realRunner: TaskRunner;
 
+  /** The stock runtimes whose CLIs answer on PATH, east-node first. */
+  const installed = stockRuntimesOnPath();
   /** The East implementations to compare: east-node, and east-c and east-py where installed. */
   const implementations: Array<{ ws: string; runner: PartRunner }> = [
     { ws: 'node', runner: { runner: { runtime: 'east-node', platforms: ['@elaraai/east-node-std'] } } },
-    ...(onPath('east-c') ? [{ ws: 'c', runner: { runner: { runtime: 'east-c' as const, platforms: [] } } }] : []),
-    ...(onPath('east-py') ? [{ ws: 'py', runner: { runner: { runtime: 'east-py' as const, platforms: [] } } }] : []),
+    ...(installed.includes('east-c') ? [{ ws: 'c', runner: { runner: { runtime: 'east-c' as const, platforms: [] } } }] : []),
+    ...(installed.includes('east-py') ? [{ ws: 'py', runner: { runner: { runtime: 'east-py' as const, platforms: [] } } }] : []),
   ];
   const missing = implementations.length < 2
     ? `needs east-c or east-py on PATH beside east-node; have ${implementations.map((r) => r.ws).join(', ')}`

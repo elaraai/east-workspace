@@ -145,6 +145,23 @@ describe('e3.index', () => {
       message: `${takes}an index the \`index\` builder made, before its record built it — declare it in e3.record's \`indexes\`, and pass record.indexes.<name>`,
     });
   });
+
+  it('refuses a record\'s other parts and e3\'s other definitions, each named by what it is', () => {
+    const untyped = index as unknown as (def: unknown) => unknown;
+    const takes = 'e3.index takes an index of a record, as the record carries it by name — e3.index(record.indexes.<name>) — and was given ';
+    assert.throws(() => untyped(jobs.mutations.patch), {
+      message: `${takes}the mutation 'patch': a mutation writes its record, and has no index — pass one of the record's indexes, as record.indexes.<name>`,
+    });
+    const count = function_('count', { inputs: [jobs], args: [], output: IntegerType }, ($, rows) => rows.size());
+    assert.throws(() => untyped(count), { message: `${takes}the function 'count': a function has no index` });
+    assert.throws(() => untyped(package_('planning', '1.0.0', count)), { message: `${takes}the package 'planning': a package has no index` });
+    assert.throws(() => untyped(output.dict(StringType, FloatType)), { message: `${takes}e3.output.dict, an output kind: it has no index` });
+    // What a record's other builders make, before a record builds it
+    let mutation: unknown;
+    record('drafting_mutation', JobsType, { initial: new Map(), mutations: (builder) => { mutation = builder.patch(); return {}; } });
+    assert.throws(() => untyped(mutation), { message: `${takes}a mutation the \`mutation\` builder made, which has no index` });
+    assert.throws(() => untyped({ name: 'jobs_by_press' }), { message: `${takes}a value that is no definition of e3's` });
+  });
 });
 
 describe('e3.index as an input', () => {

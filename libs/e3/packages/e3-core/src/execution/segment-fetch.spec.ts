@@ -15,7 +15,6 @@
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -28,19 +27,9 @@ import { ObjectNotFoundError } from '../errors.js';
 import { datasetWrite } from '../trees.js';
 import { packageRead } from '../packages.js';
 import { packageImport } from '../package-files.js';
-import { createTempDir, createTestRepo, removeTempDir, removeTestRepo } from '../test-helpers.js';
+import { createTempDir, createTestRepo, removeTempDir, removeTestRepo, stockRuntimesOnPath } from '../test-helpers.js';
 import { LocalStorage } from '../storage/local/index.js';
 import type { StorageBackend } from '../storage/interfaces.js';
-
-/** Whether a command runs: a runner's CLI on PATH. */
-function onPath(command: string, args: string[]): boolean {
-  try {
-    execFileSync(command, args, { stdio: 'ignore', shell: process.platform === 'win32' });
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 /** Runs `fn` with the pieces an input is cut into sized about `bytes`. */
 async function withPieceBytes<T>(bytes: number, fn: () => Promise<T>): Promise<T> {
@@ -178,10 +167,12 @@ describe('a unit whose collections are placed as its runner reads them', () => {
   });
 
   describe('runner conformance', () => {
+    /** The stock runtimes whose CLIs answer on PATH, east-node first. */
+    const installed = stockRuntimesOnPath();
     const runners: Runner[] = [
       { runtime: 'east-node', platforms: [] },
-      ...(onPath('east-c', ['version']) ? [{ runtime: 'east-c' as const, platforms: [] }] : []),
-      ...(onPath('east-py', ['version']) ? [{ runtime: 'east-py' as const, platforms: [] }] : []),
+      ...(installed.includes('east-c') ? [{ runtime: 'east-c' as const, platforms: [] }] : []),
+      ...(installed.includes('east-py') ? [{ runtime: 'east-py' as const, platforms: [] }] : []),
     ];
 
     for (const runner of runners) {

@@ -19,7 +19,6 @@
  */
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
-import { execFileSync } from 'node:child_process';
 import assert from 'node:assert';
 import { join, dirname } from 'node:path';
 import {
@@ -32,20 +31,10 @@ import { recordMutate, recordReindex, readRecordState } from './records.js';
 import { packageImport } from './package-files.js';
 import { workspaceCreate } from './workspaces.js';
 import { workspaceDeploy } from './workspace-files.js';
-import { createTestRepo, removeTestRepo, createTempDir, removeTempDir } from './test-helpers.js';
+import { createTestRepo, removeTestRepo, createTempDir, removeTempDir, stockRuntimesOnPath } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
 import { LocalTaskRunner } from './execution/LocalTaskRunner.js';
 import type { StorageBackend, TaskRunner } from './index.js';
-
-/** Whether a runtime's CLI answers on PATH. */
-function onPath(command: string, args: string[]): boolean {
-  try {
-    execFileSync(command, args, { stdio: 'ignore', shell: process.platform === 'win32' });
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 /** An event: the resources it is on, its state, and its start and end — either of which may be missing. */
 const EventRow = StructType({
@@ -169,10 +158,11 @@ describe('the interval index on the real runners', () => {
   let realRunner: TaskRunner;
 
   /** The runtimes to compare, minus any that is not installed. */
+  const installed = stockRuntimesOnPath();
   const runtimes: Array<{ ws: string; runner: RunnerConfig }> = [
     { ws: 'node', runner: { runner: { runtime: 'east-node', platforms: ['@elaraai/east-node-std'] } } },
-    ...(onPath('east-c', ['version']) ? [{ ws: 'c', runner: { runner: { runtime: 'east-c' as const, platforms: [] } } }] : []),
-    ...(onPath('east-py', ['version']) ? [{ ws: 'py', runner: { runner: { runtime: 'east-py' as const, platforms: [] } } }] : []),
+    ...(installed.includes('east-c') ? [{ ws: 'c', runner: { runner: { runtime: 'east-c' as const, platforms: [] } } }] : []),
+    ...(installed.includes('east-py') ? [{ ws: 'py', runner: { runner: { runtime: 'east-py' as const, platforms: [] } } }] : []),
   ];
   const missing = runtimes.length < 2
     ? `needs east-c or east-py on PATH beside east-node; have ${runtimes.map((r) => r.ws).join(', ')}`

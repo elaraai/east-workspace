@@ -7,10 +7,11 @@
  * An index of a record as an input of a task or a function —
  * `e3.index(record.indexes.<name>)` (east-workspace#1617) — on a real runner:
  * a body reads a run of an index at the cost of the run, the inputs of one
- * record are read at one state of it, a task is decided again when its record
- * changes and runs again when the index it reads did, a call's drafts are
- * read through the index, and a record with no state makes a task wait and a
- * call `invalid`.
+ * record — and a dataset argument naming it — are read at one state of it, a
+ * task is decided again when its record changes and runs again when the index
+ * it reads did, a call's drafts are read through the index, a record with no
+ * state makes a task wait and a call `invalid`, and a state that holds no such
+ * index makes a task wait while the run and the gc go on.
  *
  * What a read cost is the segments the runner's pager decoded of the input,
  * which its verbose account says — a count, never a clock.
@@ -28,8 +29,9 @@ import {
   ExecuteResultType, TaskObjectType, decodeTaskObject, type ExecuteResult, type FunctionDraft, type TreePath,
 } from '@elaraai/e3-types';
 import { dataflowResolveInputHashes } from './dataflow.js';
-import { DatasetSegments, inputObject, readDatasetWhole, recordIndexManifests } from './dataset-open.js';
+import { DatasetSegments, indexNotHeld, inputObject, readDatasetWhole, recordIndexManifests } from './dataset-open.js';
 import { executionFindCurrent } from './executions.js';
+import { repoGc } from './gc.js';
 import { dataflowExecute } from './execution/local-orchestrator.js';
 import { functionCallUnkept } from './execution/functionCallUnkept.js';
 import { LocalTaskRunner } from './execution/LocalTaskRunner.js';
@@ -153,6 +155,15 @@ describe('an index of a record as an input', { timeout: 480_000, concurrency: fa
       });
     const backlogOnPress = e3.function('backlog_on_press', { inputs: [e3.index(backlog.indexes.backlog_by_press)], args: [StringType], output: IntegerType },
       ($, backlogByPress, press) => backlogByPress.prefix({ ik: press }).size());
+    // The rows as an argument its caller names beside the index the function reads
+    const titlesOfRows = e3.function('titles_of_rows', { inputs: [byPress], args: [StringType, JobsType], output: TitlesType },
+      ($, jobsByPress, press, jobs) => {
+        const titles = $.let(new Map(), TitlesType);
+        $.for(jobsByPress.prefix({ ik: press }), ($, _carried, key) => {
+          $(titles.insert(key.k, jobs.get(key.k).title));
+        });
+        return titles;
+      });
 
     const watchedJobs = e3.task('watched_jobs', [byPress, watched],
       East.function([byPress.type, StringType], IntegerType, ($, jobsByPress, press) => jobsByPress.prefix({ ik: press }).size()));
@@ -171,7 +182,7 @@ describe('an index of a record as an input', { timeout: 480_000, concurrency: fa
     ]);
 
     const zip = join(tempDir, 'presses.zip');
-    await e3.export(e3.package('presses', '1.0.0', jobsOnPress, titlesOnPress, backlogOnPress, watchedJobs, watchedBacklog, ...onEachRuntime), zip);
+    await e3.export(e3.package('presses', '1.0.0', jobsOnPress, titlesOnPress, backlogOnPress, titlesOfRows, watchedJobs, watchedBacklog, ...onEachRuntime), zip);
     await packageImport(storage, repo, zip);
     await workspaceCreate(storage, repo, WS);
     await workspaceDeploy(storage, repo, WS, 'presses', '1.0.0', { runner });
@@ -302,6 +313,19 @@ describe('an index of a record as an input', { timeout: 480_000, concurrency: fa
     assert.ok(sameTitles(titles, titlesOn(7)), `every entry of the index named a row the record held: ${titlesDiffer(titles, titlesOn(7))}`);
   });
 
+  it('a call reads its index input and a dataset argument naming the same record at one state of it, though a write lands between the two', async () => {
+    const before = await jobsState();
+    const result = await withWriteAfterFirstRead(jobKey(7), () => functionCallUnkept(storage, runner, repo, WS, 'titles_of_rows', {
+      args: [variant('value', encodeString(pressOf(7))), variant('dataset', JOBS_PATH)], drafts: [],
+    }, { limits: LIMITS }));
+    assert.ok(sameInputs(result.inputs, [
+      { path: JOBS_PATH, index: some('jobs_by_press'), hash: before },
+      { path: JOBS_PATH, index: none, hash: before },
+    ]), `the index and the argument are read at the one state the first read found: ${printInputs(result.inputs)}`);
+    const titles = decodeTitles(valueOf(result));
+    assert.ok(sameTitles(titles, titlesOn(7)), `every entry of the index named a row the argument held: ${titlesDiffer(titles, titlesOn(7))}`);
+  });
+
   it('a task\'s inputs of one record are resolved at one state of it, though a write lands between the two', async () => {
     // The package's task, given the record beside its index
     const pkg = await packageRead(storage, repo, 'presses', '1.0.0');
@@ -405,5 +429,28 @@ describe('an index of a record as an input', { timeout: 480_000, concurrency: fa
     assert.equal(run.waiting, 1);
     const status = await workspaceStatus(storage, runner, repo, WS);
     assert.deepEqual(status.tasks.find((task) => task.name === 'watched_backlog')!.status, { type: 'waiting', reason: 'Input \'.records.backlog\' is not set' });
+  });
+
+  it('a state that holds no index a task reads leaves the task waiting, as its status says, and the run and the gc go on', async () => {
+    const ref = await storage.datasets.read(repo, WS, 'records/jobs');
+    if (ref?.type !== 'value') assert.fail('jobs holds a state');
+    const { primary } = await readRecordState(storage, repo, ref.value.hash);
+    // A state written outside the doors that build every index its record
+    // declares: the record's rows alone
+    await storage.datasets.write(repo, WS, 'records/jobs', variant('value', { ...ref.value, hash: primary }));
+    try {
+      const waiting: Array<[string, string[]]> = [];
+      const run = await dataflowExecute(storage, repo, WS, { runner, onTaskWaiting: (task, inputs) => waiting.push([task, inputs]) });
+      assert.equal(run.success, true, `the run goes on without it: ${JSON.stringify(run.tasks)}`);
+      assert.ok(waiting.some(([task, inputs]) => task === 'watched_jobs' && inputs.includes('.records.jobs')),
+        `the task waits on the record: ${JSON.stringify(waiting)}`);
+      const status = await workspaceStatus(storage, runner, repo, WS);
+      assert.deepEqual(status.tasks.find((task) => task.name === 'watched_jobs')!.status,
+        { type: 'waiting', reason: `Input '.records.jobs': ${indexNotHeld('.records.jobs', 'jobs_by_press')}` });
+      // The gc's keep phase reads every task's current inputs
+      await repoGc(storage, repo, { minAge: 0 });
+    } finally {
+      await storage.datasets.write(repo, WS, 'records/jobs', ref);
+    }
   });
 });

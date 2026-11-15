@@ -29,7 +29,7 @@ import {
 } from '@elaraai/e3-types';
 import { inputsHash } from './executions.js';
 import { OBJECT_CONCURRENCY, eachAtMost } from './concurrency.js';
-import { indexNotHeld, inputObject } from './dataset-open.js';
+import { taskInputRead } from './dataset-open.js';
 import {
   WorkspaceNotFoundError,
   WorkspaceNotDeployedError,
@@ -341,15 +341,22 @@ export async function workspaceStatus(
     const status = await checkInProgress(storage, runner, computedTasks[i]!.hash, running[i]!);
     if (status !== null) inProgress.set(computedTasks[i]!.name, status);
   });
+  // Each one's current inputs, a few tasks at a time: an index input reads its
+  // record's state, once per state and from memory after
+  const found = new Array<string | TaskStatus>(computedTasks.length);
+  await eachAtMost(computedTasks.map((_, i) => i), OBJECT_CONCURRENCY, async (i) => {
+    const node = computedTasks[i]!;
+    found[i] = inProgress.get(node.name) ?? await inputsOf(storage, repo, refs, node, outputToTask);
+  });
   const pending: Array<{ node: TaskNode; inHash: string }> = [];
-  for (const node of computedTasks) {
-    const found = inProgress.get(node.name) ?? await inputsOf(storage, repo, refs, node, outputToTask);
-    if (typeof found === 'string') pending.push({ node, inHash: found });
+  computedTasks.forEach((node, i) => {
+    const current = found[i]!;
+    if (typeof current === 'string') pending.push({ node, inHash: current });
     else {
-      taskStatus.set(node.name, found);
+      taskStatus.set(node.name, current);
       taskIsStale.set(node.name, true);
     }
-  }
+  });
   const latest = await storage.refs.executionGetLatestMany(repo, pending.map(({ node, inHash }) => ({ taskHash: node.hash, inputsHash: inHash })));
   pending.forEach(({ node }, i) => {
     const { status, peakBytes, stopped } = statusOfLatest(refs, node, latest[i]!);
@@ -500,8 +507,9 @@ function refOf(refs: ReadonlyMap<string, DatasetRef>, path: TreePath): { refType
  *
  * An input that is an index of a record is the index's manifest, found in the
  * state the record's ref holds, as the dataflow keys the task's executions
- * (`inputObject`): a state is read once and then from memory, so a status
- * polled over an unchanged record reads nothing more for it.
+ * (`taskInputRead`, which the run decides by too): a state is read once and
+ * then from memory, so a status polled over an unchanged record reads nothing
+ * more for it.
  */
 async function inputsOf(
   storage: StorageBackend,
@@ -531,11 +539,10 @@ async function inputsOf(
       }
     } else {
       const index = node.task.inputs[at]!.index;
-      const object = await inputObject(storage, repo, hash, index.type === 'some' ? index.value : null);
-      // A state that holds no such index: the task cannot read its input
-      // until a deploy has built it
-      if (object === null) return { type: 'waiting', reason: `Input '${inputPathStr}': ${indexNotHeld(inputPathStr, index.value!)}` };
-      currentInputHashes.push(object);
+      // A state that holds no such index: the task waits until a deploy has built it
+      const read = await taskInputRead(storage, repo, inputPathStr, hash, index.type === 'some' ? index.value : null);
+      if ('waiting' in read) return { type: 'waiting', reason: read.waiting };
+      currentInputHashes.push(read.object);
     }
   }
 

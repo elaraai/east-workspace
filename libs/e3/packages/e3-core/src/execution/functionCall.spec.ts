@@ -26,7 +26,7 @@ import { packageImport } from '../package-files.js';
 import { workspaceDeploy } from '../workspaces.js';
 import { workspaceGetDatasetHash } from '../trees.js';
 import { InMemoryStorage } from '../storage/in-memory/InMemoryStorage.js';
-import { createTempDir, ran, removeTempDir } from '../test-helpers.js';
+import { createTempDir, gated, ran, removeTempDir } from '../test-helpers.js';
 import { InvalidNameError, PermissionDeniedError, WorkspaceLockError } from '../errors.js';
 import { isUuidv7, uuidv7Generator } from '../uuid.js';
 import { MockTaskRunner } from './MockTaskRunner.js';
@@ -67,10 +67,15 @@ function request(args: Uint8Array[]): FunctionCallRequest {
   return { args: args.map((arg) => variant('value', arg)), runner: none, limits: none, drafts: [] };
 }
 
-/** A runner whose run lasts until its signal aborts: a call its cancel stops. */
+/** A runner whose run says it has started, and lasts until its signal aborts:
+ *  a call its cancel stops. */
 class HeldRunner extends MockTaskRunner {
+  /** Opened once the call's function is handed to the runner. */
+  readonly running = gated<void>();
+
   override runDetached(spec: DetachedSpec, options?: DetachedRunOptions): Promise<DetachedResult> {
     void super.runDetached(spec, options);
+    this.running.open();
     return new Promise((resolve) => {
       const stopped = (): void => resolve(ran({ kind: 'failed', exitCode: 137 }));
       // As a real runner does, one handed a signal already aborted ends at once
@@ -274,6 +279,8 @@ describe('functionCall', () => {
     const held = new HeldRunner();
     const filed = await start('twice', [encodeInt(1n)]);
     const running = functionCallRun(storage, held, REPO, WS, filed.call.id, { now, watchMs: 10 });
+    // Asked to stop once its function runs, wherever the run's own reads fall
+    await held.running.opened;
     await storage.calls.requestCancel(REPO, WS, filed.call.id, { by: none, at: new Date(T) });
     const { job } = await running;
     assert.equal(job?.call.state.type, 'cancelled');
@@ -286,10 +293,12 @@ describe('functionCall', () => {
     const cancel = new AbortController();
     // A watch that would not look again before the test ends
     const running = functionCallRun(storage, held, REPO, WS, filed.call.id, { now, watchMs: 60_000, cancel: cancel.signal });
+    await held.running.opened;
     await storage.calls.requestCancel(REPO, WS, filed.call.id, { by: some('grace@example.com'), at: new Date(T) });
     cancel.abort();
     const { job } = await running;
     assert.equal(job?.call.state.type, 'cancelled');
+    assert.equal(held.getDetachedCalls().length, 1, 'it ran, and was stopped');
   });
 
   it('records a call lost once a read finds it running past its deadline and a grace, on the clock its store keeps, and leaves one within the grace', async () => {

@@ -289,6 +289,8 @@ export {
   openDatasetObject,
   readDatasetWhole,
   inputObject,
+  taskInputRead,
+  readRecordStateObject,
   recordIndexManifests,
 } from './dataset-open.js';
 

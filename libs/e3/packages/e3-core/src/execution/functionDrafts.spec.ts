@@ -42,7 +42,7 @@ import { encodeMutationArgs, readRecordState, recordHistory, recordMutate, resol
 import { InMemoryStorage } from '../storage/in-memory/InMemoryStorage.js';
 import type { StorageBackend } from '../storage/interfaces.js';
 import { LocalStorage } from '../storage/local/index.js';
-import { createTempDir, createTestRepo, ran, removeTempDir, removeTestRepo } from '../test-helpers.js';
+import { createTempDir, createTestRepo, gated, ran, removeTempDir, removeTestRepo } from '../test-helpers.js';
 import { workspaceGetDataset } from '../trees.js';
 import { uuidv7 } from '../uuid.js';
 import { workspaceCreate, workspaceDeploy } from '../workspaces.js';
@@ -111,13 +111,6 @@ function draft(record: string, mutation: string, ...args: Uint8Array[]): Functio
 /** A call of value arguments, with drafts. */
 function request(args: Uint8Array[], drafts: FunctionDraft[], limits: FunctionCallRequest['limits'] = none): FunctionCallRequest {
   return { args: args.map((arg) => variant('value', arg)), runner: none, limits, drafts };
-}
-
-/** Something a case waits for, and the call that brings it. */
-function gated<T>(): { readonly opened: Promise<T>; open(value: T): void } {
-  let open!: (value: T) => void;
-  const opened = new Promise<T>((resolve) => { open = resolve; });
-  return { opened, open };
 }
 
 /**

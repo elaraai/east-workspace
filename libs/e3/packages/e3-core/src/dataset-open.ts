@@ -48,6 +48,7 @@ import {
   isRecordStateType,
   manifestByteSize,
   type CollectionManifest,
+  type RecordState,
 } from '@elaraai/e3-types';
 import { readInOrder } from './concurrency.js';
 import { hashMemo, memoKey } from './memo.js';
@@ -341,6 +342,72 @@ export async function readManifest(
 
 const decodeRecordState = decodeBeast2For(RecordStateType);
 
+/** What one head read of an object found. */
+interface ObjectHead {
+  /** The bytes read: the object's first {@link HEAD_PROBE_BYTES}, or all of it. */
+  readonly head: Uint8Array;
+  /** Whether the head is the whole object, so nothing is read twice. */
+  readonly whole: boolean;
+  /** The object's root type, from its type section; `null` when that section
+   *  is wider than the probe, which no manifest's or state's is: both carry one
+   *  small struct type. */
+  readonly type: EastTypeValue | null;
+  /** The object's byte size, when it is known without asking the store: given,
+   *  or read whole by the probe. */
+  readonly size?: number;
+}
+
+/** Reads an object's head: its type section, and the whole of a small object. */
+async function readHead(storage: StorageBackend, repo: string, hash: string, size?: number): Promise<ObjectHead> {
+  const length = size === undefined ? HEAD_PROBE_BYTES : Math.min(size, HEAD_PROBE_BYTES);
+  const head = await storage.objects.readRange(repo, hash, 0, length);
+  // The head is the whole object when the object ended inside the probe
+  const whole = head.length < HEAD_PROBE_BYTES || (size !== undefined && head.length >= size);
+  const known = size ?? (whole ? head.length : undefined);
+  let type: EastTypeValue | null;
+  try {
+    type = readBeast2Type(head);
+  } catch {
+    type = null;
+  }
+  return { head, whole, type, ...(known !== undefined && { size: known }) };
+}
+
+/** The record state an object is, from its head, or `null` when it is none. */
+async function stateOf(storage: StorageBackend, repo: string, hash: string, probed: ObjectHead): Promise<RecordState | null> {
+  if (probed.type === null || !isRecordStateType(probed.type)) return null;
+  const state = decodeRecordState(probed.whole ? probed.head : await storage.objects.read(repo, hash));
+  // A struct of this shape carrying another tag is a user value, not a state.
+  return state.kind === RECORD_STATE_KIND ? state : null;
+}
+
+/**
+ * The record state an object is, or `null` when it is none.
+ *
+ * @remarks
+ * A record that declares an index stores a `$record` state naming its rows'
+ * manifest and each index's; one that declares none stores its rows' manifest
+ * as its state, which is no record state here. One head read tells them
+ * apart, and reads a state — a small object — whole. The one place a state is
+ * recognised: the opener ({@link openDatasetObject}), the index tables
+ * ({@link recordIndexManifests}) and a record's reader (`readRecordState`)
+ * all ask it here.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param hash - A dataset object's hash: a record ref's `value.hash`
+ * @returns The state, or `null` for an object that is no record state
+ *
+ * @example
+ * ```ts
+ * const state = await readRecordStateObject(storage, repo, ref.value.hash);
+ * const rows = state === null ? ref.value.hash : state.primary;
+ * ```
+ */
+export async function readRecordStateObject(storage: StorageBackend, repo: string, hash: string): Promise<RecordState | null> {
+  return stateOf(storage, repo, hash, await readHead(storage, repo, hash));
+}
+
 /**
  * The collection object a dataset hash names, and its manifest when it has one.
  *
@@ -367,29 +434,15 @@ export async function openDatasetObject(
   hash: string,
   size?: number,
 ): Promise<{ hash: string; manifest: CollectionManifest | null; size?: number }> {
-  const length = size === undefined ? HEAD_PROBE_BYTES : Math.min(size, HEAD_PROBE_BYTES);
-  const head = await storage.objects.readRange(repo, hash, 0, length);
-  // The head is the whole object when the object ended inside the probe —
-  // then nothing is read twice.
-  const whole = head.length < HEAD_PROBE_BYTES || (size !== undefined && head.length >= size);
-  const known = size ?? (whole ? head.length : undefined);
-  let typeValue: EastTypeValue;
-  try {
-    typeValue = readBeast2Type(head);
-  } catch {
-    // A type section wider than the probe is not a manifest's or a state's:
-    // both carry one small struct type, and every other object is a leaf here.
-    return { hash, manifest: null, ...(known !== undefined && { size: known }) };
-  }
-  if (isRecordStateType(typeValue)) {
-    const state = decodeRecordState(whole ? head : await storage.objects.read(repo, hash));
-    // A struct of this shape carrying another tag is a user value, not a state.
-    if (state.kind === RECORD_STATE_KIND) return openDatasetObject(storage, repo, state.primary);
-    return { hash, manifest: null, ...(known !== undefined && { size: known }) };
-  }
-  if (!isCollectionManifestType(typeValue)) return { hash, manifest: null, ...(known !== undefined && { size: known }) };
-  const manifest = decodeCollectionManifest(whole ? head : await storage.objects.read(repo, hash));
-  return { hash, manifest: manifest.kind === COLLECTION_MANIFEST_KIND ? manifest : null, ...(known !== undefined && { size: known }) };
+  const probed = await readHead(storage, repo, hash, size);
+  const known = probed.size === undefined ? {} : { size: probed.size };
+  // A record that declares an index is read as its rows
+  const state = await stateOf(storage, repo, hash, probed);
+  if (state !== null) return openDatasetObject(storage, repo, state.primary);
+  // Every object but a manifest is a leaf here
+  if (probed.type === null || !isCollectionManifestType(probed.type)) return { hash, manifest: null, ...known };
+  const manifest = decodeCollectionManifest(probed.whole ? probed.head : await storage.objects.read(repo, hash));
+  return { hash, manifest: manifest.kind === COLLECTION_MANIFEST_KIND ? manifest : null, ...known };
 }
 
 /** How many record states' index tables {@link recordIndexManifests} keeps. */
@@ -405,9 +458,9 @@ const indexTables = hashMemo<ReadonlyMap<string, string> | null>(INDEX_TABLES_KE
  *
  * @remarks
  * A state is read once per repository and then from memory ({@link hashMemo}):
- * its hash fixes what it names. Costs one head read, as
- * {@link openDatasetObject} does, and a state is a small object that head
- * holds whole.
+ * its hash fixes what it names. Costs one head read
+ * ({@link readRecordStateObject}), as {@link openDatasetObject} does, and a
+ * state is a small object that head holds whole.
  *
  * @param storage - Storage backend
  * @param repo - Repository identifier
@@ -420,20 +473,8 @@ export async function recordIndexManifests(storage: StorageBackend, repo: string
   const key = memoKey(repo, hash);
   const known = indexTables.get(key);
   if (known !== undefined) return known;
-  const head = await storage.objects.readRange(repo, hash, 0, HEAD_PROBE_BYTES);
-  let manifests: ReadonlyMap<string, string> | null = null;
-  let typeValue: EastTypeValue | null;
-  try {
-    typeValue = readBeast2Type(head);
-  } catch {
-    // A type section wider than the probe is no state's, which is one small struct.
-    typeValue = null;
-  }
-  if (typeValue !== null && isRecordStateType(typeValue)) {
-    const state = decodeRecordState(head.length < HEAD_PROBE_BYTES ? head : await storage.objects.read(repo, hash));
-    // A struct of this shape carrying another tag is a user value, not a state.
-    if (state.kind === RECORD_STATE_KIND) manifests = new Map([...state.indexes].map(([name, { manifest }]) => [name, manifest]));
-  }
+  const state = await readRecordStateObject(storage, repo, hash);
+  const manifests = state === null ? null : new Map([...state.indexes].map(([name, { manifest }]) => [name, manifest]));
   indexTables.set(key, manifests);
   return manifests;
 }
@@ -473,6 +514,45 @@ export async function inputObject(storage: StorageBackend, repo: string, hash: s
 export function indexNotHeld(path: string, index: string): string {
   return `the record ${path} holds no index '${index}' at the state it stands at: ` +
     `deploy the package that declares the index again, which builds it`;
+}
+
+/**
+ * What a task reads of one of its inputs, given the hash its dataset holds:
+ * the object it is handed ({@link inputObject}), or why it waits — its
+ * record's state holds no such index — in the words its status gives.
+ *
+ * @remarks
+ * Each reader of a task's current inputs that names a waiting task decides
+ * here, so the run leaves the task waiting where its status says it waits,
+ * and the run goes on without it; the history and the bundle, which need no
+ * reason, keep no execution over such inputs, and the current execution falls
+ * back to the task's last run. Every door that writes a state — a deploy,
+ * `$init`, a restore, a rollback — writes one holding every index its record
+ * declares, so a state that holds none was written outside them.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param path - The input's keypath, as a status names it: `.records.jobs`
+ * @param hash - The hash the input's dataset holds: for a record, its state's
+ * @param index - The index of the record the input reads, by name; `null` for
+ *   the dataset itself
+ * @returns The object the task is handed, or why it waits for the input
+ *
+ * @example
+ * ```ts
+ * const read = await taskInputRead(storage, repo, '.records.jobs', state, 'jobs_by_press');
+ * if ('waiting' in read) console.log(read.waiting); // Input '.records.jobs': the record .records.jobs holds no index …
+ * ```
+ */
+export async function taskInputRead(
+  storage: StorageBackend,
+  repo: string,
+  path: string,
+  hash: string,
+  index: string | null,
+): Promise<{ readonly object: string } | { readonly waiting: string }> {
+  const object = await inputObject(storage, repo, hash, index);
+  return object === null ? { waiting: `Input '${path}': ${indexNotHeld(path, index!)}` } : { object };
 }
 
 /**

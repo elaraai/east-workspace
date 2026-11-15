@@ -8,11 +8,11 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { spawnSync } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { ArrayType, East, IntegerType, StringType, some } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import { Budget, LocalStorage, LocalTaskRunner, datasetWrite, inputsHash, packageImport, packageRead, repoInit } from '@elaraai/e3-core';
+import { stockRuntimesOnPath } from '@elaraai/e3-core/test';
 import { RackHub } from '../hub/hub.js';
 import { defaultHubConfig, saveHubConfig } from '../hub/config.js';
 import { HubClient } from '../client/hub-client.js';
@@ -114,7 +114,7 @@ for (const kind of ['array', 'set', 'dict', 'fold'] as const) it(`delegates spli
   assert(f.placements.every((placement) => placement.where === 'rack' && placement.role === 'unit'));
 });
 
-it('executes an east-py task through the same rack wire', { skip: spawnSync('east-py', ['--version']).error !== undefined }, async () => {
+it('executes an east-py task through the same rack wire', { skip: stockRuntimesOnPath().includes('east-py') ? false : 'east-py CLI not on PATH' }, async () => {
   const f = await fixture();
   const input = e3.input('python_text', StringType);
   const task = e3.task('python', [input], East.function([StringType], IntegerType, (_$, text) => text.length()), { runner: { runtime: 'east-py' } });

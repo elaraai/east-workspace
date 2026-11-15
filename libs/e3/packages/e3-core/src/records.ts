@@ -40,7 +40,6 @@ import {
   indexCollectionType,
   indexWindowType,
   isCollectionRoot,
-  isRecordStateType,
   mutationDeltaType,
   type DeltaTarget,
   type MutationObject,
@@ -54,7 +53,7 @@ import {
   type Structure,
 } from '@elaraai/e3-types';
 import { DeltaConflictError, SummaryIntegrityError, applyDelta, applyDeltaEntries, type DeltaEntry } from './record-apply.js';
-import { readManifest } from './dataset-open.js';
+import { readManifest, readRecordStateObject } from './dataset-open.js';
 import { storedDatasetValue } from './dataset-adopt.js';
 import { manifestCutElsewhere } from './store-collection.js';
 import { OBJECT_CONCURRENCY, eachAtMost } from './concurrency.js';
@@ -70,7 +69,6 @@ import type { TaskResult, TaskRunner } from './execution/interfaces.js';
 
 const encodeCommit = encodeBeast2For(RecordCommitType);
 const encodeRecordState = encodeBeast2For(RecordStateType);
-const decodeRecordState = decodeBeast2For(RecordStateType);
 const encodeArgsTuple = encodeBeast2For(ArrayType(BlobType));
 const decodeArgsTuple = decodeBeast2For(ArrayType(BlobType));
 const encodeTaskObject = encodeBeast2For(TaskObjectType);
@@ -529,17 +527,9 @@ export interface RecordStateRefs {
  * @returns the primary and the indexes the state names
  */
 export async function readRecordState(storage: StorageBackend, repo: string, hash: string): Promise<RecordStateRefs> {
-  const head = await storage.objects.read(repo, hash);
-  let typeValue: EastTypeValue;
-  try {
-    typeValue = readBeast2Type(head);
-  } catch {
-    return { primary: hash, indexes: new Map() };
-  }
-  if (!isRecordStateType(typeValue)) return { primary: hash, indexes: new Map() };
-  const state = decodeRecordState(head);
-  if (state.kind !== RECORD_STATE_KIND) return { primary: hash, indexes: new Map() };
-  return { primary: state.primary, indexes: state.indexes };
+  // The one place a state is told from the plain manifest a record with no index keeps
+  const state = await readRecordStateObject(storage, repo, hash);
+  return state === null ? { primary: hash, indexes: new Map() } : { primary: state.primary, indexes: state.indexes };
 }
 
 /**

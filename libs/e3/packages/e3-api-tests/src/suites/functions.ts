@@ -114,9 +114,9 @@ const ApplyType = FunctionType([IntegerType], IntegerType);
 const PricesType = DictType(StringType, IntegerType);
 /** What a result names it read. */
 const InputsType = ExecuteResultType.fields.inputs;
-/** The inputs a signature names. */
-/** What a signature says a function reads of a workspace. */
-const PathsType = ArrayType(FunctionInputType);
+/** What a signature says a function reads of a workspace: each input's path,
+ *  and the index of the record there that it reads. */
+const DeclaredType = ArrayType(FunctionInputType);
 
 const encodeInt = encodeBeast2For(IntegerType);
 const decodeInt = decodeBeast2For(IntegerType);
@@ -253,7 +253,7 @@ export function functionTests(setup: TestSetup<TestContext>): void {
       assert.deepEqual(names, ['add', 'applied', 'nap', 'quote', 'scaled', 'slow', 'tallied', 'twice']);
       const add = fns.find((f) => f.name === 'add')!;
       assert.equal(add.argTypes.length, 2);
-      assert.ok(equalFor(PathsType)(add.inputs, []), 'add reads nothing of a workspace');
+      assert.ok(equalFor(DeclaredType)(add.inputs, []), 'add reads nothing of a workspace');
       assert.equal(add.outputType.type, 'Integer');
       assert.equal(add.runner.type, 'east_node');
     });
@@ -267,8 +267,8 @@ export function functionTests(setup: TestSetup<TestContext>): void {
       assert.equal(sig.argTypes.length, 2);
 
       const quote = await functionDescribe(ctx.config.baseUrl, ctx.repoName, PKG, VERSION, 'quote', opts);
-      assert.ok(equalFor(PathsType)(quote.inputs, [{ path: VALUE_PATH, index: none }, { path: PRICES_PATH, index: none }]),
-        `quote reads ${printFor(PathsType)(quote.inputs)}`);
+      assert.ok(equalFor(DeclaredType)(quote.inputs, [{ path: VALUE_PATH, index: none }, { path: PRICES_PATH, index: none }]),
+        `quote reads ${printFor(DeclaredType)(quote.inputs)}`);
       assert.deepEqual(quote.argTypes.map((type) => type.type), ['String']);
       assert.equal(quote.outputType.type, 'Integer');
     });
@@ -362,7 +362,7 @@ export function functionTests(setup: TestSetup<TestContext>): void {
       const opts = await ctx.opts();
 
       const sig = await functionDescribe(ctx.config.baseUrl, ctx.repoName, PKG, VERSION, 'twice', opts);
-      assert.ok(equalFor(PathsType)(sig.inputs, []), 'twice reads nothing of a workspace');
+      assert.ok(equalFor(DeclaredType)(sig.inputs, []), 'twice reads nothing of a workspace');
       assert.deepEqual(sig.argTypes.map((type) => type.type), ['Integer']);
 
       await ctx.createWorkspace('fn-spec-ws');

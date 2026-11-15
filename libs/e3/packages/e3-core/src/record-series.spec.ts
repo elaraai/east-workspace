@@ -26,9 +26,8 @@
  */
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
-import { accessSync, constants } from 'node:fs';
 import assert from 'node:assert';
-import { delimiter, join, dirname } from 'node:path';
+import { join, dirname } from 'node:path';
 import {
   DateTimeType, DictType, East, IntegerType, NullType, OptionType, PatchType, SetType, SortedMap, SortedSet, StringType,
   StructType, compareFor, decodeBeast2For, diffFor, encodeBeast2For, equalFor, none, parseFor, some, type ValueTypeOf,
@@ -41,23 +40,10 @@ import { summarizeDelta } from './record-apply.js';
 import { packageImport } from './package-files.js';
 import { workspaceCreate } from './workspaces.js';
 import { workspaceDeploy } from './workspace-files.js';
-import { createTestRepo, removeTestRepo, createTempDir, removeTempDir, withEnv } from './test-helpers.js';
+import { createTestRepo, removeTestRepo, createTempDir, removeTempDir, stockRuntimesOnPath, withEnv } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
 import { LocalTaskRunner } from './execution/LocalTaskRunner.js';
 import type { StorageBackend, TaskRunner } from './index.js';
-
-/** Whether a runtime's CLI is on PATH: an executable of its name in one of PATH's directories. */
-function onPath(command: string): boolean {
-  const names = process.platform === 'win32' ? [`${command}.cmd`, `${command}.exe`] : [command];
-  return (process.env.PATH ?? '').split(delimiter).filter((dir) => dir !== '').some((dir) => names.some((name) => {
-    try {
-      accessSync(join(dir, name), constants.X_OK);
-      return true;
-    } catch {
-      return false;
-    }
-  }));
-}
 
 /** A print job: the press it runs on, the crews on it, its state, and when it runs, or not yet. */
 const JobRow = StructType({
@@ -231,11 +217,13 @@ describe('the series and summary indexes on the real runners', () => {
   let storage: StorageBackend;
   let realRunner: TaskRunner;
 
+  /** The stock runtimes whose CLIs answer on PATH, east-node first. */
+  const installed = stockRuntimesOnPath();
   /** The runtimes to compare, minus any that is not installed. */
   const runtimes: Array<{ ws: string; runner: RunnerConfig }> = [
     { ws: 'node', runner: { runner: { runtime: 'east-node', platforms: ['@elaraai/east-node-std'] } } },
-    ...(onPath('east-c') ? [{ ws: 'c', runner: { runner: { runtime: 'east-c' as const, platforms: [] } } }] : []),
-    ...(onPath('east-py') ? [{ ws: 'py', runner: { runner: { runtime: 'east-py' as const, platforms: [] } } }] : []),
+    ...(installed.includes('east-c') ? [{ ws: 'c', runner: { runner: { runtime: 'east-c' as const, platforms: [] } } }] : []),
+    ...(installed.includes('east-py') ? [{ ws: 'py', runner: { runner: { runtime: 'east-py' as const, platforms: [] } } }] : []),
   ];
   const missing = runtimes.length < 2
     ? `needs east-c or east-py on PATH beside east-node; have ${runtimes.map((r) => r.ws).join(', ')}`

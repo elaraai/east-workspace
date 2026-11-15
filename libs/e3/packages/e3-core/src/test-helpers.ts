@@ -431,6 +431,29 @@ export function stockRuntimesOnPath(): Array<'east-node' | 'east-c' | 'east-py'>
 }
 
 /**
+ * Something a test waits for, and the call that brings it: a test that must
+ * act once another step has happened — a runner handed its run — awaits
+ * `opened`, where it would otherwise count on the order two steps are
+ * scheduled in.
+ *
+ * @typeParam T - What the wait is given
+ * @returns `opened`, which settles once `open` is called, with what it was
+ *   given
+ *
+ * @example
+ * ```ts
+ * const running = gated<void>();
+ * const run = start(() => running.open());
+ * await running.opened; // started, wherever its own reads fell
+ * ```
+ */
+export function gated<T>(): { readonly opened: Promise<T>; open(value: T): void } {
+  let open!: (value: T) => void;
+  const opened = new Promise<T>((resolve) => { open = resolve; });
+  return { opened, open };
+}
+
+/**
  * The pid of a process that has certainly exited.
  *
  * @remarks

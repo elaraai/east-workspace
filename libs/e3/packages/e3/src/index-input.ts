@@ -17,6 +17,7 @@
 import { NullType, type DictType, type EastType, type StructType } from '@elaraai/east';
 import { indexCollectionType } from '@elaraai/e3-types';
 import { isRecord } from './record.js';
+import { RECORD_PART } from './record-builders.js';
 import { builtIndex, summed } from './record-programs.js';
 import type { DatasetDef, IndexInputDef, InputDef, PartitionDef, RecordDef, RecordIndexDef } from './types.js';
 
@@ -43,7 +44,7 @@ export type IndexEntriesOf<D> = D extends RecordIndexDef<string, infer T, infer 
   ? DictType<StructType<{ ik: IK; k: D extends { readonly summary: object } ? NullType : RecordKeyOf<T> }>, P>
   : never;
 
-/** The words for what `e3.index` was given, when it is no index a record carries. */
+/** The words for what `e3.index` was given, when it is no index a record carries: what it is, by its kind. */
 function given(value: unknown): string {
   if (isRecord(value)) {
     const names = Object.keys(value.indexes);
@@ -52,14 +53,26 @@ function given(value: unknown): string {
   }
   if (typeof value !== 'object' || value === null) return value === null ? 'null' : `a ${typeof value}`;
   const item = value as { readonly kind?: unknown; readonly name?: unknown; readonly dataset?: { readonly name?: unknown } };
-  if (item.kind === 'dataset') return `the dataset '${String(item.name)}', which is no record: only an e3.record has indexes`;
-  if (item.kind === 'partition') return `e3.partition of '${String(item.dataset?.name)}': a partition marks a dataset, and an index is read whole`;
-  if (item.kind === 'index') return 'an e3.index already: pass the record\'s index, as record.indexes.<name>';
-  if (item.kind === 'task') return `the task '${String(item.name)}': a task has no index`;
-  if (item.kind === 'recordIndex') {
-    return `an index named '${String(item.name)}' that no record carries by that name — pass it as the record holds it, record.indexes.${String(item.name)}`;
+  const named = typeof item.name === 'string' ? ` '${item.name}'` : '';
+  switch (item.kind) {
+    case 'dataset': return `the dataset${named}, which is no record: only an e3.record has indexes`;
+    case 'partition': return `e3.partition of '${String(item.dataset?.name)}': a partition marks a dataset, and an index is read whole`;
+    case 'index': return 'an e3.index already: pass the record\'s index, as record.indexes.<name>';
+    case 'task': return `the task${named}: a task has no index`;
+    case 'recordIndex':
+      return `an index named '${String(item.name)}' that no record carries by that name — pass it as the record holds it, record.indexes.${String(item.name)}`;
+    case 'mutation': return `the mutation${named}: a mutation writes its record, and has no index — pass one of the record's indexes, as record.indexes.<name>`;
+    case 'migration': return `the migration${named}: a migration changes its record's type, and has no index`;
+    case 'function': return `the function${named}: a function has no index`;
+    case 'package': return `the package${named}: a package has no index`;
+    case 'datatree': return `the data tree${named}: only an e3.record has indexes`;
+    case 'array': case 'set': case 'dict': case 'fold': return `e3.output.${item.kind}, an output kind: it has no index`;
   }
-  return 'an index the `index` builder made, before its record built it — declare it in e3.record\'s `indexes`, and pass record.indexes.<name>';
+  // What a record's builders make, before a record builds it
+  const part = (value as { readonly [RECORD_PART]?: { readonly part?: unknown } })[RECORD_PART]?.part;
+  if (part === 'index') return 'an index the `index` builder made, before its record built it — declare it in e3.record\'s `indexes`, and pass record.indexes.<name>';
+  if (part === 'mutation' || part === 'migration') return `a ${part} the \`${part}\` builder made, which has no index`;
+  return 'a value that is no definition of e3\'s';
 }
 
 /**
@@ -95,8 +108,8 @@ function given(value: unknown): string {
  * @param def - The index, as its record carries it by name
  * @returns The input: pass it in `inputs`; its `type` is the body's parameter
  * @throws {Error} When given anything but an index its record carries by name
- *   — a record, a dataset, an index the builder made before its record built
- *   it — naming what it was given and what to pass
+ *   — a record, a dataset, a mutation, a function, an index the builder made
+ *   before its record built it — naming what it was given and what to pass
  *
  * @example
  * ```ts
