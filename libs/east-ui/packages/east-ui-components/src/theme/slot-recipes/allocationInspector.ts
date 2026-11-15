@@ -37,6 +37,7 @@
 
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { fontAwesomeSize } from "../icon-size.js";
+import { centredLine, oneLineBox } from "../one-line-box.js";
 import { INSPECTOR_SECTION } from "./inspector.js";
 import { planInspectorSlotRecipe } from "./planInspector.js";
 
@@ -74,9 +75,10 @@ export const allocationInspectorSlotRecipe = defineSlotRecipe({
             _disabled: { color: "fg.faint", cursor: "default", _hover: { color: "fg.faint", textDecoration: "none" } },
             _focusVisible: { outline: "2px solid", outlineColor: "border.focus", outlineOffset: "2px" },
         },
-        // The resource field (A58): 32px, its name in mono 14 / 600; with none, `+ Choose a resource` in warn.
+        // The resource field (A58): 32px, its name in mono 14 / 600; with none, `+ Choose a resource` in warn. A one-line box
+        // (#1638): its name's line the 30px inside its edge, where 1.5 of its 14px face, 21px, was centred at a fraction.
         resourceField: {
-            flex: "none", display: "inline-flex", alignItems: "center", gap: "8px", height: "32px", maxWidth: "100%", boxSizing: "border-box",
+            flex: "none", display: "inline-flex", alignItems: "center", gap: "8px", ...oneLineBox(32), maxWidth: "100%", boxSizing: "border-box",
             padding: "0 8px 0 12px", borderWidth: "1px", borderStyle: "solid", borderColor: "border.strong", borderRadius: "md",
             background: "bg.surface", cursor: "pointer", whiteSpace: "nowrap",
             ...mono, fontSize: "body.lg", fontWeight: "semibold", color: "fg",
@@ -124,11 +126,13 @@ export const allocationInspectorSlotRecipe = defineSlotRecipe({
             "&[data-text]": { fontFamily: "body", textStyle: "body.sm", fontWeight: "normal" },
         },
         mates: { display: "flex", flexDirection: "column", minWidth: 0 },
-        // A bin on the resource today: its time, lane, code and quantity; the inspected one bold on paper-3.
+        // A bin on the resource today: its time, lane, code and quantity; the inspected one bold on paper-3. Its words of two
+        // sizes on one whole line of 16px (#1638), 6px under the row's edge: 1.5 of each face — 16.5px, 15px — was centred
+        // at a fraction.
         mate: {
             display: "grid", gridTemplateColumns: "44px 32px minmax(0, 1fr) auto", alignItems: "center", gap: "8px", height: "28px",
             padding: "0 8px", border: 0, borderRadius: "sm", background: "transparent", textAlign: "left", cursor: "pointer",
-            ...mono, fontSize: "label.lg", color: "fg",
+            ...mono, fontSize: "label.lg", lineHeight: centredLine(28, 16), color: "fg",
             "& > [data-mate=time]": { color: "fg.strong" },
             "& > [data-mate=lane]": { fontSize: "label.sm", color: "fg.subtle" },
             "& > [data-mate=code]": { fontWeight: "medium", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
@@ -152,9 +156,9 @@ export const allocationInspectorSlotRecipe = defineSlotRecipe({
             ...mono, fontSize: "label.xs", color: "fg.subtle", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
             "&[data-tone=warning]": { color: "fg.warning" },
         },
-        // An other gap's rank: 16px on paper-3, ink-2 figures (A59).
+        // An other gap's rank: 16px on paper-3, ink-2 figures (A59) — a one-line box, as the drop list's rank and an issue group's count are (#1638).
         rank: {
-            display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: "16px", height: "16px", boxSizing: "border-box",
+            display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: "16px", ...oneLineBox(16, 0), boxSizing: "border-box",
             padding: "0 4px", borderRadius: "sm", background: "bg.subtle", ...mono, fontSize: "label.sm", fontWeight: "semibold", color: "fg.strong",
         },
         // A fit in the drop list (A34): a dashed brand target, 48px at least; brand-tint under the pointer.
@@ -172,7 +176,7 @@ export const allocationInspectorSlotRecipe = defineSlotRecipe({
             "&[data-drag-cell][data-drop-invalid]": { borderColor: "status.warn", cursor: "no-drop" },
         },
         dropRank: {
-            display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: "16px", height: "16px", boxSizing: "border-box",
+            display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: "16px", ...oneLineBox(16, 0), boxSizing: "border-box",
             padding: "0 4px", borderRadius: "sm", background: "brand.solid", ...mono, fontSize: "label.sm", fontWeight: "semibold", color: "bg.surface",
         },
         // A draft's `was` line (A59, A61): on paper-2, a reservation's Revert at its end.
@@ -199,7 +203,7 @@ export const allocationInspectorSlotRecipe = defineSlotRecipe({
             "&[data-tone=danger] svg": { color: "status.neg" },
         },
         issueCount: {
-            display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: "16px", height: "16px", boxSizing: "border-box",
+            display: "inline-flex", alignItems: "center", justifyContent: "center", minWidth: "16px", ...oneLineBox(16, 0), boxSizing: "border-box",
             padding: "0 4px", borderRadius: "sm", background: "bg.subtle", ...mono, fontSize: "label.sm", fontWeight: "semibold", letterSpacing: "normal", color: "fg.strong",
         },
         issue: {

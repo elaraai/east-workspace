@@ -132,12 +132,20 @@ const PINNED_EDGE = { borderInlineEndWidth: "1px", borderInlineEndStyle: "solid"
 const GROUP_INSET = "6px";
 
 /**
- * The line of a cell's words (#1638): a whole, odd 19px. A cell centres them in its row's height less the row's 1px
- * rule — 35, 31 or 27px by the density, each odd — so an odd line leaves a whole number of pixels over the words. The
- * body's line of 1.5 is 19.5px at a value's 13px face and 18.75px at a note's 12.5px, each centred at a fraction of a
- * pixel under the row's edge, where the page paints the words a row higher or lower by where it stands the grid.
+ * A cell's room, and the line of its words (#1638). A cell centres what it holds in an even number of pixels: its row's
+ * height with the row's 1px rule under it balanced by a pixel of padding over it — 34, 30 or 26px by the density — and,
+ * on a coarse pointer, the 44px over the rule of a 45px row, which needs none. Its words' line is a whole, even 20px,
+ * and its parts stand an even number of pixels tall — a chip's 22, the initials' 24 or 20, a box's 14, a dot's 8, a
+ * lock's 20 — so each starts a whole number of pixels under the row's edge: the words 8, 6 or 4px by the density, as they
+ * did, and a chip 7px where it stood 6.5. Centred in the odd room over the rule, every even part stood at half a pixel,
+ * and the page painted it a row higher or lower in its row than the words beside it by where it stood the grid. The
+ * body's line of 1.5 is 19.5px at a value's 13px face and 18.75px at a note's 12.5px, each centred at a fraction too.
  */
-const CELL_LINE = centredLine(35, 19);
+const CELL_ROOM = { paddingTop: "1px", _coarse: { paddingTop: "0" } } as const;
+const CELL_LINE = centredLine(34, 20);
+
+/** A part an odd number of pixels tall in a cell's even room, a compact chip's 15: a pixel under it, so it too starts on a whole one. */
+const ODD_PART = { marginBottom: "1px" } as const;
 
 /**
  * The strip's lines (#1638), centred in the 31px under its rule: its label's and its keys' a whole 15px, its words' 19px,
@@ -227,9 +235,11 @@ export const recordSlotRecipe = defineSlotRecipe({
             "[data-phone] &": { scrollSnapAlign: "start" },
             "&[data-pinned]": { ...PINNED_EDGE, position: "sticky", left: "0", zIndex: "2", background: "bg.surface", scrollSnapAlign: "none" },
         },
+        /* Its line whole in the header row's height (#1638), which is a row's: an even 14px in 36, 32 or 28, and an odd 15px in a
+           coarse pointer's 45. */
         headerLabel: {
             minWidth: "0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: "mono", fontSize: "label.sm",
-            fontWeight: 600, letterSpacing: "caps", textTransform: "uppercase", lineHeight: "14px",
+            fontWeight: 600, letterSpacing: "caps", textTransform: "uppercase", lineHeight: centredLine(36, 14), _coarse: { lineHeight: centredLine(45, 15) },
         },
 
         /* A row: the DS Row card, its rule included in its height. */
@@ -245,7 +255,7 @@ export const recordSlotRecipe = defineSlotRecipe({
         },
         cell: {
             position: "relative", minWidth: "0", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "flex-start",
-            lineHeight: CELL_LINE, userSelect: "none", cursor: "default", outline: "none", transitionProperty: "background-color", ...SETTLE,
+            ...CELL_ROOM, lineHeight: CELL_LINE, userSelect: "none", cursor: "default", outline: "none", transitionProperty: "background-color", ...SETTLE,
             ...CELL_PAD,
             /* The select column's cell: the whole cell ticks, takes no hover of its own, and stays at the left on the row's paper as the
                columns scroll sideways — above the cells' content and a ring scrolled under it (z 4), as the Sheet's gutter is. */
@@ -269,14 +279,20 @@ export const recordSlotRecipe = defineSlotRecipe({
             "&[data-conflict][data-active]": { boxShadow: `inset 0 0 0 2px {colors.brand.solid}, ${CONFLICT_RING_INSIDE_FOCUS}` },
             /* The editor of a Sheet kind lies over the cell, the cell's own box: never past it, as over the Sheet's seams, for
                the cell clips what reaches past it and its ring would lose its foot. Named with the cell's slot, so it outweighs
-               the Sheet's own rules for its first cell. */
-            "&[data-slot=cell] > [data-slot=editor]": { position: "absolute", inset: "0", minHeight: "0", zIndex: "10" },
+               the Sheet's own rules for its first cell. It centres what it holds in the cell's own room, so the words a
+               person types stand where the cell's stood. */
+            "&[data-slot=cell] > [data-slot=editor]": { position: "absolute", inset: "0", minHeight: "0", zIndex: "10", ...CELL_ROOM, paddingBottom: "0" },
         },
-        /* The select column's box, 20 in; in the header, a pixel above the labels' line. */
-        tick: { ...BOX, cursor: "pointer", "&[data-mixed]": { color: "fg.subtle" }, "[data-tick] > &": { marginBottom: "1px" } },
+        /* The select column's box, 20 in; in the header, a pixel above the middle of its row (#1638): 2px under it lift it one
+           in a row an even number of pixels tall, and 1px in a coarse pointer's 45, where the one stood it at half a pixel. */
+        tick: { ...BOX, cursor: "pointer", "&[data-mixed]": { color: "fg.subtle" }, "[data-tick] > &": { marginBottom: "2px", _coarse: { marginBottom: "1px" } } },
         /* A run of rows not read yet: the shared run's rows at the row's paper and rule, the select column's box in its place, each cell padded as a cell is. */
         run: { position: "relative" },
-        runRow: { background: "bg.surface", borderBottomWidth: "1px", borderBottomStyle: "solid", borderBottomColor: "border.subtle" },
+        runRow: {
+            background: "bg.surface", borderBottomWidth: "1px", borderBottomStyle: "solid", borderBottomColor: "border.subtle",
+            /* A failed read's line, or an empty region's: a coarse pointer's 45px row leaves it an even room, and it an even line (#1638). */
+            "& :is([data-loading-failed-message], [data-loading-empty-message])": { _coarse: { lineHeight: CELL_LINE } },
+        },
         runGutter: { paddingInlineStart: "20px", paddingInlineEnd: "12px", position: "sticky", left: "0", zIndex: "5", background: "bg.surface" },
         runCell: { paddingInline: "12px", "&:first-child": { paddingInlineStart: "20px" }, "&:last-child": { paddingInlineEnd: "20px" } },
         runActionCell: { paddingInline: "12px", "&:last-child": { paddingInlineEnd: "20px" } },
@@ -432,12 +448,12 @@ export const recordSlotRecipe = defineSlotRecipe({
         density: {
             comfortable: {},
             compact: {
-                chip: { ...oneLineBox(15), fontSize: "label.xs" },
+                chip: { ...oneLineBox(15), ...ODD_PART, fontSize: "label.xs" },
                 avatar: { width: "20px", ...oneLineBox(20), fontSize: "label.xs" },
                 nobody: { width: "20px", height: "20px" },
             },
             condensed: {
-                chip: { ...oneLineBox(15), fontSize: "label.xs" },
+                chip: { ...oneLineBox(15), ...ODD_PART, fontSize: "label.xs" },
                 avatar: { width: "20px", ...oneLineBox(20), fontSize: "label.xs" },
                 nobody: { width: "20px", height: "20px" },
             },

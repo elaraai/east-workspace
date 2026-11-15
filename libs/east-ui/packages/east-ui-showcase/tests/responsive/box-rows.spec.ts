@@ -26,10 +26,10 @@
  * - and is a part its component names: the box, or the element its words are
  *   in, carries a slot, a part or a data attribute, or a recipe's class.
  *
- * What is not: a box under a zoom (a canvas scaled by a transform draws at its
- * zoom, on no pixel grid of the page's); words taller than their box, which
- * the box cuts; and a bare box of an author's own making, which no recipe
- * styles.
+ * What is not: a box under a zoom (a canvas scaled or turned by a transform, or
+ * by `zoom`, draws at its zoom, on no pixel grid of the page's — the box's own,
+ * or anything's it stands in); words taller than their box, which the box
+ * cuts; and a bare box of an author's own making, which no recipe styles.
  *
  * Each recipe says which line it gives its part
  * (`east-ui-components/src/theme/one-line-box.test.ts`).
@@ -89,6 +89,23 @@ async function read(page: Page, route: string): Promise<{ held: number; faults: 
         // The preview's own frame: at least 96px tall, panning sideways (`PatternEntry`).
         const preview = [...root.querySelectorAll("div")].find((el) => { const s = getComputedStyle(el); return s.minHeight === "96px" && s.overflowX === "auto"; });
         if (preview === undefined) throw new Error("the example's preview frame was not found");
+        // Whether an element is drawn at a zoom: scaled or turned by its own transform, or by that of anything it is in.
+        // Read from the styles, never from the box's size against its layout's, which is a whole number of pixels: a
+        // chip 30.4px wide is no zoom.
+        const zooms = new Map<Element, boolean>();
+        const zoomed = (el: Element | null): boolean => {
+            if (el === null) return false;
+            const known = zooms.get(el);
+            if (known !== undefined) return known;
+            const s = getComputedStyle(el);
+            const matrix = s.transform === "none" ? null : new DOMMatrixReadOnly(s.transform);
+            const own = (matrix !== null && (Math.abs(matrix.a - 1) > 0.001 || Math.abs(matrix.d - 1) > 0.001 || Math.abs(matrix.b) > 0.001 || Math.abs(matrix.c) > 0.001))
+                || !["none", "1", undefined].includes(s.scale) || !["none", "0deg", undefined].includes(s.rotate)
+                || !["", "normal", "1", undefined].includes(s.zoom);
+            const found = own || zoomed(el.parentElement);
+            zooms.set(el, found);
+            return found;
+        };
         const faults: Fault[] = [];
         let held = 0;
         const walker = document.createTreeWalker(preview, NodeFilter.SHOW_TEXT);
@@ -114,7 +131,7 @@ async function read(page: Page, route: string): Promise<{ held: number; faults: 
             const at = box.getBoundingClientRect();
             if (at.height === 0 || at.height > tallest) continue;
             // Under a zoom, the box is drawn at another size than it is laid out at.
-            if (box.offsetWidth > 0 && Math.abs(at.width / box.offsetWidth - 1) > 0.01) continue;
+            if (zoomed(box)) continue;
             // Words the box cuts are no line in it.
             if (words.top < at.top - 0.5 || words.bottom > at.bottom + 0.5) continue;
             if (!named(box) && !named(parent)) continue;
@@ -136,12 +153,8 @@ async function read(page: Page, route: string): Promise<{ held: number; faults: 
 const keys = catalogPathKeys();
 
 test.describe("a small box's words start a whole number of pixels under its top edge, in every example (#1638)", () => {
-    test.beforeEach(({ page }) => {
-        test.skip((page.viewportSize()?.width ?? 0) < 1000, "the desktop width");
-    });
-
     for (const key of keys) {
-        test(`@desktop ${key}`, async ({ page }) => {
+        test(key, async ({ page }) => {
             test.setTimeout(300_000);
             const names = examplesOf(key);
             expect(names.length, `${key} exports examples`).toBeGreaterThan(0);

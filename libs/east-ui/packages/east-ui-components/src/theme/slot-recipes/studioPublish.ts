@@ -17,6 +17,7 @@
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
+import { oneLineBox } from "../one-line-box.js";
 
 /** The bar's rules and its quiet ink, as the spec's secondary and faintest ink fall on the inverse ground. */
 const BAR_RULE = { base: "gray.600", _dark: "gray.400" } as const;
@@ -84,7 +85,8 @@ export const studioPublishSlotRecipe = defineSlotRecipe({
             display: "inline-flex",
             alignItems: "center",
             gap: "6px",
-            height: "26px",
+            /* A one-line box with no edge above or below (#1638): its line its own 26px. */
+            ...oneLineBox(26, 0),
             paddingX: "10px",
             border: "none",
             borderLeftWidth: "1px",
@@ -110,7 +112,8 @@ export const studioPublishSlotRecipe = defineSlotRecipe({
             display: "inline-flex",
             alignItems: "center",
             gap: "{spacing.2}",
-            height: "26px",
+            /* A one-line box (#1638): its words' line the 24px inside its edge. */
+            ...oneLineBox(26),
             paddingX: "10px",
             borderWidth: "1px",
             borderColor: BAR_RULE,
@@ -125,7 +128,8 @@ export const studioPublishSlotRecipe = defineSlotRecipe({
         exit: {
             display: "inline-flex",
             alignItems: "center",
-            height: "28px",
+            /* A one-line box (#1638): its word's line the 26px inside its edge. */
+            ...oneLineBox(28),
             paddingX: "{spacing.3}",
             borderWidth: "1px",
             borderColor: BAR_RULE,

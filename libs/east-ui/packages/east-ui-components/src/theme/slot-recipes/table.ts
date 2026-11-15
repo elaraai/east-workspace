@@ -297,11 +297,16 @@ export const tableSlotRecipe = defineSlotRecipe({
         /* The row of a phone's column groups: one line of heads across the table. */
         phoneGroupRow: { display: "flex", width: "100%" },
         /* A column group's head over the columns of it in view: its words whole, wrapping at spaces; its width the
-           columns' it heads, given inline, and the review's spacer (`data-table-phone-fill`) the rest of the row. */
+           columns' it heads, given inline, and the review's spacer (`data-table-phone-fill`) the rest of the row.
+           It stands a phone header's 32px over its 1px rule (`columnHeader`). Its words are centred in the 30px
+           that a pixel of padding above them leaves — as much over them as the rule is under them — on a whole,
+           even line of 12px (#1638): one line starts 10px under the head's edge and two start 4px under it. Centred
+           in the 31px over the rule, one line or the other starts at a fraction; so did 1.3 of the 9.5px face. */
         phoneGroup: {
             flex: "none", "&[data-table-phone-fill]": { flex: "1 0 auto" },
-            minHeight: "28px", display: "flex", alignItems: "center", justifyContent: "center", paddingY: "4px", paddingX: "8px", boxSizing: "border-box", textAlign: "center",
-            fontFamily: "mono", fontSize: "label.xs", fontWeight: "600", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: "1.3", whiteSpace: "normal",
+            minHeight: "28px", display: "flex", alignItems: "center", justifyContent: "center", paddingX: "8px", boxSizing: "border-box", textAlign: "center",
+            "[data-table-phone] &": { paddingY: "1px 0" },
+            fontFamily: "mono", fontSize: "label.xs", fontWeight: "600", letterSpacing: "0.14em", textTransform: "uppercase", lineHeight: centredLine(30, 12), whiteSpace: "normal",
             background: "bg.canvas", borderBottomWidth: "1px", borderBottomStyle: "solid", borderBottomColor: "border.subtle",
             "& + &[data-table-phone-group]": { borderInlineStartWidth: "1px", borderInlineStartStyle: "solid", borderInlineStartColor: "border.subtle" },
         },

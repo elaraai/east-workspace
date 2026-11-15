@@ -18,6 +18,20 @@
  */
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { fieldChrome, fieldFocusRing, fieldInRingedControl, fieldHeights, TOUCH_FONT_FLOOR } from "../field-chrome.js";
+import { centredLine } from "../one-line-box.js";
+
+/**
+ * The line of a field's segments at each size (#1638). A segment stands its line inside a 1px edge of its own, and its
+ * field centres the segments in the room inside the field's edge — 24, 30 or 42px by the size, and 42px on a coarse
+ * pointer — so a whole, even line starts every segment's words, and a separator's between them, a whole number of
+ * pixels under the field's edge. A line of 1.3 is 16.25px, 16.9px or 18.2px by the face, centred at a fraction.
+ */
+const SEGMENT_LINE = {
+    sm: centredLine(24 - 2, 16),
+    md: centredLine(30 - 2, 16),
+    lg: centredLine(42 - 2, 18),
+    coarse: centredLine(42 - 2, 20),
+} as const;
 
 /** A ringed date/time wrapper, also used by the two range fields. */
 const segmentedFieldChrome = {
@@ -67,13 +81,13 @@ export const dateFieldSlotRecipe = defineSlotRecipe({
     },
     variants: {
         size: {
-            xs: { input: { fontSize: "body.sm", lineHeight: "1.3", _coarse: { fontSize: TOUCH_FONT_FLOOR } },
+            xs: { input: { fontSize: "body.sm", lineHeight: SEGMENT_LINE.sm, _coarse: { fontSize: TOUCH_FONT_FLOOR, lineHeight: SEGMENT_LINE.coarse } },
                   shell: { height: fieldHeights.sm, paddingX: "{spacing.2}", fontSize: "{fontSizes.body.sm}", _coarse: { fontSize: TOUCH_FONT_FLOOR } } },
-            sm: { input: { fontSize: "body.sm", lineHeight: "1.3", _coarse: { fontSize: TOUCH_FONT_FLOOR } },
+            sm: { input: { fontSize: "body.sm", lineHeight: SEGMENT_LINE.sm, _coarse: { fontSize: TOUCH_FONT_FLOOR, lineHeight: SEGMENT_LINE.coarse } },
                   shell: { height: fieldHeights.sm, paddingX: "{spacing.2}", fontSize: "{fontSizes.body.sm}", _coarse: { fontSize: TOUCH_FONT_FLOOR } } },
-            md: { input: { fontSize: "body", lineHeight: "1.3", _coarse: { fontSize: TOUCH_FONT_FLOOR } },
+            md: { input: { fontSize: "body", lineHeight: SEGMENT_LINE.md, _coarse: { fontSize: TOUCH_FONT_FLOOR, lineHeight: SEGMENT_LINE.coarse } },
                   shell: { height: fieldHeights.md, paddingX: "10px", fontSize: "{fontSizes.body}", _coarse: { fontSize: TOUCH_FONT_FLOOR } } },
-            lg: { input: { fontSize: "body.lg", lineHeight: "1.3" }, shell: { height: fieldHeights.lg, paddingX: "{spacing.4}", fontSize: "{fontSizes.body.lg}" } },
+            lg: { input: { fontSize: "body.lg", lineHeight: SEGMENT_LINE.lg }, shell: { height: fieldHeights.lg, paddingX: "{spacing.4}", fontSize: "{fontSizes.body.lg}" } },
         },
     },
     defaultVariants: { size: "md" },

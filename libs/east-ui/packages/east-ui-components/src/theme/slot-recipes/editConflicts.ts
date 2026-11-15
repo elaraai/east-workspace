@@ -29,6 +29,7 @@
  * @packageDocumentation
  */
 import { defineSlotRecipe } from "@chakra-ui/react";
+import { centredLine } from "../one-line-box.js";
 
 /** The item's column: the mark's 14 and the head's gap. */
 const ITEM_COLUMN = "22px";
@@ -125,7 +126,9 @@ export const editConflictsSlotRecipe = defineSlotRecipe({
             color: "fg",
             background: "bg.surface",
             _coarse: { minHeight: "44px" },
-            "& + &": { borderTopWidth: "1px", borderTopColor: "border.subtle" },
+            // The second stands under a 1px rule: a pixel under what it holds balances the rule, so its room is as even
+            // as the first's, and its name and its value start a whole number of pixels under its edge (#1638).
+            "& + &": { borderTopWidth: "1px", borderTopColor: "border.subtle", paddingBottom: "1px" },
             _hover: { background: "bg.canvas" },
             "&[data-checked]": { background: "brandTint", color: "brandPressed" },
             "&:has(input:focus-visible)": { outline: "2px solid {colors.border.focus}", outlineOffset: "-2px" },
@@ -156,11 +159,14 @@ export const editConflictsSlotRecipe = defineSlotRecipe({
             "[data-checked] > &": { borderColor: "link", boxShadow: "inset 0 0 0 3px {colors.link}" },
             "[data-disabled] > &": { borderColor: "border.subtle" },
         },
-        choiceName: { flex: "none", width: "56px", textStyle: "eyebrow", "[data-checked] > &": { color: "inherit" } },
+        // Its name and its value on whole, even lines (#1638) — 16px and 20px — centred in a choice's even room: 1.5 of
+        // their faces is 15px, an odd pixel left over, and 19.5px.
+        choiceName: { flex: "none", width: "56px", textStyle: "eyebrow", lineHeight: centredLine(32, 16), "[data-checked] > &": { color: "inherit" } },
         choiceValue: {
             flex: "1",
             minWidth: "0",
             fontSize: "13px",
+            lineHeight: centredLine(32, 20),
             overflowWrap: "anywhere",
             // Text reads two lines, then Show all opens the rest.
             "&[data-form=text]:not([data-open])": { lineClamp: "2" },
