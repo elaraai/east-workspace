@@ -1401,7 +1401,7 @@ class Printer {
     }
     let bounds: Doc | null = null;
     if (row.adapter === "range") {
-      bounds = this.rangeBounds(args[1], args[2], scope, pre, depth);
+      bounds = this.rangeBounds(args[1], args[2], tps, scope, pre, depth);
       if (bounds === null) return null;
     }
     // The slot a method template calls on: its receiver, wherever the IR has
@@ -1486,17 +1486,27 @@ class Printer {
   /**
    * A key range's two ends as the object the surface takes (#1616) — `{ from:
    * …, to: … }`, an end left out where it is `none`, and nothing at all when
-   * both are — or `null` when an end is not the `some(bound)` or `none` the
-   * surface builds. A bound is typed by the surface, the key's type cut short,
-   * so a construction prints bare.
+   * both are — or `null` when an end is not what the surface builds: a `none`
+   * typed as the key, or a `some(bound)` typed as its bound. The ends' types
+   * are the builtin's last two type parameters, after the key's (and the
+   * value's, for a Dict). A bound is typed by the surface, the key's type cut
+   * short, so a construction prints bare.
    */
-  rangeBounds(from: Node | undefined, to: Node | undefined, scope: Scope, pre: Doc[], depth: number): Doc | null {
+  rangeBounds(from: Node | undefined, to: Node | undefined, tps: EastTypeValue[], scope: Scope, pre: Doc[], depth: number): Doc | null {
+    const key = tps[0];
     const entries: Doc[] = [];
-    for (const [name, end] of [["from", from], ["to", to]] as const) {
-      if (end === undefined || end.type !== "Variant") return null;
-      if (end.value.case === "none" && isNullValue(end.value.value)) continue;
+    for (const [name, end, type] of [["from", from, tps[tps.length - 2]], ["to", to, tps[tps.length - 1]]] as const) {
+      if (end === undefined || end.type !== "Variant" || key === undefined || type === undefined) return null;
+      if (end.value.case === "none" && isNullValue(end.value.value)) {
+        // The surface types an end left out as the key, whatever its other end.
+        if (!isTypeValueEqual(type, key)) return null;
+        continue;
+      }
       if (end.value.case !== "some") return null;
-      entries.push([name, ": ", this.valueDoc(end.value.value, scope, pre, depth, true)]);
+      const bound = end.value.value as Node;
+      // The surface types an end as its bound: a bound of another type would rebuild at its own.
+      if (!isTypeValueEqual(bound.value.type as EastTypeValue, type)) return null;
+      entries.push([name, ": ", this.valueDoc(bound, scope, pre, depth, true)]);
     }
     return entries.length === 0 ? "" : hug(bracket("{", entries, "}", " "));
   }

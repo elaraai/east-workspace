@@ -9,7 +9,7 @@
  * A range of a lazily opened collection holds the pager it reads through and
  * its two bounds, and reads nothing to be made. Its rows are found at the
  * first read that needs them — each end by the fences and the one segment that
- * can hold it, through the pager's cache ({@link Beast2Pages.rowRange}) — and
+ * can hold it, through the pager's cache ({@link Beast2Pages.rowWindow}) — and
  * from then it answers as a pager of its own rows does: its size, its
  * segments, a keyed read, its first key. So a lazy value reads a range by the
  * code it reads a whole collection by.
@@ -23,7 +23,11 @@
  *   scan's: decoded fresh, to a loop's projection when it has one, and never
  *   kept.
  * - **A range of a range** is placed among the rows of the range it narrows,
- *   so it reads no segment outside that one's.
+ *   so it reads no segment outside that one's. Once placed, a view holds its
+ *   rows by its first key and the first key past it, and nothing of the range
+ *   it narrows: a body may narrow a range thousands of times, and a range of a
+ *   range of a range is placed by a loop, never a recursion, and costs no more
+ *   to read than the first.
  *
  * This is east-c's view (`stream.c`, "A key range of a paged collection"),
  * rule for rule, so the two decode the same segments for the same reads.
@@ -51,6 +55,8 @@ export interface KeyedPages {
   segmentDisjoint(i: number): unknown;
   /** One segment decoded to a loop's projection; throws where it cannot be. */
   segmentProjected(i: number, projection: SegmentDecoder): unknown;
+  /** Whether {@link segmentProjected} can decode segment `i`, which a loop asks first. */
+  projects(i: number): boolean;
   /** A segment's first key. */
   fence(i: number): unknown;
   /** The value at a key (the stored element, for a Set), or `undefined`. */
@@ -70,6 +76,12 @@ interface Placed {
   readonly first: number;
   /** The rows of each segment it spans that the range holds. */
   readonly counts: readonly number[];
+  /** The key at row `lo`, the view's first; `undefined` where `lo` is the
+   *  collection's first row, or the view holds nothing. */
+  readonly loKey: unknown;
+  /** The key at row `hi`, the first past the view; `undefined` where `hi` is
+   *  the collection's end, or the view holds nothing. */
+  readonly hiKey: unknown;
 }
 
 /**
@@ -80,8 +92,9 @@ interface Placed {
 export class Beast2PagesView implements KeyedPages {
   /** The pager every read goes through, and where its reads are counted. */
   readonly source: Beast2Pages;
-  /** The range this one narrows, when it is a range of a range. */
-  private readonly parent: Beast2PagesView | null;
+  /** The range this one narrows while this one is not placed: placing it
+   *  needs that one's rows. `null` once placed, and for a range of the source. */
+  private parent: Beast2PagesView | null;
   private readonly from: KeyTest<unknown> | undefined;
   private readonly to: KeyTest<unknown> | undefined;
   private placed: Placed | null = null;
@@ -94,6 +107,8 @@ export class Beast2PagesView implements KeyedPages {
   constructor(of: Beast2Pages | Beast2PagesView, from: KeyTest<unknown> | undefined, to: KeyTest<unknown> | undefined) {
     if (of instanceof Beast2PagesView) {
       this.source = of.source;
+      // Held until this one is placed. A placed range holds nothing of the one
+      // it narrows, so what this holds of the ranges above it ends there.
       this.parent = of;
     } else {
       this.source = of;
@@ -103,44 +118,71 @@ export class Beast2PagesView implements KeyedPages {
     this.to = to;
   }
 
-  /** Whether a key is at or past this range's start, and that of every range
-   *  it narrows: false, then true, over the keys in order. */
-  private started(key: unknown): boolean {
-    return (this.from === undefined || this.from(key)) && (this.parent === null || this.parent.started(key));
+  /** Whether a key is within `view`. Until it is placed, by its bounds and
+   *  those of every range it narrows, up to the first that is placed; a placed
+   *  view by its rows' first key and the first key past them, which reads
+   *  nothing either: a key between the bounds and outside the rows is no key
+   *  the source holds there. A loop up the ranges, never a recursion. */
+  private static holds(view: Beast2PagesView, key: unknown): boolean {
+    for (let at: Beast2PagesView | null = view; at !== null; at = at.parent) {
+      const placed = at.placed;
+      if (placed !== null) {
+        return placed.hi > placed.lo
+          && (placed.loKey === undefined || at.source.keyCompare(key, placed.loKey) >= 0)
+          && (placed.hiKey === undefined || at.source.keyCompare(key, placed.hiKey) < 0);
+      }
+      if (at.from !== undefined && !at.from(key)) return false;
+      if (at.to !== undefined && at.to(key)) return false;
+    }
+    return true;
   }
 
-  /** Whether a key is at or past this range's end, or that of a range it
-   *  narrows: false, then true, over the keys in order. */
-  private ended(key: unknown): boolean {
-    return (this.to !== undefined && this.to(key)) || (this.parent !== null && this.parent.ended(key));
+  /** `view` and the ranges it narrows that are not yet placed, nearest first:
+   *  what placing it places, outermost first. */
+  private static unplaced(view: Beast2PagesView): Beast2PagesView[] {
+    const chain: Beast2PagesView[] = [];
+    for (let at: Beast2PagesView | null = view; at !== null && at.placed === null; at = at.parent) chain.push(at);
+    return chain;
   }
 
   /** Places the view: its rows of the source, within those of the range it
    *  narrows, and the segments they span. Once; a view that cannot be placed
-   *  — a corrupt blob's — fails the same way at its next read. */
+   *  — a corrupt blob's — fails the same way at its next read. The ranges it
+   *  narrows that are not yet placed are placed first, outermost first, by a
+   *  loop. */
   private place(): Placed {
     if (this.placed !== null) return this.placed;
     try {
-      const source = this.source;
-      let within = { lo: 0, hi: source.elementCount };
-      if (this.parent !== null) within = this.parent.place();
-      const { lo, hi } = source.rowRange(this.from, this.to, within.lo, within.hi);
-      const counts: number[] = [];
-      let first = 0;
-      if (hi > lo) {
-        first = source.segmentOfRow(lo);
-        const last = source.segmentOfRow(hi - 1);
-        for (let s = first; s <= last; s++) {
-          const base = source.rowsBefore(s);
-          counts.push(Math.min(hi, base + source.counts[s]!) - Math.max(lo, base));
-        }
-      }
-      this.placed = { lo, hi, first, counts };
-      return this.placed;
+      const chain = Beast2PagesView.unplaced(this);
+      for (let i = chain.length - 1; i >= 0; i--) chain[i]!.placeWithin();
+      return this.placed!;
     } catch (err) {
       if (err instanceof LazyReadError) throw err;
       throw new LazyReadError((err as Error)?.message ?? String(err), { cause: err });
     }
+  }
+
+  /** Places this view among the rows of the range it narrows, which is
+   *  placed, or of the whole collection; then lets that range go. */
+  private placeWithin(): void {
+    const source = this.source;
+    const within = this.parent?.placed ?? { lo: 0, hi: source.elementCount, loKey: undefined, hiKey: undefined };
+    const { lo, hi, loKey, hiKey } = source.rowWindow(this.from, this.to, within.lo, within.hi);
+    const counts: number[] = [];
+    let first = 0;
+    if (hi > lo) {
+      first = source.segmentOfRow(lo);
+      const last = source.segmentOfRow(hi - 1);
+      for (let s = first; s <= last; s++) {
+        const base = source.rowsBefore(s);
+        counts.push(Math.min(hi, base + source.counts[s]!) - Math.max(lo, base));
+      }
+    }
+    // An end the window's own is the window's key there.
+    this.placed = hi > lo
+      ? { lo, hi, first, counts, loKey: lo === within.lo ? within.loKey : loKey, hiKey: hi === within.hi ? within.hiKey : hiKey }
+      : { lo, hi, first, counts, loKey: undefined, hiKey: undefined };
+    this.parent = null;
   }
 
   get elementCount(): number {
@@ -152,22 +194,30 @@ export class Beast2PagesView implements KeyedPages {
     return this.place().counts.length;
   }
 
+  /** Whether segment `k` of the view is one the range's ends do not lie in:
+   *  those are read whole, through the cache, and every other as the source
+   *  reads it. */
+  private between(k: number): boolean {
+    const { counts } = this.place();
+    return k > 0 && k + 1 < counts.length;
+  }
+
   /** Segment `k` of the view: the source's segment, held to the range's rows.
    *
    *  The view's first and last segments are read through the cache, where
    *  placing the ends left them and the next range of the same segment finds
    *  them, their rows whole — a cached segment has one shape for the pager's
-   *  life, so `projection` is refused there and the caller reads the segment
-   *  whole, as it does any segment a projection cannot serve. One the range
-   *  cuts is copied down to the range's rows of it. The segments between the
-   *  ends are a scan's: decoded fresh, by `projection` when one is given. */
+   *  life, so `projection` is refused there, and {@link projects} says so
+   *  before a loop asks. One the range cuts is copied down to the range's
+   *  rows of it. The segments between the ends are a scan's: decoded fresh, by
+   *  `projection` when one is given. */
   private read(k: number, projection: SegmentDecoder | null): unknown {
-    const { first, counts } = this.place();
+    const { first, counts, loKey, hiKey } = this.place();
     if (k < 0 || k >= counts.length) {
       throw new Error(`beast2 v5: segment ${k} out of range (${counts.length} segments)`);
     }
     const s = first + k;
-    if (k > 0 && k + 1 < counts.length) {
+    if (this.between(k)) {
       return projection !== null ? this.source.segmentProjected(s, projection) : this.source.segmentDisjoint(s);
     }
     if (projection !== null) {
@@ -175,7 +225,11 @@ export class Beast2PagesView implements KeyedPages {
     }
     const segment = this.source.segmentKept(s) as SortedMap<unknown, unknown> | SortedSet<unknown>;
     if (counts[k] === this.source.counts[s]) return segment;  // the range holds all of it
-    return segment.range((key) => this.started(key), (key) => this.ended(key));
+    const source = this.source;
+    return segment.range(
+      loKey === undefined ? undefined : (key) => source.keyCompare(key, loKey) >= 0,
+      hiKey === undefined ? undefined : (key) => source.keyCompare(key, hiKey) >= 0,
+    );
   }
 
   segment(k: number): unknown {
@@ -188,6 +242,12 @@ export class Beast2PagesView implements KeyedPages {
 
   segmentProjected(k: number, projection: SegmentDecoder): unknown {
     return this.read(k, projection);
+  }
+
+  /** Whether segment `k` decodes to a loop's projection: one between the
+   *  range's ends, as the source would decode it; never an end segment. */
+  projects(k: number): boolean {
+    return this.between(k) && this.source.projects(this.place().first + k);
   }
 
   /** The first key of the view's segment `k`: the source's fence where the
@@ -207,7 +267,7 @@ export class Beast2PagesView implements KeyedPages {
   /** A keyed read: a key outside the range is absent, which reads nothing;
    *  one inside it is the source's keyed read. */
   get(key: never): unknown {
-    if (!this.started(key) || this.ended(key)) return undefined;
+    if (!Beast2PagesView.holds(this, key)) return undefined;
     return this.source.get(key);
   }
 

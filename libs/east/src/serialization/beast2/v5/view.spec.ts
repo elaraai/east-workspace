@@ -16,9 +16,11 @@
  *    fences and the one segment that can hold each, and reads none between;
  * 2. a loop reads the range's segments, each once: its first and last through
  *    the cache, the ones between them fresh, to the fields the body reads;
- * 3. a keyed read tests the key against the bounds, which reads nothing, and
- *    inside them is the input's keyed read;
- * 4. a range of a range is placed among the rows of the range it narrows;
+ * 3. a keyed read tests the key against the bounds — once the range is placed,
+ *    against its first row's key and the first key past its rows — which reads
+ *    nothing, and inside them is the input's keyed read;
+ * 4. a range of a range is placed among the rows of the range it narrows, by
+ *    a loop however deep, and once placed holds nothing of it;
  * 5. any other read decodes the range's own rows into a collection that is
  *    not frozen, and leaves the input lazy; a range holds what its source held
  *    when it was taken;
@@ -29,7 +31,7 @@
 
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { ArrayType, BooleanType, DictType, IntegerType, SetType, StringType, StructType, type EastType } from "../../../types.js";
+import { ArrayType, BooleanType, DictType, IntegerType, SetType, StringType, StructType } from "../../../types.js";
 import { toEastTypeValue } from "../../../type_of_type.js";
 import { compareFor } from "../../../comparison.js";
 import { LazyReadError } from "../../../error.js";
@@ -39,18 +41,22 @@ import type { KeyTest } from "../../../containers/range.js";
 import { boundReader } from "../../../compile/builtins/key_range.js";
 import { beast2LazyStats, encodeBeast2SegmentsFor, openBeast2LazyFor, openBeast2PagesFor, spliceBeast2 } from "../index.js";
 import { beast2PagedLoopStats } from "./project.js";
+import { Beast2PagesView } from "./view.js";
+import { decodedWeightFor } from "./weight.js";
 
 const PER_SEGMENT = 8;
 const SEGMENTS = 12;
 const ROWS = PER_SEGMENT * SEGMENTS;
 
-/** A collection in canonical order as a blob of segments of `PER_SEGMENT`. */
-function paged(type: EastType, value: Iterable<unknown>): Uint8Array {
+/** A collection in canonical order as a blob of segments of `PER_SEGMENT`,
+ *  each batch held in East's order of its keys, struct keys among them. */
+function paged(type: DictType | SetType, value: Iterable<unknown>): Uint8Array {
   const items = [...value];
+  const order = compareFor(type.key) as (a: unknown, b: unknown) => number;
   const batches: unknown[] = [];
   for (let i = 0; i < items.length; i += PER_SEGMENT) {
     const chunk = items.slice(i, i + PER_SEGMENT);
-    batches.push(type.type === "Dict" ? new Map(chunk as [unknown, unknown][]) : new Set(chunk));
+    batches.push(type.type === "Dict" ? new SortedMap(chunk as [unknown, unknown][], order) : new SortedSet(chunk, order));
   }
   return encodeBeast2SegmentsFor(type)(batches as never);
 }
@@ -176,6 +182,71 @@ describe("Beast2 v5 — a range of a lazily opened collection: the view's rule",
     assert.equal(narrower.has(33n), false);
     assert.equal(view.range(atOrPast(0n), atOrPast(600n)).size, 10, "a range of a range is never wider than the range");
     assert.deepEqual([...narrower.keys()], [36n, 39n, 42n, 45n, 48n, 51n, 54n, 57n]);
+  });
+
+  // Each narrowing starts at a key of the first four segments, the most a
+  // later one starts at 89: the range ends as the rows from key 90 on.
+  const DEEP = 100_000;
+  const deepBound = (i: number): bigint => BigInt(i % 90);
+
+  test("a range narrowed a hundred thousand times before it is read is placed by a loop, and reads as one range", () => {
+    const lazy = openCounts();
+    let range: SortedMap<bigint, bigint> = lazy;
+    for (let i = 0; i < DEEP; i++) range = range.range(atOrPast(deepBound(i)), undefined);
+    assert.equal(decoded(lazy), 0, "made, and read nothing");
+    assert.equal(range.has(87n), false, "a keyed read before it is placed tests every bound, by a loop");
+    assert.equal(decoded(lazy), 0);
+    assert.equal(range.has(285n), true);
+    assert.equal(decoded(lazy), 1, "a key within every bound is the input's keyed read");
+    assert.equal(range.size, ROWS - 30);
+    assert.equal(decoded(lazy), 5, "its ends read through the cache: each of the four segments the bounds land in, once");
+    assert.equal(range.has(87n), false, "placed, it holds its rows by their first key and the first past them");
+    assert.equal(range.has(90n), true);
+    assert.deepEqual([...range.keys()].slice(0, 2), [90n, 93n]);
+    assert.equal(range.range(atOrPast(282n), undefined).size, 2, "a range of it reads as a range of one range");
+  });
+
+  test("a body that narrows a range in a loop, and reads it after", () => {
+    const narrowed = East.function([Counts, ArrayType(IntegerType)], IntegerType, ($, d, days) => {
+      const window = $.let(d.range());
+      $.for(days, ($, day) => { $.assign(window, window.range({ from: day })); });
+      $.return(window.size());
+    }).toIR().compile([]) as (d: unknown, days: bigint[]) => bigint;
+    assert.equal(narrowed(openCounts(), Array.from({ length: DEEP }, (_, i) => deepBound(i))), BigInt(ROWS - 30));
+  });
+
+  test("a placed range holds its rows: a key before its first reads nothing, though it is within its bounds", () => {
+    // A cache of one segment: placing the end at 59 lets go the segment
+    // placing the end at 22 read.
+    const lazy = openCounts(true, 1);
+    // Its bounds are 22 and 59, its rows the keys 24 to 57.
+    const view = lazy.range(atOrPast(22n), atOrPast(59n));
+    assert.equal(view.size, 12);
+    assert.equal(decoded(lazy), 2);
+    assert.equal(view.has(23n), false);
+    assert.equal(decoded(lazy), 2, "23 is past its `from` and before its first key: nothing is read to say it is absent");
+    assert.equal(view.has(59n), false);
+    assert.equal(view.get(57n), 190n);
+    assert.equal(view.has(3n), false);
+  });
+
+  test("placing ends keeps the keys of two segments at most, beside the cache, and lets them go with their segment", () => {
+    /** The keys the pager keeps for placing ends, by segment: its own, never in the cache's weight. */
+    const searchedOf = (pages: unknown): number[] => [...(pages as { searched: Map<number, unknown[]> }).searched.keys()];
+    const pages = openBeast2PagesFor(Counts)(countsBlob);
+    // An end inside each segment in turn: one past each segment's first key.
+    for (let s = 0; s < SEGMENTS; s++) pages.rowRange(atOrPast(BigInt(24 * s + 1)), undefined);
+    assert.deepEqual(searchedOf(pages), [SEGMENTS - 2, SEGMENTS - 1], "the last two segments searched");
+    // Read in key order, the cache drops behind the run and keeps the same two.
+    const weigh = decodedWeightFor(toEastTypeValue(Counts));
+    assert.equal(pages.cacheStats.weight, weigh(pages.segment(SEGMENTS - 2)) + weigh(pages.segment(SEGMENTS - 1)),
+      "the cache weighs its segments alone, as east-c does");
+
+    const one = openBeast2PagesFor(Counts, { cacheBytes: 1 })(countsBlob);
+    one.rowRange(atOrPast(31n), undefined);
+    assert.deepEqual(searchedOf(one), [1]);
+    one.get(285n);  // a cache of one: segment 1 goes, and its keys with it
+    assert.deepEqual(searchedOf(one), []);
   });
 
   test("its ends, and a walk from a key", () => {
@@ -310,6 +381,23 @@ describe("Beast2 v5 — a range of a lazily opened collection, read by a body", 
     assert.equal(whole(lazy), BigInt(10 * (ROWS * (ROWS - 1) / 2)));
     after = beast2PagedLoopStats();
     assert.deepEqual([after.segmentsProjected - before.segmentsProjected, after.segmentsWhole - before.segmentsWhole], [SEGMENTS, 0]);
+  });
+
+  test("a loop over a range asks for no end segment's projection: the view says those are read whole", (t) => {
+    const Row = StructType({ amount: IntegerType, note: StringType });
+    const Rows = DictType(IntegerType, Row);
+    const rows = new SortedMap<bigint, { amount: bigint; note: string }>(
+      Array.from({ length: ROWS }, (_, i) => [BigInt(3 * i), { amount: BigInt(10 * i), note: "unread" }] as [bigint, { amount: bigint; note: string }]),
+      compareFor(IntegerType));
+    const ranged = East.function([Rows], IntegerType, ($, d) => {
+      const sum = $.let(0n);
+      $.for(d.range({ from: 30n, to: 108n }), ($, row) => { $.assign(sum, sum.add(row.amount)); });
+      $.return(sum);
+    }).toIR().compile([]) as (d: unknown) => bigint;
+    const asked = t.mock.method(Beast2PagesView.prototype, "segmentProjected");
+    assert.equal(ranged(openBeast2LazyFor(Rows, { frozen: true })(paged(Rows, rows))), 5850n);
+    assert.deepEqual(asked.mock.calls.map((call) => call.arguments[0]), [1, 2], "the two segments between the ends, each once");
+    assert.ok(asked.mock.calls.every((call) => call.error === undefined), "none refused");
   });
 
   test("a Set's range, and a prefix of a struct key", () => {

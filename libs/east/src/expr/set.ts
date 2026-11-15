@@ -519,8 +519,9 @@ export class SetExpr<K extends any> extends Expr<SetType<K>> {
    * @remarks
    * - `from` past `to` gives an empty set, and both left out gives every element.
    * - The elements are found by a search, never by a walk of the set: a range costs what it
-   *   holds. Over an input a runner opened lazily, the range's own segments are read and no
-   *   others.
+   *   holds. Over an input a runner opened lazily, each end reads at most one segment — the one
+   *   before the first segment that starts at or past it, which may hold none of the range — and
+   *   the segments between the ends are read once each.
    * - The result is a new set a body may change, whatever its source; the source is not changed
    *   with it.
    *

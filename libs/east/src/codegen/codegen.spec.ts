@@ -538,6 +538,36 @@ describe("codegen: toSource round trips the builder surface", () => {
     assert.deepEqual([...main.toIR().compile([])(new SortedSet(["ant", "bee", "cat"]), some("b"))], ["bee", "cat"]);
   });
 
+  test("a key range whose end left out is typed other than the key prints raw, and rebuilds as it was (#1616)", async () => {
+    const Sheet = StructType({ press: StringType, day: DateTimeType, job: StringType });
+    const Sheets = DictType(Sheet, IntegerType);
+    const Press = StructType({ press: StringType });
+    // The surface types an end it leaves out as the key: this `to` is typed as the `from` beside it.
+    const fn = East.function([Sheets], Sheets, ($, sheets) =>
+      East.builtin("DictRange", [Sheet, IntegerType, Press, Press], [sheets, East.value(some({ press: "P1" }), OptionType(Press)), East.value(none, OptionType(Press))], Sheets));
+    const source = toSource(fn, { importFrom: INDEX_URL, width: Infinity });
+    assert.match(source, /East\.builtin\("DictRange"/, source);
+    assert.doesNotMatch(source, /\.range\(/, source);
+    await roundTrip(fn, "key range of an end left out at a bound's type");
+  });
+
+  test("a bound written as an expression of a subtype of the key's type prints as its widening, and rebuilds (#1616)", async () => {
+    const Level = VariantType({ day: NullType, week: NullType });
+    const Runs = SetType(StructType({ level: Level, n: IntegerType }));
+    const fn = East.function([Runs], IntegerType, ($, runs) => {
+      // An untyped variant is a variant of its one case: the bound reads it as the key's.
+      const week = $.let(variant("week", null));
+      const ofWeek = $.const(runs.prefix({ level: week }));
+      const upTo = $.const(runs.range({ to: $.let({ level: variant("week", null), n: 2n }) }));
+      return ofWeek.size().add(upTo.size());
+    });
+    const source = toSource(fn, { importFrom: INDEX_URL, width: Infinity });
+    assert.match(source, /runs\.prefix\(\{ level: East\.as\(week, VariantType\(\{ day: NullType, week: NullType \}\)\) \}\)/, source);
+    assert.doesNotMatch(source, /East\.builtin\(/, source);
+    const main = await roundTrip(fn, "key range of a widened bound");
+    assert.equal(toSource(main.toIR().ir, { importFrom: INDEX_URL, width: Infinity }), source, "print → build → print is the identity");
+  });
+
   test("an option's none over a computed null, and a Float key of -0.0, print as they are and rebuild", async () => {
     const Opt = OptionType(IntegerType);
     const fn = East.function([Opt], IntegerType, ($, o) => {

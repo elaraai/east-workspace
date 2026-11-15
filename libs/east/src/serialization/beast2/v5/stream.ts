@@ -1122,10 +1122,21 @@ interface CachedSegment {
   weight: number;
   /** The run of misses that decoded it. */
   run: number;
-  /** A Set or Dict segment's keys in order, once an end of a key range has
-   *  been placed in it ({@link Beast2Pages.rowRange}): a segment is a tree,
-   *  which finds a key and not a row, and an end is a row. */
-  keys?: any[];
+}
+
+/** The segments whose keys a {@link Beast2Pages} keeps for placing the ends of
+ *  key ranges: the two ends of one range, which may lie in two segments. */
+const SEARCHED_KEPT = 2;
+
+/** Where an end of a key range was placed among a window of rows. */
+interface PlacedEnd {
+  /** The first row of the window whose key the end's test holds for, or the
+   *  window's end when it holds for none. */
+  readonly row: number;
+  /** The key at {@link row}, where placing the end read it — a segment's
+   *  fence, or a key of the segment searched — and `undefined` where the row is
+   *  the window's own first row or its end, which placing it did not read. */
+  readonly key: unknown;
 }
 
 /** The bytes a fence probe reads first: the frame header plus enough of the
@@ -1231,6 +1242,15 @@ export class Beast2Pages<T extends EastType = EastType> {
   /** The first key of each Set or Dict segment probed so far, by segment
    *  index — see {@link firstKey}. */
   private readonly keptFences: any[] = [];
+  /** The keys, in order, of the segments an end of a key range was last
+   *  placed in ({@link placeEnd}), least recently searched first: a segment is
+   *  a tree, which finds a key and not a row, and an end is a row. At most
+   *  {@link SEARCHED_KEPT} segments' keys, each kept while the cache holds its
+   *  segment and let go with it. They are kept beside the cache, never weighed
+   *  in it: a segment's weight is a number every runtime gives it alike
+   *  (v5/SPEC.md, "The pager's cache"), and east-c searches a segment where it
+   *  lies, with nothing beside it. */
+  private readonly searched = new Map<number, any[]>();
 
   /** @internal Use {@link openBeast2PagesFor}. */
   constructor(source: Uint8Array | Beast2SyncRangeReader | Beast2ManifestSource, typeValue: EastTypeValue, options?: Beast2PagesOptions) {
@@ -1349,6 +1369,7 @@ export class Beast2Pages<T extends EastType = EastType> {
    */
   clearCache(): void {
     this.segmentCache.clear();
+    this.searched.clear();
     this.cacheWeight = 0;
     this.runLast = -1;
   }
@@ -1424,6 +1445,35 @@ export class Beast2Pages<T extends EastType = EastType> {
     }
     if (this.kind === "Array") return this.decodeSegmentCore(i, undefined, false, projection);
     return this.decodeDisjoint(i, { prev: undefined, has: false }, this.verifyFences(), false, projection);
+  }
+
+  /**
+   * Whether segment `i` decodes to a loop's projection ({@link segmentProjected}):
+   * every segment of an Array or a Dict, and none of a Set, whose elements are
+   * its keys. A loop asks before it decodes one, so a segment that cannot be
+   * projected is read whole without a failed attempt first.
+   *
+   * @param _i - zero-based segment index
+   * @returns whether the segment can be decoded to a projection
+   * @internal
+   */
+  projects(_i: number): boolean {
+    return this.kind !== "Set";
+  }
+
+  /**
+   * Compares two Set elements or Dict keys in East's order: the order the
+   * collection's segments hold them in.
+   *
+   * @param a - a key
+   * @param b - another key
+   * @returns a negative number, zero or a positive number as `a` is before, the same as or after `b`
+   * @throws {Error} When the root is an Array, which has no key order.
+   * @internal
+   */
+  keyCompare(a: unknown, b: unknown): number {
+    if (this.orderCmp === null) throw new Error(`beast2 v5: an Array's rows have no key order`);
+    return this.orderCmp(a, b);
   }
 
   /** Seeks to and decodes segment `i`, threading the caller's order state.
@@ -1526,9 +1576,10 @@ export class Beast2Pages<T extends EastType = EastType> {
     if (s - 1 > this.runNextDrop) this.runNextDrop = s - 1;
   }
 
-  /** Lets cached segment `k` go. */
+  /** Lets cached segment `k` go, and the keys kept of it for placing an end. */
   private letGo(k: number, entry: CachedSegment): void {
     this.segmentCache.delete(k);
+    this.searched.delete(k);
     this.cacheWeight -= entry.weight;
   }
 
@@ -1894,25 +1945,51 @@ export class Beast2Pages<T extends EastType = EastType> {
     lo = 0,
     hi = this.elementCount,
   ): { lo: number; hi: number } {
+    const window = this.rowWindow(from as KeyTest<unknown> | undefined, to as KeyTest<unknown> | undefined, lo, hi);
+    return { lo: window.lo, hi: window.hi };
+  }
+
+  /**
+   * The rows of a key range among a window of rows, as {@link rowRange} gives
+   * them, and the keys at its two ends' rows where placing them read those
+   * keys — what a range of a lazily opened collection holds its rows by, so
+   * that a range of it needs nothing of the range it narrows once both are
+   * placed.
+   *
+   * @param from - the test the range's first key is the first to pass; `undefined` for the window's first row
+   * @param to - the test the range stops before the first key to pass; `undefined` for the window's end
+   * @param lo - the window's first row
+   * @param hi - the row the window stops before
+   * @returns the rows `[lo, hi)`; `loKey`, the key at `lo` where the range
+   *   starts inside the window, and `hiKey`, the key at `hi` where it stops
+   *   inside it — each `undefined` where that row is the window's own, which
+   *   no read placed — and either may be `undefined` for a range that holds
+   *   nothing
+   * @throws {Error} As {@link rowRange} throws.
+   * @internal
+   */
+  rowWindow(from: KeyTest<unknown> | undefined, to: KeyTest<unknown> | undefined, lo: number, hi: number): { lo: number; hi: number; loKey: unknown; hiKey: unknown } {
     if (this.kind === "Array") {
       throw new Error(`beast2 v5: a key range addresses Set and Dict roots`);
     }
     if (!this.selfContained) {
       throw new Error(`beast2 v5: blob has cross-segment aliasing — random access needs self-contained segments`);
     }
-    if (hi <= lo) return { lo, hi: lo };
-    if (from === undefined && to === undefined) return { lo, hi };
+    if (hi <= lo) return { lo, hi: lo, loKey: undefined, hiKey: undefined };
+    if (from === undefined && to === undefined) return { lo, hi, loKey: undefined, hiKey: undefined };
     const fences = this.verifyFences();
-    const first = from === undefined ? lo : this.placeEnd(from as KeyTest<any>, lo, hi, fences);
-    const end = to === undefined ? hi : this.placeEnd(to as KeyTest<any>, lo, hi, fences);
-    return { lo: first, hi: Math.max(first, end) };
+    const first: PlacedEnd = from === undefined ? { row: lo, key: undefined } : this.placeEnd(from, lo, hi, fences);
+    const end: PlacedEnd = to === undefined ? { row: hi, key: undefined } : this.placeEnd(to, lo, hi, fences);
+    // An inverted range holds nothing.
+    if (end.row <= first.row) return { lo: first.row, hi: first.row, loKey: undefined, hiKey: undefined };
+    return { lo: first.row, hi: end.row, loKey: first.row === lo ? undefined : first.key, hiKey: end.row === hi ? undefined : end.key };
   }
 
-  /** The row an end names among rows `[lo, hi)`, which hold at least one: the
+  /** Where an end lands among rows `[lo, hi)`, which hold at least one: the
    *  first of them whose key `test` holds for, or `hi` when it holds for
-   *  none. The rule east-c's pager places an end by, so the two decode the
-   *  same segments. */
-  private placeEnd(test: KeyTest<any>, lo: number, hi: number, fences: any[]): number {
+   *  none, with the key at that row where placing it read it. The rule
+   *  east-c's pager places an end by, so the two decode the same segments. */
+  private placeEnd(test: KeyTest<any>, lo: number, hi: number, fences: any[]): PlacedEnd {
     const firstSeg = this.rowSegment(lo).seg;
     const lastSeg = this.rowSegment(hi - 1).seg;
     // A window that starts inside a segment has no fence at its first row, so
@@ -1925,24 +2002,44 @@ export class Beast2Pages<T extends EastType = EastType> {
       else a = mid + 1;
     }
     const passing = a;  // the first segment whose fence passes; one past the last when none does
-    if (passing === firstSeg) return lo;
+    if (passing === firstSeg) return { row: lo, key: undefined };
     if (passing <= lastSeg && test.isBound !== undefined && test.isBound(fences[passing])) {
-      return this.rowsBefore(passing);
+      return { row: this.rowsBefore(passing), key: fences[passing] };
     }
     const s = passing - 1;
-    this.decodeDisjoint(s, { prev: undefined, has: false }, fences, true);
-    // The newest segment is never let go, so the cache holds it.
-    const kept = this.segmentCache.get(s)!;
-    const keys = kept.keys ??= Array.from(this.kind === "Set" ? (kept.seg as Set<any>).values() : (kept.seg as Map<any, any>).keys());
+    const keys = this.searchedKeys(s, fences);
     const base = this.rowsBefore(s);
     let i = Math.max(lo, base) - base;
-    let j = Math.min(hi, base + keys.length) - base;
-    while (i < j) {
-      const mid = (i + j) >> 1;
-      if (test(keys[mid])) j = mid;
+    const j = Math.min(hi, base + keys.length) - base;
+    let k = j;
+    while (i < k) {
+      const mid = (i + k) >> 1;
+      if (test(keys[mid])) k = mid;
       else i = mid + 1;
     }
-    return base + i;
+    // Past the window's rows of the segment: the next segment's first row,
+    // whose key is its fence, unless the window stops there.
+    if (i < j) return { row: base + i, key: keys[i] };
+    return { row: base + j, key: base + j < hi ? fences[passing] : undefined };
+  }
+
+  /** Segment `s`'s keys in order, for a search by row, read through the cache
+   *  — which keeps the segment it read last, so it holds this one — and kept
+   *  for the next end placed in the same segment, as {@link searched} says. */
+  private searchedKeys(s: number, fences: any[]): any[] {
+    const segment = this.decodeDisjoint(s, { prev: undefined, has: false }, fences, true);
+    let keys = this.searched.get(s);
+    if (keys !== undefined) {
+      this.searched.delete(s);  // the most recently searched goes last
+    } else {
+      keys = Array.from(this.kind === "Set" ? (segment as Set<any>).values() : (segment as Map<any, any>).keys());
+    }
+    this.searched.set(s, keys);
+    for (const k of this.searched.keys()) {
+      if (this.searched.size <= SEARCHED_KEPT) break;
+      this.searched.delete(k);
+    }
+    return keys;
   }
 
   /**

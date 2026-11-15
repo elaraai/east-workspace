@@ -26,8 +26,8 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 
 import {
-    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType,
-    compareFor, none, some, toEastTypeValue, variant, type EastType, type EastTypeValue, type IR,
+    ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, SetType, SortedMap, SortedSet, StringType, StructType, VariantType,
+    compareFor, fromEastTypeValue, isTypeEqual, none, some, toEastTypeValue, variant, type EastType, type EastTypeValue, type IR,
 } from "../src/index.js";
 import { analyzeIR } from "../src/analyze.js";
 import { describeEast, assertEast } from "./platforms.spec.js";
@@ -127,6 +127,9 @@ const SHEETS: [{ press: string; day: Date; job: string }, bigint][] = [
     [{ press: "P2", day: JUNE_3, job: "c" }, 6n],
 ];
 
+/** Sheets as a Dict holds them: keyed by East's order of a sheet. */
+const sheetsOf = (entries: readonly [{ press: string; day: Date; job: string }, bigint][]) => new SortedMap(entries, compareFor(Sheet));
+
 const random = seeded(1616);
 const pick = <T>(values: readonly T[]): T => values[Math.floor(random() * values.length)]!;
 const day = (): Date => new Date(Date.UTC(2026, 5, 1 + Math.floor(random() * 4)));
@@ -189,7 +192,7 @@ await describeEast("Key ranges", (test) => {
         const leaves = leafCount(kind.type);
 
         test(`${kind.name}: a Dict's range is what a walk of the whole keeps, for bounds of every length`, $ => {
-            const dict: any = $.let(valueOf(new Map(keys.map((key, index) => [key, BigInt(index)])), DictType(kind.type, IntegerType)));
+            const dict: any = $.let(valueOf(new SortedMap(keys.map((key, index): [unknown, bigint] => [key, BigInt(index)]), compareFor(kind.type)), DictType(kind.type, IntegerType)));
             for (let trial = 0; trial < 3 * leaves; trial++) {
                 const from = cut(kind.type, 1 + (trial % leaves));
                 const to = cut(kind.type, 1 + Math.floor(random() * leaves));
@@ -203,7 +206,7 @@ await describeEast("Key ranges", (test) => {
         });
 
         test(`${kind.name}: a Set's range, its open ends and its prefix are what a walk of the whole keeps`, $ => {
-            const set: any = $.let(valueOf(new Set(keys), SetType(kind.type)));
+            const set: any = $.let(valueOf(new SortedSet(keys, compareFor(kind.type)), SetType(kind.type)));
             for (let count = 1; count <= leaves; count++) {
                 const part = cut(kind.type, count);
                 const bound = part.of(kind.make());
@@ -248,7 +251,7 @@ await describeEast("Key ranges", (test) => {
     });
 
     test("an end left out is that end, both left out is every entry, and an inverted or an empty range holds nothing", $ => {
-        const sheets = $.let(East.value(new Map(SHEETS), Sheets));
+        const sheets = $.let(East.value(sheetsOf(SHEETS), Sheets));
         $(assertEast.equal(sheets.range(), sheets));
         $(assertEast.equal(sheets.range({}), sheets));
         $(assertEast.equal(sheets.range({ from: { press: "P2" } }).size(), 2n));
@@ -262,19 +265,19 @@ await describeEast("Key ranges", (test) => {
         $(assertEast.equal(sheets.range({ from: { press: "P1", day: JUNE_3 }, to: { press: "P1", day: JUNE_4 } }).size(), 0n));
         $(assertEast.equal(sheets.prefix({ press: "P9" }).size(), 0n));
         // An empty collection.
-        const empty = $.let(East.value(new Map(), Sheets));
+        const empty = $.let(East.value(sheetsOf([]), Sheets));
         $(assertEast.equal(empty.range({ from: { press: "P1" }, to: { press: "P2" } }).size(), 0n));
         $(assertEast.equal(empty.prefix({ press: "P1" }).size(), 0n));
         $(assertEast.equal(East.value(new Set<string>(), SetType(StringType)).range({ from: "a" }).size(), 0n));
     });
 
     test("a bound that is the whole key is the range from that key, or up to it; a bound's fields are read in the key's order however they are written", $ => {
-        const sheets = $.let(East.value(new Map(SHEETS), Sheets));
+        const sheets = $.let(East.value(sheetsOf(SHEETS), Sheets));
         const key = { press: "P1", day: JUNE_2, job: "b" };
         $(assertEast.equal(sheets.range({ from: key }).size(), 4n));
         $(assertEast.equal(sheets.range({ to: key }).size(), 2n));
-        $(assertEast.equal(sheets.range({ from: key, to: { press: "P1", day: JUNE_2, job: "c" } }), new Map([[key, 3n]])));
-        $(assertEast.equal(sheets.prefix(key), new Map([[key, 3n]])));
+        $(assertEast.equal(sheets.range({ from: key, to: { press: "P1", day: JUNE_2, job: "c" } }), sheetsOf([[key, 3n]])));
+        $(assertEast.equal(sheets.prefix(key), sheetsOf([[key, 3n]])));
         // The same bound, its fields written in another order.
         $(assertEast.equal(sheets.range({ from: { day: JUNE_2, press: "P1" } }), sheets.range({ from: { press: "P1", day: JUNE_2 } })));
         $(assertEast.equal(sheets.prefix({ day: JUNE_2, press: "P1" }).size(), 2n));
@@ -287,8 +290,30 @@ await describeEast("Key ranges", (test) => {
         $(assertEast.equal(sheets.prefix({ press }).size(), 2n));
     });
 
+    test("a bound written as an expression of a subtype of the key's type is read at the key's type, as `get` reads a key", $ => {
+        // An untyped variant is a variant of its one case, a subtype of the key's variant.
+        const Run = StructType({ level: Level, n: IntegerType });
+        const runs = $.let(East.value(new SortedSet([
+            { level: variant("day", null), n: 1n },
+            { level: variant("week", null), n: 0n },
+            { level: variant("week", null), n: 2n },
+        ], compareFor(Run)), SetType(Run)));
+        const week = $.let(variant("week", null));
+        $(assertEast.equal(runs.prefix({ level: week }).size(), 2n));
+        // The field before the last a bound gives, and the whole key.
+        $(assertEast.equal(runs.range({ from: { level: week, n: 1n } }).size(), 1n));
+        $(assertEast.equal(runs.range({ to: $.let({ level: variant("week", null), n: 2n }) }).size(), 2n));
+        // A struct of the key's first fields, its field a subtype of the key's.
+        $(assertEast.equal(runs.prefix($.let({ level: variant("week", null) })).size(), 2n));
+        // An option key, its bound written as `some`: a variant of the one case.
+        const Count = OptionType(IntegerType);
+        const counts = $.let(East.value(new SortedSet([none, some(1n), some(3n), some(5n)], compareFor(Count)), SetType(Count)));
+        $(assertEast.equal(counts.range({ from: $.let(some(3n)) }).size(), 2n));
+        $(assertEast.equal(counts.range({ to: $.let(some(1n)) }).size(), 1n));
+    });
+
     test("a range is read as any Dict or Set is, and narrowed again: a range of a range, a prefix of a prefix", $ => {
-        const sheets = $.let(East.value(new Map(SHEETS), Sheets));
+        const sheets = $.let(East.value(sheetsOf(SHEETS), Sheets));
         const ofPress = $.let(sheets.prefix({ press: "P1" }));
         $(assertEast.equal(ofPress.size(), 4n));
         $(assertEast.equal(ofPress.has({ press: "P1", day: JUNE_2, job: "a" }), true));
@@ -311,7 +336,7 @@ await describeEast("Key ranges", (test) => {
     });
 
     test("a range is a new collection: changed, its source is as it was, and it is not its source even where it holds every entry", $ => {
-        const sheets = $.let(East.value(new Map(SHEETS), Sheets));
+        const sheets = $.let(East.value(sheetsOf(SHEETS), Sheets));
         const ofPress = $.let(sheets.prefix({ press: "P1" }));
         $(ofPress.insert({ press: "P5", day: JUNE_1, job: "z" }, 99n));
         $(ofPress.delete({ press: "P1", day: JUNE_1, job: "a" }));
@@ -425,5 +450,25 @@ describe("a bound that is no leading part of the key (#1616)", () => {
             analyzeIR(ir, []);
         };
         assert.throws(set, /^Error: Builtin function 'SetPrefix': a prefix is no leading part of the key: /);
+    });
+});
+
+describe("a bound over a key with a field named like an array index (#1616)", () => {
+    /** The type a range builtin reads one of its bounds at, as the function is built. */
+    const boundType = (key: EastType, builtin: string, at: number, body: (dict: any) => unknown): EastType => {
+        const Dict = DictType(key, IntegerType);
+        const ir = East.function([Dict], Dict, (_$, dict) => body(dict) as never).toIR().ir;
+        return fromEastTypeValue(builtinNode(ir, builtin)!.value.type_parameters[at]!);
+    };
+
+    test("is built in the key's order, as `get` builds a key, however the object lists its fields", () => {
+        // An object lists a field named like an array index first, wherever the key has it.
+        const Last = StructType([["region", StringType], ["2024", FloatType]]);
+        assert.ok(isTypeEqual(boundType(Last, "DictRange", 3, (dict) => dict.range({ to: { "2024": 1.5, region: "N" } })), Last));
+        assert.ok(isTypeEqual(boundType(Last, "DictPrefix", 2, (dict) => dict.prefix({ region: "N", "2024": 1.5 })), Last));
+        assert.ok(isTypeEqual(boundType(Last, "DictRange", 2, (dict) => dict.range({ from: { region: "N" } })), StructType([["region", StringType]])));
+        const First = StructType([["2024", FloatType], ["region", StringType]]);
+        assert.ok(isTypeEqual(boundType(First, "DictPrefix", 2, (dict) => dict.prefix({ "2024": 1.5 })), StructType([["2024", FloatType]])));
+        assert.ok(isTypeEqual(boundType(First, "DictRange", 2, (dict) => dict.range({ from: { region: "N", "2024": 1.5 } })), First));
     });
 });

@@ -26,7 +26,7 @@ reads any container version its type was written in.
 | `intakeBeast2For(T)(delivery, sink, opts?)` | A collection from outside — a `Beast2SyncRangeReader` over a v4 or v5 blob whose header names exactly `T` — through the Writer into a `Beast2ManifestSink`, a segment at a time: each row is walked by its type, the Writer's own bytes go on as they stand, and any other row is decoded and written again. `opts.segments` takes in the index's segments `[from, to)`, a piece of a large delivery. Refuses another type, a malformed segment or one over `RUN_MAX_BYTES`, a row that does not decode, and keys that do not ascend, with `Beast2IntakeError` in the words every runner uses. What e3's intake units run, on every runner |
 | `new Beast2Writer(T, sink)` · `encodeBeast2SegmentsFor(T)(batches)` | Segments of your own choosing: one per non-empty batch, Set/Dict batches in ascending order |
 | `iterBeast2SegmentsFor(T)(blob)` | One decoded segment at a time |
-| `openBeast2PagesFor(T)(source)` | Random access: `.elementCount` and `.segmentCount` in O(1); `.segment(i)`, `.element(row)`, `.slice(offset, limit)` and `.get(key)` decode only the segments they touch. `.rowRange(from, to)` gives the rows `{ lo, hi }` of a Set or Dict between two bounds — each a test "is this key at or past it?", as `SortedMap.range` takes — reading at most the one segment each end lands in; `.slice(lo, hi - lo)` then reads them |
+| `openBeast2PagesFor(T)(source)` | Random access: `.elementCount` and `.segmentCount` in O(1); `.segment(i)`, `.element(row)`, `.slice(offset, limit)` and `.get(key)` decode only the segments they touch. `.rowRange(from, to)` gives the rows `{ lo, hi }` of a Set or Dict between two bounds — each a test "is this key at or past it?", as `SortedMap.range` takes — reading at most one segment for each end, the one before the first segment that starts at or past it, which may hold none of the range's rows; `.slice(lo, hi - lo)` then reads them |
 | `openBeast2LazyFor(T, { frozen? })(source)` | An ordinary `SortedMap` / `SortedSet` / array served from the index, a segment at a time — what `blob.openBeast` and `FileSystem.openBeast` return, frozen. `isBeast2LazySafe(T, { frozen })`: only `Ref`- and function-bearing shapes decode whole |
 | `Beast2SyncRangeReader` — `{ size, read(offset, length) }` | Positioned reads, wherever a blob goes, so a file's bytes never sit on the heap whole; `readBeast2Extents` / `readBeast2ExtentsRanged` (HTTP, S3) read the geometry |
 | **Segment manifests** — one object per segment plus a manifest naming them: how e3 stores a collection |
@@ -72,9 +72,9 @@ openBeast2PagesFor(Rows)(blob).element(4_000_000);  // one row: decodes ONE segm
 - **A key range of a lazy Set or Dict is read at the cost of the range.**
   `d.range({ from, to })` and `d.prefix({ … })` on a lazy input give a
   collection that still reads from the input's pager: making it reads nothing,
-  `.size()` reads the one segment each end lands in and none between, a keyed
-  read tests the bounds first, and a `$.for` reads the range's segments, each
-  once. It is a new collection — not frozen, though its input is — so a body
+  `.size()` reads at most one segment for each end — the one before the first
+  segment that starts at or past it — and none between, a keyed read tests the
+  bounds first, and a `$.for` reads the segments between the ends once each. It is a new collection — not frozen, though its input is — so a body
   may change it, which decodes its own rows and leaves the input lazy, as any
   other read of it does. A range of a range reads nothing outside the range.
   From the host, a lazy value's `.range(from, to)` is the same.

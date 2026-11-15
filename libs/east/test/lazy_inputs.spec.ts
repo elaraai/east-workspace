@@ -29,7 +29,7 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
   East, EastError, Expr, equalFor, compareFor, IRType, toJSONFor, some, none, ref, variant, get_location,
-  encodeBeast2SegmentsFor, decodeBeast2For, openBeast2LazyFor, isBeast2LazySafe, spliceBeast2,
+  encodeBeast2SegmentsFor, decodeBeast2For, openBeast2LazyFor, isBeast2LazySafe, spliceBeast2, SortedMap, SortedSet,
   ArrayType, SetType, DictType, IntegerType, FloatType, StringType, NullType, StructType, OptionType,
   type EastType, type Location,
 } from "../src/index.js";
@@ -47,7 +47,8 @@ function sweepBlob(type: EastType, value: unknown): Uint8Array {
   const batches: unknown[] = [];
   for (let i = 0; i < items.length; i += 2) {
     const chunk = items.slice(i, i + 2);
-    batches.push(t.type === "Dict" ? new Map(chunk as [unknown, unknown][]) : t.type === "Set" ? new Set(chunk) : chunk);
+    // A Set or Dict batch in East's order of its keys, struct keys among them.
+    batches.push(t.type === "Dict" ? new SortedMap(chunk as [unknown, unknown][], cmp!) : t.type === "Set" ? new SortedSet(chunk, cmp!) : chunk);
   }
   return encodeBeast2SegmentsFor(type)(batches as never);
 }
@@ -221,8 +222,8 @@ describe("lazy inputs — builtin corpus sweep (#510)", () => {
   const Runs = SetType(Run);
   const Sheets = DictType(Run, StringType);
   const runKeys = ["P1", "P2", "P3"].flatMap((press) => [0n, 1n, 2n].map((n) => ({ press, n })));
-  const runs = new Set(runKeys);
-  const sheets = new Map(runKeys.map((key) => [key, `${key.press}-${key.n}`]));
+  const runs = new SortedSet(runKeys, compareFor(Run));
+  const sheets = new SortedMap(runKeys.map((key): [{ press: string; n: bigint }, string] => [key, `${key.press}-${key.n}`]), compareFor(Run));
 
   const corpus: SweepCase[] = [
     {

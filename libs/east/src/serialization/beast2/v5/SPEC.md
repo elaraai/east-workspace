@@ -781,7 +781,11 @@ decodes, and in east-c the same memory, wherever it runs: east-c's pager
   the function's IR or captures, counts nowhere, as nothing inside a function
   does. A projected segment weighs what it decodes: the fields it keeps.
   `libs/east/test/fixtures/paged-weights.beast2` holds a value of every kind
-  with its weight, and each runtime's tests hold its cache to it.
+  with its weight, and each runtime's tests hold its cache to it. What a pager
+  keeps beside its cache to search a segment by row is not weighed: east-c
+  searches a segment where it lies, and TypeScript, whose segments are trees
+  that find a key and not a row, keeps the keys of the last two segments an
+  end of a key range was placed in, each only while the cache holds it.
 - **The budget** is 256 MiB of decoded weight per pager: enough for every
   input the query planner reads whole in each piece, one that weighs less than
   the smallest piece — 16 MiB stored at the platform's sizes — which decodes
@@ -845,21 +849,31 @@ reads through) and TypeScript's (`stream.ts`, `view.ts`).
 
   | Read on a view | Segments decoded |
   |---|---|
-  | its size | none to two: the segment each end lands in, through the cache; none between them |
-  | a keyed read | the key is tested against the bounds, which reads nothing; inside them, the pager's keyed read |
+  | its size | none to two: for each end, at most the segment before the first fence at or past it, through the cache, which may hold none of the range's rows; none between them |
+  | a keyed read | the key is tested against the bounds until the view is placed, and from then against its first row's key and the first key past its rows, which reads nothing either way; inside them, the pager's keyed read |
   | a loop | its first and last segments through the cache, rows whole; the segments between them fresh, one at a time, to the fields the loop's body reads (*Projected decoding*) |
   | a range of it | none: a narrower view of the same pager |
   | any other read | the view's own rows, each of its segments once, into a collection the view keeps |
 
 - **Its end segments go through the cache** because many short ranges of one
   index fall in the same few segments; decoded fresh, each would decode its
-  segment again. The segments between go fresh because a long range is a scan.
-  A cached segment has one shape, so a loop's projection does not apply to an
-  end segment: its rows are whole, which the loop's body cannot tell apart.
+  segment again. They are read as a keyed read reads its segment: every fence
+  verified first, and the segment checked against the next fence. The segments
+  between go fresh because a long range is a scan. A cached segment has one
+  shape, so a loop's projection does not apply to an end segment: its rows are
+  whole, which the loop's body cannot tell apart. The view says which of its
+  segments project before a loop asks, so no projected decode of an end
+  segment is attempted.
 - **A range of a range** is placed among the rows of the range it narrows —
   the fences of the segments those rows span, and a segment before one only
   within them — so it reads no segment outside that range. A range that starts
   inside a segment has no fence at its first row, and that segment is read.
+  Once placed, a view holds its rows by their first key and the first key past
+  them, read where its ends were placed — a fence, or a key of the segment
+  searched — and nothing of the range it narrows. A range narrowed many times
+  before any is read is placed by a loop, outermost first, never a recursion,
+  and a placed view costs a keyed read two comparisons however many ranges it
+  narrows.
 - **A new collection.** A view is not frozen, whatever its source is; a change
   to it decodes its own rows and changes those. Its rows decode as its
   source's do. It reads the pager and never its source's own decode, so a

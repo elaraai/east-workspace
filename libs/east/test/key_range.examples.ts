@@ -3,7 +3,7 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 import {
-    DateTimeType, DictType, East, IntegerType, NullType, SetType, StringType, StructType, VariantType, example, variant,
+    DateTimeType, DictType, East, IntegerType, NullType, SetType, SortedMap, SortedSet, StringType, StructType, VariantType, compareFor, example, variant,
 } from "@elaraai/east";
 
 // ---------------------------------------------------------------------------
@@ -24,14 +24,15 @@ const JUNE_10 = new Date("2026-06-10T00:00:00Z");
 const JUNE_30 = new Date("2026-06-30T00:00:00Z");
 const JULY_1 = new Date("2026-07-01T00:00:00Z");
 
-/** Five entries: four of press P1 from the end of May to the start of July, one of press P2. */
-const SHEETS = new Map([
+/** Five entries: four of press P1 from the end of May to the start of July, one of press P2. A
+ *  struct-keyed Dict is held in East's order of its key. */
+const SHEETS = new SortedMap([
     [{ press: "P1", day: MAY_31, job: "J1" }, 400n],
     [{ press: "P1", day: JUNE_1, job: "J2" }, 250n],
     [{ press: "P1", day: JUNE_30, job: "J3" }, 100n],
     [{ press: "P1", day: JULY_1, job: "J4" }, 900n],
     [{ press: "P2", day: JUNE_10, job: "J5" }, 700n],
-]);
+], compareFor(Sheets.key));
 
 export const dictRange = example({
     keywords: ["dict", "DictType", "range", "from", "to", "between", "key range", "bounds", "struct key", "index", "slice"],
@@ -106,11 +107,11 @@ export const dictPrefixNested = example({
     keywords: ["dict", "DictType", "prefix", "nested struct", "index", "leading fields", "key range", "tile"],
     description: "Give a prefix through nested structs, as an index's key is read: every entry of one hall",
     fn: East.function([], IntegerType, ($) => {
-        const index = $.const(new Map([
+        const index = $.const(new SortedMap([
             [{ ik: { on: { hall: "H1", press: "P1" }, level: variant("day", null), tile: 4n }, k: "j1" }, 1n],
             [{ ik: { on: { hall: "H1", press: "P2" }, level: variant("week", null), tile: 0n }, k: "j2" }, 2n],
             [{ ik: { on: { hall: "H2", press: "P3" }, level: variant("day", null), tile: 4n }, k: "j3" }, 4n],
-        ]), Indexed);
+        ], compareFor(Indexed.key)), Indexed);
         // The last field a prefix gives may itself be cut short: `on` gives its hall and not its press.
         return index.prefix({ ik: { on: { hall: "H1" } } }).sum();
     }),
@@ -129,15 +130,18 @@ export const setRange = example({
     returns: new Set(["bee", "bison", "cat"]),
 });
 
+/** A day a press ran. */
+const Run = StructType({ press: StringType, day: DateTimeType });
+
 export const setPrefix = example({
     keywords: ["set", "SetType", "prefix", "begins with", "leading fields", "struct element", "key range"],
     description: "Read the elements of a Set that begin with given fields: the days one press ran",
     fn: East.function([], IntegerType, ($) => {
-        const runs = $.const(new Set([
+        const runs = $.const(new SortedSet([
             { press: "P1", day: JUNE_1 },
             { press: "P1", day: JUNE_2 },
             { press: "P2", day: JUNE_1 },
-        ]), SetType(StructType({ press: StringType, day: DateTimeType })));
+        ], compareFor(Run)), SetType(Run));
         return runs.prefix({ press: "P1" }).size();
     }),
     inputs: [],

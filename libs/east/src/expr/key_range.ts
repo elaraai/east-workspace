@@ -22,7 +22,7 @@
 import type { AST } from "../ast.js";
 import { keyBoundRefusal, type KeyBoundName } from "../key_bound.js";
 import { get_location_id } from "../location.js";
-import { NullType, OptionType, StructType, isTypeEqual, type EastType } from "../types.js";
+import { NullType, OptionType, StructType, isSubtype, isTypeEqual, type EastType } from "../types.js";
 import { valueOrExprToAstTyped } from "./ast.js";
 import { Expr, TypeSymbol } from "./expr.js";
 import type { SubtypeExprOrValue } from "./types.js";
@@ -65,34 +65,61 @@ function isObjectLiteral(value: unknown): value is Readonly<Record<string, unkno
 }
 
 /**
- * The type of a bound as it is written: an expression's own type; for an
- * object literal over a struct key, the key's type cut short to the fields it
- * gives; for anything else, the key's type.
+ * An expression bound's type as the key reads it: the key's own where the
+ * expression's is a subtype of it — an untyped variant literal is a variant of
+ * its one case — and, for a struct of a struct key's first fields, each field's
+ * widened the same way, so the bound's AST widens the expression as `has` and
+ * `get` widen a key. Any other type is the expression's own, which the bound's
+ * check refuses or takes.
+ *
+ * @param keyType - The key's type, or a key field's
+ * @param type - The expression's type
+ * @returns The type the bound is read at
+ */
+function widenedBoundType(keyType: EastType, type: EastType): EastType {
+  if (isSubtype(type, keyType)) return keyType;
+  if (keyType.type !== "Struct" || type.type !== "Struct") return type;
+  const keyFields = keyType.fields as Readonly<Record<string, EastType>>;
+  // In the expression's own order, as a list: a field named like an array index keeps its place.
+  return StructType(Object.entries(type.fields as Readonly<Record<string, EastType>>)
+    .map(([name, field]): readonly [string, EastType] => [name, keyFields[name] === undefined ? field : widenedBoundType(keyFields[name]!, field)]));
+}
+
+/**
+ * The type of a bound as it is written: an expression's own type, widened to
+ * the key's where it is a subtype of it; for an object literal over a struct
+ * key, the key's type cut short to the fields it gives; for anything else, the
+ * key's type.
  *
  * @param keyType - The key's type
  * @param bound - The bound as written
  * @returns The bound's type, or `undefined` for an object literal whose fields are not the key's first
  */
 function writtenBoundType(keyType: EastType, bound: unknown): EastType | undefined {
-  if (bound instanceof Expr) return bound[TypeSymbol] as EastType;
+  if (bound instanceof Expr) return widenedBoundType(keyType, bound[TypeSymbol] as EastType);
   if (keyType.type !== "Struct" || !isObjectLiteral(bound)) return keyType;
   const keyFields = keyType.fields as Readonly<Record<string, EastType>>;
   const given = Object.keys(bound).filter((name) => bound[name] !== undefined);
   const leading = Object.keys(keyFields).slice(0, given.length);
   if (given.length === 0 || !given.every((name) => leading.includes(name))) return undefined;
-  const fields: Record<string, EastType> = {};
+  // In the key's order, as a list: a field named like an array index keeps its place.
+  const fields: (readonly [string, EastType])[] = [];
   for (const [index, name] of leading.entries()) {
     const type = writtenBoundType(keyFields[name]!, bound[name]);
     if (type === undefined) return undefined;
     // Only the last field a bound gives may be cut short: each before it is written whole.
     if (index < leading.length - 1 && !isTypeEqual(type, keyFields[name]!)) return undefined;
-    fields[name] = type;
+    fields.push([name, type]);
   }
   return StructType(fields);
 }
 
 /**
  * The AST of a bound as it is written, typed as the key's type cut short.
+ *
+ * An expression of a subtype of that type is widened to it, as `East.as`
+ * widens a value, so the builtin's type parameter is the bound's type as the
+ * key reads it and never the expression's own.
  *
  * @param name - Which bound: a range's `from` or `to`, or a prefix
  * @param keyType - The key's type
@@ -106,7 +133,8 @@ export function keyBoundAst(name: KeyBoundName, keyType: EastType, bound: unknow
   const type = writtenBoundType(keyType, bound);
   const refusal = keyBoundRefusal(name, keyType, type);
   if (refusal !== undefined || type === undefined) throw new Error(refusal);
-  return valueOrExprToAstTyped(bound, type);
+  const ast = valueOrExprToAstTyped(bound, type);
+  return isTypeEqual(ast.type, type) ? ast : { ast_type: "As", type, value: ast, loc_id: get_location_id() };
 }
 
 /** One end of a range as the builtin takes it: an option of the bound, and the bound's type. */

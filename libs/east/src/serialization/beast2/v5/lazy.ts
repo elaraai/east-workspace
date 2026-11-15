@@ -184,12 +184,14 @@ function grownSince(resident: (() => number) | undefined, before: number): numbe
 }
 
 /** Decodes segment `i` for a compiled loop, and counts it
- *  ({@link countPagedLoopSegment}): by `projection` when the loop has one,
- *  and by `whole` when it has none or the projected decode fails — as east-c's
- *  paged loop retries one, so a back-reference that crosses the projection
- *  decodes whole, and a corrupt segment fails in the whole decode's words. */
+ *  ({@link countPagedLoopSegment}): by `projection` when the loop has one and
+ *  the pager can decode the segment to it — a range's end segment it cannot,
+ *  and says so, so none is attempted — and by `whole` otherwise or when the
+ *  projected decode fails, as east-c's paged loop retries one, so a
+ *  back-reference that crosses the projection decodes whole, and a corrupt
+ *  segment fails in the whole decode's words. */
 function loopSegment(pages: KeyedPages, i: number, projection: SegmentDecoder | null, whole: () => unknown): unknown {
-  if (projection !== null) {
+  if (projection !== null && pages.projects(i)) {
     try {
       const segment = pages.segmentProjected(i, projection);
       countPagedLoopSegment(true);
