@@ -182,7 +182,7 @@ export type PlanCarriedType = typeof PlanCarriedType;
 /** The arms a series value takes — its kind, which the series library shows. */
 export type PlanSeriesArm =
     | "span" | "buckets" | "chart" | "heat" | "table" | "cards" | "events"
-    | "group" | "section" | "views" | "rows";
+    | "group" | "section" | "views" | "rows" | "resources" | "kinds";
 
 /**
  * The Plan series type CONSTRUCTOR — given the entry type (and the entries'
@@ -224,7 +224,7 @@ const seriesShape = (r: EastType, k: EastType = StringType) => {
     });
     return VariantType({
         span: arm, buckets: arm, chart: arm, heat: arm, table: arm, cards: arm, events: arm,
-        group: arm, section: arm, views: arm, rows: arm,
+        group: arm, section: arm, views: arm, rows: arm, resources: arm, kinds: arm,
     });
 };
 
@@ -1021,6 +1021,132 @@ export interface PlanViewsSeriesConfig<
     collapsed?: boolean | PlanAccessor<R, BooleanType, KT>;
 }
 
+/**
+ * Config for {@link Plan.series.resources} (#1541, U1) — one landing row per
+ * entry: the row the Plan's event kinds land on, by the key their `resource`
+ * field holds, with the entry's own `series` beneath it.
+ *
+ * @typeParam R - The entry type
+ * @typeParam KT - The entries' key type
+ * @typeParam CT - A tree's field, as `children` names it
+ */
+export interface PlanResourcesSeriesConfig<R extends EastType, KT extends EastType = StringType, CT extends PlanTreeField<R> = never>
+    extends PlanSeriesIdentity {
+    /** The East type of the entries' keys, as the accessors receive them (default `StringType`): what an event's `resource` field holds. */
+    keyType?: KT;
+    /** Membership — omitted ⇒ every entry. */
+    match?: PlanAccessor<R, BooleanType, KT>;
+    /** The resource's name, in the gutter. */
+    label: PlanAccessor<R, StringType, KT>;
+    /** Render labels as mono row ids. */
+    id?: boolean;
+    /** Two-line gutter layout (label over sub). */
+    stacked?: boolean;
+    /** The gutter's sub line — the field's `Option`. */
+    sub?: PlanAccessor<R, OptionType<StringType>, KT>;
+    /** The gutter's value slot — the field's `Option`. */
+    value?: PlanAccessor<R, OptionType<StringType>, KT>;
+    /** The gutter's status dot — the field's `Option`. */
+    status?: PlanAccessor<R, OptionType<StatusValueType>, KT>;
+    /** Expand in place — the field's `Option`. */
+    expand?: PlanAccessor<R, OptionType<PlanExpandType>, KT>;
+    /** The lanes a resource's tiles sit in, in order (AM, PM): every one drawn, empty or not, then any other its events name. */
+    lanes?: PlanAccessor<R, ArrayType<PlanLaneType>, KT>;
+    /** The rows beneath each resource, over its own row: `Plan.series.heat`, `table`, `chart`, `span`, `buckets`, `cards` or `events`. */
+    series?: readonly PlanSeriesValue<PlanAxisKindLiteral>[];
+    /** More of its own rows beneath each (a tree, to any depth): a Dict field of the row holding them, each a resource its kinds land on too. */
+    children?: CT;
+    /** How a resource with resources under it rolls their events into its bands (`"union"`, the default). */
+    rollup?: SubtypeExprOrValue<PlanRollupType> | PlanRollupLiteral;
+    /** Whether a resource with rows beneath it starts folded — a constant, or per entry. */
+    collapsed?: boolean | PlanAccessor<R, BooleanType, KT>;
+}
+
+/** Whether a variant's cases are an Option's. */
+type PlanIsOption<C> = "none" extends keyof C ? ("some" extends keyof C ? true : false) : false;
+
+/**
+ * A variant field of the entry, not an Option: what `Plan.series.kinds` and a
+ * series' `case` map cases of (#1541, U2).
+ *
+ * @typeParam R - The entry type
+ */
+export type PlanVariantField<R extends EastType> = {
+    [F in keyof PlanEntryFields<R> & string]: PlanEntryFields<R>[F] extends VariantType<infer C> ? (PlanIsOption<C> extends true ? never : F) : never
+}[keyof PlanEntryFields<R> & string];
+
+/**
+ * The cases of a variant field of the entry, by name, each its value's type.
+ *
+ * @typeParam R - The entry type
+ * @typeParam F - The variant field
+ */
+export type PlanVariantCases<R extends EastType, F extends string> =
+    F extends keyof PlanEntryFields<R> ? (PlanEntryFields<R>[F] extends VariantType<infer C> ? C : never) : never;
+
+/** An accessor over an entry of a case: its row, its key, and the case's value (#1541, U2). */
+export type PlanCaseAccessor<R extends EastType, T extends EastType, KT extends EastType, V extends EastType> =
+    (row: PlanEntryExpr<R>, key: ExprType<KT>, value: ExprType<V>) => SubtypeExprOrValue<T>;
+
+/**
+ * One case of `Plan.series.kinds` (#1541, U2): a resources series over the
+ * entries holding the case, each accessor handed the case's value after the
+ * row and its key.
+ *
+ * @typeParam R - The entry type
+ * @typeParam KT - The entries' key type
+ * @typeParam V - The case's value type
+ */
+export interface PlanKindsCase<R extends EastType, KT extends EastType, V extends EastType> {
+    /** Its key, unique across the series tree: what an event kind's `resource.of` names. Omitted, the case's name. */
+    key?: string;
+    /** Its name, as the Series tab and a viewer read it ("Presses"). */
+    title: string;
+    /** Its muted role line. */
+    subtitle?: string;
+    /** Its icon. */
+    icon?: PlanIconInput;
+    /** The entries' key type, as the accessors receive them (default `StringType`): what an event's resource field holds. */
+    keyType?: KT;
+    /** Membership among the case's entries — omitted ⇒ every one of them. */
+    match?: PlanCaseAccessor<R, BooleanType, KT, V>;
+    /** The resource's name, in the gutter. */
+    label: PlanCaseAccessor<R, StringType, KT, V>;
+    /** Render labels as mono row ids. */
+    id?: boolean;
+    /** Two-line gutter layout. */
+    stacked?: boolean;
+    /** The gutter's sub line. */
+    sub?: PlanCaseAccessor<R, OptionType<StringType>, KT, V>;
+    /** The gutter's value slot. */
+    value?: PlanCaseAccessor<R, OptionType<StringType>, KT, V>;
+    /** The gutter's status dot. */
+    status?: PlanCaseAccessor<R, OptionType<StatusValueType>, KT, V>;
+    /** Expand in place. */
+    expand?: PlanCaseAccessor<R, OptionType<PlanExpandType>, KT, V>;
+    /** The lanes its tiles sit in, in order. */
+    lanes?: PlanCaseAccessor<R, ArrayType<PlanLaneType>, KT, V>;
+    /** The rows beneath each of its resources, over the resource's own row. */
+    series?: readonly PlanSeriesValue<PlanAxisKindLiteral>[];
+    /** How a resource with resources under it rolls their events into its bands. */
+    rollup?: SubtypeExprOrValue<PlanRollupType> | PlanRollupLiteral;
+    /** Whether a resource with rows beneath it starts folded — a constant, or per entry. */
+    collapsed?: boolean | PlanCaseAccessor<R, BooleanType, KT, V>;
+}
+
+/**
+ * `Plan.series.kinds`' cases (#1541, U2): one for every case of the field, a
+ * case not drawn `false` — exhaustive, as an East `match` is, so a case the
+ * variant gains fails to compile until it is listed.
+ *
+ * @typeParam R - The entry type
+ * @typeParam KT - The entries' key type
+ * @typeParam F - The variant field
+ */
+export type PlanKindsCases<R extends EastType, KT extends EastType, F extends string> = {
+    readonly [T in keyof PlanVariantCases<R, F> & string]: PlanKindsCase<R, KT, PlanVariantCases<R, F>[T] & EastType> | false
+};
+
 // ============================================================================
 // Build specs — how each series is built for a collection type
 // ============================================================================
@@ -1110,6 +1236,8 @@ interface PlanSeriesSpec {
     readonly reads: readonly PlanSeriesRead[];
     /** What a Plan holds to its rows' nested series index as it is built (#1435); none for hand-built rows. */
     readonly nest?: PlanSeriesNest;
+    /** A `resources` series' or a `kinds` case's landing (#1541, U1): what the Plan places its event kinds' events by. */
+    readonly landing?: PlanLanding;
     /** This series' rows for entries of `collection`, as ONE stream — what an
      *  entry's subtree holds when a step-down lays the series out below it. */
     emitter(collection: EastType, where: string): EmitFn;
@@ -1188,6 +1316,29 @@ export interface PlanSeriesNestFacts {
     readonly reads: readonly PlanSeriesRead[];
     /** What it reads and how. */
     readonly nest: PlanSeriesNest | undefined;
+}
+
+/**
+ * A series the Plan's event kinds land on (#1541, U1): a `Plan.series.resources`
+ * series, or a case of `Plan.series.kinds`. Its rows are the resources: an
+ * event kind whose `resource.of` names its key lands each event on the row
+ * whose key its field holds.
+ *
+ * @internal
+ * @property key - Its key: what `of` names
+ * @property title - Its name: how the Plan names its rows to a viewer
+ * @property icon - Its icon, as given; none, the resources' own
+ * @property keyType - Its rows' key type: what an event's resource field holds
+ * @property rowType - Its rows' type
+ * @property lanes - Whether it declares its tiles' lanes
+ */
+export interface PlanLanding {
+    readonly key: string;
+    readonly title: string;
+    readonly icon: PlanIconInput | undefined;
+    readonly keyType: EastType;
+    readonly rowType: EastType;
+    readonly lanes: boolean;
 }
 
 /** Every series value a builder made, with its build spec. */
@@ -3181,6 +3332,402 @@ function viewsSpec(rowType: EastType, cfg: PlanViewsSeriesConfig<EastType, EastT
     return spec;
 }
 
+/** The kinds of series a resource's `series` may be: a row over its own row (#1541, U1). */
+const LANDING_MEMBER_ARMS: readonly PlanSeriesArm[] = ["span", "buckets", "chart", "heat", "table", "cards", "events"];
+
+/** A `resources` series' config with its entry type erased: what the build machinery reads. */
+type AnyLandingConfig = Omit<PlanResourcesSeriesConfig<EastType, EastType>, "children" | "series"> & { readonly children?: unknown };
+
+/**
+ * The build spec of a `resources` series (#1541, U1).
+ *
+ * @remarks
+ * Each entry it takes is one LANDING ROW, at the entry's path under the
+ * series' key: the row its event kinds land on. It holds no element of its
+ * own — the Plan fills it with the events whose resource is the entry's key,
+ * and adds a row beside it for each further way its kinds draw — so a Plan
+ * with no event kinds draws it as the resource's empty row. Declaring `lanes`,
+ * it is a row of tiles in those lanes, every one drawn, from the start.
+ *
+ * Its `series` follow it, each at the same path under its own key and nested
+ * under it, so folding the row folds them; then, for a tree, the resources
+ * under it, each a landing row with its series in turn, its bands rolling up
+ * the events of those beneath it. A gesture on one of its series' rows is
+ * written by that series, at any depth of the tree.
+ *
+ * @param rowType - The entry type
+ * @param cfg - Its accessors, lanes and tree
+ * @param members - Its series, each a row over the resource's own row
+ * @returns The spec
+ */
+function landingSpec(rowType: EastType, cfg: AnyLandingConfig, members: readonly PlanSeriesValue<PlanAxisKindLiteral>[]): PlanSeriesSpec {
+    const where = `Plan.series.resources "${cfg.key}"`;
+    const memberSpecs = members.map((m, i) => {
+        const spec = nestedSpec(m, `${where} › series[${i}]`);
+        if (!LANDING_MEMBER_ARMS.includes(spec.arm)) {
+            throw new Error(`${where}: series[${i}] is a ${nameOf(spec)} series — a resource's series are rows over its own row: ` +
+                "a span, buckets, chart, heat, table, cards or events series");
+        }
+        return spec;
+    });
+    const recursive = (rowType as { type: string }).type === "Recursive";
+    const nodeOf = (value: ExprType<EastType>): ExprType<EastType> => recursive
+        ? (value as unknown as RecursiveExpr<EastType>).unwrap() as ExprType<EastType>
+        : value;
+    const tree = cfg.children;
+    if (tree !== undefined && typeof tree !== "string") {
+        throw new Error(`${where}: children names the Dict field of its rows holding more of them, each a resource its kinds land on — ` +
+            "a tree: children: \"field\"");
+    }
+    if (tree !== undefined) checkTree(rowType, tree, where);
+    const rollup = resolveTag(cfg.rollup ?? "union", PlanRollupType);
+    const RollupOpt = OptionType(PlanRollupType);
+
+    const rows = new ByType<EntryRowFn>();
+    const matches = new ByType<MatchFn | undefined>();
+    const collapses = new ByType<CollapsedFn | undefined>();
+    const emitters = new ByType<EmitFn>();
+    const blockLists = new ByType<BlocksFn>();
+    const writerLists = new ByType<WriteFn | undefined>();
+    const walks = new ByType<ExprType<FunctionType<[EastType, ArrayType<StringType>, PlanRowIdType, PlanHiddenType], PlanRowsCollectionType>>>();
+
+    /** The landing row: `(value, key, id, parent, rolls, collapsed) → row` — `rolls`, whether resources of its tree sit under it. */
+    const rowFor = (kt: EastType): EntryRowFn => rows.get(kt, () => building(where, kt, () => East.function(
+        [rowType, kt, PlanRowIdType, IdOptType, BooleanType, BooleanType], PlanRowType,
+        ($, value, key, id, parent, rolls, collapsed) => {
+            const entry = recursive ? $.let(nodeOf(value)) : value;
+            const bands = $.let(rolls.ifElse(() => East.value(some(rollup), RollupOpt), () => East.value(none, RollupOpt)), RollupOpt);
+            return planRow({
+                id, parent,
+                gutter: planGutter({
+                    label: cfg.label(entry, key),
+                    ...(cfg.id !== undefined ? { id: cfg.id } : {}),
+                    ...(cfg.stacked !== undefined ? { stacked: cfg.stacked } : {}),
+                    ...(cfg.sub !== undefined ? { sub: cfg.sub(entry, key) } : {}),
+                    ...(cfg.value !== undefined ? { value: cfg.value(entry, key) } : {}),
+                }),
+                // Its tiles' lanes, where it declares them: every one drawn from the start. Otherwise the row of bars the
+                // Plan fills, or leaves empty.
+                kind: cfg.lanes !== undefined
+                    ? bucketsKind({ lanes: cfg.lanes(entry, key), events: [] })
+                    : spanKind({ runs: [] }, bands),
+                collapsed,
+                ...(cfg.status !== undefined ? { status: cfg.status(entry, key) } : {}),
+                ...(cfg.expand !== undefined ? { expand: cfg.expand(entry, key) } : {}),
+            });
+        },
+    ) as unknown as EntryRowFn));
+    const matchFor = (kt: EastType): MatchFn | undefined => matches.get(kt, () => {
+        const match = cfg.match;
+        if (match === undefined) return undefined;
+        return building(where, kt, () => East.function([rowType, kt], BooleanType,
+            (_$, value, key) => match(nodeOf(value), key)) as unknown as MatchFn);
+    });
+    const collapsedFor = (kt: EastType): CollapsedFn | undefined => collapses.get(kt, () => {
+        const collapsed = cfg.collapsed;
+        if (collapsed === undefined) return undefined;
+        return building(where, kt, () => East.function([rowType, kt], BooleanType, (_$, value, key) =>
+            typeof collapsed === "boolean"
+                ? East.value(collapsed, BooleanType)
+                : East.value(collapsed(nodeOf(value), key), BooleanType)) as unknown as CollapsedFn);
+    });
+    /** Its series' rows for one entry, built for entries keyed by `kt`: each over a collection of that entry alone. */
+    const membersFor = (kt: EastType): { readonly single: DictType<EastType, EastType>; readonly emits: readonly EmitFn[] } => {
+        const single = DictType(kt, rowType);
+        return { single, emits: memberSpecs.map((m) => m.emitter(single, `${where} › ${nameOf(m)}`)) };
+    };
+    /** The tree's children of an entry keyed by `kt`, reified once: the child collection's type is its output. */
+    const childOf = (kt: EastType) => building(where, kt, () =>
+        reifyAccessor([rowType, kt], (v: ExprType<EastType>) => collectionOn(nodeOf(v), tree!) as unknown as Expr)) as unknown as
+        ExprType<FunctionType<[EastType, EastType], EastType>>;
+    const collapseOf = ($: { let: (v: unknown, t: EastType) => unknown }, collapse: CollapsedFn | undefined, value: ExprType<EastType>, key: ExprType<EastType>) =>
+        $.let(collapse === undefined ? East.value(false, BooleanType) : collapse(value, key), BooleanType) as ExprType<BooleanType>;
+
+    /**
+     * The tree below one entry, over the child collection type `cc`: every level's matched entries in pre-order, each
+     * its landing row, its series' rows nested under it, then the resources under it.
+     */
+    const walkFor = (cc: EastType) => walks.get(cc, () => {
+        const at = `${where} › children`;
+        const { entry, key: kc } = shapeOf(cc, at);
+        assertEntry(entry, rowType, `${at} (a tree's children are more of this series' rows)`);
+        const next = childOf(kc);
+        const row = rowFor(kc);
+        const match = matchFor(kc);
+        const collapsed = collapsedFor(kc);
+        const { single, emits } = membersFor(kc);
+        const seg = segmentOf(kc);
+        const Frame = StructType({ value: rowType, key: kc, prefix: PathType, path: PathType, parent: PlanRowIdType });
+        const Frames = ArrayType(Frame);
+        // A level's matched entries as frames, REVERSED, so the stack pops the first of them first.
+        const framesOf = East.function([cc, PathType, PlanRowIdType], Frames, ($, coll, prefix, parentId) => {
+            const frames = $.let([], Frames);
+            const member = match === undefined ? undefined : $.const(match);
+            $.for(coll as ExprType<ArrayType<EastType>>, ($2, value, key) => {
+                const add = ($3: typeof $2) => {
+                    const segs = $3.let(East.value([seg(key as ExprType<EastType>)], PathType), PathType);
+                    $3(frames.pushLast(East.value({ value, key, prefix, path: prefix.concat(segs), parent: parentId }, Frame)));
+                };
+                if (member === undefined) add($2);
+                else $2.if(member(value, key), add);
+            });
+            $(frames.reverseInPlace());
+            return frames;
+        });
+        return East.function([cc, PathType, PlanRowIdType, PlanHiddenType], PlanRowsCollectionType, ($, coll, path0, parent0, hidden) => {
+            // Every function the loop calls, bound ONCE (see the data walk).
+            const frames = $.const(framesOf);
+            const childrenOf = $.const(next);
+            const entryRow = $.const(row);
+            const memberRows = emits.map((e) => $.const(e));
+            const collapse = collapsed === undefined ? undefined : $.const(collapsed);
+            const out = $.let([], PlanRowsCollectionType);
+            const stack = $.let(frames(coll, path0, parent0), Frames);
+            $.while(stack.size().greater(0n), ($2) => {
+                const f = $2.let(stack.popLast(), Frame);
+                const id = $2.let(East.value(variant("entry", { series: cfg.key, path: f.path }), PlanRowIdType), PlanRowIdType);
+                const under = $2.let(East.value(some(id), IdOptType), IdOptType);
+                const below = $2.let(frames(childrenOf(f.value, f.key), f.path, id), Frames);
+                const parent = $2.let(East.value(some(f.parent), IdOptType), IdOptType);
+                const one = $2.let(new Map(), single);
+                $2(one.insert(f.key, f.value));
+                const sub = $2.let([], PlanRowsCollectionType);
+                for (const rowsOf of memberRows) $2(sub.append(rowsOf(one, f.prefix, under, hidden)));
+                const fold = collapseOf($2 as never, collapse, f.value, f.key);
+                $2(out.pushLast(entryRow(f.value, f.key, id, parent, below.size().greater(0n), fold)));
+                $2(out.append(sub));
+                $2(stack.append(below));
+            });
+            return out;
+        });
+    });
+
+    // How many chart rows each entry makes (#1398): its series', the same for every entry, of those the canvas leaves in —
+    // where it has no tree, whose depth is the data's.
+    const memberCharts = chartsOf(memberSpecs);
+    const charts = entryCharts(memberCharts, tree === undefined ? 0 : memberCharts, cfg.match !== undefined);
+    const chartsShown = charts === undefined || charts === 0 ? charts
+        : (hidden: ExprType<PlanHiddenType>): ExprType<OptionType<IntegerType>> => Expr.block(($) => {
+            const count = $.let(0n, IntegerType);
+            for (const m of memberSpecs) {
+                if (m.charts === undefined || m.charts === 0) continue;
+                $.if(hidden.has(m.key).not(), ($2) => { $2.assign(count, count.add(BigInt(m.charts!))); });
+            }
+            return East.value(some(count), OptionType(IntegerType));
+        });
+
+    const spec: PlanSeriesSpec = {
+        key: cfg.key,
+        title: cfg.title,
+        subtitle: cfg.subtitle,
+        icon: cfg.icon,
+        arm: "resources",
+        nested: memberSpecs,
+        nests: tree !== undefined,
+        charts,
+        reads: [],
+        // Its series read its own entries; its tree's field is more of them (#1435).
+        nest: {
+            rowType,
+            keyType: cfg.keyType ?? StringType,
+            accessors: accessorsOf(cfg),
+            tree,
+            steps: [],
+            members: memberSpecs,
+            aggregate: undefined,
+            subtotalsOwn: false,
+            rollup: tree !== undefined ? tagOf(cfg.rollup, "union") : undefined,
+        },
+        landing: { key: cfg.key, title: cfg.title, icon: cfg.icon, keyType: cfg.keyType ?? StringType, rowType, lanes: cfg.lanes !== undefined },
+        emitter(collection, at) {
+            return emitters.get(collection, () => {
+                const { entry, key: kt } = shapeOf(collection, at);
+                assertEntry(entry, rowType, where);
+                const row = rowFor(kt);
+                const match = matchFor(kt);
+                const collapsed = collapsedFor(kt);
+                const { single, emits } = membersFor(kt);
+                const of = tree === undefined ? undefined : childOf(kt);
+                const walk = of === undefined ? undefined : walkFor((Expr.type(of) as unknown as { output: EastType }).output);
+                const seg = segmentOf(kt);
+                return East.function([collection, PathType, IdOptType, PlanHiddenType], PlanRowsCollectionType, ($, coll, prefix, parent, hidden) => {
+                    // Every function the loop calls, bound ONCE (see the data walk).
+                    const entryRow = $.const(row);
+                    const member = match === undefined ? undefined : $.const(match);
+                    const collapse = collapsed === undefined ? undefined : $.const(collapsed);
+                    const memberRows = emits.map((e) => $.const(e));
+                    const childrenOf = of === undefined ? undefined : $.const(of);
+                    const walkBelow = walk === undefined ? undefined : $.const(walk);
+                    const out = $.let([], PlanRowsCollectionType);
+                    // A series the canvas leaves out makes no row, and so none beneath one (#1541, U3).
+                    $.if(hidden.has(cfg.key).not(), ($1) => {
+                        $1.for(coll as ExprType<ArrayType<EastType>>, ($2, value, key) => {
+                            const emit = ($3: typeof $2) => {
+                                const segs = $3.let(East.value([seg(key as ExprType<EastType>)], PathType), PathType);
+                                const path = $3.let(prefix.concat(segs), PathType);
+                                const id = $3.let(East.value(variant("entry", { series: cfg.key, path }), PlanRowIdType), PlanRowIdType);
+                                const under = $3.let(East.value(some(id), IdOptType), IdOptType);
+                                const one = $3.let(new Map(), single);
+                                $3(one.insert(key as ExprType<EastType>, value as ExprType<EastType>));
+                                const sub = $3.let([], PlanRowsCollectionType);
+                                for (const rowsOf of memberRows) $3(sub.append(rowsOf(one, prefix, under, hidden)));
+                                const rolls = $3.let(false, BooleanType);
+                                if (walkBelow !== undefined && childrenOf !== undefined) {
+                                    const kids = $3.let(walkBelow(childrenOf(value, key), path, id, hidden), PlanRowsCollectionType);
+                                    $3.assign(rolls, kids.size().greater(0n));
+                                    $3(sub.append(kids));
+                                }
+                                const fold = collapseOf($3 as never, collapse, value as ExprType<EastType>, key as ExprType<EastType>);
+                                $3(out.pushLast(entryRow(value, key, id, parent, rolls, fold)));
+                                $3(out.append(sub));
+                            };
+                            if (member === undefined) emit($2);
+                            else $2.if(member(value, key), emit);
+                        });
+                    });
+                    return out;
+                }) as unknown as EmitFn;
+            });
+        },
+        // One block of its entries' rows — what a paged canvas pages (#823).
+        blocks(collection, at) {
+            return blockLists.get(collection, () => oneBlock(collection, cfg.key, spec.emitter(collection, at), false, chartsShown));
+        },
+        // A landing row takes no gesture of its own: its kinds' events are their records'. A gesture on one of its series'
+        // rows is that series' to write — on the entry itself, or down its tree on the resource the row is under.
+        writer(collection, at) {
+            return writerLists.get(collection, () => {
+                const { entry, key: kt } = shapeOf(collection, at);
+                assertEntry(entry, rowType, where);
+                const top = memberSpecs.map((m) => m.writer(DictType(kt, rowType), `${where} › ${nameOf(m)}`)).filter((w): w is WriteFn => w !== undefined);
+                const of = tree === undefined ? undefined : childOf(kt);
+                const cc = of === undefined ? undefined : (Expr.type(of) as unknown as { output: EastType }).output;
+                const kc = cc === undefined ? undefined : shapeOf(cc, where).key;
+                const below = kc === undefined ? [] : memberSpecs.map((m) => m.writer(DictType(kc, rowType), `${where} › ${nameOf(m)}`)).filter((w): w is WriteFn => w !== undefined);
+                if (top.length === 0 && below.length === 0) return undefined;
+                const ops = cc === undefined ? undefined : collectionOps(cc);
+                return East.function([rowType, kt, PathType, IntegerType, StringType, PlanGestureType, PlanCarriedType], OptionType(rowType),
+                    ($, value, key, path, depth, series, gesture, carried) => {
+                        const result = $.let(none, OptionType(rowType));
+                        for (const w of top) {
+                            const write = $.const(w);
+                            $.if(result.hasTag("none"), ($2) => { $2.assign(result, write(value, key, path, depth, series, gesture, carried)); });
+                        }
+                        if (below.length === 0 || ops === undefined || cc === undefined || kc === undefined) return result;
+                        // Down the tree, a resource at a time: at each, its series' rows and those beneath them. A path
+                        // through a resource the tree lacks writes nothing.
+                        const writes = below.map((w) => $.const(w));
+                        const keyOf = $.const(segmentKeyOf(kc));
+                        $.if(result.hasTag("none"), ($2) => {
+                            const cur = $2.let(value, rowType);
+                            const d = $2.let(depth, IntegerType);
+                            const going = $2.let(true, BooleanType);
+                            $2.while(going.and(() => d.less(path.size())), ($3) => {
+                                const coll = $3.let(collectionOn(nodeOf(cur), tree!), cc);
+                                const k = $3.let(keyOf(path.get(d)), kc);
+                                $3.if(ops.has(coll, k), ($4) => {
+                                    const child = $4.let(ops.get(coll, k), rowType);
+                                    const nextDepth = $4.let(d.add(1n), IntegerType);
+                                    for (const write of writes) {
+                                        $4.if(result.hasTag("none"), ($5) => {
+                                            const written = $5.let(write(child, k, path, nextDepth, series, gesture, carried), OptionType(rowType));
+                                            $5.match(written, {
+                                                some: ($6, next) => {
+                                                    $6(ops.put(coll, k, next));
+                                                    $6.assign(result, some(value));
+                                                },
+                                            });
+                                        });
+                                    }
+                                    $4.assign(cur, child);
+                                    $4.assign(d, nextDepth);
+                                    $4.if(result.hasTag("some"), ($5) => { $5.assign(going, false); });
+                                }).else(($4) => { $4.assign(going, false); });
+                            });
+                        });
+                        return result;
+                    }) as unknown as WriteFn;
+            });
+        },
+    };
+    return spec;
+}
+
+/**
+ * The build spec of a `kinds` block (#1541, U2): one pass over the entries, in
+ * the source's order, each entry drawn by the case its variant field holds —
+ * that case's landing row and its series — and an entry of a case drawn
+ * `false` left out.
+ *
+ * @param field - The variant field
+ * @param cases - Each case drawn: its name, and its resources series' spec
+ * @returns The spec
+ */
+function kindsSpec(field: string, cases: readonly { readonly tag: string; readonly spec: PlanSeriesSpec }[]): PlanSeriesSpec {
+    const caseSpecs = cases.map((c) => c.spec);
+    const key = `kinds(${field}: ${caseSpecs.map((c) => c.key).join(", ")})`;
+    const where = `Plan.series.kinds "${field}"`;
+    const emitters = new ByType<EmitFn>();
+    const blockLists = new ByType<BlocksFn>();
+    const writerLists = new ByType<WriteFn | undefined>();
+    const spec: PlanSeriesSpec = {
+        key,
+        title: caseSpecs.map((c) => c.title).join(", "),
+        subtitle: undefined,
+        icon: undefined,
+        arm: "kinds",
+        nested: caseSpecs,
+        nests: caseSpecs.some((c) => c.nests),
+        // Each entry makes the rows of its case alone (#1398): as many chart rows for every entry only where no case makes one.
+        charts: caseSpecs.every((c) => c.charts === 0) ? 0 : undefined,
+        reads: [],
+        // Its cases read its own entries (#1435).
+        nest: {
+            rowType: caseSpecs[0]?.nest?.rowType, keyType: caseSpecs[0]?.nest?.keyType ?? StringType, accessors: [], tree: undefined,
+            steps: [], members: caseSpecs, aggregate: undefined, subtotalsOwn: false, rollup: undefined,
+        },
+        emitter(collection, at) {
+            return emitters.get(collection, () => {
+                const { entry, key: kt } = shapeOf(collection, at);
+                const single = DictType(kt, entry);
+                const emits = caseSpecs.map((c) => c.emitter(single, `${at} › ${where}`));
+                return East.function([collection, PathType, IdOptType, PlanHiddenType], PlanRowsCollectionType, ($, coll, prefix, parent, hidden) => {
+                    const each = emits.map((e) => $.const(e));
+                    const out = $.let([], PlanRowsCollectionType);
+                    // Each entry as one: its case's landing row takes it, every other case's leaves it.
+                    $.for(coll as ExprType<ArrayType<EastType>>, ($2, value, k) => {
+                        const one = $2.let(new Map(), single);
+                        $2(one.insert(k as ExprType<EastType>, value as ExprType<EastType>));
+                        for (const rowsOf of each) $2(out.append(rowsOf(one, prefix, parent, hidden)));
+                    });
+                    return out;
+                }) as unknown as EmitFn;
+            });
+        },
+        blocks(collection, at) {
+            return blockLists.get(collection, () => oneBlock(collection, key, spec.emitter(collection, at), false, spec.charts));
+        },
+        // Its cases add no path segment: an entry's rows are its case's, which writes a gesture on them.
+        writer(collection, at) {
+            return writerLists.get(collection, () => {
+                const writes = caseSpecs.map((c) => c.writer(collection, `${at} › ${where}`)).filter((w): w is WriteFn => w !== undefined);
+                if (writes.length === 0) return undefined;
+                const { entry, key: kt } = shapeOf(collection, at);
+                return East.function([entry, kt, PathType, IntegerType, StringType, PlanGestureType, PlanCarriedType], OptionType(entry),
+                    ($, value, k, path, depth, series, gesture, carried) => {
+                        const result = $.let(none, OptionType(entry));
+                        for (const w of writes) {
+                            const write = $.const(w);
+                            $.if(result.hasTag("none"), ($2) => { $2.assign(result, write(value, k, path, depth, series, gesture, carried)); });
+                        }
+                        return result;
+                    }) as unknown as WriteFn;
+            });
+        },
+    };
+    return spec;
+}
+
 /** The build spec of a `section`. */
 function sectionSpec(cfg: PlanSectionSeriesConfig<PlanAxisKindLiteral>, members: PlanSeriesValue<PlanAxisKindLiteral>[]): PlanSeriesSpec {
     const where = `Plan.series.section "${cfg.key}"`;
@@ -3445,6 +3992,8 @@ export function applySeriesValue(
         section: (_$, v) => v.derive(d),
         views:   (_$, v) => v.derive(d),
         rows:    (_$, v) => v.derive(d),
+        resources: (_$, v) => v.derive(d),
+        kinds:   (_$, v) => v.derive(d),
     }) as PlanBlocksValue;
 }
 
@@ -3468,6 +4017,8 @@ function seriesValueKey(s: PlanSeriesValue<PlanAxisKindLiteral>): ExprType<Strin
         section: (_$, v) => v.key,
         views:   (_$, v) => v.key,
         rows:    (_$, v) => v.key,
+        resources: (_$, v) => v.key,
+        kinds:   (_$, v) => v.key,
     }) as ExprType<StringType>;
 }
 
@@ -3509,7 +4060,7 @@ export function planPickables(series: unknown): readonly PlanPickable[] | undefi
     for (const one of series) {
         const spec = specOf(one);
         if (spec === undefined) return undefined;
-        if (spec.arm === "views" && spec.nest !== undefined) lines.push(...spec.nest.members.map(line));
+        if ((spec.arm === "views" || spec.arm === "kinds") && spec.nest !== undefined) lines.push(...spec.nest.members.map(line));
         else lines.push(line(spec));
     }
     return lines;
@@ -3612,6 +4163,31 @@ export function planSeriesKeys(series: unknown): readonly string[] | undefined {
 }
 
 /**
+ * The series a list's event kinds may land on (#1541, U1): every `resources`
+ * series and `kinds` case in its tree, in the order the canvas draws them —
+ * what an event kind's `resource.of` names.
+ *
+ * @param series - The `series` input
+ * @returns The landings; `undefined` for an East expression list, or one holding a series no `Plan.series.*` builder
+ *   made in place, whose series are not known until it runs
+ * @internal
+ */
+export function planLandings(series: unknown): readonly PlanLanding[] | undefined {
+    if (!Array.isArray(series)) return undefined;
+    const out: PlanLanding[] = [];
+    const walk = (spec: PlanSeriesSpec): void => {
+        if (spec.landing !== undefined) out.push(spec.landing);
+        spec.nested.forEach(walk);
+    };
+    for (const one of series) {
+        const spec = specOf(one);
+        if (spec === undefined) return undefined;
+        walk(spec);
+    }
+    return out;
+}
+
+/**
  * Apply the `series` input to the source — the canvas's BLOCKS (#823): every
  * series' blocks, in declared order.
  *
@@ -3704,6 +4280,8 @@ function seriesValueWrite(s: PlanSeriesValue<PlanAxisKindLiteral>): TopWriteFn {
         section: (_$, v) => v.write,
         views:   (_$, v) => v.write,
         rows:    (_$, v) => v.write,
+        resources: (_$, v) => v.write,
+        kinds:   (_$, v) => v.write,
     }) as unknown as TopWriteFn;
 }
 
@@ -4258,6 +4836,143 @@ export function createSeriesViews<
     const cfg = config as unknown as PlanViewsSeriesConfig<EastType, EastType>;
     const spec = viewsSpec(rowType, cfg, members);
     return seriesValue(rowType, cfg.keyType, spec, cfg) as PlanSeriesValue<K, PlanReadsNormal<PlanIntersect<PlanReadsOfSeries<S[number]>> & PlanChildrenReads<CT, CU, CF, CS>>>;
+}
+
+/**
+ * A resources series (#1541, U1): the rows the Plan's event kinds land on —
+ * the record's own rows, each a resource. One landing row per entry, labelled
+ * by `label`; an event kind whose `resource.of` names this series' `key` lands
+ * each of its events on the row whose key its field holds, and a row is drawn
+ * for each further way the kinds landing there draw. The entry's `series`
+ * follow, beneath it; `children` makes a tree of them, each a resource in
+ * turn, its bands rolling up the events beneath it.
+ *
+ * @remarks
+ * It is what `Schedule.resources` was on a Plan: a resource kind's `label`,
+ * `sub` and `value` are the series', its `measures` the series' `series`, its
+ * `parent` a tree (`children`), and its `group` a `Plan.series.group` whose
+ * children are this series. Its rows are read as every other series' are —
+ * whole, or a page at a time through the record's indexes — and edited the
+ * same way: a gesture on one of its series' rows writes that row's entry,
+ * through the Plan's `record`.
+ *
+ * @typeParam R - The entry type
+ * @typeParam K - The union of its series' axis kinds (inferred; `never` when all are erased)
+ * @typeParam KT - The entries' key type: what an event's resource field holds
+ * @typeParam S - Its series, as written
+ * @typeParam CT - A tree's field, as `children` names it
+ * @param rowType - The entry type
+ * @param config - Its name, gutter, lanes, series and tree ({@link PlanResourcesSeriesConfig})
+ * @returns A series value, branded with its series' kinds and what they read
+ * @throws {Error} Naming the option: a series that is no row over the resource's own row, or a `children` that is no
+ *   Dict field of its rows holding more of them
+ */
+export function createSeriesResources<
+    R extends EastType, K extends PlanAxisKindLiteral = never, KT extends EastType = StringType,
+    const S extends readonly unknown[] = never, CT extends PlanTreeField<R> = never,
+>(
+    rowType: R,
+    config: PlanResourcesSeriesConfig<R, KT, CT> & { readonly series?: S & readonly PlanSeriesValue<K>[] },
+): PlanSeriesValue<K, PlanReadsNormal<([S] extends [never] ? unknown : PlanIntersect<PlanReadsOfSeries<S[number]>>) & PlanChildrenReads<CT, unknown, unknown, never>>> {
+    const cfg = config as unknown as AnyLandingConfig & { readonly series?: readonly PlanSeriesValue<PlanAxisKindLiteral>[] };
+    const spec = landingSpec(rowType, cfg, cfg.series ?? []);
+    return seriesValue(rowType, cfg.keyType, spec, cfg) as PlanSeriesValue<K, PlanReadsNormal<([S] extends [never] ? unknown : PlanIntersect<PlanReadsOfSeries<S[number]>>) & PlanChildrenReads<CT, unknown, unknown, never>>>;
+}
+
+/**
+ * A kinds block (#1541, U2): each case of a variant field of the rows a
+ * resources series, one block in the source's order — each entry drawn by the
+ * case its field holds, the event kinds whose `resource.of` names that case
+ * landing on it. A case not drawn says `false`, its entries left out; the
+ * cases are exhaustive, so a case the variant gains fails to compile until it
+ * is listed.
+ *
+ * @remarks
+ * Each case's key is its name unless it gives `key`, unique across the series
+ * tree as every series' is: `resource.of`, `hidden` and the Series tab name a
+ * case by it. Every accessor of a case is handed the case's value after the
+ * row and its key: `(row, key, value)`. A case's `match` narrows its entries
+ * further, by that value.
+ *
+ * @typeParam R - The entry type
+ * @typeParam F - The variant field
+ * @typeParam KT - The entries' key type
+ * @typeParam C - The cases, as written
+ * @param rowType - The entry type
+ * @param field - The variant field of the rows whose cases are the kinds
+ * @param cases - A resources series' config per case ({@link PlanKindsCase}), or `false`
+ * @returns A series value
+ * @throws {Error} Naming the field or the case: no variant field of the rows, a case missing or one the variant lacks,
+ *   no case drawn, cases of other key types, and what a resources series refuses
+ */
+export function createSeriesKinds<
+    R extends EastType, F extends PlanVariantField<R>, KT extends EastType = StringType,
+    const C extends PlanKindsCases<R, KT, F> = PlanKindsCases<R, KT, F>,
+>(rowType: R, field: F, cases: C): PlanSeriesValue {
+    const where = `Plan.series.kinds "${field}"`;
+    const fields = entryFieldsOf(rowType);
+    const variantType = fields?.[field] as { type: string; cases?: Record<string, EastType> } | undefined;
+    if (variantType === undefined || variantType.type !== "Variant" || variantType.cases === undefined) {
+        throw new Error(`${where}: "${field}" is no variant field of its rows — name the variant field whose cases are the kinds of row`);
+    }
+    const tags = Object.keys(variantType.cases);
+    const given = cases as unknown as Readonly<Record<string, PlanKindsCase<EastType, EastType, EastType> | false>>;
+    for (const name of Object.keys(given)) {
+        if (!tags.includes(name)) throw new Error(`${where}: "${name}" is no case of "${field}" (${tags.join(", ")})`);
+    }
+    const missing = tags.filter((t) => given[t] === undefined);
+    if (missing.length > 0) {
+        throw new Error(`${where}: every case of "${field}" is listed — a resources series, or false for one not drawn — and ${missing.map((t) => `"${t}"`).join(", ")} ${missing.length === 1 ? "is" : "are"} not`);
+    }
+    const drawn = tags.filter((t) => given[t] !== false);
+    if (drawn.length === 0) throw new Error(`${where}: every case of "${field}" says false — draw at least one`);
+    const keyTypes = drawn.map((t) => (given[t] as PlanKindsCase<EastType, EastType, EastType>).keyType).filter((k): k is EastType => k !== undefined);
+    const keyType = keyTypes[0];
+    if (keyType !== undefined && keyTypes.some((k) => !isTypeEqual(k, keyType))) {
+        throw new Error(`${where}: its cases read one collection's entries, keyed by one type — and they give keyType ${keyTypes.map((k) => printTypeSummary(k)).join(" and ")}`);
+    }
+    const recursive = (rowType as { type: string }).type === "Recursive";
+    // The case's value, read off the entry (its node, when recursive): every accessor's third argument.
+    const caseOf = (row: ExprType<EastType>, tag: string): ExprType<EastType> => {
+        const node = recursive ? (row as unknown as RecursiveExpr<EastType>).unwrap() as ExprType<EastType> : row;
+        return ((node as unknown as Record<string, ExprType<EastType>>)[field] as unknown as { unwrap: (t: string) => ExprType<EastType> }).unwrap(tag);
+    };
+    const holds = (row: ExprType<EastType>, tag: string): ExprType<BooleanType> => {
+        const node = recursive ? (row as unknown as RecursiveExpr<EastType>).unwrap() as ExprType<EastType> : row;
+        return ((node as unknown as Record<string, ExprType<EastType>>)[field] as unknown as { hasTag: (t: string) => ExprType<BooleanType> }).hasTag(tag);
+    };
+    const built = drawn.map((tag) => {
+        const c = given[tag] as PlanKindsCase<EastType, EastType, EastType>;
+        type Acc<T extends EastType> = PlanCaseAccessor<EastType, T, EastType, EastType> | undefined;
+        // A case's accessor over the row and its key: the case's value read off the row, handed after them.
+        const over = <T extends EastType>(fn: Acc<T>) => fn === undefined ? undefined
+            : (row: ExprType<EastType>, key: ExprType<EastType>) => fn(row as never, key, caseOf(row, tag));
+        const ownMatch = c.match;
+        const cfg: AnyLandingConfig = {
+            key: c.key ?? tag,
+            title: c.title,
+            ...(c.subtitle !== undefined ? { subtitle: c.subtitle } : {}),
+            ...(c.icon !== undefined ? { icon: c.icon } : {}),
+            ...(keyType !== undefined ? { keyType } : {}),
+            // The entries holding the case, and of them those its own `match` takes.
+            match: (row, key) => ownMatch === undefined
+                ? holds(row as never, tag)
+                : holds(row as never, tag).and(() => East.value(ownMatch(row as never, key, caseOf(row as never, tag)), BooleanType)),
+            label: over(c.label)!,
+            ...(c.id !== undefined ? { id: c.id } : {}),
+            ...(c.stacked !== undefined ? { stacked: c.stacked } : {}),
+            ...(c.sub !== undefined ? { sub: over(c.sub)! } : {}),
+            ...(c.value !== undefined ? { value: over(c.value)! } : {}),
+            ...(c.status !== undefined ? { status: over(c.status)! } : {}),
+            ...(c.expand !== undefined ? { expand: over(c.expand)! } : {}),
+            ...(c.lanes !== undefined ? { lanes: over(c.lanes)! } : {}),
+            ...(c.rollup !== undefined ? { rollup: c.rollup } : {}),
+            ...(c.collapsed !== undefined ? { collapsed: typeof c.collapsed === "boolean" ? c.collapsed : over(c.collapsed)! } : {}),
+        } as AnyLandingConfig;
+        return { tag, spec: landingSpec(rowType, cfg, c.series ?? []) };
+    });
+    const spec = kindsSpec(field, built);
+    return seriesValue(rowType, keyType, spec, { key: spec.key, title: spec.title });
 }
 
 /**

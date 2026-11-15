@@ -183,6 +183,8 @@ import {
     createSeriesSection,
     createSeriesViews,
     createSeriesRows,
+    createSeriesResources,
+    createSeriesKinds,
     createChildren,
 } from "./series.js";
 import { createPlanRoot } from "./root.js";
@@ -435,6 +437,13 @@ export {
     type PlanGroupSeriesConfig,
     type PlanSectionSeriesConfig,
     type PlanViewsSeriesConfig,
+    type PlanResourcesSeriesConfig,
+    type PlanLanding,
+    type PlanKindsCase,
+    type PlanKindsCases,
+    type PlanCaseAccessor,
+    type PlanVariantField,
+    type PlanVariantCases,
     type PlanEntryFields,
     type PlanItemFields,
     type PlanItemInstantType,
@@ -549,6 +558,10 @@ export interface PlanNamespace extends PlanTagType {
         views: typeof createSeriesViews;
         /** Hand-built rows, named by the series and placed as its block. */
         rows: typeof createSeriesRows;
+        /** The rows the event kinds land on (#1541): one per resource, its series beneath it. */
+        resources: typeof createSeriesResources;
+        /** Each case of a variant field of the rows a resources series, in one block (#1541). */
+        kinds: typeof createSeriesKinds;
     };
     /** A step down from an entry to its child rows — a `Dict` field of it, keyed by an id — for a series' `children` (#822, #1436). */
     children: typeof createChildren;
@@ -805,6 +818,8 @@ const PLAN_MEMBERS = {
         section: createSeriesSection,
         views: createSeriesViews,
         rows: createSeriesRows,
+        resources: createSeriesResources,
+        kinds: createSeriesKinds,
     },
     children: createChildren,
     items: createItems,

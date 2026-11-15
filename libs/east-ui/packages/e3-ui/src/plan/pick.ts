@@ -78,6 +78,10 @@ export const KIND_ICONS: Readonly<Record<PlanSeriesArm, string>> = {
     section: "heading",
     views:   "clone",
     rows:    "list",
+    // The rows the event kinds land on (#1541, U1): a resource, one of the things the plan books.
+    resources: "cubes",
+    // A resource of each kind, as its variant's case says (#1541, U2).
+    kinds:   "shapes",
 };
 
 /** Identity read off ONE series — the whole of what the library needs. */
@@ -125,6 +129,8 @@ const seriesIdentity = (itemType: EastType) => East.function([itemType], PlanSer
         section: (_$2, v) => ident(v as unknown as ExprType<StructType>, "section"),
         views:   (_$2, v) => ident(v as unknown as ExprType<StructType>, "views"),
         rows:    (_$2, v) => ident(v as unknown as ExprType<StructType>, "rows"),
+        resources: (_$2, v) => ident(v as unknown as ExprType<StructType>, "resources"),
+        kinds:   (_$2, v) => ident(v as unknown as ExprType<StructType>, "kinds"),
     }) as never);
 
 /**
