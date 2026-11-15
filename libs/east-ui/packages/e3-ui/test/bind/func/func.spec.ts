@@ -160,11 +160,12 @@ describe("Func.bind of a function that lists drafts", () => {
         ]));
     });
 
-    test("a drafted record is its name and the commit it stood at, and the error's kinds gain conflict: the record, the mutation and the refusal's words", () => {
+    test("a drafted record is its name and the commit it stood at, and the error's kinds gain conflict: the draft — its record, its mutation and its place among the call's drafts — and the refusal's words", () => {
         assert.ok(isTypeEqual(FuncDraftedType, StructType({ record: StringType, commit: StringType })));
         const kinds = FuncErrorType.fields.kind.cases;
         assert.deepEqual(Object.keys(kinds).sort(), ["conflict", "failed", "invalid", "timed_out", "too_large", "transport"]);
-        assert.ok(isTypeEqual(kinds.conflict, StructType({ record: StringType, mutation: StringType, message: StringType })));
+        assert.ok(isTypeEqual(kinds.conflict,
+            StructType({ record: StringType, mutation: StringType, place: IntegerType, of: IntegerType, message: StringType })));
     });
 });
 

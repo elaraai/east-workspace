@@ -21,7 +21,7 @@ import {
 } from "@elaraai/east";
 import { Editing } from "@elaraai/east-ui/internal";
 import { liftDraft } from "./draft.js";
-import { editingMessages } from "./messages.js";
+import { SESSION_TEXT, editingMessages } from "./messages.js";
 import { madeFromKeys, randomKeys, type EntryKeys } from "./keys.js";
 import { EditSession, type EditSessionBinding, type EntryVersion, type HeldRows, type Origin, type Placement, type ToDraftResult } from "./session.js";
 
@@ -1588,6 +1588,10 @@ test("a conflict that waits, and one settled, stand through another write of oth
 const DRAFT_BYTES = new Uint8Array([1, 6, 2, 0]);
 const samePlace = equalFor(OptionType(Editing.Types.Placement));
 const sameJobPatch = equalFor(PatchType(OptionType(Job)));
+const sameJobBase = equalFor(JobBatch.fields.base);
+/** What the draft form answers by default, and what a session with nothing to hand over answers. */
+const DRAFTED: ToDraftResult = variant("draft", DRAFT_BYTES);
+const UNCHANGED: ToDraftResult = variant("unchanged", null);
 /**
  * A keyed session over the jobs, read whole, whose source has a draft form: the batches the form was handed, and the
  * batches its Save sent.
@@ -1620,8 +1624,7 @@ test("a session hands its complete edits to its source's draft form as the batch
     ], "typed", "Edit jobs");
     const stood = () => [session.getSnapshot(), session.status, session.pending, session.locked, session.canApply, session.depth];
     const before = stood();
-    const answer = session.toDraft();
-    expect([answer?.type, answer?.value]).toEqual(["draft", DRAFT_BYTES]);
+    expect(session.toDraft()).toEqual(DRAFTED);
     expect([handed.length, sent.length]).toEqual([1, 0]);
     expect(stood()).toEqual(before);
     expect(changed(handed[0])).toEqual(["J1", "J2", "J4"]);
@@ -1633,15 +1636,15 @@ test("a session hands its complete edits to its source's draft form as the batch
 
 test("with no complete edit that changes the source there is no draft, and the draft form is not asked: nothing drafted, an edit undone, a source not yet read (#1620)", () => {
     const { session, handed } = drafting();
-    expect(session.toDraft()?.type).toBe("unchanged");
+    expect(session.toDraft()).toEqual(UNCHANGED);
     session.record([{ id: "J1", before: job(cut), after: job({ ...cut, qty: 5n }) }], "typed", "Set quantity");
     session.undo();
-    expect(session.toDraft()?.type).toBe("unchanged");
+    expect(session.toDraft()).toEqual(UNCHANGED);
     const unread = new EditSession<Bar>({
         sourceId: "jobs", entryType: Job, draftType: JobDraft, keyType: StringType, apply: undefined, patch: undefined, refresh: undefined,
-        toDraft: (bytes) => { handed.push(decodeBeast2For(JobBatch)(bytes)); return variant("draft", DRAFT_BYTES); },
+        toDraft: (bytes) => { handed.push(decodeBeast2For(JobBatch)(bytes)); return DRAFTED; },
     });
-    expect(unread.toDraft()?.type).toBe("unchanged");
+    expect(unread.toDraft()).toEqual(UNCHANGED);
     expect(handed).toHaveLength(0);
 });
 
@@ -1650,7 +1653,7 @@ test("a check holding Save holds no draft back, and neither does a conflict that
     const held = drafting({ ready: () => variant("invalid", [refused]) });
     held.session.record([{ id: "J1", before: job(cut), after: job({ ...cut, qty: 5n }) }], "typed", "Set quantity");
     expect(held.session.canApply).toBe(false);
-    expect(held.session.toDraft()?.type).toBe("draft");
+    expect(held.session.toDraft()).toEqual(DRAFTED);
     expect(changed(held.handed[0])).toEqual(["J1"]);
 
     // J1's quantity set to 5 here, and to 3 by another write: a conflict nobody has chosen at.
@@ -1658,7 +1661,7 @@ test("a check holding Save holds no draft back, and neither does a conflict that
     waiting.session.record([{ id: "J1", before: job(cut), after: job({ ...cut, qty: 5n }) }], "typed", "Set quantity");
     waiting.session.observeBase(variant("snapshot", jobs([["J1", { ...cut, qty: 3n }], ["J2", band], ["J3", route]])));
     expect([waiting.session.unsettled, waiting.session.canApply]).toEqual([1, false]);
-    expect(waiting.session.toDraft()?.type).toBe("draft");
+    expect(waiting.session.toDraft()).toEqual(DRAFTED);
     const [change] = waiting.handed[0]!.changes;
     expect(change!.id).toBe("J1");
     expect(sameJobPatch(change!.patch, diffFor(OptionType(Job))(some({ ...cut, qty: 3n }), some({ ...cut, qty: 5n })))).toBe(true);
@@ -1674,13 +1677,13 @@ test("an entry with a field still missing, or text that could not be read, has n
         { id: "J4", before: absentJob, after: unread },
     ], "typed", "Edit jobs");
     // Nothing of it is complete: no draft, and the form is not asked.
-    expect([session.pending, session.toDraft()?.type, handed.length]).toEqual([2, "unchanged", 0]);
+    expect([session.pending, session.toDraft(), handed.length]).toEqual([2, UNCHANGED, 0]);
     session.record([{ id: "J3", before: job(route), after: job({ ...route, qty: 2n }) }], "typed", "Set quantity");
-    expect(session.toDraft()?.type).toBe("draft");
+    expect(session.toDraft()).toEqual(DRAFTED);
     expect(changed(handed[0])).toEqual(["J3"]);
     // Each completed, it goes with the next.
     session.record([{ id: "J1", before: missing, after: job({ ...cut, qty: 7n }) }, { id: "J4", before: unread, after: job(spray) }], "typed", "Edit jobs");
-    expect(session.toDraft()?.type).toBe("draft");
+    expect(session.toDraft()).toEqual(DRAFTED);
     expect(changed(handed[1])).toEqual(["J1", "J3", "J4"]);
 });
 
@@ -1696,7 +1699,7 @@ test("an entry placed beside a new entry that is left out stands where that one 
     const absent: EntryVersion<Bar> = { draft: undefined, wire: undefined, place: none };
     const over = () => {
         const handed: ValueTypeOf<typeof Batch>[] = [];
-        const session = create({ toDraft: (bytes) => { handed.push(decodeBeast2For(Batch)(bytes)); return variant("draft", DRAFT_BYTES); } });
+        const session = create({ toDraft: (bytes) => { handed.push(decodeBeast2For(Batch)(bytes)); return DRAFTED; } });
         session.observeBase(variant("snapshot", [a, b, c]));
         return { session, handed };
     };
@@ -1706,7 +1709,7 @@ test("an entry placed beside a new entry that is left out stands where that one 
         { id: "n", before: absent, after: unfinished(after("a")) },
         { id: "c", before: placed(c, after("b")), after: placed(c, after("n")) },
     ], "move", "Add a run");
-    expect(moved.session.toDraft()?.type).toBe("draft");
+    expect(moved.session.toDraft()).toEqual(DRAFTED);
     expect(moved.handed[0]!.changes.map((change) => change.id)).toEqual(["c"]);
     expect(samePlace(moved.handed[0]!.changes[0]!.place, after("a"))).toBe(true);
     // The new run placed after c, and c after it: neither says where, and c stays where it began — no change at all.
@@ -1715,31 +1718,79 @@ test("an entry placed beside a new entry that is left out stands where that one 
         { id: "n", before: absent, after: unfinished(after("c")) },
         { id: "c", before: placed(c, after("b")), after: placed(c, after("n")) },
     ], "move", "Add a run");
-    expect([circular.session.toDraft()?.type, circular.handed.length]).toEqual(["unchanged", 0]);
+    expect([circular.session.toDraft(), circular.handed.length]).toEqual([UNCHANGED, 0]);
 });
 
 test("what the draft form answers is the session's answer — the refusal a Save of the batch would get before it wrote, as it is — and a form that throws is refused in its words (#1620)", () => {
     const moved = [{ entry: "J1", row: none, field: none, message: "Changed since this edit began" }];
     const conflict = drafting({}, () => variant("conflict", moved));
     conflict.session.record([{ id: "J1", before: job(cut), after: job({ ...cut, qty: 5n }) }], "typed", "Set quantity");
-    const refusal = conflict.session.toDraft();
-    expect([refusal?.type, refusal?.value]).toEqual(["conflict", moved]);
+    expect(conflict.session.toDraft()).toEqual(variant("conflict", moved));
     // Nothing of it reaches the session: no status, no issue, and Save is where it was.
     expect([conflict.session.status, conflict.session.issues, conflict.session.canApply]).toEqual(["idle", [], true]);
 
     const thrown = drafting({}, () => { throw new Error("the record is not bound"); });
     thrown.session.record([{ id: "J1", before: job(cut), after: job({ ...cut, qty: 5n }) }], "typed", "Set quantity");
-    const answer = thrown.session.toDraft();
-    expect(answer?.type).toBe("rejected");
-    expect(answer?.type === "rejected" ? answer.value.map((issue) => issue.message) : []).toEqual(["the record is not bound"]);
+    expect(thrown.session.toDraft()).toEqual(variant("rejected", [{ entry: "", row: none, field: none, message: "the record is not bound" }]));
     expect(thrown.session.status).toBe("idle");
 });
 
-test("while a Save of the session's own is unresolved it hands over still, from what its edits began from: whoever asks decides whether to wait (#1620)", async () => {
-    const { session, handed } = drafting();
-    session.record([{ id: "J1", before: job(cut), after: job({ ...cut, qty: 5n }) }], "typed", "Set quantity");
-    await session.apply();
-    expect([session.status, session.locked]).toEqual(["reconciling", true]);
-    expect(session.toDraft()?.type).toBe("draft");
-    expect(changed(handed[0])).toEqual(["J1"]);
+test("while a Save of the session's own is on its way, or has had no answer, the draft is held back in the session's words and the form is not asked: the source may hold the Save or not (#1620)", async () => {
+    const waits: ToDraftResult = variant("rejected", [{ entry: "", row: none, field: none, message: SESSION_TEXT.draftWhileSaving }]);
+    const applied = variant("applied", { revision: some("r2") });
+    let answer: (result: typeof applied) => void = () => undefined;
+    const onItsWay = drafting({ apply: () => new Promise<typeof applied>((resolve) => { answer = resolve; }) });
+    onItsWay.session.record([{ id: "J1", before: job(cut), after: job({ ...cut, qty: 5n }) }], "typed", "Set quantity");
+    const saving = onItsWay.session.apply();
+    expect([onItsWay.session.status, onItsWay.session.toDraft()]).toEqual(["applying", waits]);
+    // An edit made meanwhile is held back the same.
+    onItsWay.session.record([{ id: "J2", before: job(band), after: job({ ...band, qty: 9n }) }], "typed", "Set quantity");
+    expect(onItsWay.session.toDraft()).toEqual(waits);
+    answer(applied);
+    await saving;
+    expect([onItsWay.session.status, onItsWay.session.toDraft()]).toEqual(["reconciling", DRAFTED]);
+    expect(changed(onItsWay.handed[0])).toEqual(["J2"]);
+
+    const unanswered = drafting({ apply: () => { throw new Error("The connection closed"); } });
+    unanswered.session.record([{ id: "J1", before: job(cut), after: job({ ...cut, qty: 5n }) }], "typed", "Set quantity");
+    await unanswered.session.apply();
+    expect([unanswered.session.status, unanswered.session.toDraft(), unanswered.handed.length]).toEqual(["unknown", waits, 0]);
+});
+
+test("once the source has taken a Save of the session's own, the draft is made from what it left: the edits since it, from what it sent, at the snapshot it left or the revision it committed (#1620)", async () => {
+    // Read whole: the batch stands at the snapshot the Save left.
+    const whole = drafting();
+    whole.session.record([{ id: "J1", before: job(cut), after: job({ ...cut, qty: 5n }) }], "typed", "Set quantity");
+    await whole.session.apply();
+    expect([whole.session.status, whole.session.locked]).toEqual(["reconciling", true]);
+    // Every edit is the Save's: nothing to hand over, and the form is not asked.
+    expect([whole.session.toDraft(), whole.handed.length]).toEqual([UNCHANGED, 0]);
+    whole.session.record([{ id: "J1", before: job({ ...cut, qty: 5n }), after: job({ ...cut, qty: 7n }) }], "typed", "Set quantity");
+    expect(whole.session.toDraft()).toEqual(DRAFTED);
+    const [fromSaved] = whole.handed[0]!.changes;
+    expect(sameJobPatch(fromSaved!.patch, diffFor(OptionType(Job))(some({ ...cut, qty: 5n }), some({ ...cut, qty: 7n })))).toBe(true);
+    expect(sameJobBase(whole.handed[0]!.base, variant("snapshot", jobs([["J1", { ...cut, qty: 5n }], ["J2", band], ["J3", route]])))).toBe(true);
+
+    // At a revision: the batch stands at the revision the Save committed — or, where it saved and named none, at the one it was drafted at.
+    const atRevision = (revision: option<string>) => {
+        const handed: ValueTypeOf<typeof JobBatch>[] = [];
+        const session = new EditSession<Bar>({
+            sourceId: "jobs", entryType: Job, draftType: JobDraft, keyType: StringType, patch: undefined, refresh: undefined,
+            apply: () => variant("applied", { revision }),
+            toDraft: (bytes) => { handed.push(decodeBeast2For(JobBatch)(bytes)); return DRAFTED; },
+        });
+        session.observeBase(variant("revision", "r1"));
+        return { session, handed };
+    };
+    for (const [revision, status, stands] of [[some("r2"), "reconciling", "r2"], [none, "unknown", "r1"]] as const) {
+        const { session, handed } = atRevision(revision);
+        session.record([{ id: "J1", before: job(cut), after: job({ ...cut, qty: 5n }) }], "typed", "Set quantity");
+        await session.apply();
+        expect([session.status, session.toDraft()]).toEqual([status, UNCHANGED]);
+        session.record([{ id: "J1", before: job({ ...cut, qty: 5n }), after: job({ ...cut, qty: 7n }) }], "typed", "Set quantity");
+        expect(session.toDraft()).toEqual(DRAFTED);
+        const [change] = handed[0]!.changes;
+        expect(sameJobPatch(change!.patch, diffFor(OptionType(Job))(some({ ...cut, qty: 5n }), some({ ...cut, qty: 7n })))).toBe(true);
+        expect(sameJobBase(handed[0]!.base, variant("revision", stands))).toBe(true);
+    }
 });

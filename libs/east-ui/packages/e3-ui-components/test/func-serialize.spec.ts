@@ -227,18 +227,26 @@ test("#1620 — drafted() answers for the result read() gives: empty until a cal
     assert.ok(draftedEqual(handle.drafted(), stood), printDrafted(handle.drafted()));
 });
 
-test("#1620 — a handle is its binding's and its form's: one name bound as a function that lists drafts and as one that lists none is two handles, and each is built once", () => {
+test("#1620 — a handle is its binding's and its form's: one name bound as a function that lists drafts and as one that lists none is two handles, each built once, and each bind's binding is its own", () => {
     const runtime = newRuntime();
     const plain = runtime.buildHandle(handleTypeValue, "forecast", []);
     const drafted = runtime.buildHandle(draftsHandleTypeValue, "forecast", ["jobs"]);
-    assert.notEqual(plain, drafted);
+    assert.notEqual(plain.call, drafted.call);
     assert.deepEqual([Object.hasOwn(plain, "drafted"), Object.hasOwn(drafted, "drafted")], [false, true], "a handle has what its type names");
-    assert.equal(runtime.buildHandle(handleTypeValue, "forecast", []), plain, "built once");
-    assert.equal(runtime.buildHandle(draftsHandleTypeValue, "forecast", ["jobs"]), drafted, "built once");
+    // Built once: a bind again is handed the same calls and reads
+    const again = runtime.buildHandle(draftsHandleTypeValue, "forecast", ["jobs"]);
+    for (const method of ["call", "read", "drafted", "status", "error", "pending", "cancel"]) assert.equal(again[method], drafted[method], `${method}, built once`);
+    assert.equal(runtime.buildHandle(handleTypeValue, "forecast", []).call, plain.call, "built once");
+    // Under a binding of its own: a page that changes its binding's Array changes its own, and a later bind's names what the function lists
+    assert.notEqual(again.binding, drafted.binding);
+    (again.binding as ValueTypeOf<typeof FuncBindingType>).drafts.push("presses");
+    assert.ok(equalFor(FuncBindingType)(drafted.binding as ValueTypeOf<typeof FuncBindingType>, { name: "forecast", drafts: ["jobs"] }));
+    assert.ok(equalFor(FuncBindingType)(runtime.buildHandle(draftsHandleTypeValue, "forecast", ["jobs"]).binding as ValueTypeOf<typeof FuncBindingType>,
+        { name: "forecast", drafts: ["jobs"] }));
 
     // A function that lists other records is another binding
     const wider = runtime.buildHandle(draftsHandleTypeValue, "forecast", ["jobs", "presses"]);
-    assert.notEqual(wider, drafted);
+    assert.notEqual(wider.call, drafted.call);
     assert.ok(equalFor(FuncBindingType)(wider.binding as ValueTypeOf<typeof FuncBindingType>, { name: "forecast", drafts: ["jobs", "presses"] }));
     assert.ok(equalFor(FuncBindingType)(drafted.binding as ValueTypeOf<typeof FuncBindingType>, { name: "forecast", drafts: ["jobs"] }));
     assert.ok(equalFor(FuncBindingType)(plain.binding as ValueTypeOf<typeof FuncBindingType>, { name: "forecast", drafts: [] }));

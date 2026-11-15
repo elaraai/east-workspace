@@ -77,6 +77,9 @@ export {
     type DraftPresentation,
 } from "./editing/draft.js";
 export { DRAFT_ISSUE_TEXT, SESSION_TEXT, type EditHistoryWord } from "./editing/messages.js";
+// What a session is bound to from a collection's editing declaration, as every renderer binds one: its Save and that
+// Save's draft form among it (#1620).
+export { bindingOf } from "./editing/kept.js";
 export { type EditSource, type EditWindow } from "./editing/use-edit-session.js";
 export { entryLookup, editWindow, type CarriedEntry, type EntryLookup } from "./editing/carried.js";
 // When a host that draws what a Save landed lets it go (`EditSession.landed`): the one rule that tells rows read before a

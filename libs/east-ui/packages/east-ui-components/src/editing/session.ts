@@ -1767,29 +1767,56 @@ export class EditSession<W> {
      * it began — a new one nowhere — and an entry placed before or after a new
      * entry left out stands where that one stood.
      *
-     * The draft is checked where it is laid, as a Save is where it is written.
-     * While a request of the session's own is unresolved
-     * ({@link EditSession.locked}), or its drafts are being carried over
-     * ({@link EditSession.carrying}), the source may hold other than the
-     * drafts began from, and a draft laid over it then is refused there as a
-     * Save sent then would be: whoever asks decides whether to wait.
+     * The draft is checked where it is laid, as a Save is where it is written,
+     * so it is made from what the source holds as far as the session knows.
+     * Once the source has taken a Save of the session's own — while it is read
+     * back, or where it saved and named no revision — that Save is the
+     * source's: each entry it sent begins from what it sent, and the batch
+     * stands where it left the source, at the revision it committed or the
+     * snapshot it left. While one is on its way, or has had no answer, the
+     * source may hold it or not, and a draft from either side of it would be
+     * refused once the other turned out true: the session answers `rejected`
+     * in its own words ({@link SESSION_TEXT}), and whoever asks asks again
+     * once the Save is answered. Drafts being carried over to a source that
+     * moved ({@link EditSession.carrying}) are handed over from what their
+     * edits began from: an entry the other write moved is refused where the
+     * draft is laid, as the conflict the carrying-over will show.
      *
      * @returns The draft form's answer: the draft, as bytes at the source's
      *   draft type; `unchanged` where no complete edit changes the source; or
      *   the refusal a Save of the batch would get before it wrote — a draft
-     *   form that throws among them, in its words. `undefined` where the
-     *   source has no draft form ({@link EditSessionBinding.toDraft}).
+     *   form that throws among them, in its words, and a Save of the session's
+     *   own still unanswered, in the session's. `undefined` where the source
+     *   has no draft form ({@link EditSessionBinding.toDraft}).
      */
     toDraft(): ToDraftResult | undefined {
         const form = this.binding.toDraft;
         if (form === undefined) return undefined;
         if (this.base === undefined) return variant("unchanged", null);
+        // What each entry began from as the source holds it, and where the batch stands.
+        let from: ReadonlyMap<string, EntryVersion<W>> = this.baseline;
+        let base: Base = this.base;
+        const request = this.submission;
+        if (request !== undefined) {
+            const took = this.status === "reconciling" || (this.status === "unknown" && this.error === SESSION_TEXT.noRevision);
+            if (!took) return variant("rejected", [{ entry: "", row: none, field: none, message: SESSION_TEXT.draftWhileSaving }]);
+            from = new Map([...this.baseline, ...request.after]);
+            if (request.base.type === "revision") {
+                base = request.revision === undefined ? request.base : variant("revision", request.revision);
+            } else {
+                const transform = this.transform;
+                if (transform === undefined) throw new Error("Inline editing requires its entry identity field or its key type");
+                const saved = transform(request.base.value, this.decodeBatch(request.payload), none);
+                if (saved.type !== "applied") return variant("conflict", saved.value);
+                base = variant("snapshot", saved.value) as Base;
+            }
+        }
         // Each entry as a Save of the complete edits would leave it; the new entries left out, apart.
         const drafts = new Map<string, EntryVersion<W>>();
         const left = new Map<string, EntryVersion<W>>();
         for (const [id, entry] of this.current) {
             if (entry.draft === undefined || this.domain(id, entry) !== undefined) { drafts.set(id, entry); continue; }
-            const original = this.baseline.get(id) ?? ABSENT;
+            const original = from.get(id) ?? ABSENT;
             if (original.draft === undefined) left.set(id, entry);
             else drafts.set(id, original);
         }
@@ -1797,12 +1824,12 @@ export class EditSession<W> {
         if (left.size > 0) {
             for (const [id, entry] of drafts) {
                 const anchor = anchoredOn(entry.place);
-                if (anchor !== undefined && left.has(anchor)) drafts.set(id, { ...entry, place: this.placedPast(id, entry.place, left) });
+                if (anchor !== undefined && left.has(anchor)) drafts.set(id, { ...entry, place: this.placedPast(id, entry.place, left, from) });
             }
         }
-        const changes = this.changes(this.baseline, drafts, false);
+        const changes = this.changes(from, drafts, false);
         if (changes.length === 0) return variant("unchanged", null);
-        const batch: Batch = { requestId: "", base: this.base, label: "", changes };
+        const batch: Batch = { requestId: "", base, label: "", changes };
         try { return form(this.encodeBatch(batch)); }
         catch (error) {
             return variant("rejected", [{ entry: "", row: none, field: none, message: error instanceof Error ? error.message : String(error) }]);
@@ -1817,9 +1844,10 @@ export class EditSession<W> {
      * @param id - The entry
      * @param place - Where its draft stands
      * @param left - The new entries left out, each as drafted
+     * @param from - What each entry began from, as the batch is made from it
      * @returns Where it stands in the batch
      */
-    private placedPast(id: string, place: Placement, left: ReadonlyMap<string, EntryVersion<W>>): Placement {
+    private placedPast(id: string, place: Placement, left: ReadonlyMap<string, EntryVersion<W>>, from: ReadonlyMap<string, EntryVersion<W>>): Placement {
         const passed = new Set<string>();
         let at = place;
         for (let anchor = anchoredOn(at); anchor !== undefined && left.has(anchor); anchor = anchoredOn(at)) {
@@ -1829,7 +1857,7 @@ export class EditSession<W> {
         }
         const anchor = anchoredOn(at);
         if (at.type === "some" && (anchor === undefined || !stringEqual(anchor, id))) return at;
-        const original = this.baseline.get(id) ?? ABSENT;
+        const original = from.get(id) ?? ABSENT;
         return original.draft === undefined ? AT_END : original.place;
     }
 

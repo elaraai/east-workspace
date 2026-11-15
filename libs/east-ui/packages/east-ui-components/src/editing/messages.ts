@@ -84,6 +84,8 @@ export interface EditingMessages {
     apply: () => string;
     /** A source that saved a batch without its committed revision. */
     applyNoRevision: () => string;
+    /** The session's draft refused while a Save of its own is on its way or unanswered (#1620): asked again once it is answered. */
+    draftWhileSaving: () => string;
     /** Save's tooltip while conflicts wait to be chosen — `Choose 2 conflicts to save`. */
     applySettleFirst: (p: { n: number; count: string }) => string;
     /** Save's tooltip while an optimiser's result waits for a person's Save, the automatic Save on. */
@@ -257,6 +259,7 @@ export const editingMessages: EditingMessages = {
     retryRequest: () => "Retry request",
     apply: () => "Save",
     applyNoRevision: () => "Saved, but it could not be confirmed — reload to see the newest",
+    draftWhileSaving: () => "Your changes are still being saved — try again once they are",
     applySettleFirst: ({ n, count }) => `Choose ${count} ${plural(n, "conflict", "conflicts")} to save`,
     applyHeld: () => "Save · Elara's changes wait for you",
     applyStepped: () => "Save · Undo and Redo are not saved automatically",
@@ -342,12 +345,14 @@ export const DRAFT_ISSUE_TEXT = {
 
 /**
  * The editing session's own text, in its canonical English — its error, which
- * the history bar shows in the surface's words, and the issues it names a
+ * the history bar shows in the surface's words, the issues it names a
  * conflict's entries with where the source gave no words of its own (#1199),
+ * and its refusal of a draft while a Save of its own is unanswered (#1620),
  * read back where they show as the draft issues are.
  */
 export const SESSION_TEXT = {
     noRevision: editingMessages.applyNoRevision(),
+    draftWhileSaving: editingMessages.draftWhileSaving(),
     changed: editingMessages.issueChanged(),
     sourceChanged: editingMessages.issueSourceChanged(),
     conflict: editingMessages.issueConflict(),

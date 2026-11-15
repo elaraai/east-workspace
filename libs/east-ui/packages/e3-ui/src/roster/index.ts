@@ -34,7 +34,7 @@ import {
 } from "@elaraai/east";
 import { EastUI, type UIElement } from "@elaraai/east-ui";
 import { RecordSlicesChromeType, RowSourceType, type RecordSlicesChromeOptions } from "@elaraai/east-ui/internal";
-import { FuncBindingType, boundFuncSignature, refuseDraftsHandle, type BoundFunc } from "../bind/func.js";
+import { FuncBindingType, boundFuncSignature, type BoundFunc } from "../bind/func.js";
 import { scheduleCheck } from "../schedule/index.js";
 import type { ScheduleEventKind } from "../schedule/events.js";
 import { ScheduleAuthorTabType, buildScheduleTab } from "../schedule/library.js";
@@ -482,8 +482,7 @@ function overBytes<O extends EastType>(fn: unknown, asks: EastType, answers: O, 
  *   lists `drafts`, which a fit does not pass
  */
 function fitBinding(fit: unknown, rowType: EastType): ExprType<typeof FuncBindingType> {
-    refuseDraftsHandle(fit, "Roster", "fit");
-    const signature = boundFuncSignature(fit);
+    const signature = boundFuncSignature(fit, "Roster", "fit");
     if (signature === undefined) {
         throw new Error("Roster: `fit` is Func.bind of the app's e3.function from Roster.Types.FitRequest(R) to Roster.Types.FitResult, R the duties' row type");
     }
@@ -509,9 +508,10 @@ function fitBinding(fit: unknown, rowType: EastType): ExprType<typeof FuncBindin
  *
  * @param optimise - What the app passed as `optimise`
  * @returns Whether it takes the duties at the week's edges; `false` for anything else, which the contract refuses or takes
+ * @throws {Error} When it is `Func.bind` of a function that lists `drafts`, as the contract refuses one
  */
 function takesEdges(optimise: unknown): boolean {
-    const asked = boundFuncSignature(optimise)?.asks;
+    const asked = boundFuncSignature(optimise, "Roster", "optimise")?.asks;
     return asked?.type === "Struct" && asked.fields["edges"] !== undefined && asked.fields["fixed"] !== undefined;
 }
 

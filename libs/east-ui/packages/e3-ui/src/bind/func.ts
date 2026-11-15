@@ -80,14 +80,15 @@ export type FuncStatusType = typeof FuncStatusType;
  * failures, which never reached an execution.
  *
  * A draft the call passed can end it before the function runs, as a Save of
- * the same edit would have ended: `invalid`, `failed` or `timed_out`, each
- * `message` naming the draft (`draft jobs.patch (2 of 3) …`), or `conflict`
- * where the record changed under the edit.
+ * the same edit would have ended: `invalid`, `failed`, `timed_out` or
+ * `conflict`, each `message` naming the draft by its place among the call's
+ * (`draft jobs.patch (2 of 3) …`). A call whose time ran out once its drafts
+ * were all laid is `timed_out`, its `message` saying so.
  *
  * @property kind - Which way the call failed:
  *   `conflict` (a draft no longer fits its record, which changed under the
- *   edit: the record, the mutation and the refusal's words, as a Save's
- *   conflict gives them), `failed` (runner exited non-zero), `invalid`
+ *   edit: the record, the mutation, the draft's place among the call's and
+ *   the refusal's words, as a Save's conflict gives them), `failed` (runner exited non-zero), `invalid`
  *   (argument or signature diagnostics, or a draft the call may not pass),
  *   `too_large` (result exceeded the server limit), `timed_out` (server
  *   deadline hit), `transport` (HTTP/decode failure).
@@ -310,46 +311,38 @@ export type BoundDraftsFunc<I extends EastType[], O extends EastType> =
 /**
  * What a {@link Func.bind} handle of a one-argument function asks and
  * answers, read from the handle's type: its `call`'s one input and its
- * `read`'s result. A tag that takes a bound function checks the handle it is
- * given with this, then holds each type to its own with `isTypeEqual`.
+ * `read`'s result. A builder that takes a bound function checks the handle it
+ * is given with this, then holds each type to its own with `isTypeEqual`.
+ *
+ * @remarks
+ * A builder's call passes its arguments alone, so a handle of a function that
+ * lists `drafts` — one whose type has `drafted`, and whose `call` takes the
+ * drafts too — is refused here, naming the builder and the prop: every
+ * builder that reads a handle's signature refuses one by this one check, and
+ * none reads the drafts Array as the function's argument.
  *
  * @param handle - What an app passed where a `Func.bind` handle goes
+ * @param builder - The builder, as a refusal names it (`Roster`)
+ * @param prop - The prop it was passed as (`optimise`)
  * @returns The function's argument type and result type, or `undefined` for a
- *   value that is no `Func.bind` handle of a one-argument function — a handle
- *   of a function that lists `drafts` among them, whose `call` takes the
- *   drafts too ({@link refuseDraftsHandle})
+ *   value that is no `Func.bind` handle of a one-argument function
+ * @throws {Error} When the handle is of a function that lists `drafts`, naming the builder and the prop
  * @internal
  */
-export function boundFuncSignature(handle: unknown): { asks: EastType; answers: EastType } | undefined {
+export function boundFuncSignature(handle: unknown, builder: string, prop: string): { asks: EastType; answers: EastType } | undefined {
     if (!(handle instanceof Expr)) return undefined;
     const type = Expr.type(handle) as EastType;
     if (type.type !== "Struct" || type.fields["binding"] === undefined) return undefined;
+    if (type.fields["drafted"] !== undefined) {
+        throw new Error(
+            `${builder}: \`${prop}\` is Func.bind of a function that lists \`drafts\`, whose call takes them, and the ${builder} passes none — ` +
+            `bind a function that lists no drafts`,
+        );
+    }
     const call = type.fields["call"], read = type.fields["read"];
     const asks = call?.type === "Function" && call.inputs.length === 1 ? call.inputs[0] : undefined;
     const answers = read?.type === "Function" && read.output.type === "Variant" ? read.output.cases["some"] : undefined;
     return asks === undefined || answers === undefined ? undefined : { asks, answers };
-}
-
-/**
- * Refuses a {@link Func.bind} handle of a function that lists `drafts` where
- * a builder takes a bound function: a builder's call passes its arguments
- * alone, and that handle's `call` takes the drafts too. Read from the
- * handle's type: one that has `drafted`.
- *
- * @param handle - What an app passed where a `Func.bind` handle goes
- * @param builder - The builder, as the refusal names it (`Roster`)
- * @param prop - The prop it was passed as (`optimise`)
- * @throws {Error} When the handle is of a function that lists `drafts`, naming the builder and the prop
- * @internal
- */
-export function refuseDraftsHandle(handle: unknown, builder: string, prop: string): void {
-    if (!(handle instanceof Expr)) return;
-    const type = Expr.type(handle) as EastType;
-    if (type.type !== "Struct" || type.fields["binding"] === undefined || type.fields["drafted"] === undefined) return;
-    throw new Error(
-        `${builder}: \`${prop}\` is Func.bind of a function that lists \`drafts\`, whose call takes them, and the ${builder} passes none — ` +
-        `bind a function that lists no drafts`,
-    );
 }
 
 // ============================================================================
@@ -501,7 +494,9 @@ function bindFunction<Inputs extends EastType[], Output extends EastType>(
  * not committed, which `Record.bind`'s `draft.<name>(…)` and `Record.toDraft`
  * make. The call lays its drafts over the records the function reads, runs
  * the function over that state, and saves nothing: no commit, no history, and
- * nothing another reader of the workspace can see.
+ * the record and what reads it stay as they were for every reader. The call
+ * e3 keeps holds its drafts, for whoever may read it, and each draft's
+ * mutation runs as a Save's does, an execution recorded and cached.
  *
  * @typeParam Inputs - The argument East types a caller passes (from the def).
  * @typeParam Output - Return East type (from the def).

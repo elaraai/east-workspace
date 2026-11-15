@@ -37,7 +37,7 @@ import {
     Func, FuncBindDraftsHandleType, FuncBindHandleType, FuncDraftedType, FuncErrorType, Record, RecordBindHandleType,
 } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/bind/func/func";
-import { workspaceCallGet, workspaceCallList } from "@elaraai/e3-api-client";
+import { workspaceCallGet, workspaceCallList, workspaceFunctionCallStatus } from "@elaraai/e3-api-client";
 import { FunctionCallRequestType } from "@elaraai/e3-types";
 import type { E3Request } from "../src/e3-web.test-utils.js";
 import { funcChannelKey, type FuncRuntime } from "../src/platform/func-runtime.js";
@@ -75,6 +75,8 @@ const sameCount = equalFor(OptionType(IntegerType));
 const sameDrafted = equalFor(ArrayType(FuncDraftedType));
 const sameRequest = equalFor(FunctionCallRequestType);
 const sameError = equalFor(OptionType(FuncErrorType));
+const sameErrorKind = equalFor(FuncErrorType.fields.kind);
+const printErrorKind = printFor(FuncErrorType.fields.kind);
 const printJobs = printFor(JobsType);
 const printLoad = printFor(OptionType(ex.PressLoadType));
 const printCount = printFor(OptionType(IntegerType));
@@ -331,7 +333,7 @@ describe("a draft that ends its call (#1620)", () => {
         assert.equal(await head(ex.pressJobs), stood, "and neither saved anything");
     });
 
-    test("a Save by another page that changes a row under the edit ends the call conflict, as it refuses the Save: the error names the record and the mutation, the function does not run, and nothing lands", async () => {
+    test("a Save by another page that changes a row under the edit ends the call conflict, as it refuses the Save: the error names the draft — its record, its mutation and its place — the function does not run, and nothing lands", async () => {
         const { page } = await opened();
         // The page moves j3 onto P1 from what it read. Before its call, another page moves j3 onto P3.
         const change = jobsPatch(SAVED, withJob("j3", { press: "P1", hours: 6n }));
@@ -346,9 +348,11 @@ describe("a draft that ends its call (#1620)", () => {
         const error = page.count.error();
         if (error.type !== "some") assert.fail("the call has no error");
         if (error.value.kind.type !== "conflict") assert.fail(`expected a conflict, got ${error.value.kind.type}: ${error.value.message}`);
-        assert.deepEqual([error.value.kind.value.record, error.value.kind.value.mutation], ["press_jobs", "patch"]);
+        const words = error.value.kind.value.message;
+        assert.ok(sameErrorKind(error.value.kind, variant("conflict", { record: "press_jobs", mutation: "patch", place: 1n, of: 1n, message: words })),
+            printErrorKind(error.value.kind));
         assert.equal(error.value.message,
-            `draft press_jobs.patch no longer matches the record (${error.value.kind.value.message}); re-read it and call again`);
+            `draft press_jobs.patch (1 of 1) no longer matches the record (${words}); re-read it and call again`);
         assert.notEqual(error.value.kind.value.message, "", "in the record's own words");
         assert.ok(sameCount(page.count.read(), none), "the function did not run");
 
@@ -425,9 +429,15 @@ describe("a call with drafts through a workspace (#1620)", () => {
         const [ended, ran, asSaved] = await kept();
         if (ended === undefined || ran === undefined || asSaved === undefined) assert.fail("e3 keeps fewer than the three calls");
         assert.deepEqual([ended.state.type, ran.state.type, asSaved.state.type], ["failed", "succeeded", "succeeded"]);
-        assert.deepEqual(ran.drafts.map((draft) => [draft.record, draft.mutation, draft.commit]), [["press_jobs", "move", stood]]);
-        assert.deepEqual(ended.drafts.map((draft) => [draft.record, draft.mutation, draft.commit]), [["press_jobs", "move", stood]]);
+        assert.deepEqual(ran.drafts.map((draft) => [draft.record, draft.mutation]), [["press_jobs", "move"]]);
+        assert.deepEqual(ended.drafts.map((draft) => [draft.record, draft.mutation]), [["press_jobs", "move"]]);
         assert.deepEqual(asSaved.drafts, []);
+        // The commit each drafted record stood at is the call's result's, once for the record
+        for (const call of [ran, ended]) {
+            const status = await workspaceFunctionCallStatus(h.e3.apiUrl, h.e3.repo, h.workspace, call.id, h.e3.direct);
+            if (status.type !== "completed") assert.fail(`the kept call is ${status.type}`);
+            assert.ok(sameDrafted(status.value.drafts, [{ record: "press_jobs", commit: stood }]), printDrafted(status.value.drafts));
+        }
         // The call that ran read the jobs at the state its draft left, which nothing else names; the one its draft
         // ended names them as its start found them, as the call as saved read them.
         assert.notDeepEqual(readAt(ran), readAt(asSaved));

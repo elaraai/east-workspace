@@ -7,7 +7,7 @@
  * A builder's pending Save, handed over to a bound function's call (#1620), on
  * e3 itself: a Sheet of the print shop's jobs, given the record, declares its
  * Save and that Save's draft form; an editing session bound to what the Sheet
- * declares, as the Sheet's renderer binds one, hands its complete edits over
+ * declares, through the binding every renderer makes of it (`bindingOf`), hands its complete edits over
  * as one draft; and a function that lists the jobs is called with it. e3 lays
  * the draft over the jobs, the function reads them so, and nothing is saved —
  * each read back from e3: the function's result, the record's state, its
@@ -26,6 +26,7 @@ import {
     compareFor, decodeBeast2For, equalFor, fromEastTypeValue, none, printFor, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import { EditSession, getRegisteredPlatformImplementations, liftDraft, type EntryVersion } from "@elaraai/east-ui-components";
+import { bindingOf } from "@elaraai/east-ui-components/internal";
 import {
     Func, FuncBindDraftsHandleType, FuncDraftType, FuncErrorType, Record, Sheet, createSheetRootWith, recordRows,
 } from "@elaraai/e3-ui/internal";
@@ -75,9 +76,9 @@ const BY_KEY = some(variant("keyOrder", null));
 
 /**
  * The page over the test's workspace, and the Sheet's editing session as its
- * renderer keeps one: bound to what the Sheet's editing declares — its source,
- * its schemas, its Save and that Save's draft form — and begun from the jobs
- * the Sheet read.
+ * renderer keeps one: bound, as every renderer binds one, to what the Sheet's
+ * editing declares — its source, its schemas, its Save and that Save's draft
+ * form — and begun from the jobs the Sheet read.
  */
 async function opened() {
     await h.install({ fn: page });
@@ -88,15 +89,7 @@ async function opened() {
     const entryType = fromEastTypeValue(editing.entryType);
     const draftType = fromEastTypeValue(editing.draftType);
     const keyType = fromEastTypeValue(editing.keyType.value);
-    const session = new EditSession<undefined>({
-        sourceId: editing.sourceId, entryType, draftType, keyType,
-        idField: editing.idField.type === "some" ? editing.idField.value : undefined,
-        children: editing.children.type === "some" ? editing.children.value : undefined,
-        apply: editing.onApply.value.value,
-        toDraft: editing.toDraft.value,
-        patch: editing.onPatch.type === "some" ? editing.onPatch.value : undefined,
-        refresh: undefined,
-    });
+    const session = new EditSession<undefined>(bindingOf<undefined>(editing, { entryType, draftType, keyType }, undefined, undefined));
     session.observeBase(variant("snapshot", decodeBeast2For(DictType(keyType, entryType))(editing.snapshot.value)));
     /** An entry whose every field holds a value. */
     const whole = (job: Job): EntryVersion<undefined> => ({ draft: liftDraft(draftType, job), wire: undefined, place: BY_KEY });

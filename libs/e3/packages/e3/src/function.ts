@@ -104,6 +104,53 @@ export interface FunctionSpec<
 }
 
 /**
+ * Defines a named function stored in a package.
+ *
+ * The body is an ordinary East function (sync or async); its signature IS
+ * the argument list — `argTypes` / `outputType` are inferred from the East
+ * function, so there is no separate type array to keep in sync. It reads
+ * nothing of the workspace: a function that does declares `inputs`, in the
+ * `(name, spec, fn)` form.
+ *
+ * Unlike a task, a function creates no dataset tree nodes and no command IR:
+ * its body IR is stored directly as a content object, its signature lives on
+ * the function object, and the executor builds the runner argv directly at
+ * call time (which is what enables a request-time runner override).
+ *
+ * @typeParam Name - Function name (literal type)
+ * @typeParam Args - The argument types: the East function's parameters
+ * @typeParam Output - Return type
+ * @param name - Function name (unique within the package)
+ * @param fn - The East function body. Pure compute — no dataset reads; may
+ *   be async (platform calls / IO).
+ * @param config - Optional runner selection. Only the known runtimes are
+ *   allowed — including `custom` (symmetric with tasks; the command must
+ *   speak the runner CLI convention, see {@link FunctionRunner}).
+ * @returns A FunctionDef to pass to `e3.package`
+ * @throws {Error} When the name is empty or the runner is not a known one.
+ *
+ * @example
+ * ```ts
+ * const forecast = e3.function(
+ *   'forecast',
+ *   East.function([IntegerType, FloatType], FloatType, ($, periods, growthRate) => {
+ *     ...
+ *   }),
+ *   { runner: { runtime: 'east-py', platforms: ['east-py-datascience'] } },
+ * );
+ *
+ * const pkg = e3.package('planning', '1.0.0', forecast);
+ * ```
+ */
+export function function_<Name extends string, Args extends EastType[], Output extends EastType>(
+  name: Name,
+  fn: FunctionExpr<Args, Output>
+    | CallableFunctionExpr<Args, Output>
+    | AsyncFunctionExpr<Args, Output>
+    | CallableAsyncFunctionExpr<Args, Output>,
+  config?: { runner?: FunctionRunner, environment?: EnvironmentDecl },
+): FunctionDef<Args, Output, false>;
+/**
  * Defines a named function that reads the workspace as well: the `inputs` it
  * declares, as a stream task declares them, beside the `args` its caller
  * passes.
@@ -202,53 +249,6 @@ export function function_<
   spec: FunctionSpec<Inputs, Args, Output, Listed>,
   fn: ($: BlockBuilder<Output>, ...params: [...InputExprs<Inputs>, ...ArgExprs<Args>]) => SubtypeExprOrValue<NoInfer<Output>> | void,
 ): FunctionDef<Args, Output, DraftedOf<Listed>>;
-/**
- * Defines a named function stored in a package.
- *
- * The body is an ordinary East function (sync or async); its signature IS
- * the argument list — `argTypes` / `outputType` are inferred from the East
- * function, so there is no separate type array to keep in sync. It reads
- * nothing of the workspace: a function that does declares `inputs`, in the
- * `(name, spec, fn)` form.
- *
- * Unlike a task, a function creates no dataset tree nodes and no command IR:
- * its body IR is stored directly as a content object, its signature lives on
- * the function object, and the executor builds the runner argv directly at
- * call time (which is what enables a request-time runner override).
- *
- * @typeParam Name - Function name (literal type)
- * @typeParam Args - The argument types: the East function's parameters
- * @typeParam Output - Return type
- * @param name - Function name (unique within the package)
- * @param fn - The East function body. Pure compute — no dataset reads; may
- *   be async (platform calls / IO).
- * @param config - Optional runner selection. Only the known runtimes are
- *   allowed — including `custom` (symmetric with tasks; the command must
- *   speak the runner CLI convention, see {@link FunctionRunner}).
- * @returns A FunctionDef to pass to `e3.package`
- * @throws {Error} When the name is empty or the runner is not a known one.
- *
- * @example
- * ```ts
- * const forecast = e3.function(
- *   'forecast',
- *   East.function([IntegerType, FloatType], FloatType, ($, periods, growthRate) => {
- *     ...
- *   }),
- *   { runner: { runtime: 'east-py', platforms: ['east-py-datascience'] } },
- * );
- *
- * const pkg = e3.package('planning', '1.0.0', forecast);
- * ```
- */
-export function function_<Name extends string, Args extends EastType[], Output extends EastType>(
-  name: Name,
-  fn: FunctionExpr<Args, Output>
-    | CallableFunctionExpr<Args, Output>
-    | AsyncFunctionExpr<Args, Output>
-    | CallableAsyncFunctionExpr<Args, Output>,
-  config?: { runner?: FunctionRunner, environment?: EnvironmentDecl },
-): FunctionDef<Args, Output, false>;
 export function function_(
   name: string,
   second: FunctionExpr<EastType[], EastType> | AsyncFunctionExpr<EastType[], EastType> | FunctionSpec<(DatasetDef | RecordDef)[], EastType[], EastType, readonly RecordDef[]>,

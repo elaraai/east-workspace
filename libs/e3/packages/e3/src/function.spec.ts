@@ -361,6 +361,31 @@ describe('function_ with drafts', () => {
     });
   });
 
+  // The spec's overload is the last, so the call no overload takes is refused
+  // at the entry of drafts, naming it, and not at the spec of the other.
+  it('refuses an inline spec listing in drafts what is no record, or a record none of its inputs reads, at the entry and as it is built', () => {
+    assert.throws(() => function_('inline_priced', {
+      inputs: [prices],
+      // @ts-expect-error — of the inputs, only a record is listed in drafts
+      drafts: [prices],
+      args: [],
+      output: IntegerType,
+    }, () => 0n), {
+      message: 'e3.function \'inline_priced\': \'prices\', listed in drafts, is no record — '
+        + 'a draft is a call of a record\'s mutation that is not committed, so only an e3.record takes one',
+    });
+    assert.throws(() => function_('inline_unread', {
+      inputs: [presses, prices],
+      // @ts-expect-error — jobs is not among the inputs
+      drafts: [jobs],
+      args: [],
+      output: IntegerType,
+    }, () => 0n), {
+      message: 'e3.function \'inline_unread\': the record \'jobs\', listed in drafts, is read by none of its inputs — '
+        + 'list it in inputs too, and a call reads it with its drafts laid over it',
+    });
+  });
+
   it('refuses the custom runtime, which takes no input for a draft to be laid over', () => {
     assert.throws(() => function_('custom', {
       inputs: [jobs],

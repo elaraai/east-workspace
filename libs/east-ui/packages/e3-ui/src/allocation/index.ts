@@ -33,7 +33,7 @@ import {
 } from "@elaraai/east";
 import { EastUI, StatusTokenType, TimeStepType, type UIElement } from "@elaraai/east-ui";
 import { RecordSlicesChromeType, RowSourceType, type RecordSlicesChromeOptions } from "@elaraai/east-ui/internal";
-import { FuncBindingType, boundFuncSignature, refuseDraftsHandle, type BoundFunc } from "../bind/func.js";
+import { FuncBindingType, boundFuncSignature, type BoundFunc } from "../bind/func.js";
 import { scheduleCheck } from "../schedule/index.js";
 import type { ScheduleEventKind } from "../schedule/events.js";
 import type { SchedulePeriods } from "../schedule/periods.js";
@@ -475,8 +475,7 @@ function overBytes<O extends EastType>(fn: unknown, asks: EastType, answers: O, 
  *   another row type naming both row types — or lists `drafts`, which a fit does not pass
  */
 function fitBinding(fit: unknown, rowType: EastType): ExprType<typeof FuncBindingType> {
-    refuseDraftsHandle(fit, "Allocation", "fit");
-    const signature = boundFuncSignature(fit);
+    const signature = boundFuncSignature(fit, "Allocation", "fit");
     if (signature === undefined) {
         throw new Error("Allocation: `fit` is Func.bind of the app's e3.function from Allocation.Types.FitRequest(R) to Allocation.Types.FitResult, R the bins' row type");
     }
