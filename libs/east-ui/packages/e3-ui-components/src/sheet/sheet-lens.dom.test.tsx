@@ -683,7 +683,7 @@ const notedOrders = { fn: East.function([], UIComponentType, (_$) => Reactive.Ro
             reference: Sheet.column.text(ex.IndexedWork, { header: "Reference", detail: (order) => East.str`${word} ${order.reference}` }),
             job: Sheet.column.text(ex.IndexedWork, { header: "Job" }),
         },
-        onApply: Record.onApply(record, { keyed: true }), edits: { insertRows: false },
+        record, edits: { insertRows: false },
     });
 }))) };
 

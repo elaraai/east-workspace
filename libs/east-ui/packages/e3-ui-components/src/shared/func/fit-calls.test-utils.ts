@@ -10,14 +10,16 @@
  * builder asked is each start's body, decoded by the fit's request type; what
  * e3 answered, each start's answer a tap kept through the test, its call ended
  * within it, decoded by its result type; and a fit held or failed is a fault
- * at the harness's fetch. The Roster's Find fixes and the Allocation's board
- * ask through it.
+ * at the harness's fetch — as is one whose answer a test gives
+ * ({@link FitCalls.answer}): e3 runs the function, and the result its answer
+ * carries is the test's. The Roster's Find fixes, the Allocation's board and
+ * every builder's optimiser ask through it.
  *
  * @packageDocumentation
  */
 
 import { beforeEach } from "vitest";
-import { decodeBeast2For, type EastType, type ValueTypeOf } from "@elaraai/east";
+import { decodeBeast2For, encodeBeast2For, variant, type EastType, type ValueTypeOf } from "@elaraai/east";
 import { FunctionCallAnswerType, FunctionCallRequestType, ResponseType } from "@elaraai/e3-types";
 import type { E3Answer, E3Hold, E3Match, E3Request } from "../../e3-web.test-utils.js";
 import type { E3Harness } from "../../e3-web-mount.test-utils.js";
@@ -50,6 +52,17 @@ export interface FitCalls<Q, R> {
     calls(name?: string): number;
     /** Each question the builder has asked the fit in the test so far, in order, as its call's body says. */
     requests(name?: string): Q[];
+    /**
+     * The drafts each call of the fit passed in the test so far, in order: a builder's unsaved edits, each the record
+     * it is of and the mutation a Save of it would call (east-workspace#1622).
+     */
+    drafts(name?: string): { readonly record: string; readonly mutation: string }[][];
+    /**
+     * How each call of the fit ended within its start's wait, in the order the answers came: its result's outcome
+     * (`success`, `conflict`, `failed`, …), its status where it has none (`running`, `cancelled`, `lost`), or
+     * `error` for a start e3 refused or a fault failed.
+     */
+    outcomes(name?: string): string[];
     /** Each answer e3 has given the fit in the test so far, in the order they came. */
     answers(name?: string): R[];
     /** Holds each call of the fit on its way to e3, from now until released. */
@@ -59,6 +72,18 @@ export interface FitCalls<Q, R> {
      * (`503`, `unavailable`), from now until the returned function stops it.
      */
     fail(name?: string): () => void;
+    /**
+     * Has each call of the fit answer the result given, from now until the
+     * returned function stops it: e3 runs the app's function — the drafts
+     * laid, each record's commit named — and the result its answer carries is
+     * this one in its place. What a function answers is its author's: this is
+     * one that answers so, whatever the example's own would have.
+     *
+     * @param result - The result, or what makes it from the one the function made and the question it was asked
+     * @param name - The fit's `e3.function` name; every fit's when omitted
+     * @returns What stops it
+     */
+    answer(result: R | ((made: R, asked: Q) => R), name?: string): () => void;
 }
 
 /**
@@ -75,6 +100,8 @@ export function fitCalls<Q extends EastType, R extends EastType>(h: E3Harness, t
     const readRequest = decodeBeast2For(types.request);
     const readStarted = decodeBeast2For(ResponseType(FunctionCallAnswerType));
     const readResult = decodeBeast2For(types.result);
+    const writeStarted = encodeBeast2For(ResponseType(FunctionCallAnswerType));
+    const writeResult = encodeBeast2For(types.result);
     /** The question a call asked: its one argument, sent by value. */
     const questionOf = (request: E3Request): ValueTypeOf<Q> => {
         if (request.body === undefined) throw new Error(`${request.path} sent no body`);
@@ -104,8 +131,36 @@ export function fitCalls<Q extends EastType, R extends EastType>(h: E3Harness, t
     return {
         calls: (name) => h.requests("call").filter(isFitCall(name)).length,
         requests: (name) => h.requests("call").filter(isFitCall(name)).map(questionOf),
+        drafts: (name) => h.requests("call").filter(isFitCall(name)).map((request) => {
+            if (request.body === undefined) throw new Error(`${request.path} sent no body`);
+            return readCall(request.body).drafts.map(({ record, mutation }) => ({ record, mutation }));
+        }),
         answers: (name) => kept.filter((answer) => isFitCall(name)(answer.request)).flatMap(answerOf),
+        outcomes: (name) => kept.filter((answer) => isFitCall(name)(answer.request)).map((answer) => {
+            if (answer.status !== 200) return "error";
+            const response = readStarted(answer.body);
+            if (response.type !== "success") return "error";
+            const status = response.value.status;
+            return status.type === "completed" ? status.value.outcome.type : status.type;
+        }),
         hold: (name) => h.e3.hold(isFitCall(name)),
         fail: (name) => h.e3.fail(isFitCall(name), { status: 503, type: "unavailable", message: "the fit's service is down" }),
+        answer: (result, name) => h.e3.fail(isFitCall(name), {
+            alter: (body, request) => {
+                const response = readStarted(body);
+                const status = response.type === "success" ? response.value.status : undefined;
+                if (status?.type === "running") {
+                    throw new Error(`${request.path}: the fit ran on past its start's wait, so its answer comes by a poll, which a test's answer does not reach`);
+                }
+                // A call e3 failed, refused or found in conflict has no result to give in another's place: its answer stands.
+                if (response.type !== "success" || status?.type !== "completed" || status.value.outcome.type !== "success") return new Uint8Array(body);
+                const given = typeof result === "function"
+                    ? (result as (made: ValueTypeOf<R>, asked: ValueTypeOf<Q>) => ValueTypeOf<R>)(readResult(status.value.outcome.value.value), questionOf(request))
+                    : result;
+                return new Uint8Array(writeStarted(variant("success", {
+                    ...response.value, status: variant("completed", { ...status.value, outcome: variant("success", { value: writeResult(given) }) }),
+                })));
+            },
+        }),
     };
 }

@@ -134,7 +134,7 @@ function sheetOf($: BlockBuilder<typeof SheetPayloadType>, press: ExprType<Strin
     return createSheetPayload({
         slice: { slice },
         columns: { title: Sheet.column.text(ex.PressRun, { header: "Title" }), press: Sheet.column.text(ex.PressRun, { header: "Press" }) },
-        onApply: Record.onApply(runs, { keyed: true }), edits: { insertRows: false },
+        record: runs, edits: { insertRows: false },
     });
 }
 

@@ -3,14 +3,15 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  * @vitest-environment jsdom
  *
- * Optimise with the week's edges in the Roster (#1553) on e3: the night
- * warehouse's optimiser is the example's own `e3.function`, which takes the
- * edges, called by name on e3 once per run. A run sends the week's duties and,
- * apart, the duties its window holds that the Roster places in another week —
- * as the session holds them, an unsaved draft among them — with the keys of
- * those whose week is published; the answer's edges land with its duties as
- * one edit, each edge duty marked in its own week, and one Undo reverts it.
- * An answer that changes what a gesture could not — a fixed duty, or one whose
+ * Optimise with the week's edges in the Roster (#1553, east-workspace#1622) on
+ * e3: the night warehouse's optimiser is the example's own `e3.function`,
+ * which takes the edges, called by name on e3 once per run. A run asks the
+ * week and names the duties its answer must leave as they are — those the
+ * week's window holds whose own week is published — and sends no duty: the
+ * function reads them, an unsaved draft of the week before laid over them.
+ * The answer's one patch lands as one edit, its changes at the edges among
+ * it, each edge duty marked in its own week, and one Undo reverts it. An
+ * answer that changes what a gesture could not — a fixed duty, or one whose
  * week was published while the run was out — is refused, naming the duty, and
  * records nothing.
  */
@@ -28,7 +29,7 @@ import { fitCalls } from "../shared/func/fit-calls.test-utils.js";
 import { act, at, history, rosterHarness, settle, slot } from "./harness.test-utils.js";
 
 const h = rosterHarness({ "roster/optimise": opt });
-const calls = fitCalls(h, { request: Roster.Types.OptimiseRequest(opt.NightsShift, { edges: true }), result: Roster.Types.OptimiseResult(opt.NightsShift, { edges: true }) });
+const calls = fitCalls(h, { request: Roster.Types.OptimiseRequest({ edges: true }), result: Roster.Types.OptimiseResult(opt.NightsShifts) });
 /** The night warehouse's optimiser, by its `e3.function` name. */
 const RUN = "rota_plan_nights";
 /** The optimiser that takes every duty at the week's edges away, by its name. */
@@ -100,13 +101,8 @@ function clearingRoster(): Example {
     }))) };
 }
 
-/** The week planned's duties, by key in East's order: W10's, Monday 6 March 2028 to the next. */
-const WEEK = ["ada-fri", "ada-mon", "ada-thu", "ada-tue", "ada-wed", "mia-fri", "mia-thu", "mia-tue", "mia-wed", "tom-mon", "tom-sun", "tom-thu", "tom-tue", "tom-wed"];
-/** The stored duties the week's window holds that the Roster places in another week: the next Monday's early, and the two nights before the week. */
-const EDGES = ["ada-next-mon", "mia-sun-before", "tom-sun-before"];
-
 describe("Optimise with the week's edges in the Roster (#1553)", () => {
-    test("a run sends the week's duties and its edges apart, an unsaved draft of the week before among them; the answer's edges land with its duties as one edit — each edge duty marked in its own week — one Undo reverts it, and Save writes both through the patch door", async () => {
+    test("a run asks the week and names no duty fixed, an unsaved draft of the week before sent with it as a draft; the answer's one patch lands as one edit, its changes at the edges among it — each edge duty marked in its own week — one Undo reverts it, and Save writes both through the patch door", async () => {
         const c = await mounted();
         const deployed = await commits();
         // Ada's Sunday in the week before, a Late not saved: a duty at the week's edges as the session holds it.
@@ -116,16 +112,16 @@ describe("Optimise with the week's edges in the Roster (#1553)", () => {
         await waitFor(() => expect(eye(c)?.disabled).toBe(false), { timeout: 10_000 });
         await press(eye(c));
         await said(c, "done");
-        // One call: the week's duties, and apart from them its edges — the stored ones and the draft, its row as drafted — none fixed.
+        // One call: the week and its kind, no duty — the function reads them, the draft of the week before laid over them —
+        // and none fixed.
         expect(calls.requests(RUN)).toHaveLength(1);
         const asked = calls.requests(RUN)[0]!;
-        expect([instant(asked.from), instant(asked.to), asked.run, [...asked.duties.keys()], asked.fixed.size])
-            .toEqual([instant(at("2028-03-06T00:00:00")), instant(at("2028-03-13T00:00:00")), 1n, WEEK, 0]);
-        expect([asked.edges.size, ...EDGES.map(key => asked.edges.has(key)), asked.edges.has(late)]).toEqual([4, true, true, true, true]);
-        expect(row(asked.edges.get(late)!)).toBe(row({ who: "w-01", shift: "late", team: "inbound", start: at("2028-03-05T14:00:00"), end: at("2028-03-05T22:00:00") }));
+        expect(Object.keys(asked).sort()).toEqual(["fixed", "from", "period", "run", "slice", "to"]);
+        expect([instant(asked.from), instant(asked.to), asked.period.type, asked.run, asked.fixed.size])
+            .toEqual([instant(at("2028-03-06T00:00:00")), instant(at("2028-03-13T00:00:00")), "week", 1n, 0]);
         // The answer: Tom's night before the week at the night's own times, Mia's taken away, and her Monday early added.
-        const answered = calls.answers(RUN).at(-1)!;
-        const added = [...answered.duties.keys()].filter(key => !asked.duties.has(key));
+        const answered = calls.answers(RUN).at(-1)!.duties;
+        const added = answered.type !== "patch" ? [] : [...answered.value].filter(([, change]) => change.type === "insert").map(([key]) => key);
         expect(added).toHaveLength(1);
         const monday = added[0]!;
         expect(monday).toMatch(/^elara-1-\d+$/);
@@ -163,7 +159,7 @@ describe("Optimise with the week's edges in the Roster (#1553)", () => {
         await press(eye(c));
         await said(c, "none");
         const asked = calls.requests(RUN).at(-1)!;
-        expect([[...asked.edges.keys()], [...asked.fixed]]).toEqual([EDGES, ["mia-sun-before", "tom-sun-before"]]);
+        expect([...asked.fixed]).toEqual(["mia-sun-before", "tom-sun-before"]);
         expect(words(banner(c, "none")!)).toEqual(["No changes", "Elara found nothing to improve in W10."]);
         expect(c.querySelectorAll("[data-op]")).toHaveLength(0);
     });
@@ -178,7 +174,7 @@ describe("Optimise with the week's edges in the Roster (#1553)", () => {
             .toEqual([true, 1, 0, true]);
     });
 
-    test("an answer that changes a duty whose week another session published while the run was out is refused, naming the duty as it was asked", async () => {
+    test("an answer that changes duties whose week another session published while the run was out is refused, naming the first of them by its key, and records nothing", async () => {
         const c = await mounted();
         const hold = calls.hold(RUN);
         await press(eye(c));
@@ -186,7 +182,8 @@ describe("Optimise with the week's edges in the Roster (#1553)", () => {
         await h.patch(opt.nightsWeeks, weekBeforeIssued());
         hold.release();
         await said(c, "fail");
-        expect(words(banner(c, "fail")!)).toEqual(["Couldn't optimise W10", "Elara's answer changes Tom Vale · Sun Mar 5 Night 21–05 · Dispatch, in a week not available to edit. Nothing changed."]);
+        // The answer takes Mia's night away and changes Tom's, both of the week published meanwhile: the patch's first key names the refusal.
+        expect(words(banner(c, "fail")!)).toEqual(["Couldn't optimise W10", "Elara's answer removes Mia Hart · Sun Mar 5 Night · Inbound, in a week not available to edit. Nothing changed."]);
         expect([calls.requests(RUN)[0]!.fixed.size, c.querySelectorAll("[data-op]").length]).toEqual([0, 0]);
     });
 });

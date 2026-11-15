@@ -3,40 +3,49 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  * @vitest-environment jsdom
  *
- * Optimise in the Roster (#1409, #1421; `Optimise Spec.md` §9) on e3: the
- * warehouse's optimiser is the example's own `e3.function`, called by name on
- * e3 once per run. The eye shows only with an optimiser, as tall as the
- * toolbar's other controls, between the issues item and the history item, and
- * only where the week can be optimised — never in Month (R6); a click sends
- * one call over the week — its duties by key, its targets by slot and the
- * complete staff (R1, R23) — and while it is out the eye runs, the footer
- * counts, the history is locked, nothing drags and every control of the week
- * stays in place, inert (R2); the result lands as
- * one edit (R7, R8): every slot short of its heads filled, each new duty
- * marked and named for the run on the Shifts chips and the People tiles
- * alike, the banner saying what changed, the changed people's hours and the
- * issues item flashing — and one Undo reverts it all, Redo replays the
- * landing without the banner, Save commits it with everything else (R9, R11).
- * Stop and a week change ignore a late answer (R3, R4); nothing to change and
- * a failed call say so (R10). Below 480px the eye is in the toolbar still,
- * and the landing is on the cards (R27); at a phone's toolbar floor it is the
- * View's entry — named for the week, a run and its Stop from there, and off,
- * saying why, while a week's reads are in flight (ruled 27 Oct 2026, "Into
- * the View menu").
+ * Optimise in the Roster (#1409, #1421, east-workspace#1622; `Optimise
+ * Spec.md` §9) on e3: the warehouse's optimiser is the example's own
+ * `e3.function`, called by name on e3 once per run. The eye shows only with an
+ * optimiser, as tall as the toolbar's other controls, between the issues item
+ * and the history item, and only where the period in view can be optimised —
+ * never over a period that takes no edit, a month holding a published week
+ * among them (R6); a click sends one call — the period in view, its kind, the
+ * run's number and the rail's narrowing, and no row (R1, R23): the function
+ * reads the duties, the targets and the staff itself, the Roster's unsaved
+ * edits laid over them as drafts — and while it is out the eye runs, the
+ * footer counts, the history is locked, nothing drags and every control of the
+ * week stays in place, inert (R2); the answer's patch lands as one edit (R7,
+ * R8): every slot short of its heads filled, each new duty marked and named
+ * for the run on the Shifts chips and the People tiles alike, the banner
+ * saying what changed, the changed people's hours and the issues item flashing
+ * — and one Undo reverts it all, Redo replays the landing without the banner,
+ * Save commits it with everything else (R9, R11). Stop and a week change
+ * ignore a late answer (R3, R4); nothing to change and a failed call say so
+ * (R10). Below 480px the eye is in the toolbar still, and the landing is on
+ * the cards (R27); at a phone's toolbar floor it is the View's entry — named
+ * for the week, a run and its Stop from there, and on while a week's reads are
+ * in flight, which it waits on none of (ruled 27 Oct 2026, "Into the View
+ * menu"). What it does with any answer — one that inserts, updates and
+ * deletes, one that replaces the whole Dict, one that moves a duty out of the
+ * week, another page's save while the call is out, a key another page takes —
+ * is the builders' shared cases (`optimise-cases.test-utils.ts`), over the
+ * week's duties.
  */
 
 import { describe, expect, test } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
+import { DateTimeType, printFor, some, variant } from "@elaraai/east";
 import { editingMessages } from "@elaraai/east-ui-components";
 import { Roster } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/roster/roster";
 import * as opt from "@elaraai/e3-ui/examples/roster/optimise";
 import type { E3Request } from "../e3-web.test-utils.js";
 import { fitCalls } from "../shared/func/fit-calls.test-utils.js";
+import { optimiseCases } from "../shared/func/optimise-cases.test-utils.js";
 import { START, act, at, history, rosterHarness, settle, slot, toolbarAtFloor, weekDuties, width } from "./harness.test-utils.js";
 
 const h = rosterHarness({ "roster/optimise": opt });
-const calls = fitCalls(h, { request: Roster.Types.OptimiseRequest(ex.WarehouseDuty), result: Roster.Types.OptimiseResult(ex.WarehouseDuty) });
+const calls = fitCalls(h, { request: Roster.Types.OptimiseRequest(), result: Roster.Types.OptimiseResult(opt.WarehouseDuties) });
 /** The warehouse's optimiser, by its `e3.function` name: the calls the eye makes, apart from any fit's. */
 const RUN = "rota_optimise";
 const DAY = 86_400_000;
@@ -113,10 +122,15 @@ async function mounted() {
     await waitFor(() => expect(eye(container)?.disabled).toBe(false), { timeout: 10_000 });
     return container;
 }
-/** The duties the latest answer added, by key, each with the day of the week it falls on. */
+/** The duties the latest answer added — the rows its patch inserts — by key, each with the day of the week it falls on. */
 function added(): Map<string, number> {
-    const asked = calls.requests(RUN).at(-1)!, answered = calls.answers(RUN).at(-1)!;
-    return new Map([...answered.duties].filter(([key]) => !asked.duties.has(key)).map(([key, duty]) => [key, Math.floor((duty.start.getTime() - asked.from.getTime()) / DAY)] as const));
+    const asked = calls.requests(RUN).at(-1)!, answered = calls.answers(RUN).at(-1)!.duties;
+    const out = new Map<string, number>();
+    if (answered.type !== "patch") return out;
+    for (const [key, change] of answered.value) {
+        if (change.type === "insert") out.set(key, Math.floor((change.value.start.getTime() - asked.from.getTime()) / DAY));
+    }
+    return out;
 }
 /** The Shifts layout on a day of the week: its chips are every duty of the day's slots. */
 async function shiftsDay(c: HTMLElement, day: number) {
@@ -149,7 +163,7 @@ describe("the eye in the Roster", () => {
         expect(items.indexOf("optimise")).toBeGreaterThan(items.indexOf("roster.issues"));
     });
 
-    test("R6 — a month in view lists no eye: a run is one week's; Week lists it again, and a run out as Month opens stops", async () => {
+    test("R6 — a month holding a published week lists no eye: a run plans every week in view, and a published one takes no change; Week lists it again, and a run out as Month opens stops", async () => {
         const container = await mounted();
         const week = period(container);
         const hold = calls.hold(RUN);
@@ -171,7 +185,7 @@ describe("the eye in the Roster", () => {
         await waitFor(() => expect(eye(container)?.disabled).toBe(false), { timeout: 10_000 });
     });
 
-    test("R1, R2, R23 — one call over the week: its duties by key, its targets by slot and the complete staff; the lock while it is out", async () => {
+    test("R1, R2, R23 — one call asking the week, its kind, the run's number and the rail's narrowing, and no row; the lock while it is out", async () => {
         const container = await mounted();
         await press(toolbar(container).getByRole("radio", { name: "People" }));
         const week = period(container);
@@ -192,9 +206,10 @@ describe("the eye in the Roster", () => {
         expect([...container.querySelectorAll("[data-roster-person-day]")].some(cell => cell.textContent === "Off")).toBe(false);
         expect(calls.requests(RUN)).toHaveLength(1);
         const asked = calls.requests(RUN)[0]!;
-        const stored = weekDuties(await h.read(ex.rosterDuties), START);
-        expect([asked.run, asked.from.getTime(), asked.to.getTime(), asked.duties.size, asked.requirements.size > 0, asked.context.people.size > 0, asked.context.shifts.length > 0])
-            .toEqual([1n, START.getTime(), at("2028-03-12T00:00:00").getTime(), stored.size, true, true, true]);
+        // The request names the week and carries no row: no duty, no target, nothing of the staff or the configuration.
+        expect(Object.keys(asked).sort()).toEqual(["from", "period", "run", "slice", "to"]);
+        expect([asked.run, asked.from.getTime(), asked.to.getTime(), asked.period.type])
+            .toEqual([1n, START.getTime(), at("2028-03-12T00:00:00").getTime(), "week"]);
         hold.release();
         await said(container, "done");
         expect([eye(container)!.hasAttribute("data-running"), line(container).hasAttribute("data-idle")]).toEqual([false, true]);
@@ -312,7 +327,7 @@ describe("the eye in the Roster", () => {
         relit.stop();
     });
 
-    test("R27 — at a phone's toolbar floor the eye is the View's entry, never out of the toolbar: named for the week, a run and its Stop from there, and off, saying why, while a week's reads are in flight (ruled 27 Oct 2026, \"Into the View menu\")", async () => {
+    test("R27 — at a phone's toolbar floor the eye is the View's entry, never out of the toolbar: named for the week, a run and its Stop from there, and on while a week's reads are in flight — it waits on none of them (ruled 27 Oct 2026, \"Into the View menu\")", async () => {
         const container = await mounted();
         const week = period(container);
         await toolbarAtFloor();
@@ -334,17 +349,63 @@ describe("the eye in the Roster", () => {
         expect([calls.requests(RUN).length, container.querySelectorAll("[data-op]").length, container.querySelector("[data-optimise-banner]")]).toEqual([1, 0, null]);
         await act(async () => { fireEvent.keyDown(within(document.body).getByRole("dialog"), { key: "Escape" }); });
         await settle();
-        // Two weeks on, the second's reads held — the first read ahead — the eye would be off: the entry is, and says why.
+        // Two weeks on, the second's reads held — the first read ahead: the entry is on still, named for that week. The
+        // request carries no row, so a run waits on none of the week's reads (east-workspace#1622).
         const held = h.e3.hold(weekRead);
         await key(container, "]");
         await key(container, "]");
-        const off = await viewEntry(container);
-        const reason = off().querySelector<HTMLElement>("[data-entry-reason]");
-        expect([off().disabled, off().getAttribute("aria-label")?.startsWith("Optimise W"), reason?.textContent, off().getAttribute("aria-describedby") === reason?.id])
-            .toEqual([true, true, "Read-only", true]);
+        const on = await viewEntry(container);
+        expect([on().disabled, on().getAttribute("aria-label")?.startsWith("Optimise W"), on().querySelector("[data-entry-reason]")]).toEqual([false, true, null]);
         await act(async () => { held.release(); });
         await settle();
-        await waitFor(() => expect(off().disabled).toBe(false), { timeout: 10_000 });
-        expect(off().querySelector("[data-entry-reason]")).toBeNull();
     });
+});
+
+describe("the period a run is asked of (rule 1)", () => {
+    const instant = printFor(DateTimeType);
+    test("each view's request names the period it shows and its kind: the week in week view, the day in Shifts' day view, and in month view the month — its whole weeks, of a month every week of which takes an edit", async () => {
+        const container = await mounted();
+        /** A run's request from the view as it stands: its call held on its way, its question read, and the run stopped. */
+        const asked = async () => {
+            await waitFor(() => expect(eye(container)?.disabled).toBe(false), { timeout: 10_000 });
+            const hold = calls.hold(RUN);
+            await press(eye(container));
+            await hold.holding;
+            const request = calls.requests(RUN).at(-1)!;
+            await press(eye(container));
+            hold.release();
+            await settle();
+            return [request.period.type, instant(request.from), instant(request.to)];
+        };
+        expect(await asked()).toEqual(["week", "2028-03-05T00:00:00.000", "2028-03-12T00:00:00.000"]);
+        // Tuesday, in Shifts' day view.
+        await shiftsDay(container, 2);
+        await press(toolbar(container).getByRole("radio", { name: "Day" }));
+        expect(await asked()).toEqual(["day", "2028-03-07T00:00:00.000", "2028-03-08T00:00:00.000"]);
+        // March holds the week before, published: no eye. April's weeks are all open.
+        await press(toolbar(container).getByRole("radio", { name: "Week" }));
+        await press(toolbar(container).getByRole("radio", { name: "People" }));
+        await press(toolbar(container).getByRole("radio", { name: "Month" }));
+        await waitFor(() => expect(eye(container)).toBeNull());
+        // April, as the month view shows it: the weeks that hold a day of it, Sun 26 Mar to Sat 6 May.
+        await key(container, "]");
+        expect(await asked()).toEqual(["month", "2028-03-26T00:00:00.000", "2028-05-07T00:00:00.000"]);
+    });
+});
+
+// The week in view, Sun 5 – Sat 11 Mar 2028: its duties, and one the optimiser adds — a Tuesday early in Inbound, another's copied.
+optimiseCases<typeof ex.WarehouseDuty>({
+    builder: "the Roster", h,
+    mounted,
+    record: ex.rosterDuties,
+    answer: (patch) => { calls.answer({ duties: patch as never }, RUN); },
+    add: ["elara-tue-early", (duties) => ({ ...duties.get("s12")!, who: variant("staff", "dbracken") })],
+    // Monday's early in Inbound, on the unload in place of the putaway.
+    change: ["s11", (duty) => ({ ...duty, task: some("unload") })],
+    remove: "s13",
+    other: ["s5", (duty) => ({ ...duty, note: "Swapped by the day lead" })],
+    // The same shift a week on: the refusal names the duty as it stands in the week in view.
+    outside: { to: (duty) => ({ ...duty, start: new Date(duty.start.getTime() + 7 * DAY), end: new Date(duty.end.getTime() + 7 * DAY) }), named: "R. Birch · Mon Mar 6 Early · Inbound",
+        // A duty of a week the Roster holds none of is named by its start.
+        standing: "a duty starting Mon, Mar 13, 2028" },
 });

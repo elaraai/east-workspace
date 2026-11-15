@@ -3,30 +3,46 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  * @vitest-environment jsdom
  *
- * Optimise in the Sheet (#1409, #1418; `Optimise Spec.md` §9, R25) on e3: the
- * shop's optimiser is the example's own `e3.function`, called by name on e3
- * once per run. The eye shows only with an optimiser (R6); a click sends one
- * call over the tab's rows by key, as the session holds them (R1, R25), and
- * while it is out the eye runs, the footer counts, the history is locked and
- * no cell takes an edit (R2); the result lands as one edit (R7, R8), cell by
- * cell: a blank given a value an add, a value changed a change, each named
- * for the run on hover, the banner saying what changed — and one Undo
- * reverts it all, Redo replays the landing without the banner, Save commits
- * it with everything else (R9, R11). Stop ignores a late answer (R3);
- * nothing to change and a failed call say so (R10).
+ * Optimise in the Sheet (#1409, #1418, east-workspace#1622; `Optimise Spec.md`
+ * §9, R25) on e3: the shop's optimiser is the example's own `e3.function`,
+ * called by name on e3 once per run. The eye shows only with an optimiser
+ * (R6); a click sends one call — the run's number and the rail's narrowing,
+ * and no row (R1, R25): the function reads the orders itself, the sheet's
+ * unsaved edits laid over them as a draft — and while it is out the eye runs,
+ * the footer counts, the history is locked and no cell takes an edit (R2); the
+ * answer's patch lands as one edit (R7, R8), cell by cell: a blank given a
+ * value an add, a value changed a change, each named for the run on hover,
+ * the banner saying what changed — and one Undo reverts it all, Redo replays
+ * the landing without the banner, Save commits it with everything else (R9,
+ * R11). Stop ignores a late answer (R3); nothing to change and a failed call
+ * say so (R10). An order typed Scheduled and not saved is the function's
+ * input: it plans around it. An answer that changes a row whose own edit is
+ * not finished — a value it requires cleared — is refused, naming the row
+ * (rule 11). A call that ends `conflict` — another page saved under the
+ * sheet's unsaved edits — lands nothing, and takes the path a refused Save
+ * takes (rule 12): with nothing to choose it goes again by itself over the
+ * newer save and lands; with a conflict to choose the run ends saying so, and
+ * the person chooses before running again. What it does with any answer — one that inserts, updates and
+ * deletes, one that replaces the whole Dict, another page's save while the
+ * call is out, a key another page takes — is the builders' shared cases
+ * (`optimise-cases.test-utils.ts`), over the orders; a sheet has no period for
+ * an answer to leave.
  */
 
 import { describe, expect, test } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
+import { none } from "@elaraai/east";
 import { Sheet } from "@elaraai/e3-ui";
 import { editingMessages } from "@elaraai/east-ui-components";
 import * as opt from "@elaraai/e3-ui/examples/sheet/optimise";
-import { act, e3Harness, settle, slot } from "../e3-web-mount.test-utils.js";
+import { act, conflictCards, e3Harness, settle, slot } from "../e3-web-mount.test-utils.js";
+import { patchRecord } from "../e3-web.test-utils.js";
 import { fitCalls } from "../shared/func/fit-calls.test-utils.js";
+import { optimiseCases } from "../shared/func/optimise-cases.test-utils.js";
 import "./frame/index.js";
 
 const h = e3Harness({ "sheet/optimise": opt });
-const calls = fitCalls(h, { request: Sheet.Types.OptimiseRequest(opt.OptimiseWorkOrder), result: Sheet.Types.OptimiseResult(opt.OptimiseWorkOrder) });
+const calls = fitCalls(h, { request: Sheet.Types.OptimiseRequest(), result: Sheet.Types.OptimiseResult(opt.OptimiseWorkOrders) });
 
 async function press(node: Element | null) { expect(node).toBeTruthy(); await act(async () => { fireEvent.click(node!); }); await settle(); }
 const eye = (c: HTMLElement) => c.querySelector<HTMLButtonElement>("[data-optimise-button]");
@@ -49,6 +65,16 @@ const landed = (c: HTMLElement, n: number) => waitFor(() => expect(marked(c)).to
 const said = (c: HTMLElement, kind: string) => waitFor(() => expect(banner(c, kind)).not.toBeNull(), { timeout: 10_000 });
 /** The three orders with no due date, which the optimiser schedules. */
 const READY = ["WO-1005", "WO-1007", "WO-1008"];
+/** Types a cell's new text in the row's editor, committed with ⏎. */
+async function typeInto(target: Element, text: string) {
+    await act(async () => { fireEvent.doubleClick(target); });
+    await settle();
+    const input = document.querySelector('[data-slot="editorInput"]')!;
+    await act(async () => { fireEvent.input(input, { target: { value: text } }); });
+    await settle();
+    await act(async () => { fireEvent.keyDown(input, { key: "Enter" }); });
+    await settle();
+}
 
 describe("the eye in the Sheet", () => {
     test("R6 — the eye shows for a Sheet with an optimiser, named for the tab's rows, immediately before the history item", async () => {
@@ -58,7 +84,7 @@ describe("the eye in the Sheet", () => {
         expect(items.indexOf("history") - items.indexOf("optimise")).toBe(1);
     });
 
-    test("R1, R2, R25 — one call over the tab's rows by key, as the session holds them; the lock while it is out", async () => {
+    test("R1, R2, R25 — one call asking the run's number and the rail's narrowing, and no row; the lock while it is out", async () => {
         const { container } = await h.mount(opt.sheetOptimise);
         const at = period(container);
         const hold = calls.hold();
@@ -74,10 +100,15 @@ describe("the eye in the Sheet", () => {
         expect([container.querySelector("[data-sheet-card] input"), container.querySelector("[data-drag-grip]")]).toEqual([null, null]);
         expect(calls.requests()).toHaveLength(1);
         const asked = calls.requests()[0]!;
-        expect([asked.run, asked.rows.size, [...asked.rows.keys()]]).toEqual([1n, 8, ["WO-1001", "WO-1002", "WO-1003", "WO-1004", "WO-1005", "WO-1006", "WO-1007", "WO-1008"]]);
-        expect(READY.map(id => asked.rows.get(id)!.due.type)).toEqual(["none", "none", "none"]);
+        // The request carries no row, and with no rail no narrowing: the function reads the orders itself.
+        expect(Object.keys(asked).sort()).toEqual(["run", "slice"]);
+        expect([asked.run, asked.slice.size]).toEqual([1n, 0]);
         hold.release();
         await landed(container, 6);
+        // The answer is a patch of the orders' record: the three Ready orders, each updated.
+        const answered = calls.answers()[0]!.rows;
+        expect(answered.type === "patch" ? [...answered.value].map(([key, change]) => [key, change.type]) : answered.type)
+            .toEqual(READY.map(id => [id, "update"]));
         expect([eye(container)!.hasAttribute("data-running"), line(container).hasAttribute("data-idle")]).toEqual([false, true]);
         expect(container.querySelector("[data-sheet-card] [data-slot=cell][data-editable]")).not.toBeNull();
     });
@@ -152,4 +183,117 @@ describe("the eye in the Sheet", () => {
         expect([banner(container, "fail")!.querySelector("[role=alert]") !== null, marked(container).length]).toEqual([true, 6]);
         restore();
     });
+
+    test("rule 1 — the sheet's unsaved edits are the run's input, sent as a draft of the orders' record: an order typed Scheduled and not saved is planned around; nothing is written before Save, which commits the typed edit and the answer together", async () => {
+        const { container } = await h.mount(opt.sheetOptimise);
+        const deployed = await commits();
+        await typeInto(cell(container, "WO-1005", "status"), "Scheduled");
+        await press(eye(container));
+        await landed(container, 4);
+        // One draft, of the orders' record, a call of its patch door — and the function read WO-1005 as typed: no longer Ready.
+        expect(calls.drafts()).toEqual([[{ record: opt.optimiseWorkOrders.name, mutation: "patch" }]]);
+        const answered = calls.answers()[0]!.rows;
+        expect(answered.type === "patch" ? [...answered.value.keys()] : answered.type).toEqual(["WO-1007", "WO-1008"]);
+        expect(words(banner(container, "done")!)[1]).toBe("2 changes: 2 changed. Undo or apply them like any edit.");
+        expect([cell(container, "WO-1005", "status").hasAttribute("data-op"), cell(container, "WO-1005", "due").hasAttribute("data-op")]).toEqual([false, false]);
+        // The call saved nothing: the record stands as deployed until Save.
+        expect(await commits()).toEqual(deployed);
+        await press(history(container, editingMessages.apply()));
+        await waitFor(async () => expect(await commits()).toEqual(["patch", ...deployed]), { timeout: 10_000 });
+        const orders = await h.read(opt.optimiseWorkOrders);
+        expect(READY.map(id => [orders.get(id)!.due.type, orders.get(id)!.status])).toEqual([["none", "Scheduled"], ["some", "Scheduled"], ["some", "Scheduled"]]);
+    });
+
+    test("rule 11 — an answer that changes a row whose own edit is not finished is refused whole, naming the row: its quantity is cleared, a value the row requires, so the function read the row as saved; nothing lands, and the edit stays", async () => {
+        const { container } = await h.mount(opt.sheetOptimise);
+        await typeInto(cell(container, "WO-1005", "quantity"), "");
+        expect(cell(container, "WO-1005", "quantity").closest('[data-slot="row"]')!.hasAttribute("data-incomplete")).toBe(true);
+        await press(eye(container));
+        await said(container, "fail");
+        // The unfinished edit was no part of the draft: the function read WO-1005 as saved, Ready with no due date, and changed it.
+        const answered = calls.answers()[0]!.rows;
+        expect(answered.type === "patch" ? [...answered.value.keys()] : answered.type).toEqual(READY);
+        expect(words(banner(container, "fail")!)).toEqual([`Couldn't optimise ${period(container)}`, "Elara's answer changes WO-1005, whose edit is not finished. Nothing changed."]);
+        expect([marked(container).length, lit(container)]).toEqual([0, false]);
+        expect([cell(container, "WO-1005", "quantity").hasAttribute("data-blank"), cell(container, "WO-1005", "quantity").getAttribute("title")]).toEqual([true, "A value is required"]);
+        expect(READY.map(id => cell(container, id, "status").textContent)).toEqual(["Ready", "Ready", "Ready"]);
+    });
+});
+
+describe("a record that changed under the sheet's edits (rule 12)", () => {
+    /** The orders as another page leaves them: one order's field set, the rest as e3 holds them. */
+    const another = async (id: string, change: Partial<Awaited<ReturnType<typeof h.read<typeof opt.optimiseWorkOrders.type>>> extends ReadonlyMap<string, infer R> ? R : never>) => {
+        const orders = await h.read(opt.optimiseWorkOrders);
+        const next = new Map(orders);
+        next.set(id, { ...next.get(id)!, ...change });
+        // Committed as another page's Save, and this page told nothing of it.
+        await patchRecord(h.e3, h.workspace, opt.optimiseWorkOrders, next);
+    };
+
+    test("no conflict — another page saved another order: the sheet's draft lays over the newer save, the function reads both, and the answer lands once the sheet has read the save; Save keeps all three", async () => {
+        const { container } = await h.mount(opt.sheetOptimise);
+        const deployed = await commits();
+        await typeInto(cell(container, "WO-1005", "status"), "Scheduled");
+        await another("WO-1001", { job: "Cut panels · rush" });
+        await press(eye(container));
+        await said(container, "done");
+        expect([calls.outcomes(), calls.drafts().map(drafts => drafts.length), container.querySelector('[data-session-banner="conflicts"]')]).toEqual([["success"], [1], null]);
+        expect(words(banner(container, "done")!)[1]).toBe("2 changes: 2 changed. Undo or apply them like any edit.");
+        expect(cell(container, "WO-1001", "job").textContent).toContain("Cut panels · rush");
+        await press(history(container, editingMessages.apply()));
+        await waitFor(async () => expect(await commits()).toEqual(["patch", "patch", ...deployed]), { timeout: 10_000 });
+        const orders = await h.read(opt.optimiseWorkOrders);
+        expect([orders.get("WO-1001")!.job, ...READY.map(id => [orders.get(id)!.due.type, orders.get(id)!.status])])
+            .toEqual(["Cut panels · rush", ["none", "Scheduled"], ["some", "Scheduled"], ["some", "Scheduled"]]);
+    });
+
+    test("nothing to choose — another page saved the same change of the order the sheet edited: the call ends `conflict` and lands nothing; the sheet takes the save in, its edit carried over to nothing left to save, and the call goes again by itself and lands", async () => {
+        const { container } = await h.mount(opt.sheetOptimise);
+        const deployed = await commits();
+        await typeInto(cell(container, "WO-1005", "status"), "Scheduled");
+        await another("WO-1005", { status: "Scheduled" });
+        await press(eye(container));
+        await said(container, "done");
+        // Two calls for the one run: the first over a draft of the record as the sheet held it, refused; the second with no
+        // draft left to send — the other page's save is the sheet's edit.
+        expect([calls.outcomes(), calls.drafts().map(drafts => drafts.length), container.querySelector('[data-session-banner="conflicts"]')]).toEqual([["conflict", "success"], [1, 0], null]);
+        expect(words(banner(container, "done")!)[1]).toBe("2 changes: 2 changed. Undo or apply them like any edit.");
+        await press(history(container, editingMessages.apply()));
+        await waitFor(async () => expect(await commits()).toEqual(["patch", "patch", ...deployed]), { timeout: 10_000 });
+        const orders = await h.read(opt.optimiseWorkOrders);
+        expect(READY.map(id => [orders.get(id)!.due.type, orders.get(id)!.status])).toEqual([["none", "Scheduled"], ["some", "Scheduled"], ["some", "Scheduled"]]);
+    });
+
+    test("a conflict to choose — another page saved the order the sheet edited: the call ends `conflict`, and the run ends saying so in the refused Save's words; nothing lands, no second call is made, and the conflict waits in the history bar", async () => {
+        const { container } = await h.mount(opt.sheetOptimise);
+        await typeInto(cell(container, "WO-1005", "status"), "Scheduled");
+        await another("WO-1005", { status: "Done" });
+        await press(eye(container));
+        await said(container, "fail");
+        expect(calls.outcomes()).toEqual(["conflict"]);
+        expect(words(banner(container, "fail")!)).toEqual([`Couldn't optimise ${period(container)}`, "1 of your changes conflicts with newer changes. Nothing changed."]);
+        expect([marked(container).length, lit(container)]).toEqual([0, false]);
+        await waitFor(() => expect(container.querySelector('[data-session-banner="conflicts"]')).not.toBeNull());
+        const [conflict, ...more] = await conflictCards(container);
+        expect([more, conflict!.yours]).toEqual([[], "Yours, Scheduled"]);
+        // Chosen, the next run goes: the draft is laid over the other page's save, and the answer lands.
+        await act(async () => { fireEvent.click(conflict!.radio("draft")); });
+        await settle();
+        await press(eye(container));
+        await said(container, "done");
+        expect(calls.outcomes()).toEqual(["conflict", "success"]);
+        expect(words(banner(container, "done")!)[1]).toBe("2 changes: 2 changed. Undo or apply them like any edit.");
+    });
+});
+
+// The orders, and one the optimiser adds.
+optimiseCases<typeof opt.OptimiseWorkOrder>({
+    builder: "the Sheet", h,
+    mounted: async () => (await h.mount(opt.sheetOptimise)).container,
+    record: opt.optimiseWorkOrders,
+    answer: (patch) => { calls.answer({ rows: patch as never }); },
+    add: ["WO-1009", { reference: "WO-1009", job: "Cut panels", status: "Ready", due: none, quantity: 250n }],
+    change: ["WO-1002", (order) => ({ ...order, quantity: 1500n })],
+    remove: "WO-1004",
+    other: ["WO-1006", (order) => ({ ...order, job: "Edge band · rush" })],
 });

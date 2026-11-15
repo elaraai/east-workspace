@@ -4,71 +4,109 @@
  *
  * @vitest-environment jsdom
  *
- * A run of the app's optimiser (#1409, #1414; R1–R6, R10, O4, D5) on e3: the
- * jobs calendar's optimiser, called by name through the shared `Func`
- * runtime, from a probe under the file's e3 — one call per run, with the
- * request made for the run's number; the seconds from 1; a result landed,
- * told once with its request, and counted — changes, none with a blink, an
- * answer the builder cannot use, one it refuses, saying why (#1553); a failed
- * call; Stop, and an answer arriving
- * after it ignored; a change of scope stops the run, a change of anything
- * else does not; unmount aborts; the run counter outlives a remount; and no
- * optimiser bound offers nothing.
+ * A run of the app's optimiser (#1409, #1414, east-workspace#1622; R1–R6,
+ * R10, O4, D5) on e3: the jobs calendar's optimiser, called by name through
+ * the shared `Func` runtime, from a probe under the file's e3 — one call per
+ * run, with the request made for the run's number and, after it, the drafts
+ * the builder's sessions hand over of the records the function lists; the
+ * seconds from 1; a result landed once the sessions stand on what the page
+ * has read, told once with its request, and counted — changes, none with a
+ * blink, an answer the builder cannot use, one it refuses, saying why (#1553);
+ * an answer that waits on rows read by their keys, asked again as the
+ * builder's reads move; sessions that cannot hand their edits over, in their
+ * words; a call e3 refuses because a record moved under its drafts (rule 12)
+ * — sent again by itself with the drafts the sessions hand over then, ended
+ * in their words where a conflict waits to be chosen, and ended a failure
+ * once it has been refused as many times in a row as a refused Save is sent
+ * again; a failed call; Stop, and an answer arriving after it ignored; a
+ * change of scope stops the run, a change of anything else does not; unmount
+ * aborts; the run counter outlives a remount; and no optimiser bound offers
+ * nothing.
  */
 
 import { useEffect } from "react";
 import { describe, expect, test, vi } from "vitest";
 import { render, waitFor } from "@testing-library/react";
-import { SortedMap, StringType, compareFor, equalFor, type ValueTypeOf } from "@elaraai/east";
+import { PatchType, SortedMap, StringType, compareFor, diffFor, encodeBeast2For, equalFor, variant, type ValueTypeOf } from "@elaraai/east";
+import { SAVE_RESENDS } from "@elaraai/east-ui-components/internal";
+import { Calendar } from "@elaraai/e3-ui";
 import * as ex from "@elaraai/e3-ui/examples/calendar/calendar";
 import * as opt from "@elaraai/e3-ui/examples/calendar/optimise";
 import { E3Surface, act, e3Harness, settle } from "../../e3-web-mount.test-utils.js";
 import { fitCalls } from "./fit-calls.test-utils.js";
-import { OPTIMISE_STOPPED_MS, useOptimise, type OptimiseCounts, type OptimiseRefused, type OptimiseRun } from "./use-optimise.js";
+import type { FuncCallBinding, FuncCallDraft } from "./use-func-call.js";
+import {
+    OPTIMISE_STOPPED_MS, useOptimise, type OptimiseCounts, type OptimiseRefused, type OptimiseRun, type OptimiseSessions, type OptimiseWaiting,
+} from "./use-optimise.js";
 
 const h = e3Harness({ "calendar/calendar": ex, "calendar/optimise": opt });
-const calls = fitCalls(h, { request: opt.CalendarOptimiseRequest, result: opt.CalendarOptimiseResult });
+const RequestType = Calendar.Types.OptimiseRequest;
+const calls = fitCalls(h, { request: RequestType, result: opt.CalendarOptimiseResult });
 /** The shop's optimiser, by its `e3.function` name. */
 const NAME = "calendar_schedule_backlog";
-type Request = ValueTypeOf<typeof opt.CalendarOptimiseRequest>;
+/** The record it lists in `drafts` and reads: the shop's jobs. */
+const JOBS = "calendar_jobs";
+const BINDING: FuncCallBinding = { drafts: [JOBS], reads: [JOBS] };
+type Request = ValueTypeOf<typeof RequestType>;
 type Result = ValueTypeOf<typeof opt.CalendarOptimiseResult>;
-type Job = ValueTypeOf<typeof ex.CalendarJob>;
-type Machine = ValueTypeOf<typeof ex.CalendarMachine>;
 const byString = compareFor(StringType);
-const sameRequest = equalFor(opt.CalendarOptimiseRequest);
-const FROM = new Date("2026-09-28T00:00:00Z"), TO = new Date("2026-10-05T00:00:00Z");
-/** A run's request over an empty window: nothing for the optimiser to schedule, so its answer is the request's rows back. */
-const request = (run: number): Request => ({ from: FROM, to: TO, run: BigInt(run), events: { job: new SortedMap<string, Job>([], byString) }, resources: { machines: new SortedMap<string, Machine>([], byString) } });
+const sameRequest = equalFor(RequestType);
+/** A window that holds no job of the shop's: nothing for the optimiser to schedule but the backlog. */
+const FROM = new Date("2030-01-07T00:00:00Z"), TO = new Date("2030-01-14T00:00:00Z");
+/** A run's request: the window, its kind, the run's number and no narrowing. */
+const request = (run: number): Request => ({ from: FROM, to: TO, period: variant("week", null), run: BigInt(run), slice: new SortedMap([], byString) });
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 const COUNTS: OptimiseCounts = { added: 1, changed: 0, removed: 0 };
 
-/** What the builder answers a landed result with: its counts, its refusal's words, or nothing for an answer it cannot use. */
-type Landed = OptimiseCounts | OptimiseRefused | undefined;
+/** What the builder answers a landed result with: its counts, its refusal's words, that it waits on rows, or nothing for an answer it cannot use. */
+type Landed = OptimiseCounts | OptimiseRefused | OptimiseWaiting | undefined;
 
-function Probe({ name, scope, layout, onLanded, onRun }: {
-    name: string | null; scope: string; layout: string; onLanded: (result: Result, request: Request, run: number) => Landed; onRun: (run: OptimiseRun<Request>) => void;
+/** The builder's sessions, as a test says them: no draft to hand over, standing on what the page read, nothing to choose. */
+interface Sessions {
+    drafts: readonly FuncCallDraft[] | OptimiseRefused;
+    /** What they hand over from the second time they are asked, where that differs: their edits carried over newer saves. */
+    carried?: readonly FuncCallDraft[] | OptimiseRefused;
+    settled: boolean;
+    conflicts: string | undefined;
+    /** Each list of records its drafts were asked of. */
+    readonly asked: (readonly string[])[];
+}
+const sessionsOf = (): Sessions => ({ drafts: [], settled: true, conflicts: undefined, asked: [] });
+
+function Probe({ name, scope, layout, sessions, settleKey, onLanded, onRun }: {
+    name: string | null; scope: string; layout: string; sessions: Sessions; settleKey: number;
+    onLanded: (result: Result, request: Request, run: number) => Landed; onRun: (run: OptimiseRun<Request>) => void;
 }) {
-    const run = useOptimise<Request, Result>({ name, requestType: opt.CalendarOptimiseRequest, resultType: opt.CalendarOptimiseResult, scope, storageKey: "test.optimise", onLanded });
+    // Read as the run asks, never kept: each answer is of the sessions as they stand.
+    const asked: OptimiseSessions = {
+        drafts: (listed) => { sessions.asked.push(listed); return sessions.asked.length > 1 && sessions.carried !== undefined ? sessions.carried : sessions.drafts; },
+        settled: () => sessions.settled,
+        conflicts: () => sessions.conflicts,
+    };
+    const run = useOptimise<Request, Result>({
+        name, binding: BINDING, sessions: asked, settleKey, requestType: RequestType, resultType: opt.CalendarOptimiseResult, scope, storageKey: "test.optimise", onLanded,
+    });
     onRun(run);
     useEffect(() => { void layout; });
     return null;
 }
 
 /** The probe under the file's e3, its run read as it renders. */
-function mount(onLanded: (result: Result, request: Request, run: number) => Landed = () => COUNTS, name: string | null = NAME) {
+function mount(onLanded: (result: Result, request: Request, run: number) => Landed = () => COUNTS, name: string | null = NAME, sessions: Sessions = sessionsOf()) {
     let latest!: OptimiseRun<Request>;
-    const tree = (scope: string, layout = "week") => <E3Surface><Probe name={name} scope={scope} layout={layout} onLanded={onLanded} onRun={(run) => { latest = run; }} /></E3Surface>;
+    const tree = (scope: string, layout = "week", settleKey = 0) =>
+        <E3Surface><Probe name={name} scope={scope} layout={layout} sessions={sessions} settleKey={settleKey} onLanded={onLanded} onRun={(run) => { latest = run; }} /></E3Surface>;
     const view = render(tree("W11"));
     const start = async (period = "W11") => { await act(async () => { latest.start(request, period); }); };
     /** Waits for the run out to land, e3 having run the optimiser for it. */
     const landed = () => waitFor(() => expect(latest.running).toBe(false), { timeout: 10_000 });
-    return { ...view, run: () => latest, tree, start, landed };
+    return { ...view, run: () => latest, tree, start, landed, sessions };
 }
 
 describe("useOptimise", () => {
-    test("R1 — a run sends one call with the request made for its number, from 1; the seconds count from 1; the result lands once, with its request, and is counted", async () => {
+    test("R1 — a run sends one call with the request made for its number, from 1, and the sessions' drafts of the records the function lists; the seconds count from 1; the result lands once, with its request, and is counted", async () => {
         const seen: [Result, Request, number][] = [];
-        const { run, start, landed } = mount((result, asked, n) => { seen.push([result, asked, n]); return { added: 2, changed: 1, removed: 0 }; });
+        const { run, start, landed, sessions } = mount((result, asked, n) => { seen.push([result, asked, n]); return { added: 2, changed: 1, removed: 0 }; });
         await settle();
         expect([run().offered, run().running, run().run, run().outcome]).toEqual([true, false, 0, undefined]);
         const hold = calls.hold(NAME);
@@ -86,8 +124,108 @@ describe("useOptimise", () => {
         hold.release();
         await landed();
         expect(seen).toHaveLength(1);
-        expect([sameRequest(seen[0]![1], request(1)), seen[0]![2], seen[0]![0].events.job.size]).toEqual([true, 1, 0]);
+        // The answer is a patch of the kind's record; the request carries no row.
+        expect([sameRequest(seen[0]![1], request(1)), seen[0]![2], seen[0]![0].events.job.type]).toEqual([true, 1, "patch"]);
         expect(run().outcome).toEqual({ kind: "done", run: 1, period: "W11", counts: { added: 2, changed: 1, removed: 0 } });
+        // The sessions were asked their drafts of the record the function lists, once, as the call left.
+        expect(sessions.asked).toEqual([[JOBS]]);
+    });
+
+    test("rule 1 — sessions that cannot hand their edits over end the run saying why, in their words, and no call is made", async () => {
+        const sessions = sessionsOf();
+        sessions.drafts = { refused: "A save is still on its way." };
+        const { run, start } = mount(() => COUNTS, NAME, sessions);
+        await settle();
+        await start();
+        expect([run().running, calls.requests(NAME).length]).toEqual([false, 0]);
+        expect(run().outcome).toEqual({ kind: "fail", run: 1, period: "W11", message: "A save is still on its way.", refused: "A save is still on its way." });
+    });
+
+    test("rules 8 and 9 — an answer lands once the sessions stand on what the page has read, and one that waits on rows read by their keys is asked again as the builder's reads move", async () => {
+        const sessions = sessionsOf();
+        sessions.settled = false;
+        let answer: Landed = { waiting: true };
+        const seen = vi.fn(() => answer);
+        const { run, start, tree, rerender } = mount(seen, NAME, sessions);
+        await settle();
+        await start();
+        // The call is answered, and the page has read the record again: the sessions have yet to take it in.
+        await waitFor(() => expect(calls.answers(NAME)).toHaveLength(1), { timeout: 10_000 });
+        await settle();
+        expect([run().running, seen.mock.calls.length]).toEqual([true, 0]);
+        // They stand on it, and the builder's reads move: the answer is tried — it waits on rows it reads by their keys.
+        sessions.settled = true;
+        rerender(tree("W11", "week", 1));
+        await settle();
+        expect([run().running, seen.mock.calls.length]).toEqual([true, 1]);
+        // The rows land: asked again, it lands.
+        answer = COUNTS;
+        rerender(tree("W11", "week", 2));
+        await waitFor(() => expect(run().running).toBe(false));
+        expect([seen.mock.calls.length, run().outcome?.kind]).toEqual([2, "done"]);
+        // One call was made for it all.
+        expect(calls.requests(NAME)).toHaveLength(1);
+    });
+
+    describe("rule 12 — a record that changed under the edits", () => {
+        const patchOf = diffFor(opt.CalendarJobs);
+        const encodePatch = encodeBeast2For(PatchType(opt.CalendarJobs));
+        /**
+         * A page's unsaved edit of a job's customer, as its session hands it over — a call of the jobs' patch door, made
+         * over the jobs as the page read them — and another page's save of the same field after it: the draft no longer
+         * fits the record, and e3 refuses every call that passes it.
+         */
+        async function staleDraft(): Promise<FuncCallDraft> {
+            const read = await h.read(ex.calendarJobs);
+            const mine = new Map(read);
+            mine.set("job1", { ...read.get("job1")!, customer: "Customer here" });
+            const draft: FuncCallDraft = { record: JOBS, mutation: "patch", args: [encodePatch(patchOf(read, mine) as never)] };
+            const theirs = new Map(read);
+            theirs.set("job1", { ...read.get("job1")!, customer: "Customer there" });
+            await h.patch(ex.calendarJobs, theirs);
+            return draft;
+        }
+
+        test("a call e3 refuses because the record moved under its drafts lands nothing; with nothing to choose it goes again by itself, with the drafts the sessions hand over then, and lands as the one run", async () => {
+            const sessions = sessionsOf();
+            sessions.drafts = [await staleDraft()];
+            // Carried over the other page's save, the sessions have no edit left to hand over.
+            sessions.carried = [];
+            const seen = vi.fn(() => COUNTS);
+            const { run, start, landed } = mount(seen, NAME, sessions);
+            await settle();
+            await start();
+            await landed();
+            expect([calls.outcomes(NAME), calls.drafts(NAME).map((drafts) => drafts.length), sessions.asked]).toEqual([["conflict", "success"], [1, 0], [[JOBS], [JOBS]]]);
+            expect([seen.mock.calls.length, run().outcome]).toEqual([1, { kind: "done", run: 1, period: "W11", counts: COUNTS }]);
+        });
+
+        test("with a conflict to choose, the run ends saying so in the sessions' words, and no second call is made", async () => {
+            const sessions = sessionsOf();
+            sessions.drafts = [await staleDraft()];
+            sessions.conflicts = "1 of your changes conflicts with newer changes.";
+            const seen = vi.fn(() => COUNTS);
+            const { run, start, landed } = mount(seen, NAME, sessions);
+            await settle();
+            await start();
+            await landed();
+            expect([calls.outcomes(NAME), seen.mock.calls.length]).toEqual([["conflict"], 0]);
+            expect(run().outcome).toEqual({ kind: "fail", run: 1, period: "W11", message: sessions.conflicts, refused: sessions.conflicts });
+        });
+
+        test("refused again and again, the call goes again as many times in a row as a refused Save is sent again, then the run ends a failure in the refusal's words", async () => {
+            const sessions = sessionsOf();
+            // Sessions that hand the same stale edit over each time: every call is refused.
+            sessions.drafts = [await staleDraft()];
+            const seen = vi.fn(() => COUNTS);
+            const { run, start, landed } = mount(seen, NAME, sessions);
+            await settle();
+            await start();
+            await landed();
+            expect([calls.outcomes(NAME), seen.mock.calls.length]).toEqual([Array.from({ length: SAVE_RESENDS + 1 }, () => "conflict"), 0]);
+            const failed = run().outcome;
+            expect(failed?.kind === "fail" ? [failed.run, failed.message !== "", failed.refused] : failed).toEqual([1, true, undefined]);
+        });
     });
 
     test("R10 — a result with nothing to change is the none outcome and one blink; an answer the builder cannot use, one it refuses, and a failed call, are failures", async () => {
