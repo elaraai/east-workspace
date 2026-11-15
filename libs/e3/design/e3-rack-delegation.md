@@ -315,10 +315,13 @@ locally.
 Core probes the cache before the body hook. The hook takes no local budget
 grant; its local continuation preserves all existing process settings and
 budget. The orchestrator's width includes the compatible racks' cores (a
-slot-based rack's slots). When every compatible rack caps its units, the
-runner says its body stops units (`LocalTaskRunnerOptions.bodyStopsUnits`),
-and e3-core starts a split task's stages with every unit at once under a
-guarded budget, as it does with no body. A lease that ends `outgrew-cap` is a
+slot-based rack's slots). When every compatible rack caps its units, or none
+is there and every unit runs here under the run's own guard, the runner says
+its body stops units (`LocalTaskRunnerOptions.bodyStopsUnits`, read from the
+session's latest snapshot as each execution starts), and e3-core starts a
+split task's stages with every unit at once under a guarded budget, as it does
+with no body. A rack that admits by its slots caps nothing: while one is
+compatible, a stage measures one unit first. A lease that ends `outgrew-cap` is a
 unit's requeue: the body tells the run (`onRequeued`, reason `cap`), the
 session records the stopped attempt `interrupted`, with the local run's log
 line, and the next lease asks `unitCap` of the cap it reached, reserving that

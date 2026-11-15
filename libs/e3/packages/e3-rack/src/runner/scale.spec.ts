@@ -32,9 +32,22 @@ const GiB = 1024 ** 3;
 const cleanup: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
 
-it('runs a split of more than a hundred pieces wholly on a rack: its units queued together, eight held at a time, never more memory booked than the rack has', async () => {
-  // Small pieces: a piece closes at a segment of its input, so enough rows to
-  // fill well over a hundred segments are cut into more than a hundred pieces.
+/**
+ * Whether a run's own guard runs: everywhere but Windows. A run whose units
+ * each run under its guard, or on a rack that caps them, starts a stage's
+ * units together; where no guard runs, e3-core measures one first.
+ */
+const together = process.platform !== 'win32';
+
+/**
+ * A hub, and a repository whose workspace `dev` runs `score`: a task split
+ * over its input's rows, cut small, so that a piece closes at each segment of
+ * the input.
+ *
+ * @param count - The rows
+ * @returns The hub's home and client, and the repository, the task and its inputs
+ */
+async function splitFixture(count: number) {
   const original = process.env.E3_TEST_PIECE_BYTES;
   process.env.E3_TEST_PIECE_BYTES = '64';
   cleanup.push(() => { if (original === undefined) delete process.env.E3_TEST_PIECE_BYTES; else process.env.E3_TEST_PIECE_BYTES = original; return Promise.resolve(); });
@@ -48,7 +61,7 @@ it('runs a split of more than a hundred pieces wholly on a rack: its units queue
   const storage = new LocalStorage();
 
   const type = ArrayType(IntegerType);
-  const rows = Array.from({ length: 130_000 }, (_, i) => BigInt(i));
+  const rows = Array.from({ length: count }, (_, i) => BigInt(i));
   const input = e3.input('rows', type, variant('value', rows));
   const task = e3.streamTask('score', { inputs: [e3.partition(input)], output: e3.output.array(IntegerType) },
     ($, rows, emit) => { $.for(rows, ($, row) => { $(emit(row.add(1n))); }); });
@@ -59,10 +72,13 @@ it('runs a split of more than a hundred pieces wholly on a rack: its units queue
   await workspaceDeploy(storage, repo, 'dev', 'scale', '1.0.0');
   const hash = (await packageRead(storage, repo, 'scale', '1.0.0')).tasks.get('score')!;
   const inputs = [await datasetWrite(storage, repo, rows, type)];
+  return { home, client, repo, storage, hash, inputs };
+}
 
-  // The rack caps each unit, so a run whose own guard runs starts a stage's
-  // units together; where no guard runs (Windows), it measures one first.
-  const together = process.platform !== 'win32';
+it('runs a split of more than a hundred pieces wholly on a rack: its units queued together, eight held at a time, never more memory booked than the rack has', async () => {
+  // Enough rows to fill well over a hundred segments are cut into more than a
+  // hundred pieces.
+  const { home, client, repo, storage, hash, inputs } = await splitFixture(130_000);
 
   // A rack of 8 cores and 16 GiB, whose every unit is taken to peak at 100 MiB.
   // Where a stage's units are leased together, the first of a run's units to
@@ -145,4 +161,39 @@ it('runs a split of more than a hundred pieces wholly on a rack: its units queue
   const local = await new LocalTaskRunner(repo, new Budget({ cores: 8, memory: 4 * GiB }, { sampler: null })).execute(storage, hash, inputs, { force: true });
   assert.equal(local.state, 'success', local.error);
   assert.equal(local.outputHash, second);
+});
+
+it('starts a stage\'s units together when no rack is there to take them, each running here under the run\'s own guard, and measures one first only while a rack that caps nothing could take them', async () => {
+  const f = await splitFixture(8_000);
+  const placements: RackPlacementEvent[] = [];
+  // The run's own budget, guarded where a guard runs, as a run's is. Its
+  // policy sends the task to a rack, and no rack is enrolled.
+  const budget = new Budget({ cores: 2, memory: GiB });
+  const rack = await openRackRunner({ repoPath: f.repo, workspace: 'dev', storage: f.storage, label: 'no rack test', home: f.home, budget, waitForRackMs: 0,
+    policy: { ...setRule(setMode({ ...DEFAULT_RACK_POLICY, enabled: true }, 'auto'), 'score', 'rack'), spill: false },
+    onPlacement: (event) => { placements.push(event); } });
+  cleanup.push(() => rack.close());
+  assert.equal(rack.rackSlots, 0);
+  assert.match(rack.describe(), /No connected rack/);
+
+  // Every unit runs here, where the guard stops one that outgrows its share:
+  // a stage starts them all, each expecting e3's estimate, as it does with no
+  // rack policy at all, and none runs first to measure the rest.
+  assert.equal(rack.runner.firstWave, together ? 'estimate' : 'measure');
+  const result = await rack.runner.execute(f.storage, f.hash, f.inputs, { taskName: 'score' });
+  assert.equal(result.state, 'success', result.error);
+  const units = placements.filter((event) => event.kind === 'placed' && event.role === 'unit');
+  assert(units.length > 1, `the split has more than one unit: ${units.length}`);
+  assert(units.every((event) => event.where === 'local'), 'no rack took a unit');
+  const log = (await f.storage.logs.read(f.repo, f.hash, inputsHash(f.inputs), result.executionId, 'stdout')).data;
+  if (together) assert.match(log, /^wave pieces units=\d+ estimate=\d+ from=rows$/m, `its pieces started together, each expecting e3's estimate:\n${log}`);
+  else assert.doesNotMatch(log, /^wave /m, 'where no guard runs, one unit ran first to measure');
+
+  // A rack that admits work by its slots caps nothing: while one could take
+  // the units, a stage measures one first.
+  const mint = await f.client.enroll();
+  const agent = await TestRackAgent.enroll(mint.apiUrl, mint.enrollmentToken, { certificateSha256: mint.certificateSha256.type === 'some' ? mint.certificateSha256.value : undefined });
+  cleanup.push(() => agent.close());
+  assert.equal(await rack.refreshSlots(), 1);
+  assert.equal(rack.runner.firstWave, 'measure');
 });

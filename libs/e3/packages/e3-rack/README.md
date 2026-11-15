@@ -437,6 +437,11 @@ budget and guard do, so a split task then runs on a rack as it does locally:
 So a rack is filled as a local run fills its machine, and its guard, not the
 sum of its caps, keeps e3 work from running its host out of memory.
 
+With no compatible rack there, every unit runs here, under the run's own
+budget and guard, and a stage starts them together, as a run without `--rack`
+does. A rack that admits by its slots caps nothing, so while one could take
+the units, a stage runs one first to measure the rest.
+
 Ctrl-C in `e3 dataflow run` requests cancellation of that run, including its
 delegated work. A current companion agent keeps an outbound cancellation
 request open while work is active. The source checks the watched leases every

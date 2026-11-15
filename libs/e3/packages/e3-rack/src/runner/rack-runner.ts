@@ -90,9 +90,6 @@ export async function openRackRunner(options: OpenRackRunnerOptions): Promise<Ra
   const takeSummary = () => tally.take();
   let session: RackSession | undefined;
   let slots = 0;
-  // Whether every compatible rack admits work by its resources, and so caps
-  // each unit at what its lease asks.
-  let capped = false;
   const gib = (bytes: number) => `${Math.round(bytes / 1024 ** 3 * 10) / 10} GiB`;
   let description: (formatBytes: (bytes: number) => string) => string = () => 'No healthy compatible rack; running locally';
   const describe = (formatBytes: (bytes: number) => string = gib) => description(formatBytes);
@@ -116,7 +113,6 @@ export async function openRackRunner(options: OpenRackRunnerOptions): Promise<Ra
         const racks = compatibleRacks(capacity);
         enrolled = capacity.racks.length;
         slots = racks.reduce((sum, rack) => sum + rackWidth(rack), 0);
-        capped = racks.length > 0 && racks.every((rack) => rackResources(rack) !== undefined);
         const text = racks.length > 0 ? undefined
           : capacity.racks.length === 0 ? 'No connected rack; running locally'
             : `No healthy compatible rack; running locally (${capacity.racks.map((rack) => `${rack.label}: ${rack.problem.type === 'some' ? rack.problem.value : rack.pendingApproval ? 'boot needs approval' : !rack.healthy ? 'unhealthy' : rack.bundledE3.type === 'none' ? 'bundled e3 version missing' : `e3 ${rack.bundledE3.value} is incompatible`}`).join(', ')})`;
@@ -130,7 +126,7 @@ export async function openRackRunner(options: OpenRackRunnerOptions): Promise<Ra
           return all === undefined ? `${rack.label} (${Number(rack.capacity)} slots, ${e3})`
             : `${rack.label} (${all.cores} ${all.cores === 1 ? 'core' : 'cores'}, ${formatBytes(all.memoryBytes)}${all.gpus > 0 ? `, ${all.gpus} ${all.gpus === 1 ? 'GPU' : 'GPUs'}` : ''}, ${e3})`;
         }).join(', ');
-      } catch (error) { slots = 0; capped = false; enrolled = 0; const text = `Rack unavailable: ${error instanceof Error ? error.message : String(error)}; running locally`; description = () => text; }
+      } catch (error) { slots = 0; enrolled = 0; const text = `Rack unavailable: ${error instanceof Error ? error.message : String(error)}; running locally`; description = () => text; }
       return slots;
     };
     // Waits for an enrolled rack to report healthy, up to the deadline. With
@@ -145,11 +141,15 @@ export async function openRackRunner(options: OpenRackRunnerOptions): Promise<Ra
       body: createRackBody({ session: attached, policy, workspace: options.workspace, rackOnly: options.rackOnly,
         unreachableWaitMs: options.unreachableWaitMs, onEnvironment: options.onEnvironment, layerBuilds,
         onPlacement: (event) => { tally.add(event); options.onPlacement?.(event); } }),
-      // Racks that cap each unit stop one that outgrows what it was started
-      // expecting, and the body leases it again asking more: a split task's
-      // stage then queues every unit at once, as a guarded local run starts
-      // them. Read as each stage starts, from the latest snapshot.
-      get bodyStopsUnits() { return capped; } });
+      // A split task's stage queues every unit at once, as a guarded local run
+      // starts them, while each unit runs here, under the budget's guard, or
+      // on a rack that caps it at what its lease asks: one that admits work by
+      // its resources, which stops a unit that outgrows its cap, and the body
+      // leases it again asking more. With no compatible rack, every unit runs
+      // here. A rack that admits by its slots caps nothing, so while one could
+      // take the units, a stage measures one first. Read as each execution
+      // starts, from the session's latest snapshot.
+      get bodyStopsUnits() { return compatibleRacks(attached.capacity()).every((rack) => rackResources(rack) !== undefined); } });
     return { runner, get rackSlots() { return slots; }, describe, refreshSlots, takeSummary, close: () => attached.close() };
   } catch (error) {
     await session?.close().catch(() => {});
