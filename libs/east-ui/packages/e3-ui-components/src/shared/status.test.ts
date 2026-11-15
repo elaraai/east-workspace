@@ -12,10 +12,10 @@
  */
 
 import { describe, test, expect } from "vitest";
-import { ArrayType, East, OptionType, none, some, type ValueTypeOf } from "@elaraai/east";
+import { ArrayType, East, OptionType, equalFor, none, some, type ValueTypeOf } from "@elaraai/east";
 import { getSomeorUndefined } from "@elaraai/east-ui-components";
 import { Plan, Schedule } from "@elaraai/e3-ui/internal";
-import { statusAttributes } from "./status.js";
+import { drawnStatus, statusAttributes } from "./status.js";
 
 describe("a status's attributes (#1541)", () => {
     /** Statuses as `Plan.status` builds them, decoded. */
@@ -41,5 +41,14 @@ describe("a status's attributes (#1541)", () => {
     test("an event kind's status case is the same status: it sets the same attributes", () => {
         const queued: ValueTypeOf<typeof Schedule.Types.Status> = built[1]!;
         expect(statusAttributes(getSomeorUndefined(some(queued)))).toEqual({ "data-tone": "info", "data-ring": "" });
+    });
+
+    test("a status a renderer says of its own is the builders' one status, its tone East's variant (`drawnStatus`)", () => {
+        const same = equalFor(Plan.Types.Status);
+        expect([
+            same(drawnStatus("Late", "warning"), built[0]!), same(drawnStatus("Tentative", "info", true), built[1]!), same(drawnStatus("Parked", "neutral"), built[2]!),
+        ]).toEqual([true, true, true]);
+        expect(same(drawnStatus("Late", "danger"), built[0]!)).toBe(false);
+        expect(statusAttributes(drawnStatus("Short", "danger"))).toEqual({ "data-tone": "danger" });
     });
 });

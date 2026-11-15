@@ -13,6 +13,7 @@ import { FOCUS_HOME_PROPS, useFocusHome } from "../shared/focus-home.js";
 import { useFieldAsk } from "../shared/schedule/field-ask.js";
 import { ScheduleInspectorHead } from "../shared/schedule/inspector-head.js";
 import { madeFromValues } from "../shared/schedule/records.js";
+import { drawnStatus } from "../shared/status.js";
 import { NO_REFUSED_FIELDS, refusedFields, type RefusedFields } from "../shared/schedule/refusals.js";
 import { Seg } from "../shared/schedule/segments.js";
 import { plural } from "../shared/schedule/words.js";
@@ -181,7 +182,7 @@ function OneAssignment({ props, id, assignment: a }: { props: Args; id: string; 
     // Save, it is an error.
     const breaches = refusals.length > 0 ? "error" : "warn";
     return <><ScheduleInspectorHead styles={props.styles} kind={{ name: `Duty · ${groupName(props.value, a.place.group)} · ${props.value.shifts.find(s => s.key === a.place.shift)?.label}`, icon: a.who.type === "request" ? "building" : "user" }} title={assignmentName(props.value, a)}
-        when={`${position === undefined ? "" : `${position.label} · `}${props.format.weekdayDate(dayOfSlot(props.start, a.place))}${person?.trainer ? " · trainer" : person?.trainee ? " · trainee" : ""}`} status={{ label: state, tone: { type: removed ? "warning" : "neutral" }, ring: changed }} pending={changed ? baseline === undefined ? "new" : "pending" : undefined} home />
+        when={`${position === undefined ? "" : `${position.label} · `}${props.format.weekdayDate(dayOfSlot(props.start, a.place))}${person?.trainer ? " · trainer" : person?.trainee ? " · trainee" : ""}`} status={drawnStatus(state, removed ? "warning" : "neutral", changed)} pending={changed ? baseline === undefined ? "new" : "pending" : undefined} home />
         {!removed && refusals.length > 0 && <Box css={props.styles.section} data-roster-refusals=""><BannerView status="warning" title="Not saved yet" description={refusals.map(r => r.text).join("; ")} /></Box>}
         {!removed && <RosterIssues props={props} issues={props.issues.filter(issue => issue.assignment.type === "some" && issue.assignment.value === id)} />}
         {!removed && <Box css={props.styles.fields}>
@@ -222,7 +223,7 @@ function OneSlot({ props, slot }: { props: Args; slot: Slot }) {
     const c = props.coverage.get(slot); if (c === undefined) return <Box css={props.styles.empty} {...FOCUS_HOME_PROPS}>This shift is no longer configured.</Box>;
     const shift = props.value.shifts.find(s => s.key === slot.shift)!;
     return <><ScheduleInspectorHead styles={props.styles} kind={{ name: `Shift · ${props.value.groups.find(g => g.key === slot.group)?.label} · ${props.format.weekday(dayOfSlot(props.start, slot))}`, icon: "clock" }} title={shift.label}
-        when={`${c.filled} / ${c.positions} positions · ${props.format.number(c.hours.rostered)} of ${props.format.number(c.hours.needed)} h`} status={{ label: c.hours.rostered < c.hours.needed ? `${props.format.number(c.hours.needed - c.hours.rostered)} h short` : "Covered", tone: { type: c.hours.rostered < c.hours.needed ? "warning" : "success" }, ring: false }} home />
+        when={`${c.filled} / ${c.positions} positions · ${props.format.number(c.hours.rostered)} of ${props.format.number(c.hours.needed)} h`} status={drawnStatus(c.hours.rostered < c.hours.needed ? `${props.format.number(c.hours.needed - c.hours.rostered)} h short` : "Covered", c.hours.rostered < c.hours.needed ? "warning" : "success")} home />
         <RosterIssues props={props} issues={props.issues.filter(i => i.slot.type === "some" && sameSlot(i.slot.value, slot))} />
         <Box css={props.styles.section}><Box css={props.styles.sectionHead}>Coverage</Box><CoverageView coverage={c} value={props.value} styles={props.styles} format={props.format} />
             <Box css={props.styles.detail}>{props.value.vocabulary.permanent} · {props.value.vocabulary.agency} · Requested · Open · Needed</Box></Box>
@@ -254,7 +255,7 @@ function ShiftDay({ props, shift: key, day }: { props: Args; shift: string; day:
     const { format, value, styles } = props;
     return <><ScheduleInspectorHead styles={styles} kind={{ name: `Shift · ${format.weekday(new Date(props.start.getTime() + day * DAY))}`, icon: "clock" }} title={shift.label}
         when={`${format.number(sum.filled)} / ${format.number(sum.positions)} positions · ${format.number(sum.hours.rostered)} of ${format.number(sum.hours.needed)} h`}
-        status={{ label: short > 0 ? `${format.number(short)} h short` : "Covered", tone: { type: short > 0 ? "warning" : "success" }, ring: false }} home />
+        status={drawnStatus(short > 0 ? `${format.number(short)} h short` : "Covered", short > 0 ? "warning" : "success")} home />
         <RosterIssues props={props} issues={props.issues.filter(i => i.slot.type === "some" && i.slot.value.shift === key && Number(i.slot.value.day) === day)} />
         <Box css={styles.section} data-roster-shift-day="across"><Box css={styles.sectionHead}>Across groups</Box><CoverageView coverage={sum} short={short} value={value} styles={styles} format={format} />
             <Box css={styles.detail}>{value.vocabulary.permanent} · {value.vocabulary.agency} · Requested · Open · Needed</Box></Box>

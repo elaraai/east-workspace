@@ -541,23 +541,31 @@ export function createStatus(
     }, PlanStatusType);
 }
 
-/** Whether a look's field is a bare tone: a tone's name, a tone's value, or an expression of one. */
+/**
+ * Whether a look's field is a tone, or an `Option` of one: a tone's name, a tone's value, or an expression of either —
+ * what a run's `status` took before (#1541). An `Option` of a status is none: its payload is a struct, a tone's a variant.
+ */
 function isBareTone(v: unknown): boolean {
     if (typeof v === "string") return true;
-    if (isVariant(v)) return v.type !== "some" && v.type !== "none";
-    if (v instanceof Expr) return (Expr.type(v as Expr) as { type: string }).type === "Variant" && !isOptionLike(v);
+    if (isVariant(v)) return v.type === "some" ? isBareTone(v.value) : v.type !== "none";
+    if (v instanceof Expr) {
+        const t = Expr.type(v as Expr) as { type: string; cases?: Record<string, { type: string }> };
+        if (t.type !== "Variant") return false;
+        return !isOptionLike(v) || t.cases?.["some"]?.type === "Variant";
+    }
     return false;
 }
 
 /**
  * An item's status, as its element holds it (#1541, U8): absent, `none`; a
  * `Plan.status(…)` value, or an `Option` of one, as it is. A bare tone — what
- * a run's `status` took before — is refused, naming `Plan.status`.
+ * a run's `status` took before — or an `Option` of one is refused, naming
+ * `Plan.status`.
  *
  * @param status - The look's `status`
  * @param item - What the item is, for the refusal (`a run`)
  * @returns The field as an `Option` expression
- * @throws {Error} When `status` is a tone alone
+ * @throws {Error} When `status` is a tone, or an `Option` of one
  */
 function statusLook(status: unknown, item: string): ExprType<OptionType<PlanStatusType>> {
     if (isBareTone(status)) {

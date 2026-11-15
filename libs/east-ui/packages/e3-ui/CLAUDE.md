@@ -124,8 +124,9 @@ with `Data.bind`, each card keyed by the record's key, so a list takes no
 
 The Plan (#1344) takes `slice={{ slice: Slice.bindRecords(key, { … }) }}`. Its
 `rows` source gives the canvas its rows, paged from it in its index's order —
-`data` is left out — edited through `editing.onApply` (`Record.onApply(record,
-{ keyed: true })`). A source named after an event kind's slot reads that kind's
+`data` is left out — saved through its record, `record={Record.bind(record)}`
+over a record declaring `mutation.patch()`, with `onPatch` and `ready` beside
+it (#1541); `editing` is refused, naming them. A source named after an event kind's slot reads that kind's
 events and its backlog through its interval index, as the Calendar's sources
 do; one named after a resource kind's slot narrows that kind's rows — of
 resources read whole and keyed by String, the rows and the bulk edit's Chooser

@@ -70,6 +70,7 @@ import type { PeriodRead } from "../shared/loading.js";
 import { useFieldAsk } from "../shared/schedule/field-ask.js";
 import { ScheduleInspectorHead } from "../shared/schedule/inspector-head.js";
 import { NO_REFUSED_FIELDS, refusedFields, type RefusedFields } from "../shared/schedule/refusals.js";
+import { drawnStatus, type DrawnStatus } from "../shared/status.js";
 import { Seg } from "../shared/schedule/segments.js";
 import { linkedQuantity, remainderOf, splitOf, type AllocationCommands } from "./actions.js";
 import { resourceChoices } from "./choices.js";
@@ -300,7 +301,7 @@ function resourcesAt(args: InspectorArgs, keys: readonly string[]): ResourceAt[]
 }
 
 /** A head's status, as the shared head draws it. */
-const statusOf = (status: InspectorStatus) => ({ label: status.word, tone: { type: status.tone }, ring: status.ring });
+const statusOf = (status: InspectorStatus): DrawnStatus => drawnStatus(status.word, status.tone, status.ring);
 
 /** The banners, each the shared banner in its section (A56, A62). */
 function Banners({ styles, banners }: { styles: Styles; banners: readonly InspectorBanner[] }) {
@@ -771,7 +772,7 @@ function SlotDetails({ lane, at, ...part }: Part & { lane: string; at: Date }) {
     const run = (option: BookOption) => option.grip.kind === "arrival" ? commands.book(option.grip.arrival, lane, where, undefined) : commands.restore(option.grip.bin, lane, where, undefined);
     return <>
         <ScheduleInspectorHead styles={styles} kind={{ name: "Slot", icon: "clock" }} title={`${words.lane(lane)} · ${timeText(at)}`}
-            when={`${dayLong(day)} · no ${one(nouns.arrival)} · no ${one(nouns.resource)}`} status={{ label: "Free", tone: { type: "neutral" }, ring: false }} home />
+            when={`${dayLong(day)} · no ${one(nouns.arrival)} · no ${one(nouns.resource)}`} status={drawnStatus("Free", "neutral")} home />
         <Box css={styles.section} data-allocation-book="">
             <Box css={styles.sectionHead}>Book {a(nouns.arrival)}</Box>
             {books.length === 0 ? <Box css={styles.absent}>no {other(nouns.arrival)} to book</Box>

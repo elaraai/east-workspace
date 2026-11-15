@@ -137,13 +137,19 @@ describe("the map fields `Plan.status` took the place of are refused naming it (
         + "status: Plan.status(\"Over dwell\", \"warning\")";
     const TILE = "Plan: a tile's `tone` is removed (#1541) — its `status` says it, its words with its tone: status: Plan.status(\"Late\", \"warning\")";
 
-    test("a run's `status` given a tone alone: its name, its value, or an expression of one", () => {
+    test("a run's `status` given a tone alone, or an `Option` of one: its name, its value, or an expression of either", () => {
         const run = (given: unknown) => refusal(() => Plan.run({ key: "r", start: W27, end: W28, label: "RUN", state: "actual", status: given as never }));
         assert.equal(run("warning"), RUN);
         assert.equal(run(variant("warning", null)), RUN);
         assert.equal(run(East.value(variant("warning", null), StatusTokenType)), RUN);
+        // The form a run map gave before: an Option of a tone.
+        assert.equal(run(some(variant("warning", null))), RUN);
+        assert.equal(run(some("warning")), RUN);
+        assert.equal(run(East.value(some(variant("warning", null)), OptionType(StatusTokenType))), RUN);
         // A status, an Option of one and nothing at all are taken.
         assert.equal(run(Plan.status("Over dwell", "warning")), "");
+        assert.equal(run(East.value(some(status("Over dwell", "warning")), OptionType(Plan.Types.Status))), "");
+        assert.equal(run(some(status("Over dwell", "warning"))), "");
         assert.equal(run(none), "");
         assert.equal(run(undefined), "");
     });

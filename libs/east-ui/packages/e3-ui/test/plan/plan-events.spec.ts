@@ -272,6 +272,12 @@ describe("the rows' save door: `record`, with `onPatch` and `ready` as props (#1
         assert.equal(refusal(($) => Plan.Payload({ axis, data: $.const(ROWS, Rows), series: [MARKS], record: {} as never })), `${bound} — and this one is no bound record`);
         assert.equal(refusal(($) => Plan.Payload({ axis, data: $.const(ROWS, Rows), series: [MARKS], record: $.const(ROWS, Rows) as never })),
             `${bound} — and this one is .Dict (key=.String, value=.Struct [(name="v", type=.Float)])`);
+        // The jobs read through Data.bind, whose handle has the record's `read` and writes nothing — though the record
+        // declares its patch mutation: refused naming `record` and Record.bind, never the commit's door.
+        assert.equal(refusal(($) => {
+            const jobs = $.let(Data.bindPaged(ex.planPrintJobs));
+            return Plan.Payload({ axis, data: jobs, series, record: $.let(Data.bind(ex.planPrintJobs)) });
+        }), `${bound} — and this one is bound to be read alone, as Data.bind binds a record, which writes nothing`);
         // The presses' record declares no patch mutation: its handle has no patch door.
         assert.match(refusal(($) => {
             const presses = $.let(Record.bind(ex.planPrintPresses, []));
