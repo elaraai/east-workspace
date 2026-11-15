@@ -1184,3 +1184,53 @@ Each wire changed under this rule, with the kind it is.
   it is, and so is one in neither form. gc keeps what a kept call names, an
   input's hash among them: for an index, its record's state, which names the
   index's manifest.
+- **e3-ui's builders ask their optimiser of the period in view and land a
+  patch, and a bound function names the records it reads (#1622)** —
+  package-borne. The request and result types each builder's `Types` gives
+  (#1409, above) change whole. A request carries no row. The Calendar's and
+  the Plan's (`ScheduleOptimiseRequestType`, a type where it was a constructor
+  over the kinds' rows) is `{ from, to, period, run, slice }`. The Roster's is
+  the same type, or given `{ edges: true }` that with `fixed`, a Set of the
+  keys of the duties at the week's edges the answer must leave as they are.
+  The Allocation's is `{ day, run, slice }`, and the Sheet's `{ run, slice }`,
+  or over one entry's rows `{ run, slice, entry }`, the entry's key at the
+  record's key type. `period` is the new `OptimisePeriodType`, a variant of
+  `day`, `week`, `month`, `quarter` and `year`, each with no value, and
+  `slice` the new `OptimiseSliceType`: each rail source's narrowing by the
+  source's name (`Dict<String, RecordSliceWhereType>`). A result is a patch of
+  each record the builder edits — `PatchType` of the record's type, what
+  `East.diff` answers — where it was the rows complete: `{ events: { <slot>:
+  Patch } }`, `{ duties: Patch }`, `{ bins: Patch }` and `{ rows: Patch }`.
+  The Roster's is one form for both requests, its `edges` gone. No builder
+  takes the earlier types, and none reads an answer of them. An app's
+  optimiser is an `e3.function` of its own package, and re-exporting does not
+  carry it: it is written again to the new request, reading what it needs from
+  the workspace and listing in `drafts` each record it reads that the builder
+  edits. A page that hands a builder a function of the earlier types is
+  refused as it is built, naming what the function asks.
+  `Func.bind`'s platform function (`function_bind`) takes a third argument,
+  after the records the function lists in `drafts`: the names of the records
+  the function reads, each taken as an input itself or by an index of it. The
+  handle's `binding` (`FuncBindingType`) gains `reads`, after `drafts`, which
+  holds them. A program that binds a function holds the bind's call in its IR:
+  one an earlier SDK exported passes two arguments, and is refused as it is
+  checked, naming the count (`Platform function 'function_bind' expects 3
+  arguments but got 2`) — re-export its package. The Sheet's payload's
+  `optimise` is an `Option<SheetOptimiseBindingType>` where it was an
+  `Option<FuncBindingType>`: the binding, and beside it the record the sheet
+  saves to by its name, the type of the rows its Save reaches and, over one
+  entry's rows, the record's key type with the entry's key as bytes at it. The
+  Calendar's and the Plan's resource kinds on the wire
+  (`ScheduleResourcesType`, `PlanResourcesType`) lose `keyType`, `rowType` and
+  `records`, which #1409 (above) gave them for a request to carry, and
+  `ScheduleResourceRecordsType` goes with them. The binding travels in the
+  five builders' payloads — the Calendar's, the Plan's and the Sheet's
+  `optimise`, and the Roster's and the Allocation's `fit` and `optimise` — so
+  a UI value encoded under either type does not decode under the other:
+  packages are re-exported, and the dataflow computes each UI task's output
+  again under the new type. A Sheet's and a Record's page over a rail hands
+  the record itself, `record` beside `slice`, where it handed
+  `onApply={Record.onApply(record, { keyed: true })}`, which is refused as the
+  page is built, naming `record`. A UI task's output is not stored state, and
+  a run's call is a function call as any other, kept as #1619 (above) keeps
+  one, so no repository upgrade step ships with it.

@@ -378,10 +378,9 @@ zooms with it (#1438, `zoomedWindow`): as many buckets of the new resolution
 as it showed of the old, about the same middle, inside the span of what its
 series read where it reads a nested series index (`PlanWindowHold.span`), so
 the year shows the works' ten years. The
-Plan reads its event kinds' rows, counts and backlog, the selected events and
-what its eye's request waits on in components of their own
-(`PlanEventsReader`, `PlanKindsReader`, `PlanSelectionReader`,
-`PlanOptimiseReader`). An event kind placed on a paged resource kind, whose
+Plan reads its event kinds' rows, counts and backlog and the selected events
+in components of their own (`PlanEventsReader`, `PlanKindsReader`,
+`PlanSelectionReader`). An event kind placed on a paged resource kind, whose
 source lists a series and a summary index (#1039) — the only form the Plan
 takes there — is read a cell at a time by the shared schedule reader
 (`shared/schedule/cells.ts`' `useScheduleCells`, which holds no Plan type, so
@@ -994,35 +993,26 @@ period, and Delete on what the keyboard is on — an event, a duty or a
 proposal, a bin — hands it to the board as it goes, never the page's body,
 where the Undo that brings it back goes unheard (retest C4).
 
-The Plan's Elara eye waits, disabled, for what a run's request carries — every
-event kind's events in the window, its backlog and each event's row — read in a
-component of its own (`optimise.ts`' `PlanOptimiseReader`, a tracked read of
-`planOptimiseReady`), which hears each land and hands the canvas whether the
-request can be made only as that moves: over a kind read a window at a time,
-each search landing re-runs that reader alone, never the canvas (#1343). Each
-event's row is held among the rows the canvas reads over its range
-(`eventReadRange`, which covers the window) and in the backlog beside them,
-which a kind's `planRows` reads at once — the record's own Dict, by key, the
-drafts in place — so the eye waits for that read, every kind's in one pass,
-and reads no row by its key: whatever the number of events in the window, it
-asks e3 for windows alone, where a row read by its key would be a key search
-and a one-row page an event, for rows those windows hold already. A click
-reads it once a kind, decoded as a `SortedMap` by the East key, and finds each
-event's row there, so its work grows with the events plus the rows, never
-their product. Its result lands the same way: the landing reads each kind it
-changes as its events stood before the run once — the window's and the
-backlog's, the drafts in place, as the request was built from them
-(`windowEvents`) — by the East key in a `SortedMap` (`eventsBefore`), and
-finds there what each changed event was, for its provenance's `Was …` and
-whether the backlog moved: one read a kind, never one a change (#1409). A
-rows' window that fails leaves the eye disabled, asking
-nothing again, and is said on the footer's line in the words of the kinds
-whose own events it could not read — `Couldn't read print job events` — with
-Retry, which asks those kinds' records again at once (`retryPeriod`), never as
-the toolbar's chip; once the retried read lands the eye can be used (#1398).
-The eye
-stays disabled over a window no request carries whole: a kind past the cap
-over it, or one read by its cells, whose events no run was shown (#1409, R24).
+A builder's Elara eye waits on nothing the page reads (east-workspace#1622,
+rule 6): a run's request carries the period in view, the run's number and the
+rail's narrowing, and no row, and the call carries each session's pending Save
+as a draft of its record — the function reads what it needs on e3, with the
+drafts laid over. So the Plan's eye is on over a kind read a cell at a time
+and over one past the cap of events in the window, as over any other. The
+answer is a patch of each record the builder edits, and every builder lands
+it through the same parts (`shared/func/`): `use-optimise.ts` runs the call,
+reads each record the function lists in `drafts` again before the answer
+lands, and takes a `conflict` down the refused Save's path;
+`optimise-sessions.ts` reads a builder's sessions by their records' names;
+`optimise-diff.ts` lands a patch key by key on the rows the page holds, over
+e3-ui's `optimiseChangesFor`; and `optimise-rows.ts` reads, by their keys,
+the rows an answer touches that the page does not hold — each record's in
+one read, never a key search a row. Each builder's own `optimise.ts` makes
+its request, says what a change is on its surface and what it refuses: a row
+the viewer may not change, one whose own edit is not finished, and one
+outside the period the run was asked of. What each changed row was before
+the run — its provenance's `Was …`, and on the Plan whether the backlog
+moved — is read from the row the answer landed on.
 
 BuilderFrame collapsing its panes does not supply the main area's mobile UX.
 Define narrow content using the available **main-panel width**, as Plan does;

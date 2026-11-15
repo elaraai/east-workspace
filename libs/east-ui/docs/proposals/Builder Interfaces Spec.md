@@ -48,13 +48,16 @@ duties can drive a Calendar and the Roster at the same time.
 | **Writes** (`events`, `Schedule.events`) | unchanged | unchanged | the app's duties (was `weeks`, a `Roster.Types.Weeks` record) | the app's bins (was `days`, an `Allocation.Types.Days(V)` record) |
 | **Reads** (`resources`, `Schedule.resources`) | unchanged | unchanged | people and agencies, and accessors over the app's rows for shifts, groups, positions, activities and proposals | lanes and resources, and `arrivals` |
 | **Publishes** (`periods`, `Schedule.periods`) | none; can take `periods` later unchanged | none; as the Calendar | the app's weeks | the app's days; leave it out for no Publish |
-| **Optimises** (`optimise`, `Func.bind` of the app's `e3.function`, #1409; the `Optimise Spec.md`) | the window and the backlog: `Calendar.Types.OptimiseRequest(E, S)` → `OptimiseResult(E)` | the window and the backlog: `Plan.Types.OptimiseRequest(E, S)` → `OptimiseResult(E)` | the week: `Roster.Types.OptimiseRequest(R)` → `OptimiseResult(R)` | the day: `Allocation.Types.OptimiseRequest(R)` → `OptimiseResult(R)` |
+| **Optimises** (`optimise`, `Func.bind` of the app's `e3.function`, #1409, #1622; the `Optimise Spec.md`) | the period in view: `Calendar.Types.OptimiseRequest` → `OptimiseResult(E)`, a patch of each event kind's record | the window in view: `Plan.Types.OptimiseRequest` → `OptimiseResult(E)` | the period it shows: `Roster.Types.OptimiseRequest()` → `OptimiseResult(D)`, a patch of the duties' record | the day: `Allocation.Types.OptimiseRequest` → `OptimiseResult(D)`, a patch of the bins' record |
 
-The optimiser's answer is one edit of the session (#1409): the builder diffs
-it against the request by key and records the diff as one step of its
-history — Undo in one, Save with everything else — and marks what the run
-left until Apply. The Sheet takes `optimise` the same way, over
-`Sheet.Types.OptimiseRequest(R)` → `OptimiseResult(R)`.
+The optimiser is asked of the period in view and sent no row (#1622): the
+call carries the page's unsaved edits as drafts, the function reads what it
+needs from the app's records with them laid over, and answers a patch of each
+record the builder edits. Its answer is one edit of the session (#1409): the
+builder lands the patch key by key as one step of its history — Undo in one,
+Save with everything else — and marks what the run left until Apply. The
+Sheet takes `optimise` the same way, where it is handed its record, over
+`Sheet.Types.OptimiseRequest()` → `OptimiseResult(D)`.
 
 ## 2. What is removed
 
@@ -303,7 +306,7 @@ interface RosterProps {
     rules?: { rest?: number; lead?: boolean; trainer?: boolean; skill?: boolean };
     check?: SubtypeExprOrValue<FunctionType<[CheckContext(R)], ArrayType<Issue>>>;
     fit?: BoundFunc<[FitRequest(R)], FitResult>;
-    optimise?: BoundFunc<[OptimiseRequest(R)], OptimiseResult(R)>;   // the Elara eye (#1409): one run over the week in view, its answer one step
+    optimise?: OptimiseHandle;                         // the Elara eye (#1409, #1622): Func.bind of a function from OptimiseRequest() to OptimiseResult(D), checked at build; one run over the period in view, its answer one step
     slice?: RecordSlicesChromeOptions;                 // sources: the duty kind's slot, `targets`, `people`, `activities`
     library?: readonly RosterLibraryTab[];
     inspector?: boolean;
@@ -678,7 +681,7 @@ interface AllocationProps {
     arrivals: AllocationArrivals;                     // Allocation.arrivals(rows, …)
     periods?: SchedulePeriods;                        // Publish; without it, none
     fit: BoundFunc<[FitRequest(R)], FitResult>;
-    optimise?: BoundFunc<[OptimiseRequest(R)], OptimiseResult(R)>;   // the Elara eye (#1409): one run over the day in view, its answer one step
+    optimise?: OptimiseHandle;                        // the Elara eye (#1409, #1622): Func.bind of a function from OptimiseRequest to OptimiseResult(D), checked at build; one run over the day in view, its answer one step
     check?: SubtypeExprOrValue<FunctionType<[CheckContext(R)], ArrayType<Issue>>>;
     columns?: readonly { key: string; label: string; text: (row) => String; tone?: (row) => Option<StatusToken>; table?: boolean }[];
     slice?: RecordSlicesChromeOptions;                // sources: the bin kind's slot, the lanes' and resources' slots, `arrivals`

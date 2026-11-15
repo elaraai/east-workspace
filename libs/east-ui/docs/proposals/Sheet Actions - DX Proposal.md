@@ -371,7 +371,7 @@ const sheet = East.function([], UIComponentType, (_$) => (
                         done: Sheet.column.date(Step, { header: "Done", width: "64px", level: () => "time", format: "HH:mm" }),
                     }}
                     inspector
-                    onApply={Record.onApply(orders, { keyed: true })}
+                    record={orders}
                     name="work"
                 />
             </Box>

@@ -159,7 +159,7 @@ Task → What do you need?
     │   ├─ The app's own words for what it draws              → vocabulary={{ unassigned, backlog, rows, dueThisWeek, confirmed, … }}
     │   ├─ Its inspector pane: what is selected               → inspector (+ an event kind's own: Schedule.events(record, { inspector }))
     │   ├─ Drags of templates, backlog cards and events       → built in with resources + events (+ library); canDrop={fn(Schedule.Types.Candidate) => Option<String>}
-    │   ├─ The app's optimiser over the window and the backlog → optimise={Func.bind(e3.function)} from Plan.Types.OptimiseRequest({ job: Job }, { presses: Press }) to Plan.Types.OptimiseResult({ job: Job })
+    │   ├─ The app's optimiser over the window and the backlog → optimise={Func.bind(e3.function)} from Plan.Types.OptimiseRequest (the window, the zoom's unit, the run, the rail's narrowing; no row) to Plan.Types.OptimiseResult({ job: Jobs }), a patch of each kind's record
     │   ├─ Overlap warnings, without dropping overlapping events → Schedule.events(record, { overlaps: "warn" | "allow" })
     │   └─ Dropped cards and moves of data rows as drafts      → a series' edit + editing={{ onUpdate | onApply }}
     │
@@ -168,13 +168,13 @@ Task → What do you need?
     │   │   ├─ One entry's rows, groups or loose rows          → entry={{ key, rows: "field", id: "id" }} (+ group)
     │   │   └─ A large record, a window at a time             → window={Data.bindPaged(r)}
     │   ├─ The host's rows                                    → <Sheet data={…} id="id" columns={{…}} />
-    │   ├─ Narrow its rows and templates — one rail           → slice={{ slice: Slice.bindRecords(key, { rows, rowTemplates, … }) }} (Sheet.templates(rows, { …, source }))
+    │   ├─ Narrow its rows and templates — one rail           → slice={{ slice: Slice.bindRecords(key, { rows, rowTemplates, … }) }} (Sheet.templates(rows, { …, source })); its `rows` source pages the record, and `record={…}` beside it saves
     │   ├─ Its panes, each optional                           → library={[Sheet.library.rows(), Sheet.library.columns(), Sheet.library.tab(…)]} · inspector (+ fields)
     │   ├─ The app's own words for what it draws              → vocabulary={{ members, unassigned, source, destination, wanted, actual }}
     │   ├─ Its columns, registers and the driver              → Sheet.column.* / Sheet.register.* / Sheet.driver
     │   ├─ Groups, loose rows between them, read-only sub rows → Sheet.group / Sheet.Types.Entry / Sheet.subRows
     │   ├─ Data too large to hold whole                       → data={paged}, a Data.bindPaged handle
-    │   ├─ The app's optimiser over the rows in view          → optimise={Func.bind(e3.function)} from Sheet.Types.OptimiseRequest(R) to Sheet.Types.OptimiseResult(R)
+    │   ├─ The app's optimiser over the rows in view          → optimise={Func.bind(e3.function)} from Sheet.Types.OptimiseRequest() — over one entry's rows OptimiseRequest({ entry: K }) — to Sheet.Types.OptimiseResult(Rows), a patch of the rows its Save reaches; over a record only
     │   ├─ On a phone: a column pinned, how many in view      → narrow={{ pin?: "<column>", columns?: 1 | 2 | 3 }} (none pinned, 2 in view by default)
     │   └─ Drafts checked as they are made, one checked Save  → onUpdate | onApply, ready, newRow
     │
@@ -187,14 +187,14 @@ Task → What do you need?
     │   ├─ Column groups over adjacent columns                → columnGroups={[{ label, columnKeys }]}
     │   ├─ Columns from data: a member's each, a struct field's → any kind's { each: "<register>", groups?: "<register>" } over a Dict keyed by the member · { each: { field: "Header" } } · a field stored its own way: field, read, write, each given the day
     │   ├─ Words or a lock on a cell; a cell read off the row → mark: (…, day) → Option<Record.Types.Mark>, a note or a lock the grid won't edit · value: (row) => … on title, text, date, quantity, integer
-    │   └─ Narrow it — one rail — and Apply through the door  → slice={{ slice: Slice.bindRecords(key, { rows }) }} + onApply={Record.onApply(record, { keyed: true })}
+    │   └─ Narrow it — one rail, the record beside it        → slice={{ slice: Slice.bindRecords(key, { rows }) }} + record={record} (the record its `rows` source pages; without it, read only)
     │
     ├─ Schedule bound records on a calendar — the Calendar
     │   ├─ Event records, with their backlog                  → <Calendar events={{ job: Calendar.events(Record.bind(jobs), { name, icon, title, start, end, resource: { field, of }, entries, backlog }) }} />
     │   ├─ Resources and templates, read whole                → resources={{ machines: Calendar.resources(Data.bind(r).read(), {…}) }} · Calendar.templates(rows, {…})
     │   ├─ The app's own words for what it draws              → vocabulary={{ backlog, templates, template, dueThisWeek, dueNextWeek, later, noDate, unscheduled, unassigned, resources }}
     │   ├─ Narrow it — one rail, one date window              → slice={{ slice: Slice.bindRecords(key, { job: { source, range: "start" }, machines?, jobTemplates? }) }}
-    │   └─ The app's optimiser                                → optimise={Func.bind(e3.function)}
+    │   └─ The app's optimiser                                → optimise={Func.bind(e3.function)} from Calendar.Types.OptimiseRequest (the window in view and its kind, the run, the rail's narrowing; no row) to Calendar.Types.OptimiseResult({ job: Jobs })
     │
     ├─ Draw a state-transition flow over the app's records — the Flowchart
     │   ├─ A kind per record: its states, transitions, lanes, decisions → <Flowchart states={Flowchart.states(record, { label, lane, order, members? })} transitions={Flowchart.transitions(record, { from, to, decision?, kind?, evidence? })} lanes={Flowchart.lanes(record, { label, order })} decisions={Flowchart.decisions(record, { label, owner? })} />
@@ -241,8 +241,8 @@ Task → What do you need?
     │   ├─ A new duty's, target's and week's own fields               → values: (d) => ({ … }) on the duty kind, over Roster.Types.NewDuty · Roster.targets(…, { values }) · Schedule.periods(…, { values })
     │   ├─ Costs in the app's own pay codes                           → pay={fn(Roster.Types.PayRequest(R)) → Roster.Types.Pay} currency="…"
     │   ├─ Who fits a Find fix: the app's fit, on e3                  → fit={Func.bind(e3.function)} from Roster.Types.FitRequest(R) to FitResult, over Roster.answer(R) + Roster.fit(R)
-    │   ├─ The app's optimiser over the week                          → optimise={Func.bind(e3.function)} from Roster.Types.OptimiseRequest(R) to Roster.Types.OptimiseResult(R)
-    │   ├─ An optimiser that sees the week's edges                    → Roster.Types.OptimiseRequest(R, { edges: true }) to OptimiseResult(R, { edges: true }) — edges: the window's duties the Roster places in another week, drafts in place; fixed: those of a week that takes no edit, left as they are; an answer that changes a fixed duty, puts one in a week taking no edit or beyond the weeks either side, or gives a key twice is refused, naming the duty
+    │   ├─ The app's optimiser over the period in view                → optimise={Func.bind(e3.function)} from Roster.Types.OptimiseRequest() — the day, the week or the month it shows, `period` its kind — to Roster.Types.OptimiseResult(Duties), a patch of the duties' record
+    │   ├─ An optimiser that sees the week's edges                    → Roster.Types.OptimiseRequest({ edges: true }) — the request also names in `fixed` the edge duties the answer must leave: those of a week that takes no edit; its one patch may change a duty in the weeks either side; one that changes a fixed duty, or puts one in a week taking no edit or beyond them, is refused, naming the duty
     │   ├─ Narrow its duties, targets, people, activities, patterns   → slice={{ slice: Slice.bindRecords(key, { duty: { source, range: "start" }, targets?, people?, activities?, patterns? }) }}
     │   ├─ The app's check, and a record it reads beside the duties   → check={fn(Roster.Types.CheckContext(R)) → Array<Roster.Types.Issue>} · the first step's rota as the slice's reference: { duty, reference: { source, range: "start" } }, check from CheckContext(R, P) — cx.reference: Dict<String, P>, the week's rows and 12 h either side, read through its interval index, never whole; nothing draws it, the rail offers none of it
     │   ├─ People by week or by month                                 → view={{ layout: "people", period: "week" | "month", date }}
@@ -260,7 +260,7 @@ Task → What do you need?
     │   ├─ What it books from                                         → arrivals={Allocation.arrivals(rows, { label, quantity, hold, kind?, values?, … })}
     │   ├─ Publish: the app's days, or its weeks                      → periods={Schedule.periods(Record.bind(days), { every: "day", status })} · or its weeks, { every: "week", … }, each keyed by its first day, week={{ start: "monday" | "sunday" }} — Publish week writes the week holding the day in view, and every day of a published week is read-only
     │   ├─ Who fits where: the app's fit, on e3                       → fit={Func.bind(e3.function)} from Allocation.Types.FitRequest(R) to FitResult, over Allocation.answer(R) + Allocation.fit (+ Allocation.lookahead(R))
-    │   ├─ The app's optimiser over the day                           → optimise={Func.bind(e3.function)} from Allocation.Types.OptimiseRequest(R) to Allocation.Types.OptimiseResult(R)
+    │   ├─ The app's optimiser over the day                           → optimise={Func.bind(e3.function)} from Allocation.Types.OptimiseRequest (the day, the run, the rail's narrowing; no row) to Allocation.Types.OptimiseResult(Bins), a patch of the bins' record
     │   ├─ Narrow its bins, lanes, resources and arrivals — one rail  → slice={{ slice: Slice.bindRecords(key, { bin: { source, range: "at" }, <lanes>?, <resources>?, arrivals? }) }}
     │   ├─ Its panes                                                  → library={[Allocation.library.arrivals(), Allocation.library.resources()]} · inspector
     │   ├─ The app's own words for what it holds                      → labels={{ lane, arrival, resource, quantity, bin, reservation, reserved, priorJob, nextJob, hold, groups: { overdue, ready, removed, allocated, free, loading, busy } }}
@@ -328,8 +328,9 @@ mutation named in the list (with `mutate.status()`, `pending()`, `error()`),
 `start()` to run the dataflow over the new state, and `history()` for its
 commits. Builders take `Record.bind(record)` of a record declaring
 `patch: mutation.patch()` and commit every Save through it; a stale Save is a
-conflict naming the entry, and nothing is overwritten. `Record.onApply(record,
-{ keyed? })` is a host's `onApply`: the Save, `.apply`, with its `.toDraft`.
+conflict naming the entry, and nothing is overwritten. A builder is handed the
+record itself, beside a rail too (`slice` with `record`); `Record.onApply(record,
+{ keyed? })` is a host's `onApply` over its own `data`: `.apply` with `.toDraft`.
 
 ### `Func.bind(fn)`
 
@@ -345,18 +346,15 @@ result is at most 1 MiB: a large one belongs in a task, read with `Data.bind`.
 
 A function that declares `inputs` (`e3.function(name, { inputs, args, output },
 fn)`, the **e3** skill) is bound the same way: its `call` takes the `args`
-alone, and each call reads the inputs as the workspace stores them when it
-launches. The page binds none of them: a builder's `optimise={Func.bind(fn)}`
-passes its request as the one argument, and the function reads its reference
-data as inputs (`e3-ui:func.examples.tsx:funcBindCall`, `funcBindInputs`).
+alone, each call reads the inputs as the workspace stores them when it launches,
+and the page binds none (`e3-ui:func.examples.tsx:funcBindCall`, `funcBindInputs`).
 
 A function that lists records in `drafts` (the **e3** skill) is asked over the
 page's unsaved edits: its `call` takes drafts last, an Array (`[]`: as saved),
 each a mutation's call, not committed: `record.draft.<name>(args…)`, or a
 pending Save's from `Record.toDraft`. e3 lays them over what the function reads
-and saves nothing. A draft the record refuses ends the call as its Save would
-have, the function not run: `error()`'s `kind` is `conflict` where the record
-changed under the edit (`e3-ui:func.examples.tsx:funcBindDrafts`).
+and saves nothing. A draft that no longer fits its record ends the call
+`conflict`, the function not run (`e3-ui:func.examples.tsx:funcBindDrafts`).
 
 ## The builders
 
@@ -393,8 +391,10 @@ changed under the edit (`e3-ui:func.examples.tsx:funcBindDrafts`).
   resources a cell at a time through `index.series` + `index.summary`; a
   drawing a window at a time through `index.area`.
 - **The app's optimiser**: `optimise={Func.bind(fn)}`, an `e3.function` from
-  the builder's `Types.OptimiseRequest` to its `Types.OptimiseResult`; its
-  answer lands as one undoable step.
+  the builder's `Types.OptimiseRequest` — the period in view, the run and the
+  rail's narrowing, never a row — to its `Types.OptimiseResult`, a patch of each
+  record it edits (`East.diff`). The function lists those records in `drafts`,
+  reads them through their indexes, and its answer lands as one undoable step.
 - **Which views an instance offers**: a component that switches between views
   takes `views` — the Roster's, Calendar's and Allocation's layouts, the
   Ontology's display modes and `<Query.Builder>`'s

@@ -87,6 +87,22 @@ hands the collection its apply and its draft form; a plain function goes
 through as it is, with no draft form. Never read `.apply` or `.toDraft` off
 what an author passed: each read would write the Save out again.
 
+A builder's `optimise` is held to one contract (east-workspace#1622,
+`utils/optimise.ts`' `optimiseBinding`): `Func.bind` of an `e3.function` from
+the builder's request — the period in view, the run's number and the rail's
+narrowing, and no row — to a patch of each record the builder edits. The tag
+checks the handle's types where the page is built, naming what the function
+asks or answers; and, as the page is evaluated, that the function lists in
+`drafts` each record it reads that the builder edits (the binding's `reads`
+and `drafts`): a handle is a variable while a page is built, so a record is
+told by its name there. A builder is handed each record it edits, bound with
+`Record.bind`, and reads the record's name and its types from the handle,
+never from a Save handed in a record's place: a Sheet and a Record over a
+rail take `record` beside `slice`, and a Sheet over `data` takes no
+optimiser. Never add a row, or anything the page read or worked out, to a
+request: the function reads it on e3, with the page's unsaved edits laid over
+the records as drafts.
+
 A source's narrowing is read where its rows are read, never where the builder
 is built (#1354). The bind reads no state and returns one handle per binding,
 whatever its narrowing: its narrowed data is a live source
@@ -108,8 +124,11 @@ stays the mutation door a Save commits through.
 
 The Sheet (#1345) takes `slice={{ slice: Slice.bindRecords(key, { rows, … })
 }}`. Its `rows` source gives the record's rows, every one in the record's
-order, paged from it, edited through `onApply={Record.onApply(record, { keyed:
-true })}`, and its narrowing is drawn over them as the lens (#1349), a filtered
+order, paged from it, and its narrowing is drawn over them as the lens (#1349).
+The sheet is handed the record beside the rail, `record={Record.bind(record)}`,
+as every builder is handed the records it edits, and saves through it by key;
+`onApply` beside the `rows` source is refused, naming `record`
+(east-workspace#1622). The lens is a filtered
 spreadsheet: only the rows the narrowing keeps, one after another, each at its
 row number, e3 placing the narrowing's rows from the source's index alone and
 the renderer reading only the segments that hold them near the view. A sheet
@@ -534,8 +553,8 @@ first step of a roster made in two steps (#1548): `none` is a duty in no group
 yet, its place (`Roster.Types.Place`) holding no slot (`Roster.slotOf`), drawn
 on its person's row in People and in Shifts' No group band, counted in its
 person's hours, contract and rest and in no group's targets; a drop in a
-group's slot writes `some(group)`, one back `none`, and the optimiser's request
-and answer carry it as it stands. Coverage, checks and the views read that week, and
+group's slot writes `some(group)`, one back `none`, and the optimiser reads
+and answers it as it stands. Coverage, checks and the views read that week, and
 each assignment carries its duty's own row, untouched, for the app's
 functions.
 
