@@ -69,12 +69,14 @@ export {
   createWorkspaceFunctionRoutes,
   createOneShotRoutes,
   oneShotAccessByRoles,
+  allowEveryDraft,
   DEFAULT_CALL_WINDOW_MS,
   type GetRunner,
   type OneShotAccess,
   type DraftAccess,
   type OneShotRoutesOptions,
   type FunctionRoutesOptions,
+  type WorkspaceFunctionRoutesOptions,
 } from './routes/functions.js';
 
 // A workspace's kept calls: polled, cancelled, listed and read whole, by the

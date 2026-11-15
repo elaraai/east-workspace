@@ -19,6 +19,7 @@ import {
   LockStateType,
   WorkspaceRecordType,
   pathToString,
+  treePathToRefPath,
   type DatasetRef,
   type ExecutionStatus,
   type StopReason,
@@ -477,12 +478,7 @@ function collectDatasetPaths(
  * @returns Each ref there is, by its dataset path
  */
 function readRefs(storage: StorageBackend, repo: string, ws: string, paths: readonly TreePath[]): Promise<Map<string, DatasetRef>> {
-  return storage.datasets.readMany(repo, ws, [...new Set(paths.map(refPathOf))]);
-}
-
-/** A dataset's ref path, as its store keys it: `inputs/sales` for `.inputs.sales`. */
-function refPathOf(path: TreePath): string {
-  return path.map((segment) => segment.value).join('/');
+  return storage.datasets.readMany(repo, ws, [...new Set(paths.map(treePathToRefPath))]);
 }
 
 /**
@@ -490,7 +486,7 @@ function refPathOf(path: TreePath): string {
  * assigned, and its value's hash. A dataset with no ref is unassigned.
  */
 function refOf(refs: ReadonlyMap<string, DatasetRef>, path: TreePath): { refType: DatasetRef['type']; hash: string | null } {
-  const ref = refs.get(refPathOf(path));
+  const ref = refs.get(treePathToRefPath(path));
   if (ref === undefined || ref.type === 'unassigned') return { refType: 'unassigned', hash: null };
   if (ref.type === 'null') return { refType: 'null', hash: null };
   return { refType: 'value', hash: ref.value.hash };

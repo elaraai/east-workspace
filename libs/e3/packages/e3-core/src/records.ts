@@ -394,13 +394,37 @@ export interface RecordMutateOptions {
  * refusal (#1573). A store whose locks are round trips is waited on once for
  * both.
  *
+ * A function's call through the workspace starts under it too (e3-core's
+ * `functionCallStart`, `functionCallUnkept`): it reads the deployed package,
+ * the records its drafts are laid over and every input it pins as one
+ * workspace, which a deploy cannot change between the reads, as it cannot
+ * under a Save.
+ *
+ * @param storage - Storage backend
+ * @param repo - Repository identifier
+ * @param ws - Workspace name
+ * @param externalLock - A shared workspace lock the caller holds already;
+ *   `undefined` takes one
+ * @param fn - The work, run holding both locks
+ * @returns What `fn` returns
  * @throws {InvalidNameError} When `ws` is no workspace's name, before the lock
  *   is taken
  * @throws {WorkspaceLockError} When a deploy or a removal holds the workspace
  * @throws {Error} When a garbage collection or an upgrade holds the
  *   repository
+ *
+ * @example
+ * ```ts
+ * // Read a record's head and a dataset as one workspace: no deploy lands
+ * // between the two reads
+ * const read = await withSharedWorkspaceLock(storage, repo, 'production', undefined, async () => {
+ *   const head = await storage.datasets.readVersioned(repo, 'production', 'records/jobs');
+ *   const rates = await storage.datasets.read(repo, 'production', 'inputs/rates');
+ *   return { head, rates };
+ * });
+ * ```
  */
-async function withSharedWorkspaceLock<T>(
+export async function withSharedWorkspaceLock<T>(
   storage: StorageBackend,
   repo: string,
   ws: string,
@@ -727,6 +751,15 @@ export async function resolveRecord(
  * @returns The record, or null when the package declares no record of the
  *   name, or its path names no dataset. Its declarations are the caller's own
  *   to change; its type is the package's, to read.
+ *
+ * @example
+ * ```ts
+ * // The record a call's draft names, in the package its function was resolved in
+ * const { pkg } = await workspaceFunctionResolve(storage, repo, 'production', 'jobs_on');
+ * const record = await recordOfPackage(storage, repo, pkg, 'jobs');
+ * if (record === null) throw new Error("record 'jobs' not found");
+ * console.log(record.refPath, [...record.mutations.keys()]); // 'records/jobs', ['move', 'patch']
+ * ```
  */
 export async function recordOfPackage(
   storage: StorageBackend,
@@ -1311,9 +1344,32 @@ async function patchDelta(
  *
  * @param args - The arguments, each as beast2
  * @returns The tuple's bytes
+ *
+ * @example
+ * ```ts
+ * const tuple = encodeMutationArgs([encodeBeast2For(StringType)('j2'), encodeBeast2For(StringType)('P1')]);
+ * const hash = await storage.objects.write(repo, tuple);
+ * ```
  */
 export function encodeMutationArgs(args: readonly Uint8Array[]): Uint8Array {
   return encodeArgsTuple([...args]);
+}
+
+/**
+ * A mutation call's arguments, read back from the one object a commit, or a
+ * kept call's draft, names them by ({@link encodeMutationArgs}).
+ *
+ * @param tuple - The tuple's bytes
+ * @returns The arguments, each as beast2, in order
+ * @throws {Error} When the bytes are no tuple of arguments
+ *
+ * @example
+ * ```ts
+ * const args = decodeMutationArgs(await storage.objects.read(repo, draft.args.value));
+ * ```
+ */
+export function decodeMutationArgs(tuple: Uint8Array): Uint8Array[] {
+  return decodeArgsTuple(tuple);
 }
 
 /**
@@ -1329,6 +1385,14 @@ export function encodeMutationArgs(args: readonly Uint8Array[]): Uint8Array {
  * @returns The state's hash and its head commit's, or why no draft is laid
  *   over the record (`invalid`): it holds no state yet, as a Save of it is
  *   refused, or its ref names no commit
+ *
+ * @example
+ * ```ts
+ * const record = await resolveRecord(storage, repo, 'production', 'jobs');
+ * const head = await recordHead(storage, repo, 'production', 'jobs', record!);
+ * if ('invalid' in head) throw new Error(head.invalid);
+ * // head.state is laid over; head.commit is what the call's result names
+ * ```
  */
 export async function recordHead(
   storage: StorageBackend,
@@ -1367,6 +1431,13 @@ export async function recordHead(
  * @param args - The draft's arguments, each as beast2
  * @returns The hash of the mutation's object, or why the draft is refused
  *   (`invalid`)
+ *
+ * @example
+ * ```ts
+ * const record = await resolveRecord(storage, repo, 'production', 'jobs');
+ * const checked = await recordDraftMutation(storage, repo, record!, 'jobs', 'move', [jobId, pressId]);
+ * if ('invalid' in checked) throw new Error(checked.invalid); // e.g. an unknown mutation, or an argument of another type
+ * ```
  */
 export async function recordDraftMutation(
   storage: StorageBackend,
@@ -1426,7 +1497,11 @@ export type RecordDraftLaid =
  * holding the draft. No commit is stored, no ref is read and none is moved:
  * the objects written are named by nothing until the caller names them, so the
  * caller holds the repository's running work until it does
- * (`withRunningWork`), and they are visible to no reader of the workspace.
+ * (`withRunningWork`). The record, its history and what reads it stay as they
+ * were for every reader. The program's run is an execution as a Save's is:
+ * recorded, logged, and served from the execution cache when it ran before
+ * over the same state and arguments, its output kept as long as the
+ * repository's execution history keeps it.
  *
  * A draft races no other write, since it moves nothing, so it is never run
  * again: the one conflict it can meet is a write that disagrees with the state
@@ -1438,26 +1513,31 @@ export type RecordDraftLaid =
  * @param state - The state the draft is laid over: the record's, or the one
  *   the draft before it left
  * @param draft - The hash of the mutation's object, as
- *   {@link recordDraftMutation} checked it, and the hash of its arguments'
- *   tuple ({@link encodeMutationArgs}), `null` for a draft with no arguments
+ *   {@link recordDraftMutation} checked it, and its arguments, each as beast2
  * @param run - How long the program may run and how much of a failure's
  *   stderr is returned, with the caller's cancellation and verbosity
  * @returns The state the draft leaves, or how the draft ended otherwise
  * @throws {Error} When an object the draft names cannot be read
+ *
+ * @example
+ * ```ts
+ * const state = await readRecordState(storage, repo, head.state);
+ * const laid = await recordLayDraft(storage, runner, repo, state, { mutation: checked.mutation, args: [jobId, pressId] },
+ *   { timeoutMs: 60_000, maxLogBytes: 64 * 1024 });
+ * if (laid.kind === 'laid') await writeRecordState(storage, repo, laid.state); // still named by nothing
+ * ```
  */
 export async function recordLayDraft(
   storage: StorageBackend,
   runner: TaskRunner,
   repo: string,
   state: RecordStateRefs,
-  draft: { mutation: string; args: string | null },
+  draft: { readonly mutation: string; readonly args: readonly Uint8Array[] },
   run: { timeoutMs: number; maxLogBytes: number; signal?: AbortSignal; verbose?: boolean },
 ): Promise<RecordDraftLaid> {
   if (run.signal?.aborted) return { kind: 'aborted' };
-  const [mutObj, args] = await Promise.all([
-    keptObject(storage, repo, draft.mutation, decodeMutationObject),
-    draft.args === null ? [] : storage.objects.read(repo, draft.args).then(decodeArgsTuple),
-  ]);
+  const mutObj = await keptObject(storage, repo, draft.mutation, decodeMutationObject);
+  const args = [...draft.args];
   const context: RunContext = {
     limits: { timeoutMs: run.timeoutMs, maxLogBytes: run.maxLogBytes },
     ...(run.signal !== undefined && { signal: run.signal }),

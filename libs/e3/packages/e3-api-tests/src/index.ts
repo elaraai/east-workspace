@@ -59,6 +59,7 @@ export {
 export {
   runE3Command,
   spawnE3Command,
+  removeWorkspaceAfter,
   getE3CliPath,
   waitFor,
   type CliResult,

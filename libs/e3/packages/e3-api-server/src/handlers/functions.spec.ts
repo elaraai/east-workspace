@@ -45,7 +45,7 @@ import {
   getSplitCallStatus,
 } from './functions.js';
 import {
-  createOneShotRoutes, createPackageFunctionRoutes, createWorkspaceFunctionRoutes, oneShotAccessByRoles,
+  allowEveryDraft, createOneShotRoutes, createPackageFunctionRoutes, createWorkspaceFunctionRoutes, oneShotAccessByRoles,
   type DraftAccess, type OneShotAccess,
 } from '../routes/functions.js';
 import type { Identity } from '../identity.js';
@@ -404,13 +404,12 @@ describe('draft access', () => {
   const add = (by: bigint): FunctionDraft => ({ record: 'jobs', mutation: 'add', args: [encodeInt(by)] });
   const reset: FunctionDraft = { record: 'jobs', mutation: 'reset', args: [] };
 
-  /** The workspace's function routes as a host mounts them: with its rule for
-   *  drafts, or with none. Its calls run in this process, on `runner`. */
-  const buildApp = (draftAccess?: DraftAccess): Hono => {
+  /** The workspace's function routes as a host mounts them, with its rule for
+   *  drafts: every host gives one. Its calls run in this process, on `runner`. */
+  const buildApp = (draftAccess: DraftAccess): Hono => {
     const app = new Hono();
     const transfer = new InMemoryTransferBackend({ storage, getRepoPath: () => REPO, getRunner: () => runner });
-    app.route('/api/repos/:repo/workspaces/:ws/functions',
-      createWorkspaceFunctionRoutes(storage, () => REPO, transfer, draftAccess === undefined ? {} : { draftAccess }));
+    app.route('/api/repos/:repo/workspaces/:ws/functions', createWorkspaceFunctionRoutes(storage, () => REPO, transfer, { draftAccess }));
     return app;
   };
 
@@ -467,9 +466,9 @@ describe('draft access', () => {
     assert.equal(runner.getCalls().length + runner.getDetachedCalls().length, 0, 'and nothing runs: no reducer, nor the function');
   });
 
-  it('admits every draft for a host that gives no rule, and asks nothing of a call that passes none', async () => {
-    const open = await decodeResponse(await post(buildApp(), 'sync', [add(2n), reset]), ExecuteResultType);
-    assert.ok(open.type === 'success' && open.value.outcome.type === 'success', 'no rule: what the mutate route allows');
+  it('admits every draft for a host whose rule is allowEveryDraft, and asks nothing of a call that passes none', async () => {
+    const open = await decodeResponse(await post(buildApp(allowEveryDraft), 'sync', [add(2n), reset]), ExecuteResultType);
+    assert.ok(open.type === 'success' && open.value.outcome.type === 'success', 'every draft admitted: what the mutate route allows');
     assert.equal(runner.getCalls().length, 2, 'both drafts laid');
 
     let asked = 0;

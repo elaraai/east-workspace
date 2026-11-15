@@ -4,16 +4,19 @@
  */
 
 /**
- * The line a call says which of its drafts ended it in (east-workspace#1619):
- * written and read back alike, and read only from a call a draft can have
- * ended.
+ * The line a call says which of its drafts ended it in (east-workspace#1619),
+ * and the line a call whose timeout ended once its drafts were all laid says so
+ * in: each written and read back alike, and read only from a call it can be
+ * of.
  */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { variant } from '@elaraai/east';
 import type { ExecuteResult } from './api.js';
-import { functionDraftEndLine, functionDraftEnded, functionDraftLabel, type FunctionDraftEnd } from './function-draft.js';
+import {
+  functionDraftEndLine, functionDraftEnded, functionDraftLabel, functionDraftsLaidLine, functionDraftsOutlasted, type FunctionDraftEnd,
+} from './function-draft.js';
 
 /** A call's result, as far as the line's reader reads it. */
 function ended(outcome: ExecuteResult['outcome'], stderr: string, drafted = ['jobs']): Pick<ExecuteResult, 'outcome' | 'stderr' | 'drafts'> {
@@ -53,9 +56,28 @@ describe('the line a call names the draft that ended it in', () => {
     assert.equal(functionDraftEnded(ended(variant('conflict', { record: 'jobs', mutation: 'patch', message: 'gone' }), '')), null,
       'a conflict, whose outcome names its draft');
     assert.equal(functionDraftEnded(ended(timedOut, `${line}\n`)), null, 'a line of another end than the call\'s');
-    assert.equal(functionDraftEnded(ended(timedOut, '')), null, 'a timeout that ended as the last draft was laid');
+    assert.equal(functionDraftEnded(ended(timedOut, `${functionDraftsLaidLine(1)}\n`)), null, 'a timeout that ended once every draft was laid');
     assert.equal(functionDraftEnded(ended(failed, 'Error: the function failed\n')), null, 'the function\'s own failure');
     assert.equal(functionDraftEnded(ended(failed, `warming up\n${line}\n`)), null, 'the words on a later line');
     assert.equal(functionDraftEnded(ended(failed, 'draft jobs.patch (1 of 1) failed, again\n')), null);
+  });
+});
+
+describe('the line a call whose drafts outlasted its timeout says so in', () => {
+  it('says how many drafts were laid, every one of them, and is read back from a timed-out call that passed drafts', () => {
+    assert.equal(functionDraftsLaidLine(3), 'drafts laid (3 of 3), and the call\'s timeout ended before its function ran');
+    assert.equal(functionDraftsOutlasted(ended(timedOut, `${functionDraftsLaidLine(3)}\n`)), true);
+    assert.equal(functionDraftsOutlasted(ended(timedOut, functionDraftsLaidLine(1))), true, 'with no line end');
+  });
+
+  it('is read from no other call: one that passed no draft, one that did not time out, one whose first line says another thing', () => {
+    const line = `${functionDraftsLaidLine(2)}\n`;
+    assert.equal(functionDraftsOutlasted(ended(timedOut, line, [])), false, 'a call that passed no draft');
+    assert.equal(functionDraftsOutlasted(ended(failed, line)), false, 'a call that failed');
+    assert.equal(functionDraftsOutlasted(ended(timedOut, '')), false, 'a function that ran out of the time');
+    assert.equal(functionDraftsOutlasted(ended(timedOut, 'draft jobs.patch (2 of 2) timed out\n')), false, 'a draft that did not start');
+    assert.equal(functionDraftsOutlasted(ended(timedOut, `warming up\n${line}`)), false, 'the words on a later line');
+    assert.equal(functionDraftsOutlasted(ended(timedOut, 'drafts laid (1 of 2), and the call\'s timeout ended before its function ran\n')), false,
+      'a count that is not every draft');
   });
 });

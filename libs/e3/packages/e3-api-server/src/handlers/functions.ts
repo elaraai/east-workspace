@@ -38,7 +38,7 @@ import {
   splitCallResult,
 } from '@elaraai/e3-core/portable';
 import type { DetachedArg, ExecuteCeilings, OneShotGrant, SplitCallJob, SplitCallStore, StorageBackend, TaskRunner } from '@elaraai/e3-core/portable';
-import { type FunctionObject, type RunnerValue, decodeFunctionObject, pathToString } from '@elaraai/e3-types';
+import { type FunctionObject, type PackageObject, type RunnerValue, decodeFunctionObject, pathToString } from '@elaraai/e3-types';
 import { sendSuccess, sendError } from '../beast2.js';
 import { errorToVariant } from '../errors.js';
 import {
@@ -197,7 +197,8 @@ async function executeFunction(
 // =============================================================================
 
 /**
- * List a package's functions with their signatures.
+ * List a package's functions with their signatures, the package named by its
+ * name and version: the package route's.
  */
 export async function listPackageFunctions(
   storage: StorageBackend,
@@ -206,7 +207,30 @@ export async function listPackageFunctions(
   version: string
 ): Promise<Response> {
   try {
-    const pkg = await packageRead(storage, repoPath, pkgName, version);
+    return await listFunctionsOf(storage, repoPath, await packageRead(storage, repoPath, pkgName, version));
+  } catch (err) {
+    return sendError(ArrayType(FunctionSignatureType), errorToVariant(err));
+  }
+}
+
+/**
+ * List the functions of a package in hand with their signatures: what the
+ * workspace routes answer for the package a workspace names by its hash, which
+ * a call through it runs, whatever a name and a version name now.
+ *
+ * @param storage - Storage backend
+ * @param repoPath - The repository
+ * @param pkg - The package, decoded
+ * @returns The response: each function's signature
+ *
+ * @example
+ * ```ts
+ * const { hash } = await workspaceGetPackage(storage, repoPath, 'production');
+ * return listFunctionsOf(storage, repoPath, await packageObjectRead(storage, repoPath, hash));
+ * ```
+ */
+export async function listFunctionsOf(storage: StorageBackend, repoPath: string, pkg: PackageObject): Promise<Response> {
+  try {
     const signatures: FunctionSignature[] = [];
     for (const [name, fnHash] of pkg.functions) {
       signatures.push(signatureOf(name, decodeFunctionObject(await storage.objects.read(repoPath, fnHash))));
@@ -218,7 +242,8 @@ export async function listPackageFunctions(
 }
 
 /**
- * Describe a single function (signature) so dynamic callers can encode args.
+ * Describe a single function (signature) so dynamic callers can encode args,
+ * the package named by its name and version: the package route's.
  */
 export async function describePackageFunction(
   storage: StorageBackend,
@@ -230,6 +255,31 @@ export async function describePackageFunction(
   try {
     const fnObj = await resolveFunction(storage, repoPath, pkgName, version, fnName);
     return sendSuccess(FunctionSignatureType, signatureOf(fnName, fnObj));
+  } catch (err) {
+    return sendError(FunctionSignatureType, errorToVariant(err));
+  }
+}
+
+/**
+ * Describe a function of a package in hand: what the workspace routes answer
+ * for the package a workspace names by its hash ({@link listFunctionsOf}).
+ *
+ * @param storage - Storage backend
+ * @param repoPath - The repository
+ * @param pkg - The package, decoded
+ * @param fnName - The function
+ * @returns The response: its signature; or `task_not_found`, naming it
+ *
+ * @example
+ * ```ts
+ * return describeFunctionOf(storage, repoPath, await packageObjectRead(storage, repoPath, hash), 'jobs_on');
+ * ```
+ */
+export async function describeFunctionOf(storage: StorageBackend, repoPath: string, pkg: PackageObject, fnName: string): Promise<Response> {
+  try {
+    const fnHash = pkg.functions.get(fnName);
+    if (fnHash === undefined) throw new TaskNotFoundError(`function '${fnName}'`);
+    return sendSuccess(FunctionSignatureType, signatureOf(fnName, decodeFunctionObject(await storage.objects.read(repoPath, fnHash))));
   } catch (err) {
     return sendError(FunctionSignatureType, errorToVariant(err));
   }

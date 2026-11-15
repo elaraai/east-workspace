@@ -20,7 +20,7 @@ import {
 
 import type { TestContext } from '../context.js';
 import type { TestSetup } from '../setup.js';
-import { runE3Command } from '../cli.js';
+import { removeWorkspaceAfter, runE3Command } from '../cli.js';
 import {
   createPackageZip, createFunctionPackageZip, createDraftsPackageZip, createKeyedRecordPackageZip, createMigrationPackageZip,
   DraftJobsType, PlansType,
@@ -59,6 +59,10 @@ export function cliTests(
     const packageZipPath = await createPackageZip(c.tempDir, 'cli-test-pkg', '1.0.0');
     return Object.assign(c, { packageZipPath });
   };
+
+  /** Removes a workspace a test makes once the test ends, however it ends. */
+  const removeAfter = (t: Parameters<typeof withCli>[0], remoteUrl: string, wsName: string): void =>
+    removeWorkspaceAfter(t, remoteUrl, wsName, getCredentialsEnv);
 
   describe('cli', { concurrency: false }, () => {
     describe('repo commands', { concurrency: false }, () => {
@@ -115,13 +119,11 @@ export function cliTests(
       it('workspace create via remote URL', async (t) => {
         const { remoteUrl, workDir } = await withCli(t);
         const wsName = `cli-test-ws-${Date.now()}`;
+        removeAfter(t, remoteUrl, wsName);
         const result = await runE3Command(['workspace', 'create', remoteUrl, wsName], workDir, { env: getCredentialsEnv() });
 
         assert.strictEqual(result.exitCode, 0, `Failed: ${result.stderr}`);
         assert.match(result.stdout, new RegExp(`Created workspace: ${wsName}`));
-
-        // Clean up
-        await runE3Command(['workspace', 'remove', remoteUrl, wsName], workDir, { env: getCredentialsEnv() });
       });
 
       it('workspace remove via remote URL', async (t) => {
@@ -177,6 +179,7 @@ export function cliTests(
         const packageZipPath = await createPackageZip(ctx.tempDir, 'workflow-pkg', '1.0.0');
         const wsName = `workflow-ws-${Date.now()}`;
         const env = getCredentialsEnv();
+        removeAfter(t, remoteUrl, wsName);
 
         // Import package
         let result = await runE3Command(['package', 'import', remoteUrl, packageZipPath], workDir, { env });
@@ -202,9 +205,6 @@ export function cliTests(
         result = await runE3Command(['dataset', 'list', remoteUrl, wsName], workDir, { env });
         assert.strictEqual(result.exitCode, 0, `List failed: ${result.stderr}`);
         assert.match(result.stdout, /\bvalue\b/, 'Should list input paths');
-
-        // Clean up
-        await runE3Command(['workspace', 'remove', remoteUrl, wsName], workDir, { env });
       });
 
       it('executes dataflow via CLI and shows logs', async (t) => {
@@ -213,6 +213,7 @@ export function cliTests(
         const packageZipPath = await createPackageZip(ctx.tempDir, 'exec-cli-pkg', '1.0.0');
         const wsName = `exec-cli-ws-${Date.now()}`;
         const env = getCredentialsEnv();
+        removeAfter(t, remoteUrl, wsName);
 
         // Setup
         await runE3Command(['package', 'import', remoteUrl, packageZipPath], workDir, { env });
@@ -233,9 +234,6 @@ export function cliTests(
         const listResult = await runE3Command(['task', 'list', remoteUrl, wsName], workDir, { env });
         assert.strictEqual(listResult.exitCode, 0, `List failed: ${listResult.stderr}`);
         assert.match(listResult.stdout, /^ {2}compute {2}\[success\]$/m);
-
-        // Clean up
-        await runE3Command(['workspace', 'remove', remoteUrl, wsName], workDir, { env });
       });
     });
 
@@ -245,6 +243,7 @@ export function cliTests(
         const { remoteUrl, workDir } = ctx;
         const env = getCredentialsEnv();
         const wsName = `deploy-cli-ws-${Date.now()}`;
+        removeAfter(t, remoteUrl, wsName);
         for (const version of ['1.0.0', '2.0.0'] as const) {
           const zipPath = await createMigrationPackageZip(ctx.tempDir, 'deploy-cli-pkg', version);
           await runE3Command(['package', 'import', remoteUrl, zipPath], workDir, { env });
@@ -267,8 +266,6 @@ export function cliTests(
         assert.strictEqual(deployed.exitCode, 0, `deploy failed: ${deployed.stderr}`);
         assert.match(deployed.stdout, /migrate record records\/tasks: add_owner/);
         assert.match(deployed.stdout, new RegExp(`Deployed deploy-cli-pkg@2.0.0 to workspace: ${wsName}`));
-
-        await runE3Command(['workspace', 'remove', remoteUrl, wsName], workDir, { env });
       });
     });
 
@@ -314,6 +311,7 @@ export function cliTests(
       it('passes a dataset of the workspace, written @<keypath>, with -w', async (t) => {
         const { remoteUrl, workDir, env } = await withFunctionPackage(t);
         const wsName = `call-cli-ws-${Date.now()}`;
+        removeAfter(t, remoteUrl, wsName);
         for (const command of [['workspace', 'create', remoteUrl, wsName], ['workspace', 'deploy', remoteUrl, wsName, 'call-cli-pkg@1.0.0']]) {
           const setup = await runE3Command(command, workDir, { env });
           assert.strictEqual(setup.exitCode, 0, `${command[0]} ${command[1]} failed: ${setup.stderr}`);
@@ -323,13 +321,12 @@ export function cliTests(
         const result = await runE3Command(['call', remoteUrl, '-w', wsName, 'add', '@.inputs.value', '5'], workDir, { env });
         assert.strictEqual(result.exitCode, 0, `Failed: ${result.stderr}`);
         assert.match(result.stdout, /\b15\b/);
-
-        await runE3Command(['workspace', 'remove', remoteUrl, wsName], workDir, { env });
       });
 
       it('calls a function with inputs through a workspace with its arguments alone, and is refused without -w, naming its inputs', async (t) => {
         const { remoteUrl, workDir, env } = await withFunctionPackage(t);
         const wsName = `call-cli-inputs-ws-${Date.now()}`;
+        removeAfter(t, remoteUrl, wsName);
         for (const command of [['workspace', 'create', remoteUrl, wsName], ['workspace', 'deploy', remoteUrl, wsName, 'call-cli-pkg@1.0.0']]) {
           const setup = await runE3Command(command, workDir, { env });
           assert.strictEqual(setup.exitCode, 0, `${command[0]} ${command[1]} failed: ${setup.stderr}`);
@@ -347,8 +344,6 @@ export function cliTests(
         const refused = await runE3Command(['call', remoteUrl, 'call-cli-pkg.quote', '"b"'], workDir, { env });
         assert.notStrictEqual(refused.exitCode, 0);
         assert.match(refused.stderr, /Function 'quote' reads \.inputs\.value, \.inputs\.prices from the workspace it is called through: pass -w <ws>/);
-
-        await runE3Command(['workspace', 'remove', remoteUrl, wsName], workDir, { env });
       });
 
       describe('drafts, written --draft', { concurrency: false }, () => {
@@ -358,6 +353,7 @@ export function cliTests(
           const ctx = await withCli(t);
           const { remoteUrl, workDir } = ctx;
           const env = getCredentialsEnv();
+          removeAfter(t, remoteUrl, wsName);
           const zipPath = await createDraftsPackageZip(ctx.tempDir, 'call-drafts-pkg', '1.0.0');
           for (const command of [
             ['package', 'import', remoteUrl, zipPath], ['workspace', 'create', remoteUrl, wsName], ['workspace', 'deploy', remoteUrl, wsName, 'call-drafts-pkg@1.0.0'],
@@ -372,12 +368,11 @@ export function cliTests(
             writeFileSync(path, encodeBeast2For(PatchType(DraftJobsType))(variant('patch', new SortedMap<string, DraftJobOp>(ops, compareFor(StringType)))));
             return path;
           };
-          const remove = () => runE3Command(['workspace', 'remove', remoteUrl, wsName], workDir, { env });
-          return { call, patchFile, remove };
+          return { call, patchFile };
         };
 
         it('lays unsaved edits over the records a function reads, in the order written, and saves nothing', async (t) => {
-          const { call, patchFile, remove } = await withDrafts(t, `call-drafts-ws-${Date.now()}`);
+          const { call, patchFile } = await withDrafts(t, `call-drafts-ws-${Date.now()}`);
 
           const saved = await call('jobs_on', '"P1"');
           assert.strictEqual(saved.exitCode, 0, `Failed: ${saved.stderr}`);
@@ -395,13 +390,11 @@ export function cliTests(
           const after = await call('hours');
           assert.strictEqual(after.exitCode, 0, `Failed: ${after.stderr}`);
           assert.match(after.stdout, /\b9\b/, 'each record reads as it was saved');
-
-          await remove();
         });
 
         it('reports the draft that ended a call, and refuses one the function or the workspace does not take', async (t) => {
           const wsName = `call-drafts-ends-ws-${Date.now()}`;
-          const { call, patchFile, remove } = await withDrafts(t, wsName);
+          const { call, patchFile } = await withDrafts(t, wsName);
 
           const failed = await call('jobs_on', '"P1"', '--draft', 'jobs.move', '"j2"', '"P1"', '--draft', 'jobs.refuse', '"not today"');
           assert.notStrictEqual(failed.exitCode, 0);
@@ -422,8 +415,6 @@ export function cliTests(
           const ghost = await call('jobs_on', '"P1"', '--draft', 'ghost.add', '1');
           assert.notStrictEqual(ghost.exitCode, 0);
           assert.match(ghost.stderr, new RegExp(`Draft 1 \\(ghost\\.add\\): record 'ghost' not found in workspace '${wsName}'`));
-
-          await remove();
         });
       });
     });
@@ -435,6 +426,7 @@ export function cliTests(
         const env = getCredentialsEnv();
         const zipPath = await createKeyedRecordPackageZip(ctx.tempDir, 'mutate-cli-pkg', '1.0.0');
         const wsName = `mutate-cli-ws-${Date.now()}`;
+        removeAfter(t, remoteUrl, wsName);
         await runE3Command(['package', 'import', remoteUrl, zipPath], workDir, { env });
         await runE3Command(['workspace', 'create', remoteUrl, wsName], workDir, { env });
         await runE3Command(['workspace', 'deploy', remoteUrl, wsName, 'mutate-cli-pkg@1.0.0'], workDir, { env });
@@ -452,8 +444,6 @@ export function cliTests(
         assert.match(result.stderr, /p-11/, 'the key that disagreed crosses the API to the caller');
         assert.match(result.stderr, /re-read it and resubmit/);
         assert.doesNotMatch(result.stderr, /try again/, 'the same write would disagree again');
-
-        await runE3Command(['workspace', 'remove', remoteUrl, wsName], workDir, { env });
       });
     });
   });

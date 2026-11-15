@@ -10,20 +10,24 @@
  * What a call of a local repository is (`e3 call -w`). Nothing is filed, so
  * nothing lists the call, polls it or cancels it, and nothing roots what it
  * read once it has answered. A call a server takes through a workspace is kept
- * instead (`functionCall.ts`), and the two read and end alike: the function's
- * inputs and its dataset arguments pinned at the hash each holds as the call
- * starts, its drafts laid over the records it reads (`functionDrafts.ts`,
+ * instead (`functionCall.ts`), and the two read and end alike: the function
+ * resolved in the package the workspace names by its hash, its inputs and its
+ * dataset arguments pinned at the hash each holds as the call starts, under
+ * the workspace's shared lock, its drafts laid over the records it reads and
+ * its run staged by the one step (`functionDrafts.ts`'s `layAndStage`,
  * east-workspace#1619), and each end a draft gives it.
  *
  * @packageDocumentation
  */
 
 import { variant } from '@elaraai/east';
-import type { CallArg, ExecuteResult, FunctionCallRequest, FunctionObject, PackageObject } from '@elaraai/e3-types';
+import type { CallArg, ExecuteResult, FunctionCallRequest } from '@elaraai/e3-types';
+import { withSharedWorkspaceLock } from '../records.js';
 import { withRunningWork } from '../running-work.js';
 import type { StorageBackend } from '../storage/interfaces.js';
-import { callDraftsEnd, callDraftsRead, draftedInputs, layCallDrafts, pinCallDrafts, type CallDraftsEnd } from './functionDrafts.js';
-import type { DetachedArg, TaskRunner } from './interfaces.js';
+import { workspaceFunctionResolve } from './functionCall.js';
+import { callDraftsRead, checkCallDrafts, draftedInputs, layAndStage, type StagedCallArg } from './functionDrafts.js';
+import type { TaskRunner } from './interfaces.js';
 import { detachedToExecuteResult, invalidExecuteResult, pinCallArguments } from './oneShot.js';
 
 /** Options for {@link functionCallUnkept}. */
@@ -42,25 +46,32 @@ export interface FunctionCallUnkeptOptions {
  * of the call.
  *
  * @remarks
- * 1. **Check.** Its arity, the arguments alone; and each draft it passes
- *    (`pinCallDrafts`), as a kept call's start checks one. A call found wrong
- *    is answered `invalid`, and nothing runs.
- * 2. **Pin.** The function's inputs and its dataset arguments, each at the
- *    hash it holds now (`pinCallArguments`); an input or a dataset with no
- *    value is `invalid`, naming it.
- * 3. **Lay.** Its drafts, in the order passed, each by its mutation's own
- *    program on `runner`, for what is left of the call's timeout
- *    (`layCallDrafts`). A draft that does not lay ends the call as a Save of
- *    it would have ended, and its function does not run (`callDraftsEnd`).
- * 4. **Run.** Its function, on `runner` with `runDetached`, reading each input
- *    of a drafted record at the state its drafts left, for what is left of
- *    the timeout.
+ * 1. **Resolve, check and pin**, under the workspace's shared lock
+ *    (`withSharedWorkspaceLock`), as a Save and a kept call's start run, so
+ *    the package, the records the drafts are laid over and every input are one
+ *    workspace's: the function, in the package the workspace names by its hash
+ *    (`workspaceFunctionResolve`); its arity, the arguments alone; each draft
+ *    it passes (`checkCallDrafts`), as a kept call's start checks one; and the
+ *    function's inputs and its dataset arguments, each at the hash it holds
+ *    now (`pinCallArguments`). A call found wrong is answered `invalid`, and
+ *    nothing runs; an input or a dataset with no value is `invalid`, naming it.
+ * 2. **Lay and stage** (`layAndStage`, the step a kept call's run takes): its
+ *    drafts, in the order passed, each by its mutation's own program on
+ *    `runner`, for what is left of the call's timeout. A draft that does not
+ *    lay ends the call as a Save of it would have ended, and its function
+ *    does not run.
+ * 3. **Run.** Its function, on `runner` with `runDetached`, reading each input
+ *    of a drafted record at the state its drafts left, and a dataset argument
+ *    naming one as saved, at the state they were laid over, for what is left
+ *    of the timeout.
  *
  * A call that passes drafts holds the repository's running work from its check
  * to its answer: the states its drafts leave are named by nothing, and a
  * garbage collection would sweep them under the function that reads them.
- * They are swept by the first collection after it. No commit is stored and no
- * record is moved. A call with no draft stores nothing, and holds nothing.
+ * They are swept by the first collection after it. Its drafts are laid from
+ * their arguments in hand: nothing of them is stored but what laying them
+ * writes. No commit is stored and no record is moved. A call with no draft
+ * stores nothing, and holds nothing once it is pinned.
  *
  * The result names what the call read, as a kept call's does: each input and
  * dataset argument with the hash it was read at, the drafted state's for an
@@ -71,91 +82,112 @@ export interface FunctionCallUnkeptOptions {
  * @param runner - The runner its drafts' programs and its function run on
  * @param repo - Repository identifier
  * @param workspace - The workspace the call is made through
- * @param pkg - The package the function was resolved in, decoded: the records
- *   its drafts name are resolved in it too
- * @param fn - The function's object
+ * @param fnName - The function's name in the deployed package
  * @param request - The arguments, and the drafts to lay over the records the
  *   function reads
  * @param options - The call's limits, its verbosity and its clock
  * @returns The call's result
- * @throws {Error} When a call that passes drafts finds a garbage collection or
- *   an upgrade holding the repository, or an object it names cannot be read
+ * @throws {WorkspaceNotFoundError} When there is no such workspace
+ * @throws {WorkspaceNotDeployedError} When nothing is deployed to it
+ * @throws {TaskNotFoundError} When the deployed package has no such function
+ * @throws {WorkspaceLockError} When a deploy or a removal holds the workspace
+ * @throws {Error} When a garbage collection or an upgrade holds the
+ *   repository, or an object the call names cannot be read
+ *
+ * @example
+ * ```ts
+ * const result = await functionCallUnkept(storage, new LocalTaskRunner(repo), repo, 'dev', 'jobs_on', {
+ *   args: [variant('value', encodeBeast2For(StringType)('P1'))],
+ *   drafts: [{ record: 'jobs', mutation: 'move', args: [jobId, pressId] }],
+ * }, { limits: { timeoutMs: 600_000, maxResultBytes: 64 * 1024 * 1024, maxLogBytes: 64 * 1024 } });
+ * if (result.outcome.type === 'success') console.log(result.drafts); // [{ record: 'jobs', commit: '9f2c…' }]
+ * ```
  */
 export async function functionCallUnkept(
   storage: StorageBackend,
   runner: TaskRunner,
   repo: string,
   workspace: string,
-  pkg: PackageObject,
-  fn: FunctionObject,
+  fnName: string,
   request: Pick<FunctionCallRequest, 'args' | 'drafts'>,
   options: FunctionCallUnkeptOptions,
 ): Promise<ExecuteResult> {
   const now = options.now ?? Date.now;
   const { limits, verbose } = options;
-  if (request.args.length !== fn.argTypes.length) {
-    return invalidExecuteResult(`Expected ${fn.argTypes.length} argument(s), got ${request.args.length}`);
-  }
   const deadline = now() + limits.timeoutMs;
-  const pin = (args: readonly CallArg[]): ReturnType<typeof pinCallArguments> => pinCallArguments(storage, repo, workspace, args, { inputs: fn.inputs });
-  /** The function's run over what the call pinned, for the time `timeoutMs`:
-   *  one cut short names the call's timeout, whatever was left of it. */
-  const run = async (args: DetachedArg[], inputs: ExecuteResult['inputs'], timeoutMs: number): Promise<ExecuteResult> => {
-    const result = detachedToExecuteResult(await runner.runDetached({
-      bodyIr: await storage.objects.read(repo, fn.bodyIr),
-      args,
-      runner: fn.runner,
-      limits: { ...limits, timeoutMs },
-      ...(fn.environment.type === 'some' && { environment: fn.environment.value }),
-    }, { storage, ...(verbose !== undefined && { verbose }) }), inputs);
-    return result.outcome.type === 'timed_out' ? { ...result, outcome: variant('timed_out', { ms: BigInt(limits.timeoutMs) }) } : result;
-  };
 
-  if (request.drafts.length === 0) {
-    const pinned = await pin(request.args);
-    if (!('args' in pinned)) return pinned;
-    return run(pinned.args, pinned.inputs, limits.timeoutMs);
-  }
-
-  return withRunningWork(storage, repo, async (): Promise<ExecuteResult> => {
-    const drafts = await pinCallDrafts(storage, repo, workspace, pkg, fn, request.drafts);
-    if ('invalid' in drafts) return invalidExecuteResult(drafts.invalid);
-    const pinned = await pin(request.args);
-    if (!('args' in pinned)) return pinned;
+  const call = async (): Promise<ExecuteResult> => {
+    // Resolved, checked and pinned as one workspace's, as a Save reads it
+    const started = await withSharedWorkspaceLock(storage, repo, workspace, undefined, async () => {
+      const { pkg, fn } = await workspaceFunctionResolve(storage, repo, workspace, fnName);
+      if (request.args.length !== fn.argTypes.length) {
+        return invalidExecuteResult(`Expected ${fn.argTypes.length} argument(s), got ${request.args.length}`);
+      }
+      const drafted = await checkCallDrafts(storage, repo, workspace, pkg, fn, request.drafts);
+      if ('invalid' in drafted) return invalidExecuteResult(drafted.invalid);
+      const pinned = await pinCallArguments(storage, repo, workspace, request.args, { inputs: fn.inputs });
+      if (!('args' in pinned)) return pinned;
+      return { fn, drafted, pinned };
+    });
+    if (!('fn' in started)) return started;
+    const { fn, drafted, pinned } = started;
 
     const count = fn.inputs.length;
-    const drafted = callDraftsRead(drafts.drafts);
-    /** What the call read, its inputs of the drafted records at `states`:
-     *  the function's inputs, then its dataset arguments as they are stored. */
-    const readAt = (states: Parameters<typeof draftedInputs>[1]): ExecuteResult['inputs'] =>
-      [...draftedInputs(pinned.inputs.slice(0, count), states), ...pinned.inputs.slice(count)];
-    /** The call as a draft, or its timeout, ended it before its function ran. */
-    const ended = (end: CallDraftsEnd, inputs: ExecuteResult['inputs']): ExecuteResult => ({
-      outcome: end.outcome,
-      stdout: '',
-      stderr: end.stderr,
-      stdoutTruncated: false,
-      stderrTruncated: end.stderrTruncated,
-      inputs,
-      drafts: drafted,
-    });
-
-    const laid = await layCallDrafts(storage, runner, repo, drafts, {
+    const staged = await layAndStage(storage, runner, repo, {
+      // An input of a drafted record at the state its drafts are laid over
+      inputs: draftedInputs(pinned.inputs.slice(0, count), drafted.map(({ path, base }) => ({ path, hash: base }))),
+      args: stagedArgs(request.args, pinned.inputs.slice(count)),
+      drafted,
+      drafts: request.drafts,
+    }, {
       deadline,
+      timeoutMs: BigInt(limits.timeoutMs),
       maxLogBytes: limits.maxLogBytes,
       ...(verbose !== undefined && { verbose }),
       now,
     });
-    // A laying stops at its caller's signal alone, and it is given none
-    if (laid.kind === 'aborted') throw new Error('the laying of the call\'s drafts was stopped');
-    if (laid.kind !== 'laid') {
-      return ended(callDraftsEnd(laid, BigInt(limits.timeoutMs)), readAt(drafts.drafted.map(({ path, base }) => ({ path, hash: base }))));
+    const read = callDraftsRead(drafted);
+    switch (staged.kind) {
+      case 'ended':
+        return {
+          outcome: staged.end.outcome,
+          stdout: '',
+          stderr: staged.end.stderr,
+          stdoutTruncated: false,
+          stderrTruncated: staged.end.stderrTruncated,
+          inputs: staged.read,
+          drafts: read,
+        };
+      case 'staged': {
+        const result = detachedToExecuteResult(await runner.runDetached({
+          bodyIr: await storage.objects.read(repo, fn.bodyIr),
+          args: staged.args,
+          runner: fn.runner,
+          limits: { ...limits, timeoutMs: staged.left },
+          ...(fn.environment.type === 'some' && { environment: fn.environment.value }),
+        }, { storage, ...(verbose !== undefined && { verbose }) }), staged.read);
+        // One cut short names the call's timeout, whatever was left of it
+        const outcome = result.outcome.type === 'timed_out' ? variant('timed_out', { ms: BigInt(limits.timeoutMs) }) : result.outcome;
+        return { ...result, outcome, drafts: read };
+      }
+      // It is given no signal and no pin, so its laying is never stopped and it always goes on
+      default:
+        throw new Error(`the call's drafts ended its laying '${staged.kind}', which a call no store keeps does not`);
     }
-    const inputs = readAt(laid.states);
-    const left = deadline - now();
-    // Its timeout ended as its drafts were laid: its function does not run
-    if (left <= 0) return ended(callDraftsEnd({ kind: 'timed_out', stderr: '', stderrTruncated: false }, BigInt(limits.timeoutMs)), inputs);
-    const args: DetachedArg[] = [...inputs.slice(0, count).map(({ hash }) => ({ dataset: hash })), ...pinned.args.slice(count)];
-    return { ...await run(args, inputs, left), drafts: drafted };
-  });
+  };
+  // The states its drafts leave are named by nothing until its function has read them
+  return request.drafts.length > 0 ? withRunningWork(storage, repo, call) : call();
+}
+
+/**
+ * A call's arguments as its staging takes them: each value in hand, and each
+ * dataset by its path and the hash it was pinned at, in order.
+ *
+ * @param args - The call's arguments
+ * @param datasets - Each dataset argument as it was pinned, in order
+ * @returns The arguments, in order
+ */
+function stagedArgs(args: readonly CallArg[], datasets: ExecuteResult['inputs']): StagedCallArg[] {
+  let at = 0;
+  return args.map((arg) => (arg.type === 'value' ? { value: arg.value } : { dataset: datasets[at++]! }));
 }

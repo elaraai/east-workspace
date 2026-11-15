@@ -1293,12 +1293,19 @@ export const FunctionDraftedType = StructType({
  * function's body ran, says which draft in the first line of its `stderr`:
  * `draft jobs.patch (2 of 3) failed`, or `… timed out`, and the mutation's own
  * stderr follows it. `functionDraftEnded` reads the draft back from a result.
+ * A call whose timeout ended once its drafts were all laid, before its body
+ * ran, says so in its first line instead (`drafts laid (3 of 3), and the
+ * call's timeout ended before its function ran`), which
+ * `functionDraftsOutlasted` reads.
  *
  * `inputs` names what the call read: each input the function declares, then
  * each dataset argument, with the hash it was pinned at, in parameter order,
  * so an answer can be reproduced and a stale one noticed. An input of a record
- * the call drafted names the drafted state's hash, which no reader of the
- * workspace is shown. It is empty for a call of a function with no inputs and
+ * the call drafted names the drafted state's hash: a state no commit names,
+ * which the record itself never stands at. A dataset argument naming that
+ * record names the state the drafts were laid over, the one the drafted
+ * record's commit names, so a function handed one reads the record before and
+ * after the edit. It is empty for a call of a function with no inputs and
  * value arguments only, and for an `invalid` result.
  *
  * `drafts` names each record the call drafted, once, in the order its drafts
@@ -1595,22 +1602,20 @@ export const FunctionCallArgType = VariantType({
 
 /**
  * A kept call's draft: the draft its caller passed ({@link FunctionDraftType}),
- * its arguments held by their object as the call's own are, and where its
- * record stood.
+ * its arguments held by their object as the call's own are. The commit each
+ * drafted record stood at is a record's, not a draft's: the call's result
+ * names it once for each record ({@link FunctionDraftedType}).
  *
  * @property record - The record's name
  * @property mutation - The mutation's name on the record
  * @property args - The object the arguments' tuple was stored as, an Array of
  *   Blobs, as a record's commit holds its mutation's; `none` for a mutation
  *   that takes none
- * @property commit - The commit the record stood at as the call started, which
- *   the call's drafts of it were laid over
  */
 export const FunctionCallDraftType = StructType({
   record:   StringType,
   mutation: StringType,
   args:     OptionType(StringType),
-  commit:   StringType,
 });
 
 /**
@@ -1646,9 +1651,9 @@ export const FunctionCallSummaryType = StructType({
  *   it was pinned at, in the order the function declares them. An input of a
  *   record the call drafts names the state the record held as the call
  *   started, and, once its drafts are laid, the drafted state
- * @property drafts - The drafts it passed, in order, each with the commit its
- *   record stood at; none for a call that passed none, and for one refused as
- *   it started, which keeps no argument either
+ * @property drafts - The drafts it passed, in order; none for a call that
+ *   passed none, and for one refused as it started, which keeps no argument
+ *   either. Its result names the commit each drafted record stood at
  * @property limits - The limits it ran under
  * @property expiresAt - When it is forgotten: its lifetime's end, which its
  *   end sets. A running call's is past its deadline by a grace and then a

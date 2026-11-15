@@ -1089,10 +1089,10 @@ export function repositoryRecordTests(setup: BackendSetup): void {
       const undrafted = withNoDrafts(callBeforeDrafts('current', variant('running', null)));
       const current: FunctionCallJob = {
         ...undrafted,
-        call: { ...undrafted.call, drafts: [{ record: 'jobs', mutation: 'patch', args: some('d'.repeat(64)), commit: 'e'.repeat(64) }] },
+        call: { ...undrafted.call, drafts: [{ record: 'jobs', mutation: 'patch', args: some('d'.repeat(64)) }] },
         drafted: [{
           record: 'jobs', path: [variant('field', 'records'), variant('field', 'jobs')], base: '1'.repeat(64),
-          mutations: new SortedMap([['patch', '2'.repeat(64)]]),
+          commit: 'e'.repeat(64), mutations: new SortedMap([['patch', '2'.repeat(64)]]),
         }],
       };
       await storage.calls.create(repo, current);

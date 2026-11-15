@@ -10,10 +10,13 @@
  * call a draft's mutation ended `failed` or `timed_out`, before its function
  * ran, says which draft in the first line of its stderr: `draft jobs.patch (2
  * of 3) failed`, or `draft jobs.patch (2 of 3) timed out`. The mutation's own
- * stderr follows it, as a Save returns it.
+ * stderr follows it, as a Save returns it. A call whose timeout ended once its
+ * drafts were all laid, before its function ran, says that in its first line
+ * instead: `drafts laid (3 of 3), and the call's timeout ended before its
+ * function ran`.
  *
- * That line is written and read here, so the job that ends a call and a caller
- * that shows why it ended agree on its form.
+ * Those lines are written and read here, so the job that ends a call and a
+ * caller that shows why it ended agree on their form.
  */
 
 import type { ExecuteResult } from './api.js';
@@ -37,6 +40,15 @@ const HOW = { failed: 'failed', timed_out: 'timed out' } as const;
 
 /** The line, as it is read back: the record is all before the mutation's dot. */
 const LINE = /^draft (.+)\.([^.]+) \((\d+) of (\d+)\) (failed|timed out)$/;
+
+/** The line of a call whose timeout ended once its drafts were all laid, as it is read back. */
+const LAID_LINE = /^drafts laid \((\d+) of (\d+)\), and the call's timeout ended before its function ran$/;
+
+/** A call's stderr's first line: all of it, for a stderr of one line. */
+function firstLine(stderr: string): string {
+  const lineEnd = stderr.indexOf('\n');
+  return lineEnd === -1 ? stderr : stderr.slice(0, lineEnd);
+}
 
 /**
  * How a call names one of its drafts: `draft jobs.patch (2 of 3)`. A refusal
@@ -70,8 +82,9 @@ export function functionDraftEndLine(end: FunctionDraftEnd): string {
  * @remarks
  * Only a call that passed drafts and ended `failed` or `timed_out` can have
  * been ended by one, and its first line must say so of that end. A call whose
- * timeout ended between two drafts' runs names the draft that did not start; one
- * whose timeout ended as its last draft was laid names none, and neither does a
+ * timeout ended between two drafts' runs names the draft that did not start.
+ * One whose timeout ended once its drafts were all laid names none
+ * ({@link functionDraftsOutlasted} says so of it), and neither does a
  * `conflict`, whose outcome names its draft itself.
  *
  * @param result - A call's result: its outcome, its stderr and the records it
@@ -81,8 +94,36 @@ export function functionDraftEndLine(end: FunctionDraftEnd): string {
 export function functionDraftEnded(result: Pick<ExecuteResult, 'outcome' | 'stderr' | 'drafts'>): FunctionDraftEnd | null {
   const how = result.outcome.type;
   if ((how !== 'failed' && how !== 'timed_out') || result.drafts.length === 0) return null;
-  const lineEnd = result.stderr.indexOf('\n');
-  const matched = LINE.exec(lineEnd === -1 ? result.stderr : result.stderr.slice(0, lineEnd));
+  const matched = LINE.exec(firstLine(result.stderr));
   if (matched === null || matched[5] !== HOW[how]) return null;
   return { record: matched[1]!, mutation: matched[2]!, place: Number(matched[3]), of: Number(matched[4]), how };
+}
+
+/**
+ * The first line of the stderr of a call whose timeout ended once its drafts
+ * were all laid, before its function ran: `drafts laid (3 of 3), and the
+ * call's timeout ended before its function ran`.
+ *
+ * @param of - How many drafts the call passed, every one of them laid
+ * @returns The line, with no line end
+ */
+export function functionDraftsLaidLine(of: number): string {
+  return `drafts laid (${of} of ${of}), and the call's timeout ended before its function ran`;
+}
+
+/**
+ * Whether a call's timeout ended once its drafts were all laid, before its
+ * function ran, as the first line of its stderr says
+ * ({@link functionDraftsLaidLine}): the time went on its drafts, and its
+ * function did not run.
+ *
+ * @param result - A call's result: its outcome, its stderr and the records it
+ *   drafted
+ * @returns Whether it ended so; `false` for a call that passed no draft, one
+ *   that did not time out, and one whose function ran
+ */
+export function functionDraftsOutlasted(result: Pick<ExecuteResult, 'outcome' | 'stderr' | 'drafts'>): boolean {
+  if (result.outcome.type !== 'timed_out' || result.drafts.length === 0) return false;
+  const matched = LAID_LINE.exec(firstLine(result.stderr));
+  return matched !== null && matched[1] === matched[2];
 }

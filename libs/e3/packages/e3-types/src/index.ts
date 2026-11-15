@@ -91,6 +91,7 @@ export {
   type ParsePackageRefResult,
   treePath,
   pathToString,
+  treePathToRefPath,
   parsePath,
   parseKeypath,
   parseDatasetPath,
@@ -132,6 +133,8 @@ export {
   functionDraftLabel,
   functionDraftEndLine,
   functionDraftEnded,
+  functionDraftsLaidLine,
+  functionDraftsOutlasted,
   type FunctionDraftEnd,
 } from './function-draft.js';
 

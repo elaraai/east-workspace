@@ -20,7 +20,7 @@ import { createHash } from 'node:crypto';
 import yazl from 'yazl';
 import { variant, some, none, BlobType, StringType, encodeBeast2For, encodeEastIR, EastIR, AsyncEastIR, printIdentifier, SortedMap, toEastTypeValue, linkImports, type EastType, type FunctionManifest, type LinkedImport } from '@elaraai/east';
 import type { Structure, PackageObject, DatasetRef, DatasetSourceWire, FunctionObject, MigrationObject, MutationObject, RecordIndexObject, RecordObject, TaskObject, TaskOutputKind } from '@elaraai/e3-types';
-import { E3_RELEASE, PackageObjectType, TASK_OBJECT_KIND, TaskObjectType, FunctionObjectType, MigrationObjectType, MutationObjectType, RecordIndexObjectType, RecordObjectType, encodeDatasetBlob, pathToString } from '@elaraai/e3-types';
+import { E3_RELEASE, PackageObjectType, TASK_OBJECT_KIND, TaskObjectType, FunctionObjectType, MigrationObjectType, MutationObjectType, RecordIndexObjectType, RecordObjectType, encodeDatasetBlob, pathToString, treePathToRefPath } from '@elaraai/e3-types';
 import { buildMutationProgram, builtIndex, hasKeyedDelta, indexBuildProgram, migrationProgram, summaryMergeProgram, summed } from './record-programs.js';
 import { readDatasetFileHeader } from './dataset-file.js';
 import type { AsyncIRBundle, IRBundle, PackageDef, PackageItem } from './types.js';
@@ -232,7 +232,7 @@ export async function export_<D extends Record<string, unknown>>(pkg: PackageDef
       const name = item.path[item.path.length - 1].value;
 
       // Build the ref path from tree path segments (e.g., "inputs/greeting")
-      const refPath = item.path.map(seg => seg.value).join('/');
+      const refPath = treePathToRefPath(item.path);
 
       // An input's initial value comes from its SOURCE variant; `default` is
       // the internal inline-value channel (record()'s initial state), which
@@ -362,7 +362,7 @@ export async function export_<D extends Record<string, unknown>>(pkg: PackageDef
   const migrationEncoder = encodeBeast2For(MigrationObjectType);
   const recordEncoder = encodeBeast2For(RecordObjectType);
   for (const [rname, rdef] of Object.entries(pkg.records)) {
-    const recordRefPath = rdef.path.map(seg => seg.value).join('/');
+    const recordRefPath = treePathToRefPath(rdef.path);
 
     // A mutation ships its author body AND the program built from it: the
     // program is what runs, and it emits the delta the engine applies. A

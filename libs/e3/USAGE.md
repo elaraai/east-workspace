@@ -479,11 +479,17 @@ A **draft** is a mutation call that is not committed —
 call's drafts run in the order passed, each by the mutation's own program over
 the state the one before it left, so the record's rows and every index of it
 hold them as they would after the Save, and the body reads the record at that
-state. Nothing is committed: no commit, no history, no record moved, no task
-re-run, and nothing another reader of the workspace sees. The result's `inputs`
-name the drafted state's hash, and its `drafts` name each drafted record with
-the commit it stood at as the call started, so a caller that holds another
-commit knows its edits were laid over newer saves.
+state. A dataset argument naming a drafted record is read as saved, at the
+state the drafts were laid over, so a function handed one reads the record
+before and after the edit. Nothing is committed: no commit, no history, no
+record moved, no task re-run — the record and what reads it stay as they were
+for every reader of the workspace. The call itself keeps its drafts and the
+states they leave as it keeps its arguments, for whoever may read the call,
+and each draft's mutation runs as a Save's does, an execution recorded and
+cached by its inputs. The result's `inputs` name the drafted state's hash, and
+its `drafts` name each drafted record with the commit it stood at as the call
+started, so a caller that holds another commit knows its edits were laid over
+newer saves.
 
 Listing a record is the author's word that the function is fit to run over
 edits nobody saved: a function that sends a message or writes elsewhere lists
@@ -496,7 +502,9 @@ or `timed_out`, the first line of stderr saying which draft
 (`draft jobs.patch (2 of 3) failed`), or `conflict`, naming the record and the
 mutation, when the record changed under the edit. A draft carries no limits of
 its own: its mutation runs under the call's, for what is left of the call's
-timeout. Only a call through a workspace takes drafts — the package route reads
+timeout, and a call whose timeout ends once its drafts are all laid ends
+`timed_out`, its first line `drafts laid (3 of 3), and the call's timeout ended
+before its function ran`. Only a call through a workspace takes drafts — the package route reads
 no workspace — and a task takes none: it reads what is saved.
 
 ### Records: `e3.record`

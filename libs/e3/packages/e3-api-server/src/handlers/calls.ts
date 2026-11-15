@@ -98,26 +98,34 @@ export interface FunctionCallFilingOptions {
   lifetimes?: FunctionCallLifetimes;
   /** Pass `-v` to a stock runner */
   verbose?: boolean;
-  /** Whether the caller may pass a draft, asked for each one a function's
-   *  call passes, in order, before the call is filed (default: any caller may
-   *  pass any draft, as a host whose mutate route admits every caller its
-   *  routes do allows) */
-  admitDraft?: DraftAdmit;
 }
 
-/** Options for {@link startFunctionCall}. */
-export interface StartFunctionCallOptions extends FunctionCallFilingOptions {
+/** What a named function's call is filed with beyond a one-shot's: the host's rule on its drafts. */
+export interface FunctionDraftsOptions {
+  /** Whether the caller may pass a draft, asked for each one a function's
+   *  call passes, in order, before the call is filed. Required, so every host
+   *  decides, as a caller may pass a draft only where they may commit it: a
+   *  host whose mutate route admits every caller to every mutation admits
+   *  every draft */
+  admitDraft: DraftAdmit;
+}
+
+/** Options for {@link startOneShotCall}. */
+export interface StartOneShotCallOptions extends FunctionCallFilingOptions {
   /** How long the start waits for the call to end before it answers
    *  `running`, in ms: 0 answers at once */
   waitMs: number;
   /** An id the client chose for the call, a UUIDv7 of about now, so it can
-   *  stop the call before the start answers (e3-core's `functionCallStart`
+   *  stop the call before the start answers (e3-core's `oneShotCallStart`
    *  sets aside one far from the server's clock) */
   id?: string;
 }
 
+/** Options for {@link startFunctionCall}. */
+export interface StartFunctionCallOptions extends StartOneShotCallOptions, FunctionDraftsOptions {}
+
 /** Options for {@link callFunctionInWorkspace}. */
-export interface CallFunctionInWorkspaceOptions extends FunctionCallFilingOptions {
+export interface CallFunctionInWorkspaceOptions extends FunctionCallFilingOptions, FunctionDraftsOptions {
   /** The host's deadline for a sync call, under its request timeout (default
    *  120 000 ms): the call's timeout is clamped under it */
   syncDeadlineMs?: number;
@@ -252,7 +260,7 @@ export async function startOneShotCall(
   repoPath: string,
   workspace: string,
   request: OneShotRequest,
-  options: StartFunctionCallOptions,
+  options: StartOneShotCallOptions,
 ): Promise<Response> {
   try {
     const job = await oneShotCallStart(storage, repoPath, workspace, request, {
@@ -313,18 +321,26 @@ export async function callFunctionInWorkspace(
     switch (status.type) {
       case 'completed':
         return sendSuccess(ExecuteResultType, status.value);
-      case 'running':
+      case 'running': {
         // Its run stops it at its timeout, which is under the deadline, and
-        // records it timed out too
+        // records it timed out too. The call as it stands now: an end recorded
+        // meanwhile is its own, and one still running names its inputs as its
+        // run pinned them once its drafts were laid, as a poll of it will
+        const current = await functionCallRead(storage, repoPath, workspace, job.call.id) ?? job;
+        if (current.call.state.type !== 'running') {
+          const ended = await functionCallStatus(storage, repoPath, current);
+          if (ended.type === 'completed') return sendSuccess(ExecuteResultType, ended.value);
+        }
         return sendSuccess(ExecuteResultType, {
-          outcome: variant('timed_out', { ms: job.call.limits.timeoutMs }),
+          outcome: variant('timed_out', { ms: current.call.limits.timeoutMs }),
           stdout: '',
           stderr: '',
           stdoutTruncated: false,
           stderrTruncated: false,
-          inputs: functionCallInputs(job),
-          drafts: functionCallDrafted(job),
+          inputs: functionCallInputs(current),
+          drafts: functionCallDrafted(current),
         });
+      }
       case 'cancelled': {
         const by = status.value.by.type === 'some' ? ` by ${status.value.by.value}` : '';
         return sendError(ExecuteResultType, variant('internal', { message: `call ${job.call.id} was cancelled${by}, and has no result` }));
@@ -509,8 +525,7 @@ export async function getFunctionCall(
  * @throws {PermissionDeniedError} (`path` `draft <record>.<mutation>`) For the
  *   first draft the host does not let the caller pass
  */
-async function admitDrafts(drafts: readonly FunctionDraft[], admit: DraftAdmit | undefined): Promise<void> {
-  if (admit === undefined) return;
+async function admitDrafts(drafts: readonly FunctionDraft[], admit: DraftAdmit): Promise<void> {
   for (const draft of drafts) {
     if (!(await admit(draft))) throw new PermissionDeniedError(`draft ${draft.record}.${draft.mutation}`);
   }

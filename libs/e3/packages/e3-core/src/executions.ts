@@ -16,7 +16,7 @@
  */
 
 import { decodeEastIR } from '@elaraai/east';
-import type { ExecutionStatus } from '@elaraai/e3-types';
+import { treePathToRefPath, type ExecutionStatus } from '@elaraai/e3-types';
 import type { StorageBackend, LogChunk } from './storage/interfaces.js';
 import { computeHash } from './objects.js';
 
@@ -201,7 +201,7 @@ export async function executionFindCurrent(
 
   // The current input hashes from the workspace: the inputs' refs, in one
   // read, as the store keys them (`inputs/sales` for `.inputs.sales`)
-  const refPaths = task.inputs.map(({ path }) => path.map((segment) => segment.value).join('/'));
+  const refPaths = task.inputs.map(({ path }) => treePathToRefPath(path));
   const refs = await storage.datasets.readMany(repo, ws, refPaths);
   const currentInputHashes: string[] = [];
   let allInputsAssigned = true;

@@ -304,12 +304,13 @@ A function's call may pass drafts: unsaved edits of the records the function
 reads, each a call of a record's mutation, which the call lays over the record,
 reads, and never saves. A caller may pass a draft only where they may commit
 its mutation, and only the host knows whom its mutate route admits to which:
-the workspace function routes take `draftAccess`, asked for each draft a call
+the workspace function routes require `draftAccess`, as the one-shot routes
+require `access`, so every host decides. It is asked for each draft a call
 passes, in order, before the call is filed, and the first it refuses answers
 `permission_denied` (`path` `draft <record>.<mutation>`). A host that holds its
-callers to some mutations gives the rule its mutate route goes by; unset, as
-here, where the record routes admit each caller to every mutation, each may
-pass a draft of any.
+callers to some mutations gives the rule its mutate route goes by; one whose
+record routes admit each caller to every mutation, as this server's do, gives
+`allowEveryDraft`.
 
 ```typescript
 app.route('/api/repos/:repo/workspaces/:ws/functions', createWorkspaceFunctionRoutes(storage, getRepoPath, transferBackend, {
@@ -616,10 +617,11 @@ or a cancel, a week for any other end, with no job run to forget it, since
 every read leaves out a call past its `expiresAt`. A kept call names its
 arguments, the inputs it read and its value by hash, and gc keeps what a live
 call names. A call that passes drafts holds them as it holds its arguments,
-each with the commit its record stood at; its own job lays them before it reads
-its inputs, and from then on its inputs name the drafted states, which nothing
-else names, so they live as long as the call is kept and are collected after
-it. A call still recorded running past its deadline and a grace — its
+and each drafted record once, with the state its drafts are laid over and the
+commit it stood at, which its result names; its own job lays them before it
+reads its inputs, and from then on its inputs name the drafted states, which
+nothing else names, so they live as long as the call is kept and are collected
+after it. A call still recorded running past its deadline and a grace — its
 server stopped before it ended — is answered `lost`. A call found wrong is kept
 `invalid`, answered at once. A workspace's removal removes its calls.
 

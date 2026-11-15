@@ -65,13 +65,18 @@ export type FunctionCallKeep = ValueTypeOf<typeof FunctionCallKeepType>;
 /**
  * A record a kept call drafts, as its run lays the drafts: everything the
  * laying reads, named as the call started, so the run reads the workspace no
- * more and lays the same state however often it is run.
+ * more and lays the same state however often it is run; and the commit the
+ * record stood at, which the call's result names.
  *
  * @property record - The record's name, as the call's drafts name it
  * @property path - Where the workspace holds the record: the call's inputs at
- *   this path are read at the drafted state
+ *   this path are read at the drafted state, and a dataset argument naming it
+ *   as saved, at `base`
  * @property base - The state the record held as the call started, which the
  *   call's drafts of it are laid over, in order
+ * @property commit - The commit the record stood at as the call started,
+ *   read with `base`: a caller that holds another knows its edits were laid
+ *   over newer saves
  * @property mutations - The object of each mutation the call's drafts of the
  *   record name, by the mutation's name: the one the deployed package named
  *   when the call started, whatever is deployed since
@@ -80,6 +85,7 @@ export const FunctionCallDraftedType = StructType({
   record:    StringType,
   path:      TreePathType,
   base:      StringType,
+  commit:    StringType,
   mutations: DictType(StringType, StringType),
 });
 export type FunctionCallDraftedType = typeof FunctionCallDraftedType;
@@ -104,8 +110,8 @@ export type FunctionCallDrafted = ValueTypeOf<typeof FunctionCallDraftedType>;
  * @property cancel - A request to cancel it, once one is made
  * @property keep - How long it is kept once it ends, by how it ended
  * @property drafted - The records it drafts, each once, in the order its
- *   drafts first name them, with what its run lays them from; none for a call
- *   that passed no draft
+ *   drafts first name them, with what its run lays them from and the commit
+ *   each stood at; none for a call that passed no draft
  */
 export const FunctionCallJobType = StructType({
   call:           FunctionCallType,

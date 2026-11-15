@@ -38,7 +38,8 @@
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 import { ArrayType } from '@elaraai/east';
-import { isUuidv7, oneShotExecute, workspaceGetPackage } from '@elaraai/e3-core/portable';
+import { isUuidv7, oneShotExecute, packageObjectRead, workspaceGetPackage } from '@elaraai/e3-core/portable';
+import type { PackageObject } from '@elaraai/e3-types';
 import type { ExecuteCeilings, FunctionCallLifetimes, OneShotGrant, StorageBackend, TaskRunner, TransferBackend } from '@elaraai/e3-core/portable';
 import { decodeBody, sendError, sendSuccess } from '../beast2.js';
 import { errorToVariant } from '../errors.js';
@@ -56,7 +57,9 @@ import {
 } from '../types.js';
 import {
   listPackageFunctions,
+  listFunctionsOf,
   describePackageFunction,
+  describeFunctionOf,
   callFunctionSync,
   cancelSplitCall,
   getSplitCallStatus,
@@ -92,6 +95,24 @@ export type OneShotAccess = (c: Context) => OneShotGrant | Promise<OneShotGrant>
  * mutation and the mutation's arguments.
  */
 export type DraftAccess = (c: Context, draft: FunctionDraft) => boolean | Promise<boolean>;
+
+/**
+ * The rule on drafts of a host whose mutate route admits every caller its
+ * routes do to every mutation, as the local server's and e3-web's record
+ * routes do: every such caller may pass any draft. A host that holds its
+ * callers to some mutations gives its own {@link DraftAccess}, by the rule
+ * its mutate route decides by.
+ *
+ * @returns `true`, for any caller and any draft
+ *
+ * @example
+ * ```ts
+ * app.route('/api/repos/:repo/workspaces/:ws/functions', createWorkspaceFunctionRoutes(storage, getRepoPath, transferBackend, {
+ *   access, draftAccess: allowEveryDraft,
+ * }));
+ * ```
+ */
+export const allowEveryDraft: DraftAccess = () => true;
 
 /** Options for {@link createOneShotRoutes}. */
 export interface OneShotRoutesOptions {
@@ -157,15 +178,20 @@ export interface FunctionRoutesOptions {
   /** Who makes a call, as it is kept (default `callerOfIdentity`: the
    *  identity's email, else its subject) */
   callerOf?: CallerOf;
+}
+
+/** Options for the workspace function routes ({@link createWorkspaceFunctionRoutes}). */
+export interface WorkspaceFunctionRoutesOptions extends FunctionRoutesOptions {
   /**
    * Who may pass a draft to a call through a workspace. It is asked for each
    * draft a call passes, in the order passed, before the call is filed: the
    * first it refuses answers the request `permission_denied` (`path`
-   * `draft <record>.<mutation>`), and nothing is filed or run. Absent, every
-   * caller the routes admit may pass any draft, which is what a host whose
-   * mutate route admits each of them to every mutation allows.
+   * `draft <record>.<mutation>`), and nothing is filed or run. Required, as
+   * the one-shot routes' `access` is, so every host decides: a caller may pass
+   * a draft only where they may commit its mutation. A host whose mutate route
+   * admits every caller to every mutation passes {@link allowEveryDraft}.
    */
-  draftAccess?: DraftAccess;
+  draftAccess: DraftAccess;
 }
 
 /** The grant of a function call's caller, by the routes' options. */
@@ -281,7 +307,7 @@ export function createWorkspaceFunctionRoutes(
   storage: StorageBackend,
   getRepoPath: (repo: string) => string,
   transferBackend: TransferBackend,
-  options: FunctionRoutesOptions = {}
+  options: WorkspaceFunctionRoutesOptions,
 ) {
   const app = new Hono();
   const windowMs = options.windowMs ?? DEFAULT_CALL_WINDOW_MS;
@@ -294,20 +320,22 @@ export function createWorkspaceFunctionRoutes(
     ...(options.ceilings !== undefined && { ceilings: options.ceilings }),
     ...(options.lifetimes !== undefined && { lifetimes: options.lifetimes }),
     // The host's say on each draft the call passes, for this request's caller
-    ...(draftAccess !== undefined && { admitDraft: (draft: FunctionDraft) => draftAccess(c, draft) }),
+    admitDraft: (draft: FunctionDraft) => draftAccess(c, draft),
   });
 
-  const deployed = async (c: Context): Promise<{ repoPath: string; name: string; version: string }> => {
+  // The package the workspace names by its hash, as a call through it runs
+  // one of its functions: never the package a name and version name now
+  const deployed = async (c: Context): Promise<{ repoPath: string; pkg: PackageObject }> => {
     const repoPath = getRepoPath(c.req.param('repo')!);
     const ws = c.req.param('ws')!;
-    const pkg = await workspaceGetPackage(storage, repoPath, ws);
-    return { repoPath, name: pkg.name, version: pkg.version };
+    const { hash } = await workspaceGetPackage(storage, repoPath, ws);
+    return { repoPath, pkg: await packageObjectRead(storage, repoPath, hash) };
   };
 
   app.get('/', async (c) => {
     try {
-      const { repoPath, name, version } = await deployed(c);
-      return await listPackageFunctions(storage, repoPath, name, version);
+      const { repoPath, pkg } = await deployed(c);
+      return await listFunctionsOf(storage, repoPath, pkg);
     } catch (err) {
       return sendError(ArrayType(FunctionSignatureType), errorToVariant(err));
     }
@@ -315,8 +343,8 @@ export function createWorkspaceFunctionRoutes(
 
   app.get('/:fn', async (c) => {
     try {
-      const { repoPath, name, version } = await deployed(c);
-      return await describePackageFunction(storage, repoPath, name, version, c.req.param('fn')!);
+      const { repoPath, pkg } = await deployed(c);
+      return await describeFunctionOf(storage, repoPath, pkg, c.req.param('fn')!);
     } catch (err) {
       return sendError(FunctionSignatureType, errorToVariant(err));
     }

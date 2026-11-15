@@ -250,6 +250,8 @@ export {
   recordDraftMutation,
   recordLayDraft,
   encodeMutationArgs,
+  decodeMutationArgs,
+  withSharedWorkspaceLock,
   RECORD_KEYS_REMEMBERED,
   type RecordRef,
   type RecordDraftLaid,

@@ -56,6 +56,7 @@ import {
   type EastType,
 } from '@elaraai/east';
 import {
+  packageObjectRead,
   packageRead,
   packageGetLatestVersion,
   workspaceGetPackage,
@@ -68,8 +69,8 @@ import {
   type DetachedArg,
 } from '@elaraai/e3-core';
 import {
-  type CallArg, type FunctionDraft, type RecordSignature, type RunnerValue, type TreePath,
-  decodeFunctionObject, functionDraftEnded, parseKeypath, pathToString,
+  type CallArg, type FunctionDraft, type FunctionObject, type PackageObject, type RecordSignature, type RunnerValue, type TreePath,
+  decodeFunctionObject, functionDraftEnded, functionDraftsOutlasted, parseKeypath, pathToString,
 } from '@elaraai/e3-types';
 import {
   ApiError,
@@ -325,6 +326,9 @@ async function renderResult(
   // The draft whose mutation ended the call, which its stderr's first line names
   const draft = functionDraftEnded(result);
   const drafted = draft === null ? null : `Draft ${draft.record}.${draft.mutation} (${draft.place} of ${draft.of})`;
+  // Every draft laid, and the call's timeout ended before its function ran, as
+  // its stderr's first line says
+  const outlasted = functionDraftsOutlasted(result);
   switch (outcome.type) {
     case 'success': {
       const bytes = outcome.value.value as Uint8Array;
@@ -361,9 +365,11 @@ async function renderResult(
       break;
     }
     case 'timed_out': {
-      console.error(drafted === null
-        ? `Function timed out after ${outcome.value.ms}ms`
-        : `${drafted} had not been laid when the call timed out after ${outcome.value.ms}ms; the function did not run`);
+      console.error(drafted !== null
+        ? `${drafted} had not been laid when the call timed out after ${outcome.value.ms}ms; the function did not run`
+        : outlasted
+          ? `The call's drafts were laid, and its timeout of ${outcome.value.ms}ms ended before the function ran: the function did not run`
+          : `Function timed out after ${outcome.value.ms}ms`);
       process.exit(1);
       break;
     }
@@ -393,12 +399,17 @@ async function callLocal(
 ): Promise<void> {
   const storage = new LocalStorage();
 
+  // Through a workspace, the package it names by its hash, which a call
+  // through it runs: never the package a name and a version name now, which
+  // an import under the same version replaces before any deploy of it
   let pkgName: string;
   let version: string;
+  let pkg: PackageObject;
   if (workspace) {
     const deployed = await workspaceGetPackage(storage, repoPath, workspace);
     pkgName = deployed.name;
     version = deployed.version;
+    pkg = await packageObjectRead(storage, repoPath, deployed.hash);
   } else {
     pkgName = spec.name!;
     version = spec.version!;
@@ -409,15 +420,15 @@ async function callLocal(
       }
       version = resolved;
     }
+    pkg = await packageRead(storage, repoPath, pkgName, version);
   }
 
-  const pkg = await packageRead(storage, repoPath, pkgName, version);
   const fnHash = pkg.functions.get(spec.fn);
   if (!fnHash) {
     const available = Array.from(pkg.functions.keys()).join(', ');
     exitError(`Function '${spec.fn}' not found in ${pkgName}@${version}. Available: ${available || '(none)'}`);
   }
-  const fnObj = decodeFunctionObject(Buffer.from(await storage.objects.read(repoPath, fnHash)));
+  const fnObj: FunctionObject = decodeFunctionObject(Buffer.from(await storage.objects.read(repoPath, fnHash)));
 
   const signature: CallSignature = { inputs: fnObj.inputs, argTypes: fnObj.argTypes, outputType: fnObj.outputType };
   checkCallArguments(spec.fn, signature, rawArgs, workspace, draftWords.length > 0);
@@ -447,12 +458,13 @@ async function callLocal(
     args.push(await callArg(rawArgs[i]!, signature.argTypes[i]!, i));
   }
   const drafts = await readDrafts(draftWords, workspace, (record) => recordDescribe(storage, repoPath, workspace, record));
-  // Through a workspace the function's inputs, and an argument that names one
-  // of its datasets, are pinned at the hash each holds now, and its drafts are
-  // laid over the records it reads, as a server's call pins and lays them:
-  // the result names what was read. Nothing of the call is kept, and nothing
-  // of a draft is saved
-  const result = await functionCallUnkept(storage, runner, repoPath, workspace, pkg, fnObj, { args, drafts }, {
+  // Through a workspace the function is resolved again, its inputs and an
+  // argument that names one of its datasets pinned at the hash each holds
+  // now, under the workspace's shared lock, and its drafts are laid over the
+  // records it reads, as a server's call resolves, pins and lays them: the
+  // result names what was read. Nothing of the call is kept, and nothing of a
+  // draft is saved
+  const result = await functionCallUnkept(storage, runner, repoPath, workspace, spec.fn, { args, drafts }, {
     limits: LOCAL_LIMITS,
     ...(verbose !== undefined && { verbose }),
   });

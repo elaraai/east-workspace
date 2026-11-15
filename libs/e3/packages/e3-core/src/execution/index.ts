@@ -157,6 +157,7 @@ export {
   functionCallLost,
   functionRunnerRefusal,
   handleProcessFunctionCall,
+  workspaceFunctionResolve,
   DEFAULT_FUNCTION_CALL_LIFETIMES,
   FUNCTION_CALL_GRACE_MS,
   type FunctionCallLifetimes,
@@ -165,13 +166,19 @@ export {
   type FunctionCallRunOptions,
   type FunctionCallRun,
   type ProcessFunctionCallDeps,
+  type WorkspaceFunction,
 } from './functionCall.js';
 
 // A call's drafts: unsaved edits checked and named as the call starts, and
 // laid over the records its function reads as it runs (east-workspace#1619)
 export {
-  pinCallDrafts,
+  checkCallDrafts,
+  storeCallDrafts,
+  keptCallDrafts,
+  keptCallArgs,
   layCallDrafts,
+  layAndStage,
+  stageCall,
   callDraftsEnd,
   callDraftsRead,
   draftedInputs,
@@ -179,7 +186,11 @@ export {
   type CallDrafts,
   type CallDraftsEnd,
   type CallDraftsLaid,
+  type CallStaged,
+  type DraftedCall,
+  type LayAndStageOptions,
   type LayCallDraftsOptions,
+  type StagedCallArg,
 } from './functionDrafts.js';
 
 // A call no store keeps, run within the process that makes it: a local

@@ -370,34 +370,42 @@ which is a mutation's declaration before `e3.record` builds it.
 - **The author's word.** Listing a record says the function is fit to run over
   edits nobody saved: a function that sends a message or writes elsewhere
   lists none.
-- **Checked as the call starts** (`pinCallDrafts`,
-  `e3-core/src/execution/functionDrafts.ts`, inside the start's
-  `withRunningWork`, before the arguments are pinned). Each draft is checked
-  in the order passed, and the first one found wrong files the call ended
-  `invalid`, named `draft <record>.<mutation> (<n> of <total>)`: a record the
-  function does not list, a record with no state yet, an unknown mutation,
-  and arguments of the wrong number or type. So every `invalid` a Save of the
-  draft would give is given before anything runs. The same step names
-  everything the laying reads — each drafted record's state and the commit it
-  stands at, by one read however many drafts name it; each mutation's object;
-  each draft's arguments, stored as the tuple a commit names a mutation's by —
-  so the laying reads the workspace no more.
-- **Laid as the call runs** (`layCallDrafts`), by the call's own job, which
-  every backend shares (`execution/functionCall.ts`): the request that starts
-  the call waits for none of it. The drafts run in the order passed, each by
-  the mutation's own program over the state the draft before it left its
-  record (`recordLayDraft`, the Save's first half in `records.ts`), so every
-  index of the record holds them, as it would after the Save. A patch on a
-  record with no index runs no program, as in a Save. Each drafted record's
-  last state is stored (`writeRecordState`). No commit is stored and no ref is
-  moved: the objects are named by nothing but the call.
+- **Checked as the call starts** (`checkCallDrafts`,
+  `e3-core/src/execution/functionDrafts.ts`). The start reads as a Save
+  does, under the workspace's shared lock (`withSharedWorkspaceLock`), so a
+  deploy cannot land between its reads: the function in the package the
+  workspace names by its hash (`workspaceFunctionResolve`, never the package a
+  name and version name now), each draft, and every input it pins. Each draft
+  is checked in the order passed, and the first one found wrong files the call
+  ended `invalid`, named `draft <record>.<mutation> (<n> of <total>)`: a
+  record the function does not list, a record with no state yet, an unknown
+  mutation, and arguments of the wrong number or type. So every `invalid` a
+  Save of the draft would give is given before anything runs. The same step
+  names everything the laying reads — each drafted record's state and the
+  commit it stands at, by one read however many drafts name it, and each
+  mutation's object — and a kept call stores each draft's arguments as the
+  tuple a commit names a mutation's by (`storeCallDrafts`), so the laying
+  reads the workspace no more.
+- **Laid as the call runs** (`layAndStage`), by the call's own job, which
+  every backend shares (`execution/functionCall.ts`), and by a call of a local
+  repository alike: the request that starts the call waits for none of it.
+  The drafted records' states are read side by side; the drafts run in the
+  order passed, each by the mutation's own program over the state the draft
+  before it left its record (`layCallDrafts`, `recordLayDraft`, the Save's
+  first half in `records.ts`), so every index of the record holds them, as it
+  would after the Save. A patch on a record with no index runs no program, as
+  in a Save. Each drafted record's last state is stored (`writeRecordState`),
+  side by side. No commit is stored and no ref is moved: the objects are named
+  by nothing but the call.
 - **Read at the drafted state.** The function's inputs of a drafted record are
   read at the state its drafts left (`draftedInputs`); every other input is
-  read as stored, as in §3.3. The result's `inputs` name the drafted state's
-  hash, and its `drafts` name each drafted record once, in the order the
-  drafts first name them, with the commit it stood at as the call started
-  (`FunctionDraftedType`): a caller that holds another commit knows its edits
-  were laid over newer saves.
+  read as stored, as in §3.3. A dataset argument naming a drafted record is
+  read as saved, at the state the drafts were laid over (`stageCall`), so a
+  function handed one reads the record before and after the edit. The
+  result's `inputs` name the drafted state's hash, and its `drafts` name each
+  drafted record once, in the order the drafts first name them, with the
+  commit it stood at as the call started (`FunctionDraftedType`): a caller
+  that holds another commit knows its edits were laid over newer saves.
 - **A draft the record refuses** ends the call as a Save of it would have
   ended, and the body does not run (`callDraftsEnd`). `failed` and
   `timed_out` say which draft in the first line of stderr — `draft jobs.patch
@@ -413,11 +421,22 @@ which is a mutation's declaration before `e3.record` builds it.
   mutation runs for what is left of the call's timeout, keeping as much of a
   failure's stderr as the call's log limit; the line that names the draft is
   outside that limit. A draft still running, or yet to run, when the call's
-  timeout ends, ends the call `timed_out`, with the call's timeout.
+  timeout ends, ends the call `timed_out`, with the call's timeout; a call
+  whose timeout ends once its drafts are all laid ends `timed_out` too, its
+  first line `drafts laid (3 of 3), and the call's timeout ended before its
+  function ran` (`functionDraftsLaidLine`, read back by
+  `functionDraftsOutlasted`), so a caller tells the time its drafts took from
+  a function that ran out of it.
 - **Kept.** The call the server keeps holds its drafts as it holds its
   arguments (`FunctionCallType.drafts`, each `FunctionCallDraftType`: the
-  record, the mutation, the arguments' object and the commit). Once the drafts
-  are laid the call's inputs name the drafted states
+  record, the mutation and the arguments' object), and each drafted record
+  once, with what laying its drafts reads and the commit it stood at
+  (`FunctionCallJobType.drafted`, each `FunctionCallDraftedType`), which the
+  result names. Each draft's mutation runs as a Save's does, an execution
+  recorded, logged and cached by its inputs; the record and what reads it stay
+  as they were for every reader, and whoever the host lets read the call sees
+  its drafts. Once the drafts are laid the call's inputs name the drafted
+  states
   (`FunctionCallStore.pinInputs`), which nothing else names, so the call keeps
   them alive: gc keeps what a kept call's inputs name
   (`RepoStore.gcScanCallRoots`), and collects a drafted state once the call is
@@ -426,17 +445,19 @@ which is a mutation's declaration before `e3.record` builds it.
   mutation, and only the host knows whom its mutate route admits: the function
   routes ask the host's `DraftAccess` for each draft, in order, before
   anything is read or filed, and the first it refuses answers the request
-  `permission_denied` (`path` `draft <record>.<mutation>`). A host that gives
-  no rule admits every draft, which is right for one whose mutate route admits
-  each caller to every mutation: the local server, and e3-web.
+  `permission_denied` (`path` `draft <record>.<mutation>`). Every host gives
+  the rule, as it gives one-shot's `access`: one whose mutate route admits
+  each caller to every mutation gives `allowEveryDraft`, as the local server
+  and e3-web do.
 - **Through a kept call only.** A call through the package reads no workspace,
   and a call a host runs within its own request keeps nothing to hold a
   drafted state by: each answers a draft `invalid`, naming the route that
   keeps a call, and reads and runs nothing (`executeFunction`,
   `handlers/functions.ts`).
 - **A local repository** (`e3 call -w` with no server) keeps no call. Its call
-  runs in the CLI's process through `functionCallUnkept`, which checks and
-  lays the drafts by the same two functions, the drafts and the function
+  runs in the CLI's process through `functionCallUnkept`, which resolves,
+  checks and pins under the same lock and lays and stages by the same
+  `layAndStage`, from the arguments in hand, the drafts and the function
   sharing the one timeout a local call has, and answers the same result; the
   drafted state's objects are named by nothing once it returns.
 - **The CLI.** `e3 call -w <ws> <fn> [args…] --draft <record>.<mutation>
@@ -847,9 +868,9 @@ New files:
     some decides here by the rule it decides there. It is asked for each draft
     a call passes, in the order passed, before the call is filed; the first it
     refuses answers `permission_denied { path: "draft <record>.<mutation>" }`,
-    and nothing is filed or run. Absent, every caller the routes admit may
-    pass any draft: the local server and e3-web give none, since their mutate
-    routes admit each caller to every mutation.
+    and nothing is filed or run. It is required, as one-shot's `access` is, so
+    every host decides: the local server and e3-web give `allowEveryDraft`,
+    since their mutate routes admit each caller to every mutation.
   - **The local server's** (#1103) are its own to set, with no gateway in
     front of it: `ServerConfig.calls` — `{ syncDeadlineMs?, ceilings? }` —
     or the CLI's `--call-deadline`, `--job-timeout` (`ceilings.timeoutMs`),

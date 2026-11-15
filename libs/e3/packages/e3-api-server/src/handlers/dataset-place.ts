@@ -24,7 +24,7 @@
  */
 
 import { parseFor, segmentKeyTypeOf, type EastTypeValue } from '@elaraai/east';
-import type { TreePath } from '@elaraai/e3-types';
+import { treePathToRefPath, type TreePath } from '@elaraai/e3-types';
 import type { DatasetSegments, StorageBackend } from '@elaraai/e3-core/portable';
 import { sendJsonError } from '../errors.js';
 import { DATASET_BATCH_MAX, runsRefusal, type DatasetBatchLimits } from './dataset-batches.js';
@@ -301,7 +301,7 @@ async function openIndexed(
   const resolved = await indexOf(storage, repoPath, workspace, treePath, dataset.hash, name);
   if (resolved instanceof Response) return resolved;
   if (resolved.summary) {
-    const refPath = treePath.map((segment) => segment.value).join('/');
+    const refPath = treePathToRefPath(treePath);
     return pageError('bad_request', `index '${name}' of '${refPath}' is a summary: each entry stands for every row of its key and names none ${unnamed}`);
   }
   const index = await cachedSegments(storage, repoPath, resolved.manifest, (await storage.objects.stat(repoPath, resolved.manifest)).size);

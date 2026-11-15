@@ -1021,16 +1021,18 @@ Each wire changed under this rule, with the kind it is.
 - **A kept call holds its drafts, and may end `conflict` (#1619)** — stored
   state, and the call routes' answers. `FunctionCallType` gains `drafts`,
   after `inputs`: each draft the call passed, in order
-  (`FunctionCallDraftType`) — its record, its mutation, its arguments by the
-  object they were stored as, `none` for a mutation that takes none, and the
-  commit the record stood at as the call started. `FunctionCallStateType`
-  gains `conflict`, how a call ended whose draft no longer fits its record
-  (`FunctionDraftConflictType`). The record a store keeps
-  (`FunctionCallJobType`) gains `drafted`, after `keep`: for each record the
-  call drafts, what its run lays the drafts from (`FunctionCallDraftedType`) —
-  where the workspace holds the record, the state it held as the call
-  started, and the object of each mutation its drafts name — so the run reads
-  the workspace no more, and lays the same state however often it runs. gc
+  (`FunctionCallDraftType`) — its record, its mutation, and its arguments by
+  the object they were stored as, `none` for a mutation that takes none. The
+  commit a drafted record stood at is the record's, held once for it below and
+  named by the call's result (`FunctionDraftedType`), never once a draft.
+  `FunctionCallStateType` gains `conflict`, how a call ended whose draft no
+  longer fits its record (`FunctionDraftConflictType`). The record a store
+  keeps (`FunctionCallJobType`) gains `drafted`, after `keep`: for each record
+  the call drafts, what its run lays the drafts from
+  (`FunctionCallDraftedType`) — where the workspace holds the record, the
+  state it held as the call started and the commit it stood at, read together,
+  and the object of each mutation its drafts name — so the run reads the
+  workspace no more, and lays the same state however often it runs. gc
   keeps what a kept call names (`functionCallRoots`), and so, for as long as
   the call is kept: each draft's arguments, each drafted record's state and
   mutations, and among its inputs the drafted state, which nothing else

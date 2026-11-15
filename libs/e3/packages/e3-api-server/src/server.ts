@@ -27,7 +27,7 @@ import { createObjectRoutes } from './routes/objects.js';
 import { createTransferRoutes } from './routes/transfer.js';
 import { createPackageTransferRoutes } from './routes/package-transfer.js';
 import { createDataEndpoints } from './routes/data.js';
-import { createPackageFunctionRoutes, createWorkspaceFunctionRoutes, createOneShotRoutes, oneShotAccessByRoles } from './routes/functions.js';
+import { allowEveryDraft, createPackageFunctionRoutes, createWorkspaceFunctionRoutes, createOneShotRoutes, oneShotAccessByRoles } from './routes/functions.js';
 import { createWorkspaceCallRoutes } from './routes/calls.js';
 import { createWorkspaceRecordRoutes } from './routes/records.js';
 import { localDataflow } from './local-dataflow.js';
@@ -326,11 +326,11 @@ export async function createServer(config: ServerConfig): Promise<Server> {
   // whose calls run on the transfer backend, outliving their requests, and
   // are kept for their lifetimes, under the server's call limits; and those
   // calls, polled, cancelled and listed: /api/repos/:repo/workspaces/:ws/calls/*.
-  // The routes are given no rule on who may pass a draft: the record routes
-  // below admit each caller the server admits to every mutation, so each may
-  // pass a draft of any.
+  // The record routes below admit each caller the server admits to every
+  // mutation, so each may pass a draft of any.
   app.route('/api/repos/:repo/workspaces/:ws/functions', createWorkspaceFunctionRoutes(storage, getRepoPath, transferBackend, {
     access,
+    draftAccess: allowEveryDraft,
     ...(calls.syncDeadlineMs !== undefined && { syncDeadlineMs: calls.syncDeadlineMs }),
     ...(calls.windowMs !== undefined && { windowMs: calls.windowMs }),
     ...(calls.ceilings !== undefined && { ceilings: calls.ceilings }),

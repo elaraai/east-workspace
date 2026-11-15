@@ -279,18 +279,28 @@ export interface WorkspaceFunctionCallOptions {
  * arguments, as a mutation call takes them. The server lays them in the order
  * given, each by the mutation's own program over the state the one before it
  * left, so the record's rows and every index of it hold them as they would
- * after the Save; the function reads the record at that state, and nothing is
- * saved or shown to another reader. The result's `inputs` names the drafted
- * state's hash for such a record, and its `drafts` the commit the record
- * stood at: a caller that holds another commit knows its edits were laid over
- * newer saves. A draft found wrong — of a record the function does not list,
- * an unknown mutation, arguments of the wrong number or type — is an `invalid`
- * result, naming the draft, and nothing runs. A draft whose mutation fails or
- * runs out of the call's time ends the call `failed` or `timed_out` before the
- * function runs, the first line of `stderr` naming it
- * (`draft jobs.patch (2 of 3) failed`, which `functionDraftEnded` reads back);
- * one that no longer fits the record, which changed under the edit, ends it
- * `conflict`, naming the record, the mutation and the refusal's words.
+ * after the Save; the function reads the record at that state. Nothing is
+ * saved: the record, its history and what reads it stay as they were for
+ * every reader. The call keeps its drafts and the states they leave as it
+ * keeps its arguments, so whoever the server lets read the call sees them,
+ * and each draft's mutation runs as a Save's does, an execution recorded,
+ * logged and cached by its inputs. A dataset argument naming a drafted record
+ * is read as saved, at the state the drafts were laid over, so a function
+ * handed one reads the record before and after the edit. The result's
+ * `inputs` names the drafted state's hash for such a record, and its `drafts`
+ * the commit the record stood at: a caller that holds another commit knows
+ * its edits were laid over newer saves. A draft found wrong — of a record the
+ * function does not list, an unknown mutation, arguments of the wrong number
+ * or type — is an `invalid` result, naming the draft, and nothing runs. A
+ * draft whose mutation fails or runs out of the call's time ends the call
+ * `failed` or `timed_out` before the function runs, the first line of
+ * `stderr` naming it (`draft jobs.patch (2 of 3) failed`, which
+ * `functionDraftEnded` reads back); a call whose timeout ends once its drafts
+ * are all laid ends `timed_out` too, its first line `drafts laid (3 of 3), and
+ * the call's timeout ended before its function ran`, which
+ * `functionDraftsOutlasted` reads; one that no longer fits the record, which
+ * changed under the edit, ends it `conflict`, naming the record, the mutation
+ * and the refusal's words.
  *
  * @param url - Base URL of the e3 API server
  * @param repo - Repository name

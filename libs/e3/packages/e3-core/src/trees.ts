@@ -31,7 +31,7 @@ import {
   type EastType,
   type EastTypeValue,
 } from '@elaraai/east';
-import { DataRefType, WorkspaceRecordType, checkDatasetType, datasetAddress, encodeDatasetBlob, isCollectionRoot, manifestByteSize, manifestElementCount, type DataRef, type DatasetRef, type Structure, type TreePath, type VersionVector } from '@elaraai/e3-types';
+import { DataRefType, WorkspaceRecordType, checkDatasetType, datasetAddress, encodeDatasetBlob, isCollectionRoot, manifestByteSize, manifestElementCount, treePathToRefPath, type DataRef, type DatasetRef, type Structure, type TreePath, type VersionVector } from '@elaraai/e3-types';
 import { openDatasetObject, readDatasetWhole } from './dataset-open.js';
 import { storeCollection } from './store-collection.js';
 import { packageObjectRead, packageRead } from './packages.js';
@@ -255,7 +255,7 @@ export async function workspaceResolveDataset(
     type: currentStructure.value.type as EastTypeValue,
     writable: currentStructure.value.writable,
     address: datasetAddress(treePath.map(s => s.value)),
-    refPath: treePath.map(s => s.value).join('/'),
+    refPath: treePathToRefPath(treePath),
   };
 }
 
@@ -665,7 +665,7 @@ export async function workspaceGetDataset(
   }
 
   // Read the ref file
-  const refPath = treePath.map(s => s.value).join('/');
+  const refPath = treePathToRefPath(treePath);
   const ref = await storage.datasets.read(repo, ws, refPath);
 
   if (!ref || ref.type === 'unassigned') {
@@ -709,7 +709,7 @@ export async function workspaceGetDatasetHash(
   }
 
   // Read the ref file directly using the path
-  const refPath = treePath.map(s => s.value).join('/');
+  const refPath = treePathToRefPath(treePath);
   const ref = await storage.datasets.read(repo, ws, refPath);
 
   if (!ref || ref.type === 'unassigned') {
@@ -753,7 +753,7 @@ export async function workspaceSetDatasetByHash(
   }
 
   // Write the DatasetRef directly
-  const refPath = treePath.map(s => s.value).join('/');
+  const refPath = treePathToRefPath(treePath);
   const datasetRef: DatasetRef = variant('value', { hash: valueHash, versions });
   await storage.datasets.write(repo, ws, refPath, datasetRef);
 }

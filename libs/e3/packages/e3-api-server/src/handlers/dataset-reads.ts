@@ -13,7 +13,7 @@
  */
 
 import { SortedMap, SortedSet, isVariant, none, segmentKeyTypeOf, some, toEastTypeValue, type EastTypeValue, type option } from '@elaraai/east';
-import type { TreePath } from '@elaraai/e3-types';
+import { treePathToRefPath, type TreePath } from '@elaraai/e3-types';
 import {
   DatasetSegments, recordIndexNames, resolveRecordIndex, workspaceGetDatasetStatus, type ResolvedRecordIndex, type StorageBackend,
 } from '@elaraai/e3-core/portable';
@@ -345,7 +345,7 @@ export async function indexOf(
   storage: StorageBackend, repoPath: string, workspace: string, treePath: TreePath, stateHash: string, name: string,
   join = false,
 ): Promise<ResolvedRecordIndex | Response> {
-  const refPath = treePath.map((s) => s.value).join('/');
+  const refPath = treePathToRefPath(treePath);
   const resolved = await resolveRecordIndex(storage, repoPath, workspace, refPath, stateHash, name);
   if (resolved !== null && join && resolved.summary) {
     return pageError('bad_request',

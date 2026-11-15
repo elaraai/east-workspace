@@ -246,10 +246,10 @@ export function functionCallStoreTests(setup: BackendSetup): void {
       const job = filed(WS, {
         inputs: [{ path: recordPath('jobs'), hash: state! }],
         drafts: [
-          { record: 'jobs', mutation: 'patch', args: some(args!), commit: commit! },
-          { record: 'jobs', mutation: 'clear', args: none, commit: commit! },
+          { record: 'jobs', mutation: 'patch', args: some(args!) },
+          { record: 'jobs', mutation: 'clear', args: none },
         ],
-        drafted: [{ record: 'jobs', path: recordPath('jobs'), base: base!, mutations: new SortedMap([['clear', clear!], ['patch', patch!]]) }],
+        drafted: [{ record: 'jobs', path: recordPath('jobs'), base: base!, commit: commit!, mutations: new SortedMap([['clear', clear!], ['patch', patch!]]) }],
       });
       await storage.calls.create(repo, job);
       const read = await storage.calls.get(repo, WS, job.call.id);
@@ -269,10 +269,10 @@ export function functionCallStoreTests(setup: BackendSetup): void {
       const [args, base, patch, clear, commit, expired] = ['1', '2', '3', '4', '5', '6'].map((digit) => digit.repeat(64));
       const drafted = (state: string): Filed => ({
         drafts: [
-          { record: 'jobs', mutation: 'patch', args: some(args!), commit: commit! },
-          { record: 'jobs', mutation: 'clear', args: none, commit: commit! },
+          { record: 'jobs', mutation: 'patch', args: some(args!) },
+          { record: 'jobs', mutation: 'clear', args: none },
         ],
-        drafted: [{ record: 'jobs', path: recordPath('jobs'), base: state, mutations: new SortedMap([['clear', clear!], ['patch', patch!]]) }],
+        drafted: [{ record: 'jobs', path: recordPath('jobs'), base: state, commit: commit!, mutations: new SortedMap([['clear', clear!], ['patch', patch!]]) }],
       });
       await storage.calls.create(repo, filed(WS, drafted(base!)));
       await storage.calls.create(repo, filed(WS, { ...drafted(expired!), expiresAt: new Date(Date.now() - 1) }));

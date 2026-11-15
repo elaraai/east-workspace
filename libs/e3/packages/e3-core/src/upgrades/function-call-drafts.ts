@@ -80,15 +80,15 @@ const FrozenDraftType = StructType({
   record:   StringType,
   mutation: StringType,
   args:     OptionType(StringType),
-  commit:   StringType,
 });
 
 /** A record a call drafts, as this upgrade's form holds it for the call's
- *  run. */
+ *  run: what its drafts are laid from, and the commit it stood at. */
 const FrozenDraftedType = StructType({
   record:    StringType,
   path:      FrozenTreePathType,
   base:      StringType,
+  commit:    StringType,
   mutations: DictType(StringType, StringType),
 });
 
@@ -142,9 +142,9 @@ export const FunctionCallJobBeforeDraftsType = StructType({
 });
 
 /**
- * A kept call as this upgrade writes it, frozen: it holds its drafts, each
- * with the commit its record stood at; its state may be `conflict`; and its
- * store keeps, beside it, what its run lays the drafts from.
+ * A kept call as this upgrade writes it, frozen: it holds its drafts; its
+ * state may be `conflict`; and its store keeps, beside it, what its run lays
+ * the drafts from, with the commit each drafted record stood at.
  *
  * @internal
  */

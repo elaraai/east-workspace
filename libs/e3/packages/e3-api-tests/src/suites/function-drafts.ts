@@ -353,7 +353,7 @@ export function functionDraftTests(setup: TestSetup<TestContext>): void {
         'each input at its record\'s drafted state');
     });
 
-    it('the kept call shows its drafts, the commit each record stood at and the drafted states it read, which a collection keeps while the call is kept', async (t) => {
+    it('the kept call shows its drafts and the drafted states it read, its result the commit each record stood at, which a collection keeps while the call is kept', async (t) => {
       const { ctx, workspace: ws } = await withDrafts(t);
       const opts = await ctx.opts();
       const base = ctx.config.baseUrl;
@@ -362,14 +362,16 @@ export function functionDraftTests(setup: TestSetup<TestContext>): void {
       const drafts = [addDraft(5n), moveDraft('j2', 'P1'), addDraft(-1n)];
       const { id, result } = await called(ctx, ws, 'hours', request([], drafts), opts);
       assert.equal(valueOf(result, IntegerType), 13n, 'the jobs\' 9 hours, and a tally of 4');
+      assertDrafted(result, [{ record: 'tally', commit: heads.tally }, { record: 'jobs', commit: heads.jobs }],
+        'each record once, in the order its drafts first name it, with the commit it stood at');
 
       const call = await workspaceCallGet(base, ctx.repoName, ws, id, opts);
       assert.equal(call.state.type, 'succeeded');
-      assert.deepEqual(call.drafts.map(({ record, mutation, commit }) => [record, mutation, commit]), [
-        ['tally', 'add', heads.tally],
-        ['jobs', 'move', heads.jobs],
-        ['tally', 'add', heads.tally],
-      ], 'its drafts, in the order passed, each with the commit its record stood at');
+      assert.deepEqual(call.drafts.map(({ record, mutation }) => [record, mutation]), [
+        ['tally', 'add'],
+        ['jobs', 'move'],
+        ['tally', 'add'],
+      ], 'its drafts, in the order passed');
       for (const [at, kept] of call.drafts.entries()) {
         if (kept.args.type !== 'some') assert.fail(`draft ${at + 1} is kept with no arguments`);
         const args = decodeDraftArgs(await objectGet(base, ctx.repoName, kept.args.value, opts));
