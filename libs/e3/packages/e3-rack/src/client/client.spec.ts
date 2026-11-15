@@ -155,10 +155,33 @@ it('drains no hub whose hello does not read for another cause: one of a later re
   cleanup.push(() => closeSocketServer(server, hubSocketPath(path)));
   for (const reply of [later, current.subarray(0, current.length - 3)]) {
     hello = reply;
-    await assert.rejects(connectHub({ home: path, spawn: false, timeoutMs: 400 }), (err: unknown) => err instanceof RackHubUnavailableError
+    await assert.rejects(connectHub({ home: path, spawn: false, timeoutMs: 1000 }), (err: unknown) => err instanceof RackHubUnavailableError
       && /hello does not read as this e3's[\s\S]* it was not asked to drain/.test(err.message));
   }
   assert.equal(drains, 0, 'neither hub is asked to drain');
+});
+
+it('leaves what a hub last said of itself standing when an ask after it goes unanswered', async () => {
+  const path = await home();
+  // A hello of a later release, read twice (the hello, and the look for an envelope); every ask after is held, and
+  // never answered. The next ask then runs out the connection's deadline, however fast this machine is: as the last
+  // ask of any connection does when what is left of its deadline is less than an answer takes.
+  const later = encodeBeast2For(StructType({ version: StringType, protocol: IntegerType, pid: IntegerType, draining: BooleanType, region: StringType }))(
+    { version: '9.0.0', protocol: BigInt(HUB_PROTOCOL), pid: BigInt(process.pid), draining: false, region: 'x' });
+  let hellos = 0;
+  const held: Array<() => void> = [];
+  const app = new Hono();
+  app.post('/v1/hello', () => {
+    hellos++;
+    if (hellos <= 2) return new Response(later, { headers: { 'Content-Type': BEAST2_CONTENT_TYPE } });
+    return new Promise<Response>((resolve) => { held.push(() => resolve(new Response(null, { status: 503 }))); });
+  });
+  const server = await serveOnSocket(app, hubSocketPath(path));
+  cleanup.push(() => closeSocketServer(server, hubSocketPath(path)));
+  cleanup.push(() => { for (const answer of held.splice(0)) answer(); return Promise.resolve(); });
+  await assert.rejects(connectHub({ home: path, spawn: false, timeoutMs: 1000 }), (err: unknown) => err instanceof RackHubUnavailableError
+    && /hello does not read as this e3's[\s\S]* it was not asked to drain/.test(err.message) && !/timed out/.test(err.message));
+  assert.equal(hellos, 3, 'the hub was asked once more, and did not answer');
 });
 
 it('delivers claim, log tee and terminal outcome in order, then removes its session data socket', async () => {

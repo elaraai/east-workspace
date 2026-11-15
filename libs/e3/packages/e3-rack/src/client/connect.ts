@@ -70,8 +70,10 @@ export async function spawnHub(home = rackHome()): Promise<void> {
  * hello is in the envelope replies had before they lost it, a hub from
  * before the hello's type was fixed. A hello that does not read for another
  * cause, cut short or of a hub this e3 does not know, drains nothing: it is
- * asked again until the deadline, and then the hub is unavailable. A dead
- * hub is never silently reattached mid-session.
+ * asked again until the deadline, and then the hub is unavailable. An ask the
+ * hub does not answer in time leaves what it last said of itself standing:
+ * each ask is given what is left of the deadline, which at its end is less
+ * than an answer takes. A dead hub is never silently reattached mid-session.
  * @param options - Startup policy, deadline and progress sink
  * @returns A ready typed client
  * @throws {RackHubOutdatedError} On an incompatible control protocol
@@ -87,6 +89,9 @@ export async function connectHub(options: ConnectHubOptions = {}): Promise<HubCl
   const client = new HubClient(home);
   let spawned = false;
   let last = 'hub did not answer';
+  // What the hub's last answer said of it: that it is draining, or that its
+  // hello does not read
+  let said: string | undefined;
   while (Date.now() < deadline) {
     if (options.signal?.aborted === true) throw new RackHubUnavailableError('Rack hub connection was abandoned: the run was aborted');
     try {
@@ -99,7 +104,7 @@ export async function connectHub(options: ConnectHubOptions = {}): Promise<HubCl
       }
       if (!hello.draining) return client;
       if (options.spawn === false) throw new RackHubUnavailableError('The running rack hub is draining');
-      last = 'the running rack hub is draining';
+      last = said = 'the running rack hub is draining';
       spawned = false;
     } catch (err) {
       if (err instanceof RackHubOutdatedError || err instanceof RackHubUnavailableError) throw err;
@@ -113,13 +118,19 @@ export async function connectHub(options: ConnectHubOptions = {}): Promise<HubCl
           throw new RackHubOutdatedError(`The running rack hub was started by an e3 from before control protocol ${HUB_PROTOCOL}, and this e3 cannot read its replies. ` +
             'It will exit once idle — run `e3 rack stop` with that e3, or end its process, to replace it now.');
         }
-        last = `the running rack hub's hello does not read as this e3's (${err.message}); it was not asked to drain`;
+        last = said = `the running rack hub's hello does not read as this e3's (${err.message}); it was not asked to drain`;
         await delay(Math.max(1, Math.min(100, deadline - Date.now())), undefined, { signal: options.signal }).catch(() => {});
         continue;
       }
-      last = err instanceof Error ? err.message : String(err);
+      // An ask the hub did not answer in time says nothing new of it: the
+      // time it was given is what is left of the deadline, at whose end that
+      // is less than an answer takes. What the hub last said stands.
+      const unanswered = err instanceof RackHubError && err.code === 'timeout';
+      last = unanswered && said !== undefined ? said : err instanceof Error ? err.message : String(err);
       const absent = err instanceof RackHubError && ['ENOENT', 'ECONNREFUSED', 'EPIPE', 'ECONNRESET'].includes(err.code);
       if (!absent) break;
+      // It has gone: what it said is of no hub that is there
+      said = undefined;
       if (options.spawn === false) break;
       if (!spawned) {
         options.log?.('starting rack hub…');
