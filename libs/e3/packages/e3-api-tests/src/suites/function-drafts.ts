@@ -323,7 +323,8 @@ export function functionDraftTests(setup: TestSetup<TestContext>): void {
       // as the edit says
       const reversed = await workspaceFunctionCall(base, ctx.repoName, ws, 'job_rows', request([], [...inOrder].reverse()), opts);
       if (reversed.outcome.type !== 'conflict') assert.fail(`expected conflict, got ${printOutcome(reversed.outcome)}`);
-      assert.deepEqual([reversed.outcome.value.record, reversed.outcome.value.mutation], ['jobs', 'patch']);
+      assert.deepEqual([reversed.outcome.value.record, reversed.outcome.value.mutation, reversed.outcome.value.place, reversed.outcome.value.of],
+        ['jobs', 'patch', 1n, 2n], 'the delete, first of the two now, by its place');
 
       // A function of two records, one of them drafted: the other is read as
       // stored, which the result names it at
@@ -473,7 +474,7 @@ export function functionDraftTests(setup: TestSetup<TestContext>): void {
       const unfit = await called(ctx, ws, 'count_after', request(zero, [stale]), opts);
       if (unfit.result.outcome.type !== 'conflict') assert.fail(`expected conflict, got ${printOutcome(unfit.result.outcome)}`);
       const conflict = unfit.result.outcome.value;
-      assert.deepEqual([conflict.record, conflict.mutation], ['jobs', 'patch']);
+      assert.deepEqual([conflict.record, conflict.mutation, conflict.place, conflict.of], ['jobs', 'patch', 1n, 1n]);
       assert.match(conflict.message, /j2/, 'the refusal names the row');
       assert.equal(unfit.result.stdout, '', 'the function did not run');
       // A Save of the same edit ends in conflict, in the same words

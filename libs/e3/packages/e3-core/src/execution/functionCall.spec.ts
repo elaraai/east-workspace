@@ -217,7 +217,9 @@ describe('functionCall', () => {
     const ended = (state: FunctionCallJob['call']['state']): FunctionCallJob => ({ ...filed, call: { ...filed.call, drafts, state }, drafted });
     const sameDrafts = equalFor(ExecuteResultType.fields.drafts);
 
-    const conflict = await functionCallStatus(storage, REPO, ended(variant('conflict', { record: 'presses', mutation: 'patch', message: 'the row changed under the edit' })));
+    const conflict = await functionCallStatus(storage, REPO, ended(variant('conflict', {
+      record: 'presses', mutation: 'patch', place: 3n, of: 3n, message: 'the row changed under the edit',
+    })));
     if (conflict.type !== 'completed' || conflict.value.outcome.type !== 'conflict') assert.fail(`the status is ${conflict.type}`);
     assert.equal(conflict.value.outcome.value.message, 'the row changed under the edit');
     assert.ok(sameDrafts(conflict.value.drafts, [{ record: 'presses', commit: hash('a') }, { record: 'jobs', commit: hash('b') }]));

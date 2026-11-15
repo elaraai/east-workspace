@@ -495,7 +495,7 @@ describe("C3: every outcome of a call", () => {
         expect(() => queryResultOf(call, executed(other, variant("success", { value: run(other) })))).toThrow(new Error(
             "queryResultOf: the call's argument 0 read .inputs.orders, which is not the data source the query reads there"));
         // A query's call lays no draft, so one that ended in a draft's conflict is not this call's either.
-        const conflict = variant("conflict", { record: "jobs", mutation: "patch", message: "the row at \"j1\" changed under the edit" });
+        const conflict = variant("conflict", { record: "jobs", mutation: "patch", place: 1n, of: 1n, message: "the row at \"j1\" changed under the edit" });
         expect(() => queryResultOf(call, executed(call, conflict))).toThrow(new Error(
             "queryResultOf: the call ended in a conflict laying a draft of jobs, and a query's call lays none: the result is not this call's"));
     });

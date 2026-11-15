@@ -1255,12 +1255,17 @@ export const DiagnosticType = StructType({
  *
  * @property record - The record the draft was of
  * @property mutation - The draft's mutation
+ * @property place - The draft's place among the call's, from 1: which of
+ *   several drafts of one mutation the record refused
+ * @property of - How many drafts the call passed
  * @property message - The refusal's words, as a Save's conflict carries them
  *   in its `detail`
  */
 export const FunctionDraftConflictType = StructType({
   record:   StringType,
   mutation: StringType,
+  place:    IntegerType,
+  of:       IntegerType,
   message:  StringType,
 });
 

@@ -676,8 +676,8 @@ export interface FunctionCallRun {
  *    and its result names. A draft that does not lay ends the call as a Save
  *    of it would have ended, and its function does not run: `failed` or
  *    `timed_out`, the first line of its stderr naming the draft and the
- *    mutation's own stderr after it, or `conflict`, naming the record, the
- *    mutation and the refusal's words. Such a call names its inputs as its
+ *    mutation's own stderr after it, or `conflict`, naming the draft by its
+ *    place and the refusal's words. Such a call names its inputs as its
  *    start pinned them. A call whose timeout ends once its drafts are laid
  *    ends `timed_out`, its first line saying so, and its function does not
  *    run.

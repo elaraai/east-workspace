@@ -201,7 +201,8 @@ describe('e3 call (local repository)', { timeout: 120_000, concurrency: false },
       // Written the other way round, the delete does not fit the record it is laid over
       const unfit = await call('hours', '--draft', 'jobs.patch', moved, '--draft', 'jobs.move', '"j2"', '"P1"');
       assert.notEqual(unfit.exitCode, 0);
-      assert.match(unfit.stderr, /Draft jobs\.patch conflicted: .*j2.* — the edit no longer matches the record; re-read it and call again/);
+      // The refusal names the draft by its place among the call's
+      assert.match(unfit.stderr, /Draft jobs\.patch \(1 of 2\) conflicted: .*j2.* — the edit no longer matches the record; re-read it and call again/);
       assert.equal(unfit.stdout.trim(), '', 'the function did not run');
     });
 

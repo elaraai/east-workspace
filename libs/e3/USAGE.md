@@ -499,8 +499,8 @@ list, an unknown mutation, and arguments of the wrong number or type end the
 call `invalid`, naming the draft, and nothing runs. A draft the record refuses
 ends the call as its Save would have ended, and the body does not run: `failed`
 or `timed_out`, the first line of stderr saying which draft
-(`draft jobs.patch (2 of 3) failed`), or `conflict`, naming the record and the
-mutation, when the record changed under the edit. A draft carries no limits of
+(`draft jobs.patch (2 of 3) failed`), or `conflict`, naming the record, the
+mutation and the draft's place, when the record changed under the edit. A draft carries no limits of
 its own: its mutation runs under the call's, for what is left of the call's
 timeout, and a call whose timeout ends once its drafts are all laid ends
 `timed_out`, its first line `drafts laid (3 of 3), and the call's timeout ended
@@ -1015,7 +1015,9 @@ non-zero saying which:
 
 - `Draft jobs.patch (2 of 3) failed with exit code: 1; the function did not run`
 - `Draft jobs.patch (2 of 3) had not been laid when the call timed out after 600000ms; the function did not run`
-- `Draft jobs.patch conflicted: … — the edit no longer matches the record; re-read it and call again`,
+- `The call's drafts were laid, and its timeout of 600000ms ended before the function ran: the function did not run`,
+  when laying them took all of the call's time
+- `Draft jobs.patch (2 of 3) conflicted: … — the edit no longer matches the record; re-read it and call again`,
   when the record changed under the edit
 
 The objects a drafted state is made of are stored, and named by nothing once

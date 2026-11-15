@@ -406,7 +406,7 @@ export function cliTests(
           const stale = patchFile('stale.beast2', [['j1', variant('delete', { press: 'P9', hours: 2n })]]);
           const unfit = await call('jobs_on', '"P1"', '--draft', 'jobs.patch', stale);
           assert.notStrictEqual(unfit.exitCode, 0);
-          assert.match(unfit.stderr, /Draft jobs\.patch conflicted: .*j1.* — the edit no longer matches the record; re-read it and call again/);
+          assert.match(unfit.stderr, /Draft jobs\.patch \(1 of 1\) conflicted: .*j1.* — the edit no longer matches the record; re-read it and call again/);
 
           const unlisted = await call('job_count', '--draft', 'jobs.move', '"j2"', '"P1"');
           assert.notStrictEqual(unlisted.exitCode, 0);

@@ -255,7 +255,7 @@ export function functionCallStoreTests(setup: BackendSetup): void {
       const read = await storage.calls.get(repo, WS, job.call.id);
       assert.ok(read !== null && jobEqual(read, job), 'read back as filed');
 
-      const conflict = variant('conflict', { record: 'jobs', mutation: 'patch', message: 'the row at "j1" changed under the edit' });
+      const conflict = variant('conflict', { record: 'jobs', mutation: 'patch', place: 1n, of: 2n, message: 'the row at "j1" changed under the edit' });
       const ended = await storage.calls.end(repo, WS, job.call.id, ending(conflict));
       assert.ok(ended?.call.state.type === 'conflict');
       assert.equal(ended.call.state.value.message, 'the row at "j1" changed under the edit');

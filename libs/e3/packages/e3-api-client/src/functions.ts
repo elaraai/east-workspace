@@ -299,8 +299,8 @@ export interface WorkspaceFunctionCallOptions {
  * are all laid ends `timed_out` too, its first line `drafts laid (3 of 3), and
  * the call's timeout ended before its function ran`, which
  * `functionDraftsOutlasted` reads; one that no longer fits the record, which
- * changed under the edit, ends it `conflict`, naming the record, the mutation
- * and the refusal's words.
+ * changed under the edit, ends it `conflict`, naming the record, the
+ * mutation, the draft's place among the call's and the refusal's words.
  *
  * @param url - Base URL of the e3 API server
  * @param repo - Repository name

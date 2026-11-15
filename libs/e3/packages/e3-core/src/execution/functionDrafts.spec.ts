@@ -538,18 +538,20 @@ describe('a call\'s drafts', () => {
       assert.equal(laid.job.call.inputs[0]!.hash, sha256Hex(encodeInt(5n)), 'its drafts were laid, and it names the state they left');
     });
 
-    it('ends a call with a conflict when a Save changed a row under the edit, naming the record, the mutation and the words a Save of the edit is refused in', async () => {
+    it('ends a call with a conflict when a Save changed a row under the edit, naming the draft by its place and the words a Save of the edit is refused in', async () => {
       // The page read j1 on P1 and moved it to P9; another Save moved it to P2 first
       const edit = jobsPatch([['j1', moved('P1', 'P9')]]);
       const saved = await recordMutate(storage, runner, REPO, WS, 'jobs', 'patch', [jobsPatch([['j1', moved('P1', 'P2')]])], { actor: 'grace@example.com' });
       assert.equal(saved.kind, 'committed');
       const jobsHead = await head('jobs');
-      const filed = await start('jobs_on', [encodeString('P9')], [draft('jobs', 'patch', edit)]);
+      // Two drafts of one mutation: the first fits, the second no longer does
+      const filed = await start('jobs_on', [encodeString('P9')], [draft('jobs', 'patch', insertJ3()), draft('jobs', 'patch', edit)]);
       const { job, result } = await run(filed.call.id);
       if (job?.call.state.type !== 'conflict') assert.fail(`the call ended ${job?.call.state.type}`);
 
       assert.equal(job.call.state.value.record, 'jobs');
       assert.equal(job.call.state.value.mutation, 'patch');
+      assert.deepEqual([job.call.state.value.place, job.call.state.value.of], [2n, 2n], 'which of the two the record refused');
       const refused = await recordMutate(storage, runner, REPO, WS, 'jobs', 'patch', [edit], { actor: 'ada@example.com' });
       if (refused.kind !== 'conflict') assert.fail(`a Save of the edit ended ${refused.kind}`);
       assert.equal(job.call.state.value.message, refused.detail, 'as a Save of the edit ends');
@@ -756,7 +758,9 @@ describe('a call\'s drafts', () => {
       const landed = await head('jobs');
       const unfit = await unkept('jobs_on', [encodeString('P9')], [draft('jobs', 'patch', jobsPatch([['j1', moved('P1', 'P9')]]))]);
       if (unfit.outcome.type !== 'conflict') assert.fail(`the call ended ${unfit.outcome.type}`);
-      assert.deepEqual({ ...unfit.outcome.value }, { record: 'jobs', mutation: 'patch', message: 'primary: Cannot apply replace - expected "P1", found "P2"' });
+      assert.deepEqual({ ...unfit.outcome.value }, {
+        record: 'jobs', mutation: 'patch', place: 1n, of: 1n, message: 'primary: Cannot apply replace - expected "P1", found "P2"',
+      });
       assert.equal(unfit.stderr, '');
       assert.ok(sameRead(unfit.drafts, [{ record: 'jobs', commit: landed.commit }]), 'it names the commit the edit no longer fits');
       assert.equal(runner.getDetachedCalls().length, 0, 'its function does not run');

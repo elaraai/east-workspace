@@ -413,7 +413,8 @@ which is a mutation's declaration before `e3.record` builds it.
   own stderr follows it; one helper writes the line and reads it back
   (`functionDraftEndLine`, `functionDraftEnded`, e3-types). A patch that no
   longer fits the record, which changed under the edit, ends the call
-  `conflict`, carrying the record, the mutation and the refusal's words
+  `conflict`, carrying the record, the mutation, the draft's place among the
+  call's (`place` of `of`) and the refusal's words
   (`FunctionDraftConflictType`); the kept call's state is `conflict` too. A
   drafted call commits nothing, so it races no other write: the one conflict
   it can meet is a write that disagrees with the state it is laid over.
@@ -623,7 +624,7 @@ export const ExecuteResultType = StructType({
     invalid:   StructType({ diagnostics: ArrayType(DiagnosticType) }), // signature/IR error; nothing ran
     too_large: StructType({ bytes: IntegerType, limit: IntegerType }), // result over maxResultBytes
     timed_out: StructType({ ms: IntegerType }),            // exceeded timeoutMs / deadline guard
-    conflict:  FunctionDraftConflictType,                  // { record, mutation, message }: a draft no longer fits its record (#1619)
+    conflict:  FunctionDraftConflictType,                  // { record, mutation, place, of, message }: a draft no longer fits its record (#1619)
   }),
   stdout: StringType,
   stderr: StringType,

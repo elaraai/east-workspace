@@ -44,6 +44,7 @@
 
 import { readFile, writeFile } from 'fs/promises';
 import {
+  IntegerType,
   decodeBeast2For,
   encodeBeast2For,
   fromEastTypeValue,
@@ -98,6 +99,9 @@ const LOCAL_LIMITS = {
   maxResultBytes: 64 * 1024 * 1024,
   maxLogBytes: 64 * 1024,
 };
+
+/** An Integer a message names, as East prints it: a draft's place among a call's. */
+const printInteger = printFor(IntegerType);
 
 /** Where a call's own arguments are written when it passes drafts. */
 const OWN_ARGUMENTS_FIRST = "a call's own arguments are written before the first --draft, which reads every word up to the next option";
@@ -375,7 +379,8 @@ async function renderResult(
     }
     case 'conflict': {
       console.error(
-        `Draft ${outcome.value.record}.${outcome.value.mutation} conflicted: ${outcome.value.message} — `
+        `Draft ${outcome.value.record}.${outcome.value.mutation} (${printInteger(outcome.value.place)} of ${printInteger(outcome.value.of)}) `
+        + `conflicted: ${outcome.value.message} — `
         + 'the edit no longer matches the record; re-read it and call again'
       );
       process.exit(1);

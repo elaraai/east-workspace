@@ -229,30 +229,37 @@ saved. Each is a call of a record's mutation that is not committed —
 call may draft (its signature's `drafts`):
 
 ```typescript
-import { functionDraftEnded } from '@elaraai/e3-api-client';
+import { functionDraftEnded, functionDraftsOutlasted } from '@elaraai/e3-api-client';
 
 // How many jobs press P1 holds, with job j2 moved to it and not saved
 const drafted = await workspaceFunctionCall(url, repo, 'production', 'jobs_on', {
   args: [variant('value', encodeBeast2For(StringType)('P1'))], runner: none, limits: none,
   drafts: [{ record: 'jobs', mutation: 'move', args: [encodeBeast2For(StringType)('j2'), encodeBeast2For(StringType)('P1')] }],
 }, options);
-// drafted.inputs: the drafted state's hash for jobs, which no other reader is shown
+// drafted.inputs: the drafted state's hash for jobs, a state the record itself never stands at
 // drafted.drafts: [{ record: 'jobs', commit }], the commit jobs stood at as the call started
 
 if (drafted.outcome.type === 'conflict') {
-  // The record changed under the edit: { record, mutation, message }
+  // The record changed under the edit: { record, mutation, place, of, message }
 }
 const ended = functionDraftEnded(drafted);
 // { record, mutation, place, of, how: 'failed' | 'timed_out' } when a draft's mutation ended the call, else null
+const outlasted = functionDraftsOutlasted(drafted);
+// true when the drafts were all laid and the call's timeout ended before its function ran
 ```
 
 The server lays the drafts in the order given, each by the mutation's own
-program over the state the one before it left. A draft found wrong — a record
+program over the state the one before it left; a dataset argument naming a
+drafted record is read as saved, at the state the drafts were laid over.
+Nothing is saved: the record and what reads it stay as they were for every
+reader, while the call keeps its drafts, for whoever may read it, and each
+draft's mutation runs as a Save's does, an execution recorded and cached. A
+draft found wrong — a record
 the function does not list, an unknown mutation, arguments of the wrong number
 or type — is an `invalid` result naming the draft, and nothing runs. A draft
 the record refuses ends the call as its Save would have ended, before the
 function runs: `failed` or `timed_out`, the first line of `stderr` naming it
-(`draft jobs.move (1 of 1) failed`), or `conflict`. A draft is passed only
+(`draft jobs.move (1 of 1) failed`), or `conflict`, naming it by its place. A draft is passed only
 where its mutation may be committed: one the server does not let the caller
 pass throws `ApiError` `permission_denied`, its `path`
 `draft <record>.<mutation>`. A call through the package (`functionCall`) reads

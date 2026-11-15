@@ -53,7 +53,7 @@ describe('the line a call names the draft that ended it in', () => {
     const line = 'draft jobs.patch (1 of 1) failed';
     assert.equal(functionDraftEnded(ended(failed, `${line}\n`, [])), null, 'a call that passed no draft');
     assert.equal(functionDraftEnded(ended(variant('success', { value: new Uint8Array() }), `${line}\n`)), null, 'a call whose function ran to its end');
-    assert.equal(functionDraftEnded(ended(variant('conflict', { record: 'jobs', mutation: 'patch', message: 'gone' }), '')), null,
+    assert.equal(functionDraftEnded(ended(variant('conflict', { record: 'jobs', mutation: 'patch', place: 1n, of: 1n, message: 'gone' }), '')), null,
       'a conflict, whose outcome names its draft');
     assert.equal(functionDraftEnded(ended(timedOut, `${line}\n`)), null, 'a line of another end than the call\'s');
     assert.equal(functionDraftEnded(ended(timedOut, `${functionDraftsLaidLine(1)}\n`)), null, 'a timeout that ended once every draft was laid');

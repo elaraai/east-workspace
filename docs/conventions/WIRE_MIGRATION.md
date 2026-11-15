@@ -1001,8 +1001,8 @@ Each wire changed under this rule, with the kind it is.
   at as the call started, which its drafts were laid over
   (`FunctionDraftedType`), and none for a call that passed no draft; and its
   `outcome` gains `conflict`, a draft that no longer fits its record, with
-  the record, the mutation and the refusal's words
-  (`FunctionDraftConflictType`). The result is what a sync call answers, and
+  the record, the mutation, the draft's place among the call's and the
+  refusal's words (`FunctionDraftConflictType`). The result is what a sync call answers, and
   two more answers hold it: a kept call's status (`FunctionCallStatusType`'s
   `completed`) and a split call's (`SplitCallStatusType`'s `completed`, as its
   `result`). A one-shot and a split call take no draft, so theirs names none

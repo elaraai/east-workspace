@@ -273,8 +273,12 @@ export type CallDraftsLaid =
    *  timeout ended. */
   | { readonly kind: 'timed_out'; readonly stderr: string; readonly stderrTruncated: boolean }
   /** A draft no longer fits its record, which changed under the edit: the
-   *  record, the mutation and the refusal's words. */
-  | { readonly kind: 'conflict'; readonly record: string; readonly mutation: string; readonly message: string }
+   *  record, the mutation, the draft's place among the call's and how many
+   *  the call passed, and the refusal's words. */
+  | {
+    readonly kind: 'conflict'; readonly record: string; readonly mutation: string;
+    readonly place: number; readonly of: number; readonly message: string;
+  }
   /** The caller's signal stopped the laying. */
   | { readonly kind: 'aborted' };
 
@@ -285,7 +289,8 @@ export type CallDraftsLaid =
  */
 export interface CallDraftsEnd {
   /** `failed` or `timed_out`, as a Save of the draft would have ended, or
-   *  `conflict`, naming the record, the mutation and the refusal's words. */
+   *  `conflict`, naming the record, the mutation, the draft's place among the
+   *  call's and the refusal's words. */
   readonly outcome: Extract<ExecuteResult['outcome'], { type: 'failed' | 'timed_out' | 'conflict' }>;
   /**
    * The draft in its first line, then its mutation's own stderr, for a
@@ -328,7 +333,9 @@ export function callDraftsEnd(
       return { outcome: variant('timed_out', { ms: timeoutMs }), stderr: ended.stderr, stderrTruncated: ended.stderrTruncated };
     case 'conflict':
       return {
-        outcome: variant('conflict', { record: ended.record, mutation: ended.mutation, message: ended.message }),
+        outcome: variant('conflict', {
+          record: ended.record, mutation: ended.mutation, place: BigInt(ended.place), of: BigInt(ended.of), message: ended.message,
+        }),
         stderr: '',
         stderrTruncated: false,
       };
@@ -432,7 +439,7 @@ export async function layCallDrafts(
       case 'timed_out':
         return { kind: 'timed_out', stderr: `${ends('timed_out')}${laid.stderr}`, stderrTruncated: laid.stderrTruncated };
       case 'conflict':
-        return { kind: 'conflict', record: draft.record, mutation: draft.mutation, message: laid.detail };
+        return { kind: 'conflict', ...named, message: laid.detail };
       case 'aborted':
         return laid;
     }

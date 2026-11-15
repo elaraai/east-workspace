@@ -69,10 +69,11 @@ const FROZEN_STATES = {
 };
 
 /** A call's state in the form this upgrade writes: the states both forms
- *  hold, and a draft that no longer fits its record. */
+ *  hold, and a draft that no longer fits its record, named by its record, its
+ *  mutation and its place among the call's drafts. */
 const FrozenStateWithConflictType = VariantType({
   ...FROZEN_STATES,
-  conflict: StructType({ record: StringType, mutation: StringType, message: StringType }),
+  conflict: StructType({ record: StringType, mutation: StringType, place: IntegerType, of: IntegerType, message: StringType }),
 });
 
 /** A call's draft, as this upgrade's form holds it. */
