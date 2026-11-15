@@ -24,14 +24,31 @@ const OPEN_CONTENT = '[data-part="content"][data-state="open"]:is([data-scope="c
 /** A combobox's input, which takes every Esc. */
 const SEARCH_INPUT = '[data-scope="combobox"][data-part="input"]';
 
+/** The layers open now: each one's content, portaled out of every frame. */
+function openLayers(): Element[] {
+    // Or in a phone's overlay slot: a menu or a Select's list, drawn as a view over the frame, is a layer the same.
+    return [...document.querySelectorAll(OPEN_CONTENT)].filter((el) => el.closest("[data-builder-frame]") === null || el.closest("[data-frame-layer]") !== null);
+}
+
 /**
  * Whether a layer portaled out of every frame is open over a view: the Esc is its own.
  *
  * @returns Whether one is open
  */
 export function layerOpen(): boolean {
-    // Or in a phone's overlay slot: a menu or a Select's list, drawn as a view over the frame, is a layer the same.
-    return [...document.querySelectorAll(OPEN_CONTENT)].some((el) => el.closest("[data-builder-frame]") === null || el.closest("[data-frame-layer]") !== null);
+    return openLayers().length > 0;
+}
+
+/**
+ * Whether a layer is open over another: the Esc is its own. Every open layer is, but the layer itself and those it was
+ * opened from — a popover its trigger lies in is under it, and stays as it closes.
+ *
+ * @param own - The layer's content
+ * @param from - What opened it: its trigger, or its anchor
+ * @returns Whether one is open over it
+ */
+export function layerOpenOver(own: Element | null, from: Element | null): boolean {
+    return openLayers().some((el) => el !== own && (from === null || !el.contains(from)));
 }
 
 /**

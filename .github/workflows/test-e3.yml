@@ -16,6 +16,7 @@ on:
       # httpbin, which e3-web's browser specs call, is started from here.
       - "docker/services/**"
       - ".github/workflows/test-e3.yml"
+      - ".github/actions/apt-install/**"
   # Every PR, whatever its base: a PR stacked on another PR's branch is
   # checked as one into main is.
   pull_request:
@@ -32,6 +33,7 @@ on:
       # httpbin, which e3-web's browser specs call, is started from here.
       - "docker/services/**"
       - ".github/workflows/test-e3.yml"
+      - ".github/actions/apt-install/**"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -253,7 +255,9 @@ jobs:
       # `east-c.exe`).
       - name: Install east-c build deps (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y cmake build-essential libcurl4-openssl-dev
+        uses: ./.github/actions/apt-install
+        with:
+          packages: cmake build-essential libcurl4-openssl-dev
 
       - name: Install east-c build deps (macOS)
         if: runner.os == 'macOS'
@@ -311,9 +315,17 @@ jobs:
       # the headless shell alone, as e3-ui-cli's install-browser installs it,
       # with the system libraries it needs on Linux. A spec that cannot launch
       # it fails rather than skips.
+      # Playwright runs apt-get itself for Chromium's system libraries: apt is
+      # bounded first, so a connection that stalls is dropped and each download
+      # is tried again, and the step's own limit ends anything that is left.
+      - name: Bound apt (Linux)
+        if: matrix.shard == 'packages' && runner.os == 'Linux'
+        uses: ./.github/actions/apt-install
+
       - name: Install Chromium (e3-web's browser specs)
         if: matrix.shard == 'packages'
         working-directory: libs/e3/packages/e3-web
+        timeout-minutes: 15
         run: pnpm exec playwright-core install --only-shell ${{ runner.os == 'Linux' && '--with-deps' || '' }} chromium
 
       # Lint reads the sources, which are the same on every OS: once, on Linux.

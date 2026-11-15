@@ -50,18 +50,21 @@ export const SessionEventType = StructType({ seq: IntegerType, event: VariantTyp
 export const RackResourcesType = StructType({ cores: IntegerType, memoryBytes: IntegerType, gpus: IntegerType });
 /**
  * Reports healthy fleet capacity and the requesting session's queue. Of each
- * rack: the `features` and the `target` its last heartbeat reported (none
- * until one has); its `problem`, why it cannot be used, when it asked in
+ * rack: whether this hub has heard what the rack is (`reported`), which a rack
+ * says with each heartbeat, so a hub that has just started has not yet; the
+ * `features` and the `target` its last heartbeat reported (none until one
+ * has); its `problem`, why it cannot be used, when it asked in
  * another rack protocol than this hub speaks; and, of a rack that admits work
  * by its resources, all it has (`resources`) and what of it nothing has booked
  * (`free`): the less of what the rack last reported free and what this hub's
- * own leases leave of it. A rack that reports no resources admits by its
- * slots, `capacity` and `busy`.
+ * own leases leave of it. A rack that has reported, and reports no resources,
+ * admits by its slots, `capacity` and `busy`; of one that has not reported,
+ * nothing says yet how it admits.
  */
 export const CapacitySnapshotType = StructType({
   racks: ArrayType(StructType({ rackId: StringType, label: StringType, tiers: ArrayType(StringType), capacity: IntegerType,
     busy: IntegerType, healthy: BooleanType, bundledE3: OptionType(StringType), pendingApproval: BooleanType,
-    features: ArrayType(StringType), target: OptionType(StringType), problem: OptionType(StringType),
+    reported: BooleanType, features: ArrayType(StringType), target: OptionType(StringType), problem: OptionType(StringType),
     resources: OptionType(RackResourcesType), free: OptionType(RackResourcesType) })),
   queued: IntegerType, mine: StructType({ pending: IntegerType, claimed: IntegerType }),
 });

@@ -13,6 +13,8 @@ describe('how a local runner starts a split task\'s stages', () => {
   const guarded = process.platform === 'win32' ? 'measure' : 'estimate';
   const budget = () => new Budget({ cores: 4, memory: 1024 ** 3 });
   const body: TaskBodyExecutor = (_request, local) => local();
+  /** A body that says whether it stops units. */
+  const saying = (stopsUnits: boolean): TaskBodyExecutor => Object.assign<TaskBodyExecutor, { stopsUnits: boolean }>((_request, local) => local(), { stopsUnits });
 
   it('starts every unit at once under a budget whose guard runs, and one alone without it', () => {
     assert.equal(new LocalTaskRunner('repo', budget()).firstWave, guarded);
@@ -20,19 +22,17 @@ describe('how a local runner starts a split task\'s stages', () => {
     assert.equal(new LocalTaskRunner('repo').firstWave, 'measure');
   });
 
-  it('measures under a body that replaces the local one, whose units the guard may not watch, unless the body stops units itself', () => {
+  it('measures under a body that replaces the local one, whose units the guard may not watch, unless the body says it stops units itself', () => {
     assert.equal(new LocalTaskRunner('repo', budget(), { body }).firstWave, 'measure');
-    assert.equal(new LocalTaskRunner('repo', budget(), { body, bodyStopsUnits: false }).firstWave, 'measure');
-    assert.equal(new LocalTaskRunner('repo', budget(), { body, bodyStopsUnits: true }).firstWave, guarded);
+    assert.equal(new LocalTaskRunner('repo', budget(), { body: saying(false) }).firstWave, 'measure');
+    assert.equal(new LocalTaskRunner('repo', budget(), { body: saying(true) }).firstWave, guarded);
     // The guard is still what stops a unit that runs here after all.
-    assert.equal(new LocalTaskRunner('repo', new Budget({ cores: 4, memory: 1024 ** 3 }, { sampler: null }), { body, bodyStopsUnits: true }).firstWave, 'measure');
+    assert.equal(new LocalTaskRunner('repo', new Budget({ cores: 4, memory: 1024 ** 3 }, { sampler: null }), { body: saying(true) }).firstWave, 'measure');
   });
 
-  it('reads whether the body stops units as each stage starts, from a host that gives it as a getter', () => {
-    let stops = false;
-    const runner = new LocalTaskRunner('repo', budget(), { body, get bodyStopsUnits() { return stops; } });
-    assert.equal(runner.firstWave, 'measure');
-    stops = true;
+  it('reads what the body says of itself, so a host that gives a runner the body says nothing for it', () => {
+    // The body alone is given: no option of the runner's names what it does
+    const runner = new LocalTaskRunner('repo', budget(), { body: saying(true) });
     assert.equal(runner.firstWave, guarded);
   });
 });

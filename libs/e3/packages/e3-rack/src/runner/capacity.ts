@@ -4,7 +4,7 @@
  */
 
 import type { CapacitySnapshot } from '../protocol/control.js';
-import { agentVersionAtLeast, leaseFits, leaseFitsRack, leaseReserve, type RackLeaseResources, type RackResources } from '../protocol/index.js';
+import { agentVersionAtLeast, leaseFits, leaseReserve, rackEverHolds, type RackLeaseResources, type RackResources } from '../protocol/index.js';
 import { E3_RACK_VERSION } from '../version.js';
 
 /**
@@ -37,6 +37,23 @@ export function rackResources(rack: SnapshotRack): RackResources | undefined {
 }
 
 /**
+ * Whether a rack caps a unit of a split task at what its lease asks, and
+ * stops one that outgrows it: a rack that admits work by its resources. One
+ * that admits by its slots caps nothing, and takes whole tasks alone: a unit
+ * runs where something stops it when it outgrows its share. Of a rack that
+ * has not yet reported (`reported`), this says nothing: it has not said how
+ * it admits.
+ *
+ * @param rack - A rack of the snapshot
+ * @returns Whether a unit may be leased to it
+ * @example
+ * const forUnits = compatibleRacks(snapshot, tier).filter(rackCapsUnits);
+ */
+export function rackCapsUnits(rack: SnapshotRack): boolean {
+  return rackResources(rack) !== undefined;
+}
+
+/**
  * What of a rack nothing has booked, when it admits work by its resources.
  * @param rack - A rack of the snapshot
  * @returns What is free, or undefined for a rack that admits by its slots
@@ -64,17 +81,17 @@ export function rackRoom(rack: SnapshotRack, needs: RackLeaseResources): number 
 }
 
 /**
- * Whether a rack could hold a lease's work with nothing else on it: its whole
- * resources hold the work's cores, GPU and cap. A rack that admits by its
- * slots is taken to.
+ * Whether a rack could hold a lease's work with nothing else on it, as the
+ * hub grants it (`rackEverHolds`): its whole resources hold the work's cores,
+ * GPU and cap. A rack that admits by its slots is taken to hold a whole task,
+ * and holds no unit of a split task.
  *
  * @param rack - A rack of the snapshot
  * @param needs - What the lease asks
- * @returns Whether its whole resources hold it
+ * @returns Whether it could ever hold it
  */
 export function rackCouldHold(rack: SnapshotRack, needs: RackLeaseResources): boolean {
-  const all = rackResources(rack);
-  return all === undefined || leaseFitsRack(needs, all);
+  return rackEverHolds(needs, rackResources(rack));
 }
 
 /**

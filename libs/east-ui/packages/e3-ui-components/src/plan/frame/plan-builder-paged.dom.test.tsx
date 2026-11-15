@@ -894,19 +894,71 @@ describe("the jobs edited, their record never read whole (#1199)", () => {
         await typeInto(c, "customer", "Alder & Finch Ltd");
         await select(bar(c, "W-0003", "P-1002")!);
         await typeInto(c, "customer", "Driftwood Museum Trust");
-        // Another planner changes the brochure run's customer just as Save goes: the Save's write reaches e3 after theirs.
-        await h.race(ex.planWindowJobs, () => {
-            fireEvent.mouseDown(historyButton(c, SAVE), { button: 0 });
-            fireEvent.click(historyButton(c, SAVE));
-        }, (jobs) => jobWith(jobs, "W-0001", { customer: "Alder & Finch Group" }));
-        await carriedOver(c, ["conflicts"]);
-        // Save waits aria-disabled while a conflict does, never disabled: it keeps the focus, and its tooltip says why.
-        expect(historyButton(c, SAVE).getAttribute("aria-disabled")).toBe("true");
-        const cards = await conflictCards(c);
-        expect(cards.map((card) => card.item)).toEqual(["Brochure run"]);
-        expect(cards[0]!.theirs).toContain("Changed since this edit began — last changed by another session");
-        expect(of("entries")).toEqual(expect.arrayContaining([`rows "W-0001" "W-0003"`]));
+        // The jobs' own windows are held on the wire from here. Read again at the record's new revision, a window that
+        // has landed answers for the job it holds with no read by key (#1596) — the brochure run is its first row — and
+        // which of the two lands first is the network's to say: held, both jobs are read by their keys, every time.
+        const windows = h.e3.hold((request) => servedOf(request) === "entries" && request.kind === "page");
+        try {
+            // Another planner changes the brochure run's customer just as Save goes: the Save's write reaches e3 after theirs.
+            await h.race(ex.planWindowJobs, () => {
+                fireEvent.mouseDown(historyButton(c, SAVE), { button: 0 });
+                fireEvent.click(historyButton(c, SAVE));
+            }, (jobs) => jobWith(jobs, "W-0001", { customer: "Alder & Finch Group" }));
+            await carriedOver(c, ["conflicts"]);
+            // Save waits aria-disabled while a conflict does, never disabled: it keeps the focus, and its tooltip says why.
+            expect(historyButton(c, SAVE).getAttribute("aria-disabled")).toBe("true");
+            const cards = await conflictCards(c);
+            expect(cards.map((card) => card.item)).toEqual(["Brochure run"]);
+            expect(cards[0]!.theirs).toContain("Changed since this edit began — last changed by another session");
+            expect(of("entries")).toEqual(expect.arrayContaining([`rows "W-0001" "W-0003"`]));
+        } finally {
+            await act(async () => { windows.release(); });
+            await settle();
+        }
         // Nothing of the job's draft was written; the other planner's stands, and each draft stands over it.
+        expect((await readJobs()).get("W-0001")!.customer).toBe("Alder & Finch Group");
+        await select(bar(c, "W-0001", "P-1001")!);
+        expect(customerOf(c)).toBe("Alder & Finch Ltd");
+        await select(bar(c, "W-0003", "P-1002")!);
+        expect(customerOf(c)).toBe("Driftwood Museum Trust");
+        expect(h.requests("read", JOBS)).toEqual([]);
+    });
+
+    test("a window that lands before a beaten Save's drafts are carried answers for the job it holds: only the other is read by its key (#1596)", async () => {
+        const { container: c } = await h.mount(editedPlan, DRAG);
+        await settle();
+        await select(bar(c, "W-0001", "P-1001")!);
+        await typeInto(c, "customer", "Alder & Finch Ltd");
+        await select(bar(c, "W-0003", "P-1002")!);
+        await typeInto(c, "customer", "Driftwood Museum Trust");
+        // From the press of Save, the record's history — who changed it last, which the carrying waits for — and the
+        // jobs' own windows are held on the wire, so this test says which lands first: the window.
+        let saving = false;
+        const history = h.e3.hold((request) => saving && request.kind === "history");
+        const windows = h.e3.hold((request) => saving && servedOf(request) === "entries" && request.kind === "page");
+        try {
+            await h.race(ex.planWindowJobs, () => {
+                saving = true;
+                fireEvent.mouseDown(historyButton(c, SAVE), { button: 0 });
+                fireEvent.click(historyButton(c, SAVE));
+            }, (jobs) => jobWith(jobs, "W-0001", { customer: "Alder & Finch Group" }));
+            // The window holding the brochure run, the jobs' first row, lands at the record's new revision; then the history.
+            await windows.holding;
+            await history.holding;
+            await act(async () => { windows.release(); });
+            await settle();
+            await act(async () => { history.release(); });
+            await settle();
+            await carriedOver(c, ["conflicts"]);
+            // The same conflict, the brochure run read from the window that landed, and the museum guide alone by its key.
+            const cards = await conflictCards(c);
+            expect(cards.map((card) => card.item)).toEqual(["Brochure run"]);
+            expect(cards[0]!.theirs).toContain("Changed since this edit began — last changed by another session");
+            expect(of("entries").filter((asked) => asked.startsWith("rows "))).toEqual([`rows "W-0003"`]);
+        } finally {
+            await act(async () => { windows.release(); history.release(); });
+            await settle();
+        }
         expect((await readJobs()).get("W-0001")!.customer).toBe("Alder & Finch Group");
         await select(bar(c, "W-0001", "P-1001")!);
         expect(customerOf(c)).toBe("Alder & Finch Ltd");

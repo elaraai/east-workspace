@@ -106,6 +106,10 @@ export class RackSession {
   private snapshot: CapacitySnapshot = { racks: [], queued: 0n, mine: { pending: 0n, claimed: 0n } };
   private readonly tee = new Map<string, Set<(stream: 'stdout' | 'stderr', data: string) => void>>();
   private loop?: Promise<void>;
+  /** The refresh in flight, which the callers that ask meanwhile share */
+  private refreshing?: Promise<CapacitySnapshot>;
+  /** When the last refresh was answered, by this process's clock */
+  private refreshedAt = -Infinity;
 
   private constructor(private readonly client: HubClient, readonly sessionId: string, readonly repoAlias: string,
     /** The e3 release the session's work is built with, which its leases name. */
@@ -147,12 +151,33 @@ export class RackSession {
   /** Returns the latest capacity snapshot without a network round trip. */
   capacity(): CapacitySnapshot { return this.snapshot; }
 
-  /** Refreshes fleet capacity without disturbing the ordered event cursor. */
-  async refreshCapacity(): Promise<CapacitySnapshot> {
-    if (this.lost || this.closing !== undefined) return this.snapshot;
-    const status = await this.client.status();
-    this.snapshot = { ...status.capacity, mine: this.snapshot.mine };
-    return this.snapshot;
+  /**
+   * Refreshes fleet capacity without disturbing the ordered event cursor.
+   *
+   * @remarks
+   * Callers that ask while a refresh is in flight share it, and one that
+   * accepts a snapshot of some age is given the last when it is no older: so
+   * a stage's units that wait for a rack together ask the hub once between
+   * them, not once each.
+   *
+   * @param maxAgeMs - The oldest refresh the caller accepts in place of a new
+   *   one, in ms; none unless given
+   * @returns The latest capacity snapshot
+   * @throws {RackHubError} When the hub does not answer its status
+   */
+  refreshCapacity(maxAgeMs = 0): Promise<CapacitySnapshot> {
+    if (this.lost || this.closing !== undefined) return Promise.resolve(this.snapshot);
+    if (performance.now() - this.refreshedAt < maxAgeMs) return Promise.resolve(this.snapshot);
+    return this.refreshing ??= (async () => {
+      try {
+        const status = await this.client.status();
+        this.snapshot = { ...status.capacity, mine: this.snapshot.mine };
+        this.refreshedAt = performance.now();
+        return this.snapshot;
+      } finally {
+        this.refreshing = undefined;
+      }
+    })();
   }
 
   /**

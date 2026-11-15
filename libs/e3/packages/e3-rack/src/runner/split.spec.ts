@@ -37,7 +37,9 @@ async function fixture(background = false) {
     const hub = new RackHub({ foreground: true, home }); assert(await hub.start()); cleanup.push(() => hub.stop());
   }
   const mint = await client.enroll();
-  const agent = await TestRackAgent.enroll(mint.apiUrl, mint.enrollmentToken, { tiers: ['node', 'py'], certificateSha256: mint.certificateSha256.type === 'some' ? mint.certificateSha256.value : undefined });
+  // A rack that admits by its resources: one that caps a unit, as the rack a unit is leased to must
+  const agent = await TestRackAgent.enroll(mint.apiUrl, mint.enrollmentToken, { tiers: ['node', 'py'], resources: { cores: 8, memoryBytes: 16 * 1024 ** 3, gpus: 0 },
+    certificateSha256: mint.certificateSha256.type === 'some' ? mint.certificateSha256.value : undefined });
   cleanup.push(() => agent.close());
   const repo = join(home, 'repo'); assert(repoInit(repo).success);
   const storage = new LocalStorage();

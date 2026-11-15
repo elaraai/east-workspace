@@ -35,6 +35,7 @@ import { writeStateFile } from '../state-file.js';
 import { taskClosure } from '../lease/closure.js';
 import { envManifestKey, envManifestName, type EnvLayerManifest } from '../server/env-publication.js';
 import type { RackLeaseEvent, RackLeaseResources } from '../protocol/task-envelope.js';
+import { splitUnitToWire } from '../runner-event.js';
 
 const cleanup: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -624,6 +625,68 @@ it('grants leases by what they reserve, not their caps, says what reservations l
   await piece('4', 6 * GiB);
   assert.equal(await agent.claim(), null);
   assert.equal(agent.waitingFor, undefined, 'no rack it could ever be granted to waits for it');
+});
+
+it('grants a unit only to a rack that caps it: never to one that admits by its slots, nor to one it has not yet heard say what it has', async () => {
+  const GiB = 1024 ** 3;
+  const f = await fixture({ leaseWindowMs: 40 });
+  // The hub starts again on another port, below: its racks follow it there
+  let origin = '';
+  const listening = async () => { const listener = (await f.status()).rackListener; assert(listener.type === 'up'); origin = listener.value.origin; };
+  await listening();
+  const follow: typeof fetch = (input, init) => { const url = new URL(String(input)); return f.fetch(`${origin}${url.pathname}${url.search}`, init); };
+  const enrol = async (as: Pick<TestRackAgentOptions, 'resources' | 'label'>) => {
+    const mint = await socketRequest(f.socket, 'POST', '/v1/enroll', { requestType: HubEnrollType, body: { label: none, ttlMinutes: none }, responseType: HubEnrollResultType });
+    const agent = await TestRackAgent.enroll(mint.apiUrl, mint.enrollmentToken, { ...as, fetch: follow });
+    cleanup.push(() => agent.close());
+    return agent;
+  };
+  /** What the fleet's snapshot says of each rack, by label. */
+  const racks = async () => new Map((await f.status()).capacity.racks.map((rack) => [rack.label, { healthy: rack.healthy, reported: rack.reported, admits: rack.resources.type === 'some' ? 'resources' : 'slots' }]));
+  const failed = { taskName: 'task', status: 'failed' as const };
+  const lease = (session: Awaited<ReturnType<typeof f.session>>, name: string, kind: 'unit' | 'task') =>
+    session.create(event([name.repeat(64)], { kind, cores: 1, memoryBytes: GiB, gpu: false }));
+
+  // A rack that admits by its slots caps nothing. It has said so, and its poll offers no bound: a unit is still not its.
+  const session = await f.session();
+  const slots = await enrol({ label: 'slots' });
+  assert.deepEqual(await racks(), new Map([['slots', { healthy: true, reported: true, admits: 'slots' }]]));
+  const unit = await lease(session, '1', 'unit');
+  const whole = await lease(session, '2', 'task');
+  const taken = await slots.claim();
+  assert.equal(taken?.leaseId, whole.leaseId, 'a whole task behind the unit is its: the unit holds no line at it');
+  await slots.complete(taken, failed);
+  assert.equal(await slots.claim(), null, 'the unit is never granted to it');
+  assert.equal(slots.waitingFor, undefined, 'nor is it told to keep room for it');
+
+  // A rack that admits by its resources stops a unit at its cap: the unit is its.
+  const capping = await enrol({ label: 'capping', resources: { cores: 4, memoryBytes: 8 * GiB, gpus: 0 } });
+  const granted = await capping.claim();
+  assert.equal(granted?.leaseId, unit.leaseId);
+  await capping.complete(granted, failed);
+
+  // A hub that starts again knows its racks, and that each was healthy, from its registry. It has heard neither say
+  // what it has, which a rack says with each heartbeat: so it grants no unit yet, to the rack that caps them either.
+  await f.hub.stop();
+  const again = new RackHub({ foreground: true, home: f.home, leaseWindowMs: 40 });
+  assert(await again.start()); cleanup.push(() => again.stop());
+  await listening();
+  assert.deepEqual(await racks(), new Map([['slots', { healthy: true, reported: false, admits: 'slots' }], ['capping', { healthy: true, reported: false, admits: 'slots' }]]));
+  const after = await f.session();
+  const next = await lease(after, '3', 'unit');
+  const task = await lease(after, '4', 'task');
+  assert.equal((await capping.claim())?.leaseId, task.leaseId, 'a whole task is granted as before');
+  assert.equal(await capping.claim(), null, 'and no unit, until the rack has said what it has');
+  await capping.heartbeat(); await slots.heartbeat();
+  assert.deepEqual(await racks(), new Map([['slots', { healthy: true, reported: true, admits: 'slots' }], ['capping', { healthy: true, reported: true, admits: 'resources' }]]));
+  assert.equal(await slots.claim(), null);
+  assert.equal((await capping.claim())?.leaseId, next.leaseId);
+
+  // A unit's lease says what it asks, so that a rack can cap it there
+  const unsized: RackLeaseEvent = { version: 2, taskName: 'task', workspace: 'dev', closure: { hashes: [] },
+    runnerEvent: { mode: 'unit', repo: 'replaced-by-hub', taskHash: 'a'.repeat(64), launchId: uuidv7(), timeoutMs: 30000,
+      unit: splitUnitToWire({ inputs: ['5'.repeat(64)], merge: null, own: false }) } };
+  await assert.rejects(after.create(unsized), /names what it asks of a rack/);
 });
 
 it('leases work that names an environment only to a rack that composes environments for a platform its session keeps the layers for, and serves it the manifest built with the lease\'s own e3 release', async () => {

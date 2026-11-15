@@ -135,7 +135,11 @@ drain and stop. The capacity snapshot gives, of a rack that admits by its
 resources, all it has and what is free: the less of what its last heartbeat
 reported and what the hub's own claimed leases leave of all it has, since a
 report lags a grant by up to a heartbeat and a rack may serve other sources.
-A rack that reports none admits by its slots (`capacity`, `busy`). Sessions register canonical repository paths, their exact e3
+A rack that reports none admits by its slots (`capacity`, `busy`). A rack says
+what it is and has with each heartbeat, and the hub keeps it in memory: the
+snapshot says of each rack whether this hub has heard it (`reported`), so a
+rack a hub that has just started knows only from its registry is not taken
+for one that admits by its slots. Sessions register canonical repository paths, their exact e3
 release, process identity and private data endpoints. The hub derives opaque
 repository aliases but never opens a repository or interprets its objects.
 
@@ -177,7 +181,12 @@ objects. Staging GC collects orphaned files after crashes.
 
 `connectHub` probes a fixed handshake, starts a detached process when absent,
 and requires the supported control protocol exactly. Older hubs are asked to
-drain; newer protocols are refused. `RackSession` owns registration, the data
+drain; newer protocols are refused. A hub that does not answer an ask in time
+is asked again until the deadline; the error then says what it last said of
+itself, and that it has stopped answering when an ask given its whole second
+went unanswered. A session's capacity refresh is shared by the callers that
+ask together, so a stage's units that wait for a rack ask the hub once between
+them. `RackSession` owns registration, the data
 socket, event polling, capacity snapshots, subscriptions and log tees. Requests
 have finite deadlines and abort on close/loss. A lost hub causes local fallback,
 not silent reattachment to a new process mid-run.
@@ -315,10 +324,26 @@ locally.
 Core probes the cache before the body hook. The hook takes no local budget
 grant; its local continuation preserves all existing process settings and
 budget. The orchestrator's width includes the compatible racks' cores (a
-slot-based rack's slots). When every compatible rack caps its units, the
-runner says its body stops units (`LocalTaskRunnerOptions.bodyStopsUnits`),
-and e3-core starts a split task's stages with every unit at once under a
-guarded budget, as it does with no body. A lease that ends `outgrew-cap` is a
+slot-based rack's slots). The body leases a unit only to a rack that caps it at
+what its lease asks (`rackCapsUnits`: one that admits by its resources); any
+other unit runs here, under the run's own budget and guard
+(`no-rack-caps-units:<tier>` where the racks of its tier cap none). The hub
+grants by the same rule (`rackEverHolds`, which the body's `rackCouldHold`
+reads too): a rack that reports no resources, or that this hub has not heard
+report, is never granted a unit, whatever its poll offers, so in a fleet of
+both kinds no unit reaches a rack that caps nothing; and a unit's lease must
+name what it asks. So a unit always runs where something stops it when it
+outgrows its share. The body says so of itself (`TaskBodyExecutor.stopsUnits`),
+whatever racks there are: e3-core reads it from the body it is given, so no
+host has to say it in step, and starts a split task's stages with every unit
+at once under a guarded budget, as it does with no body. The choice reads no
+snapshot, so none can go stale: a dataflow fixes it as it starts, and a rack
+that turns healthy later changes nothing. A rack that admits by its slots caps
+nothing, and is leased whole tasks alone; a run's description of its racks
+says so of one (`whole tasks only`). What a rack is to a piece of work is one
+rule in the body (its `standing`: it takes the work, it has said it never
+does, or it has not said what it is), which both the fleet a lease is made
+for and the reason there is none are read from. A lease that ends `outgrew-cap` is a
 unit's requeue: the body tells the run (`onRequeued`, reason `cap`), the
 session records the stopped attempt `interrupted`, with the local run's log
 line, and the next lease asks `unitCap` of the cap it reached, reserving that
@@ -346,6 +371,9 @@ planning and final assembly stay local; both pieces and merge bodies delegate.
 | --- | --- |
 | Cache hit | Return the cached result; no lease. |
 | Ineligible or no compatible rack | Use the ordinary local body: at once, or, under rack-only, once a rack that runs the tier has stayed unhealthy for two minutes (`source-unreachable`). |
+| A unit, and no rack of its tier caps one | Use the ordinary local body at once (`no-rack-caps-units:<tier>`): a rack has said what it does, and is not waited for. |
+| A unit, or work that declares an environment, and a rack of its tier the hub has not heard report | As for a rack that is not healthy (`source-unreachable`): at once, or, under rack-only, once the rack has stayed unheard for two minutes. Its next heartbeat says what it is. |
+| A queued lease, and the hub does not answer an ask for the fleet | The lease stands on the snapshot its events keep: an ask that fails is no verdict on it, and a hub that is gone ends it by its events. |
 | Capacity full | Spill when enabled and local cores/memory are available; otherwise wait. Dedupe attachment precedes spill. |
 | Claim | Mint a new attempt; write hub owner before running, then persisted placement log and claim event. |
 | Success | Verify whole output, flush logs, record success, publish completion. |

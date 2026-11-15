@@ -139,6 +139,32 @@ export function leaseFitsRack(needs: RackLeaseResources, all: RackResources): bo
 }
 
 /**
+ * Whether a rack could ever hold a lease's work: the one rule a source grants
+ * by and a run places by.
+ *
+ * @remarks
+ * A rack that says all it has admits work by its resources, and holds what
+ * they hold ({@link leaseFitsRack}). One that says none admits by its slots
+ * and caps nothing: it holds a whole task, and never a unit of a split task,
+ * which runs only where something stops it when it outgrows its share. Nor
+ * does a rack that has not yet said what it is.
+ *
+ * @param needs - What the lease asks
+ * @param all - All the rack has, as its report says; undefined of a rack that
+ *   reports none, or has not reported
+ * @returns Whether the rack could ever hold it
+ *
+ * @example
+ * ```ts
+ * rackEverHolds({ kind: 'unit', cores: 1, memoryBytes: 3 * 1024 ** 3, gpu: false }, undefined); // false
+ * rackEverHolds({ kind: 'task', cores: 1, memoryBytes: 3 * 1024 ** 3, gpu: false }, undefined); // true
+ * ```
+ */
+export function rackEverHolds(needs: RackLeaseResources, all: RackResources | undefined): boolean {
+  return all === undefined ? needs.kind !== 'unit' : leaseFitsRack(needs, all);
+}
+
+/**
  * A lease's work, v2 (#214): a dataflow task, a unit of a split task, or a
  * function call.
  */

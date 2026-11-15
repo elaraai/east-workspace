@@ -36,6 +36,7 @@ on:
       - "scripts/**"
       - "package.json"
       - ".github/workflows/release.yml"
+      - ".github/actions/apt-install/**"
 
 concurrency:
   # Real releases share one global lock (never cancel a release in flight); PR
@@ -211,7 +212,9 @@ jobs:
           cache: "pnpm"
       - name: Install build deps (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y cmake build-essential libcurl4-openssl-dev
+        uses: ./.github/actions/apt-install
+        with:
+          packages: cmake build-essential libcurl4-openssl-dev
       - name: Install build deps (macOS)
         if: runner.os == 'macOS'
         run: brew install cmake || true
@@ -635,7 +638,9 @@ jobs:
         with: { name: version-bump }
       - name: Install build deps (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y cmake build-essential libcurl4-openssl-dev
+        uses: ./.github/actions/apt-install
+        with:
+          packages: cmake build-essential libcurl4-openssl-dev
       - name: Install build deps (macOS)
         if: runner.os == 'macOS'
         run: brew install cmake || true

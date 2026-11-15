@@ -375,6 +375,8 @@ test("an optimiser's result is never saved by itself: what was changed before it
     // The panel says why they wait.
     await chevron.click();
     await expect(panelOf(page).locator("[data-history-autosave-held]")).toHaveText("Elara's changes, and what you changed after them, are saved when you press Save.");
+    // Esc at once, as quick as the keyboard sends it after the press that opened the panel: the panel hears it from the
+    // moment it opens, before the focus it opens with has landed.
     await page.keyboard.press("Escape");
     await expect(panelOf(page)).toBeHidden();
     // However long they wait, they are not sent: a press of Save sends them, the second commit and no third.

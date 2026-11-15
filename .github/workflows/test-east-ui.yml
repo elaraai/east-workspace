@@ -18,6 +18,7 @@ on:
       - "libs/east-diagnostics/**"
       - "libs/eslint-plugin-east/**"
       - ".github/workflows/test-east-ui.yml"
+      - ".github/actions/apt-install/**"
       - "package.json"
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
@@ -37,6 +38,7 @@ on:
       - "libs/east-diagnostics/**"
       - "libs/eslint-plugin-east/**"
       - ".github/workflows/test-east-ui.yml"
+      - ".github/actions/apt-install/**"
       - "package.json"
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
@@ -562,7 +564,9 @@ jobs:
       # Build this tree's east-c as the east-c workflow does, Release, but its
       # CLI alone, and put it on PATH.
       - name: Install east-c build deps
-        run: sudo apt-get update && sudo apt-get install -y cmake build-essential libcurl4-openssl-dev
+        uses: ./.github/actions/apt-install
+        with:
+          packages: cmake build-essential libcurl4-openssl-dev
 
       - name: Build east-c
         working-directory: libs/east-c
@@ -625,7 +629,9 @@ jobs:
       # Build this tree's east-c as the east-c workflow does, Release, but its
       # CLI alone, and put it on PATH.
       - name: Install east-c build deps
-        run: sudo apt-get update && sudo apt-get install -y cmake build-essential libcurl4-openssl-dev
+        uses: ./.github/actions/apt-install
+        with:
+          packages: cmake build-essential libcurl4-openssl-dev
 
       - name: Build east-c
         working-directory: libs/east-c
@@ -815,8 +821,15 @@ jobs:
           path: ~/.cache/ms-playwright
           key: playwright-chromium-${{ runner.os }}-${{ steps.playwright.outputs.version }}
 
+      # Playwright runs apt-get itself for Chromium's system libraries: apt is
+      # bounded first, so a connection that stalls is dropped and each download
+      # is tried again, and the step's own limit ends anything that is left.
+      - name: Bound apt
+        uses: ./.github/actions/apt-install
+
       - name: Install Chromium
         working-directory: libs/east-ui
+        timeout-minutes: 15
         run: |
           if [ "${{ steps.chromium.outputs.cache-hit }}" = true ]; then
             pnpm --filter @elaraai/east-ui-showcase exec playwright install-deps chromium

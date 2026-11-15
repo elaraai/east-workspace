@@ -122,7 +122,7 @@ it('builds an environment\'s layers once for the rack\'s platform, leases the wo
     const f = await fixture(); const agent = await f.agent(); const rack = await f.open();
     const platform = hostEnvironmentPlatform();
     assert(platform !== null, 'this machine is one an environment is installed for');
-    assert.match(rack.describe(), new RegExp(`^test rack \\(1 slots, e3 \\S+, environments for ${platform}\\)$`));
+    assert.match(rack.describe(), new RegExp(`^test rack \\(1 slots, whole tasks only, e3 \\S+, environments for ${platform}\\)$`));
 
     const envHash = await f.environment('first');
     const task = await f.declaring(envHash);
@@ -266,7 +266,7 @@ it('keeps work whose environment cannot go to a rack on this machine, with its r
     // No rack composes environments: the one enrolled runs stock work alone.
     await f.agent({ report: { features: [] } });
     const rack = await f.open();
-    assert.match(rack.describe(), /^test rack \(1 slots, e3 \S+\)$/);
+    assert.match(rack.describe(), /^test rack \(1 slots, whole tasks only, e3 \S+\)$/);
     const kept = await f.environment('kept');
     assert.doesNotMatch(await local(rack, kept, 'no-rack-for-environment:node'), NOT_BUILT);
     assert.equal(f.environments.length, 0, 'nothing is built for a rack that composes nothing');

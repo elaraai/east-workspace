@@ -90,6 +90,9 @@ export interface TaskBodyRequest {
  * defaults to `request.ids`. After a remote attempt, the fallback must use a
  * fresh identity so the successful retry sorts after the failed remote attempt
  * in execution history. The hook is runtime-only and never hashed.
+ *
+ * A body says of itself whether it stops units (`stopsUnits`): the runner it
+ * is given to reads it there, so no host has to say it for the body.
  * @example
  * ```ts
  * const body: TaskBodyExecutor = async (request, local) => {
@@ -99,24 +102,26 @@ export interface TaskBodyRequest {
  * const runner = new LocalTaskRunner(repo, budget, { body });
  * ```
  */
-export type TaskBodyExecutor = (
+export type TaskBodyExecutor = ((
   request: TaskBodyRequest,
   local: (ids?: ExecutionIds) => Promise<ExecutionResult>,
-) => Promise<ExecutionResult>;
+) => Promise<ExecutionResult>) & {
+  /**
+   * Whether the body stops a unit that outgrows what it was started
+   * expecting, and has it run again expecting more, as the budget's guard
+   * does a local one: a body that runs each unit under a cap of its own, or
+   * under the budget's guard. A split task's stages then start every unit at
+   * once, as they do with no body. Absent, it does not, and a stage measures
+   * one unit first. Read as each stage starts.
+   */
+  readonly stopsUnits?: boolean;
+};
 
 /** Runtime configuration of a local runner and its optional body executor. */
 export interface LocalTaskRunnerOptions extends ProcessSettings {
   /** Replaces task and split-unit bodies after cache misses. Detached calls
    *  and intake units still run locally. */
   body?: TaskBodyExecutor;
-  /**
-   * Whether {@link body} stops a unit that outgrows what it was started
-   * expecting, and has it run again expecting more, as the budget's guard
-   * does a local one: a body that runs each unit under a cap of its own. A
-   * split task's stages then start every unit at once, as they do with no
-   * body. A host may give it as a getter, read as each execution starts.
-   */
-  bodyStopsUnits?: boolean;
 }
 
 declare module './cache.js' {
@@ -135,9 +140,6 @@ declare module './cache.js' {
     /** Replaces the standard body of a task or split unit after its cache
      *  probe missed. Runtime-only; no grant is held unless it calls local. */
     body?: TaskBodyExecutor;
-    /** Whether {@link body} stops a unit that outgrows what it was started
-     *  expecting (`LocalTaskRunnerOptions.bodyStopsUnits`). Runtime-only. */
-    bodyStopsUnits?: boolean;
     /** Whether any stock runtime may run the execution in place of the one
      *  its task names: a record's program, which runs on east-node where its
      *  east-c cannot run (`TaskExecuteOptions.anyRuntime`, #1573).
@@ -167,14 +169,14 @@ const DEFAULT_POOL_WIDTH = 4;
  * that takes the runners past the budget, and runs it again reserving what it
  * reached — and otherwise one unit alone, to measure. A body that replaces the
  * local one runs units the guard may not watch, so it measures too, unless it
- * stops a unit that outgrows what it was started expecting itself.
+ * says it stops a unit that outgrows what it was started expecting itself
+ * (`TaskBodyExecutor.stopsUnits`).
  *
- * @param options - The execution's options: its budget, its body, and whether
- *   the body stops units
+ * @param options - The execution's options: its budget and its body
  * @returns The first wave
  */
-function localFirstWave(options: Pick<ExecuteOptions, 'budget' | 'body' | 'bodyStopsUnits'>): 'measure' | 'estimate' {
-  return options.budget?.guarded === true && (options.body === undefined || options.bodyStopsUnits === true) ? 'estimate' : 'measure';
+function localFirstWave(options: Pick<ExecuteOptions, 'budget' | 'body'>): 'measure' | 'estimate' {
+  return options.budget?.guarded === true && (options.body === undefined || options.body.stopsUnits === true) ? 'estimate' : 'measure';
 }
 
 /**
@@ -216,12 +218,12 @@ export class LocalTaskRunner implements TaskRunner {
   /**
    * How a dataflow whose units this runner runs starts a split task's stages:
    * `estimate` under a budget whose guard runs, with no body replacing the
-   * local one or with one that stops units itself, and `measure` otherwise —
+   * local one or with one that says it stops units itself, and `measure` otherwise —
    * as a task this runner runs on its own starts them
    * (`ExecuteOptions.firstWave`).
    */
   get firstWave(): 'measure' | 'estimate' {
-    return localFirstWave({ budget: this.budget, body: this.settings.body, bodyStopsUnits: this.settings.bodyStopsUnits });
+    return localFirstWave({ budget: this.budget, body: this.settings.body });
   }
 
   async execute(

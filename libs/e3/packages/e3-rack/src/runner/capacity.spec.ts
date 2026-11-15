@@ -7,7 +7,7 @@ import { it } from 'node:test';
 import assert from 'node:assert/strict';
 import { none, some } from '@elaraai/east';
 import { E3_RACK_VERSION } from '../version.js';
-import { compatibleRacks, rackCouldHold, rackRoom, type SnapshotRack } from './capacity.js';
+import { compatibleRacks, rackCapsUnits, rackCouldHold, rackRoom, type SnapshotRack } from './capacity.js';
 
 const GiB = 1024 ** 3;
 
@@ -15,7 +15,7 @@ const GiB = 1024 ** 3;
 function rack(all: number, free: number, overrides: Partial<SnapshotRack> = {}): SnapshotRack {
   const resources = (memoryBytes: number) => ({ cores: 8n, memoryBytes: BigInt(memoryBytes), gpus: 0n });
   return { rackId: 'r1', label: 'rack-a', tiers: ['node'], capacity: 4n, busy: 0n, healthy: true, bundledE3: some(E3_RACK_VERSION),
-    pendingApproval: false, features: ['resources'], target: none, problem: none,
+    pendingApproval: false, reported: true, features: ['resources'], target: none, problem: none,
     resources: some(resources(all)), free: some(resources(free)), ...overrides };
 }
 
@@ -37,7 +37,15 @@ it('holds work on a rack only when its whole memory holds the work\'s cap, whate
   const piece = { kind: 'unit' as const, cores: 1, memoryBytes: 6 * GiB, reserveBytes: 2 * GiB, gpu: false };
   assert.equal(rackCouldHold(rack(8 * GiB, 0), piece), true, 'a busy rack could hold it once it is free');
   assert.equal(rackCouldHold(rack(4 * GiB, 4 * GiB), piece), false, 'its reservation fits, its cap does not');
-  assert.equal(rackCouldHold(rack(4 * GiB, 4 * GiB, { resources: none, free: none }), piece), true, 'a rack that admits by its slots is taken to');
+  // A rack that admits by its slots caps nothing: it is taken to hold a whole task, and holds no unit.
+  const slots = rack(4 * GiB, 4 * GiB, { resources: none, free: none });
+  assert.equal(rackCouldHold(slots, { ...piece, kind: 'task' }), true);
+  assert.equal(rackCouldHold(slots, piece), false, 'a unit runs only where something stops it when it outgrows its share');
+});
+
+it('leases a unit only to a rack that admits by its resources', () => {
+  assert.equal(rackCapsUnits(rack(GiB, GiB)), true);
+  assert.equal(rackCapsUnits(rack(GiB, GiB, { resources: none, free: none })), false, 'a rack that admits by its slots caps nothing');
 });
 
 it('selects the racks that are healthy, approved, run the tier, and boot this release of e3 or later', () => {
