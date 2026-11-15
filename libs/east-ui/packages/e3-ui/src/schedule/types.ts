@@ -17,9 +17,9 @@ import {
     StringType, StructType, VariantType,
 } from "@elaraai/east";
 import { RecordCommitInfoType } from "@elaraai/e3-types";
-import { EventStateType, StatusValueType, TimeStepType } from "@elaraai/east-ui";
+import { EventStateType, TimeStepType } from "@elaraai/east-ui";
 import { EditingReadinessType, EditingType, FieldSpecType } from "@elaraai/east-ui/internal";
-import { PlanDrawType, PlanQuantityType, PlanRollupType } from "../plan/types.js";
+import { PlanDrawType, PlanQuantityType } from "../plan/types.js";
 import { RowInspectorType } from "../utils/row-inspector.js";
 import { StatusLookType } from "../utils/status.js";
 
@@ -530,54 +530,6 @@ export const PlanEventKindType = StructType({
 
 /** Type representing {@link PlanEventKindType}. */
 export type PlanEventKindType = typeof PlanEventKindType;
-
-/**
- * One resource as Plan's builder takes it: what every view draws
- * ({@link ScheduleResourceRowType}), with where it sits and its gutter.
- *
- * @property group - The group strip it sits under (a hall); `none` when the kind has no `group`
- * @property parent - The key's text of the resource of its kind it nests under
- * @property sub - The gutter's sub line
- * @property value - The gutter's value slot
- * @property status - The gutter's status dot
- * @property collapsed - Whether it starts folded, when it has resources under it
- */
-export const PlanResourceRowType = StructType({
-    ...ScheduleResourceRowType.fields,
-    group: OptionType(StringType),
-    parent: OptionType(StringType),
-    sub: OptionType(StringType),
-    value: OptionType(StringType),
-    status: OptionType(StatusValueType),
-    collapsed: BooleanType,
-});
-
-/** Type representing {@link PlanResourceRowType}. */
-export type PlanResourceRowType = typeof PlanResourceRowType;
-
-/**
- * One resource kind as Plan's builder takes it, its rows resolved.
- *
- * @property key - The kind's slot name
- * @property name - Its name
- * @property icon - Its Font Awesome icon
- * @property rollup - How a parent's bands roll its children's events up
- * @property measures - Its measures' keys, in order: the rows under each of its resources, each at its resource's path (#1197)
- * @property rows - Its resources, in key order — none for a kind paged a window at a time (#1199)
- * @property byKey - A paged kind's resource by its key's text (#1199): its window's key search for the key, then a one-row page, as Plan's builder takes it — `none` while either is in flight, `some(none)` for a key the kind does not have; `none` for a kind whose rows are listed
- */
-export const PlanResourcesType = StructType({
-    key: StringType,
-    name: StringType,
-    icon: StringType,
-    rollup: PlanRollupType,
-    measures: ArrayType(StringType),
-    rows: ArrayType(PlanResourceRowType),
-    byKey: OptionType(FunctionType([StringType], OptionType(OptionType(PlanResourceRowType)))),
-});
-
-/** Type representing {@link PlanResourcesType}. */
-export type PlanResourcesType = typeof PlanResourcesType;
 
 // ============================================================================
 // The kinds as the builders over the app's own records take them (#1367)

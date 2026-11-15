@@ -14,7 +14,7 @@ for (const example of [ex.planRecordIndexes, ex.planRecordIndexesMobile]) {
     test(example.description, () => {
         const manifest = deriveManifest(example.fn);
         // The work orders and their operations are each read a page, a search or a cell at a time, never whole.
-        assert.deepEqual(manifest.pages, [indexedWorkOrders.path, ex.planOperations.path]);
+        assert.deepEqual(manifest.pages, [ex.planOperations.path, indexedWorkOrders.path]);
         assert.equal(manifest.paths.length, 0, "the Plan never reads either record whole");
         // The operations are the record the Plan writes, through their patch door; the work orders it only reads.
         assert.deepEqual(manifest.records, [ex.planOperations.name]);

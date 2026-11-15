@@ -327,26 +327,55 @@ const withKind = East.function([PlanRowType, PlanRowType.fields.kind], PlanRowTy
 // ============================================================================
 
 /**
- * A row of one way of drawing, its elements the events given: bars rolling up
- * as the landing row's did, tiles in the row's own lanes and the lanes its
- * events name.
+ * The functions that make a row's elements of the events placed on it, each
+ * bound once in the function that places them: a function called where it is
+ * written is written out again at each call, so the seam names each by its
+ * binding, however many series and ways of drawing it places (#1192).
  */
-function drawnKind(draw: PlanDrawLiteral, list: ExprType<typeof PlacedListType>, row: ExprType<PlanRowType>): ExprType<PlanRowType["fields"]["kind"]> {
+interface PlacedElements {
+    readonly runs: ExprType<FunctionType<[typeof PlacedListType], ArrayType<PlanRunType>>>;
+    readonly tiles: ExprType<FunctionType<[typeof PlacedListType], ArrayType<PlanBucketEventType>>>;
+    readonly lanes: ExprType<FunctionType<[ArrayType<PlanLaneType>, typeof PlacedListType], ArrayType<PlanLaneType>>>;
+    readonly chips: ExprType<FunctionType<[typeof PlacedListType], ArrayType<PlanChipType>>>;
+    readonly marks: ExprType<FunctionType<[typeof PlacedListType], ArrayType<PlanEventMarkType>>>;
+}
+
+/**
+ * A row of one way of drawing, its elements the events given: bars rolling up
+ * as `rollup` says, tiles in `lanes` and the lanes its events name.
+ */
+function drawnElements(
+    draw: PlanDrawLiteral,
+    list: ExprType<typeof PlacedListType>,
+    elements: PlacedElements,
+    rollup: ExprType<OptionType<PlanRollupType>>,
+    lanes: ExprType<ArrayType<PlanLaneType>>,
+): ExprType<PlanRowType["fields"]["kind"]> {
     switch (draw) {
         case "span":
-            // A landing row of bars keeps its rollup: a tree's parent rolls up the events beneath it.
-            return spanKind({ runs: placedRuns(list) }, row.kind.match({
-                span: (_$, span) => span.rollup,
-            }, () => East.value(none, OptionType(PlanRollupType))) as never);
-        case "buckets": {
-            const declared = row.kind.match({ buckets: (_$, b) => b.lanes }, () => East.value([], ArrayType(PlanLaneType)));
-            return bucketsKind({ lanes: placedLanes(declared, list), events: placedTiles(list) });
-        }
+            return spanKind({ runs: elements.runs(list) }, rollup as never);
+        case "buckets":
+            return bucketsKind({ lanes: elements.lanes(lanes, list), events: elements.tiles(list) });
         case "cards":
-            return cardsKind(placedChips(list));
+            return cardsKind(elements.chips(list));
         case "marks":
-            return eventsKind(placedMarks(list));
+            return eventsKind(elements.marks(list));
     }
+}
+
+/**
+ * A landing row's kind of one way of drawing, its elements the events given:
+ * bars rolling up as the landing row's did — a tree's parent rolls up the
+ * events beneath it — and tiles in the row's own lanes.
+ */
+function drawnKind(draw: PlanDrawLiteral, list: ExprType<typeof PlacedListType>, row: ExprType<PlanRowType>, elements: PlacedElements): ExprType<PlanRowType["fields"]["kind"]> {
+    const rollup = draw === "span"
+        ? row.kind.match({ span: (_$, span) => span.rollup }, () => East.value(none, OptionType(PlanRollupType)))
+        : East.value(none, OptionType(PlanRollupType));
+    const lanes = draw === "buckets"
+        ? row.kind.match({ buckets: (_$, b) => b.lanes }, () => East.value([], ArrayType(PlanLaneType)))
+        : East.value([], ArrayType(PlanLaneType));
+    return drawnElements(draw, list, elements, rollup as never, lanes as never);
 }
 
 /**
@@ -445,6 +474,11 @@ export function createEventSeam(
             const tops = $.let(shadingTops(shading));
             const shade = $.const(shadedKind);
             const remake = $.const(withKind);
+            // Each element function bound once, called wherever a row of its way of drawing is made.
+            const elements: PlacedElements = {
+                runs: $.const(placedRuns), tiles: $.const(placedTiles), lanes: $.const(placedLanes),
+                chips: $.const(placedChips), marks: $.const(placedMarks),
+            };
             const noEvents = $.const([], PlacedListType);
             const noShades = $.const([], ArrayType(PlanEventShadeType));
             // The resources a row of the canvas holds, by series then by key: what the Unassigned rows leave out.
@@ -469,7 +503,7 @@ export function createEventSeam(
                                         const list = $5.let(byDraw.get(d.draw, () => East.value(new Map(), ByDraw.value)).get(key, () => noEvents));
                                         // The shading's heat in place of its events, where it names the row (#1039).
                                         const kind = $5.let(shading.tryGet(series).match({
-                                            none: (_$6) => drawnKind(d.draw, list, row),
+                                            none: (_$6) => drawnKind(d.draw, list, row, elements),
                                             some: (_$6, byKey) => shade(byKey.get(key, () => noShades), tops.get(series), East.value(d.draw === "span" || d.draw === "cards", BooleanType)),
                                         }));
                                         if (i === 0) {
@@ -520,10 +554,8 @@ export function createEventSeam(
                     }
                     $2.if(lost.size().greater(0n), ($3) => {
                         const id = $3.let(East.value(variant("entry", { series: `${slot}.unassigned`, path: [kind.draw] }), PlanRowIdType));
-                        const rowKind = kind.draw === "span" ? spanKind({ runs: placedRuns(lost) }, East.value(none, OptionType(PlanRollupType)))
-                            : kind.draw === "buckets" ? bucketsKind({ lanes: placedLanes(East.value([], ArrayType(PlanLaneType)), lost), events: placedTiles(lost) })
-                                : kind.draw === "cards" ? cardsKind(placedChips(lost))
-                                    : eventsKind(placedMarks(lost));
+                        const rowKind = drawnElements(kind.draw, lost, elements,
+                            East.value(none, OptionType(PlanRollupType)), East.value([], ArrayType(PlanLaneType)));
                         $3(rows.pushLast(planRow({
                             id,
                             parent: East.value(none, OptionType(PlanRowIdType)),

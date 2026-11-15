@@ -4,18 +4,15 @@
  */
 
 /**
- * Events into rows (#1192, `Plan Builder Spec.md` §9.4, PB12–PB17) — what is
- * checked of them without e3: the refusals a Plan of event kinds makes as it
- * is built. The rows it draws over a window read the print works' records, so
- * they are drawn in e3-ui-components on e3 itself
- * (`test/plan-event-rows.spec.ts`): a resource as a row per way its kinds
- * draw, nesting and group strips, the Unassigned rows, drafts in place, what
- * the viewer hides and what the rail shows.
+ * Events onto rows (#1192, #1541 U1) — what is checked of them without e3: the
+ * refusals a Plan of event kinds makes as it is built, word for word. Where the
+ * events land is `plan-landing.spec.ts`, over values; the rows drawn over the
+ * print works' records are drawn in e3-ui-components on e3 itself.
  */
 
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
-import { DictType, East, FloatType, NullType, StringType, StructType, type BlockBuilder } from "@elaraai/east";
+import { ArrayType, DictType, East, IntegerType, NullType, StringType, StructType, type BlockBuilder } from "@elaraai/east";
 import { Data, Plan, Record, Schedule } from "@elaraai/e3-ui/internal";
 import * as ex from "./plan-events.examples.js";
 
@@ -33,62 +30,79 @@ const FIRST = new Date("2026-10-05T00:00:00Z");
 const LAST = new Date("2026-11-02T00:00:00Z");
 const WINDOW = { min: FIRST, max: LAST };
 
-// ============================================================================
-// Refused at build
-// ============================================================================
-
 describe("the event rows' refusals", () => {
     const axis = Plan.axis({ window: WINDOW, resolution: "day" });
-    const jobsOf = ($: BlockBuilder<NullType>) => {
+    const jobsOf = ($: BlockBuilder<NullType>, of = "presses") => {
         const jobs = $.let(Record.bind(ex.planPrintJobs));
-        return Schedule.events(jobs, { name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end", resource: { field: "press", of: "presses" } });
+        return Schedule.events(jobs, { name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end", resource: { field: "press", of } });
     };
-    const pressesOf = ($: BlockBuilder<NullType>, measures: readonly unknown[] = []) => {
-        const presses = $.let(Record.bind(ex.planPrintPresses, []));
-        return Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name, group: (p) => p.hall, measures: measures as never });
-    };
-    const heat = (key: string) => Plan.series.heat(ex.PrintPress, { key, title: "Heat", label: () => "Heat", cells: () => Plan.heatCells([]) });
+    const stopsOf = ($: BlockBuilder<NullType>) => Schedule.events($.let(Record.bind(ex.planPrintStops)), {
+        name: "Stop", icon: "screwdriver-wrench", title: "title", at: "at", resource: { field: "press", of: "presses" },
+    });
+    const pressRows = ($: BlockBuilder<NullType>) => $.let(Record.bind(ex.planPrintPresses, [])).read();
+    const presses = (key = "presses") => Plan.series.resources(ex.PrintPress, { key, title: "Presses", icon: "print", label: (p) => p.name });
 
-    test("a resource kind no event kind is placed on, with no measures, would draw no rows", () => {
-        assert.match(refusal(($) => {
-            const crews = $.let(Record.bind(ex.planPrintCrews, []));
-            return Plan.Payload({ axis, resources: { presses: pressesOf($), crews: Schedule.resources(crews.read(), { name: "Crews", icon: "user-group", label: (c) => c.name }) }, events: { job: jobsOf($) } });
-        }), /^Plan: resources\.crews has no event kind placed on it and no measures, so it would draw no rows — place an event kind on it \(Schedule\.events' `resource: \{ field, of: "crews" \}`\), or give it `measures`$/);
-        // With a measure it draws that.
-        assert.equal(refusal(($) => {
-            const crews = $.let(Record.bind(ex.planPrintCrews, []));
-            const load = Plan.series.heat(ex.PrintCrew, { key: "load", title: "Load", label: () => "Load", cells: () => Plan.heatCells([]) });
-            return Plan.Payload({ axis, resources: { presses: pressesOf($), crews: Schedule.resources(crews.read(), { name: "Crews", icon: "user-group", label: (c) => c.name, measures: [load] }) }, events: { job: jobsOf($) } });
-        }), "");
+    test("`resources` is removed, refused naming the series that replaces it", () => {
+        assert.equal(refusal(($) => Plan.Payload({
+            axis, resources: {}, events: { job: jobsOf($) }, data: pressRows($), series: [presses()],
+        } as never)), "Plan: `resources` is removed (#1541) — the rows are the resources: lay them out with " +
+            "Plan.series.resources(Row, { key, title, label }) over the record they are read from (`data`, or the slice's `rows` source), or a case " +
+            "of Plan.series.kinds for each kind of resource, and name that series' key in each event kind's resource.of — a resource kind's " +
+            "`measures` are the series' `series`, its `parent` a tree (`children`), and its `group` a Plan.series.group around it");
     });
 
-    test("a key the Plan gives its event rows that a measure, a `data` series or a Plan.over series has", () => {
-        assert.match(refusal(($) => Plan.Payload({ axis, resources: { presses: pressesOf($, [heat("presses.span")]) }, events: { job: jobsOf($) } })),
-            /^Plan: the span rows of resources\.presses and resources\.presses\.measures\[0\] have the same key, "presses\.span" — a row's id is its series' key and its path, so no two series share one$/);
-        assert.match(refusal(($) => Plan.Payload({ axis, resources: { presses: pressesOf($, [heat("presses.group")]) }, events: { job: jobsOf($) } })),
-            /^Plan: the group strips of resources\.presses and resources\.presses\.measures\[0\] have the same key, "presses\.group"/);
-        assert.match(refusal(($) => Plan.Payload({ axis, resources: { presses: pressesOf($, [heat("presses")]) }, events: { job: jobsOf($) } })),
-            /^Plan: resources\.presses\.measures\[0\] has the key "presses", the slot's own — a resource kind's rows are laid out by a series of that key; give the measure another$/);
-        const Row = StructType({ v: FloatType });
+    test("an event kind lands on a resources series or a kinds case by its key, and on no other name", () => {
+        assert.equal(refusal(($) => Plan.Payload({ axis, events: { job: jobsOf($) }, data: pressRows($), series: [presses()] })), "");
+        assert.equal(refusal(($) => Plan.Payload({ axis, events: { job: jobsOf($, "machines") }, data: pressRows($), series: [presses()] })),
+            "Plan: events.job's resource names \"machines\", and no resources series or kinds case has that key (presses) — the event kinds " +
+            "land on the rows of a Plan.series.resources series, or of a Plan.series.kinds case, by its key");
+        // A series that is no resources series is not landed on, whatever its key.
         assert.match(refusal(($) => Plan.Payload({
-            axis, resources: { presses: pressesOf($) }, events: { job: jobsOf($) },
-            data: $.const(new Map([["a", { v: 1.0 }]]), DictType(StringType, Row)),
-            series: [Plan.series.events(Row, { key: "job.unassigned", title: "Marks", label: (_r, k) => k, marks: () => [] })],
-        })), /^Plan: the Unassigned row of events\.job and a series in `series` have the same key, "job\.unassigned"/);
-        // A key a series nested in another has, too.
+            axis, events: { job: jobsOf($) }, data: pressRows($),
+            series: [Plan.series.span(ex.PrintPress, { key: "presses", title: "Presses", label: (p) => p.name, runs: () => [] })],
+        })), /^Plan: events\.job's resource names "presses", and no resources series or kinds case has that key \(none\)/);
+    });
+
+    test("the rows an event kind lands on are known as the Plan is built, keyed by String, and given", () => {
+        assert.equal(refusal(($) => {
+            const list = $.const([presses()], ArrayType(Plan.Types.Series(ex.PrintPress)));
+            return Plan.Payload({ axis, events: { job: jobsOf($) }, data: pressRows($), series: list });
+        }), "Plan: the event kinds land on the rows of a resources series, known as the Plan is built — give `series` the list itself, " +
+            "each series written in place: [Plan.series.resources(Row, { key, title, label }), …]");
+        const Counted = StructType({ name: StringType });
+        assert.equal(refusal(($) => Plan.Payload({
+            axis, events: { job: jobsOf($) },
+            data: $.const(new Map([[1n, { name: "Press 1" }]]), DictType(IntegerType, Counted)),
+            series: [Plan.series.resources(Counted, { key: "presses", title: "Presses", keyType: IntegerType, label: (p) => p.name })],
+        })), "Plan: events.job's resource field holds String keys of the rows of \"presses\", which are keyed by .Integer — key the rows by String");
+        assert.equal(refusal(($) => {
+            const stock = $.let(Data.bind(ex.planLinkStock));
+            return Plan.Payload({
+                axis, events: { job: jobsOf($) }, series: [presses()],
+                rows: [Plan.over(stock, [Plan.series.table(ex.PrintStock, { key: "stock", title: "Stock", label: (s) => s.name })])],
+            });
+        }), "Plan: the event kinds land on the canvas's rows, and this Plan has none — give the rows they land on, `data` or the slice's " +
+            "`rows` source, laid out by a series of them: Plan.series.resources(Row, { key, title, label }), named by each kind's resource.of");
+    });
+
+    test("a key the Plan gives a resource's further rows, or a kind's Unassigned row, that another series has", () => {
+        // The jobs draw bars on the landing row; the stops' marks a row of their own, `presses.marks`.
+        assert.equal(refusal(($) => Plan.Payload({
+            axis, events: { job: jobsOf($), stop: stopsOf($) }, data: pressRows($),
+            series: [presses(), Plan.series.events(ex.PrintPress, { key: "presses.marks", title: "Marks", label: (p) => p.name, marks: () => [] })],
+        })), "Plan: the marks rows of \"presses\" and a series in `series` have the same key, \"presses.marks\" — a row's id is its series' key and its path, so no two series share one");
         assert.match(refusal(($) => Plan.Payload({
-            axis, resources: { presses: pressesOf($) }, events: { job: jobsOf($) },
-            data: $.const(new Map([["a", { v: 1.0 }]]), DictType(StringType, Row)),
-            series: [Plan.series.section(Row, { key: "rows", title: "Rows" }, [
-                Plan.series.events(Row, { key: "presses.span", title: "Marks", label: (_r, k) => k, marks: () => [] }),
+            axis, events: { job: jobsOf($) }, data: pressRows($),
+            series: [presses(), Plan.series.section(ex.PrintPress, { key: "rows", title: "Rows" }, [
+                Plan.series.events(ex.PrintPress, { key: "job.unassigned", title: "Marks", label: (p) => p.name, marks: () => [] }),
             ])],
-        })), /^Plan: the span rows of resources\.presses and a series in `series` have the same key, "presses\.span"/);
+        })), /^Plan: the Unassigned row of events\.job and a series in `series` have the same key, "job\.unassigned"/);
         assert.match(refusal(($) => {
             const stock = $.let(Data.bind(ex.planLinkStock));
             return Plan.Payload({
-                axis, resources: { presses: pressesOf($) }, events: { job: jobsOf($) },
-                rows: [Plan.over(stock, [Plan.series.table(ex.PrintStock, { key: "presses.span", title: "Stock", label: (s) => s.name })])],
+                axis, events: { job: jobsOf($), stop: stopsOf($) }, data: pressRows($), series: [presses()],
+                rows: [Plan.over(stock, [Plan.series.table(ex.PrintStock, { key: "presses.marks", title: "Stock", label: (s) => s.name })])],
             });
-        }), /^Plan: the span rows of resources\.presses and rows\[0\] \(Plan\.over\) have the same key, "presses\.span"/);
+        }), /^Plan: the marks rows of "presses" and rows\[0\] \(Plan\.over\) have the same key, "presses\.marks"/);
     });
 });

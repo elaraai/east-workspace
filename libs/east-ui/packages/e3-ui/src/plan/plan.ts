@@ -651,13 +651,15 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
     const narrowing = slice as RecordSlicesChromeOptions | undefined;
     const kinds = events === undefined ? [] : Object.keys(events);
     const eventKinds = Object.entries(events ?? {});
+    if (events !== undefined) {
+        // Each kind is a kind, and a Plan draws each event's title, which `Schedule.events` takes as optional (#1367):
+        // checked before where the kinds land.
+        checkEventKinds(eventKinds);
+        scheduleTitled(events, "Plan");
+    }
     // The series the event kinds land on (#1541, U1): each resources series and kinds case in `series`, known as the
     // Plan is built.
     const landings = events === undefined ? [] : eventLandings(canvas.series, eventKinds);
-    if (events !== undefined) {
-        // A Plan draws each event's title, which `Schedule.events` takes as optional (#1367).
-        scheduleTitled(events, "Plan");
-    }
     // The app's optimiser (#1409, #1622) answers a patch of each event kind's record: a Plan of none has no eye.
     if (optimise !== undefined && events === undefined) {
         throw new Error("Plan: `optimise` answers a patch of each event kind's record, and this Plan has no event kinds — declare `events` (Schedule.events), or leave `optimise` out");
@@ -858,17 +860,12 @@ function resourcesRefusal(): string {
 }
 
 /**
- * The series a Plan's event kinds land on (#1541, U1), each kind's `resource.of` checked against them: every name it
- * gives is a resources series' or a kinds case's key, whose rows are keyed by String — what an event's resource field
- * holds.
+ * A Plan's `events`: at least one, each a `Schedule.events` kind.
  *
- * @param series - The `series` prop
  * @param events - The event kinds, by slot
- * @returns The landings, in the canvas's order
- * @throws {Error} Naming the slot and the remedy: an event kind that is no `Schedule.events` kind, none at all, a
- *   `series` known only as it runs, an `of` naming no landing series, and a landing series keyed by another type
+ * @throws {Error} Naming the slot and the remedy: none at all, or one that is no `Schedule.events` kind
  */
-function eventLandings(series: unknown, events: readonly (readonly [string, ScheduleEventKind<EastType, EastType>])[]): readonly PlanLanding[] {
+function checkEventKinds(events: readonly (readonly [string, ScheduleEventKind<EastType, EastType>])[]): void {
     if (events.length === 0) {
         throw new Error("Plan: `events` declares at least one event kind — Schedule.events(record, { … }) under its slot name");
     }
@@ -877,6 +874,20 @@ function eventLandings(series: unknown, events: readonly (readonly [string, Sche
             throw new Error(`Plan: events.${slot} is an event kind — Schedule.events(record, { … })`);
         }
     }
+}
+
+/**
+ * The series a Plan's event kinds land on (#1541, U1), each kind's `resource.of` checked against them: every name it
+ * gives is a resources series' or a kinds case's key, whose rows are keyed by String — what an event's resource field
+ * holds.
+ *
+ * @param series - The `series` prop
+ * @param events - The event kinds, by slot, each checked a kind ({@link checkEventKinds})
+ * @returns The landings, in the canvas's order
+ * @throws {Error} Naming the slot and the remedy: a `series` known only as it runs, an `of` naming no landing series,
+ *   and a landing series keyed by another type
+ */
+function eventLandings(series: unknown, events: readonly (readonly [string, ScheduleEventKind<EastType, EastType>])[]): readonly PlanLanding[] {
     const landings = planLandings(series);
     if (landings === undefined) {
         throw new Error("Plan: the event kinds land on the rows of a resources series, known as the Plan is built — give `series` the list " +

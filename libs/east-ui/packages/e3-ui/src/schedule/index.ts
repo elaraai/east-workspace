@@ -32,7 +32,9 @@
  * A builder takes its kinds by slot — `resources={{ people: … }}`,
  * `events={{ shift: … }}` — and checks them across slots
  * (`ScheduleInternal.check`) before it builds them under their slot names:
- * the Calendar with `build(slot)`, Plan's builder with `buildPlan(slot)`.
+ * the Calendar with `build(slot)`, Plan's builder an event kind with
+ * `buildPlan(slot)` — a Plan takes no resource kinds: its rows are its
+ * resources (#1541).
  *
  * @packageDocumentation
  */
@@ -46,7 +48,7 @@ import { SchedulePatchTypeFor, schedulePatch } from "./patch.js";
 import { schedulePeriods } from "./periods.js";
 import { SCHEDULE_DEF, scheduleResources, type ScheduleResourceKind } from "./resources.js";
 import {
-    PlanEventItemType, PlanEventKindType, PlanEventReadType, PlanEventRolesType, PlanResourceRowType, PlanResourcesType,
+    PlanEventItemType, PlanEventKindType, PlanEventReadType, PlanEventRolesType,
     ScheduleAllocationEntryType, ScheduleAllocationKindType, ScheduleAllocationRolesType, ScheduleCandidateType, ScheduleClockType,
     ScheduleDraftsType, ScheduleDurationType, ScheduleEventRefType, ScheduleFitType, ScheduleGestureType, ScheduleItemType, ScheduleKindType,
     ScheduleNewPeriodType, ScheduleOverlapsType, SchedulePeriodStatusType, SchedulePeriodsKindType, ScheduleReadyEntryType, ScheduleResourceRefType, ScheduleResourceRowType,
@@ -257,10 +259,6 @@ export interface ScheduleInternalNamespace extends Omit<ScheduleNamespace, "Type
         PlanRead: typeof PlanEventReadType;
         /** The fields an event kind's roles read on a Plan. */
         PlanRoles: typeof PlanEventRolesType;
-        /** One resource kind as Plan's builder takes it. */
-        PlanResources: typeof PlanResourcesType;
-        /** One resource as Plan's builder takes it. */
-        PlanResourceRow: typeof PlanResourceRowType;
         /** One stored duty: its roles and its row. */
         RosterEntry: typeof ScheduleRosterEntryType;
         /** One event kind as the Roster takes it. */
@@ -299,8 +297,6 @@ export const ScheduleInternal: ScheduleInternalNamespace = {
         PlanItem: PlanEventItemType,
         PlanRead: PlanEventReadType,
         PlanRoles: PlanEventRolesType,
-        PlanResources: PlanResourcesType,
-        PlanResourceRow: PlanResourceRowType,
         RosterEntry: ScheduleRosterEntryType,
         RosterKind: ScheduleRosterKindType,
         AllocationEntry: ScheduleAllocationEntryType,

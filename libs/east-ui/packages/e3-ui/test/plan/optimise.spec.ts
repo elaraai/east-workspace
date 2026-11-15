@@ -52,7 +52,8 @@ function payload($: BlockBuilder<NullType>, change: Readonly<Record<string, unkn
     const jobs = $.let(Record.bind(base.planEventJobs));
     return Plan.Payload({
         axis: Plan.axis({ window: WINDOW, resolution: "day" }),
-        resources: { presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name }) },
+        data: presses.read(),
+        series: [Plan.series.resources(base.PrintPress, { key: "presses", title: "Presses", icon: "print", label: (p) => p.name })],
         events: { job: Schedule.events(jobs, { name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end", resource: { field: "press", of: "presses" } }) },
         ...change,
     } as never);

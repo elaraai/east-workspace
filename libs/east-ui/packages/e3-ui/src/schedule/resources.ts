@@ -8,27 +8,21 @@
  * resource kind — people, presses, sites — read from any `Dict<K, R>`, usually
  * a record's `read()`, or a window at a time from a paged read of one. A
  * schedule never writes them: their keys are what an event's resource field
- * holds.
+ * holds. `build(slot)` is the kind as the Calendar takes it.
  *
- * Plan's options sit beside the Calendar's (#1190, `Plan Builder Spec.md`
- * §4.2): the group strip a resource sits under, the resource of its kind it
- * nests under, its gutter (sub line, value slot and status dot), how a
- * parent's bands roll up and whether it starts folded, and the read-only
- * series under each resource (`measures`). The Calendar takes no notice of
- * them: `build(slot)` is its kind, and `buildPlan(slot)` Plan's.
+ * A Plan takes no resource kinds (#1541, U1): its rows are its resources, laid
+ * out by `Plan.series.resources` or a case of `Plan.series.kinds`, so the
+ * options only a Plan read — `parent`, `sub`, `value`, `status`, `rollup`,
+ * `collapsed` and `measures` — are refused by name, naming where each went.
  *
  * A kind given its resources as a paged read — `Data.bindPaged(record)`, told
- * from a `Dict` by its East type, as the Plan's `data` is (#1199, PB55) — is
- * paged on a Plan as a paged canvas pages its blocks: its rows come a window
- * of resources at a time as the canvas scrolls, the key search seeks a
- * resource by its key, and one resource is read by its key — its name where an
- * event names it — so its resources are never read whole, and the kind on the
- * wire lists none. A window comes in the resources' key order, so a group
- * strip or a parent, which gather resources from anywhere in it, are refused
- * beside one, and the keys are Strings, as the canvas seeks them. The Calendar
- * pages one the same way (#1424): its timeline's rows and its Resources view's
- * columns come a window of resources at a time, through the Calendar's
- * `paged`, each resource as the Calendar takes it (`calendarRow`).
+ * from a `Dict` by its East type (#1199, #1424) — is paged on a Calendar: its
+ * timeline's rows and its Resources view's columns come a window of resources
+ * at a time, through the Calendar's `paged`, each resource as the Calendar
+ * takes it (`calendarRow`), so its resources are never read whole, and the
+ * kind on the wire lists none. A window comes in the resources' key order, so
+ * a group, which gathers resources from anywhere in it, is refused beside one,
+ * and the keys are Strings, as the Calendar seeks them.
  *
  * The builders over the app's own records read their resources through
  * accessors beside Plan's (#1367, `Builder Interfaces Spec.md` §4.2): the
@@ -42,18 +36,15 @@
  */
 
 import {
-    ArrayType, BooleanType, DictType, East, FloatType, FunctionType, OptionType, SetType, StringType, isTypeEqual, none, printType, some,
+    ArrayType, BooleanType, DictType, East, FloatType, FunctionType, OptionType, SetType, StringType, isTypeEqual, none, printType,
     type EastType, type ExprType, type SubtypeExprOrValue,
 } from "@elaraai/east";
-import { StatusValueType, TimeStepType } from "@elaraai/east-ui";
-import { resolveRowSource, resolveTag } from "@elaraai/east-ui/internal";
+import { TimeStepType } from "@elaraai/east-ui";
+import { resolveRowSource } from "@elaraai/east-ui/internal";
 import { AllocationJobType } from "../allocation/types.js";
 import type { PagedValue } from "../bind/data.js";
-import { planSeriesFacts, type PlanSeriesValue } from "../plan/series.js";
-import { PlanRollupType, type PlanAxisKindLiteral, type PlanRollupLiteral } from "../plan/types.js";
 import { scheduleAccessor } from "./accessor.js";
-import { PlanResourceRowType, PlanResourcesType, ScheduleResourceRowType, ScheduleResourcesType } from "./types.js";
-import { scheduleEntryByKey } from "./window.js";
+import { ScheduleResourceRowType, ScheduleResourcesType } from "./types.js";
 
 /** The key a schedule's definitions carry their sort under. */
 export const SCHEDULE_DEF: unique symbol = Symbol("Schedule.def");
@@ -73,22 +64,8 @@ export interface ScheduleResourcesConfig<K extends EastType, R extends EastType>
     label: (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<StringType>;
     /** A resource's second line. */
     meta?: (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<OptionType<StringType>>;
-    /** Plan: the group strip a resource sits under (a hall), which the grain folds to its summary. */
+    /** The group a resource sits under: the Roster's home group of a person, the Allocation's group of a resource. */
     group?: (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<StringType>;
-    /** Plan: the key's text of the resource of its kind it nests under, whose bands roll its events up; `none` at the top. */
-    parent?: (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<OptionType<StringType>>;
-    /** Plan: the gutter's sub line. */
-    sub?: (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<OptionType<StringType>>;
-    /** Plan: the gutter's value slot. */
-    value?: (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<OptionType<StringType>>;
-    /** Plan: the gutter's status dot. */
-    status?: (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<OptionType<StatusValueType>>;
-    /** Plan: how a parent's bands roll its children's events up, as `Plan.series.span`'s (`"union"`, the default). */
-    rollup?: SubtypeExprOrValue<PlanRollupType> | PlanRollupLiteral;
-    /** Plan: whether a resource with resources under it starts folded — a constant, or per resource. */
-    collapsed?: boolean | ((row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<BooleanType>);
-    /** Plan: the read-only rows under each resource, in order — `Plan.series.heat`, `table` or `chart` over the resources' rows. */
-    measures?: readonly PlanSeriesValue<PlanAxisKindLiteral>[];
     /** The Roster's people: a person's default position, a key of its `positions`. */
     position?: (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<StringType>;
     /** The Roster's people: the skills a person holds, keys of its `activities`. */
@@ -177,28 +154,17 @@ export interface ScheduleResourceKind<K extends EastType, R extends EastType> {
     readonly name: string;
     /** Its Font Awesome icon: what a builder's library lists the kind with (#1195). */
     readonly icon: string;
-    /** Plan: the read-only series under each resource, in order. */
-    readonly measures: readonly PlanSeriesValue<PlanAxisKindLiteral>[];
-    /** Plan: the paged read of the resources, its rows a window at a time (#1199); `undefined` when they are read whole. */
+    /** The paged read of the resources, its rows a window at a time (#1424); `undefined` when they are read whole. */
     readonly window: ExprType<EastType> | undefined;
     /**
-     * Plan: the resources as the kind was given them, a `Dict` of `rowType` by
-     * `keyType` — read again where a Plan draws them (#1192); `undefined` for a
-     * kind paged a window at a time (#1199), whose resources are never read
-     * whole. Its type is erased, as `window`'s is, so a kind of any rows is one
-     * of any other.
+     * The resources as the kind was given them, a `Dict` of `rowType` by
+     * `keyType`; `undefined` for a kind paged a window at a time, whose
+     * resources are never read whole. Its type is erased, as `window`'s is, so
+     * a kind of any rows is one of any other.
      */
     readonly source: ExprType<DictType<EastType, EastType>> | undefined;
-    /** Plan: one resource as Plan's builder takes it, from its row and key: its label, group, parent and gutter. Erased, as `source` is. */
-    readonly planRow: ExprType<FunctionType<[EastType, EastType], PlanResourceRowType>>;
-    /** One resource as the Calendar takes it, from its row and key: its key's text, its name and its second line (#1424). Erased, as `planRow` is. */
+    /** One resource as the Calendar takes it, from its row and key: its key's text, its name and its second line (#1424). Erased, as `source` is. */
     readonly calendarRow: ExprType<FunctionType<[EastType, EastType], ScheduleResourceRowType>>;
-    /** Plan: whether the kind's resources sit under group strips (`group`). */
-    readonly grouped: boolean;
-    /** Plan: whether a resource may nest under another of its kind (`parent`). */
-    readonly nested: boolean;
-    /** Plan: how a parent's bands roll its children's events up. */
-    readonly rollup: ExprType<PlanRollupType>;
     /** Its accessors, each reified once: what a builder over the app's own records calls per row (#1367). */
     readonly accessors: ScheduleResourceAccessors;
     /**
@@ -209,26 +175,22 @@ export interface ScheduleResourceKind<K extends EastType, R extends EastType> {
      *   through the Calendar's `paged`, so the kind on the wire never reads them whole
      */
     build(slot: string): ExprType<ScheduleResourcesType>;
-    /**
-     * The kind on the wire as Plan's builder takes it, under its slot.
-     *
-     * @param slot - The builder's slot name for it
-     * @returns The kind, its rows resolved with their groups, parents and gutters
-     */
-    buildPlan(slot: string): ExprType<PlanResourcesType>;
 }
 
-/** The ways a parent rolls up. */
-const ROLLUPS: readonly string[] = ["union", "byStatus", "sum"];
-
-/** The kinds of series a measure may be. */
-const MEASURES: readonly string[] = ["heat", "table", "chart"];
-
-/** One of a paged kind's resources read by its key's text, as the kind on the wire carries it (#1199). */
-const ByKeyType = OptionType(OptionType(PlanResourceRowType));
-
-/** The read of one of a paged kind's resources by its key's text. */
-const ByKeyFunctionType = FunctionType([StringType], ByKeyType);
+/**
+ * The options only a Plan read, gone with the Plan's resource kinds (#1541,
+ * U1), each with where a Plan takes it now: on the resources series that
+ * lays out its rows.
+ */
+const PLAN_OPTIONS: Readonly<Record<string, string>> = {
+    parent: "a tree of them, `children`",
+    sub: "`sub`",
+    value: "`value`",
+    status: "`status`",
+    rollup: "`rollup`",
+    collapsed: "`collapsed`",
+    measures: "`series`, the read-only rows under each resource",
+};
 
 /**
  * Declares a resource kind (see the module docs).
@@ -238,10 +200,9 @@ const ByKeyFunctionType = FunctionType([StringType], ByKeyType);
  * @param rows - The resources, keyed: usually a record's `read()`
  * @param config - Its name, its icon, each resource's label and second line, and Plan's options
  * @returns The kind, for a builder's `resources`
- * @throws {Error} When `rows` is not a `Dict`, or a paged read of one (#1199) keyed by anything but a String or
- *   beside `group` or `parent`; a `window`, which is gone; a `rollup` that is not a way to roll up; a measure that
- *   is not a `Plan.series.heat`, `table` or `chart` over the resources' rows written in place, that nests, or whose
- *   key another measure has; and an accessor returning another type than it takes, naming what it returns (#1367)
+ * @throws {Error} When `rows` is not a `Dict`, or a paged read of one (#1424) keyed by anything but a String or
+ *   beside `group`; a `window`, which is gone; an option only a Plan read, naming where a Plan takes it now (#1541);
+ *   and an accessor returning another type than it takes, naming what it returns (#1367)
  * @example
  * ```tsx
  * import { DictType, East, StringType, StructType, some } from "@elaraai/east";
@@ -268,7 +229,7 @@ export function scheduleResources<K extends EastType, R extends EastType>(
  *
  * @typeParam R - Its row type
  * @param rows - The resources, a window at a time: `Data.bindPaged(record)`
- * @param config - Its name, its icon, each resource's label and second line, and Plan's options but `group` and `parent`
+ * @param config - Its name, its icon, each resource's label and second line, and the builders' accessors but `group`
  * @returns The kind, for a builder's `resources`
  * @throws {Error} As the whole form does, naming the paged read
  */
@@ -279,6 +240,13 @@ export function scheduleResources<R extends EastType>(
 export function scheduleResources(rows: unknown, input: unknown): ScheduleResourceKind<EastType, EastType> {
     const config = input as ScheduleResourcesConfig<EastType, EastType>;
     const where = `Schedule.resources: "${config.name}"`;
+    // The options only a Plan read (#1541, U1): a Plan's rows are its resources now, laid out by Plan.series.resources.
+    for (const [prop, there] of Object.entries(PLAN_OPTIONS)) {
+        if (prop in config) {
+            throw new Error(`${where}: \`${prop}\` was the Plan's, and a Plan takes no resource kinds now (#1541) — its rows are its resources: ` +
+                `lay them out with Plan.series.resources(Row, { key, title, label, … }), which takes ${there}`);
+        }
+    }
     // Removed before anything was released with it (#1199): the kind pages when its resources are a paged read.
     if ("window" in config) {
         throw new Error(`${where}: \`window\` is gone — a kind pages when its resources are a paged read: ` +
@@ -315,61 +283,18 @@ export function scheduleResources(rows: unknown, input: unknown): ScheduleResour
         ? East.function([StringType], StringType, (_$, key) => key)
         : East.function([keyType], StringType, (_$, key) => East.print(key));
 
-    // Plan's: how a parent rolls up, its measures, and the paged read.
-    if (typeof config.rollup === "string" && !ROLLUPS.includes(config.rollup)) {
-        throw new Error(`${where}: \`rollup\` is "union", "byStatus" or "sum" — and it is "${config.rollup}"`);
-    }
-    const rollup = resolveTag(config.rollup ?? "union", PlanRollupType);
-    const measures = config.measures ?? [];
-    const collection = DictType(keyType, rowType);
-    const keys = new Set<string>();
-    // The measures' keys, in the order the kind lists them.
-    const measureKeys: string[] = [];
-    measures.forEach((series, i) => {
-        const at = `${where}: measures[${i}]`;
-        let facts;
-        try {
-            facts = planSeriesFacts(series, collection, `${where} › measures[${i}]`);
-        } catch (err) {
-            throw new Error(`${at} is a series over the resources' rows — ${err instanceof Error ? err.message : String(err)}`);
-        }
-        if (facts === undefined) {
-            throw new Error(`${at} is a Plan.series.heat, table or chart written in place — a series bound or stored elsewhere cannot be laid out under each resource`);
-        }
-        const named = `${facts.arm} "${facts.title}"`;
-        if (!MEASURES.includes(facts.arm)) {
-            throw new Error(`${at} is a ${named} series — a measure is a heat, table or chart series over the resources' rows`);
-        }
-        if (facts.nests) {
-            throw new Error(`${at}, ${named}, declares \`children\` — a measure is one row under each resource`);
-        }
-        if (keys.has(facts.key)) {
-            throw new Error(`${at}, ${named}, repeats the key "${facts.key}" — a measure row's id is its series' key and its resource's path, so each measure has a key of its own`);
-        }
-        keys.add(facts.key);
-        measureKeys.push(facts.key);
-    });
     if (window !== undefined) {
-        // A window comes in the resources' key order (#1199): the canvas seeks a resource by its key as text,
-        // and a group strip or a parent gathers resources from anywhere in the record.
+        // A window comes in the resources' key order (#1424): the Calendar seeks a resource by its key as text, and a
+        // group gathers resources from anywhere in the record.
         if (!isTypeEqual(keyType, StringType)) {
             throw new Error(`${where}: a paged kind's key search seeks a resource by its key, as text — key the resources by String, and these are keyed by ${printType(keyType)}`);
         }
-        for (const prop of ["group", "parent"] as const) {
-            if (config[prop] !== undefined) {
-                throw new Error(`${where}: a paged kind reads its resources a window at a time in their key order, and \`${prop}\` ` +
-                    `gathers resources from anywhere in the record, which a window holds only its share of — read the resources whole, or leave \`${prop}\` out`);
-            }
+        if (config.group !== undefined) {
+            throw new Error(`${where}: a paged kind reads its resources a window at a time in their key order, and \`group\` ` +
+                "gathers resources from anywhere in the record, which a window holds only its share of — read the resources whole, or leave `group` out");
         }
     }
-    // Plan's accessors.
     const groupOf = accessor("group", StringType, "a String, the group a resource sits under", config.group);
-    const parentOf = accessor("parent", optString, "an Option of a String, the key's text of the resource it nests under", config.parent);
-    const subOf = accessor("sub", optString, "an Option of a String, the gutter's sub line", config.sub);
-    const valueOf = accessor("value", optString, "an Option of a String, the gutter's value slot", config.value);
-    const statusOf = accessor("status", OptionType(StatusValueType), "an Option of a StatusValue, the gutter's status dot", config.status);
-    const collapsed = config.collapsed;
-    const collapsedOf = typeof collapsed === "function" ? accessor("collapsed", BooleanType, "a Boolean, whether a resource starts folded", collapsed) : undefined;
     // The builders' over the app's own records (#1367): the Roster's people, the Allocation's lanes and resources.
     const accessors: ScheduleResourceAccessors = {
         label,
@@ -389,30 +314,6 @@ export function scheduleResources(rows: unknown, input: unknown): ScheduleResour
         hold: accessor("hold", TimeStepType, "a TimeStep, how long a reservation on a resource is held", config.hold),
         jobs: accessor("jobs", ArrayType(AllocationJobType), "an Array of Allocation.Types.Job, the other work on a resource", config.jobs),
     };
-    // One resource as Plan's builder takes it.
-    const planRow = East.function([rowType, keyType], PlanResourceRowType, ($, row, key) => {
-        const keyText = $.const(text as ExprType<FunctionType<[EastType], StringType>>);
-        const labelOf = $.const(label);
-        const metaOf = $.const(meta);
-        // An accessor's value for this row, or `otherwise` when the kind has no such accessor.
-        const call = (fn: unknown, otherwise: unknown, wrap?: (value: ExprType<EastType>) => unknown): unknown => {
-            if (fn === undefined) return otherwise;
-            const bound = $.const(fn as ExprType<FunctionType<[EastType, EastType], EastType>>);
-            const value = bound(row as never, key as never) as ExprType<EastType>;
-            return wrap === undefined ? value : wrap(value);
-        };
-        return East.value({
-            key: keyText(key),
-            label: labelOf(row as never, key as never),
-            meta: metaOf(row as never, key as never),
-            group: call(groupOf, none, (g) => some(g)),
-            parent: call(parentOf, none),
-            sub: call(subOf, none),
-            value: call(valueOf, none),
-            status: call(statusOf, none),
-            collapsed: collapsedOf !== undefined ? call(collapsedOf, false) : collapsed === true,
-        } as never, PlanResourceRowType);
-    });
     // One resource as the Calendar takes it (#1424): its key's text, its name and its second line.
     const calendarRow = East.function([rowType, keyType], ScheduleResourceRowType, ($, row, key) => {
         const keyText = $.const(text as ExprType<FunctionType<[EastType], StringType>>);
@@ -420,34 +321,15 @@ export function scheduleResources(rows: unknown, input: unknown): ScheduleResour
         const metaOf = $.const(meta);
         return East.value({ key: keyText(key), label: labelOf(row as never, key as never), meta: metaOf(row as never, key as never) }, ScheduleResourceRowType);
     });
-    // A paged kind's resource by its key's text (#1199): its window's key search, then a one-row page.
-    const byKey = window === undefined ? undefined : (() => {
-        const find = scheduleEntryByKey(window, keyType, rowType);
-        return East.function([StringType], ByKeyType, ($, key) => {
-            const read = $.const(find);
-            const resolve = $.const(planRow);
-            const result = $.let(none, ByKeyType);
-            $.match(read(key), {
-                held: ($2, row) => { $2.assign(result, some(some(resolve(row as never, key as never)))); },
-                absent: ($2) => { $2.assign(result, some(none)); },
-            });
-            return result;
-        });
-    })();
     return {
         [SCHEDULE_DEF]: "resources",
         keyType,
         rowType,
         name: config.name,
         icon: config.icon,
-        measures,
         window,
         source: source as unknown as ExprType<DictType<EastType, EastType>> | undefined,
-        planRow: planRow as unknown as ExprType<FunctionType<[EastType, EastType], PlanResourceRowType>>,
         calendarRow: calendarRow as unknown as ExprType<FunctionType<[EastType, EastType], ScheduleResourceRowType>>,
-        grouped: config.group !== undefined,
-        nested: config.parent !== undefined,
-        rollup,
         accessors,
         build(slot: string): ExprType<ScheduleResourcesType> {
             return East.value({
@@ -463,24 +345,6 @@ export function scheduleResources(rows: unknown, input: unknown): ScheduleResour
                         return make(row as never, key as never);
                     }),
             }, ScheduleResourcesType);
-        },
-        buildPlan(slot: string): ExprType<PlanResourcesType> {
-            return East.value({
-                key: slot,
-                name: config.name,
-                icon: config.icon,
-                rollup,
-                measures: measureKeys,
-                // A paged kind's rows come a window at a time where the Plan draws them (#1199): none here, so
-                // the kind on the wire never reads them whole; one is read by its key where it is named.
-                rows: source === undefined
-                    ? East.value([], ArrayType(PlanResourceRowType))
-                    : (source as unknown as ExprType<DictType<EastType, EastType>>).toArray(($, row, key) => {
-                        const resolve = $.const(planRow);
-                        return resolve(row as never, key as never);
-                    }),
-                byKey: byKey === undefined ? East.value(none, OptionType(ByKeyFunctionType)) : East.value(some(byKey), OptionType(ByKeyFunctionType)),
-            } as never, PlanResourcesType);
         },
     };
 }

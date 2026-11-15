@@ -38,11 +38,13 @@ function refusal(build: ($: BlockBuilder<NullType>) => unknown): string {
 
 const WINDOW = { min: new Date("2026-10-05T00:00:00Z"), max: new Date("2026-11-02T00:00:00Z") };
 
-/** The presses, bound inside a block. */
-function pressesOf($: BlockBuilder<never>) {
-    const presses = $.let(Record.bind(ex.planPrintPresses, []));
-    return Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name });
+/** The presses, bound inside a block: the rows the jobs land on (#1541). */
+function pressRows($: BlockBuilder<never>) {
+    return $.let(Record.bind(ex.planPrintPresses, [])).read();
 }
+
+/** The presses' resources series: it lays out the rows the jobs land on. */
+const PRESSES = Plan.series.resources(ex.PrintPress, { key: "presses", title: "Presses", icon: "print", label: (p) => p.name });
 
 /** The jobs over the presses, bound inside a block, their unscheduled ones in the backlog. */
 function jobsOf($: BlockBuilder<never>) {
@@ -83,7 +85,7 @@ describe("the Series tab (PB29)", () => {
         }), "");
         // A Plan with nothing to hide — no series, no kinds, no rows — has no Series tab.
         assert.match(refusal(() => Plan.Payload({ axis: Plan.axis({ window: WINDOW, resolution: "day" }), rows: [], library: [Plan.library.series()] })),
-            /^Plan: the library lists Plan\.library\.series\(\), and this Plan has nothing a viewer can hide — it lists event kinds, resource kinds and their measures, `rows`, and `data`'s `series`$/);
+            /^Plan: the library lists Plan\.library\.series\(\), and this Plan has nothing a viewer can hide — it lists event kinds, `rows`, and `data`'s `series`$/);
     });
 
     test("the tab's lines of a list known only as it runs match its series' kinds once: id, title, subtitle and icon call one identity; a list written in place is read as the Plan is built, with no match", () => {
@@ -126,7 +128,7 @@ describe("an author's tab (PB62)", () => {
 describe("the library's refusals (PB61, PB62)", () => {
     const axis = Plan.axis({ window: WINDOW, resolution: "day" });
     const overJobs = ($: BlockBuilder<NullType>, library: readonly ReturnType<typeof Plan.library.events>[]) =>
-        Plan.Payload({ axis, resources: { presses: pressesOf($) }, events: { job: jobsOf($) }, library });
+        Plan.Payload({ axis, data: pressRows($), series: [PRESSES], events: { job: jobsOf($) }, library });
 
     test("a tab listed twice, the author's by its name", () => {
         assert.match(refusal(($) => overJobs($, [Plan.library.events(), Plan.library.series(), Plan.library.events()])),
@@ -145,7 +147,7 @@ describe("the library's refusals (PB61, PB62)", () => {
         assert.match(refusal(($) => {
             const rush = $.let(Record.bind(ex.planLinkJobs));
             return Plan.Payload({
-                axis, resources: { presses: pressesOf($) },
+                axis, data: pressRows($), series: [PRESSES],
                 events: {
                     job: jobsOf($),
                     rush: Schedule.events(rush, { name: "Rush job", icon: "bolt", title: "title", start: "start", end: "end", resource: { field: "press", of: "presses" } }),

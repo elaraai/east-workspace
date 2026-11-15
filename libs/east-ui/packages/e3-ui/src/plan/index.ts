@@ -1217,9 +1217,9 @@ const PLAN_MEMBERS = {
  *             <Plan
  *                 id="jobs"
  *                 axis={axis}
- *                 resources={{
- *                     presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: p => p.name }),
- *                 }}
+ *                 // The presses are its rows: each a landing row its jobs land on, by `press`.
+ *                 data={presses.read()}
+ *                 series={[Plan.series.resources(PrintPress, { key: "presses", title: "Presses", icon: "print", label: p => p.name })]}
  *                 events={{
  *                     job: Schedule.events(jobs, {
  *                         name: "Print job", icon: "file-lines",

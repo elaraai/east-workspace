@@ -87,7 +87,6 @@ export type PlanOverRows<K extends PlanAxisKindLiteral = never> = PlanKinded<Exp
  * import { Data, Plan, Record, Schedule } from "@elaraai/e3-ui";
  * import e3 from "@elaraai/e3";
  *
- * export const PrintPress = StructType({ name: StringType, hall: StringType, sheets_per_hour: FloatType });
  * export const PrintJob = StructType({
  *     title: StringType,
  *     start: OptionType(DateTimeType),
@@ -100,27 +99,9 @@ export type PlanOverRows<K extends PlanAxisKindLiteral = never> = PlanKinded<Exp
  *     due: OptionType(DateTimeType),
  * });
  * export const PrintStock = StructType({ name: StringType, weekly: DictType(DateTimeType, FloatType) });
- * export const PrintCentre = StructType({ name: StringType });
  * export const PrintPlates = StructType({ title: StringType, at: DateTimeType, setter: StringType });
  * export const PrintBinding = StructType({ title: StringType, start: DateTimeType, end: DateTimeType, line: StringType, state: EventStateType });
  * export const PrintDelivery = StructType({ title: StringType, at: DateTimeType, bay: StringType });
- * export const planPrintPresses = e3.record("plan_print_presses", DictType(StringType, PrintPress), {
- *     initial: new Map([
- *         ["a1", { name: "Press A1", hall: "Hall A", sheets_per_hour: 12000.0 }],
- *         ["a2", { name: "Press A2", hall: "Hall A", sheets_per_hour: 10000.0 }],
- *         ["a3", { name: "Press A3", hall: "Hall A", sheets_per_hour: 8000.0 }],
- *         ["b1", { name: "Press B1", hall: "Hall B", sheets_per_hour: 15000.0 }],
- *         ["b2", { name: "Press B2", hall: "Hall B", sheets_per_hour: 12000.0 }],
- *         ["b3", { name: "Press B3", hall: "Hall B", sheets_per_hour: 6000.0 }],
- *     ]),
- *     indexes: (index) => ({
- *         plan_print_presses_by_hall: index.on(["hall"]),
- *     }),
- *     mutations: (mutation) => ({
- *         // The presses' patch door: the works edits its presses elsewhere, and a Plan reads them live.
- *         patch: mutation.patch(),
- *     }),
- * });
  * export const planLinkStock = e3.input("plan_link_stock", DictType(StringType, PrintStock), variant("value", new Map([
  *     ["board", { name: "Board", weekly: new SortedMap([
  *         [new Date("2026-10-05T00:00:00Z"), 40.0], [new Date("2026-10-12T00:00:00Z"), 22.0], [new Date("2026-10-19T00:00:00Z"), 31.0], [new Date("2026-10-26T00:00:00Z"), 18.0],
@@ -132,22 +113,6 @@ export type PlanOverRows<K extends PlanAxisKindLiteral = never> = PlanKinded<Exp
  *         [new Date("2026-10-05T00:00:00Z"), 300.0], [new Date("2026-10-12T00:00:00Z"), 260.0], [new Date("2026-10-19T00:00:00Z"), 280.0], [new Date("2026-10-26T00:00:00Z"), 240.0],
  *     ], compareFor(DateTimeType)) }],
  * ])));
- * export const planLinkSetters = e3.record("plan_link_setters", DictType(StringType, PrintCentre), {
- *     initial: new Map([
- *         ["ps", { name: "Platesetter" }],
- *     ]),
- * });
- * export const planLinkLines = e3.record("plan_link_lines", DictType(StringType, PrintCentre), {
- *     initial: new Map([
- *         ["fold", { name: "Folder" }],
- *         ["bind", { name: "Binder" }],
- *     ]),
- * });
- * export const planLinkBays = e3.record("plan_link_bays", DictType(StringType, PrintCentre), {
- *     initial: new Map([
- *         ["bay", { name: "Dispatch bay" }],
- *     ]),
- * });
  * export const planLinkPlates = e3.record("plan_link_plates", DictType(StringType, PrintPlates), {
  *     initial: new Map([
  *         ["P-01", { title: "Catalogue plates", at: new Date("2026-10-05T12:00:00Z"), setter: "ps" }],
@@ -156,6 +121,24 @@ export type PlanOverRows<K extends PlanAxisKindLiteral = never> = PlanKinded<Exp
  *         // The plates' patch door.
  *         patch: mutation.patch(),
  *     }),
+ * });
+ * export const PrintLinkCentre = StructType({
+ *     name: StringType,
+ *     what: VariantType({ setter: NullType, press: StructType({ hall: StringType }), line: NullType, bay: NullType }),
+ * });
+ * export const planLinkWorks = e3.record("plan_link_works", DictType(StringType, PrintLinkCentre), {
+ *     initial: new Map([
+ *         ["ps", { name: "Platesetter", what: variant("setter", null) }],
+ *         ["a1", { name: "Press A1", what: variant("press", { hall: "Hall A" }) }],
+ *         ["a2", { name: "Press A2", what: variant("press", { hall: "Hall A" }) }],
+ *         ["a3", { name: "Press A3", what: variant("press", { hall: "Hall A" }) }],
+ *         ["b1", { name: "Press B1", what: variant("press", { hall: "Hall B" }) }],
+ *         ["b2", { name: "Press B2", what: variant("press", { hall: "Hall B" }) }],
+ *         ["b3", { name: "Press B3", what: variant("press", { hall: "Hall B" }) }],
+ *         ["fold", { name: "Folder", what: variant("line", null) }],
+ *         ["bind", { name: "Binder", what: variant("line", null) }],
+ *         ["bay", { name: "Dispatch bay", what: variant("bay", null) }],
+ *     ]),
  * });
  * export const planLinkCaseJobs = e3.record("plan_link_case_jobs", DictType(StringType, PrintJob), {
  *     initial: new Map([
@@ -213,10 +196,7 @@ export type PlanOverRows<K extends PlanAxisKindLiteral = never> = PlanKinded<Exp
  *
  * const planEventLinks = East.function([], UIComponentType, (_$) => (
  *     <Reactive>{$ => {
- *         const setters = $.let(Record.bind(planLinkSetters, []));
- *         const presses = $.let(Record.bind(planPrintPresses, []));
- *         const lines = $.let(Record.bind(planLinkLines, []));
- *         const bays = $.let(Record.bind(planLinkBays, []));
+ *         const works = $.let(Record.bind(planLinkWorks, []));
  *         const plates = $.let(Record.bind(planLinkPlates));
  *         const jobs = $.let(Record.bind(planLinkCaseJobs));
  *         const bindings = $.let(Record.bind(planLinkBindings));
@@ -229,12 +209,18 @@ export type PlanOverRows<K extends PlanAxisKindLiteral = never> = PlanKinded<Exp
  *         return (
  *             <Plan
  *                 axis={axis}
- *                 resources={{
- *                     setters: Schedule.resources(setters.read(), { name: "Plate room", icon: "layer-group", label: s => s.name }),
- *                     presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: p => p.name, group: p => p.hall }),
- *                     lines: Schedule.resources(lines.read(), { name: "Bindery", icon: "book", label: l => l.name }),
- *                     bays: Schedule.resources(bays.read(), { name: "Dispatch", icon: "warehouse", label: b => b.name }),
- *                 }}
+ *                 // The works' centres, one record of rows: each kind of centre a resources series of its own, in the
+ *                 // order the links run through them — plates, printing, binding, dispatch.
+ *                 data={works.read()}
+ *                 series={[
+ *                     Plan.series.resources(PrintLinkCentre, { key: "setters", title: "Plate room", icon: "layer-group", match: c => c.what.hasTag("setter"), label: c => c.name }),
+ *                     Plan.series.resources(PrintLinkCentre, {
+ *                         key: "presses", title: "Presses", icon: "print", match: c => c.what.hasTag("press"), label: c => c.name,
+ *                         sub: c => some(c.what.unwrap("press").hall),
+ *                     }),
+ *                     Plan.series.resources(PrintLinkCentre, { key: "lines", title: "Bindery", icon: "book", match: c => c.what.hasTag("line"), label: c => c.name }),
+ *                     Plan.series.resources(PrintLinkCentre, { key: "bays", title: "Dispatch", icon: "warehouse", match: c => c.what.hasTag("bay"), label: c => c.name }),
+ *                 ]}
  *                 events={{
  *                     plate: Schedule.events(plates, {
  *                         name: "Plates", icon: "clone",
