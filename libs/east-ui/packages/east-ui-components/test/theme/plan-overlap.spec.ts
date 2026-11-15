@@ -9,7 +9,8 @@
  * a tile, a card chip, a milestone and a mark's icon. A mark with a ring of its
  * own keeps it — a confirmed mark's inset brand ring inside the warn ring, a
  * danger status's ring, the worse, in its place (#1541: on a bar and a chip as
- * on a tile), an open item's own ring inside the warn — and an exception's
+ * on a tile, a confirmed mark's inset ring inside it), an open item's own ring
+ * inside the warn — and an exception's
  * triangle, the warn mark already, draws none. The showcase measures the
  * bar's ring in both themes (`plan-frame.spec.ts`) and every status's with it
  * (`plan-status.spec.ts`); this holds every mark's rules.
@@ -52,15 +53,24 @@ test("a confirmed mark in an overlap pair keeps its own inset ring inside the wa
     assert.deepEqual(wrong, []);
 });
 
-test("a danger status in an overlap pair keeps its own ring on a bar, a tile and a chip, a confirmed one too, and an open item its ring inside the warn (#1541)", () => {
+test("a danger status in an overlap pair keeps its own ring on a bar, a tile and a chip, a confirmed one its inset ring inside it, and an open item its ring inside the warn (#1541)", () => {
     for (const slot of ["bar", "tile", "cardChip"]) {
         // A status's ring is one rule, in the colour its tone sets; the overlap's takes its place, written after it.
         assert.equal(shadow(slot, "&[data-tone]"), PLAN_STATUS_RING, slot);
         assert.ok(after(slot, "&[data-tone]", "&[data-overlap]"), slot);
-        // A danger's, the worse, stands in the overlap's place: its rule after the confirmed overlap's, and as strong.
-        assert.equal(shadow(slot, "&[data-overlap][data-tone='danger']"), PLAN_STATUS_RING, slot);
-        assert.ok(after(slot, "&[data-overlap][data-state='appr']", "&[data-overlap][data-tone='danger']"), slot);
-        // An open item keeps its ring inside the warn.
-        assert.equal(shadow(slot, "&[data-overlap][data-ring]:where([data-tone]:not([data-draft]))"), `${PLAN_STATUS_OPEN_RING}, ${PLAN_OVERLAP_RING}`, slot);
+        // A danger's, the worse, stands in the overlap's place. Its rule follows the overlap's and is as strong, its
+        // tone held in `:where`, so the conflict ring after it still takes its place (`conflict-ring.test.ts`).
+        assert.equal(shadow(slot, "&[data-overlap]:where([data-tone='danger'])"), PLAN_STATUS_RING, slot);
+        assert.ok(after(slot, "&[data-overlap]", "&[data-overlap]:where([data-tone='danger'])"), slot);
+        // A confirmed box keeps its inset ring inside the danger's, as inside the warn.
+        const confirmed = shadow(slot, "&[data-state='appr']");
+        assert.equal(shadow(slot, "&[data-overlap][data-state='appr']:where([data-tone='danger'])"), `${String(confirmed)}, ${PLAN_STATUS_RING}`, slot);
+        assert.ok(after(slot, "&[data-overlap][data-state='appr']", "&[data-overlap][data-state='appr']:where([data-tone='danger'])"), slot);
+        // An open item keeps its ring inside the warn, and a danger's open ring stands alone.
+        const open = "&[data-overlap][data-ring]:where([data-tone]:not([data-draft]))";
+        const openDanger = "&[data-overlap][data-ring]:where([data-tone='danger']:not([data-draft]))";
+        assert.equal(shadow(slot, open), `${PLAN_STATUS_OPEN_RING}, ${PLAN_OVERLAP_RING}`, slot);
+        assert.equal(shadow(slot, openDanger), PLAN_STATUS_OPEN_RING, slot);
+        assert.ok(after(slot, open, openDanger), slot);
     }
 });
