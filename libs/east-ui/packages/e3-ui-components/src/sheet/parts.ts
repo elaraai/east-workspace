@@ -28,6 +28,7 @@ import type { DraftPresentation } from "./draft-state.js";
 import type { SheetToolbarParts } from "./Toolbar.js";
 import type { SheetCellValue, SheetRowValue, SheetSubRowValue } from "./values.js";
 import type { SheetForms } from "./bounds.js";
+import type { SheetOptimiseBound } from "./optimise.js";
 
 export type Styles = Record<string, Record<string, unknown>>;
 
@@ -203,11 +204,13 @@ export interface SheetHost {
      */
     nouns?: ReadonlyMap<string, string> | undefined;
     /**
-     * The app's optimiser (#1409): the binding of its `e3.function`, as the
-     * payload holds it — what the Elara eye calls over the tab's rows. Absent,
-     * the sheet has no eye.
+     * The app's optimiser (#1409, east-workspace#1622), as the payload holds
+     * it: the binding of its `e3.function`, the record the sheet saves to, the
+     * type of the rows its Save reaches and, over one entry's rows, the
+     * entry's key — what the Elara eye calls with the sheet's unsaved edits as
+     * a draft of that record. Absent, the sheet has no eye.
      */
-    optimise?: { readonly name: string } | undefined;
+    optimise?: SheetOptimiseBound | undefined;
     /**
      * A phone's cell editor (`Mobile Sheet Spec.md` SH10, R9): what the bottom
      * container shows for the ring's cell — the inspector's form at touch size,

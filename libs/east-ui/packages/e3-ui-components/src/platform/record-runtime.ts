@@ -526,6 +526,38 @@ export class RecordRuntime extends TrackedChannelStore<RecordEntry> {
         };
     }
 
+    /**
+     * Has the workspace read a record again, from now: a status poll started
+     * from here on finds the content the cache holds of it the record's, or
+     * reads its hash.
+     *
+     * @remarks
+     * What a bound function's call asks once it is answered
+     * (east-workspace#1622, rules 9 and 12): the call read the record at the
+     * commit it stood at, and a page that held an older one takes the newer
+     * saves in before it lands the answer — or, the call refused because the
+     * record moved under its drafts, before it hands them over again. A poll
+     * started after the answer reads the record no older than the call did,
+     * whatever commit that was: a record read whole names none
+     * ({@link RecordRuntime.settledOf}). One poll is started for it, the
+     * workspace's own.
+     *
+     * @param name - The record's name
+     * @returns Settles once a poll started from here on has read the record;
+     *   at once for a record the cache's polls do not read, or with no cache
+     */
+    readAgain(name: string): Promise<void> {
+        const cache = this.cache;
+        const workspace = this.workspace;
+        if (cache === null || workspace === null) return Promise.resolve();
+        const mark = cache.pollMark(workspace);
+        const path = recordPath(name);
+        const waits = [cache.confirmed(workspace, path, mark), cache.hashRead(workspace, path, mark)].filter((wait) => wait !== undefined);
+        if (waits.length === 0) return Promise.resolve();
+        void cache.refresh(workspace);
+        return Promise.all(waits).then(() => undefined);
+    }
+
     // ----- closure semantics -------------------------------------------------
 
     /**

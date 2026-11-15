@@ -86,8 +86,12 @@ import {
 } from "@elaraai/east-ui-components";
 import { LoadingReveal, PAGED_LIBRARY_PAGE } from "@elaraai/east-ui-components/internal";
 import { isBounded, rowBreaches } from "../shared/bounds.js";
+import { PLAIN_FUNC_BINDING } from "../shared/func/use-func-call.js";
 import { useOptimise } from "../shared/func/use-optimise.js";
 import { useOptimiseParts } from "../shared/func/optimise-parts.js";
+import { useOptimiseRows } from "../shared/func/optimise-rows.js";
+import { scheduleOptimiseSessions } from "../shared/func/optimise-sessions.js";
+import { optimiseSlice } from "../shared/func/optimise-slice.js";
 import { pagedLoadingLine, pagedLoadingMessages, periodLoading, periodLoadingLine, periodRead, retryPeriod, type PagedLoading } from "../shared/loading.js";
 import type { ScheduleCellNotice, ScheduleCellResources } from "../shared/schedule/cells.js";
 import { scheduleIssueName, useScheduleEditing, type ScheduleEditing, type ScheduleEventDraftsValue, type ScheduleHeldRows, type ScheduleRowRead } from "../shared/schedule/editing.js";
@@ -157,6 +161,8 @@ const NO_ITEMS: CalendarItem[] = [];
 const NO_ANCHOR: CalendarAnchor = {};
 /** The row an event with no resource sits on, in the Calendar's word for it. */
 const unassignedRow = (label: string): CalendarRow => ({ key: "", label, meta: "", group: "", resource: none });
+/** A read-only Calendar reads no row for an answer to land on: it has no optimiser. */
+const NO_ROWS_BY_KEY = (): undefined => undefined;
 /** No resource kind laid out: a view with no resource axis shades no resource (#1424). */
 const NO_CELL_RESOURCES: readonly ScheduleCellResources[] = [];
 /** A summary's tile the timeline shades a resource's row at, as the toolbar names the period (#1424). */
@@ -533,35 +539,50 @@ function CalendarFrame(props: HostProps) {
     // another session's write — leaves it live: a gesture begins from the row its event was drawn from, and a Save never
     // stops the editing.
     const available = current && !data.filtering && data.error === undefined && data.apart.error === undefined && !resourcesBusy && pages?.stale !== true;
-    // The app's optimiser (#1409, #1417): one run over the window in view, its result landed on the events as one
-    // edit, and what it left on them until Apply — the landing and the highlight over the whole frame.
+    // The app's optimiser (#1409, #1417, east-workspace#1622): one run over the window in view — asked the window, its
+    // period and the rail's narrowing, the kinds' unsaved edits sent as drafts — its answer's patches landed on the events
+    // as one edit, and what it left on them until Apply — the landing and the highlight over the whole frame.
     const landing = useLanding(root);
     const landingStyles = useLandingStyles();
     const optimiseTypes = useMemo(() => calendarOptimiseTypes(value), [value]);
     const [optimised, setOptimised] = useState<CalendarOptimised | undefined>(undefined);
     const landAfter = useRef<(run: number) => void>(() => undefined);
-    const latest = useRef({ items, backlog, editing, optimised });
-    latest.current = { items, backlog, editing, optimised };
+    const latest = useRef({ editing, optimised, periodName });
+    latest.current = { editing, optimised, periodName };
+    // Each kind's session, by the record it edits: what the run takes its drafts from, and waits on before its answer lands.
+    const optimiseSessions = useMemo(() => {
+        const records = new Map(value.events.map(kind => [kind.key, kind.editing.sourceId] as const));
+        return scheduleOptimiseSessions(() => latest.current.editing, kind => records.get(kind), words);
+    }, [value.events, words]);
+    // The events an answer touches that the page does not hold, read by their keys before it lands (rule 8).
+    const optimiseRows = useOptimiseRows(editing?.rowsByKey ?? NO_ROWS_BY_KEY);
     const run = useOptimise<CalendarOptimiseRequest, CalendarOptimiseResult>({
         name: value.optimise.type === "some" ? value.optimise.value.name : null,
+        binding: value.optimise.type === "some" ? value.optimise.value : PLAIN_FUNC_BINDING,
+        sessions: optimiseSessions, settleKey: `${editing?.version ?? 0}\u0000${optimiseRows.key}`,
         requestType: optimiseTypes.request, resultType: optimiseTypes.result,
         scope: `${range.from.getTime()}:${range.to.getTime()}`, storageKey,
         onLanded: (result, request, n) => {
             const now = latest.current;
             if (now.editing === undefined) return undefined;
             const runText = format.number(n);
-            const landed = landCalendarOptimise(value, now.editing, request, result, optimiseMessages.step({ run: runText }), now.items, now.backlog, runText, now.optimised);
-            if (landed === undefined) return undefined;
+            const live = now.editing;
+            const landed = landCalendarOptimise(value, optimiseTypes, live, (kind, id) => live.row(kind, id) ?? optimiseRows.read(kind, id), request, result,
+                optimiseMessages.step({ run: runText }), now.periodName, runText, now.optimised);
+            // Events the page does not hold are read by their keys, and the answer lands once they are (rule 8).
+            if (landed !== undefined && "missing" in landed) { optimiseRows.want(landed.missing); return { waiting: true }; }
+            optimiseRows.want([]);
+            if (landed === undefined || "refused" in landed) return landed;
             // A run that changed nothing leaves what earlier runs left (R10).
             if (landed.optimised !== undefined) { setOptimised(landed.optimised); landAfter.current(n); }
             return landed.counts;
         },
     });
-    // The eye is listed only where the window can be optimised (ruled 25 Oct 2026): never read only; while its reads
-    // are in flight it waits, disabled, in its place.
+    // The eye is listed only where the window can be optimised (ruled 25 Oct 2026): never read only. It waits on nothing
+    // the page reads (rule 6): the function reads the events itself, and its answer lands on what the page holds then.
     const parts = useOptimiseParts<CalendarOptimiseRequest>({
-        run, landing, period: periodName, readOnly: value.settings.readOnly || editing === undefined, busy: !available || reading,
-        request: n => calendarOptimiseRequest(value, editing!, range, latest.current.items, latest.current.backlog, n), landKey: data.items,
+        run, landing, period: periodName, readOnly: value.settings.readOnly || editing === undefined,
+        request: n => calendarOptimiseRequest(range, view, optimiseSlice(dates.chrome), n), landKey: data.items,
     });
     landAfter.current = parts.landAfter;
     const locked = parts.locked;

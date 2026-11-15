@@ -46,11 +46,11 @@ const sameBytes = equalFor(BlobType);
 const samePicker = equalFor(DictType(DateTimeType, RosterStatusType));
 
 /**
- * The periods of the weeks either side of a week in view (#1553): what a run of an optimiser that takes the week's edges
- * tells which of the duties at the edges are fixed by.
+ * The periods of the spans either side of the span in view (#1553) — the weeks either side of a week, the months either
+ * side of a month: what a run of an optimiser that takes the edges tells which of the duties at the edges are fixed by.
  */
 export interface RosterNeighbours {
-    /** The week they are either side of: its first day. */
+    /** The span they are either side of: its first week's first day. */
     readonly start: Date;
     /** Each period's own row's bytes, by its first instant — the weeks', or their days' where the periods are days: a period with no row is not among them. */
     readonly periods: SortedMap<Date, Uint8Array>;
@@ -82,8 +82,8 @@ export interface RosterData {
      */
     readonly references: SortedMap<Date, ReferenceRows>;
     /**
-     * The periods of the weeks either side of a week in view, for an optimiser that takes the week's edges (#1553);
-     * `undefined` without one, in a month, and while they are read.
+     * The periods of the spans either side of the span in view — the weeks, or the months — for an optimiser that takes
+     * the edges (#1553); `undefined` without one, and while they are read.
      */
     readonly neighbours: RosterNeighbours | undefined;
     /** Why the read of the periods of the weeks either side failed (#1553): the eye waits on it, and the footer's line says it, with Retry. */
@@ -258,7 +258,7 @@ export function useRosterData(value: RosterPayload, span: RosterSpan, pickerDate
     // The periods of the weeks either side, for an optimiser that takes the week's edges (#1553): read at once, beside the
     // span's read, on the channels the read ahead reads them by, so asking them early asks nothing twice — kept by their
     // bytes, so a read again hands the frame nothing new.
-    const edged = value.optimise.type === "some" && value.optimise.value.edges && period !== "month" && !value.settings.readOnly;
+    const edged = value.optimise.type === "some" && value.optimise.value.edges && !value.settings.readOnly;
     const heldNeighbours = useRef<RosterNeighbours | undefined>(undefined);
     const readNeighbours = useCallback((): RosterNeighbours | undefined => {
         if (!edged) return undefined;

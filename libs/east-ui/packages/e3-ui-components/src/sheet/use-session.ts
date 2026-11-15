@@ -12,7 +12,7 @@
  */
 
 import { useCallback, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
-import { IntegerType, OptionType, StringType, StructType, equalFor, fromEastTypeValue, isVariant, none, printFor, some } from "@elaraai/east";
+import { IntegerType, OptionType, StringType, StructType, equalFor, fromEastTypeValue, isVariant, none, printFor, some, type option } from "@elaraai/east";
 import { Sheet, SheetBatchReadinessType } from "@elaraai/e3-ui/internal";
 import {
     fieldBreachIssue, fieldBreachText, fieldFormMessages, getSomeorUndefined, useLanding, useLandingStyles, useDataStable, usePersistedState, type BatchReadiness,
@@ -23,7 +23,10 @@ import { RecordSliceWhereType } from "@elaraai/east-ui/internal";
 import { NULL_CELL, drawnPx, isLooseRow, layoutLensRun, layoutRun, type SheetGeometry } from "./model.js";
 import { SHEET_PAGE_SIZE, useSheetPaging } from "./paging.js";
 import { NOT_PERSISTED, persistedOf, type SheetPersisted } from "./persisted.js";
-import { useOptimise, type OptimiseCounts } from "../shared/func/use-optimise.js";
+import { PLAIN_FUNC_BINDING } from "../shared/func/use-func-call.js";
+import { useOptimiseRows } from "../shared/func/optimise-rows.js";
+import { optimiseSessions } from "../shared/func/optimise-sessions.js";
+import { useOptimise, type OptimiseCounts, type OptimiseRefused, type OptimiseWaiting } from "../shared/func/use-optimise.js";
 import { sheetOptimiseTypes, type SheetOptimiseRequest, type SheetOptimiseResult, type SheetOptimised } from "./optimise.js";
 import type { LensGeometry, LensWords } from "./lens-layout.js";
 import { useRecordLens } from "./use-lens.js";
@@ -241,21 +244,54 @@ export function useSheetSession(value: SheetRootValue, storageKey: string, host:
         if (first === undefined) return;
         dispatchStore({ t: "patch", patch: { msg: { id: "renumbered", from: first[0], to: first[1], n: renumbered.size } } });
     }, [renumbered, dispatchStore]);
-    // ── The app's optimiser (#1409, #1418) ────────────────────────────────
-    // One run over the current tab's rows, its result landed on them as one edit (`use-assembled.tsx`, once the rows and their
-    // versions are read); while the call is out the sheet holds its lock: no cell, row or field edit, no drop, no
-    // history action. The landing and the highlight are measured over the frame the sheet is laid in.
+    // ── The app's optimiser (#1409, #1418, east-workspace#1622) ───────────
+    // One run over the rows the sheet saves — asked the rail's narrowing and, over one entry's rows, the entry's key, the
+    // sheet's unsaved edits sent as a draft of the record it saves to — its answer's patch landed on the rows as one edit
+    // (`use-assembled.tsx`, once the rows and their versions are read); while the call is out the sheet holds its lock:
+    // no cell, row or field edit, no drop, no history action. The landing and the highlight are measured over the frame
+    // the sheet is laid in.
     const landingRoot = useRef<HTMLDivElement | null>(null);
     const landing = useLanding(landingRoot);
     const landingStyles = useLandingStyles();
-    const optimiseTypes = useMemo(() => sheetOptimiseTypes(value.editing), [value.editing]);
+    const optimiseTypes = useMemo(() => sheetOptimiseTypes(host.optimise), [host.optimise]);
+    // The session over the record the sheet saves to: what the run takes its draft from, and waits on before its answer
+    // lands — while it carries its drafts over to a record that moved, or, told of it only after the render the record
+    // moves in, stands at another revision than the rows are read at with no request of its own out.
+    const settling = useRef({ session, rowsRead, available: editingState.available });
+    settling.current = { session, rowsRead, available: editingState.available };
+    const optimiseRecord = host.optimise?.record;
+    const optimiseSessionsOf = useMemo(() => optimiseSessions(() => {
+        const now = settling.current;
+        if (optimiseRecord === undefined) return [];
+        return [{
+            record: optimiseRecord, session: now.session, available: () => settling.current.available,
+            carrying: () => {
+                const { session: held, rowsRead: read } = settling.current;
+                const drafting = held.drafts.revision;
+                return held.carrying || (!held.locked && drafting !== undefined && read?.revision !== undefined && !stringEqual(drafting, read.revision));
+            },
+        }];
+    }, words), [optimiseRecord, words]);
+    // A row an answer touches that the sheet does not hold, read by its key before the answer lands (rule 8): through
+    // the reader a Save's entries are read back by. Rows held whole hold every row there is.
+    const readByKeys = editingState.readByKeys;
+    const optimiseRowsByKey = useCallback((_kind: string, ids: readonly string[]): ReadonlyMap<string, option<unknown>> | undefined => {
+        if (readByKeys === undefined) return new Map(ids.map((id) => [id, none] as const));
+        const read = readByKeys(ids);
+        return read === undefined || read.type !== "some" ? undefined : read.value;
+    }, [readByKeys]);
+    const optimiseRows = useOptimiseRows(optimiseRowsByKey);
+    // Whether the sheet holds its rows whole: one it holds none of, the record holds none of.
+    const optimiseWhole = readByKeys === undefined;
     // The rows as a narrowing of them names them (#1345, #1349): the source and the narrowing of its rows, together —
     // the key search's scope, and the run's: a change of tab or narrowing stops a run out (O4).
     const rowsQuery = printNarrowedSource({ source: pagedSource?.id ?? "", narrowing: rowsWhere === undefined ? "" : printRowsWhere(rowsWhere) });
     const [optimised, setOptimised] = useState<SheetOptimised | undefined>(undefined);
-    const landRef = useRef<(result: SheetOptimiseResult, request: SheetOptimiseRequest, run: number) => OptimiseCounts | undefined>(() => undefined);
+    const landRef = useRef<(result: SheetOptimiseResult, request: SheetOptimiseRequest, run: number) => OptimiseCounts | OptimiseRefused | OptimiseWaiting | undefined>(() => undefined);
     const run = useOptimise<SheetOptimiseRequest, SheetOptimiseResult>({
-        name: host.optimise?.name ?? null, requestType: optimiseTypes.request, resultType: optimiseTypes.result,
+        name: host.optimise?.binding.name ?? null, binding: host.optimise?.binding ?? PLAIN_FUNC_BINDING,
+        sessions: optimiseSessionsOf, settleKey: `${editingState.version}\u0000${optimiseRows.key}`,
+        requestType: optimiseTypes.request, resultType: optimiseTypes.result,
         scope: `${rowsQuery}|${ui.tabs.active ?? ""}`, storageKey,
         onLanded: (result, request, n) => landRef.current(result, request, n),
     });
@@ -423,7 +459,7 @@ export function useSheetSession(value: SheetRootValue, storageKey: string, host:
     return {
         barClosedAt, canEdit, changesOf, childField, dispatchStore, draftOf, draftType, draftVersion, drafts,
         editingState, exhausted, foldedOf, folds, geometry, gestureCount, keyHeld, landRef, landing, landingRoot,
-        landingStyles, layer, layerRef, lens, lensDrawn, locked, mintAmong, mintLineId, optimiseTypes, optimised, pagesReady,
+        landingStyles, layer, layerRef, lens, lensDrawn, locked, mintAmong, mintLineId, optimiseRows, optimiseTypes, optimiseWhole, optimised, pagesReady,
         pagesStandIn, paging, persist, persistedRef, recordGesture, restored, rowsOffset, rowsQuery, run, runLayout,
         session, setBarClosedAt, setLayer, setOptimised, standingIn, store, subRowsOpenOf, takenKeys, total, totalRevision, ui,
         ...named,

@@ -4,41 +4,52 @@
  */
 
 /**
- * Optimise in the Sheet (#1409, #1418; `Optimise Spec.md` §5.1, §9.5, R25):
- * the current tab's rows as the run's request — every entry as the session
- * holds it, base plus every unapplied draft, by its key — and the result
- * landed on the rows as one edit: the diff by key recorded as one step of the
- * session (`session.record`, origin `optimise`), each row answered lifted
- * into its draft and projected to the wire row the source would show for it
- * (`editing.project`), and the operations the landing draws per cell — a
- * blank given a value an add, a value changed a change, a value cleared a
- * remove — kept until Apply.
+ * Optimise in the Sheet (#1409, #1418, east-workspace#1622; `Optimise Spec.md`
+ * §5.1, §9.5, R25): the run's request — the run's number and the rail's
+ * narrowing, and over one entry's rows the entry's key; no row: the function
+ * reads the rows the sheet saves to, its unsaved edits laid over them — and
+ * its answer, a patch of the rows the sheet's Save reaches, landed on the rows
+ * the sheet holds as one edit: each key the patch touches recorded as one step
+ * of the session (`session.record`, origin `optimise`), each row answered
+ * lifted into its draft and projected to the wire row the source would show
+ * for it (`editing.project`), and the operations the landing draws per cell —
+ * a blank given a value an add, a value changed a change, a value cleared a
+ * remove — kept until Apply. A row the answer changes that the sheet does not
+ * hold is read by its key first (rule 8); one whose own edit is still
+ * incomplete — a field missing, text that could not be read — refuses the
+ * answer whole, naming the row (rule 11): the function read it as saved.
  *
  * @packageDocumentation
  */
 
-import { SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, fromEastTypeValue, none, some, variant, type EastType } from "@elaraai/east";
-import { Sheet, SheetOptimiseRequestTypeFor, SheetOptimiseResultTypeFor } from "@elaraai/e3-ui/internal";
-import { diffOptimiseRows, optimiseIdOf, optimiseKeyOf } from "../shared/func/optimise-diff.js";
-import type { OptimiseCounts } from "../shared/func/use-optimise.js";
-import { liftDraft, normalizeDraft } from "./draft-values.js";
+import {
+    DictType, NullType, StringType, decodeBeast2For, encodeBeast2For, equalFor, fromEastTypeValue, none, some, variant,
+    type EastType, type ValueTypeOf, type option,
+} from "@elaraai/east";
+import { Sheet, SheetOptimiseRequestTypeFor, SheetOptimiseResultTypeFor, type SheetOptimiseBindingType } from "@elaraai/e3-ui/internal";
+import { optimiseMessages } from "@elaraai/east-ui-components";
+import { diffOptimisePatch, optimiseIdOf, type OptimiseRowRef } from "../shared/func/optimise-diff.js";
+import type { OptimiseSlice } from "../shared/func/optimise-slice.js";
+import type { OptimiseCounts, OptimiseRefused } from "../shared/func/use-optimise.js";
+import { liftDraft } from "./draft-values.js";
 import { NULL_CELL, cellIsBlank, countNoun, lineId } from "./model.js";
 import type { EntryUpdate, EntryVersion, Origin, Placement } from "./transactions.js";
 import type { SheetCellValue, SheetNounValue, SheetRootValue, SheetRowValue } from "./values.js";
 import type { SheetWords } from "./words.js";
 
-/** The rows by key, as the request and the result carry them. */
-type Rows = SortedMap<unknown, unknown>;
+/** A sheet's optimiser as its payload carries it: the function's binding, the record, the rows' type and the entry's key. */
+export type SheetOptimiseBound = ValueTypeOf<SheetOptimiseBindingType>;
 
-/** The run's request: the run's number, and the current tab's rows by key, as the session holds them. */
+/** The run's request: the run's number and the rail's narrowing — and, over one entry's rows, the entry's key. */
 export interface SheetOptimiseRequest {
     readonly run: bigint;
-    readonly rows: Rows;
+    readonly slice: OptimiseSlice;
+    readonly entry?: unknown;
 }
 
-/** The run's answer: the rows by key, complete. */
+/** The run's answer: the patch of the rows the sheet's Save reaches. */
 export interface SheetOptimiseResult {
-    readonly rows: Rows;
+    readonly rows: unknown;
 }
 
 /** What a run did to one cell (R25): a blank given a value, a value changed, or a value cleared. */
@@ -68,14 +79,14 @@ export interface SheetOptimised {
     readonly rows: ReadonlyMap<string, SheetRowOps>;
 }
 
-/** The sheet's optimiser's types: the request and the result over the sheet's rows and its source's key. */
+/** The sheet's optimiser's types: the request and the result over the rows its Save reaches, and the entry's key. */
 export interface SheetOptimiseTypes {
     readonly request: EastType;
     readonly result: EastType;
-    /** The sheet's row type: its entries'. */
-    readonly rowType: EastType;
-    /** The source's key type: a record's own, else `String` — an Array source's rows keyed by their id field. */
-    readonly keyType: EastType;
+    /** The rows the Save reaches, `Dict<K, R>`: what the answer's patch is read by. */
+    readonly rows: DictType<EastType, EastType>;
+    /** Over one entry's rows, the entry's key, which a request carries; `undefined` over the record's own entries. */
+    readonly entry: { readonly key: unknown } | undefined;
 }
 
 /** The kind the diff names the sheet's rows by: one record, every row. */
@@ -84,17 +95,24 @@ const ROWS = "rows";
 const sameCell = equalFor(Sheet.Types.Cell);
 const decodeWire = decodeBeast2For(Sheet.Types.Row);
 
+/** A sheet with no optimiser: nothing is asked, and nothing answered. */
+const NO_OPTIMISER: SheetOptimiseTypes = { request: NullType, result: NullType, rows: DictType(StringType, NullType), entry: undefined };
+
 /**
- * The request and result types over the sheet's rows: what the bound
- * optimiser is called with, as the tag held it to.
+ * The request and result types over the rows the sheet's Save reaches: what
+ * the bound optimiser is called with, as the tag held it to — the request
+ * with `entry` over one entry's rows.
  *
- * @param editing - The sheet's editing declaration: its entry and key types
- * @returns The types
+ * @param bound - The sheet's optimiser, as its payload carries it; `undefined` for a sheet with none
+ * @returns The types, and the entry's key
  */
-export function sheetOptimiseTypes(editing: Pick<SheetRootValue["editing"], "entryType" | "keyType">): SheetOptimiseTypes {
-    const rowType = fromEastTypeValue(editing.entryType) as EastType;
-    const keyType = editing.keyType.type === "some" ? fromEastTypeValue(editing.keyType.value) as EastType : StringType;
-    return { request: SheetOptimiseRequestTypeFor(rowType, keyType), result: SheetOptimiseResultTypeFor(rowType, keyType), rowType, keyType };
+export function sheetOptimiseTypes(bound: SheetOptimiseBound | undefined): SheetOptimiseTypes {
+    if (bound === undefined) return NO_OPTIMISER;
+    const rows = fromEastTypeValue(bound.rows) as DictType<EastType, EastType>;
+    const result = SheetOptimiseResultTypeFor(rows);
+    if (bound.entry.type !== "some") return { request: SheetOptimiseRequestTypeFor(), result, rows, entry: undefined };
+    const entryType = fromEastTypeValue(bound.entry.value.type) as EastType;
+    return { request: SheetOptimiseRequestTypeFor({ entry: entryType }), result, rows, entry: { key: decodeBeast2For(entryType)(bound.entry.value.key) } };
 }
 
 /**
@@ -113,31 +131,19 @@ export function sheetOptimisePeriod(n: number, noun: SheetNounValue | undefined,
 }
 
 /**
- * The run's request (R1, R25, O3, O5): the run's number, and the current tab's
- * rows by key as the session holds them — base plus every unapplied draft. A
- * draft with a field still missing has no row to send: it is left out, and
- * so untouched by the answer.
+ * The run's request (R1, R25, O3; east-workspace#1622, rule 1): the run's
+ * number and the rail's narrowing — and, over one entry's rows, the entry's
+ * key. No row: the function reads the rows the sheet saves to, the sheet's
+ * unsaved edits laid over them.
  *
- * @param entries - The tab's rows: its entries, the local layer applied
- * @param versionOf - An entry's version as it stands: the session's, else the source's; `undefined` while its page is not in
- * @param draftType - The entries' draft type
- * @param keyType - The source's key type
+ * @param types - The optimiser's types: the entry's key, over one entry's rows
+ * @param slice - Each rail source's narrowing now
  * @param run - The run's number
  * @returns The request
  */
-export function sheetOptimiseRequest(entries: readonly SheetRowValue[], versionOf: (id: string) => EntryVersion | undefined, draftType: EastType, keyType: EastType, run: number): SheetOptimiseRequest {
-    const keyOf = optimiseKeyOf(keyType);
-    const rows: Rows = new SortedMap([], compareFor(keyType) as (a: unknown, b: unknown) => number);
-    for (const entry of entries) {
-        const version = versionOf(entry.id);
-        if (version?.draft === undefined) continue;
-        const key = keyOf(entry.id);
-        if (key === undefined) continue;
-        const { domain } = normalizeDraft(draftType, version.draft, entry.id);
-        if (domain === undefined) continue;
-        rows.set(key, domain);
-    }
-    return { run: BigInt(run), rows };
+export function sheetOptimiseRequest(types: Pick<SheetOptimiseTypes, "entry">, slice: OptimiseSlice, run: number): SheetOptimiseRequest {
+    const asked = { run: BigInt(run), slice };
+    return types.entry === undefined ? asked : { ...asked, entry: types.entry.key };
 }
 
 /** What a landing is made over. */
@@ -149,8 +155,6 @@ export interface SheetLanding {
     readonly draftType: EastType;
     /** Whether the source is keyed: a new row takes its key's place; else it lands at the end. */
     readonly keyed: boolean;
-    /** The request the result answers. */
-    readonly request: SheetOptimiseRequest;
     readonly result: SheetOptimiseResult;
     /** The step's label — `Elara run #7`. */
     readonly label: string;
@@ -158,6 +162,16 @@ export interface SheetLanding {
     readonly runText: string;
     /** An entry's version as it stands: the session's, else the source's — absent for a row the sheet does not hold. */
     readonly versionOf: (id: string) => EntryVersion;
+    /**
+     * A row as the sheet holds it, for the answer to land on: its draft where it has one, whole; `none` for a key no
+     * row stands under — the record holds none, or the drafts removed it; `undefined` for one the sheet does not hold,
+     * or is still reading by its key.
+     */
+    readonly held: (id: string) => option<unknown> | undefined;
+    /** Whether the sheet's edit of a row is still incomplete — a field missing, text that could not be read. */
+    readonly incomplete: (id: string) => boolean;
+    /** A row as a refusal names it: its row's words, else its key. */
+    readonly nameOf: (id: string) => string;
     /** Records the versions as one transaction of the session; answers whether it did. */
     readonly record: (updates: readonly EntryUpdate[], origin: Origin, label: string) => boolean;
     /** What earlier runs left on the rows, still the session's drafts. */
@@ -203,22 +217,37 @@ function markRows(marks: Map<string, SheetRowOps>, before: SheetRowValue | undef
     }
 }
 
+/** What a landing answers that is no landing: rows to read first, by their keys (rule 8). */
+export interface SheetOptimiseMissing {
+    readonly missing: readonly OptimiseRowRef[];
+}
+
 /**
- * The result landed (R7, R8, R10, R25, §12): diffed against the request by
- * key and recorded as one step of the session, origin `optimise` — each row
+ * The result landed (R7, R8, R10, R25, §12; east-workspace#1622, rules 7, 8,
+ * 10, 11): the answer's patch landed key by key on the rows the sheet holds,
+ * and recorded as one step of the session, origin `optimise` — each row
  * answered lifted into its draft, its wire row the source's projection of it;
- * a row the request held and the result does not, removed; a new row placed
- * at its key's place on a keyed source, else at the end. A result equal to
- * the request records nothing and leaves what earlier runs left as it is
- * (R10); one that changes rows lays its marks over theirs.
+ * a row the answer deletes, removed; a new row placed at its key's place on a
+ * keyed source, else at the end. An answer that changes nothing records
+ * nothing and leaves what earlier runs left as it is (R10); one that changes
+ * rows lays its marks over theirs. One that changes a row whose own edit is
+ * still incomplete is refused whole, naming the row; one that touches a row
+ * the sheet does not hold names it, to be read by its key.
  *
  * @param args - What the landing is made over
- * @returns What the run counted, and what the runs have left on the rows — unchanged by a run that changed nothing; `undefined` for a result the session would not take
+ * @returns What the run counted, and what the runs have left on the rows — unchanged by a run that changed nothing;
+ *   the rows to read first; a refusal, naming the row; `undefined` for an answer that does not fit the rows the sheet
+ *   holds, or one the session would not take
  */
-export function landSheetOptimise(args: SheetLanding): { counts: OptimiseCounts; optimised: SheetOptimised | undefined } | undefined {
-    const { editing, types, draftType, keyed, request, result, label, runText, versionOf, record, before: earlier } = args;
-    const diff = diffOptimiseRows(ROWS, types.rowType, optimiseIdOf(types.keyType), request.rows, result.rows);
-    const encodeEntry = encodeBeast2For(types.rowType) as (entry: unknown) => Uint8Array;
+export function landSheetOptimise(args: SheetLanding,
+): { counts: OptimiseCounts; optimised: SheetOptimised | undefined } | SheetOptimiseMissing | OptimiseRefused | undefined {
+    const { editing, types, draftType, keyed, result, label, runText, versionOf, held, incomplete, nameOf, record, before: earlier } = args;
+    const rowType = types.rows.value as EastType;
+    const diff = diffOptimisePatch<unknown, unknown>(ROWS, types.rows, optimiseIdOf(types.rows.key as EastType), result.rows, held, incomplete);
+    if (diff === undefined) return undefined;
+    if ("missing" in diff) return { missing: diff.missing };
+    if ("incomplete" in diff) return { refused: optimiseMessages.refusedIncomplete({ row: nameOf(diff.incomplete[0]!.id) }) };
+    const encodeEntry = encodeBeast2For(rowType) as (entry: unknown) => Uint8Array;
     const project = (row: unknown, id: string): SheetRowValue => decodeWire(editing.project(encodeEntry(row), id)) as SheetRowValue;
     // A new row's place: its key's on a keyed source, else after every row the sheet holds.
     const place: Placement = keyed ? some(variant("keyOrder", null)) : some(variant("ordered", variant("end", null)));

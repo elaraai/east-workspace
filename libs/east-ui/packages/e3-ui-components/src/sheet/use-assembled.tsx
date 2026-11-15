@@ -18,8 +18,12 @@ import { optimiseMessages, historyToolbarItem } from "@elaraai/east-ui-component
 import { VirtualRows } from "@elaraai/east-ui-components/internal";
 import { BOTTOM_PAD_PX } from "./model.js";
 import { clearNarrowing, clearSearch, narrowingEqual, narrowingQuery, writeNarrowing } from "./view-state.js";
+import { none, some, variant, type option } from "@elaraai/east";
 import { useOptimiseParts } from "../shared/func/optimise-parts.js";
+import { optimiseSlice } from "../shared/func/optimise-slice.js";
+import { liftDraft, normalizeDraft } from "./draft-values.js";
 import { landSheetOptimise, sheetOptimisePeriod, sheetOptimiseRequest, type SheetOptimiseRequest } from "./optimise.js";
+import type { EntryVersion } from "./transactions.js";
 import { noticeText } from "./words.js";
 import { SheetInsertLayer, SheetInsertStrip } from "./Insertion.js";
 import { SheetHeader } from "./Header.js";
@@ -96,7 +100,7 @@ export function useSheetAssembled(value: SheetRootValue, sheetDecode: SheetDecod
     } = sheetDecode;
     const {
         canEdit, changesOf, draftOf, draftType, draftVersion, editingState, exhausted, gestureCount, keyHeld, landRef,
-        landing, landingRoot, landingStyles, layer, lens, lensDrawn, locked, optimiseTypes, optimised, paging, rows,
+        landing, landingRoot, landingStyles, layer, lens, lensDrawn, locked, optimiseRows, optimiseTypes, optimiseWhole, optimised, paging, rows,
         rowsQuery, run, session, setOptimised, sourceRows, standingIn, total, totalRevision, ui,
     } = sheetSession;
     const { body, colCount, lensLayout, linkCellCtx, memberships, rowAt, rowSpace } = sheetBody;
@@ -126,28 +130,56 @@ export function useSheetAssembled(value: SheetRootValue, sheetDecode: SheetDecod
     const { renderRow } = sheetRows;
     const { addRow, conflictValue, goToIssue, holdRow, inspect, removeRowsById, rowWhere, versionOf } = sheetInspector;
     const { enter, phoneLibrary } = sheetDrops;
-    // ── The app's optimiser's parts (#1409, #1418) ─────────────────────────
-    // The eye before the history item, the banner, the footer line and the legend, over the run (`use-session.ts`); the request
-    // is the tab's rows as the session holds them, and the result lands as one step once the rows have moved.
+    // ── The app's optimiser's parts (#1409, #1418, east-workspace#1622) ────
+    // The eye before the history item, the banner, the footer line and the legend, over the run (`use-session.ts`); the
+    // request is the rail's narrowing and, over one entry's rows, the entry's key, and the answer's patch lands as one
+    // step once the rows have moved.
     const period = sheetOptimisePeriod(wholeCount, group !== undefined ? noun : undefined, rowsNoun, words);
-    const optimiseKeyType = optimiseTypes.keyType;
-    // The eye is listed only where the rows can be optimised (ruled 25 Oct 2026): never read only; while a narrowing's
-    // rows are read it waits, disabled, in its place.
+    // The eye is listed only where the rows can be optimised (ruled 25 Oct 2026): never read only. It waits on none of
+    // the rows' reads: the function reads the rows itself, and its answer lands on what the sheet holds then.
     const optimiseParts = useOptimiseParts<SheetOptimiseRequest>({
-        run, landing, period, readOnly, busy: !editingState.available,
-        request: (n) => sheetOptimiseRequest(rows, versionOf, draftType, optimiseKeyType, n), landKey: rows,
+        run, landing, period, readOnly,
+        request: (n) => sheetOptimiseRequest(optimiseTypes, optimiseSlice(chrome), n), landKey: rows,
     });
     actedRef.current = optimiseParts.acted;
     const originalVersion = editingState.original;
     const recordVersions = editingState.recordVersions;
+    const projectDraft = editingState.project;
     const landAfter = optimiseParts.landAfter;
-    landRef.current = (result, request, n) => {
+    landRef.current = (result, _request, n) => {
         const runText = words.number(n);
+        // A row as the sheet holds it: the session's version, else the source's — and, for one neither holds nor the
+        // drafts removed, the record's own, read by its key (rule 8): `undefined` while that read is on its way.
+        const standing = (id: string): EntryVersion | undefined => {
+            const version = versionOf(id) ?? originalVersion(id);
+            if (version.draft !== undefined || session.entries.has(id) || optimiseWhole) return version;
+            const read = optimiseRows.read("rows", id);
+            if (read === undefined) return undefined;
+            if (read.type !== "some") return version;
+            const draft = liftDraft(draftType, read.value);
+            return { draft, wire: projectDraft(id, draft, undefined), place: keyed ? some(variant("keyOrder", null)) : version.place };
+        };
+        const whole = (id: string, version: EntryVersion): unknown => normalizeDraft(draftType, version.draft, id).domain;
         const landed = landSheetOptimise({
-            editing: value.editing, types: optimiseTypes, draftType, keyed, request, result, label: optimiseMessages.step({ run: runText }), runText,
-            versionOf: (id) => versionOf(id) ?? originalVersion(id), record: recordVersions, before: optimised,
+            editing: value.editing, types: optimiseTypes, draftType, keyed, result, label: optimiseMessages.step({ run: runText }), runText,
+            versionOf: (id) => standing(id) ?? originalVersion(id),
+            held: (id): option<unknown> | undefined => {
+                const version = standing(id);
+                if (version === undefined) return undefined;
+                return version.draft === undefined ? none : some(whole(id, version));
+            },
+            // A draft with a field still missing, or text that could not be read: no whole row, and the function read it as saved.
+            incomplete: (id) => {
+                const version = versionOf(id) ?? originalVersion(id);
+                return version.draft !== undefined && whole(id, version) === undefined;
+            },
+            nameOf: (id) => id,
+            record: recordVersions, before: optimised,
         });
-        if (landed === undefined) return undefined;
+        // Rows the sheet does not hold are read by their keys, and the answer lands once they are (rule 8).
+        if (landed !== undefined && "missing" in landed) { optimiseRows.want(landed.missing); return { waiting: true }; }
+        optimiseRows.want([]);
+        if (landed === undefined || "refused" in landed) return landed;
         // A run that changed nothing leaves what earlier runs left (R10).
         if (landed.optimised !== undefined) { setOptimised(landed.optimised); landAfter(n); }
         return landed.counts;

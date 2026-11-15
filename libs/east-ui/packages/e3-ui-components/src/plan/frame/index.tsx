@@ -99,7 +99,7 @@
 import { Fragment, memo, useCallback, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
 import { SortedMap, StringType, compareFor, equalFor, equivalentFor, none, type ValueTypeOf } from "@elaraai/east";
-import { Plan, PlanComponent, PlanEventBlocksType, PlanEventPagedType, PlanPayloadType, planKeys } from "@elaraai/e3-ui/internal";
+import { FuncBindingType, Plan, PlanComponent, PlanEventBlocksType, PlanEventPagedType, PlanPayloadType, planKeys } from "@elaraai/e3-ui/internal";
 import {
     BannerView, BuilderFrame, SessionBanners, getSomeorUndefined, historyShortcut, implementUIComponent, takeKey, typedInto, useDataStable, usePersistedState,
 } from "@elaraai/east-ui-components";
@@ -167,6 +167,8 @@ const NO_LIBRARY: PlanLibraryTabs = [];
 const libraryEqual = equalFor(PlanPayloadType.fields.library);
 /** Whether two lists of resource kinds name the same resources — a paged kind's read by key (#1199) by its IR and what it captures. */
 const resourcesEquivalent = equivalentFor(PlanPayloadType.fields.resources);
+/** Whether two optimiser bindings are one: the function's name, and the records it lists and reads. */
+const optimiseEqual = equalFor(FuncBindingType);
 /** Whether two drop vetoes are one: by their IR and what they capture (#809). */
 const canDropEquivalent = equivalentFor(PlanPayloadType.fields.canDrop);
 
@@ -288,8 +290,11 @@ export interface EastChakraPlanProps {
     canDrop?: PlanEventCanDrop | undefined;
     /** What each source of the slice the frame follows shows (#1344) — each resource kind's, templates list's and tab's; none, a Plan whose payload follows none. */
     followed?: FollowedSources | undefined;
-    /** The app's optimiser (#1409) — the payload carries its binding: what the Elara eye calls by name; none, no eye. */
-    optimise?: { readonly name: string } | undefined;
+    /**
+     * The app's optimiser (#1409, east-workspace#1622) — the payload carries its binding: what the Elara eye calls by
+     * name, and the records it lists in `drafts` and reads; none, no eye.
+     */
+    optimise?: ValueTypeOf<typeof FuncBindingType> | undefined;
     /** Whether the Plan's Autosave begins on — the payload carries its author's word; left out, off. */
     autosave?: boolean | undefined;
 }
@@ -339,7 +344,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({
     && (prev.followed ?? NONE_FOLLOWED) === (next.followed ?? NONE_FOLLOWED)
     && (prev.inspector === true) === (next.inspector === true)
     && (prev.autosave === true) === (next.autosave === true)
-    && (prev.optimise === undefined ? next.optimise === undefined : next.optimise !== undefined && stringEqual(prev.optimise.name, next.optimise.name))
+    && (prev.optimise === undefined ? next.optimise === undefined : next.optimise !== undefined && optimiseEqual(prev.optimise, next.optimise))
     && (Object.is(prev.canDrop, next.canDrop) || canDropEquivalent(prev.canDrop ?? NO_VETO, next.canDrop ?? NO_VETO))
     && sameEventRows(prev.events, next.events)
     && (prev.kinds === next.kinds || eventKindsEquivalent(prev.kinds ?? NO_KINDS, next.kinds ?? NO_KINDS))
@@ -613,7 +618,7 @@ function PlanPayloadFrame({ value, storageKey }: EastChakraPlanPayloadProps) {
             {(followed) => (
                 <EastChakraPlan value={value.plan} storageKey={storageKey} events={events} kinds={value.events}
                     resources={value.resources} library={value.library} inspector={value.inspector}
-                    canDrop={value.canDrop} followed={followed} optimise={value.optimise.type === "some" ? { name: value.optimise.value.name } : undefined}
+                    canDrop={value.canDrop} followed={followed} optimise={getSomeorUndefined(value.optimise)}
                     autosave={value.settings.autosave} />
             )}
         </FollowSources>

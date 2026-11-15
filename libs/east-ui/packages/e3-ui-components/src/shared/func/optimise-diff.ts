@@ -4,20 +4,25 @@
  */
 
 /**
- * The diff of a run's result against its request, by entry key (#1409,
- * #1415; `Optimise Spec.md` §6 "The one step", §9.2 R7): absent → present is
- * an add, a different row a change — a move, to another day, time, lane,
- * hour or resource, is a change of placement — and present → absent a
- * remove. Untouched entries are not in the edit; entries outside the scope
- * are never touched. The diff becomes the builder's changes — `{ kind, id,
- * row, created }`, `{ kind, id, row }`, `{ kind, id, remove }` — for one
- * `record` call, and the operations the landing draws and the provenance
- * says (`data-op`, `Was {previous} · Elara run #n`), kept until Apply.
+ * A run's answer landed on a record, key by key (#1409, east-workspace#1622,
+ * rules 7, 8 and 11; `Optimise Spec.md` §6 "The one step", §9.2 R7). The
+ * answer is East's patch of the record; e3-ui's `optimiseChangesFor` reads
+ * it key by key — a patch of the whole Dict among it, never the record
+ * replaced — and each key lands on the row the page holds: an insert adds the
+ * row under the optimiser's key, an update changes the held row by its patch,
+ * a delete removes it. A row the answer updates or deletes that the page does
+ * not hold is named, to be read by its key before the answer lands (rule 8);
+ * one whose own edit is still incomplete refuses the answer (rule 11). The
+ * landing becomes the builder's changes — `{ kind, id, row, created }`,
+ * `{ kind, id, row }`, `{ kind, id, remove }` — for one `record` call, and
+ * the operations the landing draws and the provenance says (`data-op`,
+ * `Was {previous} · Elara run #n`), kept until Apply.
  *
  * @packageDocumentation
  */
 
-import { encodeBeast2For, equalFor, parseFor, printFor, type EastType } from "@elaraai/east";
+import { East, PatchType, encodeBeast2For, equalFor, parseFor, printFor, type DictType, type EastType, type option } from "@elaraai/east";
+import { optimiseChangesFor } from "@elaraai/e3-ui/internal";
 import type { ScheduleChange } from "../schedule/editing.js";
 import type { OptimiseCounts } from "./use-optimise.js";
 
@@ -90,45 +95,169 @@ export function optimiseKeyOf<K>(keyType: EastType): (id: string) => K | undefin
     };
 }
 
+/** What lands on one key of a record, as `optimiseChangesFor` reads an answer: East's own operation of a Dict's patch. */
+type OptimiseChange<R> =
+    | { readonly type: "insert"; readonly value: R }
+    | { readonly type: "update"; readonly value: unknown }
+    | { readonly type: "delete"; readonly value: R };
+
 /**
- * The diff of one kind's rows, result against request (R7).
- *
- * @typeParam K - The key
- * @typeParam R - The row
- * @param kind - The kind's slot, or the record's key: what the changes name
- * @param rowType - The row's East type: how a row is compared and encoded
- * @param idOf - An entry's key as its session names it ({@link optimiseIdOf})
- * @param before - The rows asked, by key
- * @param after - The rows answered, by key
- * @returns The diff
+ * Why an answer does not land as it stands: rows it touches that the page does not hold, to be read by their keys first
+ * (rule 8); or rows whose own edit is still incomplete, which refuse it (rule 11). Each row by its kind and its key's
+ * text, as its session names it.
  */
-export function diffOptimiseRows<K, R>(kind: string, rowType: EastType, idOf: (key: K) => string, before: ReadonlyMap<K, R>, after: ReadonlyMap<K, R>): OptimiseDiff<R> {
-    const same = equalFor(rowType) as (a: R, b: R) => boolean;
-    const encode = encodeBeast2For(rowType) as (row: R) => Uint8Array;
+export type OptimiseUnlanded =
+    | { readonly missing: readonly OptimiseRowRef[] }
+    | { readonly incomplete: readonly OptimiseRowRef[] };
+
+/** A row an answer touches: its kind's slot, or its record's key, and its key's text. */
+export interface OptimiseRowRef {
+    readonly kind: string;
+    readonly id: string;
+}
+
+/** How a record's patch is read and one of its rows patched, compared and encoded: made once per record type. */
+interface RecordLanding {
+    readonly changesOf: (patch: unknown) => ReadonlyMap<unknown, OptimiseChange<unknown>>;
+    readonly patchRow: (row: unknown, rowPatch: unknown) => unknown;
+    readonly same: (a: unknown, b: unknown) => boolean;
+    readonly encode: (row: unknown) => Uint8Array;
+}
+
+/** Each record type's landing, by the type: a builder holds its records' types while its payload does. */
+const landings = new WeakMap<object, RecordLanding>();
+
+/** A record type's landing, compiled once. */
+function landingOf(record: DictType<EastType, EastType>): RecordLanding {
+    let landing = landings.get(record);
+    if (landing === undefined) {
+        const rowType = record.value as EastType;
+        landing = {
+            changesOf: East.compile(optimiseChangesFor(record), []) as unknown as RecordLanding["changesOf"],
+            patchRow: East.compile(East.function([rowType, PatchType(rowType)], rowType, (_$, row, rowPatch) => East.applyPatch(row as never, rowPatch as never)), []) as
+                unknown as RecordLanding["patchRow"],
+            same: equalFor(rowType) as RecordLanding["same"],
+            encode: encodeBeast2For(rowType) as RecordLanding["encode"],
+        };
+        landings.set(record, landing);
+    }
+    return landing;
+}
+
+/**
+ * One record's answer landed key by key (rules 7, 8, 11). Each key the patch touches lands on the row the page holds:
+ * an insert is an add under the optimiser's key — or, onto a row the page holds, a change of it; an update is a
+ * change, the held row patched; a delete a remove, and of a key no row stands under, nothing. A key that lands as the
+ * row it was is no edit, and a patch that changes nothing is none.
+ *
+ * @typeParam K - The record's key
+ * @typeParam R - The record's row
+ * @param kind - The kind's slot, or the record's key: what the changes name
+ * @param record - The record's type, `Dict<K, R>`: how the patch is read, and a row compared, patched and encoded
+ * @param idOf - An entry's key as its session names it ({@link optimiseIdOf})
+ * @param patch - The answer's patch of the record
+ * @param held - The row the page holds under a key's text — its draft where it has one; `none` for a key no row stands
+ *   under; `undefined` for one the page does not hold, or is still reading
+ * @param incomplete - Whether the page's edit of a key is still incomplete: the function read it as saved
+ * @returns The landing; the rows to read first, or those whose edit refuses it ({@link OptimiseUnlanded}); `undefined`
+ *   for a patch that does not fit the rows the page holds
+ */
+export function diffOptimisePatch<K, R>(kind: string, record: DictType<EastType, EastType>, idOf: (key: K) => string, patch: unknown,
+    held: (id: string) => option<R> | undefined, incomplete: (id: string) => boolean = () => false): OptimiseDiff<R> | OptimiseUnlanded | undefined {
+    const landing = landingOf(record);
     const changes: ScheduleChange[] = [];
     const ops = new Map<string, OptimiseOp<R>>();
+    const missing: OptimiseRowRef[] = [];
+    const refusing: OptimiseRowRef[] = [];
     let added = 0, changed = 0, removed = 0;
-    for (const [key, row] of after) {
+    let touched: ReadonlyMap<K, OptimiseChange<R>>;
+    try { touched = landing.changesOf(patch) as ReadonlyMap<K, OptimiseChange<R>>; } catch { return undefined; }
+    for (const [key, change] of touched) {
         const id = idOf(key);
-        const was = before.get(key);
-        if (was === undefined) {
-            changes.push({ kind, id, row: encode(row), created: true });
-            ops.set(opKey(kind, id), { kind, op: "add", row });
-            added++;
-        } else if (!same(was, row)) {
-            changes.push({ kind, id, row: encode(row) });
-            ops.set(opKey(kind, id), { kind, op: "chg", row, previous: was });
-            changed++;
+        if (incomplete(id)) { refusing.push({ kind, id }); continue; }
+        const was = held(id);
+        let row: R;
+        if (change.type === "delete") {
+            if (was === undefined) { missing.push({ kind, id }); continue; }
+            // A key no row stands under: gone already, by the page's own edit or another's save.
+            if (was.type === "none") continue;
+            changes.push({ kind, id, remove: true, was: landing.encode(was.value) });
+            ops.set(opKey(kind, id), { kind, op: "del", previous: was.value });
+            removed++;
+            continue;
         }
+        if (change.type === "insert") {
+            row = change.value;
+            // The key is the optimiser's (rule 7): where the page holds no row under it, the row is added — one another
+            // save has taken by the time this is saved is a conflict to choose, as for any key an app's function makes.
+            if (was === undefined || was.type === "none") {
+                changes.push({ kind, id, row: landing.encode(row), created: true });
+                ops.set(opKey(kind, id), { kind, op: "add", row });
+                added++;
+                continue;
+            }
+        } else {
+            if (was === undefined) { missing.push({ kind, id }); continue; }
+            // An update of a key no row stands under, or a patch made against another row than the page holds, does not
+            // fit: the answer is of another state.
+            if (was.type === "none") return undefined;
+            try { row = landing.patchRow(was.value, change.value) as R; } catch { return undefined; }
+        }
+        if (landing.same(was.value, row)) continue;
+        // The row it landed on goes with the change: what the step begins from where the session holds none of it.
+        changes.push({ kind, id, row: landing.encode(row), was: landing.encode(was.value) });
+        ops.set(opKey(kind, id), { kind, op: "chg", row, previous: was.value });
+        changed++;
     }
-    for (const [key, was] of before) {
-        if (after.has(key)) continue;
-        const id = idOf(key);
-        changes.push({ kind, id, remove: true });
-        ops.set(opKey(kind, id), { kind, op: "del", previous: was });
-        removed++;
-    }
+    if (refusing.length > 0) return { incomplete: refusing };
+    if (missing.length > 0) return { missing };
     return { changes, ops, counts: { added, changed, removed } };
+}
+
+/**
+ * Whether a landing was made, or what keeps it from landing.
+ *
+ * @param landed - What {@link diffOptimisePatch} answered
+ * @returns Whether it is the landing
+ */
+export function isOptimiseDiff<R>(landed: OptimiseDiff<R> | OptimiseUnlanded | undefined): landed is OptimiseDiff<R> {
+    return landed !== undefined && "changes" in landed;
+}
+
+/** One record's answer: the kind's slot or the record's key its changes name, the record's type, and the answer's patch of it. */
+export interface OptimiseRecordPatch {
+    readonly kind: string;
+    readonly record: DictType<EastType, EastType>;
+    readonly patch: unknown;
+}
+
+/**
+ * Each record's answer landed on the rows the page holds ({@link diffOptimisePatch}), all or none: a row any record's
+ * answer touches that the page does not hold keeps every record's from landing until it is read, and one whose edit
+ * is incomplete refuses them all.
+ *
+ * @typeParam R - The records' row
+ * @param answers - Each record's patch, in the builder's order
+ * @param held - The row the page holds under a kind's key ({@link diffOptimisePatch})
+ * @param incomplete - Whether the page's edit of a kind's key is still incomplete
+ * @returns Each record's landing, in order; the rows to read first, or those whose edit refuses the answer; `undefined`
+ *   for an answer that does not fit the rows the page holds
+ */
+export function landOptimisePatches<R>(answers: readonly OptimiseRecordPatch[], held: (kind: string, id: string) => option<R> | undefined,
+    incomplete: (kind: string, id: string) => boolean = () => false): readonly OptimiseDiff<R>[] | OptimiseUnlanded | undefined {
+    const diffs: OptimiseDiff<R>[] = [];
+    const missing: OptimiseRowRef[] = [];
+    const refusing: OptimiseRowRef[] = [];
+    for (const { kind, record, patch } of answers) {
+        const landed = diffOptimisePatch<unknown, R>(kind, record, optimiseIdOf(record.key as EastType), patch, (id) => held(kind, id), (id) => incomplete(kind, id));
+        if (landed === undefined) return undefined;
+        if ("missing" in landed) missing.push(...landed.missing);
+        else if ("incomplete" in landed) refusing.push(...landed.incomplete);
+        else diffs.push(landed);
+    }
+    if (refusing.length > 0) return { incomplete: refusing };
+    if (missing.length > 0) return { missing };
+    return diffs;
 }
 
 /**
@@ -142,16 +271,17 @@ export function diffOptimiseRows<K, R>(kind: string, rowType: EastType, idOf: (k
  *
  * @typeParam R - The row
  * @param diff - The diff by key
- * @param placed - Whether a row has a place: a scheduled event, a placed job
+ * @param placed - Whether a row has a place: a scheduled event, a placed job — given the row, its operation's key
+ *   ({@link opKey}), and whether it is the row before the run (`was`) or the one it leaves (`now`)
  * @returns The diff, its operations and counts told by place
  */
-export function optimisePlacementOps<R>(diff: OptimiseDiff<R>, placed: (row: R) => boolean): OptimiseDiff<R> {
+export function optimisePlacementOps<R>(diff: OptimiseDiff<R>, placed: (row: R, key: string, side: "was" | "now") => boolean): OptimiseDiff<R> {
     const ops = new Map<string, OptimiseOp<R>>();
     let added = 0, changed = 0, removed = 0;
     for (const [key, op] of diff.ops) {
         let told: OptimiseOp<R> = op;
         if (op.op === "chg") {
-            const was = placed(op.previous), now = placed(op.row);
+            const was = placed(op.previous, key, "was"), now = placed(op.row, key, "now");
             if (!was && now) told = { kind: op.kind, op: "add", row: op.row };
             else if (was && !now) told = { kind: op.kind, op: "del", previous: op.previous };
         }

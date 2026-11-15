@@ -210,7 +210,7 @@ const SheetPayloadFrame = memo(function SheetPayloadFrame({ value, storageKey }:
     const words = useSheetWords();
     const nouns = useMemo(() => followedNouns(value, words), [value, words]);
     // The app's optimiser (#1409): its binding, which the Elara eye calls by name.
-    const optimise = value.optimise.type === "some" ? value.optimise.value.name : undefined;
+    const optimise = value.optimise.type === "some" ? value.optimise.value : undefined;
     // A phone's cell editor (`Mobile Sheet Spec.md` SH10, R9): the inspector's form at touch size, in the bottom container.
     const cellEditor = useMemo(() => sheetCellEditor(value, words, hidden), [value, words, hidden]);
     // The grid is a phone's as the frame is, 560 wide or less — never as main is, which a pane's rail beside it leaves
@@ -224,7 +224,7 @@ const SheetPayloadFrame = memo(function SheetPayloadFrame({ value, storageKey }:
     // optimiser, a phone's cell editor, whether the grid is a phone's, the inspector's forms, and whether its Autosave
     // begins on.
     const autosave = value.autosave;
-    const host = useMemo((): SheetHost => ({ hidden, drop, nouns, optimise: optimise === undefined ? undefined : { name: optimise }, cellEditor, phone, forms, autosave }),
+    const host = useMemo((): SheetHost => ({ hidden, drop, nouns, optimise, cellEditor, phone, forms, autosave }),
         [hidden, drop, nouns, optimise, cellEditor, phone, forms, autosave]);
     return (
         <SheetProvider value={value.sheet} storageKey={storageKey} host={host}>

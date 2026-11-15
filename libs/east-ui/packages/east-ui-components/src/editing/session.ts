@@ -583,9 +583,12 @@ const OFFERED_KEYS = 64;
 /**
  * How many times in a row a Save the source refused because another write got
  * there first is sent again by the session itself, once its drafts carry over
- * with nothing to choose: past it, the person's Save sends it.
+ * with nothing to choose: past it, the person's Save sends it. A draft of the
+ * same edits handed to a call ({@link EditSession.toDraft}) that the source
+ * refused for the same reason is handed over again as many times
+ * (east-workspace#1622, rule 12): one number for both.
  */
-const RESENDS = 3;
+export const RESENDS = 3;
 const stringEqual = equalFor(StringType);
 const blobEqual = equalFor(BlobType);
 const schemaEqual = equalFor(EastTypeType);

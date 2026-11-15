@@ -168,11 +168,15 @@ import { PlanSelectableContext, elementKeyOf, holdsElement, selectableOf } from 
 import { PlanBoundedContext, PlanConflictCellsContext, PlanConflictedContext, PlanDraftedContext } from "./rows/element-draft.js";
 import { PlanOptimisedContext, type PlanOptimisedMarks } from "./rows/element-optimise.js";
 import { rowValueAt, type PlanCanvasInspect } from "./root/inspect.js";
+import { PLAIN_FUNC_BINDING, type FuncCallBound } from "../shared/func/use-func-call.js";
 import { useOptimise } from "../shared/func/use-optimise.js";
 import { useOptimiseParts } from "../shared/func/optimise-parts.js";
+import { useOptimiseRows } from "../shared/func/optimise-rows.js";
+import { scheduleOptimiseSessions } from "../shared/func/optimise-sessions.js";
+import { optimiseSlice } from "../shared/func/optimise-slice.js";
 import {
-    PlanOptimiseReader, landPlanOptimise, planOptimiseRequest, planOptimiseTypes,
-    type PlanOptimiseReadiness, type PlanOptimiseRequest, type PlanOptimiseResult, type PlanOptimiseWindow, type PlanOptimised,
+    landPlanOptimise, planOptimiseRequest, planOptimiseTypes,
+    type PlanOptimiseRequest, type PlanOptimiseResult, type PlanOptimiseWindow, type PlanOptimised,
 } from "./optimise.js";
 
 type Styles = Record<string, Record<string, unknown>>;
@@ -302,8 +306,11 @@ export interface PlanCanvasArgs {
      * rows it shows, busy, and takes no gesture until the narrowing lands.
      */
     busy?: boolean | undefined;
-    /** The app's optimiser (#1409): its binding, which the Elara eye calls by name; none, no eye. */
-    optimise?: { readonly name: string } | undefined;
+    /**
+     * The app's optimiser (#1409, east-workspace#1622): its binding — which the Elara eye calls by name, with the event
+     * kinds' unsaved edits as drafts of the records it lists; none, no eye.
+     */
+    optimise?: FuncCallBound | undefined;
     /** Whether the Plan's Autosave begins on, as its author says: its one history's choice begins there. */
     autosave?: boolean | undefined;
 }
@@ -452,34 +459,51 @@ export function usePlanCanvas({
         if (ui.elements.some((key) => moved.has(key))) controller.selectEvents(ui.elements.map((key) => moved.get(key) ?? key), ui.selected);
     }, [renumbered, controller]);
 
-    // ── The app's optimiser (#1409, #1419) ────────────────────────────────
-    // One run over the plan window in view, its result landed on the event kinds' events as one step of the history,
-    // and what the runs left on them until Apply: each element's operation, and the ghosts of where events stood.
-    // While the call is out the canvas holds its lock: no drag, no drop, no carry, no history action.
+    // ── The app's optimiser (#1409, #1419, east-workspace#1622) ───────────
+    // One run over the plan window in view — asked the window, the unit the axis is zoomed to and the rail's narrowing,
+    // the event kinds' unsaved edits sent as drafts — its answer's patches landed on the event kinds' events as one step
+    // of the history, and what the runs left on them until Apply: each element's operation, and the ghosts of where
+    // events stood. While the call is out the canvas holds its lock: no drag, no drop, no carry, no history action.
     const landingRoot = useRef<HTMLDivElement | null>(null);
     const landing = useLanding(landingRoot);
     const landingStyles = useLandingStyles();
     const format = useFormatters();
-    const optimiseTypes = useMemo(() => planOptimiseTypes(kinds, resources), [kinds, resources]);
+    const optimiseTypes = useMemo(() => planOptimiseTypes(kinds), [kinds]);
     const [optimised, setOptimised] = useState<PlanOptimised | undefined>(undefined);
     const planWindow = useMemo((): PlanOptimiseWindow | undefined => {
         if (scale === undefined || scale.window.min.type !== "time" || scale.window.max.type !== "time") return undefined;
         return { from: scale.window.min.value, to: scale.window.max.value };
     }, [scale]);
-    const latestOptimise = useRef({ lead, optimised, eventEditing, kinds, resources, format });
-    latestOptimise.current = { lead, optimised, eventEditing, kinds, resources, format };
+    // The window's label is the period: what the eye, the footer's line and a refusal name.
+    const periodName = planWindow === undefined ? "" : format.range(planWindow.from, new Date(planWindow.to.getTime() - 1));
+    const latestOptimise = useRef({ lead, optimised, eventEditing, kinds, resources, format, optimiseTypes, periodName, slices, scale });
+    latestOptimise.current = { lead, optimised, eventEditing, kinds, resources, format, optimiseTypes, periodName, slices, scale };
     const landAfter = useRef<(run: number) => void>(() => undefined);
+    // Each kind's session, by the record it edits: what the run takes its drafts from, and waits on before its answer lands.
+    const optimiseSessions = useMemo(() => {
+        const records = new Map(kinds.map((kind) => [kind.key, kind.editing.sourceId] as const));
+        return scheduleOptimiseSessions(() => latestOptimise.current.eventEditing, (kind) => records.get(kind), words);
+    }, [kinds, words]);
+    // The events an answer touches that the page does not hold, read by their keys before it lands (rule 8).
+    const optimiseRows = useOptimiseRows(eventEditing.rowsByKey);
     const run = useOptimise<PlanOptimiseRequest, PlanOptimiseResult>({
-        name: optimise?.name ?? null, requestType: optimiseTypes.request, resultType: optimiseTypes.result,
+        name: optimise?.name ?? null, binding: optimise ?? PLAIN_FUNC_BINDING,
+        sessions: optimiseSessions, settleKey: `${eventEditing.version}\u0000${optimiseRows.key}`,
+        requestType: optimiseTypes.request, resultType: optimiseTypes.result,
         scope: planWindow === undefined ? "" : `${planWindow.from.getTime()}:${planWindow.to.getTime()}`, storageKey,
         onLanded: (result, request, n) => {
             const now = latestOptimise.current;
             const runText = words.number(n);
             const landed = landPlanOptimise({
-                kinds: now.kinds, resources: now.resources, editing: now.eventEditing, request, result, label: optimiseMessages.step({ run: runText }), runText,
+                kinds: now.kinds, resources: now.resources, types: now.optimiseTypes, editing: now.eventEditing,
+                held: (kind, id) => now.eventEditing.row(kind, id) ?? optimiseRows.read(kind, id), request, result,
+                label: optimiseMessages.step({ run: runText }), period: now.periodName, runText,
                 blocks: now.lead.blocks, format: now.format, before: now.optimised,
             });
-            if (landed === undefined) return undefined;
+            // Events the page does not hold are read by their keys, and the answer lands once they are (rule 8).
+            if (landed !== undefined && "missing" in landed) { optimiseRows.want(landed.missing); return { waiting: true }; }
+            optimiseRows.want([]);
+            if (landed === undefined || "refused" in landed) return landed;
             // A run that changed nothing leaves what earlier runs left (R10).
             if (landed.optimised !== undefined) { setOptimised(landed.optimised); landAfter.current(n); }
             return landed.counts;
@@ -756,24 +780,14 @@ export function usePlanCanvas({
     // view the last narrowing of the paged rows drew while the new one's first window is read (#1344, #1354), or the
     // view Home or End left while the window it goes to is read (CL10).
     const retained = busy || paging.replacing || paging.standing;
-    // The eye and its parts (#1409): the window's label is the period. The eye is listed only where the window can be
-    // optimised (ruled 25 Oct 2026) — event kinds on a time axis; it waits, disabled, while the kinds' rows are read.
-    const periodName = planWindow === undefined ? "" : format.range(planWindow.from, new Date(planWindow.to.getTime() - 1));
-    // What a run's request reads (R24, #1039): every kind's events in the window, its backlog and each event's row — the
-    // kind's rows over the range the canvas reads, read once a kind and found there by key, which the eye waits for, so no
-    // row is read by its key and the eye asks e3 for windows alone, whatever the number of events, and the click's work
-    // grows with the events plus the rows. The eye waits while one is on its way, and stays disabled
-    // for a window no request carries whole — a kind past the cap over it, or read by its cells — never sending a run the
-    // events it was not shown. Read only while an optimiser is bound, in a component of its own (`PlanOptimiseReader`, in
-    // `provide`), which hands the canvas whether the request can be made only as that moves: the read lands in as many
-    // settles as the searches it touches, and each would otherwise render the whole canvas (#1343).
-    const [optimiseReady, setOptimiseReady] = useState<PlanOptimiseReadiness>("reading");
-    const requestHeld = optimise === undefined || planWindow === undefined || optimiseReady === "ready";
+    // The eye and its parts (#1409, east-workspace#1622): the window's label is the period. The eye is listed only where
+    // the window can be optimised (ruled 25 Oct 2026) — event kinds on a time axis. It waits on nothing the canvas reads
+    // (rule 6): the request carries no row, so a kind read a cell at a time, and one past the cap of events over the
+    // window, run as any other — the function reads the events itself, and its answer lands on what the page holds then.
     const optimiseParts = useOptimiseParts<PlanOptimiseRequest>({
         run, landing, period: periodName,
         readOnly: kinds.length === 0 || planWindow === undefined,
-        busy: readLead === undefined || lead.error !== undefined || frameBusy || !requestHeld,
-        request: (n) => planOptimiseRequest(latestOptimise.current.kinds, latestOptimise.current.resources, latestOptimise.current.eventEditing, planWindow!, eventRange!, n),
+        request: (n) => planOptimiseRequest(planWindow!, latestOptimise.current.scale?.resolution ?? "day", optimiseSlice(latestOptimise.current.slices), n),
         landKey: lead,
     });
     landAfter.current = optimiseParts.landAfter;
@@ -1819,11 +1833,6 @@ export function usePlanCanvas({
             session={editing.enabled ? editing.session as never : undefined} onLead={setNestedLead} onWaiting={setNestedWaiting}
             onSpan={setNestedSpan} />
         : null;
-    // Whether a run's request can carry the window whole (R24): read by a component of its own, beside the event kinds'
-    // rows, while an optimiser is bound — over the range the canvas reads them, where each event's row is held.
-    const optimiseReader = optimise !== undefined && planWindow !== undefined && eventRange !== undefined
-        ? <PlanOptimiseReader kinds={kinds} editing={eventEditing} window={planWindow} range={eventRange} cells={cellsRead} onReady={setOptimiseReady} />
-        : null;
     const boundsReader = kinds.length > 0 && eventRange !== undefined
         ? <PlanBoundsReader kinds={kinds} editing={eventEditing} range={eventRange} cells={cellsRead} hidden={hidden ?? NONE_HIDDEN} onBreaches={setBreaches} />
         : null;
@@ -1861,7 +1870,6 @@ export function usePlanCanvas({
             <>
                 {eventsReader}
                 {nestedReader}
-                {optimiseReader}
                 {boundsReader}
                 {densityTag !== undefined ? <DensityProvider value={densityTag}>{provided}</DensityProvider> : provided}
             </>

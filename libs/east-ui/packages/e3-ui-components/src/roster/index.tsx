@@ -39,8 +39,12 @@ import {
 } from "@elaraai/east-ui-components";
 import { LoadingReveal, keptRead } from "@elaraai/east-ui-components/internal";
 import { rowBreaches } from "../shared/bounds.js";
+import { PLAIN_FUNC_BINDING } from "../shared/func/use-func-call.js";
 import { useOptimise } from "../shared/func/use-optimise.js";
 import { useOptimiseParts } from "../shared/func/optimise-parts.js";
+import { useOptimiseRows } from "../shared/func/optimise-rows.js";
+import { scheduleOptimiseSessions } from "../shared/func/optimise-sessions.js";
+import { optimiseSlice } from "../shared/func/optimise-slice.js";
 import { periodLoading, periodLoadingLine, periodRead, retryPeriod } from "../shared/loading.js";
 import { FieldAskProvider, useFieldAsks } from "../shared/schedule/field-ask.js";
 import { useSourceHidden } from "../shared/schedule/hidden.js";
@@ -66,8 +70,8 @@ import {
     type RosterValue, type Selection, type Slot, type StoredDuty, type StoredTarget, type WeekPeriod, type WeekState,
 } from "./model.js";
 import {
-    landRosterOptimise, lockRosterCommands, rosterEdges, rosterOptimiseRequest, rosterOptimiseTypes, type RosterEdges, type RosterOptimiseRequest, type RosterOptimiseResult,
-    type RosterOptimised, type RosterReach,
+    landRosterOptimise, lockRosterCommands, rosterFixed, rosterOptimiseRequest, rosterOptimiseTypes, type RosterOptimisePeriod, type RosterOptimiseRequest,
+    type RosterOptimiseResult, type RosterOptimised, type RosterReach,
 } from "./optimise.js";
 import { useRosterToolbar } from "./toolbar.js";
 import { RosterViews, assignmentName, personOf, readRosterAnchor, type PeoplePick, type RosterAnchor } from "./views.js";
@@ -85,6 +89,8 @@ const NO_DUTY_DRAFTS: ReadonlyMap<string, DraftedDuty | undefined> = new Map();
 const NO_TARGET_DRAFTS: ReadonlyMap<string, StoredTarget | undefined> = new Map();
 const NO_PERIOD_DRAFTS: ReadonlyMap<string, Uint8Array | undefined> = new Map();
 const NO_STORED: ReadonlyMap<string, StoredDuty> = new Map();
+/** A read-only Roster reads no row for an answer to land on: it has no optimiser. */
+const NO_ROWS_BY_KEY = (): undefined => undefined;
 const NO_STORED_TARGETS: ReadonlyMap<string, StoredTarget> = new Map();
 const NO_ISSUES: readonly Issue[] = [];
 /** No week of the span's coverage: a month drawing no work requirement. */
@@ -358,25 +364,39 @@ function RosterFrame(props: FrameProps) {
         editing, ready, retained,
     }, setSelection, findFix, publish), [value, start, context, week, held, draftedDuties, storedDuties, previous, targets, periods, viewed, weekStates, editing, ready, retained,
         findFix, publish]);
-    // The app's optimiser (#1409, #1421): one run over the week in view, its result landed on the week's duties as one
-    // edit, and what it left on them until Apply — the landing and the highlight over the whole frame.
+    // The app's optimiser (#1409, #1421, east-workspace#1622): one run over the period in view — the day in Shifts' Day,
+    // the week, the month — asked that period and the rail's narrowing, the Roster's unsaved edits sent as drafts; its
+    // answer's patch landed on the duties as one edit, and what it left on them until Apply — the landing and the
+    // highlight over the whole frame.
     const landing = useLanding(root);
     const landingStyles = useLandingStyles();
-    // An optimiser that takes the week's edges (#1553): the payload says which form its function takes.
+    // An optimiser that takes the edges (#1553): the payload says which form its function takes.
     const edgesForm = source.optimise.type === "some" && source.optimise.value.edges;
     const optimiseTypes = useMemo(() => rosterOptimiseTypes(domain.rowType, edgesForm), [domain, edgesForm]);
-    // Where a row would stand for a run with the week's edges (#1553): the week, its periods as the frame holds them, and
-    // the weeks either side, theirs as the reader read them — each with its drafts in place; none until they are read.
+    // The period a run is asked of: the one the Roster shows.
+    const dayView = window.view.layout === "shifts" && window.view.period === "day";
+    const asked = useMemo((): RosterOptimisePeriod => {
+        if (span.period === "month") return { from: span.from, to: span.to, period: "month" };
+        if (!dayView) return { from: start, to: weekSpan(start).to, period: "week" };
+        const from = new Date(start.getTime() + window.day * DAY);
+        return { from, to: new Date(from.getTime() + DAY), period: "day" };
+    }, [span, dayView, start, window.day]);
+    // Where a row would stand among the weeks the Roster holds: the span's, their periods as the frame holds them, and —
+    // for a run with the edges (#1553) — the weeks either side, theirs as the reader read them, each with its drafts in
+    // place; none until they are read.
     const neighbours = data.neighbours;
     const reach = useMemo((): RosterReach | undefined => {
-        if (!edgesForm || !current || neighbours === undefined || compareDate(neighbours.start, start) !== 0) return undefined;
-        const periodsAt = (at: Date) => weekPeriods(at, days, from => {
-            const id = weekKey(from);
-            const held = periodOf(source, neighbours.periods.get(from));
-            return { held, period: periodDrafts.has(id) ? periodOf(source, periodDrafts.get(id)) : held };
-        });
-        const before = weekBefore(start), after = weekSpan(start).to;
-        const weeks = [{ at: start, held: periods }, { at: before, held: periodsAt(before) }, { at: after, held: periodsAt(after) }];
+        if (!current || (edgesForm && (neighbours === undefined || compareDate(neighbours.start, span.start) !== 0))) return undefined;
+        const weeks = weekStates.map(state => ({ at: state.start, held: state.periods }));
+        if (edgesForm && neighbours !== undefined) {
+            const periodsAt = (at: Date) => weekPeriods(at, days, from => {
+                const id = weekKey(from);
+                const held = periodOf(source, neighbours.periods.get(from));
+                return { held, period: periodDrafts.has(id) ? periodOf(source, periodDrafts.get(id)) : held };
+            });
+            const before = weekBefore(span.weeks[0]!), after = weekSpan(span.weeks[span.weeks.length - 1]!).to;
+            weeks.push({ at: before, held: periodsAt(before) }, { at: after, held: periodsAt(after) });
+        }
         return (row, id) => {
             const roles = source.duty.read(domain.encodeRow(row), id);
             for (const { at, held } of weeks) {
@@ -389,52 +409,68 @@ function RosterFrame(props: FrameProps) {
             }
             return { type: "beyond", at: roles.start };
         };
-    }, [edgesForm, current, neighbours, start, periods, days, source, periodDrafts, domain, context]);
+    }, [edgesForm, current, neighbours, span, weekStates, days, source, periodDrafts, domain, context]);
     const [optimised, setOptimised] = useState<RosterOptimised | undefined>(undefined);
     const landAfter = useRef<(run: number) => void>(() => undefined);
-    const latestRun = useRef({ week, start, context, editing, optimised, reach, stored: current ? data.duties : NO_STORED, drafts: dutyDrafts });
-    latestRun.current = { week, start, context, editing, optimised, reach, stored: current ? data.duties : NO_STORED, drafts: dutyDrafts };
-    // The duties at the week's edges a run asked (#1553), by its number: what its landing diffs and refuses by.
-    const askedEdges = useRef<{ run: number; edges: RosterEdges } | undefined>(undefined);
-    // The week, as the eye, the footer line and the banner name it (#1409): `W11`.
-    const weekLabel = `W${format.number(weekNumber(start))}`;
+    // The period, as the eye, the footer line and the banner name it (#1409): `W11`, a day's date, a month's weeks.
+    const weekLabel = span.period === "month" ? spanWords(format, span) : dayView ? format.weekdayDate(asked.from) : `W${format.number(weekNumber(start))}`;
+    const latestRun = useRef({ editing, optimised, reach, asked, weekLabel, stored: current ? data.duties : NO_STORED, drafts: dutyDrafts });
+    latestRun.current = { editing, optimised, reach, asked, weekLabel, stored: current ? data.duties : NO_STORED, drafts: dutyDrafts };
+    // Each record's session, by the record it edits — the duties', the periods' and the targets': what the run takes its
+    // drafts from, and waits on before its answer lands.
+    const optimiseSessions = useMemo(() => {
+        const records = new Map([[source.duty.kind.key, source.duty.kind.editing.sourceId] as const,
+            ...(source.periods.type === "some" ? [[PERIODS, source.periods.value.editing.sourceId] as const] : []),
+            ...(source.targets.type === "some" ? [[TARGETS, source.targets.value.editing.sourceId] as const] : [])]);
+        return scheduleOptimiseSessions(() => latestRun.current.editing?.schedule, kind => records.get(kind), words);
+    }, [source, words]);
+    // The duties an answer touches that the page does not hold, read by their keys before it lands (rule 8).
+    const optimiseRows = useOptimiseRows(editing?.schedule.rowsByKey ?? NO_ROWS_BY_KEY);
     const run = useOptimise<RosterOptimiseRequest, RosterOptimiseResult>({
         name: source.optimise.type === "some" ? source.optimise.value.binding.name : null,
-        requestType: optimiseTypes.request, resultType: optimiseTypes.result, scope: weekKey(start), storageKey: key,
+        binding: source.optimise.type === "some" ? source.optimise.value.binding : PLAIN_FUNC_BINDING,
+        // Where a row would stand moves it too: an answer waits for the periods it is judged by.
+        sessions: optimiseSessions, settleKey: `${editing?.schedule.version ?? 0}\u0000${optimiseRows.key}\u0000${reach === undefined ? "" : "reach"}`,
+        requestType: optimiseTypes.request, resultType: optimiseTypes.result, scope: `${asked.from.getTime()}:${asked.to.getTime()}`, storageKey: key,
         onLanded: (result, request, n) => {
             const now = latestRun.current;
             if (now.editing === undefined) return undefined;
-            const asked = askedEdges.current?.run === n ? askedEdges.current.edges : undefined;
-            // A run with the edges lands with them, as the periods stand now; one whose edges are not at hand is not used.
-            if (edgesForm && (asked === undefined || now.reach === undefined)) return undefined;
+            // An answer is judged by the periods as they stand now: it waits for them where they are being read.
+            if (now.reach === undefined) return { waiting: true };
             const runText = format.number(n);
-            const landed = landRosterOptimise({ value, domain, editing: now.editing, request, result, label: optimiseMessages.step({ run: runText }), runText,
-                week: now.week, start: now.start, context: now.context, format, before: now.optimised,
-                edges: asked === undefined || now.reach === undefined ? undefined : { asked, reach: now.reach, days, m: rosterMessages } });
+            const schedule = now.editing.schedule;
+            const landed = landRosterOptimise({ value, domain, types: optimiseTypes, editing: now.editing,
+                held: (kind, id) => schedule.row(kind, id) ?? optimiseRows.read(kind, id), request, result, label: optimiseMessages.step({ run: runText }), runText,
+                period: now.weekLabel, format, before: now.optimised, reach: now.reach, edges: edgesForm, days, m: rosterMessages });
+            // Duties the page does not hold are read by their keys, and the answer lands once they are (rule 8).
+            if (landed !== undefined && "missing" in landed) { optimiseRows.want(landed.missing); return { waiting: true }; }
+            optimiseRows.want([]);
             if (landed === undefined || "refused" in landed) return landed;
             // A run that changed nothing leaves what earlier runs left (R10).
             if (landed.optimised !== undefined) { setOptimised(landed.optimised); landAfter.current(n); }
             return landed.counts;
         },
     });
-    // While a run is out (R2) the week takes no gesture: every command refused with the one reason, the drags off, the history locked.
+    // While a run is out (R2) the Roster takes no gesture: every command refused with the one reason, the drags off, the history locked.
     const locked = run.running;
     const commands = useMemo(() => locked ? lockRosterCommands(unlocked, optimiseMessages.locked({ period: weekLabel })) : unlocked, [locked, unlocked, weekLabel]);
-    // The eye is listed only where the week can be optimised (ruled 25 Oct 2026): never read only, never in Month —
-    // a run is one week's — and never over a published week, nor over a week holding a published day where the periods
-    // are days (#1550): a run plans the whole week, and a published day takes no change; while the week's reads are in
-    // flight it waits, disabled — for an optimiser that takes the week's edges, the weeks either side's periods too (#1553).
+    // The periods a run is asked of: the day's in Shifts' Day where the periods are days, a month's every week's, else the week's.
+    const askedPeriods = span.period === "month" ? weekStates.flatMap(state => state.periods) : viewed;
+    // The eye is listed only where the period in view can be optimised (ruled 25 Oct 2026): never read only, and never
+    // over a period that takes no edit — a published week, or a published day where the periods are days (#1550): a run
+    // plans the whole period, and a published one takes no change. While a Publish is under way it waits, disabled — and,
+    // for an optimiser that takes the edges, while the periods of the weeks either side are read (#1553): which duties are
+    // fixed is told from them.
     const optimiseParts = useOptimiseParts<RosterOptimiseRequest>({
         run, landing, period: weekLabel,
-        readOnly: value.settings.readOnly || editing === undefined || span.period === "month" || (current && !periods.every(takesEdits)),
-        busy: !unlocked.available || (edgesForm && reach === undefined),
+        readOnly: value.settings.readOnly || editing === undefined || (current && !askedPeriods.every(takesEdits)),
+        busy: publishing || (edgesForm && reach === undefined),
         request: n => {
             const now = latestRun.current;
-            // The duties at the week's edges as the session holds them now, for an optimiser that takes them (#1553).
-            const edges = now.reach === undefined ? undefined
-                : rosterEdges({ domain, stored: now.stored, drafts: now.drafts, start: now.start, context: now.context, reach: now.reach });
-            askedEdges.current = edges === undefined ? undefined : { run: n, edges };
-            return rosterOptimiseRequest(now.start, now.week, now.context, n, edges);
+            // The duties the answer must leave, as the session holds them now, for an optimiser that takes the edges (#1553).
+            const fixed = !edgesForm || now.reach === undefined ? undefined
+                : rosterFixed({ stored: now.stored, drafts: now.drafts, period: now.asked, reach: now.reach });
+            return rosterOptimiseRequest(now.asked, optimiseSlice(source.slice.type === "some" ? source.slice.value : undefined), n, fixed);
         }, landKey: week,
     });
     landAfter.current = optimiseParts.landAfter;

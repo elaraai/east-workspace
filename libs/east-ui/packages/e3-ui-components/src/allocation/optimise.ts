@@ -4,11 +4,12 @@
  */
 
 /**
- * Optimise in the Allocation (#1409, #1420; `Optimise Spec.md` §5.1, §9.5,
- * R26): the day in view as the run's request — the day's bins by key, the
- * app's own rows as the session holds them, drafts in place; every arrival as
- * the board reads them; and the board's context — and the result landed on
- * the day's bins as one edit: the diff by key, recorded as one step
+ * Optimise in the Allocation (#1409, #1420, east-workspace#1622; `Optimise
+ * Spec.md` §5.1, §9.5, R26): the run's request — the day in view, the run's
+ * number and the rail's narrowing, and no row: the function reads the bins,
+ * the arrivals and the resources itself, the board's unsaved edits laid over
+ * them — and its answer, a patch of the bins' record, landed on the bins the
+ * page holds as one edit: each key the patch touches, recorded as one step
  * (`ScheduleEditing.record`, origin `optimise`), and what the landing draws
  * kept until Apply — each bin's operation and its provenance, the ghosts of
  * the bins a run moved or removed where they stood, which lanes the latest
@@ -16,37 +17,32 @@
  * and the links the runs added or changed with the kilns they land on, which
  * the Timeline draws outlined in the Elara tone and glows for the highlight.
  * While a run is out the commands are locked (R2): every gesture refused,
- * the day's drafts kept.
+ * the day's drafts kept. A bin the answer changes that the page does not hold
+ * is read by its key first (rule 8); one it changes outside the day it was
+ * asked of — where the bin stood, or where the answer puts it — refuses the
+ * answer whole (rule 11).
  *
  * @packageDocumentation
  */
 
-import { SortedMap, StringType, type EastType } from "@elaraai/east";
-import { AllocationOptimiseRequestTypeFor, AllocationOptimiseResultTypeFor } from "@elaraai/e3-ui/internal";
+import { DictType, StringType, type EastType, type ValueTypeOf, type option } from "@elaraai/east";
+import { AllocationOptimiseRequestType, AllocationOptimiseResultTypeFor } from "@elaraai/e3-ui/internal";
 import { optimiseMessages } from "@elaraai/east-ui-components";
 import { formatDatePattern } from "@elaraai/east-ui-components/internal";
-import { diffOptimiseRows, optimiseIdOf } from "../shared/func/optimise-diff.js";
-import type { OptimiseCounts } from "../shared/func/use-optimise.js";
+import { landOptimisePatches, type OptimiseRowRef } from "../shared/func/optimise-diff.js";
+import type { OptimiseSlice } from "../shared/func/optimise-slice.js";
+import type { OptimiseCounts, OptimiseRefused } from "../shared/func/use-optimise.js";
 import type { AllocationCommands } from "./actions.js";
 import type { AllocationEditing } from "./editing.js";
 import { binCode } from "./inspector-model.js";
-import { compareDate, compareFloat, compareString, partsOf, type AllocationDomain, type AllocationValue, type ArrivalRow, type Bin, type Context, type Day } from "./model.js";
+import { DAY, compareDate, compareFloat, partsOf, type AllocationDomain, type AllocationValue, type Bin, type Context, type Day } from "./model.js";
 
-/** The day's bins by key, as the request and the result carry them: the app's own rows. */
-export type AllocationOptimiseRows = SortedMap<string, unknown>;
+/** The run's request: the day, the run's number and the rail's narrowing. */
+export type AllocationOptimiseRequest = ValueTypeOf<typeof AllocationOptimiseRequestType>;
 
-/** The run's request: the day, the run's number, the day's bins by key, every arrival, and the board's context. */
-export interface AllocationOptimiseRequest {
-    readonly day: Date;
-    readonly run: bigint;
-    readonly bins: AllocationOptimiseRows;
-    readonly arrivals: readonly ArrivalRow[];
-    readonly context: Context;
-}
-
-/** The run's answer: the day's bins by key, complete. */
+/** The run's answer: the patch of the bins' record. */
 export interface AllocationOptimiseResult {
-    readonly bins: AllocationOptimiseRows;
+    readonly bins: unknown;
 }
 
 /** One operation a run left on a bin, until Apply (R17): what it did, the run that made it, and what its hover says. */
@@ -97,34 +93,39 @@ export interface AllocationOptimised {
     readonly resources: ReadonlySet<string>;
 }
 
+/** What the bound optimiser is called with, as the tag held it to, and the bins' record type. */
+export interface AllocationOptimiseTypes {
+    readonly request: EastType;
+    readonly result: EastType;
+    /** The bins' record type, `Dict<String, R>`: what the answer's patch is read by. */
+    readonly record: DictType<EastType, EastType>;
+}
+
 /**
  * The request and result types over the app's bin row type: what the bound
  * optimiser is called with, as the tag held it to.
  *
  * @param rowType - The bin kind's row type
- * @returns The request and result East types
+ * @returns The request and result East types, and the bins' record type
  */
-export function allocationOptimiseTypes(rowType: EastType): { request: EastType; result: EastType } {
-    return { request: AllocationOptimiseRequestTypeFor(rowType), result: AllocationOptimiseResultTypeFor(rowType) };
+export function allocationOptimiseTypes(rowType: EastType): AllocationOptimiseTypes {
+    const record = DictType(StringType, rowType);
+    return { request: AllocationOptimiseRequestType, result: AllocationOptimiseResultTypeFor(record), record };
 }
 
 /**
- * The run's request (R1, R26, O3, O5): the day in view, the run's number, the
- * day's bins by key as the session holds them — the base with every
- * unapplied draft in place, every row whatever the rail shows — every arrival
- * as the board reads them, and the board's context.
+ * The run's request (R1, R26, O3; east-workspace#1622, rule 1): the day in
+ * view, the run's number and the rail's narrowing. No row: the function reads
+ * the bins, the arrivals and the resources itself, the board's unsaved edits
+ * laid over them.
  *
  * @param day - The plan day
- * @param plan - The day as drafted: each bin's row is the app's own
- * @param arrivals - Every arrival
- * @param context - The board's configuration, every arrival and every resource
+ * @param slice - Each rail source's narrowing now
  * @param run - The run's number
  * @returns The request
  */
-export function allocationOptimiseRequest(day: Date, plan: Day, arrivals: readonly ArrivalRow[], context: Context, run: number): AllocationOptimiseRequest {
-    const bins: AllocationOptimiseRows = new SortedMap([], compareString);
-    for (const [id, bin] of plan.bins) bins.set(id, bin.row);
-    return { day, run: BigInt(run), bins, arrivals, context };
+export function allocationOptimiseRequest(day: Date, slice: OptimiseSlice, run: number): AllocationOptimiseRequest {
+    return { day, run: BigInt(run), slice };
 }
 
 /**
@@ -147,14 +148,20 @@ export function allocationPlaceWords(value: AllocationValue, context: Context, b
 export interface AllocationLanding {
     readonly value: AllocationValue;
     readonly domain: AllocationDomain;
+    /** The bins' record type. */
+    readonly types: AllocationOptimiseTypes;
     /** The editing the step is recorded in. */
     readonly editing: AllocationEditing;
+    /** A row as the page holds it, read by its key where it holds none: what the answer lands on. */
+    readonly held: (kind: string, id: string) => option<unknown> | undefined;
     readonly request: AllocationOptimiseRequest;
     readonly result: AllocationOptimiseResult;
     /** The step's label — `Elara run #7`. */
     readonly label: string;
     /** The run's number, formatted, for the provenance. */
     readonly runText: string;
+    /** The day's words, which a refusal names. */
+    readonly period: string;
     /** The day as drafted before the run: where a ghost goes, and what the provenance says a bin was. */
     readonly plan: Day;
     readonly context: Context;
@@ -162,23 +169,53 @@ export interface AllocationLanding {
     readonly before: AllocationOptimised | undefined;
 }
 
+/** What a landing answers that is no landing: bins to read first, by their keys (rule 8). */
+export interface AllocationOptimiseMissing {
+    readonly missing: readonly OptimiseRowRef[];
+}
+
 /**
- * The result landed (R7, R8, R10, §12): diffed against the request by key
- * and recorded as one step of the history, origin `optimise`. A bin the
+ * The result landed (R7, R8, R10, §12; east-workspace#1622, rules 7, 8, 10,
+ * 11): the answer's patch landed key by key on the bins the page holds, and
+ * recorded as one step of the history, origin `optimise`. A bin the
  * result adds is an add — booked, its arrival leaves the Arrivals tab; one it
  * changes is a change, with a ghost at its old lane slot when it moved; one
  * it drops is a remove, its ghost where it stood, its arrival back in
  * Arrivals (§9.5). A result that changes nothing records nothing and leaves
  * what earlier runs left as it is (R10); one that does lays its operations,
- * its ghosts and its links over theirs.
+ * its ghosts and its links over theirs. One that changes a bin outside the
+ * day it was asked of — where the bin stood, or where the answer puts it — is
+ * refused whole, naming the bin; one that touches a bin the page does not hold
+ * names it, to be read by its key.
  *
  * @param args - What the landing is made over
- * @returns What the run counted, and what the runs have left on the bins — unchanged by a run that changed nothing; `undefined` for a result the session would not take
+ * @returns What the run counted, and what the runs have left on the bins — unchanged by a run that changed nothing;
+ *   the bins to read first; a refusal, naming the bin; `undefined` for an answer that does not fit the bins the page
+ *   holds, or one the session would not take
  */
-export function landAllocationOptimise(args: AllocationLanding): { counts: OptimiseCounts; optimised: AllocationOptimised | undefined } | undefined {
-    const { value, domain, editing, request, result, label, runText, plan, context, before } = args;
+export function landAllocationOptimise(args: AllocationLanding,
+): { counts: OptimiseCounts; optimised: AllocationOptimised | undefined } | AllocationOptimiseMissing | OptimiseRefused | undefined {
+    const { value, domain, types, editing, held, request, result, label, runText, period, plan, context, before } = args;
     const kind = value.bin.kind.key;
-    const diff = diffOptimiseRows(kind, domain.rowType, optimiseIdOf<string>(StringType), request.bins, result.bins);
+    const landed = landOptimisePatches<unknown>([{ kind, record: types.record, patch: result.bins }], held);
+    if (landed === undefined) return undefined;
+    if ("missing" in landed) return { missing: landed.missing };
+    // No bin is half made: every draft is a whole row.
+    if ("incomplete" in landed) return undefined;
+    const diff = landed[0]!;
+    // Outside the day it was asked of (rule 11): where a bin stood, or where the answer puts it. The bin is named as the
+    // board names one — its load's code, or a reservation — as the day holds it, else as its own row reads.
+    const from = request.day.getTime(), to = from + DAY;
+    const binOf = (row: unknown): Bin => ({ ...value.bin.read(domain.encodeRow(row)), row }) as Bin;
+    const outside = (bin: Bin | undefined): boolean => bin !== undefined && (bin.at.getTime() < from || bin.at.getTime() >= to);
+    for (const [key, op] of diff.ops) {
+        const was = "previous" in op ? binOf(op.previous) : undefined;
+        const now = "row" in op ? binOf(op.row) : undefined;
+        if (outside(was) || outside(now)) {
+            const named = plan.bins.get(key.slice(kind.length + 1)) ?? was ?? now!;
+            return { refused: optimiseMessages.refusedOutside({ row: binCode(context, named, value.labels), period }) };
+        }
+    }
     if (diff.changes.length === 0) return { counts: diff.counts, optimised: undefined };
     if (!editing.schedule.record(diff.changes, "optimise", label)) return undefined;
     // This run's operations over the earlier runs': a bin it touched again is its, and an earlier ghost of it gives way.

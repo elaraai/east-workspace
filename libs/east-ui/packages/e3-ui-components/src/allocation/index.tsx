@@ -40,8 +40,12 @@ import {
 } from "@elaraai/east-ui-components";
 import { LoadingReveal, formatDatePattern, keptRead, useSlotStyles } from "@elaraai/east-ui-components/internal";
 import { rowBreaches } from "../shared/bounds.js";
+import { PLAIN_FUNC_BINDING } from "../shared/func/use-func-call.js";
 import { useOptimise } from "../shared/func/use-optimise.js";
 import { useOptimiseParts } from "../shared/func/optimise-parts.js";
+import { useOptimiseRows } from "../shared/func/optimise-rows.js";
+import { scheduleOptimiseSessions } from "../shared/func/optimise-sessions.js";
+import { optimiseSlice } from "../shared/func/optimise-slice.js";
 import { periodLoading, periodLoadingLine, periodRead, retryPeriod } from "../shared/loading.js";
 import { FieldAskProvider, useFieldAsks } from "../shared/schedule/field-ask.js";
 import { useHiddenPick } from "../shared/schedule/hidden-pick.js";
@@ -98,6 +102,8 @@ export type { AllocationValue } from "./model.js";
 export interface EastChakraAllocationProps { value: AllocationValue; storageKey: string }
 const NO_DATES: readonly Date[] = [];
 const NO_STORED: ReadonlyMap<string, StoredBin> = new Map();
+/** A read-only board reads no row for an answer to land on: it has no optimiser. */
+const NO_ROWS_BY_KEY = (): undefined => undefined;
 const NO_BIN_DRAFTS: ReadonlyMap<string, DraftedBin | undefined> = new Map();
 const NO_PERIOD_DRAFTS: ReadonlyMap<string, Uint8Array | undefined> = new Map();
 const NO_ISSUES: Issue[] = [];
@@ -350,25 +356,42 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
     const retained = stale || narrowingLoading || narrowingFailed;
     // Commands update what is selected without changing the panes or their tabs.
     const unlocked = allocationCommands({ value, domain, day, plan, held, period, heldPeriod, read: stored, editing, ready: current && !publishing, retained }, select, publish);
-    // The app's optimiser (#1409, #1420): one run over the day in view, its result landed on the day's bins as one edit,
-    // and what it left on them until Apply — the landing and the highlight over the whole frame.
+    // The app's optimiser (#1409, #1420, east-workspace#1622): one run over the day in view — asked the day and the rail's
+    // narrowing, the board's unsaved edits sent as drafts — its answer's patch landed on the bins as one edit, and what it
+    // left on them until Apply — the landing and the highlight over the whole frame.
     const landing = useLanding(root);
     const landingStyles = useLandingStyles();
     const optimiseTypes = useMemo(() => allocationOptimiseTypes(domain.rowType), [domain]);
     const [optimised, setOptimised] = useState<AllocationOptimised | undefined>(undefined);
     const landAfter = useRef<(run: number) => void>(() => undefined);
-    const latestRun = useRef({ plan, context, editing, optimised });
-    latestRun.current = { plan, context, editing, optimised };
+    const latestRun = useRef({ plan, context, editing, optimised, dayWords });
+    latestRun.current = { plan, context, editing, optimised, dayWords };
+    // Each record's session, by the record it edits — the bins' and the periods': what the run takes its drafts from, and
+    // waits on before its answer lands.
+    const optimiseSessions = useMemo(() => {
+        const records = new Map([[value.bin.kind.key, value.bin.kind.editing.sourceId] as const,
+            ...(value.periods.type === "some" ? [[PERIODS, value.periods.value.editing.sourceId] as const] : [])]);
+        return scheduleOptimiseSessions(() => latestRun.current.editing?.schedule, kind => records.get(kind), words);
+    }, [value, words]);
+    // The bins an answer touches that the page does not hold, read by their keys before it lands (rule 8).
+    const optimiseRows = useOptimiseRows(editing?.schedule.rowsByKey ?? NO_ROWS_BY_KEY);
     const run = useOptimise<AllocationOptimiseRequest, AllocationOptimiseResult>({
         name: value.optimise.type === "some" ? value.optimise.value.name : null,
+        binding: value.optimise.type === "some" ? value.optimise.value : PLAIN_FUNC_BINDING,
+        sessions: optimiseSessions, settleKey: `${editing?.schedule.version ?? 0}\u0000${optimiseRows.key}`,
         requestType: optimiseTypes.request, resultType: optimiseTypes.result, scope: dayId, storageKey: key,
         onLanded: (result, request, n) => {
             const now = latestRun.current;
             if (now.editing === undefined) return undefined;
             const runText = format.number(n);
-            const landed = landAllocationOptimise({ value, domain, editing: now.editing, request, result, label: optimiseMessages.step({ run: runText }), runText,
-                plan: now.plan, context: now.context, before: now.optimised });
-            if (landed === undefined) return undefined;
+            const schedule = now.editing.schedule;
+            const landed = landAllocationOptimise({ value, domain, types: optimiseTypes, editing: now.editing,
+                held: (kind, id) => schedule.row(kind, id) ?? optimiseRows.read(kind, id), request, result, label: optimiseMessages.step({ run: runText }),
+                runText, period: now.dayWords, plan: now.plan, context: now.context, before: now.optimised });
+            // Bins the page does not hold are read by their keys, and the answer lands once they are (rule 8).
+            if (landed !== undefined && "missing" in landed) { optimiseRows.want(landed.missing); return { waiting: true }; }
+            optimiseRows.want([]);
+            if (landed === undefined || "refused" in landed) return landed;
             // A run that changed nothing leaves what earlier runs left (R10).
             if (landed.optimised !== undefined) { setOptimised(landed.optimised); landAfter.current(n); }
             return landed.counts;
@@ -378,11 +401,12 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
     const locked = run.running;
     const commands = locked ? lockAllocationCommands(unlocked) : unlocked;
     // The eye is listed only where the day can be optimised (ruled 25 Oct 2026): never read only, never over a published
-    // day; while the day's reads are in flight it waits, disabled, in its place.
+    // day; while a Publish is under way it waits, disabled, in its place. It waits on none of the day's reads: the
+    // function reads the bins itself, and its answer lands on what the page holds then.
     const optimiseParts = useOptimiseParts<AllocationOptimiseRequest>({
         run, landing, period: dayWords,
-        readOnly: value.settings.readOnly || editing === undefined || (current && (!editableStatus(heldPeriod.status) || !editableStatus(period.status))), busy: !unlocked.available,
-        request: n => allocationOptimiseRequest(day, latestRun.current.plan, value.arrivals, latestRun.current.context, n), landKey: plan,
+        readOnly: value.settings.readOnly || editing === undefined || (current && (!editableStatus(heldPeriod.status) || !editableStatus(period.status))), busy: publishing,
+        request: n => allocationOptimiseRequest(day, optimiseSlice(value.slice.type === "some" ? value.slice.value : undefined), n), landKey: plan,
     });
     landAfter.current = optimiseParts.landAfter;
     // What a run left on the bins goes with the drafts (R17): once nothing is pending — Save, Discard — nothing is

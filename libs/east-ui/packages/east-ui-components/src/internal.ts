@@ -79,6 +79,9 @@ export { DRAFT_ISSUE_TEXT, SESSION_TEXT, type EditHistoryWord } from "./editing/
 // What a session is bound to from a collection's editing declaration, as every renderer binds one: its Save and that
 // Save's draft form among it (#1620).
 export { bindingOf } from "./editing/kept.js";
+// How many times in a row a session sends a refused Save again itself: what a builder's run hands its draft over again by,
+// after a call the source refused for the same reason (east-workspace#1622, rule 12).
+export { RESENDS as SAVE_RESENDS } from "./editing/session.js";
 export { type EditSource, type EditWindow } from "./editing/use-edit-session.js";
 export { entryLookup, editWindow, type CarriedEntry, type EntryLookup } from "./editing/carried.js";
 // When a host that draws what a Save landed lets it go (`EditSession.landed`): the one rule that tells rows read before a
