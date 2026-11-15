@@ -491,8 +491,8 @@ function SchematicFrame({ value, data, readAgain, storageKey, viewport, followed
         const shown = sourced.has(slot) ? followed.get(slot)?.shown : undefined;
         return shown === undefined || (shown.keys.type === "some" && !shown.ready) ? undefined : shown.keys;
     }, [areas, data.matched, sourced, followed]);
-    const narrowing = useMemo(() => schematicNarrowing({ drawn: drawing, held: data.held, sourced, scoped, keys: kindKeys, dim, drafted }),
-        [drawing, data.held, sourced, scoped, kindKeys, dim, drafted]);
+    const narrowing = useMemo(() => schematicNarrowing({ drawn: drawing, held: data.held, sourced, scoped, area: areas, asked: data.asked, keys: kindKeys, dim, drafted }),
+        [drawing, data.held, sourced, scoped, areas, data.asked, kindKeys, dim, drafted]);
     // The drawing as every list shows it — Find, the Index, the Choosers, what an item is joined to, the counts.
     const listed = useMemo(() => narrowedDrawing(drawing, narrowing.out), [drawing, narrowing.out]);
     // What `fit` flies the camera to (§10.3): keyed on the narrowing itself — each source's choices, never on which

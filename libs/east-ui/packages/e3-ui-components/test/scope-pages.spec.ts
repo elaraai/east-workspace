@@ -44,7 +44,7 @@ import {
 import * as ex from "@elaraai/e3-ui/examples/calendar/calendar-scope";
 import { datasetPathToString } from "../src/platform/dataset-store.js";
 import type { SheetSavedView } from "../src/sheet/values.js";
-import { clearNarrowing, narrowingEqual, narrowingOf, viewRowsRead, writeNarrowing } from "../src/sheet/view-state.js";
+import { clearNarrowing, heldNarrowing, narrowingEqual, narrowingOf, viewRowsRead, writeNarrowing } from "../src/sheet/view-state.js";
 import { e3Spec } from "./fixtures/e3.js";
 
 const h = e3Spec({ "calendar/calendar-scope": ex });
@@ -265,6 +265,29 @@ describe("a press's own page reads that press alone (#1621)", () => {
         // The All tab clears the choices, and the press stays.
         writeNarrowing(chromeOf(p2), clearNarrowing(narrowingOf(chromeOf(p2))));
         assert.deepEqual(await keysOf(p2.narrowed.get("rows")), ["r4", "r5", "r8"]);
+    });
+
+    test("a view saved before the page was scoped holds the press as a choice: it opens on another press's page as its other choices, under that page's press, and nothing refuses it", async () => {
+        const sheet = await sheetPages();
+        const p2 = sheet("P-2");
+        const rows2 = rowsOf(p2);
+        const order = compareFor(StringType);
+        // Saved where the runs were not scoped: Press 1 chosen, beside the runs waiting for a crew member.
+        const pressed = new SortedMap([["press", variant("values", [printString("P-1")])], ["crew", variant("values", [maybeText(none)])]], order);
+        const view: SheetSavedView = { id: "waiting", name: "Waiting", narrowing: new SortedMap([["rows", { ...rows2.read(), preset: none, where: pressed }]], order), folds: new Map() };
+        // Its tab counts this page's press's runs waiting, the page's scope laid over the press it holds.
+        assert.equal(await h.ready(() => rows2.countWhere(viewRowsRead(rows2, view))), 1n);
+        // Opened: the crew member's choice is the view's, the press the page's.
+        writeNarrowing(chromeOf(p2), view.narrowing);
+        assert.deepEqual(await keysOf(p2.narrowed.get("rows")), ["r8"]);
+        assert.deepEqual([...narrowingOf(chromeOf(p2)).get("rows")!.where.keys()], ["crew"]);
+        // What the rail reads back is what was written: the narrowing the sheet expects of its own write.
+        assert.ok(narrowingEqual(narrowingOf(chromeOf(p2)), heldNarrowing(chromeOf(p2), view.narrowing)));
+        // A choice this page cannot hold — on a field its rail does not offer, as a view saved where it did may hold — is
+        // refused by the write, which the sheet says in its footer, as it says a failed gesture.
+        const titled = new SortedMap([["rows", { ...rows2.read(), preset: none, where: new SortedMap([["title", variant("values", [printString("Flyers")])]], order) }]], order);
+        assert.throws(() => writeNarrowing(chromeOf(p2), titled), /Unknown field 'title'/);
+        assert.deepEqual([...narrowingOf(chromeOf(p2)).get("rows")!.where.keys()], ["crew"], "the refused choice is not written");
     });
 });
 

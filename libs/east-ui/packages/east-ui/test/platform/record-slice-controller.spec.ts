@@ -59,8 +59,9 @@ function state(): ValueTypeOf<RecordSliceStateType> {
 // Two trillion-entry runs, almost all unset. A boundary query must jump over
 // the unset range; iterating entries would never complete this fixture. Given a
 // scope, it is a page that holds those fields (#1621): the rail offers the
-// others, and the store starts with no choice.
-function fixture(scope?: ReadonlyMap<string, Choice>) {
+// others, and the store starts with no choice. Given its own config and row, it
+// offers what they do over the same runs.
+function fixture(scope?: ReadonlyMap<string, Choice>, own: { readonly config: typeof config; readonly row: StructType } = { config, row: Row }) {
     const size = 1_000_000_000_000n;
     const pages: { offset: bigint; limit: bigint }[] = [];
     let pending = false;
@@ -88,11 +89,11 @@ function fixture(scope?: ReadonlyMap<string, Choice>) {
             return some([{ ik: variant("by_status_due", { status: late ? "late" : "held", due }) }]);
         },
     };
-    const paged = scope === undefined ? config
-        : { ...config, fields: config.fields.filter(field => !scope.has(field.fieldId)), search: [], scope: new Map(scope) };
+    const paged = scope === undefined ? own.config
+        : { ...own.config, fields: own.config.fields.filter(field => !scope.has(field.fieldId)), search: [], scope: new Map(scope) };
     let current = scope === undefined ? state()
         : decodeBeast2For(RecordSliceStateType)(encodeBeast2For(RecordSliceStateType)({ where: new Map(), preset: none, resolution: none }));
-    const controller = new RecordSliceController(binding, paged, Row, () => current, next => { current = next; });
+    const controller = new RecordSliceController(binding, paged, own.row, () => current, next => { current = next; });
     return { controller, pages, pending(value: boolean) { pending = value; }, failed(value: boolean) { failed = value; }, move() { revision = "B"; } };
 }
 
@@ -102,6 +103,18 @@ test("range extent uses at most three boundary entries per run, skipping unset w
     assert.equal(pages.length, 6);
     assert.ok(pages.every(page => page.limit === 1n));
     assert.equal(controller.readState().where.get("due")?.type, "range", "measuring the horizon never changes the narrowing");
+});
+
+test("a range's extent beside a pick of an entries field reads the leading choices' index alone: the pick weighs and narrows nothing, and stands on no index's path (#1522)", () => {
+    const weighed = decodeBeast2For(Config)(encodeBeast2For(Config)({
+        ...config,
+        fields: [...config.fields, { fieldId: "byService", label: "Service", kind: "string", optional: false, multiple: true, set: false,
+            values: [{ value: '"Economy"', label: "Economy" }], format: none }],
+        indexes: [...config.indexes, { name: "by_service", fields: ["byService"], sets: new Set(), structured: false, interval: none, area: none, series: none, summary: none, entries: true }],
+    }));
+    const { controller } = fixture(undefined, { config: weighed, row: StructType({ status: StringType, due: OptionType(IntegerType), byService: SetType(StringType) }) });
+    controller.choose("byService", values('"Economy"'));
+    assert.deepEqual(controller.domain("due"), some({ from: ".some 2", to: ".some 100" }), "the extent the status's choices give, the pick standing beside them");
 });
 
 test("extent never returns a partial result during loading, propagates failures, and retries after a revision", () => {
@@ -701,7 +714,7 @@ function services() {
     const asked: string[] = [];
     const binding: RecordSliceBinding = {
         id: "stations", recordId: "stations", defaultIndex: "primary", revision: () => some("A"), refresh: () => null,
-        total: () => some(7n), entryKeys: () => [], page: () => none,
+        total: () => some(7n), entryKeys: () => [],
         seek(index, query) {
             if (index === "by_service") {
                 // A service's range: an exact key of the entries index, every station's entry under it.
@@ -715,12 +728,19 @@ function services() {
                 }
                 return some({ found: false, row, count: 0n });
             }
-            // A status, the one field of its index: an exact key.
+            // A status, the one field of its index: an exact key, or a prefix of it, as a search asks.
             assert.equal(index, "by_status");
+            if (query.type === "prefix") {
+                const late = "late".startsWith(query.value);
+                const held = "held".startsWith(query.value);
+                return some(held ? { found: true, row: 0n, count: late ? 7n : 3n } : late ? { found: true, row: 3n, count: 4n } : { found: false, row: 7n, count: 0n });
+            }
             assert.equal(query.type, "key");
             const status = query.type === "key" ? query.value : undefined;
             return some(status === printString("held") ? { found: true, row: 0n, count: 3n } : { found: true, row: 3n, count: 4n });
         },
+        // The status index's entries: 3 held, then 4 late.
+        page: (index, offset) => some(index === "by_status" && offset < 7n ? [{ ik: variant("by_status", offset < 3n ? "held" : "late") }] : []),
     };
     let current = decodeBeast2For(RecordSliceStateType)(encodeBeast2For(RecordSliceStateType)({ where: new Map(), preset: none, resolution: none }));
     const controller = new RecordSliceController(binding, config, StructType({ status: StringType, byService: SetType(StringType) }), () => current, next => { current = next; });
@@ -744,6 +764,13 @@ test("an entries field's keys each count the stations holding them, whatever els
     assert.deepEqual([...where().keys()], ["byService"], "the status cleared, the picks kept");
     controller.choose("byService", undefined);
     assert.equal(where().size, 0);
+});
+
+test("a search's suggestions beside a pick of an entries field read the searched field's index alone: the pick stands on no index's path (#1522)", () => {
+    const { controller } = services();
+    controller.choose("byService", values('"Priority"'));
+    const found = controller.suggest("status", "la");
+    assert.deepEqual(found.type === "some" ? found.value.map(choice => [choice.label, choice.count]) : found, [["late", some(4n)]]);
 });
 
 /**
@@ -947,6 +974,21 @@ test("a scope that holds no value reads no row: the count is none of the record'
     // A narrowing that leaves the scope out is read as it is given: the record's own rows.
     assert.equal(controller.count(new Map()).value, 26n);
     assert.equal(pressPage().controller.unread, false);
+});
+
+test("a state written while the page's scope holds no value is checked as a page whose scope holds one reads it: the store, kept under the Slice's key whatever the scope holds next, keeps no choice such a page could not read (#1621)", () => {
+    // The status's own index takes no press: beside a press of the scope, nothing reads a status.
+    const apart = pressPage({ scope: [["press", values()]], indexes: ["by_status"] });
+    const read = apart.controller.readState();
+    assert.throws(() => apart.controller.write({ ...read, where: new Map([["status", values('"late"')]]) }), /These choices cannot be combined; clear a field and try again/);
+    assert.throws(() => apart.controller.choose("status", values('"late"')), /Choose the preceding fields before this field/, "a choice on the rail, as before");
+    assert.equal(apart.stored().where.size, 0, "nothing is written");
+    // Read by the press then the status, it is kept, and reads nothing while the scope holds no value.
+    const led = pressPage({ scope: [["press", values()]] });
+    led.controller.write({ ...led.controller.readState(), where: new Map([["status", values('"late"')]]) });
+    assert.ok(holds(led.stored().where, [["status", values('"late"')]]));
+    assert.deepEqual(led.controller.count(), some(0n));
+    assert.deepEqual([led.seeks, led.pages], [[], []], "nothing is asked of the record");
 });
 
 test("a search suggests the page's values alone: it reads an index that takes the scope's fields before the searched one, and is refused, naming that index, where none is listed (#1621)", () => {

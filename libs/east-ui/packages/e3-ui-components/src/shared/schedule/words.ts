@@ -42,6 +42,30 @@ export function kindPlural(name: string): string {
     return `${name}s`;
 }
 
+/** English plurals made with no `s`, as running text writes them, by the plural: what {@link kindSingular} reads back. */
+const NO_S_PLURALS: ReadonlyMap<string, string> = new Map([["people", "person"], ["children", "child"], ["men", "man"], ["women", "woman"]]);
+
+/**
+ * A kind's name in the singular, as English reads one back from its plural
+ * ({@link kindPlural}'s other way) — `presses` → `press`, `deliveries` →
+ * `delivery`, `machines` → `machine`, `people` → `person` — as running text
+ * writes it (`lowerWord`). A name with no plural ending, as a collective's is,
+ * stays: `crew`, `staff`, `status`. What a line names one row of a kind by,
+ * whose name is its heading (`Schedule.resources`' `name`, `Presses`).
+ *
+ * @param name - The kind's name, as running text writes it
+ * @returns Its singular
+ */
+export function kindSingular(name: string): string {
+    const irregular = NO_S_PLURALS.get(name);
+    if (irregular !== undefined) return irregular;
+    if (/(ss|us|is)$/i.test(name)) return name;
+    if (/[^aeiou]ies$/i.test(name)) return `${name.slice(0, -3)}y`;
+    if (/(x|z|ch|sh|ss)es$/i.test(name)) return name.slice(0, -2);
+    if (/s$/i.test(name)) return name.slice(0, -1);
+    return name;
+}
+
 /**
  * A count and what it counts, as English says it: `1 issue`, `3 issues` — the
  * word's plural as English makes one ({@link kindPlural}): `1 breach`,

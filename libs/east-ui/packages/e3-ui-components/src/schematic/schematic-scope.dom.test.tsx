@@ -62,8 +62,8 @@ interface OwnerPage {
 
 /**
  * As many owners as a scope may hold (the record Slice's bound on its runs): Elmway College, and tenants no rack is let
- * to. A window's searches across them all pass the bound on the searches one read lands, so their page's window is read
- * through the area index over every owner's racks.
+ * to. A window's searches at the index's finest cells, across them all, pass the bound on the searches one read lands, so
+ * each owner's window is searched at cells coarse enough for every owner's to land — through the index they lead all the same.
  */
 const MANY_OWNERS = ["Elmway College", ...Array.from({ length: 63 }, (_, i) => `Tenant ${i + 1}`)];
 
@@ -150,15 +150,18 @@ test("an owner's page draws that owner's racks alone, read through the area inde
     }
 });
 
-test("a page for more owners than a window's read asks of the index they lead draws their racks alone all the same — hidden or dimmed: its window is read over every owner's racks, the scope is asked of them, and none beyond it is drawn, as itself or as context (#1621)", async () => {
+test("a page for more owners than a window's finest searches of the index they lead can land in one read draws their racks alone all the same — hidden or dimmed: each owner's window is searched at coarser cells, through the index the owners lead, and no rack beyond them is read or drawn (#1621)", async () => {
     for (const show of ["hide", "dim"] as const) {
         const before = indexesRead().length;
         const { container, unmount } = await open({ key: `many-${show}`, owners: MANY_OWNERS, show }, "A05");
         await settle();
         expect(drawnRacks(container), show).toEqual(["A05"]);
         expect(card(container, "racks", "A05")!.hasAttribute("data-context"), show).toBe(false);
-        // The window went through the index over every owner's racks: through the one the owners lead it takes too many searches.
-        expect(indexesRead().slice(before), show).toContain("schematic_racks_by_area");
+        // Every read by area went through the index the owners lead — the window, its counts, the overview: never the one
+        // over every owner's racks, whose counts would hold racks beyond the page.
+        const read = indexesRead().slice(before);
+        expect(read, show).toContain("schematic_racks_by_owner_area");
+        expect(read.filter((index) => index === "schematic_racks_by_area"), show).toEqual([]);
         expect(h.requests("read", RACKS_DATASET), show).toEqual([]);
         unmount();
     }

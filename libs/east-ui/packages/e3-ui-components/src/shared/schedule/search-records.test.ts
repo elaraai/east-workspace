@@ -31,9 +31,11 @@
  *   placed in the record and listed in place, a gap kept; each row its
  *   narrowing hides said so, as e3 says which choices hide it; a narrowing that
  *   moved since the find the one a list asks under; a pick's place known with
- *   nothing read only where its source hides no row (`pickPlace`); and the box
- *   asking its query again as the record moves, and listing its lines again
- *   as the narrowing does.
+ *   nothing read, whatever the narrowing hides (`pickPlace`), and a builder that
+ *   takes places told every pick at once — a row the box listed as hidden under
+ *   the narrowing as it stands as the list read it; and the box asking its
+ *   query again as the record moves, and listing its lines again as the
+ *   narrowing does.
  * - On a page whose sources hold a scope (#1621) — the scoped-page example's
  *   runs and crew, scoped to a press: the press's runs alone, sought through
  *   the index on exactly the press, a block of matches for each press of the
@@ -383,6 +385,17 @@ describe("useSearchRecords", () => {
         expect(picked(told)).toHaveLength(3);
     });
 
+    test("the browse an empty box lists as it opens is no new query: a pick on its way lands, and the builder is not told its pick stands no more", async () => {
+        const { box, told } = mountBox({ sources: [held(() => some(items("rack", ["A01", "A02"])))] });
+        await box().find({ prefix: "A" });
+        expect(told.cleared).toBe(1);
+        // A pick, then the box opened again empty before its row lands — a phone's view of it — browsing the first matches.
+        act(() => { box().jump(1, "pick"); void box().find(box().browseQuery!); });
+        await settle();
+        expect(picked(told)).toEqual([[1, "A02", "pick"]]);
+        expect(told.cleared).toBe(1);
+    });
+
     test("the builder is told its pick stands no more as the search is cleared, or a new query is asked in its place — never as one is asked again", async () => {
         const { box, told } = mountBox({ sources: [held(() => some(items("rack", ["A01"])))] });
         await box().find({ prefix: "A" });
@@ -696,7 +709,7 @@ describe("a source sought through e3", () => {
         expect(await box().find({ prefix: "A0" }, true)).toEqual({ found: true, row: 0, count: 6 });
     });
 
-    test("a pick's place is known with nothing read where its source hides no row — one with no hidden pick, as the builder names it now — never where its narrowing may hide the row, nor for a row held whole, nor one the find did not find", async () => {
+    test("a pick's place is known with nothing read for each match its source places, whatever its narrowing hides — never for a row held whole, nor one the find did not find", async () => {
         const part = await racks();
         const { result } = renderHook(() => useSourceHidden("Spec", part));
         await waitFor(() => expect(result.current.ready).toBe(true));
@@ -704,19 +717,18 @@ describe("a source sought through e3", () => {
         const runs = await searchRuns([plain], { prefix: "A0" }, atString);
         expect([pickPlace(runs, 0), pickPlace(runs, 6)]).toEqual([0n, 6n]);
         expect(pickPlace(runs, 7)).toBeUndefined();
-        // Named now with a hidden pick — its rows narrowed since the find: the narrowing may hide the row, so it is read.
-        expect(pickPlace(runs, 2, [sought(part, result.current)])).toBeUndefined();
+        // Harbour Labs' racks alone, which hides A03: its place is the record's still.
+        await narrow(part, HARBOUR);
+        await waitFor(() => expect(whereEqual(result.current.where!, HARBOUR)).toBe(true));
         const narrowed = await searchRuns([sought(part, result.current)], { prefix: "A0" }, atString);
-        expect(pickPlace(narrowed, 2)).toBeUndefined();
-        // …and named now with none, its place again.
-        expect(pickPlace(narrowed, 2, [plain])).toBe(2n);
+        expect(pickPlace(narrowed, 2)).toBe(2n);
         // Rows held whole have no place.
         const whole = await searchRuns([held(() => some(items("rack", ["A01", "A02"])))], { prefix: "A" }, atString);
         expect(whole.map(({ count }) => count)).toEqual([2]);
         expect(pickPlace(whole, 0)).toBeUndefined();
     });
 
-    test("a pick of a match with no hidden pick goes to a builder that takes places by its place at once, and its row is never read; with a hidden pick its row is read, and what hides it handed over", async () => {
+    test("a builder that takes places is told every pick at once, with nothing read: a row the box listed as hidden, under the narrowing as it stands, as the list read it, what hides it with it — any other by its place: one never listed, one listed shown, one listed under a narrowing since moved", async () => {
         const part = await racks();
         const hidden = renderHook(() => useSourceHidden("Spec", part));
         await waitFor(() => expect(hidden.result.current.ready).toBe(true));
@@ -731,19 +743,38 @@ describe("a source sought through e3", () => {
         }, { initialProps: { pick: undefined as SourceHidden | undefined } });
         const box = (): KeySearchSource => result.current!;
         expect(await box().find({ prefix: "A0" })).toEqual({ found: true, row: 0, count: 7 });
-        const before = h.requests(undefined, RACKS).length;
-        act(() => { box().jump(2, "pick"); });
+        /** Picks a match: what it read of the racks on its way. */
+        const pick = async (row: number) => {
+            const before = h.requests(undefined, RACKS).length;
+            act(() => { box().jump(row, "pick"); });
+            await settle();
+            return h.requests(undefined, RACKS).slice(before);
+        };
+        expect(await pick(2)).toEqual([]);
         expect(places).toEqual([2n]);
+        // Harbour Labs' racks alone, which hides A03: never listed, it goes by its place still.
+        const harbour = async () => {
+            await narrow(part, HARBOUR);
+            await waitFor(() => expect(whereEqual(hidden.result.current.where!, HARBOUR)).toBe(true));
+            rerender({ pick: hidden.result.current });
+        };
+        await harbour();
+        expect(await pick(2)).toEqual([]);
+        expect(places).toEqual([2n, 2n]);
+        // Listed, A03 is said hidden: a pick of it goes as the list read it, and of A02, listed shown, by its place.
+        await act(async () => { await box().listRange(0, 7); });
         await settle();
-        expect(h.requests(undefined, RACKS).slice(before)).toEqual([]);
-        expect(picks).toEqual([]);
-        // Harbour Labs' racks alone: the narrowing hides A03, so a pick of it reads its row and says so.
-        await narrow(part, HARBOUR);
-        await waitFor(() => expect(whereEqual(hidden.result.current.where!, HARBOUR)).toBe(true));
+        expect(await pick(2)).toEqual([]);
+        expect(picks.map(({ at, item, hidden: by }) => [at, item, by !== undefined])).toEqual([[2, "A03", true]]);
+        expect(await pick(1)).toEqual([]);
+        expect(places).toEqual([2n, 2n, 1n]);
+        // Northwind Media's racks now, which A03 is one of: listed hidden under the narrowing before, it goes by its place.
+        await narrow(part, NORTHWIND);
+        await waitFor(() => expect(whereEqual(hidden.result.current.where!, NORTHWIND)).toBe(true));
         rerender({ pick: hidden.result.current });
-        act(() => { box().jump(2, "pick"); });
-        await waitFor(() => expect(picks.map(({ at, item, hidden: by }) => [at, item, by !== undefined])).toEqual([[2, "A03", true]]));
-        expect(places).toEqual([2n]);
+        expect(await pick(2)).toEqual([]);
+        expect(places).toEqual([2n, 2n, 1n, 2n]);
+        expect(picks).toHaveLength(1);
     });
 });
 

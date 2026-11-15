@@ -41,7 +41,7 @@ import { DateTimeType, StringType, equalFor, none, printFor, some, type option }
 import type { KeySearchSource } from "@elaraai/east-ui-components";
 import { awaitTracked } from "@elaraai/east-ui-components/internal";
 import { EMPTY_SCHEDULE_DRAFTS, heldRowOf, type ScheduleEditing, type ScheduleHeldRows } from "../shared/schedule/editing.js";
-import { hiddenLine, type RowHidden, type RowHiding, type SourceHidden } from "../shared/schedule/hidden.js";
+import { draftsOffPage, hiddenLine, type RowHidden, type RowHiding, type SourceHidden } from "../shared/schedule/hidden.js";
 import type { HiddenPicks } from "../shared/schedule/hidden-pick.js";
 import { STRING_KEYS } from "../shared/schedule/kind-keys.js";
 import { rowsWithin, useSearchRecords, type SoughtSource } from "../shared/schedule/search-records.js";
@@ -71,6 +71,22 @@ interface Listed {
     readonly item: CalendarItem;
     readonly kind: string;
 }
+
+/**
+ * An event a source of the slice lists, as the Calendar reads it: beside the event, its kind's slot, its source's part,
+ * and its row with its draft in place — what a line asks of its page's scope (#1621) where a draft changed it.
+ */
+interface SourceListed extends Listed {
+    readonly slot: string;
+    readonly part: CalendarEventPart["part"];
+    /** Its row, its draft in place: beast2 of its record's row type. */
+    readonly row: Uint8Array;
+    /** Whether a draft of it is in place. */
+    readonly drafted: boolean;
+}
+
+/** Whether a listed event is a source's, read with its row. */
+const fromSource = (listed: Listed): listed is SourceListed => "part" in listed;
 
 /**
  * How a found event reads in the list: its key, its title, its kind's name and when it starts — or that it waits in the
@@ -172,8 +188,11 @@ export function useCalendarFind({ kinds, parts, editing, range, format, onPick, 
                 // Each row a list shows read as an event by its key, over the window the Calendar shows, its drafts in place.
                 read: ({ id }) => {
                     const { range: window, held: cells } = latest.current;
-                    const event = kind.event(id, draftsOf(), window.from, window.to, heldRowOf(cells, kind.key, id));
-                    return event.type === "none" ? none : some(some({ item: event.value.item, kind: kind.name }));
+                    const drafts = draftsOf();
+                    const event = kind.event(id, drafts, window.from, window.to, heldRowOf(cells, kind.key, id));
+                    if (event.type === "none") return none;
+                    const listed: SourceListed = { item: event.value.item, kind: kind.name, slot: kind.key, part, row: event.value.row, drafted: drafts.has(id) };
+                    return some(some<Listed>(listed));
                 },
             }];
         }
@@ -204,11 +223,16 @@ export function useCalendarFind({ kinds, parts, editing, range, format, onPick, 
         onPick: ({ item, hidden }) => { latest.current.onPick({ ...item, hidden }); },
         // Where no key matches, the box says it finds an event by its key — never by its title, which the views draw.
         noMatchesText: format.m.keySearchNoMatches(),
-        // Where the layout lays resources out, an event its resource's source hides is drawn nowhere: of the resources the
-        // listed events stand on, those a source hides, each standing on the event's resource there.
+        // An event whose draft left its kind's page's scope (#1621) is not on this page, whatever its stored row's reads say:
+        // its drafted row asked of the scope. Where the layout lays resources out, an event its resource's source hides is
+        // drawn nowhere: of the resources the listed events stand on, those a source hides, each standing on the event's
+        // resource there.
         hidings: async (events): Promise<readonly (readonly RowHiding[])[]> => {
             const { picks: sourcePicks, resourcesShown: shown, laysResources: lays, resourceWords: named } = latest.current;
-            if (!lays) return events.map(() => []);
+            const left = await draftsOffPage(events.map((listed) => (fromSource(listed)
+                ? { pick: sourcePicks.get(listed.slot), id: listed.item.key, drafted: listed.drafted ? listed.row : undefined }
+                : { pick: undefined, id: listed.item.key, drafted: undefined })));
+            if (!lays) return left;
             // The resources each source narrows that the listed events are drawn on, each once.
             const standing = new Map<string, string[]>();
             for (const { item } of events) {
@@ -223,11 +247,11 @@ export function useCalendarFind({ kinds, parts, editing, range, format, onPick, 
                 const pick = sourcePicks.get(kind)!;
                 return [kind, { pick, hidden: await hiddenResources(pick, shown.get(kind), keys) }] as const;
             })));
-            return events.map(({ item }) => {
+            return events.map(({ item }, i) => {
                 const resource = laidOn(item);
                 const hiding = resource === undefined ? undefined : hides.get(resource.kind);
-                return resource === undefined || hiding === undefined || !hiding.hidden.some(key => keyEqual(key, resource.key)) ? []
-                    : [{ pick: hiding.pick, id: resource.key, what: named.get(resource.kind) }];
+                return [...left[i]!, ...(resource === undefined || hiding === undefined || !hiding.hidden.some(key => keyEqual(key, resource.key)) ? []
+                    : [{ pick: hiding.pick, id: resource.key, what: named.get(resource.kind) }])];
             });
         },
         // And lists its lines again as e3 says what hides an event, as a source's choices move, as what a resource kind's

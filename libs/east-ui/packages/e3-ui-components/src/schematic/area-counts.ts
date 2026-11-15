@@ -40,7 +40,7 @@ function itemCount(kind: SchematicValue["items"][number], part: Part): Schematic
     if (!kind.backlog) return all.type === "some" ? counted(Number(all.value)) : COUNT_READING;
     const areas = schematicAreaIndexes(part.config.indexes, kind.box, "items", `Schematic.items: "${kind.name}"`);
     if (areas === undefined) return uncounted("filters");
-    const plan = schematicUnplacedPlan(areas, where);
+    const plan = schematicUnplacedPlan(areas, where, [...part.config.scope.keys()]);
     if (plan.residual.length > 0) return uncounted("filters");
     const unplaced = part.countWhere(plan.read);
     return all.type === "some" && unplaced.type === "some" ? counted(Number(all.value - unplaced.value)) : COUNT_READING;

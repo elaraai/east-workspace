@@ -48,7 +48,6 @@ import {
     East,
     Expr,
     FunctionType,
-    IntegerType,
     NullType,
     OptionType,
     StringType,
@@ -63,7 +62,7 @@ import {
 import { RecordCommitInfoType } from "@elaraai/e3-types";
 import { RowSourceType, UIComponentType, type UIElement } from "@elaraai/east-ui";
 import {
-    EastUI, PinnedSourceType, isRecordSlices,
+    EastUI, isRecordSlices,
     type DataRowType, type FieldHints, type PagedSource, type RecordSlicesChromeOptions,
 } from "@elaraai/east-ui/internal";
 import { SheetRootType, type SheetEntryOf, type SheetLinesField, type SheetLineOf } from "./types.js";
@@ -77,7 +76,7 @@ import { buildLibrary, librarySources, SheetLibraryTabType, type SheetLibraryTab
 import { buildForms, SheetFormsType } from "./fields.js";
 import { viewsOf } from "./views.js";
 import type { OrderedRowSource } from "../utils/ordered-source.js";
-import { recordSources, sliceSourceNames, templatesSource } from "../utils/record-sources.js";
+import { recordBaseSource, recordSources, sliceSourceNames, templatesSource } from "../utils/record-sources.js";
 import { heldHandle } from "../utils/held.js";
 import { RowInspectorType, rowInspector } from "../utils/row-inspector.js";
 import { FuncBindingType } from "../bind/func.js";
@@ -522,8 +521,9 @@ export function createSheetPayload(props: { columns: unknown } & { [prop: string
             // The rows the page holds of the rows source's record — every row in its own order, or on a scoped page the
             // scope's alone (#1349, #1621) — the renderer draws the viewer's narrowing over them as the lens — and the
             // record's identity, which names the session over them.
-            const part = bound.parts["rows"] as unknown as RecordRowsPart;
-            const built = createSheetBuild(recordRowsOf(part), columns, { ...sheet, ...viewOptions }, { sourceId: part.sourceId, slice: sources.chrome, hold, ...recordKinds, ...forms });
+            const part = bound.parts["rows"]!;
+            const built = createSheetBuild(recordBaseSource(part), columns, { ...sheet, ...viewOptions },
+                { sourceId: (part as unknown as RecordRowsPart).sourceId, slice: sources.chrome, hold, ...recordKinds, ...forms });
             return payloadOf(built, {
                 ...parts, id: sheet.id as string | undefined,
                 history: East.value(none, OptionType(SheetHistoryType)),
@@ -559,40 +559,8 @@ export function createSheetPayload(props: { columns: unknown } & { [prop: string
     });
 }
 
-/** A `rows` source's part of the slice, as the sheet reads the rows its page holds through it (#1349, #1621). */
-type RecordRowsPart = ExprType<StructType<{
-    sourceId: StringType;
-    total: FunctionType<[], OptionType<IntegerType>>;
-    pageBase: FunctionType<[IntegerType, IntegerType], OptionType<EastType>>;
-    data: StructType<{
-        id: StringType;
-        revision: FunctionType<[], OptionType<StringType>>;
-        refresh: FunctionType<[OptionType<StringType>], NullType>;
-    }>;
-}>>;
-
-/**
- * The rows the page holds of a `rows` source's record (#1349, #1621): what
- * the sheet's rows are, the viewer's narrowing drawn over them as the lens.
- * With no scope they are the record's own, every row in its order; on a scoped
- * page the scope's alone, numbered 1 to N, paged through the index on exactly
- * the scope's fields in their keys' order under each of its values, and no row
- * beyond the scope is read. Its pages are the source's `pageBase` — the
- * windows the source's other reads of those rows share — its total the
- * source's, the scope's rows on a scoped source, and its revision the record's
- * state, which a Save confirms against. It searches no key itself: the
- * renderer seeks those rows through the source's binding.
- *
- * @param part - The `rows` source's part of the slice, bound once in the payload's block
- * @returns A pinned source over the rows the page holds, of the source's window type
- */
-function recordRowsOf(part: RecordRowsPart): ExprType<StructType> {
-    const pageType = (Expr.type(part.pageBase as unknown as Expr) as FunctionType).output as OptionType<EastType>;
-    const collection = (pageType.cases as Record<string, EastType>)["some"]!;
-    return East.value({
-        id: part.data.id, page: part.pageBase, total: part.total, seek: none, revision: part.data.revision, refresh: part.data.refresh,
-    } as never, PinnedSourceType(collection)) as unknown as ExprType<StructType>;
-}
+/** A `rows` source's part of the slice, as the sheet names the session over the rows its page holds by it: its record's identity. */
+type RecordRowsPart = ExprType<StructType<{ sourceId: StringType }>>;
 
 /** The payload around a built sheet: its templates, its library, each source's narrowed keys, its inspector pane, its history, whether its Autosave begins on and its name. */
 function payloadOf(built: SheetBuild, parts: {

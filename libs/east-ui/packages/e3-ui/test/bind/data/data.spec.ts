@@ -372,6 +372,28 @@ describe("Slice.bindRecord's scope is refused where no listed index reads it, na
         assert.doesNotThrow(() => bindRecord("jobs", pressLed, { scope: press, initial: { status: ["held"] } }), "each narrowing beside the press has its index");
     });
 
+    hostTest("a scoped source's range of a field an interval index starts from is read through an interval index from it led by the scope's fields, which holds a run where it overlaps the range: a plain index led by the scope reads starts alone, and is refused, naming the one to declare", () => {
+        const Run = StructType({ press: StringType, start: DateTimeType, end: OptionType(DateTimeType) });
+        const runs = e3.record("scoped_runs", DictType(StringType, Run), {
+            initial: new Map(),
+            indexes: (index) => ({
+                by_press: index.on(["press"]),
+                by_time: index.interval({ from: "start", to: "end" }),
+                by_press_start: index.on(["press", "start"]),
+                by_press_time: index.interval({ on: ["press"], from: "start", to: "end" }),
+            }),
+        });
+        assert.throws(() => bindRecord("runs", Data.bindPaged(runs, { indexes: ["by_press", "by_time", "by_press_start"] }), { scope: press, fields: { start: {} }, range: "start" }), {
+            message: "Slice.bindRecord: the range of 'start' beside the scope ('press') is read through an interval index from it, which holds a run where it overlaps " +
+                `the range, led by the scope's fields — by_press_time: index.interval({ on: ["press"], from: "start", to: "end" }) among the record's indexes, ` +
+                "as 'by_time' reads it, listed in Data.bindPaged's indexes",
+        });
+        assert.doesNotThrow(() => bindRecord("runs", Data.bindPaged(runs, { indexes: ["by_press", "by_time", "by_press_start", "by_press_time"] }),
+            { scope: press, fields: { start: {} }, range: "start" }), "listed, the press's own interval reads the range");
+        // With no interval index a range of the start is the plain index's to read, after the press.
+        assert.doesNotThrow(() => bindRecord("runs", Data.bindPaged(runs, { indexes: ["by_press", "by_press_start"] }), { scope: press, fields: { start: {} }, range: "start" }));
+    });
+
     hostTest("a scope's values are of its field's type: a list written with one at least — exactly one for a Set field — each a value or an East expression, or one East expression of an Array", () => {
         assert.throws(() => bindRecord("jobs", pressLed, { scope: { press: [] }, fields: {} }),
             /^Error: Slice\.bindRecord: the scope's 'press' \(\.String\) lists no value, and would read no rows — list at least one, or leave 'press' out of the scope$/);

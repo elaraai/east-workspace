@@ -49,25 +49,48 @@ export function narrowingOf(chrome: Chrome): SheetNarrowing {
     return new SortedMap(chrome.slice.parts.map((part) => [part.source, chosen(part.slice)] as const), compareString);
 }
 
-/** A source's state holding its viewer's choices alone (`recordSliceChoicesOf`, #1621): the state itself where the source has no scope. */
+/** A source's state as it stands, holding its viewer's choices alone. */
 function chosen(slice: Chrome["slice"]["parts"][number]["slice"]): SourceState {
-    const state = slice.read();
+    return choicesOnly(slice, slice.read());
+}
+
+/**
+ * A source's state holding its viewer's choices alone (`recordSliceChoicesOf`, #1621): without a clause on a field its
+ * page scopes — the state itself where it holds none.
+ */
+function choicesOnly(slice: RecordSliceScopeHolder, state: SourceState): SourceState {
     const where = recordSliceChoicesOf(slice, state.where);
     return Object.is(where, state.where) ? state : { ...state, where };
 }
 
 /**
- * Writes a narrowing back to the rail, source by source: a source the
- * narrowing does not hold opens with nothing chosen, as a preset clears a
- * source it does not name.
+ * A narrowing as the rail holds it, source by source: each source's its viewer's choices alone — a clause on a field the
+ * page scopes is the page's, never a choice (#1621), and a view saved before the page was scoped, or on a page with no
+ * scope that shares its views, may hold one — and a source the narrowing does not hold with nothing chosen, as a preset
+ * clears a source it does not name. What {@link writeNarrowing} writes, so what the rail reads back after it.
+ *
+ * @param chrome - The sheet's rail
+ * @param narrowing - The narrowing — a view's, or the whole sheet's
+ * @returns Every source's narrowing, as the rail holds it
+ */
+export function heldNarrowing(chrome: Chrome, narrowing: SheetNarrowing): SheetNarrowing {
+    return new SortedMap(chrome.slice.parts.map((part) => {
+        const state = narrowing.get(part.source);
+        return [part.source, state === undefined ? cleared(part.slice.read()) : choicesOnly(part.slice, state)] as const;
+    }), compareString);
+}
+
+/**
+ * Writes a narrowing back to the rail, source by source, as the rail holds it ({@link heldNarrowing}).
  *
  * @param chrome - The sheet's rail
  * @param narrowing - The narrowing to write — a view's, or the whole sheet's
+ * @throws {Error} When a source refuses its choices — ones no index it lists answers together with its page's scope —
+ *   the sources before it written
  */
 export function writeNarrowing(chrome: Chrome, narrowing: SheetNarrowing): void {
-    for (const part of chrome.slice.parts) {
-        part.slice.write(narrowing.get(part.source) ?? cleared(part.slice.read()));
-    }
+    const held = heldNarrowing(chrome, narrowing);
+    for (const part of chrome.slice.parts) part.slice.write(held.get(part.source)!);
 }
 
 /**

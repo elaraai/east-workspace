@@ -281,9 +281,10 @@ export function createCalendarPayload(props: CalendarProps): ExprType<typeof Cal
             const part = bound.parts[slot] as unknown as { config: ExprType<typeof RecordSliceConfigType> } | undefined;
             if (part !== undefined) $(checkedScheduleTilings(slot, kind, resourceKinds, part.config, "Calendar"));
         }
-        // A paged resource kind its source of the slice narrows pages the narrowing's rows themselves (#1424).
+        // A paged resource kind its source of the slice narrows pages the narrowing's rows themselves (#1424), and on a
+        // scoped page its Choosers list the rows the page holds (#1621).
         const pagedSlot = resourceKinds.find(([, kind]) => kind.window !== undefined)?.[0];
-        const paged = createCalendarPaged(resourceKinds, pagedSlot === undefined ? undefined : bound.data[pagedSlot]);
+        const paged = createCalendarPaged(resourceKinds, pagedSlot === undefined ? undefined : bound.data[pagedSlot], pagedSlot === undefined ? undefined : bound.parts[pagedSlot]);
         return East.value({
             // Each event kind narrowed through its own source of the slice, when the slice has one.
             events: events.map(([slot, kind]) => kind.build(slot, bound.parts[slot])),

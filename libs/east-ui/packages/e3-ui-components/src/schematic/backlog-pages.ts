@@ -127,7 +127,8 @@ export class SchematicBacklogPages implements LibraryPageSource<BacklogPageRow> 
         const where = part.read().where;
         let plan = this.plans.get(where);
         if (plan === undefined) {
-            plan = schematicUnplacedPlan(areas, where);
+            // Read under the page's scope (#1621): through an area index its scope's fields lead, never one that leaves it to `within`.
+            plan = schematicUnplacedPlan(areas, where, [...part.config.scope.keys()]);
             this.plans.set(where, plan);
         }
         return plan;

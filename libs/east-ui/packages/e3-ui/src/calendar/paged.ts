@@ -11,7 +11,9 @@
  * resources' key order, or — its source of the slice narrowing it — that
  * source's narrowed rows themselves, in the source's index's order
  * (`schedule/pages.ts`). Its Choosers search its own resources by key, in
- * their key order, through its own paged read (`seek`, `entries`), and one
+ * their key order, through its own paged read (`seek`, `entries`) — on a page
+ * whose source of the kind holds a scope (#1621), the rows the page holds, the
+ * scope's, sought through the source's binding — and one
  * resource is read by its key where an event names it (`byKey`). Its
  * resources are never read whole.
  *
@@ -27,6 +29,7 @@ import { scheduleNarrowedWindows, scheduleOwnWindows, type ScheduleBlock, type S
 import type { ScheduleResourceKind } from "../schedule/resources.js";
 import { ScheduleResourceRowType } from "../schedule/types.js";
 import { scheduleEntryByKey } from "../schedule/window.js";
+import { recordBaseSource, recordSourceScoped } from "../utils/record-sources.js";
 
 /**
  * A Calendar's paged resource kind's resources (#1424): see the module docs.
@@ -39,8 +42,8 @@ import { scheduleEntryByKey } from "../schedule/window.js";
  * @property revision - The snapshot of the resources the windows are read at
  * @property refresh - Moves the windows to a snapshot, or to the one they hold now
  * @property query - The narrowing the windows and the total belong to, as text: it moves when a choice does, and the windows are read again under it; `none` when no source narrows the kind
- * @property seek - Where a key search lands among the kind's own resources, in their key order, whatever narrows it: what a Chooser searches the kind by; `none` for a read with no key search
- * @property entries - `(offset, limit)` → the kind's own resources `[offset, offset + limit)`, in their key order, as the Calendar takes them: what a Chooser lists; `none` while the window is in flight
+ * @property seek - Where a key search lands among the kind's own resources, in their key order, whatever narrows it: what a Chooser searches the kind by; `none` for a read with no key search, and on a page whose source of the kind holds a scope (#1621), whose Choosers seek the rows it holds through the source's binding
+ * @property entries - `(offset, limit)` → the kind's own resources `[offset, offset + limit)`, in their key order, as the Calendar takes them — on a scoped page the rows the page holds, the scope's, in their keys' order under each of its values: what a Chooser lists; `none` while the window is in flight
  * @property byKey - One resource by its key's text: `some(some(row))` once read, `some(none)` for a key the kind does not hold, `none` while the read is in flight
  */
 export const CalendarPagedType = StructType({
@@ -113,18 +116,23 @@ function windowKeys(windows: ScheduleKindWindows): ExprType<FunctionType<[Intege
  *
  * @param resources - The resource kinds, by slot, in order — at most one of them paged (the Calendar refuses more)
  * @param narrowed - The paged kind's source of the slice's narrowed data, when the slice names one after its slot: its windows are then the narrowing's rows
+ * @param part - That source's part of the slice: on a scoped page (#1621) the Choosers list the rows its page holds, the scope's
  * @returns The paged resources, or `undefined` when no resource kind is paged
  * @throws {Error} When the kind's paged read is not a paged source of its resources, or its source's rows are not the kind's
  * @internal
  */
 export function createCalendarPaged(
-    resources: readonly (readonly [string, ScheduleResourceKind<EastType, EastType>])[], narrowed?: ExprType<StructType>,
+    resources: readonly (readonly [string, ScheduleResourceKind<EastType, EastType>])[], narrowed?: ExprType<StructType>, part?: ExprType<StructType>,
 ): ExprType<CalendarPagedType> | undefined {
     const at = resources.find(([, kind]) => kind.window !== undefined);
     if (at === undefined) return undefined;
     const [slot, kind] = at;
     const own = scheduleOwnWindows(kind, `Calendar: resources.${slot}`);
     const pages = narrowed === undefined ? own : scheduleNarrowedWindows(kind, slot, narrowed, "Calendar");
+    // On a scoped page (#1621) the Choosers list the rows the page holds — the scope's, in their keys' order under each of
+    // its values — and seek them through the source's binding, which places a key among them a block for each value: the
+    // kind's every resource is no row of the page's.
+    const held = part === undefined || !recordSourceScoped(part) ? undefined : scheduleNarrowedWindows(kind, slot, recordBaseSource(part), "Calendar");
     const handle = pages.handle;
     const find = scheduleEntryByKey(kind.window!, kind.keyType, kind.rowType);
     const ByKey = OptionType(OptionType(ScheduleResourceRowType));
@@ -155,9 +163,10 @@ export function createCalendarPaged(
         revision,
         refresh,
         query: pages.query ? East.value(some(handle.query), Query) : East.value(none, Query),
-        // The Choosers search the kind's own resources, in their key order, whatever narrows its windows.
-        seek: own.handle.seek,
-        entries: windowRows(own, kind),
+        // The Choosers search the kind's own resources, in their key order, whatever narrows its windows — on a scoped page
+        // the rows it holds, sought through the source's binding.
+        seek: held === undefined ? own.handle.seek : East.value(none, CalendarPagedType.fields.seek),
+        entries: windowRows(held ?? own, kind),
         byKey,
     } as SubtypeExprOrValue<CalendarPagedType>, CalendarPagedType);
 }

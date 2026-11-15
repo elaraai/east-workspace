@@ -100,8 +100,23 @@ const leadsPage = { fn: East.function([], UIComponentType, (_$) => Reactive.Root
         activities: Roster.activities(acts.read(), { label: a => a.label, code: a => a.code, group: a => a.group, order: a => a.order }),
         rules: { rest: 10.0 },
         library: [Roster.library.people()],
+        inspector: true,
     });
 }))) };
+
+/** The Library's tabs, as each reads: its label and its count. */
+const tabs = (c: HTMLElement) => within(slot(c, "start")).getAllByRole("tab").map(t => t.textContent);
+
+test("the leads' own page counts its people as the page holds them (#1621): the People tab the leads alone, never out of every staff member, and the Summary says no narrowing of the viewer's", async () => {
+    const staff = await h.read(ex.indexedRosterStaff);
+    const leads = [...staff.values()].filter((person) => equalFor(StringType)(person.position, "lead")).length;
+    expect(leads).toBeLessThan(staff.size);
+    const { container: c } = await open(leadsPage as never);
+    await waitFor(() => expect(tabs(c)[0]).toBe(`People ${leads}`), { timeout: 10_000 });
+    // The Summary, nothing selected: its lines, and none that counts the leads out of every staff member.
+    await waitFor(() => expect(slot(c, "end")?.textContent).toContain("Select a person or shift to inspect its details."));
+    expect(slot(c, "end").textContent).not.toContain("people visible");
+});
 
 /** Search Records' box, in the toolbar's row. */
 const searchBox = (c: HTMLElement) => slot(c, "toolbar").querySelector<HTMLElement>("[data-toolbar-item='seek'] [data-part='dataset-key-search']")!;

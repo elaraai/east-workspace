@@ -14,7 +14,9 @@
  * index; on a page whose source holds a scope (#1621), the scope's rows alone —
  * so it finds a row the rail's choices hide, and a line says what hides it. A
  * line names a row by what the query was asked of: the index the record's rows
- * are read through, where it reads them by name, else its key. The canvas pages
+ * are read through, where it reads them by name, else its key — on a scoped
+ * page always its key, which the query is asked of among the scope's rows, the
+ * index they are read through naming the scope's value. The canvas pages
  * the narrowing's rows in its index's order, so a row's place in the record says
  * nothing of its place on the canvas: a pick asks e3 where the row stands among
  * the rows the narrowing holds (`recordSlicePosition`); where it holds none of
@@ -27,7 +29,7 @@
 
 import { useLayoutEffect, useMemo, useRef } from "react";
 import { StringType, isValueOf, none, printFor, some } from "@elaraai/east";
-import { RecordSliceWhereType } from "@elaraai/east-ui/internal";
+import { RecordSliceWhereType, recordSliceScoped } from "@elaraai/east-ui/internal";
 import type { KeySearchSource } from "@elaraai/east-ui-components";
 import { awaitTracked, recordSlicePosition, recordSliceRows } from "@elaraai/east-ui-components/internal";
 import type { PlanController } from "./controller/index.js";
@@ -82,11 +84,17 @@ export interface PlanRowsFindProps {
 export function usePlanRowsFind({ part, pick, clear, controller, words, onError }: PlanRowsFindProps): KeySearchSource | undefined {
     const latest = useRef({ part, pick, clear, controller, words, onError });
     useLayoutEffect(() => { latest.current = { part, pick, clear, controller, words, onError }; });
-    const sources = useMemo((): SoughtSource<FoundRow>[] => (part === undefined ? [] : [{
-        part, keys: STRING_KEYS, pick,
-        // The index the record's rows are read through names a row where it reads them by name; else its key does.
-        read: ({ id, entry }) => some(some({ key: id, name: isValueOf(entry.ik.value, StringType) ? entry.ik.value as string : id })),
-    }]), [part, pick]);
+    const sources = useMemo((): SoughtSource<FoundRow>[] => {
+        if (part === undefined) return [];
+        // On a scoped page (#1621) the query is asked of the rows' keys among the scope's rows, read through the index on
+        // exactly the scope's fields, whose key is the scope's value: the row's key names it.
+        const byKey = recordSliceScoped(part);
+        return [{
+            part, keys: STRING_KEYS, pick,
+            // The index the record's rows are read through names a row where it reads them by name; else its key does.
+            read: ({ id, entry }) => some(some({ key: id, name: !byKey && isValueOf(entry.ik.value, StringType) ? entry.ik.value as string : id })),
+        }];
+    }, [part, pick]);
     /** Goes to a found row: its place among the rows of the narrowing the source holds, cleared of what hides it first. */
     const goTo = (found: Found<FoundRow>, turn: PickTurn) => {
         const { part: source, onError: say } = latest.current;

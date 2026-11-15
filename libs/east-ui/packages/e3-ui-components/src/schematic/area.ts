@@ -750,10 +750,11 @@ export class SchematicAreaReader {
     private plannedOf(slot: Slot, part: Part, areas: SchematicAreaIndexes, where: Where, window: SchematicWindow): Planned {
         const last = slot.planned;
         if (last !== undefined && Object.is(last.config, part.config) && Object.is(last.where, where) && Object.is(last.window, window)) return last;
-        const plan = schematicWindowPlan(areas, where, window.box);
+        // Read under the page's scope (#1621): through an index its scope's fields lead, each value's window within its share of the bound.
+        const plan = schematicWindowPlan(areas, where, window.box, [...part.config.scope.keys()]);
         const printOn = recordSliceOnPrinter(part, plan.index.name);
         // A cell a search: the same search in every window that holds it (`areaCells`), so a pan asks only the cells it adds.
-        const places = plan.prefixes.flatMap((prefix) => areaCells(prefix, window.box, plan.cell, printOn));
+        const places = plan.prefixes.flatMap((prefix) => areaCells(prefix, window.box, plan.cell, printOn, plan.searches));
         const cells = places.map((place) => ({ id: printQuery(place.query), queries: [place.query] }));
         const planned = { config: part.config, where, window, plan, printOn, cells, places };
         slot.planned = planned;
@@ -924,7 +925,8 @@ export class SchematicAreaReader {
         const where = dim ? recordSliceBase(part) : part.read().where;
         let planned = slot.overviewPlanned;
         if (planned === undefined || !Object.is(planned.config, part.config) || !Object.is(planned.where, where) || !sameBox(planned.extent, extent)) {
-            const plan = schematicWindowPlan(areas, where, extent);
+            // Counted under the page's scope (#1621), as the window is read.
+            const plan = schematicWindowPlan(areas, where, extent, [...part.config.scope.keys()]);
             const raster = schematicRaster(plan, extent, recordSliceOnPrinter(part, plan.index.name));
             const ranges = raster.cells.flat().map((cell) => cell.query);
             planned = { config: part.config, where, extent, plan, raster, cells: ranges.length, queries: [...ranges, ...raster.coarse.map((cell) => cell.query)] };
@@ -970,7 +972,8 @@ export class SchematicAreaReader {
         const where = part.read().where;
         let planned = slot.fitPlanned;
         if (planned === undefined || !Object.is(planned.config, part.config) || !Object.is(planned.where, where) || !sameBox(planned.extent, extent)) {
-            const plan = schematicWindowPlan(areas, where, extent);
+            // Counted under the page's scope (#1621), as the window is read.
+            const plan = schematicWindowPlan(areas, where, extent, [...part.config.scope.keys()]);
             const raster = schematicRaster(plan, extent, recordSliceOnPrinter(part, plan.index.name));
             const ranges = raster.cells.flat().map((cell) => cell.query);
             planned = { config: part.config, where, extent, plan, raster, cells: ranges.length, queries: [...ranges, ...raster.coarse.map((cell) => cell.query)] };
@@ -1055,23 +1058,17 @@ export class SchematicAreaReader {
     /** A kind's rows, its narrowing asked of them (see {@link SchematicAreaReader.narrowed}). */
     private narrow(slot: Slot, part: Part, read: SchematicWindowRead, far: SchematicAreaRows, where: Where, dim: boolean, keys: KindKeys): SchematicAreaRead | Reading {
         // Under `dim`, a row its page's scope doesn't hold (#1621) is no row of this page, drawn nowhere — not as context.
-        // The window is read under the scope: through an index the scope's fields lead, its rows are the scope's; through
-        // one that leaves a scoped field unasked (the plan's residual, which under `dim` is the scope's alone), they are
-        // every page's, and the scope is asked of each. A far end, read by key, is held to the scope either way.
+        // The window is read under the scope, through an index the scope's fields lead (`schematicWindowPlan`): its rows are
+        // the scope's. A far end, read by key, is held to the scope.
         let ends = far;
-        let window = read.rows;
         let scoped: ReadonlyMap<string, boolean> | undefined;
-        if (dim && recordSliceScoped(part)) {
-            const unasked = read.plan.residual.length > 0;
-            const asked = !unasked ? far : far.size === 0 ? read.rows : new Map([...read.rows, ...far]);
-            if (asked.size > 0) {
-                const inScope = this.answersOf(slot, part, read.revision, recordSliceBase(part), asked, keys, "scopeAnswers");
-                if (inScope === READING) return READING;
-                scoped = inScope;
-                if (far.size > 0) ends = new Map([...far].filter(([key]) => inScope.get(key) === true));
-                if (unasked) window = new Map([...read.rows].filter(([key]) => inScope.get(key) === true));
-            }
+        if (dim && recordSliceScoped(part) && far.size > 0) {
+            const inScope = this.answersOf(slot, part, read.revision, recordSliceBase(part), far, keys, "scopeAnswers");
+            if (inScope === READING) return READING;
+            scoped = inScope;
+            ends = new Map([...far].filter(([key]) => inScope.get(key) === true));
         }
+        const window = read.rows;
         const rows = ends.size === 0 ? window : new Map([...window, ...ends]);
         if (where.size === 0) return { rows, matched: undefined, from: [...read.from, ends] };
         // Read by key, a far end is held to the whole narrowing; a window read through an index that serves it whole, to nothing.

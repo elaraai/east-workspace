@@ -24,7 +24,9 @@
  *   net whose every member drawn on a side is one. Context is out. On a page
  *   whose source holds a scope (#1621), every row is every row the scope
  *   holds: a row beyond it is no row of this page, read nowhere and drawn
- *   nowhere, so a link or a net ending at one is out, as it is hidden.
+ *   nowhere, so a link or a net ending at one is out, as it is hidden — of a
+ *   kind read by area, an end its read asked of as a far end and the scope does
+ *   not hold; an end it never asked of is no end known beyond the scope.
  *
  * A kind read by area reads only its window (#1393): a drafted row of it the
  * window doesn't hold, drawn where its draft places it, is the narrowing's or
@@ -43,6 +45,9 @@ import type { SchematicHeldRows } from "./data.js";
 
 /** No entity. */
 const NONE: ReadonlySet<string> = new Set();
+
+/** No far end asked of. */
+const NO_ASKED: ReadonlyMap<string, ReadonlySet<string>> = new Map();
 
 /** How a narrowed-out row draws, and what the matches take (§10.3): the payload's `narrowed`, read once. */
 export interface SchematicNarrowedLook {
@@ -110,6 +115,13 @@ export interface SchematicNarrowingArgs {
     readonly sourced: ReadonlySet<string>;
     /** Those whose source holds its page's scope (#1621), by slot: what the page holds of each is the scope's rows alone. */
     readonly scoped?: ReadonlySet<string> | undefined;
+    /** The kinds read by area, by slot (#1393): what a read holds of each is its window, and the far ends it asked of. */
+    readonly area?: ReadonlySet<string> | undefined;
+    /**
+     * Each kind read by area, by slot: the keys of the far ends its read asked of — of the links and nets that touch its
+     * window, read by key and held to its page's scope (#1621); an end it never asked of is not known to lie beyond it.
+     */
+    readonly asked?: ReadonlyMap<string, ReadonlySet<string>> | undefined;
     /**
      * A kind's source's shown keys, by the kind's slot: `none` while the source narrows nothing; `undefined` for a kind
      * read whole, and for one whose source's keys are not read, or have not yet resolved.
@@ -134,6 +146,8 @@ export interface SchematicNarrowingArgs {
 export function schematicNarrowing(args: SchematicNarrowingArgs): SchematicNarrowing {
     const { drawn, held, sourced, keys, dim, drafted } = args;
     const scoped = args.scoped ?? NONE;
+    const area = args.area ?? NONE;
+    const asked = args.asked ?? NO_ASKED;
     const holds = (ref: SchematicRef): boolean => held.get(ref.kind)?.has(ref.key) === true;
     // An end drawn nowhere, of one of `kinds`, whose read does not hold it.
     const unheldEnd = (id: string, kinds: ReadonlySet<string>): boolean => {
@@ -166,8 +180,15 @@ export function schematicNarrowing(args: SchematicNarrowingArgs): SchematicNarro
         };
         for (const net of drawn.nets) if (outside(net.ref) || dimmed(net.sources) || dimmed(net.destinations)) context.add(net.key);
         // An end beyond its page's scope (#1621) is no row of this page: a link or a net ending there is out, never context.
+        // Dimmed, a kind read whole holds every row its scope holds; one read by area its window and the far ends it asked
+        // of, held to the scope — an end it never asked of, a link between two of its rows off the window, is no end known
+        // beyond it.
         if (scoped.size > 0) {
-            const beyond = (id: string): boolean => unheldEnd(id, scoped);
+            const beyond = (id: string): boolean => {
+                if (!unheldEnd(id, scoped)) return false;
+                const ref = refOfId(id)!;
+                return !area.has(ref.kind) || asked.get(ref.kind)?.has(ref.key) === true;
+            };
             for (const link of drawn.links) {
                 if (beyond(link.from) || beyond(link.to)) { context.delete(link.key); out.add(link.key); }
             }

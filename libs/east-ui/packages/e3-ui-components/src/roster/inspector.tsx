@@ -15,6 +15,7 @@ import { ScheduleInspectorHead } from "../shared/schedule/inspector-head.js";
 import { madeFromValues } from "../shared/schedule/records.js";
 import { NO_REFUSED_FIELDS, refusedFields, type RefusedFields } from "../shared/schedule/refusals.js";
 import { Seg } from "../shared/schedule/segments.js";
+import { shownWhole, type KeyVisibility } from "../shared/schedule/visibility.js";
 import { plural } from "../shared/schedule/words.js";
 import { AssignmentActions, AssignmentFields, GroupField, PlaceAction, RequirementFields, TimesFields, dutyForm, type DutyFormValue } from "./controls.js";
 import { CoverageView, ProposalCard, assignmentName, costed, dismissible, money, type RosterViewsProps } from "./views.js";
@@ -57,6 +58,8 @@ type Args = RosterViewsProps & {
     refusals: readonly RosterRefusal[];
     /** A refusal pressed: its duty shown on its day and selected. */
     onRefusal: (refusal: RosterRefusal) => void;
+    /** Whether a choice of the viewer's narrows who shows, and how many people the page holds (#1621): what the Summary counts out of. */
+    peopleShown: Pick<KeyVisibility, "chosen" | "held">;
 };
 const keyEqual = equalFor(StringType);
 function fixLabel(issue: Issue, props: Args) {
@@ -269,7 +272,10 @@ function Summary({ props }: { props: Args }) {
     const totals = viewTotals(props.coverage, props.view, props.day, props.week);
     const { days } = totals;
     const visible = props.value.visiblePeople;
-    const filtered = visible.type === "some" && props.value.people.some(person => !visible.value.has(person.key));
+    // Who shows, while a choice of the viewer's narrows them, out of the people the page holds (#1621): its scope is no
+    // choice, and the people it holds are the Roster's whole, never every person beyond it.
+    const whole = shownWhole(props.peopleShown, props.value.people.length);
+    const filtered = props.peopleShown.chosen && whole !== undefined && visible.type === "some" && visible.value.size < whole;
     // The view's duties' costs, by the app's codes: the Summary's cost line under its total.
     const shown = [...props.week.assignments].flatMap(([id, a]) => days === 7 || Number(a.place.day) === props.day ? [id] : []);
     const costs = costsOf(props.pay, shown);
@@ -284,7 +290,7 @@ function Summary({ props }: { props: Args }) {
         : props.view.period === "month" ? `Month · ${props.format.monthYear(dayStart(props.view.date))}` : `Week · ${props.format.range(props.start, new Date(props.start.getTime() + 6 * DAY))}`;
     return <><ScheduleInspectorHead styles={props.styles} kind={{ name: period, icon: "calendar-week" }} title="Roster" when={`${props.value.groups.length} groups · ${props.value.shifts.length} shifts`} home />
         <Box css={props.styles.summary}>{stats.filter(s => s.label !== "Cost" || costed(props.value)).map(stat => <Box key={stat.label} css={props.styles.stat}><Box css={props.styles.statLabel}>{stat.label}</Box><Box css={props.styles.statValue}>{stat.value}</Box><Box css={props.styles.detail}>{stat.sub}</Box></Box>)}</Box>
-        {filtered && visible.type === "some" && <Box css={props.styles.section}><Box css={props.styles.detail}>{props.format.number(visible.value.size)} of {props.format.number(props.value.people.length)} people visible · Coverage includes all staff</Box></Box>}
+        {filtered && visible.type === "some" && whole !== undefined && <Box css={props.styles.section}><Box css={props.styles.detail}>{props.format.number(visible.value.size)} of {props.format.number(whole)} people visible · Coverage includes all staff</Box></Box>}
         {props.proposals.length > 0 && <Box css={props.styles.section}><Box css={props.styles.sectionHead}>Proposals</Box>{props.proposals.map(proposal => <ProposalCard key={proposal.key} props={props} proposal={proposal} />)}</Box>}
         <Box css={props.styles.section}><Box css={props.styles.detail}>Select a person or shift to inspect its details.</Box><Box css={props.styles.detail}>Use the Library to assign people and activities.</Box><Box css={props.styles.detail}>Warnings help plan the week and do not prevent saving.</Box><Box css={props.styles.detail}>Save as you work; publish the week when it is ready.</Box></Box>
     </>;

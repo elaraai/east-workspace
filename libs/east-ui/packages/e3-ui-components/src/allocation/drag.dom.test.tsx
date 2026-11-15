@@ -17,7 +17,7 @@ import { AllocationFitResultType } from "@elaraai/e3-ui/internal";
 import { editingMessages } from "@elaraai/east-ui-components";
 import { announced, pointAt, press as key, stubScrollIntoView, tick } from "@elaraai/east-ui-components/testing";
 import * as ex from "@elaraai/e3-ui/examples/allocation/allocation";
-import { act, allocationHarness, settle, slot, smallestYard, stubLinkGeometry } from "./harness.test-utils.js";
+import { act, allocationHarness, kilnYard, settle, slot, smallestYard, stubLinkGeometry } from "./harness.test-utils.js";
 import { allocationWords } from "./model.js";
 
 const h = allocationHarness();
@@ -245,6 +245,16 @@ describe("a connector's drag over the resources", () => {
         await release();
         expect(card(c, "3101").querySelector("[data-allocation-to]")!.textContent).toBe("K-601");
         expect(c.querySelector("[data-allocation-marker]")).toBeNull();
+    });
+
+    test("A31 — on a page for one hall (#1621), a #1 fit of another group has no row in the pane: its marker says `#1 K-601 is not on this page · drop here`, never a filter", async () => {
+        const c = await open(kilnYard({ halls: ["Hall A"] }));
+        vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(function (this: HTMLElement) { return this.hasAttribute("data-virtual-rows") ? 700 : 0; });
+        await hover(connector(c, "3101"), row(c, "K-101"));
+        const marker = () => c.querySelector<HTMLElement>("[data-allocation-marker]");
+        expect([marker()?.getAttribute("data-allocation-marker"), marker()?.textContent]).toEqual(["hidden", "#1 K-601 is not on this page · drop here"]);
+        await cancel();
+        expect(marker()).toBeNull();
     });
 
     test("A39 — a connector dropped on a fitting resource links its quantity there, one draft that Saves; on its own resource nothing", async () => {

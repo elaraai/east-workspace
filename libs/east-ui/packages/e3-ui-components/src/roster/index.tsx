@@ -641,7 +641,8 @@ function RosterFrame(props: FrameProps) {
             text: refusalText(issue, keyEqual(kind, dutyKind) ? dutyFields : []) };
     });
     const inspector = useRosterInspector({ ...viewProps, storageKey: key, tab, onTab: setTab, find: { offered: fit.offered, finding: isFinding },
-        duties: draftedDuties, heldDuties: storedDuties, targets, refusals, onRefusal: refusal => goTo(refusal.kind, refusal.issue.entry, refusal.issue.field) });
+        duties: draftedDuties, heldDuties: storedDuties, targets, refusals, onRefusal: refusal => goTo(refusal.kind, refusal.issue.entry, refusal.issue.field),
+        peopleShown: visibility });
     const toolbar = useRosterToolbar({ ...window, value, styles, commands, editing, words, issues, refused: refusals.length, onIssues, onIssue, onConflict,
         where: historyWhere, onAction, onPickerDates: setPickerDates, narrow,
         optimise: optimiseParts.toolbarItem, optimiseEntry: optimiseParts.entry, locked, issuesFlash: landing.lit && optimised !== undefined,

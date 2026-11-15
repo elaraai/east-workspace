@@ -21,12 +21,19 @@ import type { option, ValueTypeOf } from "@elaraai/east";
 import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
 import type { LibraryEmpty, LibraryNarrowing } from "@elaraai/east-ui-components";
 import { narrowedCount, type CountWords } from "@elaraai/east-ui-components/internal";
-import type { KeyVisibility } from "./visibility.js";
+import { shownWhole, type KeyVisibility } from "./visibility.js";
 
 /** What one source of the rail shows of a tab. */
 export interface SourceShown {
     /** The keys that show: `none` while the source narrows nothing. */
     keys: option<Set<string>>;
+    /**
+     * Whether a choice of the viewer's narrows them (#1621): its page's scope is none, and is no filter to clear. Left
+     * out, as by a source that narrows nothing, any narrowing it holds is the viewer's.
+     */
+    chosen?: boolean;
+    /** How many rows its page holds, where a scope narrows it (#1621): `none` while read; left out on a page that holds every row. */
+    held?: option<number> | undefined;
     /** A new membership resolving, or the last read failed: the tab's cards are retained, as main's are. */
     busy: boolean;
     /** Whether a complete membership has resolved: until it has, an empty tab says nothing of the filters. */
@@ -45,8 +52,9 @@ export interface SourceShown {
  * @returns What the source shows of a tab
  */
 export function useSourceShown(shown: KeyVisibility, part: ValueTypeOf<RecordSliceBindType> | undefined): SourceShown {
-    const { keys, ready } = shown, busy = shown.loading || shown.error !== undefined;
-    return useMemo(() => ({ keys, busy, ready, clear: part === undefined ? undefined : () => { part.clearAll(); } }), [keys, busy, ready, part]);
+    const { keys, ready, chosen, held } = shown, busy = shown.loading || shown.error !== undefined;
+    return useMemo(() => ({ keys, chosen, held, busy, ready, clear: part === undefined ? undefined : () => { part.clearAll(); } }),
+        [keys, chosen, held, busy, ready, part]);
 }
 
 /** A tab over a source, as its Library and its pane take it. */
@@ -92,6 +100,12 @@ export function sourceTab<C>(args: {
  * narrowing source has resolved, an empty tab says nothing of its own, and
  * while any resolves or failed its pane is busy.
  *
+ * A source's page scope (#1621) is no narrowing of the tab's: its cards are
+ * the scope's alone, the tab's whole, counted as they are — `12`, never
+ * `12 of 69` — and emptied, the tab says so plainly, with no Clear filters,
+ * which could not clear the scope. A choice of the viewer's beside it counts
+ * what it shows out of the cards the scope holds.
+ *
  * @param args - The tab's cards, each one's key in its source's record, the sources, the source each card follows (`undefined`: none), the tab's plural noun as running text writes it, and the app's number formatter
  * @returns The cards it shows, its count, its narrowed and its own empty states, and its pane's attributes
  */
@@ -104,8 +118,10 @@ export function sourcesTab<C>(args: {
         return keys === undefined || keys.type === "none" || keys.value.has(keyOf(card));
     };
     const shownCards = cards.filter(shows);
+    // A source narrows the tab where a choice of the viewer's does: its page's scope is no filter.
+    const narrows = (source: SourceShown) => source.keys.type === "some" && (source.chosen ?? true);
     // The sources that narrow, once resolved: what the tab's narrowing is, and what it clears.
-    const narrowed = sources.filter(source => source.keys.type === "some" && source.ready);
+    const narrowed = sources.filter(source => narrows(source) && source.ready);
     const clears = narrowed.flatMap(source => (source.clear === undefined ? [] : [source.clear]));
     const emptied = !cards.some(card => { const source = sourceOf(card); return source !== undefined && narrowed.includes(source) && shows(card); });
     // One source's Clear filters is its own, held still while the source stands: the Library's memo compares it.
@@ -114,9 +130,26 @@ export function sourcesTab<C>(args: {
         : { empty: { title: `No ${noun} match the filters`, description: `Change or clear the filters to see more ${noun}.` }, onClear, emptied };
     return {
         cards: shownCards,
-        count: narrowedCount(words, shownCards.length, cards.length, sources.some(source => source.keys.type === "some")),
+        count: sources.some(narrows) ? countOutOf(words, shownCards.length, cards, sourceOf) : shownCards.length,
         narrowing,
         empty: sources.some(source => source.keys.type === "some" && !source.ready) ? undefined : { title: `No ${noun}` },
         pane: sources.some(source => source.busy) ? { "aria-busy": true, "aria-disabled": true } : {},
     };
+}
+
+/**
+ * A narrowed tab's count (#1621): what it shows out of the cards its pages hold — each source's as many as its page
+ * holds ({@link shownWhole}: its scope's, else every card of it), every card of no source as it is — `…` while a scoped
+ * source's is read. Each source counts once, however many of the tab's lists follow it.
+ */
+function countOutOf<C>(words: CountWords, shown: number, cards: readonly C[], sourceOf: (card: C) => SourceShown | undefined): string | number {
+    const cardsOf = new Map<SourceShown | undefined, number>();
+    for (const card of cards) { const source = sourceOf(card); cardsOf.set(source, (cardsOf.get(source) ?? 0) + 1); }
+    let whole = 0;
+    for (const [source, every] of cardsOf) {
+        const of = source === undefined ? every : shownWhole(source, every);
+        if (of === undefined) return "…";
+        whole += of;
+    }
+    return narrowedCount(words, shown, whole, true);
 }

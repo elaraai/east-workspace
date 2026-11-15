@@ -25,14 +25,15 @@
 import { afterEach, describe, expect, test } from "vitest";
 import { cleanup, renderHook, waitFor } from "@testing-library/react";
 import {
-    ArrayType, East, OptionType, SortedMap, StringType, compareFor, equalFor, none, printFor, some, variant, type ValueTypeOf,
+    ArrayType, East, OptionType, SortedMap, StringType, compareFor, encodeBeast2For, equalFor, none, printFor, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import { RecordSliceWhereType, bindRecord, type RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { formatters, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
+import { getStore } from "@elaraai/east-ui-components/internal";
 import { Data } from "@elaraai/e3-ui/internal";
 import * as scoped from "@elaraai/e3-ui/examples/calendar/calendar-scope";
 import { act, e3Harness, settle } from "../../e3-web-mount.test-utils.js";
-import { clearHidden, hiddenByScope, hiddenLine, hiddenOf, useSourceHidden, type SourceHidden } from "./hidden.js";
+import { askHiding, clearHidden, draftsOffPage, hiddenByScope, hiddenLine, hiddenOf, hiddenWhy, useSourceHidden, type SourceHidden } from "./hidden.js";
 import { hiddenByText, type HiddenWords } from "./words.js";
 
 const h = e3Harness({ "calendar/calendar-scope": scoped }, { measure: false });
@@ -170,6 +171,91 @@ describe("a row hidden both ways (#1621)", () => {
         await settle();
         expect(fieldsOf(runs)).toEqual(["press"]);
         expect(fieldsOf(crew)).toEqual(["press"]);
+    });
+});
+
+describe("a row the builder knows its source leaves out (#1621)", () => {
+    test("with no choice of the viewer's is off the page at once — nothing else can hide it — and stays so once e3 has read it", async () => {
+        const { crew } = await page();
+        const pick = await pickOf(crew);
+        await act(async () => { pick().rows.askIds(["c3"], true); });
+        // At once, before any answer lands: its crew is not on this page, and no filter is named.
+        expect(pick().rows.stateOf("c3")).toEqual({ hidden: true, answer: undefined, offPage: true });
+        expect(hiddenLine(hiddenOf([{ pick: pick(), id: "c3", what: "crew" }])!, format, WORDS)).toBe("its crew is not on this page");
+        await settle();
+        expect(pick().rows.stateOf("c3")).toEqual({ hidden: true, answer: undefined, offPage: true });
+    });
+
+    test("beside a choice of the viewer's says nothing of it, and a pick clears nothing for it, until e3 has said which hides it", async () => {
+        const { runs } = await page();
+        await chooseCrew(runs);
+        const pick = await pickOf(runs);
+        await waitFor(() => expect(fieldsOf(runs)).toEqual(["crew", "press"]));
+        // e3 slow to answer: r4 is another press's, r2 a run of the page's that the crew choice hides.
+        const held = h.e3.hold(() => true);
+        await act(async () => { pick().rows.askIds(["r4", "r2"], true); });
+        expect([pick().rows.stateOf("r4"), pick().rows.stateOf("r2")]).toEqual([undefined, undefined]);
+        expect(hiddenOf([{ pick: pick(), id: "r4" }, { pick: pick(), id: "r2" }])).toBeUndefined();
+        // A pick meanwhile clears nothing: the viewer's choice stands, never cleared for a row it may not hide.
+        await act(async () => { clearHidden(hiddenOf([{ pick: pick(), id: "r4" }]) ?? []); });
+        expect(fieldsOf(runs)).toEqual(["crew", "press"]);
+        await act(async () => { held.release(); });
+        await waitFor(() => expect(pick().rows.stateOf("r4")).toEqual({ hidden: true, answer: undefined, offPage: true }), { timeout: 10_000 });
+        await waitFor(() => {
+            const state = pick().rows.stateOf("r2");
+            expect(state?.hidden === true && !state.offPage ? state.answer?.by : undefined).toEqual(["crew"]);
+        }, { timeout: 10_000 });
+        expect(hiddenLine(hiddenOf([{ pick: pick(), id: "r4" }])!, format, WORDS)).toBe("not on this page");
+    });
+
+    test("why a row the builder names on its own is not shown (`hiddenWhy`): not on this page, or the filters — nothing of a row shown, nor, beside a choice, of one not told of yet", async () => {
+        const { runs, crew } = await page();
+        // No choice of the viewer's: a crew member the source leaves out is off the page at once.
+        const crewPick = await pickOf(crew);
+        await act(async () => { askHiding([{ pick: crewPick(), id: "c3" }], true); });
+        expect(hiddenWhy({ pick: crewPick(), id: "c3" })).toBe("page");
+        // Beside the crew choice: nothing said of r4 and r2 until e3 has — then r4 is another press's, and the choice hides
+        // r2; r1, the chosen crew member's, is shown.
+        await chooseCrew(runs);
+        const pick = await pickOf(runs);
+        await waitFor(() => expect(fieldsOf(runs)).toEqual(["crew", "press"]));
+        const held = h.e3.hold(() => true);
+        await act(async () => { askHiding([{ pick: pick(), id: "r4" }, { pick: pick(), id: "r2" }], true); pick().rows.askIds(["r1"]); });
+        expect(["r4", "r2", "r1"].map((id) => hiddenWhy({ pick: pick(), id }))).toEqual([undefined, undefined, undefined]);
+        await act(async () => { held.release(); });
+        await waitFor(() => expect(["r4", "r2", "r1"].map((id) => hiddenWhy({ pick: pick(), id }))).toEqual(["page", "filters", undefined]), { timeout: 10_000 });
+    });
+
+    test("a pick over a source that holds its page's scope alone writes nothing of it, whatever e3 has said", async () => {
+        const { crew } = await page();
+        const pick = await pickOf(crew);
+        const before = getStore().read("hidden.crew");
+        await act(async () => { clearHidden([{ pick: pick(), answer: undefined }]); });
+        // The very bytes it held: no write, the scope no choice to clear.
+        expect(Object.is(getStore().read("hidden.crew"), before)).toBe(true);
+        expect(fieldsOf(crew)).toEqual(["press"]);
+    });
+});
+
+describe("a draft that left its page's scope (#1621)", () => {
+    test("is not on this page: its row as drafted asked of the scope — a run drafted onto another press is, one drafted within it is not — and a pick of it clears nothing", async () => {
+        const { runs } = await page();
+        const pick = await pickOf(runs);
+        const r2 = (await h.read(scoped.pressRuns)).get("r2")!;
+        const encode = encodeBeast2For(scoped.PressRun);
+        const asked = await draftsOffPage([
+            { pick: pick(), id: "r2", drafted: encode({ ...r2, press: "P-2" }) },
+            { pick: pick(), id: "r2", drafted: encode({ ...r2, title: "Retitled" }) },
+            { pick: pick(), id: "r2", drafted: undefined },
+            { pick: undefined, id: "r2", drafted: encode({ ...r2, press: "P-2" }) },
+        ]);
+        expect(asked.map((hidings) => hidings.map(({ id, offPage }) => [id, offPage]))).toEqual([[["r2", true]], [], [], []]);
+        // Its line names no filter, whatever the reads of its stored row — which the scope holds — say.
+        const hidden = hiddenOf(asked[0]!)!;
+        expect(hiddenLine(hidden, format, WORDS)).toBe("not on this page");
+        const before = runs.read().where;
+        await act(async () => { clearHidden(hidden); });
+        expect(whereEqual(runs.read().where, before)).toBe(true);
     });
 });
 

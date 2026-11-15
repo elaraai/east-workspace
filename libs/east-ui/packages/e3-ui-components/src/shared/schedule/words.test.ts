@@ -8,7 +8,7 @@
  * refusal says of a kind its page's scope holds only some rows of.
  */
 import { describe, expect, test } from "vitest";
-import { dimmedWords, hiddenByText, notOnPageText, plural, unheldByScopeText, type DimmedWords } from "./words.js";
+import { dimmedWords, hiddenByText, kindPlural, kindSingular, notOnPageText, plural, unheldByScopeText, type DimmedWords } from "./words.js";
 
 describe("plural — a count and what it counts", () => {
     test("one is the word itself, any other count its English plural — never the word with an s put after it: `1 gap`, `4 breaches`", () => {
@@ -16,6 +16,24 @@ describe("plural — a count and what it counts", () => {
         expect([1, 0, 3].map((n) => plural(n, "gap"))).toEqual(["1 gap", "0 gaps", "3 gaps"]);
         expect([1, 4].map((n) => plural(n, "breach"))).toEqual(["1 breach", "4 breaches"]);
         expect([1, 2].map((n) => plural(n, "duty"))).toEqual(["1 duty", "2 duties"]);
+    });
+});
+
+describe("kindSingular — a kind's heading read back as one of it (#1621)", () => {
+    test("English plurals read back — `es` after a hiss, `ies` after a consonant, a bare `s` — and the plurals with no `s`; a name with no plural ending stays", () => {
+        expect(["presses", "boxes", "benches", "deliveries", "machines", "bays", "vans"].map(kindSingular))
+            .toEqual(["press", "box", "bench", "delivery", "machine", "bay", "van"]);
+        expect(["people", "children"].map(kindSingular)).toEqual(["person", "child"]);
+        expect(["crew", "staff", "press", "status", "campus", "analysis"].map(kindSingular)).toEqual(["crew", "staff", "press", "status", "campus", "analysis"]);
+    });
+
+    test("its plural's other way: each kind's plural reads back as the kind", () => {
+        for (const name of ["stop", "delivery", "box", "press", "machine", "bench"]) expect(kindSingular(kindPlural(name))).toBe(name);
+    });
+
+    test("what a line says of a run on a kind's row its page does not hold: its press, never `its presses is`", () => {
+        expect(notOnPageText([kindSingular("presses")])).toBe("its press is not on this page");
+        expect(notOnPageText([kindSingular("people")])).toBe("its person is not on this page");
     });
 });
 

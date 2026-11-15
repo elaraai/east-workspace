@@ -185,8 +185,8 @@ export function useSheetJumps(value: SheetRootValue, sheetDecode: SheetDecode, s
                 hiddenByFilters: () => words.m.keySearchHidden({ key: item.id }), hiddenBy: (p) => words.m.keySearchHiddenBy({ key: item.id, ...p }),
             }),
         }),
-        // A row the narrowing hides: the filters hiding it cleared, and the row gone to there — never a jump under the
-        // narrowing that hides it (the hidden pick).
+        // A row the box listed as hidden by the narrowing: the filters hiding it cleared — those e3 named — and the row
+        // gone to there, never a jump under the narrowing that hides it (the hidden pick).
         onPick: ({ item, hidden }) => {
             if (hidden !== undefined) {
                 setTarget(undefined);
@@ -195,8 +195,9 @@ export function useSheetJumps(value: SheetRootValue, sheetDecode: SheetDecode, s
             }
             goToPlace(item.place);
         },
-        // A row nothing can hide — a host's paged source's, or the record's while nothing narrows the rows — is gone to by
-        // its place at once, with nothing read: its window is read there, and one that cannot be is shown there (#854).
+        // Any other row — a host's paged source's, or the record's, the narrowing's or not — is gone to by its place at
+        // once, with nothing read: its window is read there, one that cannot be is shown there (#854), and a row the
+        // narrowing hides there is revealed as it lands (below).
         onPickPlace: (place) => { goToPlace(Number(place)); },
         onCleared: () => {
             setTarget(undefined);

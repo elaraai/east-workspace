@@ -97,16 +97,18 @@ export function allocationHarness(): AllocationHarness {
  * or `least`, a hint holds a bin's m³, its quantity, to at most or at least
  * that many (#1585). Given `weeks`, it publishes the yard's weeks in place of
  * its days (#1550), each row keyed by its week's first day, the week starting
- * on the day named.
+ * on the day named. Given `halls`, it is the page for those kiln groups
+ * (#1621): its kilns a source of the slice scoped to them, through their index
+ * by group — every kiln still read whole, for the fits and the loads.
  *
- * @param options - Which of its records is locked, if either, whether the yard checks a draft, whether its values fail, the most and the least a bin holds, and where its weeks start when it publishes weeks
+ * @param options - Which of its records is locked, if either, whether the yard checks a draft, whether its values fail, the most and the least a bin holds, where its weeks start when it publishes weeks, and the kiln groups its page is for
  * @returns The example
  */
 export function kilnYard(options: {
     readonly locked?: "bins" | "days"; readonly ready?: boolean; readonly failingValues?: boolean; readonly most?: number; readonly least?: number;
-    readonly weeks?: "monday" | "sunday";
+    readonly weeks?: "monday" | "sunday"; readonly halls?: readonly string[];
 } = {}): Example {
-    const lockedBins = options.locked === "bins", lockedDays = options.locked === "days", weeks = options.weeks;
+    const lockedBins = options.locked === "bins", lockedDays = options.locked === "days", weeks = options.weeks, halls = options.halls;
     // The yard's hint on a bin's quantity: at most `most` m³, at least `least`.
     const bounded = options.most === undefined && options.least === undefined ? {} : { fields: { m3: Schedule.field.number({
         label: "Volume", ...(options.most === undefined ? {} : { max: options.most }), ...(options.least === undefined ? {} : { min: options.least }),
@@ -131,10 +133,16 @@ export function kilnYard(options: {
         const yard = $.let(Data.bind(ex.kilns));
         const loads = $.let(Data.bind(ex.arrivals));
         const bays = $.let(Data.bind(ex.yardBays));
-        // The day's bins through the slice's bin source: their interval index, its range the board's own navigation.
+        // The day's bins through the slice's bin source: their interval index, its range the board's own navigation. A page
+        // for some halls holds its kilns to them, a source of the slice scoped through the kilns' index by group.
         const slice = $.let(lockedBins
             ? Slice.bindRecords("test.kilnYard", { bin: { source: Data.bindPaged(ex.kilnLockedBins, { indexes: ["kiln_locked_bins_by_time"] }), range: "at" } })
-            : Slice.bindRecords("test.kilnYard", { bin: { source: Data.bindPaged(ex.kilnBins, { indexes: ["kiln_bins_by_time"] }), range: "at" } }));
+            : halls !== undefined
+                ? Slice.bindRecords("test.kilnYard", {
+                    bin: { source: Data.bindPaged(ex.kilnBins, { indexes: ["kiln_bins_by_time"] }), range: "at" },
+                    kilns: { source: Data.bindPaged(ex.kilns, { indexes: ["kilns_by_group", "kilns_by_group_max"] }), scope: { group: [...halls] } },
+                })
+                : Slice.bindRecords("test.kilnYard", { bin: { source: Data.bindPaged(ex.kilnBins, { indexes: ["kiln_bins_by_time"] }), range: "at" } }));
         const fit = $.let(Func.bind(ex.yardFit));
         return Allocation({
             id: "kilnYard", title: "Kiln loading", fit, slice: { slice }, inspector: true,

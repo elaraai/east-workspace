@@ -19,7 +19,7 @@
 import { useCallback, useMemo, useRef } from "react";
 import { SortedSet, StringType, compareFor, none, some, type ArrayType, type option, type ValueTypeOf } from "@elaraai/east";
 import type { RowSourceType } from "@elaraai/east-ui";
-import type { RecordSliceBindType } from "@elaraai/east-ui/internal";
+import { recordSliceChosen, recordSliceScoped, type RecordSliceBindType } from "@elaraai/east-ui/internal";
 import { useSliceReactivity, useTrackedEvaluation } from "@elaraai/east-ui-components";
 import { PagedScan, snapshotOf } from "@elaraai/east-ui-components/internal";
 
@@ -51,6 +51,16 @@ export interface KeyVisibilityWords {
 export interface KeyVisibility {
     /** The keys to show: `none` for every row. */
     keys: option<Set<string>>;
+    /**
+     * Whether a choice of the viewer's narrows what shows (#1621): what a count of it says `N of M` for, and what Clear
+     * filters clears. A page's scope is none: the rows it holds are the source's whole, though `keys` holds them.
+     */
+    chosen: boolean;
+    /**
+     * How many rows the source's page holds, where its scope narrows it (#1621): what a count of what shows is out of —
+     * `none` while it is read; `undefined` on a page with no scope, which holds every row.
+     */
+    held: option<number> | undefined;
     /** Whether a complete membership has resolved yet. */
     ready: boolean;
     /** Whether a new narrowing is resolving (the previous membership still shows). */
@@ -108,7 +118,22 @@ export function useKeyVisibility(value: KeyVisibilityInput, words: KeyVisibility
         if (value.recordSlice?.type === "some") value.recordSlice.value.slice.retry();
         else if (snapshotted !== undefined) snapshotted.refresh(none);
     };
-    return { keys: source === undefined ? value.visible : keys, ready: last.current !== undefined, loading, error, retry };
+    const shown = source === undefined ? value.visible : keys;
+    // The host's narrowing is its own choice: no page scope narrows it.
+    return { keys: shown, chosen: shown.type === "some", held: undefined, ready: last.current !== undefined, loading, error, retry };
+}
+
+/**
+ * What a count of a source's shown rows is out of (#1621): the rows its page holds, where its scope narrows it — none
+ * while that count is read — else every row of the source. Never the record's whole beyond the page.
+ *
+ * @param shown - The source's visibility: how many rows its page holds (`held`; left out with no scope)
+ * @param every - How many rows the source has
+ * @returns The count's whole; `undefined` while the page's count is read
+ */
+export function shownWhole(shown: { readonly held?: option<number> | undefined }, every: number): number | undefined {
+    const { held } = shown;
+    return held === undefined ? every : held.type === "some" ? held.value : undefined;
 }
 
 /** A Slice over several records' chrome, as a builder's payload carries it: each source's part. */
@@ -132,7 +157,10 @@ export function sourcePart(chrome: SourcesChrome | undefined, source: string): V
  * several records narrows to while a choice or its page's scope (#1621)
  * narrows it, every row — and no read — while nothing does. Every place a
  * builder shows the source's rows reads these keys, so one choice narrows them
- * all, and a scoped source shows the scope's rows alone.
+ * all, and a scoped source shows the scope's rows alone. Beside them it says
+ * whether a choice of the viewer's narrows them — a page's scope is none — and,
+ * on a scoped page, how many rows the page holds: what a count of what shows is
+ * out of, never the record's whole.
  *
  * @param chrome - The payload's chrome; `undefined` with no slice
  * @param source - The source's name (`resources`)
@@ -146,5 +174,15 @@ export function useSourceVisibility(chrome: SourcesChrome | undefined, source: s
     const part = sourcePart(chrome, source);
     useSliceReactivity(part?.key);
     const narrowing = part !== undefined && part.read().where.size > 0;
-    return useKeyVisibility({ visibleSource: narrowing ? keys : none, visible: none, rows, recordSlice: part === undefined ? none : some({ slice: part }) }, words);
+    const visibility = useKeyVisibility({ visibleSource: narrowing ? keys : none, visible: none, rows, recordSlice: part === undefined ? none : some({ slice: part }) }, words);
+    // How many rows the page holds, a tracked read of the source's own total, read only on a scoped page.
+    const scoped = part !== undefined && recordSliceScoped(part);
+    const readHeld = useCallback((): option<number> => {
+        if (part === undefined || !scoped) return none;
+        const total = part.total();
+        return total.type === "some" ? some(Number(total.value)) : none;
+    }, [part, scoped]);
+    const { result } = useTrackedEvaluation(readHeld);
+    const held = !scoped ? undefined : result.ok ? result.value : none;
+    return { ...visibility, chosen: part !== undefined && recordSliceChosen(part), held };
 }

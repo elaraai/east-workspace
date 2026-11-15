@@ -892,6 +892,70 @@ describe("a job made on a paged press from a template (#1424)", () => {
     });
 });
 
+/**
+ * Hall 2's own page (#1621): `windowsTemplates` over the hall presses' record, its `presses` source scoped to Hall 2
+ * through the presses' index on exactly the hall — a narrowing the page holds and the viewer cannot clear.
+ */
+const hallPage = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const presses = $.let(Data.bindPaged(ex.planSeriesPresses));
+    const jobs = $.let(Record.bind(ex.planWindowJobs, ["patch"]));
+    const entries = $.let(Data.bindPaged(ex.planWindowJobs));
+    const jobTemplates = $.let(Data.bind(pe.planPrintJobTemplates));
+    const slice = $.let(Slice.bindRecords("test.calendarHallPage", {
+        presses: { source: Data.bindPaged(ex.planSeriesPresses, { indexes: ["plan_series_presses_by_hall"] }), scope: { hall: ["Hall 2"] }, fields: {} },
+        job: { source: Data.bindPaged(ex.planWindowJobs, { indexes: ["plan_window_jobs_by_time", "plan_window_jobs_by_press_week", "plan_window_jobs_by_press_month"] }), range: "start" },
+        jobTemplates: { source: Data.bindPaged(pe.planPrintJobTemplates, { indexes: ["plan_print_job_templates_by_group"] }) },
+    }));
+    return Calendar({
+        id: "hallPage", inspector: true, slice: { slice },
+        view: { layout: "timeline", period: "week", date: MONDAY }, now: new Date("2026-10-14T09:00:00Z"),
+        resources: { presses: Calendar.resources(presses, { name: "Presses", icon: "print", label: (p) => p.name, meta: (p, key) => some(East.str`${key} · ${p.hall}`) }) },
+        events: {
+            job: Calendar.events(jobs, {
+                name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end", resource: { field: "press", of: "presses" },
+                backlog: { duration: (j) => variant("hours", j.sheets.divide(8000.0)), due: (j) => j.due },
+                templates: Calendar.templates(jobTemplates.read(), {
+                    name: (t) => t.name, group: (t) => some(t.group), duration: (t) => variant("hours", t.hours), values: (t) => t.values, source: "jobTemplates",
+                }),
+                entries,
+            }),
+        },
+        library: [Calendar.library.templates(), Calendar.library.backlog()],
+    });
+}))) };
+
+describe("a paged press's Chooser on a hall's own page (#1621)", () => {
+    test("the Library form's Chooser seeks and lists the hall's presses alone — its count theirs — through the hall index, never the presses' own key search over every press, and a pick sets one of them", async () => {
+        const { container: c } = await h.mount(hallPage, { storageKey: "windows-scope-chooser" });
+        await settle();
+        // The page's presses: Hall 2's, every eighth from Press 1002, through the hall index.
+        await waitFor(() => expect(pressRows(c).slice(0, 3)).toEqual(["Press 1002", "Press 1010", "Press 1018"]), { timeout: 10_000 });
+        await act(async () => { fireEvent.click(within(slot(c, "start")).getByRole("button", { name: "Create" })); });
+        await settle();
+        const form = within(document.body).getByRole("dialog");
+        const input = form.querySelector<HTMLInputElement>("[data-calendar-chooser] [data-part='dataset-key-search'] input")!;
+        const since = h.requests().length;
+        for (const key of "P-10") {
+            const typed = input.value + key;
+            await userEvent.type(input, key);
+            await waitFor(() => expect(input.value).toBe(typed));
+        }
+        const lines = () => [...document.getElementById(input.getAttribute("aria-controls") ?? "")?.querySelectorAll('[role="option"]') ?? []].map((option) => option.textContent ?? "");
+        // Of Presses 1001 to 1099, which a key's start `P-10` finds, Hall 2's alone, in their keys' order.
+        await waitFor(() => expect(lines().slice(0, 3)).toEqual(["Press 1002 · P-1002 · Hall 2", "Press 1010 · P-1010 · Hall 2", "Press 1018 · P-1018 · Hall 2"]), { timeout: 10_000 });
+        expect(lines().filter((line) => !line.endsWith("· Hall 2"))).toEqual([]);
+        // Sought and listed through the hall index — never the presses' own key search, which places a key among every press.
+        const asked = askedOf(HALL_PRESSES, since);
+        expect(asked.filter((read) => read.endsWith(" own") && !read.startsWith("page"))).toEqual([]);
+        expect(asked.filter((read) => read.startsWith("read"))).toEqual([]);
+        // Picked: the first of them, the form's press.
+        await act(async () => { fireEvent.keyDown(input, { key: "Enter" }); });
+        await settle();
+        const named = () => form.querySelector("[data-calendar-chooser] input")?.getAttribute("aria-label") ?? form.querySelector("[data-calendar-chooser] input")?.getAttribute("placeholder");
+        await waitFor(() => expect(named()).toContain("Press 1002"));
+    });
+});
+
 describe("a template carried over the timeline of 2,000 paged presses (#1594)", () => {
     const pointer = { pointerId: 1, pointerType: "mouse", button: 0, buttons: 1 };
     /** The brochure run's template card, laid out below the timeline, and the plots of the presses' rows given, one under another from 100px down, 40px each, a day 100px. */

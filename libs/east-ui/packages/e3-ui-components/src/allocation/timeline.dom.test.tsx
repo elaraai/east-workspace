@@ -15,7 +15,7 @@ import { SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, no
 import { RecordSliceStateType } from "@elaraai/east-ui/internal";
 import { StateRuntime, UIStore, editingMessages } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/allocation/allocation";
-import { act, allocationHarness, settle, slot, stubLinkGeometry, TUE_4 } from "./harness.test-utils.js";
+import { act, allocationHarness, kilnYard, settle, slot, stubLinkGeometry, TUE_4 } from "./harness.test-utils.js";
 
 const h = allocationHarness();
 const byString = compareFor(StringType);
@@ -157,6 +157,16 @@ describe("the resource rows", () => {
         expect(chip()).toBe("K-2091 bin · 35 m³ · hidden by Filters");
         // A resource narrowing hides no lane: every bin still has its card.
         expect(c.querySelectorAll("[data-allocation-card]")).toHaveLength(26);
+    });
+
+    test("A13 — on a page for one hall (#1621) the rows are the hall's kilns, and a focus on another hall's kiln is `not on this page`: no filter hides it", async () => {
+        const c = await open(kilnYard({ halls: ["Hall A"] }));
+        const order = () => [...c.querySelectorAll("[data-allocation-resource]")].map(r => r.getAttribute("data-allocation-resource"));
+        await waitFor(() => expect(order()).toEqual(["K-101", "K-102", "K-103", "K-104", "K-105", "K-106", "K-107", "K-108", "K-109", "K-110"]));
+        // LD-2201's bin is on K-209, of Hall B.
+        await press(card(c, "3101")!);
+        const chip = () => toolbar(c).getByTitle("The focus: its links are drawn · Esc returns to all").textContent;
+        await waitFor(() => expect(chip()).toBe("K-2091 bin · 35 m³ · not on this page"));
     });
 
     test("A19 — a row's line: its load, `· 2 d into next job` in warn-text, over max in neg-text, busy, or free", async () => {

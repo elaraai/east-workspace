@@ -20,7 +20,7 @@ import assert from "node:assert/strict";
 import { equalFor, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { RecordSliceChoiceType, RecordSliceIndexType, RecordSliceWhereType } from "../../src/platform/slice/record-types.js";
 import {
-    planRecordSlice, recordChoiceNeeds, recordChoiceWhere, recordChoicesOf, recordScopeEmpty, recordScopedWhere,
+    planRecordSlice, recordChoiceNeeds, recordChoiceWhere, recordChoicesOf, recordPlanIndex, recordScopeEmpty, recordScopeSampled, recordScopedWhere,
     recordSliceBase, recordSliceChoices, recordSliceChoicesOf, recordSliceChosen, recordSliceScoped, recordSliceScopedWhere,
     type RecordSlicePaths,
 } from "../../src/platform/slice/record-plan.js";
@@ -128,6 +128,52 @@ test("an interval index takes its leading fields exactly together: one of them n
     assert.deepEqual(recordChoiceNeeds(paths, new Map(), "status", "values", offered), ["machine"]);
     assert.deepEqual(recordChoiceNeeds(paths, new Map(), "start", "range", offered), ["status", "machine"]);
     assert.equal(recordChoiceNeeds(paths, new Map(), "start", "prefix", offered), null);
+});
+
+test("a range of a field an interval index starts from is read through an interval index alone, which holds a run where it overlaps the range: the rail offers no path an index on the field would answer by its start", () => {
+    // The jobs by time, and by press then start: a range of the start is the time's to read.
+    const paths = unscoped([interval("by_time", []), plain("by_press_start", ["press", "start"])]);
+    const offered = new Set(["press", "start"]);
+    assert.deepEqual(recordChoiceNeeds(paths, new Map(), "start", "range", offered), []);
+    // Beside a press the range is read by time alone, and the press goes: by press then start would read starts, not overlaps.
+    const pressed: Where = new Map([["press", exactly("P-1")]]);
+    const ranged = recordChoiceWhere(paths, pressed, "start", RANGE);
+    assert.ok(sameWhere(ranged, [["start", RANGE]]));
+    assert.equal(recordPlanIndex(paths.indexes, ranged!)?.name, "by_time");
+    // An exact start is a plain index's to read, the press kept.
+    assert.ok(sameWhere(recordChoiceWhere(paths, pressed, "start", exactly("2026-11-02T00:00:00.000")), [["press", exactly("P-1")], ["start", exactly("2026-11-02T00:00:00.000")]]));
+});
+
+test("on a scoped page a range of a field an interval index starts from takes an interval index led by the scope's fields: one led by none, beside a plain index led by the scope, takes no range at all (#1621)", () => {
+    const scope = new Map<string, Choice>([["press", exactly("P-1")]]);
+    const held: readonly [string, Choice] = ["press", exactly("P-1")];
+    const unled: RecordSlicePaths = { indexes: [interval("by_time", []), plain("by_press", ["press"]), plain("by_press_start", ["press", "start"])], scope };
+    const offered = new Set(["start"]);
+    assert.equal(recordChoiceNeeds(unled, new Map(), "start", "range", offered), null, "no index reads the page's runs by overlap");
+    assert.equal(recordChoiceWhere(unled, new Map(), "start", RANGE), null);
+    assert.deepEqual(recordChoiceNeeds(unled, new Map(), "start", "values", offered), [], "an exact start the plain index reads");
+    // With an interval index led by the press: the range is offered, and read through it.
+    const led: RecordSlicePaths = { indexes: [...unled.indexes, interval("by_press_time", ["press"])], scope };
+    assert.deepEqual(recordChoiceNeeds(led, new Map(), "start", "range", offered), []);
+    const ranged = recordChoiceWhere(led, new Map(), "start", RANGE);
+    assert.ok(sameWhere(ranged, [held, ["start", RANGE]]));
+    assert.equal(recordPlanIndex(led.indexes, ranged!)?.name, "by_press_time");
+});
+
+test("a narrowing as a page whose scope holds a value plans it: each scoped list that is empty one sample value, the choices as they are — what a state the store keeps is checked against (#1621)", () => {
+    const empty = new Map<string, Choice>([["press", variant("values", [])]]);
+    const indexes = [plain("by_press_status", ["press", "status"]), plain("by_line_crew", ["line", "crew"])];
+    const where = recordScopedWhere(empty, new Map<string, Choice>([["status", exactly("Ready")]]));
+    const sampled = recordScopeSampled(empty, where);
+    assert.ok(sameWhere(sampled, [["press", variant("values", [""])], ["status", exactly("Ready")]]));
+    assert.equal(recordPlanIndex(indexes, sampled)?.name, "by_press_status", "the choices beside a press: the press's index reads them");
+    // Choices no index takes beside the scope's field are refused by their shape, whatever the scope holds as it is written.
+    const crewed = recordScopeSampled(empty, recordScopedWhere(empty, new Map<string, Choice>([["line", exactly("a")], ["crew", exactly("b")]])));
+    assert.equal(recordPlanIndex(indexes, crewed), undefined);
+    // A scope that holds a value: the narrowing itself.
+    const held = new Map<string, Choice>([["press", exactly("P-1")]]);
+    const asked = recordScopedWhere(held, new Map<string, Choice>([["status", exactly("Ready")]]));
+    assert.ok(Object.is(recordScopeSampled(held, asked), asked));
 });
 
 test("a page's scope is part of every narrowing: a choice is answered only by an index that takes the scope's fields with it, and what it answers holds the scope (#1621)", () => {

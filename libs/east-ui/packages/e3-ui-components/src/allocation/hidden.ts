@@ -12,14 +12,17 @@
  * slice's order, standing on the row of it the bin stands on there: its lane
  * in the lanes' source, its arrival in the arrivals', and the resource it is
  * shown on — its largest part — in the resources'. One hidden pick a source,
- * asked of the source's own record through its part.
+ * asked of the source's own record through its part. A resource the board
+ * names on its own — its focus, the fit it ranks first — that the resources'
+ * narrowing leaves out says why, as far as e3 has said (#1621): beyond the
+ * page's scope, or hidden by a choice of the viewer's.
  *
  * @packageDocumentation
  */
 
 import { useMemo } from "react";
 import type { option } from "@elaraai/east";
-import { useRelist, useSourceHidden, type RowHiding, type SourceHidden } from "../shared/schedule/hidden.js";
+import { askHiding, hiddenWhy, useRelist, useSourceHidden, type HiddenWhy, type RowHiding, type SourceHidden } from "../shared/schedule/hidden.js";
 import type { FoundBin } from "./find.js";
 import type { AllocationValue } from "./model.js";
 import { narrowingPart, narrowingSlot, type NarrowedSource } from "./narrowed.js";
@@ -46,6 +49,21 @@ export interface HiddenBins {
      * @returns The sources; none for a bin the narrowing shows
      */
     hidingsOf(bin: FoundBin): readonly RowHiding[];
+    /**
+     * Why a resource the board names on its own, which the resources' narrowing leaves out, is not shown, as far as e3 has
+     * said (`hiddenWhy`): beyond the page's scope, or hidden by a choice of the viewer's.
+     *
+     * @param resource - The resource, by its key
+     * @returns Why; `undefined` while e3 has not said, on a page whose resources hold a scope beside a choice
+     */
+    whyResource(resource: string): HiddenWhy | undefined;
+    /**
+     * Asks e3 why some resources the board names, which the resources' narrowing leaves out, are not shown: each once at
+     * the record's revision and the narrowing.
+     *
+     * @param resources - The resources, by their keys
+     */
+    askResources(resources: readonly string[]): void;
     /** Moves as answers land and as what the narrowing shows moves: the box lists its lines again. */
     readonly relist: number;
 }
@@ -93,6 +111,8 @@ export function useHiddenBins(value: AllocationValue, shown: BinShown): HiddenBi
                 return hides[source] && pick.part !== undefined && row !== undefined ? [{ pick, id: row, what: one(value.labels[NOUN_OF[source]]) }] : [];
             });
         };
-        return { hidingsOf, relist };
+        const whyResource = (resource: string): HiddenWhy | undefined => hiddenWhy({ pick: resources, id: resource });
+        const askResources = (keys: readonly string[]): void => { if (keys.length > 0) askHiding(keys.map(id => ({ pick: resources, id })), true); };
+        return { hidingsOf, whyResource, askResources, relist };
     }, [lanes, resources, arrivals, order, shown, relist, value.labels]);
 }

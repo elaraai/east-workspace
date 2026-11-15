@@ -44,7 +44,7 @@ import { arrivalChoices, resourceChoices, type ChoiceWords } from "./choices.js"
 import { dropTarget, gripCoord, laneCoord, resourceCellCoord, type AllocationDrag, type Grip, type Target } from "./drag.js";
 import type { AllocationFit } from "./fit.js";
 import { bandLine, narrowBands, rowStatus, tableBands, tableRows, type TableBand, type TableRow } from "./table-rows.js";
-import { NarrowedEmpty } from "./narrowed.js";
+import { NarrowedEmpty, type AllocationNarrowed } from "./narrowed.js";
 import { a, lower, one, useNouns } from "./nouns.js";
 import type { AllocationBinOp, AllocationOptimised } from "./optimise.js";
 import type { TimelineFollow } from "./timeline.js";
@@ -90,8 +90,8 @@ export interface TableProps {
     visibleLanes: option<Set<string>>;
     visibleResources: option<Set<string>>;
     visibleArrivals: option<Set<string>>;
-    /** Clears the narrowing, where nothing shows; `undefined` with no narrowing. */
-    clearFilters: (() => void) | undefined;
+    /** The sources a choice of the viewer's narrows, and its Clear filters, where nothing shows; `undefined` with no choice (#1621). */
+    narrowed: AllocationNarrowed | undefined;
     /** The arrival whose every bin the Library's Allocated card highlights (A10). */
     highlight: string | undefined;
     /** Books the picked arrival where a click lands, as its drop would (A11). */
@@ -263,11 +263,11 @@ export function AllocationTable(props: TableProps) {
         <Box as="span" data-align="end" title={nouns.quantity}>{nouns.quantity}</Box>
         {shown.map(c => <span key={c.key} title={c.label}>{c.label}</span>)}<span title={nouns.resource.one}>{nouns.resource.one}</span><span>Load</span><span>Status</span>
     </Box>;
-    // The narrowing's empty state only under a narrowing (#1398, CL13).
-    const narrowed = visibleLanes.type === "some" || visibleResources.type === "some" || visibleArrivals.type === "some";
+    // The narrowing's empty state only under a choice of the viewer's (#1398, CL13; a page's scope is none, #1621).
+    const { narrowed } = props;
     return <Box css={styles.table} style={vars} data-allocation-table="" data-allocation-drag={drag.grip?.kind} data-allocation-unread={unread ? read.state : undefined}>
         {/* Its rows as wide as the recipe's least width for its tracks: no cell past a row's edge. */}
-        {lines.length === 0 ? <>{head}{narrowed && <NarrowedEmpty styles={styles} clear={props.clearFilters} />}</> : <VirtualRows fillParent height={undefined} maxHeight={undefined} rootCss={styles.tablePane} minWidth="var(--allocation-table-least)" scrollElRef={pane}
+        {lines.length === 0 ? <>{head}{narrowed !== undefined && <NarrowedEmpty styles={styles} clear={narrowed.clear} />}</> : <VirtualRows fillParent height={undefined} maxHeight={undefined} rootCss={styles.tablePane} minWidth="var(--allocation-table-least)" scrollElRef={pane}
             headerZIndex={4} header={head} count={lines.length} getItemKey={getItemKey} sizes={sizes} measureRows={false}
             onAnchorChange={onAnchorChange} restoreAnchor={restore}
             renderRow={index => {

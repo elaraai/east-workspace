@@ -98,6 +98,37 @@ hostTest("past the record slice's bound on landed searches across its choices, a
         `${most + 1} halls would ask more than ${MAX_LANDED_SEARCHES}: the window alone, the halls by \`within\``);
 });
 
+hostTest("a kind whose page holds a scope is read under it: through an area index its scope's fields lead — never one led by a choice of the viewer's alone, which would leave the scope to `within` — past the bound each value's window searched at coarser cells, and a scope that holds no value reads none (#1621)", () => {
+    const scopedPlan = (narrowing: Where, scoped: readonly string[]) => {
+        const plan = schematicWindowPlan(areas, narrowing, view, scoped);
+        return { index: plan.index.name, prefixes: plan.prefixes, residual: plan.residual };
+    };
+    // A tag's page, the viewer choosing a hall: unscoped the hall's index is listed first and wins; scoped, the tag's leads.
+    const tagged = where([["tags", values('"cold"')], ["hall", values('"Hall 1"')]]);
+    assert.equal(planned(tagged).index, "racks_by_hall_area", "unscoped: the first index leaving one field to `within`");
+    assert.deepEqual(scopedPlan(tagged, ["tags"]), { index: "racks_by_tag_area", prefixes: [['"cold"']], residual: ["hall"] }, "the scope read, the hall left to `within`");
+    // Past the bound on landed searches, the halls' own index all the same, each hall's window within its share of the bound.
+    const each = areaQueries([], view, rackBox.cell, UNLED).length;
+    const many = Array.from({ length: Math.floor(MAX_LANDED_SEARCHES / each) + 1 }, (_, i) => `"Hall ${i + 1}"`);
+    const past = schematicWindowPlan(areas, where([["hall", values(...many)]]), view, ["hall"]);
+    assert.deepEqual([past.index.name, past.prefixes.length, past.residual], ["racks_by_hall_area", many.length, []]);
+    assert.equal(past.searches, Math.floor(MAX_LANDED_SEARCHES / many.length));
+    const searched = past.prefixes.map((prefix) => areaQueries(prefix, view, past.cell, BY_HALL, past.searches).length);
+    assert.ok(searched.every((n) => n <= past.searches) && searched.reduce((sum, n) => sum + n, 0) <= MAX_LANDED_SEARCHES,
+        `every hall's window within its share: ${searched.join(", ")}`);
+    // A scope that holds no value: no window searched, and no density cell.
+    const empty = schematicWindowPlan(areas, where([["hall", values()]]), view, ["hall"]);
+    assert.deepEqual([empty.index.name, empty.prefixes], ["racks_by_hall_area", []]);
+    assert.deepEqual(schematicRaster(empty, view, BY_HALL).cells, []);
+    // More combinations than a read takes are refused, as the record Slice refuses them.
+    assert.throws(() => schematicWindowPlan(areas, where([["hall", values(...Array.from({ length: 65 }, (_, i) => `"Hall ${i}"`))]]), view, ["hall"]),
+        /This combination needs more than 64 searches; choose fewer values/);
+    // Its rows with no position, the Backlog's, the same: the tag's index, the hall left to `within`.
+    const unplaced = schematicUnplacedPlan(areas, tagged, ["tags"]);
+    assert.deepEqual([unplaced.index.name, [...unplaced.read.where.keys()], unplaced.residual], ["racks_by_tag_area", ["tags"], ["hall"]]);
+    assert.equal(schematicUnplacedPlan(areas, tagged).index.name, "racks_by_hall_area", "unscoped, as before");
+});
+
 hostTest("a kind read by area with no area index led by no field is refused, naming the index to declare (SC34)", () => {
     assert.throws(() => schematicAreaIndexes([byModel!, byHallArea!], roles, "items", "Schematic.items: \"Rack\""),
         /^Error: Schematic\.items: "Rack": a kind read by area reads its window through an area index led by no field, whatever the rail chooses, and 'racks_by_hall_area' is led by fields — declare index\.area\(\{ x: "x", y: "y", width: "w", height: "h", at: "centre", cell \}\) beside it, and list it in Data\.bindPaged's indexes$/);

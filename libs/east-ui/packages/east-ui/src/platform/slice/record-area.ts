@@ -213,6 +213,12 @@ function cellAt(level: number, ix: number, iy: number, half: number, side: numbe
  * beyond the window — rows of a searched cell that the window misses — is the
  * reader's to draw or not.
  *
+ * Given a budget of searches, `C` is coarser while the searches number more
+ * than it: each level's cells are the same whether searched by key or by
+ * range, so a coarser `C` asks the levels past it no more, its larger cells'
+ * ranges holding their rows — what several combinations of leading values,
+ * sharing a reader's bound on its searches, are each read by (#1621).
+ *
  * An exact search names the key's own fields, `[on, area]`; a range bounds it
  * flattened, the leading values one by one (#1432).
  *
@@ -220,30 +226,42 @@ function cellAt(level: number, ix: number, iy: number, half: number, side: numbe
  * @param box - The viewport, in world units: its minimum and maximum corners
  * @param cell - The index's finest cell's side, a power of two (its `area.cell`)
  * @param printOn - The index's `on` printer
+ * @param budget - The most searches it asks: none but the window's size limits them by default
  * @returns The cells, in their searches' key order
  * @throws {Error} When the viewport is not finite or its maximum is below its
- *   minimum, or when `cell` is not a positive power of two
+ *   minimum, when `cell` is not a positive power of two, or when `budget` is less than one
  */
-export function areaCells(prefix: readonly string[], box: AreaWindow, cell: number, printOn: RecordOnPrinter): AreaCell[] {
+export function areaCells(prefix: readonly string[], box: AreaWindow, cell: number, printOn: RecordOnPrinter, budget: number = Number.POSITIVE_INFINITY): AreaCell[] {
     const { minX, minY, maxX, maxY } = box;
     if (![minX, minY, maxX, maxY].every(Number.isFinite)) throw new Error("Choose a window with finite bounds");
     if (maxX < minX || maxY < minY) throw new Error("A window's maximum is below its minimum");
     if (!Number.isFinite(cell) || cell <= 0 || 2 ** Math.round(Math.log2(cell)) !== cell) {
         throw new Error(`An area index's cell is a positive power of two, not ${cell}`);
     }
+    if (!(budget >= 1)) throw new Error(`A window takes at least one search, not ${budget}`);
     const margin = Math.max(maxX - minX, maxY - minY) / 8;
     const fromX = minX - margin, toX = maxX + margin, fromY = minY - margin, toY = maxY + margin;
     const larger = Math.max(toX - fromX, toY - fromY);
     const half = cell * 2 ** 27;
     let deepest = AREA_FINEST_LEVEL;
     while (deepest > 0 && cell * 2 ** (AREA_FINEST_LEVEL - deepest) < larger / 8) deepest--;
+    // Each level's cells meeting the window, on each axis: the root whatever the window.
+    const meeting = (level: number): [number[], number[]] => {
+        const size = cell * 2 ** (AREA_FINEST_LEVEL - level);
+        const count = 2 ** level;
+        return level === 0 ? [[0], [0]] : [cellsMeeting(fromX, toX, half, size, count), cellsMeeting(fromY, toY, half, size, count)];
+    };
+    const levels = Array.from({ length: deepest + 1 }, (_, level) => meeting(level));
+    let asked = levels.reduce((sum, [xs, ys]) => sum + xs.length * ys.length, 0);
+    while (deepest > 0 && asked > budget) {
+        asked -= levels[deepest]![0].length * levels[deepest]![1].length;
+        deepest--;
+    }
     const on = printOn(prefix);
     const searches: { start: bigint; cell: AreaCell }[] = [];
     for (let level = 0; level <= deepest; level++) {
         const size = cell * 2 ** (AREA_FINEST_LEVEL - level);
-        const count = 2 ** level;
-        const xs = level === 0 ? [0] : cellsMeeting(fromX, toX, half, size, count);
-        const ys = level === 0 ? [0] : cellsMeeting(fromY, toY, half, size, count);
+        const [xs, ys] = levels[level]!;
         for (const ix of xs) {
             for (const iy of ys) {
                 const m = morton(ix, iy, level);
@@ -269,11 +287,12 @@ export function areaCells(prefix: readonly string[], box: AreaWindow, cell: numb
  * @param box - The viewport, in world units: its minimum and maximum corners
  * @param cell - The index's finest cell's side, a power of two (its `area.cell`)
  * @param printOn - The index's `on` printer
+ * @param budget - The most searches it asks ({@link areaCells})
  * @returns The searches, in key order
  * @throws {Error} As {@link areaCells} does
  */
-export function areaQueries(prefix: readonly string[], box: AreaWindow, cell: number, printOn: RecordOnPrinter): ValueTypeOf<SeekQueryType>[] {
-    return areaCells(prefix, box, cell, printOn).map(found => found.query);
+export function areaQueries(prefix: readonly string[], box: AreaWindow, cell: number, printOn: RecordOnPrinter, budget?: number): ValueTypeOf<SeekQueryType>[] {
+    return areaCells(prefix, box, cell, printOn, budget).map(found => found.query);
 }
 
 /** The most counted ranges a density raster asks in one request (§10.4, D25). */

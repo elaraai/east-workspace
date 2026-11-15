@@ -96,7 +96,7 @@ import { FollowSources, type FollowedSources } from "../shared/schedule/follow-s
 import { HideSources, useHiddenPick, type HiddenPicks, type HiddenSource } from "../shared/schedule/hidden-pick.js";
 import { scheduleOverlaps } from "../shared/schedule/overlaps.js";
 import { refusalText, scheduleRefusals } from "../shared/schedule/refusals.js";
-import { lowerWord } from "../shared/schedule/words.js";
+import { kindSingular, lowerWord } from "../shared/schedule/words.js";
 import { sourcePart } from "../shared/schedule/visibility.js";
 import { useNow } from "../shared/time/now-line.js";
 import { calendarCommands } from "./actions.js";
@@ -660,8 +660,9 @@ function CalendarFrame(props: HostProps) {
         const keys = followed.get(kind.key)?.shown.keys;
         return keys === undefined ? [] : [[kind.key, keys] as const];
     })), [value.resources, followed]);
-    // Each resource kind's name as a line writes it: what an event stands on where the kind's source's page does not hold it.
-    const resourceWords = useMemo(() => new Map(value.resources.map(kind => [kind.key, lowerWord(kind.name)] as const)), [value.resources]);
+    // One of each resource kind, as a line writes it — the kind's heading read back in the singular, `its press`: what an
+    // event stands on where the kind's source's page does not hold it.
+    const resourceWords = useMemo(() => new Map(value.resources.map(kind => [kind.key, kindSingular(lowerWord(kind.name))] as const)), [value.resources]);
     const finder = useCalendarFind({ kinds: value.events, parts: dates.eventParts, editing, range, format: words, onPick: found, held: cellRows, picks,
         resourcesShown, laysResources, resourceWords });
     const search = useMemo(() => (finder === undefined ? undefined : hiddenPick.search(finder)), [finder, hiddenPick]);

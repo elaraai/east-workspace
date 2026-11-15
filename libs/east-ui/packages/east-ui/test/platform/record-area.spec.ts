@@ -192,6 +192,32 @@ test("a window's searches hold every row whose box meets it, each once, within t
     }
 });
 
+test("a window given a budget of searches asks no more than it, coarser at its last level, and still holds every row whose box meets it, each once (#1621)", () => {
+    const next = stream(1621);
+    for (const cell of [2 ** -7, 1, 2 ** 5]) {
+        const boxes = Array.from({ length: 1500 }, () => randomBox(next, cell));
+        const keys = boxes.map(box => filed(box, cell));
+        for (let w = 0; w < 60; w++) {
+            const view = randomView(next, cell);
+            const prefix = w % 3 === 0 ? [] : ['"H1"'];
+            const own = areaCells(prefix, view, cell, printerOf(prefix));
+            for (const budget of [1, 4, 16, 40]) {
+                const cells = areaCells(prefix, view, cell, printerOf(prefix), budget);
+                assert.ok(cells.length <= Math.max(budget, 1), `${cells.length} searches within ${budget} for ${printWindow(view)}`);
+                const deepest = (found: typeof cells) => Math.max(...found.map(c => c.level));
+                assert.ok(deepest(cells) <= deepest(own), "its last level no finer than the window's own");
+                const sorted = spans(cells.map(c => c.query), prefix);
+                boxes.forEach((box, i) => {
+                    if (meets(box, view)) assert.ok(holds(sorted, keys[i]!), `box ${JSON.stringify(box)} meets ${printWindow(view)} within ${budget} searches at cell ${printFloat(cell)}`);
+                });
+            }
+            // A budget the window's own searches fit in asks them as they are.
+            assert.deepEqual(areaCells(prefix, view, cell, printerOf(prefix), own.length), own);
+        }
+    }
+    assert.throws(() => areaCells([], { minX: 0, minY: 0, maxX: 1, maxY: 1 }, 1, UNLED, 0), /at least one search/);
+});
+
 test("a window reads a coarser cell sharing its range's corner by its exact key, once, and an unplaced row never", () => {
     const cell = 1;
     const view = { minX: 10, minY: 10, maxX: 74, maxY: 74 };

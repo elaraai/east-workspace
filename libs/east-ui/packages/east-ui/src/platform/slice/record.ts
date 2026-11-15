@@ -11,7 +11,9 @@ import {
 } from "@elaraai/east";
 import { IndexedEntryType, IndexedSourceType, type IndexedSource } from "../../contracts/indexed-source.js";
 import { toValueFormat, type SliceFieldFormat } from "./index.js";
-import { planRecordSlice, recordEntriesFields, recordIndexFields, recordPlanIndex, recordScopeAreaIndex, recordScopeSearchIndex } from "./record-plan.js";
+import {
+    planRecordSlice, recordChoiceNeeds, recordEntriesFields, recordIndexFields, recordPlanIndex, recordScopeAreaIndex, recordScopeSearchIndex,
+} from "./record-plan.js";
 import { readAreaMarker } from "./record-area.js";
 import { readIntervalMarker } from "./record-interval.js";
 import { readTileMarker, tilingOf } from "./record-series.js";
@@ -503,6 +505,20 @@ export function bindRecord<K extends EastType, R extends StructType, P extends E
         if (scope.has(range)) throw held(range, "range");
         const schema = getField(range);
         if (schema.set || !["datetime", "integer", "float"].includes(schema.kind)) throw new Error(`Slice.bindRecord: range '${range}' must be DateTime, Integer or Float`);
+        // The rail's range, and a builder's window that moves it, is read beside the scope as the planner reads it
+        // (#1621): through an interval index from the field wherever one starts from it, since a run is held where it
+        // overlaps the range, and through one led by the scope's fields.
+        const paths = { indexes, scope: new Map(scoped.map(name => [name, variant("values", [""])] as const)) };
+        if (scoped.length > 0 && recordChoiceNeeds(paths, new Map(), range, "range", new Set(offered)) === null) {
+            const from = indexes.find(index => index.interval.type === "some" && index.interval.value.from === range);
+            const named = scoped.map(name => `'${name}'`).join(", ");
+            throw new Error(from?.interval.type === "some"
+                ? `Slice.bindRecord: the range of '${range}' beside the scope (${named}) is read through an interval index from it, which holds a run ` +
+                    `where it overlaps the range, led by the scope's fields — by_${scoped.join("_")}_${from.name.replace(/^by_/, "")}: ` +
+                    `index.interval({ on: [${scoped.map(name => JSON.stringify(name)).join(", ")}], ` +
+                    `from: "${range}", to: "${from.interval.value.to}" }) among the record's indexes, as '${from.name}' reads it, listed in Data.bindPaged's indexes`
+                : `Slice.bindRecord: the range of '${range}' beside the scope (${named}) needs one index led by the scope's fields, then it — ${declare([...scoped, range])}`);
+        }
     }
     const search = options.search === undefined ? fields.filter(field => field.kind === "string" && !weighing.has(field.fieldId)).map(field => field.fieldId)
         : typeof options.search === "string" ? [options.search] : [...options.search];

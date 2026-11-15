@@ -12,7 +12,7 @@ import { keyQueryRange, toSeekQuery, type DatasetKeyQuery } from "../collections
 import { recordSliceFieldSchema, recordSliceFieldTypes, type RecordSliceFieldSchema } from "../platform/slice/record.js";
 import {
     MAX_RECORD_SLICE_RUNS, planRecordSlice, recordChoiceWhere, recordChoicesOf, recordEntriesFields, recordIndexFields, recordIndexGenerated,
-    recordPlanIndex, recordScopeEmpty, recordScopeSearchIndex, recordScopedWhere,
+    recordPlanIndex, recordScopeEmpty, recordScopeSampled, recordScopeSearchIndex, recordScopedWhere,
     type RecordSlicePlan,
 } from "../platform/slice/record-plan.js";
 import { recordOnPrinters, recordOnTypeOf, type RecordOnPrinters } from "../platform/slice/record-on.js";
@@ -289,7 +289,9 @@ export class RecordSliceController {
      * Validate the whole state before a custom control or saved view writes it. The store keeps the viewer's choices
      * (#1621): a scoped field's clause is the page's, so a state that holds the scope's own — one made from what
      * `readState` answers — is kept without it, and one that holds another clause for it is refused. The choices are
-     * planned with the scope, as every read of them will be.
+     * planned with the scope, as every read of them will be — where a scoped field's list is empty as the page runs, as
+     * a page whose scope holds a value of it plans them ({@link recordScopeSampled}), since the store keeps them under
+     * the Slice's key whatever the page's scope holds next.
      * @param state - The state: its choices, with or without the scope's clauses.
      * @returns Null.
      * @throws {Error} When a choice is invalid, a scoped field holds another clause than the scope's, no index answers
@@ -302,7 +304,11 @@ export class RecordSliceController {
             if (held === undefined) where.set(field, this.validate(field, choice));
             else if (!sameChoice(held, choice)) throw new Error(`'${field}' is held by the page's scope, which no choice changes`);
         }
-        this.plan(recordScopedWhere(this.config.scope, where));
+        const kept = recordScopedWhere(this.config.scope, where);
+        if (!recordScopeEmpty(this.config.scope, kept)) this.plan(kept);
+        else if (recordPlanIndex(this.config.indexes, recordScopeSampled(this.config.scope, kept)) === undefined) {
+            throw new Error("These choices cannot be combined; clear a field and try again");
+        }
         if (state.preset.type === "some" && !this.config.presets.some(preset => preset.id === state.preset.value)) throw new Error("Unknown preset");
         this.writeState({ ...state, where });
         return null;
@@ -388,7 +394,8 @@ export class RecordSliceController {
         if (index === undefined) return none;
         const path = recordIndexFields(index);
         const position = path.indexOf(field);
-        const leading = new Map([...proposal].filter(([name]) => path.indexOf(name) < position));
+        // The choices on the index's path before the field: an entries field's picks, which weigh and narrow nothing, are on none.
+        const leading = new Map([...proposal].filter(([name]) => { const at = path.indexOf(name); return at >= 0 && at < position; }));
         const plan = planRecordSlice([index], leading, index.name, undefined, this.printOn)!;
         const bounds = this.windows.resolve(plan);
         if (bounds.type === "none") return none;
@@ -1069,7 +1076,8 @@ export class RecordSliceController {
             return this.suggestOn(generated, field, text, proposal, schema.optional);
         }
         const position = index.fields.indexOf(field);
-        const leading = new Map([...proposal].filter(([name]) => index.fields.indexOf(name) < position));
+        // The choices on the index's path before the field: an entries field's picks, which weigh and narrow nothing, are on none.
+        const leading = new Map([...proposal].filter(([name]) => { const at = index.fields.indexOf(name); return at >= 0 && at < position; }));
         leading.set(field, variant("prefix", text));
         // Suggestion bounds may include fan-out entries; each displayed value
         // gets its count from a separately validated exact-membership path.

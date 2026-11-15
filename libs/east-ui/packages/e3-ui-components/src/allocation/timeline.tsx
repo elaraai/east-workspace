@@ -42,11 +42,13 @@ import { TimeRulerRow, timeRulerUnits } from "../shared/time/ruler.js";
 import { isoWeekUTC, timeScale, timeWords } from "../shared/time/scale.js";
 import { shadeBands } from "../shared/time/shading.js";
 import { MoveGhost } from "../shared/schedule/move-ghost.js";
+import type { HiddenWhy } from "../shared/schedule/hidden.js";
+import { notOnPageText } from "../shared/schedule/words.js";
 import { remainderOf } from "./actions.js";
 import { useBinFocusTarget } from "./bin-focus.js";
 import { currentOf, dropTarget, gripCoord, laneCoord, movedLinkOf, rowCoord, type AllocationDrag, type BoardGrip, type Target } from "./drag.js";
 import { cardEnd, dragFamilies, dragLine, familyOf, guideLines, layoutLinks, linkIds, runLinks, type DragTarget, type FamilyLink, type LinkIds, type LinkView } from "./links.js";
-import { NarrowedEmpty } from "./narrowed.js";
+import { NarrowedEmpty, type AllocationNarrowed } from "./narrowed.js";
 import { a, counted, lower, one, useNouns, type Nouns } from "./nouns.js";
 import type { AllocationBinOp, AllocationGhost, AllocationOptimised } from "./optimise.js";
 import {
@@ -98,8 +100,8 @@ export interface TimelineProps {
     visibleLanes: option<Set<string>>;
     /** The arrivals the narrowing shows, by key; `none` for every one: a bin of a hidden arrival has no card (#1339). */
     visibleArrivals: option<Set<string>>;
-    /** Clears the narrowing, where nothing shows; `undefined` with no narrowing. */
-    clearFilters: (() => void) | undefined;
+    /** The sources a choice of the viewer's narrows, and its Clear filters, where nothing shows; `undefined` with no choice (#1621). */
+    narrowed: AllocationNarrowed | undefined;
     selection: Selection | undefined;
     /** The focus (A13). */
     focus: string | undefined;
@@ -124,6 +126,11 @@ export interface TimelineProps {
     drag: AllocationDrag;
     /** A question's candidates: what a ranked fit's preview bar shows (A28), e3-ui's own arithmetic. */
     candidates: AllocationDomain["candidates"];
+    /**
+     * Why a resource the narrowing leaves out is not shown, as far as e3 has said — the filters, or a page's scope that
+     * does not hold it (#1621): what the fits marker says of a #1 fit with no row in the pane.
+     */
+    whyResource: (resource: string) => HiddenWhy | undefined;
     /**
      * What it draws of the day's read (#1398): the day as read; a day not read yet — the day without its bins handed in
      * as `plan`, its lane-hour cells washed and its figures placeholders once the reveal says so; or one whose read
@@ -189,14 +196,21 @@ interface Marker { side: "above" | "below" | "hidden"; label: string; resource: 
 
 /**
  * The fits marker, when the #1 fit's row is out of the resource pane's view
- * (A31): `2 fits below · #1 K-103 · drop here`, or `#1 K-601 is hidden by
- * Filters · drop here` when the narrowing hides it.
+ * (A31): `2 fits below · #1 K-103 · drop here`; `#1 K-601 is hidden by Filters
+ * · drop here` when a choice of the viewer's narrows it out, and `#1 K-601 is
+ * not on this page · drop here` when the page's scope does not hold it (#1621)
+ * — `#1 K-601 · drop here` until e3 has said which.
  */
-function fitsMarker(ranks: readonly string[], rowIndex: ReadonlyMap<string, number>, top: number, view: number, nameOf: (key: string) => string): Marker | undefined {
+function fitsMarker(ranks: readonly string[], rowIndex: ReadonlyMap<string, number>, top: number, view: number, nameOf: (key: string) => string,
+    why: (key: string) => HiddenWhy | undefined): Marker | undefined {
     const best = ranks[0];
     if (best === undefined || view <= 0) return undefined;
     const at = rowIndex.get(best), name = nameOf(best);
-    if (at === undefined) return { side: "hidden", label: `#1 ${name} is hidden by Filters · drop here`, resource: best };
+    if (at === undefined) {
+        const hidden = why(best);
+        const said = hidden === "filters" ? ` is hidden by Filters` : hidden === "page" ? ` is ${notOnPageText([])}` : "";
+        return { side: "hidden", label: `#1 ${name}${said} · drop here`, resource: best };
+    }
     const inView = (i: number) => i * ROW_H >= top && i * ROW_H + ROW_H <= top + view;
     if (inView(at)) return undefined;
     const below = at * ROW_H > top;
@@ -361,7 +375,7 @@ export function AllocationTimeline(props: TimelineProps) {
     // The fits out of view, marked at the pane's edge over the rows; a drop on it goes to the #1 (A31).
     const [rowsView, setRowsView] = useState(0);
     useLayoutEffect(() => { if (marking && rscPane.current !== null) setRowsView(rscPane.current.clientHeight - HEAD); }, [marking]);
-    const marker = marking ? fitsMarker(drag.ranks, rowIndex, rowsTop, rowsView, key => context.resources.get(key)?.label ?? key) : undefined;
+    const marker = marking ? fitsMarker(drag.ranks, rowIndex, rowsTop, rowsView, key => context.resources.get(key)?.label ?? key, props.whyResource) : undefined;
     // While a drag rests on a resource — its row, the fits marker, a fit in the inspector's list — its bins outline for the
     // verdict and its run's label steps aside (A27, A29); they let go as the drag leaves it, for the channel, the head or
     // nothing. Marked on the elements as the drag's rest moves, so pointer motion repaints no card (A35).
@@ -469,10 +483,12 @@ export function AllocationTimeline(props: TimelineProps) {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [props.follow.nonce]);
 
-    // A narrowing that leaves no lane or no resource leaves nothing to plan on; a board with no resources and no narrowing
-    // is no narrowing's empty state (#1398, CL13): it draws its lanes, and no resource row.
-    if ((lanes.length === 0 && props.visibleLanes.type === "some") || (rows.length === 0 && props.visible.type === "some")) {
-        return <NarrowedEmpty styles={styles} clear={props.clearFilters} />;
+    // A choice of the viewer's that leaves no lane or no resource leaves nothing to plan on; a board with no resources and
+    // no narrowing is no narrowing's empty state (#1398, CL13): it draws its lanes, and no resource row — as does a board
+    // whose page's scope holds none (#1621).
+    const { narrowed } = props;
+    if (narrowed !== undefined && ((lanes.length === 0 && narrowed.lanes) || (rows.length === 0 && narrowed.resources))) {
+        return <NarrowedEmpty styles={styles} clear={narrowed.clear} />;
     }
     const vars = { "--allocation-lanes": lanes.length, "--allocation-rows": grid.rows, "--allocation-days": axis.days.length } as CSSProperties;
     const flags = props.issues.length === 0 ? NO_ISSUES : props.issues;

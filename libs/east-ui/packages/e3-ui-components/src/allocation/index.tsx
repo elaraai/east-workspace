@@ -71,7 +71,7 @@ import {
     editableStatus, focusOf, periodSpan, placeDrafted, placeStored, started, statusText, type AllocationStyles, type AllocationValue, type Bin, type Day, type DraftedBin,
     type Issue, type PlacedPeriod, type Selection, type StoredBin,
 } from "./model.js";
-import { narrowingPart, narrowingText, useNarrowed } from "./narrowed.js";
+import { allocationNarrowed, narrowingPart, narrowingText, useNarrowed } from "./narrowed.js";
 import { NounsContext, a, lower, one, other } from "./nouns.js";
 import {
     allocationOptimiseRequest, allocationOptimiseTypes, landAllocationOptimise, lockAllocationCommands,
@@ -212,7 +212,10 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
     const arrivalsSource = useSourceShown(arrivalsShown, narrowingPart(value, "arrivals"));
     const resourcesSource = useSourceShown(resourcesShown, narrowingPart(value, "resources"));
     const narrowingLoading = narrowing.some(n => n.loading), narrowingFailed = narrowing.some(n => n.error !== undefined);
-    const clearFilters = value.slice.type === "some" ? value.slice.value.slice.clearAll : undefined;
+    // The sources a choice of the viewer's narrows, which an empty board's Clear filters clears (#1621: a page's scope is no choice).
+    const lanesChosen = lanesShown.chosen, resourcesChosen = resourcesShown.chosen, arrivalsChosen = arrivalsShown.chosen;
+    const narrowed = useMemo(() => allocationNarrowed(value, { lanes: lanesChosen, resources: resourcesChosen, arrivals: arrivalsChosen }),
+        [value, lanesChosen, resourcesChosen, arrivalsChosen]);
     const root = useRef<HTMLDivElement>(null), main = useRef<HTMLDivElement>(null);
     // The frame's panes, as the board's own controls open them: a bin's Chooser, the issues chip's Issues, Find a fit's Resources.
     const panes = useRef<BuilderFramePanes>(null);
@@ -447,6 +450,14 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
     // The picked card's grip: its fits show as a drag's do, and its click books as its drop would (A11).
     const pickGrip: LibraryGrip | undefined = pick?.kind === "arrival" || pick?.kind === "removed" ? pick : undefined;
     const drag = useAllocationDrag(key, commands.canEdit() && !narrow, scene, setRefusal, pickGrip);
+    // A resource the board names on its own that the narrowing leaves out — its focus, the fit it ranks first — says why
+    // (#1621): beyond the page's scope, or hidden by the filters; e3 is asked which as the board names it.
+    const resourcesLeft = resourcesShown.keys;
+    const leftOut = useCallback((resource: string | undefined): resource is string =>
+        resource !== undefined && resourcesLeft.type === "some" && !resourcesLeft.value.has(resource), [resourcesLeft]);
+    const bestFit = drag.ranks[0];
+    const { askResources, whyResource } = hiddenBins;
+    useEffect(() => { askResources([focus, bestFit].filter(leftOut)); }, [focus, bestFit, leftOut, askResources]);
     // A verdict a click ran (A11, A53): its refusal shown as a drop's is, else its command.
     const runVerdict = useCallback((verdict: Verdict) => {
         if (verdict.pending) return;
@@ -668,7 +679,7 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
         where: historyWhere, onAction, onPickerWeeks: setPickerWeeks,
         status: value.periods.type === "some" ? statusText(heldPeriod) : undefined, published: heldPeriod.status.type === "published", unread: !current, publishing, picker: data.picker,
         optimise: optimiseParts.toolbarItem, optimiseEntry: optimiseParts.entry, locked, issuesFlash: landing.lit && optimised !== undefined,
-        focus: focus === undefined ? undefined : { resource: context.resources.get(focus)!, load: loads.get(focus)!, hidden: resourcesShown.keys.type === "some" && !resourcesShown.keys.value.has(focus) },
+        focus: focus === undefined ? undefined : { resource: context.resources.get(focus)!, load: loads.get(focus)!, hidden: leftOut(focus) ? whyResource(focus) : undefined },
         onClearFocus: () => { setSelection(undefined); setLink(undefined); setChooser(undefined); }, nouns, search });
     const readOnly = value.settings.readOnly || (current && !editableStatus(heldPeriod.status));
     const notStarted = current && plan.bins.size === 0 && (value.periods.type === "none" || !started(period));
@@ -741,18 +752,19 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
                         sameBin={domain.sameBin} conflicted={conflicted} bounded={bounded} loads={loads} lines={lines} slots={slots} layout={window.view.layout} surface={drag.surface}
                         selection={selection} select={inspect} follow={follow} editable={commands.canEdit()} commands={commands} fit={fit}
                         without={without} reserving={reserving} visibleLanes={lanesShown.keys} visibleResources={resourcesShown.keys}
-                        visibleArrivals={arrivalsShown.keys} clearFilters={clearFilters} read={read} optimised={optimised} lit={landing.lit}
+                        visibleArrivals={arrivalsShown.keys} narrowed={narrowed} read={read} optimised={optimised} lit={landing.lit}
                         bookOnto={(arrival, resource) => { setRefusal(undefined); bookOnto(scene, { kind: "arrival", arrival }, resource); }} />
                     : window.view.layout === "timeline" ? <AllocationTimeline value={value} context={context} styles={styles} format={format} day={day} plan={plan}
                         held={held} sameBin={domain.sameBin} conflicted={conflicted} bounded={bounded} loads={loads} slots={slots} issues={issues} visible={resourcesShown.keys} visibleLanes={lanesShown.keys}
                         visibleArrivals={arrivalsShown.keys} read={read} empty={empty} optimised={optimised} lit={landing.lit}
-                        clearFilters={clearFilters} selection={selection} focus={focus} highlight={highlight} picked={pickGrip !== undefined} book={bookPicked}
+                        narrowed={narrowed} selection={selection} focus={focus} highlight={highlight} picked={pickGrip !== undefined} book={bookPicked}
                         editable={commands.canEdit()} select={inspect} choose={id => { inspect({ type: "bin", id }); setChooser(id); panes.current?.reveal("end"); }} follow={follow}
-                        link={link} selectLink={selectLink} unlink={(bin, resource) => commands.unlink(bin, resource)} drag={drag} candidates={domain.candidates} />
+                        link={link} selectLink={selectLink} unlink={(bin, resource) => commands.unlink(bin, resource)} drag={drag} candidates={domain.candidates}
+                        whyResource={whyResource} />
                     : <AllocationTable value={value} domain={domain} context={context} styles={styles} format={format} day={day} plan={plan} held={held}
                         sameBin={domain.sameBin} conflicted={conflicted} bounded={bounded} loads={loads} slots={slots} selection={selection} editable={commands.canEdit()} select={inspect} follow={follow}
                         drag={drag} commands={commands} fit={fit} without={without} reserving={reserving} highlight={highlight} book={bookPicked} read={read}
-                        visibleLanes={lanesShown.keys} visibleResources={resourcesShown.keys} visibleArrivals={arrivalsShown.keys} clearFilters={clearFilters}
+                        visibleLanes={lanesShown.keys} visibleResources={resourcesShown.keys} visibleArrivals={arrivalsShown.keys} narrowed={narrowed}
                         anchor={anchor.table} onAnchor={onTableAnchor} narrowing={tableNarrowing} optimised={optimised} lit={landing.lit} />}
             </Box>
         </BuilderFrame>

@@ -157,6 +157,28 @@ describe("schematicNarrowing", () => {
         expect(narrowing.context.has(id("racks", "A02"))).toBe(true);
         expect(narrowing.isContext(rack("new-1"))).toBe(false);
     });
+
+    test("dimmed on a scoped page (#1621): a run ending beyond the scope is out — at an end a kind read whole doesn't hold, or one a kind read by area asked of and the scope doesn't hold — but a run between two rows off the window, never asked of, stays", () => {
+        // Racks read by area: the window holds A01 and A02, and its read asked of A07 and A08 as far ends, of which the scope
+        // holds A08 alone. The frames are read whole, ODF-9 beyond the scope.
+        const window = ["A01", "A02"];
+        const drawn = floor(window);
+        const links = [
+            ...drawn.links,
+            run("r1", rack("A05"), rack("A06")), run("r2", rack("A01"), rack("A07")), run("r3", frame("ODF-9"), rack("A01")), run("r4", rack("A08"), rack("A01")),
+        ];
+        const page = {
+            drawn: { ...drawn, links }, held: held([...window, "A08"]), sourced: new Set(["racks", "network"]),
+            keys: (slot: string) => (slot === "racks" ? shownKeys("A01") : undefined), dim: true,
+        };
+        const scoped = schematicNarrowing({ ...page, scoped: new Set(["racks", "network"]), area: new Set(["racks"]), asked: new Map([["racks", new Set(["A07", "A08"])]]) });
+        const runs = (narrowing: ReturnType<typeof schematicNarrowing>) =>
+            ["r1", "r2", "r3", "r4"].map((key) => [key, narrowing.out.has(id("fibre", key)), narrowing.context.has(id("fibre", key))]);
+        // r1 runs between two of the scope's racks, both off the window: no end of it is known beyond the scope.
+        expect(runs(scoped)).toEqual([["r1", false, false], ["r2", true, false], ["r3", true, false], ["r4", false, false]]);
+        // Unscoped, a run whose ends are drawn nowhere is no narrowing's: every one stays.
+        expect(runs(schematicNarrowing(page))).toEqual([["r1", false, false], ["r2", false, false], ["r3", false, false], ["r4", false, false]]);
+    });
 });
 
 describe("narrowedDrawing", () => {

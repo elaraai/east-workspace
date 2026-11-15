@@ -20,11 +20,13 @@
  */
 import { describe, expect, test } from "vitest";
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import {
-    OptionType, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, printFor, some, variant, type ValueTypeOf,
+    East, OptionType, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, printFor, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
-import { RecordSliceStateType, type RecordSliceChoiceType } from "@elaraai/east-ui/internal";
+import { Reactive, RecordSliceStateType, Slice, UIComponentType, type RecordSliceChoiceType } from "@elaraai/east-ui/internal";
 import { StateRuntime, UIStore } from "@elaraai/east-ui-components";
+import { Calendar, Data, Record } from "@elaraai/e3-ui/internal";
 import * as cs from "@elaraai/e3-ui/examples/calendar/calendar-scope";
 import { act, e3Harness, programOf, settle, slot, type MountOptions } from "../e3-web-mount.test-utils.js";
 import { countBuilds } from "../shared/builds.test-utils.js";
@@ -88,6 +90,30 @@ async function pasteIntoSearch(c: HTMLElement, typed: string) {
     await act(async () => { input.focus(); fireEvent.input(input, { target: { value: typed } }); });
     await settle();
 }
+
+/**
+ * Press 1's page with the inspector beside it: the example's runs and crew scoped to the press, a run's fields its form's
+ * — what a draft that moves a run to another press is made in.
+ */
+const pressInspector = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const crew = $.let(Data.bind(cs.pressCrew));
+    const runs = $.let(Record.bind(cs.pressRuns));
+    const runIndex = $.let(Data.bindPaged(cs.pressRuns, { indexes: ["press_runs_by_press", "press_runs_by_press_time", "press_runs_by_press_crew_time"] }));
+    const crewIndex = $.let(Data.bindPaged(cs.pressCrew, { indexes: ["press_crew_by_press"] }));
+    const entries = $.let(Data.bindPaged(cs.pressRuns));
+    const slice = $.let(Slice.bindRecords("spec.pressInspector", {
+        run: { source: runIndex, scope: { press: ["P-1"] }, range: "start", fields: { crew: { label: "Crew" }, start: { label: "Dates" } } },
+        crew: { source: crewIndex, scope: { press: ["P-1"] } },
+    }));
+    return Calendar({
+        id: "pressInspector", inspector: true, view: { date: new Date("2026-10-01T00:00:00Z") }, now: new Date("2026-10-01T10:15:00Z"), slice: { slice },
+        resources: { crew: Calendar.resources(crew.read(), { name: "Crew", icon: "users", label: (row) => row.name }) },
+        events: {
+            run: Calendar.events(runs, { name: "Run", icon: "print", title: "title", start: "start", end: "end", resource: { field: "crew", of: "crew" }, entries,
+                backlog: { duration: (row) => variant("hours", row.hours), due: (row) => row.due } }),
+        },
+    });
+}))) };
 
 /** The page mounted over a store of its own, Press 1's runs drawn. */
 async function open(options: MountOptions = {}) {
@@ -193,6 +219,30 @@ describe("a press's own page (#1621)", () => {
         expect(whereOf(store, "P-1").get("start")).toEqual(start);
         expect(drawn(container)).toEqual(["r1", "r2", "r3"]);
         expect(tabs(container)[1]).toBe("Backlog 2");
+    });
+
+    test("a run whose draft moved it to another press is not on this page: its line says so — never a filter — though its stored row is the press's, and a pick of it clears nothing", async () => {
+        const store = new UIStore();
+        StateRuntime.initializeStore(store);
+        const { container } = await h.mount(pressInspector, { storageKey: "calendar-scope-draft" });
+        await waitFor(() => expect(event(container, "r2")).not.toBeNull());
+        await settle();
+        // r2, a run of Press 1's, moved to Press 2 in its form: a draft, which stays and saves (rule 6).
+        await click(event(container, "r2"));
+        const field = () => slot(container, "end").querySelector<HTMLElement>('[data-field="press"]');
+        await waitFor(() => expect(field()).not.toBeNull());
+        const user = userEvent.setup();
+        const input = field()!.querySelector("input")!;
+        await user.clear(input); await user.type(input, "P-2{Enter}"); await settle();
+        await pasteIntoSearch(container, "r2");
+        await waitFor(() => expect(lines(container)).toHaveLength(1), { timeout: 10_000 });
+        await waitFor(() => expect(lines(container)[0]).toMatch(/ · not on this page$/), { timeout: 10_000 });
+        expect(lines(container)[0]).not.toMatch(/hidden by|filter/i);
+        // Picked: nothing of the rail is written.
+        const before = store.read("spec.pressInspector.run");
+        await act(async () => { fireEvent.keyDown(searchBox(container).querySelector("input")!, { key: "Enter" }); });
+        await settle();
+        expect(Object.is(store.read("spec.pressInspector.run"), before)).toBe(true);
     });
 
     test("a run whose crew member is another press's, where the view lays the crew out, says its crew is not on this page — never that a filter hides it — and a pick of it clears nothing", async () => {

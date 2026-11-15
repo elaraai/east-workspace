@@ -42,11 +42,13 @@
  * layout lays an event on, a bin's lane, the people the rail shows), which are
  * asked the same. A pick reads its row again and hands it to the builder, the
  * latest pick alone: a newer pick, a new query or a clear leaves one on its way
- * behind, and a query asked again leaves it standing. A row nothing can hide —
- * a paged source's, or one of a source sought through e3 with no hidden pick,
- * where the builder names no other source as hiding a row — goes to a builder
- * that takes places by its place at once, with nothing read
- * ({@link pickPlace}): the Sheet, which reads its window where it goes. The box
+ * behind, and a query asked again leaves it standing. A builder that takes
+ * places, and names no other source as hiding a row — the Sheet, which reads
+ * its window where it goes, shows one that cannot be read there, and clears
+ * the filters hiding a row its narrowing hides there — is told every pick at
+ * once, with nothing read: a row the box listed as hidden, under the narrowing
+ * as it stands, as the list read it, what hides it with it; any other by its
+ * place ({@link pickPlace}). The box
  * asks its query again as a source's record moves to another revision, as its
  * page's scope moves, as a paged source moves to another snapshot, and as what
  * else the builder says its matches are read from moves;
@@ -88,6 +90,17 @@ type RecordPart = ValueTypeOf<RecordSliceBindType>;
 
 /** An empty box lists the first of the matches where it parses at String. */
 const BROWSE_QUERY: DatasetKeyQuery = { prefix: "" };
+
+/**
+ * Whether a query is the browse an empty box lists as it opens ({@link BROWSE_QUERY}): the start of every key, which no
+ * text the viewer typed asks — the box asks an emptied box's clear, never a query.
+ *
+ * @param query - The query the box asked
+ * @returns Whether it is the browse
+ */
+function browsing(query: DatasetKeyQuery): boolean {
+    return "prefix" in query && stringEqual(query.prefix, "");
+}
 /** No source hides a row. */
 const NO_HIDINGS: readonly RowHiding[] = [];
 /** Nothing else the box reads. */
@@ -381,11 +394,12 @@ export interface SearchRecordsOptions<T> {
     /** Told the row a pick lands on, and the pick's turn. */
     readonly onPick: (found: Found<T>, turn: PickTurn) => void;
     /**
-     * Told the place a pick lands on, among the rows its source's page holds, and the pick's turn — at once, with nothing
-     * read — where nothing can hide the row ({@link pickPlace}), of a builder that names no other source as hiding one
-     * ({@link hidings}). What a builder that goes to a row by its place gives (the Sheet): its window is read where it
-     * goes, and one that cannot be read is shown there. Without it, and for any other row, a pick reads its row again
-     * ({@link onPick}).
+     * Told the place a pick lands on, among the rows its source's page holds ({@link pickPlace}), and the pick's turn — at
+     * once, with nothing read — by a builder that names no other source as hiding a row ({@link hidings}): every pick of
+     * a match of a source that places its matches, but a row the box listed as hidden under the narrowing as it stands,
+     * which goes to {@link onPick} as the list read it. What a builder that goes to a row by its place gives (the Sheet):
+     * its window is read where it goes, one that cannot be read is shown there, and a row its narrowing hides there is
+     * its own to reveal. Without it a pick reads its row again ({@link onPick}).
      */
     readonly onPickPlace?: ((place: bigint, turn: PickTurn) => void) | undefined;
     /**
@@ -599,24 +613,44 @@ function sourceNow<T>(source: RecordSought<T>, current: readonly SoughtSource<T>
 }
 
 /**
- * Where a list's row is among the rows its source's page holds, where a pick
- * of it needs nothing read (see the module docs): the row is a match of a
- * source that places its matches and hides none of them — a paged source, whose
- * `seek` placed it, or one sought through e3 that, as the builder names it now,
- * has no hidden pick. A row of a source with a hidden pick is read again, since
- * its narrowing may hide it; a row held whole has no place.
+ * Where a list's row is among the rows its source's page holds, known with
+ * nothing read (see the module docs): the row is a match of a source that
+ * places its matches — a paged source, whose `seek` placed it, or one sought
+ * through e3, whose record placed it — whatever its narrowing hides. A row held
+ * whole has no place.
  *
  * @param runs - What the find found
  * @param row - The list's row
- * @param current - The sources as the builder names them now ({@link ListOptions.sources}); by default, those the find sought
- * @returns Its place; `undefined` for a row the find did not find, and for one a pick reads again
+ * @returns Its place; `undefined` for a row the find did not find, and for a row held whole
  */
-export function pickPlace<T>(runs: readonly FoundRun<T>[], row: number, current?: readonly SoughtSource<T>[]): bigint | undefined {
+export function pickPlace<T>(runs: readonly FoundRun<T>[], row: number): bigint | undefined {
     const [stretch] = stretchesAt(runs, row, 1);
-    if (stretch === undefined) return undefined;
-    const { source } = stretch.run;
-    const placed = bySeek(source) || (throughE3(source) && sourceNow(source, current).pick === undefined);
-    return placed ? stretch.run.start + BigInt(stretch.offset) : undefined;
+    if (stretch === undefined || !(bySeek(stretch.run.source) || throughE3(stretch.run.source))) return undefined;
+    return stretch.run.start + BigInt(stretch.offset);
+}
+
+/**
+ * The narrowings the sources' hidden picks hold, as East prints them: what
+ * tells a list's rows shown hidden under them from those of a narrowing since.
+ *
+ * @param sources - The sources, as the builder names them
+ * @returns Their narrowings, in order
+ */
+function narrowingsOf<T>(sources: readonly SoughtSource<T>[]): string {
+    return sources.map((source) => {
+        const where = throughE3(source) ? source.pick?.where : undefined;
+        return where === undefined ? "-" : printWhere(where);
+    }).join("\n");
+}
+
+/** What the box last listed of a find: each line's row, by its place in the list, as the sources' narrowings stood. */
+interface Shown<T> {
+    /** The find. */
+    readonly runs: readonly FoundRun<T>[];
+    /** The narrowings the sources' hidden picks held as it was listed ({@link narrowingsOf}). */
+    readonly narrowings: string;
+    /** The rows, by their place in the list. */
+    readonly rows: Map<number, Found<T>>;
 }
 
 /**
@@ -758,8 +792,10 @@ export function useSearchRecords<T>(options: SearchRecordsOptions<T>): KeySearch
     // The latest pick: a newer pick, a new query or a clear leaves one on its way behind.
     const picked = useRef(0);
     const find = useCallback(async (query: DatasetKeyQuery, again?: boolean): Promise<DatasetKeyMatchRange> => {
-        // A new query takes the last pick's place; one asked again, as what its matches are read from moved, leaves it.
-        if (again !== true) {
+        // A new query takes the last pick's place; one asked again, as what its matches are read from moved, leaves it —
+        // and so does the browse an empty box lists as it opens, which asks nothing of the viewer's: a phone's view of the
+        // box opened again before a pick's row lands leaves the pick on its way.
+        if (again !== true && !browsing(query)) {
             picked.current++;
             latest.current.onCleared?.();
         }
@@ -770,27 +806,50 @@ export function useSearchRecords<T>(options: SearchRecordsOptions<T>): KeySearch
         const count = runs.reduce((sum, run) => sum + run.count, 0);
         return { found: count > 0, row: 0, count };
     }, []);
+    // What the box last listed of the find, as the narrowings stood: a pick of a row it showed hidden goes as it showed it.
+    const shown = useRef<Shown<T> | undefined>(undefined);
     // A list reads each source as the builder names it now: a narrowing that moved since the find is the one asked.
-    const listed = useCallback((row: number, limit: number): Promise<Found<T>[]> => {
+    const listed = useCallback((runs: readonly FoundRun<T>[], row: number, limit: number): Promise<Found<T>[]> => {
         const { sources: now, hidings, hidingsKnown } = latest.current;
-        return listFound(found.current, row, limit, { sources: now, hidings, known: hidingsKnown });
+        return listFound(runs, row, limit, { sources: now, hidings, known: hidingsKnown });
     }, []);
     const listRange = useCallback(async (row: number, limit: number) => {
-        const rows = await listed(row, limit);
+        const runs = found.current;
+        const narrowings = narrowingsOf(latest.current.sources);
+        const rows = await listed(runs, row, limit);
+        // Kept while the find and the narrowings it was listed under stand, each listing of them adding its rows.
+        if (Object.is(found.current, runs) && stringEqual(narrowingsOf(latest.current.sources), narrowings)) {
+            let kept = shown.current;
+            if (kept === undefined || !Object.is(kept.runs, runs) || !stringEqual(kept.narrowings, narrowings)) {
+                kept = { runs, narrowings, rows: new Map() };
+                shown.current = kept;
+            }
+            for (const hit of rows) kept.rows.set(hit.at, hit);
+        }
         const { line } = latest.current;
         return rows.map((hit) => ({ row: hit.at, ...line(hit) }));
     }, [listed]);
     const jump = useCallback((row: number, how: KeySearchJump) => {
         const turn = ++picked.current;
         const current = () => turn === picked.current;
-        // A row nothing can hide, picked by a builder that goes to a row by its place: told at once, with nothing read.
+        // A builder that goes to a row by its place, naming no other source as hiding one: told at once, with nothing read —
+        // a row the box showed hidden under the narrowing as it stands as the list read it, what hides it with it; any
+        // other by its place, where the builder shows a row its narrowing hides there, and a window it cannot read.
         const { onPickPlace, hidings, sources: now } = latest.current;
-        const place = onPickPlace === undefined || hidings !== undefined ? undefined : pickPlace(found.current, row, now);
-        if (onPickPlace !== undefined && place !== undefined) {
-            onPickPlace(place, { how, current });
-            return;
+        if (onPickPlace !== undefined && hidings === undefined) {
+            const was = shown.current;
+            const hit = was !== undefined && Object.is(was.runs, found.current) && stringEqual(was.narrowings, narrowingsOf(now)) ? was.rows.get(row) : undefined;
+            if (hit?.hidden !== undefined) {
+                latest.current.onPick(hit, { how, current });
+                return;
+            }
+            const place = pickPlace(found.current, row);
+            if (place !== undefined) {
+                onPickPlace(place, { how, current });
+                return;
+            }
         }
-        void listed(row, 1).then(([hit]) => {
+        void listed(found.current, row, 1).then(([hit]) => {
             if (hit !== undefined && current()) latest.current.onPick(hit, { how, current });
         }).catch((error: unknown) => { console.error(`[${latest.current.name}] Search Records could not read the row it found:`, error); });
     }, [listed]);
@@ -798,6 +857,7 @@ export function useSearchRecords<T>(options: SearchRecordsOptions<T>): KeySearch
         asked.current++;
         picked.current++;
         found.current = [];
+        shown.current = undefined;
         latest.current.onCleared?.();
     }, []);
     // A box the builder names as another starts again, empty: what the last one found, and a find or a pick of its on

@@ -165,6 +165,29 @@ export function recordScopeEmpty(scope: ReadonlyMap<string, Choice>, where: Read
 }
 
 /**
+ * A narrowing as a page whose scope holds a value of each scoped field plans
+ * it (#1621): each scoped field whose list is empty — an East expression's,
+ * as the page runs — holding one sample value in its place. An index is
+ * chosen by the kinds of the choices and how many values each holds, never by
+ * what they are, so what this is answered by ({@link recordPlanIndex}) is
+ * what the same choices are read by on a page whose scope holds a value: what
+ * a state the store keeps is checked against, however many values the scope
+ * holds as it is written.
+ * @param scope - The page's scope.
+ * @param where - The narrowing a read carries.
+ * @returns It, each empty scoped list one sample value; the same map where no scoped list is empty.
+ */
+export function recordScopeSampled(scope: ReadonlyMap<string, Choice>, where: ReadonlyMap<string, Choice>): ReadonlyMap<string, Choice> {
+    if (!recordScopeEmpty(scope, where)) return where;
+    const sampled = new Map(where);
+    for (const field of scope.keys()) {
+        const clause = where.get(field);
+        if (clause?.type === "values" && clause.value.length === 0) sampled.set(field, SAMPLES.values);
+    }
+    return sampled;
+}
+
+/**
  * A record Slice's source as the scope's rules read it (#1621): its config,
  * which holds its page's scope. A bound source's handle is one.
  */
@@ -317,7 +340,42 @@ export function recordPathMatches(index: Index, where: ReadonlyMap<string, Choic
 }
 
 /**
- * Pick a supported path without executing or parsing its ranges.
+ * The fields a narrowing reads a range of where an interval index starts
+ * (#1432): a run is held where it overlaps such a range, which only an
+ * interval index from that field answers — a plain index on it holds a run by
+ * its start alone.
+ * @param indexes - Available paths.
+ * @param where - The narrowing.
+ * @returns The interval starts it ranges over.
+ */
+function rangedStarts(indexes: readonly Index[], where: ReadonlyMap<string, Choice>): ReadonlySet<string> {
+    return new Set(indexes.flatMap(index => index.interval.type === "some" && where.get(index.interval.value.from)?.type === "range" ? [index.interval.value.from] : []));
+}
+
+/** {@link recordPathAnswers}, the narrowing's ranged interval starts in hand. */
+function answers(index: Index, where: ReadonlyMap<string, Choice>, area: Area | undefined, starts: ReadonlySet<string>): boolean {
+    return recordPathMatches(index, where, area) && (starts.size === 0 || (index.interval.type === "some" && starts.has(index.interval.value.from)));
+}
+
+/**
+ * Whether one index answers a narrowing as the planner reads it
+ * ({@link recordPlanIndex}): it takes every clause ({@link recordPathMatches}),
+ * and where the narrowing ranges over a field an interval index starts from,
+ * it is an interval index from that field. What the rail asks of each index
+ * before offering a choice, so it offers none the planner cannot read.
+ * @param indexes - Available paths: whichever starts an interval decides what a range of its start reads.
+ * @param index - The index asked of.
+ * @param where - The narrowing, without its entries fields' picks.
+ * @param area - A read by area's clause, beside the narrowing.
+ * @returns Whether it answers the narrowing.
+ */
+export function recordPathAnswers(indexes: readonly Index[], index: Index, where: ReadonlyMap<string, Choice>, area?: Area): boolean {
+    return answers(index, where, area, rangedStarts(indexes, where));
+}
+
+/**
+ * Pick a supported path without executing or parsing its ranges: the first
+ * listed index that answers the narrowing ({@link recordPathAnswers}).
  * @param indexes - Available paths.
  * @param narrowing - Current narrowing; its entries fields' picks weigh, and no path reads them (#1522).
  * @param area - A read by area's clause, beside the narrowing.
@@ -325,9 +383,8 @@ export function recordPathMatches(index: Index, where: ReadonlyMap<string, Choic
  */
 export function recordPlanIndex(indexes: readonly Index[], narrowing: ReadonlyMap<string, Choice>, area?: Area): Index | undefined {
     const where = recordPathWhere(indexes, narrowing);
-    const overlaps = new Set(indexes.flatMap(index => index.interval.type === "some" && where.get(index.interval.value.from)?.type === "range" ? [index.interval.value.from] : []));
-    return indexes.find(index => recordPathMatches(index, where, area) && (overlaps.size === 0
-        || index.interval.type === "some" && overlaps.has(index.interval.value.from)));
+    const starts = rangedStarts(indexes, where);
+    return indexes.find(index => answers(index, where, area, starts));
 }
 
 /**
@@ -454,7 +511,9 @@ const SAMPLES: Readonly<Record<"values" | "range" | "prefix", Choice>> = {
  * leading field of an interval index, and every Set field it fans out over —
  * less those the narrowing already chooses so, the index needing the fewest.
  * An index counts only where each of those is a field the rail offers, and
- * where the matcher ({@link recordPathMatches}) takes what it would then hold.
+ * where it answers what the narrowing would then hold as the planner reads it
+ * ({@link recordPathAnswers}): a range of a field an interval index starts
+ * from, through such an index alone.
  * `null` where no index takes that kind of choice on the field at all,
  * whatever else is chosen: a prefix of a field only an interval index leads,
  * whose leading fields take exact values alone, is one no field chosen first
@@ -491,7 +550,7 @@ export function recordChoiceNeeds(paths: RecordSlicePaths, current: ReadonlyMap<
         candidate.set(field, SAMPLES[kind]);
         // What the index must answer holds the page's scope too, wherever its fields stand on the path.
         for (const name of scope.keys()) candidate.set(name, SAMPLES.values);
-        if (!recordPathMatches(index, candidate)) continue;
+        if (!recordPathAnswers(indexes, index, candidate)) continue;
         const missing = needed.filter(name => {
             if (scope.has(name)) return false;
             const chosen = current.get(name);
@@ -503,7 +562,8 @@ export function recordChoiceNeeds(paths: RecordSlicePaths, current: ReadonlyMap<
 }
 
 /**
- * Keep the largest supported leading path after a choice changes. A new field
+ * Keep the largest supported leading path after a choice changes — one an
+ * index answers as the planner reads it ({@link recordPathAnswers}). A new field
  * that cannot follow replaces incompatible clauses; a trailing field with no
  * chosen prerequisites remains unavailable. Chrome uses the same result to
  * explain replacements before applying them. An entries field's picks stand
@@ -545,7 +605,7 @@ export function recordChoiceWhere(paths: RecordSlicePaths, current: ReadonlyMap<
         }
         if (choice !== undefined && !candidate.has(field)) continue;
         if ([...scope.keys()].some(name => !candidate.has(name))) continue;
-        if (recordPathMatches(index, candidate) && (best === null || candidate.size > best.size)) best = candidate;
+        if (recordPathAnswers(indexes, index, candidate) && (best === null || candidate.size > best.size)) best = candidate;
     }
     // The entries fields' picks stand beside whatever path the narrowing keeps.
     if (best !== null) for (const [name, picked] of current) if (weighing.has(name)) best.set(name, picked);
