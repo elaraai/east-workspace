@@ -17,7 +17,7 @@
  */
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { fontAwesomeSize } from "../icon-size.js";
-import { centredLine } from "../one-line-box.js";
+import { centredLine, oneLineBox } from "../one-line-box.js";
 import { INSPECTOR_STATUS } from "./inspector.js";
 import { BOOKED_FILL, NO_DATA_HATCH } from "./plan/cells.js";
 import { PLAN_OVERLAP_RING, planElementConflict, planElementDrafted, planElementFocus, planElementSelected } from "./plan/focus.js";
@@ -56,6 +56,13 @@ const PAGED_COLUMN = {
 const EVENT_TITLE_LINE = centredLine(26, 16);
 const EVENT_DETAIL_LINE = centredLine(26, 12);
 const EVENT_RESOURCE_LINE = centredLine(26, 14);
+
+/**
+ * A chip's one row (#1638) — an event in a month's day, 21px in its edge: each of its parts on a line the 19px inside
+ * the edge, a one-line box. The lines an event's parts take elsewhere are even, and centred in that odd room at a fraction.
+ */
+const EVENT_CHIP = oneLineBox(21);
+const IN_CHIP = { "[data-chip] &": { lineHeight: EVENT_CHIP.lineHeight } } as const;
 
 /** The timeline's resource column, sticky as the plot scrolls by: a row's, and a run's of places not read (#1424). */
 const TIMELINE_HEAD = {
@@ -123,7 +130,7 @@ export const calendarSlotRecipe = defineSlotRecipe({
             textAlign: "left", cursor: "pointer", minHeight: "16px", minWidth: "4px", overflow: "hidden",
             "&[data-draggable]": { cursor: "grab" },
             "&[data-compact]": { flexDirection: "row", alignItems: "center", paddingY: 0, gap: "5px" },
-            "&[data-chip]": { height: "21px", flexShrink: 0 },
+            "&[data-chip]": { height: EVENT_CHIP.height, flexShrink: 0 },
             "&[data-overlap]": { boxShadow: PLAN_OVERLAP_RING },
             // An event in an overlap holding a conflict, or a number outside its bounds: the conflict's ring in the overlap's place.
             "&[data-overlap]:is([data-conflict], [data-bounds])": { boxShadow: CONFLICT_RING },
@@ -146,9 +153,10 @@ export const calendarSlotRecipe = defineSlotRecipe({
             overflow: "hidden", textOverflow: "ellipsis", flexShrink: 0, order: 2,
             "[data-compact] &": { flex: "1 1 auto" }, "&[data-wrap]": { whiteSpace: "normal", lineClamp: 2 },
             "&[data-measure]": { position: "absolute", visibility: "hidden", pointerEvents: "none" },
+            ...IN_CHIP,
         },
-        eventDetail: { textStyle: "mono.xs", color: "fg.muted", lineHeight: EVENT_DETAIL_LINE, whiteSpace: "nowrap", width: "max-content", flexShrink: 0, order: 1, "&[data-measure]": { position: "absolute", visibility: "hidden", pointerEvents: "none" } },
-        eventResource: { textStyle: "mono.sm", color: "fg.muted", lineHeight: EVENT_RESOURCE_LINE, whiteSpace: "nowrap", width: "max-content", flexShrink: 0, order: 3, "&[data-measure]": { position: "absolute", visibility: "hidden", pointerEvents: "none" } },
+        eventDetail: { textStyle: "mono.xs", color: "fg.muted", lineHeight: EVENT_DETAIL_LINE, whiteSpace: "nowrap", width: "max-content", flexShrink: 0, order: 1, "&[data-measure]": { position: "absolute", visibility: "hidden", pointerEvents: "none" }, ...IN_CHIP },
+        eventResource: { textStyle: "mono.sm", color: "fg.muted", lineHeight: EVENT_RESOURCE_LINE, whiteSpace: "nowrap", width: "max-content", flexShrink: 0, order: 3, "&[data-measure]": { position: "absolute", visibility: "hidden", pointerEvents: "none" }, ...IN_CHIP },
 
         ruler: { flex: 1, minWidth: 0 },
         rulerRow: timeRulerBase.rulerRow,

@@ -13,7 +13,13 @@
  *   - Root: fills its host and draws no outer border, so a host frames it or
  *     places it bare. Its own stacking context: a pane floating over main
  *     stays inside the frame.
- *   - Toolbar: the one 44px row, the shared `toolbar`'s, over its rule.
+ *   - Toolbar: the one 44px row, the shared `toolbar`'s, over its rule. On a
+ *     fine pointer its room is the 42px a pixel of padding leaves over the
+ *     rule (#1638): the toolbar's 28px row stands 8px under its top edge and
+ *     7px over its rule, where the 43px over the rule alone stood it, and
+ *     every control in it, at half a pixel. On a coarse pointer the row keeps
+ *     the middle of the 43px: a control's 44px tap target is as tall as the
+ *     band, and reaches the band's top and the rule's edge only from there.
  *   - Banners and footer: in-flow bands, the frame's full width. What they
  *     hold draws its own rules, as a result strip and a status line do.
  *   - Pane: a slot at its side, sized by the frame — the pane's width, or its
@@ -39,8 +45,9 @@
  *     (`data-frame-live`) stays out from under it.
  *   - A phone's frame (`data-phone`, 560px or narrower; `Mobile Builder
  *     Frame Spec.md`, the designer's `WorkOrdersPhone` measures): the session
- *     row, the toolbar's second row — 56px, its 44px controls 6px clear of
- *     either rule, padded 0 12 0 16 and 4px apart, a container its items ask
+ *     row, the toolbar's second row — 56px, its 44px controls 6px under the
+ *     rule over it and 5px over its own (an even room, as the first row's),
+ *     its sides padded 16 and 12, its items 4px apart, a container its items ask
  *     its width (`session-row`); the footer, laid over
  *     main's foot while it says something — its loading line, a live notice —
  *     with no height of its own in the flow, so main never resizes for it
@@ -113,13 +120,18 @@ export const builderFrameSlotRecipe = defineSlotRecipe({
             "&[data-loading] > [data-frame-slot]:not([data-frame-live])": { opacity: 0 },
             "&[data-loading] [data-frame-slot]": { transition: "none" },
         },
-        /* The one toolbar band: the shared toolbar's row. */
+        /* The one toolbar band: the shared toolbar's row, centred in an even room on a fine pointer — the rule under it
+         * balanced by a pixel over it. On a coarse one a control's tap target is the band's 44px, clipped at the rule: the
+         * row keeps the middle of the 43px over the rule, so a tap 21px either side of a control's middle lands on it. */
         toolbar: {
             flex: "none",
             display: "flex",
             flexWrap: "nowrap",
             alignItems: "center",
             height: "44px",
+            boxSizing: "border-box",
+            paddingTop: "1px",
+            _coarse: { paddingTop: "0" },
             paddingX: "{spacing.4}",
             background: "bg.surface",
             borderBottomWidth: "1px",
@@ -254,6 +266,9 @@ export const builderFrameSlotRecipe = defineSlotRecipe({
             alignItems: "center",
             gap: "{spacing.1}",
             height: "56px",
+            boxSizing: "border-box",
+            /* An even room, as the first row's (#1638): its 44px controls 6px under the rule over it, and 5px over its own. */
+            paddingTop: "1px",
             paddingInlineStart: "{spacing.4}",
             paddingInlineEnd: "{spacing.3}",
             background: "bg.surface",

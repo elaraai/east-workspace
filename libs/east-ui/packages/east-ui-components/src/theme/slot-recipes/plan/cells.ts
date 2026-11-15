@@ -54,11 +54,24 @@ const wholeOrNone = {
 /** The inset ring a confirmed tile and a confirmed chip draw: 1px of the brand, which every ring round it keeps inside. */
 const CONFIRMED = "inset 0 0 0 1px {colors.brand.solid}";
 
+/**
+ * The line of a tile's words and of a chip's (#1638): the mark's height less
+ * 4px. The mark centres its line, so its words start half of what the line
+ * leaves under its edge — 2px, whatever border its state draws, which takes as
+ * much of the room above the line as below it — and a line 4px short lies
+ * inside the widest of those borders, 1.5px.
+ */
+const PLAN_TILE_LINE = "calc(var(--plan-tile-h) - 4px)";
+const PLAN_CHIP_LINE = "calc(var(--plan-chip-h) - 4px)";
+
 /** Their base styles — typed whole: the shared tap halo's style object is too wide to infer into them. */
 export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> = {
     // ── Heat rows (min-height 16, r2, 3px margins; depth is data-driven) ──
+    // A size container (#1638), as a bucket's cell is: its value's line is the
+    // cell's own height (`100cqh`), whatever its row's.
     heatCell: {
         position: "absolute",
+        containerType: "size",
         top: "var(--plan-heat-inset-h)",
         bottom: "var(--plan-heat-inset-h)",
         borderRadius: "2px",
@@ -99,14 +112,16 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
     },
     // A heat value (#949) — 10.5px, in the ink the design system pairs with
     // its cell's step: `--ink` on steps 1–3, `--paper` on 4–5 (charts.md ›
-    // Sequential ramp), at least 4.5:1 on that step in both themes. On a whole
-    // line of 15px (#1638): its cell is its row less the rule and 3px above and
-    // below — an odd height, 25px in a 32px row — so an odd line leaves a
-    // whole number of pixels over it; the theme's 15.75px left a fraction.
+    // Sequential ramp), at least 4.5:1 on that step in both themes. Its line is
+    // its cell's own height (#1638). A cell is its row less 3px above and
+    // below, and a row draws a rule on the canvas and none in a phone's card:
+    // 25px in a canvas row, 26px in a card, 18px in a group's strip there. No
+    // one line is centred at a whole pixel in all three — the theme's 15.75px
+    // in none — and a line the cell's height has nothing to centre.
     heatLabel: {
         fontFamily: "mono",
         fontSize: "10.5px",
-        lineHeight: centredLine(25, 15),
+        lineHeight: "100cqh",
         fontWeight: "semibold",
         fontVariantNumeric: "tabular-nums",
         whiteSpace: "nowrap",
@@ -254,8 +269,13 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         borderRadius: "3px",
         fontFamily: "mono",
         fontSize: "9.5px",
-        // Its line is its own height (#1638): its words start a whole number of pixels under its edge.
-        lineHeight: "var(--plan-tile-h)",
+        // Its line is its height less 4px (#1638): a whole line that leaves an even
+        // number of pixels over, so its words start 2px under its edge in every
+        // state — a border takes as much above the line as below it — and short
+        // enough to lie inside the widest border a state draws (a proposal's and
+        // a draft's 1.5px). A line the tile's own height stood past that border,
+        // and the tile's wrapping line then set the words down by the border.
+        lineHeight: PLAN_TILE_LINE,
         fontWeight: "semibold",
         overflow: "hidden",
         whiteSpace: "nowrap",
@@ -444,8 +464,9 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         borderRadius: "5px",
         fontFamily: "mono",
         fontSize: "10px",
-        // Its line is its own height (#1638): its words start a whole number of pixels under its edge.
-        lineHeight: "var(--plan-chip-h)",
+        // Its line is its height less 4px (#1638), as a tile's is: whole, 2px under
+        // its edge in every state, and inside the widest border a state draws.
+        lineHeight: PLAN_CHIP_LINE,
         fontWeight: "medium",
         whiteSpace: "nowrap",
         overflow: "hidden",

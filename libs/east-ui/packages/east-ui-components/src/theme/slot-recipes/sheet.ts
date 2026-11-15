@@ -177,13 +177,22 @@ import { FOOTER_FIT } from "./builder-footer.js";
 import { schedulePaneBase } from "./schedule-pane.js";
 
 /**
- * The line of a cell's words, and of a row's number (#1638): a whole, odd 19px. A cell centres its words in its row's
- * height less the row's 1px rule and its own padding — 19px at the default density, and an odd room at every other,
- * a row being an even number of pixels tall — so an odd line leaves a whole number of pixels over them. The body's
- * line of 1.5 is 19.5px at a text's 13px face and 18px at a mono value's 12px, the one a quarter and the other half a
- * pixel off, and the page painted the words a row higher or lower in the row by where it stood the sheet.
+ * The line of a cell's words, and of a row's number (#1638): a whole line of its room's parity. A cell centres its
+ * words in its row's height less the row's 1px rule and its own padding, and a row's number in the same height less
+ * the rule. That room is odd in a row an even number of pixels tall — 36px and 42px by the density, and a phone's 44px
+ * and 32px — where an odd 19px leaves a whole number of pixels over the words; it is even in the smallest density's
+ * 27px row and in the 45px row a coarse pointer has in a frame wider than a phone's, where the line is an even 20px.
+ * The body's line of 1.5 is 19.5px at a text's 13px face and 18px at a mono value's 12px, the one a quarter and the
+ * other half a pixel off, and the page painted the words a row higher or lower in the row by where it stood the sheet.
  */
 const CELL_LINE = "19px";
+const CELL_LINE_EVEN = "20px";
+/** A row's words by its room: odd, but on a coarse pointer's 45px row — and odd again in a phone's frame, whatever the pointer. */
+const CELL_LINES = {
+    lineHeight: CELL_LINE,
+    _coarse: { lineHeight: CELL_LINE_EVEN },
+    "[data-sheet-card][data-phone] &": { lineHeight: CELL_LINE },
+} as const;
 
 /**
  * A phone's Row column (`Mobile Sheet Spec.md` SH2, R5): the gutter's cell as a column of the window, its number alone,
@@ -754,7 +763,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             paddingRight: "10px",
             fontFamily: "mono",
             fontSize: "11px",
-            lineHeight: CELL_LINE,
+            ...CELL_LINES,
             fontWeight: "500",
             fontFeatureSettings: '"tnum" 1',
             color: "fg.subtle",
@@ -887,7 +896,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             minHeight: "calc({sizes.density.row.md} - 1px)",
             paddingX: "10px",
             paddingY: "6px",
-            lineHeight: CELL_LINE,
+            ...CELL_LINES,
             display: "flex",
             alignItems: "center",
             overflow: "visible",
@@ -895,8 +904,8 @@ export const sheetSlotRecipe = defineSlotRecipe({
             borderRightWidth: "1px",
             borderRightColor: "border.subtle",
             minWidth: "0",
-            // A phone's (SH5): padded 0 8, as tall as its row (44 coarse, 32 fine), whatever the density.
-            "[data-sheet-card][data-phone] &": { paddingX: "8px", paddingY: "0", minHeight: "0" },
+            // A phone's (SH5): padded 0 8, as tall as its row (44 coarse, 32 fine), whatever the density — an odd room over its rule.
+            "[data-sheet-card][data-phone] &": { paddingX: "8px", paddingY: "0", minHeight: "0", lineHeight: CELL_LINE },
             // A phone's first column: 16 in from the frame's edge.
             "[data-sheet-card][data-phone] [data-slot=gutter] + &": { paddingLeft: "16px" },
             // A phone's pinned column (SH4): at the left on its row's own surface — whatever wash the row wears — above a
@@ -1078,7 +1087,10 @@ export const sheetSlotRecipe = defineSlotRecipe({
             right: "-1px",
             top: "-1px",
             minHeight: "calc(100% + 2px)",
-            "[data-first] &": { top: "0", minHeight: "calc(100% + 1px)" },
+            // The first row's has no rule over it to lie on: from the cell's top, and a pixel under what it holds for the
+            // rule under the row, so its words stand in the cell's own height, where the cell's stood (#1638) — as under
+            // every other row, whose editor lies a pixel past the cell at both ends. Without it they stood half a pixel lower.
+            "[data-first] &": { top: "0", minHeight: "calc(100% + 1px)", paddingBottom: "1px" },
             "[data-slot=gutter] + [data-slot=cell] > &": { left: "0" },
             zIndex: "10",
             background: "bg.surface",
@@ -1248,10 +1260,16 @@ export const sheetSlotRecipe = defineSlotRecipe({
             "&[data-half=from]": { paddingRight: "3px", justifyContent: "flex-end" },
             "&[data-half=to]": { paddingLeft: "3px" },
         },
+        // A half's label, where it holds no chip: as tall as a chip, its words on its cell's own line (#1638), centred
+        // in it. A half stands its 20px at the middle of the cell's room, half a pixel down where that room is an odd
+        // number of pixels tall — and there the cell's line is odd too, so the label's words, centred in its 20px, start
+        // where a cell's words do: a whole number of pixels under the row's edge. On a line of its own 20px they stood
+        // at the half pixel, with no edge of their own to stand in.
         halfLabel: {
             display: "inline-flex",
             alignItems: "center",
-            ...oneLineBox(20, 0),
+            height: "20px",
+            lineHeight: "inherit",
             fontFamily: "mono",
             fontSize: "8.5px",
             fontWeight: "600",
@@ -1416,6 +1434,8 @@ export const sheetSlotRecipe = defineSlotRecipe({
             borderBottomStyle: "solid",
             borderBottomColor: "border.subtle",
             "&[data-run-band]": { background: "bg.panel" },
+            // A failed read's line, or an empty region's, on the line a cell's words take: its room is a row's (#1638).
+            "& :is([data-loading-failed-message], [data-loading-empty-message])": CELL_LINES,
         },
         // Its gutter, as a row's: rail · number · actions, sticky while the columns scroll sideways, the gutter edge;
         // the number in the number column, right-aligned.
@@ -2040,7 +2060,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
     },
     variants: {
         size: {
-            sm: { cell: { minHeight: "calc({sizes.density.row.sm} - 1px)", paddingY: "3px", paddingX: "8px" }, runCell: { paddingX: "8px" }, headerCell: { paddingY: "4px", paddingX: "8px" }, strip: { minHeight: "{sizes.density.row.sm}" } },
+            sm: { cell: { minHeight: "calc({sizes.density.row.sm} - 1px)", paddingY: "3px", paddingX: "8px", lineHeight: CELL_LINE_EVEN }, gutterNumber: { lineHeight: CELL_LINE_EVEN }, runRow: { "& :is([data-loading-failed-message], [data-loading-empty-message])": { lineHeight: CELL_LINE_EVEN } }, runCell: { paddingX: "8px" }, headerCell: { paddingY: "4px", paddingX: "8px" }, strip: { minHeight: "{sizes.density.row.sm}" } },
             md: {},
             lg: { cell: { minHeight: "calc({sizes.density.row.lg} - 1px)", paddingY: "9px", paddingX: "12px" }, runCell: { paddingX: "12px" }, headerCell: { paddingY: "9px", paddingX: "12px" }, strip: { minHeight: "{sizes.density.row.lg}" } },
         },

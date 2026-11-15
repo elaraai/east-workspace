@@ -260,6 +260,9 @@ export const loadingSlotRecipe = defineSlotRecipe({
             flex: "none",
             color: "status.neg",
         },
+        // Its words on a whole, odd line of 19px (#1638): its row centres it in an odd room — a row an even number of pixels
+        // tall, over its 1px rule — where 1.5 of the 13px face, 19.5px, was centred at a fraction. A host whose row leaves
+        // an even room gives it its cells' even line (the Sheet's smallest density, a coarse pointer's 45px row).
         failedMessage: {
             minWidth: "0",
             overflow: "hidden",
@@ -267,6 +270,7 @@ export const loadingSlotRecipe = defineSlotRecipe({
             whiteSpace: "nowrap",
             fontFamily: "body",
             fontSize: "{fontSizes.body}",
+            lineHeight: "19px",
             fontVariantNumeric: "tabular-nums",
             color: "fg",
         },

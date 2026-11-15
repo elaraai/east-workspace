@@ -28,15 +28,23 @@ import { globalCss } from "./global-css.js";
 import { centredLine, oneLineBox } from "./one-line-box.js";
 import { chipRecipe } from "./recipes/chip.js";
 import { allocationBuilderSlotRecipe } from "./slot-recipes/allocationBuilder.js";
+import { allocationInspectorSlotRecipe } from "./slot-recipes/allocationInspector.js";
 import { avatarSlotRecipe } from "./slot-recipes/avatar.js";
 import { builderFooterLineSlotRecipe } from "./slot-recipes/builder-footer.js";
+import { builderFrameSlotRecipe } from "./slot-recipes/builderFrame.js";
 import { calendarSlotRecipe } from "./slot-recipes/calendar.js";
 import { chipRailSlotRecipe } from "./slot-recipes/chipRail.js";
+import { dateFieldSlotRecipe } from "./slot-recipes/dateField.js";
 import { dockSlotRecipe } from "./slot-recipes/dock.js";
+import { editConflictsSlotRecipe } from "./slot-recipes/editConflicts.js";
+import { editHistorySlotRecipe } from "./slot-recipes/editHistory.js";
+import { comboboxSlotRecipe } from "./slot-recipes/combobox.js";
+import { studioPublishSlotRecipe } from "./slot-recipes/studioPublish.js";
 import { editableChipSlotRecipe } from "./slot-recipes/editableChip.js";
 import { flowchartSlotRecipe } from "./slot-recipes/flowchart.js";
 import { iconButtonSlotRecipe } from "./slot-recipes/iconButton.js";
 import { librarySlotRecipe } from "./slot-recipes/library.js";
+import { loadingSlotRecipe } from "./slot-recipes/loading.js";
 import { matrixSlotRecipe } from "./slot-recipes/matrix.js";
 import { metricChipSlotRecipe } from "./slot-recipes/metricChip.js";
 import { planSlotRecipe } from "./slot-recipes/plan.js";
@@ -45,12 +53,14 @@ import { queryLibrarySlotRecipe } from "./slot-recipes/queryLibrary.js";
 import { queryPhoneSlotRecipe } from "./slot-recipes/queryPhone.js";
 import { queryResultsSlotRecipe } from "./slot-recipes/queryResults.js";
 import { recordSlotRecipe } from "./slot-recipes/record.js";
+import { reviewChromeSlotRecipe } from "./slot-recipes/reviewChrome.js";
 import { rosterBuilderSlotRecipe } from "./slot-recipes/rosterBuilder.js";
 import { segSlotRecipe } from "./slot-recipes/seg.js";
 import { segmentGroupSlotRecipe } from "./slot-recipes/segmentGroup.js";
 import { selectSlotRecipe } from "./slot-recipes/select.js";
 import { sheetSlotRecipe } from "./slot-recipes/sheet.js";
 import { sheetActionSlotRecipe } from "./slot-recipes/sheetAction.js";
+import { sheetInspectorSlotRecipe } from "./slot-recipes/sheetInspector.js";
 import { sliceFrameSlotRecipe } from "./slot-recipes/sliceFrame.js";
 import { snapGridSlotRecipe } from "./slot-recipes/snapGrid.js";
 import { statusSlotRecipe } from "./slot-recipes/status.js";
@@ -200,8 +210,9 @@ describe("a chip or a key cap", () => {
         expect(sized(at(sheet, "toolbarBadge"))).toEqual(["20px", "20px"]);
         expect(sized(at(sheet, "lockTag"))).toEqual(["20px", "20px"]);
         expect(sized(at(sheet, "lockWarn"))).toEqual(["20px", "20px"]);
-        expect(sized(at(sheet, "halfLabel"))).toEqual(["20px", "20px"]);
         expect(sized(at(sheet, "groupCell", "[data-sheet-card][data-phone] &"))).toEqual(["22px", "22px"]);
+        // A half's label is as tall as a chip, its words on its cell's line: no edge of its own to stand them in.
+        expect(sized(at(sheet, "halfLabel"))).toEqual(["20px", "inherit"]);
     });
 
     test("none of their recipes centres a line of 1 in a fixed height: its words would start at a fraction of a pixel under its edge", () => {
@@ -267,6 +278,8 @@ describe("the small boxes whose words are centred in them (#1638)", () => {
         ["an editable chip, comfortable", at(editableChipSlotRecipe.variants, "density", "comfortable", "root"), "13px"],
         ["a Table's column label", at(tableSlotRecipe.base, "columnHeaderLabel"), "19px"],
         ["a phone Table's column label", at(tableSlotRecipe.base, "phoneHeaderSort"), "19px"],
+        ["a phone Table's column group", at(tableSlotRecipe.base, "phoneGroup"), "12px"],
+        ["a phone Table's decision column", at(reviewChromeSlotRecipe.base, "decisionHeader", "[data-table-phone] &"), "19px"],
         ["a gallery card's foot", at(librarySlotRecipe.base, "galleryFoot"), "18px"],
         ["a Value tree's row", at(valueTreeSlotRecipe.base, "row"), "20px"],
         ["a Value tree's toolbar button", at(valueTreeSlotRecipe.base, "toolbarBtn"), "18px"],
@@ -274,6 +287,23 @@ describe("the small boxes whose words are centred in them (#1638)", () => {
         ["a Calendar event's title", at(calendarSlotRecipe.base, "eventTitle"), "16px"],
         ["a Calendar event's detail", at(calendarSlotRecipe.base, "eventDetail"), "12px"],
         ["a Calendar event's resource", at(calendarSlotRecipe.base, "eventResource"), "14px"],
+        ["a Calendar month chip's title", at(calendarSlotRecipe.base, "eventTitle", "[data-chip] &"), "19px"],
+        ["a Calendar month chip's detail", at(calendarSlotRecipe.base, "eventDetail", "[data-chip] &"), "19px"],
+        ["a Calendar month chip's resource", at(calendarSlotRecipe.base, "eventResource", "[data-chip] &"), "19px"],
+        ["a Query step's slot", at(queryBuilderSlotRecipe.base, "slotText"), "16px"],
+        ["a conflict's choice, its name", at(editConflictsSlotRecipe.base, "choiceName"), "16px"],
+        ["a conflict's choice, its value", at(editConflictsSlotRecipe.base, "choiceValue"), "20px"],
+        ["the conflicts' count", at(editHistorySlotRecipe.base, "conflictsCount"), "16px"],
+        ["the key search's status", at(comboboxSlotRecipe.base, "searchStatus"), "16px"],
+        ["a failed read's line", at(loadingSlotRecipe.base, "failedMessage"), "19px"],
+        ["a failed read's line, in the Sheet's smallest density", at(sheetSlotRecipe.variants, "size", "sm", "runRow", "& :is([data-loading-failed-message], [data-loading-empty-message])"), "20px"],
+        ["a failed read's line, in a Record on a coarse pointer", at(record, "runRow", "& :is([data-loading-failed-message], [data-loading-empty-message])", "_coarse"), "20px"],
+        ["an Allocation resource's bin, in the inspector", at(allocationInspectorSlotRecipe.base, "mate"), "16px"],
+        ["a date field's segments, sm", at(dateFieldSlotRecipe.variants, "size", "sm", "input"), "16px"],
+        ["a date field's segments, xs", at(dateFieldSlotRecipe.variants, "size", "xs", "input"), "16px"],
+        ["a date field's segments, md", at(dateFieldSlotRecipe.variants, "size", "md", "input"), "16px"],
+        ["a date field's segments, lg", at(dateFieldSlotRecipe.variants, "size", "lg", "input"), "18px"],
+        ["a date field's segments, on a coarse pointer", at(dateFieldSlotRecipe.variants, "size", "md", "input", "_coarse"), "20px"],
         ["a Roster card's small words", at(roster, "assignment"), "14px"],
         ["a Roster card's name", at(roster, "assignmentName"), "18px"],
         ["a Roster column head", at(roster, "shiftLabel"), "16px"],
@@ -284,23 +314,32 @@ describe("the small boxes whose words are centred in them (#1638)", () => {
         ["a Plan row's name", at(plan, "gutterName"), "17px"],
         ["a Plan group's name", at(plan, "groupName"), "15px"],
         ["a Plan collapsible row's heading", at(plan, "gutterName", "&[data-collapsible]"), "15px"],
-        ["a Plan heat value", at(plan, "heatLabel"), "15px"],
+        ["a Plan heat value", at(plan, "heatLabel"), "100cqh"],
         ["a Plan table numeral", at(plan, "tableCellText"), "15px"],
         ["a Plan mark's label", at(plan, "markLabel"), "15px"],
         ["a Plan chart tick", at(plan, "chartTickLeft"), "14px"],
         ["a Plan segment's label", at(plan, "segmentPart"), "var(--plan-segment-h)"],
-        ["a Plan tile", at(plan, "tile"), "var(--plan-tile-h)"],
+        ["a Plan tile", at(plan, "tile"), "calc(var(--plan-tile-h) - 4px)"],
         ["a Plan `+n`", at(plan, "tileMore"), "var(--plan-tile-h)"],
-        ["a Plan chip", at(plan, "cardChip"), "var(--plan-chip-h)"],
+        ["a Plan chip", at(plan, "cardChip"), "calc(var(--plan-chip-h) - 4px)"],
         ["a Plan lane's caption", at(plan, "laneLabel"), "100cqh"],
         ["the Plan's `← All rows`", at(plan, "focusBack"), "19px"],
         ["an Allocation chip", at(allocation, "tableChip"), "16px"],
         ["an Allocation placeholder", at(allocation, "tablePlaceholder"), "16px"],
-        ["a Record cell", at(record, "cell"), "19px"],
+        ["a Record cell", at(record, "cell"), "20px"],
+        ["a Record column's label", at(record, "headerLabel"), "14px"],
+        ["a Record column's label, on a coarse pointer", at(record, "headerLabel", "_coarse"), "15px"],
         ["the Record's strip", at(record, "strip"), "15px"],
         ["the Record's strip's words", at(record, "stripText"), "19px"],
         ["a Sheet cell", at(sheet, "cell"), "19px"],
+        ["a Sheet cell, at the smallest density", at(sheetSlotRecipe.variants, "size", "sm", "cell"), "20px"],
+        ["a Sheet cell, on a coarse pointer", at(sheet, "cell", "_coarse"), "20px"],
+        ["a Sheet cell, in a phone's frame", at(sheet, "cell", "[data-sheet-card][data-phone] &"), "19px"],
         ["a Sheet row's number", at(sheet, "gutterNumber"), "19px"],
+        ["a Sheet row's number, at the smallest density", at(sheetSlotRecipe.variants, "size", "sm", "gutterNumber"), "20px"],
+        ["a Sheet row's number, on a coarse pointer", at(sheet, "gutterNumber", "_coarse"), "20px"],
+        ["a Sheet row's number, in a phone's frame", at(sheet, "gutterNumber", "[data-sheet-card][data-phone] &"), "19px"],
+        ["a Sheet half's label", at(sheet, "halfLabel"), "inherit"],
         ["the Sheet's footer", at(sheet, "footer"), "15px"],
         ["the Sheet's strip", at(sheet, "strip"), "15px"],
         ["a Sheet strip's chip", at(sheet, "stripChip"), "17px"],
@@ -323,6 +362,14 @@ describe("the small boxes whose words are centred in them (#1638)", () => {
         ["a Roster agency badge", at(roster, "agencyBadge"), "16px", "14px"],
         ["a Roster skill tag", at(roster, "skillTag"), "16px", "14px"],
         ["an Allocation band's count", at(allocation, "bandCount"), "16px", "16px"],
+        ["the Allocation inspector's resource field", at(allocationInspectorSlotRecipe.base, "resourceField"), "32px", "30px"],
+        ["the Studio preview's device", at(studioPublishSlotRecipe.base, "device"), "26px", "26px"],
+        ["the Studio preview's environment", at(studioPublishSlotRecipe.base, "env"), "26px", "24px"],
+        ["the Studio preview's Exit", at(studioPublishSlotRecipe.base, "exit"), "28px", "26px"],
+        ["a phone inspector's draft chip", at(sheetInspectorSlotRecipe.base, "phoneChip"), "20px", "20px"],
+        ["the Allocation inspector's rank", at(allocationInspectorSlotRecipe.base, "rank"), "16px", "16px"],
+        ["the Allocation drop list's rank", at(allocationInspectorSlotRecipe.base, "dropRank"), "16px", "16px"],
+        ["the Allocation issues' count", at(allocationInspectorSlotRecipe.base, "issueCount"), "16px", "16px"],
         ["an Allocation fit's rank", at(allocation, "rank"), "16px", "16px"],
         ["an Allocation run's label", at(allocation, "runLabel"), "20px", "18px"],
         ["the Allocation's fits marker", at(allocation, "fitsMarker"), "28px", "26px"],
@@ -338,7 +385,37 @@ describe("the small boxes whose words are centred in them (#1638)", () => {
 
     test("a box whose height its recipe does not know is a size container, its words' line its own height", () => {
         expect(at(plan, "cell").containerType).toBe("size");
+        expect(at(plan, "heatCell").containerType).toBe("size");
         expect(at(avatarSlotRecipe.base, "root").containerType).toBe("size");
+    });
+
+    test("a band that centres its row over the rule at its foot has an even room: a pixel of padding over the row balances the rule", () => {
+        const frame = builderFrameSlotRecipe.base;
+        // The frame's toolbar: 44 less its rule and the pixel over its 28px row, which stands 8px under its top edge. On a
+        // coarse pointer it keeps the middle of the 43px over its rule: a control's 44px tap target reaches both edges from there.
+        expect([at(frame, "toolbar").height, at(frame, "toolbar").borderBottomWidth, at(frame, "toolbar").paddingTop]).toEqual(["44px", "1px", "1px"]);
+        expect(at(frame, "toolbar", "_coarse").paddingTop).toBe("0");
+        // A phone's second row: 56, its 44px controls 6px under its top edge.
+        expect([at(frame, "sessionRow").height, at(frame, "sessionRow").borderBottomWidth, at(frame, "sessionRow").paddingTop]).toEqual(["56px", "1px", "1px"]);
+        // A phone Table's column group stands the header's 32 over its rule: one line of 12px 10px under its edge, two 4px.
+        expect(at(tableSlotRecipe.base, "phoneGroup", "[data-table-phone] &").paddingY).toBe("1px 0");
+        // A conflict's second choice stands under a rule: a pixel under what it holds.
+        expect(at(editConflictsSlotRecipe.base, "choice", "& + &").paddingBottom).toBe("1px");
+    });
+
+    test("a Record cell has an even room at every pointer, and each part in it an even height: all start a whole number of pixels under the row's edge", () => {
+        // A fine pointer's row is 36, 32 or 28 with its rule: a pixel over the cell leaves 34, 30 or 26. A coarse one's is 45: 44 with none.
+        expect([at(record, "cell").paddingTop, at(record, "cell", "_coarse").paddingTop]).toEqual(["1px", "0"]);
+        const even = (px: unknown) => typeof px === "string" && /^\d+px$/.test(px) && Number.parseInt(px, 10) % 2 === 0;
+        for (const slot of ["chip", "avatar", "nobody", "box", "tick", "pip", "markDot", "staleDot", "pendingDot", "lock"]) expect(even(at(record, slot).height), slot).toBe(true);
+        expect(even(at(record, "cell").lineHeight)).toBe(true);
+        // A compact chip's 15 is odd: a pixel under it stands it as an even part stands.
+        for (const density of ["compact", "condensed"]) {
+            const chip = at(recordSlotRecipe.variants, "density", density, "chip");
+            expect([chip.height, chip.marginBottom], density).toEqual(["15px", "1px"]);
+        }
+        // The header's box, a pixel above its row's middle: its margin leaves an even number of pixels over at either pointer.
+        expect([at(record, "tick", "[data-tick] > &").marginBottom, at(record, "tick", "[data-tick] > &", "_coarse").marginBottom]).toEqual(["2px", "1px"]);
     });
 
     test("a rail's chip has a whole padding and a whole line at every density: 15, 22 and 33 tall in its edge", () => {

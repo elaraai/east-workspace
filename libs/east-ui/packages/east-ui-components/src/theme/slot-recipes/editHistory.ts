@@ -70,6 +70,7 @@
 
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { wholeOrNone } from "../../style/whole-or-none.js";
+import { centredLine } from "../one-line-box.js";
 import { ELARA_RING } from "../elara-ring.js";
 
 /** A square of a phone's second row, and the gap between the row's items, in px (FR6: the designer's measures). */
@@ -318,7 +319,8 @@ export const editHistorySlotRecipe = defineSlotRecipe({
             // It keeps its 8 before the squares.
             [`${SPLIT} &`]: { marginInlineEnd: "{spacing.1}" },
         },
-        conflictsCount: { fontFamily: "mono", fontSize: "11px", fontWeight: "semibold", color: "fg.warning", fontVariantNumeric: "tabular-nums" },
+        /* Its figure on a whole line of 16px (#1638), centred in the 26px inside the button's edge: 1.5 of its 11px face, 16.5px, was centred at a fraction. */
+        conflictsCount: { fontFamily: "mono", fontSize: "11px", lineHeight: centredLine(26, 16), fontWeight: "semibold", color: "fg.warning", fontVariantNumeric: "tabular-nums" },
         error: {
             marginTop: "{spacing.2}",
             fontSize: "body.sm",
