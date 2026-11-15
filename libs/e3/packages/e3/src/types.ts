@@ -137,8 +137,10 @@ export interface IndexInputDef<T extends EastType = EastType, D extends RecordIn
    * the index's type, the parameter of a task's own function among them.
    *
    * @param entries - An expression of the index's entries: {@link type}
-   * @returns The same expression, still the entries, with the readers of the index's kind
-   * @throws {Error} When the expression is not of the index's entries' type, naming both
+   * @returns The same expression, still the entries, with the readers of the index's kind; one that carries them
+   *   already, as it is
+   * @throws {Error} When the expression is not of the index's entries' type, naming both, or carries the readers of
+   *   another index whose entries have the same type, naming that index
    */
   read(entries: ExprType<T>): ExprType<T> & IndexReadersOf<D>;
 }
@@ -385,6 +387,11 @@ export interface RecordDef<
  * @typeParam IK - The index key an entry sorts under
  * @typeParam P - The covering projection's type (`NullType` when there is none)
  * @typeParam On - The row fields in index order, or undefined for a computed key
+ * @typeParam Carried - What its entries carry as its record builds it
+ *   (`builtIndex`): `P`, except that beside a nested series index or an
+ *   entries index of the record an index that carries nothing, or the row,
+ *   carries the lean row, typed as the row. What a body's parameter for the
+ *   index, and its readers' reads, are typed by
  */
 export interface RecordIndexDef<
   Name extends string = string,
@@ -392,6 +399,7 @@ export interface RecordIndexDef<
   IK extends EastType = EastType,
   P extends EastType = EastType,
   On extends readonly string[] | undefined = readonly string[] | undefined,
+  Carried extends EastType = P,
 > {
   readonly kind: 'recordIndex';
   /** Index name — unique on the record, and never `primary`, which names the
@@ -500,6 +508,10 @@ export interface RecordIndexDef<
   readonly keyType: IK;
   /** `P`; `NullType` when the index carries no value. */
   readonly valueType: P;
+  /** Its types that no property of it holds, for TypeScript alone: never set.
+   *  `carried` is what its entries carry as its record builds it, which its
+   *  own declaration cannot say: it turns on the record's other indexes. */
+  readonly types?: { readonly carried: Carried };
   /** Runtime the index's functions run on; defaults to DEFAULT_RECORD_RUNNER, east-c. */
   readonly runner: Runner;
 }

@@ -19,7 +19,8 @@
  * A reader answers a **read** ({@link IndexRead}), which gives the rows its
  * words say and no others, each once, in the index's own order: `each` runs a
  * body for each, a segment in memory at a time, and `collect` gives them as a
- * Dict by the row's key.
+ * Dict by the row's key. A read of several runs reads them in the order the
+ * index holds them, so its rows come as a walk of the index would meet them.
  *
  * The runs are written as East, over the functions that file each index
  * (`record-tiles.ts`, `record-interval.ts`), so they run on every runner, and
@@ -30,9 +31,9 @@
  */
 
 import {
-  ArrayType, DateTimeType, DictType, East, Expr, FloatType, OptionType, SetType, StringType, equalFor, isTypeEqual,
+  ArrayType, DateTimeType, DictType, East, Expr, FloatType, IntegerType, OptionType, SetType, StringType, compareFor, equalFor, isTypeEqual,
   none, printType, some, variant,
-  type BlockBuilder, type EastType, type ExprType, type IntegerType, type KeyBound, type StructType, type SubtypeExprOrValue,
+  type BlockBuilder, type BooleanType, type EastType, type ExprType, type KeyBound, type StructType, type SubtypeExprOrValue, type ValueTypeOf,
 } from '@elaraai/east';
 import { RecordLevelType, RecordNestedItemType, RecordNestedTotalsType, RecordRollupType, RecordSummaryTotalsType } from '@elaraai/e3-types';
 import { AREA_FINEST_LEVEL, AREA_FNS, AREA_UNPLACED } from './record-area.js';
@@ -40,7 +41,8 @@ import { INTERVAL_LEAF } from './record-interval.js';
 import { optionField, type OptionField, type RowType } from './record-keys.js';
 import {
   checkNested, rollupOf, rollupWords,
-  type ChildOf, type NestedCollection, type SeriesItems, type SeriesRecursive, type SeriesRollupInput, type SeriesRows, type SeriesValues,
+  type ChildOf, type NestedCollection, type NestedDeclaration, type SeriesItems, type SeriesRecursive, type SeriesRollupInput, type SeriesRows,
+  type SeriesValues,
 } from './record-nested.js';
 import { NESTED_FNS, itemOf } from './record-nested-programs.js';
 import { RECORD_TILES, TILE_FNS, type RecordTile } from './record-tiles.js';
@@ -248,6 +250,15 @@ export type LeadingOn<IK> =
     ? keyof L extends never ? { on?: Record<never, never> } : { on: { [F in keyof L]: SubtypeExprOrValue<L[F]> } }
     : { on?: Readonly<Record<string, unknown>> };
 
+/**
+ * What a reader that takes the leading fields alone is given: `{ on }`, each
+ * field exactly, which an index led by none may leave out.
+ */
+export type LeadingArgs<IK> =
+  IK extends StructType<{ on: StructType<infer L> }>
+    ? keyof L extends never ? [where?: LeadingOn<IK>] : [where: LeadingOn<IK>]
+    : [where?: LeadingOn<IK>];
+
 /** A half-open window of time, `[from, to)`. */
 export interface TimeWindow {
   /** The window's first instant. */
@@ -268,8 +279,9 @@ export interface IntervalReaders<IK extends EastType = EastType, P extends EastT
    * The rows that overlap `[from, to)`: an event that ends at `from` is
    * outside, an instant at `from` is inside and one at `to` outside, and an
    * event with no end, or one at or before its start, is an instant. A window
-   * that ends at or before its start holds none. At most 55 runs: the starts
-   * inside the window, and one a tree node above its first instant.
+   * that ends at or before its start holds none. At most 55 runs, in the
+   * index's order: the starts inside the window, then one a tree node above
+   * its first instant, from the root's down to its leaf's.
    *
    * @param window - The leading fields, each exactly, and the window
    * @returns The read
@@ -279,12 +291,12 @@ export interface IntervalReaders<IK extends EastType = EastType, P extends EastT
   /**
    * The rows with no start: the backlog. One run.
    *
-   * @param where - The leading fields, each exactly
+   * @param where - The leading fields, each exactly; left out for an index led by none
    * @returns The read
    * @throws {Error} Where the function is built, when the start is not an Option field — every row then has one — or
    *   a leading field is left out or of another type
    */
-  unset(where?: LeadingOn<IK>): IndexRead<P, K>;
+  unset(...where: LeadingArgs<IK>): IndexRead<P, K>;
 }
 
 function intervalReaders(entries: Entries): IntervalReaders {
@@ -305,36 +317,40 @@ function intervalReaders(entries: Entries): IntervalReaders {
       const to = $.const(written.to);
       $.if(East.less(from, to), ($) => {
         const fromMs = $.const(from.toEpochMilliseconds());
-        // The first run holds the starts inside the window. Each one after it is a node above the window's first
-        // instant, from its leaf up: a node's events all cross its centre, so to the left of it they overlap the
-        // window when they start before it, and to the right when they end after its first instant.
-        const starts = $.let(true);
+        // The nodes the window reads: node 0, which files the starts, and each node above the window's first
+        // instant. Those are found from its leaf up, and a Set holds them all in the index's order: node 0, then the
+        // root's child down to the leaf.
+        const nodes = $.let(new Set<bigint>([0n]), SetType(IntegerType));
         const child = $.let(fromMs.add(INTERVAL_LEAF));
-        $.while(starts.or(() => child.greater(1n)), ($) => {
-          const parent = $.const(child.divide(2n));
-          const right = $.const(child.remainder(2n).equal(1n));
-          const node = $.const(parent.multiply(2n));
-          const run = $.const(starts.ifElse(
-            () => entries.dict.range({ from: { ik: { on, node: 0n, at: at(fromMs) } }, to: { ik: { on, node: 0n, at: at(to.toEpochMilliseconds()) } } } as never),
-            () => right.ifElse(
-              () => entries.dict.range({ from: { ik: { on, node: node.add(1n), at: at(fromMs.add(1n)) } }, to: { ik: { on, node: node.add(2n) } } } as never),
+        $.while(child.greater(1n), ($) => {
+          $(nodes.insert(child));
+          $.assign(child, child.divide(2n));
+        });
+        // One loop, so the body is in the program once: a node's run is chosen by what the node is.
+        $.for(nodes, ($, node) => {
+          // Node 0's run is the starts inside the window. Any other node's events all cross its centre, so to the
+          // left of it they overlap the window when they start before it, and to the right — an odd node — when they
+          // end after its first instant.
+          const run = $.const(node.equal(0n).ifElse(
+            () => entries.dict.range({ from: { ik: { on, node, at: at(fromMs) } }, to: { ik: { on, node, at: at(to.toEpochMilliseconds()) } } } as never),
+            () => node.remainder(2n).equal(1n).ifElse(
+              () => entries.dict.range({ from: { ik: { on, node, at: at(fromMs.add(1n)) } }, to: { ik: { on, node: node.add(1n) } } } as never),
               () => entries.dict.range({ from: { ik: { on, node } }, to: { ik: { on, node, at: at(fromMs) } } } as never),
             ),
           ));
           $.for(run as Entries['dict'], ($, carried, entry) => { give($, carried, rowKey(entry)); });
-          $.if(starts, ($) => { $.assign(starts, false); }).else(($) => { $.assign(child, parent); });
         });
       });
       });
     },
-    unset: (where) => {
+    unset: (...where) => {
       if (!optional) {
         throw new Error(
           `${entries.name} unset: the index's start, '${entries.def.interval!.from}', is a DateTime field, so every row has one — ` +
           `a row with no start is one whose start is an Option<DateTime> left none`,
         );
       }
-      const written = leadingOn(entries, 'unset', (where as { on?: unknown } | undefined)?.on);
+      const written = leadingOn(entries, 'unset', (where[0] as { on?: unknown } | undefined)?.on);
       return readOf(entries.k, entries.carried, ($, give) => {
         const on = $.const(written);
         const backlog = East.value(none, OptionType(DateTimeType));
@@ -364,8 +380,9 @@ export interface SeriesReaders<IK extends EastType = EastType, P extends EastTyp
    * The events on `key` that overlap `[from, to)`, by the interval index's
    * edges: an event that ends at `from` is outside, an instant at `from` is
    * inside and one at `to` outside. A window that ends at or before its start
-   * holds none. One run a level, the finest first, so the events come in the
-   * index's order, which across levels is not time order.
+   * holds none. One run a level, in the index's order of its levels — East's
+   * order of their names: day, month, quarter, week, year — so the events come
+   * in the index's order, which across levels is not time order.
    *
    * @param window - The leading fields, each exactly, the key, and the window
    * @returns The read: each event's row once, and its key
@@ -416,6 +433,89 @@ function timeOf(row: Expr, field: OptionField<DateTimeType>, absent: ExprType<Da
     : East.field(row, field.field, DateTimeType);
 }
 
+/**
+ * The levels an index files at from its tile up to the year, in the index's
+ * order of them: East's order of the level's cases, which is by their names.
+ */
+function levelsFrom(tile: RecordTile): ValueTypeOf<typeof RecordLevelType>[] {
+  return RECORD_TILES.slice(RECORD_TILES.indexOf(tile))
+    .map((level): ValueTypeOf<typeof RecordLevelType> => variant(level, null))
+    .sort(compareFor(RecordLevelType));
+}
+
+/** The tile arithmetic a reader's block holds: a tile's start, and the start of the tile after it. */
+interface TileFns {
+  readonly startOf: (level: Expr, at: ExprType<DateTimeType>) => ExprType<DateTimeType>;
+  readonly nextOf: (level: Expr, at: ExprType<DateTimeType>) => ExprType<DateTimeType>;
+}
+
+/** The tile arithmetic, held once by a reader's block. */
+function tileFns<Ret>($: BlockBuilder<Ret>): TileFns {
+  return { startOf: $.const(TILE_FNS.tileStart) as never, nextOf: $.const(TILE_FNS.tileNext) as never };
+}
+
+/**
+ * The run of a level's tiles a window `[from, to)` reads: the start of the
+ * first, and of the tile after the last. The one place the run is worked out,
+ * for every reader of tiles.
+ *
+ * `carried` starts the run a tile sooner, for events with a span: one filed at
+ * a level ends within the tile after the one holding its start, so the events
+ * of a level that overlap the window start in a tile from the one before the
+ * window's first to its last.
+ */
+function tilesOver<Ret>(
+  $: BlockBuilder<Ret>, tiles: TileFns, level: Expr, from: ExprType<DateTimeType>, to: ExprType<DateTimeType>, carried: boolean,
+): { first: ExprType<DateTimeType>; after: ExprType<DateTimeType> } {
+  const first = $.const(carried ? tiles.startOf(level, msBefore(tiles.startOf(level, from))) : tiles.startOf(level, from));
+  const after = $.const(tiles.nextOf(level, tiles.startOf(level, msBefore(to))));
+  return { first, after };
+}
+
+/** A window of time as a reader's block holds it, and the first tile of the run being read. */
+interface SpanWindow {
+  readonly from: ExprType<DateTimeType>;
+  readonly fromMs: ExprType<IntegerType>;
+  readonly toMs: ExprType<IntegerType>;
+  readonly first: ExprType<DateTimeType>;
+}
+
+/**
+ * Whether a filed entry's event overlaps a window and is the one to give: the
+ * window's edges and the once rule, in one place for every reader of events
+ * with a span — a series index's, and a nested series index's items.
+ *
+ * The edges are the interval index's: an event with no end, or one at or
+ * before its start, is an instant, inside from `from` and outside at `to`;
+ * any other overlaps where it starts before `to` and ends after `from`. An
+ * event past a year is filed under each year it touches, and is given under
+ * the first of them the run holds: the run's first tile, or the tile holding
+ * its start, which of the tiles it is filed under is the one at or before its
+ * start.
+ *
+ * @param $ - The block the entry is read in
+ * @param event - The event: a row, or a nested item
+ * @param start - Its start field
+ * @param end - Its end field
+ * @param entry - The entry's key, whose index key holds the tile it is filed under
+ * @param window - The window, and the run's first tile
+ * @returns Whether the entry is given
+ */
+function spanGiven<Ret>(
+  $: BlockBuilder<Ret>, event: Expr, start: OptionField<DateTimeType>, end: OptionField<DateTimeType>, entry: Expr, window: SpanWindow,
+): ExprType<BooleanType> {
+  // The index files an event with a start alone, and one with no end, or one at or before its start, is an instant.
+  const starts = $.const(timeOf(event, start, window.from));
+  const startMs = $.const(starts.toEpochMilliseconds());
+  const endMs = $.const(timeOf(event, end, starts).toEpochMilliseconds());
+  const overlaps = endMs.lessEqual(startMs).ifElse(
+    () => startMs.greaterEqual(window.fromMs).and(() => startMs.less(window.toMs)),
+    () => startMs.less(window.toMs).and(() => endMs.greater(window.fromMs)),
+  );
+  const tile = $.const(indexKeyPart(entry, 'tile') as ExprType<DateTimeType>);
+  return overlaps.and(() => East.equal(tile, window.first).or(() => startMs.greaterEqual(tile.toEpochMilliseconds())));
+}
+
 function seriesReaders(entries: Entries): SeriesReaders {
   const series = entries.def.series!;
   const rowType = entries.carried as RowType;
@@ -424,8 +524,7 @@ function seriesReaders(entries: Entries): SeriesReaders {
   if (start === undefined || end === undefined) {
     throw new Error(`${entries.name}: a series index carries its rows, and these carry no '${series.from}' and '${series.to}' to test a window by`);
   }
-  // The levels the index files at: its tile, and every coarser one up to the year.
-  const levels = RECORD_TILES.slice(RECORD_TILES.indexOf(series.tile)).map((tile: RecordTile) => variant(tile, null));
+  const levels = levelsFrom(series.tile);
   return {
     events: (window) => {
       const written = keyWindow(entries, 'events', window);
@@ -435,30 +534,14 @@ function seriesReaders(entries: Entries): SeriesReaders {
       const from = $.const(written.from);
       const to = $.const(written.to);
       $.if(East.less(from, to), ($) => {
-        const startOf = $.const(TILE_FNS.tileStart);
-        const nextOf = $.const(TILE_FNS.tileNext);
+        const tiles = tileFns($);
         const fromMs = $.const(from.toEpochMilliseconds());
         const toMs = $.const(to.toEpochMilliseconds());
         $.for($.const(levels, ArrayType(RecordLevelType)), ($, level) => {
-          // An event filed at a level ends within the tile after the one holding its start, so the events of a
-          // level that overlap the window start in a tile from the one before the window's first to its last.
-          const first = $.const(startOf(level, msBefore(startOf(level, from))));
-          const after = $.const(nextOf(level, startOf(level, msBefore(to))));
+          const { first, after } = tilesOver($, tiles, level, from, to, true);
           const run = entries.dict.range({ from: { ik: { on, key, level, tile: first } }, to: { ik: { on, key, level, tile: after } } } as never);
           $.for(run as Entries['dict'], ($, row, entry) => {
-            // The index files a row with a start alone, and one with no end, or one at or before its start, is an instant.
-            const starts = $.const(timeOf(row, start, from));
-            const startMs = $.const(starts.toEpochMilliseconds());
-            const endMs = $.const(timeOf(row, end, starts).toEpochMilliseconds());
-            const overlaps = endMs.lessEqual(startMs).ifElse(
-              () => startMs.greaterEqual(fromMs).and(() => startMs.less(toMs)),
-              () => startMs.less(toMs).and(() => endMs.greater(fromMs)),
-            );
-            // An event past a year is filed under each year it touches: it is given under the first of them the run holds.
-            const tile = $.const(indexKeyPart(entry, 'tile') as ExprType<DateTimeType>);
-            $.if(overlaps.and(() => East.equal(tile, first).or(() => East.equal(tile, startOf(level, starts)))), ($) => {
-              give($, row, rowKey(entry));
-            });
+            $.if(spanGiven($, row, start, end, entry, { from, fromMs, toMs, first }), ($) => { give($, row, rowKey(entry)); });
           });
         });
       });
@@ -478,12 +561,8 @@ function summaryReaders(entries: Entries): SummaryReaders {
       const from = $.const(written.from);
       const to = $.const(written.to);
       $.if(East.less(from, to), ($) => {
-        const startOf = $.const(TILE_FNS.tileStart);
-        const nextOf = $.const(TILE_FNS.tileNext);
-        const tile = $.const(level, RecordLevelType);
         // A total is split by tile, so the tiles that overlap the window hold all of it.
-        const first = $.const(startOf(tile, from));
-        const after = $.const(nextOf(tile, startOf(tile, msBefore(to))));
+        const { first, after } = tilesOver($, tileFns($), $.const(level, RecordLevelType), from, to, false);
         const run = entries.dict.range({ from: { ik: { on, key, tile: first } }, to: { ik: { on, key, tile: after } } } as never);
         $.for(run as Entries['dict'], ($, totals, entry) => { give($, totals, indexKeyPart(entry, 'tile')); });
       });
@@ -518,7 +597,9 @@ export interface AreaReaders<IK extends EastType = EastType, P extends EastType 
    * The rows whose box meets the window, its edges included: a box that
    * touches the window is in it. A cell at each level coarser than the one
    * whose cells are an eighth of the window's larger side, and a range of
-   * cells at that level: at most 266 runs, as a page's read of a viewport.
+   * cells at that level: at most 266 runs, as a page's read of a viewport,
+   * read in the index's order, a cell before the cells inside it. A zero is
+   * one edge whatever its sign: a width of `-0.0` is a width of none.
    *
    * @param window - The leading fields, each exactly, and the window
    * @returns The read: each row once, and its key
@@ -529,12 +610,12 @@ export interface AreaReaders<IK extends EastType = EastType, P extends EastType 
   /**
    * The rows not yet placed: those whose `x` or `y` is none. One run.
    *
-   * @param where - The leading fields, each exactly
+   * @param where - The leading fields, each exactly; left out for an index led by none
    * @returns The read
    * @throws {Error} Where the function is built, when the box's place is no Option field — every row is then
    *   placed — or a leading field is left out or of another type
    */
-  unplaced(where?: LeadingOn<IK>): IndexRead<P, K>;
+  unplaced(...where: LeadingArgs<IK>): IndexRead<P, K>;
 }
 
 /** A reader's number, as an expression. */
@@ -542,6 +623,13 @@ function float(entries: Entries, reader: string, name: string, value: unknown): 
   if (value === undefined) throw new Error(`${entries.name} ${reader}: \`${name}\` is left out — a window is { x, y, width, height }, each a Float`);
   return East.value(value as never, FloatType);
 }
+
+/**
+ * A Float with no sign on its zero. East orders `-0.0` below `0.0`, and a
+ * window's edge, or a box's, at either is the one edge, as it is to a page's
+ * read: a number plus zero is itself, and `0.0` for either zero.
+ */
+const unsigned = (value: ExprType<FloatType>): ExprType<FloatType> => value.add(0.0);
 
 /** The larger of two Floats. */
 const larger = (a: ExprType<FloatType>, b: ExprType<FloatType>): ExprType<FloatType> => a.greaterEqual(b).ifElse(() => a, () => b);
@@ -574,10 +662,10 @@ function areaReaders(entries: Entries): AreaReaders {
       };
       return readOf(entries.k, entries.carried, ($, give) => {
         const on = $.const(written.on);
-        const fromX = $.const(written.x);
-        const fromY = $.const(written.y);
-        const width = $.const(written.width);
-        const height = $.const(written.height);
+        const fromX = $.const(unsigned(written.x));
+        const fromY = $.const(unsigned(written.y));
+        const width = $.const(unsigned(written.width));
+        const height = $.const(unsigned(written.height));
         // A number less itself is zero exactly when it is finite.
         $.if([fromX, fromY, width, height].reduce((finite, value) => finite.and(() => value.subtract(value).equal(0.0)), East.value(true)).not(), ($) => {
           $.error(`${entries.name} within: a window's x, y, width and height are finite numbers`);
@@ -594,6 +682,9 @@ function areaReaders(entries: Entries): AreaReaders {
             $.assign(finestSide, finestSide.multiply(2.0));
             $.assign(deepest, deepest.subtract(1n));
           });
+          // The runs the window reads, each by its first key and the key it ends before. They are found a level at a
+          // time, and a Dict holds them in the index's order: a cell before the cells inside it, along the curve.
+          const runs = $.let(new Map(), DictType(IntegerType, IntegerType));
           // From the root down: a level's cell side, its cells along an axis, a cell's step at the finest level, and the
           // codes under one cell.
           const level = $.let(0n);
@@ -623,21 +714,7 @@ function areaReaders(entries: Entries): AreaReaders {
                     // from its key to its last descendant's: the rows filed in it or in a finer cell inside it.
                     const code = $.const(morton(ix.multiply(step), iy.multiply(step)));
                     const start = $.const(code.multiply(32n).add(level));
-                    const end = $.const(level.less(deepest).ifElse(() => start.add(1n), () => code.add(under).multiply(32n)));
-                    const run = entries.dict.range({ from: { ik: { on, area: start } }, to: { ik: { on, area: end } } } as never);
-                    $.for(run as Entries['dict'], ($, row, entry) => {
-                      // The row's box, by its corner or its centre, whichever way its sides run.
-                      const x = $.const(placeOf(row, xField));
-                      const y = $.const(placeOf(row, yField));
-                      const w = $.const(sizeOf(row, area.width));
-                      const h = $.const(sizeOf(row, area.height));
-                      const [minX, maxX, minY, maxY] = area.at === 'centre'
-                        ? [x.subtract(w.abs().divide(2.0)), x.add(w.abs().divide(2.0)), y.subtract(h.abs().divide(2.0)), y.add(h.abs().divide(2.0))]
-                        : [smaller(x, x.add(w)), larger(x, x.add(w)), smaller(y, y.add(h)), larger(y, y.add(h))];
-                      $.if(minX.lessEqual(toX).and(() => maxX.greaterEqual(fromX)).and(() => minY.lessEqual(toY)).and(() => maxY.greaterEqual(fromY)), ($) => {
-                        give($, row, rowKey(entry));
-                      });
-                    });
+                    $(runs.insert(start, level.less(deepest).ifElse(() => start.add(1n), () => code.add(under).multiply(32n))));
                   });
                 });
               });
@@ -648,17 +725,33 @@ function areaReaders(entries: Entries): AreaReaders {
             $.assign(step, step.divide(2n));
             $.assign(under, under.divide(4n));
           });
+          $.for(runs, ($, end, start) => {
+            const run = entries.dict.range({ from: { ik: { on, area: start } }, to: { ik: { on, area: end } } } as never);
+            $.for(run as Entries['dict'], ($, row, entry) => {
+              // The row's box, by its corner or its centre, whichever way its sides run.
+              const x = $.const(unsigned(placeOf(row, xField)));
+              const y = $.const(unsigned(placeOf(row, yField)));
+              const w = $.const(unsigned(sizeOf(row, area.width)));
+              const h = $.const(unsigned(sizeOf(row, area.height)));
+              const [minX, maxX, minY, maxY] = area.at === 'centre'
+                ? [x.subtract(w.abs().divide(2.0)), x.add(w.abs().divide(2.0)), y.subtract(h.abs().divide(2.0)), y.add(h.abs().divide(2.0))]
+                : [smaller(x, x.add(w)), larger(x, x.add(w)), smaller(y, y.add(h)), larger(y, y.add(h))];
+              $.if(minX.lessEqual(toX).and(() => maxX.greaterEqual(fromX)).and(() => minY.lessEqual(toY)).and(() => maxY.greaterEqual(fromY)), ($) => {
+                give($, row, rowKey(entry));
+              });
+            });
+          });
         });
       });
     },
-    unplaced: (where) => {
+    unplaced: (...where) => {
       if (!xField.optional) {
         throw new Error(
           `${entries.name} unplaced: the index's place, '${area.x}' and '${area.y}', is Float fields, so every row is placed — ` +
           `a row not yet placed is one whose place is an Option<Float> left none`,
         );
       }
-      const written = leadingOn(entries, 'unplaced', (where as { on?: unknown } | undefined)?.on);
+      const written = leadingOn(entries, 'unplaced', (where[0] as { on?: unknown } | undefined)?.on);
       return readOf(entries.k, entries.carried, ($, give) => {
         const on = $.const(written);
         $.for(entries.dict.prefix({ ik: { on, area: AREA_UNPLACED } } as never), ($, row, entry) => { give($, row, rowKey(entry)); });
@@ -764,7 +857,8 @@ export interface NestedReaders<K extends EastType = EastType, V = unknown, C = u
    * A node's own items, or values, that overlap `[from, to)`: an item timed
    * `{ from, to }` as an interval index's row overlaps a window, a value or
    * an instant where it is inside it. One run a level for items timed
-   * `{ from, to }`; one for values and instants.
+   * `{ from, to }`, in the index's order of its levels; one for values and
+   * instants.
    *
    * @param window - The collection, the row, the path to the node, and the window
    * @returns The read: each item or value once, and its id or its instant
@@ -795,7 +889,7 @@ export interface NestedReaders<K extends EastType = EastType, V = unknown, C = u
   subtotals(window: NestedWindow<K, NestedPlaceOf<C>> & { rollup: SeriesRollupInput; level?: RecordTile }): IndexRead<FloatType, DateTimeType>;
   /**
    * The items of every node beneath a node, of a collection rolled up, that
-   * overlap `[from, to)`. One run a level.
+   * overlap `[from, to)`. One run a level, in the index's order of its levels.
    *
    * @param window - The collection, the row, the path to the node, and the window
    * @returns The read: each item once, and the keys from the node down to the one holding it with its id
@@ -819,31 +913,55 @@ const KeysType = ArrayType(StringType);
 /** Whether two rollups are one, as an index keeps them. */
 const sameRollup = equalFor(RecordRollupType);
 
+/** Each nested series index's declaration, as its readers hold it ({@link nestedDeclared}). */
+const NESTED_DECLARED = new WeakMap<RecordIndexDef, NestedDeclaration>();
+
+/**
+ * A nested series index's declaration, as its readers hold it: its
+ * collections, each with its place and what it holds.
+ *
+ * The record checked the declaration as it built the index. It is walked here
+ * once more for an index, the first time a reader of it is called, and kept:
+ * however many functions take the index as an input, and whether or not their
+ * bodies read it.
+ *
+ * @param def - The nested series index
+ * @returns Its declaration
+ */
+function nestedDeclared(def: RecordIndexDef): NestedDeclaration {
+  let decl = NESTED_DECLARED.get(def);
+  if (decl === undefined) {
+    const rowType = (def.record.type as EastType & { readonly value: EastType }).value;
+    decl = checkNested('index.nested', def.name, rowType, def.nested!.collections);
+    NESTED_DECLARED.set(def, decl);
+  }
+  return decl;
+}
+
 function nestedReaders(entries: Entries): NestedReaders {
   const nested = entries.def.nested!;
-  const record = entries.def.record;
-  const rowType = (record.type as EastType & { readonly value: EastType }).value;
-  const rowKey = (entries.ik as StructType<{ row: EastType }>).fields.row;
-  const decl = checkNested('index.nested', entries.def.name, rowType, nested.collections);
-  const levelsFrom = RECORD_TILES.slice(RECORD_TILES.indexOf(nested.tile));
+  const rowKeyType = (entries.ik as StructType<{ row: EastType }>).fields.row;
+  /** The levels the index files at, from its tile up to the year, as a refusal names them. */
+  const filedAt = RECORD_TILES.slice(RECORD_TILES.indexOf(nested.tile));
   /** A collection's place, as a refusal names it: `['members', 'load']`. */
   const placeWords = (collection: NestedCollection): string => `[${collection.place.map((name) => `'${name}'`).join(', ')}]`;
-  const places = decl.collections.map(placeWords).join(', ');
 
   /** The collection a reader is given by its place, the node it reads, and the window, refused where they do not fit. */
   const written = (reader: string, window: unknown) => {
     const given = (window ?? {}) as { collection?: unknown; row?: unknown; path?: unknown; from?: unknown; to?: unknown };
     const place = given.collection;
+    const decl = nestedDeclared(entries.def);
     const collection = Array.isArray(place)
       ? decl.collections.find((at) => at.place.length === place.length && at.place.every((name, i) => name === place[i]))
       : undefined;
     if (collection === undefined) {
+      const places = decl.collections.map(placeWords).join(', ');
       throw new Error(`${entries.name} ${reader}: the index files no collection at ${JSON.stringify(place)} — it files ${places}, each by its field names from the row down`);
     }
     if (given.row === undefined) throw new Error(`${entries.name} ${reader}: \`row\` is left out — the key of the record's row the node is in`);
     return {
       collection,
-      row: East.value(given.row as never, rowKey),
+      row: East.value(given.row as never, rowKeyType),
       path: East.value((given.path ?? []) as never, KeysType),
       from: instant(entries, reader, 'from', given.from),
       to: instant(entries, reader, 'to', given.to),
@@ -871,16 +989,14 @@ function nestedReaders(entries: Entries): NestedReaders {
     const from = $.const(at.from);
     const to = $.const(at.to);
     $.if(East.less(from, to), ($) => {
-      const startOf = $.const(TILE_FNS.tileStart);
-      const nextOf = $.const(TILE_FNS.tileNext);
-      const unwrap = $.const(itemOf(decl, collection, itemTypeOf(collection), entries.carried));
+      const tiles = tileFns($);
+      const unwrap = $.const(itemOf(nestedDeclared(entries.def), collection, itemTypeOf(collection), entries.carried));
       const fromMs = $.const(from.toEpochMilliseconds());
       const toMs = $.const(to.toEpochMilliseconds());
-      const levels = (spans ? levelsFrom : [nested.tile]).map((tile: RecordTile) => variant(tile, null));
+      // An item with a span is filed at the level its length fits; an instant, and a value, at the index's tile.
+      const levels = spans ? levelsFrom(nested.tile) : [variant(nested.tile, null)];
       $.for($.const(levels, ArrayType(RecordLevelType)), ($, level) => {
-        // An item filed at a level ends within the tile after the one holding its start; an instant is in its own.
-        const first = $.const(spans ? startOf(level, msBefore(startOf(level, from))) : startOf(level, from));
-        const after = $.const(nextOf(level, startOf(level, msBefore(to))));
+        const { first, after } = tilesOver($, tiles, level, from, to, spans);
         const range = entries.dict.range({
           from: { ik: { collection: place, row, path: node, run: variant(run, null), level, tile: first } },
           to: { ik: { collection: place, row, path: node, run: variant(run, null), level, tile: after } },
@@ -895,17 +1011,7 @@ function nestedReaders(entries: Entries): NestedReaders {
             $.if(instantMs.greaterEqual(fromMs).and(() => instantMs.less(toMs)), ($) => { give($, item, key); });
             return;
           }
-          // The index files an item with a start alone, and one with no end, or one at or before its start, is an instant.
-          const starts = $.const(timeOf(item, collection.start, from));
-          const startMs = $.const(starts.toEpochMilliseconds());
-          const endMs = $.const(timeOf(item, collection.end, starts).toEpochMilliseconds());
-          const overlaps = endMs.lessEqual(startMs).ifElse(
-            () => startMs.greaterEqual(fromMs).and(() => startMs.less(toMs)),
-            () => startMs.less(toMs).and(() => endMs.greater(fromMs)),
-          );
-          // An item past a year is filed under each year it touches: it is given under the first of them the run holds.
-          const tile = $.const(indexKeyPart(entry, 'tile') as ExprType<DateTimeType>);
-          $.if(overlaps.and(() => East.equal(tile, first).or(() => East.equal(tile, startOf(level, starts)))), ($) => { give($, item, key); });
+          $.if(spanGiven($, item, collection.start, collection.end, entry, { from, fromMs, toMs, first }), ($) => { give($, item, key); });
         });
       });
     });
@@ -922,11 +1028,8 @@ function nestedReaders(entries: Entries): NestedReaders {
     const from = $.const(at.from);
     const to = $.const(at.to);
     $.if(East.less(from, to), ($) => {
-      const startOf = $.const(TILE_FNS.tileStart);
-      const nextOf = $.const(TILE_FNS.tileNext);
       const level = $.const(variant(tile, null), RecordLevelType);
-      const first = $.const(startOf(level, from));
-      const after = $.const(nextOf(level, startOf(level, msBefore(to))));
+      const { first, after } = tilesOver($, tileFns($), level, from, to, false);
       const range = entries.dict.range({
         from: { ik: { collection: place, row, path: node, run, level, tile: first } },
         to: { ik: { collection: place, row, path: node, run, level, tile: after } },
@@ -976,8 +1079,8 @@ function nestedReaders(entries: Entries): NestedReaders {
         throw new Error(`${entries.name} subtotals: the collection at ${placeWords(collection)} keeps no subtotal by ${rollupWords(rollup)} — ${names}`);
       }
       const level = given.level === undefined ? nested.tile : given.level;
-      if (typeof level !== 'string' || !(levelsFrom as readonly string[]).includes(level)) {
-        throw new Error(`${entries.name} subtotals: the index keeps subtotals at ${levelsFrom.join(', ')}, and none at ${JSON.stringify(given.level)}`);
+      if (typeof level !== 'string' || !(filedAt as readonly string[]).includes(level)) {
+        throw new Error(`${entries.name} subtotals: the index keeps subtotals at ${filedAt.join(', ')}, and none at ${JSON.stringify(given.level)}`);
       }
       return readOf(DateTimeType, FloatType, ($, give) => { tilesOf($, variant('subtotals', rollup), level as RecordTile, 'subtotal', at, give); });
     },
@@ -1009,33 +1112,65 @@ type RecordRowOf<T> = T extends DictType<unknown, infer V extends EastType> ? V 
  * index's `items`, `totals`, `subtotals`, `subtree` and `subtreeTotals`, and
  * a plain index's `of` and `between`.
  *
+ * What a read gives for a row is what the index carries as its record builds
+ * it (`RecordIndexDef`'s `Carried`): beside a nested series index or an
+ * entries index of the record, an index that carries nothing, or the row,
+ * carries the lean row, and its reads are typed by it.
+ *
  * @typeParam D - The index, as `record.indexes.<name>` types it
  */
 export type IndexReadersOf<D> =
-  D extends RecordIndexDef<string, infer T, infer IK, infer P>
-    ? D extends { readonly series: object } ? SeriesReaders<IK, P, RecordKeyOf<T>>
+  D extends RecordIndexDef<string, infer T, infer IK, EastType, readonly string[] | undefined, infer C>
+    ? D extends { readonly series: object } ? SeriesReaders<IK, C, RecordKeyOf<T>>
       : D extends { readonly summary: object } ? SummaryReaders<IK>
-      : D extends { readonly interval: object } ? IntervalReaders<IK, P, RecordKeyOf<T>>
-      : D extends { readonly area: object } ? AreaReaders<IK, P, RecordKeyOf<T>>
-      : D extends { readonly entries: object } ? EntriesReaders<IK, P, RecordKeyOf<T>>
-      : D extends { readonly nested: { readonly collections: infer C } } ? NestedReaders<RecordKeyOf<T>, RecordRowOf<T>, C>
-      : PlainReaders<IK, P, D extends { readonly span: object } ? IK : RecordKeyOf<T>>
+      : D extends { readonly interval: object } ? IntervalReaders<IK, C, RecordKeyOf<T>>
+      : D extends { readonly area: object } ? AreaReaders<IK, C, RecordKeyOf<T>>
+      : D extends { readonly entries: object } ? EntriesReaders<IK, C, RecordKeyOf<T>>
+      : D extends { readonly nested: { readonly collections: infer N } } ? NestedReaders<RecordKeyOf<T>, RecordRowOf<T>, N>
+      : PlainReaders<IK, C, D extends { readonly span: object } ? IK : RecordKeyOf<T>>
     : Record<never, never>;
 
+/** The index an expression's readers read, kept on the expression: it carries one index's. */
+const READS = Symbol('e3.indexReads');
+
+/** An index input, as a refusal names it: `e3.index 'jobs.jobs_by_press'`. */
+const inputWords = (input: IndexInputDef): string => `e3.index '${input.record.name}.${input.index.name}'`;
+
 /**
- * The readers of an index over an expression of its entries.
+ * An expression of an index's entries with the index's readers on it: the
+ * expression itself, still the entries.
+ *
+ * An expression carries one index's readers. One that carries this index's
+ * already — a body's parameter for it, or what `read` was given before — is
+ * given back as it is, its readers not made again; one that carries another
+ * index's is refused, naming it, which is how two indexes whose entries have
+ * one type are told apart. An expression that carries none is known by its
+ * type alone: the parameter of a task's own function for another index of the
+ * same type is read as this one's, and is the author's to keep apart.
  *
  * @param input - The index, as `e3.index` takes it
  * @param entries - Its entries: the body's parameter for it, or any expression of the input's type
- * @returns Its kind's readers
- * @throws {Error} When the expression is not of the index's entries' type, naming both
+ * @returns The expression, with the readers of the index's kind
+ * @throws {Error} When the expression is not of the index's entries' type, naming both, or carries another index's
+ *   readers, naming that index
  */
-export function indexReaders(input: IndexInputDef, entries: unknown): object {
-  const name = `e3.index '${input.record.name}.${input.index.name}'`;
+export function readersOn(input: IndexInputDef, entries: unknown): Expr {
+  const name = inputWords(input);
   if (!(entries instanceof Expr) || !isTypeEqual(Expr.type(entries), input.type)) {
     const given = entries instanceof Expr ? `an expression of ${printType(Expr.type(entries))}` : 'no East expression';
     throw new Error(`${name} reads its own entries, ${printType(input.type)}, and was given ${given} — pass the body's parameter for this index`);
   }
+  const read = (entries as { readonly [READS]?: IndexInputDef })[READS];
+  if (read !== undefined) {
+    if (read.index === input.index) return entries;
+    throw new Error(`${name} reads its own entries, and was given those of ${inputWords(read)}, which are of the same type — pass the body's parameter for this index`);
+  }
+  Object.defineProperty(entries, READS, { value: input });
+  return Object.assign(entries, readersOf(name, input, entries));
+}
+
+/** The readers of an index's kind over an expression of its entries. */
+function readersOf(name: string, input: IndexInputDef, entries: Expr): object {
   const type = input.type as DictType<StructType<{ ik: EastType; k: EastType }>, EastType>;
   const held: Entries = {
     name, def: input.index, dict: entries as Entries['dict'], ik: type.key.fields.ik, k: type.key.fields.k, carried: type.value,

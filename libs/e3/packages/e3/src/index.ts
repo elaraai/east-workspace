@@ -144,7 +144,7 @@ export type { IndexEntriesOf } from './index-input.js';
 export { NestedUnderType } from './index-read.js';
 export type {
   IndexRead, IndexReadersOf, PlainReaders, IntervalReaders, SeriesReaders, SummaryReaders, AreaReaders, EntriesReaders, NestedReaders,
-  TimeWindow, KeyWindow, AreaWindow, NestedWindow, LeadingOn,
+  TimeWindow, KeyWindow, AreaWindow, NestedWindow, LeadingOn, LeadingArgs,
 } from './index-read.js';
 export type { FunctionSpec } from './function.js';
 

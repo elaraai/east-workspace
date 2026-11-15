@@ -32,12 +32,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-    BooleanType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, SortedMap, StringType, StructType,
+    BooleanType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, SortedMap, SortedSet, StringType, StructType,
     compareFor, compareKeyToBoundFor, decodeBeast2For, encodeBeast2For, equalFor, keyLeaves, none, parseFor, printFor, some, variant,
     type EastType, type ValueTypeOf,
 } from "@elaraai/east";
 import e3, { NestedUnderType, builtIndex, indexBuildProgram, summaryMergeProgram, type RecordDef, type RecordIndexDef } from "@elaraai/e3";
-import { RecordNestedTotalsType, RecordSummaryTotalsType, type RecordNestedTotals, type RecordSummaryTotals } from "@elaraai/e3-types";
+import { RecordNestedPathType, RecordNestedTotalsType, RecordSummaryTotalsType, type RecordNestedTotals, type RecordSummaryTotals } from "@elaraai/e3-types";
 import {
     RecordSliceIndexType, areaQueries, intervalQueries, levelCellQueries, levelRuns, recordOnPrinter, summaryCellQueries, summaryRun, tileNext,
 } from "@elaraai/east-ui/internal";
@@ -219,6 +219,11 @@ const WINDOWS: { from: Date; to: Date }[] = (() => {
 const BOXES: { x: number; y: number; width: number; height: number }[] = (() => {
     const draw = stream(266);
     const out = [{ x: 40, y: 20, width: 10, height: 10 }, { x: 0, y: 0, width: 100, height: 60 }, { x: 4_999_990, y: 0, width: 20, height: 20 }];
+    // A window that is one point, a rack's centre, its width and height written as the zero below zero: a page's
+    // search takes it as a window of no width, which holds the rack
+    const centre = [...RACKS.values()].flatMap((rack) => (rack.x.type === "some" && rack.y.type === "some" ? [{ x: rack.x.value, y: rack.y.value }] : []))[0];
+    assert.ok(centre !== undefined, "a rack is placed");
+    out.push({ ...centre, width: -0, height: -0 });
     for (let n = 0; n < 20; n++) {
         const side = n % 4 === 0 ? 0.5 + draw() * 2 : 2 + draw() ** 2 * 60;
         out.push({ x: draw() * 110 - 5, y: draw() * 70 - 5, width: side, height: side * (0.3 + draw()) });
@@ -228,33 +233,52 @@ const BOXES: { x: number; y: number; width: number; height: number }[] = (() => 
 
 // ── An index's entries, and a search of them as e3 answers one ───────────────
 
-/** An index as its record's state holds it: its entries in order, and its key's types. */
-interface Held {
-    readonly ik: EastType;
-    readonly entryKey: EastType;
-    readonly entries: readonly [{ ik: Record<string, unknown>; k: unknown }, unknown][];
+/** The type of an index's entries: `Dict<{ ik, k }, P>`. */
+type EntriesType = DictType<StructType<{ ik: EastType; k: EastType }>, EastType>;
+/** An entry's key, and what it carries, each as the index's own entries' type decodes. */
+type EntryOf<T extends EntriesType> = readonly [ValueTypeOf<T["key"]>, ValueTypeOf<T["value"]>];
+
+/** An index as its record's state holds it: its entries in order, typed by the index's own entries' type, and its key's types. */
+interface Held<T extends EntriesType> {
+    readonly ik: T["key"]["fields"]["ik"];
+    readonly entryKey: T["key"];
+    readonly entries: readonly EntryOf<T>[];
     /** The entries as a compiled function takes them. */
     readonly dict: never;
 }
 
-/** The entries an index's own build program files for some rows, a summary's summed by its merge. */
-function heldOf(rec: RecordDef, declared: RecordIndexDef, rows: unknown): Held {
-    const def = builtIndex(rec, declared);
-    const summary = def.summary !== undefined;
-    const entryKey = StructType({ ik: def.keyType, k: summary ? NullType : (rec.type as EastType & { key: EastType }).key });
-    const entries = new SortedMap<unknown, unknown>(undefined, compareFor(entryKey) as never);
-    const merge = summary ? summaryMergeProgram(def).compile([]) as (entry: unknown, a: RecordSummaryTotals, b: RecordSummaryTotals) => RecordSummaryTotals : undefined;
-    const build = indexBuildProgram(rec.type, def).compile([]) as (piece: unknown, emit: (entry: unknown, value: unknown) => null) => unknown;
+/**
+ * The entries an index's own build program files for some rows.
+ *
+ * @param input - The index, as `e3.index` gives it
+ * @param rows - The record's rows
+ * @param merge - A summary's merge of two totals filed under one key (`summaryMergeProgram`): its build files a row's
+ *   share of a tile at a time
+ * @returns The entries, in the index's order
+ */
+function heldOf<T extends EntriesType>(
+    input: { readonly type: T; readonly record: RecordDef; readonly index: RecordIndexDef }, rows: unknown,
+    merge?: (entry: ValueTypeOf<T["key"]>, a: ValueTypeOf<T["value"]>, b: ValueTypeOf<T["value"]>) => ValueTypeOf<T["value"]>,
+): Held<T> {
+    type Key = ValueTypeOf<T["key"]>;
+    type Carried = ValueTypeOf<T["value"]>;
+    const def = builtIndex(input.record, input.index);
+    const entryKey: T["key"] = input.type.key;
+    const entries = new SortedMap<Key, Carried>(undefined, compareFor(entryKey));
+    const build = indexBuildProgram(input.record.type, def).compile([]) as (piece: unknown, emit: (entry: Key, value: Carried) => null) => unknown;
     build(rows, (entry, value) => {
         const before = entries.get(entry);
-        entries.set(entry, before === undefined || merge === undefined ? value : merge(entry, before as RecordSummaryTotals, value as RecordSummaryTotals));
+        entries.set(entry, before === undefined || merge === undefined ? value : merge(entry, before, value));
         return null;
     });
-    return { ik: def.keyType, entryKey, entries: [...entries] as Held["entries"], dict: entries as never };
+    return { ik: entryKey.fields.ik, entryKey, entries: [...entries], dict: entries as never };
 }
 
+/** A struct's field by a name known only as a search is answered: its value, which the field's own type compares. */
+const fieldOf = (struct: object, name: string): unknown => Reflect.get(struct, name);
+
 /** The entries a search holds, as e3 answers one (`key-search.ts`). */
-function searched(index: Held, query: Query): Held["entries"] {
+function searched<T extends EntriesType>(index: Held<T>, query: Query): readonly EntryOf<T>[] {
     if (query.type === "range") {
         // A range bounds the collection's flattened key, `{ ik, k }`, by its leading leaves.
         const leaves = keyLeaves(index.entryKey);
@@ -272,21 +296,27 @@ function searched(index: Held, query: Query): Held["entries"] {
     assert.equal(query.type, "fields", "a page's search is a range, or exact leading fields");
     assert.equal(query.value.prefix.type, "none");
     // Exact leading fields of the index key, `ik`.
-    const fields = (index.ik as StructType<Record<string, EastType>>).fields;
+    const ik: EastType = index.ik;
+    if (ik.type !== "Struct") assert.fail("an index a page searches by fields has a struct key");
+    const fields = ik.fields;
     const names = Object.keys(fields).slice(0, query.value.values.length);
     const values = names.map((name, i) => {
         const parsed = parseFor(fields[name]!)(query.value.values[i]!);
         assert.ok(parsed.success, `${query.value.values[i]} is the key's '${name}'`);
         return parsed.value;
     });
-    return index.entries.filter(([entry]) => names.every((name, i) => equalFor(fields[name]!)(entry.ik[name], values[i])));
+    return index.entries.filter(([entry]) => names.every((name, i) => equalFor(fields[name]!)(fieldOf(entry.ik, name), values[i])));
 }
 
+/** The entries of an index over rows keyed by a String. */
+type KeyedByString = DictType<StructType<{ ik: EastType; k: StringType }>, EastType>;
+
 /** The row keys of some entries, each once, in key order; fails where a row is held twice and `once` says none is. */
-function keysOf(entries: Held["entries"], once: string | undefined): string[] {
-    const keys = entries.map(([entry]) => entry.k as string);
-    if (once !== undefined) assert.equal(new Set(keys).size, keys.length, `${once}: the page's searches hold a row once`);
-    return [...new Set(keys)].sort(keyOrder);
+function keysOf<T extends KeyedByString>(entries: readonly EntryOf<T>[], once: string | undefined): string[] {
+    const keys = entries.map(([entry]) => entry.k);
+    const distinct = new SortedSet(keys, keyOrder);
+    if (once !== undefined) assert.equal(distinct.size, keys.length, `${once}: the page's searches hold a row once`);
+    return [...distinct];
 }
 
 /** A page's index metadata, as `Data.bindPaged` gives a record Slice one. */
@@ -319,7 +349,7 @@ test("an interval index: the page's start range and carry-in ranges hold exactly
     const inTime = e3.index(jobs.indexes.in_time);
     const body = East.compile(East.function([inTime.type, DateTimeType, DateTimeType], Keys, ($, entries, from, to) =>
         inTime.read(entries).overlapping({ from, to }).collect($)), []);
-    const held = heldOf(jobs, jobs.indexes.in_time, JOBS);
+    const held = heldOf(inTime, JOBS);
     const unled = recordOnPrinter(StructType({}));
     let rows = 0;
     for (const w of WINDOWS) {
@@ -336,7 +366,7 @@ test("an interval index: the page's start range and carry-in ranges hold exactly
     const byState = e3.index(jobs.indexes.in_time_by_state);
     const bodyIn = East.compile(East.function([byState.type, StringType, DateTimeType, DateTimeType], Keys, ($, entries, state, from, to) =>
         byState.read(entries).overlapping({ on: { state }, from, to }).collect($)), []);
-    const heldByState = heldOf(jobs, jobs.indexes.in_time_by_state, JOBS);
+    const heldByState = heldOf(byState, JOBS);
     const led = recordOnPrinter(StructType({ state: StringType }));
     for (const w of WINDOWS.slice(0, 10)) {
         for (const state of STATES) {
@@ -354,34 +384,39 @@ test("an interval index: the page's start range and carry-in ranges hold exactly
 });
 
 test("a series index: of what the page's run a level holds, the events that overlap the window are exactly the body's `events`, each once", () => {
-    const cases = [
-        { name: "press_weeks" as const, state: undefined as string | undefined },
-        { name: "press_weeks_by_state" as const, state: "confirmed" },
-    ];
-    for (const { name, state } of cases) {
-        const def = jobs.indexes[name];
-        const input = e3.index(def);
-        const body = East.compile(East.function([input.type as EastType, StringType, DateTimeType, DateTimeType], JobsType, ($, entries, press, from, to) =>
-            (input.read(entries as never) as unknown as { events(w: object): { collect(b: unknown): never } })
-                .events({ ...(state !== undefined && { on: { state } }), key: press, from, to }).collect($)), []);
-        const held = heldOf(jobs, def, JOBS);
+    /** The entries of a series index of the jobs: each carries its row. */
+    type JobEvents = DictType<StructType<{ ik: EastType; k: StringType }>, typeof JobRow>;
+    /** One index through both: the page's runs of a press over each window, and the body's read of it. */
+    const through = (
+        name: string, def: RecordIndexDef, held: Held<JobEvents>, state: string | undefined,
+        body: (entries: never, press: string, from: Date, to: Date) => ReadonlyMap<string, Job>,
+    ): void => {
         const index = pageIndex(name, def);
-        const where = new Map(state === undefined ? [] : [["state", variant("values", [printString(state)])] as const]);
+        const where: Parameters<typeof levelCellQueries>[1] = new Map(state === undefined ? [] : [["state", variant("values", [printString(state)])]]);
         let more = 0;
         for (const w of WINDOWS) {
             for (const press of PRESSES) {
                 // The page reads a run a level, two tiles before the window's first and one after its last
                 const runs = levelRuns("week", w.from, w.to);
-                const cells = runs.flatMap((run) => levelCellQueries(index, where as never, run, [printString(press)]).queries.flatMap((query) => searched(held, query)));
-                const inWindow = cells.filter(([, row]) => overlaps(row as Job, w.from, w.to));
+                const cells = runs.flatMap((run) => levelCellQueries(index, where, run, [printString(press)]).queries.flatMap((query) => searched(held, query)));
+                const inWindow = cells.filter(([, row]) => overlaps(row, w.from, w.to));
                 more += cells.length - inWindow.length;
-                const given = body(held.dict, press, w.from, w.to) as ReadonlyMap<string, Job>;
+                const given = body(held.dict, press, w.from, w.to);
                 assert.deepEqual(keysIn(given), keysOf(inWindow, undefined), `the ${state ?? ""} jobs on ${press} in ${window(w)}`);
-                for (const [entry, row] of inWindow) assert.ok(equalFor(JobRow)(given.get(entry.k as string)!, row as Job), "each with the row the index carries");
+                for (const [entry, row] of inWindow) assert.ok(equalFor(JobRow)(given.get(entry.k)!, row), "each with the row the index carries");
             }
         }
         assert.ok(more > 100, `the page's runs hold more than the windows do, which its reader tests: ${more}`);
-    }
+    };
+
+    const pressWeeks = e3.index(jobs.indexes.press_weeks);
+    through("press_weeks", jobs.indexes.press_weeks, heldOf(pressWeeks, JOBS), undefined,
+        East.compile(East.function([pressWeeks.type, StringType, DateTimeType, DateTimeType], JobsType, ($, entries, press, from, to) =>
+            pressWeeks.read(entries).events({ key: press, from, to }).collect($)), []));
+    const byState = e3.index(jobs.indexes.press_weeks_by_state);
+    through("press_weeks_by_state", jobs.indexes.press_weeks_by_state, heldOf(byState, JOBS), "confirmed",
+        East.compile(East.function([byState.type, StringType, DateTimeType, DateTimeType], JobsType, ($, entries, press, from, to) =>
+            byState.read(entries).events({ on: { state: "confirmed" }, key: press, from, to }).collect($)), []));
 });
 
 test("a summary index: the tiles of the page's run that overlap the window are the body's `totals`", () => {
@@ -389,7 +424,7 @@ test("a summary index: the tiles of the page's run that overlap the window are t
     const Totals = DictType(DateTimeType, RecordSummaryTotalsType);
     const body = East.compile(East.function([months.type, StringType, DateTimeType, DateTimeType], Totals, ($, entries, press, from, to) =>
         months.read(entries).totals({ key: press, from, to }).collect($)), []);
-    const held = heldOf(jobs, jobs.indexes.press_months, JOBS);
+    const held = heldOf(months, JOBS, summaryMergeProgram(builtIndex(jobs, jobs.indexes.press_months)).compile([]));
     const index = pageIndex("press_months", jobs.indexes.press_months);
     let tiles = 0;
     for (const w of WINDOWS) {
@@ -399,8 +434,8 @@ test("a summary index: the tiles of the page's run that overlap the window are t
             const cell = summaryCellQueries(index, new Map(), run, [printString(press)]).queries.flatMap((query) => searched(held, query));
             const expected = new SortedMap<Date, RecordSummaryTotals>(undefined, instantOrder);
             for (const [entry, totals] of cell) {
-                const tile = entry.ik.tile as Date;
-                if (instantOrder(tile, w.to) < 0 && instantOrder(tileNext("month", tile), w.from) > 0) expected.set(tile, totals as RecordSummaryTotals);
+                const tile = entry.ik.tile;
+                if (instantOrder(tile, w.to) < 0 && instantOrder(tileNext("month", tile), w.from) > 0) expected.set(tile, totals);
             }
             tiles += expected.size;
             assert.ok(equalFor(Totals)(body(held.dict, press, w.from, w.to), expected), `the months of ${press} in ${window(w)}`);
@@ -424,49 +459,71 @@ test("an area index: of what the page's searches of a viewport hold, the rows wh
         });
         return false;
     }), []);
-    const cases = [
-        { def: racks.indexes.by_area, zone: undefined as string | undefined, printOn: recordOnPrinter(StructType({})) },
-        { def: racks.indexes.by_zone_area, zone: "storage", printOn: recordOnPrinter(StructType({ zone: StringType })) },
-    ];
-    for (const { def, zone, printOn } of cases) {
-        const input = e3.index(def);
-        const body = East.compile(East.function([input.type as EastType, FloatType, FloatType, FloatType, FloatType], RacksType, ($, entries, x, y, width, height) =>
-            (input.read(entries as never) as unknown as { within(w: object): { collect(b: unknown): never } })
-                .within({ ...(zone !== undefined && { on: { zone } }), x, y, width, height }).collect($)), []);
-        const held = heldOf(racks, def, RACKS);
+    /** The entries of an area index of the racks: each carries its row. */
+    type RackCells = DictType<StructType<{ ik: EastType; k: StringType }>, typeof RackRow>;
+    /** One index through both: the page's searches of each viewport, and the body's read of it. */
+    const through = (
+        held: Held<RackCells>, zone: string | undefined, printOn: ReturnType<typeof recordOnPrinter>,
+        body: (entries: never, x: number, y: number, width: number, height: number) => ReadonlyMap<string, Rack>,
+    ): void => {
         let more = 0;
         let rows = 0;
         for (const box of BOXES) {
             const queries = areaQueries(zone === undefined ? [] : [printString(zone)], { minX: box.x, minY: box.y, maxX: box.x + box.width, maxY: box.y + box.height }, 2 ** -7, printOn);
             assert.ok(queries.length <= 266, "at most 266 searches a combination");
             const page = queries.flatMap((query) => searched(held, query));
-            const inBox = page.filter(([, row]) => meets(row as Rack, box.x, box.y, box.width, box.height));
+            const inBox = page.filter(([, row]) => meets(row, box.x, box.y, box.width, box.height));
             more += page.length - inBox.length;
             rows += inBox.length;
-            assert.deepEqual(keysIn(body(held.dict, box.x, box.y, box.width, box.height) as ReadonlyMap<string, Rack>), keysOf(inBox, `${box.width} by ${box.height} at ${box.x}, ${box.y}`),
+            assert.deepEqual(keysIn(body(held.dict, box.x, box.y, box.width, box.height)), keysOf(inBox, `${box.width} by ${box.height} at ${box.x}, ${box.y}`),
                 `the ${zone ?? ""} racks in ${box.width} by ${box.height} at ${box.x}, ${box.y}`);
         }
         assert.ok(rows > 300 && more > 50, `the windows hold racks, and the page's searches more than they do: ${rows}, ${more}`);
-    }
+    };
+
+    const byArea = e3.index(racks.indexes.by_area);
+    through(heldOf(byArea, RACKS), undefined, recordOnPrinter(StructType({})),
+        East.compile(East.function([byArea.type, FloatType, FloatType, FloatType, FloatType], RacksType, ($, entries, x, y, width, height) =>
+            byArea.read(entries).within({ x, y, width, height }).collect($)), []));
+    const byZone = e3.index(racks.indexes.by_zone_area);
+    through(heldOf(byZone, RACKS), "storage", recordOnPrinter(StructType({ zone: StringType })),
+        East.compile(East.function([byZone.type, FloatType, FloatType, FloatType, FloatType], RacksType, ($, entries, x, y, width, height) =>
+            byZone.read(entries).within({ on: { zone: "storage" }, x, y, width, height }).collect($)), []));
 });
 
 test("a nested series index: of what the page's runs of a node hold, what the window holds is exactly the body's `items`, `subtree`, `totals` and `subtotals`", () => {
     const inTime = e3.index(lines.indexes.lines_in_time);
-    const held = heldOf(lines, lines.indexes.lines_in_time, LINES);
-    const ik = (held.ik as StructType<Record<string, EastType>>).fields;
-    const printPath = printFor(ik["path"]!);
-    const printRun = printFor(ik["run"]!);
-    const printLevel = printFor(ik["level"]!);
-    const printTile = printFor(ik["tile"]!);
+    const held = heldOf(inTime, LINES);
+    const ik = held.ik.fields;
+    type Path = ValueTypeOf<typeof RecordNestedPathType>;
+    type Run = ValueTypeOf<typeof ik.run>;
+    type Level = ValueTypeOf<typeof ik.level>;
+    type Filed = (typeof held.entries)[number];
+    const printPath = printFor(ik.path);
+    const printRun = printFor(ik.run);
+    const printLevel = printFor(ik.level);
+    const printTile = printFor(ik.tile);
     /** A path as the index's key holds one, from its names: what the page's reader prints a place and a node by. */
-    const pathOf = (names: readonly string[]): unknown => names.reduceRight<unknown>((rest, key) => variant("step", { key, rest }), variant("end", null));
+    const pathOf = (names: readonly string[]): Path => names.reduceRight<Path>((rest, key) => variant("step", { key, rest }), variant("end", null));
     /** The page's search of one run of a node at a level, over a run of its tiles (`plan/root/nested.ts`). */
-    const pageRun = (place: readonly string[], row: string, path: readonly string[], run: unknown, level: string, from: Date, to: Date): Query => {
-        const leading = [printPath(pathOf(place) as never), printString(row), printPath(pathOf(path) as never), printRun(run as never), printLevel(variant(level, null) as never)];
-        return variant("range", { from: [...leading, printTile(from as never)], to: [...leading, printTile(to as never)] }) as Query;
+    const pageRun = (place: readonly string[], row: string, path: readonly string[], run: Run, level: Level["type"], from: Date, to: Date): Query => {
+        const leading = [printPath(pathOf(place)), printString(row), printPath(pathOf(path)), printRun(run), printLevel(variant(level, null))];
+        return variant("range", { from: [...leading, printTile(from)], to: [...leading, printTile(to)] });
     };
-    /** An entry's job, out of its value: `.item .units .jobs`. */
-    const jobOf = (value: unknown): Job => (value as { value: { value: { value: Job } } }).value.value.value;
+    /** An entry's job, out of its value: the item of the units' jobs. */
+    const jobOf = ([, value]: Filed): Job => {
+        if (value.type !== "item" || value.value.type !== "units" || value.value.value.type !== "jobs") assert.fail(`an entry of the jobs' runs carries a job, and this one a ${value.type}`);
+        return value.value.value.value;
+    };
+    /** An entry's item's id, or the keys down to the node holding it with its id. */
+    const idOf = ([entry]: Filed): string => {
+        if (entry.ik.item.type !== "id") assert.fail(`an entry of a node's own items names its item by its id, and this one by its ${entry.ik.item.type}`);
+        return entry.ik.item.value;
+    };
+    const underOf = ([entry]: Filed): ValueTypeOf<typeof NestedUnderType> => {
+        if (entry.ik.item.type !== "under") assert.fail(`an entry of a subtree names its item by the node holding it, and this one by its ${entry.ik.item.type}`);
+        return entry.ik.item.value;
+    };
 
     const Beneath = DictType(NestedUnderType, JobRow);
     const MonthTotals = DictType(DateTimeType, RecordNestedTotalsType);
@@ -489,10 +546,10 @@ test("a nested series index: of what the page's runs of a node hold, what the wi
             for (const unit of row.units.keys()) {
                 const cells = levelRuns("week", w.from, w.to).flatMap((run) =>
                     searched(held, pageRun(["units", "jobs"], line, [unit], variant("items", null), run.level, run.from, run.to)));
-                const inWindow = cells.filter(([, value]) => overlaps(jobOf(value), w.from, w.to));
+                const inWindow = cells.filter((filed) => overlaps(jobOf(filed), w.from, w.to));
                 more += cells.length - inWindow.length;
                 // A job past a year is filed under each year it touches: the page's fill holds it once
-                const expected = new SortedMap<string, Job>(inWindow.map(([entry, value]): [string, Job] => [(entry.ik["item"] as { value: string }).value, jobOf(value)]), keyOrder);
+                const expected = new SortedMap<string, Job>(inWindow.map((filed): [string, Job] => [idOf(filed), jobOf(filed)]), keyOrder);
                 rows += expected.size;
                 assert.ok(equalFor(JobsType)(itemsOf(held.dict, line, unit, w.from, w.to), expected), `the jobs of ${line} ${unit} in ${window(w)}`);
 
@@ -500,9 +557,10 @@ test("a nested series index: of what the page's runs of a node hold, what the wi
                 const run = summaryRun("month", w.from, w.to);
                 const months = new SortedMap<Date, RecordNestedTotals>(undefined, instantOrder);
                 for (const [entry, value] of searched(held, pageRun(["units", "load"], line, [unit], variant("totals", null), "month", run.from, run.to))) {
-                    const tile = entry.ik["tile"] as Date;
+                    const tile = entry.ik.tile;
                     if (instantOrder(w.from, w.to) < 0 && instantOrder(tile, w.to) < 0 && instantOrder(tileNext("month", tile), w.from) > 0) {
-                        months.set(tile, (value as { value: RecordNestedTotals }).value);
+                        if (value.type !== "totals") assert.fail(`an entry of a node's totals carries them, and this one a ${value.type}`);
+                        months.set(tile, value.value);
                     }
                 }
                 tiles += months.size;
@@ -513,8 +571,8 @@ test("a nested series index: of what the page's runs of a node hold, what the wi
             const cells = levelRuns("week", w.from, w.to).flatMap((run) =>
                 searched(held, pageRun(["units", "jobs"], line, [], variant("subtree", null), run.level, run.from, run.to)));
             const beneath = new SortedMap<ValueTypeOf<typeof NestedUnderType>, Job>(undefined, compareFor(NestedUnderType));
-            for (const [entry, value] of cells) {
-                if (overlaps(jobOf(value), w.from, w.to)) beneath.set((entry.ik["item"] as { value: ValueTypeOf<typeof NestedUnderType> }).value, jobOf(value));
+            for (const filed of cells) {
+                if (overlaps(jobOf(filed), w.from, w.to)) beneath.set(underOf(filed), jobOf(filed));
             }
             assert.ok(equalFor(Beneath)(beneathOf(held.dict, line, w.from, w.to), beneath), `the jobs beneath ${line} in ${window(w)}`);
 
@@ -523,9 +581,10 @@ test("a nested series index: of what the page's runs of a node hold, what the wi
             const sum = { fold: variant("sum", null), aggregate: variant("sum", null) };
             const weeks = new SortedMap<Date, number>(undefined, instantOrder);
             for (const [entry, value] of searched(held, pageRun(["units", "load"], line, [], variant("subtotals", sum), "week", run.from, run.to))) {
-                const tile = entry.ik["tile"] as Date;
+                const tile = entry.ik.tile;
                 if (instantOrder(w.from, w.to) < 0 && instantOrder(tile, w.to) < 0 && instantOrder(tileNext("week", tile), w.from) > 0) {
-                    weeks.set(tile, (value as { value: number }).value);
+                    if (value.type !== "subtotal") assert.fail(`an entry of a parent's subtotals carries one, and this one a ${value.type}`);
+                    weeks.set(tile, value.value);
                 }
             }
             tiles += weeks.size;

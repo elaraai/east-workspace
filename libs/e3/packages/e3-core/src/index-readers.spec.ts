@@ -346,7 +346,8 @@ describe('a reader for each kind of index, on every runner', { timeout: 900_000,
           entries.of(press).each($, ($, _carried, key) => { $(kept.insert(key, null)); });
           return kept;
         }),
-        // Beside an entries index, an index that carries nothing carries the lean row: the keys alone are kept
+        // Beside an entries index, an index that carries nothing carries the lean row, as its read is typed: the keys
+        // alone are kept
         e3.function(onRuntime('between', runtime), { inputs: [byPress], args: [StringType, StringType], output: Keys, ...on }, ($, entries, from, to) => {
           const kept = $.let(new Map(), Keys);
           entries.between({ from, to }).each($, ($, _carried, key) => { $(kept.insert(key, null)); });
@@ -441,9 +442,10 @@ describe('a reader for each kind of index, on every runner', { timeout: 900_000,
    * As measured on the three runtimes, which decode alike: a key's rows 1 of
    * 20, an interval's week 12 of 61 and its hour 11, its backlog 1, a
    * series' week 2 of 20, a summary's four weeks 1 of 3, an area's room 4 of
-   * 19, the 4,800 entries of one part 5 of 33, the segments its one run
-   * spans, and each run of one node of a nested series index 1 of 31. The
-   * bounds leave a segment or two for a cut that lands otherwise.
+   * 19 and its one point 2, the 4,800 entries of one part 5 of 33, the
+   * segments its one run spans, and each run of one node of a nested series
+   * index 1 of 31. The bounds leave a segment or two for a cut that lands
+   * otherwise.
    */
   async function held<T extends EastType>(
     reader: string, plain: string, index: string, type: T, args: Uint8Array[], most: number, atLeast: number, record = 'jobs',
@@ -505,6 +507,9 @@ describe('a reader for each kind of index, on every runner', { timeout: 900_000,
   it('an area index: within, the rows whose point is in a window', async () => {
     const room = await held('within', 'plain_within', 'by_area', Keys, [arg(FloatType, 20), arg(FloatType, 10), arg(FloatType, 5), arg(FloatType, 4)], 6, 16);
     assert.equal(room.size, 11 * 9, 'a point every half metre, the edges included');
+    // A window that is one point, its width and height written as the zero below zero: a width of none on every runner
+    const point = await held('within', 'plain_within', 'by_area', Keys, [arg(FloatType, 20), arg(FloatType, 10), arg(FloatType, -0), arg(FloatType, -0)], 4, 16);
+    assert.equal(point.size, 1, 'the one job that stands at the point');
   });
 
   it('an entries index: of, a key\'s entry on every row that holds one', async () => {

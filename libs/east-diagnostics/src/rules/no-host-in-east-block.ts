@@ -7,7 +7,7 @@ import type { EastRule, RuleContext, TsModule } from "../types.js";
 import { isEastExprType, isBlockBuilderType, isEastPlatformDefinitionType } from "../east-type.js";
 import { insideBlockScope } from "../block-scope.js";
 import { chainRootReceiver, bodyBuildsEastIr } from "../east-ir.js";
-import { resolvesToEastImport } from "../east-source.js";
+import { inEastPackage, resolvesToEastImport } from "../east-source.js";
 
 const NAME = "no-host-in-east-block";
 const CODE = 990020;
@@ -97,20 +97,46 @@ function isEastCall(call: ts.CallExpression, ctx: RuleContext): boolean {
   // (`[1n, 2n].indexOf(2n)`) stay flagged: computing over collections is East's
   // job even when the operands happen to be literals.
   if (isConstantFoldCall(call, ctx)) return true;
-  // A11 — a LIBRARY-declared member call that is HANDED the block builder: a
-  // library's own builder of East statements, which emits into the block it is
-  // given as `$.for` does (`read.each($, ($, row, key) => …)`, an e3 index's
-  // read). Its result need not be an `Expr` — a statement has none — but the
-  // member is library API as A9's is, never a TS macro authored in project
-  // source.
-  if (
-    t.isPropertyAccessExpression(f) &&
-    call.arguments.some((a) => isBlockBuilderType(ctx.checker.getTypeAtLocation(a))) &&
-    isLibDeclaredMember(f, ctx)
-  ) {
-    return true;
-  }
+  // A11 — an EAST library's builder of statements, HANDED the block builder: it
+  // emits into the block it is given as `$.for` does (`read.each($, ($, row,
+  // key) => …)`, an e3 index's read). Its result need not be an `Expr` — a
+  // statement has none — so two things stand in for A9's East result: the
+  // member DECLARES the parameter it is handed `$` at as a block builder, and it
+  // is an East package's own. Any other member handed `$` — `console.log($)`,
+  // a utility library's `inspect($)` — is a host call, however it is declared.
+  if (t.isPropertyAccessExpression(f) && takesBlockBuilder(call, ctx) && isEastLibraryMember(f, ctx)) return true;
   return false;
+}
+
+/** Is the call handed the block builder at a parameter its callee DECLARES as
+ * one? The argument's type alone says only what the author passed: a rest of
+ * `any`, or an `unknown`, takes `$` without being a builder of East statements. */
+function takesBlockBuilder(call: ts.CallExpression, ctx: RuleContext): boolean {
+  const signature = ctx.checker.getResolvedSignature(call);
+  if (signature === undefined) return false;
+  return call.arguments.some((arg, at) => {
+    if (!isBlockBuilderType(ctx.checker.getTypeAtLocation(arg))) return false;
+    const parameter = signature.parameters[at];
+    return parameter !== undefined && isBlockBuilderType(ctx.checker.getTypeOfSymbolAtLocation(parameter, call));
+  });
+}
+
+/** Is the accessed member an EAST library's own — declared in a declaration
+ * file of an `@elaraai/*` package, or on an object an `@elaraai/*` factory
+ * built (the test the declaration file can't make where the library's own
+ * source is in-program, as in the monorepo's examples)? Narrower than
+ * {@link isLibDeclaredMember}, which takes any package's declarations: A9 has
+ * the call's East result to hold it, and A11 has not. */
+function isEastLibraryMember(f: ts.PropertyAccessExpression, ctx: RuleContext): boolean {
+  const inEastDts = (sym: ts.Symbol | undefined): boolean =>
+    (sym?.declarations ?? []).some((d) => {
+      const sf = d.getSourceFile();
+      return sf.isDeclarationFile && inEastPackage(sf.fileName);
+    });
+  if (inEastDts(ctx.checker.getSymbolAtLocation(f))) return true;
+  const receiverType = ctx.checker.getTypeAtLocation(f.expression);
+  if (inEastDts(receiverType.aliasSymbol ?? receiverType.symbol)) return true;
+  return rootBuiltByEastFactory(chainRootReceiver(f, ctx), ctx);
 }
 
 /** A call whose whole subtree is literals — no identifier reference, no template
@@ -153,7 +179,7 @@ function isLibDeclaredEastCall(call: ts.CallExpression, f: ts.PropertyAccessExpr
 
 /** Is the accessed member LIBRARY API — declared in a package declaration
  * file, or on an object an `@elaraai/*` factory built? (See
- * {@link isLibDeclaredEastCall} for the two ways, and clauses A9 and A11.) */
+ * {@link isLibDeclaredEastCall} for the two ways, and clause A9.) */
 function isLibDeclaredMember(f: ts.PropertyAccessExpression, ctx: RuleContext): boolean {
   const inPackageDts = (sym: ts.Symbol | undefined): boolean =>
     (sym?.declarations ?? []).some((d) => {

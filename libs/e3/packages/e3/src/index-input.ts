@@ -16,7 +16,7 @@
 
 import { NullType, type DictType, type EastType, type Expr, type StructType } from '@elaraai/east';
 import { indexCollectionType } from '@elaraai/e3-types';
-import { indexReaders } from './index-read.js';
+import { readersOn } from './index-read.js';
 import { isRecord } from './record.js';
 import { RECORD_PART } from './record-builders.js';
 import { builtIndex, summed } from './record-programs.js';
@@ -34,15 +34,15 @@ type RecordKeyOf<T> = T extends DictType<infer K extends EastType, unknown> ? K 
  * @typeParam D - The index, as `record.indexes.<name>` types it
  *
  * @remarks
- * What an index carries is read off its own declaration. Beside a nested
- * series index or an entries index of its record, an index declared with no
- * `value` — or one that carries the row, as an area or a series index does —
- * carries the row without the fields those file, which the declaration alone
- * cannot say: {@link index}'s `type` is the type the record's state holds, and
- * a body that reads what such an index carries declares its parameter by it.
+ * What an index carries is what its record builds it to carry
+ * (`RecordIndexDef`'s `Carried`). Beside a nested series index or an entries
+ * index of its record, an index declared with no `value` — or one that carries
+ * the row, as an area or a series index does — carries the lean row: the row,
+ * with the fields those file emptied. The record's type says so for each of
+ * its indexes, so a body's parameter and {@link index}'s `type` agree.
  */
-export type IndexEntriesOf<D> = D extends RecordIndexDef<string, infer T, infer IK, infer P>
-  ? DictType<StructType<{ ik: IK; k: D extends { readonly summary: object } | { readonly span: object } ? NullType : RecordKeyOf<T> }>, P>
+export type IndexEntriesOf<D> = D extends RecordIndexDef<string, infer T, infer IK, EastType, readonly string[] | undefined, infer C>
+  ? DictType<StructType<{ ik: IK; k: D extends { readonly summary: object } | { readonly span: object } ? NullType : RecordKeyOf<T> }>, C>
   : never;
 
 /** The words for what `e3.index` was given, when it is no index a record carries: what it is, by its kind. */
@@ -83,7 +83,9 @@ function given(value: unknown): string {
  * The body's parameter is the index's entries, a `Dict<{ ik, k }, P>` opened
  * lazily and frozen, as any input is: `ik` the index's key, `k` the record's
  * key, and `P` what the index carries — the row, a `value` of its own, or
- * nothing. Entries with one index key are one contiguous run, in the record's
+ * nothing; beside a nested series index or an entries index of the record,
+ * the lean row where it would carry nothing or the row, which the parameter's
+ * type says. Entries with one index key are one contiguous run, in the record's
  * key order, and a range of index keys is one run too, so a body reads them
  * with `prefix` and `range`, by key, by size and by a loop, each at the cost
  * of the entries it reaches and never of the index. A body that reads it any
@@ -163,7 +165,7 @@ export function index<const D extends RecordIndexDef>(def: D): IndexInputDef<Ind
   }
   const input: IndexInputDef = {
     kind: 'index', index: def, record, type: indexEntriesType(record, def),
-    read: (entries) => Object.assign(entries, indexReaders(input, entries)) as never,
+    read: (entries) => readersOn(input, entries) as never,
   };
   return input as IndexInputDef<IndexEntriesOf<D>, D>;
 }
@@ -179,7 +181,7 @@ export function index<const D extends RecordIndexDef>(def: D): IndexInputDef<Ind
  */
 export function withIndexReaders<P extends readonly Expr[]>(inputs: readonly (InputDef | PartitionDef)[], params: P): P {
   inputs.forEach((input, at) => {
-    if (input.kind === 'index') Object.assign(params[at]!, indexReaders(input, params[at]));
+    if (input.kind === 'index') readersOn(input, params[at]);
   });
   return params;
 }

@@ -433,7 +433,8 @@ It takes the indexes e3 keeps beside one as well: a nested series index's span
 its `k` Null) and an entries index's lean rows
 (`stations.indexes.stations_by_service.entries.rows`). Beside a nested series
 index or an entries index, an index that carries nothing or the row carries the
-lean row, and its `type` says so.
+lean row. Its `type` says so, and so does TypeScript: the body's parameter, and
+what a read of it gives, are typed as the row.
 
 **A reader for each kind.** A plain index's rows under a key are one run, which
 `prefix` reads. The indexes a planning board reads are not one run: a series
@@ -478,10 +479,10 @@ in the index's own order.
 | Declared by | Reader | Gives, each row once | Runs read |
 |---|---|---|---|
 | `index.on`, `index.key`, `index.keys` | `of(key)`: the rows under an index key, or under its first fields (`{ owner }` of `['owner', 'due']`). `between({ from?, to? })`: the rows from one index key up to another | what the index carries, and the row's key | one |
-| `index.interval` | `overlapping({ on?, from, to })`: the rows that overlap `[from, to)`. `unset({ on? })`: the rows with no start | what the index carries, and the row's key | at most 55: the starts in the window, and one a tree node above its first instant |
-| `index.series` | `events({ on?, key, from, to })`: the events on `key` that overlap `[from, to)` | the row, and its key | one a level, from the index's tile to the year |
+| `index.interval` | `overlapping({ on?, from, to })`: the rows that overlap `[from, to)`. `unset({ on? })`: the rows with no start | what the index carries, and the row's key | at most 55, in the index's order: the starts in the window, then one a tree node above its first instant |
+| `index.series` | `events({ on?, key, from, to })`: the events on `key` that overlap `[from, to)` | the row, and its key | one a level, from the index's tile to the year, in the index's order of its levels |
 | `index.summary` | `totals({ on?, key, from, to })`: each tile of `key` that overlaps `[from, to)` | `{ count, ms }`, and the tile's start in place of a row's key | one |
-| `index.area` | `within({ on?, x, y, width, height })`: the rows whose box meets the window. `unplaced({ on? })`: the rows with no place | the row, and its key | at most 266, as a page's read of a viewport |
+| `index.area` | `within({ on?, x, y, width, height })`: the rows whose box meets the window. `unplaced({ on? })`: the rows with no place | the row, and its key | at most 266, as a page's read of a viewport, in the index's order: a cell before the cells inside it |
 | `index.entries` | `of(key)`: that key's entry on every row that holds one | the entry's value, and the row's key | one |
 | `index.nested` | of one node of a row's tree, below | below | one, or one a level |
 
@@ -529,10 +530,10 @@ each refused where the reader is called, naming what the index does keep.
 | Rule | |
 |---|---|
 | **Exact** | A series, a nested series or an area index files more under the runs a window reads than the window holds, and an event past a year under each year it touches: the reader tests each entry, and gives it once. A plain index whose rows fan out — `index.keys`, a Set field — gives a row once across the keys of a read, and holds the keys of the rows it gave to do so |
-| **The window's edges** | `[from, to)`, for every reader with a span of time: an event that ends at `from` is outside; an instant at `from` is inside and one at `to` outside; an event with no end, or one at or before its start, is an instant. A window that ends at or before its start holds no row. A row with no start is in no window: a series index files it nowhere, and an interval index gives it by `unset`. An area's window holds its edges: a box that touches it is in it, and one of a negative size holds none |
-| **Order** | A read gives its rows in the index's own order. Across a series index's levels that is not time order: sort what is collected where order matters |
-| **Leading fields** | An index declared with `on` takes every leading field, exactly, as `on: { status: "open" }`. One left out, one that leads nothing, or a value of another type is refused where the reader is called, naming the fields |
-| **Its kind's readers** | TypeScript offers an index the readers of its kind. `e3.index(def).read` refuses another index's entries, naming both. `unset` and `unplaced` are refused for an index whose start, or place, is no Option field: every row then has one |
+| **The window's edges** | `[from, to)`, for every reader with a span of time: an event that ends at `from` is outside; an instant at `from` is inside and one at `to` outside; an event with no end, or one at or before its start, is an instant. A window that ends at or before its start holds no row. A row with no start is in no window: a series index files it nowhere, and an interval index gives it by `unset`. An area's window holds its edges: a box that touches it is in it, and one of a negative size holds none. A zero is one edge whatever its sign: a width of `-0.0` is a width of none, as it is to a page |
+| **Order** | A read gives its rows in the index's own order: one of several runs reads them in the order the index holds them, so the rows come as a walk of the index meets them. Across a series index's levels that is not time order — the index orders a level by its name: day, month, quarter, week, year — so sort what is collected where order matters |
+| **Leading fields** | An index declared with `on` takes every leading field, exactly, as `on: { status: "open" }`, in every reader: TypeScript requires it, `unset` and `unplaced` included. One left out, one that leads nothing, or a value of another type is refused where the reader is called, naming the fields |
+| **Its kind's readers** | TypeScript offers an index the readers of its kind. `e3.index(def).read` refuses another index's entries, naming both: by their type, and, where two indexes' entries have one type, by the readers the expression already carries — a body's parameter for the other index, or what the other's `read` was given. An expression that carries none is known by its type alone, so in a task's own function two parameters of one type are the author's to keep apart. `unset` and `unplaced` are refused for an index whose start, or place, is no Option field: every row then has one |
 | **More of the row** | Where an index carries less than the row, take the record as an input beside it and read the row by its key, at the same state. Those keyed reads come in the index's order, not the record's, so an index that carries the row is the one to read many rows through |
 | **Cost** | A read costs its runs, each a range read: its two ends through the pager's cache and what lies between. It never costs the index. Over 24,000 jobs: a key's rows decode 1 of the index's 20 segments, a week of an interval 12 of 61, a week of a press's series 2 of 20, a room of an area 4 of 19; over forty lines of four units, each read of one node of a nested series index 1 of 31 — the same on east-node, east-c and east-py |
 | **The page's runs** | Each reader reads the runs a page's reader of its kind searches, less the tiles and the margin a page reads beyond a window to pan into |

@@ -61,18 +61,29 @@ export interface PlainIndexOptions extends PartRunner {
  * @typeParam P - What each entry carries
  * @typeParam On - The row fields leading it, as written
  * @typeParam Extra - Its kind's own part of the definition
+ * @typeParam Lean - What each entry carries beside a nested series index or
+ *   an entries index of its record (`builtIndex`): the row, for an index that
+ *   carries nothing or the row, and its own otherwise
  */
 export interface IndexDraft<
   IK extends EastType = EastType,
   P extends EastType = EastType,
   On extends readonly string[] | undefined = readonly string[] | undefined,
   Extra = unknown,
+  Lean extends EastType = P,
 > {
   /** How the record builds it under its name. */
   readonly [RECORD_PART]: { readonly part: 'index'; readonly build: (record: RecordDef, name: string) => RecordIndexDef };
   /** Its types, for TypeScript alone: never set. */
-  readonly types?: { readonly key: IK; readonly value: P; readonly on: On; readonly extra: Extra };
+  readonly types?: { readonly key: IK; readonly value: P; readonly on: On; readonly extra: Extra; readonly lean: Lean };
 }
+
+/**
+ * What a plain index carries beside a nested series index or an entries index
+ * of its record: its own `value`, where it declares one, and else the lean
+ * row, typed as the row.
+ */
+type PlainLeanOf<O, T> = 'value' extends keyof O ? ProjectionOf<O> : RowOf<T>;
 
 /**
  * A mutation the `mutation` builder makes, which `e3.record` builds under its key.
@@ -203,7 +214,7 @@ export interface IndexBuilder<T extends EastType> {
    * @throws {Error} When a field is not one of the row's, or none is named
    */
   on<const F extends readonly Field<T>[], const O extends PlainIndexOptions = Record<never, never>>(fields: F, options?: O):
-    IndexDraft<IndexKeyOf<{ on: F }, T>, ProjectionOf<O>, F>;
+    IndexDraft<IndexKeyOf<{ on: F }, T>, ProjectionOf<O>, F, unknown, PlainLeanOf<O, T>>;
   /**
    * An index by a key each row computes: `(K, V) -> IK`, one entry a row.
    *
@@ -213,7 +224,7 @@ export interface IndexBuilder<T extends EastType> {
    * @throws {Error} When the function is async, calls a platform function or does not take the record's key and row
    */
   key<const F extends IndexFunction, const O extends PlainIndexOptions = Record<never, never>>(fn: F, options?: O):
-    IndexDraft<IndexKeyOf<{ key: F }, T>, ProjectionOf<O>, undefined>;
+    IndexDraft<IndexKeyOf<{ key: F }, T>, ProjectionOf<O>, undefined, unknown, PlainLeanOf<O, T>>;
   /**
    * An index by many keys a row computes, `(K, V) -> Set<IK>`: a row under each
    * key, so one naming five resources appears under five, and none under an
@@ -225,7 +236,7 @@ export interface IndexBuilder<T extends EastType> {
    * @throws {Error} As {@link key} does, and when it does not return a Set
    */
   keys<const F extends IndexFunction, const O extends PlainIndexOptions = Record<never, never>>(fn: F, options?: O):
-    IndexDraft<IndexKeyOf<{ keys: F }, T>, ProjectionOf<O>, undefined>;
+    IndexDraft<IndexKeyOf<{ keys: F }, T>, ProjectionOf<O>, undefined, unknown, PlainLeanOf<O, T>>;
   /**
    * An interval index: the events overlapping a half-open time window
    * `[from, to)`, carry-in events and those spanning the whole window among
@@ -244,7 +255,7 @@ export interface IndexBuilder<T extends EastType> {
    * @throws {Error} When `from` or `to` is not a DateTime field, or the start is a leading field
    */
   interval<const S extends IntervalIndexSpec<T>>(spec: S, options?: PartRunner):
-    IndexDraft<IndexKeyOf<S, T>, NullType, IndexOn<S>, { readonly interval: { readonly from: S['from']; readonly to: S['to'] } }>;
+    IndexDraft<IndexKeyOf<S, T>, NullType, IndexOn<S>, { readonly interval: { readonly from: S['from']; readonly to: S['to'] } }, RowOf<T>>;
   /**
    * An area index: the rows whose box meets a window, each once — the 2D twin of
    * {@link interval}. A loose quadtree laid along a Z-order curve: the domain is
@@ -540,14 +551,30 @@ export interface MigrationBuilder {
 }
 
 /**
+ * Whether a record's indexes file its rows' nested fields apart, in a nested
+ * series index or an entries index: its other indexes that carry nothing, or
+ * the row, then carry the lean row (`builtIndex`).
+ *
+ * @typeParam I - What `indexes` returned
+ */
+type FilesApart<I> = true extends {
+  [K in keyof I]: I[K] extends IndexDraft<EastType, EastType, readonly string[] | undefined, infer Extra>
+    ? Extra extends { readonly nested: object } | { readonly entries: object } ? true : false
+    : false
+}[keyof I] ? true : false;
+
+/**
  * A record's indexes as declared, by name: each the index its builder made,
- * named by its key.
+ * named by its key, and typed with what its entries carry as the record
+ * builds it — which turns on the record's other indexes.
  *
  * @typeParam I - What `indexes` returned
  * @typeParam T - The record's state type
  */
 export type IndexesOf<I, T extends EastType> = {
-  readonly [K in keyof I & string]: I[K] extends IndexDraft<infer IK, infer P, infer On, infer Extra> ? RecordIndexDef<K, T, IK, P, On> & Extra : never
+  readonly [K in keyof I & string]: I[K] extends IndexDraft<infer IK, infer P, infer On, infer Extra, infer Lean>
+    ? RecordIndexDef<K, T, IK, P, On, FilesApart<I> extends true ? Lean : P> & Extra
+    : never
 };
 
 /**

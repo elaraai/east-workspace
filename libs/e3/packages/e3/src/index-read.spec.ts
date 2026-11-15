@@ -49,6 +49,7 @@ const jobs = record('jobs', JobsType, {
   initial: new Map(),
   indexes: (index) => ({
     by_press: index.on(['press']),
+    by_state: index.on(['state']),
     by_state_press: index.on(['state', 'press']),
     by_crew: index.on(['crews']),
     by_state_crew: index.on(['state', 'crews']),
@@ -209,6 +210,27 @@ function assertEast<T extends EastType>(type: T, actual: unknown, expected: unkn
 }
 
 const window = (w: { from: Date; to: Date }): string => `[${printInstant(w.from)}, ${printInstant(w.to)})`;
+
+/**
+ * Whether a read gave its rows as a walk of the index meets them: each at an
+ * entry after the one the row before it was given at. An index may file a row
+ * under several entries, so the walk takes the first that fits.
+ *
+ * @param type - The type the read names a row by: its key, or a nested item's
+ * @param entries - The index's entries, in its order
+ * @param named - What an entry names its row by, as the read does
+ * @param given - What the read gave, in the order it gave it
+ * @returns Whether every row given was met, in order
+ */
+function inIndexOrder<T extends EastType, E>(type: T, entries: Iterable<E>, named: (entry: E) => ValueTypeOf<T> | undefined, given: readonly ValueTypeOf<T>[]): boolean {
+  const same = equalFor(type);
+  let met = 0;
+  for (const entry of entries) {
+    const name = named(entry);
+    if (met < given.length && name !== undefined && same(name, given[met]!)) met += 1;
+  }
+  return met === given.length;
+}
 
 // ── The plain test, as a loop over the whole record ──────────────────────────
 
@@ -398,6 +420,23 @@ describe('an interval index\'s readers', () => {
     assert.equal(inside('E-past-a-year'), true, 'an event that began a year before reaches in');
   });
 
+  it('overlapping: gives its rows as a walk of the index meets them — the starts in the window, then each node above it from the root down', () => {
+    const inOrder = East.compile(East.function([inTime.type, DateTimeType, DateTimeType], ArrayType(StringType), ($, entries, from, to) => {
+      const keys = $.let([], ArrayType(StringType));
+      inTime.read(entries).overlapping({ from, to }).each($, ($, _carried, key) => { $(keys.pushLast(key)); });
+      return keys;
+    }), []);
+    const filed = [...(held.in_time as SortedMap<ValueTypeOf<typeof inTime.type.key>, null>).keys()];
+    let carried = 0;
+    for (const w of WINDOWS) {
+      const given = inOrder(held.in_time, w.from, w.to);
+      // The rows the window's later runs hold: those that began before it
+      carried += given.filter((key) => { const start = ROWS.get(key)!.start; return start.type === 'some' && compareFor(DateTimeType)(start.value, w.from) < 0; }).length;
+      assert.ok(inIndexOrder(StringType, filed, (entry) => entry.k, given), `the jobs in ${window(w)} come in the index's order`);
+    }
+    assert.ok(carried > 500, `the windows hold rows of more than one run: ${carried}`);
+  });
+
   it('overlapping: under each leading field, exactly', () => {
     const byState = input.in_time_by_state;
     const inState = East.compile(East.function([byState.type, StringType, DateTimeType, DateTimeType], Keys, ($, entries, state, from, to) =>
@@ -451,8 +490,31 @@ describe('a series index\'s readers', () => {
     // Filed under 2025, 2026 and 2027: a window across both turns meets it under each, and gives it once
     const across = events(held.press_weeks, 'P-1001', at('2025-12-01T00:00:00.000'), at('2027-01-15T00:00:00.000'));
     assert.equal(across.has('E-past-a-year'), true);
-    const filed = [...(held.press_weeks as SortedMap<{ k: string }, unknown>).keys()].filter((entry) => entry.k === 'E-past-a-year').length;
+    const filed = [...(held.press_weeks as SortedMap<ValueTypeOf<typeof series.type.key>, Job>).keys()].filter((entry) => keyOrder(entry.k, 'E-past-a-year') === 0).length;
     assert.equal(filed, 3, 'the index files it under each of the three years it touches');
+  });
+
+  it('events: gives its rows as a walk of the index meets them — a run a level, in the index\'s order of its levels', () => {
+    const series = input.press_days_by_state;
+    const inOrder = East.compile(East.function([series.type, StringType, StringType, DateTimeType, DateTimeType], ArrayType(StringType), ($, entries, state, press, from, to) => {
+      const keys = $.let([], ArrayType(StringType));
+      series.read(entries).events({ on: { state }, key: press, from, to }).each($, ($, _job, key) => { $(keys.pushLast(key)); });
+      return keys;
+    }), []);
+    const filed = [...(held.press_days_by_state as SortedMap<ValueTypeOf<typeof series.type.key>, Job>).keys()];
+    // The index orders a level by East's order of its cases, which is no order of their lengths
+    const levelOrder = compareFor(RecordLevelType);
+    assert.ok(levelOrder(variant('month', null), variant('week', null)) < 0 && levelOrder(variant('week', null), variant('year', null)) < 0,
+      'a month is before a week in the index');
+    const levels = new SortedSet<ValueTypeOf<typeof RecordLevelType>>(undefined, levelOrder);
+    for (const w of WINDOWS) {
+      for (const state of STATES) {
+        const given = inOrder(held.press_days_by_state, state, 'P-1001', w.from, w.to);
+        for (const entry of filed) if (given.some((key) => keyOrder(key, entry.k) === 0) && keyOrder(entry.ik.key, 'P-1001') === 0) levels.add(entry.ik.level);
+        assert.ok(inIndexOrder(StringType, filed, (entry) => entry.k, given), `the ${state} jobs on P-1001 in ${window(w)} come in the index's order`);
+      }
+    }
+    assert.equal(levels.size, 5, 'the windows read events filed at every level, a day to a year');
   });
 
   it('events: under each leading field, exactly', () => {
@@ -491,12 +553,18 @@ describe('a summary index\'s readers', () => {
   const Totals = DictType(DateTimeType, RecordSummaryTotalsType);
   const nextOf = East.compile(TILE_FNS.tileNext, []);
 
-  /** The totals an index holds of a key's tiles that overlap a window: a loop over every entry of it. */
-  function totalsIn(entries: unknown, tile: 'week' | 'month', on: Record<string, string>, press: string, w: { from: Date; to: Date }) {
+  /** A summary index's entries' type, whatever fields lead it. */
+  type SummaryEntries<On extends EastType> =
+    DictType<StructType<{ ik: StructType<{ on: On; key: StringType; tile: DateTimeType }>; k: NullType }>, typeof RecordSummaryTotalsType>;
+
+  /** The totals an index holds of a key's tiles that overlap a window: a loop over every entry of it, each typed by the index's own entries. */
+  function totalsIn<On extends EastType>(
+    load: { readonly type: SummaryEntries<On> }, entries: unknown, tile: 'week' | 'month', on: ValueTypeOf<On>, press: string, w: { from: Date; to: Date },
+  ) {
     const expected = new SortedMap<Date, RecordSummaryTotals>(undefined, compareFor(DateTimeType));
-    const sameOn = equalFor(StructType(Object.keys(on).map((name): readonly [string, EastType] => [name, StringType])));
+    const sameOn = equalFor(load.type.key.fields.ik.fields.on);
     const before = compareFor(DateTimeType);
-    for (const [entry, totals] of entries as SortedMap<{ ik: { on: Record<string, string>; key: string; tile: Date } }, RecordSummaryTotals>) {
+    for (const [entry, totals] of entries as SortedMap<ValueTypeOf<SummaryEntries<On>['key']>, RecordSummaryTotals>) {
       if (!sameOn(entry.ik.on, on) || !equalFor(StringType)(entry.ik.key, press)) continue;
       const after = nextOf(variant(tile, null), entry.ik.tile);
       if (before(w.from, w.to) < 0 && before(entry.ik.tile, w.to) < 0 && before(after, w.from) > 0) expected.set(entry.ik.tile, totals);
@@ -511,7 +579,7 @@ describe('a summary index\'s readers', () => {
     let tiles = 0;
     for (const w of WINDOWS) {
       for (const press of PRESSES) {
-        const expected = totalsIn(held.press_load, 'week', {}, press, w);
+        const expected = totalsIn(load, held.press_load, 'week', {}, press, w);
         tiles += expected.size;
         assertEast(Totals, totals(held.press_load, press, w.from, w.to), expected, `the load on ${press} in ${window(w)}`);
       }
@@ -524,7 +592,7 @@ describe('a summary index\'s readers', () => {
     const totals = East.compile(East.function([load.type, StringType, StringType, DateTimeType, DateTimeType], Totals, ($, entries, state, press, from, to) =>
       load.read(entries).totals({ on: { state }, key: press, from, to }).collect($)), []);
     for (const w of WINDOWS.slice(0, 20)) {
-      assertEast(Totals, totals(held.press_load_by_state, 'confirmed', 'P-1003', w.from, w.to), totalsIn(held.press_load_by_state, 'month', { state: 'confirmed' }, 'P-1003', w),
+      assertEast(Totals, totals(held.press_load_by_state, 'confirmed', 'P-1003', w.from, w.to), totalsIn(load, held.press_load_by_state, 'month', { state: 'confirmed' }, 'P-1003', w),
         `the confirmed load on P-1003 in ${window(w)}`);
     }
   });
@@ -673,6 +741,48 @@ describe('an area index\'s readers', () => {
     const oracle = racksIn(false, false);
     for (const w of AREA_WINDOWS) {
       assertEast(RacksType, within(held, w.x, w.y, w.width, w.height), oracle(RACKS, none, w.x, w.y, w.width, w.height), `the points within ${window(w)}`);
+    }
+  });
+
+  it('within: gives its rows as a walk of the index meets them — a cell before the cells inside it, along the curve', () => {
+    const byArea = index(racks.indexes.by_area);
+    const inOrder = East.compile(East.function([byArea.type, FloatType, FloatType, FloatType, FloatType], ArrayType(StringType), ($, entries, x, y, width, height) => {
+      const keys = $.let([], ArrayType(StringType));
+      byArea.read(entries).within({ x, y, width, height }).each($, ($, _rack, key) => { $(keys.pushLast(key)); });
+      return keys;
+    }), []);
+    const held = entriesOf(racks, racks.indexes.by_area, RACKS);
+    const filed = [...(held as SortedMap<ValueTypeOf<typeof byArea.type.key>, Rack>).keys()];
+    let rows = 0;
+    for (const w of AREA_WINDOWS) {
+      const given = inOrder(held, w.x, w.y, w.width, w.height);
+      rows += given.length;
+      assert.ok(inIndexOrder(StringType, filed, (entry) => entry.k, given), `the racks within ${window(w)} come in the index's order`);
+    }
+    assert.ok(rows > 2000, `the windows hold racks to read: ${rows}`);
+  });
+
+  it('within: a zero is one edge whatever its sign — a window\'s width, its corner, and a box\'s own', () => {
+    const byArea = index(racks.indexes.by_area);
+    const within = East.compile(East.function([byArea.type, FloatType, FloatType, FloatType, FloatType], RacksType, ($, entries, x, y, width, height) =>
+      byArea.read(entries).within({ x, y, width, height }).collect($)), []);
+    const held = entriesOf(racks, racks.indexes.by_area, RACKS);
+    // A window of no width and no height, each written as the zero below zero
+    const point = within(held, 50, 30, 0, 0);
+    assert.ok(point.has('E-touches'), 'a rack holds the point');
+    assertEast(RacksType, within(held, 50, 30, -0, -0), point, 'a window whose width and height are -0.0');
+
+    // A box at the zero below zero, of that width, by its corner: it touches a window that starts at zero
+    const byZone = index(racks.indexes.by_zone_area);
+    const inZone = East.compile(East.function([byZone.type, FloatType, FloatType, FloatType, FloatType], RacksType, ($, entries, x, y, width, height) =>
+      byZone.read(entries).within({ on: { zone: 'inbound' }, x, y, width, height }).collect($)), []);
+    const edge = new SortedMap<string, Rack>(undefined, keyOrder);
+    edge.set('E-at-zero', decodeBeast2For(RackRow)(encodeBeast2For(RackRow)({ zone: 'inbound', x: some(-0), y: some(-0), w: -0, h: -0, name: 'At the corner' })));
+    edge.set('E-to-zero', decodeBeast2For(RackRow)(encodeBeast2For(RackRow)({ zone: 'inbound', x: some(-4), y: some(-4), w: 4, h: 4, name: 'Up to the corner' })));
+    const filedEdge = entriesOf(racks, racks.indexes.by_zone_area, edge);
+    for (const [x, y] of [[0, 0], [-0, -0], [0, -0]] as const) {
+      assertEast(RacksType, inZone(filedEdge, x, y, 5, 5), edge, `both touch a window from ${Object.is(x, -0) ? '-0.0' : '0.0'}, ${Object.is(y, -0) ? '-0.0' : '0.0'}`);
+      assertEast(RacksType, inZone(filedEdge, x, y, -0, -0), edge, 'and a window that is that point alone');
     }
   });
 
@@ -1078,6 +1188,40 @@ describe('a nested series index\'s readers', () => {
     assert.deepEqual(idsOf(held, 'Y-1', ['T-1', 'T-9'], at('2025-06-01T00:00:00.000'), at('2027-06-01T00:00:00.000')), [], 'no such team');
   });
 
+  it('items, subtree: give their rows as a walk of the index meets them — a run a level, in the index\'s order of its levels', () => {
+    type Filed = ValueTypeOf<typeof inTime.type.key>;
+    const filed = [...(held as SortedMap<Filed, unknown>).keys()];
+    const idsOf = East.compile(East.function([...WINDOW], ArrayType(StringType), ($, entries, yard, path, from, to) => {
+      const ids = $.let([], ArrayType(StringType));
+      inTime.read(entries).items({ collection: ['teams', 'jobs'], row: yard, path, from, to }).each($, ($, _job, id) => { $(ids.pushLast(id)); });
+      return ids;
+    }), []);
+    const beneathOf = East.compile(East.function([...WINDOW], ArrayType(NestedUnderType), ($, entries, yard, path, from, to) => {
+      const under = $.let([], ArrayType(NestedUnderType));
+      inTime.read(entries).subtree({ collection: ['teams', 'jobs'], row: yard, path, from, to }).each($, ($, _job, at) => { $(under.pushLast(at)); });
+      return under;
+    }), []);
+    const samePath = equalFor(inTime.index.keyType.fields.path);
+    const levels = new SortedSet<ValueTypeOf<typeof RecordLevelType>>(undefined, compareFor(RecordLevelType));
+    let given = 0;
+    for (const w of WINDOWS.slice(0, 12)) {
+      for (const { yard, path } of TEAMS) {
+        // The node's own entries of each run: its row, and the path down to it
+        const ofNode = filed.filter((entry) => keyOrder(entry.ik.row, yard) === 0 && samePath(entry.ik.path, pathOf(path)));
+        const own = idsOf(held, yard, path, w.from, w.to);
+        const beneath = beneathOf(held, yard, path, w.from, w.to);
+        given += own.length + beneath.length;
+        for (const entry of ofNode) if (entry.ik.item.type === 'id' && own.some((id) => keyOrder(id, entry.ik.item.value as string) === 0)) levels.add(entry.ik.level);
+        assert.ok(inIndexOrder(StringType, ofNode, (entry) => entry.ik.run.type === 'items' && entry.ik.item.type === 'id' ? entry.ik.item.value : undefined, own),
+          `the jobs of ${node(yard, path)} in ${window(w)} come in the index's order`);
+        assert.ok(inIndexOrder(NestedUnderType, ofNode, (entry) => entry.ik.run.type === 'subtree' && entry.ik.item.type === 'under' ? entry.ik.item.value : undefined, beneath),
+          `the jobs beneath ${node(yard, path)} in ${window(w)} come in the index's order`);
+      }
+    }
+    assert.ok(given > 500, `the windows hold jobs to read: ${given}`);
+    assert.ok(levels.size >= 4, `the windows read jobs filed at a week, a month, a quarter and a year: ${levels.size}`);
+  });
+
   it('items: instants, by the instant each is at; and values, each with its instant', () => {
     const checksOf = East.compile(East.function([...WINDOW], ChecksType, ($, entries, yard, path, from, to) =>
       inTime.read(entries).items({ collection: ['teams', 'checks'], row: yard, path, from, to }).collect($)), []);
@@ -1306,6 +1450,7 @@ describe('where a reader is refused', () => {
       /overlapping: 'press' leads nothing — the index is led by 'state'/);
     assert.throws(over(byState, (entries) => byState.read(entries).overlapping({ on: { state: 7n }, from, to } as never)),
       /^Error: e3\.index 'jobs\.in_time_by_state' overlapping: a leading field is given a value of another type — `on` is \{ state: \.String \}: /);
+    // @ts-expect-error — an index led by a field takes it: `unset` with no `on` does not type
     assert.throws(over(byState, (entries) => byState.read(entries).unset()), /unset: 'state' is left out/);
 
     const inTime = input.in_time;
@@ -1337,6 +1482,9 @@ describe('where a reader is refused', () => {
       /^Error: e3\.index 'marks\.marks_by_area' unplaced: the index's place, 'x' and 'y', is Float fields, so every row is placed/);
     assert.throws(over(byArea, (entries) => byArea.read(entries).within({ x: 0, y: 0, width: 1 } as never)),
       /within: `height` is left out — a window is \{ x, y, width, height \}, each a Float/);
+    const byZone = index(racks.indexes.by_zone_area);
+    // @ts-expect-error — an index led by a field takes it: `unplaced` with no `on` does not type
+    assert.throws(over(byZone, (entries) => byZone.read(entries).unplaced()), /unplaced: 'zone' is left out/);
   });
 
   it('refuses a key that is no leading part of a plain index\'s, in the range read\'s words', () => {
@@ -1372,6 +1520,96 @@ describe('e3.index(def).read', () => {
     }), []);
     const onPress = BigInt([...ROWS.values()].filter((row) => row.press === 'P-1001').length);
     assert.deepEqual(both(held.by_press, 'P-1001'), { sized: onPress, read: onPress });
+  });
+
+  it('gives back what already carries its readers as it is, and refuses what carries another index\'s of the same type, naming it', () => {
+    const byPress = input.by_press;
+    const byState = index(jobs.indexes.by_state);
+    const refused = /^Error: e3\.index 'jobs\.by_state' reads its own entries, and was given those of e3\.index 'jobs\.by_press', which are of the same type — pass the body's parameter for this index$/;
+
+    // A body's parameter for an index carries that index's readers: another index of its type does not read it
+    function_('jobs_by_two', { inputs: [byPress, byState], args: [], output: NullType }, (_$, pressEntries, stateEntries) => {
+      const of = pressEntries.of;
+      assert.equal(byPress.read(pressEntries), pressEntries, 'its own parameter, as it is');
+      assert.equal(pressEntries.of, of, 'its readers not made again');
+      assert.throws(() => byState.read(pressEntries as never), refused);
+      assert.equal(byState.read(stateEntries), stateEntries);
+      return null;
+    });
+
+    // In a task's own function a parameter is known by its type alone, until an index's read is given it
+    East.function([byPress.type, byState.type], NullType, (_$, pressEntries) => {
+      const read = byPress.read(pressEntries);
+      const of = read.of;
+      assert.equal(byPress.read(read).of, of, 'read again, the same readers');
+      assert.throws(() => byState.read(pressEntries as never), refused);
+      return null;
+    });
+  });
+});
+
+describe('what a read gives, beside an index that files the rows\' fields apart', () => {
+  /** A shift on a press: when it runs, and the hands on it by grade — a field an entries index files apart. */
+  const CrewedShift = StructType({ press: StringType, start: DateTimeType, end: DateTimeType, byGrade: DictType(StringType, IntegerType) });
+  const CrewedType = DictType(StringType, CrewedShift);
+  const crewed = record('crewed_shifts', CrewedType, {
+    initial: new Map(),
+    indexes: (index) => ({
+      hands_by_grade: index.entries('byGrade'),
+      by_press: index.on(['press']),
+      in_time: index.interval({ from: 'start', to: 'end' }),
+      presses: index.key(East.function([StringType, CrewedShift], StringType, (_$, _key, shift) => shift.press),
+        { value: East.function([StringType, CrewedShift], StringType, (_$, _key, shift) => shift.press) }),
+    }),
+  });
+  const rows = new SortedMap<string, ValueTypeOf<typeof CrewedShift>>(undefined, keyOrder);
+  for (let n = 0; n < 30; n++) {
+    const start = OCT_5 + BigInt(n) * 8n * HOUR;
+    rows.set(`C-${String(n).padStart(2, '0')}`, decodeBeast2For(CrewedShift)(encodeBeast2For(CrewedShift)({
+      press: PRESSES[n % 3]!, start: instant(start), end: instant(start + 8n * HOUR),
+      byGrade: new SortedMap<string, bigint>([['lead', 1n], ['hand', BigInt(2 + (n % 3))]], keyOrder),
+    })));
+  }
+  /** The rows as the record's other indexes carry them: lean, the field the entries index files emptied. */
+  const lean = (kept: (key: string, shift: ValueTypeOf<typeof CrewedShift>) => boolean) =>
+    new SortedMap([...rows].filter(([key, shift]) => kept(key, shift))
+      .map(([key, shift]): [string, ValueTypeOf<typeof CrewedShift>] => [key, { ...shift, byGrade: new SortedMap<string, bigint>(undefined, keyOrder) }]), keyOrder);
+
+  it('types a read by what the index carries as its record builds it: the lean row, where its declaration alone says nothing', () => {
+    const inTime = index(crewed.indexes.in_time);
+    const byPress = index(crewed.indexes.by_press);
+    const presses = index(crewed.indexes.presses);
+    const from = at('2026-10-06T00:00:00.000');
+    const to = at('2026-10-07T00:00:00.000');
+
+    // An interval index, and a plain index with no `value`, carry the lean row beside an entries index
+    const running = East.compile(East.function([inTime.type, DateTimeType, DateTimeType], CrewedType, ($, entries, from, to) =>
+      inTime.read(entries).overlapping({ from, to }).collect($)), []);
+    const expected = lean((_key, shift) => compareFor(DateTimeType)(shift.start, to) < 0 && compareFor(DateTimeType)(shift.end, from) > 0);
+    assert.ok(expected.size > 0);
+    assertEast(CrewedType, running(entriesOf(crewed, crewed.indexes.in_time, rows), from, to), expected, 'the shifts running in the day, lean');
+    const onPress = East.compile(East.function([byPress.type, StringType], DictType(StringType, DateTimeType), ($, entries, press) => {
+      const starts = $.let(new Map(), DictType(StringType, DateTimeType));
+      byPress.read(entries).of(press).each($, ($, shift, key) => { $(starts.insert(key, shift.start)); });
+      return starts;
+    }), []);
+    assertEast(DictType(StringType, DateTimeType), onPress(entriesOf(crewed, crewed.indexes.by_press, rows), 'P-1002'),
+      new SortedMap([...rows].filter(([, shift]) => shift.press === 'P-1002').map(([key, shift]): [string, Date] => [key, shift.start]), keyOrder), 'each shift\'s start, read off the lean row');
+
+    // One with a `value` of its own carries its own
+    const named = East.compile(East.function([presses.type, StringType], DictType(StringType, StringType), ($, entries, press) =>
+      presses.read(entries).of(press).collect($)), []);
+    assert.equal(named(entriesOf(crewed, crewed.indexes.presses, rows), 'P-1003').size, 10);
+
+    // In a function with a spec, the parameter is typed the same way
+    const fn = function_('shifts_running', { inputs: [inTime], args: [DateTimeType, DateTimeType], output: CrewedType },
+      ($, shiftsInTime, from, to) => shiftsInTime.overlapping({ from, to }).collect($));
+    assert.equal(fn.inputs.length, 1);
+
+    // What the declaration alone invited — an index with no `value` carries nothing — no longer types, and never built
+    // @ts-expect-error — the read gives the lean row, not Null
+    assert.throws(() => East.function([inTime.type, DateTimeType, DateTimeType], DictType(StringType, NullType),
+      ($, entries, from, to) => inTime.read(entries).overlapping({ from, to }).collect($)));
   });
 });
 
