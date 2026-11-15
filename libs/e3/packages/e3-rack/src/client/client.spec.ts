@@ -15,10 +15,10 @@ import { BooleanType, IntegerType, StringType, StructType, encodeBeast2For, some
 import { BEAST2_CONTENT_TYPE, ResponseType } from '@elaraai/e3-types';
 import { LocalStorage, repoInit, uuidv7 } from '@elaraai/e3-core';
 import { answer } from '../server/beast2.js';
-import { connectHub, RackHubOutdatedError, RackHubUnavailableError } from './connect.js';
+import { connectHub, HUB_ASK_MS, RackHubOutdatedError, RackHubUnavailableError, type HubAsks } from './connect.js';
 import { HubClient } from './hub-client.js';
 import { RackSession } from './session.js';
-import { closeSocketServer, serveOnSocket } from './local-http.js';
+import { RackHubError, closeSocketServer, serveOnSocket } from './local-http.js';
 import { EmptyType, HubHelloType } from '../protocol/control.js';
 import { HUB_PROTOCOL } from '../version.js';
 import { HUB_LOG_FILE, hubSocketPath } from '../paths.js';
@@ -161,27 +161,67 @@ it('drains no hub whose hello does not read for another cause: one of a later re
   assert.equal(drains, 0, 'neither hub is asked to drain');
 });
 
-it('leaves what a hub last said of itself standing when an ask after it goes unanswered', async () => {
-  const path = await home();
-  // A hello of a later release, read twice (the hello, and the look for an envelope); every ask after is held, and
-  // never answered. The next ask then runs out the connection's deadline, however fast this machine is: as the last
-  // ask of any connection does when what is left of its deadline is less than an answer takes.
-  const later = encodeBeast2For(StructType({ version: StringType, protocol: IntegerType, pid: IntegerType, draining: BooleanType, region: StringType }))(
-    { version: '9.0.0', protocol: BigInt(HUB_PROTOCOL), pid: BigInt(process.pid), draining: false, region: 'x' });
-  let hellos = 0;
-  const held: Array<() => void> = [];
-  const app = new Hono();
-  app.post('/v1/hello', () => {
-    hellos++;
-    if (hellos <= 2) return new Response(later, { headers: { 'Content-Type': BEAST2_CONTENT_TYPE } });
-    return new Promise<Response>((resolve) => { held.push(() => resolve(new Response(null, { status: 503 }))); });
+/**
+ * A hub that answers each hello as a script says, at once: no answer of it
+ * waits on this machine's speed. `asked` holds the time each hello was given.
+ */
+function scriptedHub(script: Array<'draining' | 'ready' | 'unreadable' | 'unanswered'>): HubAsks & { asked: number[] } {
+  const asked: number[] = [];
+  const hello = (draining: boolean) => ({ version: '1.0.0', protocol: BigInt(HUB_PROTOCOL), pid: BigInt(process.pid), draining });
+  return {
+    asked,
+    hello: (ms = 0) => {
+      asked.push(ms);
+      // The script's last step answers every hello after it
+      const step = script[Math.min(asked.length, script.length) - 1]!;
+      if (step === 'unanswered') return Promise.reject(new RackHubError('timeout', 'Rack request POST /v1/hello timed out'));
+      if (step === 'unreadable') return Promise.reject(new RackHubError('undecodable', 'a field this e3 does not know'));
+      return Promise.resolve(hello(step === 'draining'));
+    },
+    answersInEnvelope: () => Promise.resolve(false),
+    drain: () => Promise.reject(new Error('no hub here is asked to drain')),
+    drainUnread: () => Promise.reject(new Error('no hub here is asked to drain')),
+  };
+}
+
+it('asks a slow hub again until it answers', async () => {
+  const hub = scriptedHub(['unanswered', 'unanswered', 'ready']);
+  const client = await connectHub({ home: await home(), spawn: false, asks: hub });
+  assert(client instanceof HubClient);
+  assert.equal(hub.asked.length, 3, 'two asks went unanswered, and the third was answered');
+});
+
+for (const [what, first, said] of [
+  ['is draining', 'draining', /^Rack hub unavailable: the running rack hub is draining/],
+  ['answers a hello that does not read', 'unreadable', /^Rack hub unavailable: the running rack hub's hello does not read as this e3's \(a field this e3 does not know\); it was not asked to drain/],
+] as const) {
+  it(`keeps that a hub ${what} when only asks cut short go unanswered`, async () => {
+    // A deadline under an ask's whole time: every ask is cut short by it
+    const hub = scriptedHub([first, 'unanswered']);
+    await assert.rejects(connectHub({ home: await home(), timeoutMs: HUB_ASK_MS / 2, asks: hub }), (err: unknown) => err instanceof RackHubUnavailableError
+      && said.test(err.message) && !/timed out|not answered since/.test(err.message));
+    assert(hub.asked.every((ms) => ms < HUB_ASK_MS), `every ask was cut short: ${hub.asked.join(', ')}`);
   });
-  const server = await serveOnSocket(app, hubSocketPath(path));
-  cleanup.push(() => closeSocketServer(server, hubSocketPath(path)));
-  cleanup.push(() => { for (const answer of held.splice(0)) answer(); return Promise.resolve(); });
-  await assert.rejects(connectHub({ home: path, spawn: false, timeoutMs: 1000 }), (err: unknown) => err instanceof RackHubUnavailableError
-    && /hello does not read as this e3's[\s\S]* it was not asked to drain/.test(err.message) && !/timed out/.test(err.message));
-  assert.equal(hellos, 3, 'the hub was asked once more, and did not answer');
+
+  it(`says a hub that ${what} stopped answering once a whole ask goes unanswered`, async () => {
+    const hub = scriptedHub([first, 'unanswered']);
+    let message = '';
+    await assert.rejects(connectHub({ home: await home(), timeoutMs: 2.5 * HUB_ASK_MS, asks: hub }), (err: unknown) => {
+      message = err instanceof RackHubUnavailableError ? err.message : '';
+      return err instanceof RackHubUnavailableError;
+    });
+    assert.match(message, said);
+    assert.doesNotMatch(message, /timed out/);
+    // Judged by the time each unanswered ask was given, whatever this machine's speed made of it
+    const whole = hub.asked.slice(1).some((ms) => ms >= HUB_ASK_MS);
+    assert.equal(/; it has not answered since\. See /.test(message), whole, `asks were given ${hub.asked.join(', ')} ms: ${message}`);
+  });
+}
+
+it('says an ask timed out of a hub that never answered one', async () => {
+  const hub = scriptedHub(['unanswered']);
+  await assert.rejects(connectHub({ home: await home(), spawn: false, timeoutMs: HUB_ASK_MS / 2, asks: hub }), (err: unknown) => err instanceof RackHubUnavailableError
+    && /^Rack hub unavailable: Rack request POST \/v1\/hello timed out\. See /.test(err.message));
 });
 
 it('delivers claim, log tee and terminal outcome in order, then removes its session data socket', async () => {
@@ -200,6 +240,22 @@ it('delivers claim, log tee and terminal outcome in order, then removes its sess
   await f.session.close(); await f.session.close();
   assert.equal((await f.client.status()).sessions.length, 0);
   assert.equal((await readdir(f.path)).filter((name) => name.startsWith('s-') && name.endsWith('.sock')).length, 0);
+});
+
+it('shares one capacity refresh among callers that ask together', async () => {
+  const f = await fixture();
+  const status = f.client.status.bind(f.client);
+  let asked = 0;
+  f.client.status = () => { asked++; return status(); };
+  // A stage's units that wait for a rack look again together
+  const together = await Promise.all([f.session.refreshCapacity(), f.session.refreshCapacity(), f.session.refreshCapacity()]);
+  assert.equal(asked, 1, 'the callers shared one ask');
+  assert(together.every((snapshot) => Object.is(snapshot, together[0])), 'and its answer, the one object');
+  // One that accepts an answer of some age does not ask again, and one that does not, does
+  await f.session.refreshCapacity(60 * 60_000);
+  assert.equal(asked, 1);
+  await f.session.refreshCapacity();
+  assert.equal(asked, 2);
 });
 
 it('unblocks every lease promptly after the real hub is killed and refuses reconnecting the old session', async () => {

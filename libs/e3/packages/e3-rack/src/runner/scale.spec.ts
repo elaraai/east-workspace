@@ -163,16 +163,30 @@ it('runs a split of more than a hundred pieces wholly on a rack: its units queue
   assert.equal(local.outputHash, second);
 });
 
-it('starts a stage\'s units together when no rack is there to take them, each running here under the run\'s own guard, and measures one first only while a rack that caps nothing could take them', async () => {
-  const f = await splitFixture(8_000);
-  const placements: RackPlacementEvent[] = [];
-  // The run's own budget, guarded where a guard runs, as a run's is. Its
-  // policy sends the task to a rack, and no rack is enrolled.
-  const budget = new Budget({ cores: 2, memory: GiB });
-  const rack = await openRackRunner({ repoPath: f.repo, workspace: 'dev', storage: f.storage, label: 'no rack test', home: f.home, budget, waitForRackMs: 0,
+/**
+ * A run of `score` whose policy sends it to a rack and spills nothing, under
+ * the run's own budget, guarded where a guard runs, as a run's is.
+ *
+ * @param f - The fixture
+ * @param placements - Collects where each task and unit runs
+ * @returns The runner's handle
+ */
+async function rackRun(f: Awaited<ReturnType<typeof splitFixture>>, placements: RackPlacementEvent[]) {
+  const rack = await openRackRunner({ repoPath: f.repo, workspace: 'dev', storage: f.storage, label: 'no rack test', home: f.home,
+    budget: new Budget({ cores: 2, memory: GiB }), waitForRackMs: 0,
     policy: { ...setRule(setMode({ ...DEFAULT_RACK_POLICY, enabled: true }, 'auto'), 'score', 'rack'), spill: false },
     onPlacement: (event) => { placements.push(event); } });
   cleanup.push(() => rack.close());
+  return rack;
+}
+
+/** The units a run placed. */
+const unitsOf = (placements: RackPlacementEvent[]) => placements.flatMap((event) => event.kind === 'placed' && event.role === 'unit' ? [event] : []);
+
+it('starts a stage\'s units together with no rack enrolled', async () => {
+  const f = await splitFixture(8_000);
+  const placements: RackPlacementEvent[] = [];
+  const rack = await rackRun(f, placements);
   assert.equal(rack.rackSlots, 0);
   assert.match(rack.describe(), /No connected rack/);
 
@@ -182,18 +196,34 @@ it('starts a stage\'s units together when no rack is there to take them, each ru
   assert.equal(rack.runner.firstWave, together ? 'estimate' : 'measure');
   const result = await rack.runner.execute(f.storage, f.hash, f.inputs, { taskName: 'score' });
   assert.equal(result.state, 'success', result.error);
-  const units = placements.filter((event) => event.kind === 'placed' && event.role === 'unit');
+  const units = unitsOf(placements);
   assert(units.length > 1, `the split has more than one unit: ${units.length}`);
-  assert(units.every((event) => event.where === 'local'), 'no rack took a unit');
+  assert(units.every((event) => event.where === 'local' && event.reason === 'no-rack-for-tier:node'), 'no rack took a unit');
   const log = (await f.storage.logs.read(f.repo, f.hash, inputsHash(f.inputs), result.executionId, 'stdout')).data;
   if (together) assert.match(log, /^wave pieces units=\d+ estimate=\d+ from=rows$/m, `its pieces started together, each expecting e3's estimate:\n${log}`);
   else assert.doesNotMatch(log, /^wave /m, 'where no guard runs, one unit ran first to measure');
+});
 
-  // A rack that admits work by its slots caps nothing: while one could take
-  // the units, a stage measures one first.
+it('leases no unit to a rack that caps nothing', async () => {
+  const f = await splitFixture(8_000);
+  // A rack that admits work by its slots: it caps nothing. It claims whatever
+  // is queued for it, so a unit leased to it would run on it.
   const mint = await f.client.enroll();
   const agent = await TestRackAgent.enroll(mint.apiUrl, mint.enrollmentToken, { certificateSha256: mint.certificateSha256.type === 'some' ? mint.certificateSha256.value : undefined });
   cleanup.push(() => agent.close());
+  agent.start();
+  const placements: RackPlacementEvent[] = [];
+  const rack = await rackRun(f, placements);
   assert.equal(await rack.refreshSlots(), 1);
-  assert.equal(rack.runner.firstWave, 'measure');
+
+  // Whatever racks there are, a unit runs where something stops it when it
+  // outgrows its share: a stage's units still start together, and with only
+  // such a rack each runs here, by that name.
+  assert.equal(rack.runner.firstWave, together ? 'estimate' : 'measure');
+  const result = await rack.runner.execute(f.storage, f.hash, f.inputs, { taskName: 'score' });
+  assert.equal(result.state, 'success', result.error);
+  const units = unitsOf(placements);
+  assert(units.length > 1, `the split has more than one unit: ${units.length}`);
+  assert(units.every((event) => event.where === 'local' && event.reason === 'no-rack-caps-units:node'), `every unit ran here, since no rack caps one: ${JSON.stringify(units.slice(0, 3))}`);
+  await agent.stop();
 });

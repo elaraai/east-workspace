@@ -11,7 +11,7 @@ import { RACK_LEASE_VERSION, describeRackReason, leaseReserve, readRackReason, r
 import { splitUnitToWire } from '../runner-event.js';
 import { EligibilityEvaluator, type Eligibility } from '../routing/eligibility.js';
 import { RACK_SIZES, type RackPolicy } from '../routing/policy.js';
-import { compatibleRacks, rackCouldHold, rackFree, rackResources, rackRoom, type SnapshotRack } from './capacity.js';
+import { compatibleRacks, rackCapsUnits, rackCouldHold, rackFree, rackResources, rackRoom, type SnapshotRack } from './capacity.js';
 import { publishEnvLayers, type RackEnvironmentEvent } from './environment.js';
 import type { RackResources } from '../protocol/rack-json.js';
 
@@ -22,7 +22,8 @@ import type { RackResources } from '../protocol/rack-json.js';
  * - `placed` locally, with why: never a rack's work (`reason` is why it is not
  *   eligible), or a rack's work that this machine runs after all (`spill`,
  *   `no-rack-for-tier:<tier>`, `source-unreachable` when the racks that run
- *   its tier are not healthy, `no-rack-for-environment:<tier>` when none of
+ *   its tier are not healthy, `no-rack-caps-units:<tier>` when it is a unit
+ *   and none of them caps one, `no-rack-for-environment:<tier>` when none of
  *   them composes environments, an `environment:` reason when the
  *   environment it declares cannot go to a rack, or a `fallback:` with what
  *   went wrong, and the rack's `detail` when its result gave a reason);
@@ -208,6 +209,9 @@ function unitResources(reserve: number, verdict: Extract<Eligibility, { eligible
  */
 export const RACK_ONLY_WAIT_MS = 120_000;
 
+/** How often work that waits for a rack to be healthy looks again, in ms. */
+const RACK_WAIT_TICK_MS = 1000;
+
 /** Whether this body could obtain a local core and its memory reservation. */
 function localIdle(request: TaskBodyRequest): boolean {
   const budget = request.options.budget;
@@ -238,6 +242,12 @@ function wait(next: Promise<LeaseUpdate>, ms: number, signal?: AbortSignal): Pro
  * built first, once for an environment and a platform ({@link RackLayerBuilds}),
  * and work whose environment no install makes for that platform, or whose
  * build fails, runs locally with the reason.
+ *
+ * A unit of a split task is leased only to a rack that caps it at what its
+ * lease asks ({@link rackCapsUnits}), so every unit runs where something stops
+ * it when it outgrows its share: here, under the run's budget and guard, or on
+ * such a rack. A host therefore says the body stops units
+ * (`LocalTaskRunnerOptions.bodyStopsUnits`) whatever racks there are.
  * @param options - Session, policy and placement sink
  * @returns The body hook for e3-core's LocalTaskRunner
  * @example
@@ -292,29 +302,33 @@ export function createRackBody(options: RackBodyOptions): TaskBodyExecutor {
     // reproduced by a stock guest. Keep these settings on the standard body.
     if (request.options.env !== undefined || request.options.uid !== undefined || request.options.gid !== undefined ||
       (request.options.extraEnv !== undefined && Object.keys(request.options.extraEnv).length > 0)) return runLocal('host-process-settings');
-    // The racks that can take the work: the healthy ones that run its tier
-    // and, for work that declares an environment, compose environments, for
-    // a platform its layers are kept for once that is known.
+    // The racks that can take the work: the healthy ones that run its tier;
+    // for a unit, those that cap one; and, for work that declares an
+    // environment, those that compose environments, for a platform its layers
+    // are kept for once that is known.
     let platforms: ReadonlySet<string> | undefined;
+    const takes = (rack: SnapshotRack): boolean => request.unit === undefined || rackCapsUnits(rack);
     const fleet = (): SnapshotRack[] => {
-      const racks = compatibleRacks(session.capacity(), verdict.tier);
+      const racks = compatibleRacks(session.capacity(), verdict.tier).filter(takes);
       return verdict.environment === null ? racks : racks.filter((rack) => composes(rack) && (platforms === undefined || platforms.has(rack.target.value)));
     };
     // Why no rack can take the work now: one that could is not healthy, none
-    // that could is enrolled, or none that runs its tier composes the
-    // environment it declares. Only a rack that composes it could take work
-    // that declares one, so only such a rack's health is waited for.
+    // that could is enrolled, none that runs its tier caps a unit, or none
+    // composes the environment it declares. Only a rack that could take the
+    // work is waited for to be healthy.
     const noRack = (): string | null => {
       if (fleet().length > 0) return null;
       const serving = session.capacity().racks.filter((rack) => rack.tiers.includes(verdict.tier));
-      const could = verdict.environment === null ? serving
-        : serving.filter((rack) => composes(rack) && (platforms === undefined || platforms.has(rack.target.value)));
+      const capping = serving.filter(takes);
+      const could = verdict.environment === null ? capping
+        : capping.filter((rack) => composes(rack) && (platforms === undefined || platforms.has(rack.target.value)));
       if (could.some((rack) => !rack.healthy)) return 'source-unreachable';
-      return verdict.environment !== null && could.length === 0 && serving.length > 0 ? `no-rack-for-environment:${verdict.tier}` : `no-rack-for-tier:${verdict.tier}`;
+      if (capping.length === 0 && serving.length > 0) return `no-rack-caps-units:${verdict.tier}`;
+      return verdict.environment !== null && could.length === 0 && capping.length > 0 ? `no-rack-for-environment:${verdict.tier}` : `no-rack-for-tier:${verdict.tier}`;
     };
-    // A rack that is healthy has said what it does: one that composes no
-    // environment is not waited for.
-    const waitedFor = (why: string): boolean => !why.startsWith('no-rack-for-environment:');
+    // A rack has said what it does: one that caps no unit, or composes no
+    // environment, is not waited for.
+    const waitedFor = (why: string): boolean => !why.startsWith('no-rack-for-environment:') && !why.startsWith('no-rack-caps-units:');
     const unreachableWaitMs = options.unreachableWaitMs ?? RACK_ONLY_WAIT_MS;
     // A run that keeps its work for a rack waits for one to be healthy
     // before the work runs locally; any other runs it locally at once.
@@ -322,8 +336,9 @@ export function createRackBody(options: RackBodyOptions): TaskBodyExecutor {
     if (absent !== null && waitedFor(absent) && options.rackOnly) {
       const until = Date.now() + unreachableWaitMs;
       while (absent !== null && waitedFor(absent) && Date.now() < until && request.options.signal?.aborted !== true && !session.hubLost) {
-        await delay(Math.max(1, Math.min(1000, until - Date.now())), undefined, { signal: request.options.signal }).catch(() => {});
-        await session.refreshCapacity().catch(() => {});
+        await delay(Math.max(1, Math.min(RACK_WAIT_TICK_MS, until - Date.now())), undefined, { signal: request.options.signal }).catch(() => {});
+        // A stage's units wait here together: they ask the hub once between them each tick
+        await session.refreshCapacity(RACK_WAIT_TICK_MS).catch(() => {});
         absent = noRack();
       }
       if (request.options.signal?.aborted) return local();

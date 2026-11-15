@@ -177,7 +177,12 @@ objects. Staging GC collects orphaned files after crashes.
 
 `connectHub` probes a fixed handshake, starts a detached process when absent,
 and requires the supported control protocol exactly. Older hubs are asked to
-drain; newer protocols are refused. `RackSession` owns registration, the data
+drain; newer protocols are refused. A hub that does not answer an ask in time
+is asked again until the deadline; the error then says what it last said of
+itself, and that it has stopped answering when an ask given its whole second
+went unanswered. A session's capacity refresh is shared by the callers that
+ask together, so a stage's units that wait for a rack ask the hub once between
+them. `RackSession` owns registration, the data
 socket, event polling, capacity snapshots, subscriptions and log tees. Requests
 have finite deadlines and abort on close/loss. A lost hub causes local fallback,
 not silent reattachment to a new process mid-run.
@@ -315,13 +320,17 @@ locally.
 Core probes the cache before the body hook. The hook takes no local budget
 grant; its local continuation preserves all existing process settings and
 budget. The orchestrator's width includes the compatible racks' cores (a
-slot-based rack's slots). When every compatible rack caps its units, or none
-is there and every unit runs here under the run's own guard, the runner says
-its body stops units (`LocalTaskRunnerOptions.bodyStopsUnits`, read from the
-session's latest snapshot as each execution starts), and e3-core starts a
-split task's stages with every unit at once under a guarded budget, as it does
-with no body. A rack that admits by its slots caps nothing: while one is
-compatible, a stage measures one unit first. A lease that ends `outgrew-cap` is a
+slot-based rack's slots). The body leases a unit only to a rack that caps it at
+what its lease asks (`rackCapsUnits`: one that admits by its resources); any
+other unit runs here, under the run's own budget and guard
+(`no-rack-caps-units:<tier>` where the racks of its tier cap none). So a unit
+always runs where something stops it when it outgrows its share, the runner
+says its body stops units (`LocalTaskRunnerOptions.bodyStopsUnits`) whatever
+racks there are, and e3-core starts a split task's stages with every unit at
+once under a guarded budget, as it does with no body. The choice reads no
+snapshot, so none can go stale: a dataflow fixes it as it starts, and a rack
+that turns healthy later changes nothing. A rack that admits by its slots caps
+nothing, and is leased whole tasks alone. A lease that ends `outgrew-cap` is a
 unit's requeue: the body tells the run (`onRequeued`, reason `cap`), the
 session records the stopped attempt `interrupted`, with the local run's log
 line, and the next lease asks `unitCap` of the cap it reached, reserving that
@@ -349,6 +358,7 @@ planning and final assembly stay local; both pieces and merge bodies delegate.
 | --- | --- |
 | Cache hit | Return the cached result; no lease. |
 | Ineligible or no compatible rack | Use the ordinary local body: at once, or, under rack-only, once a rack that runs the tier has stayed unhealthy for two minutes (`source-unreachable`). |
+| A unit, and no rack of its tier caps one | Use the ordinary local body at once (`no-rack-caps-units:<tier>`): a rack has said what it does, and is not waited for. |
 | Capacity full | Spill when enabled and local cores/memory are available; otherwise wait. Dedupe attachment precedes spill. |
 | Claim | Mint a new attempt; write hub owner before running, then persisted placement log and claim event. |
 | Success | Verify whole output, flush logs, record success, publish completion. |

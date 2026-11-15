@@ -142,14 +142,12 @@ export async function openRackRunner(options: OpenRackRunnerOptions): Promise<Ra
         unreachableWaitMs: options.unreachableWaitMs, onEnvironment: options.onEnvironment, layerBuilds,
         onPlacement: (event) => { tally.add(event); options.onPlacement?.(event); } }),
       // A split task's stage queues every unit at once, as a guarded local run
-      // starts them, while each unit runs here, under the budget's guard, or
-      // on a rack that caps it at what its lease asks: one that admits work by
-      // its resources, which stops a unit that outgrows its cap, and the body
-      // leases it again asking more. With no compatible rack, every unit runs
-      // here. A rack that admits by its slots caps nothing, so while one could
-      // take the units, a stage measures one first. Read as each execution
-      // starts, from the session's latest snapshot.
-      get bodyStopsUnits() { return compatibleRacks(attached.capacity()).every((rack) => rackResources(rack) !== undefined); } });
+      // starts them: the body leases a unit only to a rack that caps it at
+      // what its lease asks, stops one that outgrows its cap, and leases it
+      // again asking more; any other unit runs here, under the budget's guard.
+      // So whatever racks there are, now or later in the run, something stops
+      // a unit that outgrows its share, and no stage measures one first.
+      bodyStopsUnits: true });
     return { runner, get rackSlots() { return slots; }, describe, refreshSlots, takeSummary, close: () => attached.close() };
   } catch (error) {
     await session?.close().catch(() => {});

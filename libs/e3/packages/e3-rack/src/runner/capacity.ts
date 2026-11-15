@@ -37,6 +37,21 @@ export function rackResources(rack: SnapshotRack): RackResources | undefined {
 }
 
 /**
+ * Whether a rack caps a unit of a split task at what its lease asks, and
+ * stops one that outgrows it: a rack that admits work by its resources. One
+ * that admits by its slots caps nothing, and takes whole tasks alone: a unit
+ * runs where something stops it when it outgrows its share.
+ *
+ * @param rack - A rack of the snapshot
+ * @returns Whether a unit may be leased to it
+ * @example
+ * const forUnits = compatibleRacks(snapshot, tier).filter(rackCapsUnits);
+ */
+export function rackCapsUnits(rack: SnapshotRack): boolean {
+  return rackResources(rack) !== undefined;
+}
+
+/**
  * What of a rack nothing has booked, when it admits work by its resources.
  * @param rack - A rack of the snapshot
  * @returns What is free, or undefined for a rack that admits by its slots

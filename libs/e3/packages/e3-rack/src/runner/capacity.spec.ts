@@ -7,7 +7,7 @@ import { it } from 'node:test';
 import assert from 'node:assert/strict';
 import { none, some } from '@elaraai/east';
 import { E3_RACK_VERSION } from '../version.js';
-import { compatibleRacks, rackCouldHold, rackRoom, type SnapshotRack } from './capacity.js';
+import { compatibleRacks, rackCapsUnits, rackCouldHold, rackRoom, type SnapshotRack } from './capacity.js';
 
 const GiB = 1024 ** 3;
 
@@ -38,6 +38,11 @@ it('holds work on a rack only when its whole memory holds the work\'s cap, whate
   assert.equal(rackCouldHold(rack(8 * GiB, 0), piece), true, 'a busy rack could hold it once it is free');
   assert.equal(rackCouldHold(rack(4 * GiB, 4 * GiB), piece), false, 'its reservation fits, its cap does not');
   assert.equal(rackCouldHold(rack(4 * GiB, 4 * GiB, { resources: none, free: none }), piece), true, 'a rack that admits by its slots is taken to');
+});
+
+it('leases a unit only to a rack that admits by its resources', () => {
+  assert.equal(rackCapsUnits(rack(GiB, GiB)), true);
+  assert.equal(rackCapsUnits(rack(GiB, GiB, { resources: none, free: none })), false, 'a rack that admits by its slots caps nothing');
 });
 
 it('selects the racks that are healthy, approved, run the tier, and boot this release of e3 or later', () => {

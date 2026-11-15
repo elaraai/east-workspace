@@ -406,7 +406,10 @@ workshop  01a1da04-228  node,py  3/56  0.6.0+e3.1.0.108  1.0.108  2026-11-14T12:
 ```
 
 A rack that reports no resources admits by its slots, as before: its row
-shows `-`, and its work is counted in slots.
+shows `-`, and its work is counted in slots. It caps nothing, so it is leased
+whole tasks alone: a split task's units go to a rack that admits by its
+resources, or run here, counted in the run's summary as having run locally
+(a placement's reason is then `no-rack-caps-units:<tier>`).
 
 ### A split task on a rack
 
@@ -437,10 +440,12 @@ budget and guard do, so a split task then runs on a rack as it does locally:
 So a rack is filled as a local run fills its machine, and its guard, not the
 sum of its caps, keeps e3 work from running its host out of memory.
 
-With no compatible rack there, every unit runs here, under the run's own
-budget and guard, and a stage starts them together, as a run without `--rack`
-does. A rack that admits by its slots caps nothing, so while one could take
-the units, a stage runs one first to measure the rest.
+A unit always runs where something stops it when it outgrows its share: on a
+rack that admits by its resources, or here, under the run's own budget and
+guard. So a stage starts its units together, as a run without `--rack` does,
+whatever racks there are: none, one that turns healthy part-way through the
+run, or only a rack that admits by its slots, which is leased no unit. No
+stage runs one unit first to measure the rest.
 
 Ctrl-C in `e3 dataflow run` requests cancellation of that run, including its
 delegated work. A current companion agent keeps an outbound cancellation
