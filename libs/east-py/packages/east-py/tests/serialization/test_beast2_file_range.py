@@ -12,8 +12,13 @@ open file, read at the cost of the range and never of the file:
   the pager — east-c's view (pinned by its own gates) — so its size reads no
   segment between its ends, a keyed read tests the bounds first, and iterating
   it reads its segments each once;
-- under ``project=`` the rows are placed by the file's own pager, by the keys
-  as the wire holds them, and the segments they span are read once each.
+- under ``project=`` the rows are read by the file's own pager as a view reads
+  them — placed by the keys as the wire holds them, the segments they span
+  read once each, its end segments through the cache — into a collection
+  frozen at every depth;
+- a prefix is always written, so ``prefix(None)`` is refused, and a bound
+  written in a function's body is refused — the body takes the range of the
+  file passed to it, which the pager serves.
 
 What a read cost is the segments a pager decoded — a count, never a clock.
 """
@@ -25,7 +30,18 @@ import gc
 import pytest
 from east.runtime._compiler_eastc import paged_value_is_hydrated, paged_value_stats
 
-from east import DictType, EastDict, EastSet, IntegerType, SetType, StringType, StructType
+from east import (
+    ArrayType,
+    DictType,
+    East,
+    EastDict,
+    EastSet,
+    IntegerType,
+    SetType,
+    StringType,
+    StructType,
+)
+from east.expression.errors import ExpressionError
 from east.runtime.errors import EastError
 from east.serialization.beast2 import open_beast2_file
 from east.types.coercion import EastTypeError
@@ -43,6 +59,10 @@ Key = StructType([("press", StringType), ("job", IntegerType)])
 Sheet = StructType([("count", IntegerType), ("note", StringType)])
 Sheets = DictType(Key, Sheet)
 Narrow = DictType(Key, StructType([("count", IntegerType)]))
+# The same sheets, each with its operators: an Array a projection keeps.
+Crewed = DictType(Key, StructType([("count", IntegerType), ("crew", ArrayType(StringType)),
+                                   ("note", StringType)]))
+CrewOnly = DictType(Key, StructType([("crew", ArrayType(StringType))]))
 
 
 def _counts(tmp_path):
@@ -64,6 +84,16 @@ def _sheets(tmp_path):
         rows[{"press": f"P{i // PER_SEGMENT:02d}", "job": i % PER_SEGMENT}] = {
             "count": i, "note": f"sheet {i}"}
     write_in_segments(path, Sheets, rows, PER_SEGMENT)
+    return path
+
+
+def _crewed(tmp_path):
+    path = tmp_path / "crewed.beast2"
+    rows = EastDict(Key, Crewed.value["value"])
+    for i in range(ROWS):
+        rows[{"press": f"P{i // PER_SEGMENT:02d}", "job": i % PER_SEGMENT}] = {
+            "count": i, "crew": [f"operator {i}"], "note": f"sheet {i}"}
+    write_in_segments(path, Crewed, rows, PER_SEGMENT)
     return path
 
 
@@ -176,6 +206,41 @@ def test_a_bound_that_is_no_leading_part_of_the_key_is_refused(tmp_path):
         f.prefix(3)
 
 
+def test_a_prefix_is_always_written(tmp_path):
+    with open_beast2_file(_sheets(tmp_path), Sheets) as f:
+        with pytest.raises(EastTypeError):
+            f.prefix(None)
+        whole = f.load()
+        with pytest.raises(EastTypeError):
+            whole.prefix(None)
+    with open_beast2_file(_counts(tmp_path), Counts) as f, pytest.raises(EastTypeError):
+        f.prefix(None)
+    with open_beast2_file(_numbers(tmp_path), Numbers) as f, pytest.raises(EastTypeError):
+        f.prefix(None)
+
+
+def test_a_bound_written_in_a_body_is_refused_for_the_file_passed_in(tmp_path):
+    words = "Pass the file to the function"
+    with open_beast2_file(_sheets(tmp_path), Sheets) as f:
+        with pytest.raises(ExpressionError, match=words):
+            East.function([StringType], IntegerType,
+                          lambda _b, press: f.prefix({"press": press}).size())
+        with pytest.raises(ExpressionError, match=words):
+            East.function([StringType], IntegerType,
+                          lambda _b, press: f.range(from_={"press": press}).size())
+        assert not paged_value_is_hydrated(f._east_c_paged), "nothing of the file was read"
+        # The file passed to the function: the body's prefix is the pager's.
+        jobs = East.function([StringType, Sheets], IntegerType,
+                             lambda _b, press, d: d.prefix({"press": press}).size()).bind(f)
+        assert jobs("P03") == PER_SEGMENT
+        assert not paged_value_is_hydrated(f._east_c_paged)
+        del jobs
+    with open_beast2_file(_numbers(tmp_path), Numbers) as f, \
+            pytest.raises(ExpressionError, match=words):
+        East.function([IntegerType], IntegerType,
+                      lambda _b, n: f.range(from_=n).size())
+
+
 def test_a_range_holds_the_file_open(tmp_path):
     f = open_beast2_file(_counts(tmp_path), Counts)
     r = f.range(from_=30, to=60)
@@ -200,20 +265,41 @@ def test_a_range_under_a_projection_reads_the_segments_it_spans(tmp_path):
         core = f._pages._core
         r = f.range(from_={"press": "P02", "job": 4}, to={"press": "P05", "job": 2})
         # rows 20 to 41: segments 2 to 5, each read once — its end segments
-        # twice over, once through the cache to place an end and once for
-        # their rows — and no segment outside them.
-        assert core.stats()[0] == 6
+        # through the cache, where placing its ends left them — and no segment
+        # outside them.
+        assert core.stats()[0] == 4
         assert isinstance(r, EastDict)
         assert [(k["press"], k["job"]) for k in r] == \
             [(f"P{i // PER_SEGMENT:02d}", i % PER_SEGMENT) for i in range(20, 42)]
         assert r[{"press": "P03", "job": 0}] == {"count": 24}, "its rows are the projected ones"
         with pytest.raises(EastError, match="cannot mutate a frozen value"):
             r[{"press": "P03", "job": 0}] = {"count": 0}
-        assert core.stats()[0] == 6, "reading the range decodes nothing more"
+        assert core.stats()[0] == 4, "reading the range decodes nothing more"
         # a prefix, and a range that holds nothing
         assert [k["job"] for k in f.prefix({"press": "P07"})] == list(range(PER_SEGMENT))
         assert len(f.range(from_={"press": "P02", "job": 9}, to={"press": "P02", "job": 9})) == 0
         del core  # it borrows the mapping the file closes
+
+
+def test_a_range_under_a_projection_refuses_a_change_at_any_depth(tmp_path):
+    with open_beast2_file(_crewed(tmp_path), project=CrewOnly) as f:
+        r = f.range(from_={"press": "P02", "job": 4}, to={"press": "P05", "job": 2})
+        # P02 is an end segment of the range, P03 one between its ends.
+        for key in ({"press": "P02", "job": 5}, {"press": "P03", "job": 0}):
+            crew = r[key]["crew"]
+            with pytest.raises(EastError, match="cannot mutate a frozen value"):
+                crew.push_last("another operator")
+            assert list(r[key]["crew"]) == [f"operator {PER_SEGMENT * int(key['press'][1:]) + key['job']}"]
+        # A change is made to copies, as a frozen value's refusal says: the
+        # range's copy takes a row, and a copy of the row's crew an operator.
+        key = {"press": "P03", "job": 0}
+        changed = r.copy()
+        crew = changed[key]["crew"].copy()
+        crew.push_last("another operator")
+        changed[key] = {"crew": crew}
+        assert list(changed[key]["crew"]) == ["operator 24", "another operator"]
+        assert list(r[key]["crew"]) == ["operator 24"]
+        del r, changed, crew
 
 
 def test_a_range_under_a_projection_is_what_the_loaded_file_holds(tmp_path):

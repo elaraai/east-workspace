@@ -405,8 +405,9 @@ Read the one a task needs; each holds its sections whole.
   value. Keyed gets and iteration on a paged input stay O(segment) through the
   proxy, and frozen collections compare by value under `Is`. A key range of
   one — `d.range(from_=…, to=…)`, `d.prefix({…})`, in a body or on the proxy —
-  still reads from the pager: its size reads the segment each end lands in,
-  iterating it reads its segments, and it is a collection of its own, which a
+  still reads from the pager: its size reads at most one segment for each end
+  — the one before the first segment that starts at or past it — and none
+  between, iterating it reads its segments, and it is a collection of its own, which a
   change decodes and changes without touching the input. The same frozen
   paged value comes from `blob.open_beast(T)` and from `fs_open_beast` in
   **east-py-std**; an input e3 stages as a manifest directory opens the same

@@ -29,6 +29,10 @@ from east import (
     SetType,
     StringType,
     StructType,
+    VariantType,
+    none,
+    some,
+    variant,
 )
 from east.codegen import to_python_source
 from east.expression.errors import ExpressionError
@@ -84,6 +88,8 @@ def test_a_bound_is_typed_as_the_key_cut_short_to_the_fields_written():
     assert written_bound_type(Key, {"job": 1}) is None
     assert written_bound_type(Key, {}) is None
     assert written_bound_type(Indexed, {"ik": {"on": {"hall": "H1"}}, "k": "x"}) is None
+    # nor have they with every one of the key's fields and one it does not hold
+    assert written_bound_type(Key, {"press": "P1", "job": 1, "shift": 2}) is None
 
 
 def test_a_refusal_is_east_cs_words():
@@ -148,6 +154,10 @@ def test_a_bound_that_is_no_leading_part_is_refused_on_values():
     with pytest.raises(EastTypeError) as prefix_error:
         d.prefix({"job": 1})
     assert str(prefix_error.value) == f"a prefix {NO_LEADING}"
+    # every one of the key's fields, and one it does not hold: TypeScript's words
+    with pytest.raises(EastTypeError) as extra_error:
+        d.range(from_={"press": "P1", "job": 1, "shift": 2})
+    assert str(extra_error.value) == f"a range's `from` {NO_LEADING}"
     names = EastSet(StringType)
     with pytest.raises(EastTypeError, match="this key is a String: read one key with `get`"):
         names.prefix("a")
@@ -204,6 +214,47 @@ def test_a_bound_that_is_no_leading_part_is_refused_where_the_function_is_built(
         East.function(
             [Sheets, StructType([("job", IntegerType)])], Sheets, lambda b, d, bound: d.range(to=bound))
     assert f"a range's `to` {NO_LEADING}" in str(expr_error.value)
+    # every one of the key's fields, and one it does not hold
+    with pytest.raises(ExpressionError) as extra_error:
+        East.function([Sheets], Sheets,
+                      lambda b, d: d.range(from_={"press": "P1", "job": 1, "shift": 2}))
+    assert f"a range's `from` {NO_LEADING}" in str(extra_error.value)
+
+
+# Runs on each level of a schedule, keyed by the level and a number: a key one
+# of whose fields is a variant. A bound's expression of one of its cases alone
+# is of a subtype of the field's type; one of `some` alone, of an Option's.
+Level = VariantType([("day", NullType), ("week", NullType)])
+Run = StructType([("level", Level), ("n", IntegerType)])
+WeekOnly = VariantType([("week", NullType)])
+SomeOnly = VariantType([("some", IntegerType)])
+
+
+def test_a_bound_written_as_an_expression_of_a_subtype_is_read_at_the_keys_type():
+    runs = EastSet(Run)
+    for level in ("day", "week"):
+        for n in (1, 2, 3):
+            runs.add({"level": variant(level, None, Level), "n": n})
+    week = variant("week", None, WeekOnly)
+    # a variant of one of the key field's cases is a subtype of the field's
+    # type: read at the field's type, as a key `has` is given is
+    weekly = East.function([SetType(Run), WeekOnly], IntegerType,
+                           lambda b, s, level: s.prefix({"level": level}).size())
+    assert East.compile(weekly)(runs, week) == 3
+    # the same of a field before the last, which a bound gives whole
+    from_two = East.function([SetType(Run), WeekOnly], IntegerType,
+                             lambda b, s, level: s.range(from_={"level": level, "n": 2}).size())
+    assert East.compile(from_two)(runs, week) == 2
+    # and of a whole key that is an Option
+    options = EastSet(OptionType(IntegerType))
+    for option in (none, some(1), some(3), some(5)):
+        options.add(option)
+    ranged = East.function([SetType(OptionType(IntegerType)), SomeOnly],
+                           SetType(OptionType(IntegerType)), lambda b, s, bound: s.range(from_=bound))
+    assert list(East.compile(ranged)(options, variant("some", 3, SomeOnly))) == [some(3), some(5)]
+    # the bound's type parameter is the key's, and the expression widened to it
+    name, tps, _args = _range_node(ranged)
+    assert name == "SetRange" and tps[1] == OptionType(IntegerType)
 
 
 # ── the analyzer, over an IR made by hand ────────────────────────────────────

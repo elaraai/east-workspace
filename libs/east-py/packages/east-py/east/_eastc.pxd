@@ -615,6 +615,12 @@ cdef extern from "east/serialization.h":
     bint east_beast2_pages_range(Beast2Pages *p, EastValue *from_, EastType *from_type,
                                  bint from_past, EastValue *to, EastType *to_type,
                                  bint to_past, size_t *lo_out, size_t *hi_out)
+    # The rows between two bounds as one collection, frozen at every depth,
+    # read as a view reads them — what a host that keeps no lazily opened
+    # value reads a range by. `p` reads its own bytes.
+    EastValue *east_beast2_pages_range_rows(Beast2Pages *p, EastValue *from_,
+                                            EastType *from_type, bint from_past,
+                                            EastValue *to, EastType *to_type, bint to_past)
 
     # Segment manifests: a collection held as standalone segment blobs and a
     # manifest naming them, a manifest directory being the manifest's file

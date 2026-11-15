@@ -1061,17 +1061,6 @@ def _paged_range_view(uintptr_t source_ptr, object py_type, object from_end, obj
         _eastc.east_type_release(c_type)
 
 
-def _freeze_collection(object collection):
-    """Brand a collection east-c holds — one just built, that nothing else has
-    seen — read-only, and return it: it then refuses every change with the
-    message a frozen value gives on every runtime."""
-    cdef uintptr_t ptr = <uintptr_t>getattr(collection, "_c_ptr", 0)
-    if ptr == 0:
-        raise TypeError("_freeze_collection: not a collection east-c holds")
-    _eastc.east_value_set_frozen(<_eastc.EastValue*>ptr)
-    return collection
-
-
 cdef class _Beast2PagesCore:
     """Thin wrapper over east-c's v5 paging reader. Holds a contiguous view of
     the source bytes for the pages object's whole lifetime — the C pager
@@ -1254,6 +1243,36 @@ cdef class _Beast2PagesCore:
         if not ok:
             _consume_eastc_error("east-c beast2 v5 key range failed")
         return (lo, hi)
+
+    def range_rows(self, object from_end, object to_end):
+        """The rows of a Set or Dict root between two ends, each end as
+        :meth:`range` takes it, as one read-only collection of their own
+        (#1616): placed as :meth:`range` places them, and the segments they
+        span read once each, as east-c's view of a lazily opened value reads
+        them — the two the ends land in through the cache, those between them
+        decoded fresh. The collection is frozen at every depth, so it refuses
+        a change wherever one is made. Under a projection its rows are the
+        projected ones. Raises RuntimeError with east-c's message where
+        :meth:`range` refuses."""
+        cdef _RangeEnd f
+        cdef _RangeEnd t
+        cdef _eastc.EastValue* c_val
+        _range_end(from_end, &f)
+        try:
+            _range_end(to_end, &t)
+        except BaseException:
+            _range_end_free(&f)
+            raise
+        c_val = _eastc.east_beast2_pages_range_rows(self._p, f.value, f.type, f.past,
+                                                    t.value, t.type, t.past)
+        _range_end_free(&f)
+        _range_end_free(&t)
+        if c_val == NULL:
+            _consume_eastc_error("east-c beast2 v5 key range failed")
+        try:
+            return c_value_to_py(c_val, self._out_type)
+        finally:
+            _eastc.east_value_release(c_val)
 
     def stats(self):
         """What the pager's reads have cost so far, as ``(segments_decoded,

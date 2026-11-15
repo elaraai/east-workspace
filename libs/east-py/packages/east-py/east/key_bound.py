@@ -22,7 +22,38 @@ from __future__ import annotations
 
 from typing import Any
 
-from east.types.types import EastType, StructType, is_type_equal
+from east.types.types import EastType, StructType, is_subtype, is_type_equal
+
+
+def _widened_bound_type(key_type: EastType, written: EastType) -> EastType:
+    """An expression bound's type as the key reads it: the key's own where the
+    expression's is a subtype of it — a variant written as one case is a
+    variant of that case alone — and, for a struct of a struct key's first
+    fields, each field's widened the same way, so the bound is widened as a
+    key a keyed read is given is. Any other type is the expression's own,
+    which the bound's check refuses or takes. TypeScript's
+    ``widenedBoundType``.
+
+    Args:
+        key_type: The key's type, or a key field's.
+        written: The expression's type.
+
+    Returns:
+        The type the bound is read at.
+    """
+    if is_subtype(written, key_type):
+        return key_type
+    if key_type.type != "Struct" or written.type != "Struct":
+        return written
+    key_fields = {field["name"]: field["type"] for field in key_type.value}
+    # In the expression's own order: a field the key does not hold keeps its
+    # type, for the check to refuse.
+    return StructType([
+        (field["name"],
+         _widened_bound_type(key_fields[field["name"]], field["type"])
+         if field["name"] in key_fields else field["type"])
+        for field in written.value
+    ])
 
 
 def written_bound_type(key_type: EastType, bound: Any) -> EastType | None:
@@ -34,16 +65,18 @@ def written_bound_type(key_type: EastType, bound: Any) -> EastType | None:
             an East struct value, or any other value of the key's type.
 
     Returns:
-        An expression's own type; for a struct written over a struct key, the
-        key's type cut short to the fields it gives, in the key's order
-        however they are written; for anything else, the key's type. ``None``
-        for a struct whose fields are not the key's first.
+        An expression's own type, widened to the key's where it is a subtype
+        of it; for a struct written over a struct key, the key's type cut
+        short to the fields it gives, in the key's order however they are
+        written; for anything else, the key's type. ``None`` for a struct
+        whose fields are not the key's first fields — one the key's first
+        fields leave out, or one they do not hold.
     """
     from east.expression.expr import Expression
     from east.types.values import is_east_struct
 
     if isinstance(bound, Expression):
-        return bound.east_type
+        return _widened_bound_type(key_type, bound.east_type)
     if key_type.type != "Struct":
         return key_type
     if isinstance(bound, dict):
@@ -53,7 +86,9 @@ def written_bound_type(key_type: EastType, bound: Any) -> EastType | None:
     else:
         return key_type
     leading = key_type.value[: len(given)]
-    if not given or any(field["name"] not in given for field in leading):
+    # The names given are the key's first fields, every one of them: none left
+    # out, and none the key's first fields do not hold.
+    if not given or set(given) != {field["name"] for field in leading}:
         return None
     fields: list[tuple[str, EastType]] = []
     for index, field in enumerate(leading):

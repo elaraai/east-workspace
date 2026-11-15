@@ -224,9 +224,13 @@ class DictExpression(Expression):
         last of them, where it is a struct itself, cut short the same way. A
         bound left out is that end of the dict; ``from_`` past ``to`` gives
         an empty dict. The range is found by a search and never by a walk of
-        the dict; over a lazily opened dict only the range's own segments are
-        read. A bound that is no leading part of the key is refused where
-        the function is built, naming the key's fields in order."""
+        the dict. Over a lazily opened dict, each end reads at most one
+        segment — the one before the first segment that starts at or past
+        it, which may hold none of the range — and the segments between the
+        ends are read once each. A bound written as an expression of a
+        subtype of the key's type is read at the key's type. A bound that is
+        no leading part of the key is refused where the function is built,
+        naming the key's fields in order."""
         k_t, v_t = self._key(), self._value()
         from_t, from_node = key_range_end("from", k_t, from_)
         to_t, to_node = key_range_end("to", k_t, to)
