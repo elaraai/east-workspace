@@ -4,7 +4,7 @@
  */
 
 import {
-    ArrayType, DictType, East, FloatType, IntegerType, OptionType, StringType, StructType, none, some, variant,
+    ArrayType, DateTimeType, DictType, East, FloatType, IntegerType, OptionType, StringType, StructType, none, some, variant,
     type EastType, type ExprType, type FunctionType,
 } from "@elaraai/east";
 import { scheduleNumberText } from "../schedule/words.js";
@@ -15,6 +15,34 @@ import {
 
 /** Rest before and after a duty, in hours. Infinity means no other duty of theirs on that side in this week. @internal */
 export const RosterRestType = StructType({ before: FloatType, after: FloatType, minimum: FloatType });
+
+/** A duty's own times: what the rest between duties is measured from. @internal */
+export const RosterSpanType = StructType({ start: DateTimeType, end: DateTimeType });
+
+/**
+ * The rest either side of a duty, among a person's other duties: the one
+ * measure of rest, which the page's check ({@link rosterRest}) and the
+ * ready-made fit (`Roster.fit`, east-workspace#1624) both call.
+ *
+ * @param start - The duty's start
+ * @param end - Its end
+ * @param others - The person's other duties' own times
+ * @returns The rest before it, after it, and the smaller of the two
+ * @remarks Before, from the end of the latest of the others to start at or before it; after, to the start of the earliest to start after it. Duties that overlap leave negative rest; with no other duty on a side the rest there is Infinity.
+ * @internal
+ */
+export const rosterRestBetween = East.function([DateTimeType, DateTimeType, ArrayType(RosterSpanType)], RosterRestType, ($, start, end, others) => {
+    const before = $.let(Infinity, FloatType);
+    const after = $.let(Infinity, FloatType);
+    $.for(others, ($2, other) => {
+        $2.if(East.lessEqual(other.start, start), ($3) => {
+            $3.assign(before, East.min(before, other.end.durationHours(start)));
+        }).else(($3) => {
+            $3.assign(after, East.min(after, end.durationHours(other.start)));
+        });
+    });
+    return { before, after, minimum: East.min(before, after) };
+});
 
 /**
  * Measures a duty's rest against the person's other duties of the week.
@@ -27,20 +55,17 @@ export const RosterRestType = StructType({ before: FloatType, after: FloatType, 
  */
 export function rosterRest<R extends EastType>(row: R) {
     return East.function([RosterAssignmentTypeFor(row as EastType), StringType, RosterWeekTypeFor(row as EastType), RosterContextType], RosterRestType, ($, assignment, id, week, _context) => {
-        const before = $.let(Infinity, FloatType);
-        const after = $.let(Infinity, FloatType);
+        const between = $.const(rosterRestBetween);
+        // The person's other duties of the week: an agency's request has none.
+        const others = $.let([], ArrayType(RosterSpanType));
         $.if(assignment.who.hasTag("person"), $ => {
             $.for(week.assignments, ($, other, key) => {
                 $.if(East.notEqual(key, id).and(() => East.equal(other.who, assignment.who)), $ => {
-                    $.if(East.lessEqual(other.start, assignment.start), $ => {
-                        $.assign(before, East.min(before, other.end.durationHours(assignment.start)));
-                    }).else($ => {
-                        $.assign(after, East.min(after, assignment.end.durationHours(other.start)));
-                    });
+                    $(others.pushLast({ start: other.start, end: other.end }));
                 });
             });
         });
-        return { before, after, minimum: East.min(before, after) };
+        return between(assignment.start, assignment.end, others);
     }) as unknown as ExprType<FunctionType<[RosterAssignmentTypeFor<R>, StringType, RosterWeekTypeFor<R>, RosterContextType], typeof RosterRestType>>;
 }
 

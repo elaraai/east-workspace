@@ -33,8 +33,8 @@ test("the windowed roster pages its duties and its weeks, and reads neither whol
     assert.ok(!names(manifest.paths, rosterDuties) && !names(manifest.paths, rosterWeeks));
 });
 
-test("R5 — rosterWarehouse and rosterRecordIndexes bind the warehouse's greedy fit, `roster_staff_fit`, as their tasks' one bound function; the mobile example binds none, and offers no Find", () => {
+test("R5 — rosterWarehouse binds the warehouse's greedy fit, `roster_staff_fit`, and rosterRecordIndexes its own over its own records, `indexed_roster_staff_fit`, each its task's one bound function; the mobile example binds none, and offers no Find", () => {
     assert.deepEqual(deriveManifest(rosterWarehouse.fn).functions, [rosterStaffFit.name]);
-    assert.deepEqual(deriveManifest(ex.rosterRecordIndexes.fn).functions, [rosterStaffFit.name]);
+    assert.deepEqual(deriveManifest(ex.rosterRecordIndexes.fn).functions, [ex.indexedStaffFit.name]);
     assert.deepEqual(deriveManifest(ex.rosterRecordIndexesMobile.fn).functions, []);
 });

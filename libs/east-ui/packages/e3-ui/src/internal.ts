@@ -694,6 +694,7 @@ export {
 } from './schedule/events.js';
 // What a builder publishes (#1367): the app's record of periods, its status a field of the app's.
 export { schedulePeriods, type SchedulePeriods, type SchedulePeriodsConfig } from './schedule/periods.js';
+export { SCHEDULE_PATCH_DOOR } from './schedule/session.js';
 export {
     SCHEDULE_DEF, scheduleResources, type ScheduleResourceAccessor, type ScheduleResourceAccessors, type ScheduleResourceKind,
     type ScheduleResourcesConfig,

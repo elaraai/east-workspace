@@ -34,6 +34,14 @@ import { Record } from "../bind/record.js";
 import { ScheduleEntriesType } from "./types.js";
 import { keyOfText, keyTextOf, scheduleEntryByKey, scheduleLastKey } from "./window.js";
 
+/**
+ * The mutation a builder's session saves through: the record's patch door,
+ * which the record declares as `patch: mutation.patch()`. A draft a renderer
+ * makes of a further change to the record — the day as a fit is asked of it,
+ * east-workspace#1624 — is a draft of this mutation, as the session's own is.
+ */
+export const SCHEDULE_PATCH_DOOR = "patch";
+
 /** One entry read by its key: still reading, absent, or held. */
 type KeyRead = VariantType<{ reading: NullType; absent: NullType; held: EastType }>;
 
@@ -82,7 +90,7 @@ export function scheduleRecordSession(record: unknown, keyType: EastType, rowTyp
     // The Save: one patch commit through the record's patch door, its entries checked against what the drafts began from.
     // With it, where the handle makes drafts, the same batch as the draft of that commit: nothing is committed.
     // Declared now, so a record bound without its patch door is refused where the builder's kind is.
-    const save = Record.onApply(record as never, { keyed: true }) as unknown as ExprType<EastType>;
+    const save = Record.onApply(record as never, { keyed: true, mutation: SCHEDULE_PATCH_DOOR }) as unknown as ExprType<EastType>;
     const readAll = handle["read"] as unknown as () => ExprType<DictType<EastType, EastType>>;
     // The record's name, as its handle's binding carries it.
     const name = (handle["binding"] as unknown as { name: ExprType<StringType> }).name;

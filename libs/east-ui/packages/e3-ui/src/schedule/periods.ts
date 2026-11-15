@@ -94,8 +94,9 @@ export interface SchedulePeriods {
     /** The period's row type. */
     readonly rowType: StructType;
     /**
-     * The record's name in the deployed package, as its handle's binding carries it: what a builder that publishes the
-     * periods holds its optimiser's `drafts` to (east-workspace#1622), as it edits them.
+     * The record the periods are, by its name in the deployed package, as its binding carries it (east-workspace#1622,
+     * east-workspace#1624): the builder edits it, so a function it asks — its fit, its optimiser — that reads the record
+     * lists it in `drafts`.
      */
     readonly record: ExprType<StringType>;
     /**

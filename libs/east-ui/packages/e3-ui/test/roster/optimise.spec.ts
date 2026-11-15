@@ -24,7 +24,7 @@ import { Assert, TestImpl, describeEast } from "@elaraai/east-node-std";
 import e3 from "@elaraai/e3";
 import { RecordSliceWhereType } from "@elaraai/east-ui/internal";
 import { Data, Roster, Schedule } from "@elaraai/e3-ui";
-import { Func, FuncBindingType, Record, RosterPayloadType, RosterSlotType, createRosterPayload, rosterOptimise, type RosterProps } from "@elaraai/e3-ui/internal";
+import { Func, FuncBindingType, Record, RosterPayloadType, RosterSlotType, createRosterPayload, rosterEdits, rosterOptimise, type RosterProps } from "@elaraai/e3-ui/internal";
 import {
     WarehouseDuty, warehouseCover, warehouseDuties, warehouseNextStart, warehousePeople, warehouseShifts, warehouseStart, warehouseTeams, warehouseWeek,
 } from "./warehouse.js";
@@ -91,7 +91,7 @@ function evaluated(def: unknown, withTargets: boolean, withPeriods = false): Val
         });
         const targets = withTargets ? Roster.targets(cover, { day: "day", group: "team", shift: "shift", positions: "heads", hours: "hours" }) : undefined;
         const periods = withPeriods ? Schedule.periods(weeks, { every: "week", status: { field: "state", draft: "open", published: "issued" } }) : undefined;
-        return rosterOptimise(optimise, kind as never, targets, periods).binding;
+        return rosterOptimise(optimise, kind as never, rosterEdits(kind as never, targets, periods)).binding;
     }), refusingPlatform)();
 }
 

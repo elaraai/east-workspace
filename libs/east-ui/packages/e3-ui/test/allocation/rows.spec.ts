@@ -8,23 +8,27 @@
  * Spec.md` §6.2–§6.4): the lanes and the resources from their kinds'
  * accessors, and the arrivals from theirs; a bin as the board reads it, its
  * kind's roles and its row, on the day its `at` falls in (B12); what booking an
- * arrival writes into a bin's own fields (B13); and the fit's and the check's
- * requests, decoded, each bin carrying its own row (B16). The bin kind reads
- * and writes a row's roles on e3 (e3-ui-components' `test/schedule-builders.spec.ts`);
- * here, the roles as its `rows` and `read` give them.
+ * arrival writes into a bin's own fields (B13); and a bin's own row where the
+ * app's functions read it (B16) — a fit's from the bins' record, which its
+ * request carries none of (east-workspace#1624), and a check's in its context,
+ * decoded. The bin kind reads and writes a row's roles on e3 (e3-ui-components'
+ * `test/schedule-builders.spec.ts`); here, the roles as its `rows` and `read`
+ * give them.
  */
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
     ArrayType, BlobType, DateTimeType, DictType, East, IntegerType, NullType, OptionType, SortedMap, StringType, StructType, compareFor, decodeBeast2For,
-    defaultValue, encodeBeast2For, equalFor, isTypeEqual, none, some, variant, type EastType, type ValueTypeOf,
+    defaultValue, encodeBeast2For, equalFor, isTypeEqual, none, some, variant, type EastIR, type EastType, type ValueTypeOf,
 } from "@elaraai/east";
+import e3 from "@elaraai/e3";
 import { Allocation, Schedule } from "@elaraai/e3-ui";
 import {
     Record, ScheduleAllocationRolesType, SchedulePeriodStatusType, allocationArrivalsOf, allocationBinOf, allocationInitial, allocationLanesOf,
     allocationResourcesOf,
 } from "@elaraai/e3-ui/internal";
 import { Bay, Kiln, KilnBin, TimberLoad, YardBin, YardPlan, yardArrivals, yardBayRows, yardBinRows, yardDay, yardKilns, yardPlanDay } from "./kiln-yard.js";
+import { indexEntries } from "../index-entries.js";
 import { yardContext as context } from "./yard-context.js";
 import * as ex from "./allocation.examples.js";
 
@@ -205,33 +209,45 @@ describe("a booking's row: its roles, its `values` and the defaults (B13)", () =
     });
 });
 
-describe("the fit's and the check's requests carry each bin's own row, over decoded rows (B16)", () => {
-    const Request = Allocation.Types.FitRequest(KilnBin);
+describe("a bin's own row where the app's functions read it: a fit from the bins' record, a check in its context (B16)", () => {
+    const Request = Allocation.Types.FitRequest;
     const Context = Allocation.Types.CheckContext(KilnBin);
     const fresh = () => decodeBeast2For(YardPlan)(encodeBeast2For(YardPlan)(yardPlanDay));
 
-    test("an app's fit reads the subject bin's own row: it refuses every kiln for a bin measured off its booked spec", () => {
-        // The yard's own rule over the built-in ones, reading the bin's row as the request carries it.
-        const fit = East.compile(East.function([Request], Allocation.Types.FitResult, ($, req) => {
-            const answer = $.const(Allocation.answer(KilnBin));
+    test("an app's fit reads the subject bin's own row from the bins' record (#1624): it refuses every kiln for a bin measured off its booked spec", () => {
+        // The yard's own rule over the built-in ones: the request carries no row, so the function reads the subject's from the record.
+        const offSpec = e3.function("allocation_spec_off_spec_fit", {
+            inputs: [e3.index(ex.kilnBins.indexes.kiln_bins_by_time), ex.kilnBins, ex.kilns, ex.arrivals],
+            drafts: [ex.kilnBins],
+            args: [Request],
+            output: Allocation.Types.FitResult,
+        }, ($, binsByTime, bins, kilnRows, loadRows, request) => {
+            const roles = $.const(ex.yardBinRoles);
+            const day = $.let(new Map(), DictType(StringType, Schedule.Types.AllocationRoles));
+            binsByTime.overlapping({ from: request.day, to: request.day.addDays(1n) }).each($, ($2, _carried, key) => { $2(day.insert(key, roles(bins.get(key)))); });
+            const read = $.const(ex.yardRead);
+            const answer = $.const(Allocation.answer);
             const rule = $.const(Allocation.fit);
-            return answer(req, East.function([Allocation.Types.Candidate], Allocation.Types.Fit, ($2, c) => {
+            return answer(request, read(day, kilnRows, loadRows), East.function([Allocation.Types.Candidate], Allocation.Types.Fit, ($2, c) => {
                 $2.match(c.bin, { some: ($3, id) => {
-                    const row = $3.const(req.plan.bins.get(id).row);
+                    const row = $3.const(bins.get(id));
                     $3.if(East.notEqual(row.specBooked, row.specMeasured), ($4) => {
                         $4.return(variant("refused", { group: "Off spec", reason: East.str`measured ${row.specMeasured} · booked ${row.specBooked}`, measure: variant("none", null) }));
                     });
                 } });
                 return rule(c);
             }), "ranked by load, kind and spare days; a bin off its spec goes nowhere");
-        }), []);
+        });
+        const fit = (offSpec.body as EastIR<EastType[], EastType>).compile([]) as unknown as (...inputs: unknown[]) => ValueTypeOf<typeof Allocation.Types.FitResult>;
         // As the renderer sends it: encoded at the request type, and decoded where the fit runs.
         const ask = (bin: string, quantity: number) => decodeBeast2For(Request)(encodeBeast2For(Request)({
-            day: yardDay, plan: fresh(), context, ask: variant("place", { subject: variant("bin", bin), quantity }),
+            day: yardDay, ask: variant("place", { subject: variant("bin", bin), quantity }), scope: new SortedMap([], byString),
         }));
-        const off = fit(ask("3113", 32));
+        const answer = (bin: string, quantity: number) =>
+            fit(indexEntries(ex.kilnBins, ex.kilnBins.indexes.kiln_bins_by_time, yardBinRows).entries, yardBinRows, yardKilns, yardArrivals, ask(bin, quantity));
+        const off = answer("3113", 32);
         assert.ok([...off.resources.values()].every(f => f.type === "refused" && f.value.reason === "measured MC22 · booked MC08"));
-        const on = fit(ask("3101", 35));
+        const on = answer("3101", 35);
         assert.ok([...on.resources.values()].some(f => f.type === "fits"), "a bin on its spec fits where the rules say");
     });
 
@@ -254,7 +270,7 @@ describe("the fit's and the check's requests carry each bin's own row, over deco
     });
 
     test("each type over a day is a constructor of the row type: the same row the same type, another row another; a bin carries its row", () => {
-        const makers: readonly ((row: EastType) => EastType)[] = [Allocation.Types.Bin, Allocation.Types.Day, Allocation.Types.FitRequest, Allocation.Types.CheckContext];
+        const makers: readonly ((row: EastType) => EastType)[] = [Allocation.Types.Bin, Allocation.Types.Day, Allocation.Types.CheckContext];
         for (const make of makers) {
             assert.ok(isTypeEqual(make(KilnBin), make(KilnBin)), make.name);
             assert.ok(!isTypeEqual(make(KilnBin), make(IntegerType)), make.name);

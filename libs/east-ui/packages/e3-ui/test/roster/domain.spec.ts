@@ -14,8 +14,8 @@ import * as ex from "./domain.examples.js";
 
 describeEast("Roster — pure domain", test => {
     Assert.examples(test, { rosterCoverage: ex.rosterCoverage, rosterChecks: ex.rosterChecks, rosterWeeklyHours: ex.rosterWeeklyHours, rosterRest: ex.rosterRest,
-        rosterFitTrainer: ex.rosterFitTrainer, rosterAnswerLeads: ex.rosterAnswerLeads, rosterSlotOfPlaces: ex.rosterSlotOfPlaces,
-        rosterNoGroupHours: ex.rosterNoGroupHours });
+        rosterFitTrainer: ex.rosterFitTrainer, rosterAnswerLeads: ex.rosterAnswerLeads, rosterWeekWindow: ex.rosterWeekWindow,
+        rosterSlotOfPlaces: ex.rosterSlotOfPlaces, rosterNoGroupHours: ex.rosterNoGroupHours });
 }, { platformFns: TestImpl });
 
 type Week = ValueTypeOf<typeof ex.DomainWeek>;
@@ -147,7 +147,7 @@ test("a duty in no group counts in its person's hours and in no slot's coverage,
 // The requests carry each duty's own row (B16)
 // ============================================================================
 
-test("the pay, the check and the fit are asked over the app's rows: each request carries every duty's own row (B16)", () => {
+test("the pay and the check are asked over the app's rows: each request carries every duty's own row (B16); the fit's carries none (#1624)", () => {
     const Request = Roster.Types.PayRequest(ex.DomainDuty);
     // The app's pay, reading its row: a cost per duty its note names.
     const notes = East.compile(East.function([Request], Roster.Types.Pay, ($, req) => req.duties.map(($2, duty) => {
@@ -176,16 +176,13 @@ test("the pay, the check and the fit are asked over the app's rows: each request
     const cx = decodeBeast2For(Context)(encodeBeast2For(Context)({ start: ex.start, week, context, coverage: coverage(week, context, pay), pay }));
     assert.deepEqual(checked(cx).map(i => [i.assignment, i.title]), [[some("a"), "in late, stays on"]]);
     assert.ok(equalFor(OptionType(Roster.Types.Slot))(checked(cx)[0]!.slot, some(ex.slot)), "the issue names the duty's slot");
-    // The fit's request carries the rows too.
-    const Fit = Roster.Types.FitRequest(ex.DomainDuty);
-    const noteOf = East.compile(East.function([Fit], StringType, (_$, req) => req.week.assignments.get("a").row.note), []);
-    const ask = decodeBeast2For(Fit)(encodeBeast2For(Fit)({ need: variant("leads", null), slot: ex.slot, start: ex.start, week, context, coverage: coverage(week, context, pay) }));
-    assert.equal(noteOf(ask), "in late, stays on");
+    // The fit's request carries the question and the scope, and no row: its function reads the duties itself.
+    assert.deepEqual(Object.keys(Roster.Types.FitRequest.fields), ["need", "slot", "start", "scope"]);
 });
 
 test("each type over a week is a constructor of the row type: the same row the same type, another row another", () => {
     const Other = Roster.Types.Assignment(IntegerType);
-    const makers: readonly ((row: EastType) => EastType)[] = [Roster.Types.Assignment, Roster.Types.Week, Roster.Types.PayRequest, Roster.Types.CheckContext, Roster.Types.FitRequest];
+    const makers: readonly ((row: EastType) => EastType)[] = [Roster.Types.Assignment, Roster.Types.Week, Roster.Types.PayRequest, Roster.Types.CheckContext];
     for (const make of makers) {
         assert.ok(isTypeEqual(make(ex.DomainDuty), make(ex.DomainDuty)), make.name);
         assert.ok(!isTypeEqual(make(ex.DomainDuty), make(IntegerType)), make.name);

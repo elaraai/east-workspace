@@ -108,45 +108,176 @@ export const yardBays = e3.record("yard_bays", DictType(StringType, Bay), {
         yard_bays_by_cover: index.on(["cover"]),
     }),
 });
-// The smallest board's own bins (§6.5): the board's roles alone.
+// The smallest board's own bins (§6.5): the board's roles alone; by their time, which its fit reads a day of them through.
 export const minimalBins = e3.record("kiln_minimal_bins", DictType(StringType, MinimalBin), {
     initial: yardMinimalBinRows,
+    indexes: (index) => ({
+        kiln_minimal_bins_by_time: index.interval({ from: "at", to: "at" }),
+    }),
     mutations: (mutation) => ({
         patch: mutation.patch(),
     }),
 });
 
-/** The yard's fit's body: the built-in rules, then a greedy look-ahead over the day's other loads. */
-export const yardFitBody = East.function([Allocation.Types.FitRequest(KilnBin)], Allocation.Types.FitResult, ($, req) => {
-    const answer = $.const(Allocation.answer(KilnBin));
+// The readings the board's kinds declare, written once more for the yard's functions (#1624): a fit is sent no row,
+// and reads the bins, the kilns and the loads for itself. A card's own lines (`meta`, `details`) are the page's: no
+// rule reads them.
+
+/** The day's bins by key, each its roles: what a fit reads of the plan day. */
+const DayBins = DictType(StringType, Schedule.Types.AllocationRoles);
+/** A bin's roles, as the board's bin kind reads them. */
+export const yardBinRoles = East.function([KilnBin], Schedule.Types.AllocationRoles, (_$, b) => ({
+    at: b.at, lane: b.bay, arrival: b.load, quantity: b.m3, parts: b.kilns, hold: b.dryFor, kind: b.spec,
+}));
+/** A kiln, as the board's kilns read it. */
+export const yardKilnOf = East.function([Kiln, StringType], Allocation.Types.Resource, (_$, k, key) => ({
+    key, label: k.name, group: some(k.group), meta: none, note: k.note, min: k.min, max: k.max, hold: variant("days", k.days), jobs: k.charges,
+}));
+/** A load, as the board's arrivals read it. */
+export const yardLoadOf = East.function([TimberLoad, StringType], Allocation.Types.Arrival, (_$, l, key) => ({
+    key, label: l.code, meta: none, quantity: l.m3, hold: variant("days", l.dryingDays), kind: some(l.spec),
+    due: some(l.due), window: some({ from: l.from, to: l.to }), details: [],
+}));
+/**
+ * What a yard's fit read (#1624): a day's bins as their roles, and every kiln and every load — every kiln is a
+ * candidate, and a look-ahead places every load, so both are read whole, as the board reads them.
+ */
+export const yardRead = East.function([DayBins, DictType(StringType, Kiln), DictType(StringType, TimberLoad)], Allocation.Types.FitContext, ($, day, kilnRows, loadRows) => {
+    const kiln = $.const(yardKilnOf);
+    const load = $.const(yardLoadOf);
+    return { bins: day, arrivals: loadRows.map((_$2, l, key) => load(l, key)), resources: kilnRows.map((_$2, k, key) => kiln(k, key)), rules: { under: true }, unit: "m³" };
+});
+
+/**
+ * The yard's fit, on e3 (#1624): the built-in rules, then a greedy look-ahead over the day's other loads — a fit that
+ * leaves more of the day's unbooked loads with nowhere to go ranks lower. It is asked the day and the question, and
+ * sent no row: it reads the day's bins through their interval index, the board's unsaved bins among them.
+ */
+export const yardFit = e3.function("yard_fit", {
+    inputs: [e3.index(kilnBins.indexes.kiln_bins_by_time), kilnBins, kilns, arrivals],
+    // The board's unsaved bins are laid over them, and over their index
+    drafts: [kilnBins],
+    args: [Allocation.Types.FitRequest],
+    output: Allocation.Types.FitResult,
+}, ($, binsByTime, bins, kilnRows, loadRows, request) => {
+    // The day's bins, every one: a kiln's load is every bin's part on it. The index carries no row: it gives each
+    // bin's key, and the record its row, both at the one drafted state.
+    const roles = $.const(yardBinRoles);
+    const day = $.let(new Map(), DayBins);
+    binsByTime.overlapping({ from: request.day, to: request.day.addDays(1n) }).each($, ($2, _carried, key) => { $2(day.insert(key, roles(bins.get(key)))); });
+    const read = $.const(yardRead);
+    const context = $.const(read(day, kilnRows, loadRows));
+    const answer = $.const(Allocation.answer);
     const rule = $.const(Allocation.fit);
-    const ahead = $.const(Allocation.lookahead(KilnBin));
-    return answer(req, East.function([Allocation.Types.Candidate], Allocation.Types.Fit, (_$2, c) => ahead(req, c, rule)),
+    const ahead = $.const(Allocation.lookahead);
+    return answer(request, context, East.function([Allocation.Types.Candidate], Allocation.Types.Fit, (_$2, c) => ahead(context, c, rule)),
         "ranked by load, kind and spare days, and what it leaves for the day's other loads");
 });
-// The yard's fit, on e3: a fit that leaves more of the day's unbooked loads with nowhere to go ranks lower.
-export const yardFit = e3.function("yard_fit", yardFitBody);
 
-/** A yard rule over the ready-made fit: a bulk kiln takes no load under 20 m³. */
-export const bulkFitBody = East.function([Allocation.Types.FitRequest(KilnBin)], Allocation.Types.FitResult, ($, req) => {
-    const answer = $.const(Allocation.answer(KilnBin));
+/** The yard's fit over the two years of bins: the same rules, its day read through that record's own index. */
+export const yardHistoryFit = e3.function("yard_history_fit", {
+    inputs: [e3.index(kilnBinHistory.indexes.kiln_bin_history_by_time), kilnBinHistory, kilns, arrivals],
+    drafts: [kilnBinHistory],
+    args: [Allocation.Types.FitRequest],
+    output: Allocation.Types.FitResult,
+}, ($, binsByTime, bins, kilnRows, loadRows, request) => {
+    const roles = $.const(yardBinRoles);
+    const day = $.let(new Map(), DayBins);
+    binsByTime.overlapping({ from: request.day, to: request.day.addDays(1n) }).each($, ($2, _carried, key) => { $2(day.insert(key, roles(bins.get(key)))); });
+    const read = $.const(yardRead);
+    const context = $.const(read(day, kilnRows, loadRows));
+    const answer = $.const(Allocation.answer);
     const rule = $.const(Allocation.fit);
-    return answer(req, East.function([Allocation.Types.Candidate], Allocation.Types.Fit, ($2, c) => {
+    const ahead = $.const(Allocation.lookahead);
+    return answer(request, context, East.function([Allocation.Types.Candidate], Allocation.Types.Fit, (_$2, c) => ahead(context, c, rule)),
+        "ranked by load, kind and spare days, and what it leaves for the day's other loads");
+});
+
+/** The yard's fit over the locked bins: the same rules, its day read through that record's own index. */
+export const yardLockedFit = e3.function("yard_locked_fit", {
+    inputs: [e3.index(kilnLockedBins.indexes.kiln_locked_bins_by_time), kilnLockedBins, kilns, arrivals],
+    drafts: [kilnLockedBins],
+    args: [Allocation.Types.FitRequest],
+    output: Allocation.Types.FitResult,
+}, ($, binsByTime, bins, kilnRows, loadRows, request) => {
+    const roles = $.const(yardBinRoles);
+    const day = $.let(new Map(), DayBins);
+    binsByTime.overlapping({ from: request.day, to: request.day.addDays(1n) }).each($, ($2, _carried, key) => { $2(day.insert(key, roles(bins.get(key)))); });
+    const read = $.const(yardRead);
+    const context = $.const(read(day, kilnRows, loadRows));
+    const answer = $.const(Allocation.answer);
+    const rule = $.const(Allocation.fit);
+    const ahead = $.const(Allocation.lookahead);
+    return answer(request, context, East.function([Allocation.Types.Candidate], Allocation.Types.Fit, (_$2, c) => ahead(context, c, rule)),
+        "ranked by load, kind and spare days, and what it leaves for the day's other loads");
+});
+
+/** A yard rule over the ready-made fit, on e3: a bulk kiln takes no load under 20 m³. */
+export const bulkFit = e3.function("yard_bulk_fit", {
+    inputs: [e3.index(kilnBins.indexes.kiln_bins_by_time), kilnBins, kilns, arrivals],
+    drafts: [kilnBins],
+    args: [Allocation.Types.FitRequest],
+    output: Allocation.Types.FitResult,
+}, ($, binsByTime, bins, kilnRows, loadRows, request) => {
+    const roles = $.const(yardBinRoles);
+    const day = $.let(new Map(), DayBins);
+    binsByTime.overlapping({ from: request.day, to: request.day.addDays(1n) }).each($, ($2, _carried, key) => { $2(day.insert(key, roles(bins.get(key)))); });
+    const read = $.const(yardRead);
+    const context = $.const(read(day, kilnRows, loadRows));
+    const answer = $.const(Allocation.answer);
+    const rule = $.const(Allocation.fit);
+    return answer(request, context, East.function([Allocation.Types.Candidate], Allocation.Types.Fit, ($2, c) => {
         $2.if(East.equal(c.resource.group, some("Bulk")).and(() => c.reserve.not()).and(() => East.less(c.quantity, 20.0)), ($3) => {
             $3.return(variant("refused", { group: "Too small", reason: East.str`bulk kilns take 20 m³ and more`, measure: variant("none", null) }));
         });
         return rule(c);
     }), "ranked by load, kind and spare days; bulk kilns take 20 m³ and more");
 });
-export const bulkFit = e3.function("yard_bulk_fit", bulkFitBody);
 
-/** The smallest board's fit's body (§6.5): the built-in rules over its own bins. */
-export const minimalFitBody = East.function([Allocation.Types.FitRequest(MinimalBin)], Allocation.Types.FitResult, ($, req) => {
-    const answer = $.const(Allocation.answer(MinimalBin));
-    const rule = $.const(Allocation.fit);
-    return answer(req, rule, "ranked by load, kind and spare days");
+// The smallest board's readings (§6.5): its kinds give a bin no kind, a kiln no group, note or hold of its own, and a
+// load its code, its m³ and its drying time alone.
+
+/** A bin's roles, as the smallest board's bin kind reads them. */
+export const minimalBinRoles = East.function([MinimalBin], Schedule.Types.AllocationRoles, (_$, b) => ({
+    at: b.at, lane: b.bay, arrival: b.load, quantity: b.m3, parts: b.kilns, hold: b.dryFor, kind: none,
+}));
+/** A kiln, as the smallest board's kilns read it. */
+export const minimalKilnOf = East.function([Kiln, StringType], Allocation.Types.Resource, (_$, k, key) => ({
+    key, label: k.name, group: none, meta: none, note: none, min: k.min, max: k.max, hold: variant("days", 0.0), jobs: k.charges,
+}));
+/** A load, as the smallest board's arrivals read it. */
+export const minimalLoadOf = East.function([TimberLoad, StringType], Allocation.Types.Arrival, (_$, l, key) => ({
+    key, label: l.code, meta: none, quantity: l.m3, hold: variant("days", l.dryingDays), kind: none, due: none, window: none, details: [],
+}));
+/**
+ * The smallest board's verdicts over a day's bins as their roles (#1624): the built-in rules, over every kiln and
+ * every load as that board reads them — what each of its fits answers, once it has read its own bins.
+ */
+export const minimalAnswer = East.function([DayBins, DictType(StringType, Kiln), DictType(StringType, TimberLoad), Allocation.Types.FitRequest], Allocation.Types.FitResult,
+    ($, day, kilnRows, loadRows, request) => {
+        const kiln = $.const(minimalKilnOf);
+        const load = $.const(minimalLoadOf);
+        const context = $.const({
+            bins: day, arrivals: loadRows.map((_$2, l, key) => load(l, key)), resources: kilnRows.map((_$2, k, key) => kiln(k, key)), rules: { under: true }, unit: "m³",
+        }, Allocation.Types.FitContext);
+        const answer = $.const(Allocation.answer);
+        const rule = $.const(Allocation.fit);
+        return answer(request, context, rule, "ranked by load, kind and spare days");
+    });
+
+/** The smallest board's fit, on e3 (§6.5): the built-in rules over its own bins, read through their interval index. */
+export const minimalFit = e3.function("yard_minimal_fit", {
+    inputs: [e3.index(minimalBins.indexes.kiln_minimal_bins_by_time), minimalBins, kilns, arrivals],
+    drafts: [minimalBins],
+    args: [Allocation.Types.FitRequest],
+    output: Allocation.Types.FitResult,
+}, ($, binsByTime, bins, kilnRows, loadRows, request) => {
+    const roles = $.const(minimalBinRoles);
+    const day = $.let(new Map(), DayBins);
+    binsByTime.overlapping({ from: request.day, to: request.day.addDays(1n) }).each($, ($2, _carried, key) => { $2(day.insert(key, roles(bins.get(key)))); });
+    const answer = $.const(minimalAnswer);
+    return answer(day, kilnRows, loadRows, request);
 });
-export const minimalFit = e3.function("yard_minimal_fit", minimalFitBody);
 
 export const allocationMinimal = example({
     description: "The smallest board over the app's own records: bins with only the board's roles — their bay, time, load, m³, split across kilns and drying time — the bays, the kilns and the day's loads, and the yard's fit on e3. No library, no inspector and no Publish; every gesture is still a draft until Save.",
@@ -727,7 +858,7 @@ export const allocationWindowed = example({
                 { id: "north", name: "North bays, halls", where: { bays: { area: ["North"] }, kilns: { group: ["Hall A", "Hall B"] } } },
             ],
         }));
-        const fit = $.let(Func.bind(yardFit));
+        const fit = $.let(Func.bind(yardHistoryFit));
         return <Box width="100%" height="900px"><Allocation id="allocationWindowed" title="Kiln loading" fit={fit} slice={{ slice }} inspector
             library={[Allocation.library.arrivals(), Allocation.library.resources()]} view={{ layout: "timeline", date: yardDay }}
             events={{ bin: Schedule.events(bins, {
@@ -887,8 +1018,8 @@ export const allocationCustomBin = example({
 });
 
 export const allocationFitRule = example({
-    description: "The ready-made fit with one yard rule over it, as an e3.function: a bulk kiln takes no load under 20 m³, so LD-2235 (8 m³) fits K-305 alone.",
-    keywords: ["Allocation", "fit", "e3.function", "Func.bind", "Allocation.fit", "Allocation.answer", "rule"], inputs: [],
+    description: "The ready-made fit with one yard rule over it, as an e3.function (#1624): a bulk kiln takes no load under 20 m³, so LD-2235 (8 m³) fits K-305 alone. The function is asked the day and the question — Allocation.Types.FitRequest, no row — and reads the day's bins through their interval index, the board's unsaved bins laid over them (drafts: [kilnBins]), and the kilns and the loads from the yard's own records, making of them an Allocation.Types.FitContext for Allocation.answer.",
+    keywords: ["Allocation", "fit", "e3.function", "e3.index", "drafts", "Func.bind", "Allocation.fit", "Allocation.answer", "Allocation.Types.FitRequest", "Allocation.Types.FitContext", "rule"], inputs: [],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         const bins = $.let(Record.bind(kilnBins));
         const entries = $.let(Data.bindPaged(kilnBins));
@@ -947,6 +1078,9 @@ export const allocationFitRule = example({
 /** The bins the conflicts example edits, in a record of their own, so no other example's edits meet them. */
 export const conflictBins = e3.record("kiln_conflict_bins", DictType(StringType, MinimalBin), {
     initial: yardMinimalBinRows,
+    indexes: (index) => ({
+        kiln_conflict_bins_by_time: index.interval({ from: "at", to: "at" }),
+    }),
     mutations: (mutation) => ({
         patch: mutation.patch(),
         // Someone else's save: every bin a quarter hour later, and 1 m³ more on each of its kilns, its m³ with them.
@@ -958,6 +1092,19 @@ export const conflictBins = e3.record("kiln_conflict_bins", DictType(StringType,
                 dryFor: bin.dryFor,
             })))),
     }),
+});
+/** Their fit: the smallest board's rules over these bins, read through their own index. */
+export const conflictFit = e3.function("yard_conflict_fit", {
+    inputs: [e3.index(conflictBins.indexes.kiln_conflict_bins_by_time), conflictBins, kilns, arrivals],
+    drafts: [conflictBins],
+    args: [Allocation.Types.FitRequest],
+    output: Allocation.Types.FitResult,
+}, ($, binsByTime, bins, kilnRows, loadRows, request) => {
+    const roles = $.const(minimalBinRoles);
+    const day = $.let(new Map(), DayBins);
+    binsByTime.overlapping({ from: request.day, to: request.day.addDays(1n) }).each($, ($2, _carried, key) => { $2(day.insert(key, roles(bins.get(key)))); });
+    const answer = $.const(minimalAnswer);
+    return answer(day, kilnRows, loadRows, request);
 });
 
 /**
@@ -977,7 +1124,7 @@ export const allocationConflicts = example({
         const loads = $.let(Data.bind(arrivals));
         const yard = $.let(Data.bind(kilns));
         const bays = $.let(Data.bind(yardBays));
-        const fit = $.let(Func.bind(minimalFit));
+        const fit = $.let(Func.bind(conflictFit));
         return <VStack gap="3" align="stretch">
             <HStack gap="3">
                 <Button variant="outline" onClick={theirs} loading={others.mutate.pending()}>Someone else saves</Button>
@@ -1009,6 +1156,19 @@ export const kilnScheduledBins = e3.record("kiln_scheduled_bins", DictType(Strin
         patch: mutation.patch(),
     }),
 });
+/** Their fit: the smallest board's rules over these bins, read through their own index. */
+export const scheduledFit = e3.function("yard_scheduled_fit", {
+    inputs: [e3.index(kilnScheduledBins.indexes.kiln_scheduled_bins_by_time), kilnScheduledBins, kilns, arrivals],
+    drafts: [kilnScheduledBins],
+    args: [Allocation.Types.FitRequest],
+    output: Allocation.Types.FitResult,
+}, ($, binsByTime, bins, kilnRows, loadRows, request) => {
+    const roles = $.const(minimalBinRoles);
+    const day = $.let(new Map(), DayBins);
+    binsByTime.overlapping({ from: request.day, to: request.day.addDays(1n) }).each($, ($2, _carried, key) => { $2(day.insert(key, roles(bins.get(key)))); });
+    const answer = $.const(minimalAnswer);
+    return answer(day, kilnRows, loadRows, request);
+});
 /** The mills' delivery schedule (#1551): each load's bay and hour, by load, read through an interval index over the hour — what the board's check reads beside its bins. */
 export const yardDeliveries = e3.record("yard_deliveries", DictType(StringType, Delivery), {
     initial: yardDeliveryRows,
@@ -1037,7 +1197,7 @@ export const allocationDeliveries = example({
         const loads = $.let(Data.bind(arrivals));
         const yard = $.let(Data.bind(kilns));
         const bays = $.let(Data.bind(yardBays));
-        const fit = $.let(Func.bind(minimalFit));
+        const fit = $.let(Func.bind(scheduledFit));
         // The yard's check over its bins and the day's deliveries: each flagged, never refused.
         const check = $.const(East.function([Allocation.Types.CheckContext(MinimalBin, Delivery)], ArrayType(Allocation.Types.Issue), ($2, cx) => {
             const issues = $2.let([], ArrayType(Allocation.Types.Issue));

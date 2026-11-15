@@ -26,7 +26,7 @@ import e3 from "@elaraai/e3";
 import { RecordSliceWhereType } from "@elaraai/east-ui/internal";
 import { Allocation, Data, Schedule } from "@elaraai/e3-ui";
 import {
-    AllocationPayloadType, Func, FuncBindingType, Record, allocationOptimise, createAllocationPayload, type AllocationProps,
+    AllocationPayloadType, Func, FuncBindingType, Record, allocationEdits, allocationOptimiseBinding, createAllocationPayload, type AllocationProps,
 } from "@elaraai/e3-ui/internal";
 import { Kiln, KilnBin, MinimalBin, YardPlan, yardArrivals, yardBayRows, yardBinRows, yardDay, yardKilns, yardSplitDay } from "./kiln-yard.js";
 import { yardContext } from "./yard-context.js";
@@ -77,8 +77,8 @@ const specDays = e3.record("allocation_optimise_spec_days", DictType(DateTimeTyp
 
 /**
  * The board's optimiser over the bins — and the days it publishes, where `withDays` — evaluated as the page is: the check
- * its tag makes (`allocationOptimise`), alone — the payload around it reads the kilns as it is evaluated, which a spec
- * reads from no e3.
+ * its tag makes (`allocationOptimiseBinding`, over `allocationEdits`), alone — the payload around it reads the kilns as it
+ * is evaluated, which a spec reads from no e3.
  */
 function evaluated(def: unknown, withDays = false): ValueTypeOf<typeof FuncBindingType> {
     return East.compile(East.function([], FuncBindingType, ($) => {
@@ -90,7 +90,7 @@ function evaluated(def: unknown, withDays = false): ValueTypeOf<typeof FuncBindi
             quantity: { field: "m3", unit: "m³" }, parts: { field: "kilns", of: "kilns" }, hold: "dryFor", kind: "spec",
         });
         const periods = withDays ? Schedule.periods(days, { every: "day", status: { field: "state", draft: "open", published: "issued" } }) : undefined;
-        return allocationOptimise(optimise, kind as never, periods);
+        return allocationOptimiseBinding(optimise, ex.KilnBins, allocationEdits(kind as never, periods));
     }), refusingPlatform)();
 }
 

@@ -6,7 +6,7 @@ import {
     ArrayType, DateTimeType, East, FloatType, IntegerType, OptionType, SortedMap, StringType, StructType, VariantType, compareFor, example, none, some, variant,
     type ValueTypeOf,
 } from "@elaraai/east";
-import { Roster } from "@elaraai/e3-ui";
+import { Roster, Schedule } from "@elaraai/e3-ui";
 
 /** A duty of the app's own: who — one of its staff, or an agency asked to send someone — its own times, and a note the Roster carries but never reads. */
 export const DomainDuty = StructType({
@@ -105,18 +105,55 @@ export const rosterRest = example({
         return rest(next, "next", prior, context).before;
     }),
 });
+/** A duty's roles, as the Roster reads them. */
+type DutyRoles = ValueTypeOf<typeof Schedule.Types.RosterRoles>;
+/** The lead's Sunday duty as the Roster reads it: its roles. */
+const leadSunday: DutyRoles = {
+    start: new Date("2028-03-05T07:00:00Z"), end: new Date("2028-03-05T17:00:00Z"), resource: some({ kind: "people", key: "lead" }),
+    shift: "early", group: some("goods"), position: some("lead"), activity: some("reach"), hours: 10,
+};
+/**
+ * What a fit's function read of the same Sunday (#1624): the people it asks about, the week's duties as their roles —
+ * the lead's, the agency worker's and the request to the agency — the configuration, and ten hours' rest.
+ */
+export const read: ValueTypeOf<typeof Roster.Types.FitContext> = {
+    people: context.people,
+    duties: new Map<string, DutyRoles>([
+        ["a", leadSunday],
+        ["b", { start: new Date("2028-03-05T06:00:00Z"), end: new Date("2028-03-05T14:00:00Z"), resource: some({ kind: "people", key: "agency" }),
+            shift: "early", group: some("goods"), position: some("crew"), activity: some("general"), hours: 8 }],
+        ["c", { start: new Date("2028-03-05T06:00:00Z"), end: new Date("2028-03-05T14:00:00Z"), resource: some({ kind: "agencies", key: "agency" }),
+            shift: "early", group: some("goods"), position: some("crew"), activity: none, hours: 8 }],
+    ]),
+    shifts: context.shifts, groups: context.groups, positions: context.positions, activities: context.activities, rest: 10,
+};
+/** The lead against the week, for Monday's early shift: their Sunday duty where the Roster places it, and its ten hours. */
+export const leadCandidate: ValueTypeOf<typeof Roster.Types.Candidate> = {
+    need: variant("trainers", null), slot: { day: 1n, group: "goods", shift: "early" }, start, person: context.people.get("lead")!,
+    duties: new Map([["a", { place, roles: leadSunday }]]), hours: 10,
+    shifts: context.shifts, groups: context.groups, positions: context.positions, activities: context.activities, rest: 10,
+};
+/** A Find fix's question for Monday's early shift in Goods: who can lead it. The page holds no scope. */
+export const leadsRequest: ValueTypeOf<typeof Roster.Types.FitRequest> = {
+    need: variant("leads", null), slot: { day: 1n, group: "goods", shift: "early" }, start, scope: new Map(),
+};
 export const rosterFitTrainer = example({
-    description: "The ready-made fit: a trainer off that day whose rest is kept fits Goods' early shift, scored by spare contract hours and a week's more in the slot's group",
-    keywords: ["Roster", "Roster.fit", "fit", "Find", "trainer", "spare hours", "rest"], inputs: [week, context],
+    description: "The ready-made fit over one candidate — a person against the week: a trainer off that day whose rest is kept fits Goods' early shift, scored by spare contract hours and a week's more in the slot's group",
+    keywords: ["Roster", "Roster.fit", "Roster.Types.Candidate", "fit", "Find", "trainer", "spare hours", "rest"], inputs: [leadCandidate],
     returns: variant("fits", { score: 198, why: "Goods · 30 h spare", warn: none }),
-    fn: East.function([DomainWeek, Roster.Types.Context], Roster.Types.Fit, ($, week, context) => {
-        const coverage = $.const(Roster.coverage(DomainDuty));
-        const fit = $.const(Roster.fit(DomainDuty));
-        const noPay = $.const(new Map(), Roster.Types.Pay);
+    fn: East.function([Roster.Types.Candidate], Roster.Types.Fit, ($, candidate) => {
         // Monday's early shift: the lead's Sunday duty ends at 17:00, so 13 hours' rest is kept; 10 of their 40 contract hours are rostered.
-        const request = $.const({ need: variant("trainers", null), slot: { day: 1n, group: "goods", shift: "early" }, start: new Date("2028-03-05T00:00:00Z"),
-            week, context, coverage: coverage(week, context, noPay) }, Roster.Types.FitRequest(DomainDuty));
-        return fit(request, context.people.get("lead"));
+        const fit = $.const(Roster.fit());
+        return fit(candidate);
+    }),
+});
+export const rosterWeekWindow = example({
+    description: "Roster.window: the window a week's duties are read over, from its first day — the week and the twelve hours either side, as far as a duty's start may stand from its shift's — what an app's fit or optimiser reads the duties' interval index over",
+    keywords: ["Roster", "Roster.window", "window", "week", "fit", "e3.function", "interval index", "overlapping"], inputs: [start],
+    returns: { from: new Date("2028-03-04T12:00:00Z"), to: new Date("2028-03-12T12:00:00Z") },
+    fn: East.function([DateTimeType], StructType({ from: DateTimeType, to: DateTimeType }), ($, start) => {
+        const windowOf = $.const(Roster.window);
+        return windowOf(start);
     }),
 });
 /** The same Sunday with the lead's night in no group yet (#1548): on their week, in no group's targets. */
@@ -151,8 +188,8 @@ export const rosterSlotOfPlaces = example({
     }),
 });
 export const rosterAnswerLeads = example({
-    description: "Roster.answer maps a rule over every person, echoing the need and the slot: the lead fits, and the two associates are refused as not leads",
-    keywords: ["Roster", "Roster.answer", "Roster.fit", "fit", "Find", "lead", "refused"], inputs: [week, context],
+    description: "Roster.answer maps a rule over every person of what a fit's function read (Roster.Types.FitContext), echoing the need and the slot: it places the duties in the week as the page does, and the lead fits while the two associates are refused as not leads",
+    keywords: ["Roster", "Roster.answer", "Roster.fit", "Roster.Types.FitContext", "Roster.Types.FitRequest", "fit", "Find", "lead", "refused"], inputs: [leadsRequest, read],
     returns: {
         need: variant("leads", null), slot: { day: 1n, group: "goods", shift: "early" },
         people: new Map<string, ValueTypeOf<typeof Roster.Types.Fit>>([
@@ -161,13 +198,9 @@ export const rosterAnswerLeads = example({
             ["off", variant("refused", { group: "Not a lead", reason: "Crew · not a lead", measure: variant("none", null) })],
         ]),
     },
-    fn: East.function([DomainWeek, Roster.Types.Context], Roster.Types.FitResult, ($, week, context) => {
-        const coverage = $.const(Roster.coverage(DomainDuty));
-        const answer = $.const(Roster.answer(DomainDuty));
-        const fit = $.const(Roster.fit(DomainDuty));
-        const noPay = $.const(new Map(), Roster.Types.Pay);
-        const request = $.const({ need: variant("leads", null), slot: { day: 1n, group: "goods", shift: "early" }, start: new Date("2028-03-05T00:00:00Z"),
-            week, context, coverage: coverage(week, context, noPay) }, Roster.Types.FitRequest(DomainDuty));
-        return answer(request, fit);
+    fn: East.function([Roster.Types.FitRequest, Roster.Types.FitContext], Roster.Types.FitResult, ($, request, read) => {
+        const answer = $.const(Roster.answer);
+        const fit = $.const(Roster.fit());
+        return answer(request, read, fit);
     }),
 });

@@ -3,10 +3,12 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 /**
- * The kiln yard's context, as the board sends it beside a fit's and a check's
- * request (#1371): its bays, its loads and its kilns, read through
+ * The kiln yard's context, as the board holds it for its loads, its slots and
+ * its check (#1371): its bays, its loads and its kilns, read through
  * `Allocation.context` (#1622) — the board's own adapters — with the
- * accessors the kiln yard's examples give them.
+ * accessors the kiln yard's examples give them. A fit is sent none of it
+ * (east-workspace#1624): the specs hold a fit's rules to a reading that holds
+ * these loads and kilns.
  */
 import { DictType, East, StringType, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Allocation, Schedule } from "@elaraai/e3-ui";

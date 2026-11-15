@@ -21,7 +21,7 @@ import e3 from "@elaraai/e3";
 import { Box, Reactive, Slice, UIComponentType } from "@elaraai/east-ui";
 import { Allocation, Data, Func, Record, Schedule } from "@elaraai/e3-ui";
 import { KilnBin, YardPlan, yardDay } from "./kiln-yard.js";
-import { arrivals, kilnBins, kilns, yardBays, yardDays, yardFit } from "./allocation.examples.js";
+import { arrivals, kilnBins, kilns, yardBays, yardBinRoles, yardDays, yardFit } from "./allocation.examples.js";
 
 /** The bins' record type: the yard's bins by key. */
 export const KilnBins = DictType(StringType, KilnBin);
@@ -51,18 +51,19 @@ const addPart = East.function([Kilns, StringType, FloatType], Kilns, ($, held, k
 });
 /**
  * Places a quantity of a bin's on the kilns the fit ranks best — whole on the best fit; failing that, split, the kiln
- * with the most room first, until nothing has room — writing each part into the bin's row as it goes. The fit is asked
- * about the bin itself, its own spec and drying time, over the day as the bins stand with the bin once more under a
- * key of its own: a place's candidates leave the subject's parts out of the kilns' loads, and the copy puts them back,
- * so a kiln's room is what the day leaves it, the bin's parts there included.
+ * with the most room first, until nothing has room — writing each part into the bin's row as it goes. The fit's rules
+ * are asked about the bin itself, its own spec and drying time, as a fit's function asks them (#1624): over the bins
+ * as their roles, as they stand with the bin once more under a key of its own — a place's candidates leave the
+ * subject's parts out of the kilns' loads, and the copy puts them back, so a kiln's room is what the day leaves it,
+ * the bin's parts there included — and the kilns and the loads of the board's context.
  *
  * @returns The bins with the parts written, and how much of the quantity found a kiln
  */
 const settle = East.function([DateTimeType, Allocation.Types.Context, Bins, StringType, FloatType], StructType({ bins: Bins, placed: FloatType }),
     ($, day, context, held, id, quantity) => {
-        const candidatesOf = $.const(Allocation.candidates(KilnBin));
+        const candidatesOf = $.const(Allocation.candidates);
         const rule = $.const(Allocation.fit);
-        const planOf = $.const(dayOf);
+        const rolesOf = $.const(yardBinRoles);
         const rowWith = $.const(withKilns);
         const partOn = $.const(addPart);
         const bins = $.let(new Map(), Bins);
@@ -72,11 +73,13 @@ const settle = East.function([DateTimeType, Allocation.Types.Context, Bins, Stri
             const rows = $2.let(new Map(), Bins);
             $2.for(bins, ($3, bin, key) => { $3(rows.insert(key, bin)); });
             $2(rows.insert(East.str`${id}·`, bins.get(id)));
-            const request = $2.const({ day, plan: planOf(rows), ask: variant("place", { subject: variant("bin", id), quantity: remaining }), context },
-                Allocation.Types.FitRequest(KilnBin));
+            const request = $2.const({ day, ask: variant("place", { subject: variant("bin", id), quantity: remaining }), scope: new Map() }, Allocation.Types.FitRequest);
+            const read = $2.const({
+                bins: rows.map((_$3, bin) => rolesOf(bin)), arrivals: context.arrivals, resources: context.resources, rules: context.rules, unit: context.unit,
+            }, Allocation.Types.FitContext);
             const best = $2.let(none, OptionType(StringType)), bestScore = $2.let(0.0, FloatType);
             const roomiest = $2.let(none, OptionType(StringType)), room = $2.let(0.0, FloatType);
-            $2.for(candidatesOf(request), ($3, candidate) => {
+            $2.for(candidatesOf(request, read), ($3, candidate) => {
                 const kiln = $3.const(candidate.resource.key);
                 $3.match(rule(candidate), {
                     fits: ($4, fit) => {

@@ -12,6 +12,11 @@
  * over the records it lists in `drafts`. Each builder names its own types and
  * its own words; the check is one.
  *
+ * A builder's `fit` is held by the same check (east-workspace#1624): `Func.bind`
+ * of a function from the builder's `FitRequest` — the question and the page's
+ * scope — to its `FitResult`, which lists in `drafts` each record it reads
+ * that the builder edits. A contract names the prop it holds and its words.
+ *
  * @packageDocumentation
  */
 
@@ -75,6 +80,9 @@ export interface OptimiseHandle {
  * What a builder holds its `optimise` to, and the words its refusals use.
  *
  * @property builder - The builder, as the refusals name it (`Roster`)
+ * @property prop - The prop held, as the refusals name it: `optimise` unless given, or `fit` with its words
+ *   (east-workspace#1624) — what a request asks (`the question and the page's scope`), what an answer is, and what a
+ *   function that reads a record without its drafts would do (`answer around`)
  * @property request - The request type the function must ask: the builder's `OptimiseRequest`
  * @property result - The result type it must answer: the builder's `OptimiseResult` over the records it edits
  * @property signature - The signature in words, for a value that is no `Func.bind` handle (`from Roster.Types.OptimiseRequest() to Roster.Types.OptimiseResult(D), or from the request given { edges: true }, D the duties' record type`)
@@ -83,6 +91,7 @@ export interface OptimiseHandle {
  */
 export interface OptimiseContract {
     builder: string;
+    prop?: { name: string; asked: string; answers: string; unseen: string };
     request: EastType;
     result: EastType;
     signature: string;
@@ -100,23 +109,27 @@ export interface OptimiseContract {
  * page is evaluated: the binding is answered where it holds, and the page
  * fails where it does not, naming the function, the record and the remedy.
  */
-const heldToDrafts = East.function([StringType, FuncBindingType, ArrayType(StringType)], FuncBindingType, ($, builder, binding, edits) => {
+const heldToDrafts = East.function([StringType, StringType, StringType, FuncBindingType, ArrayType(StringType)], FuncBindingType, ($, builder, prop, unseen, binding, edits) => {
     const reads = $.const(binding.reads.toSet());
     const drafts = $.const(binding.drafts.toSet());
     $.for(edits, ($, record) => {
         $.if(reads.has(record).and(() => drafts.has(record).not()), ($) => {
-            $.error(East.str`${builder}: \`optimise\` is the function '${binding.name}', which reads the record '${record}' that the ${builder} edits and does not list it in \`drafts\` — it would plan around edits it cannot see: list it, drafts: [${record}], beside the function's inputs`);
+            $.error(East.str`${builder}: \`${prop}\` is the function '${binding.name}', which reads the record '${record}' that the ${builder} edits and does not list it in \`drafts\` — it would ${unseen} edits it cannot see: list it, drafts: [${record}], beside the function's inputs`);
         });
     });
     return binding;
 });
 
+/** The optimiser's words: what its request asks, and what one that reads a record without its drafts would do. */
+const OPTIMISE = { name: "optimise", asked: "the period in view, the run's number and the page's narrowing", unseen: "plan around" };
+
 /**
  * The `optimise` binding, checked: `Func.bind` of an `e3.function` from the
  * builder's `OptimiseRequest` to its `OptimiseResult`, which lists in `drafts`
- * each record it reads that the builder edits.
+ * each record it reads that the builder edits. A `fit` is checked the same
+ * way, by its contract's `prop` (east-workspace#1624).
  *
- * @param optimise - What the app passed as `optimise`
+ * @param optimise - What the app passed as `optimise`, or as the contract's prop
  * @param contract - The types it is held to, the records the builder edits, and the words
  * @returns The binding's descriptor, which names the function and the records it lists; evaluated, it fails where the
  *   function reads a record the builder edits and does not list it, naming both
@@ -125,21 +138,23 @@ const heldToDrafts = East.function([StringType, FuncBindingType, ArrayType(Strin
  */
 export function optimiseBinding(optimise: unknown, contract: OptimiseContract): ExprType<typeof FuncBindingType> {
     const { builder, names } = contract;
-    // An optimiser's call passes the page's unsaved edits as drafts: a handle of a function that lists them is read as any other
-    const signature = boundFuncSignature(optimise, builder, "optimise", { drafts: true });
+    const prop = contract.prop ?? { ...OPTIMISE, answers: `a patch of each record the ${builder} edits` };
+    // What goes in, for a value that is no handle: the optimiser's says it shortly, as it always has.
+    const into = contract.prop === undefined ? "the period in view and the page's narrowing" : prop.asked;
+    // The call passes the page's unsaved edits as drafts: a handle of a function that lists them is read as any other
+    const signature = boundFuncSignature(optimise, builder, prop.name, { drafts: true });
     if (signature === undefined) {
-        throw new Error(`${builder}: \`optimise\` is Func.bind of the app's e3.function ${contract.signature} — ` +
-            `the period in view and the page's narrowing in, a patch of each record the ${builder} edits out`);
+        throw new Error(`${builder}: \`${prop.name}\` is Func.bind of the app's e3.function ${contract.signature} — ${into} in, ${prop.answers} out`);
     }
     if (!isTypeEqual(signature.asks, contract.request)) {
-        throw new Error(`${builder}: \`optimise\` asks ${printType(signature.asks)}, not ${names.request} — ` +
-            "a request carries the period in view, the run's number and the page's narrowing, and no row: the function reads what it needs from the workspace");
+        throw new Error(`${builder}: \`${prop.name}\` asks ${printType(signature.asks)}, not ${names.request} — ` +
+            `a request carries ${prop.asked}, and no row: the function reads what it needs from the workspace`);
     }
     if (!isTypeEqual(signature.answers, contract.result)) {
-        throw new Error(`${builder}: \`optimise\` answers ${printType(signature.answers)}, not ${names.result} — a patch of each record the ${builder} edits`);
+        throw new Error(`${builder}: \`${prop.name}\` answers ${printType(signature.answers)}, not ${names.result} — ${prop.answers}`);
     }
     const binding = (optimise as ExprType<StructType<{ binding: typeof FuncBindingType }>>).binding;
-    return contract.edits.length === 0 ? binding : heldToDrafts(builder, binding, [...contract.edits]);
+    return contract.edits.length === 0 ? binding : heldToDrafts(builder, prop.name, prop.unseen, binding, [...contract.edits]);
 }
 
 /**

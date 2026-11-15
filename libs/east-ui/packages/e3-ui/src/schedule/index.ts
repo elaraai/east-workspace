@@ -177,6 +177,16 @@ export interface ScheduleNamespace {
         Refusal: typeof ScheduleRefusalType;
         /** A period's new row, its start: what the periods' `values` gives its own fields from (#1526). */
         NewPeriod: typeof ScheduleNewPeriodType;
+        /**
+         * A duty's roles, as the Roster reads them from the app's row (#1367): what an app's function makes of the duties it
+         * reads, for `Roster.Types.FitContext` (east-workspace#1624).
+         */
+        RosterRoles: typeof ScheduleRosterRolesType;
+        /**
+         * A bin's roles, as the Allocation reads them from the app's row (#1367): what an app's function makes of the bins it
+         * reads, for `Allocation.Types.FitContext` (east-workspace#1624).
+         */
+        AllocationRoles: typeof ScheduleAllocationRolesType;
     };
 }
 
@@ -205,6 +215,8 @@ export const Schedule: ScheduleNamespace = {
         Fit: ScheduleFitType,
         Refusal: ScheduleRefusalType,
         NewPeriod: ScheduleNewPeriodType,
+        RosterRoles: ScheduleRosterRolesType,
+        AllocationRoles: ScheduleAllocationRolesType,
     },
 };
 
@@ -249,14 +261,10 @@ export interface ScheduleInternalNamespace extends Omit<ScheduleNamespace, "Type
         PlanResources: typeof PlanResourcesType;
         /** One resource as Plan's builder takes it. */
         PlanResourceRow: typeof PlanResourceRowType;
-        /** A duty's roles, as the Roster reads them from the app's row (#1367). */
-        RosterRoles: typeof ScheduleRosterRolesType;
         /** One stored duty: its roles and its row. */
         RosterEntry: typeof ScheduleRosterEntryType;
         /** One event kind as the Roster takes it. */
         RosterKind: typeof ScheduleRosterKindType;
-        /** A bin's roles, as the Allocation reads them from the app's row (#1367). */
-        AllocationRoles: typeof ScheduleAllocationRolesType;
         /** One stored bin: its roles and its row. */
         AllocationEntry: typeof ScheduleAllocationEntryType;
         /** One event kind as the Allocation takes it. */
@@ -293,10 +301,8 @@ export const ScheduleInternal: ScheduleInternalNamespace = {
         PlanRoles: PlanEventRolesType,
         PlanResources: PlanResourcesType,
         PlanResourceRow: PlanResourceRowType,
-        RosterRoles: ScheduleRosterRolesType,
         RosterEntry: ScheduleRosterEntryType,
         RosterKind: ScheduleRosterKindType,
-        AllocationRoles: ScheduleAllocationRolesType,
         AllocationEntry: ScheduleAllocationEntryType,
         AllocationKind: ScheduleAllocationKindType,
         PeriodStatus: SchedulePeriodStatusType,

@@ -22,7 +22,9 @@ import { RecordCommitInfoType } from "@elaraai/e3-types";
 import { ColorTokenType, StatusTokenType } from "@elaraai/east-ui";
 import { EditingType } from "@elaraai/east-ui/internal";
 import { RowInspectorType } from "../utils/row-inspector.js";
-import { ScheduleClockType, ScheduleEntriesType, ScheduleFitType, SchedulePeriodStatusType, ScheduleRefusalType } from "../schedule/types.js";
+import {
+    ScheduleClockType, ScheduleEntriesType, ScheduleFitType, SchedulePeriodStatusType, ScheduleRefusalType, ScheduleRosterRolesType,
+} from "../schedule/types.js";
 import { ScheduleOptimiseRequestType } from "../schedule/optimise.js";
 import { OptimisePeriodType, OptimiseSliceType, optimisedRecordType } from "../utils/optimise.js";
 
@@ -206,7 +208,7 @@ export const RosterPersonType = StructType({
 export type RosterPersonType = typeof RosterPersonType;
 /**
  * Built-in checks enabled for the roster.
- * @remarks Rest reads this week only; double booking is always reported.
+ * @remarks The page's rest check reads this week only; double booking is always reported.
  * @property rest - Minimum hours between duties; zero disables the rest check
  * @property lead - Check staffed slots for a lead
  * @property trainer - Check trainees have a trainer
@@ -381,22 +383,75 @@ export type RosterRefusalType = typeof RosterRefusalType;
 export const RosterFitType = ScheduleFitType;
 export type RosterFitType = typeof RosterFitType;
 /**
- * One question to the app's fit (#1334): who fits a Find fix's need on its
- * issue's slot, over the drafted week.
+ * One question to the app's fit (#1334, east-workspace#1624): who fits a Find
+ * fix's need on its issue's slot. It carries the question and the page's
+ * scope, and no row: the call carries the Roster's unsaved edits as drafts,
+ * and the function reads what it needs from the workspace with them laid over
+ * — the week's duties through the duty record's index, the people it asks
+ * about, and the configuration from the app's own records.
  *
- * @typeParam R - The app's duty row type
- * @param row - The app's duty row type
- * @returns The request type over it
- * @remarks `need` what is looked for, `slot` the issue's, `start` the week's first day, `week` the drafted week, `context` the complete staff and configuration — every person, whatever the rail shows — and `coverage` the drafted week's.
+ * @property need - What is looked for
+ * @property slot - The issue's slot
+ * @property start - The week's first day, a UTC midnight
+ * @property scope - Each rail source's scope by the source's name (#1621): the narrowing the page holds and the viewer
+ *   cannot clear, typed as an optimiser's `slice` is, each field its exact values as East prints them; empty for a page
+ *   with no scope. The rail's own choices are never sent: a fit answers whatever the rail shows
  */
-export function RosterFitRequestTypeFor<R extends EastType>(row: R) {
-    return StructType({
-        need: RosterNeedType, slot: RosterSlotType, start: DateTimeType, week: RosterWeekTypeFor(row), context: RosterContextType,
-        coverage: DictType(RosterSlotType, RosterCoverageType),
-    });
-}
-/** Type representing {@link RosterFitRequestTypeFor}. */
-export type RosterFitRequestTypeFor<R extends EastType> = ReturnType<typeof RosterFitRequestTypeFor<R>>;
+export const RosterFitRequestType = StructType({ need: RosterNeedType, slot: RosterSlotType, start: DateTimeType, scope: OptimiseSliceType });
+/** Type representing {@link RosterFitRequestType}. */
+export type RosterFitRequestType = typeof RosterFitRequestType;
+/**
+ * What a fit's function read (east-workspace#1624): what `Roster.answer` answers from, which the function makes of the
+ * app's own records, in the Roster's types.
+ *
+ * @property people - The people it asks about, by staff key: every one gets a verdict
+ * @property duties - The week's duties by key, each its roles: those read over the week's window (`Roster.window`), the
+ *   Roster's unsaved edits among them
+ * @property shifts - The shifts
+ * @property groups - The groups
+ * @property positions - The positions; empty where the duties hold none
+ * @property activities - Every activity: each group's skills and the duties of no group
+ * @property rest - The hours of rest the rule holds between a person's duties; zero for none
+ */
+export const RosterFitContextType = StructType({
+    people: DictType(StringType, RosterPersonType), duties: DictType(StringType, ScheduleRosterRolesType),
+    shifts: ArrayType(RosterShiftType), groups: ArrayType(RosterGroupType), positions: ArrayType(RosterPositionType),
+    activities: ArrayType(RosterSkillType), rest: FloatType,
+});
+/** Type representing {@link RosterFitContextType}. */
+export type RosterFitContextType = typeof RosterFitContextType;
+/**
+ * One of a candidate's duties of the week (east-workspace#1624): where the Roster places it, and its roles.
+ *
+ * @property place - Its day, its shift and its group, none for a duty in no group yet
+ * @property roles - Its roles
+ */
+export const RosterCandidateDutyType = StructType({ place: RosterPlaceType, roles: ScheduleRosterRolesType });
+/** Type representing {@link RosterCandidateDutyType}. */
+export type RosterCandidateDutyType = typeof RosterCandidateDutyType;
+/**
+ * One person against the week (east-workspace#1624): what a fit's rule is asked about, one at a time.
+ *
+ * @property need - What is looked for
+ * @property slot - The slot it is looked for on
+ * @property start - The week's first day
+ * @property person - The person
+ * @property duties - That person's duties of the week by key, each where the Roster places it and its roles
+ * @property hours - What those duties count
+ * @property shifts - The shifts
+ * @property groups - The groups
+ * @property positions - The positions
+ * @property activities - Every activity
+ * @property rest - The hours of rest the rule holds; zero for none
+ */
+export const RosterCandidateType = StructType({
+    need: RosterNeedType, slot: RosterSlotType, start: DateTimeType, person: RosterPersonType,
+    duties: DictType(StringType, RosterCandidateDutyType), hours: FloatType,
+    shifts: ArrayType(RosterShiftType), groups: ArrayType(RosterGroupType), positions: ArrayType(RosterPositionType),
+    activities: ArrayType(RosterSkillType), rest: FloatType,
+});
+/** Type representing {@link RosterCandidateType}. */
+export type RosterCandidateType = typeof RosterCandidateType;
 /**
  * Where a duty sits, as the Roster reads it from its roles (§5.5, rules 1 and
  * 8): placed in the week, another week's, or a duty the Roster cannot place —
@@ -465,7 +520,8 @@ export type RosterTargetsKindType = typeof RosterTargetsKindType;
  * matches each answer to the question it asked.
  * @property need - The need answered
  * @property slot - The slot answered
- * @property people - A verdict for every person, by staff key; the People tab shows the fits, best first
+ * @property people - A verdict for each person the function considered, by staff key (east-workspace#1624); the People tab
+ *   shows the fits, best first, among what the rail shows, and lists no one the answer does not name
  */
 export const RosterFitResultType = StructType({ need: RosterNeedType, slot: RosterSlotType, people: DictType(StringType, RosterFitType) });
 export type RosterFitResultType = typeof RosterFitResultType;
