@@ -61,8 +61,8 @@ export const NEXT = at("2028-03-12T00:00:00");
 /** The week before it, published. */
 export const PREVIOUS = at("2028-02-27T00:00:00");
 
-/** A question to the Roster's fit over the warehouse's duties, and its answer, decoded. */
-export const FitRequestType = Roster.Types.FitRequest(ex.WarehouseDuty);
+/** A question to the Roster's fit — the need, the slot, the week's first day and the page's scope, and no row (east-workspace#1624) — and its answer, decoded. */
+export const FitRequestType = Roster.Types.FitRequest;
 export type FitRequest = ValueTypeOf<typeof FitRequestType>;
 export type FitResult = ValueTypeOf<typeof Roster.Types.FitResult>;
 /** One of the warehouse's duties, as its record holds it. */
@@ -142,7 +142,8 @@ export function warehouseRoster(options: {
         const ideas = $.let(Data.bind(ex.rosterSuggestions));
         const rateRows = $.let(Data.bind(ex.rosterPayRates));
         const rates = $.const(rateRows.read());
-        const fit = $.let(contract ? Func.bind(ex.rosterContractFit) : Func.bind(ex.rosterStaffFit));
+        // The fit over the duties the Roster edits: the locked duties' own, which reads them through their index.
+        const fit = $.let(locked ? Func.bind(ex.rosterLockedFit) : contract ? Func.bind(ex.rosterContractFit) : Func.bind(ex.rosterStaffFit));
         // The warehouse's pay, as its example writes it: ordinary time to the contract, OT1 past it, an agency at its rate.
         const pay = $.const(East.function([Roster.Types.PayRequest(ex.WarehouseDuty)], Roster.Types.Pay, ($2, req) => {
             const out = $2.let(new Map(), Roster.Types.Pay);

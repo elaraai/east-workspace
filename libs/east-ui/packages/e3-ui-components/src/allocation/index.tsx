@@ -72,7 +72,7 @@ import { binCode } from "./inspector-model.js";
 import { useAllocationLibrary, type Pick, type ResourceFind } from "./library.js";
 import { allocationMessages, type AllocationWords } from "./messages.js";
 import {
-    DAY, NARROW_WIDTH, NO_PERIOD, allocationContext, allocationDomain, allocationReferenceCheckEncoder, allocationWords, byWeek, compareDate, compareFloat, compareString, configError, dayKey, dayStart,
+    DAY, NARROW_WIDTH, NO_PERIOD, allocationContext, allocationDomain, allocationReferenceCheckEncoder, allocationWords, byWeek, compareDate, compareFloat, compareString, configError, dayKey, dayStart, rolesOf,
     editableStatus, focusOf, periodSpan, placeDrafted, placeStored, started, statusText, type AllocationStyles, type AllocationValue, type Bin, type Day, type DraftedBin,
     type Issue, type PlacedPeriod, type Selection, type StoredBin,
 } from "./model.js";
@@ -106,6 +106,8 @@ const NO_STORED: ReadonlyMap<string, StoredBin> = new Map();
 const NO_BIN_DRAFTS: ReadonlyMap<string, DraftedBin | undefined> = new Map();
 const NO_PERIOD_DRAFTS: ReadonlyMap<string, Uint8Array | undefined> = new Map();
 const NO_ISSUES: Issue[] = [];
+/** A board that takes no edit holds no draft: the one object its fit's answers are kept for. */
+const NO_FIT_DRAFTS: object = {};
 const keyEqual = equalFor(StringType);
 const sameIssues = equalFor(ArrayType(AllocationIssueType));
 /** The Table's view has rested nowhere yet. */
@@ -415,11 +417,13 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
     useEffect(() => {
         if (pendingSteps === 0 && editing?.history.redoOrigin !== "optimise") setOptimised(undefined);
     }, [pendingSteps, editing?.schedule.version, editing]);
-    // The app's fit (§12): every verdict a drag or a pick shows is its answer.
-    const fit = useAllocationFit(value, domain, day, plan, context);
+    // The app's fit (§12, east-workspace#1624): every verdict a drag or a pick shows is its answer — asked the day, the
+    // question and the page's scope, the board's unsaved edits sent as drafts.
+    const fit = useAllocationFit(value, domain, day, plan, context, { sessions: optimiseSessions, drafts: editing?.schedule.drafts ?? NO_FIT_DRAFTS });
     const { ask: askFit } = fit;
-    // The day without a reservation, one per reservation for these drafts: what a fill asks the fit of (A38).
-    // The drafts are the cache's key: new drafts, a new cache.
+    // The day without a reservation, one per reservation for these drafts: what a fill asks the fit of (A38). Each derived
+    // day goes to the fit as one more draft of the bins' record, laid after the pending Save (rule 10): its change from
+    // the drafts, so each of its bins holds the row the record would. The drafts are the cache's key: new drafts, a new cache.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     const withouts = useMemo(() => new Map<string, Day>(), [plan]);
     const without = (bin: string) => {
@@ -455,9 +459,12 @@ function AllocationFrame({ value, storageKey: key, window, rangeError, editing }
         let derived: Day | undefined;
         if (held.bins.has(bin) && !plan.bins.has(bin)) {
             derived = domain.copyDay(reservation === undefined ? plan : without(reservation));
-            const back = domain.copyDay(held).bins.get(bin)!;
-            back.parts.clear();
-            derived.bins.set(bin, back);
+            // The bin as it was saved, unlinked: its row written with no parts, as unlinking it writes it — the row the
+            // fit's function reads of the bins' record.
+            const was = held.bins.get(bin)!;
+            const bytes = value.bin.write(domain.encodeRow(was.row), { ...rolesOf(was), parts: new SortedMap<string, number>([], compareString) });
+            const back = domain.binOf(value.bin.read(bytes), domain.decodeRow(bytes), day);
+            if (back.type === "some") derived.bins.set(bin, back.value);
         }
         restorings.set(at, derived);
         return derived;

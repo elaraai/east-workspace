@@ -5,9 +5,9 @@
  */
 import { expect, test } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
-import { East, StringType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, variant } from "@elaraai/east";
+import { East, StringType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, printFor, variant } from "@elaraai/east";
 import { Reactive, RecordSliceStateType, Slice, UIComponentType } from "@elaraai/east-ui/internal";
-import { Data, Record, Roster, Schedule } from "@elaraai/e3-ui/internal";
+import { Data, Func, Record, Roster, Schedule } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/roster/roster-records";
 import * as rx from "@elaraai/e3-ui/examples/roster/roster";
 import { act, assignment, open, press, rosterHarness, settle, slot, START, weekDuties, width } from "./harness.test-utils.js";
@@ -58,9 +58,10 @@ test("indexed staff visibility replaces atomically without narrowing coverage, a
 
 /**
  * The indexed Roster on the leads' own page (#1621): its people's source scoped to the position `lead` through the staff's
- * index by position — a narrowing the page holds and the viewer cannot clear — the rail offering no field beside it.
+ * index by position — a narrowing the page holds and the viewer cannot clear — the rail offering no field beside it. Given
+ * `fit`, it asks the indexed roster's fit, which reads the request's scope (#1624).
  */
-const leadsPage = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+const leadsPageOf = (fit: boolean) => ({ fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
     const rota = $.let(Record.bind(ex.indexedRosterDuties));
     const entries = $.let(Data.bindPaged(ex.indexedRosterDuties));
     const byTime = $.let(Data.bindPaged(ex.indexedRosterDuties, { indexes: ["indexed_roster_duties_by_time"] }));
@@ -77,8 +78,9 @@ const leadsPage = { fn: East.function([], UIComponentType, (_$) => Reactive.Root
     const times = $.let(Data.bind(rx.rosterShiftTimes));
     const teams = $.let(Data.bind(rx.rosterTeams));
     const roles = $.let(Data.bind(rx.rosterPositions));
+    const found = fit ? { fit: $.let(Func.bind(ex.indexedStaffFit)) } : {};
     return Roster({
-        id: "rosterLeads", week: { start: "sunday" }, slice: { slice },
+        id: "rosterLeads", week: { start: "sunday" }, slice: { slice }, ...found,
         view: { layout: "shifts", period: "day", date: new Date("2028-03-09T00:00:00Z") },
         events: { duty: Schedule.events(rota, {
             name: "Duty", icon: "user-clock", entries,
@@ -102,7 +104,8 @@ const leadsPage = { fn: East.function([], UIComponentType, (_$) => Reactive.Root
         library: [Roster.library.people()],
         inspector: true,
     });
-}))) };
+}))) });
+const leadsPage = leadsPageOf(false);
 
 /** The Library's tabs, as each reads: its label and its count. */
 const tabs = (c: HTMLElement) => within(slot(c, "start")).getAllByRole("tab").map(t => t.textContent);
@@ -145,4 +148,21 @@ test("Search Records on the leads' own page lists the leads alone, in their keys
     // The first of the pool's leads, as many as the box shows — and not the pool's first, among whom are people who lead nothing.
     expect(listed).toEqual(leads.slice(0, listed.length));
     expect(pool.slice(0, listed.length).every(isLead)).toBe(false);
+});
+
+test("a fit asked from the leads' own page carries the page's scope (#1624): its request names the scope alone, and the function, which reads it, asks about the leads alone", async () => {
+    const sameString = equalFor(StringType);
+    const { container: c } = await open(leadsPageOf(true) as never);
+    await press(within(slot(c, "end")).getByRole("tab", { name: /^Issues/ }));
+    await press(within(slot(c, "end")).getAllByRole("button", { name: "Find a lead" })[0]);
+    await waitFor(() => expect(h.fits.answers(ex.indexedStaffFit.name)).toHaveLength(1), { timeout: 15_000 });
+    // The scope, each rail source's by its name: the people's position, its value as East prints it — and no choice of the viewer's.
+    const asked = h.fits.requests(ex.indexedStaffFit.name)[0]!;
+    expect([...asked.scope.keys()]).toEqual(["people"]);
+    expect([...asked.scope.get("people")!]).toEqual([["position", variant("values", [printFor(StringType)("lead")])]]);
+    // Deputies and those acting hold a lead position too: on this page the function asks about none of them.
+    const staff = await h.read(ex.indexedRosterStaff);
+    const answer = h.fits.answers(ex.indexedStaffFit.name)[0]!;
+    expect(answer.people.size).toBeGreaterThan(0);
+    expect([...answer.people.keys()].every((key) => sameString(staff.get(key)!.position, "lead"))).toBe(true);
 });

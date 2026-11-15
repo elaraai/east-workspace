@@ -45,8 +45,8 @@ export const THU = new Date("2027-05-13T00:00:00Z");
 type KilnBinType = typeof ex.kilnBins.type.value;
 /** One of the yard's bins, as its record holds it: the board's roles and the yard's own fields. */
 export type KilnBin = ValueTypeOf<KilnBinType>;
-/** A question to the yard's fit, over the yard's own bin rows. */
-const FIT_REQUEST = Allocation.Types.FitRequest(ex.kilnBins.type.value);
+/** A question to the yard's fit: the day, what is asked and the page's scope, and no row (east-workspace#1624). */
+const FIT_REQUEST = Allocation.Types.FitRequest;
 /** A question to the yard's fit, and its answer, decoded. */
 export type FitRequest = ValueTypeOf<typeof FIT_REQUEST>;
 export type FitResult = ValueTypeOf<typeof Allocation.Types.FitResult>;
@@ -143,7 +143,8 @@ export function kilnYard(options: {
                     kilns: { source: Data.bindPaged(ex.kilns, { indexes: ["kilns_by_group", "kilns_by_group_max"] }), scope: { group: [...halls] } },
                 })
                 : Slice.bindRecords("test.kilnYard", { bin: { source: Data.bindPaged(ex.kilnBins, { indexes: ["kiln_bins_by_time"] }), range: "at" } }));
-        const fit = $.let(Func.bind(ex.yardFit));
+        // The yard's fit over the bins the board edits: the locked bins' own, which reads them through their index.
+        const fit = $.let(lockedBins ? Func.bind(ex.yardLockedFit) : Func.bind(ex.yardFit));
         return Allocation({
             id: "kilnYard", title: "Kiln loading", fit, slice: { slice }, inspector: true,
             library: [Allocation.library.arrivals(), Allocation.library.resources()], view: { layout: "timeline", date: TUE },

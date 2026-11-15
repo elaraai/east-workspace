@@ -181,8 +181,11 @@ describe("the Roster's payload over the warehouse's records", () => {
         assert.ok(equalFor(DateTimeType)(value.proposals[0]!.day, new Date("2028-03-09T00:00:00Z")));
         assert.deepEqual(value.proposals.map((proposal) => [proposal.key, proposal.person]), [["s317", "nochre"], ["s318", "bpumice"]]);
         assert.deepEqual(value.rules, { rest: 10, lead: true, trainer: true, skill: true });
-        // The fit's binding names its function, which lists no draft and takes no record as an input.
-        assert.deepEqual([value.currency, value.fit, value.inspector], [some("AUD"), some({ name: "roster_staff_fit", drafts: [], reads: [] }), true]);
+        // The fit's binding names its function, the duties it lists in `drafts` and the records it reads, each by name (#1624).
+        assert.deepEqual([value.currency, value.fit, value.inspector], [some("AUD"), some({
+            name: "roster_staff_fit", drafts: ["roster_duties"],
+            reads: ["roster_activities", "roster_duties", "roster_positions", "roster_shift_times", "roster_staff", "roster_teams"],
+        }), true]);
         assert.ok(isTypeEqual(fromEastTypeValue(value.duty.rowType), Duty));
         assert.deepEqual([value.duty.roles.position, value.duty.roles.activity], [true, true]);
     });

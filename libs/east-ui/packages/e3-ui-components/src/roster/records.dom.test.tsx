@@ -238,7 +238,7 @@ describe("one history over the Roster's records (#1369)", () => {
         expect(document.querySelector("[data-conflict-card]")!.textContent).toContain(editingMessages.conflictDates());
     });
 
-    test("B11 — coverage, pay, checks and fits read every duty of the week, whatever the rail shows", async () => {
+    test("B11 — coverage, pay and checks read every duty of the week, whatever the rail shows; a fit is sent none of them and answers of the staff it reads", async () => {
         const { container: c, store } = await open(ex.rosterWarehouse);
         const coverage = marks(c), cost = stat(c, "Cost"), issues = issueCount(c);
         expect(amount(cost)).toBeGreaterThan(0);
@@ -248,13 +248,15 @@ describe("one history over the Roster's records (#1369)", () => {
         expect(marks(c)).toEqual(coverage);
         expect(stat(c, "Cost")).toBe(cost);
         expect(issueCount(c)).toBe(issues);
-        // A Find fix asks the fit over every duty of the week and every person, the rail's narrowing notwithstanding.
+        // A Find fix asks the fit its question and the page's scope, and sends no duty and no person (#1624): the rail's
+        // narrowing is not sent, and the function reads the week and the leads for itself, the rail's narrowing notwithstanding.
         await press(within(slot(c, "end")).getByRole("tab", { name: /^Issues/ }));
         await press(within(slot(c, "end")).getAllByRole("button", { name: "Find a lead" })[0]);
-        await waitFor(() => expect(h.fits.requests()).toHaveLength(1));
+        await waitFor(() => expect(h.fits.answers()).toHaveLength(1));
         const asked = h.fits.requests()[0]!;
-        const week = weekDuties(await h.read(ex.rosterDuties), START);
-        expect([asked.week.assignments.size, asked.context.people.size]).toEqual([week.size, 69]);
+        expect([Object.keys(asked).sort(), asked.scope.size]).toEqual([["need", "scope", "slot", "start"], 0]);
+        // Its answer names the leads, J. Quartz among them, whom the rail hides.
+        expect(h.fits.answers()[0]!.people.get("jquartz")?.type).toBe("fits");
     });
 
     test("B15 — a new duty's key is minted unique in its record: a key the week holds is passed over, and so is one a draft holds", async () => {

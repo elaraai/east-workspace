@@ -319,6 +319,24 @@ function errorOfExecuteResult(result: ExecuteResult): FuncError {
     }
 }
 
+/**
+ * What a record said of a draft it refused as a call laid it (east-workspace#1619, rule 8): the draft's mutation's
+ * own stderr, which follows the line that names the draft — the words a Save of the same edit is refused in. What
+ * shows why a call ended says them beside the call's own summary, which names the draft and no reason.
+ *
+ * @param error - A failed call's error, as {@link errorOfExecuteResult} makes it
+ * @returns The record's words, trimmed; `undefined` for a call no draft's mutation failed, and for one that said nothing
+ */
+export function draftRefusal(error: FuncError): string | undefined {
+    if (error.kind.type !== "failed") return undefined;
+    const lineEnd = error.stderr.indexOf("\n");
+    if (lineEnd === -1) return undefined;
+    // A call a draft ended names it in its stderr's first line, and its summary is made from that line's draft.
+    if (!error.message.startsWith(`${error.stderr.slice(0, lineEnd)} with exit code `)) return undefined;
+    const own = error.stderr.slice(lineEnd + 1).trim();
+    return own === "" ? undefined : own;
+}
+
 function transportError(message: string): FuncError {
     return {
         kind: variant("transport", { message }),

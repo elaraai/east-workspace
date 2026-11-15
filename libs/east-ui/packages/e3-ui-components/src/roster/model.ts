@@ -21,7 +21,7 @@ import {
 } from "@elaraai/east";
 import type { ColorTokenType } from "@elaraai/east-ui";
 import {
-    ROSTER_LAYOUT_PERIODS, RosterAssignmentTypeFor, RosterCheckContextTypeFor, RosterContextType, RosterCoverageType, RosterFitRequestTypeFor, RosterIssueType,
+    ROSTER_LAYOUT_PERIODS, RosterAssignmentTypeFor, RosterCheckContextTypeFor, RosterContextType, RosterCoverageType, RosterIssueType,
     RosterPayRequestTypeFor, RosterPayType, RosterPayloadType, RosterPlaceType, RosterRequirementType, RosterShiftType, RosterSlotType, RosterStatusType,
     RosterTargetRolesType,
     RosterWeekTypeFor, RosterWhoType, ScheduleRosterRolesType, rosterCheck, rosterCoverage, rosterDayOf, rosterMove, rosterNewDuty, rosterPlacement,
@@ -404,8 +404,6 @@ export interface RosterDomain {
     readonly encodeDuties: (duties: SortedMap<string, Assignment>) => Uint8Array;
     /** The app's check's question, as bytes. */
     readonly encodeCheckContext: (context: { start: Date; week: Week; context: Context; coverage: SortedMap<Slot, Coverage>; pay: Pay }) => Uint8Array;
-    /** The fit's question type at the duty row type: what the app's function takes. */
-    readonly fitRequestType: EastType;
 }
 
 const sameTypeValue = equalFor(EastTypeType);
@@ -437,7 +435,6 @@ export function rosterDomain(rowType: EastTypeValue): RosterDomain {
         encodePayRequest: encodeBeast2For(RosterPayRequestTypeFor(row)) as unknown as RosterDomain["encodePayRequest"],
         encodeDuties: encodeBeast2For(DictType(StringType, assignmentType)) as unknown as RosterDomain["encodeDuties"],
         encodeCheckContext: encodeBeast2For(RosterCheckContextTypeFor(row)) as unknown as RosterDomain["encodeCheckContext"],
-        fitRequestType: RosterFitRequestTypeFor(row),
     };
     domains.push({ type: rowType, domain });
     return domain;

@@ -22,7 +22,7 @@ import {
 } from "@elaraai/east";
 import {
     AllocationArrivalType, AllocationBinTypeFor, AllocationCandidateType, AllocationCheckContextTypeFor, AllocationContextType, AllocationDayTypeFor,
-    AllocationFitAskType, AllocationFitRequestTypeFor, AllocationFitResultType, AllocationFitType, AllocationIssueType, AllocationLoadType,
+    AllocationFitAskType, AllocationFitContextType, AllocationFitRequestType, AllocationFitResultType, AllocationFitType, AllocationIssueType, AllocationLoadType,
     AllocationPayloadType, AllocationResourceLineType, AllocationResourceType, AllocationSlotType, ScheduleAllocationRolesType, allocationBinOf,
     allocationCandidates, allocationCheck, allocationLoadText, allocationLoads, allocationMilliseconds, allocationQuantityText, allocationResourceLine,
     allocationSlots, type AllocationBinType, type AllocationDayType,
@@ -52,8 +52,12 @@ export type FitAsk = ValueTypeOf<typeof AllocationFitAskType>;
 export type FitResult = ValueTypeOf<typeof AllocationFitResultType>;
 export type Fit = ValueTypeOf<typeof AllocationFitType>;
 export type Candidate = ValueTypeOf<typeof AllocationCandidateType>;
-/** A fit's request: the day as drafted and the question. */
-export interface FitRequest { day: Date; plan: Day; ask: FitAsk; context: Context }
+/** A fit's request: the plan day, the question and the page's scope, and no row (east-workspace#1624). */
+export type FitRequest = ValueTypeOf<typeof AllocationFitRequestType>;
+/** What a fit's function read: the day's bins as their roles, the arrivals, the resources, the rules and the unit. */
+export type FitRead = ValueTypeOf<typeof AllocationFitContextType>;
+/** What a fit's preview is made of: a question about a day as the board holds it — its drafts, or a plan derived from them — and its context. */
+export interface FitPreview { day: Date; plan: Day; ask: FitAsk; context: Context }
 /** A duration, as the payload holds it. */
 export type TimeStep = AllocationValue["every"];
 export type AllocationStyles = Record<string, Record<string, unknown>>;
@@ -94,10 +98,13 @@ export interface AllocationDomain {
     /** The day's lane slots. */
     slots: (day: Date, plan: Day, context: Context) => Slot[];
     /** A question's candidates: what a placement would leave on each resource — a fit's preview, never its verdict. */
-    candidates: (request: FitRequest) => Candidate[];
-    /** The fit's request type at the row type: what the app's function takes. */
-    requestType: EastType;
+    candidates: (preview: FitPreview) => Candidate[];
 }
+
+/** The candidates' rule, over what a function read: the one a fit's function calls, here over the day the board holds. */
+const candidatesOf = East.compile(allocationCandidates, []) as unknown as (request: FitRequest, read: FitRead) => Candidate[];
+/** A preview asks of no scope: it reads the day the board holds. */
+const NO_SCOPE: FitRequest["scope"] = new SortedMap([], compareFor(StringType));
 
 const sameTypeValue = equalFor(EastTypeType);
 const domains: { type: EastTypeValue; domain: AllocationDomain }[] = [];
@@ -126,8 +133,11 @@ export function allocationDomain(rowType: EastTypeValue): AllocationDomain {
         loads: East.compile(allocationLoads(row), []) as unknown as AllocationDomain["loads"],
         check: East.compile(allocationCheck(row), []) as unknown as AllocationDomain["check"],
         slots: East.compile(allocationSlots(row), []) as unknown as AllocationDomain["slots"],
-        candidates: East.compile(allocationCandidates(row), []) as unknown as AllocationDomain["candidates"],
-        requestType: AllocationFitRequestTypeFor(row),
+        // The day's bins as their roles, with no row: what the rule reads of them.
+        candidates: ({ day, plan, ask, context }) => candidatesOf({ day, ask, scope: NO_SCOPE }, {
+            bins: new SortedMap([...plan.bins].map(([id, bin]) => [id, rolesOf(bin)] as const), compareString),
+            arrivals: context.arrivals, resources: context.resources, rules: context.rules, unit: context.unit,
+        }),
     };
     domains.push({ type: rowType, domain });
     return domain;

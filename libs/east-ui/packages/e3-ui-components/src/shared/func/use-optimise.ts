@@ -49,14 +49,14 @@
  *
  * **A record that changed under the edits** (rule 12). A call the source
  * refused because another write got there first lands nothing, and takes the
- * path a Save refused for the same reason takes: the page reads the records
- * again, the sessions carry their edits over the newer saves, and with
- * nothing to choose the call goes again by itself with the new drafts — as
- * many times in a row as a session sends a refused Save again
- * (`SAVE_RESENDS`) — the run out meanwhile. With a conflict to choose, the
- * run ends saying so in the refused Save's words
- * ({@link OptimiseSessions.conflicts}), and the person chooses before running
- * again.
+ * path a Save refused for the same reason takes (`conflict.ts`, which a
+ * builder's fit takes too): the page reads the records again, the sessions
+ * carry their edits over the newer saves, and with nothing to choose the call
+ * goes again by itself with the new drafts — as many times in a row as a
+ * session sends a refused Save again (`SAVE_RESENDS`) — the run out
+ * meanwhile. With a conflict to choose, the run ends saying so in the refused
+ * Save's words ({@link OptimiseSessions.conflicts}), and the person chooses
+ * before running again.
  *
  * Runs are numbered per builder per browser, from 1, under the builder's key
  * (D5).
@@ -67,8 +67,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { EastType, option } from "@elaraai/east";
 import { usePersistedState } from "@elaraai/east-ui-components";
-import { SAVE_RESENDS, keptRead } from "@elaraai/east-ui-components/internal";
-import { defaultRecordRuntime } from "../../platform/index.js";
+import { keptRead } from "@elaraai/east-ui-components/internal";
+import { afterConflict, readRecordsAgain } from "./conflict.js";
 import type { OptimiseRowRef } from "./optimise-diff.js";
 import { useOptimiseRows, type OptimiseRowsReader } from "./optimise-rows.js";
 import { useFuncCall, type FuncCallBinding, type FuncCallDraft } from "./use-func-call.js";
@@ -121,9 +121,10 @@ export type OptimiseRowRead = (kind: string, id: string) => option<unknown> | un
 
 /**
  * The builder's sessions over the records it edits, as a run asks them
- * (east-workspace#1622): its unsaved edits as drafts, whether they stand on
- * what the page has read, and whether a conflict waits to be chosen. Read as
- * the run asks, never kept: each answer is of the sessions as they stand.
+ * (east-workspace#1622) — and as its fit asks them (east-workspace#1624,
+ * `use-fit.ts`): its unsaved edits as drafts, whether they stand on what the
+ * page has read, and whether a conflict waits to be chosen. Read as the call
+ * asks, never kept: each answer is of the sessions as they stand.
  */
 export interface OptimiseSessions {
     /**
@@ -330,7 +331,7 @@ export function useOptimise<Req, Res>(args: OptimiseArgs<Req, Res>): OptimiseRun
         const answered = out.answered;
         if (answered === undefined) return;
         // Every record in one poll: the page's polls each read all of them.
-        void defaultRecordRuntime.readAgain(answered.records).then(() => {
+        void readRecordsAgain(answered.records).then(() => {
             if (flight.current !== out || out.answered !== answered) return;
             answered.read = true;
             setReadAgain((n) => n + 1);
@@ -368,10 +369,9 @@ export function useOptimise<Req, Res>(args: OptimiseArgs<Req, Res>): OptimiseRun
         const now = live.current;
         if (!now.sessions.settled(answered.records)) return;
         if ("conflict" in answered) {
-            const toChoose = now.sessions.conflicts(answered.records);
-            if (toChoose !== undefined) finish({ kind: "fail", run: out.run, period: out.period, message: toChoose, refused: toChoose });
-            else if (out.resent >= SAVE_RESENDS) finish({ kind: "fail", run: out.run, period: out.period, message: answered.conflict });
-            else { out.resent++; send(out); }
+            const next = afterConflict(now.sessions, answered.records, out.resent, answered.conflict);
+            if ("again" in next) { out.resent++; send(out); }
+            else finish({ kind: "fail", run: out.run, period: out.period, message: next.failed, ...(next.refused === undefined ? {} : { refused: next.refused }) });
             return;
         }
         let landed: OptimiseCounts | OptimiseRefused | OptimiseMissing | OptimiseWaiting | undefined;

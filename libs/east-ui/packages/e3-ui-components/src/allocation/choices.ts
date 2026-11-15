@@ -42,7 +42,10 @@ function judged(base: Omit<ChooserOption, "state" | "line">, verdict: Fit): Choo
  * them where the row has none — those that don't fit, and the arrivals
  * already on the board, which cannot be chosen; of the arrivals the narrowing
  * shows (#1339), as the rest of the board shows them. The current one is
- * offered whatever it hides.
+ * offered whatever it hides. Onto a resource, an arrival the fit's answer
+ * names no verdict for has none, and is left out (east-workspace#1624, rule
+ * 6), as a resource is from a resource cell's; while the answer is on its way
+ * each reads `checking fits…`.
  *
  * @param args - The row and what the board knows
  * @returns The sections, in order
@@ -73,13 +76,16 @@ export function arrivalChoices(args: {
         sections.push({ label: "Current", options: [{ key: own.arrival.value, label: arrival?.label ?? own.arrival.value, state: "current",
             line: arrival?.meta.type === "some" ? arrival.meta.value : undefined, range: words.quantity(own.quantity) }] });
     }
-    const options = free.map((key): ChooserOption => {
+    const options = free.flatMap((key): ChooserOption[] => {
         const arrival = context.arrivals.get(key)!;
         const base = { key, label: arrival.label, range: words.quantity(arrival.quantity), warn: overdue(key) };
         const meta = [arrival.meta.type === "some" ? arrival.meta.value : "", overdue(key) ? lower((words.nouns ?? DEFAULT_NOUNS).groups.overdue) : ""].filter(p => p !== "").join(" · ") || undefined;
-        if (resource === undefined) return { ...base, line: meta, state: "enabled" };
-        const verdict = answer?.arrivals.get(key);
-        return verdict === undefined ? { ...base, line: CHECKING, state: "disabled" } : judged(base, verdict);
+        if (resource === undefined) return [{ ...base, line: meta, state: "enabled" }];
+        // The answer on its way: the fit has not said yet (F2).
+        if (answer === undefined) return [{ ...base, line: CHECKING, state: "disabled" }];
+        // An arrival the answer names no verdict for has none: the fit considered it for nothing, and it is not offered (rule 6).
+        const verdict = answer.arrivals.get(key);
+        return verdict === undefined ? [] : [judged(base, verdict)];
     });
     const fits = options.filter(o => o.state !== "refused"), refused = options.filter(o => o.state === "refused");
     if (fits.length > 0) sections.push({ label: name !== undefined ? `Fits ${name}` : own !== undefined && own.arrival.type === "some" ? "Replace with" : "Book here", options: fits });

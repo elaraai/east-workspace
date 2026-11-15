@@ -82,6 +82,7 @@ export {
     funcChannelKey,
     signatureOfFuncHandleType,
     createInMemoryFunctionApi,
+    draftRefusal,
     type InMemoryFunctionDef,
     type FunctionApi,
     type FunctionCallArgs,

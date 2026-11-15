@@ -91,6 +91,8 @@ const NO_TARGET_DRAFTS: ReadonlyMap<string, StoredTarget | undefined> = new Map(
 const NO_PERIOD_DRAFTS: ReadonlyMap<string, Uint8Array | undefined> = new Map();
 const NO_STORED: ReadonlyMap<string, StoredDuty> = new Map();
 const NO_STORED_TARGETS: ReadonlyMap<string, StoredTarget> = new Map();
+/** A Roster that takes no edit holds no draft: the one object its fit's answers are kept for. */
+const NO_FIT_DRAFTS: object = {};
 const NO_ISSUES: readonly Issue[] = [];
 /** No week of the span's coverage: a month drawing no work requirement. */
 const NO_SPAN_COVERAGE: readonly ReadonlyMap<Slot, Coverage>[] = [];
@@ -322,8 +324,20 @@ function RosterFrame(props: FrameProps) {
     const { layout, period: viewPeriod } = window.view;
     const issues = useMemo(() => current ? allIssues.filter(i => layout === "people" || viewPeriod === "week" || i.slot.type === "none" || Number(i.slot.value.day) === window.day) : NO_ISSUES,
         [current, allIssues, layout, viewPeriod, window.day]);
-    // The app's fit (#1334): a Find fix asks it who fits over the complete staff, and the People tab shows its answer.
-    const fit = useRosterFit(value, start, week, context, coverage, find);
+    // Each record's session, by the record it edits — the duties', the periods' and the targets': what a call that takes
+    // drafts takes them from — a fit's ask, an optimiser's run — and what a run waits on before its answer lands.
+    const editingNow = useRef(editing);
+    editingNow.current = editing;
+    const recordSessions = useMemo(() => {
+        const records = new Map([[source.duty.kind.key, source.duty.kind.editing.sourceId] as const,
+            ...(source.periods.type === "some" ? [[PERIODS, source.periods.value.editing.sourceId] as const] : []),
+            ...(source.targets.type === "some" ? [[TARGETS, source.targets.value.editing.sourceId] as const] : [])]);
+        return scheduleOptimiseSessions(() => editingNow.current?.schedule, kind => records.get(kind), words);
+    }, [source, words]);
+    // The app's fit (#1334, east-workspace#1624): a Find fix asks it who fits — the question and the page's scope, the
+    // Roster's unsaved edits sent as drafts — and the People tab shows its answer.
+    const fit = useRosterFit(value, start, week, context,
+        { chrome: source.slice.type === "some" ? source.slice.value : undefined, sessions: recordSessions, drafts: editing?.schedule.drafts ?? NO_FIT_DRAFTS }, find);
     const { error: fitError, retry: retryFit, pending: finding } = fit;
     const findFix = useCallback((next: RosterFind) => {
         setFind(next); setLibraryTab("people"); panes.current?.open("start");
@@ -416,19 +430,11 @@ function RosterFrame(props: FrameProps) {
     const weekLabel = span.period === "month" ? spanWords(format, span) : dayView ? format.weekdayDate(asked.from) : `W${format.number(weekNumber(start))}`;
     const latestRun = useRef({ editing, optimised, reach, asked, weekLabel, stored: current ? data.duties : NO_STORED, drafts: dutyDrafts });
     latestRun.current = { editing, optimised, reach, asked, weekLabel, stored: current ? data.duties : NO_STORED, drafts: dutyDrafts };
-    // Each record's session, by the record it edits — the duties', the periods' and the targets': what the run takes its
-    // drafts from, and waits on before its answer lands.
-    const optimiseSessions = useMemo(() => {
-        const records = new Map([[source.duty.kind.key, source.duty.kind.editing.sourceId] as const,
-            ...(source.periods.type === "some" ? [[PERIODS, source.periods.value.editing.sourceId] as const] : []),
-            ...(source.targets.type === "some" ? [[TARGETS, source.targets.value.editing.sourceId] as const] : [])]);
-        return scheduleOptimiseSessions(() => latestRun.current.editing?.schedule, kind => records.get(kind), words);
-    }, [source, words]);
     const run = useOptimise<RosterOptimiseRequest, RosterOptimiseResult>({
         name: source.optimise.type === "some" ? source.optimise.value.binding.name : null,
         binding: source.optimise.type === "some" ? source.optimise.value.binding : PLAIN_FUNC_BINDING,
         // Where a row would stand moves it too: an answer waits for the periods it is judged by.
-        sessions: optimiseSessions, settleKey: `${editing?.schedule.version ?? 0}\u0000${reach === undefined ? "" : "reach"}`,
+        sessions: recordSessions, settleKey: `${editing?.schedule.version ?? 0}\u0000${reach === undefined ? "" : "reach"}`,
         // The duties an answer touches that the page does not hold, read by their keys before it lands (rule 8).
         rowsByKey: editing?.schedule.rowsByKey ?? NO_OPTIMISE_ROWS,
         requestType: optimiseTypes.request, resultType: optimiseTypes.result, scope: `${asked.from.getTime()}:${asked.to.getTime()}`, storageKey: key,
