@@ -72,6 +72,10 @@ export const rosterDays = e3.record("roster_rota_days", DictType(DateTimeType, W
 /** The cover targets, a row per slot: the week before's, this week's and the forecast's for the week after. */
 export const rosterCover = e3.record("roster_cover", DictType(StringType, WarehouseCover), {
     initial: warehouseCover,
+    indexes: (index) => ({
+        // The targets by their day: what the warehouse's optimiser reads a week of them through (#1622).
+        roster_cover_by_day: index.interval({ from: "day", to: "day" }),
+    }),
     mutations: (mutation) => ({
         patch: mutation.patch(),
     }),
@@ -904,9 +908,15 @@ noGroupWeek.forEach(([person, days]) => days.forEach((shift, day) => {
     const start = NO_GROUP_MONDAY + (day * 24 + (shift === "early" ? 6 : 14)) * NO_GROUP_HOUR;
     noGroupShifts.set(`${NO_GROUP_DAYS[day]}-${person}`, { person, start: new Date(start), end: new Date(start + 8 * NO_GROUP_HOUR), shift, team: none });
 }));
+/** The duties' record type: the duties by key. */
+export const NoGroupDuties = DictType(StringType, NoGroupDuty);
 /** The duties, every one in no team yet: the first step's week. */
-export const noGroupDuties = e3.record("rota_no_group_duties", DictType(StringType, NoGroupDuty), {
+export const noGroupDuties = e3.record("rota_no_group_duties", NoGroupDuties, {
     initial: noGroupShifts,
+    indexes: (index) => ({
+        // The duties by their times: what the second step reads the week's through.
+        rota_no_group_duties_by_time: index.interval({ from: "start", to: "end" }),
+    }),
     mutations: (mutation) => ({
         patch: mutation.patch(),
     }),
@@ -926,38 +936,65 @@ export const noGroupCoverRows: Map<string, ValueTypeOf<typeof NoGroupCover>> = n
 ] as const)));
 export const noGroupCover = e3.record("rota_no_group_cover", DictType(StringType, NoGroupCover), {
     initial: noGroupCoverRows,
+    indexes: (index) => ({
+        // The targets by their day: what the second step reads the week's through.
+        rota_no_group_cover_by_day: index.interval({ from: "day", to: "day" }),
+    }),
     mutations: (mutation) => ({
         patch: mutation.patch(),
     }),
 });
 
-const NoGroupRequest = Roster.Types.OptimiseRequest(NoGroupDuty), NoGroupResult = Roster.Types.OptimiseResult(NoGroupDuty);
+/** A slot of the week: its day from the week's first, its team and its shift. */
+const NoGroupSlot = StructType({ day: IntegerType, group: StringType, shift: StringType });
 /**
- * The second step's optimiser: each duty in no team placed in one, against the targets, in two passes over the week as
- * drafted. First each goes to its person's own team, where that team's target has a head open on its day and shift; then
- * each still in none to the first team, in the teams' order, with one open. A duty no team needs stays in none, and every
- * duty already in a team stays where it is.
+ * The second step's optimiser, on e3: each duty in no team placed in one, against the targets, in two passes over the
+ * week as drafted. First each goes to its person's own team, where that team's target has a head open on its day and
+ * shift; then each still in none to the first team, in the teams' order, with one open. A duty no team needs stays in
+ * none, and every duty already in a team stays where it is. It reads the week's duties and targets through their interval
+ * indexes and each by its key, the Roster's unsaved edits of both laid over them, and each person's team and the teams
+ * from the app's own records. The answer is the duties it placed.
  */
-export const rosterPlaceShiftsBody = East.function([NoGroupRequest], NoGroupResult, ($, req) => {
+export const rotaPlaceShifts = e3.function("rota_place_shifts", {
+    inputs: [
+        e3.index(noGroupDuties.indexes.rota_no_group_duties_by_time), noGroupDuties,
+        e3.index(noGroupCover.indexes.rota_no_group_cover_by_day), noGroupCover,
+        noGroupWorkers, minimalTeams,
+    ],
+    // The Roster's unsaved edits of the duties and of the targets are laid over them, and over their indexes
+    drafts: [noGroupDuties, noGroupCover],
+    args: [Roster.Types.OptimiseRequest()],
+    output: Roster.Types.OptimiseResult(NoGroupDuties),
+}, ($, dutiesByTime, duties, coverByDay, cover, staff, teams, request) => {
     // Each slot's open heads: its target, less the duties in its team already.
-    const open = $.let(req.requirements.map(($2, need) => need.positions));
-    $.for(req.duties, ($2, duty) => {
+    const open = $.let(new Map(), DictType(NoGroupSlot, IntegerType));
+    coverByDay.overlapping({ from: request.from, to: request.to }).each($, ($2, _carried, key) => {
+        const target = $2.const(cover.get(key));
+        const slot = $2.const({ day: request.from.durationMilliseconds(target.day).divide(86_400_000n), group: target.team, shift: target.shift });
+        $2(open.insertOrUpdate(slot, target.heads, (_$3, held, more) => held.add(more)));
+    });
+    // The week's duties, as drafted.
+    const week = $.let(new Map(), NoGroupDuties);
+    dutiesByTime.overlapping({ from: request.from, to: request.to }).each($, ($2, _carried, key) => {
+        const duty = $2.const(duties.get(key));
+        $2.if(East.greaterEqual(duty.start, request.from), ($3) => { $3(week.insert(key, duty)); });
+    });
+    $.for(week, ($2, duty) => {
         $2.match(duty.team, { some: ($3, team) => {
-            const slot = $3.const({ day: req.from.durationMilliseconds(duty.start).divide(86_400_000n), group: team, shift: duty.shift });
+            const slot = $3.const({ day: request.from.durationMilliseconds(duty.start).divide(86_400_000n), group: team, shift: duty.shift });
             $3.if(open.has(slot), ($4) => { $4(open.update(slot, open.get(slot).subtract(1n))); });
         } });
     });
-    const placed = $.let(req.duties.map(($2, duty) => duty));
-    const home = $.const(req.context.people.map(($2, person) => person.group));
-    const teams = $.const(req.context.groups.map(($2, group) => group.key));
+    const placed = $.let(week.map(($2, duty) => duty));
+    const order = $.const(teams.toArray(($2, _team, key) => key));
     // The passes: a person's own team first, then any team.
     const ownTeamFirst = $.const([true, false], ArrayType(BooleanType));
     $.for(ownTeamFirst, ($2, own) => {
-        $2.for(req.duties, ($3, duty, key) => {
+        $2.for(week, ($3, duty, key) => {
             $3.match(placed.get(key).team, { none: ($4) => {
-                const day = $4.const(req.from.durationMilliseconds(duty.start).divide(86_400_000n));
-                const mine = $4.const(home.get(duty.person, () => ""));
-                const choices = $4.const(teams.filter(($5, team) => own.not().or(() => team.equal(mine))
+                const day = $4.const(request.from.durationMilliseconds(duty.start).divide(86_400_000n));
+                const mine = $4.const(staff.has(duty.person).ifElse(() => staff.get(duty.person).team, () => ""));
+                const choices = $4.const(order.filter(($5, team) => own.not().or(() => team.equal(mine))
                     .and(() => open.get({ day, group: team, shift: duty.shift }, () => 0n).greater(0n))));
                 $4.if(choices.size().greater(0n), ($5) => {
                     const slot = $5.const({ day, group: choices.get(0n), shift: duty.shift });
@@ -967,14 +1004,12 @@ export const rosterPlaceShiftsBody = East.function([NoGroupRequest], NoGroupResu
             } });
         });
     });
-    return { duties: placed };
+    return { duties: East.diff(week, placed) };
 });
-/** The second step on e3: the week's duties in, each in no team placed in one against the targets. */
-export const rotaPlaceShifts = e3.function("rota_place_shifts", rosterPlaceShiftsBody);
 
 export const rosterNoGroup = example({
-    inputs: [], description: "A roster made in two steps (#1548): the duty's team is an Option<String> field, `none` while it is in no group yet. The first step's week stands in no group — each person's shifts, Monday to Friday — listed under each shift in the No group band after the groups in Shifts, and on its person's row in People, its tile and the inspector saying No group; it counts in its person's hours, contract and rest, and in no group's targets. A drag from the band into a group's slot writes `some(team)`, and one back into the band `none`, each one edit. The Elara eye runs the second step, `optimise` over Roster.Types.OptimiseRequest(NoGroupDuty): each duty in no group to its person's own team where its target has a head open that day and shift, then the rest to any team with one, a duty no team needs left in none — one edit, which one Undo reverts and Save writes through the duties' patch door.",
-    keywords: ["Roster", "No group", "no group", "two steps", "Option", "OptionType", "group", "Schedule.events", "optimise", "OptimiseRequest", "OptimiseResult", "Func.bind", "e3.function", "Roster.targets", "place", "unplaced"],
+    inputs: [], description: "A roster made in two steps (#1548): the duty's team is an Option<String> field, `none` while it is in no group yet. The first step's week stands in no group — each person's shifts, Monday to Friday — listed under each shift in the No group band after the groups in Shifts, and on its person's row in People, its tile and the inspector saying No group; it counts in its person's hours, contract and rest, and in no group's targets. A drag from the band into a group's slot writes `some(team)`, and one back into the band `none`, each one edit. The Elara eye runs the second step, `optimise` from Roster.Types.OptimiseRequest() to Roster.Types.OptimiseResult(NoGroupDuties): the function reads the week's duties and targets through their interval indexes, the Roster's unsaved edits of both laid over them (drafts: [noGroupDuties, noGroupCover]), and places each duty in no group in its person's own team where its target has a head open that day and shift, then the rest in any team with one, a duty no team needs left in none — its patch one edit, which one Undo reverts and Save writes through the duties' patch door.",
+    keywords: ["Roster", "No group", "no group", "two steps", "Option", "OptionType", "group", "Schedule.events", "optimise", "OptimiseRequest", "OptimiseResult", "Func.bind", "e3.function", "e3.index", "drafts", "East.diff", "patch", "Roster.targets", "place", "unplaced"],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         const rota = $.let(Record.bind(noGroupDuties));
         const cover = $.let(Record.bind(noGroupCover));

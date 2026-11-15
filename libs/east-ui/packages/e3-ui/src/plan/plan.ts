@@ -213,8 +213,9 @@ export const PlanVocabularyType = StructType({
  * @property blocks - The resources' rows over a window, every kind's drafts in place; `none` while the Plan has no event kinds
  * @property paged - A paged resource kind's rows, a window of its resources at a time (#1199) — of the narrowing's, when its source of the slice narrows it (#1344); `none` while no resource kind is paged
  * @property canDrop - The event kinds' drop veto; `none`, every drop the kinds take lands
- * @property optimise - The app's optimiser, by its `e3.function`'s name (#1409): what the Elara eye calls over the plan window in
- *   view, its result one edit of the session; `none`, no eye
+ * @property optimise - The app's optimiser, by its `e3.function`'s name and the records it lists in `drafts` (#1409, #1622):
+ *   what the Elara eye calls over the plan window in view, the sessions' unsaved edits of those records sent with the call
+ *   as drafts, its answer's patches one edit of the session; `none`, no eye
  * @property settings - The date brought into view first, and whether its Autosave begins on
  * @property library - The library pane's tabs, in the order `library` lists them; empty, no pane (#1195)
  * @property inspector - Whether the Plan has an inspector pane, showing what is selected (#1197)
@@ -393,14 +394,17 @@ export interface PlanProps<K extends PlanAxisKindLiteral = PlanAxisKindLiteral, 
      */
     canDrop?: PlanConfig<K>["canDrop"] | SubtypeExprOrValue<PlanEventCanDropType>;
     /**
-     * The app's optimiser (#1409): `Func.bind` of its `e3.function` from `Plan.Types.OptimiseRequest(E, S)` — the plan window in
-     * view, the run number, every event kind's rows in the window and its backlog by slot and by key, and the resource kinds'
-     * rows as context — to `Plan.Types.OptimiseResult(E)`, the events complete. `E` and `S` are the kinds' row types by slot
-     * (`Plan.Types.OptimiseRequest({ job: PrintJob }, { presses: PrintPress })`); a kind keyed otherwise than by String gives
-     * its record type, `DictType(K, R)`. The Elara eye in the toolbar calls it once per run; the result lands in the session as
-     * one edit, which one Undo reverts and Save commits with everything else. It sends the event kinds' rows, so it needs
-     * `events`. Omitted, no eye. The tag cannot see its kinds' row types in TypeScript, so it checks the handle at build, and
-     * refuses one over other rows naming both.
+     * The app's optimiser (#1409, #1622): `Func.bind` of its `e3.function` from `Plan.Types.OptimiseRequest` — the plan
+     * window in view, the run number and the rail's narrowing, and no row — to `Plan.Types.OptimiseResult(E)`, a patch of
+     * each event kind's record by slot (`Plan.Types.OptimiseResult({ job: JobsType })`, `JobsType` the record's type). The
+     * function reads the events it needs through its record's indexes and the data behind the resources, and lists each
+     * event kind's record it reads in `drafts`: the Plan sends its unsaved edits of those records with the call, laid over
+     * them and never saved. So the eye runs whatever the page holds: a kind read a cell at a time, and one past the events
+     * cap, as any other. The Elara eye in the toolbar calls it once per run; the answer lands in the session as one edit,
+     * which one Undo reverts and Save commits with everything else. It answers the event kinds' records, so it needs
+     * `events`. Omitted, no eye. The tag cannot see its kinds' records in TypeScript, so it checks the handle at build, and
+     * refuses another request or answer naming both; a function that reads an event kind's record and does not list it in
+     * `drafts` is refused as the page is evaluated, naming the record.
      */
     optimise?: OptimiseHandle;
 }
@@ -570,8 +574,8 @@ function checkedRowsRange(source: string, config: ExprType<RecordSliceConfigType
  *   kinds on a number or ordinal axis; a
  *   link naming an event kind `events` has not; a `rows` item that is neither a hand-built row nor `Plan.over`'s; a
  *   `canDrop` over neither a drag nor a candidate, or over a candidate with no event kinds; an `optimise` with no event kinds,
- *   or one that is not `Func.bind` of a function from `OptimiseRequest(E, S)` to `OptimiseResult(E)` over the kinds' rows
- *   (#1409); an `inspector` with no event kinds; a resource kind with no event kind
+ *   or one that is not `Func.bind` of a function from `OptimiseRequest` to `OptimiseResult(E)` over the event kinds' records
+ *   (#1409, #1622); an `inspector` with no event kinds; a resource kind with no event kind
  *   placed on it and no measures; more than one paged resource kind, or one beside a paged `data` (#1199); an event
  *   kind placed on a paged resource kind and on another, or with no source of the slice — its record read whole, or the
  *   days in view read through its day index (`window`) — each naming the series and summary indexes to declare over the
@@ -609,11 +613,11 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
     }
     const resourceKinds = Object.entries(resources ?? {});
     const eventKinds = Object.entries(events ?? {});
-    // The app's optimiser (#1409) is sent the event kinds' rows: a Plan of none has no eye.
+    // The app's optimiser (#1409, #1622) answers a patch of each event kind's record: a Plan of none has no eye.
     if (optimise !== undefined && events === undefined) {
-        throw new Error("Plan: `optimise` sends the event kinds' rows to the app's optimiser, and this Plan has no event kinds — declare `events` (Schedule.events), or leave `optimise` out");
+        throw new Error("Plan: `optimise` answers a patch of each event kind's record, and this Plan has no event kinds — declare `events` (Schedule.events), or leave `optimise` out");
     }
-    const optimiser = East.value(optimise === undefined ? none : some(scheduleOptimiseBinding("Plan", optimise, eventKinds, resourceKinds)), OptionType(FuncBindingType));
+    const optimiser = East.value(optimise === undefined ? none : some(scheduleOptimiseBinding("Plan", optimise, eventKinds)), OptionType(FuncBindingType));
     // Templates are records (#1340): each event kind's list a `Schedule.templates` over its record, naming its source of
     // the slice — one written in the code, or naming none the slice holds, refused before a source no list names is, so
     // the refusal says the change to make. A slice of another kind is refused below, as such.

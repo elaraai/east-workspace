@@ -528,7 +528,7 @@ export interface SheetDriverValue {
  *         const operationTemplates = $.let(Data.bind(sheetWorkshopOperationTemplates));
  *         const orderTemplates     = $.let(Data.bind(sheetWorkshopOrderTemplates));
  *         // The orders read whole, for the footer's count: the sheet reads its rows through the rail's `rows` source,
- *         // so `orders` is the patch door its Save commits through, never read whole.
+ *         // so `orders`, the record it is handed, is what its Save commits through, never read whole.
  *         const allOrders  = $.let(Data.bind(sheetWorkshopOrders));
  *         const views      = $.let(State.bind([ArrayType(Sheet.Types.RecordView)], "sheet.workshop.views", []));
  *         const statuses   = $.let([
@@ -821,7 +821,7 @@ export interface SheetDriverValue {
  *                     newGroup={newGroup}
  *                     ready={{ group: readyOrder }}
  *                     views={views}
- *                     onApply={Record.onApply(orders, { keyed: true })}
+ *                     record={orders}
  *                     footer={[{ text: East.str`${operations.size()} operations` }]}
  *                     name="workshop"
  *                 />

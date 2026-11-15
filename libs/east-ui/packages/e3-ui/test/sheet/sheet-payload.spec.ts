@@ -680,9 +680,7 @@ describe("refusals (SB7), each naming the prop and the remedy", () => {
             /Sheet does not support the 'brush' affordance — it has no axis and no series/);
     });
 
-    test("the `rows` source gives the rows (#1345): `record`, `data`, `window` and `entry` beside it are refused, each naming the change", () => {
-        assert.throws(() => overStress(($) => ({ ...stressSlice(), record: $.let(Record.bind(ex.sheetJobs)) })),
-            /`slice`'s `rows` source gives the rows, paged from it — commit them with onApply=\{Record.onApply\(record, \{ keyed: true \}\)\} rather than `record`/);
+    test("the `rows` source gives the rows (#1345): `data`, `window` and `entry` beside it are refused, each naming the change", () => {
         assert.throws(() => overStress(($) => ({ ...stressSlice(), data: $.const(JOBS, Jobs) })),
             /`data=\{Slice.rows\(slice\)\}` is gone — the sheet reads its rows from `slice`'s `rows` source: slice=\{\{ slice \}\}/);
         assert.throws(() => overStress(($) => ({ ...stressSlice(), window: $.let(Data.bindPaged(ex.sheetStressJobs)) })),
@@ -690,19 +688,33 @@ describe("refusals (SB7), each naming the prop and the remedy", () => {
         assert.throws(() => overStress(() => ({ ...stressSlice(), entry: { key: "w", rows: "rows", id: "id" } })),
             /`entry` reads one entry's rows of a record, and `slice`'s `rows` source gives the rows — take them from one or the other/);
     });
+
+    test("beside the `rows` source the sheet is handed the record, never a Save in its place (#1622, rule 5): `onApply` and `onUpdate` are refused naming `record`, and so is a record whose entries the source does not page", () => {
+        assert.throws(() => overStress(() => ({ ...stressSlice(), onApply: none })),
+            /`onApply` beside `slice`'s `rows` source — the rows are a record's, and the sheet commits them through the record itself: hand it the record, record=\{Record.bind\(record\)\}, in place of onApply=\{Record.onApply\(record, \{ keyed: true \}\)\}/);
+        assert.throws(() => overStress(() => ({ ...stressSlice(), onUpdate: none })),
+            /`onUpdate` writes `data` back, and `slice`'s `rows` source gives a record's rows — the sheet commits them through the record: record=\{Record.bind\(record\)\}/);
+        // The jobs' record beside a rail over the stress jobs: another record's rows.
+        assert.throws(() => overStress(($) => ({ ...stressSlice(), record: $.let(Record.bind(ex.sheetJobs)) })),
+            /`record` holds .*, and `slice`'s `rows` source pages .* — a sheet saves the rows it reads: hand it the record its `rows` source reads/);
+        // A handle that is no record bound with its patch door is refused as `record` is in every form.
+        assert.throws(() => overStress(($) => ({ ...stressSlice(), record: $.const(JOBS, Jobs) })),
+            /`record` must be a record bound with its patch mutation — Record.bind\(record\), its record declaring patch: mutation.patch\(\)/);
+    });
 });
 
 describe("its narrowing (#1345)", () => {
     const sheet = (props: Record<string, unknown>) => (Sheet as unknown as (p: Record<string, unknown>) => unknown)(props);
 
-    test("the `rows` source's rows are the sheet's, flat and grouped: the payload builds over them, its columns over their type", () => {
+    test("the `rows` source's rows are the sheet's, flat and grouped, saved through the record handed beside the rail or read only without one: the payload builds over them, its columns over their type", () => {
         inBlock(($) => {
             const orders = $.let(Record.bind(ex.sheetWorkshopOrders));
             const grouped = Sheet.Payload({
                 slice: { slice: Slice.bindRecords("spec.orders", { rows: { source: Data.bindPaged(ex.sheetWorkshopOrders, { indexes: ["sheet_workshop_orders_by_status"] }) } }) },
                 group: Sheet.group(ex.WorkshopOrder, "ops", { title: "name" }),
                 columns: { notes: Sheet.column.text(ex.WorkshopOperation, { header: "Notes" }) },
-                onApply: Record.onApply(orders, { keyed: true }),
+                // The orders' record, handed beside the rail whose `rows` source pages it: the sheet saves through it.
+                record: orders,
                 // An operation's fields and an order's beside its title, which nothing here sets (#1536): the sheet adds neither.
                 edits: { insertRows: false, insertGroups: false },
             });

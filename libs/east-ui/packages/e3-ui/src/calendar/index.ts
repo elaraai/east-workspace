@@ -16,7 +16,8 @@ import { recordSources, sliceSourceNames, templatesSource } from "../utils/recor
 import { firstView, literalViews, viewsProp, type ViewsProp } from "../utils/views.js";
 import { Schedule, scheduleCheck, scheduleTitled, type ScheduleNamespace } from "../schedule/index.js";
 import { checkSchedulePagedEventKinds, checkSchedulePagedKinds, checkedScheduleTilings } from "../schedule/cell-checks.js";
-import { ScheduleOptimiseRequestTypeFor, ScheduleOptimiseResultTypeFor, scheduleOptimiseBinding } from "../schedule/optimise.js";
+import { ScheduleOptimiseRequestType, ScheduleOptimiseResultTypeFor, scheduleOptimiseBinding } from "../schedule/optimise.js";
+import { OptimisePeriodType } from "../utils/optimise.js";
 import type { ScheduleEventKind } from "../schedule/events.js";
 import type { ScheduleResourceKind } from "../schedule/resources.js";
 import { ScheduleAuthorTabType, buildScheduleTab, type ScheduleTabDeclaration, type ScheduleLibraryTabConfig } from "../schedule/library.js";
@@ -98,8 +99,9 @@ export function calendarVocabulary(given: CalendarVocabulary | undefined): typeo
  *   kind's read whole narrow its columns, rows and Choosers, a templates list's and a tab's their cards; an event kind
  *   reads its own narrowing through its part, and a paged resource kind its windows
  * @property vocabulary - The app's words for what the Calendar draws of its own (#1516)
- * @property optimise - The app's optimiser, by its `e3.function`'s name (#1409): what the Elara eye calls over the window in
- *   view, its result one edit of the session; `none`, no eye
+ * @property optimise - The app's optimiser, by its `e3.function`'s name and the records it lists in `drafts` (#1409, #1622):
+ *   what the Elara eye calls over the window in view, the sessions' unsaved edits of those records sent with the call as
+ *   drafts, its answer's patches one edit of the session; `none`, no eye
  */
 export const CalendarPayloadType = StructType({
     events: ArrayType(ScheduleKindType), resources: ArrayType(ScheduleResourcesType), paged: OptionType(CalendarPagedType), settings: CalendarSettingsType,
@@ -198,13 +200,16 @@ export interface CalendarProps {
     /** Refuses a candidate placement with a message; none permits it. */
     canDrop?: SubtypeExprOrValue<FunctionType<[typeof ScheduleCandidateType], OptionType<StringType>>>;
     /**
-     * The app's optimiser (#1409): `Func.bind` of its `e3.function` from `Calendar.Types.OptimiseRequest(E, S)` — the window in
-     * view, the run number, every event kind's rows in the window and its backlog by slot and by key, and the resource kinds'
-     * rows as context — to `Calendar.Types.OptimiseResult(E)`, the events complete. `E` and `S` are the kinds' row types by slot
-     * (`Calendar.Types.OptimiseRequest({ job: Job }, { machines: Machine })`); a kind keyed otherwise than by String gives its
-     * record type, `DictType(K, R)`. The Elara eye in the toolbar calls it once per run; the result lands in the session as one
-     * edit, which one Undo reverts and Save commits with everything else. Omitted, no eye. The tag cannot see its kinds' row
-     * types in TypeScript, so it checks the handle at build, and refuses one over other rows naming both.
+     * The app's optimiser (#1409, #1622): `Func.bind` of its `e3.function` from `Calendar.Types.OptimiseRequest` — the window
+     * in view, the run number and the rail's narrowing, and no row — to `Calendar.Types.OptimiseResult(E)`, a patch of each
+     * event kind's record by slot (`Calendar.Types.OptimiseResult({ job: JobsType })`, `JobsType` the record's type). The
+     * function reads the events it needs through its record's indexes and the data behind the resources, and lists each
+     * event kind's record it reads in `drafts`: the Calendar sends its unsaved edits of those records with the call, laid
+     * over them and never saved. The Elara eye in the toolbar calls it once per run; the answer lands in the session as one
+     * edit, which one Undo reverts and Save commits with everything else. Omitted, no eye. The tag cannot see its kinds'
+     * records in TypeScript, so it checks the handle at build, and refuses another request or answer naming both; a
+     * function that reads an event kind's record and does not list it in `drafts` is refused as the page is evaluated,
+     * naming the record.
      */
     optimise?: OptimiseHandle;
     /** Observes each selected event's kind and record key. */
@@ -221,8 +226,8 @@ export interface CalendarProps {
  * @throws {Error} When kinds or library tabs are invalid, a kind has no `title` (#1367), working hours are outside the
  *   day, `slice` is not `Slice.bindRecords` or names a source no kind, templates list or tab names, a templates list is
  *   written in the code or names no source of the slice (templates are records, #1340), or a tab names a source the
- *   slice lacks, or `optimise` is not `Func.bind` of a function from `OptimiseRequest(E, S)` to `OptimiseResult(E)` over
- *   the kinds' rows (#1409); a `views` or a `viewPeriods` that lists nothing, names none of its own, or leaves out what `view` opens on; more than one resource kind is paged, or an event kind is placed on the paged kind and on
+ *   slice lacks, or `optimise` is not `Func.bind` of a function from `OptimiseRequest` to `OptimiseResult(E)` over
+ *   the event kinds' records (#1409, #1622); a `views` or a `viewPeriods` that lists nothing, names none of its own, or leaves out what `view` opens on; more than one resource kind is paged, or an event kind is placed on the paged kind and on
  *   another, or with no source of the slice — its record read whole, or the days in view read through its day index —
  *   each naming the series and summary indexes to declare over the kind's own fields (#1424). The series and summary
  *   indexes an event kind's source lists are refused in the same words as the Calendar is evaluated, the source's
@@ -247,8 +252,8 @@ export function createCalendarPayload(props: CalendarProps): ExprType<typeof Cal
     const listedPeriods = literalViews(props.viewPeriods);
     if (hours.from < 0n || hours.to > 24n || hours.from >= hours.to) throw new Error("Calendar: hours must satisfy 0 <= from < to <= 24");
     const events = Object.entries(props.events);
-    // The app's optimiser (#1409), held to the kinds' rows by slot.
-    const optimise = props.optimise === undefined ? undefined : scheduleOptimiseBinding("Calendar", props.optimise, events, Object.entries(resources));
+    // The app's optimiser (#1409, #1622), held to the event kinds' records by slot, and to their drafts.
+    const optimise = props.optimise === undefined ? undefined : scheduleOptimiseBinding("Calendar", props.optimise, events);
     // Every templates list is a record of its own, naming its source of the slice (#1340): one written in the code,
     // or naming none the slice holds, is refused before a source no list names is, so the refusal says the change. A
     // slice of another kind is refused below, as such.
@@ -317,9 +322,11 @@ export interface CalendarNamespace extends Omit<ScheduleNamespace, "Types"> {
     /** Shared schedule types, Calendar's view state, and the optimiser's request and answer over its kinds (#1409). */
     Types: ScheduleNamespace["Types"] & {
         Layout: typeof CalendarLayoutType; Period: typeof CalendarPeriodType; View: typeof CalendarViewType;
-        /** `OptimiseRequest(E, S)` — what the app's optimiser is asked: the window, the run, every event kind's rows and the resource kinds' by slot. */
-        OptimiseRequest: typeof ScheduleOptimiseRequestTypeFor;
-        /** `OptimiseResult(E)` — what it answers: the events, complete. */
+        /** What the app's optimiser is asked (#1622): the period in view and what kind it is, the run and the rail's narrowing, and no row. */
+        OptimiseRequest: typeof ScheduleOptimiseRequestType;
+        /** A request's `period` (#1622): the period in view — `day`, `week` or `month` — `from` and `to` its start and end. */
+        OptimisePeriod: typeof OptimisePeriodType;
+        /** `OptimiseResult(E)` — what it answers (#1622): a patch of each event kind's record by slot, `E` their record types. */
         OptimiseResult: typeof ScheduleOptimiseResultTypeFor;
     };
 }
@@ -366,5 +373,5 @@ export const Calendar: CalendarNamespace = Object.assign(
     (props: CalendarProps): UIElement => CalendarComponent.Root(createCalendarPayload(props)),
     { ...Schedule, library: { templates: templatesTab, backlog: backlogTab, tab: authorTab },
         Types: { ...Schedule.Types, Layout: CalendarLayoutType, Period: CalendarPeriodType, View: CalendarViewType,
-            OptimiseRequest: ScheduleOptimiseRequestTypeFor, OptimiseResult: ScheduleOptimiseResultTypeFor } },
+            OptimiseRequest: ScheduleOptimiseRequestType, OptimisePeriod: OptimisePeriodType, OptimiseResult: ScheduleOptimiseResultTypeFor } },
 );

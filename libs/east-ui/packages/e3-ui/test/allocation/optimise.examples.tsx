@@ -4,11 +4,13 @@
  */
 /** @jsxImportSource @elaraai/e3-ui */
 /**
- * The Allocation's optimiser (#1409, `Optimise Spec.md` §3): the kiln yard's
- * day in, the day out — `Allocation.Types.OptimiseRequest(KilnBin)` to
- * `Allocation.Types.OptimiseResult(KilnBin)`, an `e3.function` — bound to the
- * board's `optimise`, which the Elara eye calls once per run and whose answer
- * lands in the session as one edit. It is a joint optimiser: one run decides
+ * The Allocation's optimiser (#1409, east-workspace#1622): the kiln yard's day
+ * in, a patch of the bins out — `Allocation.Types.OptimiseRequest` to
+ * `Allocation.Types.OptimiseResult(KilnBins)`, an `e3.function` that reads the
+ * day's bins through their record's interval index, the board's unsaved edits
+ * laid over them, and the bays, the kilns and the loads from the yard's own
+ * records — bound to the board's `optimise`, which the Elara eye calls once per
+ * run and whose answer lands in the session as one edit. It is a joint optimiser: one run decides
  * both where a load is booked — its bay slot — and where it goes — its kilns —
  * for the loads still waiting and for the bins the day already holds, so an
  * answer books, links, relinks, or any mix, and a load no kiln can take is
@@ -21,9 +23,10 @@ import { Allocation, Data, Func, Record, Schedule } from "@elaraai/e3-ui";
 import { KilnBin, YardPlan, yardDay } from "./kiln-yard.js";
 import { arrivals, kilnBins, kilns, yardBays, yardDays, yardFit } from "./allocation.examples.js";
 
-const Request = Allocation.Types.OptimiseRequest(KilnBin), Result = Allocation.Types.OptimiseResult(KilnBin);
+/** The bins' record type: the yard's bins by key. */
+export const KilnBins = DictType(StringType, KilnBin);
 /** The day's bins by key, the yard's own rows. */
-const Bins = DictType(StringType, KilnBin);
+const Bins = KilnBins;
 /** A bin's split across kilns: its quantity on each. */
 const Kilns = DictType(StringType, FloatType);
 /** One part a run places: a quantity on a kiln. */
@@ -104,17 +107,25 @@ const settle = East.function([DateTimeType, Allocation.Types.Context, Bins, Stri
     });
 
 /**
- * The yard's optimiser's body, in three passes over the day as drafted, every bin it held kept in its slot. First the
+ * The yard's optimiser, on e3, in three passes over the day as drafted, every bin it held kept in its slot. First the
  * kilns: one over its maximum gives the excess of its latest bin — the check's own fix, Move — to the kilns the fit ranks
  * best. Then the bins: one not linked, or partly allocated, gets what its parts leave of it placed the same way. Then the
  * loads: every one not yet booked, in the loads' order, is booked into the day's first free bay slot — its m³, its spec
  * and its drying time the load's, its spec booked as measured, under a key of the run's own — and placed on the kilns
  * the fit ranks best. A quantity goes whole onto the best fit (`Allocation.fit`: never a busy kiln, never one whose next
  * job its hold runs into, never over a maximum); when no kiln takes it whole it is split, the kiln with the most room
- * first; what no kiln has room for stays unallocated, for the planner. A run that finds nothing to do answers the day as
- * it was.
+ * first; what no kiln has room for stays unallocated, for the planner. It reads the day's bins through their interval
+ * index and each by its key, the board's unsaved edits laid over them, and the bays, the kilns and the loads from the
+ * yard's own records, the board's context built from them as the board builds it (`Allocation.context`). The answer is
+ * the day's change; a run that finds nothing to do changes nothing.
  */
-export const allocationOptimiseBody = East.function([Request], Result, ($, req) => {
+export const yardOptimise = e3.function("yard_optimise", {
+    inputs: [e3.index(kilnBins.indexes.kiln_bins_by_time), kilnBins, arrivals, kilns, yardBays],
+    // The board's unsaved edits of the bins are laid over them, and over their index
+    drafts: [kilnBins],
+    args: [Allocation.Types.OptimiseRequest],
+    output: Allocation.Types.OptimiseResult(KilnBins),
+}, ($, binsByTime, rows, loads, yard, bays, request) => {
     const loadsOf = $.const(Allocation.loads(KilnBin));
     const checkOf = $.const(Allocation.check(KilnBin));
     const slotsOf = $.const(Allocation.slots(KilnBin));
@@ -122,9 +133,20 @@ export const allocationOptimiseBody = East.function([Request], Result, ($, req) 
     const rowWith = $.const(withKilns);
     const partOn = $.const(addPart);
     const place = $.const(settle);
-    const day = $.const(req.day), context = $.const(req.context);
-    const bins = $.let(new Map(), Bins);
-    $.for(req.bins, ($2, bin, key) => { $2(bins.insert(key, bin)); });
+    const day = $.const(request.day);
+    // The board's context, from the yard's own bays, kilns and loads, read as the board reads them.
+    const context = $.const(Allocation.context({
+        lanes: Schedule.resources(bays, { name: "Bays", icon: "warehouse", label: b => b.name, offset: b => b.offset }),
+        resources: Schedule.resources(yard, { name: "Kilns", icon: "fire", label: k => k.name, group: k => k.group, note: k => k.note,
+            min: k => k.min, max: k => k.max, hold: k => variant("days", k.days), jobs: k => k.charges }),
+        arrivals: Allocation.arrivals(loads, { label: l => l.code, quantity: l => l.m3, hold: l => variant("days", l.dryingDays), kind: l => some(l.spec),
+            due: l => some(l.due), window: l => some({ from: l.from, to: l.to }) }),
+        unit: "m³",
+    }));
+    // The day's bins, as drafted, through the bins' interval index.
+    const held = $.let(new Map(), Bins);
+    binsByTime.overlapping({ from: day, to: day.addDays(1n) }).each($, ($2, _carried, key) => { $2(held.insert(key, rows.get(key))); });
+    const bins = $.let(held.copy());
     // The kilns: one over its maximum gives the excess of its latest bin — the check's fix, Move — to the kilns the fit
     // ranks best; its part there shrinks by what found room, and what found none stays, over, for the planner.
     $.for(checkOf(day, planOf(bins), context), ($2, issue) => {
@@ -149,10 +171,10 @@ export const allocationOptimiseBody = East.function([Request], Result, ($, req) 
         } });
     });
     // The bins: one not linked, or partly allocated, gets what its parts leave of it placed; a reservation holds nothing.
-    $.for(req.bins, ($2, _held, id) => {
+    $.for(held, ($2, _held, id) => {
         const bin = $2.const(bins.get(id));
         const allocated = $2.let(0.0, FloatType);
-        $2.for(bin.kilns, ($3, held) => { $3.assign(allocated, allocated.add(held)); });
+        $2.for(bin.kilns, ($3, part) => { $3.assign(allocated, allocated.add(part)); });
         const left = $2.const(bin.m3.subtract(allocated));
         $2.if(East.greater(left, 0.0), ($3) => { $3.assign(bins, place(day, context, bins, id, left).bins); });
     });
@@ -161,15 +183,15 @@ export const allocationOptimiseBody = East.function([Request], Result, ($, req) 
     const booked = $.let(new Set<string>(), SetType(StringType));
     $.for(bins, ($2, bin) => {
         // A load may be booked in two bins, a batch's: once in the set.
-        $2.match(bin.load, { some: ($3, load) => { $3.if(booked.has(load).not(), ($4) => { $4(booked.insert(load)); }); } });
+        $2.match(bin.load, { some: ($3, load) => { $3(booked.tryInsert(load)); } });
     });
     const free = $.const(slotsOf(day, planOf(bins), context).filter(($2, slot) => slot.status.hasTag("free")));
-    const waiting = $.const(req.arrivals.filter(($2, load) => booked.has(load.key).not()));
+    const waiting = $.const(context.arrivals.toArray(($2, load) => load).filter(($2, load) => booked.has(load.key).not()));
     $.for(waiting, ($2, load, i) => {
         $2.if(i.less(free.size()), ($3) => {
             const slot = $3.const(free.get(i));
             const spec = $3.const(load.kind.unwrap("some", () => ""));
-            const id = $3.const(East.str`elara-${req.run}-${load.key}`);
+            const id = $3.const(East.str`elara-${request.run}-${load.key}`);
             $3(bins.insert(id, {
                 bay: slot.lane, at: slot.at, load: some(load.key), m3: load.quantity, spec: load.kind, dryFor: load.hold, kilns: new Map(),
                 specBooked: spec, specMeasured: spec, gradeBooked: "", gradeMeasured: "", instruction: none,
@@ -177,14 +199,12 @@ export const allocationOptimiseBody = East.function([Request], Result, ($, req) 
             $3.assign(bins, place(day, context, bins, id, load.quantity).bins);
         });
     });
-    return { bins };
+    return { bins: East.diff(held, bins) };
 });
-/** The yard's optimiser, on e3: the day's bins in, the day's bins out — the kilns' overloads moved, the day's links mended, every waiting load booked into a free bay slot and onto the kilns the fit ranks best. */
-export const yardOptimise = e3.function("yard_optimise", allocationOptimiseBody);
 
 export const allocationOptimise = example({
-    description: "The kiln yard's board with the Elara eye (#1409): `optimise` is Func.bind of the yard's optimiser on e3 — Allocation.Types.OptimiseRequest(KilnBin) in, the day in view, the run number, the day's bins as drafted, every arrival and the board's context; Allocation.Types.OptimiseResult(KilnBin) out, the bins complete. A joint optimiser: a kiln over its maximum gives the excess to the kilns the fit ranks best, a bin not linked or partly allocated is linked, and every load not yet booked is booked into the day's free bay slots and onto the kilns the fit ranks best — whole on the best fit, split when no one kiln takes it. A click on the eye runs it once over the day; the result lands in the session as one edit — bins added, bins relinked — which one Undo reverts and Save commits with everything else.",
-    keywords: ["Allocation", "optimise", "Optimise", "Elara", "OptimiseRequest", "OptimiseResult", "Func.bind", "e3.function", "joint", "links", "one edit", "Undo", "Schedule.events", "Schedule.resources", "Schedule.periods", "Allocation.arrivals", "Allocation.slots", "Allocation.candidates", "Allocation.fit", "Allocation.check", "fit"], inputs: [],
+    description: "The kiln yard's board with the Elara eye (#1409, #1622): `optimise` is Func.bind of the yard's optimiser on e3 — Allocation.Types.OptimiseRequest in, the day in view, the run number and the rail's narrowing and no row; Allocation.Types.OptimiseResult(KilnBins) out, a patch of the bins' record. The function reads the day's bins through their interval index, the board's unsaved edits laid over them (drafts: [kilnBins]), and the bays, the kilns and the loads from the yard's own records, building the board's context from them (Allocation.context). A joint optimiser: a kiln over its maximum gives the excess to the kilns the fit ranks best, a bin not linked or partly allocated is linked, and every load not yet booked is booked into the day's free bay slots and onto the kilns the fit ranks best — whole on the best fit, split when no one kiln takes it. A click on the eye runs it once over the day; the result lands in the session as one edit — bins added, bins relinked — which one Undo reverts and Save commits with everything else.",
+    keywords: ["Allocation", "optimise", "Optimise", "Elara", "OptimiseRequest", "OptimiseResult", "Func.bind", "e3.function", "e3.index", "drafts", "East.diff", "patch", "Allocation.context", "joint", "links", "one edit", "Undo", "Schedule.events", "Schedule.resources", "Schedule.periods", "Allocation.arrivals", "Allocation.slots", "Allocation.candidates", "Allocation.fit", "Allocation.check", "fit"], inputs: [],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
         const bins = $.let(Record.bind(kilnBins));
         const entries = $.let(Data.bindPaged(kilnBins));
@@ -204,7 +224,7 @@ export const allocationOptimise = example({
             arrivals: { source: loadIndex, fields: { spec: { label: "Spec", hints: ["MC08", "MC10", "MC12", "MC14", "MC16", "MC18", "MC20", "MC22"] } } },
         }));
         const fit = $.let(Func.bind(yardFit));
-        // The app's optimiser: the eye calls it once per run over the day in view, and its answer is one edit.
+        // The app's optimiser: the eye calls it once per run over the day in view, with the bins' unsaved edits as drafts.
         const optimise = $.let(Func.bind(yardOptimise));
         return <Box width="100%" height="900px"><Allocation id="allocationOptimise" title="Kiln loading" fit={fit} optimise={optimise} slice={{ slice }} inspector
             library={[Allocation.library.arrivals(), Allocation.library.resources()]} view={{ layout: "timeline", date: yardDay }}

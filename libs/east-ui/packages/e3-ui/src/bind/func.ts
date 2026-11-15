@@ -32,6 +32,7 @@ import {
     StringType,
     StructType,
     VariantType,
+    isTypeEqual,
     type EastType,
     type ExprType,
 } from '@elaraai/east';
@@ -316,39 +317,49 @@ export type BoundDraftsFunc<I extends EastType[], O extends EastType> =
 
 /**
  * What a {@link Func.bind} handle of a one-argument function asks and
- * answers, read from the handle's type: its `call`'s one input and its
+ * answers, read from the handle's type: its `call`'s one argument and its
  * `read`'s result. A builder that takes a bound function checks the handle it
  * is given with this, then holds each type to its own with `isTypeEqual`.
  *
  * @remarks
- * A builder's call passes its arguments alone, so a handle of a function that
- * lists `drafts` — one whose type has `drafted`, and whose `call` takes the
- * drafts too — is refused here, naming the builder and the prop: every
+ * A handle of a function that lists `drafts` — one whose type has `drafted`,
+ * and whose `call` takes the drafts after its argument — is read the same way
+ * by a builder whose call passes drafts, an optimiser's (east-workspace#1622),
+ * and `drafts` says which the handle is. A builder whose call passes its
+ * arguments alone refuses one here, naming the builder and the prop: every
  * builder that reads a handle's signature refuses one by this one check, and
  * none reads the drafts Array as the function's argument.
  *
  * @param handle - What an app passed where a `Func.bind` handle goes
  * @param builder - The builder, as a refusal names it (`Roster`)
  * @param prop - The prop it was passed as (`optimise`)
- * @returns The function's argument type and result type, or `undefined` for a
- *   value that is no `Func.bind` handle of a one-argument function
- * @throws {Error} When the handle is of a function that lists `drafts`, naming the builder and the prop
+ * @param takes - Whether the builder's call passes drafts (`{ drafts: true }`); left out, it passes none
+ * @returns The function's argument type and result type, and whether its
+ *   handle's call takes drafts; `undefined` for a value that is no `Func.bind`
+ *   handle of a one-argument function
+ * @throws {Error} When the handle is of a function that lists `drafts` and the builder's call passes none, naming the builder and the prop
  * @internal
  */
-export function boundFuncSignature(handle: unknown, builder: string, prop: string): { asks: EastType; answers: EastType } | undefined {
+export function boundFuncSignature(
+    handle: unknown, builder: string, prop: string, takes: { drafts: boolean } = { drafts: false },
+): { asks: EastType; answers: EastType; drafts: boolean } | undefined {
     if (!(handle instanceof Expr)) return undefined;
     const type = Expr.type(handle) as EastType;
     if (type.type !== "Struct" || type.fields["binding"] === undefined) return undefined;
-    if (type.fields["drafted"] !== undefined) {
+    // A handle with `drafted` is of a function that lists drafts: its call's last input is them
+    const drafts = type.fields["drafted"] !== undefined;
+    if (drafts && !takes.drafts) {
         throw new Error(
             `${builder}: \`${prop}\` is Func.bind of a function that lists \`drafts\`, whose call takes them, and the ${builder} passes none — ` +
             `bind a function that lists no drafts`,
         );
     }
     const call = type.fields["call"], read = type.fields["read"];
-    const asks = call?.type === "Function" && call.inputs.length === 1 ? call.inputs[0] : undefined;
+    if (call?.type !== "Function") return undefined;
+    const taken = drafts ? call.inputs.length - 1 : call.inputs.length;
+    if (taken !== 1 || (drafts && !isTypeEqual(call.inputs[1]!, ArrayType(FuncDraftType)))) return undefined;
     const answers = read?.type === "Function" && read.output.type === "Variant" ? read.output.cases["some"] : undefined;
-    return asks === undefined || answers === undefined ? undefined : { asks, answers };
+    return answers === undefined ? undefined : { asks: call.inputs[0]!, answers, drafts };
 }
 
 // ============================================================================

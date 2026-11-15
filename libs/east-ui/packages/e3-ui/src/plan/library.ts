@@ -299,6 +299,10 @@ export function librarySeries(): PlanLibraryTab {
  *         ["J-3011", { title: "Wall calendars", start: none, end: none, press: none, state: variant("estimated", null), sheets: 50000.0, customer: "Foxglove Gardens", stock: variant("coated", null), due: some(new Date("2026-10-23T00:00:00Z")) }],
  *         ["J-3012", { title: "Spare covers", start: none, end: none, press: none, state: variant("estimated", null), sheets: 8000.0, customer: "Meridian Monthly", stock: variant("board", null), due: none }],
  *     ]),
+ *     indexes: (index) => ({
+ *         // The jobs over their interval index: what the print works' optimiser reads the window's jobs and the backlog through (#1622).
+ *         plan_event_jobs_by_time: index.interval({ from: "start", to: "end" }),
+ *     }),
  *     mutations: (mutation) => ({
  *         // The smallest builder's jobs' patch door: its Save commits through it.
  *         patch: mutation.patch(),

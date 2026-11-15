@@ -485,6 +485,11 @@ export interface ScheduleEventKind<K extends EastType, R extends EastType> {
     readonly keyType: K;
     /** Its row type. */
     readonly rowType: R;
+    /**
+     * The record its events are, by its name in the deployed package, as its binding carries it (#1622): what a
+     * builder holds its optimiser to — a function that reads the record lists it in `drafts`.
+     */
+    readonly record: ExprType<StringType>;
     /** Its name. */
     readonly name: string;
     /** Its Font Awesome icon: what each of its elements on a Plan wears (#1192). */
@@ -1870,6 +1875,7 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
         [SCHEDULE_DEF]: "events",
         keyType,
         rowType,
+        record: (record as { binding: ExprType<StructType<{ name: StringType }>> }).binding.name,
         name: config.name,
         icon: config.icon,
         titled: config.title !== undefined,

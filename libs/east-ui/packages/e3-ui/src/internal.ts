@@ -98,8 +98,9 @@ export {
     KindSideFields, accessorRole, kindWholeRows, readOf, recordSide, rowsReadOf, storedRows,
     type KindAccessor, type KindBinding, type KindRowsRead, type RecordSide,
 } from './utils/record-kind.js';
-// The `optimise` binding's check every builder's tag makes (#1409): `Func.bind` of a function from the builder's request to its answer.
-export { optimiseBinding, type OptimiseContract, type OptimiseHandle } from './utils/optimise.js';
+// The `optimise` binding's check every builder's tag makes (#1409): `Func.bind` of a function from the builder's request to its answer;
+// and what an answer does to a record, key by key, which every builder lands it through (#1622).
+export { OptimisePeriodType, OptimiseSliceType, optimiseBinding, optimiseChangesFor, type OptimiseContract, type OptimiseHandle } from './utils/optimise.js';
 
 // The Studio (#787): its components' factories and carriers, the payloads the
 // renderers take, and the East the renderers call. `Studio` here is the
@@ -470,9 +471,10 @@ export {
     type SheetLibraryTabConfig,
 } from './sheet/library.js';
 export { SheetFieldType, SheetFormType, SheetFormsType, buildForms } from './sheet/fields.js';
-// The optimiser's request and answer over a sheet's rows (#1409), and the check of the sheet's `optimise`.
+// The optimiser's request and answer over the rows a sheet saves (#1409, #1622), and the check of the sheet's `optimise`.
 export {
-    SheetOptimiseRequestTypeFor, SheetOptimiseResultTypeFor, sheetOptimiseBinding, type SheetOptimiseRequestType, type SheetOptimiseResultType,
+    SheetOptimiseBindingType, SheetOptimiseRequestTypeFor, SheetOptimiseResultTypeFor, sheetOptimiseBinding,
+    type SheetEntryOptimiseRequestType, type SheetOptimiseOptions, type SheetOptimiseRequestType, type SheetOptimiseResultType,
 } from './sheet/optimise.js';
 // The Flowchart (#1498): `<Flowchart>` with its namespace, the payload the
 // renderer takes through the `Flowchart` carrier — its kinds over the app's
@@ -714,11 +716,12 @@ export { SCHEDULE_EVENT_CAP } from './schedule/record-window.js';
 // A builder's reference record (#1551): its slice's `reference` source, which the Roster and the Allocation window as their
 // own kind's and read for their check alone, its rows carried as bytes beside their type.
 export { SCHEDULE_REFERENCE, ScheduleReferenceType } from './schedule/reference.js';
-// The optimiser's request and answer over a builder's kinds (#1409): what a Calendar's and a Plan's `optimise` is held to,
-// and the records by slot a run's request type is built from.
+// The optimiser's request and answer over a builder's kinds (#1409, east-workspace#1622): what a Calendar's and a Plan's
+// `optimise` is held to — the window in view and the rail's narrowing in, a patch of each event kind's record out — and
+// the records by slot a run's answer is built over.
 export {
-    ScheduleOptimiseRequestTypeFor, ScheduleOptimiseResultTypeFor, scheduleOptimiseBinding, scheduleOptimiseRows,
-    type ScheduleOptimiseRecordsOf, type ScheduleOptimiseRecordsType, type ScheduleOptimiseRequestType, type ScheduleOptimiseResultType, type ScheduleOptimiseRows,
+    ScheduleOptimiseRequestType, ScheduleOptimiseResultTypeFor, scheduleOptimiseBinding, scheduleOptimiseRecords,
+    type ScheduleOptimiseRecords, type ScheduleOptimiseResultType,
 } from './schedule/optimise.js';
 export {
     Ontology,

@@ -91,10 +91,11 @@ export const lensBenchRows = e3.record("lens_bench_rows", DictType(StringType, L
 });
 
 export const sheetRecordIndexes = example({
-    keywords: ["Sheet", "Slice.bindRecords", "rows", "Data.bindPaged", "Record", "Record.onApply", "indexes", "lens", "saved views", "RecordView", "paging", "primary key", "filter"],
+    keywords: ["Sheet", "Slice.bindRecords", "rows", "Data.bindPaged", "Record", "Record.bind", "record", "indexes", "lens", "saved views", "RecordView", "paging", "primary key", "filter"],
     description: "50,000 work orders in the record's order, the rail's rows source narrowing them through maintained record indexes and the sheet drawing the narrowing over them as the lens, a filtered spreadsheet: only the rows it keeps, one after another, each at its row number. Choose Ready and Scheduled together, then a Due range: e3 places their rows from the indexes alone, and the sheet reads only the segments near the view. Save retains original keys and hidden drafts; saved tabs retain every source's narrowing.",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{($) => {
+            // The work orders' record, which the sheet is handed beside its rail and saves through.
             const record = $.let(Record.bind(indexedWorkOrders));
             // One rail over the work orders: its `rows` source narrows them, and the sheet draws the narrowing over the record's rows.
             const slice = $.let(Slice.bindRecords("ex.sheetRecordIndexes", {
@@ -108,7 +109,7 @@ export const sheetRecordIndexes = example({
             return <Box width="100%" height="760px">
                 <Sheet name="sheetRecordIndexes" slice={{ slice }} views={views}
                     columns={{ reference: Sheet.column.text(IndexedWork, { header: "Reference", width: "136px" }), job: Sheet.column.text(IndexedWork, { header: "Job", width: "180px" }), status: Sheet.column.text(IndexedWork, { header: "Status", width: "120px" }), due: Sheet.column.date(IndexedWork, { header: "Due", width: "144px" }), quantity: Sheet.column.integer(IndexedWork, { header: "Quantity", width: "112px" }) }}
-                    onApply={Record.onApply(record, { keyed: true })} edits={{ insertRows: false }} />
+                    record={record} edits={{ insertRows: false }} />
             </Box>;
         }}</Reactive>
     )),
@@ -120,6 +121,7 @@ export const sheetRecordIndexesMobile = example({
     description: "The same indexed work orders and their lens in a phone-width frame, with the rail's shared Slice controls on the toolbar's responsive ladder.",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{($) => {
+            // The work orders' record, which the sheet is handed beside its rail and saves through.
             const record = $.let(Record.bind(indexedWorkOrders));
             // One rail over the work orders: its `rows` source narrows them, and the sheet draws the narrowing over the record's rows.
             const slice = $.let(Slice.bindRecords("ex.sheetRecordIndexesMobile", {
@@ -133,7 +135,7 @@ export const sheetRecordIndexesMobile = example({
             return <Box width="390px" maxWidth="100%" height="760px">
                 <Sheet name="sheetRecordIndexesMobile" slice={{ slice }} views={views}
                     columns={{ reference: Sheet.column.text(IndexedWork, { header: "Reference", width: "136px" }), job: Sheet.column.text(IndexedWork, { header: "Job", width: "180px" }), status: Sheet.column.text(IndexedWork, { header: "Status", width: "120px" }), due: Sheet.column.date(IndexedWork, { header: "Due", width: "144px" }), quantity: Sheet.column.integer(IndexedWork, { header: "Quantity", width: "112px" }) }}
-                    onApply={Record.onApply(record, { keyed: true })} edits={{ insertRows: false }} />
+                    record={record} edits={{ insertRows: false }} />
             </Box>;
         }}</Reactive>
     )),

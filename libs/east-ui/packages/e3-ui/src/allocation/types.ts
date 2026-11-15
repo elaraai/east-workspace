@@ -19,11 +19,12 @@
  */
 
 import {
-    ArrayType, BooleanType, DateTimeType, DictType, FloatType, IntegerType, NullType, OptionType, StringType, StructType,
-    VariantType, type EastType,
+    ArrayType, BooleanType, DateTimeType, DictType, FloatType, IntegerType, NullType, OptionType, PatchType, StringType, StructType,
+    VariantType, printType, type EastType, type PatchTypeOf,
 } from "@elaraai/east";
 import { StatusTokenType, TimeStepType } from "@elaraai/east-ui";
 import { ScheduleFitType, SchedulePeriodStatusType, ScheduleRefusalType } from "../schedule/types.js";
+import { OptimiseSliceType } from "../utils/optimise.js";
 
 // ============================================================================
 // The day, as the board reads it
@@ -514,50 +515,51 @@ export const AllocationLayoutType = VariantType({ timeline: NullType, table: Nul
 export type AllocationLayoutType = typeof AllocationLayoutType;
 
 // ============================================================================
-// The optimiser's request and answer (#1409)
+// The optimiser's request and answer (#1409, east-workspace#1622)
 // ============================================================================
 
-/** The optimiser's request over the app's bin row type `R` — what {@link AllocationOptimiseRequestTypeFor} constructs. */
-export type AllocationOptimiseRequestType<R extends EastType> = StructType<{
-    day: DateTimeType; run: IntegerType; bins: DictType<StringType, R>; arrivals: ArrayType<AllocationArrivalType>; context: AllocationContextType;
-}>;
-
 /**
- * One request to the app's optimiser (#1409, `Optimise Spec.md` §5.1): the day
- * in view and its bins, as drafted, for the optimiser to book and allocate —
- * the Elara eye's one call.
- *
- * @typeParam R - The app's bin row type
- * @param row - The app's bin row type
- * @returns `StructType({ day, run, bins, arrivals, context })`
+ * One request to the app's optimiser (#1409, east-workspace#1622): the day in
+ * view, the run's number and the rail's narrowing — the Elara eye's one call.
+ * It carries no row: the function reads the day's bins through the bins'
+ * record's indexes, the board's unsaved edits laid over them, and the arrivals
+ * and the resources from the app's own records.
  *
  * @property day - The plan day
  * @property run - The run's number, from 1 per board per browser
- * @property bins - The day's bins by key, the app's own rows as the session holds them: the base with every unapplied draft in place, every row whatever the rail shows
- * @property arrivals - Every arrival, as the board reads them
- * @property context - The board's configuration, every arrival and every resource
+ * @property slice - The rail's narrowing: each source's, by the source's name ({@link OptimiseSliceType}), the page's
+ *   scope among it; empty for a board with no rail
  */
-export function AllocationOptimiseRequestTypeFor<R extends EastType>(row: R): AllocationOptimiseRequestType<R> {
-    return StructType({
-        day: DateTimeType, run: IntegerType, bins: DictType(StringType, row), arrivals: ArrayType(AllocationArrivalType), context: AllocationContextType,
-    }) as unknown as AllocationOptimiseRequestType<R>;
-}
+export const AllocationOptimiseRequestType = StructType({ day: DateTimeType, run: IntegerType, slice: OptimiseSliceType });
 
-/** The optimiser's answer over the app's bin row type `R` — what {@link AllocationOptimiseResultTypeFor} constructs. */
-export type AllocationOptimiseResultType<R extends EastType> = StructType<{ bins: DictType<StringType, R> }>;
+/** Type representing {@link AllocationOptimiseRequestType}. */
+export type AllocationOptimiseRequestType = typeof AllocationOptimiseRequestType;
 
 /**
- * The app's optimiser's answer (#1409): the day's bins, complete, by key. The
- * board diffs it against the request by key — a key the request did not hold
- * is a bin added, one it held with another row a bin changed, one missing a
- * bin removed — and records the diff as one step of its history.
+ * An optimiser's answer over the bins' record `D` — what
+ * {@link AllocationOptimiseResultTypeFor} constructs.
  *
- * @typeParam R - The app's bin row type
- * @param row - The app's bin row type
- * @returns `StructType({ bins })`
- *
- * @property bins - The day's bins by key, complete; a new bin's key the optimiser's own
+ * @typeParam D - The bins' record type
  */
-export function AllocationOptimiseResultTypeFor<R extends EastType>(row: R): AllocationOptimiseResultType<R> {
-    return StructType({ bins: DictType(StringType, row) }) as unknown as AllocationOptimiseResultType<R>;
+export type AllocationOptimiseResultType<D extends DictType<EastType, EastType> = DictType<EastType, EastType>> = StructType<{ bins: PatchTypeOf<D> }>;
+
+/**
+ * The app's optimiser's answer (#1409, east-workspace#1622): a patch of the
+ * bins' record — for each key, a bin inserted, deleted, or updated by a patch
+ * of its row. It is what `East.diff` gives of the bins before and after, and
+ * what a Save sends.
+ *
+ * @typeParam D - The bins' record type
+ * @param bins - The bins' record type, `DictType(StringType, Bin)`
+ * @returns `StructType({ bins })`
+ * @throws {Error} When given a type that is no Dict of bins by key
+ *
+ * @property bins - The bins' patch; a new bin's key is the optimiser's own
+ */
+export function AllocationOptimiseResultTypeFor<D extends DictType<EastType, EastType>>(bins: D): AllocationOptimiseResultType<D> {
+    const given = bins as EastType;
+    if (given === undefined || given.type !== "Dict") {
+        throw new Error(`Allocation.Types.OptimiseResult: is given ${given === undefined ? "nothing" : printType(given)} — it takes the bins' record type, a Dict of bins by key: DictType(StringType, Bin)`);
+    }
+    return StructType({ bins: PatchType(given) }) as unknown as AllocationOptimiseResultType<D>;
 }

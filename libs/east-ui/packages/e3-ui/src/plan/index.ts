@@ -188,7 +188,8 @@ import { PlanComponent, PlanTag, createPlanPayload, type PlanTagType } from "./p
 import { createOver } from "./over.js";
 import { createEventRef } from "./refs.js";
 import { libraryBacklog, libraryEvents, librarySeries, libraryTab } from "./library.js";
-import { ScheduleOptimiseRequestTypeFor, ScheduleOptimiseResultTypeFor } from "../schedule/optimise.js";
+import { ScheduleOptimiseRequestType, ScheduleOptimiseResultTypeFor } from "../schedule/optimise.js";
+import { OptimisePeriodType } from "../utils/optimise.js";
 
 // Re-export the UIComp-free types so consumers reach everything via this barrel.
 export {
@@ -734,9 +735,11 @@ export interface PlanNamespace extends PlanTagType {
         PatchEvent: typeof PlanPatchEventTypeFor;
         /** The root's editing declaration on the wire — the shared session's fields and the canvas's own (#880). */
         Editing: typeof PlanEditingType;
-        /** `OptimiseRequest(E, S)` — what the app's optimiser is asked (#1409): the plan window, the run, every event kind's rows and the resource kinds' by slot. */
-        OptimiseRequest: typeof ScheduleOptimiseRequestTypeFor;
-        /** `OptimiseResult(E)` — what it answers (#1409): the events, complete. */
+        /** What the app's optimiser is asked (#1409, #1622): the plan window and the unit its axis is zoomed to, the run and the rail's narrowing, and no row. */
+        OptimiseRequest: typeof ScheduleOptimiseRequestType;
+        /** A request's `period` (#1622): the unit the axis is zoomed to — `day`, `week`, `month`, `quarter` or `year` — the window spanning several of them. */
+        OptimisePeriod: typeof OptimisePeriodType;
+        /** `OptimiseResult(E)` — what it answers (#1409, #1622): a patch of each event kind's record by slot, `E` their record types. */
         OptimiseResult: typeof ScheduleOptimiseResultTypeFor;
         /** The series type CONSTRUCTOR — `Plan.Types.Series(RowType)` gives the
          *  concrete variant type of one series over `Dict<String, RowType>`
@@ -890,7 +893,8 @@ const PLAN_MEMBERS = {
         MoveEdits: PlanMoveEditsType,
         PatchEvent: PlanPatchEventTypeFor,
         Editing: PlanEditingType,
-        OptimiseRequest: ScheduleOptimiseRequestTypeFor,
+        OptimiseRequest: ScheduleOptimiseRequestType,
+        OptimisePeriod: OptimisePeriodType,
         OptimiseResult: ScheduleOptimiseResultTypeFor,
         Series: PlanSeriesType,
         RunRef: PlanRunRefType,
@@ -1162,6 +1166,10 @@ const PLAN_MEMBERS = {
  *         ["J-3011", { title: "Wall calendars", start: none, end: none, press: none, state: variant("estimated", null), sheets: 50000.0, customer: "Foxglove Gardens", stock: variant("coated", null), due: some(new Date("2026-10-23T00:00:00Z")) }],
  *         ["J-3012", { title: "Spare covers", start: none, end: none, press: none, state: variant("estimated", null), sheets: 8000.0, customer: "Meridian Monthly", stock: variant("board", null), due: none }],
  *     ]),
+ *     indexes: (index) => ({
+ *         // The jobs over their interval index: what the print works' optimiser reads the window's jobs and the backlog through (#1622).
+ *         plan_event_jobs_by_time: index.interval({ from: "start", to: "end" }),
+ *     }),
  *     mutations: (mutation) => ({
  *         // The smallest builder's jobs' patch door: its Save commits through it.
  *         patch: mutation.patch(),

@@ -30,7 +30,7 @@
  * the Rows tab's cards from templates records, #1345), `library.ts`
  * (`Sheet.library.*`, the library pane's tabs, #1186),
  * `fields.ts` (`Sheet.field`, the inspector pane's forms, #1188),
- * `optimise.ts` (the optimiser's request and answer over the rows, #1409) and
+ * `optimise.ts` (the optimiser's request and answer over the rows the sheet saves, #1409, #1622) and
  * `views.ts` (the views' bind handle).
  *
  * `Sheet` is the tag and the namespace at once, as east-ui's `Table` is: one
@@ -320,7 +320,10 @@ export {
     type SheetLibraryTabConfig,
 } from "./library.js";
 export { SheetFieldType, SheetFormType, SheetFormsType } from "./fields.js";
-export { SheetOptimiseRequestTypeFor, SheetOptimiseResultTypeFor, type SheetOptimiseRequestType, type SheetOptimiseResultType } from "./optimise.js";
+export {
+    SheetOptimiseRequestTypeFor, SheetOptimiseResultTypeFor,
+    type SheetEntryOptimiseRequestType, type SheetOptimiseOptions, type SheetOptimiseRequestType, type SheetOptimiseResultType,
+} from "./optimise.js";
 export {
     type SheetGroupCell,
     type SheetGroupConfig,
@@ -802,9 +805,12 @@ export interface SheetNamespace extends SheetTagType {
         ActionCase: typeof SheetActionCaseType;
         /** An action column's kind on the wire ({@link SheetActionKindType}). */
         ActionKind: typeof SheetActionKindType;
-        /** `OptimiseRequest(R, K?)` — what the app's optimiser is asked (#1409): the run and the rows in view by key ({@link SheetOptimiseRequestTypeFor}). */
+        /**
+         * `OptimiseRequest()` — what the app's optimiser is asked (#1409, #1622): the run and the rail's narrowing, no row; over one
+         * entry's rows `OptimiseRequest({ entry: K })`, the entry's key too ({@link SheetOptimiseRequestTypeFor}).
+         */
         OptimiseRequest: typeof SheetOptimiseRequestTypeFor;
-        /** `OptimiseResult(R, K?)` — what it answers (#1409): the rows, complete ({@link SheetOptimiseResultTypeFor}). */
+        /** `OptimiseResult(D)` — what it answers (#1409, #1622): a patch of the rows the sheet saves, `D` their type by key ({@link SheetOptimiseResultTypeFor}). */
         OptimiseResult: typeof SheetOptimiseResultTypeFor;
     };
 }

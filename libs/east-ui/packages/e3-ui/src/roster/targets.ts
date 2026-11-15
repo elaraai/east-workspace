@@ -88,6 +88,11 @@ export interface RosterTargets {
     /** The target's row type. */
     readonly rowType: StructType;
     /**
+     * The record's name in the deployed package, as its binding carries it: the Roster edits it, so an optimiser that
+     * reads it lists it in its `drafts` (east-workspace#1622).
+     */
+    readonly record: ExprType<StringType>;
+    /**
      * The targets on the wire.
      *
      * @param part - The Roster's slice's `targets` source, bound in its payload, when the slice has one
@@ -185,6 +190,7 @@ export function rosterTargets<R extends StructType>(record: ScheduleRecordHandle
     return {
         [ROSTER_TARGETS]: true,
         rowType,
+        record: (record as unknown as { binding: ExprType<StructType<{ name: StringType }>> }).binding.name,
         build(part?: ScheduleKindPart): ExprType<RosterTargetsKindType> {
             if (part === undefined && entries !== undefined) {
                 throw new Error(`${where}: \`entries\` reads one target by its key beside the Roster's slice's \`targets\` source, which reads the week's — ` +

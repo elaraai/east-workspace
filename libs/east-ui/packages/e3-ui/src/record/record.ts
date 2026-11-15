@@ -17,8 +17,9 @@
  *   order, each row's id its key's text; `window` (`Data.bindPaged(record)`)
  *   reads a large one a window at a time;
  * - the `rows` source of its `slice`, a `Slice.bindRecords` over the record:
- *   its rows, paged from it, the source's narrowing drawn over them, edits
- *   committed through `onApply` (`Record.onApply(record, { keyed: true })`).
+ *   its rows, paged from it, the source's narrowing drawn over them. The
+ *   record is handed beside it, `record`, as in the first form, and edits are
+ *   committed through it (east-workspace#1622); without it, read only.
  *
  * The Record is an interface. Its payload holds the Sheet's root — the grid,
  * the rows and the session, built by the very code `<Sheet>` builds it with,
@@ -51,7 +52,7 @@ import {
     createSheetPayload, SheetInspectorPaneType, SheetHistoryType,
     type SheetCommon, type SheetRecordHandle,
 } from "../sheet/sheet.js";
-import type { SheetOptions, SheetIndexedOptions } from "../sheet/root.js";
+import type { SheetOptions } from "../sheet/root.js";
 import type { RecordAgeColumn, RecordNamedColumn, SheetColumn, SheetFieldKey } from "../sheet/columns.js";
 import { groupMembers } from "../sheet/registers.js";
 
@@ -216,6 +217,7 @@ const NOT_A_RECORD_PROP: Readonly<Record<string, string>> = {
     newGroup: "a Record has no groups",
     id: "a Record's rows are identified by their key",
     onUpdate: "a Record commits through the record",
+    onApply: "a Record commits through the record it is handed — pass `record`, beside `slice` too",
     onPatch: "a Record commits through the record",
 };
 
@@ -319,26 +321,32 @@ export function createRecordPayload(props: { columns: unknown } & { [prop: strin
  * `<Record record={people} columns={{ … }} />` — the record's entries are the
  * rows, in key order, each row's id its key's text; `window`
  * (`Data.bindPaged(record)`) reads a large record a window at a time. Apply
- * commits each batch through the record's patch mutation.
+ * commits each batch through the record's patch mutation. Beside a `slice`
+ * whose `rows` source reads the record — `<Record slice={{ slice }}
+ * record={people} columns={{ … }} />` — the rows are the source's, paged from
+ * it, the rail's narrowing drawn over them, and Apply commits through
+ * `record` by key (east-workspace#1622).
  */
 export function RecordTag<K extends EastType, R extends StructTypeOf, C extends RecordColumnSpec<R, C>>(
     props: {
         record: SheetRecordHandle<K, R>;
         window?: unknown;
+        slice?: RecordSlicesChromeOptions;
         columns: C & RecordColumnsOf<R>;
     } & RecordCommon<R, C> & Pick<SheetOptions<R, K>, RecordSheetOptions>,
 ): UIElement;
 /**
- * `<Record slice={{ slice }} columns={{ … }} onApply={Record.onApply(record, { keyed: true })} />`
+ * `<Record slice={{ slice }} columns={{ … }} />`
  * — the rows of the record the `rows` source of `slice` narrows, paged from
- * it, each row's id its record key: the rail draws its narrowing over them,
- * and Apply commits through `onApply` by key. Without `onApply`, read only.
+ * it, each row's id its record key: the rail draws its narrowing over them.
+ * Handed no record, the Record is read only: with `record`, the record the
+ * source reads, it saves (the form above).
  */
 export function RecordTag<K extends EastType, R extends StructTypeOf, C extends RecordColumnSpec<R, C>>(
     props: {
         slice: RecordSlicesChromeOptions;
         columns: C & RecordColumnsOf<R>;
-    } & RecordCommon<R, C> & Pick<SheetOptions<R, K>, RecordSheetOptions> & Pick<SheetIndexedOptions<K, R>, "onApply">,
+    } & RecordCommon<R, C> & Pick<SheetOptions<R, K>, RecordSheetOptions>,
 ): UIElement;
 export function RecordTag(props: { columns: unknown }): UIElement {
     return RecordComponent.Root(createRecordPayload(props as { columns: unknown } & { [prop: string]: unknown }));

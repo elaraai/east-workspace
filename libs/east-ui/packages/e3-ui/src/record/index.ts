@@ -167,8 +167,7 @@ const RECORD_MEMBERS = {
  * - **The rows** are `record`'s entries, in key order, each row's id its
  *   key's text (`window` reads a large one a window at a time), or the record
  *   the `rows` source of `slice` narrows, paged from it, the narrowing drawn
- *   over them; then `onApply={Record.onApply(record, { keyed: true })}`
- *   commits.
+ *   over them; `record` is handed beside the rail too, and commits.
  * - **The columns** are keyed by the row's fields, each built over the row
  *   type: a kind on a field it cannot sit on is a type error. An age column
  *   alone is keyed by a name of its own, since it shows no field.
