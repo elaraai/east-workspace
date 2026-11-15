@@ -1793,7 +1793,9 @@ bool east_paged_stats(EastValue *v, size_t *segments, size_t *segments_decoded,
                       size_t *fences_probed, bool *hydrated)
 {
     if (!v || v->kind != EAST_VAL_PAGED) return false;
-    if (segments) *segments = east_beast2_pages_segment_count(v->data.paged.pages);
+    /* The segments it is stored in: a range's source's, so asking places no
+     * range and reads nothing, as the reads it counts are its source's. */
+    if (segments) *segments = east_beast2_pages_stored_segment_count(v->data.paged.pages);
     east_beast2_pages_stats(v->data.paged.pages, segments_decoded, fences_probed);
     if (hydrated) *hydrated = v->data.paged.hydrated != NULL;
     return true;
@@ -1821,9 +1823,28 @@ void east_paged_release_contents(EastValue *v)
     v->data.paged.release_ctx = NULL;
     east_value_release(v->data.paged.hydrated);
     v->data.paged.hydrated = NULL;
-    /* The owner is released last: `data` aliased its bytes until here. */
-    east_value_release(v->data.paged.owner);
+    /* The owner is released last: `data` aliased its bytes until here.
+     *
+     * A key range's owner is the range it narrows until it is placed, so a
+     * range of a range of a range that was never read is a chain of owners as
+     * long as the narrowing that made it — thousands, from a loop. It is
+     * released by a loop, never a recursion: an owner this value is the last
+     * to hold has its own owner taken first, which is released next, once the
+     * owner is gone. One something else still holds ends the chain here. The
+     * collector's garbage is never let go this way: it marks what it frees
+     * with a count no value reaches (gc.c). */
+    EastValue *owner = v->data.paged.owner;
     v->data.paged.owner = NULL;
+    while (owner) {
+        EastValue *next = NULL;
+        if (owner->kind == EAST_VAL_PAGED &&
+            __atomic_load_n(&owner->ref_count, __ATOMIC_ACQUIRE) == 1) {
+            next = owner->data.paged.owner;
+            owner->data.paged.owner = NULL;
+        }
+        east_value_release(owner);
+        owner = next;
+    }
 }
 
 /* ------------------------------------------------------------------ */

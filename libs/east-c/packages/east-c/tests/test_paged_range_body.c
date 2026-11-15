@@ -27,7 +27,10 @@
  *      segments between the ends and reads the ends whole;
  *   6. a Set's range, and a prefix of a struct key;
  *   7. a range whose ends cannot be placed refuses in a keyed read's words,
- *      at the read that needs them — its size never answers zero.
+ *      at the read that needs them — its size never answers zero;
+ *   8. a body that narrows a range in a loop, a hundred thousand times, and
+ *      reads it after — or never does — on a 1 MiB stack, where placing or
+ *      letting go of the ranges by a recursion would not fit.
  *
  * Run under ASan/LSan too (scripts/run_leak_check.sh).
  */
@@ -41,6 +44,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#ifndef _WIN32
+#include <pthread.h>
+#endif
 
 static int failures = 0;
 
@@ -872,6 +879,110 @@ static void test_refusals(void)
     east_value_release(set);
 }
 
+/* ---- 8: a range narrowed in a loop ------------------------------------------ */
+
+/* Runs `fn` on a thread whose stack is 1 MiB — less than a main thread's 8,
+ * as a worker's may be — where a recursion as deep as the loop below narrows
+ * a range does not fit. On Windows, on the main thread: a thread's stack
+ * reservation is not honoured reliably there (compat.h). */
+static void on_small_stack(void *(*fn)(void *), void *arg)
+{
+#ifdef _WIN32
+    fn(arg);
+#else
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setstacksize(&attr, (size_t)1024 * 1024);
+    pthread_t t;
+    if (pthread_create(&t, &attr, fn, arg) != 0) {
+        printf("FAIL: a thread with a 1 MiB stack starts\n");
+        failures++;
+    } else {
+        pthread_join(t, NULL);
+    }
+    pthread_attr_destroy(&attr);
+#endif
+}
+
+/* Days 0, 1, …, 89, 0, 1, … — each a key of the first four segments, the
+ * most a later one starts at 89 — so the range ends as the rows from key 90
+ * on. */
+#define DEEP 100000
+
+/* Compiles `(d, days) => Integer` of `body`, which it takes, and calls it. */
+static EvalResult run_days(IRNode *body, EastValue *input, EastValue *days)
+{
+    IRVariable params[2] = {
+        {.name = "d", .mutable = false, .captured = false, .loc_id = 0},
+        {.name = "days", .mutable = false, .captured = false, .loc_id = 0},
+    };
+    EastType *days_type = east_array_type(t_int);
+    EastType *inputs[2] = {t_dict, days_type};
+    EastType *fn_type = east_function_type(inputs, 2, t_int);
+    IRNode *fn_node = ir_function(fn_type, NULL, 0, params, 2, body);
+    ir_node_release(body);
+    ir_resolve_scopes(fn_node);
+    EastCompiledFn *fn = east_compile_fn(fn_node, platform, builtins, NULL);
+    EastValue *args[2] = {input, days};
+    EvalResult r = fn ? east_call(fn, args, 2) : eval_error("the body does not compile");
+    if (fn) east_compiled_fn_free(fn);
+    ir_node_release(fn_node);
+    east_type_release(fn_type);
+    east_type_release(days_type);
+    return r;
+}
+
+/* `window = d.range(); for (day of days) window = window.range({ from: day }); <then>` */
+static IRNode *narrowed_in_a_loop(IRNode *then)
+{
+    EastType *tp[] = {t_int, t_int, t_int, t_int};
+    EastType *days_type = east_array_type(t_int);
+    IRNode *day = var(t_int, "day");
+    IRNode *from = ir_variant(t_bound, "some", day);
+    ir_node_release(day);
+    IRNode *args[] = {ir_variable(t_dict, "window", true, false), from, bound(-1)};
+    IRNode *narrowed[] = {builtin(t_dict, "DictRange", tp, 4, args, 3)};
+    IRNode *each = made_of(ir_assign(t_null, "window", narrowed[0]), narrowed, 1);
+    IRNode *loop_parts[] = {var(days_type, "days"), each};
+    IRNode *loop = made_of(ir_for_array(t_null, "day", NULL, loop_parts[0], loop_parts[1], NULL),
+                           loop_parts, 2);
+    east_type_release(days_type);
+    IRNode *stmts[] = {let("window", true, range(d(), -1, -1)), loop, then};
+    return block(t_int, stmts, 3);
+}
+
+static void *narrow_in_a_loop(void *arg)
+{
+    ByteBuffer *blob = arg;
+    EastValue *days = east_array_new(t_int);
+    for (size_t i = 0; i < DEEP; i++) {
+        EastValue *day = east_integer((int64_t)(i % 90));
+        east_array_push(days, day);
+        east_value_release(day);
+    }
+
+    /* Read after: its size places it, by a loop. */
+    EastValue *source = open_lazy(blob, t_dict, true);
+    expect_integer(run_days(narrowed_in_a_loop(size(ir_variable(t_dict, "window", true, false))),
+                            source, days),
+                   ROWS - 30, "the size of a range a body narrowed a hundred thousand times");
+    check_count(decoded(source), 4,
+                "segments decoded to place it: each of the four segments the days land in, once");
+    check(lazy(source), "which leaves its input lazy");
+    east_value_release(source);
+
+    /* Never read: let go, by a loop, as the body ends. */
+    source = open_lazy(blob, t_dict, true);
+    expect_integer(run_days(narrowed_in_a_loop(integer(7)), source, days), 7,
+                   "a body that narrows a range a hundred thousand times and never reads it");
+    check_count(decoded(source), 0, "segments decoded by a range never read");
+    east_value_release(source);
+
+    east_value_release(days);
+    east_gc_collect_full();
+    return NULL;
+}
+
 int main(void)
 {
     east_type_of_type_init();
@@ -892,12 +1003,15 @@ int main(void)
         test_own_rows(blob);
         test_source_moves(blob);
         test_loops(blob);
-        byte_buffer_free(blob);
     }
-    east_value_release(whole);
     test_projection();
     test_sets_and_prefixes();
     test_refusals();
+    if (blob) {
+        on_small_stack(narrow_in_a_loop, blob);
+        byte_buffer_free(blob);
+    }
+    east_value_release(whole);
 
     east_type_release(t_bound);
     east_type_release(t_set);

@@ -1135,7 +1135,10 @@ static EvalResult eval_for_paged(IRNode *node, Environment *env, PlatformRegistr
         EastValue *seg = NULL;
         /* The segment's decode is the loop's read, not its body's. */
         int64_t outer_read = prof_read_at(node);
-        if (proj) {
+        /* A segment the pager cannot decode to the projection — a range's end
+         * segment, read whole through the cache (#1616) — is read whole with
+         * no failed attempt first. */
+        if (proj && east_beast2_pages_segment_projects(pages, s)) {
             seg = disjoint ? east_beast2_pages_segment_disjoint_projected(pages, s, proj)
                            : east_beast2_pages_segment_projected(pages, s, proj);
             /* An alias crossing the projection boundary (or any projected-
