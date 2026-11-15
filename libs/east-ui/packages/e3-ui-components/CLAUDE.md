@@ -1014,6 +1014,26 @@ outside the period the run was asked of. What each changed row was before
 the run — its provenance's `Was …`, and on the Plan whether the backlog
 moved — is read from the row the answer landed on.
 
+A builder's fit is asked the same way (east-workspace#1624): the Roster's Find
+fix and the Allocation's board send the question and the page's scope
+(`optimise-slice.ts`' `fitScope`: each rail source's scope, never the viewer's
+choices), and no row, and the call carries each session's pending Save as a
+draft — the sessions an optimiser's run asks (`optimise-sessions.ts`).
+`use-fit.ts` keeps each answer by its question, the plan it was asked of and
+the context — what the page reads, and the sessions' drafts by identity
+(`ScheduleEditing.drafts`) — so a draft, another page's save and a change of
+what the page reads each ask again, and a choice on the rail asks nothing. A
+plan a builder derives from its drafts — the Allocation's day without a
+reservation, with a probe reservation, with a removed bin back on it — goes as
+one more draft of the record, laid after the pending Save: its change from the
+drafts, made by `patch-draft.ts` as a draft of the session's patch door
+(e3-ui's `SCHEDULE_PATCH_DOOR`), so a derived bin holds the row the record
+would, its roles written into it. A question waits while a session cannot hand
+its edits over; a record that refuses them fails the fit in its words; and a
+call that ends `conflict` takes the optimiser's path — `conflict.ts`, the one
+copy both call. A subject an answer names no verdict for has none: the People
+tab does not list it, a drop on it is refused, and a Chooser leaves it out.
+
 BuilderFrame collapsing its panes does not supply the main area's mobile UX.
 Define narrow content using the available **main-panel width**, as Plan does;
 test a narrow container inside a wide viewport. For Calendar's agreed narrow

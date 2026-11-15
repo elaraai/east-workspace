@@ -620,17 +620,29 @@ and each tag's own check).
 The examples are `rosterRota` and `allocationDeliveries`.
 
 The People tab has no filter of its own: leads, trainers, agency and skill are
-rail fields of the staff record (#1342). A Find fix asks the app's fit (#1334):
-`fit` is `Func.bind` of an `e3.function` from `Roster.Types.FitRequest(R)` to
-`Roster.Types.FitResult`, `R` the duty row type — the Allocation's contract —
-its issue's need and slot over the drafted week and the complete staff,
-whatever the rail shows. Its answer is a result in the People tab — the fits
-among what the rail shows, best first in the fit's order, each card with the
-fit's reason — with a chip that clears it; never a second search/filter
-implementation, and the renderer decides no one itself. Without `fit` no Find
-fix is offered. `Roster.fit(R)` (the need held, not rostered that day, rest
-kept; the slot's group, then spare contract hours) and `Roster.answer(R)` are
-the ready-made East parts. Keep the duty kind's own inspector and the targets'
+rail fields of the staff record (#1342). A Find fix asks the app's fit (#1334,
+east-workspace#1624): `fit` is `Func.bind` of an `e3.function` from
+`Roster.Types.FitRequest` to `Roster.Types.FitResult` — the Allocation's
+contract. A request is the question — the issue's need and slot, the week's
+first day — and the page's scope, and no row; the call carries the builder's
+unsaved edits as drafts, and the function reads what it needs from the
+workspace with them laid over it, whatever the rail shows. It lists in
+`drafts` each record it reads that the builder edits, held by the optimiser's
+check (`utils/optimise.ts`, `optimiseBinding` with the fit's words): one that
+does not is refused as the page is evaluated, naming the record. Its answer is
+a result in the People tab — the fits among what the rail shows, best first in
+the fit's order, each card with the fit's reason — with a chip that clears it;
+never a second search/filter implementation, and the renderer decides no one
+itself. Without `fit` no Find fix is offered. The ready-made East parts read
+what the function read, never a row, so none takes the row type: `Roster.fit()`
+(the need held, not rostered that day, rest kept; the slot's group, then spare
+contract hours) over a `Roster.Types.Candidate`, `Roster.answer` over a
+`Roster.Types.FitContext`, and `Roster.window`, the one window a week's duties
+are read over; the Allocation's are `Allocation.candidates`, `answer` and
+`lookahead` over an `Allocation.Types.FitContext`. A measure a page's function
+and a fit's rule share is one piece both call (`rosterPlaceOf`,
+`rosterRestBetween`, `allocationMatesOf`). Every example's fit reads its own
+builder's rows through an index of their record. Keep the duty kind's own inspector and the targets'
 own form on the same guarded commands as dragging and mobile forms; they
 cannot replace a duty's person or bypass published/read-only state. Pure
 coverage and rule functions live in e3-ui and are compiled once per duty row

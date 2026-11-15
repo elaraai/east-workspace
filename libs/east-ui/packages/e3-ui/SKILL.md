@@ -240,7 +240,7 @@ Task → What do you need?
     │   ├─ Publish a day at a time: the app's days                    → periods={Schedule.periods(Record.bind(days), { every: "day", status, dismissed?, entries? })} — in Shifts' Day, Publish day writes the day in view; else Publish week, each day of the week that takes edits, as one request; a published day read-only in every layout and period while its week's other days take edits, a rejected proposal kept on its day's row
     │   ├─ A new duty's, target's and week's own fields               → values: (d) => ({ … }) on the duty kind, over Roster.Types.NewDuty · Roster.targets(…, { values }) · Schedule.periods(…, { values })
     │   ├─ Costs in the app's own pay codes                           → pay={fn(Roster.Types.PayRequest(R)) → Roster.Types.Pay} currency="…"
-    │   ├─ Who fits a Find fix: the app's fit, on e3                  → fit={Func.bind(e3.function)} from Roster.Types.FitRequest(R) to FitResult, over Roster.answer(R) + Roster.fit(R)
+    │   ├─ Who fits a Find fix: the app's fit, on e3                  → fit={Func.bind(e3.function)} from Roster.Types.FitRequest to FitResult — asked the need, the slot and the page's scope, no row; the function lists the duties in drafts, reads the week through their index (Roster.window) and whom it asks about, and answers with Roster.answer + Roster.fit() over a Roster.Types.FitContext
     │   ├─ The app's optimiser over the period in view                → optimise={Func.bind(e3.function)} from Roster.Types.OptimiseRequest() — the day, the week or the month it shows, `period` its kind — to Roster.Types.OptimiseResult(Duties), a patch of the duties' record
     │   ├─ An optimiser that sees the week's edges                    → Roster.Types.OptimiseRequest({ edges: true }) — the request also names in `fixed` the edge duties the answer must leave: those of a week that takes no edit; its one patch may change a duty in the weeks either side; one that changes a fixed duty, or puts one in a week taking no edit or beyond them, is refused, naming the duty
     │   ├─ Narrow its duties, targets, people, activities, patterns   → slice={{ slice: Slice.bindRecords(key, { duty: { source, range: "start" }, targets?, people?, activities?, patterns? }) }}
@@ -249,7 +249,7 @@ Task → What do you need?
     │   ├─ People in one list, no band over each group                → peopleBands={false} — ranked as a group's people are (leads, the rest, agency staff), every group's agency requests one row at its foot; a person keeps their home group for + Assign, a Find, the fit and the optimiser
     │   ├─ The cover targets over People by week or month             → on with targets: under each band its work requirement — a lane a shift its targets name, each day's hours rostered (requests included) of needed over a bar, by month a mark a day on the person marks' columns (short, requested, covered or no target), a lane opening to its skill rows, a day or a mark opening its slot in the inspector; one block over every group with peopleBands={false}; deep in a band's people its block stays under the header; on a phone a card a day before each band's people's cards, a line a shift · requirements={false} takes it away
     │   ├─ Offer only some layouts, no switch with one left           → views={["people"]} or views={expr of Array<Roster.Types.Layout>}
-    │   ├─ The app's own words for who is on it                       → vocabulary={{ permanent: "Employees", agency: "Contractors", agencyShort: "contr", others: "Colleagues", requests: "Contractor requests", demand: "Hours needed" }} — agencyShort the agency badge in People and on a Shifts chip, requests its rows of agency requests, demand the People layout's work requirement; a fit's reason: Roster.fit(R, { notALead })
+    │   ├─ The app's own words for who is on it                       → vocabulary={{ permanent: "Employees", agency: "Contractors", agencyShort: "contr", others: "Colleagues", requests: "Contractor requests", demand: "Hours needed" }} — agencyShort the agency badge in People and on a Shifts chip, requests its rows of agency requests, demand the People layout's work requirement; a fit's reason: Roster.fit({ notALead })
     │   ├─ The shifts' colours, and the app's week patterns           → Roster.shifts(rows, { …, color }) · patterns={Roster.patterns(rows, {…})} · library={[…, Roster.library.patterns()]}
     │   └─ The week's figures in a task                               → Roster.coverage / check / weekHours / rest (R)
     │
@@ -259,7 +259,7 @@ Task → What do you need?
     │   ├─ The lanes and the resources                                → resources={{ <lanes>: Schedule.resources(rows, { name, icon, label, offset? }), <resources>: Schedule.resources(rows, { name, icon, label, min, max, … }) }}
     │   ├─ What it books from                                         → arrivals={Allocation.arrivals(rows, { label, quantity, hold, kind?, values?, … })}
     │   ├─ Publish: the app's days, or its weeks                      → periods={Schedule.periods(Record.bind(days), { every: "day", status })} · or its weeks, { every: "week", … }, each keyed by its first day, week={{ start: "monday" | "sunday" }} — Publish week writes the week holding the day in view, and every day of a published week is read-only
-    │   ├─ Who fits where: the app's fit, on e3                       → fit={Func.bind(e3.function)} from Allocation.Types.FitRequest(R) to FitResult, over Allocation.answer(R) + Allocation.fit (+ Allocation.lookahead(R))
+    │   ├─ Who fits where: the app's fit, on e3                       → fit={Func.bind(e3.function)} from Allocation.Types.FitRequest to FitResult — asked the day, the question and the page's scope, no row; the function lists the bins in drafts, reads the day's through their index, and answers with Allocation.answer + Allocation.fit (+ Allocation.lookahead) over an Allocation.Types.FitContext
     │   ├─ The app's optimiser over the day                           → optimise={Func.bind(e3.function)} from Allocation.Types.OptimiseRequest (the day, the run, the rail's narrowing; no row) to Allocation.Types.OptimiseResult(Bins), a patch of the bins' record
     │   ├─ Narrow its bins, lanes, resources and arrivals — one rail  → slice={{ slice: Slice.bindRecords(key, { bin: { source, range: "at" }, <lanes>?, <resources>?, arrivals? }) }}
     │   ├─ Its panes                                                  → library={[Allocation.library.arrivals(), Allocation.library.resources()]} · inspector
@@ -395,6 +395,16 @@ and saves nothing. A draft that no longer fits its record ends the call
   rail's narrowing, never a row — to its `Types.OptimiseResult`, a patch of each
   record it edits (`East.diff`). The function lists those records in `drafts`,
   reads them through their indexes, and its answer lands as one undoable step.
+- **The app's fit** (the Roster's Find fix, the Allocation's board):
+  `fit={Func.bind(fn)}`, an `e3.function` from the builder's `Types.FitRequest`
+  — the question and the page's scope, never a row — to its `Types.FitResult`,
+  a verdict for each subject the function considered. The function lists in
+  `drafts` each record it reads that the builder edits, so it sees the unsaved
+  edits and nothing is saved; reads those records through their indexes and the
+  rest from the app's own records, in the app's row types; and makes of them the
+  builder's `Types.FitContext`, which the ready-made rules answer from
+  (`Roster.answer` + `Roster.fit()`; `Allocation.answer` + `Allocation.fit`).
+  A subject the answer leaves out has no verdict.
 - **Which views an instance offers**: a component that switches between views
   takes `views` — the Roster's, Calendar's and Allocation's layouts, the
   Ontology's display modes and `<Query.Builder>`'s

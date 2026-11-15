@@ -98,9 +98,12 @@ These are settled.
    The board never writes them. `resources` is complete: fits, checks and
    totals read all of it, whatever the narrowing hides.
 5. **The fit is the app's.** `fit` is an `e3.function` bound with `Func.bind`
-   that returns a verdict for every resource; the renderer computes no fit of
-   its own. `Allocation.fit` and `Allocation.candidates` are pure East parts
-   for that function. *(Ruled 17 Oct.)* The Roster's Find fixes move onto the
+   that returns a verdict for each resource it considered; the renderer
+   computes no fit of its own. It is asked the question and the page's scope,
+   and sent no row: the call carries the board's unsaved edits as drafts, and
+   the function reads what it needs from the workspace with them laid over it
+   (east-workspace#1624, §12). `Allocation.fit` and `Allocation.candidates` are
+   pure East parts for that function. *(Ruled 17 Oct.)* The Roster's Find fixes move onto the
    same contract in this epic (§13). *(Ruled 17 Oct.)* A `take` also answers
    each event the plan has not booked, on its resource: the Table's event
    Chooser (A48) and a reservation's Book list (A61) are one question each.
@@ -152,25 +155,28 @@ Spec.md` §6). Its §6.5 holds the code this section held, moved onto it:
 - the yard's records: its bins (`KilnBin`, the board's roles beside the yard's
   own spec, grade and instruction fields) and its days (`YardDay`), each bound
   with its patch mutation, beside its kilns, loads and bays;
-- the yard's fit, an `e3.function` over `Allocation.Types.FitRequest(KilnBin)`;
+- the yard's fit, an `e3.function` from `Allocation.Types.FitRequest` to
+  `Allocation.Types.FitResult`, which reads the day's bins through their
+  interval index and lists the bins' record in its `drafts`;
 - the smallest board (`allocationMinimal`), and the kiln yard
   (`allocationKilnYard`): the library, the inspector, the rail over the bays,
   the kilns and the loads, the yard's own fields as columns, and a check.
 
 Kilns and loads are the app's own, kept as its other systems keep them; the
 board only reads them. The fit is an `e3.function`, so it runs on e3 (or e3-web
-in a browser), never in the renderer. `Allocation.answer` builds the candidates
-for the request and maps a per-candidate fit over them, with the app's words for
-how its fit ranks (the answer's `basis`); `Allocation.fit` is the built-in rule
-set (§12); `Allocation.lookahead` is a pure greedy best-fit-decreasing pass: it
-places the candidate, then the day's unbooked arrivals largest first, each on
-its best fitting resource, and lowers the score by one for each arrival left
-with no fit, adding `· leaves 1 load with no fit` to `why`. All three are
-ordinary East functions an app may call, replace or ignore. Those over a plan
-take the bin row type, because an East function has one type —
-`Allocation.answer(KilnBin)` is an East function over
-`Allocation.Types.FitRequest(KilnBin)`; `Allocation.fit` reads one candidate
-and needs none.
+in a browser), never in the renderer, beside the data: it reads the day's bins
+through their record's index, the board's unsaved bins laid over them, and the
+kilns and the loads from the yard's own records, and makes of them an
+`Allocation.Types.FitContext` — the bins as their roles, with no row.
+`Allocation.answer` builds the candidates for the request over that context and
+maps a per-candidate fit over them, with the app's words for how its fit ranks
+(the answer's `basis`); `Allocation.fit` is the built-in rule set (§12);
+`Allocation.lookahead` is a pure greedy best-fit-decreasing pass: it places the
+candidate, then the day's unbooked arrivals largest first, each on its best
+fitting resource, and lowers the score by one for each arrival left with no
+fit, adding `· leaves 1 load with no fit` to `why`. All three are ordinary East
+functions an app may call, replace or ignore. None takes the bin row type: none
+reads a row.
 
 A booking writes the bin's roles and the arrival's `values` into the row's other
 fields. A reservation's other fields are what the bin kind's `values` gives of
@@ -222,7 +228,8 @@ accessors keep the meanings they had here; where each now lives:
 | `labels.event` | `labels.arrival` (`Arrival` by default) | The noun for what is booked (A97) |
 | `library={[Allocation.library.events(), …]}` | `Allocation.library.arrivals()` | The Arrivals tab |
 
-Unchanged: `fit` (over `Allocation.Types.FitRequest(R)`), `check` (over
+Unchanged: `fit` (from `Allocation.Types.FitRequest`, which takes no row type
+since east-workspace#1624: §12), `check` (over
 `Allocation.Types.CheckContext(R)`), `slice` (its sources named after the bin
 kind's, the lanes' and the resources' slots, and `arrivals`), `every`, `rules`,
 `inspector` (a boolean), `view`, `horizon`, `title`, `readOnly`, `id`, `table`.
@@ -277,7 +284,10 @@ Allocation.Types.FitAsk        = VariantType({
     place: StructType({ subject: VariantType({ bin: StringType, arrival: StringType }), quantity: FloatType }),   // → a verdict per resource
     take:  StructType({ resource: StringType }),                                                                 // → a verdict per bin, and one to reserve
 });
-Allocation.Types.FitRequest(R) = StructType({ day: DateTimeType, plan: Day(R), ask: FitAsk, context: Context });
+Allocation.Types.FitRequest    = StructType({ day: DateTimeType, ask: FitAsk, scope: DictType(StringType, RecordSliceWhere) });   // the question and the page's scope, and no row (§12.1)
+Allocation.Types.FitContext    = StructType({ bins: DictType(StringType, Schedule.Types.AllocationRoles),   // what a fit's function read: the day's bins as their roles,
+                                              arrivals: DictType(StringType, Arrival), resources: DictType(StringType, Resource),   // the arrivals and the resources by key,
+                                              rules: Rules, unit: StringType });                                                    // the built-in rules and the quantity's unit
 Allocation.Types.FitResult     = StructType({ ask: FitAsk, resources: DictType(StringType, Fit), bins: DictType(StringType, Fit),
                                               arrivals: DictType(StringType, Fit),   // a take's: each arrival the plan has not booked, on its resource
                                               reserve: OptionType(Fit),
@@ -296,13 +306,14 @@ Allocation.Types.Slot          = StructType({ lane: StringType, at: DateTimeType
                                               bins: ArrayType(StringType) });
 Allocation.Types.Layout        = VariantType({ timeline: NullType, table: NullType });
 
-// Each over a plan takes the bin row type and returns its East function, as Editing.apply(Type) does:
+// The page's and a task's, over the page's reading: each takes the bin row type and returns its East function, as Editing.apply(Type) does:
 Allocation.loads(R)      : (DateTime, Day(R), Context) → Dict<String, Load>
-Allocation.candidates(R) : (FitRequest(R)) → Array<Candidate>      // place: one per resource; take: one per bin, one per arrival not booked, and one for an empty slot
-Allocation.fit           : (Candidate) → Fit                       // the built-in rules (§12)
-Allocation.answer(R)     : (FitRequest(R), Fn(Candidate) → Fit, String) → FitResult   // the String: the answer's basis, the app's words
-Allocation.lookahead(R)  : (FitRequest(R), Candidate, Fn(Candidate) → Fit) → Fit
 Allocation.check(R)      : (DateTime, Day(R), Context) → Array<Issue>
+// A fit's rules, over what the app's function read (§12): none reads a row, so none takes the row type.
+Allocation.candidates    : (FitRequest, FitContext) → Array<Candidate>   // place: one per resource; take: one per bin, one per arrival not booked, and one for an empty slot
+Allocation.fit           : (Candidate) → Fit                              // the built-in rules (§12)
+Allocation.answer        : (FitRequest, FitContext, Fn(Candidate) → Fit, String) → FitResult   // the String: the answer's basis, the app's words
+Allocation.lookahead     : (FitContext, Candidate, Fn(Candidate) → Fit) → Fit
 Allocation.slots(R)      : (DateTime, Day(R), Context) → Array<Slot>
 ```
 
@@ -1116,19 +1127,50 @@ selected link with its caption's × (A68), and the link-drag preview (A69).
 ### 12.1 The contract
 
 `fit` is a `Func.bind` handle over the app's `e3.function` from
-`Allocation.Types.FitRequest(R)` to `Allocation.Types.FitResult`. One call
-answers one question about the drafted plan:
+`Allocation.Types.FitRequest` to `Allocation.Types.FitResult`
+(east-workspace#1624). **A request carries the question and the page's scope,
+and the call carries the board's unsaved edits as drafts. Nothing else is
+sent: no row of a record, and nothing the board read or worked out from one.**
+The function reads what it needs from the workspace, with the drafts laid over
+it, and answers a verdict for each subject it considered:
 
-- **place** a subject (a bin, or an event) with a quantity: a verdict for every
-  resource (`resources`);
+- **place** a subject (a bin, or an event) with a quantity: a verdict for each
+  resource it considered (`resources`);
 - **take** a resource (a dragged resource card, a Table row's event Chooser, a
-  reservation's Book list): a verdict for every bin (`bins`), one for booking
+  reservation's Book list): a verdict for each bin (`bins`), one for booking
   each arrival the plan has not booked onto it (`arrivals`), and one for reserving
   an empty slot on it (`reserve`). Asked of the day without a row's bin, its
   event is one to book: the Chooser's `Replace with`. *(Ruled 17 Oct.)*
 
+The request is `{ day, ask, scope }`. `scope` is each rail source's scope by
+the source's name (#1621): the narrowing the page holds and the viewer cannot
+clear, its fields alone, each a field's exact values as East prints them, typed
+as an optimiser's `slice` is (#1622). A page with no scope sends none. The
+rail's own choices are not sent: a fit answers whatever the rail shows, and the
+board lists its fits among what the rail shows, so a choice on the rail asks
+nothing again.
+
+The function lists in its `drafts` each record it reads that the board edits —
+the bins', and the days' or weeks' where it publishes. One that reads such a
+record, itself or by an index of it, and does not list it is refused where the
+page is built, naming the record: it would answer around edits it cannot see
+(the optimiser's rule 4, by the same check).
+
 The result echoes its `ask`, so the board matches each answer to its question:
-`Func.bind` calls are latest-wins on one channel per function.
+`Func.bind` calls are latest-wins on one channel per function. A subject the
+answer does not name has no verdict: a drop on the resource is refused (`The
+fit gave no verdict for …`), and a Chooser leaves the option out.
+
+What the request once carried, the function reads for itself: the day's bins
+through their record's index; the arrivals and the resources from the app's own
+records, in the app's own row types — the readings the board's kinds declare,
+written once more for the function (`asBin`, `asKiln`, `asLoad`); the rules and
+the quantity's unit from where the page takes them. It makes of them an
+`Allocation.Types.FitContext`, which the ready-made rules answer from. For a
+context that holds what the board holds, they give the verdicts a request that
+carried the day gave. `Allocation.candidates` fails the call where a place's
+bin is not among the context's bins, or a place's arrival or a take's resource
+is not in the context; the board shows it as it shows any failed fit.
 
 ### 12.2 How the board asks (owner: fit)
 
@@ -1137,7 +1179,29 @@ The result echoes its `ask`, so the board matches each answer to its question:
   for, the resource card being dragged. It asks again when the drafts change, and
   when the events, lanes or resources it reads change: a record committed under
   the board, its drafts kept. Answers are cached by question, drafts and those
-  records; one question is in flight at a time.
+  records; one question is in flight at a time, the latest asked first. A record
+  only the function reads may change after an answer: the next ask reads it.
+- **F1a. What an ask sends.** The question and the scope, then, from each of the
+  board's sessions over a record the function lists in `drafts`, the pending
+  Save as a draft (#1620): every unsaved edit that is complete, the ones a
+  narrowing hides and the ones off screen among them, whether or not a check is
+  holding Save. e3 lays the drafts over the records and runs the function;
+  nothing is saved (#1619). While a session cannot hand its edits over — a Save
+  of its own on its way — the question waits.
+- **F1b. A plan the board derives.** Some questions are asked of the day as it
+  would be: without a reservation that a fill replaces, with a probe
+  reservation in a free slot, or with a removed bin back on it. Such a call
+  carries the pending Save and then the derived change as one more draft of the
+  bins' record, laid in order. A record that refuses the derived change gives
+  that question no answer, and it shows as a failed fit.
+- **F1c. Edits the record refuses, and a record that changed under them.**
+  Where the record refuses the pending Save, the call ends as that Save would
+  and the fit fails in its words: there is no state of the record with those
+  edits to ask about. A call that ends `conflict` takes the optimiser's path
+  (`Optimise Spec.md`, rule 12): the session takes the newer saves in and
+  carries its edits over them, which changes the drafts, and the question is
+  asked again of them; with a conflict to choose, the fit fails in the refused
+  Save's words until the person chooses.
 - **F2.** While an answer is pending, rows and cells show no verdict, the caption
   reads `checking fits…`, and a drop waits: the ghost stays at the drop until the
   answer lands, then the command runs or refuses.
@@ -1175,8 +1239,10 @@ job — then the app's `check`.
 
 ### 12.4 The yard's greedy fit, and how it is tested
 
-`yardFit` (§3.1) runs the built-in rules, then a greedy best-fit-decreasing
-look-ahead (`Allocation.lookahead`): it places the candidate, then each of the
+`yardFit` (§3.1) reads the day's bins through their interval index, the board's
+unsaved bins among them, and every kiln and load — every kiln is a candidate,
+and the look-ahead places every load — then runs the built-in rules and a greedy
+best-fit-decreasing look-ahead (`Allocation.lookahead`): it places the candidate, then each of the
 day's unbooked events, largest first, on its best fitting resource, and lowers the
 score by one for each event left with no fit, adding `· leaves 1 load with no
 fit`. In the yard, LD-2231 (21 m³) fits K-107 and K-601; the look-ahead ranks
@@ -1186,15 +1252,19 @@ reorders K-103, K-601, K-107: on K-107 it leaves LD-2231 nowhere but K-601, and
 two loads with no fit.
 
 - **e3-ui specs** (`test/allocation/fit.spec.ts`) compile `Allocation.fit`,
-  `Allocation.answer`, `Allocation.lookahead` and the yard's function body, and
-  assert §0's worked facts exactly: each library load's fits and their order,
-  each refusal's group, reason and measure, bin 3113's two fits and thirty
-  refusals, and the look-ahead's reordering.
-- **Renderer tests** drive the board over the shared record-backed builder
-  harness with the yard's function served through the harness's `Func` runtime
-  (extended to serve `e3.function`s if it does not), and assert that every rank,
-  refusal, Chooser section and Find result is the function's — including a fit
-  that refuses what the built-in rules would accept.
+  `Allocation.answer` and `Allocation.lookahead` over a context that holds what
+  the board holds, and assert §0's worked facts exactly: each library load's
+  fits and their order, each refusal's group, reason and measure, bin 3113's two
+  fits and thirty refusals, and the look-ahead's reordering. The yard's
+  functions are run as e3 runs them — each body over its own inputs, its bins'
+  index built as e3 builds it — and held, by East's own equality, to the rules'
+  answers over the day the board holds.
+- **Renderer tests** drive the board on e3 with the yard's functions deployed,
+  and assert that every rank, refusal, Chooser section and Find result is the
+  function's — including a fit that refuses what the built-in rules would
+  accept — and, in `allocation/fit.dom.test.tsx`, what an ask sends: the
+  request, the drafts and each derived plan's further draft, with nothing
+  saved.
 - **The showcase** runs the kiln yard on e3-web, where `yard_fit` executes in the
   page's e3.
 
@@ -1208,20 +1278,34 @@ who fits and why; the renderer only asks and shows.
 ```ts
 Schedule.Types.Fit       = VariantType({ fits: StructType({ score: FloatType, why: StringType, warn: OptionType(StringType) }), refused: Allocation.Types.Refusal });
 Roster.Types.Need        = VariantType({ leads: NullType, trainers: NullType, skill: StringType });   // today's Fix.find payload
-Roster.Types.FitRequest  = StructType({ need: Need, slot: Slot, start: DateTimeType, week: Week, context: Context, coverage: DictType(Slot, Coverage) });
-Roster.Types.FitResult   = StructType({ need: Need, slot: Slot, people: DictType(StringType, Fit) });
-Roster.fit               : (FitRequest, Person) → Fit      // ready-made: the need held, not rostered that day, rest kept; prefers the slot's group, then spare contract hours
-Roster.answer            : (FitRequest, Fn(FitRequest, Person) → Fit) → FitResult
+Roster.Types.FitRequest  = StructType({ need: Need, slot: Slot, start: DateTimeType, scope: DictType(StringType, RecordSliceWhere) });   // the question and the page's scope, and no row (#1624)
+Roster.Types.FitResult   = StructType({ need: Need, slot: Slot, people: DictType(StringType, Fit) });   // a verdict for each person the function considered
+Roster.Types.FitContext  = StructType({ people: DictType(StringType, Person), duties: DictType(StringType, Schedule.Types.RosterRoles),   // what a function read: the people it asks about,
+                                        shifts, groups, positions, activities, rest: FloatType });                                        // the week's duties as their roles, the configuration, the rest held
+Roster.Types.Candidate   = StructType({ need, slot, start, person: Person, duties: DictType(StringType, { place, roles }), hours: FloatType,   // one person against the week
+                                        shifts, groups, positions, activities, rest });
+Roster.fit(words?)       : (Candidate) → Fit               // ready-made: the need held, not rostered that day, rest kept; prefers the slot's group, then spare contract hours
+Roster.answer            : (FitRequest, FitContext, Fn(Candidate) → Fit) → FitResult   // places the context's duties in the week once, as the page places them
+Roster.window            : (start) → { from, to }          // the window a week's duties are read over: the week and twelve hours either side
 
 // The prop, beside check. Omitted: no Find fix is offered.
 const staffFit = $.let(Func.bind(rosterStaffFit));      // e3.function("roster_staff_fit", …)
 <Roster … fit={staffFit} />
 ```
 
-- **R1.** A find fix asks the app's fit for the issue's slot and need over the
-  complete staff, and narrows the People tab to the fits, best first, each card
-  carrying the fit's reason, with a chip in the tab that clears it. It replaces the
-  facet filters `find` sets today.
+- **R1.** A find fix asks the app's fit for the issue's slot and need, and
+  narrows the People tab to the fits, best first, each card carrying the fit's
+  reason, with a chip in the tab that clears it. It replaces the facet filters
+  `find` sets today. The request is the question and the page's scope, and no
+  row (east-workspace#1624, §12.1): the call carries the Roster's unsaved
+  edits as drafts — its duties', and its targets' and periods' for a function
+  that reads them — and the function reads the week's duties through their
+  record's index over the window it chooses (`Roster.window`), the people it
+  asks about, by key or through an index, and the configuration from the app's
+  own records. Whom it asks about is its author's choice: a function that reads
+  only the holders of the need answers the same tab, and a person the answer
+  names no verdict for is not listed. What an ask sends, a record that refuses
+  the edits and one that changed under them are the Allocation's (F1a, F1c).
 - **R2.** Without `fit`, no find fix is offered: `Roster.check` still reports the
   issue, and the renderer drops the Find button.
 - **R3.** The People tab's All · Leads · Trainers · Off segment and its Role and
@@ -1231,10 +1315,12 @@ const staffFit = $.let(Func.bind(rosterStaffFit));      // e3.function("roster_s
   "unchanged".)*
 - **R4.** While pending, the fix's button reads `Finding…`; a failure is a warning
   banner with Retry.
-- **R5.** Examples: `rosterWarehouse` and `rosterRecordIndexes` pass
-  `fit={staffFit}`, a greedy e3.function over `Roster.fit` (prefer people off that
-  day with the most spare contract hours); specs assert its ranking; the e3-ui
-  skill and the plugin indexes follow.
+- **R5.** Examples: `rosterWarehouse` passes `fit={staffFit}`, a greedy
+  e3.function over `Roster.fit` (prefer people off that day with the most spare
+  contract hours) that reads the holders of the need through the staff's
+  indexes, and `rosterRecordIndexes` its own over its own records, which on a
+  scoped page asks about the scope's people alone; specs assert the ranking; the
+  e3-ui skill and the plugin indexes follow.
 
 ## 14. Where the product differs from the mock
 

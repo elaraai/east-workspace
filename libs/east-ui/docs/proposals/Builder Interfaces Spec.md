@@ -109,7 +109,7 @@ Approved 20 Oct 2026 with the proposal.
 | D4 | Publish is `periods={Schedule.periods(record, { every, status })}`: one row of the app's per period, keyed by its start (§4.3). |
 | D5 | The Roster has no time types. It reads a duty's `start` and `end`, with its `shift` and `group`, and draws its times against the shift's (§5.5). A duty counts its length in hours, unless the app's `hours` accessor gives its own figure. |
 | D6 | The Allocation's bins are an instant kind: `at` on a lane (`resource`), with Plan's `quantity`, and the Allocation's `arrival`, `parts`, `hold` and `kind` (§4.1). What it books from is `arrivals` (§6.4). The role that names a bin's arrival is `arrival`, so "event" means the bin in every builder and "arrival" what it books (the proposal's table called this role `event`). |
-| D7 | The fit's, the pay's and the check's requests take the app's event row type (`FitRequest(Duty)`, `FitRequest(KilnBin)`), as the Allocation's took `V`. Each assignment or bin in them carries the app's row as `row`. The ready-made parts are constructors over the row type: `Roster.fit(Duty)`, `Allocation.answer(KilnBin)`. |
+| D7 | The pay's and the check's requests take the app's event row type (`PayRequest(Duty)`, `CheckContext(KilnBin)`), as the Allocation's took `V`. Each assignment or bin in them carries the app's row as `row`. The page's ready-made parts are constructors over the row type: `Roster.check(Duty)`, `Allocation.loads(KilnBin)`. A fit's request takes no row type (east-workspace#1624): it carries the question and the page's scope, the call carries the builder's unsaved edits as drafts, and the app's function reads the rows for itself. The fit's ready-made rules are plain East functions over what that function read (`Roster.Types.FitContext`, `Allocation.Types.FitContext`): `Roster.fit()`, `Roster.answer`, `Allocation.answer`. |
 | D8 | Each record is one session of a single history, as each of the Calendar's and Plan's kinds is. Save sends each record's changes as its own request. Publish saves first, and writes the period's status only once the period's rows are confirmed (§7). |
 | D9 | The Roster's week and the Allocation's day stay their own navigation (ruled 18 Oct). Each reads its period's records the way the Calendar reads its window: through the source of the slice named after the kind (an interval index, its range written by the navigation), or the record whole. That source takes no `fields`. The rail narrows what it narrows today, and every event of the period is read for coverage, pay, fits and checks. |
 | D10 | Scope: the Roster and the Allocation, and Schedule gaining their roles and `periods`. Unchanged: the Calendar, Plan and the Sheet. Out of scope: Flowchart flows, Studio pages and saved queries. |
@@ -305,7 +305,7 @@ interface RosterProps {
     currency?: string;                                 // how costs print; required with `pay`
     rules?: { rest?: number; lead?: boolean; trainer?: boolean; skill?: boolean };
     check?: SubtypeExprOrValue<FunctionType<[CheckContext(R)], ArrayType<Issue>>>;
-    fit?: BoundFunc<[FitRequest(R)], FitResult>;
+    fit?: OptimiseHandle;                              // Find fix (#1334, #1624): Func.bind of a function from FitRequest to FitResult, checked at build as `optimise` is; asked the question and the scope, the Roster's unsaved edits sent as drafts
     optimise?: OptimiseHandle;                         // the Elara eye (#1409, #1622): Func.bind of a function from OptimiseRequest() to OptimiseResult(D), checked at build; one run over the period in view, its answer one step
     slice?: RecordSlicesChromeOptions;                 // sources: the duty kind's slot, `targets`, `people`, `activities`
     library?: readonly RosterLibraryTab[];
@@ -377,8 +377,11 @@ Roster.Types.PayRequest(R)  = StructType({ who: Who, start: DateTimeType, duties
 Roster.Types.Pay            = DictType(StringType, DictType(StringType, FloatType));   // duty key → pay code → cost
 Roster.Types.CheckContext(R)= StructType({ start: DateTimeType, week: Week(R), context: Context,
                                           coverage: DictType(Slot, Coverage), pay: Pay });
-Roster.Types.FitRequest(R)  = StructType({ need: Need, slot: Slot, start: DateTimeType, week: Week(R), context: Context,
-                                          coverage: DictType(Slot, Coverage) });
+Roster.Types.FitRequest     = StructType({ need: Need, slot: Slot, start: DateTimeType, scope: DictType(StringType, RecordSliceWhere) });   // the question and the page's scope, and no row (#1624)
+Roster.Types.FitContext     = StructType({ people: DictType(StringType, Person), duties: DictType(StringType, Schedule.Types.RosterRoles),   // what a fit's function read
+                                          shifts, groups, positions, activities, rest: FloatType });
+Roster.Types.Candidate      = StructType({ need, slot, start, person: Person, duties: DictType(StringType, { place, roles }), hours: FloatType,   // one person against the week
+                                          shifts, groups, positions, activities, rest });
 Roster.Types.Fix            = VariantType({ request: StringType, accept: StringType, move: StringType, start: DateTimeType, find: Need });   // `start` a later start; no `agree`
 Roster.Types.Issue          = /* as today, its kind without `agree` */;
 ```
@@ -389,8 +392,8 @@ Each `(R)` is a constructor: the same `R` gives the same East type
 
 ### 5.4 Functions
 
-Each over a week takes the row type and returns its East function, as the
-Allocation's take `V` today:
+The page's and a task's, over the page's reading of a week: each takes the row
+type and returns its East function, as the Allocation's take `V` today:
 
 | Function | East function |
 |---|---|
@@ -398,8 +401,18 @@ Allocation's take `V` today:
 | `Roster.check(R)` | `(Week(R), Context) → Array<Issue>` |
 | `Roster.weekHours(R)` | `(Week(R), Context) → Dict<String, Float>` |
 | `Roster.rest(R)` | `(Assignment(R), String, Week(R), Context) → Rest` |
-| `Roster.fit(R)` | `(FitRequest(R), Person) → Fit` |
-| `Roster.answer(R)` | `(FitRequest(R), Fn(FitRequest(R), Person) → Fit) → FitResult` |
+
+A fit's rules, over what the app's function read (east-workspace#1624): none
+reads a row, so none takes the row type.
+
+| Function | East function |
+|---|---|
+| `Roster.fit(words?)` | `(Candidate) → Fit`: one person against the week, with today's tests, words and scores |
+| `Roster.answer` | `(FitRequest, FitContext, Fn(Candidate) → Fit) → FitResult`: a verdict for every person of the context; it places the context's duties in the week once, as the page places them, and makes each person's candidate |
+| `Roster.window` | `(start) → { from, to }`: the window a week's duties are read over — the week and the twelve hours either side, as far as a duty's start may stand from its shift's. The one copy: the page's reads use it too |
+
+Where a page's function and a fit's rule share a measure — a duty's day and
+place, the rest between duties — the measure is one piece both call.
 
 ### 5.5 What the Roster reads from a duty's times
 
@@ -640,20 +653,73 @@ every command is an explicit card action, as today.
 ### 5.8 The fit and the check
 
 ```tsx
-// The app's fit, on e3: who fits a Find fix's need. Each assignment of the request's week carries its own row.
-export const staffFitBody = East.function([Roster.Types.FitRequest(Duty)], Roster.Types.FitResult, ($, req) => {
-    const answer = $.const(Roster.answer(Duty));
-    const rule = $.const(Roster.fit(Duty));
-    const weekHours = $.const(Roster.weekHours(Duty));
-    const hours = $.const(weekHours(req.week, req.context));
-    return answer(req, East.function([Roster.Types.FitRequest(Duty), Roster.Types.Person], Roster.Types.Fit, ($2, request, person) => {
-        const verdict = $2.const(rule(request, person));
+// The app's fit, on e3 (east-workspace#1624): who fits a Find fix's need. It is asked the need, the slot and the week's
+// first day, and sent no row: it reads the holders of the need through the staff's indexes, and the week's duties through
+// their interval index, the Roster's unsaved duties among them.
+// The readings the page's kinds declare, written once more for the function.
+const asPerson = East.function([Person, StringType], Roster.Types.Person, (_$, p, key) => ({
+    key, name: p.name, group: p.team, position: p.position, skills: p.skills, contract: p.contract,
+    agency: p.agency, trainer: p.trainer, trainee: p.trainee, usual: p.usual,
+}));
+const asDuty = East.function([Duty], Schedule.Types.RosterRoles, (_$, d) => ({
+    start: d.start, end: d.end,
+    resource: some(d.who.match({
+        staff: (_$2, key) => East.value({ kind: "people", key }, Schedule.Types.ResourceRef),
+        agency: (_$2, key) => East.value({ kind: "agencies", key }, Schedule.Types.ResourceRef),
+    })),
+    shift: d.shift, group: some(d.team), position: some(d.role), activity: d.task,
+    hours: d.start.durationMinutes(d.end).subtract(d.unpaidBreak).divide(60.0),
+}));
+
+export const staffFit = e3.function("warehouse_staff_fit", {
+    inputs: [
+        e3.index(duties.indexes.duties_by_time), duties,
+        e3.index(staff.indexes.staff_by_skill), e3.index(staff.indexes.staff_by_position), e3.index(staff.indexes.staff_by_trainer), staff,
+        shiftTimes, teams, positions, activities,
+    ],
+    drafts: [duties],                        // the Roster's unsaved duties are laid over them
+    args: [Roster.Types.FitRequest],
+    output: Roster.Types.FitResult,
+}, ($, dutiesByTime, dutyRows, bySkill, byPosition, byTrainer, staffRows, shiftRows, teamRows, positionRows, activityRows, request) => {
+    // Whom to ask about: the holders of the need, each read through its index. Nobody sent the staff.
+    const person = $.const(asPerson);
+    const people = $.let(new Map(), DictType(StringType, Roster.Types.Person));
+    $.match(request.need, {
+        skill: ($2, skill) => { bySkill.of(skill).each($2, ($3, _carried, key) => { $3(people.insert(key, person(staffRows.get(key), key))); }); },
+        trainers: ($2) => { byTrainer.of(true).each($2, ($3, _carried, key) => { $3(people.insert(key, person(staffRows.get(key), key))); }); },
+        leads: ($2) => {
+            $2.for(positionRows, ($3, position, code) => {
+                $3.if(position.lead, ($4) => { byPosition.of(code).each($4, ($5, _carried, key) => { $5(people.insert(key, person(staffRows.get(key), key))); }); });
+            });
+        },
+    });
+    // The week's duties, over the window the Roster reads them over. The index carries no row: it gives each duty's key,
+    // and the record its row, both at the one drafted state.
+    const roles = $.const(asDuty);
+    const windowOf = $.const(Roster.window);
+    const span = $.const(windowOf(request.start));
+    const week = $.let(new Map(), DictType(StringType, Schedule.Types.RosterRoles));
+    dutiesByTime.overlapping({ from: span.from, to: span.to }).each($, ($2, _carried, key) => { $2(week.insert(key, roles(dutyRows.get(key)))); });
+    // The configuration, from the warehouse's own records.
+    const shifts = $.let([], ArrayType(Roster.Types.Shift));
+    $.for(shiftRows, ($2, s, key) => { $2(shifts.pushLast({ key, label: s.label, code: s.code, start: s.start, hours: s.hours, color: s.colour })); });
+    const groups = $.let([], ArrayType(Roster.Types.Group));
+    $.for(teamRows, ($2, t, key) => { $2(groups.pushLast({ key, label: t.label })); });
+    const held = $.let([], ArrayType(Roster.Types.Position));
+    $.for(positionRows, ($2, p, key) => { $2(held.pushLast({ key, label: p.label, code: p.code, lead: p.lead })); });
+    const skills = $.let([], ArrayType(Roster.Types.Skill));
+    $.for(activityRows, ($2, a, key) => { $2(skills.pushLast({ key, label: a.label, code: a.code, group: a.group })); });
+    const context = $.const({ people, duties: week, shifts, groups, positions: held, activities: skills, rest: 10.0 }, Roster.Types.FitContext);
+    // The ready-made rule, then the warehouse's order: the most spare contract hours first, whatever the group.
+    const answer = $.const(Roster.answer);
+    const rule = $.const(Roster.fit());
+    return answer(request, context, East.function([Roster.Types.Candidate], Roster.Types.Fit, ($2, candidate) => {
+        const verdict = $2.const(rule(candidate));
         $2.match(verdict, { refused: ($3) => { $3.return(verdict); } });
         const fits = $2.const(verdict.unwrap("fits"));
-        return variant("fits", { score: person.contract.subtract(hours.get(person.key, () => 0.0)), why: fits.why, warn: fits.warn });
+        return variant("fits", { score: candidate.person.contract.subtract(candidate.hours), why: fits.why, warn: fits.warn });
     }));
 });
-export const staffFit = e3.function("warehouse_staff_fit", staffFitBody);
 
 // The app's check sees the pay too: overtime on a duty nobody has agreed.
 const check = $.const(East.function([Roster.Types.CheckContext(Duty)], ArrayType(Roster.Types.Issue), ($2, cx) => {
@@ -680,7 +746,7 @@ interface AllocationProps {
     resources: { [slot: string]: ScheduleResourceKind };   // the lanes' kind (`resource.of`) and the resources' kind (`parts.of`)
     arrivals: AllocationArrivals;                     // Allocation.arrivals(rows, …)
     periods?: SchedulePeriods;                        // Publish; without it, none
-    fit: BoundFunc<[FitRequest(R)], FitResult>;
+    fit: OptimiseHandle;                              // the fit (#1624): Func.bind of a function from FitRequest to FitResult, checked at build as `optimise` is; asked the day, the question and the scope, the board's unsaved edits sent as drafts
     optimise?: OptimiseHandle;                        // the Elara eye (#1409, #1622): Func.bind of a function from OptimiseRequest to OptimiseResult(D), checked at build; one run over the day in view, its answer one step
     check?: SubtypeExprOrValue<FunctionType<[CheckContext(R)], ArrayType<Issue>>>;
     columns?: readonly { key: string; label: string; text: (row) => String; tone?: (row) => Option<StatusToken>; table?: boolean }[];
@@ -726,13 +792,21 @@ Allocation.Types.FitAsk          = VariantType({ place: StructType({ subject: Va
                                                 take: StructType({ resource: StringType }) });
 Allocation.Types.FitResult       = /* as today, `events` → `arrivals` */;
 Allocation.Types.Candidate       = /* as today, `event` → `arrival` */;
-Allocation.Types.FitRequest(R)   = StructType({ day: DateTimeType, plan: Day(R), ask: FitAsk, context: Context });
+Allocation.Types.FitRequest      = StructType({ day: DateTimeType, ask: FitAsk, scope: DictType(StringType, RecordSliceWhere) });   // the question and the page's scope, and no row (#1624)
+Allocation.Types.FitContext      = StructType({ bins: DictType(StringType, Schedule.Types.AllocationRoles), arrivals: DictType(StringType, Arrival),   // what a fit's function read:
+                                               resources: DictType(StringType, Resource), rules: Rules, unit: StringType });                           // the day's bins as their roles, with no row
 Allocation.Types.CheckContext(R) = StructType({ day: DateTimeType, plan: Day(R), context: Context, loads: DictType(StringType, Load) });
 ```
 
-`Allocation.loads(R)`, `candidates(R)`, `answer(R)`, `lookahead(R)`, `check(R)`
-and `slots(R)` take the row type where they took `V`; `Allocation.fit` needs
-none.
+`Allocation.loads(R)`, `check(R)` and `slots(R)` — the page's and a task's,
+over the page's reading — take the row type where they took `V`. A fit's rules
+read what the app's function read, and take none (east-workspace#1624):
+`Allocation.fit` — `(Candidate) → Fit`, unchanged — `Allocation.candidates` —
+`(FitRequest, FitContext) → Array<Candidate>` — `Allocation.answer` —
+`(FitRequest, FitContext, fit, basis) → FitResult` — and `Allocation.lookahead`
+— `(FitContext, Candidate, fit) → Fit`. For a context that holds what the board
+holds, each gives the verdicts a request that carried the day gave. A resource's
+load is one measure, which the page's loads and a fit's candidates both read.
 
 ### 6.4 Arrivals
 
@@ -757,21 +831,41 @@ export const Bin = StructType({
     bay: StringType, at: DateTimeType, load: OptionType(StringType),
     m3: FloatType, kilns: DictType(StringType, FloatType), dryFor: TimeStepType,
 });
-export const kilnBins = e3.record("kiln_bins", DictType(StringType, Bin), new Map());
-export const kilnBinsPatch = e3.mutation.patch(kilnBins);
+export const kilnBins = e3.record("kiln_bins", DictType(StringType, Bin), {
+    initial: new Map(),
+    indexes: (index) => ({ kiln_bins_by_time: index.interval({ from: "at", to: "at" }) }),   // what the fit reads a day of the bins through
+    mutations: (mutation) => ({ patch: mutation.patch() }),
+});
 // arrivals, kilns and yardBays, and the day yardDay: the kiln yard's own records.
 
-export const yardFit = e3.function("yard_fit", East.function([Allocation.Types.FitRequest(Bin)], Allocation.Types.FitResult, ($, req) => {
-    const answer = $.const(Allocation.answer(Bin));
-    const rule = $.const(Allocation.fit);
-    return answer(req, rule, "ranked by load, kind and spare days");
-}));
+// The yard's fit (east-workspace#1624): asked the day and the question, and sent no row. It reads the day's bins
+// through their interval index, the board's unsaved bins among them, and the kilns and the loads from their records.
+export const yardFit = e3.function("yard_fit", {
+    inputs: [e3.index(kilnBins.indexes.kiln_bins_by_time), kilnBins, kilns, arrivals],
+    drafts: [kilnBins],                      // the board's unsaved bins are laid over them
+    args: [Allocation.Types.FitRequest],
+    output: Allocation.Types.FitResult,
+}, ($, binsByTime, bins, kilnRows, loadRows, request) => {
+    // The readings the board's kinds declare, written once more for the function.
+    const day = $.let(new Map(), DictType(StringType, Schedule.Types.AllocationRoles));
+    binsByTime.overlapping({ from: request.day, to: request.day.addDays(1n) }).each($, ($2, _carried, key) => {
+        const b = $2.const(bins.get(key));
+        $2(day.insert(key, { at: b.at, lane: b.bay, arrival: b.load, quantity: b.m3, parts: b.kilns, hold: b.dryFor, kind: none }));
+    });
+    const resources = $.let(new Map(), DictType(StringType, Allocation.Types.Resource));
+    $.for(kilnRows, ($2, k, key) => { $2(resources.insert(key, { key, label: k.name, group: none, meta: none, note: none, min: k.min, max: k.max, hold: variant("days", 0.0), jobs: k.charges })); });
+    const loads = $.let(new Map(), DictType(StringType, Allocation.Types.Arrival));
+    $.for(loadRows, ($2, l, key) => { $2(loads.insert(key, { key, label: l.code, meta: none, quantity: l.m3, hold: variant("days", l.dryingDays), kind: none, due: none, window: none, details: [] })); });
+    const context = $.const({ bins: day, arrivals: loads, resources, rules: { under: true }, unit: "m³" }, Allocation.Types.FitContext);
+    const answer = $.const(Allocation.answer);
+    return answer(request, context, Allocation.fit, "ranked by load, kind and spare days");
+});
 
 export const allocationMinimal = example({
     description: "The smallest board over the app's own records: bins, bays, kilns and the day's loads, and the yard's fit on e3.",
     keywords: ["Allocation", "Schedule.events", "Schedule.resources", "Allocation.arrivals", "Func.bind"], inputs: [],
     fn: East.function([], UIComponentType, _$ => <Reactive>{$ => {
-        const bins = $.let(Record.bind(kilnBins, [kilnBinsPatch]));
+        const bins = $.let(Record.bind(kilnBins));
         const loads = $.let(Data.bind(arrivals));
         const yard = $.let(Data.bind(kilns));
         const bays = $.let(Data.bind(yardBays));

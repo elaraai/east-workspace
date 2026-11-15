@@ -1234,3 +1234,35 @@ Each wire changed under this rule, with the kind it is.
   page is built, naming `record`. A UI task's output is not stored state, and
   a run's call is a function call as any other, kept as #1619 (above) keeps
   one, so no repository upgrade step ships with it.
+- **e3-ui's Roster and Allocation ask their fit the question and the page's
+  scope, and the call carries their unsaved edits as drafts (#1624)** —
+  package-borne. The request types each builder's `Types` gives change whole,
+  each a type where it was a constructor over the builder's rows. The Roster's
+  (`RosterFitRequestType`) is `{ need, slot, start, scope }`, where it carried
+  the week's duties each with its row, the week's targets, every person, the
+  configuration and every slot's coverage. The Allocation's
+  (`AllocationFitRequestType`) is `{ day, ask, scope }`, where it carried the
+  day's bins each with its row and the board's context. `scope` is an
+  `OptimiseSliceType` (#1622, above): each rail source's scope by the source's
+  name, its fields alone. The answers' types (`RosterFitResultType`,
+  `AllocationFitResultType`) are as they were; an answer holds a verdict for
+  each subject the function considered. Each builder's `Types` gains what a
+  fit's function makes of what it read — `Roster.Types.FitContext` and
+  `Roster.Types.Candidate`, and `Allocation.Types.FitContext` — and the
+  ready-made rules are plain East functions over them, none a constructor over
+  the rows: `Roster.fit(words?)`, `Roster.answer`, `Roster.window`,
+  `Allocation.candidates`, `Allocation.answer` and `Allocation.lookahead`.
+  `Schedule.Types` gains the two builders' readings of a row,
+  `RosterRoles` and `AllocationRoles`, which a context holds. No builder takes
+  the earlier request types, and none reads a function of them. An app's fit
+  is an `e3.function` of its own package, and re-exporting does not carry it:
+  it is written again to the new request, reading what it needs from the
+  workspace — its builder's rows through an index of their record — and
+  listing in `drafts` each record it reads that the builder edits. A page that
+  hands a builder a function of the earlier types is refused as it is built,
+  naming what the function asks; one whose function reads a record the builder
+  edits and lists no draft of it is refused as it is evaluated, naming the
+  record. The binding the payloads carry (`FuncBindingType`) is as #1622 left
+  it, and a fit's now names the drafts its function lists. A fit's call is a
+  function call as any other, kept as #1619 (above) keeps one, and no stored
+  form changes, so no repository upgrade step ships with it.
