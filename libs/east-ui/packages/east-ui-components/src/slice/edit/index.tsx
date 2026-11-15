@@ -15,7 +15,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faArrowLeft, faChevronDown, faXmark } from "@fortawesome/free-solid-svg-icons";
 import { FrameOverlaySlot } from "../../layout/builder-frame/overlay-slot.js";
 import { FrameBottomPanel } from "../../layout/builder-frame/bottom-panel.js";
-import { layerOpen, useTopViewEscape } from "../../layout/builder-frame/view-escape.js";
+import { layerOpen, layerOpenOver, useTopViewEscape } from "../../layout/builder-frame/view-escape.js";
 
 /** What a {@link SliceEditPopover} hangs from: its trigger, or an anchor. */
 export type SliceEditPopoverAnchor =
@@ -139,6 +139,12 @@ function Rehang({ from }: { from: unknown }) {
  * the page. Down the page it keeps to the page, flipping above its trigger
  * where there is no room below ({@link frameBounds}).
  *
+ * Esc closes it from the moment it opens. Its own dismissal begins to listen a
+ * frame after it opens, so an Esc pressed in that frame — a press that follows
+ * the one that opened it at once — was heard by nothing, and the popover
+ * stayed. It is heard here first and taken, and a layer open over it, a field's
+ * list or a popover of its own, keeps its own.
+ *
  * In a phone's frame (560px or narrower), a popover its toolbar opens is a
  * view over the whole builder instead, in the frame's overlay slot, as the
  * rail's Filters view is (ruled 3 Nov 2026): ← back and its label at its
@@ -197,6 +203,21 @@ export function SliceEditPopover({
         });
         return () => cancelAnimationFrame(frame);
     }, [open, anchored]);
+    // Esc, heard from the commit that opens it: ahead of its own dismissal, which leaves a key already taken.
+    const floats = density !== "editor" && overlay === null && panel === null;
+    const close = useRef(onOpenChange);
+    close.current = onOpenChange;
+    useLayoutEffect(() => {
+        if (!open || !floats) return undefined;
+        const onKeyDown = (event: globalThis.KeyboardEvent) => {
+            if (event.key !== "Escape" || event.isComposing || event.defaultPrevented) return;
+            if (layerOpenOver(contentRef.current, anchored ? anchorRef.current : triggerRef.current)) return;
+            event.preventDefault();
+            close.current(false);
+        };
+        document.addEventListener("keydown", onKeyDown, true);
+        return () => document.removeEventListener("keydown", onKeyDown, true);
+    }, [open, floats, anchored]);
     if (density === "editor") {
         // Inside the sectioned editor the popover is forbidden — the editor
         // is the terminal surface. The same trigger toggles an inline
