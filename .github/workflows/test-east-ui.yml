@@ -821,10 +821,14 @@ jobs:
           path: ~/.cache/ms-playwright
           key: playwright-chromium-${{ runner.os }}-${{ steps.playwright.outputs.version }}
 
+      # Playwright runs apt-get itself for Chromium's system libraries: apt is
+      # bounded first, so a connection that stalls is dropped and each download
+      # is tried again, and the step's own limit ends anything that is left.
+      - name: Bound apt
+        uses: ./.github/actions/apt-install
+
       - name: Install Chromium
         working-directory: libs/east-ui
-        # Playwright runs apt-get itself for the system libraries: a stalled
-        # mirror ends the step here, not the job at its limit.
         timeout-minutes: 15
         run: |
           if [ "${{ steps.chromium.outputs.cache-hit }}" = true ]; then

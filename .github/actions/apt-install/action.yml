@@ -1,49 +1,59 @@
 name: Install apt packages
 description: >-
-  Installs apt packages on a Linux runner, bounded and tried again. A bare
-  `apt-get update` waited on one stalled download of a failing mirror until
-  its job's 90 minutes ran out; here a try that stalls is stopped within
-  minutes, and the next one usually finds the mirror answering.
+  Bounds apt on a Linux runner, and installs packages with it, tried again. A
+  bare `apt-get update` waited on one stalled download of a failing mirror
+  until its job's 90 minutes ran out; here a try that stalls is stopped within
+  minutes, and the next one usually finds the mirror answering. The bounds are
+  written to apt's own configuration, so they hold for every apt-get on the
+  runner from this step on: a later step's too, and a tool's that runs apt-get
+  itself.
 
 inputs:
   packages:
-    description: The packages to install, separated by spaces
-    required: true
+    description: >-
+      The packages to install, separated by spaces or lines. None, to bound
+      apt alone for a later step that runs apt-get itself.
+    required: false
+    default: ''
 
 runs:
   using: composite
   steps:
-    - name: Install ${{ inputs.packages }}
+    - name: Bound apt and install packages
       shell: bash
       env:
         PACKAGES: ${{ inputs.packages }}
       run: |
         set -euo pipefail
-        read -r -a packages <<< "$PACKAGES"
+        # Every package named, across spaces and lines
+        read -r -d '' -a packages <<< "$PACKAGES" || true
 
-        # apt-get, stopped after `$1` seconds whatever it waits on. apt's own
-        # limits are set too: a connection that sends nothing for 30 seconds is
-        # dropped, and each download is tried three times.
-        apt_get() {
-          sudo timeout --signal=TERM --kill-after=30 "$1" apt-get \
-            -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 \
-            -o DPkg::Lock::Timeout=120 "${@:2}"
+        # apt's own limits, for every apt-get on this runner from here on: a
+        # connection that sends nothing for 30 seconds is dropped, each
+        # download is tried three times, and the dpkg lock is waited for two
+        # minutes.
+        printf '%s\n' 'Acquire::Retries "3";' 'Acquire::http::Timeout "30";' 'Acquire::https::Timeout "30";' 'DPkg::Lock::Timeout "120";' |
+          sudo tee /etc/apt/apt.conf.d/99-ci-bounds > /dev/null
+        if [ "${#packages[@]}" -eq 0 ]; then
+          echo "apt is bounded for the steps that follow; no package was asked for"
+          exit 0
+        fi
+
+        # A command as root, stopped after `$1` seconds whatever it waits on
+        bounded() { sudo timeout --signal=TERM --kill-after=30 "$@"; }
+        # One try, whole: the lists read again, so a try that failed on stale
+        # lists does not fail the next; a package a stopped try left half set
+        # up, set up; then the packages.
+        attempt() {
+          bounded 120 apt-get update &&
+            bounded 300 dpkg --configure -a &&
+            bounded 300 apt-get install -y "${packages[@]}"
         }
-        update() { apt_get 120 update; }
-        install() {
-          # A try stopped part-way may have left a package half set up
-          sudo dpkg --configure -a
-          apt_get 300 install -y "${packages[@]}"
-        }
-        # Three tries of a step, a little further apart each time
-        tried() {
-          for try in 1 2 3; do
-            if "$1"; then return 0; fi
-            echo "::warning::apt-get $1 failed or stalled (try $try of 3)"
-            if [ "$try" -lt 3 ]; then sleep $((try * 15)); fi
-          done
-          echo "::error::apt-get $1 failed three times"
-          return 1
-        }
-        tried update
-        tried install
+        # Three tries, a little further apart each time
+        for try in 1 2 3; do
+          if attempt; then exit 0; fi
+          echo "::warning::installing ${packages[*]} failed or stalled (try $try of 3)"
+          if [ "$try" -lt 3 ]; then sleep $((try * 15)); fi
+        done
+        echo "::error::installing ${packages[*]} failed three times"
+        exit 1

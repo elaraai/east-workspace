@@ -315,11 +315,16 @@ jobs:
       # the headless shell alone, as e3-ui-cli's install-browser installs it,
       # with the system libraries it needs on Linux. A spec that cannot launch
       # it fails rather than skips.
+      # Playwright runs apt-get itself for Chromium's system libraries: apt is
+      # bounded first, so a connection that stalls is dropped and each download
+      # is tried again, and the step's own limit ends anything that is left.
+      - name: Bound apt (Linux)
+        if: matrix.shard == 'packages' && runner.os == 'Linux'
+        uses: ./.github/actions/apt-install
+
       - name: Install Chromium (e3-web's browser specs)
         if: matrix.shard == 'packages'
         working-directory: libs/e3/packages/e3-web
-        # Playwright runs apt-get itself for the system libraries: a stalled
-        # mirror ends the step here, not the job at its limit.
         timeout-minutes: 15
         run: pnpm exec playwright-core install --only-shell ${{ runner.os == 'Linux' && '--with-deps' || '' }} chromium
 
