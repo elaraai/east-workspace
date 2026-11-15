@@ -25,7 +25,7 @@ import { createRackRoutes, type RackLeaseSignal } from '../server/rack-routes.js
 import { envManifestKey, type EnvIndexStore, type EnvLayerManifest } from '../server/env-publication.js';
 import { RackRegistrationType, RackSecurityPolicyType } from '../protocol/registration.js';
 import { RACK_LISTENER_IDLE_MS, RACK_PROTOCOL, type RackReport } from '../protocol/rack-json.js';
-import { describeRackReason, isLeaseEventV2, leaseFitsRack, leaseInputs, leaseReserve, leaseTaskHash, readRackLeaseResources, type RackLeaseEvent } from '../protocol/task-envelope.js';
+import { describeRackReason, isLeaseEventV2, leaseInputs, leaseReserve, leaseTaskHash, rackEverHolds, readRackLeaseResources, type RackLeaseEvent } from '../protocol/task-envelope.js';
 import { decodeRunnerEvent } from '../runner-event.js';
 import { ApproveRackType, AttachLeaseResultType, CancelLeaseResultType, CreateLeaseResultType, CreateLeaseType, EmptyType, HubConfigType,
   HubEnrollResultType, HubEnrollType, HubHelloType, HubOutcomeType, HubStatusType, OpenSessionResultType, OpenSessionType,
@@ -299,7 +299,9 @@ export class RackHub {
     const runner = decodeRunnerEvent(value.runnerEvent);
     if (runner.mode !== 'task' && runner.mode !== 'unit') throw new Error('Local rack delegation supports tasks and units only');
     if (value.environment !== undefined && (typeof value.environment !== 'string' || !isObjectHash(value.environment))) throw new Error('Invalid environment');
-    readRackLeaseResources(value.resources);
+    // A unit goes only to a rack that caps it at what its lease asks, so its
+    // lease says what that is
+    if (readRackLeaseResources(value.resources)?.kind !== 'unit' && runner.mode === 'unit') throw new Error('A unit\'s lease names what it asks of a rack, as a unit');
     if (!['node', 'py', 'py-datascience', 'c', 'full'].includes(request.tier) || !['serverless', 'small', 'medium', 'large', 'xlarge'].includes(request.computeSize)) throw new Error('Invalid rack tier or compute size');
     const closure = value.closure;
     if ('hashes' in closure) {
@@ -388,7 +390,7 @@ export class RackHub {
       return { rackId: rack.rackId, label: rack.label, tiers: rack.tiers, capacity: rack.capacity,
         busy: BigInt(held.length),
         healthy: healthy.has(rack.rackId), bundledE3: bundled === null ? none : some(bundled), pendingApproval: approval && bootPendingApproval(rack),
-        features: [...(report?.features ?? [])], target: report?.target === undefined ? none : some(report.target),
+        reported: report !== undefined, features: [...(report?.features ?? [])], target: report?.target === undefined ? none : some(report.target),
         problem: problem === undefined ? none : some(problem),
         resources: all === undefined ? none : some({ cores: BigInt(all.cores), memoryBytes: BigInt(all.memoryBytes), gpus: BigInt(all.gpus) }),
         free: free === undefined ? none : some(free) };
@@ -563,12 +565,10 @@ export class RackHub {
       },
       // The queue is in memory: a poll looks well down it for work its rack's
       // offer holds. A rack that reports its resources could hold what they
-      // hold; one that does not report them is asked as before.
+      // hold; one that reports none, or has not reported to this hub yet,
+      // holds whole tasks and no unit, which it would not cap.
       claimLookahead: 64,
-      canEverHold: (rack, needs) => {
-        const all = this.reports.get(rack.rackId)?.resources;
-        return all === undefined || leaseFitsRack(needs, all);
-      },
+      canEverHold: (rack, needs) => rackEverHolds(needs, this.reports.get(rack.rackId)?.resources),
       canClaim: async (rack, lease) => {
         const sub = this.subscriptions.get(lease.leaseId);
         if (sub === undefined || sub.endedAt !== undefined || sub.subscribers.size === 0) return false;

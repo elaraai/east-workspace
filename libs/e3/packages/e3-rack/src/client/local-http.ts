@@ -88,20 +88,26 @@ export async function closeSocketServer(server: Server | HttpsServer, socket?: s
  * @param method - HTTP verb
  * @param path - Request path
  * @param options - Credentials, input stream and deadline
- * @returns The raw response; callers consume or destroy it
+ * @returns The raw response; callers consume or destroy it. Past its
+ *   deadline, or once aborted, reading it fails with that `RackHubError`
  * @throws {RackHubError} On timeout or connection failure
  */
 export function socketStream(socketPath: string, method: string, path: string, options: SocketRequestOptions = {}): Promise<IncomingMessage> {
   return new Promise((resolve, reject) => {
     const headers = { ...options.headers, ...(options.bearer === undefined ? {} : { authorization: `Bearer ${options.bearer}` }) };
     const req = request({ socketPath, method, path, headers });
-    const fail = (err: Error) => { req.destroy(err); if (options.rawBody instanceof Readable) options.rawBody.destroy(err); };
+    // A reply that has begun is ended with the failure itself: its consumer
+    // reads why from it. A request destroyed under it says only that it was
+    // aborted, which no caller could tell from a peer that hung up.
+    let reply: IncomingMessage | undefined;
+    const fail = (err: Error) => { reply?.destroy(err); req.destroy(err); if (options.rawBody instanceof Readable) options.rawBody.destroy(err); };
     const timer = setTimeout(() => fail(new RackHubError('timeout', `Rack request ${method} ${path} timed out`)), options.timeoutMs ?? 30_000);
     timer.unref();
     const abort = () => fail(new RackHubError('aborted', `Rack request ${method} ${path} was aborted`));
     const cleanup = () => { clearTimeout(timer); options.signal?.removeEventListener('abort', abort); };
     req.once('error', (err: NodeJS.ErrnoException) => { cleanup(); reject(err instanceof RackHubError ? err : new RackHubError(err.code ?? 'transport', err.message)); });
     req.once('response', (response) => {
+      reply = response;
       response.once('close', cleanup);
       response.once('error', () => {}); // a destroyed response remains observable by its consumer
       resolve(response);

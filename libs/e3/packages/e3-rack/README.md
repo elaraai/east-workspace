@@ -409,7 +409,18 @@ A rack that reports no resources admits by its slots, as before: its row
 shows `-`, and its work is counted in slots. It caps nothing, so it is leased
 whole tasks alone: a split task's units go to a rack that admits by its
 resources, or run here, counted in the run's summary as having run locally
-(a placement's reason is then `no-rack-caps-units:<tier>`).
+(a placement's reason is then `no-rack-caps-units:<tier>`). The hub grants by
+the same rule, so beside a rack that caps units one that does not is never
+handed one. A run says so of such a rack before it starts, on the line that
+lists its racks (`workshop (4 slots, whole tasks only, e3 1.0.108)`): with
+`--rack-only` too, a split task's units then run on this machine.
+
+A rack says what it has with each heartbeat, every fifteen seconds. A hub that
+has just started (after an upgrade, or once it had exited idle) knows its racks
+from its registry and has not heard them yet: until it has, such a rack is
+leased whole tasks, and no unit and no work that declares an environment. A
+run that keeps its work for a rack (`--rack-only`) waits for the rack to say
+it; any other runs that work here meanwhile (`source-unreachable`).
 
 ### A split task on a rack
 
@@ -444,8 +455,10 @@ A unit always runs where something stops it when it outgrows its share: on a
 rack that admits by its resources, or here, under the run's own budget and
 guard. So a stage starts its units together, as a run without `--rack` does,
 whatever racks there are: none, one that turns healthy part-way through the
-run, or only a rack that admits by its slots, which is leased no unit. No
-stage runs one unit first to measure the rest.
+run, or a rack that admits by its slots, which is leased no unit, alone or
+beside one that is. No stage runs one unit first to measure the rest. The
+body says this of itself (`stopsUnits`), so a host that gives
+`createRackBody` to a `LocalTaskRunner` of its own says nothing for it.
 
 Ctrl-C in `e3 dataflow run` requests cancellation of that run, including its
 delegated work. A current companion agent keeps an outbound cancellation

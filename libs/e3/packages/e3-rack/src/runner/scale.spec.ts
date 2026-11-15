@@ -22,8 +22,9 @@ import { RackHub } from '../hub/hub.js';
 import { defaultHubConfig, saveHubConfig } from '../hub/config.js';
 import { HubClient } from '../client/hub-client.js';
 import { TestRackAgent } from '../testing/test-rack-agent.js';
+import { pinnedFetch } from '../tls/tls.js';
 import { DEFAULT_RACK_POLICY, setMode, setRule } from '../routing/policy.js';
-import { openRackRunner } from './rack-runner.js';
+import { openRackRunner, type OpenRackRunnerOptions } from './rack-runner.js';
 import type { RackPlacementEvent } from './rack-body.js';
 import { describeRackSummary } from './summary.js';
 
@@ -72,7 +73,7 @@ async function splitFixture(count: number) {
   await workspaceDeploy(storage, repo, 'dev', 'scale', '1.0.0');
   const hash = (await packageRead(storage, repo, 'scale', '1.0.0')).tasks.get('score')!;
   const inputs = [await datasetWrite(storage, repo, rows, type)];
-  return { home, client, repo, storage, hash, inputs };
+  return { home, hub, client, repo, storage, hash, inputs };
 }
 
 it('runs a split of more than a hundred pieces wholly on a rack: its units queued together, eight held at a time, never more memory booked than the rack has', async () => {
@@ -169,13 +170,14 @@ it('runs a split of more than a hundred pieces wholly on a rack: its units queue
  *
  * @param f - The fixture
  * @param placements - Collects where each task and unit runs
+ * @param options - What the run sets beside
  * @returns The runner's handle
  */
-async function rackRun(f: Awaited<ReturnType<typeof splitFixture>>, placements: RackPlacementEvent[]) {
+async function rackRun(f: Awaited<ReturnType<typeof splitFixture>>, placements: RackPlacementEvent[], options: Partial<OpenRackRunnerOptions> = {}) {
   const rack = await openRackRunner({ repoPath: f.repo, workspace: 'dev', storage: f.storage, label: 'no rack test', home: f.home,
     budget: new Budget({ cores: 2, memory: GiB }), waitForRackMs: 0,
     policy: { ...setRule(setMode({ ...DEFAULT_RACK_POLICY, enabled: true }, 'auto'), 'score', 'rack'), spill: false },
-    onPlacement: (event) => { placements.push(event); } });
+    onPlacement: (event) => { placements.push(event); }, ...options });
   cleanup.push(() => rack.close());
   return rack;
 }
@@ -215,6 +217,7 @@ it('leases no unit to a rack that caps nothing', async () => {
   const placements: RackPlacementEvent[] = [];
   const rack = await rackRun(f, placements);
   assert.equal(await rack.refreshSlots(), 1);
+  assert.match(rack.describe(), /^test rack \(1 slots, whole tasks only, e3 \S+/, 'a run is told before it starts that the rack takes no unit');
 
   // Whatever racks there are, a unit runs where something stops it when it
   // outgrows its share: a stage's units still start together, and with only
@@ -225,5 +228,76 @@ it('leases no unit to a rack that caps nothing', async () => {
   const units = unitsOf(placements);
   assert(units.length > 1, `the split has more than one unit: ${units.length}`);
   assert(units.every((event) => event.where === 'local' && event.reason === 'no-rack-caps-units:node'), `every unit ran here, since no rack caps one: ${JSON.stringify(units.slice(0, 3))}`);
+  await agent.stop();
+});
+
+it('leases a stage\'s units to the rack that caps them alone, beside one that caps nothing', async () => {
+  const f = await splitFixture(8_000);
+  const enrol = async (label: string, resources?: { cores: number; memoryBytes: number; gpus: number }) => {
+    const mint = await f.client.enroll();
+    const agent = await TestRackAgent.enroll(mint.apiUrl, mint.enrollmentToken, { label, ...(resources !== undefined && { resources }),
+      certificateSha256: mint.certificateSha256.type === 'some' ? mint.certificateSha256.value : undefined });
+    cleanup.push(() => agent.close());
+    agent.start();
+    return agent;
+  };
+  // Both poll for whatever is queued: the one that admits by its slots offers no bound, and would run any unit it were granted.
+  const slots = await enrol('slots');
+  const capping = await enrol('capping', { cores: 8, memoryBytes: 16 * GiB, gpus: 0 });
+  const placements: RackPlacementEvent[] = [];
+  const rack = await rackRun(f, placements);
+  assert.equal(await rack.refreshSlots(), 9);
+
+  assert.equal(rack.runner.firstWave, together ? 'estimate' : 'measure');
+  const result = await rack.runner.execute(f.storage, f.hash, f.inputs, { taskName: 'score' });
+  assert.equal(result.state, 'success', result.error);
+  const units = unitsOf(placements);
+  assert(units.length > 1, `the split has more than one unit: ${units.length}`);
+  assert(units.every((event) => event.where === 'rack' && event.rackLabel === 'capping'), `every unit ran on the rack that caps it: ${JSON.stringify(units.slice(0, 3))}`);
+  await slots.stop(); await capping.stop();
+});
+
+it('waits, under rack-only, for a rack its hub has not yet heard say what it has, and leases it the units once it has', async () => {
+  const f = await splitFixture(8_000);
+  // The hub starts again on another port, below: its rack follows it there
+  let origin = '';
+  const listening = async () => { const listener = (await f.client.status()).rackListener; assert(listener.type === 'up'); origin = listener.value.origin; };
+  await listening();
+  const mint = await f.client.enroll();
+  const reach = mint.certificateSha256.type === 'some' ? pinnedFetch(mint.certificateSha256.value) : fetch;
+  const agent = await TestRackAgent.enroll(mint.apiUrl, mint.enrollmentToken, { resources: { cores: 8, memoryBytes: 16 * GiB, gpus: 0 },
+    fetch: (input, init) => { const url = new URL(String(input)); return reach(`${origin}${url.pathname}${url.search}`, init); } });
+  cleanup.push(() => agent.close());
+
+  // A hub that starts again knows the rack, and that it was healthy, from its
+  // registry, and has not heard what it has: a rack says that with each
+  // heartbeat. Nothing says yet whether it caps a unit.
+  await f.hub.stop();
+  const again = new RackHub({ foreground: true, home: f.home }); assert(await again.start()); cleanup.push(() => again.stop());
+  await listening();
+  const placements: RackPlacementEvent[] = [];
+  const rack = await rackRun(f, placements, { rackOnly: true, unreachableWaitMs: 300 });
+  assert.equal(rack.rackSlots, 8);
+  assert.match(rack.describe(), /^test rack \(8 slots, e3 \S+/, 'said by its slots alone until it has said what it has');
+
+  // A run that keeps its work for a rack waits for it to, as for a rack that
+  // is not healthy; it does not take it for a rack that caps nothing. Past the
+  // wait the units run here, by that name.
+  const waited = await rack.runner.execute(f.storage, f.hash, f.inputs, { taskName: 'score' });
+  assert.equal(waited.state, 'success', waited.error);
+  const local = unitsOf(placements);
+  assert(local.length > 1, `the split has more than one unit: ${local.length}`);
+  assert(local.every((event) => event.where === 'local' && event.reason === 'source-unreachable'), `every unit waited for the rack, then ran here: ${JSON.stringify(local.slice(0, 3))}`);
+
+  // Once the rack has said what it has, its units are its.
+  await agent.heartbeat();
+  agent.start();
+  assert.equal(await rack.refreshSlots(), 8);
+  assert.match(rack.describe(), /^test rack \(8 cores, /);
+  placements.length = 0;
+  const leased = await rack.runner.execute(f.storage, f.hash, f.inputs, { taskName: 'score', force: true });
+  assert.equal(leased.state, 'success', leased.error);
+  const units = unitsOf(placements);
+  assert(units.length > 1 && units.every((event) => event.where === 'rack'), `every unit ran on the rack: ${JSON.stringify(units.slice(0, 3))}`);
   await agent.stop();
 });

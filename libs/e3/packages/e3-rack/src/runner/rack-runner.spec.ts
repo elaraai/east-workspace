@@ -18,11 +18,13 @@ import { Budget, InMemoryStateStore, LocalOrchestrator, LocalStorage, LocalTaskR
 import { RackHub, type RackHubOptions } from '../hub/hub.js';
 import { defaultHubConfig, saveHubConfig } from '../hub/config.js';
 import { HubClient } from '../client/hub-client.js';
+import { RackHubError } from '../client/local-http.js';
+import { RackSession } from '../client/session.js';
 import { TestRackAgent, type TestRackAgentOptions } from '../testing/test-rack-agent.js';
 import { pinnedFetch } from '../tls/tls.js';
 import { DEFAULT_RACK_POLICY, setMode, setRule, type RackPolicy } from '../routing/policy.js';
 import { openRackRunner, type OpenRackRunnerOptions } from './rack-runner.js';
-import { ranLocally, type RackPlacementEvent } from './rack-body.js';
+import { createRackBody, ranLocally, type RackPlacementEvent } from './rack-body.js';
 import type { RackLeaseEvent } from '../protocol/task-envelope.js';
 import { RackHeartbeatRequestType } from '../protocol/rack-wire.js';
 import { E3_RACK_VERSION } from '../version.js';
@@ -499,6 +501,27 @@ it('waits, under rack-only, for a rack that runs the work\'s tier to be healthy 
   assert.equal((await short.runner.execute(f.storage, f.hash, await input('after the wait'), { taskName: 'length' })).state, 'success');
   assert(Date.now() - started >= 300, 'it waited as long as it was given');
   assert.deepEqual(local(), ['source-unreachable']);
+});
+
+it('keeps a queued lease when its hub does not answer one ask for the fleet', async () => {
+  const f = await fixture(); const agent = await f.agent();
+  const session = await RackSession.open(f.client, { storage: f.storage, repoPath: f.repo, workspace: 'dev', label: 'fleet ask test' });
+  cleanup.push(() => session.close());
+  // The first ask for the fleet goes unanswered: the leases of a stage share one, so it is every one's
+  const status = f.client.status.bind(f.client);
+  let unanswered = 0;
+  f.client.status = () => unanswered++ === 0 ? Promise.reject(new RackHubError('timeout', 'Rack request GET /v1/status timed out')) : status();
+  // A body given to a runner as its own documentation gives it: no rack claims its lease within a second, and it asks for the fleet
+  const runner = new LocalTaskRunner(f.repo, f.budget, { body: createRackBody({ session, workspace: 'dev', rackOnly: true,
+    policy: { ...f.policy, claimTimeoutSeconds: 1n }, onPlacement: (event) => { f.placements.push(event); } }) });
+  const running = runner.execute(f.storage, f.hash, f.inputs, { taskName: 'length' });
+  for (let waited = 0; unanswered === 0 && waited < 30_000; waited += 10) await delay(10);
+  assert.equal(unanswered, 1, 'the lease waited its second, and asked for the fleet');
+  // An ask that fails is no verdict on the lease: it stands, and its rack runs it
+  const ran = await agent.runOne(); assert.equal(ran?.status, 'success', ran?.error);
+  assert.equal((await running).state, 'success');
+  assert.deepEqual(f.placements.map((event) => [event.kind, event.where]), [['placed', 'rack']], 'nothing ran here');
+  assert.equal(f.budget.peak, 0);
 });
 
 it('leases work whose transfer failed once more under rack-only, and runs it locally only when that lease fails too', async () => {
