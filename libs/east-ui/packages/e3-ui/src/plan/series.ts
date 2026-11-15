@@ -1331,6 +1331,7 @@ export interface PlanSeriesNestFacts {
  * @property keyType - Its rows' key type: what an event's resource field holds
  * @property rowType - Its rows' type
  * @property lanes - Whether it declares its tiles' lanes
+ * @property series - Its own series' keys: the rows beneath each of its resources
  */
 export interface PlanLanding {
     readonly key: string;
@@ -1339,6 +1340,7 @@ export interface PlanLanding {
     readonly keyType: EastType;
     readonly rowType: EastType;
     readonly lanes: boolean;
+    readonly series: readonly string[];
 }
 
 /** Every series value a builder made, with its build spec. */
@@ -3538,7 +3540,10 @@ function landingSpec(rowType: EastType, cfg: AnyLandingConfig, members: readonly
             subtotalsOwn: false,
             rollup: tree !== undefined ? tagOf(cfg.rollup, "union") : undefined,
         },
-        landing: { key: cfg.key, title: cfg.title, icon: cfg.icon, keyType: cfg.keyType ?? StringType, rowType, lanes: cfg.lanes !== undefined },
+        landing: {
+            key: cfg.key, title: cfg.title, icon: cfg.icon, keyType: cfg.keyType ?? StringType, rowType, lanes: cfg.lanes !== undefined,
+            series: memberSpecs.map((m) => m.key),
+        },
         emitter(collection, at) {
             return emitters.get(collection, () => {
                 const { entry, key: kt } = shapeOf(collection, at);

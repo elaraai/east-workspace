@@ -15,7 +15,7 @@ import { DateTimeType, DictType, East, StringType, example, some, variant } from
 import e3 from "@elaraai/e3";
 import { Reactive, UIComponentType } from "@elaraai/east-ui";
 import { Func, Plan, Record, Schedule } from "@elaraai/e3-ui";
-import { PrintJob, planEventJobs, planPrintCustomers, planPrintPresses } from "./plan-events.examples.js";
+import { PrintJob, PrintPress, planEventJobs, planPrintCustomers, planPrintPresses } from "./plan-events.examples.js";
 
 /** The jobs' record type: the jobs by key. */
 export const PrintJobs = DictType(StringType, PrintJob);
@@ -78,7 +78,7 @@ export const placeJobs = e3.function("plan_place_jobs", {
 export const planOptimise = example({
     inputs: [],
     description: "The smallest builder with the Elara eye (#1409, #1622): `optimise` is Func.bind of the print works' optimiser on e3 — Plan.Types.OptimiseRequest in, the plan window in view, the run number and the rail's narrowing and no row; Plan.Types.OptimiseResult({ job: PrintJobs }) out, a patch of the jobs' record. The function reads the window's jobs and the backlog through the jobs' interval index and each job by its key, the Plan's unsaved edits laid over them (drafts: [planEventJobs]), and places each backlog job on a press's free time, one that would end past the window left waiting. A click on the eye runs it once over the window; its patch lands in the session as one edit, which one Undo reverts and Save commits with everything else.",
-    keywords: ["Plan", "optimise", "Optimise", "Elara", "OptimiseRequest", "OptimiseResult", "Func.bind", "e3.function", "e3.index", "drafts", "overlapping", "unset", "East.diff", "patch", "backlog", "one edit", "Undo", "Record.bind", "Schedule.events", "Schedule.resources", "Plan.library.backlog"],
+    keywords: ["Plan", "optimise", "Optimise", "Elara", "OptimiseRequest", "OptimiseResult", "Func.bind", "e3.function", "e3.index", "drafts", "overlapping", "unset", "East.diff", "patch", "backlog", "one edit", "Undo", "Record.bind", "Schedule.events", "Plan.series.resources", "Plan.library.backlog"],
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const presses = $.let(Record.bind(planPrintPresses, []));
@@ -95,7 +95,9 @@ export const planOptimise = example({
                     id="planOptimise"
                     axis={axis}
                     optimise={optimise}
-                    resources={{ presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: p => p.name }) }}
+                    // The presses are the rows the jobs land on (#1541): a resources series over their record.
+                    data={presses.read()}
+                    series={[Plan.series.resources(PrintPress, { key: "presses", title: "Presses", icon: "print", label: p => p.name })]}
                     events={{
                         job: Schedule.events(jobs, {
                             name: "Print job", icon: "file-lines",

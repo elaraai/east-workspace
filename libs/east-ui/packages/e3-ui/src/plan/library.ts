@@ -43,10 +43,8 @@ import type { ScheduleEventKind } from "../schedule/events.js";
 import { ScheduleAuthorTabType, buildScheduleTab,
     type ScheduleLibraryTabConfig as PlanLibraryTabConfig } from "../schedule/library.js";
 export { ScheduleLibraryCardType as PlanLibraryCardType, type ScheduleLibraryTabConfig as PlanLibraryTabConfig } from "../schedule/library.js";
-import type { ScheduleResourceKind } from "../schedule/resources.js";
 import { overSeries } from "./over.js";
 import { KIND_ICONS } from "./pick.js";
-import { planSeriesFacts } from "./series.js";
 import { PlanRowsCollectionType } from "./types.js";
 
 // ============================================================================
@@ -64,19 +62,16 @@ import { PlanRowsCollectionType } from "./types.js";
  */
 /**
  * The id the Series tab lists a thing by, and a viewer's hidden set holds it by
- * (PB29): one namespace per source, so no two collide — a resource kind and an
- * event kind by slot, a measure, a hand-built row and a `Plan.over` series by
- * key. `data`'s series are the canvas's pick's own, by their bare keys.
+ * (PB29): one namespace per source, so no two collide — an event kind by slot,
+ * a hand-built row and a `Plan.over` series by key. `data`'s series — the
+ * resources among them (#1541) — are the canvas's pick's own, by their bare
+ * keys.
  *
  * @internal
  */
 export const planHideId = {
-    /** A resource kind, by slot: hiding it hides its rows. */
-    resources: (slot: string): string => `resources.${slot}`,
     /** An event kind, by slot: hiding it hides its elements everywhere. */
     events: (slot: string): string => `events.${slot}`,
-    /** A measure, by key: hiding it hides its row under each resource. */
-    measures: (key: string): string => `measures.${key}`,
     /** A hand-built row, by key: hiding it hides it and the rows under it. */
     rows: (key: string): string => `rows.${key}`,
     /** A `Plan.over` series, by key: hiding it hides its rows and its nested series'. */
@@ -370,7 +365,6 @@ export function libraryTab<K extends EastType, R extends EastType, P extends Eas
 // ============================================================================
 
 /** A resource kind, its types erased. */
-type AnyResourceKind = ScheduleResourceKind<EastType, EastType>;
 
 /** An event kind, its types erased. */
 type AnyEventKind = ScheduleEventKind<EastType, EastType>;
@@ -381,8 +375,6 @@ type AnyEventKind = ScheduleEventKind<EastType, EastType>;
  * @internal
  */
 export interface PlanLibraryContext {
-    /** The resource kinds, by slot, in order. */
-    readonly resources: readonly (readonly [string, AnyResourceKind])[];
     /** The event kinds, by slot, in order. */
     readonly events: readonly (readonly [string, AnyEventKind])[];
     /** The Plan's `rows`, when given. */
@@ -462,23 +454,14 @@ const handItems = East.function([PlanRowsCollectionType], ArrayType(PlanLibraryR
 });
 
 /**
- * The Series tab on the wire (PB29): the resource kinds, each followed by its
- * measures, then the event kinds; and the Plan's `rows`.
+ * The Series tab on the wire (PB29): the event kinds, and the Plan's `rows`.
+ * `data`'s series, the resources among them, are the canvas's pick's (#1541).
  *
  * @param ctx - What the library is built against
  * @returns The tab's wire value
  */
 function seriesTab(ctx: PlanLibraryContext): ExprType<PlanLibraryTabType> {
     const kinds: ExprType<PickItemType>[] = [];
-    for (const [slot, kind] of ctx.resources) {
-        kinds.push(item(planHideId.resources(slot), kind.name, undefined, kind.icon));
-        const collection = DictType(kind.keyType, kind.rowType);
-        kind.measures.forEach((measure, i) => {
-            // Checked when the kind was declared: a measure is a series written in place.
-            const facts = planSeriesFacts(measure, collection, `Plan: resources.${slot}.measures[${i}]`)!;
-            kinds.push(item(planHideId.measures(facts.key), facts.title, kind.name, KIND_ICONS[facts.arm]));
-        });
-    }
     for (const [slot, kind] of ctx.events) kinds.push(item(planHideId.events(slot), kind.name, undefined, kind.icon));
     const rows = (ctx.rows ?? []).map((one): ExprType<ArrayType<PlanLibraryRowsItemType>> => {
         const over = overSeries(one);
@@ -520,9 +503,9 @@ export function buildLibrary(tabs: readonly PlanLibraryTab[] | undefined, ctx: P
             throw new Error(`Plan: the library lists ${tabName(tab)}, and this Plan has no event kinds — ` +
                 `its ${tab.kind === "events" ? "templates" : "unscheduled events"} are its event kinds' (Schedule.events)`);
         }
-        if (tab.kind === "series" && ctx.resources.length === 0 && ctx.events.length === 0 && (ctx.rows ?? []).length === 0 && !ctx.picked) {
+        if (tab.kind === "series" && ctx.events.length === 0 && (ctx.rows ?? []).length === 0 && !ctx.picked) {
             throw new Error("Plan: the library lists Plan.library.series(), and this Plan has nothing a viewer can hide — it lists " +
-                "event kinds, resource kinds and their measures, `rows`, and `data`'s `series`");
+                "event kinds, `rows`, and `data`'s `series`");
         }
     }
     const wires = (tabs ?? []).map((tab): ExprType<PlanLibraryTabType> => {

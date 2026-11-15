@@ -4,15 +4,16 @@
  */
 
 /**
- * What a builder over a paged resource kind checks of its kinds (#1039,
- * #1424): the Plan's and the Calendar's, in each one's name. A builder pages
- * one resource kind; an event kind placed on it is read a cell at a time,
- * through its source of the slice, over the paged kind's rows alone — never its
- * record whole, nor the days in view through a day index (`window`), which
- * would read every event of the window for every resource — so its source
- * lists a series index and a summary index of its record, filed by its
- * resource field over its own times. A refusal names both declarations over
- * the kind's own fields.
+ * What a builder over paged resources checks of its kinds (#1039, #1424,
+ * #1541): the Plan's and the Calendar's, in each one's name. The Calendar
+ * pages one resource kind; the Plan's resources are its own rows, paged when
+ * they are (#1541, U1). An event kind placed on paged resources is read a cell
+ * at a time, through its source of the slice, over the paged rows alone —
+ * never its record whole, nor the days in view through a day index
+ * (`window`), which would read every event of the window for every resource —
+ * so its source lists a series index and a summary index of its record, filed
+ * by its resource field over its own times. A refusal names both declarations
+ * over the kind's own fields.
  *
  * @packageDocumentation
  */
@@ -29,6 +30,37 @@ import type { ScheduleResourceKind } from "./resources.js";
 type Resources = readonly (readonly [string, ScheduleResourceKind<EastType, EastType>])[];
 /** A builder's event kinds, by slot, in order. */
 type Events = readonly (readonly [string, ScheduleEventKind<EastType, EastType>])[];
+
+/**
+ * Which of the resources an event kind may be placed on a builder pages
+ * (#1541): what the checks below read, whatever the builder's resources are.
+ *
+ * @property paged - What a refusal names the paged resources by (`resources.people`, `the rows`); `undefined` when the
+ *   builder pages none
+ * @property split - The names a kind's `resource.of` gives, split into those on paged resources and those read whole,
+ *   each as a refusal names it
+ */
+export interface SchedulePaging {
+    readonly paged: string | undefined;
+    split(kind: ScheduleEventKind<EastType, EastType>): { readonly paged: readonly string[]; readonly whole: readonly string[] };
+}
+
+/**
+ * The paging of a builder that pages one resource kind at most (#1199, #1424): the Calendar's.
+ *
+ * @param resources - The resource kinds, by slot
+ * @returns Its paging: the paged kind's, by its slot
+ */
+export function scheduleResourcePaging(resources: Resources): SchedulePaging {
+    const slot = resources.find(([, kind]) => kind.window !== undefined)?.[0];
+    return {
+        paged: slot === undefined ? undefined : `resources.${slot}`,
+        split: (kind) => ({
+            paged: kind.takes.filter((s) => s === slot).map((s) => `resources.${s}`),
+            whole: kind.takes.filter((s) => s !== slot).map((s) => `resources.${s}`),
+        }),
+    };
+}
 
 /** A series or a summary index's place among a source's: which it is, the fields it files by, and its tile. */
 const TilingKeyType = StructType({ summary: BooleanType, fields: ArrayType(StringType), tile: RecordSliceTileType });
@@ -73,29 +105,28 @@ export function checkSchedulePagedKinds(resources: Resources, builder: string, p
  * lists the builder reads only as it is evaluated
  * ({@link checkedScheduleTilings}).
  *
- * @param resources - The resource kinds, by slot
+ * @param paging - Which of the resources the builder pages
  * @param events - The event kinds, by slot
  * @param sources - The slice's sources, by name
  * @param builder - The builder, as its refusals name it (`Plan`, `Calendar`)
  * @throws {Error} Naming a kind placed on the paged kind and on another, or one with no source of the slice — read whole, or
  *   through its day index — each with the series and summary indexes to declare over the kind's own fields
  */
-export function checkSchedulePagedEventKinds(resources: Resources, events: Events, sources: readonly string[], builder: string): void {
-    const paged = resources.find(([, kind]) => kind.window !== undefined)?.[0];
-    if (paged === undefined) return;
+export function checkSchedulePagedEventKinds(paging: SchedulePaging, events: Events, sources: readonly string[], builder: string): void {
+    if (paging.paged === undefined) return;
     for (const [slot, kind] of events) {
-        if (!kind.takes.includes(paged)) continue;
-        const others = kind.takes.filter((s) => s !== paged);
-        if (others.length > 0) {
-            throw new Error(`${builder}: events.${slot} is placed on resources.${paged}, paged, and on ${others.map((s) => `resources.${s}`).join(" and ")}, ` +
+        const { paged, whole } = paging.split(kind);
+        if (paged.length === 0) continue;
+        if (whole.length > 0) {
+            throw new Error(`${builder}: events.${slot} is placed on ${paged.join(" and ")}, paged, and on ${whole.join(" and ")}, ` +
                 "read whole — a paged kind's events are read a cell at a time, through a series index that reads its rows alone: " +
-                `place events.${slot} on resources.${paged} alone, or read resources.${paged} whole`);
+                `place events.${slot} on ${paged.join(" and ")} alone, or read ${paging.paged} whole`);
         }
         if (sources.includes(slot)) continue;
         const { series, summary } = scheduleCellIndexes(kind);
         const how = kind.windowed ? "reads the days in view through its day index (`window`)" : "its record is read whole";
         const leave = kind.windowed ? "leave `window` and `backlogWindow` out, and " : "";
-        throw new Error(`${builder}: events.${slot} is placed on resources.${paged}, paged, and ${how} — a paged kind's events are read a cell at a ` +
+        throw new Error(`${builder}: events.${slot} is placed on ${paged.join(" and ")}, paged, and ${how} — a paged kind's events are read a cell at a ` +
             `time, through the kind's source of the slice: ${leave}name a source after "${slot}", Data.bindPaged(record, { indexes }), listing ` +
             `${series} and ${summary} beside its interval index`);
     }
@@ -115,7 +146,7 @@ export function checkSchedulePagedEventKinds(resources: Resources, events: Event
  *
  * @param slot - The event kind's slot
  * @param kind - The event kind
- * @param resources - The resource kinds, by slot
+ * @param paging - Which of the resources the builder pages
  * @param config - The controls of the kind's source of the slice, its indexes among them
  * @param builder - The builder, as its refusals name it (`Plan`, `Calendar`)
  * @returns The check, an expression run for its refusal
@@ -123,21 +154,20 @@ export function checkSchedulePagedEventKinds(resources: Resources, events: Event
 export function checkedScheduleTilings(
     slot: string,
     kind: ScheduleEventKind<EastType, EastType>,
-    resources: Resources,
+    paging: SchedulePaging,
     config: ExprType<RecordSliceConfigType>,
     builder: string,
 ): ExprType<NullType> {
     const where = `${builder}: events.${slot}'s source lists the`;
     const field = kind.resourceField;
     const { start, end } = kind.times;
-    const paged = resources.find(([, r]) => r.window !== undefined)?.[0];
-    const whole = kind.takes.filter((s) => s !== paged);
-    const alone = paged !== undefined && whole.length === 0 && kind.takes.includes(paged);
-    const unpaged = paged === undefined
-        ? ", and no resource kind is paged — a series index reads the events of a paged resource kind's rows a window at a time: " +
+    const split = paging.split(kind);
+    const alone = paging.paged !== undefined && split.whole.length === 0 && split.paged.length > 0;
+    const unpaged = paging.paged === undefined
+        ? ", and no resources are paged — a series index reads the events of paged resources a window at a time: " +
             "page the resources (Data.bindPaged), or leave the index out"
-        : `, and the kind is placed on ${whole.map((s) => `resources.${s}`).join(" and ")}, read whole — a series index reads the events ` +
-            `of a paged resource kind's rows a window at a time: list it for a kind placed on resources.${paged} alone, or leave it out`;
+        : `, and the kind is placed on ${split.whole.join(" and ")}, read whole — a series index reads the events ` +
+            `of paged resources a window at a time: list it for a kind placed on ${paging.paged} alone, or leave it out`;
     const declare = field === undefined ? undefined : scheduleCellIndexes(kind);
     const check = East.function([RecordSliceConfigType], NullType, ($, held) => {
         // Each index's place by its text, as East prints it: a Dict's key is of an immutable type, and a place holds an Array.
@@ -203,7 +233,7 @@ export function checkedScheduleTilings(
         };
         if (alone && declare !== undefined) {
             // A kind on a paged resource kind is read a cell at a time (#1039): its source lists a series index and a summary.
-            const onPaged = `, and the kind is placed on resources.${paged}, paged — a paged kind's events are read a cell at a time`;
+            const onPaged = `, and the kind is placed on ${split.paged.join(" and ")}, paged — a paged kind's events are read a cell at a time`;
             $.match(series, {
                 some: ($2, name) => { noSummary($2 as unknown as BlockBuilder<NullType>, name); },
                 none: ($2) => {

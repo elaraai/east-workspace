@@ -15,7 +15,7 @@ import type { OptimiseHandle } from "../utils/optimise.js";
 import { recordSources, sliceSourceNames, templatesSource } from "../utils/record-sources.js";
 import { firstView, literalViews, viewsProp, type ViewsProp } from "../utils/views.js";
 import { Schedule, scheduleCheck, scheduleTitled, type ScheduleNamespace } from "../schedule/index.js";
-import { checkSchedulePagedEventKinds, checkSchedulePagedKinds, checkedScheduleTilings } from "../schedule/cell-checks.js";
+import { checkSchedulePagedEventKinds, checkSchedulePagedKinds, checkedScheduleTilings, scheduleResourcePaging } from "../schedule/cell-checks.js";
 import { ScheduleOptimiseRequestType, ScheduleOptimiseResultTypeFor, scheduleOptimiseBinding } from "../schedule/optimise.js";
 import { OptimisePeriodType } from "../utils/optimise.js";
 import type { ScheduleEventKind } from "../schedule/events.js";
@@ -269,7 +269,7 @@ export function createCalendarPayload(props: CalendarProps): ExprType<typeof Cal
         ...(props.library ?? []).flatMap(tab => tab.kind === "tab" && tab.config.source !== undefined ? [tab.config.source] : [])]);
     const narrowing = recordSources(props.slice, { builder: "Calendar", names: [...named], what: "its event kinds, its resource kinds and the templates and tabs that name a source",
         takes: name => named.has(name) });
-    checkSchedulePagedEventKinds(resourceKinds, events, narrowing.names, "Calendar");
+    checkSchedulePagedEventKinds(scheduleResourcePaging(resourceKinds), events, narrowing.names, "Calendar");
     const seen = new Set<string>();
     const library = (props.library ?? []).map(tab => {
         const name = tab.kind === "tab" ? "tab:" + tab.config.name : tab.kind;
@@ -284,7 +284,7 @@ export function createCalendarPayload(props: CalendarProps): ExprType<typeof Cal
         // The series and summary indexes each event kind's source lists (#1424), its record's, read as the Calendar is evaluated.
         for (const [slot, kind] of events) {
             const part = bound.parts[slot] as unknown as { config: ExprType<typeof RecordSliceConfigType> } | undefined;
-            if (part !== undefined) $(checkedScheduleTilings(slot, kind, resourceKinds, part.config, "Calendar"));
+            if (part !== undefined) $(checkedScheduleTilings(slot, kind, scheduleResourcePaging(resourceKinds), part.config, "Calendar"));
         }
         // A paged resource kind its source of the slice narrows pages the narrowing's rows themselves (#1424), and on a
         // scoped page its Choosers list the rows the page holds (#1621).

@@ -15,7 +15,7 @@ import { DictType, East, SetType, StringType, example, none, some, variant } fro
 import e3 from "@elaraai/e3";
 import { Reactive, Slice, UIComponentType } from "@elaraai/east-ui";
 import { Data, Func, Plan, Record, Schedule } from "@elaraai/e3-ui";
-import { PrintJob } from "./plan-events.examples.js";
+import { PrintJob, PrintPress } from "./plan-events.examples.js";
 import { planWindowJobs, planWindowPresses } from "./plan-windows.examples.js";
 
 /** The jobs' record type: the jobs by key. */
@@ -56,8 +56,8 @@ export const clearDownPresses = e3.function("plan_clear_down_presses", {
 
 export const planOptimiseWindows = example({
     inputs: [],
-    description: "A Plan read a cell at a time with the Elara eye (#1622): 2,000 presses paged on the canvas, their jobs read through one Slice.bindRecords rail — the interval, series and summary indexes of the jobs' record — and never held whole, and `optimise` Func.bind of the works' maintenance optimiser on e3: Plan.Types.OptimiseRequest in, the window in view, the unit the axis is zoomed to, the run number and the rail's narrowing and no row; Plan.Types.OptimiseResult({ job: WindowJobs }) out, a patch of the jobs' record. The function reads each press that is down for maintenance — an input of the workspace — and that press's jobs over the window through the jobs' series index (`jobsByPress.events({ key, from, to })`), the Plan's unsaved edits laid over them (drafts: [planWindowJobs]), and sends them back to the backlog. A job dragged onto the press that is down, and not saved, is read among them: the eye waits on nothing the canvas has read, its patch lands in the session as one edit — the bars off the press, the Backlog holding them — which one Undo reverts and Save commits with the drag.",
-    keywords: ["Plan", "optimise", "Optimise", "Elara", "OptimiseRequest", "OptimiseResult", "Func.bind", "e3.function", "e3.index", "drafts", "series index", "index.series", "events", "East.diff", "patch", "backlog", "one edit", "Undo", "paged", "Data.bindPaged", "Slice.bindRecords", "cell", "large record", "e3.input", "maintenance", "Schedule.events", "Schedule.resources", "Plan.library.backlog"],
+    description: "A Plan read a cell at a time with the Elara eye (#1622): 2,000 presses, the canvas's rows, paged (a Plan.series.resources over Data.bindPaged), their jobs read through one Slice.bindRecords rail — the interval, series and summary indexes of the jobs' record — and never held whole, and `optimise` Func.bind of the works' maintenance optimiser on e3: Plan.Types.OptimiseRequest in, the window in view, the unit the axis is zoomed to, the run number and the rail's narrowing and no row; Plan.Types.OptimiseResult({ job: WindowJobs }) out, a patch of the jobs' record. The function reads each press that is down for maintenance — an input of the workspace — and that press's jobs over the window through the jobs' series index (`jobsByPress.events({ key, from, to })`), the Plan's unsaved edits laid over them (drafts: [planWindowJobs]), and sends them back to the backlog. A job dragged onto the press that is down, and not saved, is read among them: the eye waits on nothing the canvas has read, its patch lands in the session as one edit — the bars off the press, the Backlog holding them — which one Undo reverts and Save commits with the drag.",
+    keywords: ["Plan", "optimise", "Optimise", "Elara", "OptimiseRequest", "OptimiseResult", "Func.bind", "e3.function", "e3.index", "drafts", "series index", "index.series", "events", "East.diff", "patch", "backlog", "one edit", "Undo", "paged", "Data.bindPaged", "Slice.bindRecords", "cell", "large record", "e3.input", "maintenance", "Schedule.events", "Plan.series.resources", "Plan.library.backlog"],
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const presses = $.let(Data.bindPaged(planWindowPresses));
@@ -81,12 +81,12 @@ export const planOptimiseWindows = example({
                     axis={axis}
                     slice={{ slice }}
                     optimise={optimise}
-                    resources={{
-                        presses: Schedule.resources(presses, {
-                            name: "Presses", icon: "print", label: p => p.name,
-                            sub: (p, key) => some(East.str`${key} · ${p.hall}`),
-                        }),
-                    }}
+                    // The presses are the rows, a page at a time, each a landing row its jobs land on.
+                    data={presses}
+                    series={[Plan.series.resources(PrintPress, {
+                        key: "presses", title: "Presses", icon: "print", label: p => p.name,
+                        sub: (p, key) => some(East.str`${key} · ${p.hall}`),
+                    })]}
                     events={{
                         job: Schedule.events(jobs, {
                             name: "Print job", icon: "file-lines",

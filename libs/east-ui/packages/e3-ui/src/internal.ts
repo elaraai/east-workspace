@@ -227,7 +227,6 @@ export {
     PlanComponent,
     PlanPayloadType,
     PlanSettingsType,
-    PlanEventBlocksType,
     PlanEventCanDropType,
     createPlanPayload,
     createPlanRoot,
@@ -350,15 +349,13 @@ export {
     type PlanNestedRefusals,
     type PlanNestedChecked,
 } from './plan/index.js';
-// The resources' rows a Plan of event kinds draws over a window (#1192): the
-// `blocks` seam its payload carries, made inside the payload's assembly, and
-// the drafts it reads, by kind, and the resources the rail shows (#1344); a
-// paged resource kind's rows, a window of its resources at a time, with the
-// events placed on them (#1199); and what a reader read of a kind by its
-// series index's cells, and the resources' shading past the budget (#1039).
+// How a Plan's event kinds' events join its rows (#1192, #1541): the seam its
+// payload carries, made inside the payload's assembly, the series they land on,
+// the drafts it reads, by kind, and what a reader read of a kind by its series
+// index's cells, and the resources' shading past the budget (#1039).
 export {
-    createEventBlocks, createEventPaged, eventDrawsOf, PlanEventDraftsType, PlanEventPagedType, PlanEventPlacedType, PlanEventReadsType,
-    PlanEventShadeType, PlanEventShadingType, PlanEventShownType,
+    createEventSeam, eventDrawsOf, landingsOnWire, PlanEventDraftsType, PlanEventPlacedType, PlanEventReadsType, PlanEventSeamType,
+    PlanEventShadeType, PlanEventShadingType, PlanLandingType,
 } from './plan/event-rows.js';
 // What a Plan over paged rows reads of their nested series index (#1438): the
 // seam on its root, what each series reads of the index, and the rows'
