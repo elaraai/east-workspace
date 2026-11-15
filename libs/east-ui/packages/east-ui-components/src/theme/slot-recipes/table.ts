@@ -36,6 +36,7 @@
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { coarseHitArea } from "../../style/hit-area.js";
 import { fontAwesomeSize } from "../icon-size.js";
+import { centredLine } from "../one-line-box.js";
 
 export const tableSlotRecipe = defineSlotRecipe({
     className: "elara-table",
@@ -90,8 +91,15 @@ export const tableSlotRecipe = defineSlotRecipe({
             // A number column: the controls lead, the label ends on the right.
             "&[data-align=end]": { flexDirection: "row-reverse" },
         },
+        // Its line is a whole, odd 19px (#1638). The header centres the label in
+        // its row's height less its 1px rule and its padding above and below — an
+        // odd room, a row being an even number of pixels tall — so an odd line
+        // leaves a whole number of pixels over the label. Chakra's 20px line left
+        // half a pixel, and the page painted the label a row higher or lower in
+        // the header by where it stood the table.
         columnHeaderLabel: {
             flex: "1",
+            lineHeight: "19px",
             overflow: "hidden",
             textOverflow: "ellipsis",
             whiteSpace: "nowrap",
@@ -297,8 +305,10 @@ export const tableSlotRecipe = defineSlotRecipe({
             background: "bg.canvas", borderBottomWidth: "1px", borderBottomStyle: "solid", borderBottomColor: "border.subtle",
             "& + &[data-table-phone-group]": { borderInlineStartWidth: "1px", borderInlineStartStyle: "solid", borderInlineStartColor: "border.subtle" },
         },
+        /* Its label on a whole line of 19px, centred in the 31px over the header's rule (#1638): the line it would take from the header is 20px, half a pixel off. */
         phoneHeaderSort: {
             all: "unset", position: "relative", boxSizing: "border-box", width: "100%", height: "100%", display: "flex", alignItems: "center", gap: "{spacing.1}", paddingX: "12px", cursor: "pointer",
+            lineHeight: centredLine(31, 19),
             /* The header stays the design's 32; its tap is 44, past it either side. */
             "&::after": { content: '""', position: "absolute", insetInline: "0", top: "-6px", bottom: "-6px" },
             "th[data-pinned] > &": { paddingInlineStart: "16px" },

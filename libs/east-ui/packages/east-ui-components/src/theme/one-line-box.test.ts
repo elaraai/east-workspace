@@ -15,19 +15,53 @@
  * key caps. No part of their recipes centres a line of `1` in a fixed height
  * again. What the page lays out from them is measured in the browser
  * (`record-cells.spec.ts`, `one-line-words.spec.ts`).
+ *
+ * The other small boxes (#1638) hold more than their one line of words, or
+ * stand in a row that centres them: each takes a whole line that leaves an
+ * even number of pixels over in its room (`centredLine`), a line its box's own
+ * height, or is a one-line box. Every example of the showcase is measured for
+ * it in the browser (`box-rows.spec.ts`).
  */
 
 import { describe, expect, test } from "vitest";
 import { globalCss } from "./global-css.js";
-import { oneLineBox } from "./one-line-box.js";
+import { centredLine, oneLineBox } from "./one-line-box.js";
 import { chipRecipe } from "./recipes/chip.js";
+import { allocationBuilderSlotRecipe } from "./slot-recipes/allocationBuilder.js";
+import { avatarSlotRecipe } from "./slot-recipes/avatar.js";
+import { builderFooterLineSlotRecipe } from "./slot-recipes/builder-footer.js";
+import { calendarSlotRecipe } from "./slot-recipes/calendar.js";
+import { chipRailSlotRecipe } from "./slot-recipes/chipRail.js";
+import { dockSlotRecipe } from "./slot-recipes/dock.js";
+import { editableChipSlotRecipe } from "./slot-recipes/editableChip.js";
+import { flowchartSlotRecipe } from "./slot-recipes/flowchart.js";
+import { iconButtonSlotRecipe } from "./slot-recipes/iconButton.js";
+import { librarySlotRecipe } from "./slot-recipes/library.js";
+import { matrixSlotRecipe } from "./slot-recipes/matrix.js";
+import { metricChipSlotRecipe } from "./slot-recipes/metricChip.js";
+import { planSlotRecipe } from "./slot-recipes/plan.js";
+import { queryBuilderSlotRecipe } from "./slot-recipes/queryBuilder.js";
+import { queryLibrarySlotRecipe } from "./slot-recipes/queryLibrary.js";
+import { queryPhoneSlotRecipe } from "./slot-recipes/queryPhone.js";
+import { queryResultsSlotRecipe } from "./slot-recipes/queryResults.js";
 import { recordSlotRecipe } from "./slot-recipes/record.js";
+import { rosterBuilderSlotRecipe } from "./slot-recipes/rosterBuilder.js";
 import { segSlotRecipe } from "./slot-recipes/seg.js";
+import { segmentGroupSlotRecipe } from "./slot-recipes/segmentGroup.js";
+import { selectSlotRecipe } from "./slot-recipes/select.js";
 import { sheetSlotRecipe } from "./slot-recipes/sheet.js";
 import { sheetActionSlotRecipe } from "./slot-recipes/sheetAction.js";
 import { sliceFrameSlotRecipe } from "./slot-recipes/sliceFrame.js";
+import { snapGridSlotRecipe } from "./slot-recipes/snapGrid.js";
+import { statusSlotRecipe } from "./slot-recipes/status.js";
 import { stepperSlotRecipe } from "./slot-recipes/stepper.js";
+import { studioLibrarySlotRecipe } from "./slot-recipes/studioLibrary.js";
+import { studioPhoneSlotRecipe } from "./slot-recipes/studioPhone.js";
+import { tableSlotRecipe } from "./slot-recipes/table.js";
+import { tagSlotRecipe } from "./slot-recipes/tag.js";
 import { tagsInputSlotRecipe } from "./slot-recipes/tagsInput.js";
+import { traceSlotRecipe } from "./slot-recipes/trace.js";
+import { valueTreeSlotRecipe } from "./slot-recipes/valueTree.js";
 import { IN_TOOLBAR_ROW, TOOLBAR_CONTROL_HEIGHT, toolbarControlBox } from "./toolbar-row.js";
 
 type Styles = Readonly<Record<string, unknown>>;
@@ -188,5 +222,134 @@ describe("a chip or a key cap", () => {
             if ("variants" in recipe) walk(`${name}'s variants`, at(recipe, "variants"));
         }
         expect(found).toEqual([]);
+    });
+});
+
+describe("a line of words centred in a room taller than it (#1638)", () => {
+    test("is a whole number of pixels that leaves an even number over: half above the words, half below", () => {
+        expect(centredLine(24, 14)).toBe("14px");
+        expect(centredLine(31, 19)).toBe("19px");
+        expect(centredLine(22, 22)).toBe("22px");
+    });
+
+    test("is refused where it would start the words at a fraction: a line or a room a fraction of a pixel tall, or an odd pixel left over", () => {
+        expect(() => centredLine(24, 14.25)).toThrow(RangeError);
+        expect(() => centredLine(21.5, 14)).toThrow(RangeError);
+        expect(() => centredLine(28, 15)).toThrow(RangeError);
+    });
+});
+
+describe("the small boxes whose words are centred in them (#1638)", () => {
+    const plan = planSlotRecipe.base;
+    const roster = rosterBuilderSlotRecipe.base;
+    const allocation = allocationBuilderSlotRecipe.base;
+    const sheet = sheetSlotRecipe.base;
+    const record = recordSlotRecipe.base;
+
+    /** Each part and the line its words stand on: a whole number of pixels of its room's parity, or its box's own height. */
+    const lines: ReadonlyArray<readonly [string, Styles, string]> = [
+        ["a segment's label", at(segmentGroupSlotRecipe.base, "itemText"), "14px"],
+        ["a segment's label, xs", at(segmentGroupSlotRecipe.variants, "size", "xs", "itemText"), "12px"],
+        ["a segment's label, sm", at(segmentGroupSlotRecipe.variants, "size", "sm", "itemText"), "14px"],
+        ["a segment's label, md", at(segmentGroupSlotRecipe.variants, "size", "md", "itemText"), "14px"],
+        ["a segment's label, lg", at(segmentGroupSlotRecipe.variants, "size", "lg", "itemText"), "16px"],
+        ["a Select's value, sm", at(selectSlotRecipe.variants, "size", "sm", "valueText"), "16px"],
+        ["a Select's value, md", at(selectSlotRecipe.variants, "size", "md", "valueText"), "16px"],
+        ["a Select's value, lg", at(selectSlotRecipe.variants, "size", "lg", "valueText"), "18px"],
+        ["the status word", at(statusSlotRecipe.base, "label"), "13px"],
+        ["the builders' footer line", at(builderFooterLineSlotRecipe.base, "root"), "15px"],
+        ["a Matrix segment's label", at(matrixSlotRecipe.base, "seg"), "14px"],
+        ["a Trace step's value, comfortable", at(traceSlotRecipe.variants, "density", "comfortable", "step"), "12px"],
+        ["an icon button's count", at(iconButtonSlotRecipe.base, "badge"), "10px"],
+        ["an avatar's initials", at(avatarSlotRecipe.base, "fallback"), "100cqh"],
+        ["a metric chip, comfortable", at(metricChipSlotRecipe.variants, "density", "comfortable", "root"), "14px"],
+        ["a tag, comfortable", at(tagSlotRecipe.variants, "density", "comfortable", "root"), "13px"],
+        ["an editable chip, comfortable", at(editableChipSlotRecipe.variants, "density", "comfortable", "root"), "13px"],
+        ["a Table's column label", at(tableSlotRecipe.base, "columnHeaderLabel"), "19px"],
+        ["a phone Table's column label", at(tableSlotRecipe.base, "phoneHeaderSort"), "19px"],
+        ["a gallery card's foot", at(librarySlotRecipe.base, "galleryFoot"), "18px"],
+        ["a Value tree's row", at(valueTreeSlotRecipe.base, "row"), "20px"],
+        ["a Value tree's toolbar button", at(valueTreeSlotRecipe.base, "toolbarBtn"), "18px"],
+        ["a Snap grid's column number", at(snapGridSlotRecipe.base, "rulerMark"), "14px"],
+        ["a Calendar event's title", at(calendarSlotRecipe.base, "eventTitle"), "16px"],
+        ["a Calendar event's detail", at(calendarSlotRecipe.base, "eventDetail"), "12px"],
+        ["a Calendar event's resource", at(calendarSlotRecipe.base, "eventResource"), "14px"],
+        ["a Roster card's small words", at(roster, "assignment"), "14px"],
+        ["a Roster card's name", at(roster, "assignmentName"), "18px"],
+        ["a Roster column head", at(roster, "shiftLabel"), "16px"],
+        ["a Roster column head's figures", at(roster, "shiftMeta"), "16px"],
+        ["a Roster person's name", at(roster, "personName"), "19px"],
+        ["a Roster month's mark", at(roster, "mark"), "14px"],
+        ["a Roster lane's figures", at(roster, "laneLine"), "11px"],
+        ["a Plan row's name", at(plan, "gutterName"), "17px"],
+        ["a Plan group's name", at(plan, "groupName"), "15px"],
+        ["a Plan collapsible row's heading", at(plan, "gutterName", "&[data-collapsible]"), "15px"],
+        ["a Plan heat value", at(plan, "heatLabel"), "15px"],
+        ["a Plan table numeral", at(plan, "tableCellText"), "15px"],
+        ["a Plan mark's label", at(plan, "markLabel"), "15px"],
+        ["a Plan chart tick", at(plan, "chartTickLeft"), "14px"],
+        ["a Plan segment's label", at(plan, "segmentPart"), "var(--plan-segment-h)"],
+        ["a Plan tile", at(plan, "tile"), "var(--plan-tile-h)"],
+        ["a Plan `+n`", at(plan, "tileMore"), "var(--plan-tile-h)"],
+        ["a Plan chip", at(plan, "cardChip"), "var(--plan-chip-h)"],
+        ["a Plan lane's caption", at(plan, "laneLabel"), "100cqh"],
+        ["the Plan's `← All rows`", at(plan, "focusBack"), "19px"],
+        ["an Allocation chip", at(allocation, "tableChip"), "16px"],
+        ["an Allocation placeholder", at(allocation, "tablePlaceholder"), "16px"],
+        ["a Record cell", at(record, "cell"), "19px"],
+        ["the Record's strip", at(record, "strip"), "15px"],
+        ["the Record's strip's words", at(record, "stripText"), "19px"],
+        ["a Sheet cell", at(sheet, "cell"), "19px"],
+        ["a Sheet row's number", at(sheet, "gutterNumber"), "19px"],
+        ["the Sheet's footer", at(sheet, "footer"), "15px"],
+        ["the Sheet's strip", at(sheet, "strip"), "15px"],
+        ["a Sheet strip's chip", at(sheet, "stripChip"), "17px"],
+        ["the Query builder's status line", at(queryBuilderSlotRecipe.base, "status"), "19px"],
+        ["the Query results' footer", at(queryResultsSlotRecipe.base, "footer"), "17px"],
+        ["a Query library's row", at(queryLibrarySlotRecipe.base, "paneRow"), "20px"],
+        ["a phone Query's Table · Tree", at(queryPhoneSlotRecipe.base, "segItem"), "16px"],
+        ["a phone Query's Run", at(queryPhoneSlotRecipe.base, "run"), "18px"],
+        ["a Studio library's row", at(studioLibrarySlotRecipe.base, "paneRow"), "20px"],
+    ];
+
+    test.each(lines)("%s: its words on a whole line of its room's parity, or its box's own height", (_part, styles, line) => {
+        expect(styles.lineHeight).toBe(line);
+    });
+
+    /** Each part that is a one-line box, its height and its line: the room inside its edge. */
+    const boxes: ReadonlyArray<readonly [string, Styles, string, string]> = [
+        ["the Dock's count", at(dockSlotRecipe.base, "badge"), "18px", "16px"],
+        ["a Flowchart card's tag", at(flowchartSlotRecipe.base, "tag"), "15px", "13px"],
+        ["a Roster agency badge", at(roster, "agencyBadge"), "16px", "14px"],
+        ["a Roster skill tag", at(roster, "skillTag"), "16px", "14px"],
+        ["an Allocation band's count", at(allocation, "bandCount"), "16px", "16px"],
+        ["an Allocation fit's rank", at(allocation, "rank"), "16px", "16px"],
+        ["an Allocation run's label", at(allocation, "runLabel"), "20px", "18px"],
+        ["the Allocation's fits marker", at(allocation, "fitsMarker"), "28px", "26px"],
+        ["a Query card's wire row", at(queryLibrarySlotRecipe.base, "wireRow"), "17px", "15px"],
+        ["a phone Studio's button", at(studioPhoneSlotRecipe.base, "box"), "32px", "30px"],
+        ["the Snap grid's chip", at(snapGridSlotRecipe.base, "chip"), "20px", "18px"],
+        ["the Snap grid's drag ghost", at(snapGridSlotRecipe.base, "ghost"), "32px", "30px"],
+    ];
+
+    test.each(boxes)("%s is a one-line box", (_part, styles, height, line) => {
+        expect(sized(styles)).toEqual([height, line]);
+    });
+
+    test("a box whose height its recipe does not know is a size container, its words' line its own height", () => {
+        expect(at(plan, "cell").containerType).toBe("size");
+        expect(at(avatarSlotRecipe.base, "root").containerType).toBe("size");
+    });
+
+    test("a rail's chip has a whole padding and a whole line at every density: 15, 22 and 33 tall in its edge", () => {
+        const of = (density: string) => { const root = at(chipRailSlotRecipe.variants, "density", density, "root"); return [root["--cr-py"], root["--cr-lh"]]; };
+        expect(of("condensed")).toEqual(["2px", "9px"]);
+        expect(of("compact")).toEqual(["5px", "10px"]);
+        expect(of("comfortable")).toEqual(["9px", "13px"]);
+        expect(at(tagSlotRecipe.variants, "density", "comfortable", "root").paddingY).toBe("9px");
+        expect(at(editableChipSlotRecipe.variants, "density", "comfortable", "root").paddingY).toBe("9px");
+        expect(at(metricChipSlotRecipe.variants, "density", "comfortable", "root").paddingY).toBe("9px");
+        expect(chipRecipe.base?.lineHeight).toBe("var(--cr-lh, 1)");
+        expect(at(tagSlotRecipe.base, "root").lineHeight).toBe("var(--cr-lh, 1)");
     });
 });

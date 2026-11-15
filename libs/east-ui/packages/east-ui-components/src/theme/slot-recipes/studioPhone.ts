@@ -17,6 +17,7 @@
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
+import { oneLineBox } from "../one-line-box.js";
 
 /** Mono caps. */
 const CAPS = { fontFamily: "mono", fontWeight: "600", textTransform: "uppercase" } as const;
@@ -55,8 +56,9 @@ export const studioPhoneSlotRecipe = defineSlotRecipe({
             "&[data-tone=warning]": { background: "status.warn", borderColor: "status.warn" },
         },
         target: TARGET,
+        /* A one-line box (#1638): 32 tall in its edge, its word on the 30px of room inside. */
         box: {
-            height: "32px", display: "inline-flex", alignItems: "center", paddingX: "12px", boxSizing: "border-box", borderWidth: "1px", borderStyle: "solid", borderColor: "border.strong", borderRadius: "md",
+            ...oneLineBox(32), display: "inline-flex", alignItems: "center", paddingX: "12px", boxSizing: "border-box", borderWidth: "1px", borderStyle: "solid", borderColor: "border.strong", borderRadius: "md",
             background: "bg.surface", fontSize: "body.sm", fontWeight: "500", color: "fg", whiteSpace: "nowrap",
             "button:disabled > &": { color: "fg.faint", borderColor: "border.subtle" },
             "[aria-expanded=true] > &": { background: "bg.subtle" },

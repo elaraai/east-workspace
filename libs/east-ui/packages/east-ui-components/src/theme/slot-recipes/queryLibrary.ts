@@ -21,6 +21,7 @@
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
+import { centredLine, oneLineBox } from "../one-line-box.js";
 
 /** Strong secondary ink — a row the pane lists. */
 const INK_2 = { base: "brand.700", _dark: "gray.300" } as const;
@@ -106,13 +107,17 @@ export const queryLibrarySlotRecipe = defineSlotRecipe({
         },
         paneCaption: CAPTION,
         /* All queries, a data source or Recent — its count at the right, the
-           one shown in the brand. */
+           one shown in the brand. Its title and its count stand on one whole
+           line of 20px, centred in its 32px (#1638): each took 1.5 of its own
+           face, 19.5px and 15.75px, and started at a fraction of a pixel under
+           the row's edge. */
         paneRow: {
             display: "flex",
             alignItems: "center",
             gap: "10px",
             width: "100%",
             height: "32px",
+            lineHeight: centredLine(32, 20),
             paddingX: "10px",
             border: "none",
             borderRadius: "{radii.sm}",
@@ -199,13 +204,14 @@ export const queryLibrarySlotRecipe = defineSlotRecipe({
             gap: "3px",
             minWidth: "0",
         },
+        /* A one-line box (#1638): 17 tall in its edge, its title on the 15px of room inside. */
         wireRow: {
             display: "flex",
             alignItems: "center",
             gap: "6px",
             flexShrink: "0",
             minWidth: "0",
-            height: "17px",
+            ...oneLineBox(17),
             paddingX: "6px",
             borderRadius: "3px",
             borderWidth: "1px",

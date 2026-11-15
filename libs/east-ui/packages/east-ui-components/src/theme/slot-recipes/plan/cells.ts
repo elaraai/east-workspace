@@ -15,6 +15,7 @@
 
 import type { SystemStyleObject } from "@chakra-ui/react";
 import { coarseHitArea } from "../../../style/hit-area.js";
+import { centredLine } from "../../one-line-box.js";
 import { CONFLICT_RING, CONFLICT_RING_INSET, CONFLICT_RING_INSIDE_FOCUS } from "../../conflict-ring.js";
 import { fieldInRingedControl } from "../../field-chrome.js";
 import { lifecycleStates } from "./states.js";
@@ -93,10 +94,14 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
     },
     // A heat value (#949) — 10.5px, in the ink the design system pairs with
     // its cell's step: `--ink` on steps 1–3, `--paper` on 4–5 (charts.md ›
-    // Sequential ramp), at least 4.5:1 on that step in both themes.
+    // Sequential ramp), at least 4.5:1 on that step in both themes. On a whole
+    // line of 15px (#1638): its cell is its row less the rule and 3px above and
+    // below — an odd height, 25px in a 32px row — so an odd line leaves a
+    // whole number of pixels over it; the theme's 15.75px left a fraction.
     heatLabel: {
         fontFamily: "mono",
         fontSize: "10.5px",
+        lineHeight: centredLine(25, 15),
         fontWeight: "semibold",
         fontVariantNumeric: "tabular-nums",
         whiteSpace: "nowrap",
@@ -132,12 +137,14 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         zIndex: 2,
         ...planElementFocus,
     },
+    // Its label's line is the track's own height (#1638), so nothing is centred at a fraction.
     segmentPart: {
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
         fontFamily: "mono",
         fontSize: "9.5px",
+        lineHeight: "var(--plan-segment-h)",
         fontWeight: "semibold",
         color: "bg.surface",
         overflow: "hidden",
@@ -175,8 +182,13 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         right: 0,
         pointerEvents: "none",
     },
+    //
+    // A size container (#1638), as a bar is: its lane caption's line is the
+    // cell's own height (`100cqh`), whatever share of the row its lane gives
+    // it, so the caption starts a whole number of pixels under the cell's edge.
     cell: {
         position: "absolute",
+        containerType: "size",
         background: "bg.panel",
         borderRadius: "2px",
         display: "flex",
@@ -237,6 +249,8 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         borderRadius: "3px",
         fontFamily: "mono",
         fontSize: "9.5px",
+        // Its line is its own height (#1638): its words start a whole number of pixels under its edge.
+        lineHeight: "var(--plan-tile-h)",
         fontWeight: "semibold",
         overflow: "hidden",
         whiteSpace: "nowrap",
@@ -294,6 +308,7 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         // it or a 20px floor would fight the 7px block.
         "&[data-ctx]": {
             height: "var(--plan-strip-mark-h)",
+            lineHeight: "var(--plan-strip-mark-h)",
             minWidth: 0,
             color: "transparent",
             padding: 0,
@@ -353,6 +368,7 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         color: "fg.muted",
         fontFamily: "mono",
         fontSize: "9.5px",
+        lineHeight: "var(--plan-tile-h)",
         fontWeight: "semibold",
         whiteSpace: "nowrap",
         cursor: "pointer",
@@ -378,10 +394,12 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         "&::before": { zIndex: -1 },
         ...planElementFocus,
     },
-    // The per-cell lane caption (`.bl`) — printed at each cell's left.
+    // The per-cell lane caption (`.bl`) — printed at each cell's left, on a line
+    // the cell's own height (#1638).
     laneLabel: {
         fontFamily: "mono",
         fontSize: "9.5px",
+        lineHeight: "100cqh",
         fontWeight: "semibold",
         letterSpacing: "0.06em",
         color: "fg.subtle",
@@ -427,6 +445,8 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         borderRadius: "5px",
         fontFamily: "mono",
         fontSize: "10px",
+        // Its line is its own height (#1638): its words start a whole number of pixels under its edge.
+        lineHeight: "var(--plan-chip-h)",
         fontWeight: "medium",
         whiteSpace: "nowrap",
         overflow: "hidden",
@@ -460,6 +480,7 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         // (FA paints with `fill: currentColor`).
         "&[data-ctx]": {
             height: "var(--plan-strip-mark-h)",
+            lineHeight: "var(--plan-strip-mark-h)",
             color: "transparent",
             padding: "0 2px",
             gap: 0,
@@ -499,7 +520,10 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
     //    caption-styled numerals ──
     // A table cell: its bucket's column, the row's height, its numerals centred
     // in it together (`tableCellGroup`) — whole, or wrapped off its line and
-    // out of sight where the column is narrower than they are (#1269).
+    // out of sight where the column is narrower than they are (#1269). Their
+    // line is a whole 15px (#1638): the cell is its row less the rule, an odd
+    // height — 31px in a 32px row — so an odd line leaves a whole number of
+    // pixels over it, where the theme's 15.75px left a fraction.
     tableCellText: {
         position: "absolute",
         top: 0,
@@ -513,6 +537,7 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         overflow: "hidden",
         fontFamily: "mono",
         fontSize: "10.5px",
+        lineHeight: centredLine(31, 15),
         fontWeight: "medium",
         color: "fg.muted",
         whiteSpace: "nowrap",

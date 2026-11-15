@@ -16,7 +16,10 @@
  * Default `variant="outline"` is the spec base chip; `brand` / `dashed`
  * variants follow the spec `.chip.brand` / `.chip.dashed`. A tag is set in the
  * design system's mono face, as its chip card sets a tag, at most 11.5px, as a
- * chip is: mono runs larger than the body face at the same size.
+ * chip is: mono runs larger than the body face at the same size. Its line is
+ * its rail's at the rail's density (`--cr-lh`), and at its own `comfortable`
+ * density a whole 13px between 9px of padding (#1638): 33px in its edge as
+ * before, its words a whole number of pixels under it.
  *
  * A tag given no `colorPalette` draws in the chip's own colours, whatever its
  * variant. A tag given one is `colored` — its renderer passes the variant
@@ -44,7 +47,7 @@ export const tagSlotRecipe = defineSlotRecipe({
             gap: "var(--cr-igap, 6px)",
             fontFamily: "mono",
             fontWeight: "medium",
-            lineHeight: "1",
+            lineHeight: "var(--cr-lh, 1)",
             borderRadius: "var(--cr-radius, {radii.sm})",
             borderWidth: "1px",
             paddingX: "{spacing.2}",
@@ -52,7 +55,7 @@ export const tagSlotRecipe = defineSlotRecipe({
             whiteSpace: "nowrap",
         },
         label: {
-            lineHeight: "1",
+            lineHeight: "inherit",
         },
         closeTrigger: {
             display: "inline-flex",
@@ -120,7 +123,7 @@ export const tagSlotRecipe = defineSlotRecipe({
         density: {
             condensed: { root: { fontSize: "9px", lineHeight: "1", paddingX: "7px", paddingY: "2px", borderRadius: "3px", gap: "4px" } },
             compact: { root: { fontSize: "10px", lineHeight: "1", paddingX: "10px", paddingY: "5px", borderRadius: "4px", gap: "5px" } },
-            comfortable: { root: { fontSize: "11.5px", lineHeight: "1", paddingX: "15px", paddingY: "9.75px", borderRadius: "6px", gap: "7px" } },
+            comfortable: { root: { fontSize: "11.5px", lineHeight: "13px", paddingX: "15px", paddingY: "9px", borderRadius: "6px", gap: "7px" } },
         },
         // A tag given a `colorPalette`: the compound variants draw it there.
         colored: {

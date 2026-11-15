@@ -16,6 +16,7 @@
 
 import type { SystemStyleObject } from "@chakra-ui/react";
 import { fontAwesomeSize } from "../../icon-size.js";
+import { centredLine } from "../../one-line-box.js";
 import { moveGhostBase } from "../time/move-ghost.js";
 import { timeResizeEdge } from "../time/resize.js";
 import { CONFLICT_RING } from "../../conflict-ring.js";
@@ -35,6 +36,13 @@ const grab = { "&[data-draggable]": { cursor: "grab" } } satisfies SystemStyleOb
 /** Hide text below one whole mono glyph plus an ellipsis. Quantities follow
  * the label: removing only the label promotes a clipped quantity into its line. */
 const hideShortText = { "@container (width < 2ch)": { display: "none" } } satisfies SystemStyleObject;
+
+/**
+ * A chart row's axis tick's line (#1638): an even 14px. A tick stands with its middle on the whole pixel its value is
+ * drawn at, so half its line is above that pixel: half of the theme's 14.25px is a fraction, and the page painted the
+ * figure a row higher or lower by where it stood the row.
+ */
+const TICK_LINE = "14px";
 
 /** Their base styles. */
 export const elementsBase = {
@@ -298,6 +306,7 @@ export const elementsBase = {
         right: "4px",
         fontFamily: "mono",
         fontSize: "9.5px",
+        lineHeight: TICK_LINE,
         color: "fg.subtle",
         transform: "translateY(-50%)",
         pointerEvents: "none",
@@ -308,10 +317,11 @@ export const elementsBase = {
         "[data-plan-controls='1'] &": { right: "40px" },
         "[data-plan-controls='2'] &": { right: "64px" },
         // An automatic maximum stays on the heading line at every chart height,
-        // with real flex space so it cannot collide with the title or controls.
+        // with real flex space so it cannot collide with the title or controls;
+        // its line is the heading's own.
         "&[data-compact]": {
             position: "static", transform: "none", marginInlineStart: "auto", paddingInlineStart: "8px",
-            textStyle: "mono.xs", fontWeight: "normal", letterSpacing: "normal", textTransform: "none", flexShrink: 0,
+            textStyle: "mono.xs", lineHeight: "inherit", fontWeight: "normal", letterSpacing: "normal", textTransform: "none", flexShrink: 0,
         },
     },
     chartTickRight: {
@@ -319,6 +329,7 @@ export const elementsBase = {
         right: "3px",
         fontFamily: "mono",
         fontSize: "9.5px",
+        lineHeight: TICK_LINE,
         color: "fg.subtle",
         transform: "translateY(-50%)",
         pointerEvents: "none",
@@ -459,12 +470,15 @@ export const elementsBase = {
         ...planElementFocus,
         ...planElementConflict,
     },
+    // A mark's label, its middle on the middle of its row's plot (#1638): the plot is the row less its rule, an odd
+    // height — 31px in a 32px row — so an odd 15px line starts a whole number of pixels under the row's edge.
     markLabel: {
         position: "absolute",
         top: "50%",
         transform: "translateY(-50%)",
         fontFamily: "mono",
         fontSize: "9.5px",
+        lineHeight: centredLine(31, 15),
         fontWeight: "semibold",
         letterSpacing: "0.06em",
         color: "fg.muted",

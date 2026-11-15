@@ -54,10 +54,13 @@ export const iconButtonSlotRecipe = defineSlotRecipe({
             // flex-centred digit reads on the circle's centre with no nudge
             // (the body face set them half a pixel low, and took a 1px
             // bottom padding to lift them).
+            // On a whole, even line of 10px (#1638): the room inside its edge
+            // is 14px where a pixel is a pixel, and a line of the face's own
+            // 9px left an odd pixel over, the count half a pixel under it.
             fontFamily: "mono",
             fontSize: "9px",
             fontWeight: "bold",
-            lineHeight: "1",
+            lineHeight: "10px",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",

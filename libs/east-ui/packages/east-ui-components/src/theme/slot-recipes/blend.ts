@@ -138,11 +138,14 @@ export const blendSlotRecipe = defineSlotRecipe({
             gap: "{spacing.1}",
         },
         /* One line where it fits; on a panel too narrow for the label beside its amount (a phone's) the share wraps
-           under, at the end, so the label stays whole — cut with an ellipsis only where it is wider than the row. */
+           under, at the end, so the label stays whole — cut with an ellipsis only where it is wider than the row. Its
+           words stand on one whole line of 20px (#1638), so the row is a whole 34px in its edge: the label's 1.5 of
+           its 13px face was 19.5px, which made the row 33.5px and started the share at a fraction under its edge. */
         allocRow: {
             display: "flex",
             flexWrap: "wrap",
             alignItems: "center",
+            lineHeight: "20px",
             gap: "{spacing.2}",
             paddingX: "{spacing.2}",
             paddingY: "{spacing.1.5}",
@@ -186,7 +189,7 @@ export const blendSlotRecipe = defineSlotRecipe({
             fontFamily: "mono",
             fontSize: "9px",
             letterSpacing: "0.08em",
-            lineHeight: "normal",
+            lineHeight: "14px",
             textTransform: "uppercase",
             color: "fg.subtle",
         },

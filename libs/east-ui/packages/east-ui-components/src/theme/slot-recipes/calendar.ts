@@ -17,6 +17,7 @@
  */
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { fontAwesomeSize } from "../icon-size.js";
+import { centredLine } from "../one-line-box.js";
 import { INSPECTOR_STATUS } from "./inspector.js";
 import { BOOKED_FILL, NO_DATA_HATCH } from "./plan/cells.js";
 import { PLAN_OVERLAP_RING, planElementConflict, planElementDrafted, planElementFocus, planElementSelected } from "./plan/focus.js";
@@ -45,6 +46,16 @@ const PAGED_COLUMN = {
     left: "calc(56px + var(--calendar-column-at) * (100% - 56px) / var(--calendar-columns))",
     width: "calc((100% - 56px) / var(--calendar-columns))",
 } as const;
+
+/**
+ * An event's lines, each a whole number of pixels (#1638): its title's, its detail's and its resource's. A compact
+ * event — one row on the timeline, 28px or 24px in its edge — centres them in an even room, 26px or 22px, and a taller
+ * one stacks them 2px apart under 4px of padding, so each starts a whole number of pixels under the event's edge. The
+ * theme's tight line of 1.25 is 15.625px, 12.5px and 13.75px at the three faces, which put them at a fraction.
+ */
+const EVENT_TITLE_LINE = centredLine(26, 16);
+const EVENT_DETAIL_LINE = centredLine(26, 12);
+const EVENT_RESOURCE_LINE = centredLine(26, 14);
 
 /** The timeline's resource column, sticky as the plot scrolls by: a row's, and a run's of places not read (#1424). */
 const TIMELINE_HEAD = {
@@ -131,13 +142,13 @@ export const calendarSlotRecipe = defineSlotRecipe({
         eventIcon: { ...fontAwesomeSize("9px"), display: "inline-flex", alignItems: "center", flexShrink: 0, color: "fg.muted" },
         eventWarning: { ...fontAwesomeSize("9px"), display: "inline-flex", color: "fg.warning", flexShrink: 0, order: 4 },
         eventTitle: {
-            textStyle: "body.sm", fontWeight: "semibold", lineHeight: "tight", minWidth: 0, whiteSpace: "nowrap",
+            textStyle: "body.sm", fontWeight: "semibold", lineHeight: EVENT_TITLE_LINE, minWidth: 0, whiteSpace: "nowrap",
             overflow: "hidden", textOverflow: "ellipsis", flexShrink: 0, order: 2,
             "[data-compact] &": { flex: "1 1 auto" }, "&[data-wrap]": { whiteSpace: "normal", lineClamp: 2 },
             "&[data-measure]": { position: "absolute", visibility: "hidden", pointerEvents: "none" },
         },
-        eventDetail: { textStyle: "mono.xs", color: "fg.muted", lineHeight: "tight", whiteSpace: "nowrap", width: "max-content", flexShrink: 0, order: 1, "&[data-measure]": { position: "absolute", visibility: "hidden", pointerEvents: "none" } },
-        eventResource: { textStyle: "mono.sm", color: "fg.muted", lineHeight: "tight", whiteSpace: "nowrap", width: "max-content", flexShrink: 0, order: 3, "&[data-measure]": { position: "absolute", visibility: "hidden", pointerEvents: "none" } },
+        eventDetail: { textStyle: "mono.xs", color: "fg.muted", lineHeight: EVENT_DETAIL_LINE, whiteSpace: "nowrap", width: "max-content", flexShrink: 0, order: 1, "&[data-measure]": { position: "absolute", visibility: "hidden", pointerEvents: "none" } },
+        eventResource: { textStyle: "mono.sm", color: "fg.muted", lineHeight: EVENT_RESOURCE_LINE, whiteSpace: "nowrap", width: "max-content", flexShrink: 0, order: 3, "&[data-measure]": { position: "absolute", visibility: "hidden", pointerEvents: "none" } },
 
         ruler: { flex: 1, minWidth: 0 },
         rulerRow: timeRulerBase.rulerRow,

@@ -51,6 +51,7 @@
 
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { CONFLICT_RING } from "../conflict-ring.js";
+import { centredLine, oneLineBox } from "../one-line-box.js";
 
 /** The shared drag stages the canvas's own indicators replace — the candidate and active frames and the active wash. */
 const OWN_INDICATORS = {
@@ -207,11 +208,12 @@ export const snapGridSlotRecipe = defineSlotRecipe({
         // The toolbar's own items: the grid chip, the saved time, the width
         // readout, the rule before the history, and a design width's icon in
         // its segment.
+        // The grid chip: a one-line box (#1638), 20 tall in its edge, its words on the 18px of room inside.
         chip: {
             ...MICRO_LABEL,
             display: "inline-flex",
             alignItems: "center",
-            height: "20px",
+            ...oneLineBox(20),
             paddingX: "7px",
             borderWidth: "1px",
             borderStyle: "solid",
@@ -267,6 +269,8 @@ export const snapGridSlotRecipe = defineSlotRecipe({
             columnGap: "{spacing.3}",
             height: "{spacing.6}",
         },
+        // A column's number, on a whole line of 14px centred in the 22px under its mark's 2px rule (#1638): 1.5 of its
+        // 9.5px face is 14.25px, which started it at a fraction of a pixel under the rule.
         rulerMark: {
             display: "flex",
             alignItems: "center",
@@ -276,6 +280,7 @@ export const snapGridSlotRecipe = defineSlotRecipe({
             borderTopColor: "border.strong",
             fontFamily: "mono",
             fontSize: "9.5px",
+            lineHeight: centredLine(22, 14),
             fontWeight: "400",
             color: "fg.subtle",
             "&[data-on]": { borderTopColor: "brand.solid", color: "brand.fg", fontWeight: "600" },
@@ -525,11 +530,12 @@ export const snapGridSlotRecipe = defineSlotRecipe({
             [`${TAKEN}:not([data-snap-grid-drop='none']) > * > &`]: { display: "inline-flex" },
             [`[data-snap-grid-drop='end']${TAKEN} ~ [data-snap-grid-end] > * > &`]: { display: "inline-flex" },
         },
+        // What follows the pointer: a one-line box (#1638), 32 tall in its edge, its name on the 30px of room inside.
         ghost: {
             display: "inline-flex",
             alignItems: "center",
             paddingInline: "{spacing.3}",
-            height: "{spacing.8}",
+            ...oneLineBox(32),
             borderWidth: "1px",
             borderStyle: "solid",
             borderColor: "brand.solid",

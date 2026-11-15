@@ -65,6 +65,7 @@
 import { defineSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import { conflictRing } from "../conflict-ring.js";
 import { coarseHitArea } from "../../style/hit-area.js";
+import { oneLineBox } from "../one-line-box.js";
 import { FOOTER_FIT } from "./builder-footer.js";
 import { schedulePaneBase } from "./schedule-pane.js";
 
@@ -109,13 +110,17 @@ const READ_LABEL = {
     whiteSpace: "nowrap",
 } as const satisfies SystemStyleObject;
 
-/** A tag at the card's size, as the card and the legend draw it: 15 high, mono 9.5/500, 4 in, r4, a 1px rule (R30). */
+/**
+ * A tag at the card's size, as the card and the legend draw it: 15 high, mono 9.5/500, 4 in, r4, a 1px rule (R30).
+ * A one-line box (#1638): its words on the 13px of room inside its rule. On a line of the face's own 9.5px they were
+ * centred 1.75px under the rule, and the page painted them a row higher or lower in the tag by where it stood the card.
+ */
 const CARD_TAG = {
     display: "inline-flex",
     alignItems: "center",
     flexShrink: 0,
     boxSizing: "border-box",
-    height: "15px",
+    ...oneLineBox(15),
     /* The Tag's own least height never grows it: Chakra's, 20 at its size md. */
     minHeight: "15px",
     paddingX: "4px",
@@ -127,7 +132,6 @@ const CARD_TAG = {
     fontFamily: "mono",
     fontSize: "9.5px",
     fontWeight: "500",
-    lineHeight: "9.5px",
     whiteSpace: "nowrap",
     ...tagLooks,
 } as const satisfies SystemStyleObject;

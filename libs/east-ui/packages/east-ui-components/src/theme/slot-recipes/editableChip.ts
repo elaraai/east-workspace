@@ -7,7 +7,9 @@
  * EditableChip slot recipe — a chip that triggers a consumer-provided
  * picker. The chip outline follows the `tag` / `.chip` atom; the trailing
  * slot carries the "editable" affordance icon. Its words are set in the design
- * system's mono face, at most 11.5px, as a chip's and a tag's are.
+ * system's mono face, at most 11.5px, as a chip's and a tag's are. At the
+ * comfortable density it is 33px in its edge, a whole 13px line between 9px of
+ * padding (#1638), as a tag is.
  *
  * @packageDocumentation
  */
@@ -67,7 +69,7 @@ export const editableChipSlotRecipe = defineSlotRecipe({
                 trigger: { fontSize: "10px" },
             },
             comfortable: {
-                root: { fontSize: "11.5px", lineHeight: "1", paddingX: "15px", paddingY: "9.75px", borderRadius: "6px", gap: "7px" },
+                root: { fontSize: "11.5px", lineHeight: "13px", paddingX: "15px", paddingY: "9px", borderRadius: "6px", gap: "7px" },
                 trigger: { fontSize: "12.5px" },
             },
         },

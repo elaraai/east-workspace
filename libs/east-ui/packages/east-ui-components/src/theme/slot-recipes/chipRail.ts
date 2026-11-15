@@ -15,6 +15,13 @@
  * above each chip; it stays mono + uppercase so a column of captions reads as
  * a dimension header strip rather than body copy.
  *
+ * A chip's padding and its line are whole numbers of pixels at every density
+ * (#1638), so its words start a whole number of pixels under its edge: `--cr-py`
+ * and `--cr-lh`. The comfortable chip is 33px in its edge — 9px above and below
+ * a 13px line — where a 9.75px padding about a line the face's own 11.5px
+ * started the words at a fraction, and the page painted them a row higher or
+ * lower in the chip by where it stood the rail.
+ *
  * @packageDocumentation
  */
 
@@ -53,6 +60,7 @@ export const chipRailSlotRecipe = defineSlotRecipe({
             condensed: {
                 root: {
                     "--cr-fs": "9px",
+                    "--cr-lh": "9px",
                     "--cr-px": "7px",
                     "--cr-py": "2px",
                     "--cr-igap": "4px",
@@ -65,6 +73,7 @@ export const chipRailSlotRecipe = defineSlotRecipe({
             compact: {
                 root: {
                     "--cr-fs": "10px",
+                    "--cr-lh": "10px",
                     "--cr-px": "10px",
                     "--cr-py": "5px",
                     "--cr-igap": "5px",
@@ -77,8 +86,9 @@ export const chipRailSlotRecipe = defineSlotRecipe({
             comfortable: {
                 root: {
                     "--cr-fs": "12.5px",
+                    "--cr-lh": "13px",
                     "--cr-px": "15px",
-                    "--cr-py": "9.75px",
+                    "--cr-py": "9px",
                     "--cr-igap": "7px",
                     "--cr-radius": "6px",
                     "--cr-gap": "9px",
