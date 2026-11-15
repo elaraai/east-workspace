@@ -23,6 +23,7 @@ import { timeRulerBase, timeHeaderText } from "../time/axis.js";
 import { builderFooter, builderFooterItem } from "../builder-footer.js";
 import { schedulePaneBase } from "../schedule-pane.js";
 import type { SystemStyleObject } from "@chakra-ui/react";
+import { centredLine } from "../../one-line-box.js";
 import { planElementFocus, planRowFocus } from "./focus.js";
 
 /** The slots this part styles. */
@@ -124,6 +125,10 @@ export const shellBase = {
         height: "var(--plan-ruler-h)",
         "&[data-time]": { height: "calc(2 * var(--plan-ruler-h) + 1px)" },
         "--time-ruler-row-h": "var(--plan-ruler-h)",
+        // A ruler of one band — a number's, an ordinal's — has its own height less its rule of room, and its band is
+        // that tall (#1638): a band the ruler's whole height ran a pixel under the rule, and centred the caption and
+        // the ticks half a pixel low.
+        "&:not([data-time])": { "--time-ruler-row-h": "calc(var(--plan-ruler-h) - 1px)" },
         background: "bg.panel",
         borderBottomWidth: "1px",
         borderBottomColor: "border.strong",
@@ -159,7 +164,8 @@ export const shellBase = {
         borderBottomWidth: "1px",
         borderBottomColor: "border.subtle",
     },
-    // `← All rows` — a link button: the body face at 12.5 / 500, in the link ink.
+    // `← All rows` — a link button: the body face at 12.5 / 500, in the link ink, on a whole line of 19px centred
+    // in the band's 31px over its rule (#1638).
     focusBack: {
         height: "20px",
         display: "inline-flex",
@@ -171,6 +177,7 @@ export const shellBase = {
         background: "none",
         fontFamily: "body",
         fontSize: "body.sm",
+        lineHeight: centredLine(31, 19),
         fontWeight: "medium",
         color: "link",
         whiteSpace: "nowrap",

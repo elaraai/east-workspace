@@ -719,7 +719,9 @@ export const librarySlotRecipe = defineSlotRecipe({
             "[data-placed] &": { color: "brand.solid" },
         },
         /* The foot, under a rule at the face's end: the byline, then the
-         * action or the glyph. */
+         * action or the glyph — on one whole line of 18px, the action's own
+         * (#1638). The byline's 15px, centred beside it, started a pixel and a
+         * half under the line's top: a fraction of a pixel under the rule. */
         galleryFoot: {
             display: "flex",
             alignItems: "center",
@@ -727,6 +729,7 @@ export const librarySlotRecipe = defineSlotRecipe({
             gap: "10px",
             marginTop: "auto",
             paddingTop: "10px",
+            lineHeight: "18px",
             borderTopWidth: "1px",
             borderTopColor: "border.subtle",
             "[data-media=top] &": { marginTop: "6px" },

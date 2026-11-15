@@ -67,7 +67,7 @@ import { defineSlotRecipe } from "@chakra-ui/react";
 import { CONFLICT_RING_INSIDE_FOCUS, conflictRingInset } from "../conflict-ring.js";
 import { fieldHeights } from "../field-chrome.js";
 import { fontAwesomeSize } from "../icon-size.js";
-import { oneLineBox } from "../one-line-box.js";
+import { centredLine, oneLineBox } from "../one-line-box.js";
 import { FOOTER_FIT } from "./builder-footer.js";
 import { INSPECTOR_SECTION } from "./inspector.js";
 
@@ -130,6 +130,21 @@ const PINNED_EDGE = { borderInlineEndWidth: "1px", borderInlineEndStyle: "solid"
 
 /** A column group's inset at each end: its label's and its rule's. */
 const GROUP_INSET = "6px";
+
+/**
+ * The line of a cell's words (#1638): a whole, odd 19px. A cell centres them in its row's height less the row's 1px
+ * rule — 35, 31 or 27px by the density, each odd — so an odd line leaves a whole number of pixels over the words. The
+ * body's line of 1.5 is 19.5px at a value's 13px face and 18.75px at a note's 12.5px, each centred at a fraction of a
+ * pixel under the row's edge, where the page paints the words a row higher or lower by where it stands the grid.
+ */
+const CELL_LINE = centredLine(35, 19);
+
+/**
+ * The strip's lines (#1638), centred in the 31px under its rule: its label's and its keys' a whole 15px, its words' 19px,
+ * where the body's 1.5 gave the keys 15.75px and the words 18.75px.
+ */
+const STRIP_LINE = centredLine(31, 15);
+const STRIP_TEXT_LINE = centredLine(31, 19);
 
 export const recordSlotRecipe = defineSlotRecipe({
     className: "elara-record",
@@ -230,7 +245,7 @@ export const recordSlotRecipe = defineSlotRecipe({
         },
         cell: {
             position: "relative", minWidth: "0", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "flex-start",
-            userSelect: "none", cursor: "default", outline: "none", transitionProperty: "background-color", ...SETTLE,
+            lineHeight: CELL_LINE, userSelect: "none", cursor: "default", outline: "none", transitionProperty: "background-color", ...SETTLE,
             ...CELL_PAD,
             /* The select column's cell: the whole cell ticks, takes no hover of its own, and stays at the left on the row's paper as the
                columns scroll sideways — above the cells' content and a ring scrolled under it (z 4), as the Sheet's gutter is. */
@@ -359,14 +374,14 @@ export const recordSlotRecipe = defineSlotRecipe({
 
         /* The strip under the grid: its label, its words and its keys. */
         strip: {
-            height: "32px", boxSizing: "border-box", flex: "none", display: "flex", alignItems: "center", gap: "12px", paddingInline: "16px",
+            height: "32px", lineHeight: STRIP_LINE, boxSizing: "border-box", flex: "none", display: "flex", alignItems: "center", gap: "12px", paddingInline: "16px",
             background: "bg.canvas", borderTopWidth: "1px", borderTopStyle: "solid", borderTopColor: "border.subtle", position: "relative", overflow: "hidden",
         },
         stripLabel: {
             flex: "none", fontFamily: "mono", fontSize: "label.sm", fontWeight: 600, letterSpacing: "label", textTransform: "uppercase",
             color: "brand.solid", whiteSpace: "nowrap",
         },
-        stripText: { flex: "1", minWidth: "0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "body.sm", color: "fg.strong" },
+        stripText: { flex: "1", minWidth: "0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "body.sm", lineHeight: STRIP_TEXT_LINE, color: "fg.strong" },
         stripKeys: { flex: "none", fontFamily: "mono", fontSize: "label.md", color: "fg.subtle", whiteSpace: "nowrap" },
 
         /* The footer: the rows shown, the stale count, and the legend, cut whole where it is short of room, then the loading line. */

@@ -171,10 +171,19 @@ import { CONFLICT_RING_INSIDE_FOCUS, conflictRingInset } from "../conflict-ring.
 import { coarseHitArea } from "../../style/hit-area.js";
 import { wholeOrNone } from "../../style/whole-or-none.js";
 import { fieldInRingedControl } from "../field-chrome.js";
-import { oneLineBox } from "../one-line-box.js";
+import { centredLine, oneLineBox } from "../one-line-box.js";
 import { toolbarControlBox } from "../toolbar-row.js";
 import { FOOTER_FIT } from "./builder-footer.js";
 import { schedulePaneBase } from "./schedule-pane.js";
+
+/**
+ * The line of a cell's words, and of a row's number (#1638): a whole, odd 19px. A cell centres its words in its row's
+ * height less the row's 1px rule and its own padding — 19px at the default density, and an odd room at every other,
+ * a row being an even number of pixels tall — so an odd line leaves a whole number of pixels over them. The body's
+ * line of 1.5 is 19.5px at a text's 13px face and 18px at a mono value's 12px, the one a quarter and the other half a
+ * pixel off, and the page painted the words a row higher or lower in the row by where it stood the sheet.
+ */
+const CELL_LINE = "19px";
 
 /**
  * A phone's Row column (`Mobile Sheet Spec.md` SH2, R5): the gutter's cell as a column of the window, its number alone,
@@ -745,6 +754,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             paddingRight: "10px",
             fontFamily: "mono",
             fontSize: "11px",
+            lineHeight: CELL_LINE,
             fontWeight: "500",
             fontFeatureSettings: '"tnum" 1',
             color: "fg.subtle",
@@ -877,6 +887,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             minHeight: "calc({sizes.density.row.md} - 1px)",
             paddingX: "10px",
             paddingY: "6px",
+            lineHeight: CELL_LINE,
             display: "flex",
             alignItems: "center",
             overflow: "visible",
@@ -1565,6 +1576,8 @@ export const sheetSlotRecipe = defineSlotRecipe({
             },
         },
         // the strip stands as tall as a row and reads at the cells' size; its chips page (see `stripPager`), never scroll or clip.
+        // Its words stand on whole lines (#1638), centred in the 23px inside its rule and its padding: its label, its
+        // meta, its keys and its page count on 15px, and a chip on 17px between its 3px of padding — the room's 23px.
         strip: {
             position: "relative",
             display: "flex",
@@ -1572,6 +1585,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             gap: "10px",
             paddingX: "20px",
             paddingY: "4px",
+            lineHeight: centredLine(23, 15),
             minHeight: "{sizes.density.row.md}",
             background: "bg.panel",
             borderTopWidth: "1px",
@@ -1603,6 +1617,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             minWidth: "0",
             fontFamily: "mono",
             fontSize: "12px",
+            lineHeight: "17px",
             _coarse: { paddingY: "6px" },
             color: "fg.subtle",
             paddingX: "8px",
@@ -1619,6 +1634,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             minWidth: "0",
             fontFamily: "mono",
             fontSize: "12px",
+            lineHeight: "17px",
             _coarse: { paddingY: "6px" },
             fontWeight: "600",
             color: "brand.fg",
@@ -1647,6 +1663,7 @@ export const sheetSlotRecipe = defineSlotRecipe({
             minWidth: "0",
             fontFamily: "mono",
             fontSize: "12px",
+            lineHeight: "17px",
             color: "fg.muted",
             paddingX: "8px",
             paddingY: "3px",
@@ -1721,13 +1738,16 @@ export const sheetSlotRecipe = defineSlotRecipe({
         },
         // The footer fits its hints and the shared loading line on one line, cutting a hint whole (#1398, CL3); the
         // line follows the message, which takes the rail's slack. It is the shared rail's 28 px, 12 px side padding
-        // (ruled 23 Oct 2026): taller than anything it holds, the line among them, so nothing it shows moves it.
+        // (ruled 23 Oct 2026): taller than anything it holds, the line among them, so nothing it shows moves it. Its
+        // words stand on one whole line of 15px, the shared rail's, centred in the 27px under its rule (#1638): its
+        // counts' 11px face and its message's 10.5px took 16.5px and 15.75px, each a fraction of a pixel under the rule.
         footer: {
             ...FOOTER_FIT,
             display: "flex",
             alignItems: "center",
             gap: "18px",
             minHeight: "28px",
+            lineHeight: centredLine(27, 15),
             paddingX: "12px",
             paddingY: "0",
             background: "bg.surface",

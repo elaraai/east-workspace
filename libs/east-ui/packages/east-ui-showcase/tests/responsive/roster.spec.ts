@@ -578,7 +578,8 @@ for (const theme of LAYOUT_THEMES) {
                 tracking: s.letterSpacing, casing: s.textTransform, numbers: s.fontVariantNumeric };
         }));
         const shiftType = (await headerTypography())[0]!;
-        expect(shiftType).toMatchObject({ size: '10px', weight: '600', lineHeight: '15px', tracking: '1.2px', casing: 'uppercase' });
+        // A whole, even line in every view: a week's 28px head and the People week's 36px centre it on a whole pixel (#1638).
+        expect(shiftType).toMatchObject({ size: '10px', weight: '600', lineHeight: '16px', tracking: '1.2px', casing: 'uppercase' });
         expect(await headerTypography()).toEqual(Array.from({ length: 3 }, () => shiftType));
         expect(await headings.evaluateAll(nodes => nodes.length === 3 && nodes.every(el => getComputedStyle(el).textAlign === 'left'))).toBe(true);
         await view(page, frame, 'Week');

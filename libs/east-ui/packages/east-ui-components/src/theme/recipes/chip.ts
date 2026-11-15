@@ -63,7 +63,8 @@ export const chipRecipe = defineRecipe({
          * (base-components › Toolbar & slice). */
         color: "fg.strong",
         whiteSpace: "nowrap",
-        lineHeight: "1",
+        /* The rail's line at its density (`--cr-lh`, #1638), a whole number of pixels; alone, the face's own. */
+        lineHeight: "var(--cr-lh, 1)",
         fontVariantNumeric: "tabular-nums",
         "& [data-chip-icon]": { fontSize: "10px" },
         "& [data-chip-caret]": { fontSize: "8px", "--fa-width": "auto" },

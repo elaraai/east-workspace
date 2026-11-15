@@ -56,9 +56,9 @@ describe("coarseHitArea", () => {
         });
     });
 
-    test("the footer's loading line's Retry takes it, rising from the rail's foot — the frame's, which clips (#1398)", () => {
+    test("the footer's loading line's Retry takes it, rising from the rail's foot — the frame's, which clips (#1398): 6px under its 15px line, centred in the 27px under the rail's rule (#1638)", () => {
         const retry = builderFooterLineSlotRecipe.base!.retry!;
         expect((retry as { position?: string }).position).toBe("relative");
-        expect(halo(retry)).toEqual(halo(coarseHitArea({ foot: 5.5 })));
+        expect(halo(retry)).toEqual(halo(coarseHitArea({ foot: 6 })));
     });
 });

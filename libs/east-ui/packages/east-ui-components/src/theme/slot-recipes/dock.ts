@@ -24,6 +24,7 @@
 
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { coarseHitArea } from "../../style/hit-area.js";
+import { oneLineBox } from "../one-line-box.js";
 
 /** The mono caps voice of a pane's tabs and its rail label. */
 const CAPS = {
@@ -239,16 +240,18 @@ export const dockSlotRecipe = defineSlotRecipe({
             fontSize: "12px",
             "[data-active] > &": { background: "bg.brand.subtle", color: "brand.solid" },
         },
+        /* The count: a one-line box (#1638), 18px in its edge with its figures
+         * on the 16px of room inside. The theme's line of 1.5 is 15px, which the
+         * box centred half a pixel under its edge. */
         badge: {
             display: "block",
-            alignContent: "center",
             maxWidth: "calc(100% - 4px)",
             minWidth: 0,
             overflow: "hidden",
             textOverflow: "ellipsis",
             whiteSpace: "nowrap",
             flexShrink: 0,
-            height: "18px",
+            ...oneLineBox(18),
             paddingX: "5px",
             borderWidth: "1px",
             borderColor: "border.strong",
@@ -256,7 +259,6 @@ export const dockSlotRecipe = defineSlotRecipe({
             fontFamily: "mono",
             fontSize: "10px",
             fontWeight: "600",
-            lineHeight: "normal",
             fontVariantNumeric: "tabular-nums",
             color: "fg.muted",
             "[data-active] > &": { borderColor: "brand.solid", background: "bg.brand.subtle", color: "brand.fg" },

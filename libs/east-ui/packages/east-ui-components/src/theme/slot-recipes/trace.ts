@@ -14,10 +14,16 @@
  * renderer; everything density- or theme-derived lives here, every scale's
  * fills among it.
  *
+ * A step's value stands on a whole line at every density (#1638): a line of 1
+ * is 9px and 10px at the two smaller faces, and 12.5px at the comfortable
+ * one, which the step centred at a fraction of a pixel under its edge. There
+ * the line is 12px, in the 32px inside the step's edge.
+ *
  * @packageDocumentation
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
+import { centredLine } from "../one-line-box.js";
 
 export const traceSlotRecipe = defineSlotRecipe({
     className: "elara-trace",
@@ -206,6 +212,7 @@ export const traceSlotRecipe = defineSlotRecipe({
                     "--t-radius": "3px",
                     "--t-now-color": "{colors.brandPressed}",
                 },
+                step: { lineHeight: centredLine(32, 12) },
             },
         },
     },

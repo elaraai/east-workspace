@@ -45,3 +45,36 @@ export interface OneLineBox {
 export function oneLineBox(height: number, edge = 1): OneLineBox {
     return { height: `${height}px`, lineHeight: `${height - 2 * edge}px` };
 }
+
+/**
+ * The height of a line of words centred in a room taller than it (#1638): a
+ * value beside its chevron, a name in its card, a label in its row.
+ *
+ * Where the box holds more than its one line of words — an icon beside them,
+ * a second line, words of another size — its line cannot be the room's own
+ * height ({@link oneLineBox}), and the box centres it. The line then starts a
+ * whole number of pixels under the box's edge only when it is a whole number
+ * of pixels tall and leaves an even number of them over: half above the
+ * words, half below. A line that is a ratio of a fractional face — 1.5 of
+ * 9.5px is 14.25px — or one that leaves an odd number over, is centred at a
+ * fraction, and the page paints the words a row higher or lower in the box by
+ * where it stands the box. The room and the line are both stated, so a recipe
+ * that breaks the rule fails as the theme is built.
+ *
+ * @param room - The height the line is centred in, in px: the box's height less its edge and its padding at the top and at the bottom
+ * @param line - The line's height, in px
+ * @returns The `lineHeight`
+ * @throws {RangeError} When either is not a whole number, or the room less the line is odd
+ *
+ * @example
+ * ```ts
+ * // A 26px card inside a 1px edge has 24px of room: its badge's words on a 14px line start 5px under the room's top.
+ * const badge = { textStyle: "mono.xs", lineHeight: centredLine(24, 14) };
+ * ```
+ */
+export function centredLine(room: number, line: number): string {
+    if (!Number.isInteger(room) || !Number.isInteger(line) || (room - line) % 2 !== 0) {
+        throw new RangeError(`a line of ${line}px is centred in ${room}px of room at a fraction of a pixel: both are whole numbers, and their difference is even`);
+    }
+    return `${line}px`;
+}

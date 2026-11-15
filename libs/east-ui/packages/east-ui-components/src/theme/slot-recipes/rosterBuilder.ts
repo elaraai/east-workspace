@@ -20,6 +20,7 @@ import { coarseHitArea } from "../../style/hit-area.js";
 import { wholeOrNone } from "../../style/whole-or-none.js";
 import { CONFLICT_RING } from "../conflict-ring.js";
 import { fontAwesomeSize } from "../icon-size.js";
+import { centredLine, oneLineBox } from "../one-line-box.js";
 import { builderFooter, builderFooterItem } from "./builder-footer.js";
 import { planElementConflict, planElementDrafted, planElementFocus, planElementSelected, planRowFocus } from "./plan/focus.js";
 import { INSPECTOR_SECTION, INSPECTOR_STATUS } from "./inspector.js";
@@ -40,6 +41,31 @@ import { moveGhostSlots, moveGhostBase } from "./time/move-ghost.js";
  * one face at one size — stand on one line across a row's boxes.
  */
 const DAY_WORDS_LINE = "18px";
+
+/**
+ * The lines of a Shifts card — an assignment, a proposal — each a whole number of pixels, centred in the card's room
+ * (#1638): 24px inside its edge, 20px compact. The card's small words (its badge, its flags, its activity, its fit, a
+ * proposal's reason) are mono at 9.5px or 10px and take the card's own line; its name, at the body's 12.5px, its own.
+ * The theme's line of 1.5 is 14.25px for the one and 18.75px for the other, which the card centres at a fraction of a
+ * pixel: the page then paints the words a row higher or lower in the card by where it stands the card.
+ */
+const CARD_WORDS_LINE = centredLine(24, 14);
+const CARD_NAME_LINE = centredLine(24, 18);
+
+/**
+ * The line of a column head's words, in every view (#1638): a whole, even 16px. A week's head centres its one line in
+ * 28px and the People week's in 36px, each an even room, where the eyebrow's own 15px leaves an odd pixel over; a
+ * day's head stacks its heading over its figures 2px apart, 34px in the 36px inside its padding. One line for every
+ * view, so a head reads the same in each.
+ */
+const HEAD_LINE = centredLine(28, 16);
+
+/**
+ * A line of the body's words centred in a People row's room (#1638): a person's name, a lane's label, a skill's
+ * name. The row is 36px in its 1px rule, 32px compact — 35px and 31px of room — so the line is an odd 19px, where the
+ * theme's 18.75px and 19.5px are centred at a fraction.
+ */
+const ROW_NAME_LINE = centredLine(35, 19);
 
 /**
  * An off day's `+ Assign`, at its box's middle to the pixel (ruled 11 Nov 2026). Its words are capitals alone, which
@@ -89,14 +115,14 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
             // A person's row retained while a narrowing is read (#1398, CL5): the shared retained row.
             "&[data-roster-person-row]": { "[data-roster-stale] &": retainedRow } },
         gutter: { position: "sticky", left: 0, zIndex: 3, background: "bg.surface", borderRightWidth: "1px", borderColor: "border.subtle" },
-        headerGutter: { display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "flex-start", gap: "2px", padding: "4px 12px",
+        headerGutter: { display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "flex-start", gap: "2px", padding: "4px 12px", lineHeight: HEAD_LINE,
             "&[data-week]": { minHeight: "28px", padding: "0 12px", flexDirection: "row", alignItems: "center", justifyContent: "flex-start", gap: "8px" } },
         head: { position: "sticky", top: 0, zIndex: 5, background: "bg.surface" },
         shiftHead: { height: "44px", minWidth: 0, overflow: "hidden", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "flex-start", textAlign: "left", gap: "2px", padding: "4px 12px", borderLeftWidth: "1px", borderColor: "border.subtle", ...planRowFocus,
             "&[data-week]": { height: "28px", padding: "0 4px", alignItems: "center", textAlign: "center" }, "&[data-people]": { height: "36px" }, "&[data-selected]": { background: "brand.subtle" } },
-        shiftHeading: { ...timeHeaderText, display: "flex", alignItems: "center", gap: "8px", maxWidth: "100%", minWidth: 0, whiteSpace: "nowrap" },
-        shiftMeta: { textStyle: "mono.xs", color: "fg.muted", maxWidth: "100%", minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
-        shiftLabel: { ...timeHeaderText, color: "fg.muted" },
+        shiftHeading: { ...timeHeaderText, display: "flex", alignItems: "center", gap: "8px", maxWidth: "100%", minWidth: 0, whiteSpace: "nowrap", lineHeight: HEAD_LINE },
+        shiftMeta: { textStyle: "mono.xs", lineHeight: HEAD_LINE, color: "fg.muted", maxWidth: "100%", minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
+        shiftLabel: { ...timeHeaderText, lineHeight: HEAD_LINE, color: "fg.muted" },
         time: { textStyle: "mono.xs", color: "fg.subtle", whiteSpace: "nowrap" },
         rowHead: { padding: "12px 16px", display: "flex", flexDirection: "column", alignItems: "flex-start", gap: "5px", textAlign: "left", ...planRowFocus },
         eyebrow: { textStyle: "caption.eyebrow" },
@@ -125,7 +151,7 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
             "[data-roster-stale] &": retainedColumn },
         cellHead: { textStyle: "mono.xs", display: "flex", flexWrap: "wrap", alignItems: "center", gap: "5px", textAlign: "left", marginBottom: "2px", color: "fg.muted", "&[data-open]": { color: "fg.warning" } },
         chips: { display: "flex", flexDirection: "column", gap: "4px", minWidth: 0 },
-        assignment: { display: "flex", alignItems: "center", gap: "5px", minHeight: "26px", padding: "0 6px", minWidth: 0, border: "1px solid", borderColor: "border.subtle", borderRadius: "3px", background: "bg.surface", cursor: "pointer",
+        assignment: { display: "flex", alignItems: "center", gap: "5px", minHeight: "26px", lineHeight: CARD_WORDS_LINE, padding: "0 6px", minWidth: 0, border: "1px solid", borderColor: "border.subtle", borderRadius: "3px", background: "bg.surface", cursor: "pointer",
             "&[data-added], &[data-moved]": { borderStyle: "dashed" }, "&[data-layout=people]": { flexWrap: "wrap", gap: "3px", padding: "3px", "& [data-roster-assignment-name]": { flexBasis: "60%" }, "& [data-roster-grip]": { display: "none" } },
             "&[data-density=compact]": { minHeight: "22px" }, "&[data-agency]": { background: "bg.panel" }, "&[data-request]": { borderStyle: "dashed", background: "transparent" },
             ...planElementDrafted, ...planElementSelected, ...planElementFocus, ...planElementConflict,
@@ -134,7 +160,7 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
             "&:hover [data-roster-grip], &:focus-within [data-roster-grip]": { opacity: 0.45 }, "&:hover [data-roster-chip-action], &:focus-within [data-roster-chip-action]": { opacity: 1 },
             // Retained while a narrowing is read (#1398, CL5): its words in the third ink, its own edge kept.
             "[data-roster-stale] &": { color: "fg.muted", "& *": { color: "inherit" } } },
-        assignmentName: { textStyle: "body.sm", fontWeight: "medium", flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
+        assignmentName: { textStyle: "body.sm", lineHeight: CARD_NAME_LINE, fontWeight: "medium", flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
         // A chip's badge: its position's code, a trainer's T, or — an agency person's duty, a request — the app's short word
         // for agency staff, in capitals as the People layout's badge has it (#1566).
         badge: { textStyle: "mono.xs", fontSize: "label.xs", color: "fg.muted", flexShrink: 0, "&[data-lead]": { color: "brand.fg", fontWeight: "bold" },
@@ -206,9 +232,9 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
             gridTemplateColumns: "minmax(0, 1fr) auto", alignItems: "center", gap: "8px", padding: "0 12px 0 20px", minWidth: 0, textAlign: "left",
             "&[data-selected]": { background: "bg.panel" }, "&[data-head]": { display: "flex", justifyContent: "space-between", alignItems: "center" } },
         nameLine: { display: "flex", alignItems: "center", gap: "6px", minWidth: 0 },
-        personName: { display: "inline-flex", alignItems: "center", minWidth: 0, textStyle: "body.sm", fontWeight: "semibold", textAlign: "left",
+        personName: { display: "inline-flex", alignItems: "center", minWidth: 0, textStyle: "body.sm", lineHeight: ROW_NAME_LINE, fontWeight: "semibold", textAlign: "left",
             "& > span": { minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, ...planRowFocus },
-        agencyBadge: { textStyle: "mono.xs", fontSize: "label.xs", fontWeight: "semibold", textTransform: "uppercase", letterSpacing: "0.08em", height: "16px", padding: "0 4px",
+        agencyBadge: { textStyle: "mono.xs", fontSize: "label.xs", fontWeight: "semibold", textTransform: "uppercase", letterSpacing: "0.08em", ...oneLineBox(16), padding: "0 4px",
             display: "inline-flex", alignItems: "center", borderWidth: "1px", borderColor: "border.emphasized", borderRadius: "2px", color: "fg.muted", flexShrink: 0 },
         hoursCell: { display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "3px", minWidth: 0, "&[data-tone=warning]": { color: "fg.warning" } },
         hoursText: { textStyle: "mono.xs", fontWeight: "medium", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" },
@@ -299,7 +325,8 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
         // A mark: a day's shift in its colour, its letter where the day is wide enough; an off day faint; a placeholder while unread.
         // A shift the app gives no colour is filled in the theme's neutral (`NEUTRAL_MARK`): a tile has its words to say a duty
         // by, a mark its fill alone wherever its day has no room for a letter — on the panel's paper it read as a day off.
-        mark: { display: "flex", alignItems: "center", justifyContent: "center", minWidth: 0, overflow: "hidden", borderRadius: "3px", textStyle: "mono.xs", fontWeight: "semibold",
+        // Its letter on a whole line, centred in the 22px inside its edge, 18px compact (#1638).
+        mark: { display: "flex", alignItems: "center", justifyContent: "center", minWidth: 0, overflow: "hidden", borderRadius: "3px", textStyle: "mono.xs", lineHeight: centredLine(22, 14), fontWeight: "semibold",
             ...NEUTRAL_MARK, borderWidth: "1px", borderColor: "transparent",
             "&[data-off]": { background: "color-mix(in srgb, {colors.fg} 7%, transparent)", color: "transparent" },
             "&[data-removed]": { textDecoration: "line-through", background: "bg.warning.subtle", color: "fg.subtle" },
@@ -309,7 +336,7 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
             "&[data-pending]": { background: "bg.subtle", color: "transparent" } },
         // The Patterns tab: each card's strip of marks, Sunday to Saturday as the card's name reads.
         patternStrip: { display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))", gap: "2px", height: "18px", marginTop: "4px", width: "100%" },
-        patternMark: { display: "flex", alignItems: "center", justifyContent: "center", minWidth: 0, overflow: "hidden", borderRadius: "2px", textStyle: "mono.xs", fontWeight: "semibold",
+        patternMark: { display: "flex", alignItems: "center", justifyContent: "center", minWidth: 0, overflow: "hidden", borderRadius: "2px", textStyle: "mono.xs", lineHeight: centredLine(18, 14), fontWeight: "semibold",
             ...NEUTRAL_MARK,
             "&[data-off]": { background: "color-mix(in srgb, {colors.fg} 7%, transparent)", color: "transparent" } },
 
@@ -324,11 +351,12 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
             whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
         // By month a week's hours take the richest form every week's column holds whole (the header's fit rule, R3:
         // `data-demand-form` on the eyebrow's row); the other forms are laid out unseen, out of the flow and clipped by
-        // the cell, so the fit measures each whole. The stacked form sets the hours needed under the hours rostered.
+        // the cell, so the fit measures each whole. The stacked form sets the hours needed under the hours rostered: two
+        // 12px lines 3px apart, the 27px of room under the row's rule, so both start on a whole pixel (#1638).
         demandFigure: { position: "relative", display: "flex", alignItems: "center", minWidth: 0, padding: "0 10px", borderLeftWidth: "1px", borderColor: "border.subtle", textStyle: "mono.xs",
             color: "fg.muted", whiteSpace: "nowrap", overflow: "hidden",
             "& > [data-roster-demand-form]": { position: "absolute", left: 0, top: 0, visibility: "hidden" },
-            "& > [data-roster-demand-form=stacked]": { display: "flex", flexDirection: "column", gap: "2px", lineHeight: 1.2 },
+            "& > [data-roster-demand-form=stacked]": { display: "flex", flexDirection: "column", gap: "3px", lineHeight: "12px" },
             "[data-demand-form=full] &": { "& > [data-roster-demand-form=full]": { position: "static", visibility: "visible" } },
             "[data-demand-form=short] &": { "& > [data-roster-demand-form=short]": { position: "static", visibility: "visible" } },
             "[data-demand-form=stacked] &": { "& > [data-roster-demand-form=stacked]": { position: "static", visibility: "visible" } } },
@@ -343,14 +371,17 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
             "& > svg": { flexShrink: 0, color: "fg.muted", transition: "transform {durations.fast} {easings.inOut}", ...fontAwesomeSize("12px") },
             "&[aria-expanded=true] > svg": { transform: "rotate(90deg)" } },
         laneSwatch: { width: "8px", height: "8px", flexShrink: 0, borderRadius: "2px", background: "var(--roster-fill, {colors.bg.subtle})" },
-        laneLabel: { textStyle: "body.md", fontWeight: "semibold", color: "fg", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" },
+        laneLabel: { textStyle: "body.md", lineHeight: ROW_NAME_LINE, fontWeight: "semibold", color: "fg", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" },
         laneHours: { textStyle: "mono.xs", color: "fg.subtle", flexShrink: 0 },
-        laneWeek: { marginLeft: "auto", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "4px", flexShrink: 0, textStyle: "mono.xs", fontSize: "label.md", lineHeight: 1 },
+        // Its two figures on whole lines (#1638): 11px each and 3px apart, 25px in all, centred in the row's 35px of room
+        // (31px compact). A line of 1 at the 10.5px face is 10.5px, and the second figure then starts at a fraction.
+        laneWeek: { marginLeft: "auto", display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "3px", flexShrink: 0, textStyle: "mono.xs", fontSize: "label.md", lineHeight: "11px" },
         // A lane's or a skill row's day (A3.3, A4.3): its figures over its bar, centred in the row; a lane's is a button
         // that selects its slot, ringed while selected.
         laneCell: { display: "flex", flexDirection: "column", justifyContent: "center", gap: "6px", minWidth: 0, padding: "0 10px", borderLeftWidth: "1px", borderColor: "border.subtle",
             textAlign: "left", "&:is(button)": { cursor: "pointer", ...planRowFocus }, "&[data-selected]": { boxShadow: "inset 0 0 0 1px {colors.fg}" } },
-        laneLine: { display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: "4px", minWidth: 0, textStyle: "mono.xs", fontSize: "label.md", lineHeight: 1, whiteSpace: "nowrap" },
+        // Its figures on a whole line of 11px (#1638): with the 6px gap and the 6px bar, 23px centred in the row's 35px.
+        laneLine: { display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: "4px", minWidth: 0, textStyle: "mono.xs", fontSize: "label.md", lineHeight: "11px", whiteSpace: "nowrap" },
         // The hours rostered — or a skill's assigned — against those needed: the first in the ink, the warning's where a
         // skill is short; the second subtle.
         laneFigure: { display: "inline-flex", gap: "4px", "& > [data-rostered]": { fontWeight: "medium", color: "fg", "&[data-tone=warning]": { color: "fg.warning" } },
@@ -390,9 +421,9 @@ export const rosterBuilderSlotRecipe = defineSlotRecipe({
             "&[data-state=short]": { background: "transparent" },
             "&[data-state=off]": { background: "color-mix(in srgb, {colors.fg} 7%, transparent)", color: "transparent" },
             "&[data-selected]::after": { content: '""', position: "absolute", inset: 0, borderRadius: "inherit", boxShadow: "inset 0 0 0 1px {colors.fg}", pointerEvents: "none" } },
-        skillTag: { display: "inline-flex", alignItems: "center", height: "16px", flexShrink: 0, padding: "0 4px", borderWidth: "1px", borderColor: "border.strong", borderRadius: "sm",
+        skillTag: { display: "inline-flex", alignItems: "center", ...oneLineBox(16), flexShrink: 0, padding: "0 4px", borderWidth: "1px", borderColor: "border.strong", borderRadius: "sm",
             textStyle: "mono.xs", fontSize: "label.xs", fontWeight: "semibold", color: "fg.strong" },
-        skillName: { textStyle: "body.sm", color: "fg.strong", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" },
+        skillName: { textStyle: "body.sm", lineHeight: ROW_NAME_LINE, color: "fg.strong", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" },
         skillBar: { position: "relative", height: "3px", background: "bg.subtle", overflow: "hidden" },
         // The eyebrow before a band's people (A5): `Assignment · n people`, its words kept in view as the grid pans.
         assignRow: { display: "flex", alignItems: "center", height: "28px", background: "bg.canvas", borderBottomWidth: "1px", borderColor: "border.subtle" },

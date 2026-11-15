@@ -14,11 +14,18 @@
  * xs. Font Awesome's own height is 1em, outranking the `_icon` size, so the
  * part's font is the icon's size, and `--fa-width` its width.
  *
+ * The value's line is a whole number of pixels at each size (#1638): the
+ * trigger centres it beside the chevron in an even room — 24px, 30px and 42px
+ * inside the edge — and the field's line of 1.3 is 16.25px, 16.9px and 18.2px
+ * at the three faces, which starts the value at a fraction of a pixel under
+ * the trigger's edge.
+ *
  * @packageDocumentation
  */
 
 import { defineSlotRecipe } from "@chakra-ui/react";
 import { fieldChrome, fieldHeights, TOUCH_FONT_FLOOR } from "../field-chrome.js";
+import { centredLine } from "../one-line-box.js";
 
 export const selectSlotRecipe = defineSlotRecipe({
     className: "elara-select",
@@ -120,9 +127,9 @@ export const selectSlotRecipe = defineSlotRecipe({
         // (`indicatorGroup` sits over the trigger's right edge), so the value
         // text never collides with it — per size (#130).
         size: {
-            sm: { trigger: { textStyle: "none", fontSize: "{fontSizes.body.sm}", height: fieldHeights.sm, paddingX: "{spacing.2}", paddingInlineEnd: "28px", paddingY: "0" } },
-            md: { trigger: { textStyle: "none", fontSize: "{fontSizes.body}", height: fieldHeights.md, paddingX: "10px", paddingInlineEnd: "30px", paddingY: "0" } },
-            lg: { trigger: { textStyle: "none", fontSize: "{fontSizes.body.lg}", height: fieldHeights.lg, paddingX: "{spacing.4}", paddingInlineEnd: "38px", paddingY: "0" }, indicator: { fontSize: "20px" } },
+            sm: { trigger: { textStyle: "none", fontSize: "{fontSizes.body.sm}", height: fieldHeights.sm, paddingX: "{spacing.2}", paddingInlineEnd: "28px", paddingY: "0" }, valueText: { lineHeight: centredLine(24, 16) } },
+            md: { trigger: { textStyle: "none", fontSize: "{fontSizes.body}", height: fieldHeights.md, paddingX: "10px", paddingInlineEnd: "30px", paddingY: "0" }, valueText: { lineHeight: centredLine(30, 16) } },
+            lg: { trigger: { textStyle: "none", fontSize: "{fontSizes.body.lg}", height: fieldHeights.lg, paddingX: "{spacing.4}", paddingInlineEnd: "38px", paddingY: "0" }, valueText: { lineHeight: centredLine(42, 18) }, indicator: { fontSize: "20px" } },
             // Chakra's xs trigger keeps its own; its chevron is 14px, as Chakra's was.
             xs: { indicator: { fontSize: "14px" } },
         },

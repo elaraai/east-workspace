@@ -15,6 +15,7 @@
  */
 
 import type { SystemStyleObject } from "@chakra-ui/react";
+import { centredLine } from "../../one-line-box.js";
 import { planElementFocus, planRowFocus } from "./focus.js";
 import { timeHeaderText } from "../time/axis.js";
 import { linkRibbons, linkSelectedInk } from "../links/ribbons.js";
@@ -30,6 +31,18 @@ export const rowsSlots = [
 
 /** A links-focus family tag's height (#1258), and the line it shares with its row's label (#1277). */
 const FOCUS_TAG_H = "20px";
+
+/**
+ * The line of a row's name, and of what stands on it — its value, its unit — a whole number of pixels (#1638). The
+ * gutter cell centres the name in the row's height less its 1px rule and its 4px of padding above and below: an odd
+ * room, 23px in a 32px row, since every row is an even number of pixels tall. So the line is an odd 17px, three above
+ * the words and three below. The theme's line of 1.5 is 17.25px at the name's 11.5px face, which started the words at
+ * a fraction of a pixel under the row's edge, and the page painted them a row higher or lower by where it stood the row.
+ */
+const GUTTER_LINE = centredLine(23, 17);
+
+/** The line of a group band's caption and of a collapsible row's heading, which is that caption: a whole 15px (#1638). */
+const HEADING_LINE = centredLine(23, 15);
 
 /** Their base styles. */
 export const rowsBase = {
@@ -204,7 +217,10 @@ export const rowsBase = {
         display: "flex",
         alignItems: "center",
         gap: "6px",
-        "&[data-collapsible]": { ...timeHeaderText },
+        lineHeight: GUTTER_LINE,
+        // A collapsible row's heading is the group band's caption, on the band's own 15px line: whole, and odd as the
+        // row's room is, for whatever stands on it — a value at the names' 11.5px face took the line's ratio, 17.25px.
+        "&[data-collapsible]": { ...timeHeaderText, lineHeight: HEADING_LINE },
         // In a strip every name reads as an id — one 10px mono line is
         // all 16px can carry, and uniformity is what makes the stack
         // scannable.
@@ -214,6 +230,7 @@ export const rowsBase = {
             fontWeight: "semibold",
             letterSpacing: "0.12em",
             textTransform: "uppercase",
+            lineHeight: "15px",
             color: "fg.muted",
         },
     },
@@ -426,11 +443,13 @@ export const rowsBase = {
         gap: "6px",
         color: "fg.subtle",
         fontSize: "10px",
+        // Its count on a whole line, centred in the band's 21px over its rule (#1638).
         "& > span": {
             fontFamily: "mono",
             fontSize: "9.5px",
             fontWeight: "semibold",
             letterSpacing: "0.06em",
+            lineHeight: centredLine(21, 15),
         },
     },
     // ── R1 links (`Plan links.html`, #1258) — drawn over the rows in
@@ -497,7 +516,8 @@ export const rowsBase = {
         fontFamily: "mono",
         fontSize: "9.5px",
         fontWeight: "medium",
-        lineHeight: 1.35,
+        // 1.35 of the face, in whole pixels (#1638): each line under the first starts on one.
+        lineHeight: "13px",
         color: "fg.subtle",
         animation: "plan-settle-in 0.22s ease-out 0.3s backwards",
         "@media (prefers-reduced-motion: reduce)": { animation: "none" },
@@ -544,9 +564,12 @@ export const rowsBase = {
         "&[data-group-end]": { borderBottomColor: "border.strong" },
         ...planRowFocus,
     },
-    // Every collapsible heading uses the same band caption, including charts and nested rows.
+    // Every collapsible heading uses the same band caption, including charts and nested rows. Its line is 15px for
+    // whatever stands on it (#1638) — a value at the row names' 11.5px face took the line's ratio, 17.25px — centred
+    // in the band's 25px over its rule.
     groupName: {
         ...timeHeaderText,
+        lineHeight: HEADING_LINE,
         position: "relative",
         display: "flex",
         alignItems: "center",

@@ -59,6 +59,14 @@ const CONTROL = {
     "& svg": { fontSize: "14px" },
 } as const;
 
+/**
+ * The line of the cell's words — its state, its summary, what stands in for them (#1638): a whole, odd 17px. The cell
+ * centres them in its row's height less the row's 1px rule, an odd room — 31px in a 32px row, 43px under a finger — so
+ * an odd line leaves a whole number of pixels over the words; on a 16px line they started half a pixel under the row's
+ * edge. On a phone the state stands over its summary, 3px apart: 37px in all, odd as the room is.
+ */
+const ACTION_LINE = "17px";
+
 export const sheetActionSlotRecipe = defineSlotRecipe({
     className: "elara-sheet-action",
     slots: [
@@ -76,7 +84,7 @@ export const sheetActionSlotRecipe = defineSlotRecipe({
             inset: 0,
             display: "flex",
             alignItems: "stretch",
-            lineHeight: "16px",
+            lineHeight: ACTION_LINE,
             minWidth: 0,
             /* A selected or dirty cell keeps its fill: the control's ink carries the hover (ST2). */
             "&[data-on] [data-slot=actionNext]:not([data-held]), &[data-on] [data-slot=actionMore]:not([data-held])": { _hover: { background: "transparent", color: "fg" } },
@@ -90,8 +98,8 @@ export const sheetActionSlotRecipe = defineSlotRecipe({
             gap: "8px",
             paddingX: "8px",
             cursor: "default",
-            /* A phone's (SH7): the state over its summary, 2 apart, padded as the grid's cells are. */
-            "[data-sheet-card][data-phone] &": { flexDirection: "column", alignItems: "stretch", justifyContent: "center", gap: "2px" },
+            /* A phone's (SH7): the state over its summary, 3 apart, padded as the grid's cells are. */
+            "[data-sheet-card][data-phone] &": { flexDirection: "column", alignItems: "stretch", justifyContent: "center", gap: "3px" },
         },
         /* The state's word after its dot (S4), its slot as wide as the column's widest word (S5). */
         state: {
@@ -104,7 +112,7 @@ export const sheetActionSlotRecipe = defineSlotRecipe({
             fontFamily: "mono",
             fontSize: "label.md",
             fontWeight: 600,
-            lineHeight: "16px",
+            lineHeight: ACTION_LINE,
             letterSpacing: "0.1em",
             textTransform: "uppercase",
             whiteSpace: "nowrap",
@@ -131,7 +139,7 @@ export const sheetActionSlotRecipe = defineSlotRecipe({
             textOverflow: "ellipsis",
             whiteSpace: "nowrap",
             fontSize: "body.sm",
-            lineHeight: "16px",
+            lineHeight: ACTION_LINE,
             color: "fg.muted",
             "&[data-dirty]": { color: "brandPressed" },
             "& [data-num]": { fontFamily: "mono", fontWeight: 500 },
@@ -147,7 +155,7 @@ export const sheetActionSlotRecipe = defineSlotRecipe({
             flex: "none",
             fontSize: "body.sm",
             fontWeight: 500,
-            lineHeight: "16px",
+            lineHeight: ACTION_LINE,
             color: "brand.solid",
             whiteSpace: "nowrap",
             "& svg": { fontSize: "12px" },
@@ -159,7 +167,7 @@ export const sheetActionSlotRecipe = defineSlotRecipe({
             fontSize: "body",
             fontStyle: "italic",
             fontWeight: 400,
-            lineHeight: "16px",
+            lineHeight: ACTION_LINE,
             color: "fg.subtle",
             whiteSpace: "nowrap",
             overflow: "hidden",
