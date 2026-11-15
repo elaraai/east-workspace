@@ -1493,9 +1493,8 @@ paths.
     - e3-api-server `handlers/functions.spec.ts`: the host's rule is asked for
       each draft, in order, before anything is read; a refusal is
       `permission_denied`, naming the draft, and nothing is filed or run; a
-      host with no rule admits every draft; a draft through the package, and
-      one in a call a host runs within its request, is `invalid`, and nothing
-      is read or run.
+      host with no rule admits every draft; a draft through the package is
+      `invalid`, and nothing is read or run.
     - e3-api-tests `functionDraftTests`, on every server (the local server,
       e3-web in Node and in Chromium, and a hosted e3 over its own
       deployment): what a drafted call reads and names, held to a Save of the

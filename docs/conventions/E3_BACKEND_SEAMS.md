@@ -244,9 +244,9 @@ workspace function routes require the host's rule on who may pass a draft
 so every host decides: a caller may pass one only where they may commit its
 mutation, so a host whose mutate route holds a caller to some mutations gives
 the same rule here. The local server and e3-web pass `allowEveryDraft`, their
-mutate routes admitting every caller. A call a host runs within its request
-(`callFunctionSync`) keeps nothing to hold a drafted state by, and answers a
-draft `invalid`; a call of a local repository (`functionCallUnkept`, which
+mutate routes admitting every caller. A call through the package
+(`callFunctionSync`) reads no workspace and keeps nothing to hold a drafted
+state by, and answers a draft `invalid`; a call of a local repository (`functionCallUnkept`, which
 `e3 call -w` makes) holds the repository's running work from its check to its
 answer instead. A store's behaviour is `functionCallStoreTests`, and the
 upgrade step's `repositoryRecordTests`; a route's, the `functionDrafts` suite

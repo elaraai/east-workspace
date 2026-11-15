@@ -254,7 +254,7 @@ export function createPackageFunctionRoutes(
       const grant = await functionGrant(c, options);
       const req = await decodeBody(c, FunctionCallRequestType);
       return await callFunctionSync(storage, repoPath, getRunner(repoPath), c.req.param('pkg')!, c.req.param('version')!, c.req.param('fn')!, req,
-        c.req.query('verbose') === '1', options.syncDeadlineMs, grant, null, options.ceilings);
+        c.req.query('verbose') === '1', options.syncDeadlineMs, grant, options.ceilings);
     } catch (err) {
       return sendError(ExecuteResultType, errorToVariant(err));
     }
