@@ -1,0 +1,49 @@
+name: Install apt packages
+description: >-
+  Installs apt packages on a Linux runner, bounded and tried again. A bare
+  `apt-get update` waited on one stalled download of a failing mirror until
+  its job's 90 minutes ran out; here a try that stalls is stopped within
+  minutes, and the next one usually finds the mirror answering.
+
+inputs:
+  packages:
+    description: The packages to install, separated by spaces
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Install ${{ inputs.packages }}
+      shell: bash
+      env:
+        PACKAGES: ${{ inputs.packages }}
+      run: |
+        set -euo pipefail
+        read -r -a packages <<< "$PACKAGES"
+
+        # apt-get, stopped after `$1` seconds whatever it waits on. apt's own
+        # limits are set too: a connection that sends nothing for 30 seconds is
+        # dropped, and each download is tried three times.
+        apt_get() {
+          sudo timeout --signal=TERM --kill-after=30 "$1" apt-get \
+            -o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 \
+            -o DPkg::Lock::Timeout=120 "${@:2}"
+        }
+        update() { apt_get 120 update; }
+        install() {
+          # A try stopped part-way may have left a package half set up
+          sudo dpkg --configure -a
+          apt_get 300 install -y "${packages[@]}"
+        }
+        # Three tries of a step, a little further apart each time
+        tried() {
+          for try in 1 2 3; do
+            if "$1"; then return 0; fi
+            echo "::warning::apt-get $1 failed or stalled (try $try of 3)"
+            if [ "$try" -lt 3 ]; then sleep $((try * 15)); fi
+          done
+          echo "::error::apt-get $1 failed three times"
+          return 1
+        }
+        tried update
+        tried install
