@@ -276,6 +276,20 @@ describe("the nested series example on e3 (#1439)", () => {
         await waitFor(() => expect(printed(cellOf("W-10001", "C-10001-1"))).toBe("500"));
     });
 
+    test("planNestedAll: a crew's hours drafted while Crew hours is switched off wear the draft's mark once it is switched back on", async () => {
+        // Typed, and Crew hours switched off before Enter: the draft is made while the series is off.
+        const { c } = await typedCrewHours({ enter: false });
+        const tab = await series(c);
+        await tab.toggle("Crew hours");
+        await waitFor(() => expect(slot(c, "footer")!.querySelector('[data-plan-count="pending"]')?.textContent).toBe("1 pending"));
+        // Back on, its rows show the change the draft made, and are marked so — the draft has not moved since.
+        await tab.toggle("Crew hours");
+        await act(async () => { c.querySelector<HTMLElement>('[data-virtual-rows="bounded"]')!.scrollTo({ top: 0 }); });
+        await settle();
+        const crew = () => c.querySelector<HTMLElement>(rowAt(entry("crew", "W-10001", "C-10001-1")));
+        await waitFor(() => expect(crew()?.hasAttribute("data-draft")).toBe(true));
+    });
+
     test("planNestedAll: a crew's week typed here and otherwise by another planner is a conflict named by its works and its crew, and its Go to focuses the week's cell", async () => {
         const { c, cellOf, week } = await typedCrewHours();
         // Another planner types 700 into the same week of the same crew.

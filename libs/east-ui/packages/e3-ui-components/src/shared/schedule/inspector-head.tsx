@@ -8,7 +8,7 @@ import { Box, type BoxProps } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import type { IconName } from "@fortawesome/fontawesome-svg-core";
 import { FOCUS_HOME_PROPS } from "../focus-home.js";
-import { statusAttributes } from "../status.js";
+import { statusAttributes, type DrawnStatus } from "../status.js";
 
 /**
  * The shared Plan/Calendar inspector heading, using the inspector's existing recipe slots; `children` sit under its row, in
@@ -20,7 +20,7 @@ import { statusAttributes } from "../status.js";
 export function ScheduleInspectorHead({ styles, kind, title, when, status, pending, writes = false, home = false, children }: {
     styles: Record<string, BoxProps["css"]>;
     kind: { name: string; icon: string }; title: string; when: ReactNode;
-    status?: { label: string; tone: { type: string }; ring: boolean } | undefined;
+    status?: DrawnStatus | undefined;
     pending?: "pending" | "new" | undefined;
     writes?: boolean;
     home?: boolean;

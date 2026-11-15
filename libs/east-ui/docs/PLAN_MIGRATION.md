@@ -823,7 +823,9 @@ The wire does not change: the root's `editing` and `pick` are what they were.
 | `Plan.pick(key, all, { hidden })`, passed as `pick` | `series={all}` and `hidden={[…]}`, the keys off to start. Where `library` lists `Plan.library.series()` the Series tab switches each series on and off, kept under the Plan's `id`; without it nothing is bound, and `hidden` names the series the Plan does not draw | `planTargetState`, `planNestedAll` |
 
 Each is refused at build, naming its replacement: `editing` by each of its
-parts, `pick` by `series` and `hidden`.
+parts, `pick` by `series` and `hidden`. `Plan.pick` itself is gone, so a
+TypeScript build stops at it before the Plan is built: give the list it was
+given to `series`.
 
 ### Behaviour that changed
 
@@ -884,7 +886,7 @@ A stored `UIComponentType` value re-emits (`WIRE_MIGRATION.md`).
 | `Plan.run({ status: "warning" })`, `Plan.event({ tone: "warning" })` | the same `status` | `planStatuses` |
 
 Each is refused at build, naming `Plan.status`: a bare tone given as
-`status`, and a tile's `tone`.
+`status`, or an `Option` of one, and a tile's `tone`.
 
 ### Behaviour that changed
 

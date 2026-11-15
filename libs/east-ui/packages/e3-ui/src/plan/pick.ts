@@ -177,6 +177,17 @@ function lineItem(line: PlanPickable): ExprType<PickItemType> {
  */
 export function createPlanPickItems(all: PlanSeriesInput): ExprType<ArrayType<PickItemType>> {
     checkSeries(all, "Plan.pickItems");
+    return pickItemsOf(all);
+}
+
+/**
+ * The Series tab's lines ({@link createPlanPickItems}) of a list checked elsewhere: a Plan's, which its own check
+ * refuses in the Plan's words, once.
+ *
+ * @param all - Every series that COULD show
+ * @returns One descriptor per line, in declaration order
+ */
+function pickItemsOf(all: PlanSeriesInput): ExprType<ArrayType<PickItemType>> {
     const lines = planPickables(all);
     if (lines !== undefined) return East.value(lines.map(lineItem), ArrayType(PickItemType));
     const allExpr = East.value(all as SubtypeExprOrValue<ArrayType<EastType>>) as ExprType<ArrayType<EastType>>;
@@ -274,8 +285,9 @@ export function planShown<B extends EastType>($: BlockBuilder<B>, series: PlanSe
     if (key === undefined) {
         return { pick: undefined, hidden: hidden === undefined || hidden.length === 0 ? undefined : East.value(new Set(hidden), PlanHiddenType) };
     }
-    // The pick over the tab's lines themselves: the contract's own bind, its state the keys switched off.
-    const handle = $.const(createPickBind(key, createPlanPickItems(series), {
+    // The pick over the tab's lines themselves: the contract's own bind, its state the keys switched off. The list is the
+    // Plan's, which the Plan's own check refuses in its words.
+    const handle = $.const(createPickBind(key, pickItemsOf(series), {
         id: (line) => line.id,
         title: (line) => line.title,
         subtitle: (line) => line.subtitle,

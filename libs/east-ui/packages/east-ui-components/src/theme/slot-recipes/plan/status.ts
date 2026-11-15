@@ -102,7 +102,9 @@ export function planElementStatus(confirmed: string) {
  * A box in an overlap pair (#1198): the warn ring just outside it, in its
  * status's place — a confirmed box keeps its inset ring inside it, an open one
  * its own, and a danger status, the worse, keeps its ring (the worst wins, as
- * a cell's marker does, #615).
+ * a cell's marker does, #615), inside a confirmed box's too. A danger rule is
+ * as strong as the overlap rule it follows, its tone held in `:where`, so the
+ * conflict ring after it still takes its place.
  *
  * Spread AFTER {@link planElementStatus}.
  *
@@ -114,8 +116,9 @@ export function planElementOverlap(confirmed: string) {
         "&[data-overlap]": { boxShadow: PLAN_OVERLAP_RING },
         "&[data-overlap][data-state='appr']": { boxShadow: `${confirmed}, ${PLAN_OVERLAP_RING}` },
         "&[data-overlap][data-ring]:where([data-tone]:not([data-draft]))": { boxShadow: `${PLAN_STATUS_OPEN_RING}, ${PLAN_OVERLAP_RING}` },
-        "&[data-overlap][data-tone='danger']": { boxShadow: PLAN_STATUS_RING },
-        "&[data-overlap][data-tone='danger']:where([data-ring]:not([data-draft]))": { boxShadow: PLAN_STATUS_OPEN_RING },
+        "&[data-overlap]:where([data-tone='danger'])": { boxShadow: PLAN_STATUS_RING },
+        "&[data-overlap][data-state='appr']:where([data-tone='danger'])": { boxShadow: `${confirmed}, ${PLAN_STATUS_RING}` },
+        "&[data-overlap][data-ring]:where([data-tone='danger']:not([data-draft]))": { boxShadow: PLAN_STATUS_OPEN_RING },
     } satisfies SystemStyleObject;
 }
 

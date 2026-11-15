@@ -25,7 +25,8 @@
  *
  * Run-state styling is the §4.3 truth table, driven by the `data-state`
  * attribute (obs / appr / prop / propRemoved / estimated / rejected) +
- * `data-stuck` / `data-runoff` — one attribute axis instead of a recipe
+ * `data-runoff`, and an item's status by its `data-tone` / `data-ring`
+ * (`plan/status.ts`, #1541) — one attribute axis instead of a recipe
  * variant, so a row renders marks of MIXED states from one resolved recipe
  * call.
  *

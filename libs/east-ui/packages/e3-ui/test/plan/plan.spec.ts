@@ -1690,6 +1690,18 @@ describeEast("Plan", (test) => {
             } catch (e) { return e instanceof Error ? e.message : String(e); }
         })();
         $(Assert.equal(East.value(picked.includes('two series share the key "marks"')), true));
+        // A Plan whose library lists the Series tab says it in its own words, as one without the tab does — never under a
+        // function its author never called.
+        const tabbed = (() => {
+            try {
+                Plan.Payload({ axis, data, library: [Plan.library.series()], series: [
+                    Plan.series.events(Row, { key: "marks", title: "Marks", label: (_r, k) => k, marks: _r => [] }),
+                    Plan.series.events(Row, { key: "marks", title: "More marks", label: (_r, k) => k, marks: _r => [] }),
+                ] });
+                return "";
+            } catch (e) { return e instanceof Error ? e.message : String(e); }
+        })();
+        $(Assert.equal(East.value(tabbed.startsWith('Plan: two series share the key "marks"')), true));
     });
 
     test("the removed group forms fail with the migration named", $ => {

@@ -13,12 +13,35 @@
  * @packageDocumentation
  */
 
-/** A status as an element draws it: its tone's tag, and whether it draws as an open ring. */
-export interface DrawnStatus {
-    /** Its tone: success, warning, danger, info or neutral. */
-    readonly tone: { readonly type: string };
-    /** Whether it draws as an open ring, as a tentative status does. */
-    readonly ring: boolean;
+import { variant, type ValueTypeOf } from "@elaraai/east";
+import type { Plan } from "@elaraai/e3-ui/internal";
+
+/**
+ * A status as an element draws it: the builders' one status, decoded — its words, its tone, and whether it draws as an
+ * open ring. An event kind's status case is the same type (`Schedule.Types.Status`).
+ */
+export type DrawnStatus = ValueTypeOf<typeof Plan.Types.Status>;
+
+/** Each tone a status takes, as East holds it. */
+const TONES = {
+    success: variant("success", null), warning: variant("warning", null), danger: variant("danger", null), info: variant("info", null),
+    neutral: variant("neutral", null),
+} as const satisfies Record<string, DrawnStatus["tone"]>;
+
+/** A tone a renderer names a status of its own by: success, warning, danger, info or neutral. */
+export type StatusTone = keyof typeof TONES;
+
+/**
+ * A status a renderer says of its own — a shift's coverage, a slot that is free — as the builders' one status holds it,
+ * its tone East's variant.
+ *
+ * @param label - Its words
+ * @param tone - Its tone
+ * @param ring - Whether it draws as an open ring, as a tentative status does; not by default
+ * @returns The status
+ */
+export function drawnStatus(label: string, tone: StatusTone, ring = false): DrawnStatus {
+    return { label, tone: TONES[tone], ring };
 }
 
 /** The attributes a status sets: `data-tone`, its tone, and `data-ring` where it draws as an open ring. */

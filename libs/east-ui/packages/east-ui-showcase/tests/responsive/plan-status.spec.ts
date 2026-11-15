@@ -22,8 +22,10 @@
  *   an open item's words.
  *
  * Every colour is read through the theme: a probe draws each token, and what
- * an item draws is compared with it as the browser computes both. Nothing
- * here compares pixels.
+ * an item draws is compared with it as the browser computes both — so one
+ * theme reads it; the dark theme's tokens are the theme's tests'. Nothing here
+ * compares pixels. The canvas draws its rows at the desktop width alone (a
+ * phone's are cards, with no item on them), so every test is `@desktop`.
  *
  * Run: `make test-responsive` (libs/east-ui), or
  * `pnpm exec playwright test plan-status --project desktop`.
@@ -114,120 +116,124 @@ const CLEAR = "rgba(0, 0, 0, 0)";
 const rings = (item: Drawn, inset: boolean) => item.shadows.filter((shadow) => shadow.inset === inset && shadow.blur === 0);
 
 test.describe("An item's status on the Plan (#1541)", () => {
-    // A phone draws the Plan's rows as cards, with no item on them: the looks are the canvas's.
-    test.skip(({ viewport }) => (viewport?.width ?? 0) < 1000, "read at the desktop width, where the canvas draws its rows");
-
-    for (const theme of ["light", "dark"] as const) {
-        for (const box of BOXES) {
-            test(`planStatuses (${theme}): ${box.name} wears its tone's ring outside it, a confirmed one its brand ring inside, and a tentative one draws open`, async ({ page }) => {
-                const entry = await openExample(page, "planStatuses", undefined, theme);
-                const { tokens, items } = await drawn(entry, rowSel(box.series, "P03"), `[${box.attribute}]`, READ);
-                const bad: string[] = [];
-                SHOWN.forEach((shown, i) => {
-                    const key = `${box.id}${i + 1}`;
-                    const item = items[key] as Drawn | undefined;
-                    if (item === undefined) { bad.push(`${key}: not drawn`); return; }
-                    const outside = rings(item, false);
-                    const inside = rings(item, true);
-                    if (shown === undefined) {
-                        // No status: no ring outside it.
-                        if (outside.length > 0) bad.push(`${key}: no status, but a ring outside it — ${JSON.stringify(outside)}`);
-                        return;
-                    }
-                    const tone = tokens[TOKENS[shown.tone]]!;
-                    if (shown.ring) {
-                        // Open: no fill, no border, its words in the ink, one ring just inside its edge.
-                        if (item.background !== CLEAR) bad.push(`${key}: an open item filled ${item.background}`);
-                        if (item.borders.some((width) => width !== 0)) bad.push(`${key}: an open item with borders ${item.borders.join(" ")}`);
-                        if (item.color !== tokens.fg) bad.push(`${key}: an open item's words ${item.color}, not the ink ${tokens.fg}`);
-                        if (outside.length > 0 || inside.length !== 1 || inside[0]!.spread !== 1.5 || inside[0]!.color !== tone) {
-                            bad.push(`${key}: an open item's ring is one 1.5px ${tone} inside it — outside ${JSON.stringify(outside)}, inside ${JSON.stringify(inside)}`);
-                        }
-                        return;
-                    }
-                    // One ring outside it, 1.5px in its tone's colour.
-                    if (outside.length !== 1 || outside[0]!.spread !== 1.5 || outside[0]!.color !== tone) {
-                        bad.push(`${key}: its ${shown.tone} ring is one 1.5px ${tone} outside it — ${JSON.stringify(outside)}`);
-                    }
-                    // A confirmed one keeps its inset brand ring inside it; any other state draws none.
-                    const kept = item.state === "appr" ? [{ color: tokens["brand-solid"]!, inset: true, blur: 0, spread: box.confirmed }] : [];
-                    if (JSON.stringify(inside) !== JSON.stringify(kept)) bad.push(`${key} (${item.state}): inside it ${JSON.stringify(inside)}, expected ${JSON.stringify(kept)}`);
-                });
-                expect(bad).toEqual([]);
-            });
-
-            test(`planStatuses (${theme}): on ${box.name} an overlap's ring and a conflict's take its status's place, a danger keeps its own, and an open one keeps its ring inside each`, async ({ page }) => {
-                const entry = await openExample(page, "planStatuses", undefined, theme);
-                const row = rowSel(box.series, "P03");
-                const key = (i: number) => `${box.id}${i + 1}`;
-                const bad: string[] = [];
-
-                // In an overlap pair: the warn ring outside every item but the danger one, which keeps its own.
-                const overlap = await drawn(entry, row, `[${box.attribute}]`, READ, ["data-overlap"]);
-                const warn = overlap.tokens["status-warn"]!;
-                SHOWN.forEach((shown, i) => {
-                    const item = overlap.items[key(i)] as Drawn;
-                    const outside = rings(item, false);
-                    const inside = rings(item, true);
-                    if (shown?.ring === true) {
-                        if (outside.length !== 1 || outside[0]!.color !== warn || inside.length !== 1 || inside[0]!.color !== overlap.tokens[TOKENS[shown.tone]]) {
-                            bad.push(`${key(i)} overlapping, open: its own ring inside and the warn outside — ${JSON.stringify(item.shadows)}`);
-                        }
-                        return;
-                    }
-                    const want = shown?.tone === "danger" ? overlap.tokens["status-neg"]! : warn;
-                    if (outside.length !== 1 || outside[0]!.spread !== 1.5 || outside[0]!.color !== want) {
-                        bad.push(`${key(i)} overlapping: one 1.5px ${want} ring outside it — ${JSON.stringify(outside)}`);
-                    }
-                });
-
-                // Holding a conflict: the conflict's ring and its glow, and no status ring outside; an open one keeps its ring inside.
-                const conflict = await drawn(entry, row, `[${box.attribute}]`, READ, ["data-conflict"]);
-                SHOWN.forEach((shown, i) => {
-                    const item = conflict.items[key(i)] as Drawn;
-                    const outside = item.shadows.filter((shadow) => !shadow.inset);
-                    const ring = outside.filter((shadow) => shadow.blur === 0);
-                    const glow = outside.filter((shadow) => shadow.blur > 0);
-                    if (ring.length !== 1 || ring[0]!.spread !== 1 || ring[0]!.color !== conflict.tokens["status-warn"] || glow.length !== 1) {
-                        bad.push(`${key(i)} conflicted: the conflict's 1px warn ring and its glow — ${JSON.stringify(outside)}`);
-                    }
-                    const inside = rings(item, true);
-                    if (shown?.ring === true && (inside.length !== 1 || inside[0]!.color !== conflict.tokens[TOKENS[shown.tone]])) {
-                        bad.push(`${key(i)} conflicted, open: its own ring inside — ${JSON.stringify(inside)}`);
-                    }
-                });
-
-                // In a context strip the item's words are hidden, an open one's too.
-                const strip = await drawn(entry, row, `[${box.attribute}]`, READ, ["data-ctx"]);
-                SHOWN.forEach((_shown, i) => {
-                    const item = strip.items[key(i)] as Drawn;
-                    if (item.color !== CLEAR) bad.push(`${key(i)} in a context strip: its words ${item.color}, not hidden`);
-                });
-                expect(bad).toEqual([]);
-            });
-        }
-
-        test(`planStatuses (${theme}): a mark's dot is its tone's colour, the brand with no status, and a tentative one an open dot`, async ({ page }) => {
-            const entry = await openExample(page, "planStatuses", undefined, theme);
-            const { tokens, items } = await drawn(entry, rowSel("checks", "P03"), '[role="button"][data-mark]', READ);
+    for (const box of BOXES) {
+        test(`planStatuses: ${box.name} wears its tone's ring outside it, a confirmed one its brand ring inside, and a tentative one draws open @desktop`, async ({ page }) => {
+            const entry = await openExample(page, "planStatuses");
+            const { tokens, items } = await drawn(entry, rowSel(box.series, "P03"), `[${box.attribute}]`, READ);
             const bad: string[] = [];
             SHOWN.forEach((shown, i) => {
-                const key = `c${i + 1}`;
+                const key = `${box.id}${i + 1}`;
                 const item = items[key] as Drawn | undefined;
                 if (item === undefined) { bad.push(`${key}: not drawn`); return; }
+                const outside = rings(item, false);
                 const inside = rings(item, true);
                 if (shown === undefined) {
-                    if (item.background !== tokens["brand-solid"]) bad.push(`${key}: no status, its dot ${item.background}, not the brand ${tokens["brand-solid"]}`);
-                } else if (shown.ring) {
-                    const tone = tokens[TOKENS[shown.tone]]!;
-                    if (item.background !== CLEAR || inside.length !== 1 || inside[0]!.spread !== 1.5 || inside[0]!.color !== tone) {
-                        bad.push(`${key}: an open dot is clear with one 1.5px ${tone} ring inside it — ${item.background}, ${JSON.stringify(item.shadows)}`);
-                    }
-                } else if (item.background !== tokens[TOKENS[shown.tone]] || item.shadows.length > 0) {
-                    bad.push(`${key}: its ${shown.tone} dot ${item.background}, not ${tokens[TOKENS[shown.tone]]}, with ${JSON.stringify(item.shadows)}`);
+                    // No status: no ring outside it.
+                    if (outside.length > 0) bad.push(`${key}: no status, but a ring outside it — ${JSON.stringify(outside)}`);
+                    return;
                 }
+                const tone = tokens[TOKENS[shown.tone]]!;
+                if (shown.ring) {
+                    // Open: no fill, no border, its words in the ink, one ring just inside its edge.
+                    if (item.background !== CLEAR) bad.push(`${key}: an open item filled ${item.background}`);
+                    if (item.borders.some((width) => width !== 0)) bad.push(`${key}: an open item with borders ${item.borders.join(" ")}`);
+                    if (item.color !== tokens.fg) bad.push(`${key}: an open item's words ${item.color}, not the ink ${tokens.fg}`);
+                    if (outside.length > 0 || inside.length !== 1 || inside[0]!.spread !== 1.5 || inside[0]!.color !== tone) {
+                        bad.push(`${key}: an open item's ring is one 1.5px ${tone} inside it — outside ${JSON.stringify(outside)}, inside ${JSON.stringify(inside)}`);
+                    }
+                    return;
+                }
+                // One ring outside it, 1.5px in its tone's colour.
+                if (outside.length !== 1 || outside[0]!.spread !== 1.5 || outside[0]!.color !== tone) {
+                    bad.push(`${key}: its ${shown.tone} ring is one 1.5px ${tone} outside it — ${JSON.stringify(outside)}`);
+                }
+                // A confirmed one keeps its inset brand ring inside it; any other state draws none.
+                const kept = item.state === "appr" ? [{ color: tokens["brand-solid"]!, inset: true, blur: 0, spread: box.confirmed }] : [];
+                if (JSON.stringify(inside) !== JSON.stringify(kept)) bad.push(`${key} (${item.state}): inside it ${JSON.stringify(inside)}, expected ${JSON.stringify(kept)}`);
+            });
+            expect(bad).toEqual([]);
+        });
+
+        test(`planStatuses: on ${box.name} an overlap's ring and a conflict's take its status's place, a danger keeps its own, and an open one keeps its ring inside each @desktop`, async ({ page }) => {
+            const entry = await openExample(page, "planStatuses");
+            const row = rowSel(box.series, "P03");
+            const key = (i: number) => `${box.id}${i + 1}`;
+            const bad: string[] = [];
+
+            // In an overlap pair: the warn ring outside every item but the danger one, which keeps its own.
+            const overlap = await drawn(entry, row, `[${box.attribute}]`, READ, ["data-overlap"]);
+            const warn = overlap.tokens["status-warn"]!;
+            SHOWN.forEach((shown, i) => {
+                const item = overlap.items[key(i)] as Drawn;
+                const outside = rings(item, false);
+                const inside = rings(item, true);
+                if (shown?.ring === true) {
+                    if (outside.length !== 1 || outside[0]!.color !== warn || inside.length !== 1 || inside[0]!.color !== overlap.tokens[TOKENS[shown.tone]]) {
+                        bad.push(`${key(i)} overlapping, open: its own ring inside and the warn outside — ${JSON.stringify(item.shadows)}`);
+                    }
+                    return;
+                }
+                const want = shown?.tone === "danger" ? overlap.tokens["status-neg"]! : warn;
+                if (outside.length !== 1 || outside[0]!.spread !== 1.5 || outside[0]!.color !== want) {
+                    bad.push(`${key(i)} overlapping: one 1.5px ${want} ring outside it — ${JSON.stringify(outside)}`);
+                }
+            });
+
+            // Holding a conflict: the conflict's ring and its glow, and no status ring outside; an open one keeps its ring inside.
+            const conflict = await drawn(entry, row, `[${box.attribute}]`, READ, ["data-conflict"]);
+            SHOWN.forEach((shown, i) => {
+                const item = conflict.items[key(i)] as Drawn;
+                const outside = item.shadows.filter((shadow) => !shadow.inset);
+                const ring = outside.filter((shadow) => shadow.blur === 0);
+                const glow = outside.filter((shadow) => shadow.blur > 0);
+                if (ring.length !== 1 || ring[0]!.spread !== 1 || ring[0]!.color !== conflict.tokens["status-warn"] || glow.length !== 1) {
+                    bad.push(`${key(i)} conflicted: the conflict's 1px warn ring and its glow — ${JSON.stringify(outside)}`);
+                }
+                const inside = rings(item, true);
+                if (shown?.ring === true && (inside.length !== 1 || inside[0]!.color !== conflict.tokens[TOKENS[shown.tone]])) {
+                    bad.push(`${key(i)} conflicted, open: its own ring inside — ${JSON.stringify(inside)}`);
+                }
+            });
+
+            // In an overlap pair and holding a conflict: the conflict's ring takes every other's place — a danger's too.
+            const both = await drawn(entry, row, `[${box.attribute}]`, READ, ["data-overlap", "data-conflict"]);
+            SHOWN.forEach((_shown, i) => {
+                const ring = (both.items[key(i)] as Drawn).shadows.filter((shadow) => !shadow.inset && shadow.blur === 0);
+                if (ring.length !== 1 || ring[0]!.spread !== 1 || ring[0]!.color !== both.tokens["status-warn"]) {
+                    bad.push(`${key(i)} overlapping and conflicted: the conflict's 1px warn ring alone outside it — ${JSON.stringify(ring)}`);
+                }
+            });
+
+            // In a context strip the item's words are hidden, an open one's too.
+            const strip = await drawn(entry, row, `[${box.attribute}]`, READ, ["data-ctx"]);
+            SHOWN.forEach((_shown, i) => {
+                const item = strip.items[key(i)] as Drawn;
+                if (item.color !== CLEAR) bad.push(`${key(i)} in a context strip: its words ${item.color}, not hidden`);
             });
             expect(bad).toEqual([]);
         });
     }
+
+    test("planStatuses: a mark's dot is its tone's colour, the brand with no status, and a tentative one an open dot @desktop", async ({ page }) => {
+        const entry = await openExample(page, "planStatuses");
+        const { tokens, items } = await drawn(entry, rowSel("checks", "P03"), '[role="button"][data-mark]', READ);
+        const bad: string[] = [];
+        SHOWN.forEach((shown, i) => {
+            const key = `c${i + 1}`;
+            const item = items[key] as Drawn | undefined;
+            if (item === undefined) { bad.push(`${key}: not drawn`); return; }
+            const inside = rings(item, true);
+            if (shown === undefined) {
+                if (item.background !== tokens["brand-solid"]) bad.push(`${key}: no status, its dot ${item.background}, not the brand ${tokens["brand-solid"]}`);
+            } else if (shown.ring) {
+                const tone = tokens[TOKENS[shown.tone]]!;
+                if (item.background !== CLEAR || inside.length !== 1 || inside[0]!.spread !== 1.5 || inside[0]!.color !== tone) {
+                    bad.push(`${key}: an open dot is clear with one 1.5px ${tone} ring inside it — ${item.background}, ${JSON.stringify(item.shadows)}`);
+                }
+            } else if (item.background !== tokens[TOKENS[shown.tone]] || item.shadows.length > 0) {
+                bad.push(`${key}: its ${shown.tone} dot ${item.background}, not ${tokens[TOKENS[shown.tone]]}, with ${JSON.stringify(item.shadows)}`);
+            }
+        });
+        expect(bad).toEqual([]);
+    });
 });

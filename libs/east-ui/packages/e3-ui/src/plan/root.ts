@@ -674,19 +674,26 @@ function planEntryId(keyType: EastType): ExprType<FunctionType<[EastType], Strin
  * @param record - The record, bound with its patch mutation
  * @param sourceType - The rows' source: `Dict<K, R>`
  * @returns The commit over `Editing.Types.ChangeSet(R, K)`: the Save with its draft form (#1620)
- * @throws {Error} Naming `record` and the remedy: no bound record, one that is no Dict or is not bound with its patch
- *   mutation, or one holding other entries than the rows'
+ * @throws {Error} Naming `record` and the remedy: no bound record, one bound to be read alone (`Data.bind`), one that is
+ *   no Dict or is not bound with its patch mutation, or one holding other entries than the rows'
  */
 function planRecordApply(record: PlanRecordHandle, sourceType: DictType<EastType, EastType>): ExprType<EastType> | EditingSaveExpr {
     const bound = "Plan: `record` is the record the rows are read from, bound with its patch mutation — Record.bind(record), its record declaring patch: mutation.patch()";
     if (!(record instanceof Expr)) throw new Error(`${bound} — and this one is no bound record`);
     const type = Expr.type(record as unknown as Expr) as EastType;
-    const read = type.type === "Struct" ? (type.fields as Readonly<globalThis.Record<string, EastType>>)["read"] : undefined;
+    const fields = type.type === "Struct" ? type.fields as Readonly<globalThis.Record<string, EastType>> : undefined;
+    const read = fields?.["read"];
     if (read === undefined || read.type !== "Function") throw new Error(`${bound} — and this one is ${printType(type)}`);
     const recordType = read.output as EastType;
     if (!isTypeEqual(recordType, sourceType)) {
         throw new Error("Plan: `record` saves the rows by key, so it is the record they are read from — and this record holds " +
             `${printType(recordType)} where the rows are ${printType(sourceType)}`);
+    }
+    // Its writes: a handle bound to be read alone — Data.bind's — has none. One with no patch door among them is refused by
+    // the commit itself, naming the mutation to declare.
+    const commits = fields?.["commit"];
+    if (commits === undefined || commits.type !== "Struct") {
+        throw new Error(`${bound} — and this one is bound to be read alone, as Data.bind binds a record, which writes nothing`);
     }
     return Record.onApply(record as never, { keyed: true }) as unknown as ExprType<EastType> | EditingSaveExpr;
 }
