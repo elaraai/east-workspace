@@ -21,6 +21,7 @@ import {
 } from '@elaraai/e3-types';
 import type { BackendDamage } from './contract/index.js';
 import { checkHash, checkId } from './errors.js';
+import type { DetachedResult } from './execution/interfaces.js';
 import { openZip } from './package-files.js';
 import type { InMemoryStorage } from './storage/in-memory/InMemoryStorage.js';
 import { executionPath } from './storage/local/localHelpers.js';
@@ -377,6 +378,43 @@ export function createTestRepo(): string {
  */
 export function removeTestRepo(repoPath: string): void {
   removeTempDir(repoPath);
+}
+
+/**
+ * Runs `fn` with environment variables set, and restores each as it was after,
+ * whether `fn` resolves or throws.
+ *
+ * @param vars - Each variable's value while `fn` runs: a string sets it, and
+ *   `undefined` unsets it
+ * @param fn - What runs under them
+ * @returns What `fn` resolves to
+ */
+export async function withEnv<T>(vars: Record<string, string | undefined>, fn: () => Promise<T>): Promise<T> {
+  const prev = Object.keys(vars).map((k) => [k, process.env[k]] as const);
+  for (const [k, v] of Object.entries(vars)) {
+    if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
+  }
+  try {
+    return await fn();
+  } finally {
+    for (const [k, v] of prev) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
+}
+
+/**
+ * A detached run's end, as a runner reports it: the end given, with log tails
+ * of `out\n` and `err\n`, neither cut, unless the end gives its own.
+ *
+ * @param result - The end: its `kind`, the fields that kind carries, and any
+ *   log tail to give instead
+ * @returns The run's end
+ */
+export function ran(result: Partial<DetachedResult> & Pick<DetachedResult, 'kind'>): DetachedResult {
+  return { stdout: 'out\n', stderr: 'err\n', stdoutTruncated: false, stderrTruncated: false, ...result } as DetachedResult;
 }
 
 /**

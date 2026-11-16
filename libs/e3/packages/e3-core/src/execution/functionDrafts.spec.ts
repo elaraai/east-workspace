@@ -42,7 +42,7 @@ import { encodeMutationArgs, readRecordState, recordHistory, recordMutate, resol
 import { InMemoryStorage } from '../storage/in-memory/InMemoryStorage.js';
 import type { StorageBackend } from '../storage/interfaces.js';
 import { LocalStorage } from '../storage/local/index.js';
-import { createTempDir, createTestRepo, removeTempDir, removeTestRepo } from '../test-helpers.js';
+import { createTempDir, createTestRepo, ran, removeTempDir, removeTestRepo } from '../test-helpers.js';
 import { workspaceGetDataset } from '../trees.js';
 import { uuidv7 } from '../uuid.js';
 import { workspaceCreate, workspaceDeploy } from '../workspaces.js';
@@ -111,11 +111,6 @@ function draft(record: string, mutation: string, ...args: Uint8Array[]): Functio
 /** A call of value arguments, with drafts. */
 function request(args: Uint8Array[], drafts: FunctionDraft[], limits: FunctionCallRequest['limits'] = none): FunctionCallRequest {
   return { args: args.map((arg) => variant('value', arg)), runner: none, limits, drafts };
-}
-
-/** A runner's end, its value and its log tails. */
-function ran(result: Partial<DetachedResult> & Pick<DetachedResult, 'kind'>): DetachedResult {
-  return { stdout: 'out\n', stderr: 'err\n', stdoutTruncated: false, stderrTruncated: false, ...result } as DetachedResult;
 }
 
 /** Something a case waits for, and the call that brings it. */

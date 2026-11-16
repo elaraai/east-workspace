@@ -34,7 +34,7 @@ import { workspaceGetDataset, workspaceGetDatasetStatus, workspaceSetDataset } f
 import { packageExport, packageImport } from './package-files.js';
 import { workspaceCreate, workspaceGetPackage } from './workspaces.js';
 import { workspaceDeploy, workspaceExport } from './workspace-files.js';
-import { createTestRepo, removeTestRepo, createTempDir, removeTempDir } from './test-helpers.js';
+import { createTestRepo, removeTestRepo, createTempDir, removeTempDir, withEnv } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
 import { objectPath } from './storage/local/localHelpers.js';
 import { LocalTaskRunner } from './execution/LocalTaskRunner.js';
@@ -79,23 +79,6 @@ function runnerReturning(
       return { ...result, executionId: result.executionId ?? uuidv7() };
     },
   } as unknown as TaskRunner;
-}
-
-/** Runs `fn` with the given env vars set (undefined = unset), restoring after. */
-async function withEnv<T>(vars: Record<string, string | undefined>, fn: () => Promise<T>): Promise<T> {
-  const prev = Object.keys(vars).map((k) => [k, process.env[k]] as const);
-  for (const [k, v] of Object.entries(vars)) {
-    if (v === undefined) delete process.env[k];
-    else process.env[k] = v;
-  }
-  try {
-    return await fn();
-  } finally {
-    for (const [k, v] of prev) {
-      if (v === undefined) delete process.env[k];
-      else process.env[k] = v;
-    }
-  }
 }
 
 /** What a store was asked during a call: an object write's start and end,

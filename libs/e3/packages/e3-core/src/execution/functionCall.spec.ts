@@ -26,7 +26,7 @@ import { packageImport } from '../package-files.js';
 import { workspaceDeploy } from '../workspaces.js';
 import { workspaceGetDatasetHash } from '../trees.js';
 import { InMemoryStorage } from '../storage/in-memory/InMemoryStorage.js';
-import { createTempDir, removeTempDir } from '../test-helpers.js';
+import { createTempDir, ran, removeTempDir } from '../test-helpers.js';
 import { InvalidNameError, PermissionDeniedError, WorkspaceLockError } from '../errors.js';
 import { isUuidv7, uuidv7Generator } from '../uuid.js';
 import { MockTaskRunner } from './MockTaskRunner.js';
@@ -65,11 +65,6 @@ const sameCaller = equalFor(OptionType(StringType));
 /** A call of value arguments, each one's bytes. */
 function request(args: Uint8Array[]): FunctionCallRequest {
   return { args: args.map((arg) => variant('value', arg)), runner: none, limits: none, drafts: [] };
-}
-
-/** A runner's end, its value and its log tails. */
-function ran(result: Partial<DetachedResult> & Pick<DetachedResult, 'kind'>): DetachedResult {
-  return { stdout: 'out\n', stderr: 'err\n', stdoutTruncated: false, stderrTruncated: false, ...result } as DetachedResult;
 }
 
 /** A runner whose run lasts until its signal aborts: a call its cancel stops. */
