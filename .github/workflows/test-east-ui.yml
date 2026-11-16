@@ -677,13 +677,16 @@ jobs:
           E3_UI_INTEGRATION: "1"
         run: make test-group GROUP=queries PART=${{ matrix.part }}/3
 
-  # Lint reads the declarations the checked build wrote (#1466).
+  # Lint reads the declarations the checked build wrote (#1466). Its typed
+  # rules hold the e3 renderers' whole program at once, which since the Plan's
+  # rows became its resources (#1541) needs more than the 4 GiB the other jobs
+  # take: it takes 6 GiB, of the runner's 16.
   lint:
     needs: checked
     name: lint
     runs-on: ubuntu-latest
     env:
-      NODE_OPTIONS: --max-old-space-size=4096
+      NODE_OPTIONS: --max-old-space-size=6144
 
     steps:
       - uses: actions/checkout@v4
