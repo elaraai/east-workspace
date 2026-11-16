@@ -15,7 +15,7 @@ import { statSync, writeFileSync } from 'node:fs';
 import assert from 'node:assert';
 import { join, dirname } from 'node:path';
 import { DateTimeType, East, EastTypeValueType, IntegerType, NullType, PatchType, SortedMap, StringType, compareFor, encodeBeast2For, decodeBeast2For, isTypeValueEqual, printFor, readBeast2Type, sha256Hex, toEastTypeValue, ArrayType, BlobType, DictType, StructType, none, variant, type EastTypeValue, type PatchTypeOf, type ValueTypeOf } from '@elaraai/east';
-import e3, { type MutationBuilder, type PartRunner } from '@elaraai/e3';
+import e3, { type MutationBuilder } from '@elaraai/e3';
 import {
   RecordCommitType, RecordIndexObjectType, RecordStateType, TaskObjectType, decodeCollectionManifest, decodePackageObject, isCollectionManifestType,
 } from '@elaraai/e3-types';
@@ -33,7 +33,7 @@ import { workspaceGetDataset, workspaceGetDatasetStatus, workspaceSetDataset } f
 import { packageExport, packageImport } from './package-files.js';
 import { workspaceCreate, workspaceGetPackage } from './workspaces.js';
 import { workspaceDeploy, workspaceExport } from './workspace-files.js';
-import { createTestRepo, removeTestRepo, createTempDir, removeTempDir, stockRuntimesOnPath, withEnv } from './test-helpers.js';
+import { createTestRepo, removeTestRepo, createTempDir, removeTempDir, stockRunners, withEnv } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
 import { objectPath } from './storage/local/localHelpers.js';
 import { LocalTaskRunner } from './execution/LocalTaskRunner.js';
@@ -2255,18 +2255,8 @@ describe('the mutation delta — cross-runtime parity', () => {
   // executions.
   let realRunner: TaskRunner;
 
-  /** The stock runtimes whose CLIs answer on PATH, east-node first: the
-   *  multi-runtime suites skip rather than fail on a machine without one. */
-  const installed = stockRuntimesOnPath();
-  /** The runtimes to compare, minus any that is not installed. */
-  const runtimes: Array<{ ws: string; runner: PartRunner }> = [
-    { ws: 'node', runner: { runner: { runtime: 'east-node', platforms: ['@elaraai/east-node-std'] } } },
-    ...(installed.includes('east-c') ? [{ ws: 'c', runner: { runner: { runtime: 'east-c' as const, platforms: [] } } }] : []),
-    ...(installed.includes('east-py') ? [{ ws: 'py', runner: { runner: { runtime: 'east-py' as const, platforms: [] } } }] : []),
-  ];
-  const missing = runtimes.length < 2
-    ? `needs east-c or east-py on PATH beside east-node; have ${runtimes.map((r) => r.ws).join(', ')}`
-    : false;
+  /** The runtimes to compare — east-node, and east-c and east-py where installed — and why their parity skips with fewer than two. */
+  const { runtimes, missing } = stockRunners();
 
   beforeEach(async () => {
     repo = createTestRepo();

@@ -33,7 +33,7 @@ import { recordMutate, recordReindex, readRecordState } from './records.js';
 import { packageImport } from './package-files.js';
 import { workspaceCreate } from './workspaces.js';
 import { workspaceDeploy } from './workspace-files.js';
-import { createTestRepo, removeTestRepo, createTempDir, removeTempDir, stockRuntimesOnPath } from './test-helpers.js';
+import { createTestRepo, removeTestRepo, createTempDir, removeTempDir, stockRunners, seededStream } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
 import { LocalTaskRunner } from './execution/LocalTaskRunner.js';
 import type { StorageBackend, TaskRunner } from './index.js';
@@ -79,18 +79,6 @@ function declared(runner?: RunnerConfig) {
 /** The index names, in declaration order. */
 const INDEXES = Object.keys(declared().indexes);
 
-/** A seeded stream of numbers in [0, 1) (mulberry32): the same rows on every run. */
-function stream(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6D2B79F5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
 /** The finest cell of the two centre indexes: 0.01 rounded down to a power of two. */
 const CELL = 2 ** -7;
 /** The half side of their domain, `cell · 2²⁷`. */
@@ -103,7 +91,7 @@ const HALF = 2 ** 20;
  * than half of it, or not finite, which file under the root.
  */
 function seeded(): Racks {
-  const next = stream(1385);
+  const next = seededStream(1385);
   const rows = new SortedMap<string, Rack>(undefined, keyOrder);
   const put = (key: string, place: { x: number; y: number } | undefined, w: number, h: number, zx: number, zy: number, n: number) => {
     rows.set(key, {
@@ -185,17 +173,8 @@ describe('the area index on the real runners', () => {
   let storage: StorageBackend;
   let realRunner: TaskRunner;
 
-  /** The stock runtimes whose CLIs answer on PATH, east-node first. */
-  const installed = stockRuntimesOnPath();
-  /** The runtimes to compare, minus any that is not installed. */
-  const runtimes: Array<{ ws: string; runner: RunnerConfig }> = [
-    { ws: 'node', runner: { runner: { runtime: 'east-node', platforms: ['@elaraai/east-node-std'] } } },
-    ...(installed.includes('east-c') ? [{ ws: 'c', runner: { runner: { runtime: 'east-c' as const, platforms: [] } } }] : []),
-    ...(installed.includes('east-py') ? [{ ws: 'py', runner: { runner: { runtime: 'east-py' as const, platforms: [] } } }] : []),
-  ];
-  const missing = runtimes.length < 2
-    ? `needs east-c or east-py on PATH beside east-node; have ${runtimes.map((r) => r.ws).join(', ')}`
-    : false;
+  /** The runtimes to compare — east-node, and east-c and east-py where installed — and why their parity skips with fewer than two. */
+  const { runtimes, missing } = stockRunners();
 
   beforeEach(async () => {
     repo = createTestRepo();

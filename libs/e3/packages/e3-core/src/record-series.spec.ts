@@ -40,7 +40,7 @@ import { summarizeDelta } from './record-apply.js';
 import { packageImport } from './package-files.js';
 import { workspaceCreate } from './workspaces.js';
 import { workspaceDeploy } from './workspace-files.js';
-import { createTestRepo, removeTestRepo, createTempDir, removeTempDir, stockRuntimesOnPath, withEnv } from './test-helpers.js';
+import { createTestRepo, removeTestRepo, createTempDir, removeTempDir, stockRunners, seededStream, withEnv } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
 import { LocalTaskRunner } from './execution/LocalTaskRunner.js';
 import type { StorageBackend, TaskRunner } from './index.js';
@@ -111,18 +111,6 @@ function declared(runner?: RunnerConfig) {
 const DECLARED = declared();
 const INDEXES = Object.values(DECLARED.indexes);
 
-/** A seeded stream of numbers in [0, 1) (mulberry32): the same rows on every run. */
-function stream(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6D2B79F5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
 /** A job: on one of seven presses, crewed by none, one or two, and scheduled from `start` to `end`, or not yet. */
 function job(n: number, start: bigint | undefined, end: bigint | undefined): Job {
   return {
@@ -151,7 +139,7 @@ const EDGES = [
  * before they start, and some not yet scheduled.
  */
 function seeded(): Jobs {
-  const next = stream(1433);
+  const next = seededStream(1433);
   const rows = new SortedMap<string, Job>(undefined, keyOrder);
   for (let n = 0; n < 1_000; n++) {
     const jitter = BigInt(Math.floor(next() * 96)) * HOUR / 4n;
@@ -217,17 +205,8 @@ describe('the series and summary indexes on the real runners', () => {
   let storage: StorageBackend;
   let realRunner: TaskRunner;
 
-  /** The stock runtimes whose CLIs answer on PATH, east-node first. */
-  const installed = stockRuntimesOnPath();
-  /** The runtimes to compare, minus any that is not installed. */
-  const runtimes: Array<{ ws: string; runner: RunnerConfig }> = [
-    { ws: 'node', runner: { runner: { runtime: 'east-node', platforms: ['@elaraai/east-node-std'] } } },
-    ...(installed.includes('east-c') ? [{ ws: 'c', runner: { runner: { runtime: 'east-c' as const, platforms: [] } } }] : []),
-    ...(installed.includes('east-py') ? [{ ws: 'py', runner: { runner: { runtime: 'east-py' as const, platforms: [] } } }] : []),
-  ];
-  const missing = runtimes.length < 2
-    ? `needs east-c or east-py on PATH beside east-node; have ${runtimes.map((r) => r.ws).join(', ')}`
-    : false;
+  /** The runtimes to compare — east-node, and east-c and east-py where installed — and why their parity skips with fewer than two. */
+  const { runtimes, missing } = stockRunners();
 
   beforeEach(async () => {
     repo = createTestRepo();
@@ -360,7 +339,7 @@ describe('the series and summary indexes on the real runners', () => {
   it('builds the indexes split into pieces as one unit builds them — a summary\'s pieces summed — hash for hash, on each runtime', async () => {
     // Enough jobs to span segments, cut into pieces small enough that a press's
     // week is in several: the merge adds their totals.
-    const next = stream(6000);
+    const next = seededStream(6000);
     const rows = new SortedMap<string, Job>(undefined, keyOrder);
     for (let n = 0; n < 6_000; n++) {
       const start = OCT_5 + BigInt(Math.floor((next() - 0.5) * 120)) * DAY + BigInt(Math.floor(next() * 24)) * HOUR;

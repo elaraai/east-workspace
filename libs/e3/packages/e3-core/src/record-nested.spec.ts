@@ -39,7 +39,7 @@ import assert from 'node:assert';
 import { join, dirname } from 'node:path';
 import {
   DateTimeType, DictType, East, FloatType, IntegerType, OptionType, PatchType, RecursiveType, SortedMap, StringType, StructType,
-  compareFor, decodeBeast2For, diffFor, encodeBeast2For, equalFor, fromEastTypeValue, parseFor, printFor, printType, variant,
+  compareFor, decodeBeast2For, diffFor, encodeBeast2For, equalFor, fromEastTypeValue, printFor, variant,
   type EastType, type ValueTypeOf,
 } from '@elaraai/east';
 import e3, { type PartRunner } from '@elaraai/e3';
@@ -49,7 +49,7 @@ import { DatasetSegments, readManifest } from './dataset-open.js';
 import { packageImport } from './package-files.js';
 import { workspaceCreate } from './workspaces.js';
 import { workspaceDeploy } from './workspace-files.js';
-import { createTestRepo, removeTestRepo, createTempDir, removeTempDir, stockRuntimesOnPath } from './test-helpers.js';
+import { createTestRepo, removeTestRepo, createTempDir, removeTempDir, stockRunners, seededStream, parsedValue, dictText } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
 import { LocalTaskRunner } from './execution/LocalTaskRunner.js';
 import type { StorageBackend, TaskRunner } from './index.js';
@@ -161,30 +161,6 @@ const INDEXES = declared().flatMap((rec) => Object.values(rec.indexes).map((inde
 
 // ── The rows, written as East prints them ────────────────────────────────────
 
-/** A value written as East prints one, read by East's parser. */
-function parsed<T extends EastType>(type: T, text: string): ValueTypeOf<T> {
-  const read = parseFor(type)(text);
-  if (!read.success) throw new Error(`not a ${printType(type)}: ${read.error}`);
-  return read.value;
-}
-
-/** A Dict as East prints one, from its entries. */
-function dict(entries: readonly string[]): string {
-  return entries.length === 0 ? '{:}' : `{${entries.join(', ')}}`;
-}
-
-/** A seeded stream of numbers in [0, 1) (mulberry32): the same rows on every run. */
-function stream(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6D2B79F5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
 /** An instant as East prints one, `days` days and `hours` hours after Monday 5 October 2026. */
 function day(days: number, hours = 0): string {
   const at = new Date(Date.UTC(2026, 9, 5) + days * 86_400_000 + hours * 3_600_000);
@@ -216,15 +192,15 @@ function machineJobs(m: number, draw: () => number): string[] {
 function machine(m: number, draw: () => number, status = 'up', jobs = machineJobs(m, draw)): string {
   const load = Array.from({ length: 30 }, (_, d) => `${day(d)}:${(Math.floor(draw() * 100) / 100).toFixed(2)}`);
   const output = Array.from({ length: 30 }, (_, d) => `${day(d)}:${Math.floor(draw() * 500)}`);
-  return `(name="Press ${m}", site="Site ${m % 3}", status="${status}", jobs=${dict(jobs)}, ` +
-    `stops=${dict([`"s-${m}":(reason="clean", start=${day(4)}, end=${day(4, 2)})`])}, ` +
-    `alarms=${dict([`"a-${m}-0":(code="E1", severity="high", at=${day(3, 5)})`, `"a-${m}-1":(code="E2", severity="low", at=${day(11, 1)})`])}, ` +
-    `load=${dict(load)}, output=${dict(output)})`;
+  return `(name="Press ${m}", site="Site ${m % 3}", status="${status}", jobs=${dictText(jobs)}, ` +
+    `stops=${dictText([`"s-${m}":(reason="clean", start=${day(4)}, end=${day(4, 2)})`])}, ` +
+    `alarms=${dictText([`"a-${m}-0":(code="E1", severity="high", at=${day(3, 5)})`, `"a-${m}-1":(code="E2", severity="low", at=${day(11, 1)})`])}, ` +
+    `load=${dictText(load)}, output=${dictText(output)})`;
 }
 
 /** A hall's member as East prints one: a value each of `days` days. */
 function member(name: string, days: number, draw: () => number): string {
-  return `(name="${name}", load=${dict(Array.from({ length: days }, (_, d) => `${day(d)}:${(Math.floor(draw() * 100) / 100).toFixed(2)}`))})`;
+  return `(name="${name}", load=${dictText(Array.from({ length: days }, (_, d) => `${day(d)}:${(Math.floor(draw() * 100) / 100).toFixed(2)}`))})`;
 }
 
 /** An assembly's parts five deep as East prints them, a job at each depth. */
@@ -232,21 +208,21 @@ function parts(a: number, draw: () => number): string {
   let inner = '{:}';
   for (let depth = 5; depth >= 1; depth--) {
     const offset = Math.floor(draw() * 30);
-    inner = `{"p${depth}":(name="part ${a}.${depth}", jobs=${dict([`"j-${a}-${depth}":${job(day(offset, 6), day(offset + depth, 6))}`])}, parts=${inner})}`;
+    inner = `{"p${depth}":(name="part ${a}.${depth}", jobs=${dictText([`"j-${a}-${depth}":${job(day(offset, 6), day(offset + depth, 6))}`])}, parts=${inner})}`;
   }
   return inner;
 }
 
 /** A measure as East prints one. */
 function measure(label: string, readings: readonly string[], stock: readonly string[], children: readonly string[]): string {
-  return `(label="${label}", readings=${dict(readings)}, stock=${dict(stock)}, children=${dict(children)})`;
+  return `(label="${label}", readings=${dictText(readings)}, stock=${dictText(stock)}, children=${dictText(children)})`;
 }
 
 /** A ledger's measures three levels deep: leaves with readings and stock, one parent holding readings of its own. */
 function measures(l: number, draw: () => number): string {
   const values = (n: number) => Array.from({ length: n }, (_, d) => `${day(d * 2)}:${(Math.floor(draw() * 1000) / 10).toFixed(1)}`);
   const leaf = (name: string) => `"${name}":${measure(name, values(10), values(4), [])}`;
-  return dict([
+  return dictText([
     `"m${l}.1":${measure('plant', [], [], [`"m${l}.1.1":${measure('line', [], [], [leaf(`m${l}.1.1.1`), leaf(`m${l}.1.1.2`)])}`, leaf(`m${l}.1.2`)])}`,
     `"m${l}.2":${measure('kiln', values(5), [], [leaf(`m${l}.2.1`)])}`,
   ]);
@@ -254,13 +230,13 @@ function measures(l: number, draw: () => number): string {
 
 /** The rows the doors first write. */
 function seeded() {
-  const draw = stream(1434);
+  const draw = seededStream(1434);
   return {
-    machines: parsed(Machines, dict(Array.from({ length: 12 }, (_, m) => `"M-${m}":${machine(m, draw)}`))),
-    halls: parsed(Halls, dict(Array.from({ length: 6 }, (_, h) =>
-      `"H-${h}":(name="Hall ${h}", site="Site ${h % 2}", members=${dict(Array.from({ length: 4 }, (_, m) => `"m-${m}":${member(`member ${m}`, 20, draw)}`))})`))),
-    assemblies: parsed(Assemblies, dict(Array.from({ length: 4 }, (_, a) => `"A-${a}":(name="Assembly ${a}", parts=${parts(a, draw)})`))),
-    ledgers: parsed(Ledgers, dict(Array.from({ length: 4 }, (_, l) => `"L-${l}":(name="Ledger ${l}", site="Site ${l % 2}", measures=${measures(l, draw)})`))),
+    machines: parsedValue(Machines, dictText(Array.from({ length: 12 }, (_, m) => `"M-${m}":${machine(m, draw)}`))),
+    halls: parsedValue(Halls, dictText(Array.from({ length: 6 }, (_, h) =>
+      `"H-${h}":(name="Hall ${h}", site="Site ${h % 2}", members=${dictText(Array.from({ length: 4 }, (_, m) => `"m-${m}":${member(`member ${m}`, 20, draw)}`))})`))),
+    assemblies: parsedValue(Assemblies, dictText(Array.from({ length: 4 }, (_, a) => `"A-${a}":(name="Assembly ${a}", parts=${parts(a, draw)})`))),
+    ledgers: parsedValue(Ledgers, dictText(Array.from({ length: 4 }, (_, l) => `"L-${l}":(name="Ledger ${l}", site="Site ${l % 2}", measures=${measures(l, draw)})`))),
   };
 }
 
@@ -291,17 +267,17 @@ function patchOf(type: EastType, before: unknown, next: unknown, way: Way): unkn
 
 /** The issue's writes, one after another, each from the rows the last left. */
 function writes(): Array<{ what: string; record: keyof Rows; next: (rows: Rows) => Rows[keyof Rows] }> {
-  const draw = stream(1435);
+  const draw = seededStream(1435);
   return [
     {
       what: 'a job moved within its tile, across tiles and across levels; one inserted and one deleted', record: 'machines',
       next: (rows) => {
         const next = copied(rows.machines);
-        const jobs = machineJobs(0, stream(1)).slice(1, 6);
+        const jobs = machineJobs(0, seededStream(1)).slice(1, 6);
         jobs[0] = `"j-0-1":${job(day(2, 1), day(5, 1))}`;
         jobs[1] = `"j-0-2":${job(day(10), day(12))}`;
         jobs.push(`"j-0-9":${job(day(20), day(21))}`);
-        next.set('M-0', parsed(Machine, machine(0, stream(7), 'up', jobs)));
+        next.set('M-0', parsedValue(Machine, machine(0, seededStream(7), 'up', jobs)));
         return next;
       },
     },
@@ -309,8 +285,8 @@ function writes(): Array<{ what: string; record: keyof Rows; next: (rows: Rows) 
       what: 'a job moved to another machine, a day\'s load changed, a status changed', record: 'machines',
       next: (rows) => {
         const next = copied(rows.machines);
-        next.set('M-1', parsed(Machine, machine(1, stream(2), 'down', machineJobs(1, stream(3)).slice(1))));
-        next.set('M-2', parsed(Machine, machine(2, stream(4), 'up', [...machineJobs(2, stream(5)), `"j-1-0":${job(day(1, 6), day(1, 14))}`])));
+        next.set('M-1', parsedValue(Machine, machine(1, seededStream(2), 'down', machineJobs(1, seededStream(3)).slice(1))));
+        next.set('M-2', parsedValue(Machine, machine(2, seededStream(4), 'up', [...machineJobs(2, seededStream(5)), `"j-1-0":${job(day(1, 6), day(1, 14))}`])));
         return next;
       },
     },
@@ -318,7 +294,7 @@ function writes(): Array<{ what: string; record: keyof Rows; next: (rows: Rows) 
       what: 'a machine replaced and one deleted', record: 'machines',
       next: (rows) => {
         const next = copied(rows.machines);
-        next.set('M-3', parsed(Machine, machine(3, draw, 'up', [`"j-3-x":${job(day(60), day(61))}`])));
+        next.set('M-3', parsedValue(Machine, machine(3, draw, 'up', [`"j-3-x":${job(day(60), day(61))}`])));
         next.delete('M-4');
         return next;
       },
@@ -327,7 +303,7 @@ function writes(): Array<{ what: string; record: keyof Rows; next: (rows: Rows) 
       what: 'a member\'s load changed, a member added and one removed', record: 'halls',
       next: (rows) => {
         const next = copied(rows.halls);
-        next.set('H-0', parsed(Hall, `(name="Hall 0", site="Site 0", members=${dict([
+        next.set('H-0', parsedValue(Hall, `(name="Hall 0", site="Site 0", members=${dictText([
           `"m-0":${member('member 0', 25, draw)}`, `"m-1":${member('member 1', 20, draw)}`, `"m-9":${member('member 9', 10, draw)}`,
         ])})`));
         return next;
@@ -337,8 +313,8 @@ function writes(): Array<{ what: string; record: keyof Rows; next: (rows: Rows) 
       what: 'a part\'s jobs moved, a part added and one removed', record: 'assemblies',
       next: (rows) => {
         const next = copied(rows.assemblies);
-        next.set('A-0', parsed(Assembly, `(name="Assembly 0", parts=${parts(0, draw)})`));
-        next.set('A-1', parsed(Assembly, `(name="Assembly 1", parts={"q1":(name="q1", jobs=${dict([`"j-q":${job(day(9), day(10))}`])}, parts={:})})`));
+        next.set('A-0', parsedValue(Assembly, `(name="Assembly 0", parts=${parts(0, draw)})`));
+        next.set('A-1', parsedValue(Assembly, `(name="Assembly 1", parts={"q1":(name="q1", jobs=${dictText([`"j-q":${job(day(9), day(10))}`])}, parts={:})})`));
         return next;
       },
     },
@@ -346,7 +322,7 @@ function writes(): Array<{ what: string; record: keyof Rows; next: (rows: Rows) 
       what: 'a leaf measure\'s reading changed, added and removed', record: 'ledgers',
       next: (rows) => {
         const next = copied(rows.ledgers);
-        next.set('L-0', parsed(Ledger, `(name="Ledger 0", site="Site 0", measures=${measures(0, draw)})`));
+        next.set('L-0', parsedValue(Ledger, `(name="Ledger 0", site="Site 0", measures=${measures(0, draw)})`));
         return next;
       },
     },
@@ -359,17 +335,8 @@ describe('the nested series index on the real runners', () => {
   let storage: StorageBackend;
   let realRunner: TaskRunner;
 
-  /** The stock runtimes whose CLIs answer on PATH, east-node first. */
-  const installed = stockRuntimesOnPath();
-  /** The runtimes to compare, minus any that is not installed. */
-  const runtimes: Array<{ ws: string; runner: RunnerConfig }> = [
-    { ws: 'node', runner: { runner: { runtime: 'east-node', platforms: ['@elaraai/east-node-std'] } } },
-    ...(installed.includes('east-c') ? [{ ws: 'c', runner: { runner: { runtime: 'east-c' as const, platforms: [] } } }] : []),
-    ...(installed.includes('east-py') ? [{ ws: 'py', runner: { runner: { runtime: 'east-py' as const, platforms: [] } } }] : []),
-  ];
-  const missing = runtimes.length < 2
-    ? `needs east-c or east-py on PATH beside east-node; have ${runtimes.map((r) => r.ws).join(', ')}`
-    : false;
+  /** The runtimes to compare — east-node, and east-c and east-py where installed — and why their parity skips with fewer than two. */
+  const { runtimes, missing } = stockRunners();
 
   beforeEach(async () => {
     repo = createTestRepo();
@@ -542,9 +509,9 @@ describe('a window of the rail\'s rows beside the nested series index', () => {
   });
 
   it('reads 200 machines through machines_by_site_status without a join, each without its collections, and no object of the record\'s own', async () => {
-    const draw = stream(200);
+    const draw = seededStream(200);
     const names = Array.from({ length: 300 }, (_, m) => `M-${String(m).padStart(3, '0')}`);
-    const machines = parsed(Machines, dict(names.map((name, m) => `"${name}":${machine(m, draw)}`)));
+    const machines = parsedValue(Machines, dictText(names.map((name, m) => `"${name}":${machine(m, draw)}`)));
     const patch = diffFor(Machines)(new SortedMap([], compareFor(StringType)) as never, machines as never);
     const outcome = await recordMutate(storage, runner, repo, 'rail', 'machines', 'patch', [encodeBeast2For(PatchType(Machines))(patch)], { actor: 'cli:test' });
     assert.strictEqual(outcome.kind, 'committed', `machines: ${outcome.kind === 'failed' ? outcome.stderr : outcome.kind}`);
@@ -571,7 +538,7 @@ describe('a window of the rail\'s rows beside the nested series index', () => {
     assert.strictEqual(page.length, 200, 'a window of 200');
 
     // Each machine as the record holds it, its collections empty.
-    const lean = new SortedMap<string, unknown>(names.map((name, m) => [name, parsed(Machine,
+    const lean = new SortedMap<string, unknown>(names.map((name, m) => [name, parsedValue(Machine,
       `(name="Press ${m}", site="Site ${m % 3}", status="up", jobs={:}, stops={:}, alarms={:}, load={:}, output={:})`)]), compareFor(StringType));
     for (const [key, value] of page) {
       const row = (key as { k: string }).k;
@@ -609,10 +576,10 @@ describe('the nested series index\'s span beside it (#1438)', () => {
   });
 
   /** A machine holding the jobs given — each `id: [start, end]`, as East prints an instant — and its load at the instants given. */
-  const machineWith = (jobs: Readonly<Record<string, readonly [string, string]>>, load: readonly string[] = []) => parsed(Machine,
-    `(name="Press", site="North", status="up", jobs=${dict(Object.entries(jobs).map(([id, [start, end]]) =>
+  const machineWith = (jobs: Readonly<Record<string, readonly [string, string]>>, load: readonly string[] = []) => parsedValue(Machine,
+    `(name="Press", site="North", status="up", jobs=${dictText(Object.entries(jobs).map(([id, [start, end]]) =>
       `"${id}":(product="cap", start=.some ${start}, end=.some ${end}, state="planned", sheets=1.0)`))}, stops={:}, alarms={:}, ` +
-    `load=${dict(load.map((at) => `${at}:0.5`))}, output={:})`);
+    `load=${dictText(load.map((at) => `${at}:0.5`))}, output={:})`);
 
   /** Writes the machines through the patch door, from `before` to `next`. */
   async function write(before: ValueTypeOf<typeof Machines>, next: ValueTypeOf<typeof Machines>): Promise<void> {
@@ -646,7 +613,7 @@ describe('the nested series index\'s span beside it (#1438)', () => {
     const empty = new SortedMap([], compareFor(StringType)) as ValueTypeOf<typeof Machines>;
     const jobs = '.step (key="jobs", rest=.end)';
     const load = '.step (key="load", rest=.end)';
-    const seeded = parsed(Machines, `{"M-1":${printFor(Machine)(machineWith({ 'j-1': ['2026-01-10T00:00:00.000', '2026-01-12T00:00:00.000'] }, ['2026-03-02T00:00:00.000']))}, ` +
+    const seeded = parsedValue(Machines, `{"M-1":${printFor(Machine)(machineWith({ 'j-1': ['2026-01-10T00:00:00.000', '2026-01-12T00:00:00.000'] }, ['2026-03-02T00:00:00.000']))}, ` +
       `"M-2":${printFor(Machine)(machineWith({ 'j-2': ['2026-06-05T00:00:00.000', '2026-06-07T00:00:00.000'] }))}}`);
     await write(empty, seeded);
     assert.deepStrictEqual(await spanOf(), {
@@ -654,12 +621,12 @@ describe('the nested series index\'s span beside it (#1438)', () => {
       [load]: ['2026-03-01T00:00:00.000', '2026-03-01T00:00:00.000'],
     }, 'the seeded rows\' months');
     // M-2's job moved to December: the jobs reach December, and June goes.
-    const moved = parsed(Machines, `{"M-1":${printFor(Machine)(machineWith({ 'j-1': ['2026-01-10T00:00:00.000', '2026-01-12T00:00:00.000'] }, ['2026-03-02T00:00:00.000']))}, ` +
+    const moved = parsedValue(Machines, `{"M-1":${printFor(Machine)(machineWith({ 'j-1': ['2026-01-10T00:00:00.000', '2026-01-12T00:00:00.000'] }, ['2026-03-02T00:00:00.000']))}, ` +
       `"M-2":${printFor(Machine)(machineWith({ 'j-2': ['2026-12-07T00:00:00.000', '2026-12-09T00:00:00.000'] }))}}`);
     await write(seeded, moved);
     assert.deepStrictEqual((await spanOf())[jobs], ['2026-01-01T00:00:00.000', '2026-12-01T00:00:00.000'], 'a job moved to December');
     // M-1's job and load taken: the jobs start in December, and the load holds no month.
-    const taken = parsed(Machines, `{"M-1":${printFor(Machine)(machineWith({}))}, "M-2":${printFor(Machine)(machineWith({ 'j-2': ['2026-12-07T00:00:00.000', '2026-12-09T00:00:00.000'] }))}}`);
+    const taken = parsedValue(Machines, `{"M-1":${printFor(Machine)(machineWith({}))}, "M-2":${printFor(Machine)(machineWith({ 'j-2': ['2026-12-07T00:00:00.000', '2026-12-09T00:00:00.000'] }))}}`);
     await write(moved, taken);
     assert.deepStrictEqual(await spanOf(), { [jobs]: ['2026-12-01T00:00:00.000', '2026-12-01T00:00:00.000'] }, 'January\'s job and March\'s load taken');
   });

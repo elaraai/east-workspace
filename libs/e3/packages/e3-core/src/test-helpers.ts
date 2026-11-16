@@ -14,8 +14,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   StringType, carveBeast2, compareFor, encodeBeast2For, encodeBeast2FenceFor, encodeBeast2SegmentsFor, isVariant, openBeast2PagesFor,
-  readBeast2Extents, readBeast2Type, segmentKeyTypeOf, toEastTypeValue, variant, type EastType, type EastTypeValue,
+  parseFor, printType, readBeast2Extents, readBeast2Type, segmentKeyTypeOf, toEastTypeValue, variant, type EastType, type EastTypeValue,
+  type ValueTypeOf,
 } from '@elaraai/east';
+import type { PartRunner } from '@elaraai/e3';
 import {
   COLLECTION_MANIFEST_KIND, encodeCollectionManifest, type CollectionManifestEntry, type ExecutionStatus, type Structure,
 } from '@elaraai/e3-types';
@@ -428,6 +430,78 @@ export function stockRuntimesOnPath(): Array<'east-node' | 'east-c' | 'east-py'>
   const runs = (command: string): boolean =>
     spawnSync(command, ['version'], { stdio: 'ignore', shell: process.platform === 'win32' }).status === 0;
   return ['east-node', ...(['east-c', 'east-py'] as const).filter(runs)];
+}
+
+/** A stock runtime a spec holds to one behaviour on every runtime: the workspace it runs in, and the runner it is given. */
+export interface StockRunner {
+  /** The workspace it runs in: `node`, `c` or `py`. */
+  readonly ws: string;
+  /** The runner its tasks, records' writes and indexes are given. */
+  readonly runner: PartRunner;
+}
+
+/**
+ * The stock runtimes a spec holds to one behaviour on every runtime
+ * ({@link stockRuntimesOnPath}), each with the workspace it runs in and its
+ * runner, and why a comparison of them skips: it needs two, and a machine with
+ * east-node alone skips it rather than fails.
+ *
+ * @returns `runtimes`, east-node first; `missing`, the skip's reason where fewer than two are on PATH, else `false`
+ */
+export function stockRunners(): { readonly runtimes: StockRunner[]; readonly missing: string | false } {
+  const installed = stockRuntimesOnPath();
+  const runtimes: StockRunner[] = [
+    { ws: 'node', runner: { runner: { runtime: 'east-node', platforms: ['@elaraai/east-node-std'] } } },
+    ...(installed.includes('east-c') ? [{ ws: 'c', runner: { runner: { runtime: 'east-c' as const, platforms: [] } } }] : []),
+    ...(installed.includes('east-py') ? [{ ws: 'py', runner: { runner: { runtime: 'east-py' as const, platforms: [] } } }] : []),
+  ];
+  const missing = runtimes.length < 2
+    ? `needs east-c or east-py on PATH beside east-node; have ${runtimes.map((r) => r.ws).join(', ')}`
+    : false;
+  return { runtimes, missing };
+}
+
+/**
+ * A seeded stream of numbers in [0, 1) (mulberry32): the same rows on every
+ * run of a spec that draws them.
+ *
+ * @param seed - The seed
+ * @returns The next number of the stream, each call
+ */
+export function seededStream(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6D2B79F5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/**
+ * A value written as East prints one, read by East's parser: how a spec
+ * writes rows that nest.
+ *
+ * @param type - The value's type
+ * @param text - The value, as East prints it
+ * @returns The value
+ * @throws {Error} When the text is no value of the type, naming the type and why
+ */
+export function parsedValue<T extends EastType>(type: T, text: string): ValueTypeOf<T> {
+  const read = parseFor(type)(text);
+  if (!read.success) throw new Error(`not a ${printType(type)}: ${read.error}`);
+  return read.value;
+}
+
+/**
+ * A Dict as East prints one, from its entries' texts.
+ *
+ * @param entries - Each entry, as East prints it: `key:value`
+ * @returns The Dict's text: `{:}` with no entry
+ */
+export function dictText(entries: readonly string[]): string {
+  return entries.length === 0 ? '{:}' : `{${entries.join(', ')}}`;
 }
 
 /**

@@ -29,14 +29,14 @@ import assert from 'node:assert';
 import { join, dirname } from 'node:path';
 import {
   DictType, East, IntegerType, NullType, OptionType, PatchType, RecursiveType, SetType, SortedMap, StringType, StructType,
-  compareFor, diffFor, encodeBeast2For, equalFor, none, parseFor, printType, some, type EastType, type ValueTypeOf,
+  compareFor, diffFor, encodeBeast2For, equalFor, none, some, type EastType, type ValueTypeOf,
 } from '@elaraai/east';
 import e3, { type PartRunner } from '@elaraai/e3';
 import { recordMutate, recordReindex, readRecordState } from './records.js';
 import { packageImport } from './package-files.js';
 import { workspaceCreate } from './workspaces.js';
 import { workspaceDeploy } from './workspace-files.js';
-import { createTestRepo, removeTestRepo, createTempDir, removeTempDir, stockRuntimesOnPath } from './test-helpers.js';
+import { createTestRepo, removeTestRepo, createTempDir, removeTempDir, stockRunners, parsedValue, dictText } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
 import { LocalTaskRunner } from './execution/LocalTaskRunner.js';
 import type { StorageBackend, TaskRunner } from './index.js';
@@ -101,18 +101,6 @@ const INDEXES = declared().flatMap((rec) => Object.values(rec.indexes).map((inde
 
 // ── The rows, written as East prints them ────────────────────────────────────
 
-/** A value written as East prints one, read by East's parser. */
-function parsed<T extends EastType>(type: T, text: string): ValueTypeOf<T> {
-  const read = parseFor(type)(text);
-  if (!read.success) throw new Error(`not a ${printType(type)}: ${read.error}`);
-  return read.value;
-}
-
-/** A Dict as East prints one, from its entries. */
-function dict(entries: readonly string[]): string {
-  return entries.length === 0 ? '{:}' : `{${entries.join(', ')}}`;
-}
-
 const SERVICES = ['Economy', 'International', 'Priority', 'Standard'] as const;
 /** The carriers a station's parcels go with: none for those no carrier has taken yet. */
 const CARRIERS = [none, some('Fastway'), some('Northline')] as const;
@@ -128,7 +116,7 @@ type CarrierParcels = [ValueTypeOf<typeof Carrier>, bigint];
  * carriers built as East values: East's text reader takes no Option key.
  */
 function stationOf(text: string, carriers: CarrierParcels[]): StationRow {
-  return { ...parsed(Station, text), byCarrier: new SortedMap(carriers, carrierOrder) };
+  return { ...parsedValue(Station, text), byCarrier: new SortedMap(carriers, carrierOrder) };
 }
 
 /** Station `s`: each service but one in five, a shift or three, and its carriers — none at all every seventh station. */
@@ -139,12 +127,12 @@ function station(s: number, site = s % 2 === 0 ? 'North' : 'South'): StationRow 
   ]));
   const shifts = empty ? [] : Array.from({ length: 1 + (s % 3) }, (_, d) => `(day=${d + 1}, shift="${(s + d) % 2 === 0 ? 'early' : 'late'}"):${s + d}`);
   const carriers = empty ? [] : CARRIERS.flatMap((carrier, place): CarrierParcels[] => ((s + place) % 3 === 0 ? [] : [[carrier, BigInt(s * 2 + place)]]));
-  return stationOf(`(site="${site}", parcels=${s}, byService=${dict(services)}, byShift=${dict(shifts)}, byCarrier={:})`, carriers);
+  return stationOf(`(site="${site}", parcels=${s}, byService=${dictText(services)}, byShift=${dictText(shifts)}, byCarrier={:})`, carriers);
 }
 
 /** A part as East prints one. */
 function part(name: string, counts: readonly string[], parts: readonly string[] = []): string {
-  return `(name="${name}", counts=${dict(counts)}, parts=${dict(parts)})`;
+  return `(name="${name}", counts=${dictText(counts)}, parts=${dictText(parts)})`;
 }
 
 /** Assembly `a`'s parts three deep, each part counting its own. */
@@ -159,7 +147,7 @@ function seeded() {
   return {
     stations: new SortedMap<string, StationRow>(Array.from({ length: 24 }, (_, s): [string, StationRow] => [`S-${String(s).padStart(2, '0')}`, station(s)]),
       compareFor(StringType)),
-    parts: parsed(Parts, dict(Array.from({ length: 6 }, (_, a) => `"A-${a}":${assembly(a)}`))),
+    parts: parsedValue(Parts, dictText(Array.from({ length: 6 }, (_, a) => `"A-${a}":${assembly(a)}`))),
   };
 }
 
@@ -178,11 +166,11 @@ function writes(): Array<{ what: string; record: keyof Rows; next: (rows: Rows) 
       record: 'stations',
       next: (rows) => {
         const next = copied(rows.stations);
-        next.set('S-00', stationOf(`(site="North", parcels=40, byService=${dict([
+        next.set('S-00', stationOf(`(site="North", parcels=40, byService=${dictText([
           '"Economy":(parcels=9, waiting=0, flags={})', '"International":(parcels=4, waiting=4, flags={"held","late"})',
-        ])}, byShift=${dict(['(day=1, shift="early"):40'])}, byCarrier={:})`, [[some('Fastway'), 40n]]));
-        next.set('S-01', stationOf(`(site="South", parcels=1, byService=${dict(['"Standard":(parcels=1, waiting=1, flags={})'])}, ` +
-          `byShift=${dict(['(day=2, shift="late"):1', '(day=3, shift="early"):0'])}, byCarrier={:})`, [[none, 1n]]));
+        ])}, byShift=${dictText(['(day=1, shift="early"):40'])}, byCarrier={:})`, [[some('Fastway'), 40n]]));
+        next.set('S-01', stationOf(`(site="South", parcels=1, byService=${dictText(['"Standard":(parcels=1, waiting=1, flags={})'])}, ` +
+          `byShift=${dictText(['(day=2, shift="late"):1', '(day=3, shift="early"):0'])}, byCarrier={:})`, [[none, 1n]]));
         const second = station(2);
         assert.ok([...second.byCarrier.keys()].some((carrier) => carrierEqual(carrier, none)), 'S-02 has parcels no carrier has taken');
         next.set('S-02', { ...second, byCarrier: new SortedMap([...second.byCarrier].flatMap(([carrier, parcels]): CarrierParcels[] =>
@@ -197,8 +185,8 @@ function writes(): Array<{ what: string; record: keyof Rows; next: (rows: Rows) 
       what: 'a part\'s own counts changed, and a part\'s beneath it', record: 'parts',
       next: (rows) => {
         const next = copied(rows.parts);
-        next.set('A-0', parsed(Part, part('assembly 0', ['"bolts":11', '"rivets":3'], [`"m0":${part('middle 0', [], [`"l0":${part('leaf 0', ['"bolts":0'])}`])}`])));
-        next.set('A-1', parsed(Part, assembly(1, 5)));
+        next.set('A-0', parsedValue(Part, part('assembly 0', ['"bolts":11', '"rivets":3'], [`"m0":${part('middle 0', [], [`"l0":${part('leaf 0', ['"bolts":0'])}`])}`])));
+        next.set('A-1', parsedValue(Part, assembly(1, 5)));
         return next;
       },
     },
@@ -211,17 +199,8 @@ describe('the entries index on the real runners', () => {
   let storage: StorageBackend;
   let realRunner: TaskRunner;
 
-  /** The stock runtimes whose CLIs answer on PATH, east-node first. */
-  const installed = stockRuntimesOnPath();
-  /** The East implementations to compare: east-node, and east-c and east-py where installed. */
-  const implementations: Array<{ ws: string; runner: PartRunner }> = [
-    { ws: 'node', runner: { runner: { runtime: 'east-node', platforms: ['@elaraai/east-node-std'] } } },
-    ...(installed.includes('east-c') ? [{ ws: 'c', runner: { runner: { runtime: 'east-c' as const, platforms: [] } } }] : []),
-    ...(installed.includes('east-py') ? [{ ws: 'py', runner: { runner: { runtime: 'east-py' as const, platforms: [] } } }] : []),
-  ];
-  const missing = implementations.length < 2
-    ? `needs east-c or east-py on PATH beside east-node; have ${implementations.map((r) => r.ws).join(', ')}`
-    : false;
+  /** The runtimes to compare — east-node, and east-c and east-py where installed — and why their parity skips with fewer than two. */
+  const { runtimes: implementations, missing } = stockRunners();
 
   beforeEach(async () => {
     repo = createTestRepo();
