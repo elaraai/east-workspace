@@ -77,7 +77,7 @@ export {
     type EditingCollectionOf, EditingBaseTypeFor, EditingChangeTypeFor, EditingChangeSetTypeFor,
     EditingAppliedTypeFor, EditingPatchEventTypeFor, EditingDraftChangeTypeFor,
     applyEditing,
-    EditingWireApplyType, EditingToDraftResultTypeFor, EditingWireToDraftType, buildWireToDraft,
+    EditingWireApplyType, EditingToDraftResultTypeFor, EditingWireToDraftType, buildWireApply, buildWireToDraft, buildWireObserver,
     EditingSessionFields, EditingType,
     EditingRequestStore, buildInlineApply,
     Editing, type EditingNamespace,

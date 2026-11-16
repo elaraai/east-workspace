@@ -19,7 +19,6 @@ import {
     East,
     Expr,
     ArrayType,
-    AsyncFunctionType,
     BlobType,
     BooleanType,
     DictType,
@@ -60,6 +59,8 @@ import {
     buildCarriedRowSource,
     buildKeyedInlineApply,
     buildPagedWindow,
+    buildWireApply,
+    buildWireObserver,
     buildWireToDraft,
     checkedEditingCallback,
     pickActive,
@@ -844,7 +845,7 @@ function planEditing(resolved: ResolvedRowSource, series: PlanSeriesInput, input
     // The author's readiness check, one result per drafted entry, in order. A
     // check that throws refuses its own entry alone.
     const authorReady = input.ready === undefined ? undefined : checkedEditingCallback("Plan", input.ready, [entryType, keyType], EditingReadinessType,
-        "ready", false, "over this canvas's entry and key (R, K), returning Editing.Types.Readiness");
+        "editing.ready", false, "over this canvas's entry and key (R, K), returning Editing.Types.Readiness");
     const ready = authorReady === undefined ? undefined : East.function([ArrayType(PlanReadyEntryType)], ArrayType(EditingReadinessType), ($, batch) => {
         const check = $.const(authorReady as unknown as ExprType<FunctionType<[EastType, EastType], typeof EditingReadinessType>>);
         const parse = $.const(keyOf);
@@ -866,15 +867,15 @@ function planEditing(resolved: ResolvedRowSource, series: PlanSeriesInput, input
         ? (live as unknown as ExprType<StructType<{ read: FunctionType<[], DictType<EastType, EastType>> }>>).read
         : undefined;
     const authorApply = input.onApply === undefined ? undefined : checkedEditingCallback("Plan", input.onApply, [batchType], EditingApplyResultType,
-        "onApply", true, "over Editing.Types.ChangeSet(R, K) — this canvas's entry and key types — returning Editing.Types.ApplyResult");
+        "editing.onApply", true, "over Editing.Types.ChangeSet(R, K) — this canvas's entry and key types — returning Editing.Types.ApplyResult");
     // A paged source is one of the contract's shapes, both of which carry `id`.
     const sourceId: ExprType<StringType> = resolved.kind === "paged"
         ? (resolved.source as unknown as ExprType<StructType<{ id: StringType }>>).id
         : reader !== undefined ? East.print(East.Blob.encodeBeast(reader, "v2"))
             : authorApply !== undefined ? East.print(East.Blob.encodeBeast(authorApply, "v2"))
                 : East.value("readonly-inline", StringType);
-    const typedBatch = batchType as unknown as StructType<Record<never, never>>;
-    type Restate = ExprType<FunctionType<[typeof typedBatch], typeof typedBatch>>;
+    /** A function of the session's batch answering the batch the Save takes. */
+    type Restate = ExprType<EastType>;
     // Over rows read beside their nested series index (#1438), each change's patch restated by key before the author's
     // apply: a collection's whole `replace` the operations it stands for, so a commit names only what it changed.
     const restatement = authorApply === undefined || nested === undefined ? undefined
@@ -887,7 +888,7 @@ function planEditing(resolved: ResolvedRowSource, series: PlanSeriesInput, input
      */
     const doors = (restate: Restate | undefined): { onApply?: ExprType<typeof EditingWireApplyType>; toDraft?: ExprType<typeof EditingWireToDraftType> } => {
         if (input.onUpdate !== undefined && reader !== undefined) {
-            const writer = checkedEditingCallback("Plan", input.onUpdate, [sourceType], NullType, "onUpdate", false,
+            const writer = checkedEditingCallback("Plan", input.onUpdate, [sourceType], NullType, "editing.onUpdate", false,
                 "over the whole Dict<K, R> the batch leaves, returning Null");
             return {
                 onApply: East.value(variant("sync", buildKeyedInlineApply(sourceType, sourceId, reader as unknown as ExprType<FunctionType>,
@@ -895,42 +896,14 @@ function planEditing(resolved: ResolvedRowSource, series: PlanSeriesInput, input
             };
         }
         if (authorApply === undefined) return {};
-        let onApply: ExprType<typeof EditingWireApplyType>;
-        if ((Expr.type(authorApply as unknown as Expr) as { type: string }).type === "AsyncFunction") {
-            const fn = authorApply as unknown as ExprType<AsyncFunctionType<[typeof typedBatch], typeof EditingApplyResultType>>;
-            onApply = East.value(variant("async", East.asyncFunction([BlobType], EditingApplyResultType, ($, blob) => {
-                const apply = $.const(fn);
-                const batch = $.let(blob.decodeBeast(typedBatch, "v2"));
-                return restate === undefined ? apply(batch) : apply(restate(batch));
-            })), EditingWireApplyType);
-        } else {
-            const fn = authorApply as unknown as ExprType<FunctionType<[typeof typedBatch], typeof EditingApplyResultType>>;
-            onApply = East.value(variant("sync", East.function([BlobType], EditingApplyResultType, ($, blob) => {
-                const apply = $.const(fn);
-                const batch = $.let(blob.decodeBeast(typedBatch, "v2"));
-                return restate === undefined ? apply(batch) : apply(restate(batch));
-            })), EditingWireApplyType);
-        }
         // The Save's draft form is over the batch the Save takes — restated by key where the Save's is, so the draft's
         // patch is the patch that Save commits.
-        if (draftForm === undefined) return { onApply };
-        if (restate === undefined) return { onApply, toDraft: buildWireToDraft(batchType, draftForm) };
-        const answerType = (Expr.type(draftForm as unknown as Expr) as FunctionType).output as EastType;
-        const fn = draftForm as unknown as ExprType<FunctionType<[typeof typedBatch], EastType>>;
-        return {
-            onApply,
-            toDraft: buildWireToDraft(batchType, East.function([typedBatch], answerType, ($, batch) => {
-                const draft = $.const(fn);
-                return draft(restate(batch));
-            })),
-        };
+        const onApply = buildWireApply(batchType, authorApply, restate);
+        return draftForm === undefined ? { onApply } : { onApply, toDraft: buildWireToDraft(batchType, draftForm, restate) };
     };
     const authorPatch = input.onPatch === undefined ? undefined : checkedEditingCallback("Plan", input.onPatch, [eventType], NullType,
-        "onPatch", false, "over Plan.Types.PatchEvent(R), returning Null");
-    const onPatch = authorPatch === undefined ? undefined : East.function([BlobType], NullType, ($, blob) => {
-        const observe = $.const(authorPatch as unknown as ExprType<FunctionType<[EastType], NullType>>);
-        $(observe(blob.decodeBeast(eventType, "v2")));
-    });
+        "editing.onPatch", false, "over Plan.Types.PatchEvent(R), returning Null");
+    const onPatch = authorPatch === undefined ? undefined : buildWireObserver(eventType, authorPatch);
 
     const session = ({ onApply, toDraft }: ReturnType<typeof doors>): ExprType<PlanEditingType> => East.value({
         sourceId,

@@ -12,8 +12,8 @@ import {
 } from "@elaraai/east";
 import { Assert, describeEast, TestImpl } from "@elaraai/east-node-std";
 import {
-    Editing, EditingPatchEventTypeWith, EditingSaveTypeFor, EditingSessionFields, EditingToDraftResultTypeFor, EditingWireToDraftType, buildWireToDraft,
-    withEditingSave,
+    Editing, EditingPatchEventTypeWith, EditingSaveTypeFor, EditingSessionFields, EditingToDraftResultTypeFor, EditingWireApplyType, EditingWireToDraftType,
+    buildWireApply, buildWireObserver, buildWireToDraft, checkedEditingCallback, withEditingSave,
 } from "@elaraai/east-ui/internal";
 import * as ex from "./editing.examples.js";
 
@@ -189,6 +189,79 @@ test("buildWireToDraft refuses a function that is not its batch's draft: another
     const saved = East.function([_Batch], Editing.Types.ApplyResult, (_$, _asked) => East.value(variant("applied", { revision: none }), Editing.Types.ApplyResult));
     assert.throws(() => buildWireToDraft(_Batch, saved), refusal);
     assert.throws(() => buildWireToDraft(_Batch, East.value("a draft", StringType)), refusal);
+});
+
+// ── A session's doors over a batch's bytes: its Save, its draft form, its observers ──
+
+/** A restatement of the session's batch as a Save may take it in other words: here, its label alone. */
+const labelOf = East.function([_Batch], StringType, (_$, asked) => asked.label);
+/** An edit of one entry, as a session's batch carries it. */
+const oneEdit = (): BatchValue => batch([{ id: "a", patch: diff(some(cut), some({ ...cut, qty: 3n })), place: none }]);
+const sameResult = equalFor(Editing.Types.ApplyResult);
+
+test("buildWireApply hands the batch's bytes to the Save, sync or async as the Save is", async () => {
+    const answered = (asked: ExprType<typeof _Batch>) => variant("applied", { revision: some(asked.label) });
+    const syncSave = East.function([_Batch], Editing.Types.ApplyResult, (_$, asked) => answered(asked));
+    const asyncSave = East.asyncFunction([_Batch], Editing.Types.ApplyResult, (_$, asked) => answered(asked));
+    const bytes = encodeBeast2For(_Batch)(oneEdit());
+
+    const syncWire = East.compile(East.function([], EditingWireApplyType, (_$) => buildWireApply(_Batch, syncSave)), [])();
+    if (syncWire.type !== "sync") assert.fail("a sync Save is applied synchronously");
+    assert.ok(sameResult(syncWire.value(bytes), variant("applied", { revision: some("Edit jobs") })), "the batch the bytes carry, as the Save is handed it");
+
+    const asyncWire = East.compile(East.function([], EditingWireApplyType, (_$) => buildWireApply(_Batch, asyncSave)), [])();
+    if (asyncWire.type !== "async") assert.fail("an async Save is awaited");
+    assert.ok(sameResult(await asyncWire.value(bytes), variant("applied", { revision: some("Edit jobs") })));
+});
+
+test("buildWireApply restates the batch first where the Save takes it in other words", () => {
+    const byLabel = East.function([StringType], Editing.Types.ApplyResult, (_$, label) => variant("applied", { revision: some(label) }));
+    const wire = East.compile(East.function([], EditingWireApplyType, (_$) => buildWireApply(_Batch, byLabel, labelOf)), [])();
+    if (wire.type !== "sync") assert.fail("a sync Save is applied synchronously");
+    assert.ok(sameResult(wire.value(encodeBeast2For(_Batch)({ ...oneEdit(), label: "Restated" })), variant("applied", { revision: some("Restated") })));
+});
+
+test("buildWireApply refuses a Save of another batch than it is handed, one that answers anything else, and a restatement of another batch", () => {
+    const refusal = /a session's Save must be an East function of the batch it takes, sync or async, answering Editing.Types.ApplyResult/;
+    const answer = variant("applied", { revision: none });
+    const unkeyed = East.function([Editing.Types.ChangeSet(Job)], Editing.Types.ApplyResult, (_$, _asked) => answer);
+    assert.throws(() => buildWireApply(_Batch, unkeyed), refusal);
+    const byLabel = East.function([StringType], Editing.Types.ApplyResult, (_$, _label) => answer);
+    assert.throws(() => buildWireApply(_Batch, byLabel), refusal, "a Save of the restated batch, handed the batch as it is");
+    const drafted = East.function([_Batch], Drafted, (_$, asked) => variant("draft", asked.label));
+    assert.throws(() => buildWireApply(_Batch, drafted), refusal);
+    const ofAnother = East.function([Editing.Types.ChangeSet(Job)], StringType, (_$, asked) => asked.label);
+    assert.throws(() => buildWireApply(_Batch, byLabel, ofAnother), /a session's restatement must be an East function of its batch/);
+});
+
+test("buildWireToDraft restates the batch first where its draft form takes it in other words, as its Save does", () => {
+    const byLabel = East.function([StringType], Drafted, (_$, label) => variant("draft", label));
+    const wire = East.compile(East.function([], EditingWireToDraftType, (_$) => buildWireToDraft(_Batch, byLabel, labelOf)), [])();
+    const drafted = wire(encodeBeast2For(_Batch)({ ...oneEdit(), label: "Restated" }));
+    if (drafted.type !== "draft") assert.fail(`expected a draft, got ${drafted.type}`);
+    assert.equal(decodeBeast2For(StringType)(drafted.value), "Restated");
+    assert.throws(() => buildWireToDraft(_Batch, byLabel), /a session's toDraft must be an East function of its batch/,
+        "a draft form of the restated batch, handed the batch as it is");
+});
+
+test("buildWireObserver hands the event's bytes to the observer, and refuses one that hears another event or answers anything", () => {
+    // The observer is heard through what it throws: it names the event it was handed.
+    const heard = East.function([_Batch], NullType, ($, asked) => { $.error(East.str`heard ${asked.label}`); });
+    const hear = East.compile(East.function([], FunctionType([BlobType], NullType), (_$) => buildWireObserver(_Batch, heard)), [])();
+    assert.throws(() => hear(encodeBeast2For(_Batch)(oneEdit())), /heard Edit jobs/);
+    const refusal = /a session's observer must be an East function of the event it hears, returning Null/;
+    assert.throws(() => buildWireObserver(Editing.Types.ChangeSet(Job), heard), refusal);
+    assert.throws(() => buildWireObserver(_Batch, labelOf), refusal);
+});
+
+test("checkedEditingCallback holds a callback to its signature as East compares types, and names the prop as the author writes it", () => {
+    // A batch type built again is the same type to East: a callback over it is the collection's.
+    const again = East.function([Editing.Types.ChangeSet(Job, StringType)], NullType, (_$, _asked) => null);
+    assert.equal(checkedEditingCallback("Sheet", again, [_Batch], NullType, "onPatch", false, "over this sheet's batch"), again);
+    assert.throws(() => checkedEditingCallback("Sheet", again, [Editing.Types.ChangeSet(Job)], NullType, "onPatch", false, "over this sheet's batch"),
+        /^Error: Sheet: onPatch must be an East function over this sheet's batch$/);
+    assert.throws(() => checkedEditingCallback("Plan", labelOf, [_Batch], NullType, "editing.onApply", true, "over its batch"),
+        /Plan: editing.onApply must be an East sync or async function over its batch/);
 });
 
 // ── A Save that carries its draft form (#1620) ───────────────────────────────

@@ -29,12 +29,10 @@ import {
     type SubtypeExprOrValue,
     type TypeOf,
     ArrayType,
-    AsyncFunctionType,
     BlobType,
     BooleanType,
     DictType,
     East,
-    Expr,
     FloatType,
     FunctionType,
     IntegerType,
@@ -60,6 +58,8 @@ import {
     EditingReadinessType,
     EditingWireApplyType,
     buildInlineApply,
+    buildWireApply,
+    buildWireObserver,
     checkedEditingCallback,
     withEditingSave,
     type EditingSaveExpr,
@@ -801,7 +801,7 @@ function snapGridEditing(
     // The author's readiness check, one result per drafted row, in order. A
     // check that throws refuses its own row alone.
     const authorReady = input.ready === undefined ? undefined : checkedEditingCallback("SnapGrid", input.ready, [entryType],
-        EditingReadinessType, "ready", false, "over one of this SnapGrid's rows (R), returning Editing.Types.Readiness");
+        EditingReadinessType, "editing.ready", false, "over one of this SnapGrid's rows (R), returning Editing.Types.Readiness");
     const ready = authorReady === undefined ? undefined : East.function([ArrayType(SnapGridReadyEntryType)], ArrayType(EditingReadinessType), ($, batch) => {
         const check = $.const(authorReady as unknown as ExprType<FunctionType<[EastType], typeof EditingReadinessType>>);
         return batch.map(($2, item) => {
@@ -822,45 +822,26 @@ function snapGridEditing(
         ? (live as unknown as ExprType<StructType<{ read: FunctionType<[], ArrayType<EastType>> }>>).read
         : undefined;
     const authorApply = input.onApply === undefined ? undefined : checkedEditingCallback("SnapGrid", input.onApply, [batchType],
-        EditingApplyResultType, "onApply", true, "over Editing.Types.ChangeSet(R) — this SnapGrid's row type — returning Editing.Types.ApplyResult");
+        EditingApplyResultType, "editing.onApply", true, "over Editing.Types.ChangeSet(R) — this SnapGrid's row type — returning Editing.Types.ApplyResult");
     const sourceId: ExprType<StringType> = reader !== undefined ? East.print(East.Blob.encodeBeast(reader, "v2"))
         : authorApply !== undefined ? East.print(East.Blob.encodeBeast(authorApply, "v2"))
             : East.value("readonly-inline", StringType);
     let onApply: ExprType<typeof EditingWireApplyType> | undefined;
     if (input.onUpdate !== undefined && reader !== undefined) {
-        const writer = checkedEditingCallback("SnapGrid", input.onUpdate, [rowsType], NullType, "onUpdate", false,
+        const writer = checkedEditingCallback("SnapGrid", input.onUpdate, [rowsType], NullType, "editing.onUpdate", false,
             "over the whole Array<R> the batch leaves, returning Null");
         onApply = East.value(variant("sync", buildInlineApply(entryType, keyField, sourceId,
             reader as unknown as ExprType<FunctionType>, writer as unknown as ExprType<FunctionType>)), EditingWireApplyType);
     } else if (authorApply !== undefined) {
-        const typedBatch = batchType as unknown as StructType<Record<never, never>>;
-        if ((Expr.type(authorApply as unknown as Expr) as { type: string }).type === "AsyncFunction") {
-            const fn = authorApply as unknown as ExprType<AsyncFunctionType<[typeof typedBatch], typeof EditingApplyResultType>>;
-            onApply = East.value(variant("async", East.asyncFunction([BlobType], EditingApplyResultType, ($, blob) => {
-                const apply = $.const(fn);
-                return apply(blob.decodeBeast(typedBatch, "v2"));
-            })), EditingWireApplyType);
-        } else {
-            const fn = authorApply as unknown as ExprType<FunctionType<[typeof typedBatch], typeof EditingApplyResultType>>;
-            onApply = East.value(variant("sync", East.function([BlobType], EditingApplyResultType, ($, blob) => {
-                const apply = $.const(fn);
-                return apply(blob.decodeBeast(typedBatch, "v2"));
-            })), EditingWireApplyType);
-        }
+        onApply = buildWireApply(batchType, authorApply);
     }
     const authorPatch = input.onPatch === undefined ? undefined : checkedEditingCallback("SnapGrid", input.onPatch, [eventType],
-        NullType, "onPatch", false, "over SnapGrid.Types.PatchEvent(R), returning Null");
-    const onPatch = authorPatch === undefined ? undefined : East.function([BlobType], NullType, ($, blob) => {
-        const observe = $.const(authorPatch as unknown as ExprType<FunctionType<[EastType], NullType>>);
-        $(observe(blob.decodeBeast(eventType, "v2")));
-    });
+        NullType, "editing.onPatch", false, "over SnapGrid.Types.PatchEvent(R), returning Null");
+    const onPatch = authorPatch === undefined ? undefined : buildWireObserver(eventType, authorPatch);
     // The rows the canvas draws, heard whole — a pane beside it reads them (#996).
     const authorDrafted = input.onDrafted === undefined ? undefined : checkedEditingCallback("SnapGrid", input.onDrafted, [rowsType],
-        NullType, "onDrafted", false, "over the whole Array<R> the canvas draws, returning Null");
-    const onDrafted = authorDrafted === undefined ? undefined : East.function([BlobType], NullType, ($, blob) => {
-        const hear = $.const(authorDrafted as unknown as ExprType<FunctionType<[EastType], NullType>>);
-        $(hear(blob.decodeBeast(rowsType, "v2")));
-    });
+        NullType, "editing.onDrafted", false, "over the whole Array<R> the canvas draws, returning Null");
+    const onDrafted = authorDrafted === undefined ? undefined : buildWireObserver(rowsType, authorDrafted);
 
     return East.value({
         sourceId,

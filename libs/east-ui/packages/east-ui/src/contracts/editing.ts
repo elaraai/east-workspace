@@ -24,7 +24,7 @@ import {
     ArrayType, AsyncFunctionType, BlobType, DictType, East, EastTypeType, Expr,
     FunctionType, IntegerType, NullType, OptionType, PatchType, SetType, StringType,
     StructType, VariantType, isTypeEqual, none, some, variant,
-    type EastType, type ExprType, type PatchTypeOf, type SubtypeExprOrValue,
+    type BlockBuilder, type EastType, type ExprType, type PatchTypeOf, type SubtypeExprOrValue,
 } from "@elaraai/east";
 
 // ============================================================================
@@ -813,26 +813,41 @@ export const EditingSessionFields = {
 export const EditingType = StructType(EditingSessionFields);
 
 /**
+ * Whether an East type is a function of `inputs` answering `output`, sync or —
+ * where allowed — async: each type compared as East compares types.
+ *
+ * @param type - The type
+ * @param inputs - The parameter types it must take
+ * @param output - The result type it must answer
+ * @param allowAsync - Whether an async function is accepted
+ * @returns Whether it is
+ */
+function isFunctionOf(type: EastType, inputs: readonly EastType[], output: EastType, allowAsync: boolean): boolean {
+    if (type.type !== "Function" && !(allowAsync && type.type === "AsyncFunction")) return false;
+    return type.inputs.length === inputs.length && type.inputs.every((t, i) => isTypeEqual(t, inputs[i]!)) && isTypeEqual(type.output, output);
+}
+
+/**
  * An author's editing callback, held to its exact East signature: a function
  * of `inputs` returning `output` — sync, or async where allowed. A collection
- * checks each callback of its `editing` declaration with it at build, so a
+ * checks each callback of its editing declaration with it at build, so a
  * callback over another entry type fails there, naming itself, rather than
  * when a batch first reaches it.
  *
  * @internal
- * @param label - The collection, for the message (`"Plan"`, `"SnapGrid"`)
+ * @param label - The collection, for the message (`"Plan"`, `"SnapGrid"`, `"Sheet"`)
  * @param value - The author's function
  * @param inputs - Its parameter types
  * @param output - Its result type
- * @param name - The `editing` field, for the message
+ * @param name - The prop as the author writes it, for the message (`"editing.onApply"`, a Sheet's `"onApply"`)
  * @param allowAsync - Whether an async function is accepted
  * @param expected - The signature in words, for the message
  * @returns The function
- * @throws {Error} Naming the field and the signature it must have
+ * @throws {Error} Naming the prop and the signature it must have
  */
 export function checkedEditingCallback(
     label: string,
-    value: ExprType<EastType>,
+    value: unknown,
     inputs: readonly EastType[],
     output: EastType,
     name: string,
@@ -840,34 +855,101 @@ export function checkedEditingCallback(
     expected: string,
 ): ExprType<EastType> {
     const fn = East.value(value as SubtypeExprOrValue<EastType>) as ExprType<EastType>;
-    const type = Expr.type(fn as unknown as Expr) as { type: string; inputs?: EastType[]; output?: EastType };
-    const callable = type.type === "Function" || (allowAsync && type.type === "AsyncFunction");
-    const matches = callable && type.inputs !== undefined && type.inputs.length === inputs.length
-        && type.inputs.every((t, i) => isTypeEqual(t, inputs[i]!))
-        && type.output !== undefined && isTypeEqual(type.output, output);
-    if (!matches) {
-        throw new Error(`${label}: editing.${name} must be an East ${allowAsync ? "sync or async " : ""}function ${expected}`);
+    if (!isFunctionOf(Expr.type(fn as unknown as Expr) as EastType, inputs, output, allowAsync)) {
+        throw new Error(`${label}: ${name} must be an East ${allowAsync ? "sync or async " : ""}function ${expected}`);
     }
     return fn;
 }
 
 /**
+ * The batch type a restatement answers: what a function called over the
+ * restated batch takes.
+ *
+ * @param batchType - The batch type the session encodes
+ * @param restate - The restatement; `undefined` for none
+ * @returns The batch type the function it is handed to takes
+ * @throws {Error} When the restatement is not an East function of the session's batch
+ */
+function restatedBatchType(batchType: EastType, restate: ExprType<EastType> | undefined): EastType {
+    if (restate === undefined) return batchType;
+    const type = Expr.type(restate as unknown as Expr) as EastType;
+    if (type.type !== "Function" || !isFunctionOf(type, [batchType], type.output, false)) {
+        throw new Error("Editing: a session's restatement must be an East function of its batch, answering the batch its Save takes");
+    }
+    return type.output;
+}
+
+/**
+ * The batch a session's function over a batch's bytes hands on: the bytes
+ * decoded at the batch type the session encodes, and restated where the
+ * function it calls takes the batch in other words.
+ *
+ * @typeParam O - The result type of the function over the bytes
+ * @param $ - That function's block
+ * @param payload - The batch's bytes
+ * @param batchType - The batch type the session encodes
+ * @param restate - A function of that batch answering the batch the called function takes; `undefined` where it takes it as it is
+ * @returns The batch to hand on
+ */
+function wireBatch<O extends EastType>($: BlockBuilder<O>, payload: ExprType<BlobType>, batchType: EastType,
+    restate: ExprType<EastType> | undefined): ExprType<EastType> {
+    const batch = payload.decodeBeast(batchType, "v2");
+    if (restate === undefined) return batch;
+    const restated = $.const(restate as unknown as ExprType<FunctionType<[EastType], EastType>>);
+    return restated(batch);
+}
+
+/**
+ * Builds a session's `onApply` over a batch's bytes from the Save it calls:
+ * the batch decoded at the type the session encodes it at — restated first,
+ * where the Save takes it in other words — and handed to the Save, sync or
+ * async as the Save is.
+ *
+ * @internal
+ * @param batchType - The batch type the session encodes: `ChangeSet(E)`, or `ChangeSet(E, K)` for a keyed source
+ * @param apply - The Save: an East function of the batch it takes, sync or async, answering {@link EditingApplyResultType}
+ * @param restate - A function of the session's batch answering the batch the Save takes — a Sheet's keyed batch as its
+ *   author's, a nested Plan's patches restated by key; omitted where the Save takes the session's batch as it is
+ * @returns The apply the wire carries ({@link EditingWireApplyType})
+ * @throws {Error} When `apply` is not an East function of the batch it is handed answering an apply result, or
+ *   `restate` is not one of the session's batch
+ */
+export function buildWireApply(batchType: EastType, apply: ExprType<EastType>, restate?: ExprType<EastType>): ExprType<typeof EditingWireApplyType> {
+    const type = Expr.type(apply as unknown as Expr) as EastType;
+    if (!isFunctionOf(type, [restatedBatchType(batchType, restate)], EditingApplyResultType, true)) {
+        throw new Error("Editing: a session's Save must be an East function of the batch it takes, sync or async, answering Editing.Types.ApplyResult");
+    }
+    const save = apply as unknown as ExprType<FunctionType<[EastType], typeof EditingApplyResultType>>;
+    const body = ($: BlockBuilder<typeof EditingApplyResultType>, payload: ExprType<BlobType>): ExprType<typeof EditingApplyResultType> => {
+        const commit = $.const(save);
+        return commit(wireBatch($, payload, batchType, restate));
+    };
+    if (type.type === "AsyncFunction") {
+        return East.value(variant("async", East.asyncFunction([BlobType], EditingApplyResultType, body)), EditingWireApplyType);
+    }
+    return East.value(variant("sync", East.function([BlobType], EditingApplyResultType, body)), EditingWireApplyType);
+}
+
+/**
  * Builds a session's `toDraft` over a batch's bytes from its typed form: the
- * batch decoded at its type, and the draft it answers encoded at the source's
- * draft type. A refusal crosses as it is.
+ * batch decoded at its type — restated first, where the draft form takes it in
+ * other words, as the Save it is the draft of does — and the draft it answers
+ * encoded at the source's draft type. A refusal crosses as it is.
  *
  * @internal
  * @param batchType - The batch type the session encodes: `ChangeSet(E)`, or `ChangeSet(E, K)` for a keyed source
  * @param toDraft - The typed form: a function of the batch answering {@link EditingToDraftResultTypeFor} of the source's draft type
+ * @param restate - A function of the session's batch answering the batch the draft form takes; omitted where it takes the
+ *   session's batch as it is
  * @returns The function the wire carries ({@link EditingWireToDraftType})
- * @throws {Error} When `toDraft` is not a function of the batch answering a draft result
+ * @throws {Error} When `toDraft` is not a function of the batch it is handed answering a draft result, or `restate` is not
+ *   one of the session's batch
  */
-export function buildWireToDraft(batchType: EastType, toDraft: ExprType<EastType>): ExprType<typeof EditingWireToDraftType> {
+export function buildWireToDraft(batchType: EastType, toDraft: ExprType<EastType>, restate?: ExprType<EastType>): ExprType<typeof EditingWireToDraftType> {
     const type = Expr.type(toDraft as unknown as Expr) as EastType;
     const draftType = type.type === "Function" && type.output.type === "Variant"
         ? (type.output.cases as Record<string, EastType>)["draft"] : undefined;
-    if (type.type !== "Function" || draftType === undefined || type.inputs.length !== 1 || !isTypeEqual(type.inputs[0]!, batchType)
-        || !isTypeEqual(type.output, EditingToDraftResultTypeFor(draftType))) {
+    if (draftType === undefined || !isFunctionOf(type, [restatedBatchType(batchType, restate)], EditingToDraftResultTypeFor(draftType), false)) {
         throw new Error("Editing: a session's toDraft must be an East function of its batch, answering the draft of the source's write or why there is none");
     }
     const answerType = EditingToDraftResultTypeFor(BlobType);
@@ -875,12 +957,34 @@ export function buildWireToDraft(batchType: EastType, toDraft: ExprType<EastType
     return East.function([BlobType], answerType, ($, payload) => {
         const draft = $.const(typed);
         const answer = $.let(variant("unchanged", null), answerType);
-        $.match(draft(payload.decodeBeast(batchType, "v2")), {
+        $.match(draft(wireBatch($, payload, batchType, restate)), {
             draft: ($, made) => { $.assign(answer, variant("draft", East.Blob.encodeBeast(made, "v2"))); },
             rejected: ($, issues) => { $.assign(answer, variant("rejected", issues)); },
             conflict: ($, issues) => { $.assign(answer, variant("conflict", issues)); },
         });
         return answer;
+    });
+}
+
+/**
+ * Builds a session's observer over an event's bytes from the author's: the
+ * bytes decoded at the event's type and handed to the observer — a gesture's
+ * patch event (`onPatch`), the rows a canvas draws (a SnapGrid's `onDrafted`).
+ *
+ * @internal
+ * @param eventType - The type the bytes carry
+ * @param observe - The author's observer: an East function of the event, returning Null
+ * @returns The function the wire carries, over the event's bytes
+ * @throws {Error} When `observe` is not an East function of the event returning Null
+ */
+export function buildWireObserver(eventType: EastType, observe: ExprType<EastType>): ExprType<FunctionType<[BlobType], NullType>> {
+    if (!isFunctionOf(Expr.type(observe as unknown as Expr) as EastType, [eventType], NullType, false)) {
+        throw new Error("Editing: a session's observer must be an East function of the event it hears, returning Null");
+    }
+    const hear = observe as unknown as ExprType<FunctionType<[EastType], NullType>>;
+    return East.function([BlobType], NullType, ($, payload) => {
+        const observer = $.const(hear);
+        $(observer(payload.decodeBeast(eventType, "v2")));
     });
 }
 

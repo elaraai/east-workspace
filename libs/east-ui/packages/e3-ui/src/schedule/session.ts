@@ -24,12 +24,11 @@
  */
 
 import {
-    BlobType, East, Expr, IntegerType, NullType, OptionType, StringType, none, some, toEastTypeValue, variant,
+    BlobType, East, Expr, IntegerType, NullType, OptionType, StringType, none, some, toEastTypeValue,
     type DictType, type EastType, type ExprType, type FunctionType, type StructType, type VariantType,
 } from "@elaraai/east";
 import {
-    EditingApplyResultType, EditingChangeSetTypeFor, EditingDraftFieldType, EditingType, EditingWireApplyType, buildWireToDraft,
-    withEditingSave,
+    EditingChangeSetTypeFor, EditingDraftFieldType, EditingType, buildWireApply, buildWireToDraft, withEditingSave,
 } from "@elaraai/east-ui/internal";
 import { Record } from "../bind/record.js";
 import { ScheduleEntriesType } from "./types.js";
@@ -118,10 +117,8 @@ export function scheduleRecordSession(record: unknown, keyType: EastType, rowTyp
             // The Save and its draft form are bound once, where the session is made: each of the session's two
             // functions holds the one it calls.
             const editing = withEditingSave(save, EditingType, (apply, toDraft) => {
-                const onApply = East.asyncFunction([BlobType], EditingApplyResultType, ($, blob) => {
-                    const commit = $.const(apply as unknown as ExprType<FunctionType<[typeof batchType], typeof EditingApplyResultType>>);
-                    return commit(blob.decodeBeast(batchType, "v2"));
-                });
+                // A record's Save is always the patch door's: `Record.onApply` answered it.
+                if (apply === undefined) throw new Error("Schedule: a record's session saves through the record's patch door");
                 return East.value({
                     sourceId: (handle["binding"] as unknown as { name: ExprType<StringType> }).name,
                     entryType: toEastTypeValue(rowType),
@@ -132,7 +129,7 @@ export function scheduleRecordSession(record: unknown, keyType: EastType, rowTyp
                     snapshot: byKey === undefined ? some(East.Blob.encodeBeast(readAll(), "v2")) : none,
                     readEntry,
                     onPatch: none,
-                    onApply: some(East.value(variant("async", onApply), EditingWireApplyType)),
+                    onApply: some(buildWireApply(batchType, apply)),
                     toDraft: toDraft === undefined ? none : some(buildWireToDraft(batchType, toDraft)),
                 } as never, EditingType) as unknown as ExprType<typeof EditingType>;
             });
