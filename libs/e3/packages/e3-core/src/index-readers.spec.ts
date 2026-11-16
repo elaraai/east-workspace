@@ -385,8 +385,11 @@ describe('a reader for each kind of index, on every runner', { timeout: 900_000,
     await packageImport(storage, repo, zip);
     await workspaceCreate(storage, repo, WS);
     await workspaceDeploy(storage, repo, WS, 'pressroom', '1.0.0', { runner });
+    // Each seed is one run: the reduce that makes the rows, and every index of the record kept beside it. Its time is
+    // the machine's, as a read's is, so it runs under the limit this spec's reads name, not a mutation's default.
+    const limits = { timeoutMs: LIMITS.timeoutMs, maxLogBytes: LIMITS.maxLogBytes };
     for (const name of ['jobs', 'lines']) {
-      const seeded = await recordMutate(storage, runner, repo, WS, name, 'seed', [arg(DateTimeType, FIRST)], { actor: 'ada@example.com' });
+      const seeded = await recordMutate(storage, runner, repo, WS, name, 'seed', [arg(DateTimeType, FIRST)], { actor: 'ada@example.com', limits });
       assert.equal(seeded.kind, 'committed', JSON.stringify(seeded));
     }
   });
