@@ -9,6 +9,7 @@ import { Box, Button, chakra, useSlotRecipe } from "@chakra-ui/react";
 import { some } from "@elaraai/east";
 import { BannerView, EastChakraComponent, FieldForm, useTrackedEvaluation, type BuilderFrameDock, type EditIssue } from "@elaraai/east-ui-components";
 import { PlaceholderShape } from "@elaraai/east-ui-components/internal";
+import { breachTone } from "../shared/bounds.js";
 import { FOCUS_HOME_PROPS, useFocusHome } from "../shared/focus-home.js";
 import { useFieldAsk } from "../shared/schedule/field-ask.js";
 import { ScheduleInspectorHead } from "../shared/schedule/inspector-head.js";
@@ -182,7 +183,7 @@ function OneAssignment({ props, id, assignment: a }: { props: Args; id: string; 
     const refused = refusedFields(refusals.map(r => r.issue));
     // A bound its row breaks (#1585), said in the tone its Save stands in: as stored it warns; its change refused, holding
     // Save, it is an error.
-    const breaches = refusals.length > 0 ? "error" : "warn";
+    const breaches = breachTone(refusals);
     return <><ScheduleInspectorHead styles={props.styles} kind={{ name: `Duty · ${groupName(props.value, a.place.group)} · ${props.value.shifts.find(s => s.key === a.place.shift)?.label}`, icon: a.who.type === "request" ? "building" : "user" }} title={assignmentName(props.value, a)}
         when={`${position === undefined ? "" : `${position.label} · `}${props.format.weekdayDate(dayOfSlot(props.start, a.place))}${person?.trainer ? " · trainer" : person?.trainee ? " · trainee" : ""}`} status={drawnStatus(state, removed ? "warning" : "neutral", changed)} pending={changed ? baseline === undefined ? "new" : "pending" : undefined} home />
         {!removed && refusals.length > 0 && <Box css={props.styles.section} data-roster-refusals=""><BannerView status="warning" title="Not saved yet" description={refusalsText(refusals.map(r => r.issue), props.value.duty.kind.fields)} /></Box>}

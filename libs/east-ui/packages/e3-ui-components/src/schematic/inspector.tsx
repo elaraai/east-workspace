@@ -142,6 +142,7 @@ import {
     EastChakraComponent, FieldForm, getSomeorUndefined, useTrackedEvaluation, type BuilderFrameDock, type FieldOption, type Origin,
 } from "@elaraai/east-ui-components";
 import { PlaceholderShape, type PlaceholderKind } from "@elaraai/east-ui-components/internal";
+import { breachTone } from "../shared/bounds.js";
 import { FOCUS_HOME_PROPS, useFocusHome } from "../shared/focus-home.js";
 import { useFieldAsk } from "../shared/schedule/field-ask.js";
 import { KeySetButton, useKeyDraft } from "../shared/schedule/key-draft.js";
@@ -672,7 +673,7 @@ function useSide(props: ViewProps, ref: SchematicRef, name: string, side: Record
     // Save stands in: as stored it warns; its change refused, it is an error. And each field a refusal names says the
     // refusal's words under it (ruled 13 Nov 2026): Details lists no issue, so the field says why it is named.
     const refusals = entryRefusals(editing.schedule.sessions, record, ref.key);
-    const breaches: "warn" | "error" = refusals.length > 0 ? "error" : "warn";
+    const breaches = breachTone(refusals);
     const issues = refusedFields(refusals);
     // The field an issue gone to names, from the toolbar or from Issues: it takes the keyboard, the inspector opened at
     // Details. A freshly selected entity's forms are placeholders until its rows are read — a drafted row's drawn at once —

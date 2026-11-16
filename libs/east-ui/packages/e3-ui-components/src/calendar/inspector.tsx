@@ -31,6 +31,7 @@ import { BlobType, decodeBeast2For, equalFor, fromEastTypeValue, isValueOf, isVa
 import { Fields, type FieldSpecValue } from "@elaraai/east-ui";
 import { Schedule } from "@elaraai/e3-ui/internal";
 import { BannerView, EastChakraComponent, FieldForm, useFormatters, useTrackedEvaluation, type BuilderFrameDock, type TrackedResult } from "@elaraai/east-ui-components";
+import { breachTone } from "../shared/bounds.js";
 import { FOCUS_HOME_PROPS, useFocusHome } from "../shared/focus-home.js";
 import { ScheduleInspectorHead } from "../shared/schedule/inspector-head.js";
 import { EMPTY_SCHEDULE_DRAFTS, heldRowOf, type ScheduleHeldRows } from "../shared/schedule/editing.js";
@@ -208,7 +209,7 @@ function OneEvent({ event, value, shown, styles, commands, storageKey, range, ov
     const issues = session === undefined || session.readiness.type !== "ready" ? refusals : session.issues.filter(issue => stringEqual(issue.entry, item.key));
     // A bound its row breaks (#1585), said in the tone its Save stands in: as stored it warns; its change refused, holding
     // Save, it is an error.
-    const breaches = refusals.length > 0 ? "error" : "warn";
+    const breaches = breachTone(refusals);
     // Each field an issue names, ringed in whichever of its forms draws it, the issue's words under it.
     const refused = refusedFields(issues);
     // The field an issue or a warning gone to names takes the keyboard, in whichever of its forms draws it.

@@ -113,6 +113,7 @@ import {
     type BuilderFrameDock, type FieldOption,
 } from "@elaraai/east-ui-components";
 import { FrameDrawer, PlaceholderShape } from "@elaraai/east-ui-components/internal";
+import { breachTone } from "../../shared/bounds.js";
 import { heldRowOf } from "../../shared/schedule/editing.js";
 import { useFieldAsk } from "../../shared/schedule/field-ask.js";
 import { removePlanEvents, type PlanEventChange, type PlanEventEditing } from "../edit/events.js";
@@ -754,7 +755,7 @@ function OneEvent({ event, keys, words, styles, counts, chrome, selection }: One
     };
     // A bound its row breaks (#1585), said in the tone its Save stands in: a row as stored warns, holding no Save; a
     // changed one's is refused, holding Save — an error.
-    const breaches = refusals.length > 0 ? "error" : "warn";
+    const breaches = breachTone(refusals);
     const focus = useFieldAsk(kind.key, item.key);
     // A field asked of it that a role reads takes the keyboard on its fact, which is its line in Details: the form leaves
     // the field to the facts, and draws no control of it to take it.

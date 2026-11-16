@@ -11,7 +11,9 @@
  * (`breachIssue`), which a builder wording its own issues knows for one
  * (`breachOf`). A builder reads each row it draws through `rowBreaches`:
  * the row wears the warn ring, stored or changed, and a stored row's breach
- * is a warning that holds no Save.
+ * is a warning that holds no Save. Its form says a breach in the tone the
+ * row's Save stands in (`breachTone`): a warning while nothing holds it, an
+ * error once a refusal of the row's entry does.
  *
  * @packageDocumentation
  */
@@ -57,6 +59,19 @@ export function breachIssue(breach: FieldBreach, entry: string): EditIssue {
  */
 export function breachOf(issue: EditIssue): FieldBreach | undefined {
     return raised.get(issue);
+}
+
+/**
+ * The tone a form says a bound its row breaks in (#1585), as the row's Save stands: an error while a refusal of the
+ * row's entry holds Save — its change refused — and a warning while none does: the row as stored, or changed and
+ * ready. Every builder's form says a breach in it (`FieldForm`'s `breaches`), from the entry's refusals in whatever
+ * shape the builder holds them.
+ *
+ * @param refusals - The entry's refusals holding Save
+ * @returns `"error"` while there is one; `"warn"` while there is none
+ */
+export function breachTone(refusals: readonly unknown[]): "warn" | "error" {
+    return refusals.length > 0 ? "error" : "warn";
 }
 
 /** No breach: a row its form's bounds hold, or a form holding none. */
