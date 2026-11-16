@@ -127,7 +127,8 @@ import {
     PlanEditingType,
 } from "./types.js";
 import { PlanRootType } from "./ir.js";
-import { PlanCandidateType, PlanCanDropType, PlanItemRefType } from "./candidate.js";
+import { PlanCandidateType, PlanCanConnectType, PlanCanDropType, PlanConnectCandidateType, PlanItemRefType } from "./candidate.js";
+import { planLinks } from "./link-kinds.js";
 import {
     createAxis,
     at,
@@ -335,8 +336,14 @@ export {
     type PlanTagType,
     type PlanProps,
     type PlanRowsItem,
+    type PlanLinkList,
+    type PlanLinksProp,
 } from "./plan.js";
-export { PlanCandidateType, PlanCanDropType, PlanItemRefType };
+export { PlanCandidateType, PlanCanConnectType, PlanCanDropType, PlanConnectCandidateType, PlanItemRefType };
+export {
+    PlanLinkEndsType, PlanLinkEntryType, PlanLinkKindType, PlanLinkRolesType, isPlanLinks, planLinks,
+    type PlanLinkEnd, type PlanLinkQuantity, type PlanLinks, type PlanLinksConfig, type PlanLinksRecord,
+} from "./link-kinds.js";
 export { createOver, type PlanOverRows } from "./over.js";
 export { createEventRef, eventRefKind } from "./refs.js";
 export {
@@ -611,6 +618,11 @@ export interface PlanNamespace extends PlanTagType {
     mark: typeof createEventMark;
     /** Builds one link edge of the canvas's link graph (`<Plan links>`). */
     link: typeof createLink;
+    /**
+     * Declares a kind of link over the app's record, each row a link between two events (#1541, U10) —
+     * `links={{ feed: Plan.links(record, { name, icon, from: { field, of }, to: { field, of }, quantity? }) }}`.
+     */
+    links: typeof planLinks;
     /** Non-null mark-kind builders (`Plan.markKind.decision(applied)`). */
     markKind: typeof markKind;
     /** Wraps heat cells into the `heat` arm (scale + warn threshold). */
@@ -743,6 +755,8 @@ export interface PlanNamespace extends PlanTagType {
         ExpandAxis: typeof PlanExpandAxisType;
         /** What a drop would do — what a Plan's `canDrop` is asked, whichever way the drop is made (#1541, U7). */
         Candidate: typeof PlanCandidateType;
+        /** The link a Connect would draw — what a Plan's `canConnect` is asked: its link kind and its two events (#1541, U10). */
+        ConnectCandidate: typeof PlanConnectCandidateType;
         /** A data series' item, as a candidate names one: its row's id's text, and its key there. */
         ItemRef: typeof PlanItemRefType;
         /** A gesture a draft is made by — a card dropped on a row (#880), or an element moved or resized (#825). */
@@ -852,6 +866,7 @@ const PLAN_MEMBERS = {
     chip: createChip,
     mark: createEventMark,
     link: createLink,
+    links: planLinks,
     markKind,
     heatCells: createHeatCells,
     weightCells: createWeightCells,
@@ -917,6 +932,7 @@ const PLAN_MEMBERS = {
         Expand: PlanExpandType,
         ExpandAxis: PlanExpandAxisType,
         Candidate: PlanCandidateType,
+        ConnectCandidate: PlanConnectCandidateType,
         ItemRef: PlanItemRefType,
         Gesture: PlanGestureType,
         Drop: PlanDropType,

@@ -21,7 +21,7 @@ test("every Plan @example is the verbatim fn of a tested example, imported from 
     const { carries, failures } = docExamples("plan");
     assert.ok(carries("index.ts", "planOrdinalAxis"), "<Plan> carries an @example: a canvas of data and its series");
     assert.ok(carries("index.ts", "planEvents"), "<Plan> carries an @example: the smallest Plan of event kinds");
-    assert.ok(carries("refs.ts", "planEventLinks") && carries("over.ts", "planEventLinks"), "Plan.eventRef and Plan.over carry an @example: links between events, and rows over a dataset");
+    assert.ok(carries("link-kinds.ts", "planEventLinks") && carries("over.ts", "planEventLinks"), "Plan.links and Plan.over carry an @example: a link kind over a record, and rows over a dataset");
     assert.ok(carries("library.ts", "planEvents"), "Plan.library.tab carries an @example: the library pane's tabs, an author's own among them");
     assert.deepEqual(failures, []);
 });

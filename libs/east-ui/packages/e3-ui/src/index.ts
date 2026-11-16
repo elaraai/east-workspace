@@ -173,6 +173,7 @@ export { DataSourceType, type BoundSource } from './bind/sources.js';
 export {
     Plan, type PlanNamespace, type PlanProps, type PlanConfig, type PlanRowsItem, type PlanOverRows,
     type PlanLibraryTab, type PlanLibraryTabConfig, type PlanTabCreateConfig, type PlanNestedItemsOf,
+    type PlanLinkEnd, type PlanLinkQuantity, type PlanLinks, type PlanLinksConfig, type PlanLinksProp, type PlanLinksRecord,
 } from './plan/index.js';
 
 // The Sheet (#1179, #1216): the planning spreadsheet a solution mounts,

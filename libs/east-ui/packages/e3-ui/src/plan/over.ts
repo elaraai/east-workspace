@@ -82,7 +82,7 @@ export type PlanOverRows<K extends PlanAxisKindLiteral = never> = PlanKinded<Exp
  * @example
  * ```tsx
  * // .tsx file with the `@jsxImportSource @elaraai/e3-ui` pragma
- * import { DateTimeType, DictType, East, FloatType, NullType, OptionType, SortedMap, StringType, StructType, VariantType, compareFor, some, variant } from "@elaraai/east";
+ * import { DateTimeType, DictType, East, FloatType, NullType, OptionType, SortedMap, StringType, StructType, VariantType, compareFor, none, some, variant } from "@elaraai/east";
  * import { EventStateType, Format, Reactive, UIComponentType } from "@elaraai/east-ui";
  * import { Data, Plan, Record, Schedule } from "@elaraai/e3-ui";
  * import e3 from "@elaraai/e3";
@@ -193,7 +193,36 @@ export type PlanOverRows<K extends PlanAxisKindLiteral = never> = PlanKinded<Exp
  *         patch: mutation.patch(),
  *     }),
  * });
- *
+ * export const PrintFlow = StructType({
+ *     from: VariantType({ plate: StringType, job: StringType, binding: StringType }),
+ *     to: VariantType({ job: StringType, binding: StringType, delivery: StringType }),
+ *     sheets: OptionType(FloatType),
+ * });
+ * export const planLinkFlows = e3.record("plan_link_flows", DictType(StringType, PrintFlow), {
+ *     initial: new Map([
+ *         ["plates", { from: variant("plate", "P-01"), to: variant("job", "J-2001"), sheets: none }],
+ *         ["covers", { from: variant("job", "J-2001"), to: variant("job", "J-2013"), sheets: some(12.0) }],
+ *         ["card", { from: variant("job", "J-2020"), to: variant("job", "J-2005"), sheets: some(30.0) }],
+ *         ["inserts", { from: variant("job", "J-2003"), to: variant("job", "J-2016"), sheets: some(96.0) }],
+ *         ["report-covers", { from: variant("job", "J-2022"), to: variant("job", "J-2009"), sheets: some(48.0) }],
+ *         ["seed-prints", { from: variant("job", "J-2014"), to: variant("job", "J-2017"), sheets: some(72.0) }],
+ *         ["tags", { from: variant("job", "J-2006"), to: variant("job", "J-2007"), sheets: some(20.0) }],
+ *         ["pads", { from: variant("job", "J-2010"), to: variant("job", "J-2011"), sheets: some(36.0) }],
+ *         ["proofs", { from: variant("job", "J-2008"), to: variant("job", "J-2015"), sheets: some(16.0) }],
+ *         ["proof-sheets", { from: variant("job", "J-2012"), to: variant("job", "J-2004"), sheets: some(8.0) }],
+ *         ["tickets", { from: variant("job", "J-2019"), to: variant("job", "J-2023"), sheets: some(60.0) }],
+ *         ["sections", { from: variant("job", "J-2021"), to: variant("binding", "B-01"), sheets: some(40.0) }],
+ *         ["sections-more", { from: variant("job", "J-2021"), to: variant("binding", "B-02"), sheets: some(44.0) }],
+ *         ["folded", { from: variant("binding", "B-02"), to: variant("binding", "B-03"), sheets: some(40.0) }],
+ *         ["books", { from: variant("binding", "B-03"), to: variant("delivery", "D-01"), sheets: some(36.0) }],
+ *         ["posters", { from: variant("job", "J-2002"), to: variant("delivery", "D-02"), sheets: some(24.0) }],
+ *         ["book-blocks", { from: variant("job", "J-2018"), to: variant("binding", "B-04"), sheets: some(54.0) }],
+ *     ]),
+ *     mutations: (mutation) => ({
+ *         // The flows' patch door: a flow drawn with the Connect tool, edited or removed saves through it.
+ *         patch: mutation.patch(),
+ *     }),
+ * });
  * const planEventLinks = East.function([], UIComponentType, (_$) => (
  *     <Reactive>{$ => {
  *         const works = $.let(Record.bind(planLinkWorks, []));
@@ -201,6 +230,7 @@ export type PlanOverRows<K extends PlanAxisKindLiteral = never> = PlanKinded<Exp
  *         const jobs = $.let(Record.bind(planLinkCaseJobs));
  *         const bindings = $.let(Record.bind(planLinkBindings));
  *         const deliveries = $.let(Record.bind(planLinkDeliveries));
+ *         const flows = $.let(Record.bind(planLinkFlows));
  *         const stock = $.let(Data.bind(planLinkStock));
  *         const axis = $.let(Plan.axis({
  *             window: { min: new Date("2026-10-05T00:00:00Z"), max: new Date("2026-11-02T00:00:00Z") },
@@ -254,27 +284,18 @@ export type PlanOverRows<K extends PlanAxisKindLiteral = never> = PlanKinded<Exp
  *                         }),
  *                     ]),
  *                 ]}
- *                 // Each quantity in thousands of sheets, its third of the family's largest setting the link's
- *                 // weight; the plates' link carries none.
- *                 links={[
- *                     Plan.link({ key: "plates", from: Plan.eventRef("plate", "P-01"), to: Plan.eventRef("job", "J-2001") }),
- *                     Plan.link({ key: "covers", from: Plan.eventRef("job", "J-2001"), to: Plan.eventRef("job", "J-2013"), quantity: Plan.quantity(12, { unit: "k sheets" }) }),
- *                     Plan.link({ key: "card", from: Plan.eventRef("job", "J-2020"), to: Plan.eventRef("job", "J-2005"), quantity: Plan.quantity(30, { unit: "k sheets" }) }),
- *                     Plan.link({ key: "inserts", from: Plan.eventRef("job", "J-2003"), to: Plan.eventRef("job", "J-2016"), quantity: Plan.quantity(96, { unit: "k sheets" }) }),
- *                     Plan.link({ key: "report-covers", from: Plan.eventRef("job", "J-2022"), to: Plan.eventRef("job", "J-2009"), quantity: Plan.quantity(48, { unit: "k sheets" }) }),
- *                     Plan.link({ key: "seed-prints", from: Plan.eventRef("job", "J-2014"), to: Plan.eventRef("job", "J-2017"), quantity: Plan.quantity(72, { unit: "k sheets" }) }),
- *                     Plan.link({ key: "tags", from: Plan.eventRef("job", "J-2006"), to: Plan.eventRef("job", "J-2007"), quantity: Plan.quantity(20, { unit: "k sheets" }) }),
- *                     Plan.link({ key: "pads", from: Plan.eventRef("job", "J-2010"), to: Plan.eventRef("job", "J-2011"), quantity: Plan.quantity(36, { unit: "k sheets" }) }),
- *                     Plan.link({ key: "proofs", from: Plan.eventRef("job", "J-2008"), to: Plan.eventRef("job", "J-2015"), quantity: Plan.quantity(16, { unit: "k sheets" }) }),
- *                     Plan.link({ key: "proof-sheets", from: Plan.eventRef("job", "J-2012"), to: Plan.eventRef("job", "J-2004"), quantity: Plan.quantity(8, { unit: "k sheets" }) }),
- *                     Plan.link({ key: "tickets", from: Plan.eventRef("job", "J-2019"), to: Plan.eventRef("job", "J-2023"), quantity: Plan.quantity(60, { unit: "k sheets" }) }),
- *                     Plan.link({ key: "sections", from: Plan.eventRef("job", "J-2021"), to: Plan.eventRef("binding", "B-01"), quantity: Plan.quantity(40, { unit: "k sheets" }) }),
- *                     Plan.link({ key: "sections-more", from: Plan.eventRef("job", "J-2021"), to: Plan.eventRef("binding", "B-02"), quantity: Plan.quantity(44, { unit: "k sheets" }) }),
- *                     Plan.link({ key: "folded", from: Plan.eventRef("binding", "B-02"), to: Plan.eventRef("binding", "B-03"), quantity: Plan.quantity(40, { unit: "k sheets" }) }),
- *                     Plan.link({ key: "books", from: Plan.eventRef("binding", "B-03"), to: Plan.eventRef("delivery", "D-01"), quantity: Plan.quantity(36, { unit: "k sheets" }) }),
- *                     Plan.link({ key: "posters", from: Plan.eventRef("job", "J-2002"), to: Plan.eventRef("delivery", "D-02"), quantity: Plan.quantity(24, { unit: "k sheets" }) }),
- *                     Plan.link({ key: "book-blocks", from: Plan.eventRef("job", "J-2018"), to: Plan.eventRef("binding", "B-04"), quantity: Plan.quantity(54, { unit: "k sheets" }) }),
- *                 ]}
+ *                 // The works' flows, one link kind over a record of its own (#1541, U10): each row a link, its ends
+ *                 // the keys of the events it joins — a case for each kind of event an end may name. Each quantity is
+ *                 // in thousands of sheets, its third of the family's largest setting the link's weight; the plates'
+ *                 // flow carries none. A flow is drawn with the Connect tool, and saved with the Plan's other drafts.
+ *                 links={{
+ *                     flow: Plan.links(flows, {
+ *                         name: "Flow", icon: "arrow-right-long",
+ *                         from: { field: "from", of: { plate: "plate", job: "job", binding: "binding" } },
+ *                         to: { field: "to", of: { job: "job", binding: "binding", delivery: "delivery" } },
+ *                         quantity: { field: "sheets", unit: "k sheets" },
+ *                     }),
+ *                 }}
  *                 style={{ height: "400px" }}
  *             />
  *         );
