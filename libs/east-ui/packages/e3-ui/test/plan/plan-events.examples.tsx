@@ -40,8 +40,8 @@ import e3 from "@elaraai/e3";
 // and services; early and late shifts; each press's utilisation and the sheets
 // printed each day; templates for every kind, each a record of its own
 // (#1344); and the customers its library lists (#1195). Its one rail narrows
-// the jobs, the shifts, the presses, the customers and each templates record,
-// a source apiece. The smallest builder reads the presses and the customers
+// the jobs, the shifts, the customers and each templates record, a source
+// apiece. The smallest builder reads the presses and the customers
 // beside a jobs record of its own. A measure is stored as its readings from
 // the window's first day, which the series turn into cells and points, as the
 // Plan's other examples store theirs.
@@ -52,9 +52,6 @@ import e3 from "@elaraai/e3";
 
 /** A press: its name, its hall and the sheets it prints an hour. */
 export const PrintPress = StructType({ name: StringType, hall: StringType, sheets_per_hour: FloatType });
-
-/** A crew: its name and its hall. */
-export const PrintCrew = StructType({ name: StringType, hall: StringType });
 
 /**
  * A print job: when it runs and on which press — none of the three while it
@@ -106,16 +103,6 @@ export const planPrintPresses = e3.record("plan_print_presses", DictType(StringT
     }),
 });
 
-
-/** The crews: two in each hall. */
-export const planPrintCrews = e3.record("plan_print_crews", DictType(StringType, PrintCrew), {
-    initial: new Map([
-        ["c1", { name: "Crew 1", hall: "Hall A" }],
-        ["c2", { name: "Crew 2", hall: "Hall A" }],
-        ["c3", { name: "Crew 3", hall: "Hall B" }],
-        ["c4", { name: "Crew 4", hall: "Hall B" }],
-    ]),
-});
 
 /**
  * The print jobs: actual before 14 October, in progress on it, confirmed,
@@ -497,9 +484,6 @@ export const planLinkStock = e3.input("plan_link_stock", DictType(StringType, Pr
     ], compareFor(DateTimeType)) }],
 ])));
 
-/** A work centre a job passes through on its way out: the platesetter, the bindery's folder and binder, the dispatch bay. */
-export const PrintCentre = StructType({ name: StringType });
-
 /** A set of plates the platesetter makes for a job, at the moment it makes them. */
 export const PrintPlates = StructType({ title: StringType, at: DateTimeType, setter: StringType });
 
@@ -661,20 +645,6 @@ export const planRowsOnJobs = e3.record("plan_rows_on_jobs", DictType(StringType
 // ============================================================================
 // The print works' finishing and dispatch records (#1200)
 // ============================================================================
-
-/** The parent of the shared folder and binder, held in a record like every other resource. */
-export const planPrintBindery = e3.record("plan_print_bindery", DictType(StringType, PrintCentre), {
-    initial: new Map([
-        ["bindery", { name: "Bindery" }],
-    ]),
-});
-
-/** The vans a delivery can move onto from the dispatch bay. */
-export const planPrintVans = e3.record("plan_print_vans", DictType(StringType, PrintCentre), {
-    initial: new Map([
-        ["van1", { name: "Van 1" }], ["van2", { name: "Van 2" }],
-    ]),
-});
 
 /** What one of the print works' resources is: a press and the sheets it prints an hour, a crew, the platesetter, a bindery line, the dispatch bay or a van. */
 export const PrintResourceKind = VariantType({
