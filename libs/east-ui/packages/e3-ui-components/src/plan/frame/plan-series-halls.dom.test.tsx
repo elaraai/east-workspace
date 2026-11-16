@@ -4,11 +4,12 @@
  *
  * @vitest-environment jsdom
  *
- * A paged resource kind narrowed by its source of the slice (#1344), over the
- * windows example's records on e3 itself (`planSeriesByHall`): the 2,000
- * presses a record paged on the canvas, the rail's `presses` source narrowing
- * them by hall through their hall index, and the jobs on them read a cell at a
- * time through their series index. What each request asked is read from the
+ * The Plan's rows paged and narrowed by the rail's `rows` source (#1344,
+ * #1541), over the windows example's records on e3 itself
+ * (`planSeriesByHall`): the 2,000 presses a record paged on the canvas, each a
+ * row of a resources series, the `rows` source narrowing them by hall through
+ * their hall index, and the jobs on them read a cell at a time through their
+ * series index. What each request asked is read from the
  * harness's request log; another planner's write is a real commit.
  *
  * - The canvas opens on the presses a window at a time, never every key the
@@ -39,7 +40,7 @@ import { editingMessages } from "@elaraai/east-ui-components";
 import { getStore } from "@elaraai/east-ui-components/internal";
 import { Data, Plan, Record, Schedule } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-windows";
-import type { PrintJob, PrintPress } from "@elaraai/e3-ui/examples/plan/plan-events";
+import { PrintPress, type PrintJob } from "@elaraai/e3-ui/examples/plan/plan-events";
 import type { TreePath } from "@elaraai/e3-types";
 import type { E3Request } from "../../e3-web.test-utils.js";
 import { width } from "../../e3-web-mount.test-utils.js";
@@ -136,15 +137,15 @@ type State = ValueTypeOf<typeof RecordSliceStateType>;
 const state = (source: string): State => decodeState(getStore().read(`${KEY}.${source}`)!);
 
 /**
- * The presses' source narrowed to some halls, written whole as the rail writes
- * it — none, every press.
+ * The rows' source — the presses — narrowed to some halls, written whole as
+ * the rail writes it — none, every press.
  *
  * @param halls - The halls chosen
  * @param settled - Whether to let the reads and the renders settle after it
  */
 async function chooseHalls(halls: readonly string[], settled = true) {
     const where: State["where"] = new SortedMap(halls.length === 0 ? [] : [["hall", variant("values", halls.map((hall) => text(hall)))] as const], compareString);
-    await act(async () => { getStore().write(`${KEY}.presses`, encodeState({ ...state("presses"), preset: none, where })); });
+    await act(async () => { getStore().write(`${KEY}.rows`, encodeState({ ...state("rows"), preset: none, where })); });
     if (settled) await settle();
 }
 
@@ -152,20 +153,20 @@ async function chooseHalls(halls: readonly string[], settled = true) {
 
 /**
  * The halls example's Plan (`planSeriesByHall`): the presses a record paged on
- * the canvas and narrowed through the rail's `presses` source, by hall; the
- * jobs read a cell at a time through the series index their `job` source lists
- * beside the interval index.
+ * the canvas as its rows, through the rail's `rows` source — a resources series
+ * a row each — and narrowed by hall; the jobs read a cell at a time through the
+ * series index their `job` source lists beside the interval index.
  *
  * @param height - The Plan's declared height, for a bounded frame; unbounded without one
  * @returns The Plan, as an example's program
  */
 function hallsPlan(height?: string) {
     return { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-        const presses = $.const(Data.bindPaged(ex.planSeriesPresses));
         const jobs = $.const(Record.bind(ex.planWindowJobs, ["patch"]));
         const jobEntries = $.const(Data.bindPaged(ex.planWindowJobs));
         const slice = $.const(Slice.bindRecords(KEY, {
-            presses: { source: Data.bindPaged(ex.planSeriesPresses, { indexes: ["plan_series_presses_by_hall"] }), fields: { hall: { label: "Hall" } } },
+            // The canvas's rows: the presses, paged through the narrowing, counted as the rail counts them.
+            rows: { source: Data.bindPaged(ex.planSeriesPresses, { indexes: ["plan_series_presses_by_hall"] }), label: "Presses", fields: { hall: { label: "Hall" } } },
             job: {
                 source: Data.bindPaged(ex.planWindowJobs, { indexes: ["plan_window_jobs_by_time", "plan_window_jobs_by_press_week", "plan_window_jobs_by_press_month"] }),
                 fields: { start: { label: "Dates" } }, range: "start",
@@ -174,9 +175,9 @@ function hallsPlan(height?: string) {
         return Plan({
             axis: Plan.axis({ window: { min: FIRST, max: TWO_WEEKS }, resolution: "day", now: NOW }),
             inspector: true, slice: { slice },
-            resources: {
-                presses: Schedule.resources(presses, { name: "Presses", icon: "print", label: (p) => p.name, sub: (p) => some(p.hall) }),
-            },
+            // Its rows are presses, in the Plan's word for them: what the rail counts and the footer's line names.
+            vocabulary: { rows: { one: "Press", other: "Presses" } },
+            series: [Plan.series.resources(PrintPress, { key: "presses", title: "Presses", icon: "print", label: (p) => p.name, sub: (p) => some(p.hall) })],
             events: {
                 job: Schedule.events(jobs, {
                     name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
@@ -193,16 +194,16 @@ function hallsPlan(height?: string) {
 
 // ── What the canvas draws ────────────────────────────────────────────────────
 
-/** A press's row. */
-const pressRow = (key: string) => entry("presses.span", key);
+/** A press's row: its own, which its jobs draw on. */
+const pressRow = (key: string) => entry("presses", key);
 /** A job's bar on a press's row. */
 const bar = (c: HTMLElement, key: string, press: string) => c.querySelector<HTMLElement>(`${rowAt(pressRow(press))} ${el("data-run", "job", key)}`);
 /** A press's row's plot. */
 const plot = (c: HTMLElement, press: string) => c.querySelector<HTMLElement>(`${rowAt(pressRow(press))} [data-plan-plot]`);
-/** The presses' rows the canvas has mounted, in order, each as its id's text. */
+/** The presses' rows the canvas has mounted, in order, each as its id's text: the rows of the `presses` series. */
 const pressRows = (c: HTMLElement) => [...slot(c, "main")!.querySelectorAll<HTMLElement>("[data-plan-row]")]
     .map((row) => row.getAttribute("data-plan-row")!)
-    .filter((id) => id.includes("presses.span"));
+    .filter((id) => id.includes('series="presses"'));
 /** The ids' texts of some presses' rows, in order. */
 const rowsOf = (keys: readonly string[]) => keys.map((key) => rowKeyOf(pressRow(key)));
 /** The canvas's body: what retains its rows while a narrowing is read. */
@@ -248,7 +249,7 @@ afterEach(() => {
 // The narrowing's presses themselves (#1344)
 // ============================================================================
 
-describe("a paged resource kind narrowed by its source (#1344)", () => {
+describe("the presses, the Plan's rows, paged and narrowed by its rows source (#1344)", () => {
     test("opens on the presses a window at a time as the canvas shows them, never every key the source shows; a choice pages the halls' presses themselves, through the index, in its order — the rail counting them", async () => {
         // The page the unbounded canvas scrolls in, which keeps the row at its top as the rows above it change.
         const restore = emulateWindowScroll();

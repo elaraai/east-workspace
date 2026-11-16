@@ -569,8 +569,9 @@ function PlanPayloadFrame({ value, storageKey }: EastChakraPlanPayloadProps) {
     const { m, locale } = useResolvedPlanWords();
     const chrome = getSomeorUndefined(value.plan.slice);
     const sources = useMemo(() => planFollowedSources(value), [value]);
-    const nouns = useMemo(() => new Map(Object.entries(planNouns(value.events, value.library, locale))),
-        [value.events, value.library, locale]);
+    const rowsWord = m.saveNoticeNoun({ kind: undefined, n: 2 });
+    const nouns = useMemo(() => new Map(Object.entries(planNouns(value.events, value.library, rowsWord, locale))),
+        [value.events, value.library, rowsWord, locale]);
     const said = useCallback((name: string): KeyVisibilityWords => ({ changed: m.narrowingChanged({ name }), failed: m.narrowingFailed({ name }) }), [m]);
     return (
         <FollowSources chrome={chrome} narrowed={value.narrowed} sources={sources} nouns={nouns} said={said}>

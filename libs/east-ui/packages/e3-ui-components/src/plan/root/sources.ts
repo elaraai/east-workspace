@@ -136,18 +136,22 @@ export function planFollowedSources(value: ValueTypeOf<typeof PlanPayloadType>):
 
 /**
  * What the rail counts each source in, and heads it with folded, where the
- * source has no label of its own: the canvas's rows, an event kind's events
- * (`print job events`), a kind's templates, a tab's — each as running text
- * writes it, the first that names a source keeping it.
+ * source has no label of its own: the canvas's rows in the Plan's word for
+ * them — `rows`, or the app's (`vocabulary.rows`, #1516), since the rows are
+ * whatever the app's record holds, the resources its event kinds land on
+ * among them (#1541): `presses` — an event kind's events (`print job
+ * events`), a kind's templates, a tab's — each as running text writes it, the
+ * first that names a source keeping it.
  *
  * @param kinds - The Plan's event kinds
  * @param tabs - Its library's tabs
+ * @param rows - The Plan's word for its rows, as running text counts them: its messages' `saveNoticeNoun` of the `rows` source
  * @param locale - The app's locale
  * @returns Each source's noun, by its name
  */
-export function planNouns(kinds: readonly PlanEventKindValue[], tabs: readonly PlanLibraryTabValue[], locale: string): Record<string, string> {
+export function planNouns(kinds: readonly PlanEventKindValue[], tabs: readonly PlanLibraryTabValue[], rows: string, locale: string): Record<string, string> {
     const lower = (text: string) => text.toLocaleLowerCase(locale);
-    const nouns: Record<string, string> = { [ROWS_SOURCE]: "rows" };
+    const nouns: Record<string, string> = { [ROWS_SOURCE]: rows };
     for (const kind of kinds) nouns[kind.key] ??= `${lower(kind.name)} events`;
     for (const kind of kinds) if (kind.templatesSource.type === "some") nouns[kind.templatesSource.value] ??= `${lower(kind.name)} templates`;
     for (const tab of tabs) if (tab.type === "tab" && tab.value.source.type === "some") nouns[tab.value.source.value] ??= lower(tab.value.name);

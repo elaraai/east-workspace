@@ -378,9 +378,11 @@ export const planWindows = example({
 /**
  * The Plan of `planWindows`, its presses narrowed by hall (#1344, #1541): the
  * presses are a record of their own, the rows, and the rail's `rows` source
- * narrows them through their hall index. The canvas pages the narrowing's presses themselves, in the index's
- * order, 200 to a window: a hall chosen reads its presses alone, its count is
- * the hall's, and the jobs' cells are read for the presses of the hall in view
+ * narrows them through their hall index — counted as presses, the Plan's word
+ * for its rows (`vocabulary`). The canvas pages the narrowing's presses
+ * themselves, in the index's order, 200 to a window: a hall chosen reads its
+ * presses alone, its count is the hall's — `500 of 2,000 presses` — and the
+ * jobs' cells are read for the presses of the hall in view
  * alone — so a works of a million presses, each with a year of jobs, reads what
  * is on screen. A choice keeps the view the last one drew until its own presses
  * land, and the press at the top of the view where the hall holds it. Every
@@ -416,6 +418,8 @@ export const planSeriesByHall = example({
                     id="series-halls"
                     axis={axis}
                     slice={{ slice }}
+                    // Its rows are presses: the rail counts them so, and the footer's line names them so.
+                    vocabulary={{ rows: { one: "Press", other: "Presses" } }}
                     series={[Plan.series.resources(PrintPress, {
                         key: "presses", title: "Presses", icon: "print", label: p => p.name,
                         sub: (p, key) => some(East.str`${key} · ${p.hall}`),

@@ -717,8 +717,9 @@ export function usePlanCanvas({
     // nothing drawn and nothing said.
     const narrowAwaits = narrow && nestedWaiting.size > 0 && narrowShown.some((row) => nestedWaiting.has(row.key));
     const awaits = narrow ? narrowAwaits : viewAwaits.run || viewAwaits.cells;
-    // What the rail counts each source in (#1344): an event kind's events, `print job events`.
-    const nouns = useMemo(() => planNouns(kinds, tabs, words.locale), [kinds, tabs, words.locale]);
+    // What the rail counts each source in (#1344): the rows in the Plan's word for them, an event kind's events, `print job events`.
+    const rowsWord = words.m.saveNoticeNoun({ kind: undefined, n: 2 });
+    const nouns = useMemo(() => planNouns(kinds, tabs, rowsWord, words.locale), [kinds, tabs, rowsWord, words.locale]);
     // A failed read of the event kinds' rows (#1398, CL3) is said on the same line, after the rows' own failures, paged
     // or not: in the noun the rail counts each kind in whose own events it could not read — else, none of theirs failing,
     // the rows' — with Retry, which asks those kinds' records again at once (`retryPeriod`: a record read a window at a
