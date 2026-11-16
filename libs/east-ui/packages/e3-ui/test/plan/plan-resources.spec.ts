@@ -15,7 +15,8 @@
  * field holds, in the source's order, every accessor handed the case's value. A
  * gesture on a resource's series' row is written by that series.
  *
- * Where the events land is the Plan's (`plan-landing.spec.ts`).
+ * Where the events land is drawn on e3 itself, in e3-ui-components
+ * (`test/plan-event-rows.spec.ts`).
  */
 
 import { describe, test } from "node:test";

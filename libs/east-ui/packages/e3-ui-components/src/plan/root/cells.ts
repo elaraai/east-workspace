@@ -4,24 +4,27 @@
  *
  * The Plan's events read by cells, and every other kind counted first (#1039):
  * the Plan's adapter to the shared reader (`shared/schedule/cells.ts`), which
- * reads each event kind placed on a paged resource kind a cell at a time — the
- * events of the resources in view, a level at a time (#1433) — and counts every other kind
- * before one of its events is read, past `SCHEDULE_EVENT_CAP` of them drawing
- * none: its rows shade from its source's summary, or are hatched, the frame's
- * banner saying how many there are. A kind on a paged resource kind is read so
- * or refused (the Plan's tag, `checkedTilings`).
+ * reads each event kind landing on rows read a page at a time a cell at a time
+ * — the events of the resources in view, a level at a time (#1433) — and
+ * counts every other kind before one of its events is read, past
+ * `SCHEDULE_EVENT_CAP` of them drawing none: its rows shade from its source's
+ * summary, or are hatched, the frame's banner saying how many there are. A
+ * kind over paged rows is read so or refused (the Plan's tag, `checkedTilings`).
  *
  * The adapter gives the reader what is the Plan's, in the reader's terms: each
  * event kind as the payload carries it — its slot, its name, the rows its
- * shading stands in for (`<slot>.<draw>`, a resource's rows' key), whether its
- * rows book their buckets, its cells' type, its series key and its count — with
- * its source of the slice and what the viewer hides of it, and the event ends
- * the canvas's links name ({@link PlanCellsArgs.links}), which the reader reads
- * by key so a link finds its row; the resource kinds read whole, their rows'
- * keys; the payload's paged seam — its keys a window at a time, its size and the
- * narrowing its windows belong to, 200 resources to a window; the range the
- * canvas reads and its scale's buckets. And it keeps the span store the canvas
- * writes the paged kind's rows in view to as its scroll rests
+ * shading stands in for (`<landing>.<draw>`), whether its rows book their
+ * buckets, its cells' type, its series key and its count — with its source of
+ * the slice and what the viewer hides of it, and the event ends the canvas's
+ * links name ({@link PlanCellsArgs.links}), which the reader reads by key so a
+ * link finds its row. The resources are the canvas's own rows (#1541): each
+ * landing row, a resources series' or a kinds case's, by its series' key and
+ * the last step of its path. Over rows read whole they are every landing row
+ * of the canvas; over rows read a page at a time, each window's — 200 entries
+ * to a window, as many resources as they nest — read through the root's own
+ * source, with its size and the narrowing its windows belong to; then the range
+ * the canvas reads and its scale's buckets. And it keeps the span store the
+ * canvas writes the paged rows in view to as its scroll rests
  * ({@link createCellSpanStore}, {@link cellSpanOf}): the rows its view shows,
  * never the overscan, the span standing while it shows only rows not read
  * ({@link shownCellSpan}); the rows' ids name a resource by the last step of
@@ -48,26 +51,25 @@
  */
 
 import { useMemo } from "react";
-import { DateTimeType, StringType, compareFor, equalFor, type ValueTypeOf } from "@elaraai/east";
+import { DateTimeType, StringType, compareFor, equalFor, none, some, type ValueTypeOf } from "@elaraai/east";
 import { PLAN_PAGE_SIZE, planHideId, type PlanPayloadType } from "@elaraai/e3-ui/internal";
+import { windowedSourceOf } from "@elaraai/east-ui-components/internal";
 import {
-    useScheduleCells, type ScheduleCellBucket, type ScheduleCellKind, type ScheduleCellPaged, type ScheduleCellResources, type ScheduleCellSpan,
-    type ScheduleCellsRead,
+    useScheduleCells, type ScheduleCellBucket, type ScheduleCellKey, type ScheduleCellKind, type ScheduleCellPaged, type ScheduleCellResources,
+    type ScheduleCellSpan, type ScheduleCellsRead,
 } from "../../shared/schedule/cells.js";
 import type { ScheduleEditing, ScheduleEventDraftsValue } from "../../shared/schedule/editing.js";
 import { hides } from "../frame/hidden.js";
 import { timeInstant } from "../instant.js";
-import type { PlanRootValue } from "../model.js";
+import type { PlanRootValue, PlanWireBlock } from "../model.js";
 import type { PlanScale } from "../scale.js";
 import type { PlanEventPart } from "./sources.js";
 
 type PlanPayloadValue = ValueTypeOf<typeof PlanPayloadType>;
 /** One event kind, as the payload carries it. */
 type EventKind = PlanPayloadValue["events"][number];
-/** One resource kind, as the payload carries it. */
-type ResourceKind = PlanPayloadValue["resources"][number];
-/** A paged resource kind's rows, as the payload carries them. */
-type Paged = Extract<PlanPayloadValue["paged"], { type: "some" }>["value"];
+/** A series the event kinds land on, as the payload carries it (#1541). */
+type Landing = PlanPayloadValue["landings"][number];
 /** The canvas's links. */
 type Links = PlanRootValue["links"];
 
@@ -102,12 +104,15 @@ export function bucketsOver(scale: PlanScale, from: Date, to: Date): ScheduleCel
 export interface PlanCellsArgs {
     /** The event kinds, as the payload carries them. */
     readonly kinds: readonly EventKind[];
-    /** The resource kinds, as the payload carries them: a counted kind past the cap shades, or is hatched, over their rows. */
-    readonly resources: readonly ResourceKind[];
+    /** The series the event kinds land on (#1541): their rows are the resources. */
+    readonly landings: readonly Landing[];
+    /**
+     * The canvas's own rows (#1541): read whole, every landing row — what a counted kind past the cap shades, or hatches;
+     * a page at a time, the root's source, whose windows' landing rows a kind read by its cells reads the events of.
+     */
+    readonly rows: PlanRootValue["rows"];
     /** The event kinds narrowed through their sources of the slice, and the parts they read through. */
     readonly parts: readonly PlanEventPart[];
-    /** The paged resource kind's rows, when a kind pages. */
-    readonly paged: Paged | undefined;
     /** The canvas's scale: its resolution and its buckets. */
     readonly scale: PlanScale | undefined;
     /** The range the canvas reads its events over. */
@@ -116,7 +121,7 @@ export interface PlanCellsArgs {
     readonly drafts: ScheduleEventDraftsValue;
     /** The ids the viewer hides in the library's Series tab. */
     readonly hidden: readonly string[];
-    /** The paged kind's rows in view, as the canvas last reported them; `undefined` before it has. */
+    /** The paged rows in view, as the canvas last reported them; `undefined` before it has. */
     readonly span: ScheduleCellSpan | undefined;
     /** The canvas's links: an event end the cells do not hold is read by its key. */
     readonly links: Links;
@@ -126,6 +131,26 @@ export interface PlanCellsArgs {
      * event's session began from, which tells a new event from one the record holds; `undefined` for none.
      */
     readonly editing?: Pick<ScheduleEditing, "landed" | "shown" | "held" | "carrying"> | undefined;
+}
+
+/**
+ * The resources some rows draw (#1541): each landing row — a resources series' or a kinds case's — by its series' key
+ * and the last step of its path, in the order the rows draw them.
+ *
+ * @param blocks - The rows
+ * @param landings - The series the event kinds land on, by key
+ * @returns The resources
+ */
+export function landingKeysOf(blocks: readonly PlanWireBlock[], landings: ReadonlySet<string>): ScheduleCellKey[] {
+    const out: ScheduleCellKey[] = [];
+    for (const block of blocks) {
+        for (const row of block.rows) {
+            if (row.id.type !== "entry" || !landings.has(row.id.value.series)) continue;
+            const key = row.id.value.path[row.id.value.path.length - 1];
+            if (key !== undefined) out.push({ slot: row.id.value.series, key });
+        }
+    }
+    return out;
 }
 
 /** Whether a kind's rows draw bars or chips, which shade as the share of each bucket booked. */
@@ -154,7 +179,7 @@ function linkEnds(links: Links, slot: string): string[] {
  * @returns What the shared reader read
  */
 export function usePlanCells(args: PlanCellsArgs): ScheduleCellsRead {
-    const { kinds, resources, parts, paged, scale, range, drafts, hidden, span, links, editing } = args;
+    const { kinds, landings, rows, parts, scale, range, drafts, hidden, span, links, editing } = args;
     const held = editing?.held;
     const carrying = editing?.carrying;
     const cellKindsOf = useMemo((): ScheduleCellKind[] => kinds.map((kind) => ({
@@ -162,7 +187,7 @@ export function usePlanCells(args: PlanCellsArgs): ScheduleCellsRead {
         name: kind.name,
         takes: kind.takes,
         booked: booked(kind),
-        // A resource's rows are keyed `<slot>.<draw>`: the shading stands in for those its kind draws.
+        // A resource's rows are keyed `<landing>.<draw>`: the shading stands in for those its kind draws.
         shadeKey: (slot: string) => `${slot}.${kind.draw.type}`,
         cellsType: kind.cellsType,
         seriesKey: kind.seriesKey,
@@ -183,29 +208,50 @@ export function usePlanCells(args: PlanCellsArgs): ScheduleCellsRead {
         stored: kind.entries.type === "some" ? kind.stored : undefined,
         revision: kind.entries.type === "some" ? kind.entries.value.revision : undefined,
     })), [kinds, parts, hidden, links, held, carrying]);
-    const whole = useMemo((): ScheduleCellResources[] => resources.map((kind) => ({ key: kind.key, keys: kind.rows.map((row) => row.key) })), [resources]);
-    const pagedKind = useMemo((): ScheduleCellPaged | undefined => (paged === undefined ? undefined : {
-        kind: paged.kind,
-        window: PLAN_PAGE_SIZE,
-        hidden: hides(hidden, planHideId.resources(paged.kind)),
-        keys: (offset, limit) => paged.keys(offset, limit),
-        total: () => paged.total(),
-        narrowing: () => (paged.query.type === "some" ? paged.query.value() : undefined),
-    }), [paged, hidden]);
+    const slots = useMemo(() => new Set(landings.map((landing) => landing.key)), [landings]);
+    // Over rows read whole: every landing row of the canvas, by its series.
+    const whole = useMemo((): ScheduleCellResources[] => {
+        if (rows.type !== "inline") return [];
+        const keys = landingKeysOf(rows.value, slots);
+        return landings.map((landing) => ({ key: landing.key, keys: keys.filter((k) => stringEqual(k.slot, landing.key)).map((k) => k.key) }));
+    }, [rows, slots, landings]);
+    // Over rows read a page at a time: each window's landing rows, read through the root's own source, once a window.
+    const pagedRows = useMemo((): ScheduleCellPaged | undefined => {
+        const source = windowedSourceOf(rows);
+        if (source === undefined || landings.length === 0) return undefined;
+        const kept = new WeakMap<readonly PlanWireBlock[], ScheduleCellKey[]>();
+        return {
+            kinds: landings.map((landing) => landing.key),
+            window: PLAN_PAGE_SIZE,
+            hidden: false,
+            keys: (offset, limit) => {
+                const read = source.page(offset, limit);
+                if (read.type !== "some") return none;
+                let keys = kept.get(read.value.rows);
+                if (keys === undefined) {
+                    keys = landingKeysOf(read.value.rows, slots);
+                    kept.set(read.value.rows, keys);
+                }
+                return some(keys);
+            },
+            total: () => source.total(),
+            narrowing: () => source.query?.(),
+        };
+    }, [rows, landings, slots]);
     const from = range?.from.getTime();
     const to = range?.to.getTime();
     const over = useMemo(() => (from === undefined || to === undefined ? undefined : { from: new Date(from), to: new Date(to) }), [from, to]);
     const buckets = useMemo(() => (scale === undefined || over === undefined ? undefined : bucketsOver(scale, over.from, over.to)), [scale, over]);
     return useScheduleCells({
-        host: "Plan", kinds: cellKindsOf, resources: whole, paged: pagedKind, range: over, buckets, resolution: scale?.resolution, drafts, span,
+        host: "Plan", kinds: cellKindsOf, resources: whole, paged: pagedRows, range: over, buckets, resolution: scale?.resolution, drafts, span,
         landed: editing?.landed, shown: editing?.shown,
     });
 }
 
 /**
  * The kinds the reader may give cells: every kind read a window at a time, one
- * event by its key — by its series index's cells, placed on the paged resource
- * kind, or its window's own rows (#1599).
+ * event by its key — by its series index's cells, over rows read a page at a
+ * time, or its window's own rows (#1599).
  *
  * @param kinds - The event kinds, as the payload carries them
  * @returns The slots of such kinds
@@ -216,8 +262,8 @@ export function cellKinds(kinds: readonly EventKind[]): string[] {
 
 /**
  * The kinds a Plan reads by their series index's cells: those whose sources
- * list a series index of their records — each placed on the paged resource
- * kind alone, as the Plan holds a series index to.
+ * list a series index of their records — each landing on rows read a page at
+ * a time, as the Plan holds a series index to.
  *
  * @param parts - The event kinds narrowed through their sources
  * @returns The slots of such kinds
@@ -226,7 +272,7 @@ export function seriesKinds(parts: readonly PlanEventPart[]): string[] {
     return parts.filter(({ part }) => part.config.indexes.some((index) => index.series.type === "some")).map(({ kind }) => kind.key);
 }
 
-/** Where the paged kind's rows in view are, as the canvas reports them to its cells' reader: a store of one span. */
+/** Where the paged rows in view are, as the canvas reports them to its cells' reader: a store of one span. */
 export interface PlanCellSpanStore {
     /** The span last reported; `undefined` before any is. */
     get(): ScheduleCellSpan | undefined;
@@ -237,7 +283,7 @@ export interface PlanCellSpanStore {
 }
 
 /**
- * A store of the paged kind's rows in view (#1039): the canvas writes it as
+ * A store of the paged rows in view (#1039): the canvas writes it as
  * its scroll comes to rest, and the cells' reader, a component of its own,
  * reads it — the canvas renders nothing for it.
  *
@@ -263,9 +309,9 @@ export function createCellSpanStore(): PlanCellSpanStore {
 }
 
 /**
- * The paged kind's rows in view among the canvas's items: the first and the
- * last row a paged window placed, each by its window and its resource's key
- * — the last step of its path — under the narrowing their windows are.
+ * The paged rows in view among the canvas's items: the first and the last row
+ * a paged window placed, each by its window and its resource's key — the last
+ * step of its path — under the narrowing their windows are.
  *
  * @param items - The rows in view, in order: each its key and its id
  * @param origin - Which window each paged row came from

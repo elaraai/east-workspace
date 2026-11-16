@@ -62,8 +62,8 @@
  * What a viewer hides in the library's Series tab persists under the Plan's
  * `id` too (`planKeys(id).series`, PB29, `hidden.ts`), and only while the
  * library lists that tab, as nothing else could show it again: the event
- * kinds' rows leave it out through the `blocks` seam, and the canvas leaves
- * out the Plan's own `rows` it hides. What it switches of `data`'s picked
+ * kinds' events leave it out where the seam places them (#1541), and the
+ * canvas leaves out the Plan's own `rows` it hides. What it switches of `data`'s picked
  * series is kept under the pick's own key (`pick.<key>`), and goes back into
  * the pick when the Plan mounts: the pick's state lives in the page's store,
  * which a reload empties. An event kind hidden there is in none of
@@ -71,16 +71,13 @@
  * says so (#1039).
  *
  * The narrowing is the Plan's one `Slice.bindRecords` (#1344): the canvas
- * reads its `rows` source and each event kind's through their parts
- * (`root/sources.ts`), and a paged resource kind's, whose windows are its
- * narrowing's rows; the frame follows the others itself through the shared
- * `FollowSources` — each resource kind's read whole, whose shown resources
- * are the rows its kind draws and the bulk edit's Chooser offers, each
- * templates list's, and each an author's tab names. A source whose narrowing could not
- * be read says so in a banner, with Retry, as a window that could not be
- * written does; a resource kind's narrowing resolving keeps the rows it
- * showed, busy. After a Save, the footer says what left each source's
- * narrowing. What the event kinds read — the footer's counts, the overlaps,
+ * reads its `rows` source — the rows the event kinds land on among them
+ * (#1541) — and each event kind's through their parts (`root/sources.ts`);
+ * the frame follows the others itself through the shared `FollowSources` —
+ * each templates list's, and each an author's tab names. A source whose
+ * narrowing could not be read says so in a banner, with Retry, as a window
+ * that could not be written does. After a Save, the footer says what left
+ * each source's narrowing. What the event kinds read — the footer's counts, the overlaps,
  * the backlog and what the rail hides of it — and the selected events are
  * each read in a component of their own (`PlanKindsReader`,
  * `PlanSelectionReader`), which hand the frame what they read only when it
@@ -98,8 +95,8 @@
 
 import { Fragment, memo, useCallback, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
-import { SortedMap, StringType, compareFor, equalFor, equivalentFor, none, type ValueTypeOf } from "@elaraai/east";
-import { FuncBindingType, Plan, PlanComponent, PlanEventBlocksType, PlanEventPagedType, PlanPayloadType, planKeys } from "@elaraai/e3-ui/internal";
+import { StringType, equalFor, equivalentFor, none, type ValueTypeOf } from "@elaraai/east";
+import { FuncBindingType, Plan, PlanComponent, PlanEventSeamType, PlanPayloadType, planKeys } from "@elaraai/e3-ui/internal";
 import {
     BannerView, BuilderFrame, SessionBanners, getSomeorUndefined, historyShortcut, implementUIComponent, takeKey, typedInto, useDataStable, usePersistedState,
 } from "@elaraai/east-ui-components";
@@ -110,7 +107,7 @@ import { usePlanCanvas } from "../canvas.js";
 import { usePlanSelector } from "../controller/react.js";
 import { removePlanEvents } from "../edit/events.js";
 import type { PlanCanvasParts } from "../root/chrome.js";
-import { ALL_SHOWN, type PlanEventRows, type PlanEventShownValue } from "../root/events.js";
+import type { PlanEventRows } from "../root/events.js";
 import { ROWS_SOURCE, planFollowedSources, planNouns, type PlanEventPart } from "../root/sources.js";
 import { usePlanToolbarItems } from "../shell/Toolbar.js";
 import { PlanFooter, type PlanSaveNotice } from "../shell/Footer.js";
@@ -129,8 +126,8 @@ export type PlanValue = ValueTypeOf<typeof PlanPayloadType>;
 /** The Plan's event kinds, as its payload carries them (#1190). */
 type PlanEventKinds = PlanValue["events"];
 
-/** The Plan's resource kinds, as its payload carries them (#1190). */
-type PlanResourceKinds = PlanValue["resources"];
+/** The series the Plan's event kinds land on, as its payload carries them (#1541). */
+type PlanLandings = PlanValue["landings"];
 
 /** The library pane's tabs, as the payload lists them (#1195). */
 type PlanLibraryTabs = PlanValue["library"];
@@ -143,10 +140,8 @@ type Styles = Record<string, Record<string, unknown>>;
 // differed only inside one (a resolver over new data, a series `match` over a
 // new threshold) was dropped and the canvas rendered the old closures.
 const planRootEqual = equivalentFor(Plan.Types.Root);
-/** Whether two event-rows seams read the same rows: their functions by their IR and what they capture (#809). */
-const eventBlocksEquivalent = equivalentFor(PlanEventBlocksType);
-/** Whether two paged kinds' seams read the same rows (#1199), likewise. */
-const eventPagedEquivalent = equivalentFor(PlanEventPagedType);
+/** Whether two seams place the same events: their functions by their IR and what they capture (#809). */
+const eventSeamEquivalent = equivalentFor(PlanEventSeamType);
 /** Whether two lists of event kinds read the same records, their seams compared by their IR and what they capture. */
 const eventKindsEquivalent = equivalentFor(PlanPayloadType.fields.events);
 /** The payload's equivalence: its data, and its functions by their IR and what they capture (#809). */
@@ -157,16 +152,16 @@ const vocabularyEqual = equalFor(PlanPayloadType.fields.vocabulary);
 /** No event kinds: a Plan of `data` and `rows` alone. */
 const NO_KINDS: PlanEventKinds = [];
 
-/** No resource kinds. */
-const NO_RESOURCES: PlanResourceKinds = [];
+/** No series an event kind lands on. */
+const NO_LANDINGS: PlanLandings = [];
 
 /** No library: no pane. */
 const NO_LIBRARY: PlanLibraryTabs = [];
 
 /** Whether two libraries list the same tabs and cards: they hold data alone. */
 const libraryEqual = equalFor(PlanPayloadType.fields.library);
-/** Whether two lists of resource kinds name the same resources — a paged kind's read by key (#1199) by its IR and what it captures. */
-const resourcesEquivalent = equivalentFor(PlanPayloadType.fields.resources);
+/** Whether two lists of the series the event kinds land on are one: they hold data alone. */
+const landingsEqual = equalFor(PlanPayloadType.fields.landings);
 /** Whether two optimiser bindings are one: the function's name, and the records it lists and reads. */
 const optimiseEqual = equalFor(FuncBindingType);
 /** Whether two drop vetoes are one: by their IR and what they capture (#809). */
@@ -181,13 +176,10 @@ const NO_VETO: PlanEventCanDrop = none;
 /** No event kind has an event on the canvas. */
 const NO_PATCH_KINDS: ReadonlySet<string> = new Set();
 
-/** Whether two event-rows props read the same rows — a paged kind's included (#1199). */
+/** Whether two event-rows props place the same events on the same rows (#1541). */
 function sameEventRows(a: PlanEventRows | undefined, b: PlanEventRows | undefined): boolean {
     if (a === undefined || b === undefined) return a === b;
-    return a.count === b.count && eventBlocksEquivalent(a.blocks, b.blocks)
-        && (a.paged === undefined || b.paged === undefined
-            ? a.paged === undefined && b.paged === undefined
-            : eventPagedEquivalent(a.paged, b.paged));
+    return a.paged === b.paged && landingsEqual(a.landings, b.landings) && eventSeamEquivalent(a.seam, b.seam);
 }
 
 /** No event in an overlap pair. */
@@ -208,7 +200,6 @@ const NOTHING_READ: PlanKindsRead = { counts: undefined, backlog: { narrowing: [
 /** No unscheduled event: a Plan with no event kinds. */
 const NO_UNSCHEDULED: readonly PlanBacklogEntry[] = [];
 
-const compareString = compareFor(StringType);
 const stringEqual = equalFor(StringType);
 
 /**
@@ -224,32 +215,6 @@ let planFrameRenderProbe: (() => void) | undefined;
  */
 export function setPlanFrameRenderProbe(fn: (() => void) | undefined): void {
     planFrameRenderProbe = fn;
-}
-
-/**
- * The resources the rail shows (#1344): by each resource kind whose source
- * narrows, the keys its source shows — the same object while each source's
- * keys stand, so the event kinds' rows are read again only when one moves.
- *
- * @param resources - The resource kinds
- * @param followed - What each source the frame follows shows
- * @returns The shown resources, by resource kind; none narrowed, {@link ALL_SHOWN}
- */
-function useShownResources(resources: PlanResourceKinds, followed: FollowedSources): PlanEventShownValue {
-    const held = useRef<{ entries: readonly (readonly [string, Set<string>])[]; shown: PlanEventShownValue }>({ entries: [], shown: ALL_SHOWN });
-    return useMemo(() => {
-        const entries = resources.flatMap((kind) => {
-            const keys = followed.get(kind.key)?.shown.keys;
-            return keys === undefined || keys.type === "none" ? [] : [[kind.key, keys.value] as const];
-        });
-        const was = held.current;
-        const same = entries.length === was.entries.length
-            && entries.every(([slot, keys], i) => stringEqual(slot, was.entries[i]![0]) && Object.is(keys, was.entries[i]![1]));
-        if (same) return was.shown;
-        const shown: PlanEventShownValue = entries.length === 0 ? ALL_SHOWN : new SortedMap(entries.map(([slot, keys]): [string, Set<string>] => [slot, keys]), compareString);
-        held.current = { entries, shown };
-        return shown;
-    }, [resources, followed]);
 }
 
 /**
@@ -276,19 +241,19 @@ export interface EastChakraPlanProps {
     value: PlanRootValue;
     /** Storage key prefix for persisting component state. */
     storageKey: string;
-    /** The event kinds' rows (#1192), drawn ahead of the root's own — a Plan of event kinds' payload carries them. */
+    /** Where the event kinds' events land on the root's own rows (#1192, #1541) — a Plan of event kinds' payload carries it. */
     events?: PlanEventRows | undefined;
     /** The event kinds themselves (#1190), which the footer counts and the library lists — a Plan of event kinds' payload carries them. */
     kinds?: PlanEventKinds | undefined;
-    /** The resource kinds (#1190), which the library's cards name — a Plan of event kinds' payload carries them. */
-    resources?: PlanResourceKinds | undefined;
+    /** The series the event kinds land on (#1541), which the library's cards and the inspector name — a Plan of event kinds' payload carries them. */
+    landings?: PlanLandings | undefined;
     /** The library pane's tabs (#1195) — the payload carries them; none, no pane. */
     library?: PlanLibraryTabs | undefined;
     /** Whether the Plan has its inspector pane (#1197) — the payload carries it; left out, no pane. */
     inspector?: boolean | undefined;
     /** The event kinds' drop veto (#1196) — the payload carries it: where a drop would put an event, to the refusal's message. */
     canDrop?: PlanEventCanDrop | undefined;
-    /** What each source of the slice the frame follows shows (#1344) — each resource kind's, templates list's and tab's; none, a Plan whose payload follows none. */
+    /** What each source of the slice the frame follows shows (#1344) — each templates list's and tab's; none, a Plan whose payload follows none. */
     followed?: FollowedSources | undefined;
     /**
      * The app's optimiser (#1409, east-workspace#1622) — the payload carries its binding: what the Elara eye calls by
@@ -302,11 +267,11 @@ export interface EastChakraPlanProps {
 /**
  * Renders the Plan in its frame — see the module docs.
  *
- * @param props - The root, its storage key, the event kinds and their rows, the resource kinds, the library's tabs, whether it has its inspector, the event kinds' drop veto, what each source the frame follows shows, and whether its Autosave begins on
+ * @param props - The root, its storage key, the event kinds and where they land, the series they land on, the library's tabs, whether it has its inspector, the event kinds' drop veto, what each source the frame follows shows, and whether its Autosave begins on
  * @returns The Plan, in its frame
  */
 export const EastChakraPlan = memo(function EastChakraPlan({
-    value, storageKey, events, kinds, resources, library: given, inspector, canDrop, followed = NONE_FOLLOWED, optimise, autosave,
+    value, storageKey, events, kinds, landings: givenLandings, library: given, inspector, canDrop, followed = NONE_FOLLOWED, optimise, autosave,
 }: EastChakraPlanProps) {
     const library = useDataStable(given ?? NO_LIBRARY, libraryEqual);
     const id = getSomeorUndefined(value.id);
@@ -327,18 +292,15 @@ export const EastChakraPlan = memo(function EastChakraPlan({
     const panel = useMemo(() => library.flatMap((tab) => (tab.type === "tab" ? [tabLibrary(keys, tab.value)] : [])), [library, keys]);
     // Each event kind a session over its record, under one history with `data`'s (#1194), its drags on the canvas (#1196).
     const veto = useMemo(() => getSomeorUndefined(canDrop ?? NO_VETO), [canDrop]);
-    // Each resource kind's rows its source shows (#1344): what its kind draws, and the bulk edit's Chooser offers.
-    const resourceKinds = resources ?? NO_RESOURCES;
-    const shown = useShownResources(resourceKinds, followed);
-    // A resource kind's narrowing resolving, or failed: the rows it showed stay, busy.
-    const busy = resourceKinds.some((kind) => followed.get(kind.key)?.shown.busy === true);
+    // The series the event kinds land on (#1541): what an event's resource is named by.
+    const landings = givenLandings ?? NO_LANDINGS;
     const canvas = usePlanCanvas({
         value, storageKey, events, hidden, rowsHidden, eventKinds, panel, kinds: kinds ?? NO_KINDS,
-        resources: resourceKinds, tabs: library, canDrop: veto, shown, busy, optimise, autosave: autosave === true,
+        landings, tabs: library, canDrop: veto, optimise, autosave: autosave === true,
     });
     return <>{canvas.provide(
-        <PlanFrame canvas={canvas} root={value} kinds={kinds ?? NO_KINDS} resources={resourceKinds} library={library}
-            inspector={inspector === true} hidden={hidden} onHidden={onHidden} followed={followed} shown={shown} />,
+        <PlanFrame canvas={canvas} root={value} kinds={kinds ?? NO_KINDS} landings={landings} library={library}
+            inspector={inspector === true} hidden={hidden} onHidden={onHidden} followed={followed} />,
     )}</>;
 }, (prev, next) => planRootEqual(prev.value, next.value) && prev.storageKey === next.storageKey
     && (prev.followed ?? NONE_FOLLOWED) === (next.followed ?? NONE_FOLLOWED)
@@ -348,7 +310,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({
     && (Object.is(prev.canDrop, next.canDrop) || canDropEquivalent(prev.canDrop ?? NO_VETO, next.canDrop ?? NO_VETO))
     && sameEventRows(prev.events, next.events)
     && (prev.kinds === next.kinds || eventKindsEquivalent(prev.kinds ?? NO_KINDS, next.kinds ?? NO_KINDS))
-    && (prev.resources === next.resources || resourcesEquivalent(prev.resources ?? NO_RESOURCES, next.resources ?? NO_RESOURCES))
+    && (prev.landings === next.landings || landingsEqual(prev.landings ?? NO_LANDINGS, next.landings ?? NO_LANDINGS))
     && (prev.library === next.library || libraryEqual(prev.library ?? NO_LIBRARY, next.library ?? NO_LIBRARY)));
 
 /** Props of {@link PlanFrame}. */
@@ -359,8 +321,8 @@ interface PlanFrameProps {
     root: PlanRootValue;
     /** The Plan's event kinds — none for a Plan of `data` and `rows` alone. */
     kinds: PlanEventKinds;
-    /** Its resource kinds. */
-    resources: PlanResourceKinds;
+    /** The series its event kinds land on (#1541). */
+    landings: PlanLandings;
     /** The library pane's tabs; none, no pane. */
     library: PlanLibraryTabs;
     /** Whether the Plan has its inspector pane. */
@@ -371,8 +333,6 @@ interface PlanFrameProps {
     onHidden: (next: readonly string[]) => void;
     /** What each source of the slice the frame follows shows (#1344). */
     followed: FollowedSources;
-    /** The resources the rail shows, by resource kind (#1344). */
-    shown: PlanEventShownValue;
 }
 
 /**
@@ -408,7 +368,7 @@ function useKeptPick(pick: PlanPickValue | undefined, listed: boolean): PlanPick
 }
 
 /** The frame, its regions holding the canvas and its chrome — inside the canvas's contexts. */
-function PlanFrame({ canvas, root, kinds, resources, library, inspector, hidden, onHidden, followed, shown }: PlanFrameProps) {
+function PlanFrame({ canvas, root, kinds, landings, library, inspector, hidden, onHidden, followed }: PlanFrameProps) {
     planFrameRenderProbe?.();
     const { chrome, main, bound, vars } = canvas;
     const recipe = useSlotRecipe({ key: "plan" });
@@ -428,7 +388,7 @@ function PlanFrame({ canvas, root, kinds, resources, library, inspector, hidden,
     const [kindsRead, setKindsRead] = useState<PlanKindsRead>(NOTHING_READ);
     const counts = kinds.length > 0 ? kindsRead.counts : undefined;
     const start = usePlanLibrary({
-        library, kinds, resources, pick, keys, hidden, onHidden, now, words, takesCards: chrome?.takesCards === true,
+        library, kinds, landings, resourceOf: chrome?.inspect.resource, pick, keys, hidden, onHidden, now, words, takesCards: chrome?.takesCards === true,
         // A Plan with no event kinds reads no backlog: there is nothing to wait for.
         unscheduled: kinds.length === 0 ? NO_UNSCHEDULED : counts?.unscheduled,
         takesEvents: chrome?.takesEvents === true, patchKinds: chrome?.patchKinds ?? NO_PATCH_KINDS,
@@ -441,7 +401,7 @@ function PlanFrame({ canvas, root, kinds, resources, library, inspector, hidden,
     // What is selected, and the selected events, read by a component of their own (#1344).
     const selection = usePlanInspectorSelection(inspector);
     const [selected, setSelected] = useState<readonly PlanInspectedEvent[]>(NO_INSPECTED);
-    const end = usePlanInspector({ shown: inspector, kinds, resources, chrome, counts, keys, words, selection, events: selected, shownResources: shown, hidden });
+    const end = usePlanInspector({ shown: inspector, kinds, landings, chrome, counts, keys, words, selection, events: selected, hidden });
     // The Plan's one history (#1194): the history item reads it as one session.
     const history = chrome?.history;
     const session = history?.session;
@@ -581,12 +541,12 @@ export interface EastChakraPlanPayloadProps {
 
 /**
  * Renders a Plan's payload (#1191): its canvas, `plan`, in its frame
- * ({@link EastChakraPlan}), with its event kinds' rows ahead of the canvas's
- * own (#1192) — one block per resource kind, then the Unassigned rows', and a
- * paged kind's a window of its resources at a time (#1199) — its event kinds
- * counted in the footer, its library in the start pane (#1195), its
- * inspector in the end pane (#1197), and each source of its slice the frame
- * follows read through the payload's `narrowed` keys (#1344).
+ * ({@link EastChakraPlan}), its event kinds' events placed on the canvas's own
+ * rows by the payload's seam (#1192, #1541) — over rows read whole, the
+ * Unassigned rows after them — its event kinds counted in the footer, its
+ * library in the start pane (#1195), its inspector in the end pane (#1197),
+ * and each source of its slice the frame follows read through the payload's
+ * `narrowed` keys (#1344).
  *
  * @param props - The payload and its storage key
  * @returns The Plan, in its frame
@@ -599,25 +559,24 @@ export const EastChakraPlanPayload = memo(function EastChakraPlanPayload({ value
 
 /** The payload's frame, inside the app's words. */
 function PlanPayloadFrame({ value, storageKey }: EastChakraPlanPayloadProps) {
-    const resourceKinds = value.resources.length;
     const events = useMemo(
-        (): PlanEventRows | undefined => (value.blocks.type === "some"
-            ? { blocks: value.blocks.value, count: resourceKinds + 1, paged: getSomeorUndefined(value.paged) }
+        (): PlanEventRows | undefined => (value.seam.type === "some"
+            ? { seam: value.seam.value, landings: value.landings, paged: value.paged }
             : undefined),
-        [value.blocks, value.paged, resourceKinds]);
+        [value.seam, value.landings, value.paged]);
     // The sources the frame follows itself (#1344), each read once — one component each, so their hooks keep their
     // order — in the Plan's words.
     const { m, locale } = useResolvedPlanWords();
     const chrome = getSomeorUndefined(value.plan.slice);
     const sources = useMemo(() => planFollowedSources(value), [value]);
-    const nouns = useMemo(() => new Map(Object.entries(planNouns(value.events, value.resources, value.library, locale))),
-        [value.events, value.resources, value.library, locale]);
+    const nouns = useMemo(() => new Map(Object.entries(planNouns(value.events, value.library, locale))),
+        [value.events, value.library, locale]);
     const said = useCallback((name: string): KeyVisibilityWords => ({ changed: m.narrowingChanged({ name }), failed: m.narrowingFailed({ name }) }), [m]);
     return (
         <FollowSources chrome={chrome} narrowed={value.narrowed} sources={sources} nouns={nouns} said={said}>
             {(followed) => (
                 <EastChakraPlan value={value.plan} storageKey={storageKey} events={events} kinds={value.events}
-                    resources={value.resources} library={value.library} inspector={value.inspector}
+                    landings={value.landings} library={value.library} inspector={value.inspector}
                     canDrop={value.canDrop} followed={followed} optimise={getSomeorUndefined(value.optimise)}
                     autosave={value.settings.autosave} />
             )}

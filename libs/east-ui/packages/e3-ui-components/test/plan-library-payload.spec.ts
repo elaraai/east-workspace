@@ -10,8 +10,9 @@
  * task's preview gives it, so the presses, the jobs, the customers and the
  * paper in stock it reads are e3's — the tabs `library` lists, in its order;
  * the Series tab's lines, in the order the canvas draws them, and what hiding
- * each hides; and an author's tab's cards, and what a card dropped on an event
- * sets (`Schedule.patch`).
+ * each hides, `data`'s series through the canvas's own pick (#1541); and an
+ * author's tab's cards, and what a card dropped on an event sets
+ * (`Schedule.patch`).
  */
 
 import { describe, test } from "node:test";
@@ -21,6 +22,7 @@ import {
     encodeBeast2For, equalFor, none, some, variant,
     type BlockBuilder, type ExprType, type ValueTypeOf,
 } from "@elaraai/east";
+import { StateImpl, StateRuntime, UIStore } from "@elaraai/east-ui-components/platform";
 import { Data, Plan, PlanLibraryCardType, PlanLibraryTabType, PlanPayloadType, Record, Schedule } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
 import { e3Spec } from "./fixtures/e3.js";
@@ -31,11 +33,15 @@ type Payload = ValueTypeOf<typeof PlanPayloadType>;
 type Tab = ValueTypeOf<typeof PlanLibraryTabType>;
 type Card = ValueTypeOf<typeof PlanLibraryCardType>;
 
-/** A payload built in East over e3, as a UI task's preview runs it. */
+/**
+ * A payload built in East over e3, as a UI task's preview runs it — with its state, which a Plan whose `data` has
+ * series picks them through (#1541).
+ */
 async function payloadOf(build: ($: BlockBuilder<typeof PlanPayloadType>) => ExprType<typeof PlanPayloadType>): Promise<Payload> {
     const program = East.function([], PlanPayloadType, ($) => build($));
     const { platform } = await h.platform(program);
-    return East.compile(program, platform)() as Payload;
+    StateRuntime.initializeStore(new UIStore());
+    return East.compile(program, [...platform, ...StateImpl])() as Payload;
 }
 
 const WINDOW = { min: new Date("2026-10-05T00:00:00Z"), max: new Date("2026-11-02T00:00:00Z") };
@@ -44,10 +50,10 @@ const sameCards = equalFor(ArrayType(PlanLibraryCardType));
 const sameText = equalFor(OptionType(StringType));
 const asText = encodeBeast2For(StringType);
 
-/** The presses, bound inside a block. */
+/** The presses, bound inside a block, as the canvas's rows (#1541): a landing row each, the jobs landing on them. */
 function pressesOf($: BlockBuilder<never>) {
     const presses = $.let(Record.bind(ex.planPrintPresses, []));
-    return Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name });
+    return { data: presses.read(), series: [Plan.series.resources(ex.PrintPress, { key: "presses", title: "Presses", icon: "print", label: (p) => p.name })] };
 }
 
 /** The jobs over the presses, bound inside a block, their unscheduled ones in the backlog. */
@@ -90,7 +96,7 @@ describe("the tabs `library` lists (PB26, PB61)", () => {
                 const tabs = library($);
                 return Plan.Payload({
                     axis: Plan.axis({ window: WINDOW, resolution: "day" }),
-                    resources: { presses: pressesOf($) }, events: { job: jobsOf($) },
+                    ...pressesOf($), events: { job: jobsOf($) },
                     ...(tabs === undefined ? {} : { library: tabs }),
                 });
             });
@@ -118,30 +124,25 @@ describe("the tabs `library` lists (PB26, PB61)", () => {
 });
 
 describe("the Series tab (PB29)", () => {
-    test("each resource kind followed by its measures, then the event kinds; then the Plan's rows — a hand-built row by its key, the rows nested in it going with it, a Plan.over series by its own — each with its glyph, and what hiding it hides", async () => {
+    test("the event kinds; then the Plan's rows — a hand-built row by its key, the rows nested in it going with it, a Plan.over series by its own — each with its glyph, and what hiding it hides; `data`'s series through the canvas's own pick, a resources series one line, its series beneath it going with it (#1541)", async () => {
         const payload = await payloadOf(($) => {
             const presses = $.let(Record.bind(ex.planPrintPresses, []));
-            const crews = $.let(Record.bind(ex.planPrintCrews, []));
             const jobs = $.let(Record.bind(ex.planPrintJobs, ["patch"]));
             const stops = $.let(Record.bind(ex.planPrintStops, ["patch"]));
-            const shifts = $.let(Record.bind(ex.planPrintShifts, ["patch"]));
             const stock = $.let(Data.bind(ex.planLinkStock));
             return Plan.Payload({
                 axis: Plan.axis({ window: WINDOW, resolution: "day" }),
-                resources: {
-                    presses: Schedule.resources(presses.read(), {
-                        name: "Presses", icon: "print", label: (p) => p.name, group: (p) => p.hall,
-                        measures: [
-                            Plan.series.heat(ex.PrintPress, { key: "util", title: "Utilisation", label: () => "Utilisation", cells: () => Plan.heatCells([]) }),
-                            Plan.series.table(ex.PrintPress, { key: "speed", title: "Speed", label: () => "Speed" }),
-                        ],
-                    }),
-                    crews: Schedule.resources(crews.read(), { name: "Crews", icon: "user-group", label: (c) => c.name }),
-                },
+                data: presses.read(),
+                series: [Plan.series.resources(ex.PrintPress, {
+                    key: "presses", title: "Presses", icon: "print", label: (p) => p.name,
+                    series: [
+                        Plan.series.heat(ex.PrintPress, { key: "util", title: "Utilisation", label: () => "Utilisation", cells: () => Plan.heatCells([]) }),
+                        Plan.series.table(ex.PrintPress, { key: "speed", title: "Speed", label: () => "Speed" }),
+                    ],
+                })],
                 events: {
                     job: Schedule.events(jobs, { name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end", resource: { field: "press", of: "presses" } }),
                     stop: Schedule.events(stops, { name: "Stop", icon: "screwdriver-wrench", title: "title", at: "at", resource: { field: "press", of: "presses" } }),
-                    shift: Schedule.events(shifts, { name: "Crew shift", icon: "user-clock", draw: "cards", title: "title", start: "start", end: "end", resource: { field: "crew", of: "crews" } }),
                 },
                 rows: [
                     Plan.chart({ key: "output", label: "SHEETS / DAY", id: true, pinned: true, layers: [] }),
@@ -163,13 +164,8 @@ describe("the Series tab (PB29)", () => {
         });
         assert.ok(sameTab(tabOf(payload, "series"), variant("series", {
             kinds: [
-                line("resources.presses", "Presses", undefined, "print"),
-                line("measures.util", "Utilisation", "Presses", "table-cells-large"),
-                line("measures.speed", "Speed", "Presses", "table-list"),
-                line("resources.crews", "Crews", undefined, "user-group"),
                 line("events.job", "Print job", undefined, "file-lines"),
                 line("events.stop", "Stop", undefined, "screwdriver-wrench"),
-                line("events.shift", "Crew shift", undefined, "user-clock"),
             ],
             rows: [
                 { item: line("rows.output", "SHEETS / DAY", undefined, "chart-line"), hides: variant("rows", "output") },
@@ -179,13 +175,16 @@ describe("the Series tab (PB29)", () => {
                 { item: line("rows.ms", "Milestones", undefined, "flag"), hides: variant("rows", "ms") },
             ],
         })), JSON.stringify(tabOf(payload, "series").value.rows.map((r) => r.item.id)));
+        // `data`'s series, through the canvas's own pick: the presses one line, their series beneath them going with them.
+        if (payload.plan.pick.type !== "some") assert.fail("expected `data`'s series picked");
+        assert.deepEqual(payload.plan.pick.value.items.map((item) => [item.id, item.title]), [["presses", "Presses"]]);
     });
 });
 
 describe("an author's tab (PB62)", () => {
     const withTab = (tab: ($: BlockBuilder<typeof PlanPayloadType>) => ReturnType<typeof Plan.library.tab>) => payloadOf(($) => {
         const own = tab($);
-        return Plan.Payload({ axis: Plan.axis({ window: WINDOW, resolution: "day" }), resources: { presses: pressesOf($) }, events: { job: jobsOf($) }, library: [own] });
+        return Plan.Payload({ axis: Plan.axis({ window: WINDOW, resolution: "day" }), ...pressesOf($), events: { job: jobsOf($) }, library: [own] });
     });
 
     test("a card per row, in its rows' order: its key's text, its label, meta and group; its `drop` names the event kind a card lands on, and each card the field it sets, at its path, as bytes of its type", async () => {

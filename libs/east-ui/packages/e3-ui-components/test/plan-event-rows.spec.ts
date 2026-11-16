@@ -4,31 +4,33 @@
  */
 
 /**
- * Events into rows (#1192, `Plan Builder Spec.md` §9.4, PB12–PB17) over the
- * print works' records on e3 itself (#1379): the resources' rows a Plan of
- * event kinds draws over a window — the payload's `blocks` — its East function
- * compiled against the platform a UI task's preview gives it, so the records
- * it reads are e3's. A resource is a row per way its kinds draw, then its
- * measures; resources nest by parent and sit under group strips; a row's id is
- * its series' key and its path; an event no resource holds draws on its
- * kind's Unassigned row; every kind's drafts are in place, each event wearing
- * its own lifecycle, and the records are read as the rows are, another
- * session's commit drawn once the cache's poll reports it; what the viewer
- * hides in the library's Series tab stays out (PB29, #1195); and a resource
- * kind the rail narrows draws the resources it shows (#1344).
+ * Events onto rows (#1192, #1541, `Plan Builder Spec.md` §9.4, PB12–PB17) over
+ * the print works' records on e3 itself (#1379): the rows a Plan of event kinds
+ * draws over a window — its own rows, the payload's seam joining each kind's
+ * events into the rows of the series it lands on — its East functions compiled
+ * against the platform a UI task's preview gives them, so the records they
+ * read are e3's. A resource is a landing row of a resources series or a kinds
+ * case, a row beside it for each further way its kinds draw, then its own
+ * series' rows; resources nest as their tree does and sit under the group
+ * strips their series sit under; a row's id is its series' key and its path;
+ * an event no row holds draws on its kind's Unassigned row; every kind's
+ * drafts are in place, each event wearing its own lifecycle, and the records
+ * are read as the rows are, another session's commit drawn once the cache's
+ * poll reports it; and what the viewer hides in the library's Series tab stays
+ * out (PB29, #1195).
  */
 
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
-    ArrayType, BlobType, DateTimeType, DictType, East, FloatType, IntegerType, OptionType, SortedMap, SortedSet, StringType, StructType,
+    ArrayType, BlobType, DateTimeType, DictType, East, FloatType, OptionType, RecursiveType, SortedMap, StringType, StructType,
     compareFor, encodeBeast2For, equalFor, none, printFor, some, variant,
     type BlockBuilder, type ExprType, type ValueTypeOf,
 } from "@elaraai/east";
 import { EditingDraftFieldType } from "@elaraai/east-ui/internal";
 import {
-    Data, Plan, PlanEventBlocksType, PlanEventDraftsType, PlanEventItemType, PlanEventKindType, PlanEventReadsType, PlanEventShadingType,
-    PlanEventShownType, PlanPayloadType, Record, Schedule, ScheduleDraftsType, createEventBlocks,
+    Data, Plan, PlanEventDraftsType, PlanEventItemType, PlanEventKindType, PlanEventReadsType, PlanEventSeamType, PlanEventShadingType,
+    PlanPayloadType, Record, Schedule, ScheduleDraftsType, createEventSeam,
 } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
 import { e3Spec } from "./fixtures/e3.js";
@@ -46,7 +48,6 @@ type Blocks = ValueTypeOf<typeof Plan.Types.Blocks>;
 type Row = Blocks[number]["rows"][number];
 type RowId = ValueTypeOf<typeof Plan.Types.RowId>;
 type Drafts = ValueTypeOf<typeof PlanEventDraftsType>;
-type Shown = ValueTypeOf<typeof PlanEventShownType>;
 type Job = ValueTypeOf<typeof ex.PrintJob>;
 
 /**
@@ -73,8 +74,6 @@ const WINDOW = { min: FIRST, max: LAST };
 
 const byString = compareFor(StringType);
 const NO_DRAFTS: Drafts = new SortedMap([], byString);
-/** The rail narrows no resource kind: each draws every resource. */
-const ALL_SHOWN: Shown = new SortedMap([], byString);
 /** No kind read by its cells, and no shading (#1039): every kind read over the window, every row drawing its events. */
 const NO_READS: ValueTypeOf<typeof PlanEventReadsType> = new SortedMap([], byString);
 const NO_SHADING: ValueTypeOf<typeof PlanEventShadingType> = new SortedMap([], byString);
@@ -92,16 +91,31 @@ const entry = (series: string, ...path: string[]): RowId => variant("entry", { s
 /** An element's key: its event, as East prints a `Schedule.Types.EventRef`. */
 const elementKey = (kind: string, key: string) => printRef({ kind, key });
 
-/** The blocks over `[from, to)`, every kind's drafts in place, what the viewer hides left out, of a resource kind the rail narrows the resources it shows. */
-function blocksOf(payload: Payload, from: Date, to: Date, drafts: Drafts = NO_DRAFTS, hidden: readonly string[] = [], shown: Shown = ALL_SHOWN): Blocks {
-    if (payload.blocks.type !== "some") assert.fail("expected the event kinds' blocks");
-    const read = payload.blocks.value(from, to, drafts, [...hidden], shown, NO_READS, NO_SHADING);
-    if (read.type !== "some") assert.fail("expected every kind's events read");
-    return read.value;
+/** The ids of rows, printed one a line: what a failed comparison says. */
+const printed = (rows: readonly Row[]) => rows.map((r) => printId(r.id)).join("\n");
+
+/**
+ * The canvas's rows over `[from, to)` as the seam joins the events into them —
+ * every row read whole, so the Unassigned rows follow — every kind's drafts in
+ * place, what the viewer hides left out.
+ */
+function blocksOf(payload: Payload, from: Date, to: Date, drafts: Drafts = NO_DRAFTS, hidden: readonly string[] = []): Blocks {
+    if (payload.seam.type !== "some") assert.fail("expected the event kinds' seam");
+    const rows = payload.plan.rows;
+    if (rows.type !== "inline") assert.fail("expected the rows read whole");
+    const placed = payload.seam.value.placed(from, to, drafts, [...hidden], NO_READS);
+    if (placed.type !== "some") assert.fail("expected every kind's events read");
+    return payload.seam.value.place(rows.value, placed.value, NO_SHADING, [...hidden], true);
 }
 
 /** Every row, block after block. */
 const rowsOf = (blocks: Blocks): Row[] => blocks.flatMap((b) => b.rows);
+
+/** The rows of the canvas's own blocks: every row but the Unassigned rows, which the last block holds. */
+const ownRows = (blocks: Blocks): Row[] => rowsOf(blocks.slice(0, -1));
+
+/** The Unassigned rows: the last block's. */
+const lostRows = (blocks: Blocks): Row[] => blocks[blocks.length - 1]!.rows;
 
 /** The row of an id. */
 function rowAt(blocks: Blocks, id: RowId): Row {
@@ -134,10 +148,17 @@ async function job(key: string): Promise<Job> {
     return one;
 }
 
-/** The print works of §3.3, without its templates and forms: presses and crews by hall, jobs as bars, stops as marks, shifts as chips. */
-function printWorks($: BlockBuilder<typeof PlanPayloadType>, options: { measures?: boolean } = {}): ExprType<typeof PlanPayloadType> {
-    const presses = $.let(Record.bind(ex.planPrintPresses, []));
-    const crews = $.let(Record.bind(ex.planPrintCrews, []));
+/** The halls' groups of the print works: the presses and the crews of each. */
+const HALLS = ["1-presses-a", "2-presses-b", "3-crews-a", "4-crews-b"];
+
+/**
+ * The print works of §3.3, without its templates and forms: one record of
+ * rows, each hall's presses and crews a group strip, each resource drawn by its
+ * kind — jobs as bars and stops as marks on the presses, shifts as chips on the
+ * crews — a press's utilisation beneath it.
+ */
+function printWorks($: BlockBuilder<typeof PlanPayloadType>, options: { util?: boolean } = {}): ExprType<typeof PlanPayloadType> {
+    const works = $.let(Data.bind(ex.planPrintWorksRows));
     const jobs = $.let(Record.bind(ex.planPrintJobs, ["patch"]));
     const stops = $.let(Record.bind(ex.planPrintStops, ["patch"]));
     const shifts = $.let(Record.bind(ex.planPrintShifts, ["patch"]));
@@ -145,21 +166,28 @@ function printWorks($: BlockBuilder<typeof PlanPayloadType>, options: { measures
     const first = $.const(FIRST, DateTimeType);
     const daily = $.const(East.function([ArrayType(FloatType)], ArrayType(Plan.Types.HeatCell), (_$2, readings) =>
         East.Array.generate(readings.size(), Plan.Types.HeatCell, (_$3, i) => ({ at: Plan.at.time(first.addDays(i)), value: some(readings.get(i)), label: none }))));
+    // The halls alone: the plate room, the bindery, dispatch and the vans are another test's.
+    const halls = $.let(works.read().filter(($2, _group, key) => key.lessThan("5")));
     return Plan.Payload({
         axis: Plan.axis({ window: WINDOW, resolution: "day" }),
-        resources: {
-            presses: Schedule.resources(presses.read(), {
-                name: "Presses", icon: "print", label: (p) => p.name, group: (p) => p.hall,
-                sub: (p) => some(East.str`${East.Float.printCommaSeperated(p.sheets_per_hour, 0n)} sheets/h`),
-                ...(options.measures === false ? {} : {
-                    measures: [Plan.series.heat(ex.PrintPress, {
-                        key: "util", title: "Utilisation", label: () => "Utilisation",
-                        cells: (_p, key) => Plan.heatCells(daily(util.read().get(key)), { min: 0, max: 100, warnAt: 95 }),
-                    })],
-                }),
-            }),
-            crews: Schedule.resources(crews.read(), { name: "Crews", icon: "user-group", label: (c) => c.name, group: (c) => c.hall }),
-        },
+        data: halls,
+        series: [Plan.series.group(ex.PrintWorksGroup, {
+            key: "groups", title: "Works", label: (g) => g.name,
+            children: Plan.children("resources", [Plan.series.kinds(ex.PrintResource, "what", {
+                press: {
+                    key: "presses", title: "Presses", icon: "print", label: (r) => r.name,
+                    sub: (_r, _key, press) => some(East.str`${East.Float.printCommaSeperated(press.sheets_per_hour, 0n)} sheets/h`),
+                    ...(options.util === false ? {} : {
+                        series: [Plan.series.heat(ex.PrintResource, {
+                            key: "util", title: "Utilisation", label: () => "Utilisation",
+                            cells: (_r, key) => Plan.heatCells(daily(util.read().get(key)), { min: 0, max: 100, warnAt: 95 }),
+                        })],
+                    }),
+                },
+                crew: { key: "crews", title: "Crews", icon: "user-group", label: (r) => r.name },
+                setter: false, line: false, bay: false, van: false,
+            })]),
+        })],
         events: {
             job: Schedule.events(jobs, {
                 name: "Print job", icon: "file-lines", draw: "span",
@@ -178,27 +206,27 @@ function printWorks($: BlockBuilder<typeof PlanPayloadType>, options: { measures
     });
 }
 
-/** The print works' payload, and its first week's blocks. */
+/** The print works' payload, and its first week's rows. */
 async function printWorksWeek1() {
     const payload = await payloadOf(($) => printWorks($));
     return { payload, week1: blocksOf(payload, FIRST, WEEK2) };
 }
 
-const PRESSES = [["Hall A", ["a1", "a2", "a3"]], ["Hall B", ["b1", "b2", "b3"]]] as const;
-const CREWS = [["Hall A", ["c1", "c2"]], ["Hall B", ["c3", "c4"]]] as const;
+const PRESSES = [["1-presses-a", ["a1", "a2", "a3"]], ["2-presses-b", ["b1", "b2", "b3"]]] as const;
+const CREWS = [["3-crews-a", ["c1", "c2"]], ["4-crews-b", ["c3", "c4"]]] as const;
 
-/** The presses' rows, each strip followed by its presses' rows of the given series. */
+/** The presses' rows, each hall's strip followed by its presses' rows of the given series. */
 const pressRows = (...series: readonly string[]): RowId[] => PRESSES.flatMap(([hall, keys]) => [
-    entry("presses.group", hall),
+    entry("groups", hall),
     ...keys.flatMap((k) => series.map((s) => entry(s, hall, k))),
 ]);
+/** The crews' rows, each hall's strip followed by its crews' landing rows. */
+const crewRows = (): RowId[] => CREWS.flatMap(([hall, keys]) => [entry("groups", hall), ...keys.map((k) => entry("crews", hall, k))]);
 
-/** A Plan of one kind whose read is in flight: its blocks seam, compiled over e3. */
-async function inFlightBlocks(): Promise<ValueTypeOf<typeof PlanEventBlocksType>> {
-    const program = East.function([], PlanEventBlocksType, ($) => {
-        const presses = $.let(Record.bind(ex.planPrintPresses, []));
+/** A Plan of one kind landing on the presses whose read is in flight: its seam, compiled over e3. */
+async function inFlightSeam(): Promise<ValueTypeOf<typeof PlanEventSeamType>> {
+    const program = East.function([], PlanEventSeamType, ($) => {
         const jobs = $.let(Record.bind(ex.planPrintJobs, ["patch"]));
-        const resources = { presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name }) };
         const events = { job: Schedule.events(jobs, { name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end", resource: { field: "press", of: "presses" } }) };
         const kindBuilt = $.let(events.job.buildPlan("job"));
         const read = kindBuilt as unknown as globalThis.Record<string, ExprType<typeof PlanEventKindType>>;
@@ -207,49 +235,47 @@ async function inFlightBlocks(): Promise<ValueTypeOf<typeof PlanEventBlocksType>
         const kind = $.let(Object.fromEntries(Object.keys(PlanEventKindType.fields).map((f) =>
             [f, f === "planItems" ? inFlight : read[f]!])) as never, PlanEventKindType);
         const kinds = $.let([kind], ArrayType(PlanEventKindType));
-        return createEventBlocks(Object.entries(resources), Object.entries(events), kinds);
+        const presses = { key: "presses", title: "Presses", icon: undefined, keyType: StringType, rowType: ex.PrintPress, lanes: false, series: [] };
+        return createEventSeam([presses], Object.entries(events), kinds);
     });
     const { platform } = await h.platform(program);
     return East.compile(program, platform)();
 }
 
 // ============================================================================
-// A resource is a row block (PB12, PB13, PB15)
+// A resource is a landing row (PB12, PB13, PB15, #1541)
 // ============================================================================
 
-describe("a resource is a row block (PB12, PB13, PB15)", () => {
-    test("the presses, then the crews, then the Unassigned rows: each block fixed, so a paged canvas draws it once", async () => {
+describe("a resource is a landing row (PB12, PB13, PB15, #1541)", () => {
+    test("each hall a strip, its resources beneath it, each its kind's landing row, a row beside it for each further way its kinds draw, then its own series' rows; the Unassigned rows after every row", async () => {
         const { week1 } = await printWorksWeek1();
-        assert.deepEqual(week1.map((b) => [b.fixed, b.parent.type]), [[true, "none"], [true, "none"], [true, "none"]]);
-        // Each press a strip's member: its bars, then its stops' marks, then its utilisation; each crew its chips.
-        const presses = PRESSES.flatMap(([hall, keys]) => [
-            entry("presses.group", hall),
-            ...keys.flatMap((k) => [entry("presses.span", hall, k), entry("presses.marks", hall, k), entry("util", hall, k)]),
-        ]);
-        const crews = CREWS.flatMap(([hall, keys]) => [entry("crews.group", hall), ...keys.map((k) => entry("crews.cards", hall, k))]);
-        assert.ok(sameIds(week1[0]!.rows.map((r) => r.id), presses), week1[0]!.rows.map((r) => printId(r.id)).join("\n"));
-        assert.ok(sameIds(week1[1]!.rows.map((r) => r.id), crews));
-        // Nothing unassigned this week: the block is there, and empty.
-        assert.equal(week1[2]!.rows.length, 0);
+        // Each press its bars, then its stops' marks, then its utilisation; each crew its chips.
+        const expected = [...pressRows("presses", "presses.marks", "util"), ...crewRows()];
+        assert.ok(sameIds(ownRows(week1).map((r) => r.id), expected), printed(ownRows(week1)));
+        // Nothing unassigned this week: the block is there, and empty — fixed, under no row.
+        const lost = week1[week1.length - 1]!;
+        assert.deepEqual([lost.fixed, lost.parent.type, lost.rows.length], [true, "none", 0]);
     });
 
-    test("a resource's first row carries its gutter; the rest name the kinds that draw that way; every row nests under its strip", async () => {
+    test("a landing row keeps its own gutter; a row beside it names the kinds that draw that way, nested where the landing row is; its own series nest under it", async () => {
         const { week1 } = await printWorksWeek1();
-        const bars = rowAt(week1, entry("presses.span", "Hall A", "a1"));
+        const parentOf = (row: Row) => (row.parent.type === "some" ? printId(row.parent.value) : "-");
+        const bars = rowAt(week1, entry("presses", "1-presses-a", "a1"));
         assert.deepEqual([bars.gutter.label, bars.gutter.sub.type === "some" ? bars.gutter.sub.value : ""], ["Press A1", "12,000 sheets/h"]);
-        const marks = rowAt(week1, entry("presses.marks", "Hall A", "a1"));
+        const marks = rowAt(week1, entry("presses.marks", "1-presses-a", "a1"));
         assert.deepEqual([marks.gutter.label, marks.gutter.sub.type], ["Stop", "none"]);
-        const util = rowAt(week1, entry("util", "Hall A", "a1"));
+        const util = rowAt(week1, entry("util", "1-presses-a", "a1"));
         assert.equal(util.gutter.label, "Utilisation");
-        for (const row of [bars, marks, util]) assert.ok(sameIds([row.parent.type === "some" ? row.parent.value : entry("")], [entry("presses.group", "Hall A")]));
-        const strip = rowAt(week1, entry("presses.group", "Hall A"));
-        assert.deepEqual([strip.gutter.label, strip.kind.type, strip.parent.type], ["Hall A", "group", "none"]);
-        assert.equal(rowAt(week1, entry("crews.cards", "Hall B", "c3")).gutter.label, "Crew 3");
+        const strip = printId(entry("groups", "1-presses-a"));
+        assert.deepEqual([parentOf(bars), parentOf(marks), parentOf(util)], [strip, strip, printId(entry("presses", "1-presses-a", "a1"))]);
+        const hall = rowAt(week1, entry("groups", "1-presses-a"));
+        assert.deepEqual([hall.gutter.label, hall.kind.type, hall.parent.type], ["Hall A", "group", "none"]);
+        assert.equal(rowAt(week1, entry("crews", "4-crews-b", "c3")).gutter.label, "Crew 3");
     });
 
     test("each element is an event in the window, keyed by its kind and key, wearing its kind's icon, its lifecycle and its quantity", async () => {
         const { payload, week1 } = await printWorksWeek1();
-        const bars = rowAt(week1, entry("presses.span", "Hall A", "a1"));
+        const bars = rowAt(week1, entry("presses", "1-presses-a", "a1"));
         if (bars.kind.type !== "span") assert.fail("expected bars");
         assert.deepEqual(bars.kind.value.runs.map((r) => [r.key, r.label, r.icon.type === "some" ? r.icon.value.name : ""]), [
             [elementKey("job", "J-1001"), "Spring catalogue", "file-lines"],
@@ -261,34 +287,42 @@ describe("a resource is a row block (PB12, PB13, PB15)", () => {
         assert.ok(sameStates([first!.state], [variant("actual", null)]));
         assert.ok(sameQuantity(first!.quantity, some({ value: 96000, unit: some("sheets"), format: none, text: none })));
         // A stop is a mark at its instant; a shift a chip over its hours.
-        const marks = rowAt(week1, entry("presses.marks", "Hall A", "a1"));
+        const marks = rowAt(week1, entry("presses.marks", "1-presses-a", "a1"));
         if (marks.kind.type !== "events") assert.fail("expected marks");
         assert.deepEqual(marks.kind.value.marks.map((m) => [m.key, m.kind.type, m.icon.type === "some" ? m.icon.value.name : ""]), [
             [elementKey("stop", "S-01"), "milestone", "screwdriver-wrench"],
         ]);
         assert.ok(sameInstant(marks.kind.value.marks[0]!.at, variant("time", new Date("2026-10-07T12:00:00Z"))));
-        assert.deepEqual(keysOn(rowAt(week1, entry("crews.cards", "Hall A", "c1"))), [elementKey("shift", "SH-01"), elementKey("shift", "SH-02")]);
+        assert.deepEqual(keysOn(rowAt(week1, entry("crews", "3-crews-a", "c1"))), [elementKey("shift", "SH-01"), elementKey("shift", "SH-02")]);
         // Only the window's events: Press B3's first job is in the third week.
-        assert.deepEqual(keysOn(rowAt(week1, entry("presses.span", "Hall B", "b3"))), []);
-        assert.deepEqual(keysOn(rowAt(blocksOf(payload, WEEK3, WEEK4), entry("presses.span", "Hall B", "b3"))), [elementKey("job", "J-1022")]);
+        assert.deepEqual(keysOn(rowAt(week1, entry("presses", "2-presses-b", "b3"))), []);
+        assert.deepEqual(keysOn(rowAt(blocksOf(payload, WEEK3, WEEK4), entry("presses", "2-presses-b", "b3"))), [elementKey("job", "J-1022")]);
     });
 
-    test("a measure row is the measure's series applied to the resource's row: its id is the series' key and the resource's path (PB13)", async () => {
+    test("a resource's own series is a row over its row (PB13): its id is the series' key and the resource's path", async () => {
         const { week1 } = await printWorksWeek1();
-        const util = rowAt(week1, entry("util", "Hall B", "b2"));
+        const util = rowAt(week1, entry("util", "2-presses-b", "b2"));
         if (util.kind.type !== "heat" || util.kind.value.cells.type !== "heat") assert.fail("expected heat cells");
         assert.deepEqual(util.kind.value.cells.value.cells.slice(0, 3).map((c) => (c.value.type === "some" ? c.value.value : -1)), [18, 20, 22]);
+        // Without it, a press is its bars and its marks.
+        const plain = blocksOf(await payloadOf(($) => printWorks($, { util: false })), FIRST, WEEK2);
+        assert.ok(sameIds(ownRows(plain).map((r) => r.id), [...pressRows("presses", "presses.marks"), ...crewRows()]), printed(ownRows(plain)));
+    });
+
+    /** The presses' landing rows, read whole: a resources series over the presses' own record. */
+    const pressesOf = ($: BlockBuilder<typeof PlanPayloadType>) => ({
+        data: $.let(Record.bind(ex.planPrintPresses, [])).read(),
+        series: [Plan.series.resources(ex.PrintPress, { key: "presses", title: "Presses", icon: "print", label: (p) => p.name })],
     });
 
     test("kinds that draw alike share the row, each element wearing its own kind's icon and keyed by its kind", async () => {
         const shared = await payloadOf(($) => {
-            const presses = $.let(Record.bind(ex.planPrintPresses, []));
             const jobs = $.let(Record.bind(ex.planPrintJobs, ["patch"]));
             const rush = $.let(Record.bind(ex.planLinkJobs, ["patch"]));
             const stops = $.let(Record.bind(ex.planPrintStops, ["patch"]));
             return Plan.Payload({
                 axis: Plan.axis({ window: WINDOW, resolution: "day" }),
-                resources: { presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name }) },
+                ...pressesOf($),
                 events: {
                     job: Schedule.events(jobs, { name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end", resource: { field: "press", of: "presses" } }),
                     rush: Schedule.events(rush, { name: "Rush job", icon: "bolt", title: "title", start: "start", end: "end", resource: { field: "press", of: "presses" } }),
@@ -298,9 +332,9 @@ describe("a resource is a row block (PB12, PB13, PB15)", () => {
             });
         });
         const week2 = blocksOf(shared, WEEK2, WEEK3);
-        // One row of bars and one of marks per press, ungrouped: no strips.
-        assert.ok(sameIds(week2[0]!.rows.slice(0, 2).map((r) => r.id), [entry("presses.span", "a1"), entry("presses.marks", "a1")]));
-        const bars = rowAt(week2, entry("presses.span", "a1"));
+        // One landing row of bars and one row of marks per press, ungrouped: no strips.
+        assert.ok(sameIds(ownRows(week2).slice(0, 2).map((r) => r.id), [entry("presses", "a1"), entry("presses.marks", "a1")]), printed(ownRows(week2)));
+        const bars = rowAt(week2, entry("presses", "a1"));
         if (bars.kind.type !== "span") assert.fail("expected bars");
         assert.deepEqual(bars.kind.value.runs.map((r) => [r.key, r.icon.type === "some" ? r.icon.value.name : ""]), [
             [elementKey("job", "J-1003"), "file-lines"], [elementKey("rush", "J-2002"), "bolt"],
@@ -314,12 +348,11 @@ describe("a resource is a row block (PB12, PB13, PB15)", () => {
 
     test("a kind's events draw as tiles in their lanes, the lanes each named once in order; a warning tone rings a tile, a bar and a chip in its case's words, and makes a mark an exception", async () => {
         const laned = await payloadOf(($) => {
-            const presses = $.let(Record.bind(ex.planPrintPresses, []));
             const lane = $.let(Record.bind(ex.planRowsLaneJobs, ["patch"]));
             const config = { title: "title", resource: { field: "press", of: "presses" }, status: { field: "status", cases: LANE_STATUS } } as const;
             return Plan.Payload({
                 axis: Plan.axis({ window: WINDOW, resolution: "day" }),
-                resources: { presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name }) },
+                ...pressesOf($),
                 events: {
                     tile: Schedule.events(lane, { ...config, name: "Tile", icon: "square", start: "start", end: "end", draw: "buckets", lane: "lane" }),
                     bar: Schedule.events(lane, { ...config, name: "Bar", icon: "minus", start: "start", end: "end", draw: "span" }),
@@ -329,9 +362,10 @@ describe("a resource is a row block (PB12, PB13, PB15)", () => {
             });
         });
         const week1 = blocksOf(laned, FIRST, WEEK2);
-        // Bars, then tiles, then chips, then marks: span, buckets, cards, marks order, whatever order `events` lists them in.
-        assert.ok(sameIds(week1[0]!.rows.slice(0, 4).map((r) => r.id),
-            [entry("presses.span", "a1"), entry("presses.buckets", "a1"), entry("presses.cards", "a1"), entry("presses.marks", "a1")]));
+        // Bars on the landing row, then tiles, then chips, then marks beside it: span, buckets, cards, marks order, whatever
+        // order `events` lists them in.
+        assert.ok(sameIds(ownRows(week1).slice(0, 4).map((r) => r.id),
+            [entry("presses", "a1"), entry("presses.buckets", "a1"), entry("presses.cards", "a1"), entry("presses.marks", "a1")]), printed(ownRows(week1)));
         // What an element wears of its event's status (#1541): a warning's ring, in its case's words, drawn as the ring
         // whether or not its case is an open ring; a status of any other tone, nothing.
         const worn = (status: ValueTypeOf<OptionType<typeof Plan.Types.Status>>) =>
@@ -342,10 +376,10 @@ describe("a resource is a row block (PB12, PB13, PB15)", () => {
         assert.deepEqual(tiles.kind.value.events.map((e) => [e.key, e.lane.type === "some" ? e.lane.value : "", worn(e.status)]), [
             [elementKey("tile", "L-1"), "pm", "-"], [elementKey("tile", "L-2"), "am", ["Late", "warning", false]],
         ]);
-        const bars = rowAt(week1, entry("presses.span", "a1"));
+        const bars = rowAt(week1, entry("presses", "a1"));
         if (bars.kind.type !== "span") assert.fail("expected bars");
         assert.deepEqual(bars.kind.value.runs.map((r) => worn(r.status)), ["-", ["Late", "warning", false]]);
-        // A chip takes the ring too, which it drew none of before.
+        // A chip takes the ring too.
         const chips = rowAt(week1, entry("presses.cards", "a1"));
         if (chips.kind.type !== "cards") assert.fail("expected chips");
         assert.deepEqual(chips.kind.value.chips.map((c) => worn(c.status)), ["-", ["Late", "warning", false]]);
@@ -358,18 +392,25 @@ describe("a resource is a row block (PB12, PB13, PB15)", () => {
         assert.deepEqual(a3.kind.type === "buckets" ? a3.kind.value.lanes : undefined, []);
     });
 
-    test("a kind whose resource field names a kind per case places each event on its own case's kind, however the kinds' keys overlap", async () => {
-        const Bay = StructType({ name: StringType });
+    test("a kind whose resource field names a series per case places each event on its own case's rows, however their keys overlap", async () => {
+        type Works = ValueTypeOf<typeof ex.PrintWorksGroup>;
+        const works: [string, Works][] = [
+            ["g1", { name: "Presses", resources: new Map([["a1", { name: "Press A1", what: variant("press", { sheets_per_hour: 12000 }) }]]) }],
+            ["g2", { name: "Bays", resources: new Map([["a1", { name: "Bay A1", what: variant("bay", null) }]]) }],
+        ];
         const placed = await payloadOf(($) => {
-            const presses = $.let(Record.bind(ex.planPrintPresses, []));
             const on = $.let(Record.bind(ex.planRowsOnJobs, ["patch"]));
-            const bays = $.const(new Map([["a1", { name: "Bay A1" }]]), DictType(StringType, Bay));
             return Plan.Payload({
                 axis: Plan.axis({ window: WINDOW, resolution: "day" }),
-                resources: {
-                    presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name }),
-                    bays: Schedule.resources(bays, { name: "Bays", icon: "warehouse", label: (b) => b.name }),
-                },
+                data: $.const(new Map(works), DictType(StringType, ex.PrintWorksGroup)),
+                series: [Plan.series.group(ex.PrintWorksGroup, {
+                    key: "groups", title: "Works", label: (g) => g.name,
+                    children: Plan.children("resources", [Plan.series.kinds(ex.PrintResource, "what", {
+                        press: { key: "presses", title: "Presses", icon: "print", label: (r) => r.name },
+                        bay: { key: "bays", title: "Bays", icon: "warehouse", label: (r) => r.name },
+                        crew: false, setter: false, line: false, van: false,
+                    })]),
+                })],
                 events: {
                     on: Schedule.events(on, {
                         name: "Job", icon: "file-lines", title: "title", start: "start", end: "end",
@@ -379,9 +420,9 @@ describe("a resource is a row block (PB12, PB13, PB15)", () => {
             });
         });
         const week1 = blocksOf(placed, FIRST, WEEK2);
-        assert.deepEqual(keysOn(rowAt(week1, entry("presses.span", "a1"))), [elementKey("on", "O-1")]);
-        assert.deepEqual(keysOn(rowAt(week1, entry("bays.span", "a1"))), [elementKey("on", "O-2")]);
-        assert.equal(week1[2]!.rows.length, 0);
+        assert.deepEqual(keysOn(rowAt(week1, entry("presses", "g1", "a1"))), [elementKey("on", "O-1")]);
+        assert.deepEqual(keysOn(rowAt(week1, entry("bays", "g2", "a1"))), [elementKey("on", "O-2")]);
+        assert.equal(lostRows(week1).length, 0);
     });
 });
 
@@ -390,90 +431,56 @@ describe("a resource is a row block (PB12, PB13, PB15)", () => {
 // ============================================================================
 
 describe("groups and nesting (PB14)", () => {
-    test("a strip per group in name order; its collapsed strip shows its members' heat when a measure paints any", async () => {
+    test("a strip per group, in the record's order, each holding its resources", async () => {
         const { week1 } = await printWorksWeek1();
-        const strips = rowsOf(week1).filter((r) => r.kind.type === "group");
-        assert.deepEqual(strips.map((r) => [printId(r.id), r.kind.type === "group" ? r.kind.value.summary.type : ""]), [
-            [printId(entry("presses.group", "Hall A")), "aggregate"], [printId(entry("presses.group", "Hall B")), "aggregate"],
-            [printId(entry("crews.group", "Hall A")), "none"], [printId(entry("crews.group", "Hall B")), "none"],
-        ]);
-        const noHeat = blocksOf(await payloadOf(($) => printWorks($, { measures: false })), FIRST, WEEK2);
-        const plain = rowAt(noHeat, entry("presses.group", "Hall A")).kind;
-        assert.equal(plain.type === "group" ? plain.value.summary.type : "", "none");
+        const strips = ownRows(week1).filter((r) => r.kind.type === "group");
+        assert.deepEqual(strips.map((r) => printId(r.id)), HALLS.map((hall) => printId(entry("groups", hall))));
+        assert.deepEqual(strips.map((r) => r.gutter.label), ["Hall A", "Hall B", "Hall A crews", "Hall B crews"]);
     });
 
-    /** Machines that nest: A1 over A2 over A3; B1 and B2 name each other; B3 names a machine there is none of. */
-    const Machine = StructType({ name: StringType, parent: OptionType(StringType) });
+    /** Machines as a tree: Line A over Press A2 over Press A3; Presses B1, B2 and B3 each on their own. */
+    const Machine = RecursiveType((self) => StructType({ name: StringType, under: DictType(StringType, self) }));
+    type MachineValue = ValueTypeOf<typeof Machine>;
+    const machine = (name: string, under: [string, MachineValue][] = []): MachineValue => ({ name, under: new Map(under) }) as MachineValue;
     const MACHINES = new Map([
-        ["a1", { name: "Line A", parent: none }],
-        ["a2", { name: "Press A2", parent: some("a1") }],
-        ["a3", { name: "Press A3", parent: some("a2") }],
-        ["b1", { name: "Press B1", parent: some("b2") }],
-        ["b2", { name: "Press B2", parent: some("b1") }],
-        ["b3", { name: "Press B3", parent: some("zz") }],
+        ["a1", machine("Line A", [["a2", machine("Press A2", [["a3", machine("Press A3")]])]])],
+        ["b1", machine("Press B1")], ["b2", machine("Press B2")], ["b3", machine("Press B3")],
     ]);
     const nested = (rollup?: "byStatus") => payloadOf(($) => {
         const jobs = $.let(Record.bind(ex.planPrintJobs, ["patch"]));
-        const machines = $.const(MACHINES, DictType(StringType, Machine));
         return Plan.Payload({
             axis: Plan.axis({ window: WINDOW, resolution: "day" }),
-            resources: {
-                presses: Schedule.resources(machines, {
-                    name: "Machines", icon: "gears", label: (m) => m.name, parent: (m) => m.parent, collapsed: (_m, key) => key.equal("a1"),
-                    value: (_m, key) => some(key), status: () => some(variant("warning", null)),
-                    ...(rollup !== undefined ? { rollup } : {}),
-                }),
-            },
+            data: $.const(MACHINES, DictType(StringType, Machine)),
+            series: [Plan.series.resources(Machine, {
+                key: "presses", title: "Machines", icon: "gears", label: (m) => m.name, children: "under",
+                collapsed: (_m, key) => key.equal("a1"), value: (_m, key) => some(key), status: () => some(variant("warning", null)),
+                ...(rollup !== undefined ? { rollup } : {}),
+            })],
             events: { job: Schedule.events(jobs, { name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end", resource: { field: "press", of: "presses" } }) },
         });
     });
 
-    test("a resource nests under the one its parent names, to any depth, after the parent's rows; one whose parents come back round, or name none it has, sits at the top", async () => {
+    test("a resource beneath another in the tree is a landing row of its own, nested under its parent's, after it; each draws its own events, keeping its collapse, its value and its status", async () => {
         const week1 = blocksOf(await nested(), FIRST, WEEK2);
-        const rows = week1[0]!.rows;
+        const rows = ownRows(week1);
         assert.ok(sameIds(rows.map((r) => r.id), [
-            entry("presses.span", "a1"), entry("presses.span", "a1", "a2"), entry("presses.span", "a1", "a2", "a3"),
-            entry("presses.span", "b1"), entry("presses.span", "b2"), entry("presses.span", "b3"),
-        ]), rows.map((r) => printId(r.id)).join("\n"));
+            entry("presses", "a1"), entry("presses", "a1", "a2"), entry("presses", "a1", "a2", "a3"),
+            entry("presses", "b1"), entry("presses", "b2"), entry("presses", "b3"),
+        ]), printed(rows));
         const parents = rows.map((r) => (r.parent.type === "some" ? printId(r.parent.value) : "-"));
-        assert.deepEqual(parents, ["-", printId(entry("presses.span", "a1")), printId(entry("presses.span", "a1", "a2")), "-", "-", "-"]);
-        // Each machine's own events, and its declared collapse on its first row.
+        assert.deepEqual(parents, ["-", printId(entry("presses", "a1")), printId(entry("presses", "a1", "a2")), "-", "-", "-"]);
+        // Each machine's own events — by the last step of its path — and its declared collapse on its row.
         assert.deepEqual(rows.map((r) => keysOn(r).length), [2, 1, 1, 1, 1, 0]);
         assert.deepEqual(rows.map((r) => r.collapsed), [true, false, false, false, false, false]);
-        // Its gutter's value slot and status dot.
+        // Its gutter's value slot and status dot, as its series made them.
         assert.deepEqual(rows.map((r) => (r.gutter.value.type === "some" ? r.gutter.value.value : "")), ["a1", "a2", "a3", "b1", "b2", "b3"]);
         assert.deepEqual(rows.map((r) => (r.status.type === "some" ? r.status.value.type : "")), Array(6).fill("warning"));
     });
 
-    test("a resource kind keyed by another type than String names a resource by its key's text: a parent names it so, and so does its path", async () => {
-        const Line = StructType({ name: StringType, parent: OptionType(StringType) });
-        const payload = await payloadOf(($) => {
-            const presses = $.let(Record.bind(ex.planPrintPresses, []));
-            const jobs = $.let(Record.bind(ex.planPrintJobs, ["patch"]));
-            const lines = $.const(new Map([[1n, { name: "Line 1", parent: none }], [2n, { name: "Line 2", parent: some("1") }]]), DictType(IntegerType, Line));
-            return Plan.Payload({
-                axis: Plan.axis({ window: WINDOW, resolution: "day" }),
-                resources: {
-                    presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name }),
-                    lines: Schedule.resources(lines, {
-                        name: "Lines", icon: "industry", label: (l) => l.name, parent: (l) => l.parent,
-                        measures: [Plan.series.heat(Line, { key: "load", title: "Load", label: (l) => l.name, cells: () => Plan.heatCells([]) })],
-                    }),
-                },
-                events: { job: Schedule.events(jobs, { name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end", resource: { field: "press", of: "presses" } }) },
-            });
-        });
-        const lines = blocksOf(payload, FIRST, WEEK2)[1]!.rows;
-        assert.ok(sameIds(lines.map((r) => r.id), [entry("load", "1"), entry("load", "1", "2")]), lines.map((r) => printId(r.id)).join("\n"));
-        assert.deepEqual(lines.map((r) => [r.gutter.label, r.parent.type === "some" ? printId(r.parent.value) : "-"]), [
-            ["Line 1", "-"], ["Line 2", printId(entry("load", "1"))],
-        ]);
-    });
-
-    test("a parent's bars roll its children's up — the kind's rollup, `union` unless it says — and a leaf's never do", async () => {
+    test("a parent's bars roll its children's up — the series' rollup, `union` unless it says — and a leaf's never do", async () => {
         const rollupOf = (row: Row) => (row.kind.type === "span" && row.kind.value.rollup.type === "some" ? row.kind.value.rollup.value.type : "-");
-        assert.deepEqual(blocksOf(await nested(), FIRST, WEEK2)[0]!.rows.map(rollupOf), ["union", "union", "-", "-", "-", "-"]);
-        assert.deepEqual(blocksOf(await nested("byStatus"), FIRST, WEEK2)[0]!.rows.map(rollupOf), ["byStatus", "byStatus", "-", "-", "-", "-"]);
+        assert.deepEqual(ownRows(blocksOf(await nested(), FIRST, WEEK2)).map(rollupOf), ["union", "union", "-", "-", "-", "-"]);
+        assert.deepEqual(ownRows(blocksOf(await nested("byStatus"), FIRST, WEEK2)).map(rollupOf), ["byStatus", "byStatus", "-", "-", "-", "-"]);
     });
 });
 
@@ -482,31 +489,31 @@ describe("groups and nesting (PB14)", () => {
 // ============================================================================
 
 describe("the Unassigned rows (PB16)", () => {
-    test("an event whose resource is none, or names one its kind does not have, draws on its kind's Unassigned row, after every resource kind", async () => {
+    test("an event whose resource is none, or names one no row holds, draws on its kind's Unassigned row, after every row", async () => {
         const payload = await payloadOf(($) => printWorks($));
         const drafts = jobDrafts([
             // No press, in the first week.
             ["J-1030", draftOf(variant("value", { ...(await job("J-1030")), start: some(new Date("2026-10-06T06:00:00Z")), end: some(new Date("2026-10-06T07:00:00Z")) }))],
-            // A press the presses have none of.
+            // A press no row holds.
             ["J-1002", draftOf(variant("value", { ...(await job("J-1002")), press: some("zz") }))],
         ]);
         const week1 = blocksOf(payload, FIRST, WEEK2, drafts);
-        const [lost] = week1[2]!.rows;
-        assert.equal(week1[2]!.rows.length, 1);
+        const [lost] = lostRows(week1);
+        assert.equal(lostRows(week1).length, 1);
         assert.ok(sameIds([lost!.id], [entry("job.unassigned", "span")]));
         assert.deepEqual([lost!.gutter.label, lost!.gutter.sub.type === "some" ? lost!.gutter.sub.value : "", lost!.kind.type, lost!.parent.type], ["Unassigned", "Print job", "span", "none"]);
         assert.deepEqual(keysOn(lost!), [elementKey("job", "J-1002"), elementKey("job", "J-1030")]);
-        assert.deepEqual(keysOn(rowAt(week1, entry("presses.span", "Hall A", "a1"))), [elementKey("job", "J-1001")]);
+        assert.deepEqual(keysOn(rowAt(week1, entry("presses", "1-presses-a", "a1"))), [elementKey("job", "J-1001")]);
     });
 
     test("a kind with no resource draws every event on its Unassigned row", async () => {
         const payload = await payloadOf(($) => {
-            const presses = $.let(Record.bind(ex.planPrintPresses, []));
             const stops = $.let(Record.bind(ex.planPrintStops, ["patch"]));
             const jobs = $.let(Record.bind(ex.planPrintJobs, ["patch"]));
             return Plan.Payload({
                 axis: Plan.axis({ window: WINDOW, resolution: "day" }),
-                resources: { presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name }) },
+                data: $.let(Record.bind(ex.planPrintPresses, [])).read(),
+                series: [Plan.series.resources(ex.PrintPress, { key: "presses", title: "Presses", icon: "print", label: (p) => p.name })],
                 events: {
                     job: Schedule.events(jobs, { name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end", resource: { field: "press", of: "presses" } }),
                     note: Schedule.events(stops, { name: "Note", icon: "note-sticky", title: "title", at: "at" }),
@@ -514,7 +521,7 @@ describe("the Unassigned rows (PB16)", () => {
             });
         });
         const week1 = blocksOf(payload, FIRST, WEEK2);
-        const lost = week1[week1.length - 1]!.rows;
+        const lost = lostRows(week1);
         assert.ok(sameIds(lost.map((r) => r.id), [entry("note.unassigned", "marks")]));
         assert.deepEqual(keysOn(lost[0]!), [elementKey("note", "S-01")]);
     });
@@ -532,13 +539,13 @@ describe("drafts in place (PB17)", () => {
             ["J-1006", draftOf(variant("missing", null))],
         ]);
         const week1 = blocksOf(payload, FIRST, WEEK2, drafts);
-        assert.deepEqual(keysOn(rowAt(week1, entry("presses.span", "Hall A", "a1"))), [elementKey("job", "J-1002")]);
-        assert.deepEqual(keysOn(rowAt(week1, entry("presses.span", "Hall B", "b3"))), [elementKey("job", "J-1001")]);
-        assert.deepEqual(keysOn(rowAt(week1, entry("presses.span", "Hall A", "a2"))), []);
+        assert.deepEqual(keysOn(rowAt(week1, entry("presses", "1-presses-a", "a1"))), [elementKey("job", "J-1002")]);
+        assert.deepEqual(keysOn(rowAt(week1, entry("presses", "2-presses-b", "b3"))), [elementKey("job", "J-1001")]);
+        assert.deepEqual(keysOn(rowAt(week1, entry("presses", "1-presses-a", "a2"))), []);
         // The drafts are the jobs' own: the other kinds read none.
-        assert.deepEqual(keysOn(rowAt(week1, entry("presses.marks", "Hall A", "a1"))), [elementKey("stop", "S-01")]);
+        assert.deepEqual(keysOn(rowAt(week1, entry("presses.marks", "1-presses-a", "a1"))), [elementKey("stop", "S-01")]);
         // Undrafted, the events are where the record holds them.
-        assert.deepEqual(keysOn(rowAt(blocksOf(payload, FIRST, WEEK2), entry("presses.span", "Hall A", "a1"))), [elementKey("job", "J-1001"), elementKey("job", "J-1002")]);
+        assert.deepEqual(keysOn(rowAt(blocksOf(payload, FIRST, WEEK2), entry("presses", "1-presses-a", "a1"))), [elementKey("job", "J-1001"), elementKey("job", "J-1002")]);
     });
 
     test("the records are read as the rows are, never kept from when the Plan was built", async () => {
@@ -550,7 +557,7 @@ describe("drafts in place (PB17)", () => {
         clock.tickAll();
         await h.settle();
         const week1 = blocksOf(payload, FIRST, WEEK2);
-        assert.deepEqual(keysOn(rowAt(week1, entry("presses.span", "Hall A", "a3"))), [elementKey("job", "J-1001"), elementKey("job", "J-1010")]);
+        assert.deepEqual(keysOn(rowAt(week1, entry("presses", "1-presses-a", "a3"))), [elementKey("job", "J-1001"), elementKey("job", "J-1010")]);
     });
 
     test("each event wears its own lifecycle, a draft's in place", async () => {
@@ -560,17 +567,17 @@ describe("drafts in place (PB17)", () => {
             return row.kind.type === "span" ? row.kind.value.runs.map((r) => r.state) : [];
         };
         const week3 = blocksOf(payload, WEEK3, WEEK4);
-        assert.ok(sameStates(statesOf(week3, entry("presses.span", "Hall A", "a2")), [variant("proposed", variant("added", null))]));
-        assert.ok(sameStates(statesOf(week3, entry("presses.span", "Hall B", "b2")), [variant("confirmed", null), variant("proposed", variant("added", null))]));
+        assert.ok(sameStates(statesOf(week3, entry("presses", "1-presses-a", "a2")), [variant("proposed", variant("added", null))]));
+        assert.ok(sameStates(statesOf(week3, entry("presses", "2-presses-b", "b2")), [variant("confirmed", null), variant("proposed", variant("added", null))]));
         // Drafted confirmed, the proposal wears it.
         const drafted = blocksOf(payload, WEEK3, WEEK4, jobDrafts([
             ["J-1008", draftOf(variant("value", { ...(await job("J-1008")), state: variant("confirmed", null) }))],
         ]));
-        assert.ok(sameStates(statesOf(drafted, entry("presses.span", "Hall A", "a2")), [variant("confirmed", null)]));
+        assert.ok(sameStates(statesOf(drafted, entry("presses", "1-presses-a", "a2")), [variant("confirmed", null)]));
     });
 
-    test("while a kind's read is in flight, the rows are to come", async () => {
-        assert.equal((await inFlightBlocks())(FIRST, WEEK2, NO_DRAFTS, [], ALL_SHOWN, NO_READS, NO_SHADING).type, "none");
+    test("while a kind's read is in flight, its events are to come", async () => {
+        assert.equal((await inFlightSeam()).placed(FIRST, WEEK2, NO_DRAFTS, [], NO_READS).type, "none");
     });
 });
 
@@ -580,32 +587,31 @@ describe("drafts in place (PB17)", () => {
 
 describe("what the viewer hides (PB29, #1195)", () => {
     const idsOf = (blocks: Blocks) => blocks.map((b) => b.rows.map((r) => r.id));
-    const crews = CREWS.flatMap(([hall, keys]) => [entry("crews.group", hall), ...keys.map((k) => entry("crews.cards", hall, k))]);
 
-    test("a hidden event kind draws nowhere: a row only it draws on goes, and a resource's first row, its own, stays", async () => {
+    test("a hidden event kind draws nowhere: a row beside a landing row that only it draws goes, and the landing row, the record's own, stays", async () => {
         const { payload } = await printWorksWeek1();
         // The stops are the presses' only marks: their row goes, the bars and the utilisation stay.
         const noStops = blocksOf(payload, FIRST, WEEK2, NO_DRAFTS, ["events.stop"]);
-        assert.ok(sameIds(noStops[0]!.rows.map((r) => r.id), pressRows("presses.span", "util")), noStops[0]!.rows.map((r) => printId(r.id)).join("\n"));
-        assert.deepEqual(keysOn(rowAt(noStops, entry("presses.span", "Hall A", "a1"))), [elementKey("job", "J-1001"), elementKey("job", "J-1002")]);
-        // The jobs draw on each press's first row: it stays, its name in its gutter, and holds no bar.
+        assert.ok(sameIds(ownRows(noStops).map((r) => r.id), [...pressRows("presses", "util"), ...crewRows()]), printed(ownRows(noStops)));
+        assert.deepEqual(keysOn(rowAt(noStops, entry("presses", "1-presses-a", "a1"))), [elementKey("job", "J-1001"), elementKey("job", "J-1002")]);
+        // The jobs draw on each press's landing row: it stays, its name in its gutter, and holds no bar.
         const noJobs = blocksOf(payload, FIRST, WEEK2, NO_DRAFTS, ["events.job"]);
-        assert.ok(sameIds(noJobs[0]!.rows.map((r) => r.id), pressRows("presses.span", "presses.marks", "util")));
-        const a1 = rowAt(noJobs, entry("presses.span", "Hall A", "a1"));
+        assert.ok(sameIds(ownRows(noJobs).map((r) => r.id), [...pressRows("presses", "presses.marks", "util"), ...crewRows()]));
+        const a1 = rowAt(noJobs, entry("presses", "1-presses-a", "a1"));
         assert.deepEqual([a1.gutter.label, keysOn(a1)], ["Press A1", []]);
-        assert.deepEqual(keysOn(rowAt(noJobs, entry("presses.marks", "Hall A", "a1"))), [elementKey("stop", "S-01")]);
+        assert.deepEqual(keysOn(rowAt(noJobs, entry("presses.marks", "1-presses-a", "a1"))), [elementKey("stop", "S-01")]);
         // The crews' shifts are another kind's.
-        assert.deepEqual(keysOn(rowAt(noJobs, entry("crews.cards", "Hall A", "c1"))), [elementKey("shift", "SH-01"), elementKey("shift", "SH-02")]);
+        assert.deepEqual(keysOn(rowAt(noJobs, entry("crews", "3-crews-a", "c1"))), [elementKey("shift", "SH-01"), elementKey("shift", "SH-02")]);
     });
 
     test("a row the kinds that draw alike share goes once every one of them is hidden", async () => {
         const shared = await payloadOf(($) => {
-            const presses = $.let(Record.bind(ex.planPrintPresses, []));
             const jobs = $.let(Record.bind(ex.planPrintJobs, ["patch"]));
             const stops = $.let(Record.bind(ex.planPrintStops, ["patch"]));
             return Plan.Payload({
                 axis: Plan.axis({ window: WINDOW, resolution: "day" }),
-                resources: { presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name }) },
+                data: $.let(Record.bind(ex.planPrintPresses, [])).read(),
+                series: [Plan.series.resources(ex.PrintPress, { key: "presses", title: "Presses", icon: "print", label: (p) => p.name })],
                 events: {
                     job: Schedule.events(jobs, { name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end", resource: { field: "press", of: "presses" } }),
                     stop: Schedule.events(stops, { name: "Stop", icon: "screwdriver-wrench", title: "title", at: "at", resource: { field: "press", of: "presses" } }),
@@ -616,39 +622,21 @@ describe("what the viewer hides (PB29, #1195)", () => {
         const oneHidden = blocksOf(shared, FIRST, WEEK2, NO_DRAFTS, ["events.stop"]);
         assert.deepEqual(keysOn(rowAt(oneHidden, entry("presses.marks", "a1"))), [elementKey("check", "S-01")]);
         const bothHidden = blocksOf(shared, FIRST, WEEK2, NO_DRAFTS, ["events.stop", "events.check"]);
-        assert.ok(sameIds(bothHidden[0]!.rows.slice(0, 2).map((r) => r.id), [entry("presses.span", "a1"), entry("presses.span", "a2")]));
+        assert.ok(sameIds(ownRows(bothHidden).slice(0, 2).map((r) => r.id), [entry("presses", "a1"), entry("presses", "a2")]), printed(ownRows(bothHidden)));
     });
 
-    test("a hidden kind's events that no resource holds go with it, and with them its Unassigned row", async () => {
+    test("a hidden kind's events that no row holds go with it, and with them its Unassigned row", async () => {
         const { payload } = await printWorksWeek1();
         const drafts = jobDrafts([["J-1002", draftOf(variant("value", { ...(await job("J-1002")), press: some("zz") }))]]);
-        assert.equal(blocksOf(payload, FIRST, WEEK2, drafts)[2]!.rows.length, 1);
-        assert.equal(blocksOf(payload, FIRST, WEEK2, drafts, ["events.job"])[2]!.rows.length, 0);
+        assert.equal(lostRows(blocksOf(payload, FIRST, WEEK2, drafts)).length, 1);
+        assert.equal(lostRows(blocksOf(payload, FIRST, WEEK2, drafts, ["events.job"])).length, 0);
     });
 
-    test("a hidden kind is not read, so a read in flight holds the rows back no longer", async () => {
-        const rows = (await inFlightBlocks())(FIRST, WEEK2, NO_DRAFTS, ["events.job"], ALL_SHOWN, NO_READS, NO_SHADING);
-        if (rows.type !== "some") assert.fail("expected the rows, the kind unread");
-        assert.ok(sameIds(rows.value[0]!.rows.map((r) => r.id), ["a1", "a2", "a3", "b1", "b2", "b3"].map((k) => entry("presses.span", k))));
-        assert.deepEqual(rowsOf(rows.value).flatMap(keysOn), []);
-    });
-
-    test("a hidden resource kind draws no rows, and its events draw on no Unassigned row: they are its own", async () => {
-        const { payload, week1 } = await printWorksWeek1();
-        const noCrews = blocksOf(payload, FIRST, WEEK2, NO_DRAFTS, ["resources.crews"]);
-        assert.equal(noCrews.length, 2);
-        assert.ok(sameIds(noCrews[0]!.rows.map((r) => r.id), week1[0]!.rows.map((r) => r.id)));
-        assert.equal(noCrews[1]!.rows.length, 0);
-        const noPresses = blocksOf(payload, FIRST, WEEK2, NO_DRAFTS, ["resources.presses"]);
-        assert.ok(sameIds(noPresses[0]!.rows.map((r) => r.id), crews));
-        assert.equal(noPresses[1]!.rows.length, 0);
-    });
-
-    test("a hidden measure draws no row under any resource", async () => {
-        const { payload } = await printWorksWeek1();
-        const noUtil = blocksOf(payload, FIRST, WEEK2, NO_DRAFTS, ["measures.util"]);
-        assert.ok(sameIds(noUtil[0]!.rows.map((r) => r.id), pressRows("presses.span", "presses.marks")));
-        assert.ok(sameIds(noUtil[1]!.rows.map((r) => r.id), crews));
+    test("a hidden kind is not read, so a read in flight holds its events back no longer", async () => {
+        const placed = (await inFlightSeam()).placed(FIRST, WEEK2, NO_DRAFTS, ["events.job"], NO_READS);
+        if (placed.type !== "some") assert.fail("expected the events, the kind unread");
+        assert.deepEqual([...placed.value.on.get("presses")?.values() ?? []].map((byKey) => byKey.size), []);
+        assert.deepEqual(placed.value.lost.get("job"), []);
     });
 
     test("an id that names nothing the seam draws leaves every row: an unknown one, a bare key, and the Plan's own rows' ids", async () => {
@@ -657,49 +645,7 @@ describe("what the viewer hides (PB29, #1195)", () => {
         const all = idsOf(week1);
         idsOf(same).forEach((ids, i) => assert.ok(sameIds(ids, all[i]!), `block ${i}`));
         // A duplicate is one id.
-        const twice = blocksOf(payload, FIRST, WEEK2, NO_DRAFTS, ["measures.util", "measures.util"]);
-        assert.ok(sameIds(twice[0]!.rows.map((r) => r.id), pressRows("presses.span", "presses.marks")));
-    });
-});
-
-// ============================================================================
-// What the rail shows of a resource kind (#1344)
-// ============================================================================
-
-describe("what the rail shows of a resource kind (#1344)", () => {
-    const shown = (keys: readonly string[]): Shown => new SortedMap([["presses", new SortedSet(keys, byString)]], byString);
-
-    test("a resource kind the rail narrows draws the resources it shows, under their strips, and its events on the others draw nowhere — never on the Unassigned row", async () => {
-        const { payload } = await printWorksWeek1();
-        // J-1006 is on Press A2, which the rail hides: it draws on no row, and no Unassigned row holds it.
-        const narrowed = blocksOf(payload, FIRST, WEEK2, NO_DRAFTS, [], shown(["a1", "b2"]));
-        assert.ok(sameIds(narrowed[0]!.rows.map((r) => r.id), [
-            entry("presses.group", "Hall A"), entry("presses.span", "Hall A", "a1"), entry("presses.marks", "Hall A", "a1"), entry("util", "Hall A", "a1"),
-            entry("presses.group", "Hall B"), entry("presses.span", "Hall B", "b2"), entry("presses.marks", "Hall B", "b2"), entry("util", "Hall B", "b2"),
-        ]), narrowed[0]!.rows.map((r) => printId(r.id)).join("\n"));
-        assert.deepEqual(keysOn(rowAt(narrowed, entry("presses.span", "Hall A", "a1"))), [elementKey("job", "J-1001"), elementKey("job", "J-1002")]);
-        assert.equal(rowsOf(narrowed).flatMap(keysOn).some((key) => key === elementKey("job", "J-1006")), false);
-        assert.equal(narrowed[2]!.rows.length, 0);
-        // The crews, whose kind the rail does not narrow, draw every crew.
-        assert.ok(sameIds(narrowed[1]!.rows.map((r) => r.id), blocksOf(payload, FIRST, WEEK2)[1]!.rows.map((r) => r.id)));
-    });
-
-    test("a hall the rail leaves no press of has no strip; the rail showing none of a kind's resources leaves it no rows", async () => {
-        const { payload } = await printWorksWeek1();
-        const hallB = blocksOf(payload, FIRST, WEEK2, NO_DRAFTS, [], shown(["b1", "b3"]));
-        assert.deepEqual(hallB[0]!.rows.filter((r) => r.kind.type === "group").map((r) => printId(r.id)), [printId(entry("presses.group", "Hall B"))]);
-        const none_ = blocksOf(payload, FIRST, WEEK2, NO_DRAFTS, [], shown([]));
-        assert.equal(none_[0]!.rows.length, 0);
-        assert.equal(none_[2]!.rows.length, 0);
-    });
-
-    test("a draft moving an event onto a resource the rail hides takes it off the rows, and one moving it back draws it", async () => {
-        const { payload } = await printWorksWeek1();
-        const drafts = jobDrafts([["J-1001", draftOf(variant("value", { ...(await job("J-1001")), press: some("b3") }))]]);
-        const narrowed = blocksOf(payload, FIRST, WEEK2, drafts, [], shown(["a1"]));
-        assert.deepEqual(keysOn(rowAt(narrowed, entry("presses.span", "Hall A", "a1"))), [elementKey("job", "J-1002")]);
-        assert.equal(narrowed[2]!.rows.length, 0);
-        const back = blocksOf(payload, FIRST, WEEK2, jobDrafts([["J-1006", draftOf(variant("value", { ...(await job("J-1006")), press: some("a1") }))]]), [], shown(["a1"]));
-        assert.deepEqual(keysOn(rowAt(back, entry("presses.span", "Hall A", "a1"))), [elementKey("job", "J-1001"), elementKey("job", "J-1002"), elementKey("job", "J-1006")]);
+        const twice = blocksOf(payload, FIRST, WEEK2, NO_DRAFTS, ["events.stop", "events.stop"]);
+        assert.ok(sameIds(ownRows(twice).map((r) => r.id), [...pressRows("presses", "util"), ...crewRows()]));
     });
 });

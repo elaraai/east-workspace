@@ -14,9 +14,9 @@
  * the Plan's renderer lays it out in its `BuilderFrame`. The canvas is a hook,
  * {@link usePlanCanvas}: it hands the frame main, and the facts the frame's
  * toolbar, banners and footer are drawn from (`root/chrome.ts`), so the canvas
- * draws no toolbar and no foot of its own. The event kinds' rows lead the
- * canvas's own, read over the range it draws (#1192, `root/events.ts`), with
- * every kind's drafts in place: each kind is a session over its record, under
+ * draws no toolbar and no foot of its own. The event kinds' events land on the
+ * canvas's own rows, read over the range it draws (#1192, #1541,
+ * `root/events.ts`), with every kind's drafts in place: each kind is a session over its record, under
  * one history with `data`'s session (#1194, `edit/events.ts`), which the
  * frame's history item and banners follow. The event kinds' cards and elements
  * drag onto their rows, and an element back to the Backlog tab (#1196,
@@ -32,19 +32,18 @@
  * before it returns. What is left here is composition.
  *
  * The narrowing is one `Slice.bindRecords` (#1344, `root/sources.ts`): its
- * `rows` source gives the canvas its rows, paged from it; each event kind
- * narrowed through a source of its own reads its events through it, and the
- * frame narrows a resource kind's rows by its source's shown resources
- * (`shown`). The rail is the frame's toolbar items
+ * `rows` source gives the canvas its rows, paged from it — the rows the event
+ * kinds land on among them (#1541); each event kind narrowed through a source
+ * of its own reads its events through it. The rail is the frame's toolbar items
  * (`useRecordSlicesToolbarItems`); `brush` mounts as the 32px horizon band, in
  * main, the resolution as the WEEK/DAY segment, `summary` as the rail's
  * counts. The window is the sources' shared `range` (`root/window.ts`): every
  * source holding one holds it with the others — the axis seeds a canvas with
  * none — and the brush, the time navigator and the keys write each of them.
- * The canvas's rows never follow the dates: the `rows` source and a resource
- * kind's hold no window, so the dates on screen never decide which rows are
- * listed, and a slice with no source holding the window leaves the canvas its
- * own, which the same gestures move.
+ * The canvas's rows never follow the dates: the `rows` source holds no window,
+ * so the dates on screen never decide which rows are listed, and a slice with
+ * no source holding the window leaves the canvas its own, which the same
+ * gestures move.
  *
  * The axis is one of three kinds (#631) — `time`, `number`, `ordinal` — and
  * every window read / write speaks the slice arm that kind maps to
@@ -129,12 +128,13 @@ import { NOT_PERSISTED, persistedOf, type PlanPersisted } from "./persisted.js";
 import { sameUiView, uiViewOf, useStableDerived, useStableVisible } from "./root/view.js";
 import { createPlanWindowHold, restoredWindow, statedWindow, usePlanWindow } from "./root/window.js";
 import { writePlanWindow } from "./controller/effects.js";
-import { planEventParts, planNouns, planPart, planRowSources, ROWS_SOURCE } from "./root/sources.js";
+import { PLAN_ROW_SOURCES, planEventParts, planNouns, planPart, ROWS_SOURCE } from "./root/sources.js";
 import {
-    ALL_SHOWN, PlanEventsReader, eventReadRange, initialEventLead, usePlanEventRoot,
-    type PlanEventLead, type PlanEventRows, type PlanEventShownValue,
+    PlanEventsReader, eventReadRange, initialEventLead, usePlanEventRoot, type PlanEventLead, type PlanEventRows,
 } from "./root/events.js";
 import { cellKinds, createCellSpanStore, seriesKinds, shownCellSpan } from "./root/cells.js";
+import { landingTargetOf } from "./root/landings.js";
+import { scheduleCellId } from "../shared/schedule/cells.js";
 import { NO_BREACHES, PlanBoundsReader, type PlanBreaches } from "./root/bounds.js";
 import { PlanNestedReader, createNestedViewStore, usePlanNestedRoot, usePlanWholeRows, type PlanNestedLead, type PlanNestedSpanRead, type SPAN_READING } from "./root/nested.js";
 import { NONE_HIDDEN, hidesRow, type PlanRowsHidden } from "./frame/hidden.js";
@@ -196,8 +196,8 @@ const printEventRef = printFor(ScheduleEventRefType);
 /** One event kind, as the Plan's payload carries it (#1190). */
 type PlanEventKindValue = ValueTypeOf<typeof PlanPayloadType>["events"][number];
 
-/** One resource kind, as the Plan's payload carries it (#1190). */
-type PlanResourceKindValue = ValueTypeOf<typeof PlanPayloadType>["resources"][number];
+/** A series the event kinds land on, as the Plan's payload carries it (#1541). */
+type PlanLandingValue = ValueTypeOf<typeof PlanPayloadType>["landings"][number];
 
 /** One of the library's tabs, as the Plan's payload carries it (#1195). */
 type PlanLibraryTabValue = ValueTypeOf<typeof PlanPayloadType>["library"][number];
@@ -206,8 +206,10 @@ type PlanLibraryTabValue = ValueTypeOf<typeof PlanPayloadType>["library"][number
 const NO_KINDS: readonly PlanEventKindValue[] = [];
 /** No session joins the history beside the event kinds': a Plan whose `data` does not edit. */
 const NO_JOINED: readonly EditHistoryJoined<PlanEntryRef>[] = [];
-/** No resource kinds: a Plan of `data` and `rows` alone. */
-const NO_RESOURCES: readonly PlanResourceKindValue[] = [];
+/** No series an event kind lands on: a Plan of `data` and `rows` alone. */
+const NO_LANDINGS: readonly PlanLandingValue[] = [];
+/** The event kinds' events before their first read: none placed. */
+const NO_LEAD = initialEventLead();
 /** No library tabs. */
 const NO_TABS: readonly PlanLibraryTabValue[] = [];
 /** No event kind has an event on the canvas. */
@@ -216,6 +218,8 @@ const NO_KINDS_DRAWN: ReadonlySet<string> = new Set();
 const NOTHING_AWAITED: { readonly run: boolean; readonly cells: boolean } = { run: false, cells: false };
 /** No row in view yet. */
 const NO_ROWS_IN_VIEW: readonly PlanRowValue[] = [];
+/** No resource of a series on the canvas. */
+const NO_RESOURCE_ROWS: readonly PlanRowValue[] = [];
 /** No row waiting on a read. */
 const NO_ROWS_WAITING: ReadonlySet<RowKey> = new Set();
 /** No link ends read through their rows (#1438). */
@@ -281,9 +285,9 @@ export interface PlanCanvasArgs {
     value: PlanRootValue;
     /** Storage key prefix for persisting component state. */
     storageKey: string;
-    /** The event kinds' rows (#1192), drawn ahead of the root's own — a Plan of event kinds' payload carries them. */
+    /** Where the event kinds' events land on the root's own rows (#1192, #1541) — a Plan of event kinds' payload carries it. */
     events?: PlanEventRows | undefined;
-    /** The ids the viewer hides in the library's Series tab (#1195): the event kinds' rows leave out what they name. */
+    /** The ids the viewer hides in the library's Series tab (#1195): the event kinds' events leave out what they name. */
     hidden?: readonly string[] | undefined;
     /** What those ids hide of the Plan's own `rows`, which the canvas leaves out; `undefined` when they hide none. */
     rowsHidden?: PlanRowsHidden | undefined;
@@ -293,19 +297,12 @@ export interface PlanCanvasArgs {
     panel?: readonly string[] | undefined;
     /** The event kinds themselves (#1194): each edited in a session over its record, under one history with `data`'s. */
     kinds?: readonly PlanEventKindValue[] | undefined;
-    /** The resource kinds (#1196): what the event kinds' rows stand for, by name. */
-    resources?: readonly PlanResourceKindValue[] | undefined;
+    /** The series the event kinds land on (#1541): what an event's resource is named by. */
+    landings?: readonly PlanLandingValue[] | undefined;
     /** The library's tabs (#1196): the author's tabs' cards, which land on an event of their patch's kind. */
     tabs?: readonly PlanLibraryTabValue[] | undefined;
     /** The Plan's drop veto over an event kind's drop (#1196): `Schedule.Types.Candidate` to its refusal's message. */
     canDrop?: PlanEventCanDropFn | undefined;
-    /** The resources the rail shows (#1344): by a resource kind's slot, the keys its source shows — what its rows draw. */
-    shown?: PlanEventShownValue | undefined;
-    /**
-     * Whether a resource kind's source is resolving a new narrowing, or its last read failed (#1344): main keeps the
-     * rows it shows, busy, and takes no gesture until the narrowing lands.
-     */
-    busy?: boolean | undefined;
     /**
      * The app's optimiser (#1409, east-workspace#1622): its binding — which the Elara eye calls by name, with the event
      * kinds' unsaved edits as drafts of the records it lists; none, no eye.
@@ -324,12 +321,12 @@ const NO_PANEL: readonly string[] = [];
  * toolbar, banners and footer are drawn from — see the module docs. The
  * frame calls it once per render and places what it hands back.
  *
- * @param args - The root, its storage key, the event kinds' rows, what the viewer hides, the panel's tabs whose cards land, the event kinds, the resource kinds, the library's tabs, the event kinds' drop veto, the resources the rail shows, whether their narrowing is resolving, and whether its Autosave begins on
+ * @param args - The root, its storage key, where the event kinds' events land, what the viewer hides, the panel's tabs whose cards land, the event kinds, the series they land on, the library's tabs, the event kinds' drop veto, the optimiser, and whether its Autosave begins on
  * @returns The canvas's parts: its contexts, main, its declared bound, and its chrome's facts
  */
 export function usePlanCanvas({
     value: hostValue, storageKey, events, hidden, rowsHidden, eventKinds, panel, kinds = NO_KINDS,
-    resources = NO_RESOURCES, tabs = NO_TABS, canDrop, shown: shownResources = ALL_SHOWN, busy = false, optimise, autosave = false,
+    landings = NO_LANDINGS, tabs = NO_TABS, canDrop, optimise, autosave = false,
 }: PlanCanvasArgs): PlanCanvasParts {
     planRootRenderProbe?.();
     // Changes identity on a DATA change only — read data fields through it,
@@ -354,7 +351,7 @@ export function usePlanCanvas({
     // The window last shown while no source of the slice holds one (#1344): the render's and the effects'. It opens on
     // the canvas's own window the last session kept while the axis allows it, so the first paint draws it there.
     const [windowHold] = useState(() => {
-        const window = restoredWindow(restored.window, hostValue, planRowSources(resources));
+        const window = restoredWindow(restored.window, hostValue, PLAN_ROW_SOURCES);
         // The zoom it was kept at with it (#1438): the scale's until the slice holds one.
         return createPlanWindowHold(window, window !== undefined ? restored.window?.resolution : undefined);
     });
@@ -380,10 +377,9 @@ export function usePlanCanvas({
     // The slice and the scale every row positions against — read from the
     // host's root, which the drafted and composed roots below share them
     // with (#1344): the sources holding the window, the `rows` source, and
-    // each event kind narrowed through its own. The canvas's rows' sources —
-    // the `rows` source and each resource kind's — never hold the window.
-    const rowSources = useMemo(() => planRowSources(resources), [resources]);
-    const { chrome: slices, windowParts, lead: windowLead, affordances, scale, error: windowError } = usePlanWindow(hostValue, hostData, words, windowHold, rowSources);
+    // each event kind narrowed through its own. The canvas's rows' source, the
+    // `rows` source, never holds the window.
+    const { chrome: slices, windowParts, lead: windowLead, affordances, scale, error: windowError } = usePlanWindow(hostValue, hostData, words, windowHold, PLAN_ROW_SOURCES);
     // A date the time navigator picks moves the window as the brush and the keys do: the sources', else the canvas's own.
     const moveWindow = useCallback((min: number, max: number) => writePlanWindow(windowParts, min, max, windowHold), [windowParts, windowHold]);
     const rowsPart = useMemo(() => planPart(slices, ROWS_SOURCE), [slices]);
@@ -401,10 +397,9 @@ export function usePlanCanvas({
     const indexRef = useRef<PlanRowIndex | undefined>(undefined);
     const labelOf = useCallback(
         (key: RowKey) => indexRef.current?.byKey.get(key)?.gutter.label ?? rowKeyWords(key), []);
-    // The session's entries are `data`'s. Inline, the root's own rows: the
-    // event kinds' lead them on the canvas alone, below. Paged, the rows the
-    // source's elements placed — never a fixed block's, as the event kinds'
-    // rows, which lead every window, are (#1192).
+    // The session's entries are `data`'s: inline, the root's own rows; paged,
+    // the rows the source's elements placed — never a fixed block's. The event
+    // kinds' events joined into them below are their own records' (#1541).
     const sourceRows = useMemo(
         () => (hostData.rows.type === "inline" ? canvasRowsOf(hostData.rows.value) : elementRowsOf(paging)),
         [hostData.rows, paging]);
@@ -428,10 +423,9 @@ export function usePlanCanvas({
         () => (editing.enabled ? [{ key: editing.historyKey, session: editing.session }] : NO_JOINED),
         [editing.enabled, editing.historyKey, editing.session]);
     const eventRange = useMemo(() => eventReadRange(scale), [scale]);
-    // The event kinds' rows as last read (#1192): read by a component of their own below, which hands them over as they move.
-    const standIn = useMemo(() => initialEventLead(events), [events]);
+    // The event kinds' events as last read (#1192): read by a component of their own below, which hands them over as they move.
     const [readLead, setLead] = useState<PlanEventLead | undefined>(undefined);
-    const lead = readLead ?? standIn;
+    const lead = readLead ?? NO_LEAD;
     // A kind read by its cells (#1039) finds a gesture's event in the rows its cells hold, as the gesture runs.
     const heldCells = useRef(lead.cells?.held);
     heldCells.current = lead.cells?.held;
@@ -476,8 +470,8 @@ export function usePlanCanvas({
     }, [scale]);
     // The window's label is the period: what the eye, the footer's line and a refusal name.
     const periodName = planWindow === undefined ? "" : format.range(planWindow.from, new Date(planWindow.to.getTime() - 1));
-    const latestOptimise = useRef({ lead, optimised, eventEditing, kinds, resources, format, optimiseTypes, periodName, slices, scale });
-    latestOptimise.current = { lead, optimised, eventEditing, kinds, resources, format, optimiseTypes, periodName, slices, scale };
+    const latestOptimise = useRef({ optimised, eventEditing, kinds, landings, format, optimiseTypes, periodName, slices, scale, index: indexRef });
+    latestOptimise.current = { optimised, eventEditing, kinds, landings, format, optimiseTypes, periodName, slices, scale, index: indexRef };
     const landAfter = useRef<(run: number) => void>(() => undefined);
     // Each kind's session, by the record it edits: what the run takes its drafts from, and waits on before its answer lands.
     const optimiseSessions = useMemo(() => {
@@ -495,10 +489,10 @@ export function usePlanCanvas({
             const now = latestOptimise.current;
             const runText = words.number(n);
             const landed = landPlanOptimise({
-                kinds: now.kinds, resources: now.resources, types: now.optimiseTypes, editing: now.eventEditing,
+                kinds: now.kinds, types: now.optimiseTypes, editing: now.eventEditing,
                 held: (kind, id) => now.eventEditing.row(kind, id) ?? read(kind, id), request, result,
                 label: optimiseMessages.step({ run: runText }), period: now.periodName, runText,
-                blocks: now.lead.blocks, format: now.format, before: now.optimised,
+                rows: now.index.current?.rows ?? [], format: now.format, before: now.optimised,
             });
             // Events the page does not hold are read by their keys, and the answer lands once they are (rule 8).
             return optimiseLandedCounts(landed, (left) => { setOptimised(left); landAfter.current(n); });
@@ -507,13 +501,13 @@ export function usePlanCanvas({
     // The lock (R2): while a call is out, nothing is dragged, dropped, carried or undone.
     const locked = run.running;
 
-    // ── The event kinds' rows (#1192) ─────────────────────────────────────
+    // ── The event kinds' events (#1192, #1541) ────────────────────────────
     // Read over the range the scale draws, what the viewer hides left out
-    // (#1195), every kind's drafts in place (#1194), of a resource kind the
-    // rail narrows the resources it shows (#1344): they lead every other row
-    // as fixed blocks. Read by a component of their own (`PlanEventsReader`,
-    // in `provide`), which hands them over only when they move.
-    // The paged kind's rows in view, as the body reports them at rest (#1039): what the reader of its kinds' cells reads.
+    // (#1195), every kind's drafts in place (#1194), and joined into the rows
+    // they land on, wherever the canvas makes them. Read by a component of
+    // their own (`PlanEventsReader`, in `provide`), which hands them over only
+    // when they move.
+    // The paged rows in view, as the body reports them at rest (#1039): what the reader of the kinds' cells reads.
     const [cellSpans] = useState(createCellSpanStore);
     // A paged source's rows beside their nested series index (#1438): their collections read a cell at a time by a
     // component of its own (`PlanNestedReader`, in `provide`), each window drawn through the root's seam with what it read.
@@ -541,10 +535,9 @@ export function usePlanCanvas({
     const linkRows = linkRowsResult.ok ? linkRowsResult.value : NO_LINK_ROWS;
     const nested = usePlanNestedRoot(editing.value, editing.data, editing.data.nested.type === "some" ? nestedLead : undefined, editing.drafted,
         linkRows);
-    // The event kinds' rows ahead of the drafted root's own, and its links'
-    // event ends named where the events draw — over a paged resource kind's
-    // windows when a kind pages (#1199).
-    const shown = usePlanEventRoot(nested.value, nested.data, events !== undefined ? lead : undefined, events?.paged, hidden);
+    // The event kinds' events joined into the drafted root's own rows, and its links' event ends named where the events
+    // draw (#1192, #1541).
+    const shown = usePlanEventRoot(nested.value, nested.data, events !== undefined ? lead : undefined, events, hidden);
     const value = shown.value;
     const data = shown.data;
     // Props sync. A new DATA identity reconciles the UI state (#610); the
@@ -555,13 +548,9 @@ export function usePlanCanvas({
     // read again, the rows it has standing in until they land (#821).
     const draftsVersion = editing.draftsVersion;
     useLayoutEffect(() => { if (draftsVersion > 0) controller.refreshSource(); }, [controller, draftsVersion]);
-    // So did its event kinds' rows, which lead every window.
+    // So did its event kinds' events, which every window is placed with (#1541).
     const leadVersion = lead.version;
     useLayoutEffect(() => { if (leadVersion > 0) controller.refreshSource(); }, [controller, leadVersion]);
-    // So did a paged resource kind's windows (#1199): the events placed on its
-    // resources, or the root's own rows each window serves after them.
-    const pagedVersion = shown.version;
-    useLayoutEffect(() => { if (pagedVersion > 0) controller.refreshSource(); }, [controller, pagedVersion]);
     // So did what was read of the rows' nested series index (#1438), which every window is drawn with.
     const nestedVersion = nestedLead?.version ?? 0;
     useLayoutEffect(() => { if (nestedVersion > 0) controller.refreshSource(); }, [controller, nestedVersion]);
@@ -661,7 +650,7 @@ export function usePlanCanvas({
     // reveal clock runs from the view's arrival. The driver settles it with the rest, from the windows the frame's range
     // shows, so a landing says it in the commit that draws it; the narrow layout, which reports no range, any in flight.
     const waits = paged && paging.viewLoading;
-    // The event kinds read by their cells over a paged kind (#1039): while their cells are read, the rows the canvas holds
+    // The event kinds read by their cells over paged rows (#1039): while their cells are read, the rows the canvas holds
     // whose cells have not landed wait for them, as a window's rows do (#1398, CL2) — the line says so, in their events'
     // noun, and main is busy.
     const cellsRead = lead.cells;
@@ -671,15 +660,14 @@ export function usePlanCanvas({
         const kind = slot === undefined ? undefined : kinds.find((k) => stringEqual(k.key, slot));
         return kind === undefined ? undefined : words.m.saveNoticeNoun({ kind: kind.name.toLocaleLowerCase(words.locale), n: 2 });
     }, [eventParts, kinds, words]);
-    // A paged kind's resource whose cells have not landed, or are read again (#1398, CL2): its rows are unread, and draw
-    // the region wash under what they hold — never an empty row.
+    // A resource whose cells have not landed, or are read again (#1398, CL2): its landing row and the rows beside it for
+    // its kinds' further ways of drawing are unread, and draw the region wash under what they hold — never an empty row.
     const drawnResources = cellsRead?.drawn;
-    const pagedSlot = events?.paged?.kind;
-    const cellsUnread = useMemo(() => (drawnResources === undefined || pagedSlot === undefined ? undefined : (row: PlanRowValue): boolean => {
-        if (row.id.type !== "entry" || row.id.value.path.length !== 1) return false;
-        const resource = row.id.value.path[0]!;
-        return row.id.value.series.startsWith(`${pagedSlot}.`) && !drawnResources.has(resource);
-    }), [drawnResources, pagedSlot]);
+    const pagedEvents = events?.paged === true;
+    const cellsUnread = useMemo(() => (drawnResources === undefined || !pagedEvents ? undefined : (row: PlanRowValue): boolean => {
+        const target = landingTargetOf(row.id, landings, kinds);
+        return target?.kind === "resource" && !drawnResources.has(scheduleCellId(target.landing.key, target.key));
+    }), [drawnResources, pagedEvents, landings, kinds]);
     // A row whose nested series' cells are read (#1438) — a pan, a zoom or a scroll to tiles not held, or a commit —
     // is unread the same way until they land: washed under what it holds, never an empty plot.
     const unread = useMemo(() => (nestedWaiting.size === 0 ? cellsUnread
@@ -730,7 +718,7 @@ export function usePlanCanvas({
     const narrowAwaits = narrow && nestedWaiting.size > 0 && narrowShown.some((row) => nestedWaiting.has(row.key));
     const awaits = narrow ? narrowAwaits : viewAwaits.run || viewAwaits.cells;
     // What the rail counts each source in (#1344): an event kind's events, `print job events`.
-    const nouns = useMemo(() => planNouns(kinds, resources, tabs, words.locale), [kinds, resources, tabs, words.locale]);
+    const nouns = useMemo(() => planNouns(kinds, tabs, words.locale), [kinds, tabs, words.locale]);
     // A failed read of the event kinds' rows (#1398, CL3) is said on the same line, after the rows' own failures, paged
     // or not: in the noun the rail counts each kind in whose own events it could not read — else, none of theirs failing,
     // the rows' — with Retry, which asks those kinds' records again at once (`retryPeriod`: a record read a window at a
@@ -767,14 +755,13 @@ export function usePlanCanvas({
         cellsReading, awaits, viewAwaits, cellsNoun]);
     const partial = transport?.partial;
     // Cold load (#1398, CL5): nothing of a paged source landed yet, and no failure to say — the frame's skeleton
-    // covers the Plan. After it, a read the view waits for — a window, a resource kind's narrowing — leaves it live
-    // and busy.
+    // covers the Plan. After it, a read the view waits for — a window, its rows' cells — leaves it live and busy.
     const cold = paged ? paging.rows.length === 0 && paging.total === undefined && failures.length === 0 && pagingError === undefined : undefined;
-    const frameBusy = cold !== true && (busy || waits || cellsReading || awaits);
-    // What stands in while a narrowing is read is retained (#1398, CL8): a resource kind's narrowing resolving, the
-    // view the last narrowing of the paged rows drew while the new one's first window is read (#1344, #1354), or the
-    // view Home or End left while the window it goes to is read (CL10).
-    const retained = busy || paging.replacing || paging.standing;
+    const frameBusy = cold !== true && (waits || cellsReading || awaits);
+    // What stands in while a narrowing is read is retained (#1398, CL8): the view the last narrowing of the paged rows
+    // drew while the new one's first window is read (#1344, #1354), or the view Home or End left while the window it goes
+    // to is read (CL10).
+    const retained = paging.replacing || paging.standing;
     // The eye and its parts (#1409, east-workspace#1622): the window's label is the period. The eye is listed only where
     // the window can be optimised (ruled 25 Oct 2026) — event kinds on a time axis. It waits on nothing the canvas reads
     // (rule 6): the request carries no row, so a kind read a cell at a time, and one past the cap of events over the
@@ -805,9 +792,8 @@ export function usePlanCanvas({
     // snapshot of the source's data, whose rows the matches it holds no longer
     // index (#821, #1199). New rows over the same data — a pan reading the
     // event kinds' rows again, a draft — move neither, so the search stands.
-    // The source of the rows the canvas pages — its `rows` source, or a paged resource kind's — keeps its own Search
-    // Records, navigation over its whole record (#1513, `find.ts`): the rail narrows, never the key search, and a pick
-    // clears what hides its row.
+    // The source of the rows the canvas pages — its `rows` source — keeps its own Search Records, navigation over its
+    // whole record (#1513, `find.ts`): the rail narrows, never the key search, and a pick clears what hides its row.
     const seekable = rowsPart === undefined && data.rows.type !== "inline" && data.rows.value.seek.type === "some";
     const sourceId = data.rows.type !== "inline" ? data.rows.value.id : "";
     // A pick in it hands the keyboard to the canvas (#1398): the row it brings in takes the focus — the grid's one stop,
@@ -820,8 +806,8 @@ export function usePlanCanvas({
         () => (seekable ? { ...picking, resetKey: sourceId, requery: seek.again } : undefined),
         [seekable, picking, sourceId, seek.again]);
     const findsRows = useMemo(
-        () => (data.rows.type !== "inline" ? planPart(slices, pagedSlot ?? ROWS_SOURCE) : undefined),
-        [data.rows.type, slices, pagedSlot]);
+        () => (data.rows.type !== "inline" ? planPart(slices, ROWS_SOURCE) : undefined),
+        [data.rows.type, slices]);
     const rowsHiding = useSourceHidden("Plan", findsRows);
     const rowsFind = usePlanRowsFind({ part: findsRows, pick: rowsHiding, clear: hiddenPick.clear, controller, words, onError: setFindError });
     const search = useMemo(
@@ -982,7 +968,7 @@ export function usePlanCanvas({
     const { drop: draftDrop, move: draftMove } = editing;
     const keys = useMemo(() => planKeys(getSomeorUndefined(hostData.id)), [hostData.id]);
     const eventDrag = usePlanEventDrag({
-        kinds, resources, tabs, keys, editing: eventEditing, canDrop, scale, words, store: editStore,
+        kinds, landings, tabs, keys, editing: eventEditing, canDrop, scale, words, store: editStore,
         rowOf: (key) => indexRef.current?.byKey.get(key),
         selected: () => controller.getSnapshot().store.ui.elements,
         select: (selected, row) => {
@@ -1074,7 +1060,7 @@ export function usePlanCanvas({
     const navIntent = useRef<{ holder: string; intent: PlanNavIntent; then: readonly PlanWaitKey[] } | null>(null);
     const owedFocus = useRef<{ band: PlanBand | undefined; waits: readonly PlanWaitKey[] } | null>(null);
     const takeOwed = useRef<(shown: readonly PlanBodyItem[]) => void>(() => undefined);
-    // The paged kind's rows in view, once the scroll rests (#1039): the reader of its kinds' cells reads the blocks around them
+    // The paged rows in view, once the scroll rests (#1039): the reader of the kinds' cells reads the blocks around them
     // — under the narrowing their windows are (#1344), so a choice's reads none for the last one's rows standing in. They are
     // the rows the view shows, never the overscan mounted beside them, and a view showing a run not read yet and no row read
     // leaves the span standing (`shownCellSpan`).
@@ -1214,14 +1200,35 @@ export function usePlanCanvas({
         [clickable, controller]);
     // What the elements select by (#1197): an event kind's element, its event.
     const selectable = useMemo(() => selectableOf(eventKinds), [eventKinds]);
-    // What the inspector reads of the rows (#1197): a row, and what it draws at a bucket — as the canvas draws it.
+    // The resources the canvas holds (#1541): each landing row, by its series and the last step of its path — as the cells'
+    // reader names them — and each series' in the canvas's order.
+    const resourceRows = useMemo(() => {
+        const slots = new Set(landings.map((landing) => landing.key));
+        const byRef = new Map<string, PlanRowValue>();
+        const bySeries = new Map<string, PlanRowValue[]>();
+        for (const row of index.rows) {
+            if (row.id.type !== "entry" || !slots.has(row.id.value.series)) continue;
+            const key = row.id.value.path[row.id.value.path.length - 1];
+            if (key === undefined) continue;
+            const series = row.id.value.series;
+            byRef.set(scheduleCellId(series, key), row);
+            const list = bySeries.get(series);
+            if (list === undefined) bySeries.set(series, [row]);
+            else list.push(row);
+        }
+        return { byRef, bySeries };
+    }, [index, landings]);
+    // What the inspector reads of the rows (#1197): a row, what it draws at a bucket — as the canvas draws it — and a
+    // resource's landing row (#1541), a series' every one only where the canvas holds them all.
     const inspect = useMemo<PlanCanvasInspect>(() => ({
         row: (key) => index.byKey.get(key),
         valueAt: (key, at) => {
             const row = index.byKey.get(key);
             return row === undefined || scale === undefined ? undefined : rowValueAt(row, derived, scale, words, at);
         },
-    }), [index, derived, scale, words]);
+        resource: (ref) => resourceRows.byRef.get(scheduleCellId(ref.kind, ref.key)),
+        resources: (landing) => (paged ? undefined : resourceRows.bySeries.get(landing) ?? NO_RESOURCE_ROWS),
+    }), [index, derived, scale, words, resourceRows, paged]);
     // Events selected from the frame (#1198) — the overlaps chip's pair, the
     // inspector's banner, a duplicate the inspector made (#1194): on the row
     // given, else the row that draws the first, which the controller brings
@@ -1737,8 +1744,8 @@ export function usePlanCanvas({
         else controller.focusItem(rowItemKey(rowKey), "auto");
     }, [controller]);
     // The keyboard's move: Space on an element picks it up (`edit/use-carry.ts`).
-    // An event kind's element is carried onto the rows of the resource kinds
-    // its kind is placed on, and judged by the event kinds (#1196).
+    // An event kind's element is carried onto the rows of the series its kind
+    // lands on, and judged by the event kinds (#1196, #1541).
     const carry = usePlanCarry({
         store: editStore, scale, words, surface: moveSurface, veto: rowDrop?.canDrop, rows: visible,
         takes: (row, movable) => DROPPABLE_KINDS.has(row.kind.type) && !derived.diagnostics.has(row.key) && (eventDrag?.isEvent(movable) === true
@@ -1811,9 +1818,9 @@ export function usePlanCanvas({
     // the events draw, which is what the reader's cells decide (#1039).
     const eventsReader = events !== undefined
         ? (
-            <PlanEventsReader events={events} scale={scale} hidden={hidden} drafts={eventEditing.drafts} shown={shownResources}
-                kinds={kinds} resources={resources} parts={eventParts} links={editing.data.links} spans={cellSpans} editing={eventEditing}
-                onLead={setLead} />
+            <PlanEventsReader events={events} scale={scale} hidden={hidden} drafts={eventEditing.drafts}
+                kinds={kinds} rows={nested.data.rows.type === "inline" ? nested.data.rows : nested.value.rows} parts={eventParts}
+                links={editing.data.links} spans={cellSpans} editing={eventEditing} onLead={setLead} />
         )
         : null;
     // The rows' nested series (#1438), read by a component of its own around the rows laid out — or, while the Plan is
@@ -1870,9 +1877,8 @@ export function usePlanCanvas({
             </>
         );
     };
-    // What the loading line and a failed run name the rows by: what the rail counts them in (#1398) — a paged resource
-    // kind's source's where the canvas pages one (its rows are that source's), else the `rows` source's.
-    const rowsSource = slices?.slice.parts.find((part) => stringEqual(part.source, pagedSlot ?? ROWS_SOURCE));
+    // What the loading line and a failed run name the rows by: what the rail counts them in (#1398) — the `rows` source's.
+    const rowsSource = slices?.slice.parts.find((part) => stringEqual(part.source, ROWS_SOURCE));
     const rowsNoun = rowsSource !== undefined ? recordSliceNoun(rowsSource, nouns, words.locale) : words.m.saveNoticeNoun({ kind: undefined, n: 2 });
     const bound = declaredBound ? { height, maxHeight } : undefined;
 
@@ -2136,8 +2142,8 @@ export function usePlanCanvas({
             // The source is not exhausted: the counts across this body
             // cover the loaded windows (`PlanTransport.partial`).
             data-plan-partial={partial === true ? "" : undefined}
-            // A narrowing resolving (#1344) — a resource kind's, or the
-            // paged rows' own — or Home or End's window read: the rows it
+            // A narrowing of the paged rows resolving (#1344), or Home or
+            // End's window read: the rows it
             // showed stay, retained (#1398, CL8, CL10) — readable,
             // focusable and selectable, aria-disabled, taking no drag, no
             // drop and no carry until it lands — busy, as the frame's main

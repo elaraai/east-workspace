@@ -27,14 +27,13 @@
  *   alone, none by its key; and the kind's editing over
  *   the record's revision: no snapshot, an entry read by its key, the
  *   record's revision and its largest key;
- * - a resource kind over a paged read of its resources, as the windows example
- *   declares it, its jobs read through their source of the slice (#1039): the
- *   payload's `paged` — the kind's place in the event kinds' blocks, the events
- *   placed on its resources, a window of them as one paged block, its key
- *   search and its size — its rows never read whole, and one resource read by
- *   its key; and what a window's block says each resource makes of chart rows
- *   (#1398): its chart measures the viewer shows, and none while one's `match`
- *   decides by resource;
+ * - the canvas's own rows read a page at a time — the presses the jobs land
+ *   on (#1541), as the windows example declares them, its jobs read through
+ *   their source of the slice (#1039): the source's size, key search and
+ *   revision, the events placed on the presses by their keys and joined into
+ *   each window the source serves, its rows never read whole; and what a
+ *   window's block says each press makes of chart rows (#1398): its series'
+ *   charts, and none while one's `match` decides by press;
  * - a kind's window counted first, and read only within the 10,000 events a
  *   Plan draws (#1039): a kind read whole counted in memory, one read through
  *   its source through its interval index — the count its read asks first —
@@ -422,57 +421,43 @@ describe("one event by its key, never the record whole (#1199)", () => {
 });
 
 // ============================================================================
-// A resource kind over a paged read: its rows a window at a time (PB55)
+// The canvas's own rows read a page at a time, the events landing on them (PB55, #1541)
 // ============================================================================
 
-describe("a resource kind paged on the canvas (PB55)", () => {
+describe("the canvas's rows read a page at a time, the events landing on them (PB55, #1541)", () => {
     const AXIS_WINDOW = { min: at("2026-10-05T00:00:00Z"), max: at("2026-10-19T00:00:00Z") };
 
     /**
-     * The windows example's Plan, built in East over e3: its jobs on the paged presses read through their source of
-     * the slice — its interval index, its series index and its summary (#1039) — here over the window, with no reader's
-     * cells, as a reader leaves them while they are within the cap.
+     * The windows example's Plan, built in East over e3: the presses its rows, read a page at a time, the jobs landing on
+     * them read through their source of the slice — its interval index, its series index and its summary (#1039) — here
+     * over the window, with no reader's cells, as a reader leaves them while they are within the cap; each press's series
+     * beneath it as given.
      */
-    const program = East.function([], PlanPayloadType, ($) => {
+    const planOver = (series: () => readonly unknown[] = () => []) => East.function([], PlanPayloadType, ($) => {
         const presses = $.let(Data.bindPaged(ex.planWindowPresses));
-        const slice = $.let(Slice.bindRecords("spec.windows.paged", {
+        const slice = $.let(Slice.bindRecords(`spec.windows.paged.${series().length}`, {
             job: { source: Data.bindPaged(ex.planWindowJobs, { indexes: ["plan_window_jobs_by_time", "plan_window_jobs_by_press_week", "plan_window_jobs_by_press_month"] }), range: "start" },
         }));
+        const beneath = series();
         return Plan.Payload({
             axis: Plan.axis({ window: AXIS_WINDOW, resolution: "day" }),
             slice: { slice: slice as never },
-            resources: {
-                presses: Schedule.resources(presses, { name: "Presses", icon: "print", label: (p) => p.name, sub: (p) => some(p.hall) }),
-            },
+            data: presses,
+            series: [Plan.series.resources(PrintPress, {
+                key: "presses", title: "Presses", icon: "print", label: (p) => p.name, sub: (p) => some(p.hall),
+                ...(beneath.length === 0 ? {} : { series: beneath as never }),
+            })],
             events: { job: railJobs($ as never) },
         });
     });
-    /**
-     * The same Plan, each press with measures under it (#1398): a chart of its speed, which every press makes; a heat
-     * of its load, which is no chart; and a chart only of the fast presses, whose `match` decides by press.
-     */
-    const measured = East.function([], PlanPayloadType, ($) => {
-        const presses = $.let(Data.bindPaged(ex.planWindowPresses));
-        const slice = $.let(Slice.bindRecords("spec.windows.measured", {
-            job: { source: Data.bindPaged(ex.planWindowJobs, { indexes: ["plan_window_jobs_by_time", "plan_window_jobs_by_press_week", "plan_window_jobs_by_press_month"] }), range: "start" },
-        }));
-        return Plan.Payload({
-            axis: Plan.axis({ window: AXIS_WINDOW, resolution: "day" }),
-            slice: { slice: slice as never },
-            resources: {
-                presses: Schedule.resources(presses, {
-                    name: "Presses", icon: "print", label: (p) => p.name, sub: (p) => some(p.hall),
-                    measures: [
-                        Plan.series.chart(PrintPress, { key: "speed", title: "Speed", label: () => "Speed", layers: () => [] }),
-                        Plan.series.heat(PrintPress, { key: "load", title: "Load", label: () => "Load", cells: () => Plan.heatCells([]) }),
-                        Plan.series.chart(PrintPress, {
-                            key: "fast", title: "Fast", label: () => "Fast", match: (p) => p.sheets_per_hour.greater(12_000.0), layers: () => [],
-                        }),
-                    ],
-                }),
-            },
-            events: { job: railJobs($ as never) },
-        });
+    const program = planOver();
+    /** A chart of each press's speed, which every press makes. */
+    const speed = () => Plan.series.chart(PrintPress, { key: "speed", title: "Speed", label: () => "Speed", layers: () => [] });
+    /** A heat of each press's load, which is no chart. */
+    const load = () => Plan.series.heat(PrintPress, { key: "load", title: "Load", label: () => "Load", cells: () => Plan.heatCells([]) });
+    /** A chart of the fast presses alone, whose `match` decides by press. */
+    const fast = () => Plan.series.chart(PrintPress, {
+        key: "fast", title: "Fast", label: () => "Fast", match: (p) => p.sheets_per_hour.greater(12_000.0), layers: () => [],
     });
     /** A payload, built as a UI task's preview builds it, its slice made on the record Slice's platform over e3's pages. */
     async function payloadOf(of: typeof program = program): Promise<Payload> {
@@ -482,113 +467,96 @@ describe("a resource kind paged on the canvas (PB55)", () => {
         implementations.push(...createRecordSliceImplementation(() => implementations));
         return East.compile(of, implementations)() as Payload;
     }
-    const pagedOf = (payload: Payload) => payload.paged.type === "some" ? payload.paged.value : assert.fail("expected the paged rows");
+    /** The canvas's rows' source: a window at a time. */
+    const sourceOf = (payload: Payload) => (payload.plan.rows.type !== "inline" ? payload.plan.rows.value : assert.fail("expected the rows read a page at a time"));
+    /** The seam that joins the events into the rows. */
+    const seamOf = (payload: Payload) => (payload.seam.type === "some" ? payload.seam.value : assert.fail("expected the event kinds' seam"));
+    /** The events over the axis's window, every kind's, as the seam files them. */
+    const placedOf = (payload: Payload, hidden: string[] = []) =>
+        h.ready(() => seamOf(payload).placed(AXIS_WINDOW.min, AXIS_WINDOW.max, new SortedMap([], compareString), hidden, NO_READS));
 
-    test("the payload pages the kind: its place in the blocks an empty block that is not fixed, its rows on the wire none, and its size, key search and revision", async () => {
+    test("the payload reads its rows a page at a time — their size, key search and revision the source's — and joins the events into each window", async () => {
         const payload = await payloadOf();
-        const paged = pagedOf(payload);
-        assert.equal(paged.kind, "presses");
-        assert.equal(paged.id, PRESSES);
-        assert.ok(sameKey(await h.ready(() => paged.revision()), await hashOf(ex.planWindowPresses.output.path)), "the revision e3 holds the presses at");
+        assert.equal(payload.paged, true, "every kind is read a cell at a time over rows read so");
+        const source = sourceOf(payload);
+        assert.equal(source.id, PRESSES);
+        // Pinned to the presses' snapshot, its revision e3's.
+        const rows = payload.plan.rows;
+        if (rows.type !== "pinned") assert.fail(`expected the presses pinned to their snapshot, got its ${rows.type} arm`);
+        const pinned = rows.value;
+        assert.ok(sameKey(await h.ready(() => pinned.revision()), await hashOf(ex.planWindowPresses.output.path)), "the revision e3 holds the presses at");
         // Its size is learned from the first window it reads, as the canvas reads one as it shows.
-        assert.equal(paged.total().type, "none", "no window read, no size");
-        const placed = await h.ready(() => paged.placed(AXIS_WINDOW.min, AXIS_WINDOW.max, new SortedMap([], compareString), [], NO_READS));
-        await h.ready(() => paged.rows(0n, 200n, placed, NO_SHADING, []));
-        assert.equal(await h.ready(() => paged.total()), 2_000n);
-        // The kind on the wire lists no resources: they come a window at a time.
-        assert.deepEqual(payload.resources.map((k) => [k.key, k.rows.length]), [["presses", 0]]);
-        // The event kinds' blocks: the presses' place, an empty paged block, then the Unassigned rows'.
-        if (payload.blocks.type !== "some") assert.fail("expected the blocks seam");
-        const blocksOf = payload.blocks.value;
-        const blocks = await h.ready(() => blocksOf(AXIS_WINDOW.min, AXIS_WINDOW.max, new SortedMap([], compareString), [], new SortedMap([], compareString), NO_READS, NO_SHADING));
-        assert.deepEqual(blocks.map((b) => [b.fixed, b.rows.length]), [[false, 0], [true, 0]]);
+        assert.equal(source.total().type, "none", "no window read, no size");
+        const first = await h.ready(() => source.page(0n, 200n));
+        assert.equal(await h.ready(() => source.total()), 2_000n);
+        // A window of the presses' own rows: one block, not fixed, a landing row a press.
+        assert.deepEqual(first.rows.map((b) => [b.fixed, b.rows.length]), [[false, 200]]);
+        // Joined with the events: the same block, the Unassigned rows' place none, an event on no row of the canvas's being in no window.
+        const placed = await placedOf(payload);
+        assert.deepEqual(seamOf(payload).place(first.rows, placed, NO_SHADING, [], false).map((b) => [b.fixed, b.rows.length]), [[false, 200]]);
         // A key search seeks a press among the presses, by its key.
-        if (paged.seek.type !== "some") assert.fail("expected the key search");
-        const seek = paged.seek.value;
+        if (source.seek.type !== "some") assert.fail("expected the key search");
+        const seek = source.seek.value;
         const found = await h.ready(() => seek(variant("key", printKey("P-1333"))));
         assert.deepEqual([found.found, found.row], [true, 332n]);
         // Nothing read the presses whole.
         assert.equal(wholeReads(PRESSES), 0);
     });
 
-    test("places the events on the kind's resources by the resource's key, and draws a window of the presses with the events on it", async () => {
-        const paged = pagedOf(await payloadOf());
-        const placed = await h.ready(() => paged.placed(AXIS_WINDOW.min, AXIS_WINDOW.max, new SortedMap([], compareString), [], NO_READS));
-        const bars = placed.get("span")!;
+    test("places the events on the presses by their keys, and joins them into a window of the presses", async () => {
+        const payload = await payloadOf();
+        const placed = await placedOf(payload);
+        const bars = placed.on.get("presses")?.get("span");
+        if (bars === undefined) assert.fail("expected the jobs' bars on the presses");
         assert.deepEqual([...bars.keys()], ["P-1001", "P-1002", "P-1003", "P-1004", "P-1010", "P-1150", "P-1200", "P-1201", "P-1250", "P-1333", "P-1401", "P-1460"]);
         assert.deepEqual(bars.get("P-1001")!.map((p) => p.item.key), ["W-0001", "W-0002"]);
-        // The second window of 200 presses: its rows, with the events placed on them.
-        const rows = await h.ready(() => paged.rows(200n, 200n, placed, NO_SHADING, []));
+        // The second window of 200 presses: their landing rows, the events joined in.
+        const source = sourceOf(payload);
+        const read = await h.ready(() => source.page(200n, 200n));
+        const rows = seamOf(payload).place(read.rows, placed, NO_SHADING, [], false);
         assert.equal(rows.length, 1);
         const [block] = rows;
         assert.equal(block!.fixed, false);
         assert.equal(block!.rows.length, 200);
-        const first = block!.rows[0]!;
-        assert.ok(equalFor(Plan.Types.RowId)(first.id, variant("entry", { series: "presses.span", path: ["P-1201"] })));
-        assert.equal(first.gutter.label, "Press 1201");
-        assert.deepEqual(first.kind.type === "span" ? first.kind.value.runs.map((r) => r.label) : [], ["Timetables"]);
+        const firstRow = block!.rows[0]!;
+        assert.ok(equalFor(Plan.Types.RowId)(firstRow.id, variant("entry", { series: "presses", path: ["P-1201"] })));
+        assert.equal(firstRow.gutter.label, "Press 1201");
+        assert.deepEqual(firstRow.kind.type === "span" ? firstRow.kind.value.runs.map((r) => r.label) : [], ["Timetables"]);
         // Read through the window's pages, never the rows whole.
         assert.deepEqual(pagesOf(PRESSES), [["200", "200"]]);
         assert.equal(wholeReads(PRESSES), 0);
         // A window running past the last press holds what is left; a window in flight answers `none`.
-        assert.equal((await h.ready(() => paged.rows(1_900n, 200n, placed, NO_SHADING, [])))[0]!.rows.length, 100);
+        assert.equal((await h.ready(() => source.page(1_900n, 200n))).rows[0]!.rows.length, 100);
         const page = h.e3.hold(pageAt(PRESSES, 0));
-        assert.equal((await h.inFlight(() => paged.rows(0n, 200n, placed, NO_SHADING, []), page)).type, "none");
+        assert.equal((await h.inFlight(() => source.page(0n, 200n), page)).type, "none");
         page.release();
     });
 
-    test("a hidden paged kind keeps its place, empty in every window", async () => {
-        const paged = pagedOf(await payloadOf());
-        const placed = await h.ready(() => paged.placed(AXIS_WINDOW.min, AXIS_WINDOW.max, new SortedMap([], compareString), ["resources.presses"], NO_READS));
-        const rows = await h.ready(() => paged.rows(0n, 200n, placed, NO_SHADING, ["resources.presses"]));
-        assert.deepEqual(rows.map((b) => [b.fixed, b.rows.length]), [[false, 0]]);
-        assert.deepEqual(pagesOf(PRESSES), [], "a hidden kind's resources are not read");
-        // A hidden event kind places nothing.
-        const unplaced = await h.ready(() => paged.placed(AXIS_WINDOW.min, AXIS_WINDOW.max, new SortedMap([], compareString), ["events.job"], NO_READS));
-        assert.deepEqual([...unplaced.get("span")!.keys()], []);
+    test("a hidden event kind places nothing", async () => {
+        const placed = await placedOf(await payloadOf(), ["events.job"]);
+        assert.deepEqual([...(placed.on.get("presses")?.get("span")?.keys() ?? [])], []);
     });
 
-    test("a window of the presses says how many chart rows each press makes, where each makes as many: as many as the chart measures the viewer shows, none while one's `match` decides by press (#1398)", async () => {
-        const paged = pagedOf(await payloadOf(measured));
-        const placed = await h.ready(() => paged.placed(AXIS_WINDOW.min, AXIS_WINDOW.max, new SortedMap([], compareString), [], NO_READS));
+    test("a window of the presses says how many chart rows each press makes, where each makes as many: its series' charts, none while one's `match` decides by press (#1398)", async () => {
         const factsEqual = equalFor(ArrayType(OptionType(IntegerType)));
-        /** The window's blocks as the viewer hides `hidden`: what each says its presses make, and the chart rows it holds. */
-        const read = async (hidden: string[]) => {
-            const blocks = await h.ready(() => paged.rows(0n, 200n, placed, NO_SHADING, hidden));
+        /** A window's blocks over the presses with the series given beneath each: what each says its presses make, and the chart rows it holds. */
+        const read = async (series: () => readonly unknown[]) => {
+            const source = sourceOf(await payloadOf(planOver(series)));
+            const blocks = (await h.ready(() => source.page(0n, 200n))).rows;
             return { facts: blocks.map((b) => b.charts), charts: blocks.map((b) => b.rows.filter((row) => row.kind.type === "chart").length) };
         };
         // The fast presses' chart is drawn for 60 of the window's 200: a press makes one chart row, or two.
-        const shown = await read([]);
+        const shown = await read(() => [speed(), load(), fast()]);
         assert.ok(factsEqual(shown.facts, [none]), "no number of them while a chart's `match` decides");
         assert.deepEqual(shown.charts, [260]);
-        // Hidden in the Series tab, it is no press's: each makes its speed's.
-        const speed = await read(["measures.fast"]);
-        assert.ok(factsEqual(speed.facts, [some(1n)]));
-        assert.deepEqual(speed.charts, [200]);
-        // A heat is no chart: with the speed hidden too, each makes none.
-        const bare = await read(["measures.fast", "measures.speed"]);
+        // Without it, each makes its speed's.
+        const speeds = await read(() => [speed(), load()]);
+        assert.ok(factsEqual(speeds.facts, [some(1n)]));
+        assert.deepEqual(speeds.charts, [200]);
+        // A heat is no chart: each makes none.
+        const bare = await read(() => [load()]);
         assert.ok(factsEqual(bare.facts, [some(0n)]));
         assert.deepEqual(bare.charts, [0]);
-        // A hidden kind's place stands empty: its presses make none.
-        assert.ok(factsEqual((await read(["resources.presses"])).facts, [some(0n)]));
-    });
-
-    test("names a resource by its key: its window's key search, then a one-row page — never the kind whole", async () => {
-        const [presses] = (await payloadOf()).resources;
-        const byKey = presses!.byKey.type === "some" ? presses!.byKey.value : assert.fail("expected the paged kind read by key");
-        const rowEqual = equalFor(OptionType(Schedule.Types.PlanResourceRow));
-        assert.ok(rowEqual(await h.ready(() => byKey("P-1333")), some({
-            key: "P-1333", label: "Press 1333", meta: none, group: none, parent: none, sub: some("Hall 5"), value: none, status: none, collapsed: false,
-        })));
-        assert.deepEqual(sought(PRESSES).map((request) => request.query.getAll("key")), [[printKey("P-1333")]]);
-        assert.deepEqual(pagesOf(PRESSES), [["332", "1"]]);
-        assert.equal(wholeReads(PRESSES), 0);
-        // A key the kind does not have: some(none), and no page; in flight: none.
-        assert.ok(rowEqual(await h.ready(() => byKey("P-9999")), none));
-        assert.deepEqual(pagesOf(PRESSES), [["332", "1"]], "no page for a key the kind does not have");
-        const search = h.e3.hold(finds(PRESSES));
-        assert.equal((await h.inFlight(() => byKey("P-1001"), search)).type, "none");
-        search.release();
     });
 });
 
@@ -631,7 +599,8 @@ describe("a kind's window counted first, and read only within the cap (#1039)", 
         return Plan.Payload({
             axis: Plan.axis({ window: { min: at(FORTNIGHT[0]), max: at(FORTNIGHT[1]) }, resolution: "day" }),
             slice: { slice: slice as never },
-            resources: { presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name }) },
+            data: presses.read(),
+            series: [Plan.series.resources(PrintPress, { key: "presses", title: "Presses", icon: "print", label: (p) => p.name })],
             events: { job: railJobs($ as never) },
         });
     });

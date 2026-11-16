@@ -214,7 +214,7 @@ export const PlanVocabularyType = StructType({
  * The `Plan` renderer's payload: the Plan's interface.
  *
  * @property plan - The canvas whole: its axis, its rows over `data` followed by `rows`, its links, editing session and the rest
- * @property landings - The series the event kinds land on (#1541, U1), in the canvas's order: each resources series and kinds case
+ * @property landings - The series the event kinds land on (#1541, U1), in the series tree's order, a kinds block's cases in its variant's: each resources series and kinds case
  * @property events - The event kinds, in the order `events` lists them, each closed behind its seams
  * @property seam - How the event kinds' events join the canvas's rows (#1541, U1): read over a window, filed, and placed on
  *   the landing rows of any window of the canvas; `none` while the Plan has no event kinds
@@ -883,7 +883,7 @@ function checkEventKinds(events: readonly (readonly [string, ScheduleEventKind<E
  *
  * @param series - The `series` prop
  * @param events - The event kinds, by slot, each checked a kind ({@link checkEventKinds})
- * @returns The landings, in the canvas's order
+ * @returns The landings, in the series tree's order, a kinds block's cases in its variant's
  * @throws {Error} Naming the slot and the remedy: a `series` known only as it runs, an `of` naming no landing series,
  *   and a landing series keyed by another type
  */

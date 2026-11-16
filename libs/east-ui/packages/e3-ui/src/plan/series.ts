@@ -4186,8 +4186,9 @@ export function planSeriesKeys(series: unknown): readonly string[] | undefined {
 
 /**
  * The series a list's event kinds may land on (#1541, U1): every `resources`
- * series and `kinds` case in its tree, in the order the canvas draws them —
- * what an event kind's `resource.of` names.
+ * series and `kinds` case in its tree, in the tree's order — a kinds block's
+ * cases in its variant's, whose entries the canvas draws in their source's
+ * order, mixed — what an event kind's `resource.of` names.
  *
  * @param series - The `series` input
  * @returns The landings; `undefined` for an East expression list, or one holding a series no `Plan.series.*` builder

@@ -12,7 +12,7 @@
  * - **Events** (`Plan.library.events()`) — every event kind's templates, in
  *   the kinds' order, under the kind's name and then the template's `group`:
  *   each card its kind's icon, its name, and `Print job · 6 h · presses`, its
- *   kind, how long it runs and the resource kinds it is placed on (PB27).
+ *   kind, how long it runs and the series it lands on (PB27, #1541).
  * - **Backlog** (`Plan.library.backlog()`) — every event kind's unscheduled
  *   events (a kind whose times are Options), read through the kind's own seam
  *   with its drafts in place (#1196) and read again when its record commits —
@@ -21,12 +21,12 @@
  *   each card its kind's icon, its
  *   title and `6 h · Press A · due Fri 16`, grouped by when it is due — Due
  *   this week, Due next week, Later, No date — counted from the week the
- *   axis's now is in, or today's (PB28). A card's resource on a paged resource
- *   kind is named once it is read by its key (#1199, `resources.ts`), its key
- *   standing in meanwhile.
+ *   axis's now is in, or today's (PB28). A card's resource is named by its
+ *   landing row on the canvas (#1541), its key standing in for one the canvas
+ *   does not hold — over rows read a page at a time, one not read.
  * - **Series** (`Plan.library.series()`) — `Pick.Panel`'s list, frameless in
- *   the pane: each resource kind and its measures, the event kinds, `data`'s
- *   picked series and the Plan's `rows`, each with its kind's icon, its title
+ *   the pane: the event kinds, `data`'s picked series and the Plan's `rows`,
+ *   each with its kind's icon, its title
  *   and an eye, in the order the canvas draws them (PB29). The kinds and the
  *   rows hide in the viewer's own set, kept under the Plan's `id`; `data`'s
  *   series in their pick, kept under its key.
@@ -73,7 +73,7 @@ import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { Box } from "@chakra-ui/react";
 import { DateTimeType, StringType, compareFor, equalFor, none, printFor, some, type ValueTypeOf } from "@elaraai/east";
 import type { PickBindType } from "@elaraai/east-ui";
-import { ScheduleEventRefType, ScheduleResourceRefType, type planKeys } from "@elaraai/e3-ui/internal";
+import { ScheduleEventRefType, type planKeys } from "@elaraai/e3-ui/internal";
 import {
     EastChakraLibrary, EastChakraPickPanel, EmptyStateView, getSomeorUndefined,
     type BuilderFrameDock, type LibraryEmpty, type LibraryNarrowing, type LibraryValue,
@@ -85,11 +85,11 @@ import type { BacklogNarrowing } from "../../shared/schedule/backlog.js";
 import type { FollowedSources } from "../../shared/schedule/follow-sources.js";
 import { sourceTab, sourcesTab, type SourceShown, type SourceTab } from "../../shared/schedule/source-tab.js";
 import type { PlanLibraryTabWord } from "../messages.js";
+import type { PlanRowValue } from "../model.js";
 import type { PlanEventPart } from "../root/sources.js";
 import type { PlanWords } from "../words.js";
 import type { PlanBacklogEntry } from "./counts.js";
 import type { PlanValue } from "./index.js";
-import { usePlanResourceRows, type PlanResourceRefValue } from "./resources.js";
 
 /** The names a Plan keeps its viewer's state under. */
 type PlanKeys = ReturnType<typeof planKeys>;
@@ -117,8 +117,6 @@ const stringEqual = equalFor(StringType);
 const compareDateTime = compareFor(DateTimeType);
 /** A card's key: its kind and its key, as East prints a `Schedule.Types.EventRef`. */
 const printRef = printFor(ScheduleEventRefType);
-/** A resource among those the backlog's cards name, by its ref as East prints it. */
-const printResource = printFor(ScheduleResourceRefType);
 
 /** The library open: the Calendar's 272px (§8). */
 const LIBRARY_SIZE = "272px";
@@ -148,8 +146,10 @@ export interface PlanLibraryProps {
     library: PlanValue["library"];
     /** The event kinds: their templates and their backlogs. */
     kinds: PlanValue["events"];
-    /** The resource kinds: what a card names a resource kind and a resource by. */
-    resources: PlanValue["resources"];
+    /** The series the event kinds land on (#1541): what a template's card names its kind's series by. */
+    landings: PlanValue["landings"];
+    /** A resource's landing row on the canvas, when it holds it (#1541): what a backlog card names its resource by. */
+    resourceOf?: ((ref: { readonly kind: string; readonly key: string }) => PlanRowValue | undefined) | undefined;
     /** The canvas's own pick over `data`'s series, when they are picked. */
     pick: PlanPickValue | undefined;
     /** The names the Plan keeps its viewer's state under. */
@@ -188,6 +188,9 @@ const READ_PANE = {} as const;
 
 /** No event kind has an event on the canvas. */
 const NO_PATCH_KINDS: ReadonlySet<string> = new Set();
+
+/** No canvas to name a resource by: each by its key. */
+const NO_RESOURCE_ROWS = (): undefined => undefined;
 
 /**
  * How long something takes, in the Plan's words — `6 h`, `2 h 15 m`, `45 m`.
@@ -238,8 +241,8 @@ export function tabLibrary(keys: PlanKeys, tab: PlanAuthorTabValue): string {
 
 /**
  * The Series tab's pick: the viewer's set and the canvas's own, as one list
- * for `Pick.Panel` — the resource kinds and their measures and the event
- * kinds, `data`'s picked series, then the Plan's rows, in the order the canvas
+ * for `Pick.Panel` — the event kinds, `data`'s picked series, then the
+ * Plan's rows, in the order the canvas
  * draws them. A toggle writes the canvas's pick for its series, and the
  * viewer's set for the rest; the set is read live, so two toggles in one
  * frame compose.
@@ -319,11 +322,11 @@ function tabBody(styles: Record<string, Record<string, unknown>>, tab: string, p
 /**
  * The library pane, as `BuilderFrame` draws it — see the module docs.
  *
- * @param props - The library's tabs, the event and resource kinds, the canvas's pick, the Plan's keys, the viewer's hidden set and its setter, the backlog's now, the words, whether a row takes an author's card, the kinds' unscheduled events, whether the canvas takes the event kinds' cards, the kinds with an event on it, what each source the tabs follow shows, what the rail hides of the backlog, and whether the backlog stands in for a read in flight
+ * @param props - The library's tabs, the event kinds and the series they land on, a resource's row on the canvas, the canvas's pick, the Plan's keys, the viewer's hidden set and its setter, the backlog's now, the words, whether a row takes an author's card, the kinds' unscheduled events, whether the canvas takes the event kinds' cards, the kinds with an event on it, what each source the tabs follow shows, what the rail hides of the backlog, and whether the backlog stands in for a read in flight
  * @returns The pane — its tabs the ones `library` lists, each with its count; 272px wide; its collapsed state kept per viewer — or `undefined`, no pane, when `library` lists none
  */
 export function usePlanLibrary({
-    library, kinds, resources, pick, keys, hidden, onHidden, now, words, takesCards,
+    library, kinds, landings, resourceOf = NO_RESOURCE_ROWS, pick, keys, hidden, onHidden, now, words, takesCards,
     unscheduled: read, takesEvents = false, patchKinds = NO_PATCH_KINDS, followed = NONE_FOLLOWED, backlogNarrowing = NO_BACKLOG_NARROWING,
     backlogRetained = false, backlogFlash = false,
 }: PlanLibraryProps): BuilderFrameDock | undefined {
@@ -336,8 +339,8 @@ export function usePlanLibrary({
     const empty = useCallback((tab: PlanLibraryTabWord, name: string): LibraryEmpty => ({ title: m.libraryEmpty({ tab, name }), description: m.libraryEmptyHint({ tab, name }) }), [m]);
     const listsBacklog = library.some((tab) => tab.type === "backlog");
 
-    // Each resource kind's name, by slot.
-    const resourceKinds = useMemo(() => new Map(resources.map((kind) => [kind.key, { name: kind.name }] as const)), [resources]);
+    // Each landing series' name, by its key (#1541).
+    const landingNames = useMemo(() => new Map(landings.map((landing) => [landing.key, landing.name] as const)), [landings]);
 
     // ── Events: every kind's templates, under its name, then their group (PB27) ──
     // Each kind's list following its source of the rail (#1344).
@@ -346,7 +349,7 @@ export function usePlanLibrary({
         id: eventsLibrary(keys),
         items: templatesFollow.cards.map(({ kind, template }) => {
             const group = getSomeorUndefined(template.group);
-            const takes = kind.takes.map((slot) => (resourceKinds.get(slot)?.name ?? slot).toLocaleLowerCase(words.locale));
+            const takes = kind.takes.map((slot) => (landingNames.get(slot) ?? slot).toLocaleLowerCase(words.locale));
             const line = m.templateLine({
                 kind: kind.name,
                 duration: kind.instant ? undefined : durationWords(durationMinutes(template.duration), words),
@@ -370,7 +373,7 @@ export function usePlanLibrary({
         groupOptions: [{ key: "kind", label: m.libraryGroupBy({ tab: "events" }) }],
         noun: noun("events"),
         onCardClick: none,
-    }), [keys, templatesFollow, resourceKinds, words, m, noun, takesEvents]);
+    }), [keys, templatesFollow, landingNames, words, m, noun, takesEvents]);
 
     // ── Backlog: every kind's unscheduled events, by when they are due (PB28) ──
     // Read through each kind's seam with its drafts in place, with the footer's
@@ -379,20 +382,11 @@ export function usePlanLibrary({
     // last read stands while one is in flight or has failed.
     // What the tab lists: the kinds' unscheduled events, while the library lists the tab.
     const listed = listsBacklog ? unscheduled : NO_BACKLOG;
-    // The resources its cards are on, by name: a listed kind's at once, a paged kind's read by its key (#1199).
-    const named = useMemo(() => {
-        const out = new Map<string, PlanResourceRefValue>();
-        for (const { item } of listed) {
-            const at = getSomeorUndefined(item.resource);
-            if (at !== undefined) out.set(printResource(at), at);
-        }
-        return [...out.values()];
-    }, [listed]);
-    const resourceRows = usePlanResourceRows(resources, named);
+    // The resources its cards are on, by name: each by its landing row on the canvas, else its key (#1541).
     const resourceName = useCallback((ref: PlanResourceOptionValue): string | undefined => {
         const at = getSomeorUndefined(ref);
-        return at === undefined ? undefined : resourceRows(at)?.label ?? at.key;
-    }, [resourceRows]);
+        return at === undefined ? undefined : resourceOf(at)?.gutter.label ?? at.key;
+    }, [resourceOf]);
     const backlog = useMemo(() => {
         const rank = (group: DueGroup): number => DUE_GROUPS.indexOf(group);
         const dated = listed.map((entry) => {

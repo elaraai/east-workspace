@@ -23,8 +23,8 @@ import { PLAN_GEOMETRY } from "./geometry.js";
  * The decoded windowed arm — `paged`; `pinned` with its revision and refresh;
  * or `live` with its narrowing too, the rail's `rows` source (#1354) — the
  * derived source at the canvas's blocks (#823). A source the canvas composes
- * over another — a paged `data` or a paged resource kind with the event kinds'
- * rows in every window (#1192, #1199) — names the snapshot of the data its
+ * over another — a paged `data` with the event kinds' events joined into every
+ * window (#1192, #1199, #1541) — names the snapshot of the data its
  * windows read apart from its revision, which moves too when its windows are
  * read again over the same data: new events placed on them, new drafts. A key
  * search's answer indexes the snapshot alone.

@@ -31,7 +31,7 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import {
-    East, OptionType, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, printFor, some, variant,
+    East, OptionType, SetType, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, printFor, some, variant,
     type BlockBuilder, type ExprType, type ValueTypeOf, type option,
 } from "@elaraai/east";
 import { Slice } from "@elaraai/east-ui";
@@ -78,6 +78,19 @@ function railOf(presses: readonly string[]) {
     });
 }
 
+/**
+ * The rail of a Plan's page for `presses`: the runs and the templates as the Calendar's. A Plan's crew are its own rows
+ * (#1541), read whole and the press's alone: through the rail's `rows` source they would be read a page at a time, and
+ * the runs with them a cell at a time, which their record keeps no index for.
+ */
+function planRailOf(presses: readonly string[]) {
+    return Slice.bindRecords("spec.press.plan", {
+        run: { source: Data.bindPaged(ex.pressRuns, { indexes: ["press_runs_by_press", "press_runs_by_press_time", "press_runs_by_press_crew_time"] }), scope: { press: [...presses] },
+            range: "start", fields: { crew: { label: "Crew" }, start: { label: "Dates" } } },
+        runTemplates: { source: Data.bindPaged(ex.pressRunTemplates, { indexes: ["press_run_templates_by_group"] }), fields: { group: { label: "Template" } } },
+    });
+}
+
 /** The example's Calendar, its payload declared in East over e3, its rail scoped to `presses`. */
 function calendarOf($: BlockBuilder<typeof CalendarPayloadType>, presses: readonly string[]): ExprType<typeof CalendarPayloadType> {
     const crew = $.let(Data.bind(ex.pressCrew));
@@ -99,17 +112,19 @@ function calendarOf($: BlockBuilder<typeof CalendarPayloadType>, presses: readon
     }) as ExprType<typeof CalendarPayloadType>;
 }
 
-/** The same page as a Plan: its runs on its crew's rows. */
+/** The same page as a Plan: its runs on its crew's rows, the canvas's own (#1541) — the press's crew alone. */
 function planOf($: BlockBuilder<typeof PlanPayloadType>, presses: readonly string[]): ExprType<typeof PlanPayloadType> {
     const crew = $.let(Data.bind(ex.pressCrew));
+    const pagePresses = $.const(new Set(presses), SetType(StringType));
     const runs = $.let(Record.bind(ex.pressRuns, ["patch"]));
     const templates = $.let(Data.bind(ex.pressRunTemplates));
     const entries = $.let(Data.bindPaged(ex.pressRuns));
-    const slice = $.let(railOf(presses));
+    const slice = $.let(planRailOf(presses));
     return Plan.Payload({
         axis: Plan.axis({ window: { min: OCT_1, max: new Date("2026-10-08T00:00:00Z") }, resolution: "day" }),
         slice: { slice },
-        resources: { crew: Schedule.resources(crew.read(), { name: "Crew", icon: "users", label: (row) => row.name }) },
+        data: crew.read().filter((_$2, member) => pagePresses.has(member.press)),
+        series: [Plan.series.resources(ex.PressCrewMember, { key: "crew", title: "Crew", icon: "users", label: (row) => row.name })],
         events: {
             run: Schedule.events(runs, { name: "Run", icon: "print", title: "title", start: "start", end: "end", resource: { field: "crew", of: "crew" }, entries,
                 backlog: { duration: (row) => variant("hours", row.hours), due: (row) => row.due },

@@ -28,17 +28,18 @@
  *   Duplicate and Delete;
  * - **several events** (PB39): how many, each kind's count, the list, and the
  *   bulk edit — the state, the resource and a shift in time;
- * - **a row** (PB40): a resource's name and lines, its group, its overlaps —
- *   the pairs on the resource in the window, each line selecting its pair
- *   (#1198) — its events in the window — how many, how long, how much of each
- *   unit — and its measures at the bucket a click on its plot named; an event
+ * - **a row** (PB40): a resource's name and lines — its landing row's
+ *   (#1541) — the group it is drawn under, its overlaps — the pairs on the
+ *   resource in the window, each line selecting its pair (#1198) — its events
+ *   in the window — how many, how long, how much of each unit — and its
+ *   series' rows beneath it at the bucket a click on its plot named; an event
  *   kind's Unassigned row, the kind's events on no resource; any other row,
  *   what it draws at that bucket. A kind past the cap is counted on no row,
  *   and the row says so, never 0; a kind hidden in the Series tab is in no
- *   figure, and nothing says so (#1039). While the cells a paged resource's
- *   kinds are read by have not landed for it — scrolled out of the blocks
- *   read, or before the first read — its figures are placeholders, never 0,
- *   until they land (#1398, CL13);
+ *   figure, and nothing says so (#1039). While the cells a resource's kinds
+ *   are read by over rows read a page at a time have not landed for it —
+ *   scrolled out of the blocks read, or before the first read — its figures
+ *   are placeholders, never 0, until they land (#1398, CL13);
  * - **nothing** (PB41): the window's counts — the hours those of the kinds
  *   read, the kinds whose events or hours are not counted named in one line
  *   (#1039) — and three hints.
@@ -52,11 +53,12 @@
  * ({@link PlanSelectionReader}), which hands the frame the events only when
  * they move: a kind narrowed through its source of the slice lands its key
  * searches one by one, and each would otherwise render the whole frame
- * (#1344). A paged resource kind's resource is named once it is read by its
- * key (`resources.ts`); its key stands in meanwhile, and the bulk edit offers
- * none of a paged kind's resources, which it does not list. Of a resource
- * kind the rail narrows, the bulk edit offers the resources its source shows,
- * and those the selected events are on (#1344).
+ * (#1344). A resource is named by its landing row on the canvas (#1541), its
+ * key standing in for one the canvas does not hold — over rows read a page at
+ * a time, one not read. The bulk edit offers the resources of the series the
+ * selected kinds land on, as the canvas holds them — those the rail shows —
+ * and those the selected events are on; over rows read a page at a time,
+ * which the canvas never holds whole, the events' own alone.
  *
  * Its edits (#1194, PB42, PB60) are steps of the Plan's one history, each one
  * transaction: a field of the kind's form, written through the kind's own
@@ -111,7 +113,6 @@ import { FrameDrawer, PlaceholderShape } from "@elaraai/east-ui-components/inter
 import { heldRowOf } from "../../shared/schedule/editing.js";
 import { useFieldAsk } from "../../shared/schedule/field-ask.js";
 import { removePlanEvents, type PlanEventChange, type PlanEventEditing } from "../edit/events.js";
-import { usePlanResourceRows, type PlanResourceLookup, type PlanResourceRefValue } from "./resources.js";
 import { scheduleEventKey } from "../../shared/schedule/overlaps.js";
 import { NO_REFUSED_FIELDS, refusalText, refusedFields, scheduleRefusals } from "../../shared/schedule/refusals.js";
 import { stateText } from "../a11y.js";
@@ -119,12 +120,13 @@ import type { PlanSnapshot } from "../controller/index.js";
 import { usePlanSelector } from "../controller/react.js";
 import type { PlanInstantValue } from "../instant.js";
 import type { PlanStateWord } from "../messages.js";
-import { rowKeyOf } from "../model.js";
+import { rowKeyOf, type PlanRowValue } from "../model.js";
 import type { RowKey } from "../plan-state.js";
 import { quantityText, totalsByUnit, totalsText, type PlanQuantityValue } from "../quantity.js";
-import { scheduleWithinCap, type ScheduleCellsRead } from "../../shared/schedule/cells.js";
+import { scheduleCellId, scheduleWithinCap, type ScheduleCellsRead } from "../../shared/schedule/cells.js";
 import type { PlanChrome } from "../root/chrome.js";
-import { eventReadRange, type PlanEventShownValue } from "../root/events.js";
+import { eventReadRange } from "../root/events.js";
+import { landingRowId, landingTargetOf, type PlanLandingTarget } from "../root/landings.js";
 import type { PlanScale } from "../scale.js";
 import type { PlanWords } from "../words.js";
 import type { PlanEventCounts } from "./counts.js";
@@ -135,8 +137,6 @@ import type { PlanValue } from "./index.js";
 type PlanKeys = ReturnType<typeof planKeys>;
 /** One event kind, as the payload carries it. */
 type PlanEventKindValue = PlanValue["events"][number];
-/** One resource kind, as the payload carries it. */
-type PlanResourceKindValue = PlanValue["resources"][number];
 /** One event read by its key: as Plan draws it, and its row. */
 type PlanEventReadValue = Extract<ReturnType<PlanEventKindValue["planEvent"]>, { type: "some" }>["value"];
 /** One event as Plan draws it. */
@@ -155,8 +155,6 @@ const NO_DRAFTS: Parameters<PlanEventKindValue["planEvent"]>[1] = new SortedMap(
 const NONE_DRAFTED: EventDrafts = new SortedMap([], compareFor(StringType));
 /** No range: a canvas with no time window, beside which a windowed kind reads an event by its key alone. */
 const NO_RANGE = new Date(0);
-/** No resource named. */
-const NO_RESOURCES_NAMED: readonly PlanResourceRefValue[] = [];
 
 /** A Plan whose kinds take no edit — none here, as every kind is a record with its patch door — writes nothing. */
 const NO_EDIT = (): void => {};
@@ -262,8 +260,8 @@ export interface PlanInspectorProps {
     shown: boolean;
     /** The event kinds: each selected event is read through its kind. */
     kinds: PlanValue["events"];
-    /** The resource kinds: what an event and a row name their resource by. */
-    resources: PlanValue["resources"];
+    /** The series the event kinds land on (#1541): what a row stands for, and its name. */
+    landings: PlanValue["landings"];
     /** The canvas's chrome facts: its scale, its words, and what it reads of its rows; `undefined` with no window. */
     chrome: PlanChrome | undefined;
     /** The event kinds' counts over the window: what the pane shows when nothing is selected. */
@@ -276,8 +274,6 @@ export interface PlanInspectorProps {
     selection: PlanInspectorSelection;
     /** The selected events, read ({@link PlanSelectionReader}). */
     events: readonly PlanInspectedEvent[];
-    /** The resources the rail shows, by resource kind (#1344): what the bulk edit offers of a kind its source narrows. */
-    shownResources: PlanEventShownValue;
     /** The ids the viewer hides in the Series tab: a kind hidden there is in no figure of a row's. */
     hidden: readonly string[];
 }
@@ -379,11 +375,11 @@ export function PlanSelectionReader({ kinds, elements, drafts, editing, held, on
 /**
  * The inspector pane, as `BuilderFrame` draws it — see the module docs.
  *
- * @param props - Whether it is given, the kinds, the resources, the canvas's facts, the counts, the keys, the words, what is selected, the selected events, the resources the rail shows and the ids the viewer hides
+ * @param props - Whether it is given, the kinds, the series they land on, the canvas's facts, the counts, the keys, the words, what is selected, the selected events and the ids the viewer hides
  * @returns The pane — 320px wide, its collapsed state kept per viewer, its rail saying what is selected — or `undefined`, no pane, when the Plan is given no inspector
  */
 export function usePlanInspector({
-    shown, kinds, resources, chrome, counts, keys, words, selection, events, shownResources, hidden,
+    shown, kinds, landings, chrome, counts, keys, words, selection, events, hidden,
 }: PlanInspectorProps): BuilderFrameDock | undefined {
     const { m } = words;
     // No `inspector`: no pane (#1197).
@@ -400,8 +396,8 @@ export function usePlanInspector({
         persist: "local",
         detail,
         body: (
-            <PlanInspectorBody selection={selection} events={events} kinds={kinds} resources={resources} chrome={chrome}
-                counts={counts} keys={keys} words={words} shownResources={shownResources} hidden={hidden} />
+            <PlanInspectorBody selection={selection} events={events} kinds={kinds} landings={landings} chrome={chrome}
+                counts={counts} keys={keys} words={words} hidden={hidden} />
         ),
     };
 }
@@ -411,13 +407,12 @@ interface BodyProps {
     selection: PlanSelection;
     events: readonly InspectedEvent[];
     kinds: PlanValue["events"];
-    resources: PlanValue["resources"];
+    /** The series the event kinds land on (#1541). */
+    landings: PlanValue["landings"];
     chrome: PlanChrome | undefined;
     counts: PlanEventCounts | undefined;
     keys: PlanKeys;
     words: PlanWords;
-    /** The resources the rail shows, by resource kind (#1344). */
-    shownResources: PlanEventShownValue;
     /** The ids the viewer hides in the Series tab. */
     hidden: readonly string[];
 }
@@ -532,33 +527,37 @@ function OverlapsBanner({ styles, title, lines, onSelect }: {
 }
 
 /**
- * A resource by its name: its kind's row of that key, else its key.
+ * A resource by its name: its landing row's label on the canvas (#1541), else
+ * its key — over rows read a page at a time, a resource the canvas has not read.
  *
  * @param ref - The resource an event is on, if any
- * @param resources - The resources the pane names, by their kind and key
+ * @param chrome - The canvas's facts: its rows
  * @param w - The Plan's words
  * @returns Its name, or `Unassigned`
  */
-function resourceText(ref: PlanEventItemValue["resource"], resources: PlanResourceLookup, w: PlanWords): string {
+function resourceText(ref: PlanEventItemValue["resource"], chrome: PlanChrome | undefined, w: PlanWords): string {
     const at = getSomeorUndefined(ref);
     if (at === undefined) return w.m.inspectorUnassigned();
-    return resources(at)?.label ?? at.key;
+    return chrome?.inspect.resource(at)?.gutter.label ?? at.key;
 }
 
 /**
- * The one resource a view names, as the pane reads it by its key: the same
- * array while it names the same one, so its read is not asked again.
+ * The group strip a row is drawn under: its nearest parent that is a group's
+ * row, by its name — what a resources series laid beneath a `Plan.series.group`
+ * is grouped by (#1541).
  *
- * @param ref - The resource, if any
- * @returns It, alone; none for none
+ * @param row - The row
+ * @param inspect - What the pane reads of the canvas's rows
+ * @returns The group's name; `undefined` for a row under none
  */
-function useNamedResource(ref: PlanResourceRefValue | undefined): readonly PlanResourceRefValue[] {
-    const text = ref === undefined ? undefined : printResource(ref);
-    return useMemo(() => {
-        if (text === undefined) return NO_RESOURCES_NAMED;
-        const read = parseResource(text);
-        return read.success ? [read.value] : NO_RESOURCES_NAMED;
-    }, [text]);
+function groupOf(row: PlanRowValue, inspect: PlanChrome["inspect"]): string | undefined {
+    for (let up = row.parent; up.type === "some";) {
+        const parent = inspect.row(up.value);
+        if (parent === undefined) return undefined;
+        if (parent.kind.type === "group") return parent.gutter.label;
+        up = parent.parent;
+    }
+    return undefined;
 }
 
 /** How long minutes run, in hours to one place — `26.5`. */
@@ -692,7 +691,7 @@ function roleFactOf(roles: PlanEventKindValue["roles"], field: string): "quantit
 }
 
 /** One event: its head, its overlaps, its facts, its fields or its kind's own inspector, and its gestures. */
-function OneEvent({ event, resources, keys, words, styles, counts, chrome, selection }: OneEventProps) {
+function OneEvent({ event, keys, words, styles, counts, chrome, selection }: OneEventProps) {
     const { m } = words;
     const button = useRecipe({ key: "button" });
     const { kind } = event;
@@ -712,9 +711,6 @@ function OneEvent({ event, resources, keys, words, styles, counts, chrome, selec
     const lane = getSomeorUndefined(item.lane);
     const quantity = getSomeorUndefined(item.quantity);
     const status = getSomeorUndefined(item.status);
-    // Its resource by name — a paged kind's read by its key (#1199).
-    const named = useNamedResource(getSomeorUndefined(item.resource));
-    const resourceRows = usePlanResourceRows(resources, named);
 
     // Its row, held by its data: a read that brings the same row again draws nothing new.
     const row = useDataStable(event.row, blobEqual);
@@ -803,7 +799,7 @@ function OneEvent({ event, resources, keys, words, styles, counts, chrome, selec
                 of the edits' fieldset, so its lines select while that is disabled. */}
             {peers.length > 0 && chrome !== undefined && (
                 <OverlapsBanner styles={styles}
-                    title={m.inspectorOverlaps({ n: peers.length, count: words.number(peers.length), on: resourceText(item.resource, resourceRows, words) })}
+                    title={m.inspectorOverlaps({ n: peers.length, count: words.number(peers.length), on: resourceText(item.resource, chrome, words) })}
                     lines={peers.map((peer) => ({ keys: [scheduleEventKey(peer)], when: whenText(peer, kind.instant, words), title: peer.title }))}
                     onSelect={chrome.selectEvents} />
             )}
@@ -814,7 +810,7 @@ function OneEvent({ event, resources, keys, words, styles, counts, chrome, selec
                 </Box>
             )}
             <Box as="dl" ref={facts} css={styles.facts} data-inspector-facts="">
-                <Fact styles={styles} fact="resource" label={m.inspectorFact({ fact: "resource" })} value={resourceText(item.resource, resourceRows, words)} />
+                <Fact styles={styles} fact="resource" label={m.inspectorFact({ fact: "resource" })} value={resourceText(item.resource, chrome, words)} />
                 {start !== undefined && end !== undefined && (kind.instant
                     ? <Fact styles={styles} fact="at" label={m.inspectorFact({ fact: "at" })} value={words.dateTime(start)} />
                     : (
@@ -872,7 +868,7 @@ interface SeveralProps extends BodyProps {
 }
 
 /** Several events: how many, each kind's count, the list, and the bulk edit. */
-function SeveralEvents({ events, kinds, resources, words, styles, chrome, selection, shownResources }: SeveralProps) {
+function SeveralEvents({ events, kinds, landings, words, styles, chrome, selection }: SeveralProps) {
     const { m } = words;
     const button = useRecipe({ key: "button" });
     // Its edits (#1194): steps of the Plan's one history, on while the canvas takes a write and every selected kind a gesture.
@@ -902,24 +898,32 @@ function SeveralEvents({ events, kinds, resources, words, styles, chrome, select
         }
         return out;
     }, [selectedKinds, m]);
-    // The resources the selected kinds are placed on: each its kind's rows, by name — a paged kind lists none (#1199).
-    // Of a kind the rail narrows, the ones its source shows, and those the selected events are on (#1344).
+    // The resources of the series the selected kinds land on (#1541), as the canvas holds them — the rows the rail shows,
+    // each by its landing row's name — then those the selected events are on, each by its row's name, else its key. Over
+    // rows read a page at a time the canvas never holds a series whole: the events' own alone.
     const options = useMemo(() => {
         const slots = selectedKinds.flatMap((kind) => kind.takes);
-        const placed = resources.filter((r: PlanResourceKindValue) => slots.some((slot) => stringEqual(slot, r.key)));
-        const on = (kind: string, key: string): boolean => events.some((e) => {
-            const at = getSomeorUndefined(e.item.resource);
-            return at !== undefined && stringEqual(at.kind, kind) && stringEqual(at.key, key);
-        });
-        return {
-            resource: placed.flatMap((r) => {
-                const keys = shownResources.get(r.key);
-                return r.rows
-                    .filter((row) => keys === undefined || keys.has(row.key) || on(r.key, row.key))
-                    .map((row): FieldOption => ({ key: printResource({ kind: r.key, key: row.key }), label: row.label }));
-            }),
+        const out: FieldOption[] = [];
+        const listed = new Set<string>();
+        const add = (kind: string, key: string, label: string): void => {
+            const option = printResource({ kind, key });
+            if (listed.has(option)) return;
+            listed.add(option);
+            out.push({ key: option, label });
         };
-    }, [selectedKinds, resources, shownResources, events]);
+        for (const landing of landings) {
+            if (!slots.some((slot) => stringEqual(slot, landing.key))) continue;
+            for (const row of chrome?.inspect.resources(landing.key) ?? []) {
+                const key = row.id.type === "entry" ? row.id.value.path[row.id.value.path.length - 1] : undefined;
+                if (key !== undefined) add(landing.key, key, row.gutter.label);
+            }
+        }
+        for (const e of events) {
+            const at = getSomeorUndefined(e.item.resource);
+            if (at !== undefined) add(at.kind, at.key, resourceText(e.item.resource, chrome, words));
+        }
+        return { resource: out };
+    }, [selectedKinds, landings, chrome, events, words]);
     // The form's value: the state, and the resource, every selected event that has one shares — Not set where they differ.
     const shared = useMemo(() => {
         const states = events.filter((e) => e.kind.roles.state.type === "some").map((e) => stateWordOf(e.item.state));
@@ -1036,38 +1040,12 @@ function SeveralEvents({ events, kinds, resources, words, styles, chrome, select
 // A row (PB40)
 // ============================================================================
 
-/** What a row stands for: a resource, an event kind's events on none, or neither. */
-type RowTarget =
-    | { readonly kind: "resource"; readonly resources: PlanResourceKindValue; readonly key: string; readonly path: readonly string[] }
-    | { readonly kind: "unassigned"; readonly event: PlanEventKindValue }
-    | { readonly kind: "row" };
-
-/** The ways an event kind draws on a resource's rows. */
-const DRAWS: readonly string[] = ["span", "buckets", "cards", "marks"];
-
 /**
- * What a row on the canvas stands for, by its id — the series a Plan gives its
- * event kinds' rows (e3-ui's `event-rows.ts`): a resource kind's row of a way
- * its kinds draw (`<slot>.<draw>`) or of one of its measures (the measure's
- * key), at the resource's path; an event kind's Unassigned row
- * (`<kind>.unassigned`); or any other.
- *
- * @param series - The row's series
- * @param path - The row's path: its resource's key last
- * @param kinds - The event kinds
- * @param resources - The resource kinds
- * @returns What it stands for
+ * What a row stands for (`../root/landings.ts`): a resource — its landing row,
+ * or the row beside it for a further way its kinds draw — an event kind's
+ * events on none, or neither.
  */
-function targetOf(series: string, path: readonly string[], kinds: PlanValue["events"], resources: PlanValue["resources"]): RowTarget {
-    const key = path[path.length - 1];
-    if (key !== undefined) {
-        const owner = resources.find((r) => DRAWS.some((draw) => stringEqual(series, `${r.key}.${draw}`))
-            || r.measures.some((measure) => stringEqual(measure, series)));
-        if (owner !== undefined) return { kind: "resource", resources: owner, key, path };
-    }
-    const lost = kinds.find((k) => stringEqual(series, `${k.key}.unassigned`));
-    return lost !== undefined ? { kind: "unassigned", event: lost } : { kind: "row" };
-}
+type RowTarget = PlanLandingTarget | { readonly kind: "row" };
 
 /** No kind named. */
 const NO_NAMES: readonly string[] = [];
@@ -1124,14 +1102,14 @@ function useWindowFacts(
     const readTo = range?.to.getTime();
     const read = useCallback((): WindowFacts | typeof READING | typeof ROW_LOADING | undefined => {
         if (target.kind === "row" || from === undefined || to === undefined || readFrom === undefined || readTo === undefined) return undefined;
-        const on = target.kind === "resource" ? some({ kind: target.resources.key, key: target.key }) : undefined;
+        const on = target.kind === "resource" ? some({ kind: target.landing.key, key: target.key }) : undefined;
         let counted = false;
         let events = 0;
         let minutes = 0;
         const quantities: PlanQuantityValue[] = [];
         const uncounted: PlanEventKindValue[] = [];
         for (const kind of kinds) {
-            if (target.kind === "resource" ? !kind.takes.some((slot) => stringEqual(slot, target.resources.key)) : !stringEqual(kind.key, target.event.key)) continue;
+            if (target.kind === "resource" ? !kind.takes.some((slot) => stringEqual(slot, target.landing.key)) : !stringEqual(kind.key, target.event.key)) continue;
             // Hidden in the Series tab: no part of what the canvas shows — in no figure, and nothing says so.
             if (hides(hidden, planHideId.events(kind.key))) continue;
             // Past the cap: none of its events is read, so the row counts none of them — not counted, never 0.
@@ -1142,7 +1120,8 @@ function useWindowFacts(
             const held = cells?.reads.get(kind.key);
             // Read by its cells, which the reader holds none of for this resource — scrolled out of the blocks read, or
             // not landed yet: its figures are on their way, never 0 (#1398, CL13).
-            if (held !== undefined && !cells!.windowed.has(kind.key) && target.kind === "resource" && cells!.drawn !== undefined && !cells!.drawn.has(target.key)) return ROW_LOADING;
+            if (held !== undefined && !cells!.windowed.has(kind.key) && target.kind === "resource" && cells!.drawn !== undefined
+                && !cells!.drawn.has(scheduleCellId(target.landing.key, target.key))) return ROW_LOADING;
             // Every kind is counted before it is read: given no cells, it is read over the window once it is within the cap.
             if (held === undefined) {
                 const within = scheduleWithinCap(kind.count, new Date(readFrom), new Date(readTo));
@@ -1184,36 +1163,35 @@ interface RowProps extends BodyProps {
     at: PlanInstantValue | null;
 }
 
-/** A row: a resource's name, lines and group, its overlaps, its events in the window and its measures at a bucket — or an Unassigned row's events, or what any other row draws at a bucket. */
-function RowView({ rowKey, at, kinds, resources, chrome, counts, words, styles, hidden }: RowProps) {
+/** A row: a resource's name, lines and group, its overlaps, its events in the window and its series' rows at a bucket — or an Unassigned row's events, or what any other row draws at a bucket. */
+function RowView({ rowKey, at, kinds, landings, chrome, counts, words, styles, hidden }: RowProps) {
     const { m } = words;
     const { inspect, scale } = chrome;
     const row = inspect.row(rowKey)!;
-    const id = row.id.value;
-    const target = useMemo(() => targetOf(id.series, id.path, kinds, resources), [id, kinds, resources]);
+    const target = useMemo((): RowTarget => landingTargetOf(row.id, landings, kinds) ?? { kind: "row" }, [row.id, landings, kinds]);
     const facts = useWindowFacts(target, kinds, scale, chrome.events?.drafts ?? NONE_DRAFTED, chrome.cells, hidden);
     // Its overlaps (#1198, PB40): the pairs on its resource in the window, a line each, which selects the pair.
-    const on = target.kind === "resource" ? some({ kind: target.resources.key, key: target.key }) : undefined;
+    const on = target.kind === "resource" ? some({ kind: target.landing.key, key: target.key }) : undefined;
     const pairs = on === undefined ? [] : (counts?.overlaps.pairs ?? []).filter((pair) => resourceEqual(pair.first.resource, on));
-    // Its resource: a listed kind's row, or a paged kind's read by its key (#1199).
-    const named = useNamedResource(on?.value);
-    const resourceRows = usePlanResourceRows(resources, named);
-    const resource = on !== undefined ? resourceRows(on.value) : undefined;
-    const group = resource !== undefined ? getSomeorUndefined(resource.group) : undefined;
-    const lines = resource !== undefined ? [getSomeorUndefined(resource.sub), getSomeorUndefined(resource.meta)].filter((line): line is string => line !== undefined) : [];
+    // Its resource (#1541): its landing row — the row itself, or the one beside it for a further way its kinds draw — its
+    // lines the row's sub and value, its group the group strip it is drawn under.
+    const resource = target.kind === "resource" ? inspect.row(rowKeyOf(landingRowId(target.landing.key, target.path))) : undefined;
+    const group = resource !== undefined ? groupOf(resource, inspect) : undefined;
+    const lines = resource !== undefined
+        ? [getSomeorUndefined(resource.gutter.sub), getSomeorUndefined(resource.gutter.value)].filter((line): line is string => line !== undefined) : [];
     const bucketIndex = at !== null ? scale.bucketOf(at) : -1;
     const bucket = bucketIndex >= 0 ? scale.buckets[bucketIndex] : undefined;
-    // The measures under a resource, at its path; any other row's own value.
+    // The rows of a resource's series beneath it, at its path; any other row's own value.
     const measures = target.kind === "resource"
-        ? target.resources.measures.flatMap((measure) => {
-            const key = rowKeyOf(variant("entry", { series: measure, path: [...target.path] }) as typeof row.id);
+        ? target.landing.series.flatMap((series) => {
+            const key = rowKeyOf(variant("entry", { series, path: [...target.path] }) as typeof row.id);
             const measured = inspect.row(key);
-            return measured === undefined ? [] : [{ key: measure, label: measured.gutter.label, rowKey: key }];
+            return measured === undefined ? [] : [{ key: series, label: measured.gutter.label, rowKey: key }];
         })
         : target.kind === "row" ? [{ key: row.key, label: row.gutter.label, rowKey: row.key }] : [];
-    const title = target.kind === "resource" ? resource?.label ?? target.key
+    const title = target.kind === "resource" ? resource?.gutter.label ?? target.key
         : target.kind === "unassigned" ? m.inspectorUnassigned() : row.gutter.label;
-    const eyebrow = target.kind === "resource" ? target.resources.name : target.kind === "unassigned" ? target.event.name : m.inspectorRow();
+    const eyebrow = target.kind === "resource" ? target.landing.name : target.kind === "unassigned" ? target.event.name : m.inspectorRow();
     return (
         <Box css={styles.root} data-plan-inspector="row">
             <Box css={styles.head} {...FOCUS_HOME_PROPS}>

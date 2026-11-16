@@ -139,8 +139,8 @@
  *
  * # A new narrowing is a new result (#1344, #1354)
  *
- * A `live` source — the rail's `rows` source, or a paged resource kind's
- * source over its windows (#1344) — keeps its id under every narrowing, and
+ * A `live` source — the rail's `rows` source (#1344) — keeps its id under
+ * every narrowing, and
  * names the narrowing its windows belong to (`query`), read before the windows
  * as the revision is. A new narrowing holds other rows at other positions, so
  * it is a new result, as a new source of the same record is: the view the last

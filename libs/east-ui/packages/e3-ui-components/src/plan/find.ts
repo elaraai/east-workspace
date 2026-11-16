@@ -5,8 +5,8 @@
 
 /**
  * Search Records over the source of the rows a Plan pages (#1513) — its `rows`
- * source, or a paged resource kind's, whose windows are its narrowing's rows just
- * as theirs are: navigation over the rows the page holds, never a field search,
+ * source, whose windows are its narrowing's rows — the rows its event kinds
+ * land on among them (#1541): navigation over the rows the page holds, never a field search,
  * which is the rail's. It is every builder's Search Records
  * (`shared/schedule/search-records.ts`) over that one source: the box seeks and
  * lists the rows as the binding reads them with no choice of the viewer's — the

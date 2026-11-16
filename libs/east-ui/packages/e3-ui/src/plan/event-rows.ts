@@ -281,22 +281,23 @@ const placedMarks = East.function([PlacedListType], ArrayType(PlanEventMarkType)
 /**
  * The lanes a row's tiles sit in (#1541, U1): those its series declares, in
  * their order, every one drawn, then each other lane an event names, once, in
- * the order they are named.
+ * the lanes' own order — never the order the events name them, which moves as
+ * an event does.
  */
 const placedLanes = East.function([ArrayType(PlanLaneType), PlacedListType], ArrayType(PlanLaneType), ($, declared, list) => {
     const lanes = $.let(declared.copy(), ArrayType(PlanLaneType));
-    const seen = $.let(new Set<string>(), SetType(StringType));
-    $.for(declared, ($2, lane) => { $2(seen.tryInsert(lane.key)); });
+    const declaredKeys = $.let(new Set<string>(), SetType(StringType));
+    $.for(declared, ($2, lane) => { $2(declaredKeys.tryInsert(lane.key)); });
+    // The others, as a Set holds them: in their keys' order.
+    const named = $.let(new Set<string>(), SetType(StringType));
     $.for(list, ($2, p) => {
         $2.match(p.item.lane, {
             some: ($3, lane) => {
-                $3.if(seen.has(lane).not(), ($4) => {
-                    $4(seen.insert(lane));
-                    $4(lanes.pushLast(East.value({ key: lane, label: some(lane) }, PlanLaneType)));
-                });
+                $3.if(declaredKeys.has(lane).not(), ($4) => { $4(named.tryInsert(lane)); });
             },
         });
     });
+    $.for(named, ($2, lane) => { $2(lanes.pushLast(East.value({ key: lane, label: some(lane) }, PlanLaneType))); });
     return lanes;
 });
 
@@ -386,7 +387,7 @@ function drawnKind(draw: PlanDrawLiteral, list: ExprType<typeof PlacedListType>,
  * payload's own array of event kinds: the seam captures it, and the payload
  * carries each kind once.
  *
- * @param landings - The series the event kinds land on, in the canvas's order
+ * @param landings - The series the event kinds land on, in the series tree's order, a kinds block's cases in its variant's
  * @param events - The event kinds, by slot, in order
  * @param built - The event kinds as the payload holds them, in the same order
  * @param unassigned - What the app calls an event kind's row of events on no resource (#1516)
@@ -554,7 +555,10 @@ export function createEventSeam(
                     }
                     $2.if(lost.size().greater(0n), ($3) => {
                         const id = $3.let(East.value(variant("entry", { series: `${slot}.unassigned`, path: [kind.draw] }), PlanRowIdType));
-                        const rowKind = drawnElements(kind.draw, lost, elements,
+                        // Those on no resource and those on one no row holds, as one row's, in their keys' order — as the
+                        // kind reads its record.
+                        const ordered = $3.let(lost.sort(($4, one) => one.item.key));
+                        const rowKind = drawnElements(kind.draw, ordered, elements,
                             East.value(none, OptionType(PlanRollupType)), East.value([], ArrayType(PlanLaneType)));
                         $3(rows.pushLast(planRow({
                             id,
@@ -574,7 +578,7 @@ export function createEventSeam(
 /**
  * The series a Plan's event kinds land on, as its payload carries them (#1541, U1).
  *
- * @param landings - The landing series, in the canvas's order
+ * @param landings - The landing series, in the series tree's order, a kinds block's cases in its variant's
  * @param events - The event kinds, by slot, in order
  * @param iconOf - Each landing's icon's name
  * @returns The landings on the wire

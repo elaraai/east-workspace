@@ -36,6 +36,21 @@ export interface PlanCanvasInspect {
      * @returns Its value there, in words; `undefined` where it draws nothing there, or for a row of another kind
      */
     valueAt(key: RowKey, at: PlanInstantValue): string | undefined;
+    /**
+     * A resource's landing row (#1541): the row of the series an event's resource names whose path ends in its key, as
+     * the canvas holds it — what the panes name the resource by.
+     *
+     * @param ref - The resource: its series' key and its key's text
+     * @returns Its row; `undefined` for one the canvas does not hold — over rows read a page at a time, one not read
+     */
+    resource(ref: { readonly kind: string; readonly key: string }): PlanRowValue | undefined;
+    /**
+     * A series' resources, its landing rows in the canvas's order (#1541): what the bulk edit offers.
+     *
+     * @param landing - The series' key
+     * @returns Its rows; `undefined` over rows read a page at a time, which the canvas does not hold whole
+     */
+    resources(landing: string): readonly PlanRowValue[] | undefined;
 }
 
 /**

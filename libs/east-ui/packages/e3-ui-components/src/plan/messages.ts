@@ -233,7 +233,7 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
     libraryGroupBy: (p: { tab: PlanLibraryTabWord }) => string;
     /** A template card's head: its kind's name, then the template's `group` (PB27) — `Print job · Jobs`. */
     templateGroup: (p: { kind: string; group: string | undefined }) => string;
-    /** A template card's line — `Print job · 6 h · presses`: its kind's name, how long it runs (an instant kind's runs none), and the resource kinds it is placed on. */
+    /** A template card's line — `Print job · 6 h · presses`: its kind's name, how long it runs (an instant kind's runs none), and the series it lands on. */
     templateLine: (p: { kind: string; duration: string | undefined; resources: readonly string[] }) => string;
     /** A backlog card's line — `6 h · Press A · due Fri 16`: how long it takes, the resource it is on (`undefined`, on none), and when it is due. */
     backlogLine: (p: { duration: string; resource: string | undefined; due: string | undefined }) => string;
@@ -385,7 +385,7 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
      * time after it when it has one (`· 06:00`).
      */
     dropCaption: (p: { what: string; where: string; day: string; time: string | undefined }) => string;
-    /** Why an event can't land on a row: its kind is placed on other resource kinds — `Needs presses`, their names lowercased; none, on no resource. */
+    /** Why an event can't land on a row: its kind lands on other series — `Needs presses`, their names lowercased; none, on no resource. */
     dropNeeds: (p: { resources: readonly string[] }) => string;
     /** The resource matches, but this sub-row displays a different event kind. */
     dropNeedsRow: (p: { kind: string }) => string;

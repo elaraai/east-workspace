@@ -15,9 +15,9 @@
  * event kinds landing on them, its templates, links, rows over a dataset, drop
  * veto and inspector (#1197), and the refusals a Plan makes as it is evaluated
  * — is checked in e3-ui-components on e3 itself
- * (`test/plan-events-payload.spec.ts`). Where the events land is
- * `plan-landing`'s, and the refusals of the rows they land on
- * `plan-event-rows`' (#1192, #1541).
+ * (`test/plan-events-payload.spec.ts`). Where the events land is drawn there
+ * too (`test/plan-event-rows.spec.ts`), and the refusals of the rows they land
+ * on are `plan-event-rows`' here (#1192, #1541).
  */
 
 import { test, describe } from "node:test";

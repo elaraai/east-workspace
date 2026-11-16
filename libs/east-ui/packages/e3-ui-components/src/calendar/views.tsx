@@ -60,7 +60,7 @@ import {
     useSurfaceGestures, type RowRuns, type RunCell, type RunFailure, keptRead
 } from "@elaraai/east-ui-components/internal";
 import { pagedLoadingMessages, type PeriodRead } from "../shared/loading.js";
-import type { ScheduleCellShade, ScheduleCellShading } from "../shared/schedule/cells.js";
+import { scheduleCellId, type ScheduleCellShade, type ScheduleCellShading } from "../shared/schedule/cells.js";
 import { eventsNotCounted, lowerWord } from "../shared/schedule/words.js";
 import { meetsWindow, sameDay } from "../shared/schedule/window.js";
 import type { CalendarBucket } from "./cells.js";
@@ -134,8 +134,9 @@ export interface CalendarViewsProps {
     /** Where the views report the paged kind's places they show, as their scroll rests: what its windows and cells are read around. */
     demand?: CalendarPagedDemand | undefined;
     /**
-     * The paged kind's resources whose cells the reader holds (#1424): any other's row or column draws the wash under
-     * what it holds, and its booked hours a placeholder, until they land; `undefined` where no kind is read by its cells.
+     * The paged kind's resources whose cells the reader holds (#1424), each by its slot and key (`scheduleCellId`): any
+     * other's row or column draws the wash under what it holds, and its booked hours a placeholder, until they land;
+     * `undefined` where no kind is read by its cells.
      */
     drawnRows?: ReadonlySet<string> | undefined;
     /**
@@ -328,7 +329,8 @@ function FailureBox({ props, at }: { props: CalendarViewsProps; at: { top: numbe
 }
 /** Whether a resource's row or column draws what is known of its events (#1424): a paged kind's, once its cells land. */
 function rowDrawn(row: CalendarRow, pagedKind: string | undefined, drawnRows: ReadonlySet<string> | undefined): boolean {
-    return drawnRows === undefined || row.resource.type !== "some" || row.resource.value.kind !== pagedKind || drawnRows.has(row.resource.value.key);
+    return drawnRows === undefined || row.resource.type !== "some" || row.resource.value.kind !== pagedKind
+        || drawnRows.has(scheduleCellId(pagedKind, row.resource.value.key));
 }
 
 /**

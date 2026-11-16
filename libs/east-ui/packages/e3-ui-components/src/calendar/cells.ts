@@ -67,7 +67,7 @@
  */
 
 import { useMemo } from "react";
-import { DateTimeType, StringType, compareFor, equalFor } from "@elaraai/east";
+import { DateTimeType, StringType, compareFor, equalFor, none, some } from "@elaraai/east";
 import { tileNext, tileStart } from "@elaraai/east-ui/internal";
 import {
     useScheduleCells, type ScheduleCellBucket, type ScheduleCellKind, type ScheduleCellPaged, type ScheduleCellResources, type ScheduleCellSpan,
@@ -116,10 +116,14 @@ export function calendarBuckets(range: { readonly from: Date; readonly to: Date 
  */
 export function calendarCellsPaged(paged: CalendarPagedValue): ScheduleCellPaged {
     return {
-        kind: paged.kind,
+        kinds: [paged.kind],
         window: CALENDAR_PAGE_SIZE,
         hidden: false,
-        keys: (offset, limit) => paged.keys(offset, limit),
+        // Each of the kind's resources an entry of its window, its row the kind's.
+        keys: (offset, limit) => {
+            const keys = paged.keys(offset, limit);
+            return keys.type === "some" ? some(keys.value.map((key) => ({ slot: paged.kind, key }))) : none;
+        },
         total: () => paged.total(),
         narrowing: () => (paged.query.type === "some" ? paged.query.value() : undefined),
     };

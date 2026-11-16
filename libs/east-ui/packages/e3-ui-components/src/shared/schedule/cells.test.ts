@@ -11,7 +11,7 @@
  * (#1039): the blocks of a paged kind's resources around the rows in view, the
  * tiles a summary may shade a host's buckets by, a
  * resource's shading from its summary's totals, whether a counted kind is
- * within the cap, and a window of the paged kind's resources — its keys, in
+ * within the cap, and a window of the paged rows — the resources it draws, in
  * flight, or a read that failed, which only the paging runtime's
  * `PagedReadError` is. The runs a range wants are east-ui's (`levelRuns`,
  * `summaryRun`, #1433). And which kinds' cells stand from before what Saves
@@ -30,7 +30,7 @@ import { SCHEDULE_EVENT_CAP } from "@elaraai/e3-ui/internal";
 import { PagedReadError, isPagedReadError } from "../../platform/paged-read-error.js";
 import {
     SCHEDULE_CELL_BLOCK, SCHEDULE_CELL_MARGIN, SCHEDULE_CELL_OPENING, SCHEDULE_WINDOW_FAILED, dividingTiles, draftsNotHeld, landedBefore, scheduleWindowKeys,
-    scheduleWithinCap, shadesOf, wantedBlocks, type ScheduleCellPaged,
+    scheduleWithinCap, shadesOf, wantedBlocks, type ScheduleCellKey, type ScheduleCellPaged,
 } from "./cells.js";
 import { DraftedStanding } from "./drafted-rows.js";
 import type { ScheduleLanded } from "./editing.js";
@@ -121,18 +121,19 @@ describe("a counted kind within the cap (#1039)", () => {
     });
 });
 
-describe("a window of a paged kind's resources, as the reader reads it (#1039)", () => {
-    /** A paged kind whose windows of 200 answer as `read` says, each window it is asked for kept in `asked`. */
-    const pagedOf = (read: () => option<readonly string[]>, asked: [bigint, bigint][] = []): ScheduleCellPaged => ({
-        kind: "presses", window: 200, hidden: false,
+describe("a window of the paged rows, as the reader reads it (#1039, #1541)", () => {
+    /** Paged rows whose windows of 200 answer as `read` says, each window it is asked for kept in `asked`. */
+    const pagedOf = (read: () => option<readonly ScheduleCellKey[]>, asked: [bigint, bigint][] = []): ScheduleCellPaged => ({
+        kinds: ["presses", "crews"], window: 200, hidden: false,
         keys: (offset, limit) => { asked.push([offset, limit]); return read(); },
         total: () => some(2_000n),
         narrowing: () => undefined,
     });
 
-    test("its keys once it has landed, asked of its offset and size; none while it is in flight", () => {
+    test("the resources it draws once it has landed, each by the slot its row lands on, asked of its offset and size; none while it is in flight", () => {
         const asked: [bigint, bigint][] = [];
-        expect(scheduleWindowKeys(pagedOf(() => some(["P-1201", "P-1202"]), asked), 1)).toEqual(["P-1201", "P-1202"]);
+        const drawn = [{ slot: "presses", key: "P-1201" }, { slot: "crews", key: "C-1" }, { slot: "presses", key: "P-1202" }];
+        expect(scheduleWindowKeys(pagedOf(() => some(drawn), asked), 1)).toEqual(drawn);
         expect(asked).toEqual([[200n, 200n]]);
         expect(scheduleWindowKeys(pagedOf(() => none), 0)).toBeUndefined();
     });

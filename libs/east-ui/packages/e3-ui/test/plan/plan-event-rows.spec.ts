@@ -6,8 +6,9 @@
 /**
  * Events onto rows (#1192, #1541 U1) — what is checked of them without e3: the
  * refusals a Plan of event kinds makes as it is built, word for word. Where the
- * events land is `plan-landing.spec.ts`, over values; the rows drawn over the
- * print works' records are drawn in e3-ui-components on e3 itself.
+ * events land — the rows drawn over the print works' records, the seam's
+ * `placed` and `place` run on e3 itself — is e3-ui-components'
+ * (`test/plan-event-rows.spec.ts`).
  */
 
 import { describe, test } from "node:test";

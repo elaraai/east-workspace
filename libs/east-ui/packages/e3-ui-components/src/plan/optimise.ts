@@ -24,7 +24,7 @@
  * @packageDocumentation
  */
 
-import { StringType, fromEastTypeValue, printFor, variant, type EastType, type ValueTypeOf, type option } from "@elaraai/east";
+import { StringType, equalFor, fromEastTypeValue, printFor, variant, type EastType, type ValueTypeOf, type option } from "@elaraai/east";
 import {
     ScheduleEventRefType, ScheduleOptimiseRequestType, ScheduleOptimiseResultTypeFor, scheduleOptimiseRecords,
     type PlanPayloadType, type ScheduleOptimiseRecords,
@@ -36,14 +36,12 @@ import type { OptimiseMissing, OptimiseRefused } from "../shared/func/use-optimi
 import { landOptimiseEvents } from "../shared/schedule/optimise-events.js";
 import type { PlanEventEditing, PlanEventReadValue } from "./edit/events.js";
 import type { PlanInstantValue } from "./instant.js";
-import { rowKeyOf, type PlanWireBlock } from "./model.js";
+import type { PlanRowValue } from "./model.js";
 import type { PlanElementOp, PlanGhost } from "./rows/element-optimise.js";
 import type { PlanResolution } from "./scale.js";
 
 /** One event kind, as the Plan's payload carries it. */
 type PlanEventKindValue = ValueTypeOf<typeof PlanPayloadType>["events"][number];
-/** One resource kind, as the Plan's payload carries it. */
-type PlanResourceKindValue = ValueTypeOf<typeof PlanPayloadType>["resources"][number];
 /** One event as a kind's seams read it. */
 type PlanEventItemValue = PlanEventReadValue["item"];
 
@@ -69,6 +67,7 @@ export interface PlanOptimised {
 
 /** An element's key: its event's ref, as East prints it — what the canvas names its elements by. */
 const printEventRef = printFor(ScheduleEventRefType);
+const stringEqual = equalFor(StringType);
 
 /** A kind's key and row types, from the kind on the wire. */
 function typesOf(kind: Pick<PlanEventKindValue, "editing">): { keyType: EastType; rowType: EastType } {
@@ -131,25 +130,38 @@ interface PlacedElement {
  * Where each element stands on the canvas, by its key: what a ghost is drawn
  * from — the row that holds the element, and its extent on it.
  *
- * @param blocks - The event kinds' rows as the canvas draws them
+ * @param rows - The canvas's rows as it draws them, the events joined into those they land on (#1541)
  * @returns Each element's place
  */
-function placedOf(blocks: readonly PlanWireBlock[]): Map<string, PlacedElement> {
+function placedOf(rows: readonly PlanRowValue[]): Map<string, PlacedElement> {
     const out = new Map<string, PlacedElement>();
-    for (const block of blocks) {
-        for (const row of block.rows) {
-            const rowKey = rowKeyOf(row.id);
-            const kind = row.kind;
-            switch (kind.type) {
-                case "span": for (const run of kind.value.runs) out.set(run.key, { rowKey, start: run.start, end: run.end, shape: "span", label: run.label }); break;
-                case "cards": for (const chip of kind.value.chips) out.set(chip.key, { rowKey, start: chip.from, end: chip.to, shape: "span", label: chip.label }); break;
-                case "buckets": for (const tile of kind.value.events) out.set(tile.key, { rowKey, start: tile.at, end: tile.at, shape: "instant", label: tile.label.type === "some" ? tile.label.value : "" }); break;
-                case "events": for (const mark of kind.value.marks) out.set(mark.key, { rowKey, start: mark.at, end: mark.at, shape: "instant", label: mark.label.type === "some" ? mark.label.value : "" }); break;
-                default: break;
-            }
+    for (const row of rows) {
+        const rowKey = row.key;
+        const kind = row.kind;
+        switch (kind.type) {
+            case "span": for (const run of kind.value.runs) out.set(run.key, { rowKey, start: run.start, end: run.end, shape: "span", label: run.label }); break;
+            case "cards": for (const chip of kind.value.chips) out.set(chip.key, { rowKey, start: chip.from, end: chip.to, shape: "span", label: chip.label }); break;
+            case "buckets": for (const tile of kind.value.events) out.set(tile.key, { rowKey, start: tile.at, end: tile.at, shape: "instant", label: tile.label.type === "some" ? tile.label.value : "" }); break;
+            case "events": for (const mark of kind.value.marks) out.set(mark.key, { rowKey, start: mark.at, end: mark.at, shape: "instant", label: mark.label.type === "some" ? mark.label.value : "" }); break;
+            default: break;
         }
     }
     return out;
+}
+
+/**
+ * The name of the resource an event is on: its landing row's label among the canvas's rows (#1541) — a row of the
+ * series its kind lands on, its path ending in the resource's key — else the key itself, for a row the canvas does not
+ * hold.
+ *
+ * @param rows - The canvas's rows
+ * @param at - The event's resource: the series it lands on, and the resource's key
+ * @returns The name
+ */
+function resourceName(rows: readonly PlanRowValue[], at: { readonly kind: string; readonly key: string }): string {
+    const row = rows.find((r) => r.id.type === "entry" && stringEqual(r.id.value.series, at.kind)
+        && r.id.value.path.length > 0 && stringEqual(r.id.value.path[r.id.value.path.length - 1]!, at.key));
+    return row?.gutter.label ?? at.key;
 }
 
 /**
@@ -157,21 +169,20 @@ function placedOf(blocks: readonly PlanWireBlock[]): Map<string, PlacedElement> 
  * and time and its resource, or the backlog.
  *
  * @param item - The event as its kind read it before the run
- * @param resources - The resource kinds: its resource by name
+ * @param rows - The canvas's rows: its resource by name
  * @param format - The app's formatters
  * @returns The words
  */
-function previousWords(item: PlanEventItemValue, resources: readonly PlanResourceKindValue[], format: Formatters): string {
+function previousWords(item: PlanEventItemValue, rows: readonly PlanRowValue[], format: Formatters): string {
     if (item.start.type !== "some") return "backlog";
     const at = item.resource.type === "some" ? item.resource.value : undefined;
-    const where = at === undefined ? "Unassigned" : resources.find((kind) => kind.key === at.kind)?.rows.find((row) => row.key === at.key)?.label ?? at.key;
+    const where = at === undefined ? "Unassigned" : resourceName(rows, at);
     return `${format.weekdayDate(item.start.value)} ${format.time(item.start.value)}${item.end.type === "some" ? `–${format.time(item.end.value)}` : ""} · ${where}`;
 }
 
 /** What a landing is made over. */
 export interface PlanLanding {
     readonly kinds: readonly PlanEventKindValue[];
-    readonly resources: readonly PlanResourceKindValue[];
     /** Each kind's record type by slot. */
     readonly types: PlanOptimiseTypes;
     /** The kinds' editing: how a kind reads a row, and where the step is recorded. */
@@ -186,8 +197,8 @@ export interface PlanLanding {
     readonly period: string;
     /** The run's number, formatted, for the provenance. */
     readonly runText: string;
-    /** The event kinds' rows as the canvas drew them before the run: where a ghost goes. */
-    readonly blocks: readonly PlanWireBlock[];
+    /** The canvas's rows as it drew them before the run, the events joined into those they land on: where a ghost goes. */
+    readonly rows: readonly PlanRowValue[];
     /** The app's formatters, for the provenance's words. */
     readonly format: Formatters;
     /** What earlier runs left on the events, still the session's drafts. */
@@ -215,7 +226,7 @@ export interface PlanLanding {
  *   the events to read first; a refusal, naming the event; `undefined` for an invalid result, or one the session would not take
  */
 export function landPlanOptimise(args: PlanLanding): OptimiseLanded<PlanOptimised> | OptimiseMissing | OptimiseRefused | undefined {
-    const { kinds, resources, types, editing, held, request, result, label, period, runText, blocks, format, before } = args;
+    const { kinds, types, editing, held, request, result, label, period, runText, rows, format, before } = args;
     const landed = landOptimiseEvents<PlanEventItemValue>({
         kinds: kinds.map((kind) => kind.key), records: types.records, events: result.events, held,
         eventOf: (kind, id, row) => editing.eventOf(kind, id, row)?.item, window: request, period,
@@ -225,7 +236,7 @@ export function landPlanOptimise(args: PlanLanding): OptimiseLanded<PlanOptimise
     return recordOptimiseRun(diff, editing, label, () => {
         const ops = new Map<string, PlanElementOp>(before?.ops ?? []);
         const ghosts = new Map<string, PlanGhost[]>([...(before?.ghosts ?? [])].map(([row, list]) => [row, [...list]]));
-        const placed = placedOf(blocks);
+        const placed = placedOf(rows);
         for (const [key, op] of diff.ops) {
             const { id } = op;
             const element = printEventRef({ kind: op.kind, key: id });
@@ -242,7 +253,7 @@ export function landPlanOptimise(args: PlanLanding): OptimiseLanded<PlanOptimise
                 continue;
             }
             const provenance = op.op === "add" ? optimiseMessages.entryAdded({ run: runText })
-                : optimiseMessages.entryChanged({ previous: at?.was === undefined ? "backlog" : previousWords(at.was, resources, format), run: runText });
+                : optimiseMessages.entryChanged({ previous: at?.was === undefined ? "backlog" : previousWords(at.was, rows, format), run: runText });
             ops.set(element, { op: op.op, run: runText, provenance });
             if (op.op === "chg" && stood !== undefined) {
                 (ghosts.get(stood.rowKey) ?? ghosts.set(stood.rowKey, []).get(stood.rowKey)!).push({ key: element, op: "from", run: runText, start: stood.start, end: stood.end, label: stood.label, shape: stood.shape });

@@ -55,8 +55,8 @@
  *
  * # A new result keeps the row at the top (#1344, #1354)
  *
- * A new narrowing of the paged rows — the `rows` source's, or a paged
- * resource kind's source's — is a new result: the view the last one drew
+ * A new narrowing of the paged rows — the `rows` source's — is a new
+ * result: the view the last one drew
  * stands in until its first window lands (the paging driver's `replacing`).
  * Once it has, a bounded frame puts the row at the top of its view back where
  * it was, by its key and the px into it, where the new rows draw it, and else

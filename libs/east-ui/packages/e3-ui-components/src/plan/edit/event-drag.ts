@@ -9,15 +9,17 @@
  * event, an element on the canvas, an author's card — lands, what its ghost
  * says there, and the one step of the Plan's history its drop records.
  *
- * - **Where.** An event kind's row stands for a resource — a resource kind's
- *   row of a way its kinds draw (`<slot>.<draw>`), at the resource's path — or
- *   for a kind's events on none, its Unassigned row (`<kind>.unassigned`). A
+ * - **Where.** An event kind's row stands for a resource — a landing row of a
+ *   resources series or a kinds case, the record's own row (#1541), or the row
+ *   beside it for a further way its kinds draw (`<landing>.<draw>`), at the
+ *   resource's path (`../root/landings.ts`) — or for a kind's events on none,
+ *   its Unassigned row (`<kind>.unassigned`). A
  *   template or a backlog card lands at the bucket under the pointer, an
  *   element where its row's landing put it (`store.ts`), and an author's card
  *   on the event under the pointer.
  * - **The verdict**, asked where the drag rests and again of the drop: the
- *   kind takes a gesture now; it is placed on the row's resource kind (or, on
- *   its own Unassigned row, takes none); the row draws that kind; its own `write` takes the gesture;
+ *   kind takes a gesture now; it lands on the row's series (or, on its own
+ *   Unassigned row, takes none); the row draws that kind; its own `write` takes the gesture;
  *   and the Plan's `canDrop` over `Schedule.Types.Candidate` lets it land. The
  *   first refusal is what the ghost says, in red: `Needs presses`, or
  *   `canDrop`'s message. Allowed, the ghost says what lands where:
@@ -39,8 +41,8 @@
  * kind's `write` and `canDrop` once. An event is read as the kinds' editing
  * reads it ({@link PlanEventEditing.read}) — for a kind read a window at a
  * time (#1199), among the rows the canvas holds, where the event dragged is
- * drawn — and a paged resource kind's resource is named by its row on the
- * canvas, which the window the drag rests on holds.
+ * drawn — and a resource is named by its landing row on the canvas: the row
+ * the drag rests on, or the one beside it, which the same window holds.
  *
  * @packageDocumentation
  */
@@ -53,8 +55,9 @@ import { durationMinutes } from "../../shared/schedule/due.js";
 import { moveSpan } from "../../shared/time/drag.js";
 import { backlogLibrary, eventsLibrary, tabLibrary } from "../frame/library.js";
 import { instantKey, timeInstant } from "../instant.js";
-import { rowKeyOf, type PlanRowId, type PlanRowValue } from "../model.js";
+import { rowKeyOf, type PlanRowValue } from "../model.js";
 import type { RowKey } from "../plan-state.js";
+import { kindRowId, landingRowId, landingTargetOf, type PlanLandingValue } from "../root/landings.js";
 import type { PlanRowMove } from "../rows/SpanRow.js";
 import type { PlanScale } from "../scale.js";
 import { fromPlanSlot } from "../slot.js";
@@ -66,8 +69,6 @@ import { originOf, unmoved, type PlanMoveRequest } from "./use-carry.js";
 type PlanPayloadValue = ValueTypeOf<typeof PlanPayloadType>;
 /** One event kind, as the payload carries it. */
 type PlanEventKindValue = PlanPayloadValue["events"][number];
-/** One resource kind, as the payload carries it. */
-type PlanResourceKindValue = PlanPayloadValue["resources"][number];
 /** One of the library's tabs, as the payload carries it. */
 type PlanLibraryTabValue = PlanPayloadValue["library"][number];
 /** An author's tab. */
@@ -88,7 +89,7 @@ export const PLAN_EVENT_ITEMS = "#event";
 
 /** What a row of the event kinds' stands for. */
 export type PlanEventTarget =
-    /** A resource: its kind's slot, its key's text, the row's path to it, and the way the row draws. */
+    /** A resource: the series it is a row of, its key's text, the row's path to it, and the way the row draws. */
     | { readonly kind: "resource"; readonly slot: string; readonly key: string; readonly path: readonly string[]; readonly draw: string }
     /** An event kind's events on no resource: its slot, and the way the row draws. */
     | { readonly kind: "unassigned"; readonly event: string; readonly draw: string };
@@ -211,8 +212,8 @@ export interface PlanEventDrop {
 export interface PlanEventDragArgs {
     /** The event kinds; none, no drag of theirs. */
     kinds: readonly PlanEventKindValue[];
-    /** The resource kinds: a row's resource by name, and a kind's by its slot. */
-    resources: readonly PlanResourceKindValue[];
+    /** The series the event kinds land on (#1541): what a row stands for, and each by name. */
+    landings: readonly PlanLandingValue[];
     /** The library's tabs: the author's tabs' cards and the kinds their patches land on. */
     tabs: readonly PlanLibraryTabValue[];
     /** The names the Plan keeps its viewer's state under: the libraries the cards drag from. */
@@ -248,8 +249,6 @@ interface PlanEventGesture {
     readonly selects: { readonly keys: readonly string[]; readonly row: RowKey | undefined } | undefined;
 }
 
-/** The ways an event kind draws, each a row of its resources'. */
-const DRAWS: readonly string[] = ["span", "buckets", "cards", "marks"];
 /** The resolutions a template's `at` applies at: a whole day, or longer. */
 const WHOLE_DAYS: readonly string[] = ["day", "week", "month", "quarter", "year"];
 /** A bar's and a chip's moves: their ends resize. */
@@ -343,7 +342,7 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
         /** The answers kept for what the latest render reads — none, once any of it moved. */
         const kept = (): Map<string, PlanEventGesture> => {
             const a = latest.current;
-            const read = [a.kinds, a.resources, a.tabs, a.editing.drafts, a.editing.version, a.canDrop, a.scale, a.words, a.selected()];
+            const read = [a.kinds, a.landings, a.tabs, a.editing.drafts, a.editing.version, a.canDrop, a.scale, a.words, a.selected()];
             const was = held.current;
             if (was.read.length !== read.length || read.some((r, i) => !Object.is(r, was.read[i]))) {
                 held.current = { read, gestures: new Map() };
@@ -383,20 +382,10 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
             const cached = targets.current.get(row);
             if (cached !== undefined) return cached ?? undefined;
             const a = latest.current;
-            let found: PlanEventTarget | undefined;
-            if (row.id.type === "entry") {
-                const { series, path } = row.id.value;
-                const leaf = path[path.length - 1];
-                for (const r of a.resources) {
-                    const draw = DRAWS.find((d) => stringEqual(series, `${r.key}.${d}`));
-                    if (draw !== undefined && leaf !== undefined) {
-                        found = { kind: "resource", slot: r.key, key: leaf, path, draw };
-                        break;
-                    }
-                }
-                const lost = found === undefined ? a.kinds.find((k) => stringEqual(series, `${k.key}.unassigned`)) : undefined;
-                if (lost !== undefined) found = { kind: "unassigned", event: lost.key, draw: path[0] ?? lost.draw.type };
-            }
+            const at = landingTargetOf(row.id, a.landings, a.kinds);
+            const found: PlanEventTarget | undefined = at === undefined ? undefined
+                : at.kind === "resource" ? { kind: "resource", slot: at.landing.key, key: at.key, path: at.path, draw: at.draw }
+                    : { kind: "unassigned", event: at.event.key, draw: at.draw };
             targets.current.set(row, found ?? null);
             return found;
         };
@@ -405,22 +394,13 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
         const resourceOf = (target: PlanEventTarget): PlanResourceOption =>
             (target.kind === "resource" ? some({ kind: target.slot, key: target.key }) : none);
         /**
-         * A row's resource by name: its row's label, else its key; an Unassigned row's, `Unassigned`. A paged kind
-         * lists no resources (#1199): its resource's first row on the canvas — the one its gutter names it on, in
-         * the window that holds the row the drag rests on — says its name.
+         * A row's resource by name: its landing row's label — the row the drag rests on, or the one beside it, in the
+         * window that holds both (#1541) — else its key; an Unassigned row's, `Unassigned`.
          */
         const whereName = (target: PlanEventTarget): string => {
             const a = latest.current;
             if (target.kind === "unassigned") return a.words.m.inspectorUnassigned();
-            const kind = a.resources.find((r) => stringEqual(r.key, target.slot));
-            if (kind?.byKey.type === "some") {
-                for (const draw of DRAWS) {
-                    const row = a.rowOf(rowKeyOf(variant("entry", { series: `${target.slot}.${draw}`, path: [...target.path] }) as PlanRowId));
-                    if (row !== undefined) return row.gutter.label;
-                }
-                return target.key;
-            }
-            return kind?.rows.find((r) => stringEqual(r.key, target.key))?.label ?? target.key;
+            return a.rowOf(rowKeyOf(landingRowId(target.slot, target.path)))?.gutter.label ?? target.key;
         };
         /** Whether a kind is placed on what a row stands for. */
         const onResource = (kind: PlanEventKindValue, target: PlanEventTarget): boolean => (target.kind === "resource"
@@ -433,7 +413,7 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
         const needs = (kind: PlanEventKindValue, target?: PlanEventTarget): string => {
             const a = latest.current;
             if (target !== undefined && onResource(kind, target)) return a.words.m.dropNeedsRow({ kind: kind.name });
-            const names = kind.takes.map((slot) => (a.resources.find((r) => stringEqual(r.key, slot))?.name ?? slot).toLocaleLowerCase(a.words.locale));
+            const names = kind.takes.map((slot) => (a.landings.find((l) => stringEqual(l.key, slot))?.name ?? slot).toLocaleLowerCase(a.words.locale));
             return a.words.m.dropNeeds({ resources: names });
         };
         /** The day an event starts, and its time when it has one — or the canvas reads hours. */
@@ -444,11 +424,13 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
         };
         /** The row a kind's event on what a row stands for draws on, when the canvas has it. */
         const rowFor = (kind: PlanEventKindValue, target: PlanEventTarget): RowKey | undefined => {
-            const id = target.kind === "resource"
-                ? variant("entry", { series: `${target.slot}.${kind.draw.type}`, path: [...target.path] })
-                : variant("entry", { series: `${kind.key}.unassigned`, path: [kind.draw.type] });
-            const key = rowKeyOf(id as PlanRowId);
-            return latest.current.rowOf(key) !== undefined ? key : undefined;
+            const a = latest.current;
+            const landing = target.kind === "resource" ? a.landings.find((l) => stringEqual(l.key, target.slot)) : undefined;
+            const id = target.kind === "unassigned" ? kindRowId(kind, { kind: "unassigned", event: kind, draw: target.draw })
+                : landing === undefined ? undefined
+                    : kindRowId(kind, { kind: "resource", landing, key: target.key, path: target.path, draw: target.draw });
+            const key = id === undefined ? undefined : rowKeyOf(id);
+            return key !== undefined && a.rowOf(key) !== undefined ? key : undefined;
         };
 
         /**
