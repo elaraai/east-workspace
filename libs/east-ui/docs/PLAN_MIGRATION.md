@@ -1199,6 +1199,100 @@ A Plan's author's tab gains `create` (`WIRE_MIGRATION.md`). A stored
 One path makes an event from a template, a kind's own or a card's
 (`plan/edit/event-drag.ts`), and the kind's own `write` makes its row.
 
+## Links kept in a record (#1541)
+
+Before #1541 a Plan's links were a list built in code: `Plan.link` values,
+each end a run (`Plan.ref`) or an event (`Plan.eventRef`). Nothing on the
+canvas selected, changed or removed one. Now `links` also takes **link kinds**
+by slot, each a kind of link over the app's own record, as the Schematic's
+are:
+
+```tsx
+const flows = $.let(Record.bind(planLinkFlows));
+<Plan
+    …
+    links={{
+        flow: Plan.links(flows, {
+            name: "Flow", icon: "arrow-right-long",
+            from: { field: "from", of: { plate: "plate", job: "job", binding: "binding" } },
+            to: { field: "to", of: { job: "job", binding: "binding", delivery: "delivery" } },
+            quantity: { field: "sheets", unit: "k sheets" },
+        }),
+    }}
+/>
+```
+
+| Option | What it says |
+|---|---|
+| `name`, `icon` | the kind's name and its Font Awesome solid icon: in the inspector, the notices and the history |
+| `from`, `to` | each end, `{ field, of }`: the field holding the key of the event the link runs from, or to. With `of` an event kind's slot, the field holds a key of that kind, in the kind's own key type; with `of` a slot for each case, the field is a variant, each case holding a key of the kind it names |
+| `quantity` | `{ field, unit?, format? }`: what the link moves, a Float or an Option of one. It weighs the ribbon and prints its caption; a link holding none draws at the thinnest weight, with no caption |
+| `fields` | the inspector's form over the fields no end is (`Fields`); every such field unless given |
+| `key` | a new link's key, built from its row: for a record keyed by another type than String or Integer |
+
+A link kind's link is a row of the record, its key the link's identity. The
+record is bound whole, with `Record.bind` and its patch door to edit it or
+`Data.bind` to read it: a link has no times and its ends are keys, so the
+rail narrows no link kind. It is counted first and read within the 10,000 an
+event kind's events are read under.
+
+**Today's list stays.** `links={[Plan.link(…), …]}` is taken as it was, and a
+slot may hold a list beside the kinds.
+
+The Plan refuses at build, naming the option: a record that is not bound
+whole; an end that is no `{ field, of }`, a field its row lacks, an Option,
+or both ends naming one field; an `of` naming no event kind of the Plan,
+naming the kinds it has; an end whose field does not hold its event kind's
+key type, naming the field and both types; a quantity field that is neither
+a Float nor an Option of one; and a link kind under a slot an event kind has.
+
+`canConnect={fn(Plan.Types.ConnectCandidate) => Option<String>}` is the veto
+over a link the Connect tool would draw, on a Plan with a link kind: the
+candidate is the link kind's slot and the two events, each by its kind's slot
+and its key's text, and `some(message)` refuses it.
+
+### Behaviour that changed
+
+- **A link kind's links draw as a list's do**, in the links focus, from each
+  link's `from` event to its `to` event wherever they draw, in their
+  record's order. A far end the cells do not hold is read by its key.
+- **A link kind's link is keyed on the canvas by its kind's slot and its
+  row's key**, as East prints a reference (`(kind="flow", key="plates")`). A
+  host or a test that named a link by the key a list gave it names it so.
+- **A link kind's link selects.** A click on it selects it, Shift, Ctrl or
+  Cmd adding it to the selection or taking it out; selected, it draws in the
+  ink, its caption outlined. The Delete key removes it, as it removes a
+  selected event, and so does the × beside its caption, where it has one. A
+  link built in code selects nothing, as before.
+- **A selected link shows in the inspector:** its kind, the two events it
+  joins by their titles, what it moves, its form and Delete; several links,
+  how many, and Delete. Events selected with links show as the events they
+  are.
+- **Every change is a draft** of the link kind's record, a step of the Plan's
+  one history, saved through the record's patch door with the Plan's other
+  drafts.
+- **A kind holding more links than are read draws none**, and a notice says
+  how many it holds.
+- **An event kind a link kind's end names keeps the key made for a new
+  event** where another Save took the same key: the two are a conflict to
+  choose, as on a Schematic, where every other kind's new event goes on
+  under the next key its session makes. A drafted link may name the event by
+  that key.
+
+### The wire
+
+The Plan's payload gains `linkKinds` and `canConnect`, last
+(`WIRE_MIGRATION.md`). The canvas's own `links` hold the links built in
+code, as before. A stored `UIComponentType` value re-emits.
+
+### Renderer (`@elaraai/e3-ui-components`)
+
+A link kind's links join the canvas's own before anything reads them
+(`plan/links/kinds.ts`), their drafts in place by the rule every kind held
+whole shares (`shared/schedule/drafted-rows.ts`), so the links focus, the
+ribbons and a far end's read take them as they are. Each editable kind is a
+record of the Plan's shared editing, its session named by its slot.
+
 ## Extracted contracts (do this first when migrating imports)
 
 The shared audit vocabulary outlived the Planner and moved to `contracts/`:
