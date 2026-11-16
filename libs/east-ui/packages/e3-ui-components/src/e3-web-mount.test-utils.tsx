@@ -48,7 +48,7 @@ import {
 import type { RecordHistoryResult } from "@elaraai/e3-api-client";
 import {
     EXAMPLES_PIECE_MIN, patchRecord, readDataset, recordHistory, runDataflow, settleE3, startTestE3, workspaceRequests, writeDataset,
-    type E3Dataset, type E3Record, type E3Request, type TestE3,
+    type E3Dataset, type E3Hold, type E3Record, type E3Request, type TestE3,
 } from "./e3-web.test-utils.js";
 import { setPagedLandingFrame } from "./platform/paged-runtime.js";
 import { QueryPlanOptionsProvider } from "./query/hooks.js";
@@ -199,7 +199,7 @@ export interface E3Harness {
      * held on its way to e3 while the other session commits the record's new
      * state, then let go — so e3 checks the Save against the record as it has
      * moved, and what is mounted hears of the other write only from the Save's
-     * answer. Then settles.
+     * answer: its own polls wait until that answer is in. Then settles.
      *
      * @param record - The record both write, which declares a patch mutation
      * @param save - What sends the Save: a press of its button, say
@@ -210,8 +210,8 @@ export interface E3Harness {
      * Two Saves at once, this one landing first: the record's next mutation
      * commits, and another session's write commits just after it, before what
      * is mounted reads its own change back — so the poll that hears its commit
-     * hears the other's too, and it reads its change back beside the other's.
-     * Then settles.
+     * hears the other's too, and it reads its change back beside the other's:
+     * no poll of its own is answered between the two commits. Then settles.
      *
      * @param record - The record both write, which declares a patch mutation
      * @param save - What sends the Save: a press of its button, say
@@ -221,9 +221,10 @@ export interface E3Harness {
     /**
      * A Save whose answer comes late: the record's next mutation commits and
      * its answer is held on its way back; another session's write commits
-     * after it, and what is mounted hears of that write and reads it; only
-     * then does the Save's answer arrive — naming the state the Save
-     * committed, which the page has passed. Then settles.
+     * after it, and what is mounted hears of that write and reads it — never
+     * of the Save's commit alone, its own polls waiting until the other write
+     * is in; only then does the Save's answer arrive — naming the state the
+     * Save committed, which the page has passed. Then settles.
      *
      * @param record - The record both write, which declares a patch mutation
      * @param save - What sends the Save: a press of its button, say
@@ -292,6 +293,23 @@ async function refreshMounted(workspace: string): Promise<void> {
     await act(async () => { await Promise.all([...mountedCaches].map((cache) => cache.refresh(workspace))); });
     await settle();
 }
+
+/**
+ * Parks the polls what is mounted makes by itself — the workspace's status,
+ * {@link EXAMPLE_POLL_MS} apart on real time — from now until let go.
+ *
+ * A sequence that scripts what the page hears, and in what order
+ * ({@link E3Harness.race}, {@link E3Harness.followed}, {@link E3Harness.late}),
+ * parks them while it does. Real time fires the page's own poll at any of the
+ * sequence's waits — one on e3's answer, another session's write — and a poll
+ * answered between two of its steps tells the page what the sequence has not
+ * yet let it hear: of a Save's commit before the write that follows it, or of
+ * another session's write before the Save's answer.
+ *
+ * @param e3 - The file's e3
+ * @returns The hold: its `release` lets the parked polls go on to e3, which answers each as it then stands
+ */
+const parkedPolls = (e3: TestE3): E3Hold => e3.hold((request) => request.kind === "status");
 
 /**
  * Lets what was just mounted hear e3's status of what it reads, as the
@@ -432,19 +450,27 @@ export function e3Harness(modules: Readonly<Record<string, Readonly<Record<strin
         },
         async race(record, save, next) {
             const saving = e3().hold((request) => request.kind === "mutate" && request.record === record.name);
+            // What is mounted hears of the other write only from the Save's answer: its own polls wait until that answer is in.
+            const polls = parkedPolls(e3());
             await act(async () => { save(); });
             await saving.holding;
             await patchRecord(e3(), workspace(), record, next(await readDataset(e3(), workspace(), record)));
             await act(async () => { saving.release(); });
             await settle();
+            await act(async () => { polls.release(); });
+            await settle();
         },
         async followed(record, save, next) {
             // The Save's answer held on its way back, its commit made; then what reads the record after it held, so the
-            // other session's commit lands first.
+            // other session's commit lands first. A poll of the page's own waits from before the press: one answered
+            // between the two commits would hear of the Save's alone.
             const answer = e3().holdAnswers((request) => request.kind === "mutate" && request.record === record.name);
+            let committed = false;
+            const reading = e3().hold((request) => request.kind === "status"
+                || (committed && request.kind !== "mutate" && request.dataset === `records.${record.name}`));
             await act(async () => { save(); });
             await answer.holding;
-            const reading = e3().hold((request) => request.kind === "status" || (request.kind !== "mutate" && request.dataset === `records.${record.name}`));
+            committed = true;
             await act(async () => { answer.release(); });
             await reading.holding;
             await patchRecord(e3(), workspace(), record, next(await readDataset(e3(), workspace(), record)));
@@ -453,9 +479,14 @@ export function e3Harness(modules: Readonly<Record<string, Readonly<Record<strin
         },
         async late(record, save, next) {
             const answer = e3().holdAnswers((request) => request.kind === "mutate" && request.record === record.name);
+            // What is mounted hears nothing between the Save's commit and the other session's write: a poll of its own
+            // answered there tells it of the commit alone, and what it then reads of the record is still on its way as
+            // the other session writes — refused by e3, in an order this does not script.
+            const polls = parkedPolls(e3());
             await act(async () => { save(); });
             await answer.holding;
             await patchRecord(e3(), workspace(), record, next(await readDataset(e3(), workspace(), record)));
+            await act(async () => { polls.release(); });
             // What is mounted hears of the other session's write, and reads it, while the Save's answer is still out.
             await refreshMounted(workspace());
             await act(async () => { answer.release(); });
