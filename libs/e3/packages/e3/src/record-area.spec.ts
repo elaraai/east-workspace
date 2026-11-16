@@ -27,6 +27,7 @@ import { functionAt } from './record-guards.js';
 const locate = East.compile(AREA_FNS.areaCode, []);
 import { buildMutationProgram, indexBuildProgram } from './record-programs.js';
 import { package_ } from './package.js';
+import { seededStream } from './test-helpers.js';
 import type { RecordIndexDef } from './types.js';
 
 /** A rack on a floor: placed by its centre, or not yet; and a zone, by its corner. */
@@ -68,17 +69,6 @@ function oracle(cx: number, cy: number, side: number, e: number): bigint {
   return code * 32n + BigInt(level);
 }
 
-/** A seeded stream of numbers in [0, 1): a xorshift, so a failure names a case that comes again. */
-function stream(seed: number): () => number {
-  let state = (seed * 2654435761) >>> 0 || 1;
-  return () => {
-    state ^= state << 13; state >>>= 0;
-    state ^= state >>> 17;
-    state ^= state << 5; state >>>= 0;
-    return state / 2 ** 32;
-  };
-}
-
 /** The `[entry, projection]` pairs a build program emits for `rows`. */
 function emitted(recordType: typeof RacksType | typeof ZonesType, def: RecordIndexDef, rows: Map<string, unknown>): [unknown, unknown][] {
   const out: [unknown, unknown][] = [];
@@ -117,7 +107,8 @@ describe('index.area — its keys (§11.2)', () => {
         // Outside the domain, larger than half of it, not finite.
         [half, 0, 0], [0, -half - cell, 0], [0, 0, half * 1.5], [Number.NaN, 0, 0], [0, Number.POSITIVE_INFINITY, 0], [0, 0, Number.NaN],
       ];
-      const next = stream(e + 100);
+      // Seeded, so a failure names a case that comes again
+      const next = seededStream(e + 100);
       for (let i = 0; i < 400; i++) {
         const span = half * 2 ** -Math.floor(next() * 30);
         cases.push([(next() * 2 - 1) * span, (next() * 2 - 1) * span, next() < 0.2 ? 0 : next() * span * 0.1]);
@@ -137,7 +128,7 @@ describe('index.area — its keys (§11.2)', () => {
     const e = -7;
     const cell = 2 ** e;
     const code = (cx: number, cy: number, side: number) => locate(cx, cy, side, cell);
-    const next = stream(7);
+    const next = seededStream(7);
     for (let i = 0; i < 2000; i++) {
       const cx = (next() * 2 - 1) * 5000;
       const cy = (next() * 2 - 1) * 5000;

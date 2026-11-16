@@ -40,7 +40,7 @@ import { packageRead } from './packages.js';
 import { readRecordState, recordHistory, recordMutate } from './records.js';
 import { LocalStorage } from './storage/local/index.js';
 import type { StorageBackend } from './storage/interfaces.js';
-import { createTempDir, createTestRepo, removeTempDir, removeTestRepo, stockRuntimesOnPath } from './test-helpers.js';
+import { createTempDir, createTestRepo, decodedOf, onRuntime, removeTempDir, removeTestRepo, stockRuntimesOnPath } from './test-helpers.js';
 import { workspaceCreate } from './workspaces.js';
 import { workspaceDeploy } from './workspace-files.js';
 import { workspaceStatus } from './workspaceStatus.js';
@@ -57,7 +57,6 @@ const PRESS_COUNT = BigInt(PRESSES);
 /** The runtimes each held to the one behaviour: a function and a task of the
  *  package run on each, named by it. */
 const RUNTIMES = stockRuntimesOnPath();
-const onRuntime = (name: string, runtime: string): string => `${name}_${runtime.replace('-', '_')}`;
 
 const JobType = StructType({ press: StringType, title: StringType });
 const JobsType = DictType(StringType, JobType);
@@ -96,14 +95,6 @@ function titlesDiffer(read: Map<string, string>, expected: Map<string, string>):
 /** A draft of a mutation of `jobs`, its arguments Strings. */
 function draft(mutation: string, ...args: string[]): FunctionDraft {
   return { record: 'jobs', mutation, args: args.map((arg) => encodeString(arg)) };
-}
-
-/** What a runner's verbose account says its pager decoded of an input:
- *  `input <i>: <decoded> of <segments> segments decoded`. */
-function decodedOf(stderr: string, input: number): { decoded: number; segments: number } {
-  const said = new RegExp(`input ${input}: (\\d+) of (\\d+) segments decoded`).exec(stderr);
-  if (said === null) assert.fail(`the runner's account names no lazy read of input ${input}:\n${stderr}`);
-  return { decoded: Number(said[1]), segments: Number(said[2]) };
 }
 
 describe('an index of a record as an input', { timeout: 480_000, concurrency: false }, () => {

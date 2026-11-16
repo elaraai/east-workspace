@@ -30,7 +30,7 @@ import assert from 'node:assert';
 import { join, dirname } from 'node:path';
 import {
   DateTimeType, DictType, East, IntegerType, NullType, OptionType, PatchType, SetType, SortedMap, SortedSet, StringType,
-  StructType, compareFor, decodeBeast2For, diffFor, encodeBeast2For, equalFor, none, parseFor, some, type ValueTypeOf,
+  StructType, compareFor, decodeBeast2For, diffFor, encodeBeast2For, equalFor, none, some, type ValueTypeOf,
 } from '@elaraai/east';
 import { RecordSummaryTotalsType } from '@elaraai/e3-types';
 import e3, { type PartRunner } from '@elaraai/e3';
@@ -40,7 +40,7 @@ import { summarizeDelta } from './record-apply.js';
 import { packageImport } from './package-files.js';
 import { workspaceCreate } from './workspaces.js';
 import { workspaceDeploy } from './workspace-files.js';
-import { createTestRepo, removeTestRepo, createTempDir, removeTempDir, stockRunners, seededStream, withEnv } from './test-helpers.js';
+import { at, createTestRepo, removeTestRepo, createTempDir, removeTempDir, stockRunners, seededStream, withEnv } from './test-helpers.js';
 import { LocalStorage } from './storage/local/index.js';
 import { LocalTaskRunner } from './execution/LocalTaskRunner.js';
 import type { StorageBackend, TaskRunner } from './index.js';
@@ -60,13 +60,6 @@ const sameInteger = equalFor(IntegerType);
 const DAY = 86_400_000n;
 const HOUR = 3_600_000n;
 
-const readInstant = parseFor(DateTimeType);
-/** An instant written as East prints one, read by East's parser. */
-function at(text: string): ValueTypeOf<typeof DateTimeType> {
-  const read = readInstant(text);
-  if (!read.success) throw new Error(`'${text}' is not an instant East reads`);
-  return read.value;
-}
 /** The instant `ms` milliseconds from the epoch, made by East. */
 const instant = East.compile(East.function([IntegerType], DateTimeType, (_$, ms) => East.DateTime.fromEpochMilliseconds(ms)), []);
 /** An instant's milliseconds from the epoch, read by East. */

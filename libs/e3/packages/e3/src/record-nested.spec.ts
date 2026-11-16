@@ -20,7 +20,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import {
   ArrayType, DateTimeType, DictType, East, FloatType, IRType, IntegerType, OptionType, RecursiveType, SortedMap, StringType,
-  StructType, VariantType, compareFor, encodeBeast2For, encodeBeast2PagedFor, equalFor, isTypeEqual, parseFor, printFor, printType,
+  StructType, VariantType, compareFor, encodeBeast2For, encodeBeast2PagedFor, isTypeEqual, printFor, printType,
   variant, walkIR, type EastType, type IR, type ValueTypeOf,
 } from '@elaraai/east';
 import { NestedEntryKeyType, NestedEntryType, RecordNestedDeclType } from '@elaraai/e3-types';
@@ -34,6 +34,7 @@ import { package_ } from './package.js';
 import { NestedPatchedType } from './record-nested-programs.js';
 import { patchTypeOf } from './record-patches.js';
 import { TILE_FNS } from './record-tiles.js';
+import { assertEast, parsed } from './test-helpers.js';
 import type { MutationDef, RecordDef, RecordIndexDef } from './types.js';
 
 /**
@@ -142,20 +143,6 @@ const ledgers = () => record('ledgers', Ledgers, {
 const ledgersInTime = (rec: ReturnType<typeof ledgers>) => rec.indexes.ledgers_in_time;
 
 // ── Reading and checking East values ─────────────────────────────────────────
-
-/** A value written as East prints one, read by East's parser. */
-function parsed<T extends EastType>(type: T, text: string): ValueTypeOf<T> {
-  const read = parseFor(type)(text);
-  if (!read.success) throw new Error(`not a ${printType(type)}: ${read.error}`);
-  return read.value;
-}
-
-/** Asserts an East value equals the one expected, by its type, printing both as East does when it does not. */
-function assertEast<T extends EastType>(type: T, actual: unknown, expected: ValueTypeOf<T>, what: string): void {
-  if (equalFor(type)(actual as ValueTypeOf<T>, expected)) return;
-  const print = printFor(type);
-  assert.fail(`${what}:\n  got      ${print(actual as ValueTypeOf<T>)}\n  expected ${print(expected)}`);
-}
 
 /** A record's key and row types. */
 function entryOf(rec: RecordDef): { keyType: EastType; rowType: EastType } {

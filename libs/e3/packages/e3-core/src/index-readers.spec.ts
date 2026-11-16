@@ -18,7 +18,7 @@ import assert from 'node:assert/strict';
 import { dirname, join } from 'node:path';
 import {
   BooleanType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, StringType, StructType,
-  decodeBeast2For, encodeBeast2For, none, parseFor, printFor, some, variant,
+  decodeBeast2For, encodeBeast2For, none, printFor, some, variant,
   type EastType, type ValueTypeOf,
 } from '@elaraai/east';
 import e3, { NestedUnderType } from '@elaraai/e3';
@@ -30,7 +30,7 @@ import { packageImport } from './package-files.js';
 import { readRecordState, recordMutate } from './records.js';
 import { LocalStorage } from './storage/local/index.js';
 import type { StorageBackend } from './storage/interfaces.js';
-import { createTempDir, createTestRepo, removeTempDir, removeTestRepo, stockRuntimesOnPath } from './test-helpers.js';
+import { at, createTempDir, createTestRepo, decodedOf, onRuntime, removeTempDir, removeTestRepo, stockRuntimesOnPath } from './test-helpers.js';
 import { workspaceCreate } from './workspaces.js';
 import { workspaceDeploy } from './workspace-files.js';
 
@@ -66,29 +66,13 @@ const MonthTotals = DictType(DateTimeType, RecordNestedTotalsType);
 const WS = 'main';
 const LIMITS = { timeoutMs: 240_000, maxResultBytes: 4 * 1024 * 1024, maxLogBytes: 64 * 1024 };
 
-const readInstant = parseFor(DateTimeType);
-/** An instant written as East prints one, read by East's parser. */
-function at(text: string): ValueTypeOf<typeof DateTimeType> {
-  const read = readInstant(text);
-  if (!read.success) throw new Error(`'${text}' is not an instant East reads`);
-  return read.value;
-}
 /** The jobs are scheduled from here on, one starting every twenty minutes. */
 const FIRST = at('2026-01-05T00:00:00.000');
 
 const RUNTIMES = stockRuntimesOnPath();
-const onRuntime = (name: string, runtime: string): string => `${name}_${runtime.replace('-', '_')}`;
 
 /** An argument of a call, encoded by its type. */
 const arg = <T extends EastType>(type: T, value: ValueTypeOf<T>): Uint8Array => encodeBeast2For(type)(value);
-
-/** What a runner's verbose account says its pager decoded of an input:
- *  `input <i>: <decoded> of <segments> segments decoded`. */
-function decodedOf(stderr: string, input: number): { decoded: number; segments: number } {
-  const said = new RegExp(`input ${input}: (\\d+) of (\\d+) segments decoded`).exec(stderr);
-  if (said === null) assert.fail(`the runner's account names no lazy read of input ${input}:\n${stderr}`);
-  return { decoded: Number(said[1]), segments: Number(said[2]) };
-}
 
 describe('a reader for each kind of index, on every runner', { timeout: 900_000, concurrency: false }, () => {
   let repo: string;

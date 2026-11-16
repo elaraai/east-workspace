@@ -18,9 +18,9 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   DateTimeType, DictType, East, IntegerType, NullType, OptionType, PatchType, SetType, SortedMap, SortedSet,
-  StringType, StructType, compareFor, decodeBeast2For, encodeBeast2For, encodeBeast2PagedFor, equalFor, none, parseFor,
+  StringType, StructType, compareFor, decodeBeast2For, encodeBeast2For, encodeBeast2PagedFor, equalFor, none,
   printFor, printType, some, variant,
-  type EastType, type ValueTypeOf,
+  type ValueTypeOf,
 } from '@elaraai/east';
 import {
   RecordLevelType, RecordSummaryOpType, RecordSummaryTotalsType, type RecordSummaryOp, type RecordSummaryTotals,
@@ -33,6 +33,7 @@ import {
 import { buildMutationProgram, indexBuildProgram, summaryMergeProgram } from './record-programs.js';
 import { functionAt } from './record-guards.js';
 import { package_ } from './package.js';
+import { assertEast, at, seededStream } from './test-helpers.js';
 import type { MutationDef, RecordDef, RecordIndexDef } from './types.js';
 
 /** A print job: the press it runs on, the crews on it, its state, and when it runs, or not yet. */
@@ -69,14 +70,6 @@ const MONDAY = -3n * DAY;
 /** How far either side of 1970 the drawn instants reach: about 410 years. */
 const SPAN = 13_000_000_000_000;
 
-const readInstant = parseFor(DateTimeType);
-/** An instant written as East prints one, read by East's parser. */
-function at(text: string): ValueTypeOf<typeof DateTimeType> {
-  const read = readInstant(text);
-  if (!read.success) throw new Error(`'${text}' is not an instant East reads`);
-  return read.value;
-}
-
 /** The instant `ms` milliseconds from the epoch, made by East. */
 const instant = East.compile(East.function([IntegerType], DateTimeType, (_$, ms) => East.DateTime.fromEpochMilliseconds(ms)), []);
 
@@ -88,25 +81,6 @@ const later = East.compile(East.function([OptionType(DateTimeType), IntegerType]
   });
   return moved;
 }), []);
-
-/** Asserts an East value equals the one expected, by its type, printing both as East does when it does not. */
-function assertEast<T extends EastType>(type: T, actual: unknown, expected: ValueTypeOf<T>, what: string): void {
-  if (equalFor(type)(actual as ValueTypeOf<T>, expected)) return;
-  const print = printFor(type);
-  assert.fail(`${what}:\n  got      ${print(actual as ValueTypeOf<T>)}\n  expected ${print(expected)}`);
-}
-
-/** A seeded stream of numbers in [0, 1) (mulberry32), so a failure names a case that comes again. */
-function stream(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6D2B79F5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
 
 // ── The oracle: the tiles with the host's calendar ───────────────────────────
 
@@ -209,7 +183,7 @@ function job(n: number, start: bigint | undefined, end: bigint | undefined): Job
  * before they start, some not yet scheduled.
  */
 function seededJobs(): Jobs {
-  const draw = stream(1039);
+  const draw = seededStream(1039);
   const rows = new SortedMap<string, Job>(undefined, keyOrder);
   for (let n = 0; n < 80; n++) {
     const start = OCT_5 + BigInt(Math.floor((draw() - 0.4) * 90)) * DAY + BigInt(Math.floor(draw() * 24)) * HOUR;
@@ -332,7 +306,7 @@ describe('the tiles an event touches', () => {
   it('starts each tile where the calendar does, before 1970 as after, and steps to the next — as the oracle does', () => {
     for (const tile of RECORD_TILES) {
       const { start, next } = compiled(tile);
-      const draw = stream(RECORD_TILES.indexOf(tile) + 1039);
+      const draw = seededStream(RECORD_TILES.indexOf(tile) + 1039);
       const instants = [
         0n, -1n, 1n, MONDAY, MONDAY - 1n, DAY - 1n, -DAY, -DAY - 1n,
         monthStart(1969, 11), monthStart(1969, 11) - 1n, monthStart(2024, 1) + 28n * DAY,
@@ -356,7 +330,7 @@ describe('the tiles an event touches', () => {
     const longest = { day: 400n * DAY, week: 3_000n * DAY, month: 20_000n * DAY, quarter: 60_000n * DAY, year: 200_000n * DAY };
     for (const tile of RECORD_TILES) {
       const { shares } = compiled(tile);
-      const draw = stream(RECORD_TILES.indexOf(tile) + 2039);
+      const draw = seededStream(RECORD_TILES.indexOf(tile) + 2039);
       const events: Array<[bigint, bigint]> = [
         [0n, 0n], [5n, 4n], [-1n, 1n], [-DAY, DAY], [MONDAY, MONDAY + WEEK], [monthStart(2026, 9), monthStart(2027, 0)],
         [monthStart(1969, 11) + 3n, monthStart(1970, 1) - 3n],
@@ -432,7 +406,7 @@ describe('the places a series index files an event', () => {
   it('files as the oracle does, before 1970 as after, every length from an instant to twelve years', () => {
     for (const tile of RECORD_TILES) {
       const { filings } = compiled(tile);
-      const draw = stream(RECORD_TILES.indexOf(tile) + 3039);
+      const draw = seededStream(RECORD_TILES.indexOf(tile) + 3039);
       const events: Array<[bigint, bigint]> = [[MONDAY, MONDAY], [-1n, 1n], [monthStart(1969, 11), monthStart(1970, 1)]];
       for (const level of RECORD_TILES) {
         // Each level's edge: its shortest tile exactly, and a millisecond past it.

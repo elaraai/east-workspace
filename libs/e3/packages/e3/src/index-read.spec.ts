@@ -17,7 +17,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   ArrayType, BooleanType, DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, RecursiveType, SetType, SortedMap,
-  SortedSet, StringType, StructType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, parseFor, printFor, some, variant,
+  SortedSet, StringType, StructType, compareFor, decodeBeast2For, encodeBeast2For, equalFor, none, printFor, some, variant,
   type EastType, type ValueTypeOf,
 } from '@elaraai/east';
 import { RecordLevelType, RecordNestedTotalsType, RecordSummaryTotalsType, type RecordSummaryTotals } from '@elaraai/e3-types';
@@ -31,6 +31,7 @@ import { NESTED_FNS } from './record-nested-programs.js';
 import { builtIndex, indexBuildProgram, summaryMergeProgram } from './record-programs.js';
 import { TILE_FNS, type RecordTile } from './record-tiles.js';
 import { partition, streamTask, task } from './task.js';
+import { assertEast, at, seededStream } from './test-helpers.js';
 import type { IndexInputDef, IRBundle, RecordDef, RecordIndexDef } from './types.js';
 
 /** A print job: the press it runs on, the crews on it, its state, and when it runs, or not yet. */
@@ -80,30 +81,11 @@ const shifts = record('shifts', ShiftsType, {
 const DAY = 86_400_000n;
 const HOUR = 3_600_000n;
 
-const readInstant = parseFor(DateTimeType);
 const printInstant = printFor(DateTimeType);
-/** An instant written as East prints one, read by East's parser. */
-function at(text: string): ValueTypeOf<typeof DateTimeType> {
-  const read = readInstant(text);
-  if (!read.success) throw new Error(`'${text}' is not an instant East reads`);
-  return read.value;
-}
 /** The instant `ms` milliseconds from the epoch, made by East. */
 const instant = East.compile(East.function([IntegerType], DateTimeType, (_$, ms) => East.DateTime.fromEpochMilliseconds(ms)), []);
 /** An instant's milliseconds from the epoch, read by East. */
 const millisecondsOf = East.compile(East.function([DateTimeType], IntegerType, (_$, t) => t.toEpochMilliseconds()), []);
-
-/** A seeded stream of numbers in [0, 1) (mulberry32), so a failure names a case that comes again. */
-function stream(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6D2B79F5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
 
 const PRESSES = ['P-1001', 'P-1002', 'P-1003'];
 const STATES = ['confirmed', 'proposed'];
@@ -131,7 +113,7 @@ function job(n: number, start: bigint | undefined, end: bigint | undefined): Job
  * some not yet scheduled; and the edges, by name.
  */
 function seededJobs(): Jobs {
-  const draw = stream(1618);
+  const draw = seededStream(1618);
   const rows = new SortedMap<string, Job>(undefined, keyOrder);
   for (let n = 0; n < 400; n++) {
     const start = OCT_5 + BigInt(Math.floor((draw() - 0.5) * 900)) * DAY + BigInt(Math.floor(draw() * 24)) * HOUR;
@@ -165,7 +147,7 @@ const ROWS = seededJobs();
 
 /** The windows the readers read: the week of the edges, one narrower than a tile, one wider than a year, and seeded ones. */
 function windows(): Array<{ from: Date; to: Date }> {
-  const draw = stream(55);
+  const draw = seededStream(55);
   const out = [
     { from: at('2026-10-12T00:00:00.000'), to: at('2026-10-19T00:00:00.000') },
     { from: at('2026-10-12T09:00:00.000'), to: at('2026-10-12T10:00:00.000') },
@@ -200,13 +182,6 @@ function entriesOf(rec: RecordDef, declared: RecordIndexDef, rows: unknown): nev
     return null;
   });
   return entries as never;
-}
-
-/** Asserts an East value equals the one expected, by its type, printing both as East does when it does not. */
-function assertEast<T extends EastType>(type: T, actual: unknown, expected: unknown, what: string): void {
-  if (equalFor(type)(actual as ValueTypeOf<T>, expected as ValueTypeOf<T>)) return;
-  const print = printFor(type);
-  assert.fail(`${what}:\n  got      ${print(actual as ValueTypeOf<T>)}\n  expected ${print(expected as ValueTypeOf<T>)}`);
 }
 
 const window = (w: { from: Date; to: Date }): string => `[${printInstant(w.from)}, ${printInstant(w.to)})`;
@@ -622,7 +597,7 @@ const ZONES = ['inbound', 'storage', 'dispatch'];
 /** The racks the readers read: across a floor of a hundred metres by sixty, a fifth of a metre to thirty wide; some not
  *  yet placed, and the ones an index files under its root: outside its domain, wider than half of it, and not finite. */
 function seededRacks(): SortedMap<string, Rack> {
-  const draw = stream(1385);
+  const draw = seededStream(1385);
   const rows = new SortedMap<string, Rack>(undefined, keyOrder);
   const rack = (n: number, x: number | undefined, y: number | undefined, w: number, h: number): Rack =>
     decodeBeast2For(RackRow)(encodeBeast2For(RackRow)({ zone: ZONES[n % 3]!, x: x === undefined ? none : some(x), y: y === undefined ? none : some(y), w, h, name: `Rack ${n}` }));
@@ -644,7 +619,7 @@ const RACKS = seededRacks();
 
 /** The windows the area readers read: a rack's own, a room, the floor, one past it, a point, and seeded ones. */
 function areaWindows(): Array<{ x: number; y: number; width: number; height: number }> {
-  const draw = stream(266);
+  const draw = seededStream(266);
   const out = [
     { x: 40, y: 20, width: 10, height: 10 },
     { x: 0, y: 0, width: 100, height: 60 },
@@ -940,7 +915,7 @@ const instantOrder = compareFor(DateTimeType);
  * day, most days from August to the year's end, for each team that logs hours.
  */
 function seededYards(): ValueTypeOf<typeof YardsType> {
-  const draw = stream(1434);
+  const draw = seededStream(1434);
   const dealt: Jobs[] = [];
   const hand = (): Jobs => {
     const held: Jobs = new SortedMap(undefined, keyOrder);

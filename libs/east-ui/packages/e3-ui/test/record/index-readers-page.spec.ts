@@ -37,6 +37,7 @@ import {
     type EastType, type ValueTypeOf,
 } from "@elaraai/east";
 import e3, { NestedUnderType, builtIndex, indexBuildProgram, summaryMergeProgram, type RecordDef, type RecordIndexDef } from "@elaraai/e3";
+import { at, seededStream } from "@elaraai/e3-core/test";
 import { RecordNestedPathType, RecordNestedTotalsType, RecordSummaryTotalsType, type RecordNestedTotals, type RecordSummaryTotals } from "@elaraai/e3-types";
 import {
     RecordSliceIndexType, areaQueries, intervalQueries, levelCellQueries, levelRuns, recordOnPrinter, summaryCellQueries, summaryRun, tileNext,
@@ -96,32 +97,13 @@ const lines = e3.record("lines", LinesType, {
 
 const keyOrder = compareFor(StringType);
 const instantOrder = compareFor(DateTimeType);
-const readInstant = parseFor(DateTimeType);
 const printInstant = printFor(DateTimeType);
 const printString = printFor(StringType);
 const printStart = printFor(OptionType(DateTimeType));
 
-/** An instant written as East prints one, read by East's parser. */
-function at(text: string): Date {
-    const read = readInstant(text);
-    assert.ok(read.success, text);
-    return read.value;
-}
 /** The instant some milliseconds after another, made by East. */
 const later = East.compile(East.function([DateTimeType, IntegerType], DateTimeType, (_$, from, ms) =>
     East.DateTime.fromEpochMilliseconds(from.toEpochMilliseconds().add(ms))), []);
-
-/** A seeded stream of numbers in [0, 1) (mulberry32), so a failure names a case that comes again. */
-function stream(seed: number): () => number {
-    let a = seed >>> 0;
-    return () => {
-        a = (a + 0x6D2B79F5) >>> 0;
-        let t = a;
-        t = Math.imul(t ^ (t >>> 15), t | 1);
-        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    };
-}
 
 const HOUR = 3_600_000n;
 const DAY = 24n * HOUR;
@@ -132,7 +114,7 @@ const OCT_5 = at("2026-10-05T00:00:00.000");
 
 /** The jobs: an hour to three years long, around October 2026; instants, ends before starts, and some not yet scheduled. */
 function seededJobs(): SortedMap<string, Job> {
-    const draw = stream(1618);
+    const draw = seededStream(1618);
     const rows = new SortedMap<string, Job>(undefined, keyOrder);
     const job = (n: number, start: Date | undefined, end: Date | undefined): Job => decodeBeast2For(JobRow)(encodeBeast2For(JobRow)({
         press: PRESSES[n % 3]!, state: STATES[n % 2]!, start: start === undefined ? none : some(start), end: end === undefined ? none : some(end), title: `Job ${n}`,
@@ -156,7 +138,7 @@ function seededJobs(): SortedMap<string, Job> {
 
 /** The racks: across a floor of a hundred metres by sixty; some not yet placed, one outside the index's domain. */
 function seededRacks(): SortedMap<string, Rack> {
-    const draw = stream(1385);
+    const draw = seededStream(1385);
     const rows = new SortedMap<string, Rack>(undefined, keyOrder);
     const rack = (n: number, x: number | undefined, y: number | undefined, size: number): Rack => decodeBeast2For(RackRow)(encodeBeast2For(RackRow)({
         zone: ZONES[n % 2]!, x: x === undefined ? none : some(x), y: y === undefined ? none : some(y), w: size, h: size / 2,
@@ -174,7 +156,7 @@ const RACKS = seededRacks();
 
 /** The lines: two, of three units each, the seeded jobs dealt out among the units, and a load a day for each. */
 function seededLines(): ValueTypeOf<typeof LinesType> {
-    const draw = stream(1434);
+    const draw = seededStream(1434);
     const dealt = Array.from({ length: 6 }, () => new SortedMap<string, Job>(undefined, keyOrder));
     let n = 0;
     for (const [key, job] of JOBS) dealt[n++ % dealt.length]!.set(key, job);
@@ -202,7 +184,7 @@ const LINES = seededLines();
 
 /** The windows of time: the week of the edges, an hour, two years, and seeded ones. */
 const WINDOWS: { from: Date; to: Date }[] = (() => {
-    const draw = stream(55);
+    const draw = seededStream(55);
     const out = [
         { from: at("2026-10-12T00:00:00.000"), to: at("2026-10-19T00:00:00.000") },
         { from: at("2026-10-12T09:00:00.000"), to: at("2026-10-12T10:00:00.000") },
@@ -217,7 +199,7 @@ const WINDOWS: { from: Date; to: Date }[] = (() => {
 
 /** The windows of the floor: a room, the floor, and seeded ones. */
 const BOXES: { x: number; y: number; width: number; height: number }[] = (() => {
-    const draw = stream(266);
+    const draw = seededStream(266);
     const out = [{ x: 40, y: 20, width: 10, height: 10 }, { x: 0, y: 0, width: 100, height: 60 }, { x: 4_999_990, y: 0, width: 20, height: 20 }];
     // A window that is one point, a rack's centre, its width and height written as the zero below zero: a page's
     // search takes it as a window of no width, which holds the rack

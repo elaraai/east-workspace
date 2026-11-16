@@ -13,7 +13,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
-  StringType, carveBeast2, compareFor, encodeBeast2For, encodeBeast2FenceFor, encodeBeast2SegmentsFor, isVariant, openBeast2PagesFor,
+  DateTimeType, StringType, carveBeast2, compareFor, encodeBeast2For, encodeBeast2FenceFor, encodeBeast2SegmentsFor, isVariant, openBeast2PagesFor,
   parseFor, printType, readBeast2Extents, readBeast2Type, segmentKeyTypeOf, toEastTypeValue, variant, type EastType, type EastTypeValue,
   type ValueTypeOf,
 } from '@elaraai/east';
@@ -432,6 +432,35 @@ export function stockRuntimesOnPath(): Array<'east-node' | 'east-c' | 'east-py'>
   return ['east-node', ...(['east-c', 'east-py'] as const).filter(runs)];
 }
 
+/**
+ * The name a spec gives a function or a task it declares once for each stock
+ * runtime: what it does, then the runtime, as a definition's name may spell it.
+ *
+ * @param name - What the definition does
+ * @param runtime - The runtime it runs on: `east-node`, `east-c` or `east-py`
+ * @returns The name: `count_east_node` for `count` on east-node
+ */
+export function onRuntime(name: string, runtime: string): string {
+  return `${name}_${runtime.replace('-', '_')}`;
+}
+
+/**
+ * What a runner's verbose account says its pager decoded of an input: how many
+ * of the input's segments, a count that a read's cost is held to, never a
+ * clock. The account's line is `input <i>: <decoded> of <segments> segments
+ * decoded`.
+ *
+ * @param stderr - The run's log, which a verbose run writes the account to
+ * @param input - The input's place among the unit's inputs, from 0
+ * @returns The segments decoded, and the segments the input is stored in
+ * @throws {Error} When the account names no lazy read of the input, giving the log
+ */
+export function decodedOf(stderr: string, input: number): { decoded: number; segments: number } {
+  const said = new RegExp(`input ${input}: (\\d+) of (\\d+) segments decoded`).exec(stderr);
+  if (said === null) throw new Error(`the runner's account names no lazy read of input ${input}:\n${stderr}`);
+  return { decoded: Number(said[1]), segments: Number(said[2]) };
+}
+
 /** A stock runtime a spec holds to one behaviour on every runtime: the workspace it runs in, and the runner it is given. */
 export interface StockRunner {
   /** The workspace it runs in: `node`, `c` or `py`. */
@@ -478,6 +507,17 @@ export function parsedValue<T extends EastType>(type: T, text: string): ValueTyp
   const read = parseFor(type)(text);
   if (!read.success) throw new Error(`not a ${printType(type)}: ${read.error}`);
   return read.value;
+}
+
+/**
+ * An instant written as East prints one, read by East's parser.
+ *
+ * @param text - The instant, as East prints it: `2026-01-05T00:00:00.000`
+ * @returns The instant
+ * @throws {Error} When the text is no instant East reads, saying why
+ */
+export function at(text: string): ValueTypeOf<typeof DateTimeType> {
+  return parsedValue(DateTimeType, text);
 }
 
 /**
