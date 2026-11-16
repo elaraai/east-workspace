@@ -23,10 +23,10 @@
 
 import { useEffect, useMemo } from "react";
 import { StructType, equalFor, printFor, type ValueTypeOf } from "@elaraai/east";
-import { OptimiseSliceType, RosterContextType, RosterFitRequestType, RosterFitResultType, RosterNeedType, RosterSlotType } from "@elaraai/e3-ui/internal";
+import { RosterContextType, RosterFitRequestType, RosterFitResultType, RosterNeedType, RosterSlotType } from "@elaraai/e3-ui/internal";
 import { useDataStable } from "@elaraai/east-ui-components";
-import { fitScope, type OptimiseSlice } from "../shared/func/optimise-slice.js";
-import { useFit } from "../shared/func/use-fit.js";
+import type { OptimiseSlice } from "../shared/func/optimise-slice.js";
+import { useFit, useFitScope } from "../shared/func/use-fit.js";
 import { PLAIN_FUNC_BINDING } from "../shared/func/use-func-call.js";
 import type { OptimiseSessions } from "../shared/func/use-optimise.js";
 import type { SourcesChrome } from "../shared/schedule/visibility.js";
@@ -47,7 +47,6 @@ const findText = printFor(FindType);
 /** Whether two finds ask the same question. */
 export const sameFind: (a: RosterFind, b: RosterFind) => boolean = equalFor(FindType);
 const sameContext = equalFor(RosterContextType);
-const sameScope = equalFor(OptimiseSliceType);
 
 /** The Roster's fit, for its one find. */
 export interface RosterFit {
@@ -95,7 +94,7 @@ export function useRosterFit(value: RosterValue, start: Date, week: Week, contex
     // The drafts and the context by their data: a render that builds them again asks nothing again.
     const plan = useDataStable(week, domain.sameWeek);
     const complete = useDataStable(context, sameContext);
-    const scope = useDataStable(fitScope(asked.chrome), sameScope);
+    const scope = useFitScope(asked.chrome);
     const epoch = start.getTime();
     const { drafts, sessions } = asked;
     const facts = useMemo<Facts>(() => ({ start: new Date(epoch), scope, page: complete, drafts }), [epoch, scope, complete, drafts]);

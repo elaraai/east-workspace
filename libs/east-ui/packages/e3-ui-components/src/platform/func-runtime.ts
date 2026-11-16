@@ -340,6 +340,20 @@ function draftWords(stderr: string): string {
     return (runnerFailureOf(rest)?.message ?? rest).trim();
 }
 
+/** The draft whose mutation ended a failed call, decoded: its place among the call's drafts, from 1, and what its record said of it. */
+export type FuncFailedDraft = ValueTypeOf<typeof FuncErrorType.fields.kind.cases.failed.fields.draft.cases.some>;
+
+/**
+ * The draft whose mutation failed as a call laid it, ending the call before its function ran (east-workspace#1619,
+ * rule 8), as the call's error carries it: its place among the call's drafts, and what its record said of it.
+ *
+ * @param error - A call's error, as {@link errorOfExecuteResult} makes it
+ * @returns The draft; `undefined` for a call that ended another way, and for a failed one no draft's mutation ended
+ */
+export function failedDraft(error: FuncError): FuncFailedDraft | undefined {
+    return error.kind.type === "failed" && error.kind.value.draft.type === "some" ? error.kind.value.draft.value : undefined;
+}
+
 /**
  * What a record said of a draft it refused as a call laid it (east-workspace#1619, rule 8): the message its mutation's
  * program raised, as the call's error carries it — the reason a Save of the same edit is refused for. What shows why
@@ -349,9 +363,8 @@ function draftWords(stderr: string): string {
  * @returns The record's words; `undefined` for a call no draft's mutation failed, and for one that said nothing
  */
 export function draftRefusal(error: FuncError): string | undefined {
-    if (error.kind.type !== "failed" || error.kind.value.draft.type === "none") return undefined;
-    const said = error.kind.value.draft.value.refusal;
-    return said.length === 0 ? undefined : said;
+    const said = failedDraft(error)?.refusal;
+    return said === undefined || said.length === 0 ? undefined : said;
 }
 
 function transportError(message: string): FuncError {

@@ -28,18 +28,16 @@
  */
 
 import { useMemo } from "react";
-import { StringType, equalFor, printFor } from "@elaraai/east";
-import { AllocationFitAskType, AllocationFitRequestType, AllocationFitResultType, OptimiseSliceType } from "@elaraai/e3-ui/internal";
-import { useDataStable } from "@elaraai/east-ui-components";
-import { fitScope, type OptimiseSlice } from "../shared/func/optimise-slice.js";
+import { StringType, printFor } from "@elaraai/east";
+import { AllocationFitAskType, AllocationFitRequestType, AllocationFitResultType } from "@elaraai/e3-ui/internal";
+import type { OptimiseSlice } from "../shared/func/optimise-slice.js";
 import { recordPatchDrafts, type EntryChange } from "../shared/func/patch-draft.js";
-import { useFit, type FitAnswers, type FitQuestions } from "../shared/func/use-fit.js";
+import { useFit, useFitScope, type FitAnswers, type FitQuestions } from "../shared/func/use-fit.js";
 import type { OptimiseSessions } from "../shared/func/use-optimise.js";
 import type { AllocationDomain, AllocationValue, Context, Day, FitAsk, FitRequest, FitResult } from "./model.js";
 
 /** A question's key: its East text. */
 const askKey = printFor(AllocationFitAskType);
-const sameScope = equalFor(OptimiseSliceType);
 
 /**
  * The fit, as the board asks it: of the day as drafted now, or of a plan the
@@ -103,7 +101,7 @@ export function derivedChanges(base: Day, of: Day): EntryChange[] {
  */
 export function useAllocationFit(value: AllocationValue, domain: AllocationDomain, day: Date, plan: Day, context: Context, asked: AllocationFitAsked): AllocationFit {
     const epoch = day.getTime();
-    const scope = useDataStable(fitScope(value.slice.type === "some" ? value.slice.value : undefined), sameScope);
+    const scope = useFitScope(value.slice.type === "some" ? value.slice.value : undefined);
     const { sessions, drafts } = asked;
     const facts = useMemo<Facts>(() => ({ day: new Date(epoch), scope, page: context, drafts }), [epoch, scope, context, drafts]);
     // A derived plan's change, as a draft of the bins' record's patch door — for a function that lists the bins in its drafts.

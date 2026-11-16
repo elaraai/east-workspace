@@ -83,6 +83,8 @@ export {
     signatureOfFuncHandleType,
     createInMemoryFunctionApi,
     draftRefusal,
+    failedDraft,
+    type FuncFailedDraft,
     type InMemoryFunctionDef,
     type FunctionApi,
     type FunctionCallArgs,

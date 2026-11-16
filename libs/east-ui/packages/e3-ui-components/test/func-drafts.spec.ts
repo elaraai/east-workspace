@@ -40,7 +40,7 @@ import * as ex from "@elaraai/e3-ui/examples/bind/func/func";
 import { workspaceCallGet, workspaceCallList, workspaceFunctionCallStatus } from "@elaraai/e3-api-client";
 import { FunctionCallRequestType } from "@elaraai/e3-types";
 import type { E3Request } from "../src/e3-web.test-utils.js";
-import { funcChannelKey, type FuncRuntime } from "../src/platform/func-runtime.js";
+import { draftRefusal, failedDraft, funcChannelKey, type FuncRuntime } from "../src/platform/func-runtime.js";
 import { e3Spec } from "./fixtures/e3.js";
 
 const h = e3Spec({ "bind/func/func": ex });
@@ -309,6 +309,7 @@ describe("a draft that ends its call (#1620)", () => {
         assert.equal(error.value.kind.type, "invalid");
         assert.match(error.value.message, /draft presses\.patch \(1 of 1\)/);
         assert.match(error.value.message, /does not list record 'presses' among those a call may draft: 'press_jobs'/);
+        assert.equal(failedDraft(error.value), undefined, "no draft's mutation ended it: the server refused the call before laying one");
         assert.ok(sameCount(page.count.read(), none), "the function did not run");
         assert.equal(await head(ex.presses), stood, "and nothing of the presses was saved");
     });
@@ -332,6 +333,10 @@ describe("a draft that ends its call (#1620)", () => {
         assert.ok(equalFor(IntegerType)(kind.value.draft.value.place, 1n), "the first of the call's drafts");
         // Its message alone: neither the runner's lead nor the places it was raised at, which the stderr holds.
         assert.equal(kind.value.draft.value.refusal, "the shop holds no job j9");
+        // What the builders read of it — the fit's derived change by its place, and the words that say why a call ended.
+        const failed = failedDraft(error.value);
+        assert.ok(failed !== undefined && equalFor(IntegerType)(failed.place, 1n), "the draft that ended the call, by its place");
+        assert.equal(draftRefusal(error.value), "the shop holds no job j9");
         assert.ok(sameCount(page.count.read(), none), "the function did not run");
 
         const saved = await page.jobs.commit.move("save-1", "j9", "P1");
@@ -360,6 +365,7 @@ describe("a draft that ends its call (#1620)", () => {
         assert.equal(error.value.message,
             `draft press_jobs.patch (1 of 1) no longer matches the record (${words}); re-read it and call again`);
         assert.notEqual(error.value.kind.value.message, "", "in the record's own words");
+        assert.deepEqual([failedDraft(error.value), draftRefusal(error.value)], [undefined, undefined], "a refused draft is no failed mutation");
         assert.ok(sameCount(page.count.read(), none), "the function did not run");
 
         // The Save of the same edit is refused the same, and the jobs hold the other page's Save alone.

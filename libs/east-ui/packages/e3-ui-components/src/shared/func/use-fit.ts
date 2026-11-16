@@ -64,8 +64,12 @@
 
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { IntegerType, equalFor, type EastType } from "@elaraai/east";
-import { draftRefusal } from "../../platform/index.js";
+import { OptimiseSliceType } from "@elaraai/e3-ui/internal";
+import { useDataStable } from "@elaraai/east-ui-components";
+import { draftRefusal, failedDraft } from "../../platform/index.js";
+import type { SourcesChrome } from "../schedule/visibility.js";
 import { afterConflict, readRecordsAgain } from "./conflict.js";
+import { fitScope, type OptimiseSlice } from "./optimise-slice.js";
 import { useFuncCall, type FuncCallBinding, type FuncCallDraft, type FuncCallError } from "./use-func-call.js";
 import type { OptimiseSessions } from "./use-optimise.js";
 
@@ -73,6 +77,19 @@ import type { OptimiseSessions } from "./use-optimise.js";
 const WAITING = 8;
 
 const sameInteger = equalFor(IntegerType);
+const sameScope = equalFor(OptimiseSliceType);
+
+/**
+ * The page's scope a builder's fit asks in ({@link fitScope}, rule 1), the same object while each source's scope holds:
+ * the builder's questions are asked in it by identity, so a choice on the rail — never sent to a fit — asks nothing
+ * again, and a new scope asks anew.
+ *
+ * @param chrome - The builder's rail, as its payload carries it; `undefined` for a builder with no rail
+ * @returns Each source's scope, by the source's name
+ */
+export function useFitScope(chrome: SourcesChrome | undefined): OptimiseSlice {
+    return useDataStable(fitScope(chrome), sameScope);
+}
 
 /**
  * What a record said of a derived plan's change it refused as e3 laid it (rule 10): a call's error where the draft
@@ -83,8 +100,8 @@ const sameInteger = equalFor(IntegerType);
  * @returns The record's words, else the call's own summary; `undefined` for a call that change did not end
  */
 function derivedRefusal(error: FuncCallError, place: number): string | undefined {
-    if (error.kind.type !== "failed" || error.kind.value.draft.type === "none") return undefined;
-    if (!sameInteger(error.kind.value.draft.value.place, BigInt(place))) return undefined;
+    const failed = failedDraft(error);
+    if (failed === undefined || !sameInteger(failed.place, BigInt(place))) return undefined;
     return draftRefusal(error) ?? error.message;
 }
 
