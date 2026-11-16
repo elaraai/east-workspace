@@ -727,6 +727,34 @@ describe("a link kind's link in the inspector (#1541, U10)", () => {
         }
     });
 
+    test("an event selected with a link shows as the event it is, and the pane's Delete removes both as one step, as the Delete key does", async () => {
+        const restore = ribbonWidth({ tall: true });
+        try {
+            const { container } = await h.mount(flows);
+            await settle();
+            fireEvent.click(container.querySelector(`${rowAt(entry("presses", "a1"))} [data-plan-control="links"]`)!);
+            await settle();
+            const job = () => container.querySelector(el("data-run", "job", "J-2001"));
+            fireEvent.click(hit(container, "plates")!);
+            await settle();
+            fireEvent.click(job()!, { shiftKey: true });
+            await settle();
+            // The pane shows the job: the link is selected on the canvas, drawn in the ink.
+            expect(showing(container)).toBe("event");
+            expect(pane(container).querySelector("[data-inspector-title]")!.textContent).toBe("Catalogue covers");
+            expect(hit(container, "plates")!.closest("[data-plan-link]")!.hasAttribute("data-selected")).toBe(true);
+            fireEvent.click(pane(container).querySelector('[data-inspector-action="delete"]')!);
+            await settle();
+            expect([job(), hit(container, "plates")]).toEqual([null, undefined]);
+            // One step: one Undo brings the job and the link back.
+            fireEvent.click(toolbar(container).getByRole("button", { name: editingMessages.undo() }));
+            await settle();
+            expect([job() !== null, hit(container, "plates") !== undefined]).toEqual([true, true]);
+        } finally {
+            restore();
+        }
+    });
+
     test("several links show how many, each by the events it joins, and Delete removes them all as one step", async () => {
         const restore = ribbonWidth({ tall: true });
         try {

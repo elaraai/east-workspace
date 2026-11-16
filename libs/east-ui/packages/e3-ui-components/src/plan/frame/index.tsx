@@ -350,7 +350,7 @@ interface PlanFrameProps {
 function deleteLabel(keys: readonly string[], linkKinds: PlanLinkKinds): string | undefined {
     const kinds = keys.flatMap((key) => { const named = kindLinkOf(linkKinds, key); return named === undefined ? [] : [named.kind]; });
     if (kinds.length === 0) return undefined;
-    return kinds.length === keys.length ? linkStepLabel("Delete", kinds) : `Delete ${keys.length} selected`;
+    return linkStepLabel("Delete", kinds, keys.length - kinds.length);
 }
 
 /**

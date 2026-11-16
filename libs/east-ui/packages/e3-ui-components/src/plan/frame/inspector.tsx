@@ -36,7 +36,8 @@
  *   moves, its kind's form over its row — each edit a draft of the link's
  *   record, one step of the Plan's history — and Delete; several links, how
  *   many, each by the events it joins, and Delete. Events selected with links
- *   show as the events they are: the Delete key removes the links with them;
+ *   show as the events they are, and Delete — the key's or the pane's —
+ *   removes the links with them;
  * - **a row** (PB40), on a Plan with or without event kinds (#1541, U5): a
  *   resource's name and lines — its landing row's (#1541) — the group it is
  *   drawn under; the banner of its refusals holding Save while the Plan's
@@ -741,17 +742,21 @@ function duplicateEvents(events: readonly InspectedEvent[], editing: PlanEventEd
 }
 
 /**
- * Delete: each event, as one transaction. What stays selected is what stayed: an event its kind's lock holds where it
- * is (#1541, U9).
+ * Delete: each event, as one transaction — and each link of a link kind selected with them (#1541, U10), as the Delete
+ * key takes the whole selection. What stays selected is what stayed: an event its kind's lock holds where it is
+ * (#1541, U9).
  *
  * @param events - The events to remove
  * @param editing - The event kinds' editing
  * @param chrome - The canvas's selection commands
+ * @param links - The links selected with them; none unless given
  * @param kept - The selected events left where they are: the locked ones, which the pane goes on showing
  */
 function deleteEvents(events: readonly InspectedEvent[], editing: PlanEventEditing | undefined, chrome: PlanChrome | undefined,
-    kept: readonly InspectedEvent[] = []): void {
-    const stayed = removePlanEvents(events.map(event => event.key), editing, labelOf("Delete", events));
+    links: readonly PlanInspectedLink[] = NO_INSPECTED_LINKS, kept: readonly InspectedEvent[] = []): void {
+    const keys = [...events.map((event) => event.key), ...links.map((link) => link.key)];
+    const label = links.length === 0 ? labelOf("Delete", events) : linkStepLabel("Delete", links.map((link) => link.kind), events.length);
+    const stayed = removePlanEvents(keys, editing, label);
     if (stayed !== undefined) chrome?.selectEvents([...kept.map((event) => event.key), ...stayed]);
 }
 
@@ -817,7 +822,7 @@ function roleFactOf(roles: PlanEventKindValue["roles"], field: string): "quantit
 }
 
 /** One event: its head, its overlaps, its facts, its fields or its kind's own inspector, and its gestures. */
-function OneEvent({ event, keys, words, styles, counts, chrome, selection }: OneEventProps) {
+function OneEvent({ event, keys, words, styles, counts, chrome, selection, links }: OneEventProps) {
     const { m } = words;
     const button = useRecipe({ key: "button" });
     const { kind } = event;
@@ -985,7 +990,7 @@ function OneEvent({ event, keys, words, styles, counts, chrome, selection }: One
                         {m.inspectorAction({ action: "duplicate" })}
                     </chakra.button>
                     <chakra.button type="button" css={button({ variant: "outline", size: "xs" })} data-inspector-action="delete"
-                        onClick={() => { if (writes.current) deleteEvents([event], editing, chrome); }}>
+                        onClick={() => { if (writes.current) deleteEvents([event], editing, chrome, links); }}>
                         {m.inspectorAction({ action: "delete" })}
                     </chakra.button>
                 </Box>
@@ -1004,7 +1009,7 @@ interface SeveralProps extends BodyProps {
 }
 
 /** Several events: how many, each kind's count, the list, and the bulk edit. */
-function SeveralEvents({ events: selected, kinds, landings, words, styles, chrome, selection }: SeveralProps) {
+function SeveralEvents({ events: selected, kinds, landings, words, styles, chrome, selection, links }: SeveralProps) {
     const { m } = words;
     const button = useRecipe({ key: "button" });
     // The events a gesture reaches (#1541, U9): those not locked. A locked one is listed and counted with the rest, and
@@ -1177,7 +1182,7 @@ function SeveralEvents({ events: selected, kinds, landings, words, styles, chrom
                         {m.inspectorAction({ action: "duplicate" })}
                     </chakra.button>
                     <chakra.button type="button" css={button({ variant: "outline", size: "xs" })} data-inspector-action="delete"
-                        onClick={() => { if (writable) deleteEvents(events, editing, chrome, selected.filter((event) => event.item.locked)); }}>
+                        onClick={() => { if (writable) deleteEvents(events, editing, chrome, links, selected.filter((event) => event.item.locked)); }}>
                         {m.inspectorAction({ action: "delete" })}
                     </chakra.button>
                 </Box>

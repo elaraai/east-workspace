@@ -107,13 +107,16 @@ export function kindLinkOf(kinds: readonly PlanLinkKindValue[], key: string): { 
 
 /**
  * A gesture's label in the history over link kinds' links — canonical English, as every history's labels are: one link
- * by its kind's name (`Delete flow`), several by their count (`Delete 3 links`).
+ * by its kind's name (`Delete flow`), several by their count (`Delete 3 links`), and links with events by how many
+ * there are of both (`Delete 4 selected`).
  *
  * @param verb - What the gesture does (`Delete`, `Edit`)
  * @param kinds - The kind of each link it reaches
+ * @param events - How many events it reaches with them; none unless given
  * @returns The label
  */
-export function linkStepLabel(verb: string, kinds: readonly PlanLinkKindValue[]): string {
+export function linkStepLabel(verb: string, kinds: readonly PlanLinkKindValue[], events = 0): string {
+    if (events > 0) return `${verb} ${kinds.length + events} selected`;
     return kinds.length === 1 ? `${verb} ${lowerWord(kinds[0]!.name)}` : `${verb} ${kinds.length} links`;
 }
 
