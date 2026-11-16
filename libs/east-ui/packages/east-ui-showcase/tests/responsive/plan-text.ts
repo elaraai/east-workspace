@@ -51,7 +51,10 @@ export const cutText = (root: Element): string[] => {
         const what = el.hasAttribute("data-tile-more") ? `+n chip in cell ${cell?.getAttribute("data-plan-cell") ?? "?"}`
             : kind === undefined ? "rollup band" : `${noun} ${el.getAttribute(`data-${kind}`)}`;
         const name = `${row.getAttribute("data-plan-row") ?? row.getAttribute("data-plan-card")} ${what}`;
-        const spans = [...el.children].filter((c): c is HTMLElement => c.tagName === "SPAN" && !c.hasAttribute("data-plan-icon"));
+        // Its spans of text: its label, and a bar's quantities after it. An icon's span and a lock's (#1541, U9) hold a
+        // glyph, which the icons' rule above holds whole or not drawn: a locked bar too narrow for a letter draws its lock
+        // alone, and that is no quantity drawn without its label.
+        const spans = [...el.children].filter((c): c is HTMLElement => c.tagName === "SPAN" && !c.hasAttribute("data-plan-icon") && !c.hasAttribute("data-plan-lock"));
         const label = el.querySelector<HTMLElement>(":scope > [data-plan-label]") ?? spans[0];
         const inside = (r: DOMRect) => r.left >= b.left - 0.5 && r.right <= b.right + 0.5 && r.top >= b.top - 0.5 && r.bottom <= b.bottom + 0.5;
         /** How far a part's box lies across the clip, and how far down it. */
