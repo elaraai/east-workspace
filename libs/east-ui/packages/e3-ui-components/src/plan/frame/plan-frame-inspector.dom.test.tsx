@@ -769,6 +769,9 @@ describe("a link kind's link in the inspector (#1541, U10)", () => {
             fireEvent.click(hit(container, "plates")!, { shiftKey: true });
             await settle();
             expect(showing(container)).toBe("links");
+            // Both draw selected on the canvas, and neither carries a ×: that is one link's control.
+            expect(container.querySelectorAll("[data-plan-link][data-selected]")).toHaveLength(2);
+            expect(container.querySelector("[data-plan-ribbon-unlink]")).toBeNull();
             expect(pane(container).querySelector("[data-inspector-several]")!.textContent).toBe("2 links");
             expect([...pane(container).querySelectorAll("[data-inspector-link]")].map((line) => line.getAttribute("data-inspector-link")))
                 .toEqual([elementKey("flow", "covers"), elementKey("flow", "plates")]);
