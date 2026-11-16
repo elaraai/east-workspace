@@ -20,17 +20,15 @@ import { describe, test as hostTest } from "node:test";
 import assert from "node:assert/strict";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
 import {
-    ArrayType, BlobType, BooleanType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, PatchType, SetType, StringType, StructType, VariantType,
+    ArrayType, BlobType, BooleanType, DictType, East, FloatType, FunctionType, IntegerType, NullType, OptionType, SetType, StringType, StructType, VariantType,
     decodeBeast2For, encodeBeast2For, equalFor, fromEastTypeValue, isTypeEqual, none, some, variant, type BlockBuilder, type EastType, type ExprType, type ValueTypeOf,
 } from "@elaraai/east";
 import { Slice, UIComponentType } from "@elaraai/east-ui";
 import { Text } from "@elaraai/east-ui/internal";
-import { DatasetStatusType, RecordCommitInfoType } from "@elaraai/e3-types";
-import {
-    Data, DataBindHandleType, FuncDraftType, Record, RecordBindHandleType, RecordErrorType, RecordMutateStatusType, RecordOutcomeType, Schematic as PublicSchematic,
-} from "@elaraai/e3-ui";
+import { Data, Record, Schematic as PublicSchematic } from "@elaraai/e3-ui";
 import { Schematic, SchematicBoxFieldsType, SchematicPayloadType, buildSchematicLibrary, schematicKeys } from "@elaraai/e3-ui/internal";
 import * as ex from "./schematic.examples.js";
+import { dataHandle, recordHandle } from "../record-handles.js";
 
 describeEast("Schematic", (test) => {
     Assert.examples(test, {
@@ -107,47 +105,6 @@ const SYSTEMS = new Map([
 const Load = StructType({ kw: FloatType, cap: FloatType, alarm: Alarm });
 const LOADS = new Map([["A01", { kw: 5.0, cap: 8.0, alarm: variant("hot", null) }]]);
 
-/** A `Record.bind` handle over a record of `type`, as the record runtime gives one: its read answers `value`, bound with its patch door when `patch`. */
-function recordHandle<T extends EastType>(type: T, value: ValueTypeOf<T>, name: string, patch = true) {
-    const handleType = RecordBindHandleType(type, patch ? { patch: [PatchType(type)] } : {});
-    return East.function([], handleType, (_$) => ({
-        read: East.function([], type, (_$2) => value as never),
-        status: East.function([], DatasetStatusType, (_$2) => variant("up-to-date", null)),
-        history: East.function([], OptionType(ArrayType(RecordCommitInfoType)), (_$2) => none),
-        mutate: {
-            pending: East.function([], BooleanType, (_$2) => false),
-            status: East.function([], RecordMutateStatusType, (_$2) => variant("idle", null)),
-            error: East.function([], OptionType(RecordErrorType), (_$2) => none),
-            cancel: East.function([], NullType, (_$2) => null),
-            ...(patch ? { patch: East.function([PatchType(type)], NullType, (_$2) => null) } : {}),
-        },
-        commit: patch
-            ? { patch: East.asyncFunction([StringType, PatchType(type)], RecordOutcomeType, (_$2) => variant("committed", { commitHash: "c", stateHash: "s" })) }
-            : {},
-        draft: patch
-            ? { patch: East.function([PatchType(type)], FuncDraftType, (_$2, change) => ({ record: name, mutation: "patch", args: [East.Blob.encodeBeast(change as never, "v2")] })) }
-            : {},
-        start: East.function([], NullType, (_$2) => null),
-        binding: { name, mutations: patch ? ["patch"] : [] },
-    }) as never);
-}
-
-/** A `Data.bind` handle over a record of `type`, as the dataset runtime gives one: its read answers `value`. */
-function dataHandle<T extends EastType>(type: T, value: ValueTypeOf<T>, name: string) {
-    return East.function([], DataBindHandleType(type), (_$) => ({
-        read: East.function([], type, (_$2) => value as never),
-        write: East.function([type], NullType, (_$2) => null),
-        writeAndStart: East.function([type], NullType, (_$2) => null),
-        start: East.function([], NullType, (_$2) => null),
-        source: East.function([], type, (_$2) => value as never),
-        pending: East.function([], BooleanType, (_$2) => false),
-        commit: East.function([], NullType, (_$2) => null),
-        discard: East.function([], NullType, (_$2) => null),
-        has: East.function([], BooleanType, (_$2) => true),
-        status: East.function([], DatasetStatusType, (_$2) => variant("up-to-date", null)),
-        binding: { source: [variant("field", "inputs"), variant("field", name)], patch: none, mode: variant("staged", null) },
-    }) as never);
-}
 
 const racksRecord = recordHandle(Racks, RACKS, "racks");
 const racksUnpatched = recordHandle(Racks, RACKS, "racks", false);
