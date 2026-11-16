@@ -32,7 +32,8 @@
  */
 import { expect, test, type Locator, type Page } from "playwright/test";
 import { toolbarFaults } from "./builder-frame";
-import { PLAN_EVENT_EXAMPLES, openExample, rowSel, sizePlanFrame } from "./plan-page";
+import { PLAN_EVENT_EXAMPLES, openExample, sizePlanFrame } from "./plan-page";
+import { printWorksBars, printWorksPress } from "./plan-builder-page";
 import { expectSourceCounts } from "./record-counts";
 import { recordField } from "./record-slice";
 import { settled } from "./settle";
@@ -195,13 +196,13 @@ for (const theme of LAYOUT_THEMES) {
         };
         await expect.poll(() => tabs(page, start)).toEqual(["Events 12", "Backlog 8", "Series 16", "Customers 16"]);
         // The customers' District: the Customers tab, which names the customers' source, alone — every press's row standing.
-        const b1 = frame.locator(rowSel("presses", "2-presses-b", "b1"));
+        const b1 = frame.locator(printWorksPress("b1"));
         await expect(b1).toHaveCount(1);
         await choose("customers", "district", /^Old Town/);
         await expect.poll(() => tabs(page, start)).toEqual(["Events 12", "Backlog 8", "Series 16", "Customers 6 of 16"]);
         await expect(b1).toHaveCount(1);
         // A stock: the jobs on the canvas — Press A1's menu cards are on board, its spring catalogue is coated — and the Backlog.
-        const a1 = frame.locator(`${rowSel("presses", "1-presses-a", "a1")} [data-run]`);
+        const a1 = printWorksBars(frame, "a1");
         await expect.poll(async () => (await said(a1)).some((text) => text.includes("Spring catalogue"))).toBe(true);
         await choose("job", "stock", /^board/i);
         await expect.poll(async () => (await said(a1)).some((text) => text.includes("Spring catalogue"))).toBe(false);

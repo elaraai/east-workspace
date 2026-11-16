@@ -28,6 +28,7 @@ import { test } from "./kept-page";
 import { settled } from "./settle";
 import { PLAN_EVENT_EXAMPLES, PLAN_EXAMPLES, openExample, planBox, rowId, rowSel, sizeBox } from "./plan-page";
 import { cutNumbers, cutText, rulerFaults } from "./plan-text";
+import { printWorksBars } from "./plan-builder-page";
 
 /** The Plan examples, between them every row kind, group strips, pinned
  *  rows, number and ordinal axes, rows folded to a coarser resolution and a
@@ -728,7 +729,7 @@ test.describe("Plan element text (#1258, #1264, #1266, #1269)", { tag: "@desktop
             const host = entry.locator("[data-plan-frame]").first().locator("xpath=..");
             await host.evaluate(el => { (el as HTMLElement).style.width = "1440px"; });
             await settled(page);
-            await entry.locator(`${rowSel("presses", "1-presses-a", "a1")} [data-run]`, { hasText: "Spring catalogue" }).click();
+            await printWorksBars(entry, "a1", "Spring catalogue").click();
             for (const width of [1440, 1280]) await test.step(`${width}px`, async () => {
                 await page.setViewportSize({ width, height: 900 });
                 await host.evaluate((el, w) => { (el as HTMLElement).style.width = `${w}px`; }, width);

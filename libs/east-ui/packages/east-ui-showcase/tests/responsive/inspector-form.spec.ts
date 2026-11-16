@@ -55,7 +55,8 @@ import { expect, type Locator, type Page } from "playwright/test";
 import { test } from "./kept-page";
 import { settled } from "./settle";
 import { visitBuilder } from "./builder-page";
-import { openExample, rowId, rowSel } from "./plan-page";
+import { openExample } from "./plan-page";
+import { printWorksBars, printWorksPress, printWorksPressId, type PrintWorksPress } from "./plan-builder-page";
 import { DATA_CENTRE, centred, openSchematic, openTab as openLibraryTab, printedRef, screenPoint, sizeTo } from "./schematic-page";
 
 const SHEETS = "e3/sheet/sheet";
@@ -592,13 +593,12 @@ async function openPrintWorks(page: Page, theme: "light" | "dark", phone: boolea
 }
 
 /** The spring catalogue's run on Press A1, and the press's other runs. */
-const pressA1 = rowSel("presses", "1-presses-a", "a1");
 
 /** Press B2, whose two jobs on the 20th overlap (#1198): the market posters and the loyalty cards. */
-const PRESS_B2 = rowId("presses", "2-presses-b", "b2");
+const PRESS_B2 = printWorksPressId("b2");
 
 /** A press's name folds its utilisation beneath it; its marks' row's name selects the press (#1541). */
-const pressHead = (hall: string, press: string) => `${rowSel("presses.marks", hall, press)} [role="rowheader"]`;
+const pressHead = (press: PrintWorksPress) => `${printWorksPress(press, "presses.marks")} [role="rowheader"]`;
 
 for (const phone of [false, true]) {
     test.describe(`The Plan's inspector form — ${phone ? "on a phone" : "pinned beside main"} (#1220)`, { tag: phone ? "@mobile" : "@desktop" }, () => {
@@ -610,7 +610,7 @@ for (const phone of [false, true]) {
                     await test.step("a press's row and nothing selected: facts, counts and hints inside the pane", async () => {
                         await expect(pane.locator("[data-plan-inspector='none']")).toBeVisible();
                         expect(await paneFaults(pane)).toEqual([]);
-                        await select(page, frame, entry.locator(pressHead("1-presses-a", "a1")), phone);
+                        await select(page, frame, entry.locator(pressHead("a1")), phone);
                         await expect(pane.locator("[data-plan-inspector='row']")).toBeVisible();
                         expect(await paneFaults(pane)).toEqual([]);
                     });
@@ -621,7 +621,7 @@ for (const phone of [false, true]) {
                         await entry.locator("[data-plan-tab='rows']").tap();
                         await settled(page);
                     }
-                    const bar = phone ? entry.locator("[data-run]", { hasText: "Spring catalogue" }).first() : entry.locator(`${pressA1} [data-run]`, { hasText: "Spring catalogue" });
+                    const bar = phone ? entry.locator("[data-run]", { hasText: "Spring catalogue" }).first() : printWorksBars(entry, "a1", "Spring catalogue");
                     await select(page, frame, bar, phone);
                     await expect(pane.locator("[data-plan-inspector='event'] [data-field]")).toHaveCount(3);
                     await expect.poll(() => formFaults(pane, phone)).toEqual([]);
@@ -645,7 +645,7 @@ for (const phone of [false, true]) {
                         await holder.scrollIntoViewIfNeeded();
                     }
                     // The press's row: its pair on the 20th — the overlap's time, and both jobs' names.
-                    await select(page, frame, phone ? holder.getByText("Press B2", { exact: true }) : entry.locator(pressHead("2-presses-b", "b2")), phone);
+                    await select(page, frame, phone ? holder.getByText("Press B2", { exact: true }) : entry.locator(pressHead("b2")), phone);
                     await expect(pane.locator("[data-plan-inspector='row'] [data-inspector-overlap]")).toHaveCount(1);
                     expect(await paneFaults(pane)).toEqual([]);
                     // One of its jobs: the job it overlaps — its time, and its name. The loyalty cards, drawn over the market
@@ -662,8 +662,8 @@ for (const phone of [false, true]) {
                 });
                 if (!phone && theme === "light") {
                     await test.step("several events: the bulk edit's state and resource", async () => {
-                        await select(page, frame, entry.locator(`${pressA1} [data-run]`, { hasText: "Spring catalogue" }), phone);
-                        await entry.locator(`${pressA1} [data-run]`, { hasText: "Museum guide" }).click({ modifiers: ["Shift"] });
+                        await select(page, frame, printWorksBars(entry, "a1", "Spring catalogue"), phone);
+                        await printWorksBars(entry, "a1", "Museum guide").click({ modifiers: ["Shift"] });
                         await settled(page);
                         await expect(pane.locator("[data-plan-inspector='events']")).toBeVisible();
                         await expect.poll(() => formFaults(pane, phone)).toEqual([]);
