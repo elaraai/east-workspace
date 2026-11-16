@@ -110,6 +110,9 @@ import type { RowKey } from "./plan-state.js";
 import { conflictPlaceOf, entryOf, usePlanEditing, type PlanEntryRef } from "./use-plan-editing.js";
 import { timeInstant } from "./instant.js";
 import { usePlanEventEditing } from "./edit/events.js";
+import { NO_LINK_KINDS, NO_LINK_KINDS_READ, kindLinks, linkKindRecords, linkedEventKinds, readLinkKinds, type PlanLinkKindValue } from "./links/kinds.js";
+import { DraftedStanding } from "../shared/schedule/drafted-rows.js";
+import { useDraftedRows } from "../shared/schedule/use-drafted-rows.js";
 import { scheduleIssueName } from "../shared/schedule/editing.js";
 import { drawnKinds, usePlanEventDrag } from "./edit/event-drag.js";
 import { createPlanVeto, type PlanCanDropFn } from "./edit/candidate.js";
@@ -310,6 +313,11 @@ export interface PlanCanvasArgs {
     optimise?: FuncCallBound | undefined;
     /** Whether the Plan's Autosave begins on, as its author says: its one history's choice begins there. */
     autosave?: boolean | undefined;
+    /**
+     * The link kinds (#1541, U10): each a kind of link over the app's record, its links drawn beside the root's own and
+     * saved in a session of its own, under the one history; none, a Plan of the root's links alone.
+     */
+    linkKinds?: readonly PlanLinkKindValue[] | undefined;
 }
 
 /** No panel tab whose cards land on the rows. */
@@ -326,7 +334,7 @@ const NO_PANEL: readonly string[] = [];
  */
 export function usePlanCanvas({
     value: hostValue, storageKey, events, hidden, rowsHidden, eventKinds, panel, kinds = NO_KINDS,
-    landings = NO_LANDINGS, tabs = NO_TABS, optimise, autosave = false,
+    landings = NO_LANDINGS, tabs = NO_TABS, optimise, autosave = false, linkKinds = NO_LINK_KINDS,
 }: PlanCanvasArgs): PlanCanvasParts {
     planRootRenderProbe?.();
     // Changes identity on a DATA change only — read data fields through it,
@@ -445,11 +453,18 @@ export function usePlanCanvas({
     // cells read before the commit, until they are read again.
     const drawsLanded = useMemo(() => new Set(cellKinds(kinds)), [kinds]);
     // A new event whose made key another Save took goes on under the next its session makes (#1583) — two planners who
-    // each duplicate one event, or drop one template, are given the same key. Nothing the Plan drafts names an event by
-    // its key — its links are the app's own, of events the record holds — so every kind's may.
-    const rekeys = useMemo(() => new Set(kinds.map((kind) => kind.key)), [kinds]);
+    // each duplicate one event, or drop one template, are given the same key. A link of the list built in code names
+    // events the record holds, so nothing drafted names such an event by its key. A link kind's drafted link may: an
+    // event of a kind its ends name keeps the key made for it, as a Schematic's item does, until the rows that name one
+    // another are re-keyed together (#1609).
+    const rekeys = useMemo(() => {
+        const named = linkedEventKinds(linkKinds);
+        return new Set(kinds.map((kind) => kind.key).filter((key) => !named.has(key)));
+    }, [kinds, linkKinds]);
+    // Each link kind bound with its patch door is a record of the one history (#1541, U10), its session named by its slot.
+    const linkRecords = useMemo(() => linkKindRecords(linkKinds), [linkKinds]);
     const eventEditing = usePlanEventEditing({
-        kinds, storageKey, joined, range: eventRange, recordSlices: eventSlices, held: heldCells, drawsLanded, rekeys, autosave,
+        kinds, records: linkRecords, storageKey, joined, range: eventRange, recordSlices: eventSlices, held: heldCells, drawsLanded, rekeys, autosave,
     });
     const history = eventEditing.history;
     historyRef.current = history;
@@ -546,9 +561,23 @@ export function usePlanCanvas({
     const linkRows = linkRowsResult.ok ? linkRowsResult.value : NO_LINK_ROWS;
     const nested = usePlanNestedRoot(editing.value, editing.data, editing.data.nested.type === "some" ? nestedLead : undefined, editing.drafted,
         linkRows);
+    // ── The link kinds' links (#1541, U10) ────────────────────────────────
+    // Each kind's links, rows of the app's record read whole, with its session's drafts in place — a stored link as
+    // drafted, one its draft adds, as the Connect tool draws one — join the root's own: each end names its event as a
+    // link built in code does, so the links focus, the ribbons and the far ends read by key take them as they are.
+    const readLinks = useCallback(() => readLinkKinds(linkKinds), [linkKinds]);
+    const { result: linksResult } = useTrackedEvaluation(readLinks);
+    const linksRead = linksResult.ok ? linksResult.value : NO_LINK_KINDS_READ;
+    const linkDrafted = useDraftedRows(eventEditing, linkKinds);
+    const [linkStanding] = useState(() => new DraftedStanding());
+    const ofKinds = useMemo(() => kindLinks(linkKinds, linksRead, linkDrafted, linkStanding), [linkKinds, linksRead, linkDrafted, linkStanding]);
+    const linked = useMemo(() => (ofKinds.length === 0 ? nested : {
+        value: { ...nested.value, links: [...nested.value.links, ...ofKinds] },
+        data: { ...nested.data, links: [...nested.data.links, ...ofKinds] },
+    }), [nested, ofKinds]);
     // The event kinds' events joined into the drafted root's own rows, and its links' event ends named where the events
     // draw (#1192, #1541).
-    const shown = usePlanEventRoot(nested.value, nested.data, events !== undefined ? lead : undefined, events, hidden);
+    const shown = usePlanEventRoot(linked.value, linked.data, events !== undefined ? lead : undefined, events, hidden);
     const value = shown.value;
     const data = shown.data;
     // Props sync. A new DATA identity reconciles the UI state (#610); the
@@ -1860,7 +1889,7 @@ export function usePlanCanvas({
         ? (
             <PlanEventsReader events={events} scale={scale} hidden={hidden} drafts={eventEditing.drafts}
                 kinds={kinds} rows={nested.data.rows.type === "inline" ? nested.data.rows : nested.value.rows} parts={eventParts}
-                links={editing.data.links} spans={cellSpans} editing={eventEditing} onLead={setLead} />
+                links={linked.data.links} spans={cellSpans} editing={eventEditing} onLead={setLead} />
         )
         : null;
     // The rows' nested series (#1438), read by a component of its own around the rows laid out — or, while the Plan is

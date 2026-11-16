@@ -268,28 +268,31 @@ describe("a link's event ends", () => {
                 path.getAttribute("data-link-to"), path.getAttribute("data-link-to-run"),
             ]);
             const end = (row: PlanRowId, kind: string, key: string) => [rowKeyOf(row), elementKey(kind, key)];
+            // A flow is a row of the flows' record, a link kind (#1541, U10): its link is named by its kind's slot and its
+            // row's key, and the kind's links draw in their record's order.
+            const flow = (key: string) => elementKey("flow", key);
             expect(ends).toEqual([
-                ["plates", ...end(ps, "plate", "P-01"), ...end(a1, "job", "J-2001")],
-                ["covers", ...end(a1, "job", "J-2001"), ...end(b1, "job", "J-2013")],
-                ["card", ...end(b3, "job", "J-2020"), ...end(a2, "job", "J-2005")],
-                ["inserts", ...end(a1, "job", "J-2003"), ...end(b2, "job", "J-2016")],
-                ["report-covers", ...end(b3, "job", "J-2022"), ...end(a3, "job", "J-2009")],
-                ["seed-prints", ...end(b1, "job", "J-2014"), ...end(b2, "job", "J-2017")],
-                ["tags", ...end(a2, "job", "J-2006"), ...end(a2, "job", "J-2007")],
-                ["pads", ...end(a3, "job", "J-2010"), ...end(a3, "job", "J-2011")],
-                ["proofs", ...end(a3, "job", "J-2008"), ...end(b2, "job", "J-2015")],
-                ["proof-sheets", ...end(b1, "job", "J-2012"), ...end(a2, "job", "J-2004")],
-                ["tickets", ...end(b2, "job", "J-2019"), ...end(b3, "job", "J-2023")],
-                ["sections", ...end(b3, "job", "J-2021"), ...end(fold, "binding", "B-01")],
-                ["sections-more", ...end(b3, "job", "J-2021"), ...end(fold, "binding", "B-02")],
-                ["folded", ...end(fold, "binding", "B-02"), ...end(bind, "binding", "B-03")],
-                ["books", ...end(bind, "binding", "B-03"), ...end(bay, "delivery", "D-01")],
-                ["posters", ...end(a1, "job", "J-2002"), ...end(bay, "delivery", "D-02")],
-                ["book-blocks", ...end(b2, "job", "J-2018"), ...end(bind, "binding", "B-04")],
+                [flow("book-blocks"), ...end(b2, "job", "J-2018"), ...end(bind, "binding", "B-04")],
+                [flow("books"), ...end(bind, "binding", "B-03"), ...end(bay, "delivery", "D-01")],
+                [flow("card"), ...end(b3, "job", "J-2020"), ...end(a2, "job", "J-2005")],
+                [flow("covers"), ...end(a1, "job", "J-2001"), ...end(b1, "job", "J-2013")],
+                [flow("folded"), ...end(fold, "binding", "B-02"), ...end(bind, "binding", "B-03")],
+                [flow("inserts"), ...end(a1, "job", "J-2003"), ...end(b2, "job", "J-2016")],
+                [flow("pads"), ...end(a3, "job", "J-2010"), ...end(a3, "job", "J-2011")],
+                [flow("plates"), ...end(ps, "plate", "P-01"), ...end(a1, "job", "J-2001")],
+                [flow("posters"), ...end(a1, "job", "J-2002"), ...end(bay, "delivery", "D-02")],
+                [flow("proof-sheets"), ...end(b1, "job", "J-2012"), ...end(a2, "job", "J-2004")],
+                [flow("proofs"), ...end(a3, "job", "J-2008"), ...end(b2, "job", "J-2015")],
+                [flow("report-covers"), ...end(b3, "job", "J-2022"), ...end(a3, "job", "J-2009")],
+                [flow("sections"), ...end(b3, "job", "J-2021"), ...end(fold, "binding", "B-01")],
+                [flow("sections-more"), ...end(b3, "job", "J-2021"), ...end(fold, "binding", "B-02")],
+                [flow("seed-prints"), ...end(b1, "job", "J-2014"), ...end(b2, "job", "J-2017")],
+                [flow("tags"), ...end(a2, "job", "J-2006"), ...end(a2, "job", "J-2007")],
+                [flow("tickets"), ...end(b2, "job", "J-2019"), ...end(b3, "job", "J-2023")],
             ]);
             // Each figure the case table names, in the links' order.
             expect([...container.querySelectorAll("[data-plan-link]")].map((g) => g.getAttribute("data-plan-route"))).toEqual([
-                "s", "s", "s", "loop", "loop", "loop", "feed", "runoff", "loop", "s", "s", "s", "s", "s", "s", "s", "loop",
+                "loop", "s", "s", "s", "s", "loop", "runoff", "s", "s", "s", "loop", "loop", "s", "s", "loop", "feed", "s",
             ]);
         } finally {
             restore();
