@@ -31,6 +31,12 @@
  * - **several events** (PB39): how many, each kind's count, the list, and the
  *   bulk edit — the state, the resource and a shift in time — over those not
  *   locked, with how many are locked, which every gesture leaves as they are;
+ * - **a link** of a link kind (#1541, U10), selected with no event: its
+ *   kind's icon and name, the two events it joins by their titles, what it
+ *   moves, its kind's form over its row — each edit a draft of the link's
+ *   record, one step of the Plan's history — and Delete; several links, how
+ *   many, each by the events it joins, and Delete. Events selected with links
+ *   show as the events they are: the Delete key removes the links with them;
  * - **a row** (PB40), on a Plan with or without event kinds (#1541, U5): a
  *   resource's name and lines — its landing row's (#1541) — the group it is
  *   drawn under; the banner of its refusals holding Save while the Plan's
@@ -120,8 +126,9 @@ import { FrameDrawer, PlaceholderShape } from "@elaraai/east-ui-components/inter
 import { breachTone } from "../../shared/bounds.js";
 import { heldRowOf } from "../../shared/schedule/editing.js";
 import { useFieldAsk } from "../../shared/schedule/field-ask.js";
-import { fieldChange } from "../../shared/schedule/records.js";
+import { fieldChange, fieldWrite, rowCodec } from "../../shared/schedule/records.js";
 import { removePlanEvents, type PlanEventChange, type PlanEventEditing } from "../edit/events.js";
+import { kindLinkOf, linkStepLabel, type PlanLinkKindValue, type PlanLinkRolesValue } from "../links/kinds.js";
 import { scheduleEventKey } from "../../shared/schedule/overlaps.js";
 import { entryRefusals, refusalsText, refusedFields } from "../../shared/schedule/refusals.js";
 import { stateText } from "../a11y.js";
@@ -232,6 +239,27 @@ type InspectedEvent = PlanInspectedEvent;
 /** No event selected: what the pane holds before the selection's first read. */
 export const NO_INSPECTED: readonly PlanInspectedEvent[] = NO_EVENTS;
 
+/** One selected link of a link kind (#1541, U10), read: its kind, its row with its drafts in place, and what it joins. */
+export interface PlanInspectedLink {
+    /** Its key on the canvas: its kind's slot and its row's key, as East prints a reference. */
+    readonly key: string;
+    /** Its link kind. */
+    readonly kind: PlanLinkKindValue;
+    /** Its row's key's text. */
+    readonly id: string;
+    /** Its row, as bytes at its record's row type, its drafts in place. */
+    readonly row: Uint8Array;
+    /** The event it runs from, by its title — by its key's text where the page holds no such event. */
+    readonly from: string;
+    /** The event it runs to, named likewise. */
+    readonly to: string;
+    /** What it moves; none for a link with no quantity. */
+    readonly quantity: PlanLinkRolesValue["quantity"];
+}
+
+/** No link selected: what the pane holds before the selection's first read, and on a Plan with no link kind. */
+export const NO_INSPECTED_LINKS: readonly PlanInspectedLink[] = [];
+
 /** What is selected on the canvas: the row, the bucket a click on it named, and the events. */
 export interface PlanInspectorSelection {
     readonly row: RowKey | null;
@@ -282,6 +310,8 @@ export interface PlanInspectorProps {
     selection: PlanInspectorSelection;
     /** The selected events, read ({@link PlanSelectionReader}). */
     events: readonly PlanInspectedEvent[];
+    /** The selected links of the link kinds, read beside them (#1541, U10). */
+    links: readonly PlanInspectedLink[];
     /** The ids the viewer hides in the Series tab: a kind hidden there is in no figure of a row's. */
     hidden: readonly string[];
 }
@@ -344,6 +374,67 @@ function sameEvents(a: readonly InspectedEvent[], b: readonly InspectedEvent[]):
     });
 }
 
+/** An event a link joins, as the inspector names it: its title, or its key's text where the page holds no such event. */
+function linkEndTitle(editing: PlanEventEditing, ref: PlanLinkRolesValue["from"]): string {
+    try {
+        return editing.read(ref.kind, ref.key)?.item.title ?? ref.key;
+    } catch (err) {
+        console.error(`[Plan] ${ref.kind}'s read of ${ref.key} failed; a link names it by its key:`, err);
+        return ref.key;
+    }
+}
+
+/**
+ * The selected links of the link kinds (#1541, U10), each read as the page
+ * holds its row — its drafts in place — and through its kind: tracked, so a
+ * commit to a link's record, or to an event it joins, reads them again. A
+ * link its drafts removed is left out.
+ *
+ * @param linkKinds - The link kinds
+ * @param elements - What is selected, by its elements' keys
+ * @param editing - The Plan's editing, which holds each link kind's session; none without a window
+ * @returns The links, in the order they were selected — the last read's while a read has failed
+ */
+function useSelectedLinks(linkKinds: readonly PlanLinkKindValue[], elements: readonly string[], editing: PlanEventEditing | undefined): readonly PlanInspectedLink[] {
+    const read = useCallback((): readonly PlanInspectedLink[] => {
+        if (linkKinds.length === 0 || editing === undefined) return NO_INSPECTED_LINKS;
+        const out: PlanInspectedLink[] = [];
+        for (const key of elements) {
+            const named = kindLinkOf(linkKinds, key);
+            if (named === undefined) continue;
+            const { kind, id } = named;
+            // Its row as the page holds it: its session's version, else its record's. None for one its drafts removed.
+            const held = editing.row(kind.key, id);
+            if (held === undefined || held.type !== "some") continue;
+            const row = rowCodec(kind.rowType).encode(held.value);
+            const roles = kind.read(row, id);
+            out.push({ key, kind, id, row, from: linkEndTitle(editing, roles.from), to: linkEndTitle(editing, roles.to), quantity: roles.quantity });
+        }
+        return out.length === 0 ? NO_INSPECTED_LINKS : out;
+    }, [linkKinds, elements, editing]);
+    const { result } = useTrackedEvaluation(read);
+    const held = useRef<readonly PlanInspectedLink[]>(NO_INSPECTED_LINKS);
+    return useMemo(() => {
+        if (!result.ok) {
+            console.error("[Plan] the selected links could not be read:", result.error);
+            return held.current;
+        }
+        // The same links as the last read — each read is a new array — hold the last: nothing the pane shows moved.
+        if (sameLinks(held.current, result.value)) return held.current;
+        held.current = result.value;
+        return result.value;
+    }, [result]);
+}
+
+/** Whether two reads of the selected links read the same: each link's key, kind, row and the names of what it joins. */
+function sameLinks(a: readonly PlanInspectedLink[], b: readonly PlanInspectedLink[]): boolean {
+    return a.length === b.length && a.every((link, i) => {
+        const other = b[i]!;
+        return stringEqual(link.key, other.key) && Object.is(link.kind, other.kind) && blobEqual(link.row, other.row)
+            && stringEqual(link.from, other.from) && stringEqual(link.to, other.to);
+    });
+}
+
 /** Props of {@link PlanSelectionReader}. */
 export interface PlanSelectionReaderProps {
     /** The event kinds: each selected event is read through its kind. */
@@ -358,6 +449,10 @@ export interface PlanSelectionReaderProps {
     held: ScheduleCellsRead["held"] | undefined;
     /** Where the events go: called only when they move. */
     onRead: (events: readonly PlanInspectedEvent[]) => void;
+    /** The link kinds (#1541, U10): each selected link is read through its kind. */
+    linkKinds: readonly PlanLinkKindValue[];
+    /** Where the selected links go: called only when they move. */
+    onLinks: (links: readonly PlanInspectedLink[]) => void;
 }
 
 /**
@@ -368,14 +463,21 @@ export interface PlanSelectionReaderProps {
  * @param props - What is read, and where it goes
  * @returns Nothing: it reads
  */
-export function PlanSelectionReader({ kinds, elements, drafts, editing, held, onRead }: PlanSelectionReaderProps): null {
+export function PlanSelectionReader({ kinds, elements, drafts, editing, held, onRead, linkKinds, onLinks }: PlanSelectionReaderProps): null {
     const events = useSelectedEvents(kinds, elements, drafts ?? NONE_DRAFTED, editing, held);
+    const links = useSelectedLinks(linkKinds, elements, editing);
     const reported = useRef<readonly InspectedEvent[]>(NO_EVENTS);
+    const reportedLinks = useRef<readonly PlanInspectedLink[]>(NO_INSPECTED_LINKS);
     useLayoutEffect(() => {
         // The same events, by identity: the read holds its last while what it read holds.
-        if (Object.is(reported.current, events)) return;
-        reported.current = events;
-        onRead(events);
+        if (!Object.is(reported.current, events)) {
+            reported.current = events;
+            onRead(events);
+        }
+        if (!Object.is(reportedLinks.current, links)) {
+            reportedLinks.current = links;
+            onLinks(links);
+        }
     });
     return null;
 }
@@ -387,7 +489,7 @@ export function PlanSelectionReader({ kinds, elements, drafts, editing, held, on
  * @returns The pane — 320px wide, its collapsed state kept per viewer, its rail saying what is selected — or `undefined`, no pane, when the Plan is given no inspector
  */
 export function usePlanInspector({
-    shown, kinds, landings, chrome, counts, keys, words, selection, events, hidden,
+    shown, kinds, landings, chrome, counts, keys, words, selection, events, links, hidden,
 }: PlanInspectorProps): BuilderFrameDock | undefined {
     const { m } = words;
     // No `inspector`: no pane (#1197).
@@ -396,7 +498,10 @@ export function usePlanInspector({
     // The rail's line: what is selected.
     const detail = events.length === 1 ? events[0]!.item.title
         : events.length > 1 ? m.inspectorEvents({ n: events.length, count: words.number(events.length) })
-            : row?.gutter.label;
+            // Links alone (#1541, U10): one by the events it joins, several by their count.
+            : links.length === 1 ? m.linkEnds({ from: links[0]!.from, to: links[0]!.to })
+                : links.length > 1 ? m.inspectorLinks({ n: links.length, count: words.number(links.length) })
+                    : row?.gutter.label;
     return {
         label: m.inspectorPane(),
         icon: "sliders",
@@ -404,7 +509,7 @@ export function usePlanInspector({
         persist: "local",
         detail,
         body: (
-            <PlanInspectorBody selection={selection} events={events} kinds={kinds} landings={landings} chrome={chrome}
+            <PlanInspectorBody selection={selection} events={events} links={links} kinds={kinds} landings={landings} chrome={chrome}
                 counts={counts} keys={keys} words={words} hidden={hidden} />
         ),
     };
@@ -414,6 +519,8 @@ export function usePlanInspector({
 interface BodyProps {
     selection: PlanSelection;
     events: readonly InspectedEvent[];
+    /** The selected links of the link kinds (#1541, U10). */
+    links: readonly PlanInspectedLink[];
     kinds: PlanValue["events"];
     /** The series the event kinds land on (#1541). */
     landings: PlanValue["landings"];
@@ -439,12 +546,15 @@ const PlanInspectorBody = memo(function PlanInspectorBody(props: BodyProps) {
     );
 });
 
-/** What the body shows: one event, several, a row, or nothing. */
+/** What the body shows: one event, several, a link or several, a row, or nothing. */
 function bodyView(props: BodyProps, styles: Styles): ReactNode {
-    const { selection, events, chrome } = props;
+    const { selection, events, links, chrome } = props;
     // Each event its own view: what one showed never lands on the next.
     if (events.length === 1) return <OneEvent key={events[0]!.key} {...props} styles={styles} event={events[0]!} />;
     if (events.length > 1) return <SeveralEvents {...props} styles={styles} />;
+    // Links with no event (#1541, U10): each link its own view too.
+    if (links.length === 1) return <OneLink key={links[0]!.key} {...props} styles={styles} link={links[0]!} />;
+    if (links.length > 1) return <SeveralLinks {...props} styles={styles} />;
     if (selection.row !== null && chrome !== undefined) {
         const row = chrome.inspect.row(selection.row);
         if (row !== undefined) return <RowView key={row.key} {...props} styles={styles} chrome={chrome} rowKey={row.key} at={selection.at} />;
@@ -1068,6 +1178,132 @@ function SeveralEvents({ events: selected, kinds, landings, words, styles, chrom
                     </chakra.button>
                     <chakra.button type="button" css={button({ variant: "outline", size: "xs" })} data-inspector-action="delete"
                         onClick={() => { if (writable) deleteEvents(events, editing, chrome, selected.filter((event) => event.item.locked)); }}>
+                        {m.inspectorAction({ action: "delete" })}
+                    </chakra.button>
+                </Box>
+            </chakra.fieldset>
+        </Box>
+    );
+}
+
+// ============================================================================
+// A link kind's link (#1541, U10)
+// ============================================================================
+
+/** Removes the selected links, as one step of the history, and leaves nothing selected. */
+function deleteLinks(links: readonly PlanInspectedLink[], editing: PlanEventEditing | undefined, chrome: PlanChrome | undefined): void {
+    if (removePlanEvents(links.map((link) => link.key), editing, linkStepLabel("Delete", links.map((link) => link.kind)))) chrome?.selectEvents([]);
+}
+
+/** Whether the canvas takes a write, and every selected link's kind is bound with its patch door and takes a gesture now. */
+function linksWritable(links: readonly PlanInspectedLink[], editing: PlanEventEditing | undefined, canvas: boolean): boolean {
+    return canvas && editing !== undefined && links.length > 0 && links.every((link) => link.kind.editable && editing.available(link.kind.key));
+}
+
+/** Props of {@link OneLink}. */
+interface OneLinkProps extends BodyProps {
+    link: PlanInspectedLink;
+    styles: Styles;
+}
+
+/**
+ * One link of a link kind: its kind and the events it joins, what it moves,
+ * its kind's form over its row, and Delete.
+ */
+function OneLink({ link, words, styles, chrome }: OneLinkProps) {
+    const { m } = words;
+    const button = useRecipe({ key: "button" });
+    const { kind } = link;
+    // Its edits: steps of the Plan's one history, on while the canvas takes a write and its kind's record a gesture.
+    const editing = chrome?.events;
+    const writable = linksWritable([link], editing, chrome?.writable === true);
+    const writes = useRef(writable);
+    writes.current = writable;
+    const quantity = getSomeorUndefined(link.quantity);
+    // Its row, held by its data: a read that brings the same row again draws nothing new.
+    const row = useDataStable(link.row, blobEqual);
+    const value = useMemo(() => rowCodec(kind.rowType).decode(row), [kind.rowType, row]);
+    // What its record holds: what a drafted field is tinted against — a new link's every field, against nothing.
+    const drafted = editing?.draftsOf(kind.key).has(link.id) === true;
+    const held = editing?.held(kind.key, link.id) ?? (drafted ? NEW_EVENT : value);
+    // Its refusals holding Save: its record's session's, each field one names ringed, its words under it.
+    const refusals = entryRefusals(editing?.sessions ?? [], kind.key, link.id);
+    const refused = refusedFields(refusals);
+    const breaches = breachTone(refusals);
+    const focus = useFieldAsk(kind.key, link.id);
+    // The form's draws: one more each time an edit records nothing, so its fields show what the row holds again.
+    const [redraws, setRedraws] = useState(0);
+    // A field edited: one step, written through its record's `set` over the row as the step finds it.
+    const onField = useCallback((path: readonly string[], next: unknown) => {
+        const write = fieldWrite(kind.fields, kind.rowType, path, next);
+        if (editing === undefined || write === undefined) return;
+        const rewrite = (at: Uint8Array) => getSomeorUndefined(kind.set(at, [write]));
+        if (!writes.current || !editing.record([{ kind: kind.key, id: link.id, rewrite }], "typed", linkStepLabel("Edit", [kind]))) setRedraws((n) => n + 1);
+    }, [editing, kind, link.id]);
+    return (
+        <Box css={styles.root} data-plan-inspector="link">
+            <ScheduleInspectorHead styles={styles} kind={kind} title={m.linkEnds({ from: link.from, to: link.to })} when={null} home />
+            {refusals.length > 0 && (
+                <Box css={styles.refusals} data-inspector-refusals="">
+                    <BannerView status="warning" title={m.inspectorRefusals()} description={refusalsText(refusals, kind.fields)} />
+                </Box>
+            )}
+            <Box as="dl" css={styles.facts} data-inspector-facts="">
+                <Fact styles={styles} fact="from" label={m.inspectorFact({ fact: "from" })} value={link.from} />
+                <Fact styles={styles} fact="to" label={m.inspectorFact({ fact: "to" })} value={link.to} />
+                {quantity !== undefined && <Fact styles={styles} fact="quantity" label={m.inspectorFact({ fact: "quantity" })} value={quantityText(quantity, words)} />}
+            </Box>
+            <chakra.fieldset css={styles.edits} disabled={!writable} data-inspector-edits="">
+                {kind.fields.length > 0 && (
+                    <Box css={styles.fields} data-inspector-fields="form">
+                        <FieldForm key={redraws} specs={kind.fields} value={value} baseline={held} issues={refused} focus={focus} breaches={breaches}
+                            onChange={editing !== undefined ? onField : NO_EDIT} />
+                    </Box>
+                )}
+                <Box css={styles.actions} data-inspector-actions="">
+                    <chakra.button type="button" css={button({ variant: "outline", size: "xs" })} data-inspector-action="delete"
+                        onClick={() => { if (writes.current) deleteLinks([link], editing, chrome); }}>
+                        {m.inspectorAction({ action: "delete" })}
+                    </chakra.button>
+                </Box>
+            </chakra.fieldset>
+        </Box>
+    );
+}
+
+/** Props of {@link SeveralLinks}. */
+interface SeveralLinksProps extends BodyProps {
+    styles: Styles;
+}
+
+/** Several links of the link kinds: how many, each by the events it joins, and Delete. */
+function SeveralLinks({ links, words, styles, chrome }: SeveralLinksProps) {
+    const { m } = words;
+    const button = useRecipe({ key: "button" });
+    const editing = chrome?.events;
+    const writable = linksWritable(links, editing, chrome?.writable === true);
+    const writes = useRef(writable);
+    writes.current = writable;
+    return (
+        <Box css={styles.root} data-plan-inspector="links">
+            <Box css={styles.head} {...FOCUS_HOME_PROPS}>
+                <Box css={styles.summary} data-inspector-several="">{m.inspectorLinks({ n: links.length, count: words.number(links.length) })}</Box>
+            </Box>
+            <Box as="ul" css={styles.list} data-inspector-list="">
+                {links.map((link) => (
+                    <Box as="li" key={link.key} css={styles.listItem} data-inspector-link={link.key}>
+                        <FontAwesomeIcon icon={["fas", link.kind.icon as IconName]} />
+                        <Box css={styles.listText}>
+                            <Box as="span" css={styles.listTitle}>{m.linkEnds({ from: link.from, to: link.to })}</Box>
+                            <Box as="span" css={styles.listWhen}>{link.kind.name}</Box>
+                        </Box>
+                    </Box>
+                ))}
+            </Box>
+            <chakra.fieldset css={styles.edits} disabled={!writable} data-inspector-edits="">
+                <Box css={styles.actions} data-inspector-actions="">
+                    <chakra.button type="button" css={button({ variant: "outline", size: "xs" })} data-inspector-action="delete"
+                        onClick={() => { if (writes.current) deleteLinks(links, editing, chrome); }}>
                         {m.inspectorAction({ action: "delete" })}
                     </chakra.button>
                 </Box>

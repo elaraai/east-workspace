@@ -33,6 +33,7 @@ import type { PlanLinkKindType } from "@elaraai/e3-ui/internal";
 import { parseEventRef, printEventRef } from "../../shared/schedule/event-ref.js";
 import { draftedOf, draftsInPlace, type DraftedRowsByKind, type DraftedStanding } from "../../shared/schedule/drafted-rows.js";
 import type { ScheduleEditingRecord } from "../../shared/schedule/editing.js";
+import { lowerWord } from "../../shared/schedule/words.js";
 import type { PlanLinkValue } from "../model.js";
 
 /** A link kind, as the payload carries it. */
@@ -86,6 +87,18 @@ export function kindLinkOf(kinds: readonly PlanLinkKindValue[], key: string): { 
     if (!ref.success) return undefined;
     const kind = kinds.find((one) => one.key === ref.value.kind);
     return kind === undefined ? undefined : { kind, id: ref.value.key };
+}
+
+/**
+ * A gesture's label in the history over link kinds' links — canonical English, as every history's labels are: one link
+ * by its kind's name (`Delete flow`), several by their count (`Delete 3 links`).
+ *
+ * @param verb - What the gesture does (`Delete`, `Edit`)
+ * @param kinds - The kind of each link it reaches
+ * @returns The label
+ */
+export function linkStepLabel(verb: string, kinds: readonly PlanLinkKindValue[]): string {
+    return kinds.length === 1 ? `${verb} ${lowerWord(kinds[0]!.name)}` : `${verb} ${kinds.length} links`;
 }
 
 /**

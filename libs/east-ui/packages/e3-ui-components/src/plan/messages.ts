@@ -79,7 +79,7 @@ export type PlanDueWord = "thisWeek" | "nextWeek" | "later" | "none";
 export type PlanInspectorSection = "fields" | "bulk" | "window" | "measures";
 
 /** A fact the inspector pane shows of an event or a row (#1197). */
-export type PlanInspectorFact = "resource" | "start" | "end" | "at" | "lane" | "state" | "quantity" | "group" | "events" | "hours" | "quantities";
+export type PlanInspectorFact = "resource" | "start" | "end" | "at" | "lane" | "state" | "quantity" | "group" | "events" | "hours" | "quantities" | "from" | "to";
 
 /**
  * What the inspector pane counts when nothing is selected (#1197, PB41): the
@@ -306,6 +306,10 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
     inspectorLockedCount: (p: { n: number; count: string }) => string;
     /** The words of a selected link's × (#1541, U10) — `Remove flow`: its link kind's name. */
     linkRemove: (p: { name: string }) => string;
+    /** A link kind's link, as the inspector names it — its head and its rail — by the two events it joins: `Event posters → Fold and trim`. */
+    linkEnds: (p: { from: string; to: string }) => string;
+    /** Several links selected — `3 links`. */
+    inspectorLinks: (p: { n: number; count: string }) => string;
 
     // ── The horizon, the ruler, the axis in words ──────────────────────────
     /** The horizon strip's caption — `HORIZON · 26 WK`. */
@@ -691,7 +695,7 @@ export const planMessages: PlanMessages = {
     })[section],
     inspectorFact: ({ fact }) => ({
         resource: "Resource", start: "Start", end: "End", at: "At", lane: "Lane", state: "State", quantity: "Quantity",
-        group: "Group", events: "Events", hours: "Hours", quantities: "Quantity",
+        group: "Group", events: "Events", hours: "Hours", quantities: "Quantity", from: "From", to: "To",
     })[fact],
     inspectorUnassigned: () => "Unassigned",
     inspectorRow: () => "Row",
@@ -718,6 +722,8 @@ export const planMessages: PlanMessages = {
     inspectorLockedDetail: () => "It can't be moved, changed or deleted.",
     inspectorLockedCount: ({ count }) => `${count} locked: left as they are`,
     linkRemove: ({ name }) => `Remove ${name}`,
+    linkEnds: ({ from, to }) => `${from} → ${to}`,
+    inspectorLinks: ({ n, count }) => `${count} ${plural(n, "link", "links")}`,
 
     horizon: ({ count, unit }) => `HORIZON · ${count} ${HORIZON_UNIT[unit]}`,
     horizonMax: ({ n, count, unit }) => `max ${count} ${plural(n, "item", "items")} / ${HORIZON_PER[unit]}`,
