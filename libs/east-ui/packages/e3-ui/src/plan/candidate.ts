@@ -9,6 +9,9 @@
  * an author's card landing, an event kind's element or a data series' item
  * moved, resized or taken off the canvas.
  *
+ * And what a Connect would draw (#1541, U10): the candidate its `canConnect`
+ * is asked of — a link kind, and the two events the link would join.
+ *
  * It lives beside the Plan's types and not among them: it names an event as
  * the schedule family does, and that family's types read the Plan's.
  *
@@ -88,3 +91,28 @@ export type PlanCandidateType = typeof PlanCandidateType;
 export const PlanCanDropType = FunctionType([PlanCandidateType], OptionType(StringType));
 /** Type representing {@link PlanCanDropType}. */
 export type PlanCanDropType = typeof PlanCanDropType;
+
+/**
+ * The link a Connect would draw: what a Plan's `canConnect` is asked, where
+ * the drag rests on an event and again before the link becomes an unsaved
+ * edit.
+ *
+ * @remarks
+ * Each event's key is printed, as East's text of the key, which parses back.
+ * A candidate is never stored.
+ *
+ * @property kind - The link kind it would be a link of, by its slot in `links`
+ * @property from - The event it would run from, by its kind's slot and its key's text
+ * @property to - The event it would run to
+ */
+export const PlanConnectCandidateType = StructType({ kind: StringType, from: ScheduleEventRefType, to: ScheduleEventRefType });
+/** Type representing {@link PlanConnectCandidateType}. */
+export type PlanConnectCandidateType = typeof PlanConnectCandidateType;
+
+/**
+ * A Plan's connect veto: the link a Connect would draw, to the refusal's
+ * message, said on the ghost — or `none`, to let it be drawn.
+ */
+export const PlanCanConnectType = FunctionType([PlanConnectCandidateType], OptionType(StringType));
+/** Type representing {@link PlanCanConnectType}. */
+export type PlanCanConnectType = typeof PlanCanConnectType;

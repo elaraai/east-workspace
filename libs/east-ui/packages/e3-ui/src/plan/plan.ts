@@ -89,7 +89,9 @@ import {
 import { FuncBindingType } from "../bind/func.js";
 import type { OptimiseHandle } from "../utils/optimise.js";
 import { PlanEventKindType, ScheduleCandidateType } from "../schedule/types.js";
-import { PlanCanDropType } from "./candidate.js";
+import { PlanCanConnectType, PlanCanDropType } from "./candidate.js";
+import { PlanLinkKindType, isPlanLinks, type PlanLinks } from "./link-kinds.js";
+import { typeText } from "../schedule/window.js";
 import { scheduleEventKindsCheck, scheduleTitled } from "../schedule/index.js";
 import { checkSchedulePagedEventKinds, checkedScheduleTilings, type SchedulePaging } from "../schedule/cell-checks.js";
 import { scheduleOptimiseBinding } from "../schedule/optimise.js";
@@ -224,6 +226,10 @@ export const PlanVocabularyType = StructType({
  * @property narrowed - Each source of the slice's narrowed keys, paged through its own data, by the source's name
  *   (#1344): what a templates list's cards and an author's tab read to show a source's rows; `rows` gives the canvas its
  *   rows, and an event kind reads its own narrowing through its part
+ * @property linkKinds - The link kinds, in the order `links` lists them (#1541, U10): each a kind of link over the
+ *   app's record, drawn beside the canvas's own links (`plan.links`), made with the Connect tool and shown in the inspector
+ * @property canConnect - The connect veto (#1541, U10): the link a Connect would draw to its refusal's message; `none`,
+ *   every pair a link kind's ends take is drawn
  */
 export const PlanPayloadType = StructType({
     plan: PlanRootType,
@@ -237,6 +243,8 @@ export const PlanPayloadType = StructType({
     inspector: BooleanType,
     vocabulary: PlanVocabularyType,
     narrowed: DictType(StringType, RowSourceType(ArrayType(StringType))),
+    linkKinds: ArrayType(PlanLinkKindType),
+    canConnect: OptionType(PlanCanConnectType),
 });
 
 /** Type representing the `Plan` renderer's payload. */
@@ -323,7 +331,7 @@ export function planVocabulary(given: PlanVocabularyProp | undefined): ValueType
  * @typeParam L - The `series` prop's type, inferred: held to the declarations ({@link PlanNestedChecked})
  */
 export interface PlanProps<K extends PlanAxisKindLiteral = PlanAxisKindLiteral, D = unknown, S = unknown, L = unknown>
-    extends Omit<PlanConfig<K>, "data" | "canDrop" | "series" | "editing" | "picked"> {
+    extends Omit<PlanConfig<K>, "data" | "canDrop" | "series" | "editing" | "picked" | "links"> {
     /** The rows' source — a keyed collection, a bind handle over one or a paged source of one, laid out by `series` (see {@link PlanConfig}). Leave it out for a Plan of event kinds or `rows` alone, and beside `slice`'s `rows` source, which gives the rows. */
     data?: D & PlanConfig<K>["data"];
     /** The row series over the rows (see {@link PlanConfig}), each held to the rows' nested series index where they carry one (#1435). */
@@ -413,6 +421,19 @@ export interface PlanProps<K extends PlanAxisKindLiteral = PlanAxisKindLiteral, 
      * said on the ghost; `none` lets it land.
      */
     canDrop?: SubtypeExprOrValue<PlanCanDropType>;
+    /**
+     * The links (#1541, U10): link kinds by slot, each a kind of link over the app's own record
+     * (`Plan.links(record, { from, to, … })`) — drawn as a link of the list is, made with the Connect tool, shown in the
+     * inspector and saved with the session's other drafts — or the list of links built in code (`Plan.link` values), as
+     * it was; a slot may hold such a list too, beside the kinds.
+     */
+    links?: PlanLinksProp;
+    /**
+     * The connect veto (#1541, U10): `Fn(Plan.Types.ConnectCandidate) → Option<String>`, asked of the link a Connect
+     * would draw — its link kind, and the two events it would join — where the drag rests on an event and again before
+     * the link becomes an unsaved edit. `some(message)` refuses it, the message said on the ghost; `none` lets it be drawn.
+     */
+    canConnect?: SubtypeExprOrValue<PlanCanConnectType>;
     /**
      * The app's optimiser (#1409, #1622): `Func.bind` of its `e3.function` from `Plan.Types.OptimiseRequest` — the plan
      * window in view, the run number and the rail's narrowing, and no row — to `Plan.Types.OptimiseResult(E)`, a patch of
@@ -505,6 +526,68 @@ function linkKindRefusalTail(kinds: readonly string[]): string {
     return `", and \`events\` has no kind of that name (${kinds.join(", ") || "none"})`;
 }
 
+/** A list of links built in code: `Plan.link` values, or an East expression of them. */
+export type PlanLinkList = SubtypeExprOrValue<ArrayType<PlanLinkType>>;
+
+/**
+ * What `links` takes (#1541, U10): the list of links built in code, as it was, or link kinds by slot — each slot a
+ * kind of link over the app's record (`Plan.links`), or such a list beside the kinds.
+ */
+export type PlanLinksProp = PlanLinkList | { readonly [slot: string]: PlanLinks | PlanLinkList };
+
+/**
+ * `links` told apart (#1541, U10): its link kinds by slot, and its lists of links built in code — the prop itself, or
+ * a slot's value — each named as a refusal names it.
+ *
+ * @param links - The `links` prop
+ * @returns The link kinds, in the order listed, and the lists
+ * @throws {Error} When `links`, or a slot's value, is neither
+ */
+function linksGiven(links: unknown): { kinds: [string, PlanLinks][]; lists: { name: string; links: unknown }[] } {
+    if (links === undefined) return { kinds: [], lists: [] };
+    const listed = (value: unknown): boolean => Array.isArray(value) || value instanceof Expr;
+    if (listed(links)) return { kinds: [], lists: [{ name: "links", links }] };
+    if (typeof links !== "object" || links === null) {
+        throw new Error("Plan: `links` is the links built in code, a list of Plan.link values, or link kinds by slot — links={{ feed: Plan.links(record, { from, to, … }) }}");
+    }
+    const kinds: [string, PlanLinks][] = [];
+    const lists: { name: string; links: unknown }[] = [];
+    for (const [slot, value] of Object.entries(links)) {
+        if (isPlanLinks(value)) kinds.push([slot, value]);
+        else if (listed(value)) lists.push({ name: `links.${slot}`, links: value });
+        else throw new Error(`Plan: \`links.${slot}\` is a link kind — Plan.links(record, { from, to, … }) — or a list of Plan.link values`);
+    }
+    return { kinds, lists };
+}
+
+/**
+ * A link kind's ends, held to the event kinds they name (#1541, U10): each names a kind `events` has, and holds its
+ * keys at that kind's own key type — the field's, or its case's.
+ *
+ * @param slot - The link kind's slot
+ * @param kind - The link kind
+ * @param events - The event kinds, by slot
+ * @throws {Error} Naming the end, its field and both types: an end naming no event kind, or holding another type than its kind is keyed by
+ */
+function checkLinkEnds(slot: string, kind: PlanLinks, events: Readonly<Record<string, ScheduleEventKind<EastType, EastType>>>): void {
+    const kinds = Object.keys(events);
+    for (const prop of ["from", "to"] as const) {
+        const role = kind.ends[prop];
+        for (const { slot: of, key, case: c } of role.slots) {
+            const event = events[of];
+            if (event === undefined) {
+                throw new Error(`Plan: the link kind "${slot}"'s \`${prop}\` holds keys of "${of}", and \`events\` has no kind of that name (${kinds.join(", ") || "none"})`);
+            }
+            if (isTypeEqual(key, event.keyType)) continue;
+            const held = `Plan: the link kind "${slot}"'s \`${prop}\`, "${role.field}", holds ${typeText(key)}`;
+            const keyed = `and the event kind "${of}" is keyed by ${typeText(event.keyType)}`;
+            throw new Error(c === undefined
+                ? `${held} — ${keyed}: name a field holding ${typeText(event.keyType)}`
+                : `${held} in its case "${c}" — ${keyed}: give the case ${typeText(event.keyType)}`);
+        }
+    }
+}
+
 /**
  * An axis held in a variable, checked as the Plan is evaluated: beside event
  * kinds it must be a time axis, or the Plan is refused in the words a build
@@ -534,11 +617,12 @@ function checkedTimeAxis(axis: unknown, kinds: readonly string[]): ExprType<Plan
  * holds at least its entry's key), and it names a kind the Plan has, or the
  * Plan is refused in the words a build uses.
  *
- * @param links - The `links` prop
+ * @param links - The list
  * @param kinds - The event kinds' slots
+ * @param name - The list, as a refusal names it: `links`, or a slot's (`links.built`)
  * @returns The links, checked
  */
-function checkedLinkKinds(links: unknown, kinds: readonly string[]): ExprType<ArrayType<PlanLinkType>> {
+function checkedLinkKinds(links: unknown, kinds: readonly string[], name: string): ExprType<ArrayType<PlanLinkType>> {
     const slots = new Set(kinds);
     const tail = linkKindRefusalTail(kinds);
     const check = East.function([ArrayType(PlanLinkType)], ArrayType(PlanLinkType), ($, all) => {
@@ -548,7 +632,7 @@ function checkedLinkKinds(links: unknown, kinds: readonly string[]): ExprType<Ar
             $2.match(end.row, {
                 entry: ($3, row) => {
                     $3.if(row.path.size().equal(0n).and(() => known.has(row.series).not()), ($4) => {
-                        $4.error(East.value("Plan: links[").concat(East.print(i)).concat("] names the event kind \"").concat(row.series).concat(after));
+                        $4.error(East.value(`Plan: ${name}[`).concat(East.print(i)).concat("] names the event kind \"").concat(row.series).concat(after));
                     });
                 },
             });
@@ -599,8 +683,12 @@ function checkedRowsRange(config: ExprType<RecordSliceConfigType>): ExprType<Nul
  * @throws {Error} Naming the prop and the remedy: no rows from any source; `resources`, which is gone (#1541); event kinds
  *   over no rows, or over a `series` known only as it runs; an event kind's `resource.of` naming no resources series or
  *   kinds case, or one whose rows are not keyed by String; an event kind with no `title` (#1367); event kinds on a number
- *   or ordinal axis; a link naming an event kind `events` has not; a `rows` item that is neither a hand-built row nor
- *   `Plan.over`'s; a `canDrop` that is no function of `Plan.Types.Candidate` to an Option of its refusal's words; an
+ *   or ordinal axis; a link naming an event kind `events` has not; a `links` that is neither a list of links nor link
+ *   kinds by slot, or a slot holding neither; a link kind's end naming no event kind, or holding another type than its
+ *   kind is keyed by, naming the field and both types (#1541, U10); a `canConnect` on a Plan with no link kind, or that
+ *   is no function of `Plan.Types.ConnectCandidate` to an Option of its refusal's words; a `rows` item that is neither
+ *   a hand-built row nor `Plan.over`'s; a `canDrop` that is no function of `Plan.Types.Candidate` to an Option of its
+ *   refusal's words; an
  *   `optimise` with no event kinds, or one that is not `Func.bind` of a function from `OptimiseRequest` to
  *   `OptimiseResult(E)` over the event kinds' records (#1409, #1622); an `inspector` that is no boolean; over rows read a
  *   page at a time, an event kind with no source of the slice — its record read whole, or the days in view read through
@@ -620,7 +708,7 @@ function checkedRowsRange(config: ExprType<RecordSliceConfigType>): ExprType<Nul
  * @internal
  */
 export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
-    const { events, rows, date, autosave, canDrop, optimise, library, inspector, vocabulary, slice, record, onPatch, ready, ...canvas } = props as PlanAnyProps;
+    const { events, rows, date, autosave, canDrop, canConnect, optimise, library, inspector, vocabulary, slice, record, onPatch, ready, links: linksProp, ...canvas } = props as PlanAnyProps;
     const words = planVocabulary(vocabulary);
     // The rows are the resources (#1541, U1): `resources` is refused by name, naming its replacement.
     if ("resources" in canvas) throw new Error(resourcesRefusal());
@@ -717,16 +805,22 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
     const axis = kinds.length > 0 && axisKind === undefined ? checkedTimeAxis(canvas.axis, kinds) : canvas.axis;
     // A link's event ends name kinds the Plan has. The kinds known at build
     // are checked here; the rest as the Plan is evaluated, in the same words.
-    let links = canvas.links;
-    if (links !== undefined) {
-        const linked = Array.isArray(links) ? (links as readonly unknown[]).map(linkEventKinds) : [undefined];
+    // `links` is that list, as it was, or link kinds by slot with such lists beside them (#1541, U10).
+    const given = linksGiven(linksProp);
+    const lists = given.lists.map(({ name, links: list }): ExprType<ArrayType<PlanLinkType>> => {
+        const linked = Array.isArray(list) ? (list as readonly unknown[]).map(linkEventKinds) : [undefined];
         linked.forEach((ends, i) => {
             for (const kind of ends ?? []) {
-                if (!kinds.includes(kind)) throw new Error(`Plan: links[${i}] names the event kind "${kind}${linkKindRefusalTail(kinds)}`);
+                if (!kinds.includes(kind)) throw new Error(`Plan: ${name}[${i}] names the event kind "${kind}${linkKindRefusalTail(kinds)}`);
             }
         });
-        if (linked.includes(undefined)) links = checkedLinkKinds(links, kinds) as unknown as typeof links;
-    }
+        return linked.includes(undefined) ? checkedLinkKinds(list, kinds, name) : East.value(list as PlanLinkList, ArrayType(PlanLinkType));
+    });
+    const links = lists.length === 0 ? undefined : lists.slice(1).reduce((all, list) => all.concat(list), lists[0]!);
+    // A link kind's ends name event kinds the Plan has, each at its kind's own key type.
+    for (const [slot, kind] of given.kinds) checkLinkEnds(slot, kind, (events ?? {}) as Readonly<Record<string, ScheduleEventKind<EastType, EastType>>>);
+    // The connect veto, over the link a Connect would draw.
+    const connectVeto = canConnect === undefined ? undefined : checkedCanConnect(canConnect, given.kinds.length);
     if (inspector !== undefined && typeof inspector !== "boolean") {
         throw new Error("Plan: `inspector` is `true` for the inspector pane, or `false` or left out for none, and this one is no boolean — a kind's own inspector for one event is Schedule.events' `inspector`");
     }
@@ -769,7 +863,7 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
         // takes for the one it has.
         const own = rows === undefined ? undefined : $.const(rowsBlocks(rows));
         const plan = buildPlanRoot(
-            { ...canvas, data, axis, links, ...(editing === undefined ? {} : { editing }), ...(veto === undefined ? {} : { canDrop: veto }) } as Parameters<typeof buildPlanRoot>[0],
+            { ...canvas, data, axis, ...(links === undefined ? {} : { links }), ...(editing === undefined ? {} : { editing }), ...(veto === undefined ? {} : { canDrop: veto }) } as Parameters<typeof buildPlanRoot>[0],
             own,
             sources.chrome,
             rowsNested,
@@ -785,14 +879,19 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
         }
         const { tabs, made } = buildLibrary(library, { events: eventKinds, rows, picked, sources: sources.names, bind: (value) => $.let(value) as typeof value });
         if (events === undefined) {
-            return East.value({ plan, landings: onWire, events: [], seam: none, paged, optimise: optimiser, settings, library: tabs, inspector: inspected, vocabulary: words, narrowed } as never, PlanPayloadType);
+            // A link joins two events: a Plan of no event kinds has no link kind, and no veto of one.
+            return East.value({
+                plan, landings: onWire, events: [], seam: none, paged, optimise: optimiser, settings, library: tabs, inspector: inspected, vocabulary: words, narrowed,
+                linkKinds: [], canConnect: none,
+            } as never, PlanPayloadType);
         }
         // The payload is assembled in one function, so each kind is built once: the seam made inside it captures the very
         // array of event kinds the payload holds (#1192).
         const assemble = East.function(
-            [PlanRootType, ArrayType(PlanEventKindType), OptionType(FuncBindingType), PlanSettingsType, ArrayType(PlanLibraryTabType), NarrowedType],
+            [PlanRootType, ArrayType(PlanEventKindType), OptionType(FuncBindingType), PlanSettingsType, ArrayType(PlanLibraryTabType), NarrowedType,
+                ArrayType(PlanLinkKindType)],
             PlanPayloadType,
-            (_$, root, built, optimiseFn, chosen, listed, keys) => East.value({
+            (_$, root, built, optimiseFn, chosen, listed, keys, linked) => East.value({
                 plan: root,
                 landings: onWire,
                 events: built,
@@ -805,6 +904,8 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
                 inspector: inspected,
                 vocabulary: words,
                 narrowed: keys,
+                linkKinds: linked,
+                canConnect: connectVeto === undefined ? none : some(connectVeto),
             } as never, PlanPayloadType),
         );
         return assemble(
@@ -816,8 +917,31 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
             settings,
             tabs,
             narrowed,
+            // Each link kind, under its slot, in the order `links` lists them (#1541, U10).
+            given.kinds.map(([slot, kind]) => kind.build(slot)),
         );
     }) as ExprType<PlanPayloadType>;
+}
+
+/**
+ * A Plan's `canConnect`, checked to be its connect veto (#1541, U10): a function of the link a Connect would draw to
+ * its refusal's words.
+ *
+ * @param canConnect - The prop
+ * @param kinds - How many link kinds the Plan has
+ * @returns The veto
+ * @throws {Error} For a Plan with no link kind, which no Connect draws a link of, and naming the type it takes
+ */
+function checkedCanConnect(canConnect: unknown, kinds: number): ExprType<PlanCanConnectType> {
+    if (kinds === 0) {
+        throw new Error("Plan: `canConnect` vets the link a Connect would draw, and this Plan has no link kind — give one, " +
+            "links={{ feed: Plan.links(record, { from, to, … }) }}, or leave `canConnect` out");
+    }
+    const fn = East.value(canConnect as SubtypeExprOrValue<EastType>) as ExprType<EastType>;
+    const type = Expr.type(fn as unknown as Expr) as EastType;
+    if (isTypeEqual(type, PlanCanConnectType)) return fn as unknown as ExprType<PlanCanConnectType>;
+    throw new Error("Plan: `canConnect` is Fn(Plan.Types.ConnectCandidate) → Option<String>, the one check of every link a Connect would draw, " +
+        "its message on the ghost, and this one is " + printType(type));
 }
 
 /**
