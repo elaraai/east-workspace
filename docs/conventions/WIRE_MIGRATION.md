@@ -1372,3 +1372,21 @@ Each wire changed under this rule, with the kind it is.
   the dataflow computes each UI task's output again under the new type. A UI
   task's output is not stored state, so no repository upgrade step ships with
   it.
+- **A Plan carries its link kinds (#1541, U10)** — package-borne. The Plan's
+  payload (`PlanPayloadType`) gains `linkKinds` and `canConnect`, last. The
+  first is each link kind `<Plan links>` lists by slot, in that order
+  (`PlanLinkKindType`): what every kind over the application's record carries
+  of its record (whether it is editable, its session with its patch door, its
+  form, its setter and its row type), its slot, name and icon, the event kinds
+  each of its ends may name, how many links it holds, its stored links — each
+  one's two events and its quantity beside its row's bytes, none past the cap
+  an event kind is read under — a drafted link's same roles, a new link from
+  its two ends, its key's builder and its key type. The second is the connect
+  veto (`PlanCanConnectType`, over `PlanConnectCandidateType`: the link kind
+  and the two events), none where the Plan gives none. The canvas's own
+  `links` hold the links built in code, as before. A link kind's links are
+  rows of the application's own record, in its own row type: nothing of them
+  is stored in a form of e3's. A UI value encoded under either type does not
+  decode under the other: packages are re-exported, and the dataflow computes
+  each UI task's output again under the new type. A UI task's output is not
+  stored state, so no repository upgrade step ships with it.

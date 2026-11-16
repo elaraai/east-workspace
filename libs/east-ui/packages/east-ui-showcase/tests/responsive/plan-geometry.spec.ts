@@ -26,7 +26,7 @@
 import { expect, type Locator, type Page } from "playwright/test";
 import { test } from "./kept-page";
 import { settled } from "./settle";
-import { PLAN_EVENT_EXAMPLES, PLAN_EXAMPLES, openExample, planBox, rowId, rowSel, sizeBox } from "./plan-page";
+import { PLAN_EVENT_EXAMPLES, PLAN_EXAMPLES, linkKey, openExample, planBox, rowId, rowSel, sizeBox } from "./plan-page";
 import { cutNumbers, cutText, rulerFaults } from "./plan-text";
 import { printWorksBars } from "./plan-builder-page";
 
@@ -409,7 +409,9 @@ test.describe("Plan links focus (#818, #1258)", { tag: "@desktop" }, () => {
         { label: "planTargetState (H1-P03's transfer)", name: "planTargetState", file: PLAN_EXAMPLES, row: rowSel("presses", "Hall 1", "H1-P03"), weights: [8], slots: 0 },
         {
             label: "planEventLinks", name: "planEventLinks", file: PLAN_EVENT_EXAMPLES, row: rowSel("presses", "a1"),
-            weights: [1.5, 2, 2, 8, 4, 8, 2, 4, 2, 2, 4, 4, 4, 2, 4], slots: 2,
+            // Its flows draw in their record's order, by key (#1541, U10): the book blocks first, the plates' — which
+            // carry no quantity — sixth.
+            weights: [4, 2, 2, 8, 4, 1.5, 2, 2, 2, 4, 4, 4, 8, 2, 4], slots: 2,
         },
     ] as const;
     /** The desktop project's width, and a laptop's. */
@@ -451,7 +453,13 @@ test.describe("Plan links focus (#818, #1258)", { tag: "@desktop" }, () => {
         });
     }
 
-    /** planEventLinks' links by key, and the figure each draws at rest: every case of the grammar once. The two
+    /** A flow's link on the canvas: planEventLinks' links are rows of one link kind, `flow` (#1541, U10). */
+    const flow = (key: string): string => linkKey("flow", key);
+    /** Each flow's figure, by its link's key on the canvas. */
+    const flows = (routes: Readonly<Record<string, string>>): Record<string, string> =>
+        Object.fromEntries(Object.entries(routes).map(([key, route]) => [flow(key), route]));
+
+    /** planEventLinks' flows by their rows' keys, and the figure each draws at rest: every case of the grammar once. The two
      *  links between rows below the view (`folded`, `books`) draw nothing; four reach a row below it in a stub. */
     const EVENT_ROUTES_AT_REST = {
         plates: "s", covers: "s", card: "s", inserts: "loop", "report-covers": "loop", "seed-prints": "loop",
@@ -470,22 +478,22 @@ test.describe("Plan links focus (#818, #1258)", { tag: "@desktop" }, () => {
         const entry = await focusLinks(page, FOCUSES[2], 1280);
         const routes = () => entry.evaluate((root) => Object.fromEntries([...root.querySelectorAll("[data-plan-link]")].map((g) =>
             [g.querySelector("[data-link]")!.getAttribute("data-link-key"), g.getAttribute("data-plan-route")])));
-        await expect.poll(routes).toEqual(EVENT_ROUTES_AT_REST);
+        await expect.poll(routes).toEqual(flows(EVENT_ROUTES_AT_REST));
         // The night run starts at the window's start: its link drops onto it, its head pointing down onto the bar.
-        const proofsHead = () => entry.evaluate((root) => {
-            const g = root.querySelector('[data-link-key="proofs"]')!.closest("[data-plan-link]")!;
+        const proofsHead = () => entry.evaluate((root, key) => {
+            const g = [...root.querySelectorAll("[data-link-key]")].find((el) => el.getAttribute("data-link-key") === key)!.closest("[data-plan-link]")!;
             const n = g.querySelector("[data-plan-ribbon-head]")!.getAttribute("d")!.split(/[\sMLZ]+/).filter((t) => t !== "").map(Number);
             return n[1] === n[5] && n[3]! > n[1]! ? "down" : "level";
-        });
+        }, flow("proofs"));
         expect(await proofsHead()).toBe("down");
         const frame = entry.locator('[data-virtual-rows="bounded"]');
         await frame.evaluate((el) => { el.scrollTop = el.scrollHeight; });
-        await expect.poll(routes).toEqual(EVENT_ROUTES_AT_THE_END);
+        await expect.poll(routes).toEqual(flows(EVENT_ROUTES_AT_THE_END));
         await expect.poll(() => entry.evaluate(ribbonEnds)).toEqual([]);
         await expect.poll(() => entry.evaluate(outsidePlot)).toEqual([]);
         // Between: the shop posters' press above the view and the dispatch bay below it.
         await frame.evaluate((el) => { el.scrollTop = 80; });
-        await expect.poll(async () => (await routes())["posters"]).toBe("band");
+        await expect.poll(async () => (await routes())[flow("posters")]).toBe("band");
         await expect.poll(() => entry.evaluate(outsidePlot)).toEqual([]);
         // In the rows' translated column, the layer sorts with what they draw: the row controls and the now line over it.
         expect(await entry.evaluate((root) => {

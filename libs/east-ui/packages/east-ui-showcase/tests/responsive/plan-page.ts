@@ -12,7 +12,7 @@
 
 import { expect, type Locator, type Page } from "playwright/test";
 import { printFor, variant } from "@elaraai/east";
-import { Plan } from "@elaraai/e3-ui/internal";
+import { Plan, ScheduleEventRefType } from "@elaraai/e3-ui/internal";
 import { settled } from "./settle";
 
 /** A box's edges, in client px. */
@@ -30,6 +30,15 @@ export const PLAN_EVENT_EXAMPLES = "e3/plan/plan-events";
 
 /** A row id's canonical text (#822), printed by East as the canvas prints it. */
 export const printId = printFor(Plan.Types.RowId);
+
+/** An event's reference as the canvas prints it: its kind's slot and its key. */
+const printEventRef = printFor(ScheduleEventRefType);
+
+/**
+ * The key the canvas draws a link kind's link under (`data-link-key`, #1541): its link kind's slot and its row's key,
+ * printed by East as a reference is.
+ */
+export const linkKey = (kind: string, key: string): string => printEventRef({ kind, key });
 
 /** An entry row's id text — the series that made it and the path of keys to it. */
 export const rowId = (series: string, ...path: string[]): string =>
