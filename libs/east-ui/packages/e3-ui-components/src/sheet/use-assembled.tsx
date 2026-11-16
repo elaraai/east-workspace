@@ -100,7 +100,7 @@ export function useSheetAssembled(value: SheetRootValue, sheetDecode: SheetDecod
     } = sheetDecode;
     const {
         canEdit, changesOf, draftOf, draftType, draftVersion, editingState, exhausted, gestureCount, keyHeld, landRef,
-        landing, landingRoot, landingStyles, layer, lens, lensDrawn, locked, optimiseRows, optimiseTypes, optimiseWhole, optimised, paging, rows,
+        landing, landingRoot, landingStyles, layer, lens, lensDrawn, locked, optimiseTypes, optimiseWhole, optimised, paging, rows,
         rowsQuery, run, session, setOptimised, sourceRows, standingIn, total, totalRevision, ui,
     } = sheetSession;
     const { body, colCount, lensLayout, linkCellCtx, memberships, rowAt, rowSpace } = sheetBody;
@@ -128,7 +128,7 @@ export function useSheetAssembled(value: SheetRootValue, sheetDecode: SheetDecod
     } = sheetRowParts;
     const { actionBar, actionOverlayNode, cellEditor } = sheetActions;
     const { renderRow } = sheetRows;
-    const { addRow, conflictValue, goToIssue, holdRow, inspect, removeRowsById, rowWhere, versionOf } = sheetInspector;
+    const { addRow, conflictValue, goToIssue, holdRow, inspect, removeRowsById, rowName, rowWhere, versionOf } = sheetInspector;
     const { enter, phoneLibrary } = sheetDrops;
     // ── The app's optimiser's parts (#1409, #1418, east-workspace#1622) ────
     // The eye before the history item, the banner, the footer line and the legend, over the run (`use-session.ts`); the
@@ -146,17 +146,17 @@ export function useSheetAssembled(value: SheetRootValue, sheetDecode: SheetDecod
     const recordVersions = editingState.recordVersions;
     const projectDraft = editingState.project;
     const landAfter = optimiseParts.landAfter;
-    landRef.current = (result, _request, n) => {
+    landRef.current = (result, _request, n, read) => {
         const runText = words.number(n);
         // A row as the sheet holds it: the session's version, else the source's — and, for one neither holds nor the
         // drafts removed, the record's own, read by its key (rule 8): `undefined` while that read is on its way.
         const standing = (id: string): EntryVersion | undefined => {
             const version = versionOf(id) ?? originalVersion(id);
             if (version.draft !== undefined || session.entries.has(id) || optimiseWhole) return version;
-            const read = optimiseRows.read("rows", id);
-            if (read === undefined) return undefined;
-            if (read.type !== "some") return version;
-            const draft = liftDraft(draftType, read.value);
+            const byKey = read("rows", id);
+            if (byKey === undefined) return undefined;
+            if (byKey.type !== "some") return version;
+            const draft = liftDraft(draftType, byKey.value);
             return { draft, wire: projectDraft(id, draft, undefined), place: keyed ? some(variant("keyOrder", null)) : version.place };
         };
         const whole = (id: string, version: EntryVersion): unknown => normalizeDraft(draftType, version.draft, id).domain;
@@ -173,13 +173,12 @@ export function useSheetAssembled(value: SheetRootValue, sheetDecode: SheetDecod
                 const version = versionOf(id) ?? originalVersion(id);
                 return version.draft !== undefined && whole(id, version) === undefined;
             },
-            nameOf: (id) => id,
+            // A row as the sheet names it — its first text column's text, else its key — as its history's issues name it.
+            nameOf: rowName,
             record: recordVersions, before: optimised,
         });
         // Rows the sheet does not hold are read by their keys, and the answer lands once they are (rule 8).
-        if (landed !== undefined && "missing" in landed) { optimiseRows.want(landed.missing); return { waiting: true }; }
-        optimiseRows.want([]);
-        if (landed === undefined || "refused" in landed) return landed;
+        if (landed === undefined || "missing" in landed || "refused" in landed) return landed;
         // A run that changed nothing leaves what earlier runs left (R10).
         if (landed.optimised !== undefined) { setOptimised(landed.optimised); landAfter(n); }
         return landed.counts;

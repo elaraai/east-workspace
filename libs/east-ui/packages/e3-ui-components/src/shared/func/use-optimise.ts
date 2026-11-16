@@ -34,8 +34,11 @@
  *   take any save by another page ({@link OptimiseSessions.settled}); then
  *   the answer lands.
  * - **Rows the page does not hold** (rule 8). The builder names the rows the
- *   answer touches that it does not hold, reads them by their keys, and is
- *   asked again as its reads move ({@link OptimiseWaiting}).
+ *   answer touches that it does not hold ({@link OptimiseMissing}); the run
+ *   reads them by their keys, each record's in one read, and asks the builder
+ *   again as they land, the reads in its hand. A wait of the builder's own —
+ *   the period it was asked of not read yet — is tried again as the builder's
+ *   `settleKey` moves ({@link OptimiseWaiting}).
  *
  * Then the builder lands it as one step ({@link OptimiseArgs.onLanded}),
  * answering what it counted — changes, the `done` outcome; none, the `none`
@@ -62,10 +65,12 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { EastType } from "@elaraai/east";
+import type { EastType, option } from "@elaraai/east";
 import { usePersistedState } from "@elaraai/east-ui-components";
 import { SAVE_RESENDS, keptRead } from "@elaraai/east-ui-components/internal";
 import { defaultRecordRuntime } from "../../platform/index.js";
+import type { OptimiseRowRef } from "./optimise-diff.js";
+import { useOptimiseRows, type OptimiseRowsReader } from "./optimise-rows.js";
 import { useFuncCall, type FuncCallBinding, type FuncCallDraft } from "./use-func-call.js";
 
 /** How long the footer says `Stopped · nothing changed` after Stop (§8): 2.5s. */
@@ -87,13 +92,32 @@ export interface OptimiseRefused {
 }
 
 /**
- * An answer that cannot land yet (rule 8): it touches rows the builder does
- * not hold, which the builder is reading by their keys. The run stays out,
- * and asks again as the builder's reads move ({@link OptimiseArgs.settleKey}).
+ * An answer that touches rows the builder does not hold (rule 8), each by its
+ * kind and its key's text: the run reads them by their keys, and asks the
+ * builder again as they land, the reads in its hand
+ * ({@link OptimiseArgs.onLanded}'s `read`). The run stays out meanwhile.
+ */
+export interface OptimiseMissing {
+    readonly missing: readonly OptimiseRowRef[];
+}
+
+/**
+ * An answer that cannot land yet for a reason of the builder's own — the
+ * period it was asked of not read yet: the run stays out, and asks again as
+ * the builder's {@link OptimiseArgs.settleKey} moves.
  */
 export interface OptimiseWaiting {
     readonly waiting: true;
 }
+
+/**
+ * A row the run has read by its key for an answer (rule 8): what a landing reads a row the page does not hold from.
+ *
+ * @param kind - The kind's slot, or the record's key
+ * @param id - The row's key's text
+ * @returns Its row; `none` for one the record does not hold; `undefined` for a row not asked for, or still being read
+ */
+export type OptimiseRowRead = (kind: string, id: string) => option<unknown> | undefined;
 
 /**
  * The builder's sessions over the records it edits, as a run asks them
@@ -144,10 +168,13 @@ export interface OptimiseArgs<Req, Res> {
     /** The builder's sessions over the records it edits. */
     readonly sessions: OptimiseSessions;
     /**
-     * What moves as the builder's sessions and its reads do — their versions, by identity: a landing that waits for the
-     * sessions to take newer saves in, or for rows read by their keys, is tried again as it moves.
+     * What moves as the builder's sessions do — their versions, by identity — and as whatever else a landing that waits
+     * ({@link OptimiseWaiting}) waits on: it is tried again as this moves. The rows an answer touches that the page does
+     * not hold are the run's to read ({@link OptimiseMissing}), and it tries again as they land.
      */
     readonly settleKey: unknown;
+    /** Several rows of a kind's record by their keys, in one tracked read (`ScheduleEditing.rowsByKey`): how the run reads the rows an answer touches that the page does not hold. */
+    readonly rowsByKey: OptimiseRowsReader;
     /** What the function takes. */
     readonly requestType: EastType;
     /** What it answers. */
@@ -161,12 +188,15 @@ export interface OptimiseArgs<Req, Res> {
      * record's patch key by key on the rows it holds and records one step
      * (rules 7 and 10), answering what it counted; a refusal, recording
      * nothing, for an answer it would not take, naming why (#1553, rule 11);
-     * {@link OptimiseWaiting} where the answer touches rows it does not hold,
-     * which it reads by their keys (rule 8) — it is asked again as its reads
-     * move; `undefined` for an invalid response — a patch that does not fit
-     * the rows, a row of another type — which is a failure (R10, §12).
+     * {@link OptimiseMissing} where the answer touches rows it does not hold
+     * (rule 8), which the run reads by their keys — `read` gives each as it
+     * lands, and the builder is asked again as they do; {@link OptimiseWaiting}
+     * for a wait of its own; `undefined` for an invalid response — a patch that
+     * does not fit the rows, a row of another type — which is a failure (R10,
+     * §12).
      */
-    readonly onLanded: (result: Res, request: Req, run: number) => OptimiseCounts | OptimiseRefused | OptimiseWaiting | undefined;
+    readonly onLanded: (result: Res, request: Req, run: number, read: OptimiseRowRead) =>
+        OptimiseCounts | OptimiseRefused | OptimiseMissing | OptimiseWaiting | undefined;
 }
 
 /** What a run came to (R10): its number, the period it was asked of, and what changed — or why not, `refused` the builder's words where it refused the answer (#1553). */
@@ -243,8 +273,10 @@ interface Flight<Req, Res> {
  * @returns The run
  */
 export function useOptimise<Req, Res>(args: OptimiseArgs<Req, Res>): OptimiseRun<Req> {
-    const { name, binding, sessions, settleKey, requestType, resultType, scope, storageKey, onLanded } = args;
+    const { name, binding, sessions, settleKey, rowsByKey, requestType, resultType, scope, storageKey, onLanded } = args;
     const call = useFuncCall<Res>(name, name === null ? null : [requestType], resultType, binding);
+    // The rows an answer touches that the page does not hold, read by their keys (rule 8).
+    const rows = useOptimiseRows(rowsByKey);
     // Runs are numbered per builder per browser, from 1 (D5).
     const { state: counter, setState: setCounter } = usePersistedState<number>(`${storageKey}.optimise.run`, 0, keptRead.number);
     const [running, setRunning] = useState(false);
@@ -257,12 +289,13 @@ export function useOptimise<Req, Res>(args: OptimiseArgs<Req, Res>): OptimiseRun
     const [readAgain, setReadAgain] = useState(0);
     const flight = useRef<Flight<Req, Res> | undefined>(undefined);
     const stoppedTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-    // The latest render's call, sessions and callback: what the run's effects and commands act through.
-    const live = useRef({ call, binding, sessions, onLanded });
-    live.current = { call, binding, sessions, onLanded };
-    // The run over: nothing out, and what it came to.
+    // The latest render's call, sessions, callback and reads: what the run's effects and commands act through.
+    const live = useRef({ call, binding, sessions, onLanded, rows });
+    live.current = { call, binding, sessions, onLanded, rows };
+    // The run over: nothing out, no row read for it, and what it came to.
     const finish = useCallback((ended: OptimiseRunOutcome | undefined) => {
         flight.current = undefined;
+        live.current.rows.want([]);
         setRunning(false);
         if (ended === undefined) return;
         setOutcome(ended);
@@ -296,7 +329,8 @@ export function useOptimise<Req, Res>(args: OptimiseArgs<Req, Res>): OptimiseRun
     const read = useCallback((out: Flight<Req, Res>) => {
         const answered = out.answered;
         if (answered === undefined) return;
-        void Promise.all(answered.records.map((record) => defaultRecordRuntime.readAgain(record))).then(() => {
+        // Every record in one poll: the page's polls each read all of them.
+        void defaultRecordRuntime.readAgain(answered.records).then(() => {
             if (flight.current !== out || out.answered !== answered) return;
             answered.read = true;
             setReadAgain((n) => n + 1);
@@ -340,20 +374,23 @@ export function useOptimise<Req, Res>(args: OptimiseArgs<Req, Res>): OptimiseRun
             else { out.resent++; send(out); }
             return;
         }
-        let landed: OptimiseCounts | OptimiseRefused | OptimiseWaiting | undefined;
+        let landed: OptimiseCounts | OptimiseRefused | OptimiseMissing | OptimiseWaiting | undefined;
         try {
-            landed = now.onLanded(answered.result, out.request, out.run);
+            landed = now.onLanded(answered.result, out.request, out.run, now.rows.read);
         } catch (err) {
             console.error("[Optimise] the result could not be landed:", err);
             landed = undefined;
         }
-        // Rows the answer touches are read by their keys: asked again as the builder's reads move (rule 8).
+        // Rows the answer touches that the page does not hold: read by their keys, and the answer tried again as they
+        // land (rule 8).
+        if (landed !== undefined && "missing" in landed) { now.rows.want(landed.missing); return; }
+        // A wait of the builder's own: tried again as its settle key moves.
         if (landed !== undefined && "waiting" in landed) return;
         if (landed === undefined) finish({ kind: "fail", run: out.run, period: out.period, message: "the optimiser's answer could not be used" });
         else if ("refused" in landed) finish({ kind: "fail", run: out.run, period: out.period, message: landed.refused, refused: landed.refused });
         else if (landed.added + landed.changed + landed.removed === 0) finish({ kind: "none", run: out.run, period: out.period });
         else finish({ kind: "done", run: out.run, period: out.period, counts: landed });
-    }, [readAgain, settleKey, send, finish]);
+    }, [readAgain, settleKey, rows.key, send, finish]);
     // The seconds, from 1, every second while the run is out.
     useEffect(() => {
         if (!running) return undefined;
@@ -366,8 +403,9 @@ export function useOptimise<Req, Res>(args: OptimiseArgs<Req, Res>): OptimiseRun
         const out = flight.current;
         if (out === undefined) return;
         flight.current = undefined;
-        // A call still out is cancelled; one answered has nothing left to cancel, and its answer is let go.
+        // A call still out is cancelled; one answered has nothing left to cancel, and its answer is let go, with the rows read for it.
         if (out.answered === undefined) live.current.call.cancel();
+        live.current.rows.want([]);
         setRunning(false);
         setStopped(true);
         if (stoppedTimer.current !== undefined) clearTimeout(stoppedTimer.current);

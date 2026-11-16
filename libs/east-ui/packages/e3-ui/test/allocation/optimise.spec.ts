@@ -6,7 +6,8 @@
  * The Allocation's `optimise` contract (#1409, east-workspace#1622): the
  * request — the day, the run and the rail's narrowing, no row — and the
  * answer, a patch of the bins' record; the prop's refusals where the page is
- * built, and the drafts rule over the bins as it is evaluated; the payload's
+ * built, and the drafts rule over the bins and the days the board publishes as
+ * it is evaluated; the payload's
  * `optimise`; and the yard's optimiser over its own records — the day's bins
  * read through their interval index, the board's context built from the bays,
  * the kilns and the loads (`Allocation.context`) — a joint one: the kilns'
@@ -17,15 +18,15 @@
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
-    DateTimeType, DictType, East, FloatType, IntegerType, OptionType, PatchType, SortedMap, StringType, StructType, compareFor, diffFor, equalFor, isTypeEqual,
-    printFor, printType, some, variant, type EastIR, type EastType, type ValueTypeOf,
+    DateTimeType, DictType, East, FloatType, IntegerType, NullType, OptionType, PatchType, SortedMap, StringType, StructType, VariantType, compareFor, diffFor,
+    equalFor, isTypeEqual, printFor, printType, some, variant, type EastIR, type EastType, type ValueTypeOf,
 } from "@elaraai/east";
 import { Assert, TestImpl, describeEast } from "@elaraai/east-node-std";
 import e3 from "@elaraai/e3";
 import { RecordSliceWhereType } from "@elaraai/east-ui/internal";
 import { Allocation, Data, Schedule } from "@elaraai/e3-ui";
 import {
-    AllocationPayloadType, Func, FuncBindingType, Record, allocationOptimiseBinding, createAllocationPayload, type AllocationProps,
+    AllocationPayloadType, Func, FuncBindingType, Record, allocationOptimise, createAllocationPayload, type AllocationProps,
 } from "@elaraai/e3-ui/internal";
 import { Kiln, KilnBin, MinimalBin, YardPlan, yardArrivals, yardBayRows, yardBinRows, yardDay, yardKilns, yardSplitDay } from "./kiln-yard.js";
 import { yardContext } from "./yard-context.js";
@@ -68,15 +69,28 @@ function payload(change: Partial<Props> | Readonly<Record<string, unknown>> = {}
     });
 }
 
+/** The days a test's board publishes: a record of the test's own, each day keyed by its UTC midnight, open or issued. */
+const specDays = e3.record("allocation_optimise_spec_days", DictType(DateTimeType, StructType({ state: VariantType({ open: NullType, issued: NullType }) })), {
+    initial: new Map(),
+    mutations: (mutation) => ({ patch: mutation.patch() }),
+});
+
 /**
- * The board's optimiser over the bins, evaluated as the page is: the check its tag makes (`allocationOptimiseBinding`),
- * alone — the payload around it reads the kilns as it is evaluated, which a spec reads from no e3.
+ * The board's optimiser over the bins — and the days it publishes, where `withDays` — evaluated as the page is: the check
+ * its tag makes (`allocationOptimise`), alone — the payload around it reads the kilns as it is evaluated, which a spec
+ * reads from no e3.
  */
-function evaluated(def: unknown): ValueTypeOf<typeof FuncBindingType> {
+function evaluated(def: unknown, withDays = false): ValueTypeOf<typeof FuncBindingType> {
     return East.compile(East.function([], FuncBindingType, ($) => {
         const bins = $.let(Record.bind(base.kilnBins));
+        const days = $.let(Record.bind(specDays));
         const optimise = $.let(Func.bind(def as never));
-        return allocationOptimiseBinding(optimise, ex.KilnBins, bins.binding.name);
+        const kind = Schedule.events(bins, {
+            name: "Bin", icon: "box", at: "at", resource: { field: "bay", of: "bays" }, arrival: "load",
+            quantity: { field: "m3", unit: "m³" }, parts: { field: "kilns", of: "kilns" }, hold: "dryFor", kind: "spec",
+        });
+        const periods = withDays ? Schedule.periods(days, { every: "day", status: { field: "state", draft: "open", published: "issued" } }) : undefined;
+        return allocationOptimise(optimise, kind as never, periods);
     }), refusingPlatform)();
 }
 
@@ -115,6 +129,19 @@ describe("`optimise`: Func.bind of an e3.function from OptimiseRequest to Optimi
         assert.throws(() => evaluated(undrafted), (error: Error) => error.message.includes(
             "Allocation: `optimise` is the function 'allocation_optimise_spec_undrafted', which reads the record 'kiln_bins' that the Allocation edits " +
             "and does not list it in `drafts` — it would plan around edits it cannot see: list it, drafts: [kiln_bins], beside the function's inputs"));
+    });
+
+    test("one that reads the days the board publishes and does not list them fails the page as it is evaluated, naming the days' record: their unsaved status is the board's; a board that publishes none edits none", () => {
+        const undrafted = e3.function("allocation_optimise_spec_days_undrafted", {
+            inputs: [specDays], args: [Allocation.Types.OptimiseRequest], output: Allocation.Types.OptimiseResult(ex.KilnBins),
+        }, ($) => {
+            const held = $.const(new Map(), ex.KilnBins);
+            return { bins: East.diff(held, held) };
+        });
+        assert.throws(() => evaluated(undrafted, true), (error: Error) => error.message.includes(
+            "Allocation: `optimise` is the function 'allocation_optimise_spec_days_undrafted', which reads the record 'allocation_optimise_spec_days' that the " +
+            "Allocation edits and does not list it in `drafts` — it would plan around edits it cannot see: list it, drafts: [allocation_optimise_spec_days], beside the function's inputs"));
+        assert.doesNotThrow(() => evaluated(undrafted, false));
     });
 
     test("one answering a patch of another record, or asking the rows themselves, is refused naming what it answers or asks; a value that is no Func.bind handle naming the signature", () => {

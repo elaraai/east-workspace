@@ -24,9 +24,10 @@ import { NULL_CELL, drawnPx, isLooseRow, layoutLensRun, layoutRun, type SheetGeo
 import { SHEET_PAGE_SIZE, useSheetPaging } from "./paging.js";
 import { NOT_PERSISTED, persistedOf, type SheetPersisted } from "./persisted.js";
 import { PLAIN_FUNC_BINDING } from "../shared/func/use-func-call.js";
-import { useOptimiseRows } from "../shared/func/optimise-rows.js";
 import { optimiseSessions } from "../shared/func/optimise-sessions.js";
-import { useOptimise, type OptimiseCounts, type OptimiseRefused, type OptimiseWaiting } from "../shared/func/use-optimise.js";
+import {
+    useOptimise, type OptimiseCounts, type OptimiseMissing, type OptimiseRefused, type OptimiseRowRead, type OptimiseWaiting,
+} from "../shared/func/use-optimise.js";
 import { sheetOptimiseTypes, type SheetOptimiseRequest, type SheetOptimiseResult, type SheetOptimised } from "./optimise.js";
 import type { LensGeometry, LensWords } from "./lens-layout.js";
 import { useRecordLens } from "./use-lens.js";
@@ -54,6 +55,12 @@ const readinessEqual = equalFor(SheetBatchReadinessType);
 
 /** A live source's rows under one narrowing, named apart (#1354): the source and its narrowing, as East prints them. */
 const printNarrowedSource = printFor(StructType({ source: StringType, narrowing: StringType }));
+
+/**
+ * A run's scope, named apart (O4, east-workspace#1622): the rows as a narrowing names them, the tab, and over one entry's
+ * rows the entry's key as East prints it — as East prints the three together.
+ */
+const printRunScope = printFor(StructType({ rows: StringType, tab: StringType, entry: StringType }));
 
 const NOTHING: ReadonlySet<string> = new Set();
 const NO_BREACHES: readonly SheetBreach[] = [];
@@ -280,20 +287,22 @@ export function useSheetSession(value: SheetRootValue, storageKey: string, host:
         const read = readByKeys(ids);
         return read === undefined || read.type !== "some" ? undefined : read.value;
     }, [readByKeys]);
-    const optimiseRows = useOptimiseRows(optimiseRowsByKey);
     // Whether the sheet holds its rows whole: one it holds none of, the record holds none of.
     const optimiseWhole = readByKeys === undefined;
     // The rows as a narrowing of them names them (#1345, #1349): the source and the narrowing of its rows, together —
-    // the key search's scope, and the run's: a change of tab or narrowing stops a run out (O4).
+    // the key search's scope, and with the tab and the entry the run's: a change of tab, narrowing or entry stops a run
+    // out (O4), whose answer is of the rows it was asked of.
     const rowsQuery = printNarrowedSource({ source: pagedSource?.id ?? "", narrowing: rowsWhere === undefined ? "" : printRowsWhere(rowsWhere) });
+    const runScope = printRunScope({ rows: rowsQuery, tab: ui.tabs.active ?? "", entry: optimiseTypes.entry?.printed ?? "" });
     const [optimised, setOptimised] = useState<SheetOptimised | undefined>(undefined);
-    const landRef = useRef<(result: SheetOptimiseResult, request: SheetOptimiseRequest, run: number) => OptimiseCounts | OptimiseRefused | OptimiseWaiting | undefined>(() => undefined);
+    const landRef = useRef<(result: SheetOptimiseResult, request: SheetOptimiseRequest, run: number, read: OptimiseRowRead) =>
+        OptimiseCounts | OptimiseRefused | OptimiseMissing | OptimiseWaiting | undefined>(() => undefined);
     const run = useOptimise<SheetOptimiseRequest, SheetOptimiseResult>({
         name: host.optimise?.binding.name ?? null, binding: host.optimise?.binding ?? PLAIN_FUNC_BINDING,
-        sessions: optimiseSessionsOf, settleKey: `${editingState.version}\u0000${optimiseRows.key}`,
+        sessions: optimiseSessionsOf, settleKey: editingState.version, rowsByKey: optimiseRowsByKey,
         requestType: optimiseTypes.request, resultType: optimiseTypes.result,
-        scope: `${rowsQuery}|${ui.tabs.active ?? ""}`, storageKey,
-        onLanded: (result, request, n) => landRef.current(result, request, n),
+        scope: runScope, storageKey,
+        onLanded: (result, request, n, read) => landRef.current(result, request, n, read),
     });
     // The lock (R2): while a call is out, nothing is edited — what every write checks beside `readOnly`.
     const locked = run.running;
@@ -459,7 +468,7 @@ export function useSheetSession(value: SheetRootValue, storageKey: string, host:
     return {
         barClosedAt, canEdit, changesOf, childField, dispatchStore, draftOf, draftType, draftVersion, drafts,
         editingState, exhausted, foldedOf, folds, geometry, gestureCount, keyHeld, landRef, landing, landingRoot,
-        landingStyles, layer, layerRef, lens, lensDrawn, locked, mintAmong, mintLineId, optimiseRows, optimiseTypes, optimiseWhole, optimised, pagesReady,
+        landingStyles, layer, layerRef, lens, lensDrawn, locked, mintAmong, mintLineId, optimiseTypes, optimiseWhole, optimised, pagesReady,
         pagesStandIn, paging, persist, persistedRef, recordGesture, restored, rowsOffset, rowsQuery, run, runLayout,
         session, setBarClosedAt, setLayer, setOptimised, standingIn, store, subRowsOpenOf, takenKeys, total, totalRevision, ui,
         ...named,

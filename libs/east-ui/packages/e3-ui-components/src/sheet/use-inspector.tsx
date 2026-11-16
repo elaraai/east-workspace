@@ -574,10 +574,12 @@ export function useSheetInspector(value: SheetRootValue, sheetDecode: SheetDecod
     // the popover draws, so the history item is the same while the rows move.
     const namingNow = useRef({ rows, columns, session });
     namingNow.current = { rows, columns, session };
-    const rowWhere = useCallback((issue: EditIssue) => {
+    /** A row by its key, as the sheet names it: its first text column's text where it holds one, else its key. */
+    const rowName = useCallback((id: string) => {
         const { rows: shown, columns: drawn, session: held } = namingNow.current;
-        return rowNameOf(shown.find((r) => stringEqual(r.id, issue.entry)) ?? held.originals.get(issue.entry)?.wire, drawn) ?? issue.entry;
+        return rowNameOf(shown.find((r) => stringEqual(r.id, id)) ?? held.originals.get(id)?.wire, drawn) ?? id;
     }, []);
+    const rowWhere = useCallback((issue: EditIssue) => rowName(issue.entry), [rowName]);
     // A conflict's value as its column writes it — a date in the column's format — where the field it is in is a
     // column's own; else as the card reads it.
     const conflictValue = useCallback((_issue: EditIssue, path: PatchPath, value: unknown, type: EastType | undefined) => {
@@ -672,7 +674,7 @@ export function useSheetInspector(value: SheetRootValue, sheetDecode: SheetDecod
         columnAt, cellAt: inspectCellAt, writableAt: inspectWritableAt, changesAt, unitAt, levelAt: inspectLevelAt, allowedAt, drawCell, drawAction,
     // eslint-disable-next-line react-hooks/exhaustive-deps -- draftVersion tracks the session's pending count.
     }), [selected, targetAt, canEdit, editingState.available, canInsertRows, canInsertGroups, capabilities, wholeCount, session, issueList, kindOf, inspectWrite, editInSheet, removeRows, duplicate, addLine, removeGroup, goToIssue, hiddenNote, askHidden, placeOfIssue, columnAt, inspectCellAt, inspectWritableAt, changesAt, unitAt, inspectLevelAt, allowedAt, drawCell, drawAction, draftVersion]);
-    return { addRow, conflictValue, goToIssue, holdRow, inspect, removeRowsById, rowWhere, versionOf };
+    return { addRow, conflictValue, goToIssue, holdRow, inspect, removeRowsById, rowName, rowWhere, versionOf };
 }
 
 /** What {@link useSheetInspector} gives the parts after it. */

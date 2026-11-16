@@ -27,23 +27,28 @@
  * removed, a duty of a period that takes no edit, one put in such a period or
  * beyond the weeks the Roster holds — and, for an optimiser that does not take
  * the edges, a duty outside the period it was asked of, as the page holds it
- * or as the answer leaves it. A duty the answer changes that the page does not
- * hold is read by its key first (rule 8).
+ * or as the answer leaves it: by its times, or by the week the Roster places it
+ * in, which such a run holds the period's alone — a night shift that starts
+ * before the period and ends in it stands in the week before. A duty the
+ * answer changes that the page does not hold is read by its key first (rule 8).
  *
  * @packageDocumentation
  */
 
-import { DictType, SortedSet, StringType, variant, type EastType, type option } from "@elaraai/east";
-import { RosterOptimiseRequestTypeFor, RosterOptimiseResultTypeFor } from "@elaraai/e3-ui/internal";
+import { DictType, SortedSet, StringType, variant, type EastType, type ValueTypeOf, type option } from "@elaraai/east";
+import {
+    RosterOptimiseRequestTypeFor, RosterOptimiseResultTypeFor, type RosterOptimiseEdgesRequestType, type RosterOptimiseRequestType,
+} from "@elaraai/e3-ui/internal";
 import { optimiseMessages, type Formatters } from "@elaraai/east-ui-components";
 import { landOptimisePatches, type OptimiseDiff, type OptimiseRowRef } from "../shared/func/optimise-diff.js";
 import type { OptimiseSlice } from "../shared/func/optimise-slice.js";
 import type { OptimiseCounts, OptimiseRefused } from "../shared/func/use-optimise.js";
+import { meetsWindow } from "../shared/schedule/window.js";
 import type { RosterCommands } from "./actions.js";
 import type { RosterEditing } from "./editing.js";
 import type { RosterOptimiseWords } from "./messages.js";
 import {
-    DAY, compareDate, compareString, dayOfSlot, groupName, hourText, ownTimes, shiftOf, type Assignment, type DraftedDuty, type Roles, type RosterDomain,
+    DAY, compareString, dayOfSlot, groupName, hourText, ownTimes, shiftOf, type Assignment, type DraftedDuty, type Roles, type RosterDomain,
     type RosterValue, type StoredDuty,
 } from "./model.js";
 import { assignmentName } from "./views.js";
@@ -57,17 +62,9 @@ export interface RosterOptimisePeriod {
 
 /**
  * The run's request: the period in view and its kind, the run's number and the rail's narrowing — and for an optimiser
- * that takes the edges (#1553), the keys of the duties its answer must leave as they are.
+ * that takes the edges (#1553), `fixed`, the keys of the duties in the period's window its answer must leave as they are.
  */
-export interface RosterOptimiseRequest {
-    readonly from: Date;
-    readonly to: Date;
-    readonly period: { readonly type: "day" | "week" | "month"; readonly value: null };
-    readonly run: bigint;
-    readonly slice: OptimiseSlice;
-    /** The keys of the duties in the period's window whose own period takes no edit: the answer leaves them as they are. */
-    readonly fixed?: SortedSet<string>;
-}
+export type RosterOptimiseRequest = ValueTypeOf<RosterOptimiseRequestType> | ValueTypeOf<RosterOptimiseEdgesRequestType>;
 
 /** The run's answer: the patch of the duties' record. */
 export interface RosterOptimiseResult {
@@ -131,18 +128,6 @@ export function rosterOptimiseTypes(rowType: EastType, edges: boolean): RosterOp
 }
 
 /**
- * Whether a duty stands in a window as a window's read takes one: overlapping it, half open — its start before the
- * window's end and its end after the window's start — or an instant from its start.
- *
- * @param roles - The duty's roles
- * @param window - The window
- * @returns Whether the window holds it
- */
-function inWindow(roles: Pick<Roles, "start" | "end">, window: { from: Date; to: Date }): boolean {
-    return compareDate(roles.start, window.to) < 0 && (compareDate(roles.end, window.from) > 0 || compareDate(roles.start, window.from) >= 0);
-}
-
-/**
  * The duties a run's answer must leave as they are (#1553): every duty the period's window holds — the period, and the
  * twelve hours either side — as the session holds it, a stored one a draft holds in its draft's place and one a draft
  * removes absent, whose own period takes no edit, or that the Roster places in no week it holds.
@@ -157,7 +142,8 @@ export function rosterFixed(args: {
     const window = { from: new Date(period.from.getTime() - DAY / 2), to: new Date(period.to.getTime() + DAY / 2) };
     const fixed = new SortedSet<string>([], compareString);
     const consider = (key: string, roles: Roles, row: unknown) => {
-        if (!inWindow(roles, window)) return;
+        // As a window's read takes a duty (`meetsWindow`).
+        if (!meetsWindow(roles.start, roles.end, window.from, window.to)) return;
         const reached = reach(row, key);
         if (reached.type === "beyond" || !reached.open) fixed.add(key);
     };
@@ -264,8 +250,8 @@ export interface RosterOptimiseMissing {
  * Why an answer is refused (rule 11, #1553), if it is: it changes or removes a duty it may not — one the request held
  * fixed, or one whose period takes no edit as it stands now — or puts a duty in such a period or beyond the weeks the
  * Roster holds, as a gesture would be refused there; and, for an optimiser that does not take the edges, it changes a
- * duty outside the period it was asked of, as the page holds it or as the answer leaves it. The first such operation
- * names its duty.
+ * duty outside the period it was asked of, as the page holds it or as the answer leaves it — by its times, or by the week
+ * the Roster places it in, beyond the period's, which are all such a run holds. The first such operation names its duty.
  *
  * @param args - What the landing is made over
  * @param diff - The answer, landed on the duties the page holds
@@ -275,19 +261,27 @@ function refusal(args: RosterLanding, diff: OptimiseDiff): string | undefined {
     const { value, domain, format, request, reach, edges, days, m, period } = args;
     const kind = value.duty.kind.key;
     const unit = days ? "day" : "week";
-    const outside = (row: unknown, id: string): boolean => !inWindow(value.duty.read(domain.encodeRow(row), id), request);
+    // A duty's times outside the period: it meets no part of it, as a window's read takes one.
+    const outside = (row: unknown, id: string): boolean => {
+        const roles = value.duty.read(domain.encodeRow(row), id);
+        return !meetsWindow(roles.start, roles.end, request.from, request.to);
+    };
     for (const [key, op] of diff.ops) {
         const id = key.slice(kind.length + 1);
         const was = "previous" in op ? reach(op.previous, id) : undefined;
         const now = "row" in op ? reach(op.row, id) : undefined;
-        // Outside the period it was asked of: where the duty stood, or where the answer puts it. It is named as it stands
+        // Outside the period it was asked of: where the duty stood, or where the answer puts it — by its times, or by
+        // the week the Roster places it in, beyond the period's, which are all a run that does not take the edges holds:
+        // a night shift that starts before the period and ends in it stands in the week before. It is named as it stands
         // on the page — where it stood, among the weeks the Roster holds — else as the answer leaves it.
-        if (!edges && (("previous" in op && outside(op.previous, id)) || ("row" in op && outside(op.row, id)))) {
+        const stood = "previous" in op && (outside(op.previous, id) || was?.type === "beyond");
+        const put = "row" in op && (outside(op.row, id) || now?.type === "beyond");
+        if (!edges && (stood || put)) {
             const named = was?.type === "placed" ? was : now?.type === "placed" ? now : (was ?? now)!;
             return optimiseMessages.refusedOutside({ row: rosterDutyName(value, format, named), period });
         }
         // What it changes or removes: one the request held fixed, or one whose period has closed since.
-        if (was !== undefined && (request.fixed?.has(id) === true || was.type === "beyond" || !was.open)) {
+        if (was !== undefined && (("fixed" in request && request.fixed.has(id)) || was.type === "beyond" || !was.open)) {
             return m.optimiseFixed({ duty: rosterDutyName(value, format, was), removes: op.op === "del", unit });
         }
         // Where it puts a duty: a period of the weeks the Roster holds that takes edits.

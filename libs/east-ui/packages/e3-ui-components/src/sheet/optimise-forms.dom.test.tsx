@@ -17,15 +17,19 @@
  * - **One entry's rows** — `record` with `entry`: the request carries the
  *   entry's key; the function reads that entry's rows, the sheet's unsaved
  *   edit of them laid over the record as a draft, and answers a patch of those
- *   rows by their id; Save writes the entry, and no other.
+ *   rows by their id; Save writes the entry, and no other. Another entry
+ *   picked while the call is out stops the run, as another tab does (O4): its
+ *   answer is of the first entry's rows. An answer that changes a row whose
+ *   own edit is not finished is refused, naming the row as the sheet draws it
+ *   (rule 11).
  */
 
 import { describe, expect, test } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
-import { ArrayType, DictType, East, SortedMap, StringType, StructType, compareFor, printFor } from "@elaraai/east";
+import { ArrayType, DictType, East, NullType, SortedMap, StringType, StructType, compareFor, printFor } from "@elaraai/east";
 import e3 from "@elaraai/e3";
-import { Reactive, Slice, UIComponentType } from "@elaraai/east-ui/internal";
-import { editingMessages } from "@elaraai/east-ui-components";
+import { Reactive, Slice, State, UIComponentType } from "@elaraai/east-ui/internal";
+import { StateImpl, StateRuntime, UIStore, editingMessages } from "@elaraai/east-ui-components";
 import { Data, Func, Record, Sheet } from "@elaraai/e3-ui/internal";
 import * as opt from "@elaraai/e3-ui/examples/sheet/optimise";
 import * as records from "@elaraai/e3-ui/examples/sheet/sheet-records";
@@ -83,6 +87,21 @@ const overEntry = { fn: East.function([], UIComponentType, (_$) => Reactive.Root
     const optimise = $.let(Func.bind(scheduleWeek));
     return Sheet({ record: plans, entry: { key: "2026-W42", rows: "orders", id: "reference" }, name: "sheetOptimiseWeek", optimise, columns: COLUMNS, edits: { insertRows: false } });
 }))) };
+
+/** The page's state of the week the viewer picked: whose orders the sheet edits. */
+const PICKED_WEEK = "test.sheetOptimiseWeek.picked";
+/** The week the viewer picked — the second at first — its orders an entry's rows, with the week's optimiser. */
+const overPicked = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+    const plans = $.let(Record.bind(weekPlans));
+    const optimise = $.let(Func.bind(scheduleWeek));
+    const picked = $.let(State.bind([StringType], PICKED_WEEK, "2026-W42"));
+    return Sheet({ record: plans, entry: { key: picked.read(), rows: "orders", id: "reference" }, name: "sheetOptimisePicked", optimise, columns: COLUMNS, edits: { insertRows: false } });
+}))) };
+/** The viewer picks the first week. */
+const pickFirstWeek = East.function([], NullType, ($) => {
+    const picked = $.const(State.bind([StringType], PICKED_WEEK, "2026-W42"));
+    $(picked.write("2026-W41"));
+}).toIR().compile(StateImpl);
 
 /** The orders through a rail narrowed to the Scheduled ones, the orders' record handed beside it, with the shop's optimiser. */
 const overRail = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
@@ -150,6 +169,7 @@ const cell = (c: HTMLElement, id: string, key: string) => c.querySelector<HTMLEl
 const rowIds = (c: HTMLElement) => [...c.querySelectorAll<HTMLElement>("[data-slot=row][data-row-id]")].map(row => row.getAttribute("data-row-id"));
 const banner = (c: HTMLElement, kind: string) => c.querySelector<HTMLElement>(`[data-optimise-banner="${kind}"]`);
 const body = (el: HTMLElement) => el.querySelector("[data-banner-body]")!.textContent;
+const line = (c: HTMLElement) => c.querySelector<HTMLElement>("[data-slot=footer] [data-footer-line]")!;
 const said = (c: HTMLElement, kind: string) => waitFor(() => expect(banner(c, kind)).not.toBeNull(), { timeout: 10_000 });
 const commits = async (record: { readonly name: string }) => (await h.history(record)).commits.map(commit => commit.mutation);
 /** A String as East prints it: how a narrowing names a chosen value. */
@@ -245,5 +265,37 @@ describe("the eye in a Sheet over one entry's rows", () => {
         expect(plans.get("2026-W42")!.orders.map(order => [order.reference, order.status]))
             .toEqual([["WO-1005", "Scheduled"], ["WO-1006", "Scheduled"], ["WO-1007", "Scheduled"], ["WO-1008", "Scheduled"]]);
         expect(plans.get("2026-W41")!.orders.map(order => order.status)).toEqual(ORDERS.slice(0, 4).map(order => order.status));
+    });
+
+    test("O4 — another entry picked while the call is out stops the run, as another tab does: the first entry's answer lands on no row of the next, and nothing is recorded", async () => {
+        StateRuntime.initializeStore(new UIStore());
+        const { container } = await h.mount(overPicked);
+        await waitFor(() => expect(rowIds(container)).toEqual(["WO-1005", "WO-1006", "WO-1007", "WO-1008"]), { timeout: 10_000 });
+        const hold = weekCalls.hold();
+        await press(eye(container));
+        await hold.holding;
+        expect(weekCalls.requests()[0]!.entry).toBe("2026-W42");
+        // The viewer picks the first week while the call is out: the run stops, as Stop stops it — the sheet kept, its
+        // footer saying so.
+        await act(async () => { pickFirstWeek(); });
+        await settle();
+        expect([eye(container)!.hasAttribute("data-running"), line(container).getAttribute("data-loading-line"), line(container).querySelector("[data-line-text]")!.textContent])
+            .toEqual([false, "note", "Stopped · nothing changed"]);
+        await waitFor(() => expect(rowIds(container)).toEqual(["WO-1001", "WO-1002", "WO-1003", "WO-1004"]), { timeout: 10_000 });
+        // The second week's answer comes, late: nothing lands on the first week's rows, and nothing is recorded.
+        hold.release();
+        await settle();
+        expect([marked(container).length, banner(container, "done"), (history(container, editingMessages.apply()) as HTMLButtonElement).disabled]).toEqual([0, null, true]);
+    });
+
+    test("rule 11 — an answer that changes a row whose own edit is not finished is refused whole, naming the row as the sheet draws it, its first text column's text — never by its key", async () => {
+        const { container } = await h.mount(overEntry);
+        await waitFor(() => expect(rowIds(container)).toEqual(["WO-1005", "WO-1006", "WO-1007", "WO-1008"]), { timeout: 10_000 });
+        // WO-1005's quantity cleared, a value the row requires: the function reads it as saved, Ready, and changes it.
+        await typeInto(cell(container, "WO-1005", "quantity"), "");
+        await press(eye(container));
+        await said(container, "fail");
+        expect(body(banner(container, "fail")!)).toBe("Elara's answer changes Cut panels, whose edit is not finished. Nothing changed.");
+        expect(marked(container)).toHaveLength(0);
     });
 });

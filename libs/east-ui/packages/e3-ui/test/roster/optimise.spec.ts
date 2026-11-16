@@ -7,8 +7,8 @@
  * request — the week, the run and the rail's narrowing, no row, and given
  * `{ edges: true }` the keys of the duties at the week's edges it must leave —
  * and the answer, a patch of the duties' record; the prop's refusals where the
- * page is built, and the drafts rule over the duties and the targets as it is
- * evaluated; the payload's `optimise`; and the examples' optimisers over the
+ * page is built, and the drafts rule over the duties, the periods and the
+ * targets as it is evaluated; the payload's `optimise`; and the examples' optimisers over the
  * warehouse's own records, each read through its indexes and answered as a
  * patch: the warehouse's week, every slot short filled then everyone to their
  * contract; the second step's week, every duty in no team placed; and the
@@ -68,22 +68,30 @@ function payload(change: Partial<RosterProps> | Readonly<Record<string, unknown>
     });
 }
 
+/** The weeks a test's Roster publishes: a record of the test's own, each week keyed by its first day, open or issued. */
+const specWeeks = e3.record("roster_optimise_spec_weeks", DictType(DateTimeType, StructType({ state: VariantType({ open: NullType, issued: NullType }) })), {
+    initial: new Map(),
+    mutations: (mutation) => ({ patch: mutation.patch() }),
+});
+
 /**
- * The Roster's optimiser over the warehouse's duties — and its targets, where `withTargets` — evaluated as the page is:
- * the binding its tag holds (`rosterOptimise`), alone, since the payload around it reads the staff as it is evaluated,
- * which a spec reads from no e3.
+ * The Roster's optimiser over the warehouse's duties — and its targets, where `withTargets`, and the weeks it publishes,
+ * where `withPeriods` — evaluated as the page is: the binding its tag holds (`rosterOptimise`), alone, since the payload
+ * around it reads the staff as it is evaluated, which a spec reads from no e3.
  */
-function evaluated(def: unknown, withTargets: boolean): ValueTypeOf<typeof FuncBindingType> {
+function evaluated(def: unknown, withTargets: boolean, withPeriods = false): ValueTypeOf<typeof FuncBindingType> {
     return East.compile(East.function([], FuncBindingType, ($) => {
         const rota = $.let(Record.bind(base.rosterDuties));
         const cover = $.let(Record.bind(base.rosterCover));
+        const weeks = $.let(Record.bind(specWeeks));
         const optimise = $.let(Func.bind(def as never));
         const kind = Schedule.events(rota, {
             name: "Duty", icon: "user-clock", start: "start", end: "end", resource: { field: "who", of: { staff: "people", agency: "agencies" } },
             shift: "shift", group: "team",
         });
         const targets = withTargets ? Roster.targets(cover, { day: "day", group: "team", shift: "shift", positions: "heads", hours: "hours" }) : undefined;
-        return rosterOptimise(optimise, kind as never, targets).binding;
+        const periods = withPeriods ? Schedule.periods(weeks, { every: "week", status: { field: "state", draft: "open", published: "issued" } }) : undefined;
+        return rosterOptimise(optimise, kind as never, targets, periods).binding;
     }), refusingPlatform)();
 }
 
@@ -138,6 +146,19 @@ describe("`optimise`: Func.bind of an e3.function from OptimiseRequest() to Opti
             "Roster: `optimise` is the function 'roster_optimise_spec_targets_undrafted', which reads the record 'roster_cover' that the Roster edits " +
             "and does not list it in `drafts` — it would plan around edits it cannot see: list it, drafts: [roster_cover], beside the function's inputs"));
         assert.doesNotThrow(() => evaluated(undrafted, false));
+    });
+
+    test("one that reads the weeks the Roster publishes and does not list them fails the page as it is evaluated, naming the periods' record: their unsaved status is the Roster's; a Roster that publishes none edits none", () => {
+        const undrafted = e3.function("roster_optimise_spec_weeks_undrafted", {
+            inputs: [specWeeks], args: [Roster.Types.OptimiseRequest()], output: Roster.Types.OptimiseResult(ex.WarehouseDuties),
+        }, ($) => {
+            const held = $.const(new Map(), ex.WarehouseDuties);
+            return { duties: East.diff(held, held) };
+        });
+        assert.throws(() => evaluated(undrafted, false, true), (error: Error) => error.message.includes(
+            "Roster: `optimise` is the function 'roster_optimise_spec_weeks_undrafted', which reads the record 'roster_optimise_spec_weeks' that the Roster edits " +
+            "and does not list it in `drafts` — it would plan around edits it cannot see: list it, drafts: [roster_optimise_spec_weeks], beside the function's inputs"));
+        assert.doesNotThrow(() => evaluated(undrafted, false, false));
     });
 
     test("one that reads the duties and does not list them fails the page, naming the duties' record", () => {

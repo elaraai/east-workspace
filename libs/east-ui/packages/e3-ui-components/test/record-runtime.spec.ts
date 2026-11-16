@@ -728,6 +728,37 @@ describe("RecordRuntime — whether a record read a page at a time has been read
     });
 });
 
+describe("RecordRuntime — records read again, as a bound function's answer asks (east-workspace#1622)", () => {
+    test("records read again together are read by one poll — one mark before one refresh, which reads them all — and it settles once that poll has read every one", async () => {
+        // Two records read whole, in one cache, each polled.
+        await h.patch(ex.jobs, new SortedMap([["a", CUT]], compareFor(StringType)));
+        const { runtime, cache } = await newRuntime();
+        await cache.preload(h.workspace, ex.jobs.path);
+        cache.setRefetchInterval(h.workspace, ex.jobs.path);
+        await h.settle();
+        const before = h.requests("status").length;
+        // The poll held on its way to e3: neither record is read again until it lands.
+        const polls = h.e3.hold((request) => request.kind === "status");
+        let read = false;
+        const reading = runtime.readAgain([ex.counter.name, ex.jobs.name]).then(() => { read = true; });
+        await polls.holding;
+        assert.equal(read, false, "nothing is read again while the poll is on its way");
+        polls.release();
+        await reading;
+        await h.settle();
+        // A mark and a refresh a record would have queued a second whole poll behind the first.
+        assert.equal(h.requests("status").length, before + 1, "one poll, which read both");
+    });
+
+    test("records no poll reads — none read whole, none followed — settle at once, and start no poll", async () => {
+        const { runtime } = await h.bindRecord(ex.jobs, JobsHandleType);
+        const polls = h.requests("status").length;
+        await runtime.readAgain([ex.jobs.name, ex.counter.name]);
+        await h.settle();
+        assert.equal(h.requests("status").length, polls);
+    });
+});
+
 // =============================================================================
 // history() — failed-fetch retry guard
 // =============================================================================

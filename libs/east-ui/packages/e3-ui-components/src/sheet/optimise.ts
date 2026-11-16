@@ -23,10 +23,13 @@
  */
 
 import {
-    DictType, NullType, StringType, decodeBeast2For, encodeBeast2For, equalFor, fromEastTypeValue, none, some, variant,
+    DictType, NullType, StringType, decodeBeast2For, encodeBeast2For, equalFor, fromEastTypeValue, none, printFor, some, variant,
     type EastType, type ValueTypeOf, type option,
 } from "@elaraai/east";
-import { Sheet, SheetOptimiseRequestTypeFor, SheetOptimiseResultTypeFor, type SheetOptimiseBindingType } from "@elaraai/e3-ui/internal";
+import {
+    Sheet, SheetOptimiseRequestTypeFor, SheetOptimiseResultTypeFor, type SheetEntryOptimiseRequestType, type SheetOptimiseBindingType,
+    type SheetOptimiseRequestType,
+} from "@elaraai/e3-ui/internal";
 import { optimiseMessages } from "@elaraai/east-ui-components";
 import { diffOptimisePatch, optimiseIdOf, type OptimiseRowRef } from "../shared/func/optimise-diff.js";
 import type { OptimiseSlice } from "../shared/func/optimise-slice.js";
@@ -40,12 +43,11 @@ import type { SheetWords } from "./words.js";
 /** A sheet's optimiser as its payload carries it: the function's binding, the record, the rows' type and the entry's key. */
 export type SheetOptimiseBound = ValueTypeOf<SheetOptimiseBindingType>;
 
-/** The run's request: the run's number and the rail's narrowing — and, over one entry's rows, the entry's key. */
-export interface SheetOptimiseRequest {
-    readonly run: bigint;
-    readonly slice: OptimiseSlice;
-    readonly entry?: unknown;
-}
+/**
+ * The run's request, as the form the sheet's optimiser takes types it: the run's number and the rail's narrowing — and,
+ * over one entry's rows, the entry's key.
+ */
+export type SheetOptimiseRequest = ValueTypeOf<SheetOptimiseRequestType> | ValueTypeOf<SheetEntryOptimiseRequestType<EastType>>;
 
 /** The run's answer: the patch of the rows the sheet's Save reaches. */
 export interface SheetOptimiseResult {
@@ -85,8 +87,11 @@ export interface SheetOptimiseTypes {
     readonly result: EastType;
     /** The rows the Save reaches, `Dict<K, R>`: what the answer's patch is read by. */
     readonly rows: DictType<EastType, EastType>;
-    /** Over one entry's rows, the entry's key, which a request carries; `undefined` over the record's own entries. */
-    readonly entry: { readonly key: unknown } | undefined;
+    /**
+     * Over one entry's rows, the entry's key, which a request carries, and the key as East prints it — what names the
+     * run's scope, so a run out stops as the entry does; `undefined` over the record's own entries.
+     */
+    readonly entry: { readonly key: ValueTypeOf<EastType>; readonly printed: string } | undefined;
 }
 
 /** The kind the diff names the sheet's rows by: one record, every row. */
@@ -112,7 +117,8 @@ export function sheetOptimiseTypes(bound: SheetOptimiseBound | undefined): Sheet
     const result = SheetOptimiseResultTypeFor(rows);
     if (bound.entry.type !== "some") return { request: SheetOptimiseRequestTypeFor(), result, rows, entry: undefined };
     const entryType = fromEastTypeValue(bound.entry.value.type) as EastType;
-    return { request: SheetOptimiseRequestTypeFor({ entry: entryType }), result, rows, entry: { key: decodeBeast2For(entryType)(bound.entry.value.key) } };
+    const key = decodeBeast2For(entryType)(bound.entry.value.key);
+    return { request: SheetOptimiseRequestTypeFor({ entry: entryType }), result, rows, entry: { key, printed: printFor(entryType)(key) } };
 }
 
 /**
@@ -142,8 +148,7 @@ export function sheetOptimisePeriod(n: number, noun: SheetNounValue | undefined,
  * @returns The request
  */
 export function sheetOptimiseRequest(types: Pick<SheetOptimiseTypes, "entry">, slice: OptimiseSlice, run: number): SheetOptimiseRequest {
-    const asked = { run: BigInt(run), slice };
-    return types.entry === undefined ? asked : { ...asked, entry: types.entry.key };
+    return types.entry === undefined ? { run: BigInt(run), slice } : { run: BigInt(run), slice, entry: types.entry.key };
 }
 
 /** What a landing is made over. */

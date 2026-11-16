@@ -283,10 +283,10 @@ export interface AllocationProps<R extends EastType = EastType, P extends EastTy
      * The app's optimiser (#1409, east-workspace#1622): `Func.bind` of its `e3.function` from `Allocation.Types.OptimiseRequest` —
      * the day in view, the run's number and the rail's narrowing, no row — to `Allocation.Types.OptimiseResult(D)`, a patch of the
      * bins' record `D`. The function reads the day's bins through the record's indexes, and the arrivals and the resources from
-     * the app's own records; it lists the bins' record in its `drafts` where it reads it, and reads it with the board's unsaved
-     * edits laid over it. The Elara eye in the toolbar calls it once per run; its answer lands in the session as one edit, which
-     * one Undo reverts and Save commits with everything else. Omitted, no eye. The board checks the handle at build, naming what
-     * it asks and answers.
+     * the app's own records; it lists in its `drafts` each record it reads that the board edits — the bins', and the periods'
+     * where it publishes them — and reads them with the board's unsaved edits laid over them. The Elara eye in the toolbar calls
+     * it once per run; its answer lands in the session as one edit, which one Undo reverts and Save commits with everything
+     * else. Omitted, no eye. The board checks the handle at build, naming what it asks and answers.
      */
     optimise?: OptimiseHandle;
     /**
@@ -499,25 +499,27 @@ function fitBinding(fit: unknown, rowType: EastType): ExprType<typeof FuncBindin
 }
 
 /**
- * The Allocation's `optimise` binding, checked (#1409, east-workspace#1622): `Func.bind` of an `e3.function` from
- * `Allocation.Types.OptimiseRequest` to `Allocation.Types.OptimiseResult(D)` over the bins' record, which lists that record in
- * its `drafts` where it reads it.
+ * The Allocation's optimiser as its payload carries it (#1409, east-workspace#1622): `Func.bind` of an `e3.function` from
+ * `Allocation.Types.OptimiseRequest` to `Allocation.Types.OptimiseResult(D)` over the bins' record, checked, and held to the
+ * records the board edits — the bins', and the periods' where it publishes them: it lists each it reads in its `drafts`.
  *
  * @param optimise - What the app passed as `optimise`
- * @param bins - The bins' record type, `DictType(StringType, R)`
- * @param record - The bins' record's name in the deployed package, as its binding carries it
- * @returns The binding's descriptor, which names the function; evaluated, it fails where the function reads the bins' record
- *   and does not list it in `drafts`
+ * @param kind - The bin kind: the bins' record, its type and its name in the deployed package
+ * @param periods - What the board publishes, the app's days or weeks, where it has them: their status is the board's to
+ *   edit, and a run hands their drafts over
+ * @returns The binding's descriptor, which names the function; evaluated, it fails where the function reads a record the
+ *   board edits and does not list it in `drafts`
  * @throws {Error} When it is not a `Func.bind` handle, or its function asks or answers another type, naming it
  * @internal
  */
-export function allocationOptimiseBinding(optimise: unknown, bins: DictType<EastType, EastType>, record: ExprType<StringType>): ExprType<typeof FuncBindingType> {
+export function allocationOptimise(optimise: unknown, kind: ScheduleEventKind<EastType, EastType>, periods: SchedulePeriods | undefined): ExprType<typeof FuncBindingType> {
+    const bins = DictType(kind.keyType, kind.rowType as EastType);
     const given = printType(bins);
     return optimiseBinding(optimise, {
         builder: "Allocation", request: T.AllocationOptimiseRequestType, result: T.AllocationOptimiseResultTypeFor(bins),
         signature: `from Allocation.Types.OptimiseRequest to Allocation.Types.OptimiseResult(D), D the bins' record type — here ${given}`,
         names: { request: "Allocation.Types.OptimiseRequest", result: `Allocation.Types.OptimiseResult(${given})` },
-        edits: [record],
+        edits: [kind.record, ...(periods === undefined ? [] : [periods.record])],
     });
 }
 
@@ -641,8 +643,8 @@ export function createAllocationPayload<R extends EastType, P extends EastType =
     // The app's functions over the bin row type.
     const rowType = kind.rowType as EastType;
     const fit = fitBinding(props.fit, rowType);
-    // The optimiser, held to the bins' record, which the board edits (#1622).
-    const optimise = props.optimise === undefined ? undefined : allocationOptimiseBinding(props.optimise, DictType(kind.keyType, rowType), kind.record);
+    // The optimiser, held to the records the board edits: the bins', and the periods' where it publishes them (#1622).
+    const optimise = props.optimise === undefined ? undefined : allocationOptimise(props.optimise, kind as ScheduleEventKind<EastType, EastType>, periods);
     // The check reads the slice's reference record beside the bins where it has one (#1551): CheckContext(R, P).
     const row = printType(rowType);
     const reference = referenceRowType(props.slice, "Allocation");

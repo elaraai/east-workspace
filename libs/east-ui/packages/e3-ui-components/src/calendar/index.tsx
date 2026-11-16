@@ -89,7 +89,6 @@ import { isBounded, rowBreaches } from "../shared/bounds.js";
 import { PLAIN_FUNC_BINDING } from "../shared/func/use-func-call.js";
 import { useOptimise } from "../shared/func/use-optimise.js";
 import { useOptimiseParts } from "../shared/func/optimise-parts.js";
-import { useOptimiseRows } from "../shared/func/optimise-rows.js";
 import { scheduleOptimiseSessions } from "../shared/func/optimise-sessions.js";
 import { optimiseSlice } from "../shared/func/optimise-slice.js";
 import { pagedLoadingLine, pagedLoadingMessages, periodLoading, periodLoadingLine, periodRead, retryPeriod, type PagedLoading } from "../shared/loading.js";
@@ -554,25 +553,23 @@ function CalendarFrame(props: HostProps) {
         const records = new Map(value.events.map(kind => [kind.key, kind.editing.sourceId] as const));
         return scheduleOptimiseSessions(() => latest.current.editing, kind => records.get(kind), words);
     }, [value.events, words]);
-    // The events an answer touches that the page does not hold, read by their keys before it lands (rule 8).
-    const optimiseRows = useOptimiseRows(editing?.rowsByKey ?? NO_ROWS_BY_KEY);
     const run = useOptimise<CalendarOptimiseRequest, CalendarOptimiseResult>({
         name: value.optimise.type === "some" ? value.optimise.value.name : null,
         binding: value.optimise.type === "some" ? value.optimise.value : PLAIN_FUNC_BINDING,
-        sessions: optimiseSessions, settleKey: `${editing?.version ?? 0}\u0000${optimiseRows.key}`,
+        sessions: optimiseSessions, settleKey: editing?.version ?? 0,
+        // The events an answer touches that the page does not hold, read by their keys before it lands (rule 8).
+        rowsByKey: editing?.rowsByKey ?? NO_ROWS_BY_KEY,
         requestType: optimiseTypes.request, resultType: optimiseTypes.result,
         scope: `${range.from.getTime()}:${range.to.getTime()}`, storageKey,
-        onLanded: (result, request, n) => {
+        onLanded: (result, request, n, read) => {
             const now = latest.current;
             if (now.editing === undefined) return undefined;
             const runText = format.number(n);
             const live = now.editing;
-            const landed = landCalendarOptimise(value, optimiseTypes, live, (kind, id) => live.row(kind, id) ?? optimiseRows.read(kind, id), request, result,
+            const landed = landCalendarOptimise(value, optimiseTypes, live, (kind, id) => live.row(kind, id) ?? read(kind, id), request, result,
                 optimiseMessages.step({ run: runText }), now.periodName, runText, now.optimised);
             // Events the page does not hold are read by their keys, and the answer lands once they are (rule 8).
-            if (landed !== undefined && "missing" in landed) { optimiseRows.want(landed.missing); return { waiting: true }; }
-            optimiseRows.want([]);
-            if (landed === undefined || "refused" in landed) return landed;
+            if (landed === undefined || "missing" in landed || "refused" in landed) return landed;
             // A run that changed nothing leaves what earlier runs left (R10).
             if (landed.optimised !== undefined) { setOptimised(landed.optimised); landAfter.current(n); }
             return landed.counts;

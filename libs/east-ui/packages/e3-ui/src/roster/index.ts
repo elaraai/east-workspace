@@ -284,9 +284,9 @@ export interface RosterProps<R extends EastType = EastType, P extends EastType =
      * the week in view, the run's number and the rail's narrowing, no row — to `Roster.Types.OptimiseResult(D)`, a patch of the
      * duties' record `D`. The function reads the duties through the record's indexes and the targets, the staff and the
      * configuration from the app's own records; it lists in its `drafts` each record it reads that the Roster edits — the duties,
-     * and the targets — and reads them with the Roster's unsaved edits laid over them. The Elara eye in the toolbar calls it once
-     * per run; its answer lands in the session as one edit, which one Undo reverts and Save commits with everything else.
-     * Omitted, no eye.
+     * the periods and the targets — and reads them with the Roster's unsaved edits laid over them. The Elara eye in the toolbar
+     * calls it once per run; its answer lands in the session as one edit, which one Undo reverts and Save commits with
+     * everything else. Omitted, no eye.
      *
      * One from `Roster.Types.OptimiseRequest({ edges: true })` may change the duties at the week's edges (#1553): its request
      * carries `fixed`, the keys of those its answer must leave as they are, and its one patch can change, remove or add a duty
@@ -522,12 +522,13 @@ function takesEdges(optimise: unknown): boolean {
  * The Roster's `optimise` binding, checked (#1409, east-workspace#1622): `Func.bind` of an `e3.function` from
  * `Roster.Types.OptimiseRequest()` — or, given `{ edges: true }` (#1553), `Roster.Types.OptimiseRequest({ edges: true })` — to
  * `Roster.Types.OptimiseResult(D)` over the duties' record, which lists in its `drafts` each record it reads that the Roster
- * edits: the duties', and the targets'.
+ * edits: the duties', the periods' and the targets'.
  *
  * @param optimise - What the app passed as `optimise`
  * @param duties - The duties' record type, `DictType(K, R)`
  * @param edges - Whether the function takes the duties at the week's edges ({@link takesEdges})
- * @param edits - The records the Roster edits, each by its name in the deployed package: the duties', and the targets'
+ * @param edits - The records the Roster edits, each by its name in the deployed package: the duties', the periods' and the
+ *   targets'
  * @returns The binding's descriptor, which names the function; evaluated, it fails where the function reads a record the
  *   Roster edits and does not list it in `drafts`
  * @throws {Error} When it is not a `Func.bind` handle, or its function asks or answers another type, naming it
@@ -551,22 +552,24 @@ function rosterOptimiseBinding(
 
 /**
  * The Roster's optimiser as its payload carries it (#1553, east-workspace#1622): its binding, held to the duties' record
- * and to the records the Roster edits — the duties', and the targets' where it has them — and whether it takes the duties
- * at the week's edges, which the tag reads from its function's type.
+ * and to the records the Roster edits — the duties', the periods' where it publishes them and the targets' where it has
+ * them — and whether it takes the duties at the week's edges, which the tag reads from its function's type.
  *
  * @param optimise - What the app passed as `optimise`
  * @param kind - The duty kind
  * @param targets - The app's targets, where the Roster has them
+ * @param periods - What the Roster publishes, the app's weeks or days, where it has them: their status is the Roster's to
+ *   edit, and a run hands their drafts over
  * @returns The binding — evaluated, it fails where the function reads a record the Roster edits and does not list it in
  *   `drafts` — and whether it takes the edges
  * @throws {Error} When it is not a `Func.bind` handle, or its function asks or answers another type, naming it
  * @internal
  */
 export function rosterOptimise(
-    optimise: unknown, kind: ScheduleEventKind<EastType, EastType>, targets: RosterTargets | undefined,
+    optimise: unknown, kind: ScheduleEventKind<EastType, EastType>, targets: RosterTargets | undefined, periods: SchedulePeriods | undefined,
 ): { binding: ExprType<typeof FuncBindingType>; edges: boolean } {
     const edges = takesEdges(optimise);
-    const edits = [kind.record, ...(targets === undefined ? [] : [targets.record])];
+    const edits = [kind.record, ...(periods === undefined ? [] : [periods.record]), ...(targets === undefined ? [] : [targets.record])];
     return { binding: rosterOptimiseBinding(optimise, DictType(kind.keyType, kind.rowType), edges, edits), edges };
 }
 
@@ -706,9 +709,10 @@ export function createRosterPayload<R extends EastType, P extends EastType = nev
         reference === undefined ? T.RosterCheckContextTypeFor(rowType) : T.RosterCheckContextTypeFor(rowType, reference), ArrayType(T.RosterIssueType),
         `Roster: \`check\` is an East function from Roster.Types.CheckContext(${checked}) to Array<Roster.Types.Issue>`);
     const fit = props.fit === undefined ? undefined : fitBinding(props.fit, rowType);
-    // The optimiser, held to the duties' record and to the records the Roster edits: the duties', and the targets' (#1622).
+    // The optimiser, held to the duties' record and to the records the Roster edits: the duties', the periods' and the
+    // targets' (#1622).
     const optimise = props.optimise === undefined ? undefined
-        : rosterOptimise(props.optimise, kind as ScheduleEventKind<EastType, EastType>, props.targets);
+        : rosterOptimise(props.optimise, kind as ScheduleEventKind<EastType, EastType>, props.targets, props.periods);
 
     // The narrowing: a source per record it narrows, named after what it narrows.
     const library = props.library ?? [];

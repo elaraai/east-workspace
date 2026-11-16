@@ -50,7 +50,7 @@ export const NOTHING_UNCOUNTED: CalendarUncounted = { names: [], all: false, res
 /** A slot recipe's styles. */
 export type CalendarStyles = Record<string, Record<string, unknown>>;
 
-import { DAY, dayStart, weekStart } from "../shared/schedule/window.js";
+import { DAY, dayStart, meetsWindow, weekStart } from "../shared/schedule/window.js";
 export { DAY, NARROW_WIDTH, dayStart, weekStart } from "../shared/schedule/window.js";
 /** A calendar gesture's smallest span. */
 export const QUARTER = 15 * 60_000;
@@ -137,11 +137,9 @@ export function navigate(view: CalendarView, step: number): CalendarView {
     const period = view.layout === "resources" ? "day" : view.period;
     return { ...view, date: shiftCalendar(date, period, step).getTime() };
 }
-/** Whether a scheduled event intersects a half-open window. */
+/** Whether a scheduled event — one with a start and an end — meets a half-open window ({@link meetsWindow}). */
 export function inWindow(item: CalendarItem, from: Date, to: Date): boolean {
-    return item.start.type === "some" && item.end.type === "some"
-        && compareDate(item.start.value, to) < 0
-        && (compareDate(item.end.value, from) > 0 || compareDate(item.start.value, from) >= 0);
+    return item.start.type === "some" && item.end.type === "some" && meetsWindow(item.start.value, item.end.value, from, to);
 }
 /** Stable chronological order, including a tie-break across record kinds. */
 export function chronological(items: readonly CalendarItem[]): CalendarItem[] {

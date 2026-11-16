@@ -12,9 +12,10 @@
  * back, and the links the runs added or changed with their kilns, for the
  * highlight; a run that changes nothing records nothing; a bin the page does
  * not hold is named to be read by its key first (rule 8), and an answer that
- * changes a bin outside the day it was asked of is refused whole, naming the
- * bin (rule 11); the lock while a run is out; and a ghost's place in the lane
- * grid, a row of its slot's band after the slot's cards.
+ * changes a bin outside the day it was asked of, or any bin of a day that
+ * takes no edit, is refused whole, naming the bin (rule 11); the lock while a
+ * run is out; and a ghost's place in the lane grid, a row of its slot's band
+ * after the slot's cards.
  */
 import { describe, expect, test, vi } from "vitest";
 import {
@@ -25,6 +26,7 @@ import type { Origin } from "@elaraai/east-ui-components";
 import type { ScheduleChange } from "../shared/schedule/editing.js";
 import type { AllocationCommands } from "./actions.js";
 import type { AllocationEditing } from "./editing.js";
+import { allocationMessages } from "./messages.js";
 import type { AllocationDomain, AllocationValue, Bin, Context, Day, Roles } from "./model.js";
 import type { OptimiseSlice } from "../shared/func/optimise-slice.js";
 import {
@@ -86,17 +88,18 @@ const holding = (plan: Day, read: [string, Row][] = []) => (_kind: string, id: s
  * @param plan - The day as the page holds it
  * @param answered - The bins the function answers
  * @param before - What earlier runs left
- * @param more - Whether the session takes the step, the bins the function read where they are not the page's, and the
- *   bins read by their keys beside the page's
+ * @param more - Whether the session takes the step, the bins the function read where they are not the page's, the
+ *   bins read by their keys beside the page's, and whether the day takes edits as the answer lands and what it publishes by
  * @returns What the landing answered, and the session's `record`
  */
 const land = (n: number, plan: Day, answered: [string, Row][], before: AllocationOptimised | undefined,
-    more: { takes?: boolean; read?: SortedMap<string, Row>; byKey?: [string, Row][] } = {}) => {
+    more: { takes?: boolean; read?: SortedMap<string, Row>; byKey?: [string, Row][]; open?: boolean; unit?: "day" | "week" } = {}) => {
     const { editing: held, record } = editing(more.takes ?? true);
     const request = allocationOptimiseRequest(DAY, SLICE, n);
     const landed = landAllocationOptimise({
         value: VALUE, domain: DOMAIN, types: TYPES, editing: held, held: holding(plan, more.byKey), request,
         result: { bins: diff(more.read ?? recordOf(plan), rows(answered)) }, label: `Elara run #${n}`, runText: String(n), period: "Tue 11 May", plan, context: CONTEXT, before,
+        open: more.open ?? true, unit: more.unit ?? "day", m: allocationMessages,
     });
     return { landed, record };
 };
@@ -212,6 +215,21 @@ describe("the landing (R7, R8, R10, §9.5)", () => {
         // One inside the day beside it lands nothing either: the answer is refused whole.
         const mixed = land(1, PLAN, [["a", tomorrow], ["b", row("B-3", at(2, 55), "LD-2", 12, [])], ["r", R]], undefined);
         expect([mixed.landed, mixed.record.mock.calls.length]).toEqual([{ refused: "Elara's answer changes LD-1, outside Tue 11 May." }, 0]);
+    });
+
+    test("rule 11 — over a day that takes no edit as the answer lands — published, or closed — an answer that changes a bin of it, or removes one, is refused whole, naming the bin and what the board publishes by, and records nothing; one that changes nothing is nothing to refuse", () => {
+        const relinked = row("B-1", at(1, 15), "LD-1", 30, [["K-2", 30]]);
+        const changed = land(1, PLAN, [["a", relinked], ["b", B], ["r", R]], undefined, { open: false });
+        expect([changed.landed, changed.record.mock.calls.length]).toEqual([{ refused: "Elara's answer changes LD-1, on a day not available to edit." }, 0]);
+        // A reservation removed, on a board that publishes by the week.
+        const removed = land(1, PLAN, [["a", A], ["b", B]], undefined, { open: false, unit: "week" });
+        expect([removed.landed, removed.record.mock.calls.length]).toEqual([{ refused: "Elara's answer removes Reserved, in a week not available to edit." }, 0]);
+        // A bin moved off the day is refused as outside it first: the reason the person can act on.
+        const tomorrow = row("B-1", new Date(Date.UTC(2027, 4, 12, 1, 15)), "LD-1", 30, [["K-1", 30]]);
+        const out = land(1, PLAN, [["a", tomorrow], ["b", B], ["r", R]], undefined, { open: false });
+        expect(out.landed).toEqual({ refused: "Elara's answer changes LD-1, outside Tue 11 May." });
+        const same = land(1, PLAN, [["a", A], ["b", B], ["r", R]], undefined, { open: false });
+        expect([same.landed, same.record.mock.calls.length]).toEqual([{ counts: { added: 0, changed: 0, removed: 0 }, optimised: undefined }, 0]);
     });
 
     test("R2 — the commands locked while a run is out: no gesture taken, nothing recorded, Publish off", () => {

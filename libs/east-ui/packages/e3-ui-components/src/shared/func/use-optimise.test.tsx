@@ -12,8 +12,10 @@
  * seconds from 1; a result landed once the sessions stand on what the page
  * has read, told once with its request, and counted — changes, none with a
  * blink, an answer the builder cannot use, one it refuses, saying why (#1553);
- * an answer that waits on rows read by their keys, asked again as the
- * builder's reads move; sessions that cannot hand their edits over, in their
+ * an answer that touches rows the page does not hold, which the run reads by
+ * their keys and asks the builder again with as they land, and one that waits
+ * on the builder's own, asked again as its settle key moves; sessions that
+ * cannot hand their edits over, in their
  * words; a call e3 refuses because a record moved under its drafts (rule 12)
  * — sent again by itself with the drafts the sessions hand over then, ended
  * in their words where a conflict waits to be chosen, and ended a failure
@@ -27,16 +29,18 @@
 import { useEffect } from "react";
 import { describe, expect, test, vi } from "vitest";
 import { render, waitFor } from "@testing-library/react";
-import { PatchType, SortedMap, StringType, compareFor, diffFor, encodeBeast2For, equalFor, variant, type ValueTypeOf } from "@elaraai/east";
+import { PatchType, SortedMap, StringType, compareFor, diffFor, encodeBeast2For, equalFor, some, variant, type ValueTypeOf, type option } from "@elaraai/east";
 import { SAVE_RESENDS } from "@elaraai/east-ui-components/internal";
 import { Calendar } from "@elaraai/e3-ui";
 import * as ex from "@elaraai/e3-ui/examples/calendar/calendar";
 import * as opt from "@elaraai/e3-ui/examples/calendar/optimise";
 import { E3Surface, act, e3Harness, settle } from "../../e3-web-mount.test-utils.js";
 import { fitCalls } from "./fit-calls.test-utils.js";
+import type { OptimiseRowsReader } from "./optimise-rows.js";
 import type { FuncCallBinding, FuncCallDraft } from "./use-func-call.js";
 import {
-    OPTIMISE_STOPPED_MS, useOptimise, type OptimiseCounts, type OptimiseRefused, type OptimiseRun, type OptimiseSessions, type OptimiseWaiting,
+    OPTIMISE_STOPPED_MS, useOptimise, type OptimiseCounts, type OptimiseMissing, type OptimiseRefused, type OptimiseRowRead, type OptimiseRun, type OptimiseSessions,
+    type OptimiseWaiting,
 } from "./use-optimise.js";
 
 const h = e3Harness({ "calendar/calendar": ex, "calendar/optimise": opt });
@@ -58,8 +62,25 @@ const request = (run: number): Request => ({ from: FROM, to: TO, period: variant
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 const COUNTS: OptimiseCounts = { added: 1, changed: 0, removed: 0 };
 
-/** What the builder answers a landed result with: its counts, its refusal's words, that it waits on rows, or nothing for an answer it cannot use. */
-type Landed = OptimiseCounts | OptimiseRefused | OptimiseWaiting | undefined;
+/**
+ * What the builder answers a landed result with: its counts, its refusal's words, the rows it does not hold, that it
+ * waits on its own reads, or nothing for an answer it cannot use.
+ */
+type Landed = OptimiseCounts | OptimiseRefused | OptimiseMissing | OptimiseWaiting | undefined;
+/** What the builder does with a landed result, the rows the run read by their keys in its hand. */
+type OnLanded = (result: Result, request: Request, run: number, read: OptimiseRowRead) => Landed;
+
+/**
+ * The builder's reads of rows by their keys, as a test says them: each read asked, by its kind and its keys, and what it
+ * answers — `undefined` while on its way — through a reader made again as it lands, as a tracked read is.
+ */
+interface Reads {
+    answer: ReadonlyMap<string, option<unknown>> | undefined;
+    readonly asked: [string, readonly string[]][];
+    by: OptimiseRowsReader;
+}
+const readerOf = (reads: Reads): OptimiseRowsReader => (kind, ids) => { reads.asked.push([kind, ids]); return reads.answer; };
+const readsOf = (): Reads => { const reads: Reads = { answer: undefined, asked: [], by: () => undefined }; reads.by = readerOf(reads); return reads; };
 
 /** The builder's sessions, as a test says them: no draft to hand over, standing on what the page read, nothing to choose. */
 interface Sessions {
@@ -73,9 +94,9 @@ interface Sessions {
 }
 const sessionsOf = (): Sessions => ({ drafts: [], settled: true, conflicts: undefined, asked: [] });
 
-function Probe({ name, scope, layout, sessions, settleKey, onLanded, onRun }: {
-    name: string | null; scope: string; layout: string; sessions: Sessions; settleKey: number;
-    onLanded: (result: Result, request: Request, run: number) => Landed; onRun: (run: OptimiseRun<Request>) => void;
+function Probe({ name, scope, layout, sessions, settleKey, rowsByKey, onLanded, onRun }: {
+    name: string | null; scope: string; layout: string; sessions: Sessions; settleKey: number; rowsByKey: OptimiseRowsReader;
+    onLanded: OnLanded; onRun: (run: OptimiseRun<Request>) => void;
 }) {
     // Read as the run asks, never kept: each answer is of the sessions as they stand.
     const asked: OptimiseSessions = {
@@ -84,7 +105,8 @@ function Probe({ name, scope, layout, sessions, settleKey, onLanded, onRun }: {
         conflicts: () => sessions.conflicts,
     };
     const run = useOptimise<Request, Result>({
-        name, binding: BINDING, sessions: asked, settleKey, requestType: RequestType, resultType: opt.CalendarOptimiseResult, scope, storageKey: "test.optimise", onLanded,
+        name, binding: BINDING, sessions: asked, settleKey, rowsByKey, requestType: RequestType, resultType: opt.CalendarOptimiseResult, scope, storageKey: "test.optimise",
+        onLanded,
     });
     onRun(run);
     useEffect(() => { void layout; });
@@ -92,10 +114,11 @@ function Probe({ name, scope, layout, sessions, settleKey, onLanded, onRun }: {
 }
 
 /** The probe under the file's e3, its run read as it renders. */
-function mount(onLanded: (result: Result, request: Request, run: number) => Landed = () => COUNTS, name: string | null = NAME, sessions: Sessions = sessionsOf()) {
+function mount(onLanded: OnLanded = () => COUNTS, name: string | null = NAME, sessions: Sessions = sessionsOf(), reads: Reads = readsOf()) {
     let latest!: OptimiseRun<Request>;
     const tree = (scope: string, layout = "week", settleKey = 0) =>
-        <E3Surface><Probe name={name} scope={scope} layout={layout} sessions={sessions} settleKey={settleKey} onLanded={onLanded} onRun={(run) => { latest = run; }} /></E3Surface>;
+        <E3Surface><Probe name={name} scope={scope} layout={layout} sessions={sessions} settleKey={settleKey} rowsByKey={reads.by} onLanded={onLanded}
+            onRun={(run) => { latest = run; }} /></E3Surface>;
     const view = render(tree("W11"));
     const start = async (period = "W11") => { await act(async () => { latest.start(request, period); }); };
     /** Waits for the run out to land, e3 having run the optimiser for it. */
@@ -141,30 +164,59 @@ describe("useOptimise", () => {
         expect(run().outcome).toEqual({ kind: "fail", run: 1, period: "W11", message: "A save is still on its way.", refused: "A save is still on its way." });
     });
 
-    test("rules 8 and 9 — an answer lands once the sessions stand on what the page has read, and one that waits on rows read by their keys is asked again as the builder's reads move", async () => {
+    test("rules 8 and 9 — an answer lands once the sessions stand on what the page has read; one that touches a row the page does not hold has the run read it by its key, and is asked again with the read in its hand as it lands", async () => {
         const sessions = sessionsOf();
         sessions.settled = false;
-        let answer: Landed = { waiting: true };
-        const seen = vi.fn(() => answer);
-        const { run, start, tree, rerender } = mount(seen, NAME, sessions);
+        const reads = readsOf();
+        // What each landing read of the job the page does not hold.
+        const readThen: (option<unknown> | undefined)[] = [];
+        const seen = vi.fn<OnLanded>((_result, _request, _run, read) => {
+            const far = read("job", "job9");
+            readThen.push(far);
+            return far === undefined ? { missing: [{ kind: "job", id: "job9" }] } : COUNTS;
+        });
+        const { run, start, tree, rerender } = mount(seen, NAME, sessions, reads);
         await settle();
         await start();
         // The call is answered, and the page has read the record again: the sessions have yet to take it in.
         await waitFor(() => expect(calls.answers(NAME)).toHaveLength(1), { timeout: 10_000 });
         await settle();
         expect([run().running, seen.mock.calls.length]).toEqual([true, 0]);
-        // They stand on it, and the builder's reads move: the answer is tried — it waits on rows it reads by their keys.
+        // They stand on it: the answer is tried — it touches a job the page does not hold, which the run reads by its key.
         sessions.settled = true;
         rerender(tree("W11", "week", 1));
         await settle();
-        expect([run().running, seen.mock.calls.length]).toEqual([true, 1]);
-        // The rows land: asked again, it lands.
-        answer = COUNTS;
-        rerender(tree("W11", "week", 2));
+        expect([run().running, readThen.every((read) => read === undefined), reads.asked.length > 0]).toEqual([true, true, true]);
+        expect(reads.asked.every(([kind, ids]) => kind === "job" && ids.length === 1 && ids[0] === "job9")).toBe(true);
+        // The read lands: the answer is asked again with the job in hand, and lands.
+        reads.answer = new Map([["job9", some("job9")]]);
+        reads.by = readerOf(reads);
+        rerender(tree("W11", "week", 1));
         await waitFor(() => expect(run().running).toBe(false));
-        expect([seen.mock.calls.length, run().outcome?.kind]).toEqual([2, "done"]);
+        expect([readThen.at(-1)?.type, run().outcome?.kind]).toEqual(["some", "done"]);
         // One call was made for it all.
         expect(calls.requests(NAME)).toHaveLength(1);
+    });
+
+    test("a landing that waits on the builder's own reads — the period it was asked of not read yet — is asked again as the builder's settle key moves", async () => {
+        let answer: Landed = { waiting: true };
+        const seen = vi.fn(() => answer);
+        const { run, start, tree, rerender, landed } = mount(seen);
+        await settle();
+        await start();
+        await waitFor(() => expect(seen.mock.calls.length).toBeGreaterThan(0), { timeout: 10_000 });
+        await settle();
+        const asked = seen.mock.calls.length;
+        expect(run().running).toBe(true);
+        // Nothing of the builder's moved: it is not asked again.
+        rerender(tree("W11"));
+        await settle();
+        expect(seen.mock.calls.length).toBe(asked);
+        // The builder's reads land, its settle key moving: asked again, it lands.
+        answer = COUNTS;
+        rerender(tree("W11", "week", 1));
+        await landed();
+        expect([seen.mock.calls.length, run().outcome?.kind]).toEqual([asked + 1, "done"]);
     });
 
     describe("rule 12 — a record that changed under the edits", () => {

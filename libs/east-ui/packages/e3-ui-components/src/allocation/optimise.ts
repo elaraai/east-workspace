@@ -19,23 +19,29 @@
  * While a run is out the commands are locked (R2): every gesture refused,
  * the day's drafts kept. A bin the answer changes that the page does not hold
  * is read by its key first (rule 8); one it changes outside the day it was
- * asked of — where the bin stood, or where the answer puts it — refuses the
- * answer whole (rule 11).
+ * asked of — where the bin stood, or where the answer puts it — or any change
+ * of a day that takes no edit, as the day stands as the answer lands, refuses
+ * the answer whole (rule 11).
  *
  * @packageDocumentation
  */
 
-import { DictType, StringType, type EastType, type ValueTypeOf, type option } from "@elaraai/east";
+import { DictType, StringType, equalFor, type EastType, type ValueTypeOf, type option } from "@elaraai/east";
 import { AllocationOptimiseRequestType, AllocationOptimiseResultTypeFor } from "@elaraai/e3-ui/internal";
 import { optimiseMessages } from "@elaraai/east-ui-components";
 import { formatDatePattern } from "@elaraai/east-ui-components/internal";
 import { landOptimisePatches, type OptimiseRowRef } from "../shared/func/optimise-diff.js";
 import type { OptimiseSlice } from "../shared/func/optimise-slice.js";
 import type { OptimiseCounts, OptimiseRefused } from "../shared/func/use-optimise.js";
+import { meetsWindow } from "../shared/schedule/window.js";
 import type { AllocationCommands } from "./actions.js";
 import type { AllocationEditing } from "./editing.js";
 import { binCode } from "./inspector-model.js";
+import type { AllocationMessages } from "./messages.js";
 import { DAY, compareDate, compareFloat, partsOf, type AllocationDomain, type AllocationValue, type Bin, type Context, type Day } from "./model.js";
+
+/** A lane's key and an arrival's, as East compares them. */
+const sameKey = equalFor(StringType);
 
 /** The run's request: the day, the run's number and the rail's narrowing. */
 export type AllocationOptimiseRequest = ValueTypeOf<typeof AllocationOptimiseRequestType>;
@@ -167,6 +173,12 @@ export interface AllocationLanding {
     readonly context: Context;
     /** What earlier runs left on the bins, still the session's drafts. */
     readonly before: AllocationOptimised | undefined;
+    /** Whether the day takes edits as the answer lands: the status of the period holding it, stored and drafted, one that does. */
+    readonly open: boolean;
+    /** The period the board publishes — the day, or its week (#1550): what a refusal over one that takes no edit names. */
+    readonly unit: "day" | "week";
+    /** The board's words: a refusal's. */
+    readonly m: Pick<AllocationMessages, "optimiseClosed">;
 }
 
 /** What a landing answers that is no landing: bins to read first, by their keys (rule 8). */
@@ -185,8 +197,9 @@ export interface AllocationOptimiseMissing {
  * what earlier runs left as it is (R10); one that does lays its operations,
  * its ghosts and its links over theirs. One that changes a bin outside the
  * day it was asked of — where the bin stood, or where the answer puts it — is
- * refused whole, naming the bin; one that touches a bin the page does not hold
- * names it, to be read by its key.
+ * refused whole, naming the bin, and so is one that changes anything of a day
+ * that takes no edit, as a gesture there is (`open`); one that touches a bin
+ * the page does not hold names it, to be read by its key.
  *
  * @param args - What the landing is made over
  * @returns What the run counted, and what the runs have left on the bins — unchanged by a run that changed nothing;
@@ -195,7 +208,7 @@ export interface AllocationOptimiseMissing {
  */
 export function landAllocationOptimise(args: AllocationLanding,
 ): { counts: OptimiseCounts; optimised: AllocationOptimised | undefined } | AllocationOptimiseMissing | OptimiseRefused | undefined {
-    const { value, domain, types, editing, held, request, result, label, runText, period, plan, context, before } = args;
+    const { value, domain, types, editing, held, request, result, label, runText, period, plan, context, before, open, unit, m } = args;
     const kind = value.bin.kind.key;
     const landed = landOptimisePatches<unknown>([{ kind, record: types.record, patch: result.bins }], held);
     if (landed === undefined) return undefined;
@@ -203,18 +216,20 @@ export function landAllocationOptimise(args: AllocationLanding,
     // No bin is half made: every draft is a whole row.
     if ("incomplete" in landed) return undefined;
     const diff = landed[0]!;
-    // Outside the day it was asked of (rule 11): where a bin stood, or where the answer puts it. The bin is named as the
-    // board names one — its load's code, or a reservation — as the day holds it, else as its own row reads.
-    const from = request.day.getTime(), to = from + DAY;
+    // Outside the day it was asked of (rule 11): where a bin stood, or where the answer puts it — a bin an instant, at its
+    // time. The bin is named as the board names one — its load's code, or a reservation — as the day holds it, else as its
+    // own row reads.
+    const from = request.day, to = new Date(request.day.getTime() + DAY);
     const binOf = (row: unknown): Bin => ({ ...value.bin.read(domain.encodeRow(row)), row }) as Bin;
-    const outside = (bin: Bin | undefined): boolean => bin !== undefined && (bin.at.getTime() < from || bin.at.getTime() >= to);
+    const outside = (bin: Bin | undefined): boolean => bin !== undefined && !meetsWindow(bin.at, undefined, from, to);
     for (const [key, op] of diff.ops) {
         const was = "previous" in op ? binOf(op.previous) : undefined;
         const now = "row" in op ? binOf(op.row) : undefined;
-        if (outside(was) || outside(now)) {
-            const named = plan.bins.get(key.slice(kind.length + 1)) ?? was ?? now!;
-            return { refused: optimiseMessages.refusedOutside({ row: binCode(context, named, value.labels), period }) };
-        }
+        const named = () => binCode(context, plan.bins.get(key.slice(kind.length + 1)) ?? was ?? now!, value.labels);
+        if (outside(was) || outside(now)) return { refused: optimiseMessages.refusedOutside({ row: named(), period }) };
+        // A day that takes no edit — published, or closed, as it stands as the answer lands — takes none of the answer, as
+        // it takes no gesture.
+        if (!open) return { refused: m.optimiseClosed({ bin: named(), removes: op.op === "del", unit }) };
     }
     if (diff.changes.length === 0) return { counts: diff.counts, optimised: undefined };
     if (!editing.schedule.record(diff.changes, "optimise", label)) return undefined;
@@ -257,9 +272,9 @@ export function landAllocationOptimise(args: AllocationLanding,
         }
         if (parts.size > 0) links.set(id, parts); else links.delete(id);
         // Booked or unbooked: the arrival leaves or returns.
-        if (was.arrival.type !== roles.arrival.type || (was.arrival.type === "some" && roles.arrival.type === "some" && was.arrival.value !== roles.arrival.value)) arrivalsChanged = true;
+        if (was.arrival.type !== roles.arrival.type || (was.arrival.type === "some" && roles.arrival.type === "some" && !sameKey(was.arrival.value, roles.arrival.value))) arrivalsChanged = true;
         // Moved to another lane slot: a ghost where it stood.
-        if (was.lane !== roles.lane || compareDate(was.at, roles.at) !== 0) {
+        if (!sameKey(was.lane, roles.lane) || compareDate(was.at, roles.at) !== 0) {
             ghosts.push({ id, op: "from", run: runText, lane: was.lane, at: was.at, label: binCode(context, was, value.labels), where: allocationPlaceWords(value, context, was),
                 title: optimiseMessages.ghostMoved({ run: runText }) });
         }

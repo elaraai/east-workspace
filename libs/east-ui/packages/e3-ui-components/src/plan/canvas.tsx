@@ -171,7 +171,6 @@ import { rowValueAt, type PlanCanvasInspect } from "./root/inspect.js";
 import { PLAIN_FUNC_BINDING, type FuncCallBound } from "../shared/func/use-func-call.js";
 import { useOptimise } from "../shared/func/use-optimise.js";
 import { useOptimiseParts } from "../shared/func/optimise-parts.js";
-import { useOptimiseRows } from "../shared/func/optimise-rows.js";
 import { scheduleOptimiseSessions } from "../shared/func/optimise-sessions.js";
 import { optimiseSlice } from "../shared/func/optimise-slice.js";
 import {
@@ -484,26 +483,24 @@ export function usePlanCanvas({
         const records = new Map(kinds.map((kind) => [kind.key, kind.editing.sourceId] as const));
         return scheduleOptimiseSessions(() => latestOptimise.current.eventEditing, (kind) => records.get(kind), words);
     }, [kinds, words]);
-    // The events an answer touches that the page does not hold, read by their keys before it lands (rule 8).
-    const optimiseRows = useOptimiseRows(eventEditing.rowsByKey);
     const run = useOptimise<PlanOptimiseRequest, PlanOptimiseResult>({
         name: optimise?.name ?? null, binding: optimise ?? PLAIN_FUNC_BINDING,
-        sessions: optimiseSessions, settleKey: `${eventEditing.version}\u0000${optimiseRows.key}`,
+        sessions: optimiseSessions, settleKey: eventEditing.version,
+        // The events an answer touches that the page does not hold, read by their keys before it lands (rule 8).
+        rowsByKey: eventEditing.rowsByKey,
         requestType: optimiseTypes.request, resultType: optimiseTypes.result,
         scope: planWindow === undefined ? "" : `${planWindow.from.getTime()}:${planWindow.to.getTime()}`, storageKey,
-        onLanded: (result, request, n) => {
+        onLanded: (result, request, n, read) => {
             const now = latestOptimise.current;
             const runText = words.number(n);
             const landed = landPlanOptimise({
                 kinds: now.kinds, resources: now.resources, types: now.optimiseTypes, editing: now.eventEditing,
-                held: (kind, id) => now.eventEditing.row(kind, id) ?? optimiseRows.read(kind, id), request, result,
+                held: (kind, id) => now.eventEditing.row(kind, id) ?? read(kind, id), request, result,
                 label: optimiseMessages.step({ run: runText }), period: now.periodName, runText,
                 blocks: now.lead.blocks, format: now.format, before: now.optimised,
             });
             // Events the page does not hold are read by their keys, and the answer lands once they are (rule 8).
-            if (landed !== undefined && "missing" in landed) { optimiseRows.want(landed.missing); return { waiting: true }; }
-            optimiseRows.want([]);
-            if (landed === undefined || "refused" in landed) return landed;
+            if (landed === undefined || "missing" in landed || "refused" in landed) return landed;
             // A run that changed nothing leaves what earlier runs left (R10).
             if (landed.optimised !== undefined) { setOptimised(landed.optimised); landAfter.current(n); }
             return landed.counts;

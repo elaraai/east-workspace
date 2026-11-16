@@ -7,13 +7,13 @@
  * The rows an optimiser's answer waits on (east-workspace#1622, rule 8): an
  * answer that touches a row the page does not hold lands once the row is read
  * by its key, so the session keeps the whole entry as it does for every edit.
- * The builder names the rows as it tries to land the answer
- * ({@link OptimiseRows.want}); they are read here, tracked, in the builder's
- * render — each record's in one read, as a Save's entries are read back
- * (#1596), never one key search a row, which a source answers only the last
- * of — and kept as they land ({@link OptimiseRows.read}). Each read's landing
- * moves {@link OptimiseRows.key}, and the run, which holds it in its
- * `settleKey`, has the builder try again.
+ * The run (`useOptimise`) names the rows its builder's landing answers it is
+ * missing ({@link OptimiseRows.want}); they are read here, tracked, in the
+ * builder's render — each record's in one read, as a Save's entries are read
+ * back (#1596), never one key search a row, which a source answers only the
+ * last of — and kept as they land ({@link OptimiseRows.read}). Each read's
+ * landing moves {@link OptimiseRows.key}, and the run, which follows it, asks
+ * the builder again with the reads in its hand.
  *
  * @packageDocumentation
  */

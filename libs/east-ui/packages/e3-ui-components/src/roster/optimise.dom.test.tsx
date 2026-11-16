@@ -34,8 +34,8 @@
 
 import { describe, expect, test } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
-import { DateTimeType, printFor, some, variant } from "@elaraai/east";
-import { editingMessages } from "@elaraai/east-ui-components";
+import { DateTimeType, decodeBeast2For, diffFor, encodeBeast2For, printFor, some, variant } from "@elaraai/east";
+import { editingMessages, optimiseMessages } from "@elaraai/east-ui-components";
 import { Roster } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/roster/roster";
 import * as opt from "@elaraai/e3-ui/examples/roster/optimise";
@@ -390,6 +390,44 @@ describe("the period a run is asked of (rule 1)", () => {
         // April, as the month view shows it: the weeks that hold a day of it, Sun 26 Mar to Sat 6 May.
         await key(container, "]");
         expect(await asked()).toEqual(["month", "2028-03-26T00:00:00.000", "2028-05-07T00:00:00.000"]);
+    });
+});
+
+describe("a duty across the week's edge, for an optimiser that does not take the edges (rule 11)", () => {
+    const Duties = ex.rosterDuties.type;
+    const copy = (rows: ReadonlyMap<string, unknown>) => decodeBeast2For(Duties)(encodeBeast2For(Duties)(rows as never));
+    const diff = diffFor(Duties);
+    test("an answer that changes a night duty starting before the week and ending in it — which the Roster places in the week before, beyond the one it holds — is refused as outside the week asked, never as a week not available to edit; one that adds such a duty is refused alike, never as beyond the weeks either side", async () => {
+        // Another page's night duty, the 22:00 shift from Sat 4 Mar to Sun 5 Mar 06:00: it overlaps the week in view, Sun 5
+        // – Sat 11 Mar, and the Roster places it on its shift's day, Saturday, in the week before — which a run that does
+        // not take the edges holds none of.
+        const stored = copy(await h.read(ex.rosterDuties));
+        const night = { ...stored.get("s11")!, shift: "night", start: at("2028-03-04T22:00:00"), end: at("2028-03-05T06:00:00") };
+        const theirs = copy(stored);
+        theirs.set("night", night);
+        await h.patch(ex.rosterDuties, theirs);
+        const container = await mounted();
+        const week = period(container);
+        const refused = [optimiseMessages.fail({ period: week }),
+            optimiseMessages.refusedDetail({ reason: optimiseMessages.refusedOutside({ row: "a duty starting Sat, Mar 4, 2028", period: week }) })];
+        // Its task changed.
+        const changed = copy(theirs);
+        changed.set("night", { ...night, task: some("unload") });
+        calls.answer({ duties: diff(theirs, changed) as never }, RUN);
+        await press(eye(container));
+        await said(container, "fail");
+        expect(words(banner(container, "fail")!)).toEqual(refused);
+        // Another like it added, under a key of the function's.
+        const added = copy(theirs);
+        added.set("elara-night", { ...night, who: variant("staff", "dbracken") });
+        calls.answer({ duties: diff(theirs, added) as never }, RUN);
+        await press(eye(container));
+        // The second run's own banner: the first's went as the run started.
+        await waitFor(() => expect(calls.answers(RUN)).toHaveLength(2), { timeout: 10_000 });
+        const second = () => container.querySelector<HTMLElement>('[data-optimise-banner="fail"]:not([data-leaving])');
+        await waitFor(() => expect(second()).not.toBeNull(), { timeout: 10_000 });
+        expect(words(second()!)).toEqual(refused);
+        expect([container.querySelectorAll("[data-op]").length, (history(container, editingMessages.apply()) as HTMLButtonElement).disabled]).toEqual([0, true]);
     });
 });
 

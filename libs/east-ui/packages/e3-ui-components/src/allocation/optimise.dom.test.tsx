@@ -19,7 +19,9 @@
  * heads and the Arrivals count flashing — and one Undo reverts it all, Redo
  * replays the landing without the banner, Save commits it with everything
  * else (R9, R11). Stop and a day change ignore a late answer (R3, R4);
- * nothing to change and a failed call say so (R10). Below 480px the eye is
+ * nothing to change and a failed call say so (R10). A run over a day not read
+ * yet that turns out to take no edit — published — has its answer wait for
+ * the day's read, then refused whole, naming the bin (rule 11). Below 480px the eye is
  * in the toolbar still, and the landing is on the cards; at a phone's toolbar
  * floor it is the View's entry — named for the day, a run and its Stop from
  * there, and on while a day's reads are in flight, which it waits on none of
@@ -32,8 +34,8 @@
 
 import { describe, expect, test } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
-import { some } from "@elaraai/east";
-import { editingMessages } from "@elaraai/east-ui-components";
+import { decodeBeast2For, diffFor, encodeBeast2For, some } from "@elaraai/east";
+import { editingMessages, optimiseMessages } from "@elaraai/east-ui-components";
 import { Allocation } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/allocation/allocation";
 import * as opt from "@elaraai/e3-ui/examples/allocation/optimise";
@@ -202,6 +204,32 @@ describe("the eye in the Allocation", () => {
         hold.release();
         await settle();
         expect([calls.requests().length, container.querySelectorAll("[data-op]").length]).toEqual([1, 0]);
+    });
+
+    test("rule 11 — a run over a day not read yet that turns out published: the answer waits for the day's read, then is refused whole, naming the bin, and nothing is recorded on the published day", async () => {
+        const container = await mounted();
+        const deployed = await commits();
+        // A week back, to Tue 4 May, published, its reads held: the eye is on, as it waits on none of the day's reads.
+        const held = h.e3.hold(dayRead);
+        for (let i = 0; i < 7; i++) await key(container, "[");
+        await waitFor(() => expect(eye(container)?.disabled).toBe(false), { timeout: 10_000 });
+        const at = period(container);
+        // An answer that changes one of Tue 4's bins, LD-2201's: its loading instruction.
+        const Bins = ex.kilnBins.type;
+        const before = await h.read(ex.kilnBins);
+        const after = decodeBeast2For(Bins)(encodeBeast2For(Bins)(before));
+        after.set("3001", { ...before.get("3001")!, instruction: some("Stack on bearers") });
+        calls.answer({ bins: diffFor(Bins)(before, after) as never });
+        await press(eye(container));
+        await waitFor(() => expect(calls.answers()).toHaveLength(1), { timeout: 10_000 });
+        await settle();
+        // Answered, the run waits: whether the day takes edits is not known until it is read.
+        expect([eye(container)!.hasAttribute("data-running"), container.querySelectorAll("[data-op]").length, banner(container, "fail")]).toEqual([true, 0, null]);
+        await act(async () => { held.release(); });
+        await said(container, "fail");
+        expect(words(banner(container, "fail")!)).toEqual([optimiseMessages.fail({ period: at }),
+            optimiseMessages.refusedDetail({ reason: "Elara's answer changes LD-2201, on a day not available to edit." })]);
+        expect([container.querySelectorAll("[data-op]").length, await commits()]).toEqual([0, deployed]);
     });
 
     test("R10 — a result that changes nothing is said so, the eye blinking; a failed call is an alert until the next run", async () => {

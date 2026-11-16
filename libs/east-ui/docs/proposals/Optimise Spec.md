@@ -228,7 +228,7 @@ types (`useFuncCall`), as the fit does (§13).
 | The sessions | e3-ui-components `shared/func/optimise-sessions.ts` | Each of a builder's editing sessions over a record it edits, by the record's name in the deployed package — a Schedule kind's, a record's beside the kinds, a Sheet's: the pending Save as a draft, whether the session has taken the newer saves in, and a conflict in the refused Save's words. One reading for every builder. |
 | The narrowing | e3-ui-components `shared/func/optimise-slice.ts` | A request's `slice`: each rail source's narrowing by the source's name, the viewer's choices under the page's scope, read as the run starts. |
 | The patch, key by key | e3-ui `utils/optimise.ts` `optimiseChangesFor`; e3-ui-components `shared/func/optimise-diff.ts` | An East function from a record's patch to its changes by key — an insert, an update by a patch of the row, a delete; a patch of the whole Dict key by key too, never the record replaced — and each key landed on the row the page holds, naming the rows it does not hold and refusing over a row whose own edit is not finished. |
-| The rows not held | e3-ui-components `shared/func/optimise-rows.ts` | The rows an answer touches that the page does not hold, read by their keys — each record's in one read — and kept as they land; the run has the builder try again as they move. |
+| The rows not held | e3-ui-components `shared/func/optimise-rows.ts` | The rows an answer touches that the page does not hold, read by their keys — each record's in one read — and kept as they land. The run reads them: a builder's landing names the rows it is missing (`{ missing }`), and the run asks it again with them in hand as they land. |
 | The one step | each builder's `optimise.ts` and commands, over `ScheduleEditing.record` (Roster, Calendar, Plan, Allocation) or the Sheet's `session.record` | The landed changes — `{ kind, id, row, created }` for an add, `{ kind, id, row }` for a change, `{ kind, id, remove }` for a remove — recorded as one step, origin `optimise`, label `Elara run #n`; the redo stack clears as for any edit. |
 | The lock | each builder, from the run's state | The history item's actions disabled (`aria-disabled`), drags and drops not registered, cell edits refused, while the call is out; scrolling, selection, the inspector, hover, tooltips and the library live. |
 | The eye | east-ui-components `OptimiseButton` + `optimiseToolbarItem` | The mark from the lockup's geometry (100 ring dots, 52 iris dots, two paths), the states of §8, the tooltip, Stop on hover while running, the blink. |
@@ -380,7 +380,10 @@ folded into this document.
   reads `Stopped · nothing changed` for 2.5 s; the session is unchanged.
 - **R4.** A period change (‹ ›, `[` and `]`, the picker) stops the run as Stop
   does (O4); a layout, view or filter change does not. Leaving the builder
-  aborts the call.
+  aborts the call. A Sheet has no period: its scope is the rows it was asked
+  of (§9.5) — its tab, its rows' narrowing and, over one entry's rows, the
+  entry — and a change of any of them is its period change, an entry the
+  viewer picks while the call is out among them.
 - **R5.** No timeout of the client's (D2): a call the server times out is a
   failure (R10).
 - **R6.** The eye is listed only where the period can be optimised (D1):
@@ -433,8 +436,13 @@ folded into this document.
   outside `from` to `to` (the Allocation's `day`). A row with no place in
   time, a backlog row, counts as inside: a run may schedule the backlog into
   the period, or send a row back to it. A Roster's optimiser that takes the
-  edges is held to the weeks either side in place of the period. The first
-  offending key in the patch's order is the one named.
+  edges is held to the weeks either side in place of the period; one that
+  does not refuses a duty the Roster places beyond the weeks it holds — a
+  night across the week's edge — as outside the period. A period that takes no
+  edit is judged as it stands as the answer lands: an answer over a period
+  whose status the page has not read yet waits for its read, and one over a
+  published day of the Allocation's, or a published week, is refused. The
+  first offending key in the patch's order is the one named.
 - **R11.** Cancel (Discard) drops every unapplied edit, the user's and the
   runs'; Apply (Save) commits every unapplied edit through the builder's
   normal path; a key the optimiser gave that another page's save took first
@@ -505,10 +513,11 @@ folded into this document.
   is asked of the period it shows, whatever the layout. Its optimiser reads
   the duties through the duty record's indexes, and the targets, the staff
   and the configuration from the app's own records; it lists the duties'
-  record in `drafts`, and the targets' record too where it reads it, since
-  the Roster edits both — two records' drafts in one call. Given `{ edges:
-  true }` its request names the duties it must leave (`fixed`), and its one
-  patch may change a duty at an edge.
+  record in `drafts`, and the targets' record and the periods' — the weeks or
+  days the Roster publishes — too where it reads them, since the Roster edits
+  all three, their drafts in one call. Given `{ edges: true }` its request
+  names the duties it must leave (`fixed`), and its one patch may change a
+  duty at an edge.
 - **R24.** The Calendar's and the Plan's function reads the events it needs
   through its record's indexes — the window's and the backlog's — and the
   data behind the resources; a backlog row the answer gives a time is an add
@@ -522,7 +531,9 @@ folded into this document.
 - **R26.** The Allocation's function reads the day's bins through the bins'
   record's indexes, and the arrivals, the lanes and the resources from the
   app's own records (`Allocation.context` builds the board's context from
-  them for a function that wants it); a bin the answer adds for an arrival
+  them for a function that wants it); it lists the bins' record in `drafts`,
+  and the periods' — the days or weeks the board publishes — too where it
+  reads them, since the board edits both. A bin the answer adds for an arrival
   leaves the Arrivals tab; an unallocated one returns. The optimisation is joint: a result decides where a bin is
   booked and which resources it links to, so a run may book, link, relink, or
   any mix, and a bin a run books on no resource is an add that is not linked.

@@ -42,7 +42,6 @@ import { rowBreaches } from "../shared/bounds.js";
 import { PLAIN_FUNC_BINDING } from "../shared/func/use-func-call.js";
 import { useOptimise } from "../shared/func/use-optimise.js";
 import { useOptimiseParts } from "../shared/func/optimise-parts.js";
-import { useOptimiseRows } from "../shared/func/optimise-rows.js";
 import { scheduleOptimiseSessions } from "../shared/func/optimise-sessions.js";
 import { optimiseSlice } from "../shared/func/optimise-slice.js";
 import { periodLoading, periodLoadingLine, periodRead, retryPeriod } from "../shared/loading.js";
@@ -424,15 +423,15 @@ function RosterFrame(props: FrameProps) {
             ...(source.targets.type === "some" ? [[TARGETS, source.targets.value.editing.sourceId] as const] : [])]);
         return scheduleOptimiseSessions(() => latestRun.current.editing?.schedule, kind => records.get(kind), words);
     }, [source, words]);
-    // The duties an answer touches that the page does not hold, read by their keys before it lands (rule 8).
-    const optimiseRows = useOptimiseRows(editing?.schedule.rowsByKey ?? NO_ROWS_BY_KEY);
     const run = useOptimise<RosterOptimiseRequest, RosterOptimiseResult>({
         name: source.optimise.type === "some" ? source.optimise.value.binding.name : null,
         binding: source.optimise.type === "some" ? source.optimise.value.binding : PLAIN_FUNC_BINDING,
         // Where a row would stand moves it too: an answer waits for the periods it is judged by.
-        sessions: optimiseSessions, settleKey: `${editing?.schedule.version ?? 0}\u0000${optimiseRows.key}\u0000${reach === undefined ? "" : "reach"}`,
+        sessions: optimiseSessions, settleKey: `${editing?.schedule.version ?? 0}\u0000${reach === undefined ? "" : "reach"}`,
+        // The duties an answer touches that the page does not hold, read by their keys before it lands (rule 8).
+        rowsByKey: editing?.schedule.rowsByKey ?? NO_ROWS_BY_KEY,
         requestType: optimiseTypes.request, resultType: optimiseTypes.result, scope: `${asked.from.getTime()}:${asked.to.getTime()}`, storageKey: key,
-        onLanded: (result, request, n) => {
+        onLanded: (result, request, n, read) => {
             const now = latestRun.current;
             if (now.editing === undefined) return undefined;
             // An answer is judged by the periods as they stand now: it waits for them where they are being read.
@@ -440,12 +439,10 @@ function RosterFrame(props: FrameProps) {
             const runText = format.number(n);
             const schedule = now.editing.schedule;
             const landed = landRosterOptimise({ value, domain, types: optimiseTypes, editing: now.editing,
-                held: (kind, id) => schedule.row(kind, id) ?? optimiseRows.read(kind, id), request, result, label: optimiseMessages.step({ run: runText }), runText,
+                held: (kind, id) => schedule.row(kind, id) ?? read(kind, id), request, result, label: optimiseMessages.step({ run: runText }), runText,
                 period: now.weekLabel, format, before: now.optimised, reach: now.reach, edges: edgesForm, days, m: rosterMessages });
             // Duties the page does not hold are read by their keys, and the answer lands once they are (rule 8).
-            if (landed !== undefined && "missing" in landed) { optimiseRows.want(landed.missing); return { waiting: true }; }
-            optimiseRows.want([]);
-            if (landed === undefined || "refused" in landed) return landed;
+            if (landed === undefined || "missing" in landed || "refused" in landed) return landed;
             // A run that changed nothing leaves what earlier runs left (R10).
             if (landed.optimised !== undefined) { setOptimised(landed.optimised); landAfter.current(n); }
             return landed.counts;

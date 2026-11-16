@@ -33,6 +33,7 @@ import { optimiseMessages, type Formatters } from "@elaraai/east-ui-components";
 import { landOptimisePatches, mergeOptimiseDiffs, optimisePlacementOps, type OptimiseDiff, type OptimiseRowRef } from "../shared/func/optimise-diff.js";
 import type { OptimiseSlice } from "../shared/func/optimise-slice.js";
 import type { OptimiseCounts, OptimiseRefused } from "../shared/func/use-optimise.js";
+import { placedOutside } from "../shared/schedule/window.js";
 import type { PlanEventEditing, PlanEventReadValue } from "./edit/events.js";
 import type { PlanInstantValue } from "./instant.js";
 import { rowKeyOf, type PlanWireBlock } from "./model.js";
@@ -199,17 +200,6 @@ export interface PlanOptimiseMissing {
 }
 
 /**
- * Whether an event's place in time falls outside the window a run was asked of (rule 11): it ends at or before the
- * window's start, or starts at or after its end. A backlog row has no place, and counts as inside.
- */
-function outside(item: Pick<PlanEventItemValue, "start" | "end"> | undefined, request: Pick<PlanOptimiseRequest, "from" | "to">): boolean {
-    if (item === undefined || item.start.type !== "some") return false;
-    const start = item.start.value.getTime();
-    const end = item.end.type === "some" ? item.end.value.getTime() : start;
-    return start >= request.to.getTime() || Math.max(end, start + 1) <= request.from.getTime();
-}
-
-/**
  * The result landed (R7, R8, R10, R24, §12; east-workspace#1622, rules 7, 8,
  * 10, 11): each kind's patch landed key by key on the events the page holds,
  * its operations told by place, and recorded as one step of the history,
@@ -254,7 +244,8 @@ export function landPlanOptimise(args: PlanLanding): { counts: OptimiseCounts; o
             const id = key.slice(op.kind.length + 1);
             const was = "previous" in op ? editing.eventOf(op.kind, id, op.previous)?.item : undefined;
             const now = "row" in op ? editing.eventOf(op.kind, id, op.row)?.item : undefined;
-            if (outside(was, request) || outside(now, request)) {
+            // Outside the window it was asked of, where it stood or where the answer puts it (rule 11).
+            if (placedOutside(was, request) || placedOutside(now, request)) {
                 return { refused: optimiseMessages.refusedOutside({ row: (now ?? was)?.title ?? id, period }) };
             }
             told.set(key, { was, now });

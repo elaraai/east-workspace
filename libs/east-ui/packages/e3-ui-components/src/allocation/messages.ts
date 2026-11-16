@@ -9,7 +9,8 @@
  * and the board's own that are no noun of the app's: what Search Records
  * searches, the bins' keys (#1398), what its line says of a bin the rail's
  * narrowing hides (the shared hidden pick's words, `HiddenWords`), and what a
- * bin's Details call its key. The app's nouns — a lane, an arrival, a
+ * bin's Details call its key, and why Elara's answer is refused over a day
+ * that takes no edit (east-workspace#1622). The app's nouns — a lane, an arrival, a
  * resource, the quantity — are the payload's (`nouns.ts`). English is the
  * default; the frame hands it to its parts as its words' `m`.
  *
@@ -30,6 +31,12 @@ export interface AllocationMessages extends EditingMessages, HiddenWords {
     keySearchNoMatches: (p: { inspector: boolean; bin: string }) => string;
     /** The label of a bin's key among its facts in Details — `Key`: what Search Records finds it by. */
     binKey: () => string;
+    /**
+     * Why Elara's answer is refused whole (east-workspace#1622, rule 11): it changes or removes a bin of a day that takes
+     * no edit — published, or closed — the day's own, or its week's where the board publishes by the week (#1550), as
+     * the day stands as the answer lands: `Elara's answer changes LD-2231, on a day not available to edit.`
+     */
+    optimiseClosed: (p: { bin: string; removes: boolean; unit: "day" | "week" }) => string;
 }
 
 /** The English table — the default. */
@@ -40,6 +47,8 @@ export const allocationMessages: AllocationMessages = {
     hiddenByFilters: () => "hidden by the filters",
     hiddenBy: ({ filters, also }) => hiddenByText(filters, also),
     binKey: () => "Key",
+    optimiseClosed: ({ bin, removes, unit }) =>
+        `Elara's answer ${removes ? "removes" : "changes"} ${bin}, ${unit === "day" ? "on a day" : "in a week"} not available to edit.`,
 };
 
 /** The words the board speaks: its message table, and its locale's formatters. */
