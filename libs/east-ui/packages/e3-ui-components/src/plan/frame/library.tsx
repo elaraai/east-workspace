@@ -71,9 +71,10 @@
 
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { Box } from "@chakra-ui/react";
-import { DateTimeType, StringType, compareFor, equalFor, none, printFor, some, type ValueTypeOf } from "@elaraai/east";
+import { DateTimeType, StringType, compareFor, equalFor, none, some, type ValueTypeOf } from "@elaraai/east";
 import type { PickBindType } from "@elaraai/east-ui";
-import { ScheduleEventRefType, type planKeys } from "@elaraai/e3-ui/internal";
+import type { planKeys } from "@elaraai/e3-ui/internal";
+import { printEventRef } from "../../shared/schedule/event-ref.js";
 import {
     EastChakraLibrary, EastChakraPickPanel, EmptyStateView, getSomeorUndefined,
     type BuilderFrameDock, type LibraryEmpty, type LibraryNarrowing, type LibraryValue,
@@ -116,8 +117,6 @@ type PlanAuthorCardValue = PlanAuthorTabValue["cards"][number];
 
 const stringEqual = equalFor(StringType);
 const compareDateTime = compareFor(DateTimeType);
-/** A card's key: its kind and its key, as East prints a `Schedule.Types.EventRef`. */
-const printRef = printFor(ScheduleEventRefType);
 
 /** The library open: the Calendar's 272px (§8). */
 const LIBRARY_SIZE = "272px";
@@ -354,7 +353,7 @@ export function usePlanLibrary({
                 resources: takes,
             });
             return card({
-                key: printRef({ kind: kind.key, key: template.key }),
+                key: printEventRef({ kind: kind.key, key: template.key }),
                 label: template.name,
                 sublabel: some(line),
                 icon: some(kind.icon),
@@ -408,7 +407,7 @@ export function usePlanLibrary({
                     due: due !== undefined ? m.backlogDue({ weekday: words.weekday(due), day: words.number(due.getUTCDate()) }) : undefined,
                 });
                 return card({
-                    key: printRef({ kind: kind.key, key: item.key }),
+                    key: printEventRef({ kind: kind.key, key: item.key }),
                     label: item.title,
                     sublabel: some(line),
                     icon: some(kind.icon),

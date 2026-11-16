@@ -110,7 +110,8 @@ import {
 } from "@elaraai/east";
 import { EventStateType } from "@elaraai/east-ui";
 import type { FieldSpecValue } from "@elaraai/east-ui/internal";
-import { PlanEventItemType, ScheduleEventRefType, ScheduleResourceRefType, planHideId, type PlanEventDraftsType, type planKeys } from "@elaraai/e3-ui/internal";
+import { PlanEventItemType, ScheduleResourceRefType, planHideId, type PlanEventDraftsType, type planKeys } from "@elaraai/e3-ui/internal";
+import { parseEventRef, printEventRef } from "../../shared/schedule/event-ref.js";
 import {
     BannerView, EastChakraComponent, FieldForm, fieldBreachIssue, fieldBreachText, fieldBreaches, fieldFormMessages, getSomeorUndefined, useDataStable, useTrackedEvaluation,
     type BuilderFrameDock, type FieldOption,
@@ -183,8 +184,6 @@ const stringEqual = equalFor(StringType);
 const blobEqual = equalFor(BlobType);
 const itemEqual = equalFor(PlanEventItemType);
 const resourceEqual = equalFor(OptionType(ScheduleResourceRefType));
-const parseRef = parseFor(ScheduleEventRefType);
-const printRef = printFor(ScheduleEventRefType);
 const printResource = printFor(ScheduleResourceRefType);
 const parseResource = parseFor(ScheduleResourceRefType);
 const encodeState = encodeBeast2For(EventStateType);
@@ -309,7 +308,7 @@ function useSelectedEvents(
     const read = useCallback((): readonly InspectedEvent[] => {
         const out: InspectedEvent[] = [];
         for (const key of elements) {
-            const ref = parseRef(key);
+            const ref = parseEventRef(key);
             if (!ref.success) continue;
             const kind = bySlot.get(ref.value.kind);
             if (kind === undefined) continue;
@@ -625,7 +624,7 @@ function duplicateEvents(events: readonly InspectedEvent[], editing: PlanEventEd
         minted.add(id);
         // A copy is a new event: absent before it, read nowhere (#1199).
         changes.push({ kind: event.kind.key, id, row: event.row, created: true });
-        copies.push(printRef({ kind: event.kind.key, key: id }));
+        copies.push(printEventRef({ kind: event.kind.key, key: id }));
     }
     if (editing.record(changes, "insert", labelOf("Duplicate", events))) chrome?.selectEvents(copies, row ?? undefined);
 }

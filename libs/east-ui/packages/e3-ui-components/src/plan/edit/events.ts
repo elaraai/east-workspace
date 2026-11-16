@@ -3,8 +3,9 @@
  * Dual-licensed under AGPL-3.0 and commercial license. See LICENSE for details.
  */
 import { useMemo } from "react";
-import { parseFor, type ValueTypeOf } from "@elaraai/east";
-import { ScheduleEventRefType, type PlanPayloadType } from "@elaraai/e3-ui/internal";
+import type { ValueTypeOf } from "@elaraai/east";
+import type { PlanPayloadType } from "@elaraai/e3-ui/internal";
+import { parseEventRef } from "../../shared/schedule/event-ref.js";
 import { useScheduleEditing, type ScheduleChange, type ScheduleEditing, type ScheduleEditingArgs, type ScheduleRead } from "../../shared/schedule/editing.js";
 export type {
     ScheduleChange as PlanEventChange, ScheduleKindSession as PlanKindSession,
@@ -54,8 +55,6 @@ export function usePlanEventEditing(args: PlanEventEditingArgs): PlanEventEditin
     const kinds = useMemo(() => args.kinds.map(kind => ({ ...kind, event: kind.planEvent })), [args.kinds]);
     return useScheduleEditing({ ...args, kinds });
 }
-
-const parseEventRef = parseFor(ScheduleEventRefType);
 
 /**
  * Removes selected events through their record sessions as one undoable gesture.

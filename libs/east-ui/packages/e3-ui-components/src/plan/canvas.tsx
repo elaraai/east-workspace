@@ -80,8 +80,9 @@
 
 import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent, type ReactNode } from "react";
 import { Box, VisuallyHidden, useSlotRecipe } from "@chakra-ui/react";
-import { StringType, equalFor, none, printFor, type PatchPath, type ValueTypeOf } from "@elaraai/east";
-import { Plan, ScheduleEventRefType, planKeys, type PlanPayloadType } from "@elaraai/e3-ui/internal";
+import { StringType, equalFor, none, type PatchPath, type ValueTypeOf } from "@elaraai/east";
+import { Plan, planKeys, type PlanPayloadType } from "@elaraai/e3-ui/internal";
+import { printEventRef } from "../shared/schedule/event-ref.js";
 import {
     getSomeorUndefined, optimiseMessages, useCoarsePointer, useContainerBelow, useDataStable, useFormatters, useLanding, useLandingStyles, usePersistedState,
     historyShortcut, takeKey, useSliceReactivity, useTrackedEvaluation,
@@ -198,12 +199,9 @@ export type { PlanCanvasParts, PlanChrome } from "./root/chrome.js";
 // row model, the scale or the link graph.
 const planRootDataEqual = equalFor(Plan.Types.Root);
 const stringEqual = equalFor(StringType);
-/** An event's element's key: its event, as East prints a `Schedule.Types.EventRef`. */
-const printEventRef = printFor(ScheduleEventRefType);
 
 /** One event kind, as the Plan's payload carries it (#1190). */
 type PlanEventKindValue = ValueTypeOf<typeof PlanPayloadType>["events"][number];
-
 
 /** One of the library's tabs, as the Plan's payload carries it (#1195). */
 type PlanLibraryTabValue = ValueTypeOf<typeof PlanPayloadType>["library"][number];
