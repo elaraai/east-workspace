@@ -511,6 +511,49 @@ test.describe("Plan links focus (#818, #1258)", { tag: "@desktop" }, () => {
         await expect.poll(() => entry.evaluate(outsidePlot)).toEqual([]);
     });
 
+    test("planEventLinks: a flow clicked is selected — in the ink, its heads with it, its caption outlined, its × a 16px target whole inside the plot; the × removes it, and Undo brings it back (#1541, U10)", async ({ page }) => {
+        const entry = await focusLinks(page, FOCUSES[2], 1280);
+        const drawn = FOCUSES[2].weights.length;
+        // A link takes the pointer along its line alone: the click is given to its hit path, not to its box's middle.
+        const hit = (key: string) => entry.locator(`[data-link][data-link-key=${JSON.stringify(flow(key))}]`);
+        await hit("covers").dispatchEvent("click");
+        const look = () => entry.evaluate((root, key) => {
+            const group = [...root.querySelectorAll("[data-link]")].find((el) => el.getAttribute("data-link-key") === key)?.closest("[data-plan-link]");
+            if (group === null || group === undefined) return "not drawn";
+            const other = [...root.querySelectorAll("[data-plan-link]")].find((g) => g !== group)!;
+            const band = (g: Element) => getComputedStyle(g.querySelector("[data-plan-ribbon-band]")!).stroke;
+            // Its caption is drawn over every link, in a group of its own, by the link's place in the layer.
+            const label = root.querySelector(`[data-plan-ribbon-label="${group.getAttribute("data-plan-link")}"]`);
+            if (label === null) return "no caption";
+            const knockout = getComputedStyle(label.querySelector("[data-plan-ribbon-knockout]")!);
+            const plot = root.querySelector("[data-plan-row] [data-plan-plot]")!.getBoundingClientRect();
+            const button = root.querySelector("[data-plan-ribbon-unlink] button");
+            const box = button?.getBoundingClientRect();
+            return {
+                selected: group.hasAttribute("data-selected") && label.hasAttribute("data-selected"),
+                links: root.querySelectorAll("[data-plan-link][data-selected]").length,
+                // The ink: another colour than a link at rest, its heads and its caption's outline the same.
+                ink: band(group) !== band(other),
+                heads: getComputedStyle(group.querySelector("[data-plan-ribbon-head]")!).fill === band(group),
+                outline: [knockout.stroke === band(group), knockout.strokeWidth],
+                remove: button === null || box === undefined ? null
+                    : { width: box.width, height: box.height, inside: box.left >= plot.left - 0.5 && box.right <= plot.right + 0.5, says: button.getAttribute("aria-label") },
+            };
+        }, flow("covers"));
+        await expect.poll(look).toEqual({
+            selected: true, links: 1, ink: true, heads: true, outline: [true, "1px"],
+            remove: { width: 16, height: 16, inside: true, says: "Remove flow" },
+        });
+        await expect.poll(() => entry.evaluate(outsidePlot)).toEqual([]);
+        // Its × removes it: a draft, which the toolbar's Undo takes back.
+        await entry.locator("[data-plan-ribbon-unlink] button").click();
+        await expect(hit("covers")).toHaveCount(0);
+        await expect(entry.locator("[data-plan-link][data-selected]")).toHaveCount(0);
+        await entry.locator("[data-builder-frame]").first().getByRole("button", { name: "Undo", exact: true }).click();
+        await expect(entry.locator("[data-plan-ribbons] [data-plan-link]")).toHaveCount(drawn);
+        await expect(hit("covers")).toHaveCount(1);
+    });
+
     test("planTargetState: the focus band is 32 tall, its link and caption 20 in from its ends; each family row's Tag is 20 tall and the focused row has none; a lone unrelated row is an 11 rail and each run of hidden rows one 22 gap band", async ({ page }) => {
         const entry = await focusLinks(page, FOCUSES[0], 1280);
         const read = await entry.evaluate((root) => {
