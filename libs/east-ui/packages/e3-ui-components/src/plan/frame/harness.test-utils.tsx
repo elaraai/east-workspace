@@ -25,6 +25,7 @@
 import type { RenderResult } from "@testing-library/react";
 import { StringType, equalFor, parseFor, printFor, type EastType, type ValueTypeOf } from "@elaraai/east";
 import { ScheduleEventRefType } from "@elaraai/e3-ui/internal";
+import { parseEventRef, printEventRef } from "../../shared/schedule/event-ref.js";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
 import type { E3Record } from "../../e3-web.test-utils.js";
 import { act, e3Harness, programOf, settle, type E3Harness, type Example, type UIProgram } from "../../e3-web-mount.test-utils.js";
@@ -119,8 +120,6 @@ export { entry };
  */
 export const rowAt = (id: PlanRowId) => `[data-plan-row=${JSON.stringify(rowKeyOf(id))}]`;
 
-const printRef = printFor(ScheduleEventRefType);
-
 /**
  * An event's element key: its event, as East prints a `Schedule.Types.EventRef`.
  *
@@ -128,7 +127,7 @@ const printRef = printFor(ScheduleEventRefType);
  * @param key - The event's key in its record
  * @returns The key its elements carry
  */
-export const elementKey = (kind: string, key: string) => printRef({ kind, key });
+export const elementKey = (kind: string, key: string) => printEventRef({ kind, key });
 
 /**
  * The selector of an event's element, by the attribute its draw carries.
@@ -141,7 +140,6 @@ export const elementKey = (kind: string, key: string) => printRef({ kind, key })
 export const el = (attr: "data-run" | "data-chip" | "data-event" | "data-mark", kind: string, key: string) =>
     `[${attr}=${JSON.stringify(elementKey(kind, key))}]`;
 
-const parseRef = parseFor(ScheduleEventRefType);
 const sameText = equalFor(StringType);
 
 /**
@@ -160,7 +158,7 @@ const sameText = equalFor(StringType);
  */
 export function madeFrom(root: ParentNode, attr: "data-run" | "data-chip" | "data-event" | "data-mark", kind: string, from: string): string[] {
     return [...root.querySelectorAll(`[${attr}]`)].flatMap((node) => {
-        const ref = parseRef(node.getAttribute(attr) ?? "");
+        const ref = parseEventRef(node.getAttribute(attr) ?? "");
         return ref.success && sameText(ref.value.kind, kind) && ref.value.key.startsWith(`${from}-`) ? [ref.value.key] : [];
     });
 }

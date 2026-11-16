@@ -48,8 +48,9 @@
  */
 
 import { useMemo, useRef } from "react";
-import { DateTimeType, OptionType, StringType, equalFor, none, parseFor, printFor, some, variant, type ValueTypeOf, type option } from "@elaraai/east";
-import { ScheduleEventRefType, ScheduleResourceRefType, type PlanPayloadType, type planKeys } from "@elaraai/e3-ui/internal";
+import { DateTimeType, OptionType, StringType, equalFor, none, some, variant, type ValueTypeOf, type option } from "@elaraai/east";
+import { ScheduleResourceRefType, type PlanPayloadType, type planKeys } from "@elaraai/e3-ui/internal";
+import { parseEventRef, printEventRef } from "../../shared/schedule/event-ref.js";
 import { getSomeorUndefined, type DragEventValue, type Origin } from "@elaraai/east-ui-components";
 import { durationMinutes } from "../../shared/schedule/due.js";
 import { moveSpan } from "../../shared/time/drag.js";
@@ -267,8 +268,6 @@ const MINUTE_MS = 60_000;
 const stringEqual = equalFor(StringType);
 const dateEqual = equalFor(DateTimeType);
 const resourceEqual = equalFor(OptionType(ScheduleResourceRefType));
-const parseRef = parseFor(ScheduleEventRefType);
-const printRef = printFor(ScheduleEventRefType);
 
 /** A gesture the event kinds refuse, saying why. */
 function refused(caption: string | undefined, span?: PlanSpan): PlanEventGesture {
@@ -277,7 +276,7 @@ function refused(caption: string | undefined, span?: PlanSpan): PlanEventGesture
 
 /** An element's key as the event it is: its kind's slot and its key's text. */
 function refOf(key: string): { readonly kind: string; readonly key: string } | undefined {
-    const read = parseRef(key);
+    const read = parseEventRef(key);
     return read.success ? read.value : undefined;
 }
 
@@ -514,7 +513,7 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
                 changes: [{ kind: kind.key, id, gesture }],
                 origin: "drop",
                 label: `Drop ${template.name} on ${where}`,
-                selects: { keys: [printRef({ kind: kind.key, key: id })], row: rowFor(kind, target) },
+                selects: { keys: [printEventRef({ kind: kind.key, key: id })], row: rowFor(kind, target) },
             };
         };
 
@@ -603,7 +602,7 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
                 changes: [{ kind: kind.key, id: ref.key, gesture }],
                 origin: "drop",
                 label: `Schedule ${read.item.title} on ${where}`,
-                selects: { keys: [printRef({ kind: kind.key, key: ref.key })], row: rowFor(kind, target) },
+                selects: { keys: [printEventRef({ kind: kind.key, key: ref.key })], row: rowFor(kind, target) },
             };
         };
 

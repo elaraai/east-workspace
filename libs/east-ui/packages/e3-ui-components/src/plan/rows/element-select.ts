@@ -19,8 +19,7 @@
  */
 
 import { createContext, useCallback, useContext, useSyncExternalStore, type MouseEvent } from "react";
-import { parseFor } from "@elaraai/east";
-import { ScheduleEventRefType } from "@elaraai/e3-ui/internal";
+import { parseEventRef } from "../../shared/schedule/event-ref.js";
 import { usePlanDispatch, usePlanResolvers, type PlanElementRefValue } from "../context.js";
 import { PlanControllerContext } from "../controller/react.js";
 import type { PlanRowValue } from "../model.js";
@@ -69,8 +68,6 @@ export type PlanSelectable = (key: string) => boolean;
 /** Nothing selects: a Plan with no event kinds. */
 const NOTHING: PlanSelectable = () => false;
 
-const parseRef = parseFor(ScheduleEventRefType);
-
 /**
  * What the canvas's elements select by: an element's key that reads back as a
  * `Schedule.Types.EventRef` of one of `kinds`.
@@ -85,7 +82,7 @@ export function selectableOf(kinds: readonly string[] | undefined): PlanSelectab
     return (key) => {
         let held = read.get(key);
         if (held === undefined) {
-            const parsed = parseRef(key);
+            const parsed = parseEventRef(key);
             held = parsed.success && slots.has(parsed.value.kind);
             read.set(key, held);
         }

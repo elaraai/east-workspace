@@ -28,8 +28,9 @@
  * @packageDocumentation
  */
 
-import { parseFor, printFor, variant, type ValueTypeOf } from "@elaraai/east";
-import { ScheduleEventRefType, type PlanLinkKindType } from "@elaraai/e3-ui/internal";
+import { variant, type ValueTypeOf } from "@elaraai/east";
+import type { PlanLinkKindType } from "@elaraai/e3-ui/internal";
+import { parseEventRef, printEventRef } from "../../shared/schedule/event-ref.js";
 import { draftedOf, draftsInPlace, type DraftedRowsByKind, type DraftedStanding } from "../../shared/schedule/drafted-rows.js";
 import type { ScheduleEditingRecord } from "../../shared/schedule/editing.js";
 import type { PlanLinkValue } from "../model.js";
@@ -59,9 +60,6 @@ export const NO_LINK_KINDS_READ: PlanLinkKindsRead = { stored: new Map(), over: 
 
 /** No link of a link kind. */
 export const NO_KIND_LINKS: readonly PlanLinkValue[] = [];
-
-const printEventRef = printFor(ScheduleEventRefType);
-const parseEventRef = parseFor(ScheduleEventRefType);
 
 /**
  * A link kind's link's key on the canvas: its kind's slot and its row's key, as East prints a reference.

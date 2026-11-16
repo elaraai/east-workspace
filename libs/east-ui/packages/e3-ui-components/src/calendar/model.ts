@@ -6,6 +6,7 @@
 /** Calendar's UTC windows and projected data; no UI or record writes. */
 import { DateTimeType, SortedSet, StringType, compareFor, equalFor, parseFor, printFor, type ValueTypeOf } from "@elaraai/east";
 import { CalendarPayloadType, ScheduleEventRefType, ScheduleResourceRefType } from "@elaraai/e3-ui/internal";
+import { parseEventRef, printEventRef } from "../shared/schedule/event-ref.js";
 import type { Formatters } from "@elaraai/east-ui-components";
 import { shiftCalendar } from "../shared/time/calendar-math.js";
 import { type ScheduleItemValue } from "../shared/schedule/overlaps.js";
@@ -54,12 +55,12 @@ import { DAY, dayStart, meetsWindow, weekStart } from "../shared/schedule/window
 export { DAY, NARROW_WIDTH, dayStart, weekStart } from "../shared/schedule/window.js";
 /** A calendar gesture's smallest span. */
 export const QUARTER = 15 * 60_000;
-/** Canonical ids avoid collisions across record kinds and arbitrary keys. */
-export const eventKey = printFor(ScheduleEventRefType);
+/** Canonical ids avoid collisions across record kinds and arbitrary keys: the shared print of an event's reference. */
+export const eventKey = printEventRef;
 /** Resource ids use the shared East codec, not delimiter concatenation. */
 export const resourceKey = printFor(ScheduleResourceRefType);
-/** Reads an event id as its shared East type. */
-export const parseEventKey = parseFor(ScheduleEventRefType);
+/** Reads an event id as its shared East type: the shared parser of an event's reference. */
+export const parseEventKey = parseEventRef;
 /** Reads a resource id as its shared East type. */
 export const parseResourceKey = parseFor(ScheduleResourceRefType);
 /** Drag coordinates use East's DateTime representation. */

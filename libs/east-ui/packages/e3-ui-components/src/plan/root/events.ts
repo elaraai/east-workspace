@@ -64,12 +64,13 @@
 
 import { useCallback, useLayoutEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import {
-    SortedMap, StringType, compareFor, equalFor, equivalentFor, none, printFor, some, variant, type ValueTypeOf,
+    SortedMap, StringType, compareFor, equalFor, equivalentFor, none, some, variant, type ValueTypeOf,
 } from "@elaraai/east";
 import {
     Plan, PlanEventDraftsType, PlanEventPlacedType, PlanEventReadsType, PlanEventSeamType, PlanEventShadingType,
-    ScheduleEventRefType, planHideId,
+    planHideId,
 } from "@elaraai/e3-ui/internal";
+import { printEventRef } from "../../shared/schedule/event-ref.js";
 import { useTrackedEvaluation } from "@elaraai/east-ui-components";
 import { snapshotOf, windowedSourceOf, type WindowedSourceValue } from "@elaraai/east-ui-components/internal";
 import { OVERSCAN_BUCKETS } from "../../shared/time/scale.js";
@@ -152,8 +153,6 @@ const under = (source: WindowedSourceValue<PlanRootValue["rows"]> | undefined): 
 
 /** Whether two paged sources derive the same rows — the paging driver's test (#809). */
 const pagedSourceEquivalent = equivalentFor(Plan.Types.Root.fields.rows.cases.paged);
-/** An element's key: its event, as East prints a `Schedule.Types.EventRef`. */
-const printEventRef = printFor(ScheduleEventRefType);
 
 /** A `time` instant's epoch ms; `undefined` for an instant of another arm. */
 function timeMs(t: PlanInstantValue): number | undefined {

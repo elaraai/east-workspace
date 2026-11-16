@@ -26,8 +26,9 @@
  */
 
 import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
-import { DictType, OptionType, StringType, decodeBeast2For, equalFor, fromEastTypeValue, printFor, type EastType, type ValueTypeOf } from "@elaraai/east";
-import { ScheduleEventRefType, planHideId, type PlanPayloadType } from "@elaraai/e3-ui/internal";
+import { DictType, OptionType, StringType, decodeBeast2For, equalFor, fromEastTypeValue, type EastType, type ValueTypeOf } from "@elaraai/east";
+import { planHideId, type PlanPayloadType } from "@elaraai/e3-ui/internal";
+import { printEventRef } from "../../shared/schedule/event-ref.js";
 import type { FieldSpecValue } from "@elaraai/east-ui/internal";
 import { fieldBreachIssue, fieldBreaches, useTrackedEvaluation, type EditIssue, type FieldBreach } from "@elaraai/east-ui-components";
 import { isBounded, rowBreaches } from "../../shared/bounds.js";
@@ -42,8 +43,6 @@ import type { PlanEventRange } from "./events.js";
 /** One event kind, as the Plan's payload carries it. */
 type PlanEventKindValue = ValueTypeOf<typeof PlanPayloadType>["events"][number];
 
-/** An element's key: its event, as East prints a `Schedule.Types.EventRef`. */
-const printEventRef = printFor(ScheduleEventRefType);
 const stringEqual = equalFor(StringType);
 const fieldEqual = equalFor(OptionType(StringType));
 

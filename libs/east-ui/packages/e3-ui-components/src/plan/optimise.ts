@@ -24,11 +24,12 @@
  * @packageDocumentation
  */
 
-import { StringType, fromEastTypeValue, printFor, variant, type EastType, type ValueTypeOf, type option } from "@elaraai/east";
+import { StringType, fromEastTypeValue, variant, type EastType, type ValueTypeOf, type option } from "@elaraai/east";
 import {
-    ScheduleEventRefType, ScheduleOptimiseRequestType, ScheduleOptimiseResultTypeFor, scheduleOptimiseRecords,
+    ScheduleOptimiseRequestType, ScheduleOptimiseResultTypeFor, scheduleOptimiseRecords,
     type PlanPayloadType, type ScheduleOptimiseRecords,
 } from "@elaraai/e3-ui/internal";
+import { printEventRef } from "../shared/schedule/event-ref.js";
 import { optimiseMessages, type Formatters } from "@elaraai/east-ui-components";
 import { recordOptimiseRun, type OptimiseLanded } from "../shared/func/optimise-diff.js";
 import type { OptimiseSlice } from "../shared/func/optimise-slice.js";
@@ -66,9 +67,6 @@ export interface PlanOptimised {
     readonly ghosts: ReadonlyMap<string, readonly PlanGhost[]>;
     readonly backlogChanged: boolean;
 }
-
-/** An element's key: its event's ref, as East prints it — what the canvas names its elements by. */
-const printEventRef = printFor(ScheduleEventRefType);
 
 /** A kind's key and row types, from the kind on the wire. */
 function typesOf(kind: Pick<PlanEventKindValue, "editing">): { keyType: EastType; rowType: EastType } {
