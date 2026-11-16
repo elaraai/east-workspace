@@ -23,12 +23,13 @@
  */
 
 import type { RenderResult } from "@testing-library/react";
-import { StringType, equalFor, parseFor, printFor, variant, type EastType, type ValueTypeOf } from "@elaraai/east";
+import { StringType, equalFor, parseFor, printFor, type EastType, type ValueTypeOf } from "@elaraai/east";
 import { ScheduleEventRefType } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
 import type { E3Record } from "../../e3-web.test-utils.js";
 import { act, e3Harness, programOf, settle, type E3Harness, type Example, type UIProgram } from "../../e3-web-mount.test-utils.js";
 import { rowKeyOf, type PlanRowId } from "../model.js";
+import { entry } from "../row-id.test-utils.js";
 // The canvas is an extension: its renderer registers as it loads.
 import "../index.js";
 
@@ -107,14 +108,8 @@ export const slot = (container: HTMLElement, name: string) => container.querySel
  */
 export const tabs = (pane: HTMLElement) => [...pane.querySelectorAll('[role="tab"]')].map((tab) => tab.textContent);
 
-/**
- * A row's id, by its series and path.
- *
- * @param series - Its series: `<kind>.<draw>` for a resource's row
- * @param path - Its path: its group and its resource's key, for a resource's
- * @returns The id
- */
-export const entry = (series: string, ...path: string[]): PlanRowId => variant("entry", { series, path }) as PlanRowId;
+/** A row's id, by its series and path: the one every Plan test names a row by (`row-id.test-utils.ts`). */
+export { entry };
 
 /**
  * The selector of a row, by its id — `data-plan-row` holds its id's text.

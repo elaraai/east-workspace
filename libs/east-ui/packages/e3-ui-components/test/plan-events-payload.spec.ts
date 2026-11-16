@@ -25,6 +25,7 @@ import { Chart, DragEventType, Paged, UIComponentType } from "@elaraai/east-ui";
 import { Text } from "@elaraai/east-ui/internal";
 import { Data, Plan, PlanEventKindType, PlanPayloadType, Record, Schedule } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
+import { entry } from "../src/plan/row-id.test-utils.js";
 import { e3Spec } from "./fixtures/e3.js";
 
 const h = e3Spec({ "plan/plan-events": ex });
@@ -56,9 +57,6 @@ const NO_DRAFTS = new SortedMap<string, Uint8Array>([], compareFor(StringType));
 const rowIds = equalFor(ArrayType(Plan.Types.RowId));
 const printId = printFor(Plan.Types.RowId);
 const NO_EDITS = { drop: false, move: none, values: [] };
-
-/** A row's id by its series and path. */
-const entry = (series: string, ...path: string[]) => variant("entry", { series, path });
 
 /** The canvas's own blocks, as the payload carries them. */
 const blocksOf = (payload: Payload) => (payload.plan.rows.type === "inline" ? payload.plan.rows.value : []);

@@ -23,7 +23,7 @@ import { render, cleanup, fireEvent, act, waitFor } from "@testing-library/react
 import { ChakraProvider } from "@chakra-ui/react";
 import {
     ArrayType, DateTimeType, DictType, East, FloatType, StringType, StructType,
-    decodeBeast2For, encodeBeast2For, equalFor, none, some, variant, type ValueTypeOf,
+    decodeBeast2For, encodeBeast2For, equalFor, none, some, type ValueTypeOf,
 } from "@elaraai/east";
 import { Chart, Reactive, State, UIComponentType } from "@elaraai/east-ui/internal";
 import { Plan } from "@elaraai/e3-ui/internal";
@@ -31,6 +31,7 @@ import { system, EastChakraComponent, UIStore, getRegisteredPlatformImplementati
 import { getStore, initializeStore } from "@elaraai/east-ui-components/internal";
 import { rowItemKey } from "./body-items.js";
 import { rowKeyOf, type PlanRowId } from "./row-key.js";
+import { entry } from "./row-id.test-utils.js";
 // The canvas is an extension: its renderer registers as it loads.
 import "./index.js";
 
@@ -151,8 +152,6 @@ function mount(storageKey = "plan-824-ui") {
 }
 
 // ── The rows, by id ───────────────────────────────────────────────────────
-/** A row's id — the series that made it and the path of keys to it. */
-const entry = (series: string, ...path: string[]) => variant("entry", { series, path }) as PlanRowId;
 const HALL = (n: number) => entry("halls", `Hall ${n}`);
 const PRESS = (hall: number, p: number) => entry("presses", `Hall ${hall}`, `H${hall}-P${pad(p)}`);
 const KPI = entry("kpi", "ontime");

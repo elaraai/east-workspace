@@ -33,6 +33,7 @@ import {
     PlanPayloadType, Record, Schedule, ScheduleDraftsType, createEventSeam,
 } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
+import { entry } from "../src/plan/row-id.test-utils.js";
 import { e3Spec } from "./fixtures/e3.js";
 
 const h = e3Spec({ "plan/plan-events": ex });
@@ -84,9 +85,6 @@ const sameInstant = equalFor(Plan.Types.Instant);
 const sameQuantity = equalFor(OptionType(Plan.Types.Quantity));
 const sameStates = equalFor(ArrayType(Plan.Types.Run.fields.state));
 const draftOf = encodeBeast2For(EditingDraftFieldType(ex.PrintJob));
-
-/** A row's id by its series and path. */
-const entry = (series: string, ...path: string[]): RowId => variant("entry", { series, path });
 
 /** An element's key: its event, as East prints a `Schedule.Types.EventRef`. */
 const elementKey = (kind: string, key: string) => printRef({ kind, key });

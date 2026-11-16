@@ -11,9 +11,9 @@
 import { describe, expect, test } from "vitest";
 import { none, variant } from "@elaraai/east";
 import type { PlanRowId } from "../model.js";
+import { entry as id } from "../row-id.test-utils.js";
 import { hiddenOf, hidesRow, rowsHiddenOf, type PlanSeriesTabValue } from "./hidden.js";
 
-const id = (series: string, ...path: string[]): PlanRowId => variant("entry", { series, path }) as PlanRowId;
 const section = (series: string, ...path: string[]): PlanRowId => variant("section", { series, path }) as PlanRowId;
 const line = (lineId: string) => ({ id: lineId, title: lineId, subtitle: none, icon: none, count: none, narrowed: false });
 
