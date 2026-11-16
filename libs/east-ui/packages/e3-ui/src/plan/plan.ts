@@ -782,9 +782,14 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
         // What the canvas shows of its series (#1541, U3): the pick, bound and held here once — a constant, which a
         // function captures as its value, never as a box of its own each evaluation (#1599) — and the keys left out.
         const shown = planShown($, canvas.series, canvas.hidden, picked ? planKeys(canvas.id).pick : undefined);
+        // The Plan's own rows, read here once and held as a constant: over paged rows every window serves them, so the page
+        // captures their value — a new value of a dataset they read makes it another page, whose windows the canvas reads
+        // again, where an expression written out in the page would read the dataset at each call behind a page the canvas
+        // takes for the one it has.
+        const own = rows === undefined ? undefined : $.const(rowsBlocks(rows));
         const plan = buildPlanRoot(
             { ...canvas, data, axis, links, ...(editing === undefined ? {} : { editing }), ...(canvasCanDrop === undefined ? {} : { canDrop: canvasCanDrop }) } as Parameters<typeof buildPlanRoot>[0],
-            rows === undefined ? undefined : rowsBlocks(rows),
+            own,
             sources.chrome,
             rowsNested,
             rowsBinding,

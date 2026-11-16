@@ -167,7 +167,7 @@ import { PlanCarryAnnouncer } from "./edit/announce.js";
 import { PlanSelectableContext, elementKeyOf, holdsElement, selectableOf } from "./rows/element-select.js";
 import { PlanBoundedContext, PlanConflictCellsContext, PlanConflictedContext, PlanDraftedContext } from "./rows/element-draft.js";
 import { PlanOptimisedContext, type PlanOptimisedMarks } from "./rows/element-optimise.js";
-import { rowValueAt, type PlanCanvasInspect } from "./root/inspect.js";
+import { landingNameByKey, rowValueAt, type PlanCanvasInspect } from "./root/inspect.js";
 import { PLAIN_FUNC_BINDING, type FuncCallBound } from "../shared/func/use-func-call.js";
 import { useOptimise } from "../shared/func/use-optimise.js";
 import { optimiseLandedCounts } from "../shared/func/optimise-diff.js";
@@ -1201,6 +1201,9 @@ export function usePlanCanvas({
         [clickable, controller]);
     // What the elements select by (#1197): an event kind's element, its event.
     const selectable = useMemo(() => selectableOf(eventKinds), [eventKinds]);
+    // The series the event kinds land on, by their keys; and the rows a resource the canvas does not hold is read from.
+    const landingsByKey = useMemo(() => new Map(landings.map((landing) => [landing.key, landing] as const)), [landings]);
+    const rowsDrawn = data.rows;
     // The resources the canvas holds (#1541): each landing row, by its series and the last step of its path — as the cells'
     // reader names them — and each series' in the canvas's order.
     const resourceRows = useMemo(() => {
@@ -1228,8 +1231,11 @@ export function usePlanCanvas({
             return row === undefined || scale === undefined ? undefined : rowValueAt(row, derived, scale, words, at);
         },
         resource: (ref) => resourceRows.byRef.get(scheduleCellId(ref.kind, ref.key)),
+        // A resource it does not hold, named by its landing row read by its key (#1199, #1541): the rows as the canvas
+        // draws them, its drafts in place.
+        resourceByKey: (ref) => landingNameByKey(rowsDrawn, landingsByKey.get(ref.kind), ref.key),
         resources: (landing) => (paged ? undefined : resourceRows.bySeries.get(landing) ?? NO_RESOURCE_ROWS),
-    }), [index, derived, scale, words, resourceRows, paged]);
+    }), [index, derived, scale, words, resourceRows, rowsDrawn, landingsByKey, paged]);
     // Events selected from the frame (#1198) — the overlaps chip's pair, the
     // inspector's banner, a duplicate the inspector made (#1194): on the row
     // given, else the row that draws the first, which the controller brings

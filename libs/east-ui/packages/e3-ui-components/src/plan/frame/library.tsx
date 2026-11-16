@@ -85,11 +85,12 @@ import type { BacklogNarrowing } from "../../shared/schedule/backlog.js";
 import type { FollowedSources } from "../../shared/schedule/follow-sources.js";
 import { sourceTab, sourcesTab, type SourceShown, type SourceTab } from "../../shared/schedule/source-tab.js";
 import type { PlanLibraryTabWord } from "../messages.js";
-import type { PlanRowValue } from "../model.js";
+import type { PlanCanvasInspect } from "../root/inspect.js";
 import type { PlanEventPart } from "../root/sources.js";
 import type { PlanWords } from "../words.js";
 import type { PlanBacklogEntry } from "./counts.js";
 import type { PlanValue } from "./index.js";
+import { resourcesNamed, usePlanResourceNames } from "./names.js";
 
 /** The names a Plan keeps its viewer's state under. */
 type PlanKeys = ReturnType<typeof planKeys>;
@@ -148,8 +149,8 @@ export interface PlanLibraryProps {
     kinds: PlanValue["events"];
     /** The series the event kinds land on (#1541): what a template's card names its kind's series by. */
     landings: PlanValue["landings"];
-    /** A resource's landing row on the canvas, when it holds it (#1541): what a backlog card names its resource by. */
-    resourceOf?: ((ref: { readonly kind: string; readonly key: string }) => PlanRowValue | undefined) | undefined;
+    /** What the canvas reads of its rows (#1199, #1541): a backlog card names its resource by its landing row, else by its row read by its key. */
+    inspect?: PlanCanvasInspect | undefined;
     /** The canvas's own pick over `data`'s series, when they are picked. */
     pick: PlanPickValue | undefined;
     /** The names the Plan keeps its viewer's state under. */
@@ -188,9 +189,6 @@ const READ_PANE = {} as const;
 
 /** No event kind has an event on the canvas. */
 const NO_PATCH_KINDS: ReadonlySet<string> = new Set();
-
-/** No canvas to name a resource by: each by its key. */
-const NO_RESOURCE_ROWS = (): undefined => undefined;
 
 /**
  * How long something takes, in the Plan's words — `6 h`, `2 h 15 m`, `45 m`.
@@ -326,7 +324,7 @@ function tabBody(styles: Record<string, Record<string, unknown>>, tab: string, p
  * @returns The pane — its tabs the ones `library` lists, each with its count; 272px wide; its collapsed state kept per viewer — or `undefined`, no pane, when `library` lists none
  */
 export function usePlanLibrary({
-    library, kinds, landings, resourceOf = NO_RESOURCE_ROWS, pick, keys, hidden, onHidden, now, words, takesCards,
+    library, kinds, landings, inspect, pick, keys, hidden, onHidden, now, words, takesCards,
     unscheduled: read, takesEvents = false, patchKinds = NO_PATCH_KINDS, followed = NONE_FOLLOWED, backlogNarrowing = NO_BACKLOG_NARROWING,
     backlogRetained = false, backlogFlash = false,
 }: PlanLibraryProps): BuilderFrameDock | undefined {
@@ -382,11 +380,14 @@ export function usePlanLibrary({
     // last read stands while one is in flight or has failed.
     // What the tab lists: the kinds' unscheduled events, while the library lists the tab.
     const listed = listsBacklog ? unscheduled : NO_BACKLOG;
-    // The resources its cards are on, by name: each by its landing row on the canvas, else its key (#1541).
+    // The resources its cards are on, by name: each by its landing row on the canvas, else by its row read by its key, else
+    // its key (#1199, #1541).
+    const named = useMemo(() => resourcesNamed(listed.map(({ item }) => getSomeorUndefined(item.resource))), [listed]);
+    const names = usePlanResourceNames(inspect, named);
     const resourceName = useCallback((ref: PlanResourceOptionValue): string | undefined => {
         const at = getSomeorUndefined(ref);
-        return at === undefined ? undefined : resourceOf(at)?.gutter.label ?? at.key;
-    }, [resourceOf]);
+        return at === undefined ? undefined : names(at) ?? at.key;
+    }, [names]);
     const backlog = useMemo(() => {
         const rank = (group: DueGroup): number => DUE_GROUPS.indexOf(group);
         const dated = listed.map((entry) => {

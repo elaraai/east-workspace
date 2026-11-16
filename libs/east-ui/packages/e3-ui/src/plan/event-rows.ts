@@ -144,6 +144,8 @@ export type PlanEventSeamType = typeof PlanEventSeamType;
  * @property draws - The ways its kinds draw, in its rows' order: the landing row the first's, a row `<key>.<draw>` each of the rest's
  * @property kinds - The slots of the event kinds landing on it, in `events` order
  * @property series - The keys of its own series: the rows beneath each of its resources, at its path
+ * @property top - Whether its resources are the canvas's own entries (at the top of the series list, or a case of a kinds
+ *   block there): over rows read a page at a time, one the canvas does not hold is read by its key among them
  */
 export const PlanLandingType = StructType({
     key: StringType,
@@ -152,6 +154,7 @@ export const PlanLandingType = StructType({
     draws: ArrayType(PlanDrawType),
     kinds: ArrayType(StringType),
     series: ArrayType(StringType),
+    top: BooleanType,
 });
 
 /** Type representing {@link PlanLandingType}. */
@@ -607,7 +610,7 @@ export function createEventSeam(
  * @internal
  */
 export function landingsOnWire(
-    landings: readonly PlanLanding[],
+    landings: readonly PlanTreeLanding[],
     events: readonly (readonly [string, AnyEventKind])[],
     iconOf: (landing: PlanLanding) => string,
 ): ExprType<ArrayType<PlanLandingType>> {
@@ -618,5 +621,6 @@ export function landingsOnWire(
         draws: eventDrawsOf(landing.key, events).map((draw) => variant(draw, null)),
         kinds: events.filter(([, k]) => k.takes.includes(landing.key)).map(([slot]) => slot),
         series: [...landing.series],
+        top: landing.top,
     })), ArrayType(PlanLandingType));
 }

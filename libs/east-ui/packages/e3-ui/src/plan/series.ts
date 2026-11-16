@@ -1350,13 +1350,18 @@ export interface PlanLanding {
 
 /**
  * A landing where the series tree holds it (#1541, U3): with the series it is
- * nested in, any of which a viewer hiding hides its rows with it.
+ * nested in, any of which a viewer hiding hides its rows with it, and whether
+ * its resources are the canvas's own entries.
  *
  * @internal
  * @property within - The keys of the series it is nested in, outermost first
+ * @property top - Whether its resources are the canvas's own entries — it is at the top of the series list, or a case of
+ *   a kinds block there, which deals the entries out — so one is found by its key among them; beneath another series'
+ *   rows, each is no entry of theirs
  */
 export interface PlanTreeLanding extends PlanLanding {
     readonly within: readonly string[];
+    readonly top: boolean;
 }
 
 /** Every series value a builder made, with its build spec. */
@@ -4215,15 +4220,17 @@ export function planSeriesKeys(series: unknown): readonly string[] | undefined {
 export function planLandings(series: unknown): readonly PlanTreeLanding[] | undefined {
     if (!Array.isArray(series)) return undefined;
     const out: PlanTreeLanding[] = [];
-    const walk = (spec: PlanSeriesSpec, within: readonly string[]): void => {
-        if (spec.landing !== undefined) out.push({ ...spec.landing, within });
+    const walk = (spec: PlanSeriesSpec, within: readonly string[], top: boolean): void => {
+        if (spec.landing !== undefined) out.push({ ...spec.landing, within, top });
         const below = [...within, spec.key];
-        for (const nested of spec.nested) walk(nested, below);
+        // A kinds block deals its entries out among its cases, each case's rows the entries themselves: every other series
+        // nests its own beneath the entry's row.
+        for (const nested of spec.nested) walk(nested, below, top && spec.arm === "kinds");
     };
     for (const one of series) {
         const spec = specOf(one);
         if (spec === undefined) return undefined;
-        walk(spec, []);
+        walk(spec, [], true);
     }
     return out;
 }

@@ -236,7 +236,7 @@ async function inFlightSeam(): Promise<ValueTypeOf<typeof PlanEventSeamType>> {
         const kind = $.let(Object.fromEntries(Object.keys(PlanEventKindType.fields).map((f) =>
             [f, f === "planItems" ? inFlight : read[f]!])) as never, PlanEventKindType);
         const kinds = $.let([kind], ArrayType(PlanEventKindType));
-        const presses = { key: "presses", title: "Presses", icon: undefined, keyType: StringType, rowType: ex.PrintPress, lanes: false, series: [], within: [] };
+        const presses = { key: "presses", title: "Presses", icon: undefined, keyType: StringType, rowType: ex.PrintPress, lanes: false, series: [], within: [], top: true };
         return createEventSeam([presses], Object.entries(events), kinds);
     });
     const { platform } = await h.platform(program);

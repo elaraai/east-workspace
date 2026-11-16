@@ -216,7 +216,7 @@ function Items({ parts, overlaps }: { parts: ChromeParts; overlaps?: PlanOverlap
         // Whether a command writes now: the toolbar's items write nothing of their own.
         writable: true,
         // The inspector's reads: the toolbar takes none.
-        inspect: { row: () => undefined, valueAt: () => undefined, resource: () => undefined, resources: () => undefined },
+        inspect: { row: () => undefined, valueAt: () => undefined, resource: () => undefined, resourceByKey: () => some(none), resources: () => undefined },
         // The overlaps chip's selection (#1198): its own test hears it.
         selectEvents: () => {},
         // Whether the panel's cards drag (#1259, #1196): the toolbar never reads it.

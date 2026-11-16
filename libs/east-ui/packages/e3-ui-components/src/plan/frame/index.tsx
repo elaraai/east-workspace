@@ -388,7 +388,7 @@ function PlanFrame({ canvas, root, kinds, landings, library, inspector, hidden, 
     const [kindsRead, setKindsRead] = useState<PlanKindsRead>(NOTHING_READ);
     const counts = kinds.length > 0 ? kindsRead.counts : undefined;
     const start = usePlanLibrary({
-        library, kinds, landings, resourceOf: chrome?.inspect.resource, pick, keys, hidden, onHidden, now, words, takesCards: chrome?.takesCards === true,
+        library, kinds, landings, inspect: chrome?.inspect, pick, keys, hidden, onHidden, now, words, takesCards: chrome?.takesCards === true,
         // A Plan with no event kinds reads no backlog: there is nothing to wait for.
         unscheduled: kinds.length === 0 ? NO_UNSCHEDULED : counts?.unscheduled,
         takesEvents: chrome?.takesEvents === true, patchKinds: chrome?.patchKinds ?? NO_PATCH_KINDS,

@@ -132,6 +132,7 @@ import type { PlanWords } from "../words.js";
 import type { PlanEventCounts } from "./counts.js";
 import { hides } from "./hidden.js";
 import type { PlanValue } from "./index.js";
+import { resourcesNamed, useNamedResource, usePlanResourceNames, type PlanResourceNames } from "./names.js";
 
 /** The names a Plan keeps its viewer's state under. */
 type PlanKeys = ReturnType<typeof planKeys>;
@@ -528,17 +529,18 @@ function OverlapsBanner({ styles, title, lines, onSelect }: {
 
 /**
  * A resource by its name: its landing row's label on the canvas (#1541), else
- * its key — over rows read a page at a time, a resource the canvas has not read.
+ * its row's read by its key (#1199) — over rows read a page at a time, one the
+ * canvas does not hold — else, until that read lands, its key.
  *
  * @param ref - The resource an event is on, if any
- * @param chrome - The canvas's facts: its rows
+ * @param names - The names the view's resources are known by ({@link usePlanResourceNames})
  * @param w - The Plan's words
  * @returns Its name, or `Unassigned`
  */
-function resourceText(ref: PlanEventItemValue["resource"], chrome: PlanChrome | undefined, w: PlanWords): string {
+function resourceText(ref: PlanEventItemValue["resource"], names: PlanResourceNames, w: PlanWords): string {
     const at = getSomeorUndefined(ref);
     if (at === undefined) return w.m.inspectorUnassigned();
-    return chrome?.inspect.resource(at)?.gutter.label ?? at.key;
+    return names(at) ?? at.key;
 }
 
 /**
@@ -697,6 +699,8 @@ function OneEvent({ event, keys, words, styles, counts, chrome, selection }: One
     const { kind } = event;
     const item = event.item;
     const roles = kind.roles;
+    // Its resource, by name: read by its key where the canvas does not hold its row (#1199, #1541).
+    const names = usePlanResourceNames(chrome?.inspect, useNamedResource(getSomeorUndefined(item.resource)));
     // Its edits (#1194): steps of the Plan's one history, on while the canvas takes a write and its kind a gesture.
     const editing = chrome?.events;
     const writable = writableFor([event], editing, chrome?.writable === true);
@@ -799,7 +803,7 @@ function OneEvent({ event, keys, words, styles, counts, chrome, selection }: One
                 of the edits' fieldset, so its lines select while that is disabled. */}
             {peers.length > 0 && chrome !== undefined && (
                 <OverlapsBanner styles={styles}
-                    title={m.inspectorOverlaps({ n: peers.length, count: words.number(peers.length), on: resourceText(item.resource, chrome, words) })}
+                    title={m.inspectorOverlaps({ n: peers.length, count: words.number(peers.length), on: resourceText(item.resource, names, words) })}
                     lines={peers.map((peer) => ({ keys: [scheduleEventKey(peer)], when: whenText(peer, kind.instant, words), title: peer.title }))}
                     onSelect={chrome.selectEvents} />
             )}
@@ -810,7 +814,7 @@ function OneEvent({ event, keys, words, styles, counts, chrome, selection }: One
                 </Box>
             )}
             <Box as="dl" ref={facts} css={styles.facts} data-inspector-facts="">
-                <Fact styles={styles} fact="resource" label={m.inspectorFact({ fact: "resource" })} value={resourceText(item.resource, chrome, words)} />
+                <Fact styles={styles} fact="resource" label={m.inspectorFact({ fact: "resource" })} value={resourceText(item.resource, names, words)} />
                 {start !== undefined && end !== undefined && (kind.instant
                     ? <Fact styles={styles} fact="at" label={m.inspectorFact({ fact: "at" })} value={words.dateTime(start)} />
                     : (
@@ -871,6 +875,9 @@ interface SeveralProps extends BodyProps {
 function SeveralEvents({ events, kinds, landings, words, styles, chrome, selection }: SeveralProps) {
     const { m } = words;
     const button = useRecipe({ key: "button" });
+    // The resources the events are on, by name: each read by its key where the canvas does not hold its row (#1199, #1541).
+    const named = useMemo(() => resourcesNamed(events.map((e) => getSomeorUndefined(e.item.resource))), [events]);
+    const names = usePlanResourceNames(chrome?.inspect, named);
     // Its edits (#1194): steps of the Plan's one history, on while the canvas takes a write and every selected kind a gesture.
     const editing = chrome?.events;
     const writable = writableFor(events, editing, chrome?.writable === true);
@@ -920,10 +927,10 @@ function SeveralEvents({ events, kinds, landings, words, styles, chrome, selecti
         }
         for (const e of events) {
             const at = getSomeorUndefined(e.item.resource);
-            if (at !== undefined) add(at.kind, at.key, resourceText(e.item.resource, chrome, words));
+            if (at !== undefined) add(at.kind, at.key, resourceText(e.item.resource, names, words));
         }
         return { resource: out };
-    }, [selectedKinds, landings, chrome, events, words]);
+    }, [selectedKinds, landings, chrome, events, names, words]);
     // The form's value: the state, and the resource, every selected event that has one shares — Not set where they differ.
     const shared = useMemo(() => {
         const states = events.filter((e) => e.kind.roles.state.type === "some").map((e) => stateWordOf(e.item.state));
