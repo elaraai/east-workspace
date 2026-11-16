@@ -218,6 +218,13 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
      *  see where they fall`; `undefined`, it has none. */
     tooManyEventsHint: (p: { resolution: string | undefined }) => string;
 
+    // ── Too many links to draw (#1541, U10) ────────────────────────────────
+    /** The notice's title: a link kind holding more links than are read — `10,001 flow links`; `kind` its name as running
+     *  text writes it. */
+    tooManyLinks: (p: { kind: string; n: number; count: string }) => string;
+    /** The line under it. */
+    tooManyLinksHint: () => string;
+
     // ── The library pane (#1195) ───────────────────────────────────────────
     /** The library pane's name. */
     libraryPane: () => string;
@@ -661,6 +668,8 @@ export const planMessages: PlanMessages = {
     tooManyEventsHint: ({ resolution }) => (resolution === undefined
         ? "Too many to draw at this resolution: narrow the filters, or zoom in."
         : `Too many to draw at this resolution: switch to ${resolution} to see where they fall.`),
+    tooManyLinks: ({ kind, n, count }) => `${count} ${kind} ${plural(n, "link", "links")}`,
+    tooManyLinksHint: () => "Too many to draw: none of them is shown.",
 
     libraryPane: () => "Library",
     libraryTab: ({ tab }) => (tab === "events" ? "Events" : tab === "backlog" ? "Backlog" : "Series"),

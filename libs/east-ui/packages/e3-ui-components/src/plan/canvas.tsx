@@ -113,7 +113,8 @@ import { timeInstant } from "./instant.js";
 import { removePlanEvents, usePlanEventEditing } from "./edit/events.js";
 import { lowerWord } from "../shared/schedule/words.js";
 import {
-    NO_LINK_KINDS, NO_LINK_KINDS_READ, kindLinkOf, kindLinks, linkKindRecords, linkStepLabel, linkedEventKinds, readLinkKinds, type PlanLinkKindValue,
+    NO_LINK_KINDS, NO_LINK_KINDS_READ, kindLinkOf, kindLinks, linkKindRecords, linkStepLabel, linkedEventKinds, linksOver, readLinkKinds,
+    type PlanLinkKindValue,
 } from "./links/kinds.js";
 import type { PlanLinkUnlink } from "./shell/LinksOverlay.js";
 import { DraftedStanding } from "../shared/schedule/drafted-rows.js";
@@ -2383,6 +2384,7 @@ export function usePlanCanvas({
                 landing: { ref: landingRoot, attributes: landing.attributes, css: landingStyles.main },
             } : undefined,
             cells: lead.cells,
+            linksOver: linksOver(linkKinds, linksRead),
             footer: data.footer,
             id: getSomeorUndefined(data.id),
             narrow,

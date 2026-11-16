@@ -24,6 +24,9 @@
  *   and, through a carry-over, one the canvas last drew.
  * - **Saved beside the event kinds**: an editable kind is a record of the
  *   shared editing, its session named by its slot.
+ * - **Past the cap, none drawn**: a kind holding more links than an event
+ *   kind's events are read under reads none of them, and is named with how
+ *   many it holds (`linksOver`), which the frame says in a notice.
  *
  * @packageDocumentation
  */
@@ -61,6 +64,19 @@ export const NO_LINK_KINDS_READ: PlanLinkKindsRead = { stored: new Map(), over: 
 
 /** No link of a link kind. */
 export const NO_KIND_LINKS: readonly PlanLinkValue[] = [];
+
+/** A link kind holding more links than are read: its slot, its name, and how many it holds. */
+export interface PlanLinksOver {
+    /** The kind's slot. */
+    readonly kind: string;
+    /** Its name. */
+    readonly name: string;
+    /** How many links its record holds. */
+    readonly links: number;
+}
+
+/** No link kind holds more links than are read. */
+export const NO_LINKS_OVER: readonly PlanLinksOver[] = [];
 
 /**
  * A link kind's link's key on the canvas: its kind's slot and its row's key, as East prints a reference.
@@ -140,6 +156,22 @@ export function readLinkKinds(kinds: readonly PlanLinkKindValue[]): PlanLinkKind
         else over.set(kind.key, kind.count());
     }
     return { stored, over };
+}
+
+/**
+ * The link kinds holding more links than are read, in the payload's order: none of such a kind's links is drawn, and
+ * the frame says how many it holds.
+ *
+ * @param kinds - The link kinds
+ * @param read - What was read of them
+ * @returns Each such kind — one empty list while there is none
+ */
+export function linksOver(kinds: readonly PlanLinkKindValue[], read: PlanLinkKindsRead): readonly PlanLinksOver[] {
+    if (read.over.size === 0) return NO_LINKS_OVER;
+    return kinds.flatMap((kind) => {
+        const held = read.over.get(kind.key);
+        return held === undefined ? [] : [{ kind: kind.key, name: kind.name, links: Number(held) }];
+    });
 }
 
 /** An event, as a link's end names it: its kind's slot at no path, its key the run. */
