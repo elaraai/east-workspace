@@ -12,6 +12,8 @@
  * - A drafted row's roles, and the rows a reader read, each from its key's text.
  * - The app's check, over a drafted row and its key at its type.
  * - A card's write, at any depth of the row.
+ * - The binding's one check (`kindBinding`): the three forms told apart by the handle, and each refusal in the words
+ *   the builder gives it.
  * - The record's session: its key type on the wire, one entry read by its key's text, and Save through the patch
  *   door, which writes each change under its key at the record's key type — and the same batch handed over as the
  *   draft of that Save (#1620), its patch the one Save sends.
@@ -31,7 +33,10 @@ import { Editing } from "@elaraai/east-ui";
 import { EditingReadinessType } from "@elaraai/east-ui/internal";
 import { DatasetStatusType, RecordCommitInfoType } from "@elaraai/e3-types";
 import { FuncDraftType, RecordBindHandleType, RecordErrorType, RecordMutateStatusType, RecordOutcomeType } from "@elaraai/e3-ui";
-import { KindSideFields, accessorRole, kindWholeRows, readOf, recordSide, rowsReadOf, storedRows } from "@elaraai/e3-ui/internal";
+import e3 from "@elaraai/e3";
+import {
+    Data, KindSideFields, Record, accessorRole, kindBinding, kindWholeRows, readOf, recordSide, rowsReadOf, storedRows, type KindBinding, type KindBindingWords,
+} from "@elaraai/e3-ui/internal";
 
 // ============================================================================
 // The bakery's records
@@ -347,5 +352,66 @@ describe("the record's session is at the record's key type: its read by key and 
             requestId: "spec-steps-none", base: variant("revision", "r1"), label: "Nothing", changes: [],
         }));
         assert.equal(unchanged.type, "unchanged");
+    });
+});
+
+// ============================================================================
+// The binding's check
+// ============================================================================
+
+/** A loaf, and the bakery's loaves: a record with its patch door and an index. */
+const Loaf = StructType({ name: StringType, tin: StringType });
+const loaves = e3.record("record_kind_spec_loaves", DictType(StringType, Loaf), {
+    initial: new Map(),
+    indexes: (index) => ({ record_kind_spec_loaves_by_tin: index.on(["tin"]) }),
+    mutations: (mutation) => ({ patch: mutation.patch() }),
+});
+/** A dataset whose entries are no structs. */
+const tally = e3.input("record_kind_spec_tally", DictType(StringType, IntegerType));
+
+/** A builder's words, each refusal told apart. */
+const WORDS: KindBindingWords = {
+    refuse: (why) => `Spec: bind the loaves${why}`,
+    indexes: " — through its indexes",
+    window: " — an index's window",
+    rows: (holds) => `Spec: the loaves are structs by key, not ${holds}`,
+    paged: "Spec: Data.bindPaged(record)",
+    door: "Spec: no patch door",
+};
+
+/** A binding checked inside a block, as a builder's factory checks one: the binding, or the refusal's words. */
+function checked(bind: () => unknown, words: KindBindingWords = WORDS): KindBinding | string {
+    let out: KindBinding | string = "";
+    East.function([], NullType, (_$) => {
+        try {
+            out = kindBinding(bind(), "Spec", words);
+        } catch (err) {
+            out = err instanceof Error ? err.message : String(err);
+        }
+    });
+    return out;
+}
+
+describe("a kind's binding is told by its handle, and refused in its builder's words", () => {
+    test("Record.bind with its patch door is editable, Data.bind read whole, Data.bindPaged read through a source — each with the record's key and row types", () => {
+        for (const [bind, form] of [[() => Record.bind(loaves), "record"], [() => Data.bind(loaves), "data"], [() => Data.bindPaged(loaves), "paged"]] as const) {
+            const bound = checked(bind);
+            if (typeof bound === "string") assert.fail(`${form}: ${bound}`);
+            assert.deepEqual([bound.form, isTypeEqual(bound.keyType, StringType), isTypeEqual(bound.rowType, Loaf)], [form, true, true]);
+        }
+    });
+
+    test("what is no binding, or binds no record of structs, is refused naming what it is", () => {
+        assert.equal(checked(() => new Map()), "Spec: bind the loaves");
+        assert.equal(checked(() => East.value(1n)), "Spec: bind the loaves — and this is .Integer");
+        assert.equal(checked(() => Data.bind(tally)), "Spec: the loaves are structs by key, not .Dict (key=.String, value=.Integer)");
+    });
+
+    test("a Record.bind without its patch door, a paged read through the record's indexes, and — for a kind read whole — any paged read", () => {
+        assert.equal(checked(() => Record.bind(loaves, [])), "Spec: no patch door");
+        assert.equal(checked(() => Data.bindPaged(loaves, { indexes: ["record_kind_spec_loaves_by_tin"] })), "Spec: bind the loaves — through its indexes");
+        assert.equal(checked(() => Data.bindPaged(loaves), { ...WORDS, whole: " — read whole, never paged" }), "Spec: bind the loaves — read whole, never paged");
+        // Read whole, the other two forms stand.
+        assert.equal(typeof checked(() => Record.bind(loaves), { ...WORDS, whole: " — read whole, never paged" }), "object");
     });
 });

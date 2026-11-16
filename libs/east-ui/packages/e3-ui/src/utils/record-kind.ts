@@ -32,21 +32,22 @@
  */
 
 import {
-    ArrayType, BlobType, BooleanType, DictType, East, EastTypeType, Expr, FunctionType, IntegerType, OptionType, StringType, StructType, TypeMismatchError,
-    isSubtype, isTypeEqual, none, some, toEastTypeValue, variant,
+    ArrayType, AsyncFunctionType, BlobType, BooleanType, DictType, East, EastTypeType, Expr, FunctionType, IntegerType, OptionType, PatchType, StringType,
+    StructType, TypeMismatchError, isSubtype, isTypeEqual, none, printType, some, toEastTypeValue, variant,
     type EastType, type ExprType, type NullType, type SubtypeExprOrValue,
 } from "@elaraai/east";
 import { RecordCommitInfoType } from "@elaraai/e3-types";
 import type { UIComponentType } from "@elaraai/east-ui";
 import {
-    EditingReadinessType, EditingType, Fields, FieldSpecType, RecordSliceBindType, RecordSliceReadType, recordSliceReadPlatform,
+    EditingReadinessType, EditingType, Fields, FieldSpecType, RecordSliceBindType, RecordSliceReadType, recordSliceReadPlatform, resolveRowSource,
     type FieldHints, type RecordSliceConfigType, type RecordSliceStateType,
 } from "@elaraai/east-ui/internal";
+import { RecordOutcomeType } from "../bind/record.js";
 import { scheduleAccessor } from "../schedule/accessor.js";
 import { fieldOf, fieldSetters } from "../schedule/fields.js";
 import { scheduleEntriesSeam, scheduleRecordSession } from "../schedule/session.js";
 import { ScheduleEntriesType, ScheduleFieldWriteType, ScheduleReadyEntryType } from "../schedule/types.js";
-import { keyOfText, keyTextOf, optionOf, scheduleEntryByKey, scheduleLastKey, typeText } from "../schedule/window.js";
+import { checkEntries, keyOfText, keyTextOf, optionOf, scheduleEntryByKey, scheduleLastKey, typeText } from "../schedule/window.js";
 import { RowInspectorType, rowInspector } from "./row-inspector.js";
 
 // ============================================================================
@@ -105,6 +106,75 @@ export interface KindBinding {
     readonly keyType: EastType;
     /** The record's row type. */
     readonly rowType: StructType;
+}
+
+/**
+ * How a builder's refusals of a kind's binding read: each builder names the
+ * forms it takes, and what its rows are, in its own words.
+ */
+export interface KindBindingWords {
+    /** What is refused that is no binding of the app's record of structs — `why` what was given, after it. */
+    readonly refuse: (why: string) => string;
+    /** For a kind read whole only: why a `Data.bindPaged` binding is refused. Left out, the kind may be read through a source. */
+    readonly whole?: string | undefined;
+    /** Why a paged read serving the record's indexes is refused. */
+    readonly indexes: string;
+    /** Why a paged read of an index's window is refused. */
+    readonly window: string;
+    /** The refusal of a record that holds no rows by key, each a struct — given what it holds. */
+    readonly rows: (holds: string) => string;
+    /** What a paged binding is named by, where it is checked to be the record's own entries. */
+    readonly paged: string;
+    /** The refusal of a `Record.bind` without its patch door. */
+    readonly door: string;
+}
+
+/**
+ * Tells a kind's binding by its handle's East struct (`bind/sources.ts`'
+ * rule): a `page` field is `Data.bindPaged`'s, a `mutate` field
+ * `Record.bind`'s — checked for its patch door — and any other `Data.bind`'s.
+ * The one check every builder's kinds run, each refusing in its own words.
+ *
+ * @param record - What the kind was given
+ * @param where - The kind, as a refusal names it
+ * @param words - The builder's words for each refusal
+ * @returns The binding
+ * @throws {Error} In the builder's words: anything but a binding of a record of structs; a paged binding for a kind
+ *   read whole, one serving the record's indexes or an index's window, or one naming no snapshot; and a `Record.bind`
+ *   without its patch door
+ */
+export function kindBinding(record: unknown, where: string, words: KindBindingWords): KindBinding {
+    const refuse = (why: string): never => { throw new Error(words.refuse(why)); };
+    if (!(record instanceof Expr)) return refuse("");
+    const type = Expr.type(record) as EastType;
+    const fields = type.type === "Struct" ? type.fields as Record<string, EastType> : undefined;
+    if (fields === undefined) return refuse(` — and this is ${printType(type)}`);
+    let form: KindBinding["form"];
+    let recordType: EastType;
+    if (fields["page"] !== undefined) {
+        if (words.whole !== undefined) return refuse(words.whole);
+        form = "paged";
+        if (fields["indexes"] !== undefined) return refuse(words.indexes);
+        const resolved = resolveRowSource(record, where);
+        if (resolved.kind !== "paged") return refuse(words.window);
+        recordType = resolved.collectionType;
+    } else {
+        form = fields["mutate"] !== undefined ? "record" : "data";
+        const read = fields["read"];
+        if (read === undefined || read.type !== "Function" || read.inputs.length !== 0 || fields["binding"] === undefined) return refuse("");
+        recordType = read.output as EastType;
+    }
+    if (recordType.type !== "Dict" || (recordType.value as EastType).type !== "Struct") throw new Error(words.rows(typeText(recordType)));
+    const rowType = recordType.value as StructType;
+    // A paged read of the record's own entries, at the snapshot every read of it is at, keyed as the record is.
+    if (form === "paged") checkEntries(record, recordType.key as EastType, rowType, words.paged);
+    if (form === "record") {
+        // The patch door: the record's mutation.patch(), the mutation named `patch` taking the record's patch.
+        const commit = fields["commit"];
+        const door = commit?.type === "Struct" ? (commit.fields as Record<string, EastType>)["patch"] : undefined;
+        if (door === undefined || !isTypeEqual(door, AsyncFunctionType([StringType, PatchType(recordType)], RecordOutcomeType))) throw new Error(words.door);
+    }
+    return { form, handle: record as ExprType<EastType>, keyType: recordType.key as EastType, rowType };
 }
 
 /**

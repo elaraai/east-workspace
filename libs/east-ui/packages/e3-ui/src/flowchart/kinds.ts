@@ -63,17 +63,16 @@
  */
 
 import {
-    ArrayType, AsyncFunctionType, BlobType, East, Expr, FloatType, IntegerType, OptionType, PatchType, SetType, StringType,
-    defaultValue, isImmutableType, isTypeEqual, none, printType, some, toEastTypeValue, variant,
+    ArrayType, BlobType, East, FloatType, IntegerType, OptionType, SetType, StringType,
+    defaultValue, isImmutableType, isTypeEqual, none, some, toEastTypeValue, variant,
     type BlockBuilder, type DictType, type EastType, type ExprType, type FunctionType, type ImmutableType, type StructType,
 } from "@elaraai/east";
-import { resolveRowSource, type FieldHints } from "@elaraai/east-ui/internal";
-import { RecordOutcomeType } from "../bind/record.js";
+import type { FieldHints } from "@elaraai/east-ui/internal";
 import { fieldOf, type FieldName, type FieldsOf } from "../schedule/fields.js";
 import { scheduleNewValues, type ScheduleNewValues } from "../schedule/values.js";
 import { checkEntries, keyOfText, keyTextOf, optionOf, typeText } from "../schedule/window.js";
 import {
-    accessorRole, called, checkMadeKeys, fieldTypeOf, keyBuilderOf, kindSourceRows, kindWholeRows, readOf, recordSide, roleField, rowWith, rowsReadOf,
+    accessorRole, called, checkMadeKeys, fieldTypeOf, keyBuilderOf, kindBinding, kindSourceRows, kindWholeRows, readOf, recordSide, roleField, rowWith, rowsReadOf,
     storedRows, valuesTypeOf,
     type KindAccessor as Accessor, type KindBinding, type KindKeyBuilder, type KindRowInspector as RowInspector, type RecordSide,
 } from "../utils/record-kind.js";
@@ -155,45 +154,17 @@ function boundOf(record: unknown, where: string, noun: string, whole: boolean): 
     const forms = whole
         ? "bind Record.bind(record) to edit them, or Data.bind(record) to read them"
         : "bind Record.bind(record) to edit them, Data.bind(record) to read them whole, or Data.bindPaged(record) to read them through their source";
-    const refuse = (why: string): never => { throw new Error(`${where}: the ${noun} are a record of the app's${whole ? ", read whole" : ""}: ${forms}${why}`); };
-    if (!(record instanceof Expr)) return refuse("");
-    const type = Expr.type(record) as EastType;
-    const fields = type.type === "Struct" ? type.fields as Record<string, EastType> : undefined;
-    if (fields === undefined) return refuse(` — and this is ${printType(type)}`);
-    let form: KindBinding["form"];
-    let recordType: EastType;
-    if (fields["page"] !== undefined) {
-        if (whole) return refuse(" — and this is Data.bindPaged(record), which reads a record through its source of the slice");
-        form = "paged";
-        if (fields["indexes"] !== undefined) {
-            return refuse(` — and this paged read reads the record through its indexes: bind its own entries, Data.bindPaged(record), and name the indexed read ` +
-                `as the ${noun}' source of the slice`);
-        }
-        const resolved = resolveRowSource(record, where);
-        if (resolved.kind !== "paged") return refuse(" — and this paged read pages an index's window: bind the record's own entries, Data.bindPaged(record)");
-        recordType = resolved.collectionType;
-    } else {
-        form = fields["mutate"] !== undefined ? "record" : "data";
-        const read = fields["read"];
-        if (read === undefined || read.type !== "Function" || read.inputs.length !== 0 || fields["binding"] === undefined) return refuse("");
-        recordType = read.output as EastType;
-    }
-    if (recordType.type !== "Dict" || (recordType.value as EastType).type !== "Struct") {
-        throw new Error(`${where}: the ${noun}' record holds its rows by key, each a struct — and this one holds ${typeText(recordType)}`);
-    }
-    const rowType = recordType.value as StructType;
-    // A paged read of the record's own entries, at the snapshot every read of it is at.
-    if (form === "paged") checkEntries(record, recordType.key as EastType, rowType, `${where}: Data.bindPaged(record)`);
-    if (form === "record") {
-        // The patch door: the record's mutation.patch(), the mutation named `patch` taking the record's patch.
-        const commit = fields["commit"];
-        const door = commit?.type === "Struct" ? (commit.fields as Record<string, EastType>)["patch"] : undefined;
-        if (door === undefined || !isTypeEqual(door, AsyncFunctionType([StringType, PatchType(recordType)], RecordOutcomeType))) {
-            throw new Error(`${where}: the ${noun}' record is bound without its patch door — its record declares patch: mutation.patch(), ` +
-                "which Save writes each change through");
-        }
-    }
-    return { form, handle: record as ExprType<EastType>, keyType: recordType.key as EastType, rowType };
+    return kindBinding(record, where, {
+        refuse: (why) => `${where}: the ${noun} are a record of the app's${whole ? ", read whole" : ""}: ${forms}${why}`,
+        ...(whole ? { whole: " — and this is Data.bindPaged(record), which reads a record through its source of the slice" } : {}),
+        indexes: ` — and this paged read reads the record through its indexes: bind its own entries, Data.bindPaged(record), and name the indexed read ` +
+            `as the ${noun}' source of the slice`,
+        window: " — and this paged read pages an index's window: bind the record's own entries, Data.bindPaged(record)",
+        rows: (holds) => `${where}: the ${noun}' record holds its rows by key, each a struct — and this one holds ${holds}`,
+        paged: `${where}: Data.bindPaged(record)`,
+        door: `${where}: the ${noun}' record is bound without its patch door — its record declares patch: mutation.patch(), ` +
+            "which Save writes each change through",
+    });
 }
 
 /**
