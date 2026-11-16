@@ -160,7 +160,7 @@ Task → What do you need?
     │   ├─ A run's, a tile's, a chip's or a mark's status      → its map's status: Plan.status("Over dwell", "warning"), its words and its tone · { ring: true } draws it as an open ring, as a tentative one · an Option of one passes as it is
     │   ├─ The app's own words for what it draws              → vocabulary={{ unassigned, backlog, rows, dueThisWeek, confirmed, … }}
     │   ├─ Its inspector pane: what is selected               → inspector (+ an event kind's own: Schedule.events(record, { inspector }))
-    │   ├─ Drags of templates, backlog cards and events       → built in with event kinds (+ library); canDrop={fn(Schedule.Types.Candidate) => Option<String>}
+    │   ├─ Drags of templates, backlog cards and events       → built in with event kinds (+ library); canDrop={fn(Plan.Types.Candidate) => Option<String>}, the one check of every drop, its message on the ghost
     │   ├─ The app's optimiser over the window and the backlog → optimise={Func.bind(e3.function)} from Plan.Types.OptimiseRequest (the window, the zoom's unit, the run, the rail's narrowing; no row) to Plan.Types.OptimiseResult({ job: Jobs }), a patch of each kind's record
     │   ├─ Overlap warnings, without dropping overlapping events → Schedule.events(record, { overlaps: "warn" | "allow" })
     │   └─ Dropped cards and moves of data rows as drafts      → a series' edit + record={Record.bind(rows)}, the record its data is read from (+ onPatch, ready)

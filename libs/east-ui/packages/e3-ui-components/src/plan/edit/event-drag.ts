@@ -20,7 +20,7 @@
  * - **The verdict**, asked where the drag rests and again of the drop: the
  *   kind takes a gesture now; it lands on the row's series (or, on its own
  *   Unassigned row, takes none); the row draws that kind; its own `write` takes the gesture;
- *   and the Plan's `canDrop` over `Schedule.Types.Candidate` lets it land. The
+ *   and the Plan's `canDrop` lets land what the drop would do (`Plan.Types.Candidate`, #1541 U7). The
  *   first refusal is what the ghost says, in red: `Needs presses`, or
  *   `canDrop`'s message. Allowed, the ghost says what lands where:
  *   `Brochure run · Press A1 · Mon, Oct 12, 2026`.
@@ -55,7 +55,7 @@ import { durationMinutes } from "../../shared/schedule/due.js";
 import { moveSpan } from "../../shared/time/drag.js";
 import { backlogLibrary, eventsLibrary, tabLibrary } from "../frame/library.js";
 import { instantKey, timeInstant } from "../instant.js";
-import { rowKeyOf, type PlanRowValue } from "../model.js";
+import { rowKeyOf, type PlanRowId, type PlanRowValue } from "../model.js";
 import type { RowKey } from "../plan-state.js";
 import { kindRowId, landingRowId, landingTargetOf, type PlanLandingValue } from "../root/landings.js";
 import type { PlanRowMove } from "../rows/SpanRow.js";
@@ -65,6 +65,7 @@ import type { PlanWords } from "../words.js";
 import type { PlanEventChange, PlanEventEditing, PlanEventGestureValue, PlanEventReadValue } from "./events.js";
 import type { PlanEditStore, PlanMovable, PlanProposal, PlanSpan } from "./store.js";
 import { originOf, unmoved, type PlanMoveRequest } from "./use-carry.js";
+import { eventCandidate, type PlanCandidatePlace, type PlanCandidateValue, type PlanVeto } from "./candidate.js";
 
 type PlanPayloadValue = ValueTypeOf<typeof PlanPayloadType>;
 /** One event kind, as the payload carries it. */
@@ -77,12 +78,6 @@ type PlanAuthorTabValue = Extract<PlanLibraryTabValue, { type: "tab" }>["value"]
 type PlanResourceOption = option<ValueTypeOf<typeof ScheduleResourceRefType>>;
 /** The names a Plan keeps its viewer's state under. */
 type PlanKeys = ReturnType<typeof planKeys>;
-
-/** The Plan's drop veto over an event kind's drop (`Schedule.Types.Candidate` → `Option<String>`), decoded. */
-export type PlanEventCanDropFn = Extract<PlanPayloadValue["canDrop"], { type: "some" }>["value"];
-
-/** What the veto is asked. */
-type PlanCandidateValue = Parameters<PlanEventCanDropFn>[0];
 
 /** The item type an event kind's element carries: a row takes it by the event's kind, never by an item type, and no printed type reads so. */
 export const PLAN_EVENT_ITEMS = "#event";
@@ -220,8 +215,10 @@ export interface PlanEventDragArgs {
     keys: PlanKeys;
     /** The event kinds' editing: their drafts, the new keys, and the recorder. */
     editing: PlanEventEditing;
-    /** The Plan's drop veto over an event kind's drop, when it has one. */
-    canDrop: PlanEventCanDropFn | undefined;
+    /** The Plan's veto over what a drop would do (#1541, U7), when it has a check. */
+    veto: PlanVeto | undefined;
+    /** A resource's landing row on the canvas, where it holds it: the row a candidate names for an event that keeps its resource. */
+    resource: (ref: { readonly kind: string; readonly key: string }) => PlanRowValue | undefined;
     /** The shared scale: a time scale beside event kinds. */
     scale: PlanScale | undefined;
     /** The canvas's words. */
@@ -249,6 +246,8 @@ interface PlanEventGesture {
     readonly selects: { readonly keys: readonly string[]; readonly row: RowKey | undefined } | undefined;
 }
 
+/** An element moved, as a candidate says it. */
+const MOVE = variant("move", null) as PlanCandidateValue["gesture"];
 /** The resolutions a template's `at` applies at: a whole day, or longer. */
 const WHOLE_DAYS: readonly string[] = ["day", "week", "month", "quarter", "year"];
 /** A bar's and a chip's moves: their ends resize. */
@@ -342,7 +341,7 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
         /** The answers kept for what the latest render reads — none, once any of it moved. */
         const kept = (): Map<string, PlanEventGesture> => {
             const a = latest.current;
-            const read = [a.kinds, a.landings, a.tabs, a.editing.drafts, a.editing.version, a.canDrop, a.scale, a.words, a.selected()];
+            const read = [a.kinds, a.landings, a.tabs, a.editing.drafts, a.editing.version, a.veto, a.scale, a.words, a.selected()];
             const was = held.current;
             if (was.read.length !== read.length || read.some((r, i) => !Object.is(r, was.read[i]))) {
                 held.current = { read, gestures: new Map() };
@@ -441,7 +440,7 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
          * @returns `undefined` when it lands; else why not
          */
         const judge = (kind: PlanEventKindValue, change: { id: string; entry: Uint8Array; gesture: PlanEventGestureValue },
-            candidate: PlanCandidateValue | undefined): string | undefined => {
+            candidate: PlanCandidateValue, onNone = false): string | undefined => {
             const a = latest.current;
             const m = a.words.m;
             if (!a.editing.available(kind.key)) return m.dropBusy({ kind: kind.name });
@@ -454,20 +453,22 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
             }
             if (written === undefined || written.type !== "some") {
                 // Its write refuses the resource: on none, a kind whose field holds one.
-                const onNone = candidate !== undefined && candidate.resource.type === "none";
                 return onNone ? needs(kind) : m.dropRefused();
             }
-            if (candidate !== undefined && a.canDrop !== undefined) {
-                try {
-                    const said = a.canDrop(candidate);
-                    if (said.type === "some") return said.value;
-                } catch (err) {
-                    // A broken validator must not brick the surface: it lets the drop land.
-                    console.error("[Plan] canDrop failed (allowing):", err);
-                }
-            }
-            return undefined;
+            // The Plan's one check, of what the drop would do (#1541, U7): its refusal is what the ghost says.
+            return a.veto?.refusal(candidate);
         };
+
+        /**
+         * Where an event of a kind would land on what a row stands for, as a candidate says it: the resource's own
+         * row — its landing row, whichever row beside it the kind draws on — or the kind's Unassigned row, and its times.
+         */
+        const landsOn = (kind: PlanEventKindValue, target: PlanEventTarget, start: Date, end: Date): PlanCandidatePlace => ({
+            row: target.kind === "resource" ? landingRowId(target.slot, target.path) : kindRowId(kind, { kind: "unassigned", event: kind, draw: target.draw }),
+            start: timeInstant(start), end: timeInstant(end),
+        });
+        /** A card landing: nothing of it an alt-drag copy. */
+        const ADD = variant("add", { duplicate: false }) as PlanCandidateValue["gesture"];
 
         /** The bucket a slot names, its start a Date. */
         const bucketStart = (slot: string): Date | undefined => {
@@ -497,6 +498,11 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
                 const end = getSomeorUndefined(read.item.end);
                 const span = start !== undefined && end !== undefined ? { start: timeInstant(start), end: timeInstant(end) } : undefined;
                 if (!a.editing.available(kind.key)) return refused(m.dropBusy({ kind: kind.name }), span);
+                // What it would do: the card lands on the event, where the event stands.
+                const said = a.veto?.refusal(eventCandidate(ADD, kind.key, variant("card", { library: from.library, key: from.key }), {
+                    row: row.id, start: span?.start, end: span?.end,
+                }, { kind: kind.key, key: ref.key }));
+                if (said !== undefined) return refused(said, span);
                 return {
                     verdict: { allowed: true, caption: m.dropCardOnEvent({ card: card.label, event: read.item.title }), span },
                     changes: card.sets.map((set): PlanEventChange => ({ kind: kind.key, id: ref.key, gesture: variant("field", { path: [...set.path], value: set.value }) })),
@@ -528,7 +534,8 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
                 const id = a.editing.mint(kind.key, template.key, NONE_MINTED);
                 if (id === undefined) return refused(m.dropRefused(), span);
                 const gesture = variant("create", { template: template.key, start, end, resource }) as PlanEventGestureValue;
-                const why = judge(kind, { id, entry: NO_ENTRY, gesture }, { kind: kind.key, from: variant("template", template.key), start, end, resource });
+                const why = judge(kind, { id, entry: NO_ENTRY, gesture },
+                    eventCandidate(ADD, kind.key, variant("template", template.key), landsOn(kind, target, start, end)), target.kind === "unassigned");
                 if (why !== undefined) return refused(why, span);
                 return {
                     verdict: { allowed: true, caption: m.dropCaption({ what: template.name, where, ...whenOf(start) }), span },
@@ -545,7 +552,8 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
             const end = kind.instant ? start : new Date(start.getTime() + Number(read.item.minutes) * MINUTE_MS);
             const span = { start: timeInstant(start), end: timeInstant(end) };
             const gesture = variant("place", { start, end, resource }) as PlanEventGestureValue;
-            const why = judge(kind, { id: ref.key, entry: read.row, gesture }, { kind: kind.key, from: variant("backlog", ref.key), start, end, resource });
+            const why = judge(kind, { id: ref.key, entry: read.row, gesture },
+                eventCandidate(ADD, kind.key, variant("backlog", { kind: kind.key, key: ref.key }), landsOn(kind, target, start, end)), target.kind === "unassigned");
             if (why !== undefined) return refused(why, span);
             return {
                 verdict: { allowed: true, caption: m.dropCaption({ what: read.item.title, where, ...whenOf(start) }), span },
@@ -585,14 +593,21 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
                 const resource = follows ? resourceOf(target) : read.item.resource;
                 const gesture = variant("place", { start, end, resource }) as PlanEventGestureValue;
                 const moved = !dateEqual(start, start0) || !dateEqual(end, end0) || !resourceEqual(resource, read.item.resource);
-                return { kind: k, id, read, start, end, resource, gesture, moved };
+                // The row it would be on: the row's resource where it follows the drag onto it, else its own resource's
+                // landing row, where the canvas holds it — or, on none, its kind's Unassigned row.
+                const kept = getSomeorUndefined(read.item.resource);
+                const at: PlanRowId | undefined = follows ? landsOn(k, target, start, end).row
+                    : kept !== undefined ? a.resource(kept)?.id
+                        : kindRowId(k, { kind: "unassigned", event: k, draw: k.draw.type });
+                return { kind: k, id, read, start, end, resource, gesture, moved, row: at };
             };
             const read = readEvent(kind, ref.key);
             if (read === undefined) return refused(undefined, to.span);
             // The element is its event's extent — a bar, a chip, an instant kind's tile or mark — and lands as the row
             // put it; any other's tile or mark moves its event's own times by the units the element moved.
             const exact = movable.kind === "run" || movable.kind === "chip" || kind.instant;
-            const own = placeOf(kind, ref.key, read, exact ? to.span : undefined, across);
+            // The element grabbed lands on the row the drag rests on: its own, or the one it is carried across to.
+            const own = placeOf(kind, ref.key, read, exact ? to.span : undefined, true);
             if (own === undefined) return refused(undefined, to.span);
             const placed = [own];
             // A selected element moves the selection (PB34): the others by the same units, those on its resource onto the row's.
@@ -615,8 +630,10 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
             const changed = placed.filter((one) => one.moved);
             // One part refused refuses the whole: a selection moves together, or not at all.
             for (const one of changed) {
-                const why = judge(one.kind, { id: one.id, entry: one.read.row, gesture: one.gesture },
-                    { kind: one.kind.key, from: variant("event", one.id), start: one.start, end: one.end, resource: one.resource });
+                const why = judge(one.kind, { id: one.id, entry: one.read.row, gesture: one.gesture }, eventCandidate(
+                    origin.kind === "resize" ? variant("resize", variant(origin.edge, null)) as PlanCandidateValue["gesture"] : MOVE,
+                    one.kind.key, variant("event", { kind: one.kind.key, key: one.id }),
+                    { row: one.row, start: timeInstant(one.start), end: timeInstant(one.end) }), one.resource.type === "none");
                 if (why !== undefined) return refused(why, to.span);
             }
             const what = changed.length > 1 ? m.inspectorEvents({ n: changed.length, count: a.words.number(changed.length) }) : movable.label;
@@ -647,7 +664,9 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
             const read = readEvent(kind, ref.key);
             if (read === undefined) return refused(undefined);
             const gesture = variant("unplace", null) as PlanEventGestureValue;
-            const why = judge(kind, { id: ref.key, entry: read.row, gesture }, undefined);
+            // Taken off the canvas, back to the Backlog tab: it lands on no row, at no time.
+            const why = judge(kind, { id: ref.key, entry: read.row, gesture },
+                eventCandidate(variant("remove", variant("source", null)), kind.key, variant("event", { kind: kind.key, key: ref.key })));
             if (why !== undefined) return refused(why);
             return {
                 verdict: { allowed: true, caption: m.dropUnschedule({ what: read.item.title }), span: undefined },

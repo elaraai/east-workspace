@@ -29,8 +29,8 @@
 import { useMemo, type ReactNode } from "react";
 import { fireEvent, render, waitFor, within, type RenderResult } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
-import { BooleanType, East, StringType, decodeBeast2For, encodeBeast2For, none, some, variant, type ValueTypeOf } from "@elaraai/east";
-import { DragEventType, Editing, State } from "@elaraai/east-ui/internal";
+import { East, OptionType, StringType, decodeBeast2For, encodeBeast2For, none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { Editing, State } from "@elaraai/east-ui/internal";
 import { Data, Plan, Record } from "@elaraai/e3-ui/internal";
 import * as records from "@elaraai/e3-ui/examples/plan/plan-records";
 import { system, getRegisteredPlatformImplementations, DragLayerProvider, useDragSourceItem } from "@elaraai/east-ui-components";
@@ -108,10 +108,12 @@ const READY = East.function([Press, StringType], Editing.Types.Readiness, ($, pr
 
 /** A drop vetted by the canvas: a job lands on Press 1 alone. */
 const PRESS_1_ROW = rowKey("p1", PRESSES);
-const ONLY_PRESS_1 = East.function([DragEventType], BooleanType, ($, event) => {
-    const allowed = $.let(false);
-    $.match(event, { add: ($2, add) => { $2.assign(allowed, add.into.row.equal(PRESS_1_ROW)); } });
-    return allowed;
+const ONLY_PRESS_1 = East.function([Plan.Types.Candidate], OptionType(StringType), ($, candidate) => {
+    const said = $.let(some("A job lands on Press 1 alone"), OptionType(StringType));
+    $.match(candidate.gesture, { add: ($2) => {
+        $2.match(candidate.row, { some: ($3, row) => { $3.if(East.print(row).equal(PRESS_1_ROW), ($4) => { $4.assign(said, none); }); } });
+    } });
+    return said;
 });
 
 // ── The presses on e3 ───────────────────────────────────────────────────────

@@ -27,8 +27,8 @@
 import { describe, test, expect } from "vitest";
 import { fireEvent, render, within } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
-import { BooleanType, DictType, East, NullType, StringType, StructType, variant, type ValueTypeOf } from "@elaraai/east";
-import { DragEventType, Reactive, State, UIComponentType } from "@elaraai/east-ui/internal";
+import { DictType, East, NullType, OptionType, StringType, StructType, none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { Reactive, State, UIComponentType } from "@elaraai/east-ui/internal";
 import { DragLayerProvider, editingMessages, getRegisteredPlatformImplementations, system } from "@elaraai/east-ui-components";
 import { announced, layOut, pointAt, press, stubScrollIntoView, tick } from "@elaraai/east-ui-components/testing";
 import { Plan, PlanPayloadType, Record } from "@elaraai/e3-ui/internal";
@@ -90,14 +90,14 @@ function palettePlan(takes: "create" | "move", { misplaced = false, editable = t
             $2(lastBind.write(East.str`${event.origin.getTag()} · ${event.label}`));
         }));
         // A job goes on a press; a card of another family is refused, and anything else moves.
-        const canDrop = $.const(East.function([DragEventType], BooleanType, ($2, event) => {
-            const yes = $2.const(true, BooleanType);
-            return event.match({
-                add: ($3, add) => {
-                    const card = $3.let(add.from.key);
-                    return cards.has(card).and(() => cards.get(card).family.equal("job"));
-                },
-            }, () => yes);
+        const canDrop = $.const(East.function([Plan.Types.Candidate], OptionType(StringType), ($2, candidate) => {
+            const said = $2.let(none, OptionType(StringType));
+            $2.match(candidate.from, { card: ($3, card) => {
+                $3.if(cards.has(card.key).and(() => cards.get(card.key).family.equal("job")).not(), ($4) => {
+                    $4.assign(said, some("Only a job goes on a press"));
+                });
+            } });
+            return said;
         }));
         const last = $.let(lastBind.read());
         // Held in a variable, the axis's arm is not seen at build.
@@ -202,6 +202,9 @@ describe("the library panel's cards on the rows that take them (#1259)", () => {
         carryOver(c, "van-drop", "p1");
         expect(cellOf(c, "p1").hasAttribute("data-drop-invalid")).toBe(true);
         expect(cellOf(c, "p1").hasAttribute("data-drop-active")).toBe(false);
+        // Why not is on the ghost, in the check's own words (#1541, U7).
+        const said = document.querySelector("[data-drag-caption]");
+        expect([said?.textContent, said?.hasAttribute("data-refused")]).toEqual(["Only a job goes on a press", true]);
         fireEvent.pointerUp(document, { clientX: 10, clientY: 10 });
         await settle();
         expect(announced()).toBe("Van drop was not dropped.");

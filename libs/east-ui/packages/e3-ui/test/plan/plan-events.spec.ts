@@ -28,7 +28,7 @@ import {
     type BlockBuilder, type EastType,
 } from "@elaraai/east";
 import { describeEast, Assert, TestImpl } from "@elaraai/east-node-std";
-import { Slice, UIComponentType } from "@elaraai/east-ui";
+import { DragEventType, Slice, UIComponentType } from "@elaraai/east-ui";
 import { Editing, Text } from "@elaraai/east-ui/internal";
 import { Data, Plan, PlanPayloadType, Record, Schedule, planKeys } from "@elaraai/e3-ui/internal";
 import { Plan as PublicPlan } from "@elaraai/e3-ui";
@@ -188,13 +188,21 @@ describe("the Plan's refusals (PB8)", () => {
             /^Plan: rows\[0\] is a row a kind factory builds \(Plan\.chart, Plan\.span, …\) or Plan\.over\(data, \[series…\]\) — and this one is \.String$/);
     });
 
-    test("a `canDrop` over neither a drag nor a candidate, or over a candidate with no event kinds", () => {
-        const neither = East.function([StringType], BooleanType, () => true);
-        assert.match(refusal(($) => Plan.Payload({ axis, data: $.const(ROWS, Rows), series: [MARKS], canDrop: neither as never })),
-            /^Plan: `canDrop` vets a drop — Fn\(DragEvent\) → Boolean over a drag on `data`'s rows, or Fn\(Schedule\.Types\.Candidate\) → Option<String> over an event kind's drop, its message on the ghost — and this one is/);
-        const candidate = East.function([Schedule.Types.Candidate], OptionType(StringType), () => none);
-        assert.match(refusal(($) => Plan.Payload({ axis, data: $.const(ROWS, Rows), series: [MARKS], canDrop: candidate })),
-            /^Plan: `canDrop` over Schedule\.Types\.Candidate vets an event kind's drop, and this Plan has no event kinds$/);
+    test("a `canDrop` that is no check of Plan.Types.Candidate: either of the two it replaces is refused naming what it is rewritten against (#1541, U7)", () => {
+        const over = (canDrop: unknown) => refusal(($) => Plan.Payload({ axis, data: $.const(ROWS, Rows), series: [MARKS], canDrop: canDrop as never }));
+        const IS = "Plan: `canDrop` is Fn(Plan.Types.Candidate) → Option<String>, the one check of every drop, its message on the ghost, and this one is ";
+        const neither = over(East.function([StringType], BooleanType, () => true));
+        assert.ok(neither.startsWith(IS) && !neither.includes("rewritten"), neither);
+        // A drag's check, over `data`'s rows, as it was.
+        const drag = over(East.function([DragEventType], BooleanType, () => true));
+        assert.ok(drag.startsWith(IS) && drag.endsWith(
+            " — a check over a drag (Fn(DragEvent) → Boolean) is rewritten against it: its row is `row`, its card `from`, and it answers some(message) to refuse"), drag);
+        // An event kind's check, over the schedule family's candidate, as it was.
+        const family = over(East.function([Schedule.Types.Candidate], OptionType(StringType), () => none));
+        assert.ok(family.startsWith(IS) && family.endsWith(
+            " — a check over Schedule.Types.Candidate is rewritten against it: its kind is `into`, its resource the `row`, its times `start` and `end`"), family);
+        // The one check builds, with or without event kinds.
+        assert.equal(over(East.function([Plan.Types.Candidate], OptionType(StringType), () => none)), "");
     });
 });
 

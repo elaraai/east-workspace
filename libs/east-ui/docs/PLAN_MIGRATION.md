@@ -547,9 +547,9 @@ Plan.series.span(Press, {
   the proposed span, with the span printed in it. The ghost under the pointer
   carries the element's label and the span.
 - **The veto.** `canDrop` vets the candidate before it becomes a draft. The
-  candidate is a `DragEvent` `move` (the element's cell and the target cell)
-  or `resize` (the moved edge's slot). A refusal is announced, and no draft
-  is made.
+  candidate is a `Plan.Types.Candidate` (#1541): a `move`, the item and the
+  row and instants it would take, or a `resize`, by the end that moved. A
+  refusal is said on the ghost and announced, and no draft is made.
 - **Keyboard.** Focus an element and press Space to pick it up. Then:
   - ←/→ move it one bucket;
   - Shift+←/→ move its end, and Alt+←/→ its start;
@@ -1046,6 +1046,61 @@ refusals over a row are its canvas's to read (`PlanCanvasInspect.refusals`),
 from the session its rows save through, by the shared
 `sessionEntryRefusals`.
 
+## One `canDrop`, over what a drop would do (#1541)
+
+Before #1541 a Plan took one of two checks, told apart by its East type: a
+drag's, `Fn(DragEvent) → Boolean`, over `data`'s rows, and an event kind's,
+`Fn(Schedule.Types.Candidate) → Option<String>`. Now it takes one,
+`Fn(Plan.Types.Candidate) → Option<String>`, asked of every drop — an event
+kind's and one on `data`'s rows alike — where the drag rests and again before
+the drop becomes an unsaved edit. `some(message)` refuses it, and the message
+is what the ghost says; `none` lets it land.
+
+A candidate says:
+
+| Field | What it says |
+|---|---|
+| `gesture` | `add` (`duplicate`, an alt-drag copy), `move`, `remove` (to the trash, or back to its library) or `resize` (the end that moved) |
+| `into` | the event kind, by its slot, or the data series, by its key |
+| `from` | a `template` (its key), a library tab's `card`, a `backlog` event, an `event`, or a data series' `item` (`{ row, key }`, the row's id as text) |
+| `onto` | the event or the item it lands on, where it lands on one |
+| `row` | the row it would land on, a `Plan.Types.RowId`; `none` for a `remove` |
+| `lane` | the lane it would sit in, where its row has lanes |
+| `start`, `end` | its instants there, on the axis's arm; `none` for a `remove`, and `end` for a card whose item its series makes as it lands |
+
+For an event kind's drop, `row` is the resource's own row: the landing row of
+the series its kind lands on, whichever row beside it the kind draws on. So a
+check reads the series' key and the path's last step, the resource's key. On
+no resource it is the kind's Unassigned row.
+
+### The wire
+
+The root's `canDrop` changes type, and the payload loses its own
+(`WIRE_MIGRATION.md`). A stored `UIComponentType` value re-emits.
+
+### Removals and their replacements
+
+| Removed | Replacement |
+|---|---|
+| `canDrop={fn(DragEvent) => Boolean}` over `data`'s rows | `canDrop={fn(Plan.Types.Candidate) => Option<String>}`: `add.into.row` is `candidate.row`, typed (`East.print(row)` is the text a drag named it by); `add.from` is `candidate.from`'s `card`; a moved element is `candidate.from`'s `item`; answer `some(message)` to refuse |
+| `canDrop={fn(Schedule.Types.Candidate) => Option<String>}` | the same check over `Plan.Types.Candidate`: `kind` is `into`'s `kind`; `from`'s `backlog` and `event` name the event by its kind and key; `resource` is `row`; `start` and `end` are Options of the axis's instants |
+
+A check of either older type is refused at build, naming what it is rewritten
+against.
+
+### Behaviour that changed
+
+- A refusal on one of `data`'s rows says why on the ghost, as an event kind's
+  does, and a keyboard carry announces it.
+- An author's card landing on an event, and an event returned to the Backlog
+  tab, are asked of `canDrop` too.
+
+### Renderer (`@elaraai/e3-ui-components`)
+
+One module makes the candidate (`plan/edit/candidate.ts`), for an event kind's
+gesture and for one on a data series' row, and one veto asks it, its answers
+kept while the check is the same function.
+
 ## Extracted contracts (do this first when migrating imports)
 
 The shared audit vocabulary outlived the Planner and moved to `contracts/`:
@@ -1166,7 +1221,7 @@ Plan.series.buckets(Row, {
   arm — time: Z-less ISO (`add.into.slot.parse(DateTimeType)`); number: a
   decimal (`parse(FloatType)`); ordinal: the value — no composite `"5:pm"`
   keys; the receiving series decides the lane. Temporal vetoes ("no drops
-  left of now") are a `canDrop` predicate over the parsed slot.
+  left of now") are a `canDrop` check over the candidate's `start`.
 
 ### `<Planner.Span>` → `<Plan>` with a span series
 

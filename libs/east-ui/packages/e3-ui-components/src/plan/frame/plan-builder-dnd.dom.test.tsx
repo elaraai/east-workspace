@@ -14,7 +14,7 @@
  * between events — each one step of the Plan's one history, which Undo takes
  * back; the Backlog tab reading the drafts; a drafted element's mark; and the
  * keyboard carrying an event's element along its kind's rows. A Plan with its
- * own `canDrop` over `Schedule.Types.Candidate` puts its message on the ghost
+ * own `canDrop` over `Plan.Types.Candidate` puts its message on the ghost
  * and in the carry's words, and refuses a selection whole when one part is
  * refused; a kind whose Save is out takes a drop as any other, drafted beside
  * the Save's own change; and a series beneath a press that declares its moves
@@ -183,11 +183,15 @@ const vetoed = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(Ea
         jobTemplates: { source: Data.bindPaged(ex.planPrintJobTemplates, { indexes: ["plan_print_job_templates_by_group"] }) },
     }));
     const axis = $.const(Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "day" }));
-    const canDrop = $.const(East.function([Schedule.Types.Candidate], OptionType(StringType), ($2, candidate) => {
+    // The Plan's one check (#1541, U7): the row a drop would land on is the resource's own, its path ending in its key.
+    const canDrop = $.const(East.function([Plan.Types.Candidate], OptionType(StringType), ($2, candidate) => {
         const said = $2.let(none, OptionType(StringType));
-        $2.match(candidate.resource, {
-            some: ($3, on) => { $3.if(on.key.equal("b3"), ($4) => { $4.assign(said, some("Press B3 is down for service")); }); },
-        });
+        $2.match(candidate.row, { some: ($3, row) => {
+            $3.match(row, { entry: ($4, at) => {
+                const steps = $4.let(at.path.size());
+                $4.if(steps.greater(0n).and(() => at.path.get(steps.subtract(1n)).equal("b3")), ($5) => { $5.assign(said, some("Press B3 is down for service")); });
+            } });
+        } });
         return said;
     }));
     return Plan({

@@ -26,10 +26,10 @@
 import { fireEvent, render, waitFor, type RenderResult } from "@testing-library/react";
 import { ChakraProvider } from "@chakra-ui/react";
 import {
-    ArrayType, BooleanType, DateTimeType, DictType, East, StringType, StructType,
-    decodeBeast2For, some, type ValueTypeOf,
+    ArrayType, BooleanType, DateTimeType, DictType, East, OptionType, StringType, StructType,
+    decodeBeast2For, none, some, type ValueTypeOf,
 } from "@elaraai/east";
-import { DragEventType, State } from "@elaraai/east-ui/internal";
+import { State } from "@elaraai/east-ui/internal";
 import { Plan } from "@elaraai/e3-ui/internal";
 import { system, getRegisteredPlatformImplementations, DragLayerProvider } from "@elaraai/east-ui-components";
 import { getStore } from "@elaraai/east-ui-components/internal";
@@ -100,10 +100,12 @@ const SERIES = [
 
 /** A `canDrop` that refuses every move onto Press 2's jobs row. */
 const M2_JOBS = rowKey("m2", "jobs");
-const NOT_M2_JOBS = East.function([DragEventType], BooleanType, ($, event) => {
-    const allowed = $.let(true);
-    $.match(event, { move: ($2, m) => { $2.assign(allowed, m.to.row.equal(M2_JOBS).not()); } });
-    return allowed;
+const NOT_M2_JOBS = East.function([Plan.Types.Candidate], OptionType(StringType), ($, candidate) => {
+    const said = $.let(none, OptionType(StringType));
+    $.match(candidate.gesture, { move: ($2) => {
+        $2.match(candidate.row, { some: ($3, row) => { $3.if(East.print(row).equal(M2_JOBS), ($4) => { $4.assign(said, some("Press 2 takes no moved job")); }); } });
+    } });
+    return said;
 });
 
 /** Twelve weeks, W27 to W38. */

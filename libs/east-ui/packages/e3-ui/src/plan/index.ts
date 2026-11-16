@@ -127,6 +127,7 @@ import {
     PlanEditingType,
 } from "./types.js";
 import { PlanRootType } from "./ir.js";
+import { PlanCandidateType, PlanCanDropType, PlanItemRefType } from "./candidate.js";
 import {
     createAxis,
     at,
@@ -329,13 +330,13 @@ export {
     PlanSettingsType,
     PlanEventSeamType,
     PlanLandingType,
-    PlanEventCanDropType,
     createPlanPayload,
     planKeys,
     type PlanTagType,
     type PlanProps,
     type PlanRowsItem,
 } from "./plan.js";
+export { PlanCandidateType, PlanCanDropType, PlanItemRefType };
 export { createOver, type PlanOverRows } from "./over.js";
 export { createEventRef, eventRefKind } from "./refs.js";
 export {
@@ -737,6 +738,10 @@ export interface PlanNamespace extends PlanTagType {
         Expand: typeof PlanExpandType;
         /** The expand render's axis treatment (keep / dim / off). */
         ExpandAxis: typeof PlanExpandAxisType;
+        /** What a drop would do — what a Plan's `canDrop` is asked, whichever way the drop is made (#1541, U7). */
+        Candidate: typeof PlanCandidateType;
+        /** A data series' item, as a candidate names one: its row's id's text, and its key there. */
+        ItemRef: typeof PlanItemRefType;
         /** A gesture a draft is made by — a card dropped on a row (#880), or an element moved or resized (#825). */
         Gesture: typeof PlanGestureType;
         /** A library card dropped on a row — what an editable series' `create` builds its item from (#880). */
@@ -908,6 +913,8 @@ const PLAN_MEMBERS = {
         Link: PlanLinkType,
         Expand: PlanExpandType,
         ExpandAxis: PlanExpandAxisType,
+        Candidate: PlanCandidateType,
+        ItemRef: PlanItemRefType,
         Gesture: PlanGestureType,
         Drop: PlanDropType,
         Move: PlanMoveType,

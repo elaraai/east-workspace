@@ -1323,3 +1323,22 @@ Each wire changed under this rule, with the kind it is.
   or its rail's `rows` source reads, and moving resources kept in records of
   their own into one record is that record's own migration, as with any
   record whose type an application changes.
+- **e3-ui's `Plan` has one drop veto, over what a drop would do (#1541,
+  U7)** — package-borne. The canvas's root (`PlanRootType`) keeps `canDrop`,
+  whose type changes: an Option of a function from what a drop would do
+  (`PlanCandidateType`, `Plan.Types.Candidate`) to an Option of its refusal's
+  words, where it was a function from a drag event (east-ui's `DragEventType`)
+  to a Boolean. The `Plan` extension's payload loses its own `canDrop`, the
+  event kinds' veto over the schedule family's candidate
+  (`PlanEventCanDropType`): the root's is the one check of both. A candidate
+  says the gesture (`add`, `move`, `remove`, `resize`), the event kind or the
+  data series it lands in or leaves, what is dragged — a template, a library
+  tab's card, a backlog event, an event, or a data series' item
+  (`PlanItemRefType`) — what it lands on, the row it would land on, typed, its
+  lane, and its instants there. It is asked, and never stored.
+  `Schedule.Types.Candidate` stays the Calendar's, the Roster's and the
+  Allocation's. A Plan given a check of either older type is refused at build,
+  naming what it is rewritten against. A UI value encoded under either type
+  does not decode under the other: packages are re-exported, and the dataflow
+  computes each UI task's output again under the new type. A UI task's output
+  is not stored state, so no repository upgrade step ships with it.

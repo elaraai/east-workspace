@@ -20,7 +20,6 @@ import {
     Expr,
     ArrayType,
     BlobType,
-    BooleanType,
     DictType,
     FunctionType,
     IntegerType,
@@ -39,7 +38,6 @@ import {
 } from "@elaraai/east";
 import {
     DensityType,
-    DragEventType,
     PickBindType,
     StatusValueType,
     UIComponentType,
@@ -99,6 +97,7 @@ import { checkPlanNested, nestedPartOf, planNestedIndex, type PlanNestedIndex, t
 import { planNestedRestatement } from "./nested-patch.js";
 import { PlanNestedType, planNestedUses } from "./nested-read.js";
 import { pickRefusal, planShown, type PlanShown } from "./pick.js";
+import { PlanCanDropType } from "./candidate.js";
 import { checkSeries, planLandings, seriesApplyFn, seriesWriteFn, PlanCarriedType, PlanHiddenType, type PlanSeriesInput } from "./series.js";
 
 
@@ -206,7 +205,7 @@ export interface PlanBindHandle {
  * @property footer - Status-footer items
  * @property id - DnD target identity — what a Library beside the Plan reaches it by
  * @property sources - The ids of the Libraries beside the Plan whose cards it takes; its own library panel's need none
- * @property canDrop - IR-level drop veto (the ⊘ stage) — consulted before a drop becomes a draft
+ * @property canDrop - The drop veto (#1541, U7): what a drop would do (`Plan.Types.Candidate`) to its refusal's message, said on the ghost — consulted where a drag rests and again before its drop becomes a draft
  * @property onSelect - Row click (selection)
  * @property onElementClick - A click on any element — run, tile, mark, chip, cell or link ribbon — by its ref (#824)
  * @property onGroupToggle - A row with children expanded or collapsed
@@ -321,10 +320,11 @@ export interface PlanConfig<K extends PlanAxisKindLiteral = PlanAxisKindLiteral>
     /** The ids of the Libraries beside the Plan whose cards it takes (`add`), reached by its `id` — its own
      *  library panel's need none (omit = no Library beside it). */
     sources?: string[];
-    /** IR-level drop veto — consulted with the candidate event (`add` for a card; `move` or `resize` for an
-     *  element moved, #825; a `CellRef.row` is the row id's canonical text) where the drag rests and again
-     *  before it becomes a draft; `false` ⇒ the ⊘ invalid stage; a throwing predicate fails open. */
-    canDrop?: SubtypeExprOrValue<FunctionType<[DragEventType], BooleanType>>;
+    /** The drop veto (#1541, U7) — asked what a drop would do (`Plan.Types.Candidate`: an `add` for a card, a
+     *  `move` or a `resize` for an element moved, #825, a `remove` for one taken off the canvas) where the drag
+     *  rests and again before it becomes a draft; `some(message)` ⇒ the ⊘ invalid stage, the message on the
+     *  ghost; a throwing check fails open. */
+    canDrop?: SubtypeExprOrValue<PlanCanDropType>;
     /** Row click (selection) — the row's id. */
     onSelect?: SubtypeExprOrValue<FunctionType<[PlanRowIdType], NullType>>;
     /** A click on any element, by its ref (#824) — `run` (`{ row, run }`), `event` (`{ row, event }`),

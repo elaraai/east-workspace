@@ -135,7 +135,7 @@ describe("the payload (PB8, PB11)", () => {
         assert.deepEqual(backlogOf(jobs!), ["J-1023", "J-1024", "J-1025", "J-1026", "J-1027", "J-1028", "J-1029", "J-1030"]);
         // The seam that joins the events into the rows (#1192, #1541); the rows whole, none read a page at a time; nothing
         // else declared: no veto, the window from its start.
-        assert.deepEqual([payload.seam.type, payload.paged, payload.canDrop.type, payload.settings.date.type], ["some", false, "none", "none"]);
+        assert.deepEqual([payload.seam.type, payload.paged, payload.plan.canDrop.type, payload.settings.date.type], ["some", false, "none", "none"]);
     });
 
     test("§3.3: presses and crews by hall, jobs as bars, stops as marks and shifts as chips, the pinned chart and the grain", async () => {
@@ -377,11 +377,11 @@ describe("the payload (PB8, PB11)", () => {
         }
     });
 
-    test("the drop veto goes by its East type: an event kind's on the payload, a drag's on the canvas", async () => {
+    test("the Plan's one drop veto rides on its canvas, over what a drop would do, with or without event kinds (#1541, U7)", async () => {
         const payload = await payloadOf(($) => {
             const jobs = $.let(Record.bind(ex.planPrintJobs, ["patch"]));
-            const veto = $.const(East.function([Schedule.Types.Candidate], OptionType(StringType), (_$2, candidate) =>
-                candidate.resource.hasTag("none").ifElse(() => East.value(some("Needs a press"), OptionType(StringType)), () => East.value(none, OptionType(StringType)))));
+            const veto = $.const(East.function([Plan.Types.Candidate], OptionType(StringType), (_$2, candidate) =>
+                candidate.row.hasTag("none").ifElse(() => East.value(some("Needs a press"), OptionType(StringType)), () => East.value(none, OptionType(StringType)))));
             return Plan.Payload({
                 axis: Plan.axis({ window: WINDOW, resolution: "day" }),
                 ...pressesOf($),
@@ -390,17 +390,20 @@ describe("the payload (PB8, PB11)", () => {
                 date: new Date("2026-10-19T00:00:00Z"),
             });
         });
-        if (payload.canDrop.type !== "some") assert.fail("expected the event kinds' veto");
-        const unplaced = { kind: "job", from: variant("backlog", "J-1023"), start: FIRST, end: FIRST, resource: none };
-        assert.ok(equalFor(OptionType(StringType))(payload.canDrop.value(unplaced), some("Needs a press")));
-        assert.equal(payload.plan.canDrop.type, "none");
+        if (payload.plan.canDrop.type !== "some") assert.fail("expected the Plan's veto on its canvas");
+        // An event taken off the canvas lands on no row.
+        const unplaced = {
+            gesture: variant("remove", variant("source", null)), into: variant("kind", "job"), from: variant("event", { kind: "job", key: "J-1023" }),
+            onto: none, row: none, lane: none, start: none, end: none,
+        };
+        assert.ok(equalFor(OptionType(StringType))(payload.plan.canDrop.value(unplaced), some("Needs a press")));
         assert.ok(equalFor(OptionType(DateTimeType))(payload.settings.date, some(new Date("2026-10-19T00:00:00Z"))));
-        // A drag's veto is the canvas's own, over `data`'s rows.
+        // Over `data`'s rows alone the same check rides the same.
         const overData = await payloadOf(($) => {
-            const drag = $.const(East.function([DragEventType], BooleanType, () => true));
-            return Plan.Payload({ axis: Plan.axis({ window: WINDOW, resolution: "day" }), data: $.const(ROWS, Rows), series: [MARKS], canDrop: drag });
+            const check = $.const(East.function([Plan.Types.Candidate], OptionType(StringType), () => none));
+            return Plan.Payload({ axis: Plan.axis({ window: WINDOW, resolution: "day" }), data: $.const(ROWS, Rows), series: [MARKS], canDrop: check });
         });
-        assert.deepEqual([overData.canDrop.type, overData.plan.canDrop.type], ["none", "some"]);
+        assert.equal(overData.plan.canDrop.type, "some");
     });
 
     test("`inspector` gives the Plan its inspector pane, and each kind's own inspector rides on its kind; left out, or `false`, no pane (#1197)", async () => {

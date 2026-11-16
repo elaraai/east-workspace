@@ -111,7 +111,8 @@ import { conflictPlaceOf, entryOf, usePlanEditing, type PlanEntryRef } from "./u
 import { timeInstant } from "./instant.js";
 import { usePlanEventEditing } from "./edit/events.js";
 import { scheduleIssueName } from "../shared/schedule/editing.js";
-import { drawnKinds, usePlanEventDrag, type PlanEventCanDropFn } from "./edit/event-drag.js";
+import { drawnKinds, usePlanEventDrag } from "./edit/event-drag.js";
+import { createPlanVeto, type PlanCanDropFn } from "./edit/candidate.js";
 import { PlanNarrow, PLAN_NARROW_BELOW } from "./narrow/index.js";
 import type { PlanNarrowPaging } from "./narrow/demand.js";
 import { LinksOverlay } from "./shell/LinksOverlay.js";
@@ -302,8 +303,6 @@ export interface PlanCanvasArgs {
     landings?: readonly PlanLandingValue[] | undefined;
     /** The library's tabs (#1196): the author's tabs' cards, which land on an event of their patch's kind. */
     tabs?: readonly PlanLibraryTabValue[] | undefined;
-    /** The Plan's drop veto over an event kind's drop (#1196): `Schedule.Types.Candidate` to its refusal's message. */
-    canDrop?: PlanEventCanDropFn | undefined;
     /**
      * The app's optimiser (#1409, east-workspace#1622): its binding — which the Elara eye calls by name, with the event
      * kinds' unsaved edits as drafts of the records it lists; none, no eye.
@@ -327,7 +326,7 @@ const NO_PANEL: readonly string[] = [];
  */
 export function usePlanCanvas({
     value: hostValue, storageKey, events, hidden, rowsHidden, eventKinds, panel, kinds = NO_KINDS,
-    landings = NO_LANDINGS, tabs = NO_TABS, canDrop, optimise, autosave = false,
+    landings = NO_LANDINGS, tabs = NO_TABS, optimise, autosave = false,
 }: PlanCanvasArgs): PlanCanvasParts {
     planRootRenderProbe?.();
     // Changes identity on a DATA change only — read data fields through it,
@@ -396,6 +395,8 @@ export function usePlanCanvas({
     // pair.
     // A row's name, for a transaction's label — read off the canvas below.
     const indexRef = useRef<PlanRowIndex | undefined>(undefined);
+    /** Each resource's landing row the canvas holds, as the latest render made them: what a drag names an event's row by. */
+    const resourceRowsRef = useRef<{ readonly byRef: ReadonlyMap<string, PlanRowValue> } | undefined>(undefined);
     const labelOf = useCallback(
         (key: RowKey) => indexRef.current?.byKey.get(key)?.gutter.label ?? rowKeyWords(key), []);
     // The session's entries are `data`'s: inline, the root's own rows; paged,
@@ -978,9 +979,13 @@ export function usePlanCanvas({
     const [editStore] = useState(() => new PlanEditStore());
     const { drop: draftDrop, move: draftMove } = editing;
     const keys = useMemo(() => planKeys(getSomeorUndefined(hostData.id)), [hostData.id]);
+    // The Plan's one check of a drop (#1541, U7), over what it would do — an event kind's or one on `data`'s rows: the
+    // root's `canDrop`, its answers kept while it is the same function.
+    const veto = useMemo(() => createPlanVeto(getSomeorUndefined(hostData.canDrop) as PlanCanDropFn | undefined), [hostData.canDrop]);
     const eventDrag = usePlanEventDrag({
-        kinds, landings, tabs, keys, editing: eventEditing, canDrop, scale, words, store: editStore,
+        kinds, landings, tabs, keys, editing: eventEditing, veto, scale, words, store: editStore,
         rowOf: (key) => indexRef.current?.byKey.get(key),
+        resource: (ref) => resourceRowsRef.current?.byRef.get(scheduleCellId(ref.kind, ref.key)),
         selected: () => controller.getSnapshot().store.ui.elements,
         select: (selected, row) => {
             controller.selectEvents(selected, row ?? null);
@@ -1014,7 +1019,7 @@ export function usePlanCanvas({
         return eventDrag !== undefined && eventDrag.isEvent(grab.movable) ? eventDrag.moveElement(request) : draftMove(request);
     }, [draftDrop, draftMove, editStore, eventDrag, locked]);
     // No drop target, no grip and no event drag while a run's call is out (R2).
-    const rowDrop = usePlanDropTarget(value, data.sources, panel ?? NO_PANEL, onDrag, editing.available && !locked, locked ? undefined : eventDrag);
+    const rowDrop = usePlanDropTarget(value, data.sources, panel ?? NO_PANEL, onDrag, editing.available && !locked, locked ? undefined : eventDrag, veto);
 
     // ── The body ──────────────────────────────────────────────────────────
     const body = usePlanBody(visible, index, derived, paging, focusCtx, heightCtx, dense, chartsExpanded);
@@ -1234,6 +1239,7 @@ export function usePlanCanvas({
         }
         return { byRef, bySeries };
     }, [index, landings]);
+    resourceRowsRef.current = resourceRows;
     // A resource's landing row (#1541), and one the canvas does not hold named by its landing row read by its key
     // (#1199, #1541) — the rows as the canvas draws them, its drafts in place, and one the slice's `rows` source leaves
     // out, which they never find, among every row the source narrows. Each is its own function, the same while what it

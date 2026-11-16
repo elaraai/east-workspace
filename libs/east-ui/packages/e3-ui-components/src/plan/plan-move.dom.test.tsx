@@ -395,11 +395,11 @@ describe("the keyboard moves an element (#825)", () => {
         elementOf(c, "jobs", "m1", "j1")!.focus();
         await keyOn({ key: " " });
         await keyOn({ key: "ArrowDown" });
-        expect(carrySaid(c)).toBe("J1 cannot be dropped on M2, Jul 6, 2026 – Jul 20, 2026");
+        expect(carrySaid(c)).toBe("J1 cannot be dropped on M2, Jul 6, 2026 – Jul 20, 2026 — Press 2 takes no moved job");
         expect(plotOf(c, "jobs", "m2").hasAttribute("data-drop-invalid")).toBe(true);
         await keyOn({ key: " " });
         expect(canvas.patches).toEqual([]);
-        expect(carrySaid(c)).toBe("J1 cannot be dropped on M2, Jul 6, 2026 – Jul 20, 2026");
+        expect(carrySaid(c)).toBe("J1 cannot be dropped on M2, Jul 6, 2026 – Jul 20, 2026 — Press 2 takes no moved job");
         await keyOn({ key: "Escape" });
         // A tile: Shift moves no end, the arrows move it.
         const tile = elementOf(c, "slots", "m1", "t1")!;

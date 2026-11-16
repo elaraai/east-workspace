@@ -879,7 +879,7 @@ export const planPrintWorks = example({
         "duration", "due", "fields", "templates", "rows", "pinned", "chart", "output", "grain", "library",
         "Plan.library", "customers", "Schedule.patch", "inspector", "selection", "kind's own inspector", "update",
         "Record.bind", "Data.bind", "e3.record", "e3.input", "#1191", "#1195", "#1197", "#1200", "parent", "rollup", "collapsed", "meta", "value",
-        "buckets", "lane", "status", "ready", "overlaps", "allow", "canDrop", "Schedule.Types.Candidate",
+        "buckets", "lane", "status", "ready", "overlaps", "allow", "canDrop", "Plan.Types.Candidate",
         "variant resource", "bay", "van", "Slice", "Slice.bindRecords", "sources", "Data.bindPaged", "indexes", "interval",
         "window", "range", "brush", "resolution", "Schedule.templates", "templates record", "Plan.eventRef", "Plan.over", "#1344",
         "max", "bounds", "warning", "out of range",
@@ -948,12 +948,18 @@ export const planPrintWorks = example({
                 window: { min: new Date("2026-10-05T00:00:00Z"), max: new Date("2026-11-02T00:00:00Z") },
                 resolution: "day", resolutions: ["week", "day"], now: new Date("2026-10-14T09:00:00Z"),
             }));
-            const canDrop = $.const(East.function([Schedule.Types.Candidate], OptionType(StringType), ($2, candidate) => {
+            // The Plan's one check of a drop, over what it would do (`Plan.Types.Candidate`): the row it would land on is
+            // the resource's own, of the series its kind lands on, whichever way the kind draws there.
+            const canDrop = $.const(East.function([Plan.Types.Candidate], OptionType(StringType), ($2, candidate) => {
                 const reason = $2.let(none, OptionType(StringType));
-                $2.match(candidate.resource, { some: ($3, resource) => {
-                    $3.if(resource.kind.equal("presses").and(() => resource.key.equal("b3")), $4 => {
-                        $4.assign(reason, some("Press B3 is in service; choose another press"));
-                    });
+                $2.match(candidate.row, { some: ($3, row) => {
+                    $3.match(row, { entry: ($4, at) => {
+                        // A press's row stands under its hall: its path ends in the press's key.
+                        const steps = $4.let(at.path.size());
+                        $4.if(at.series.equal("presses").and(() => steps.greater(0n)).and(() => at.path.get(steps.subtract(1n)).equal("b3")), $5 => {
+                            $5.assign(reason, some("Press B3 is in service; choose another press"));
+                        });
+                    } });
                 } });
                 return reason;
             }));

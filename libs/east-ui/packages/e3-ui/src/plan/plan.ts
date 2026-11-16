@@ -89,6 +89,7 @@ import {
 import { FuncBindingType } from "../bind/func.js";
 import type { OptimiseHandle } from "../utils/optimise.js";
 import { PlanEventKindType, ScheduleCandidateType } from "../schedule/types.js";
+import { PlanCanDropType } from "./candidate.js";
 import { scheduleEventKindsCheck, scheduleTitled } from "../schedule/index.js";
 import { checkSchedulePagedEventKinds, checkedScheduleTilings, type SchedulePaging } from "../schedule/cell-checks.js";
 import { scheduleOptimiseBinding } from "../schedule/optimise.js";
@@ -157,12 +158,6 @@ export function planKeys(id: string | undefined): {
 // The renderer's payload
 // ============================================================================
 
-/** An event kind's drop veto: where the drop would put the event, to the refusal's message, or `none` to let it land. */
-export const PlanEventCanDropType = FunctionType([ScheduleCandidateType], OptionType(StringType));
-
-/** Type representing {@link PlanEventCanDropType}. */
-export type PlanEventCanDropType = typeof PlanEventCanDropType;
-
 /**
  * Where a Plan opens, and how it begins.
  *
@@ -219,7 +214,6 @@ export const PlanVocabularyType = StructType({
  *   the landing rows of any window of the canvas; `none` while the Plan has no event kinds
  * @property paged - Whether the canvas's rows are read a page at a time: every event kind is then read a cell at a time
  *   (#1039, #1541), and no event draws on an Unassigned row
- * @property canDrop - The event kinds' drop veto; `none`, every drop the kinds take lands
  * @property optimise - The app's optimiser, by its `e3.function`'s name and the records it lists in `drafts` (#1409, #1622):
  *   what the Elara eye calls over the plan window in view, the sessions' unsaved edits of those records sent with the call
  *   as drafts, its answer's patches one edit of the session; `none`, no eye
@@ -237,7 +231,6 @@ export const PlanPayloadType = StructType({
     events: ArrayType(PlanEventKindType),
     seam: OptionType(PlanEventSeamType),
     paged: BooleanType,
-    canDrop: OptionType(PlanEventCanDropType),
     optimise: OptionType(FuncBindingType),
     settings: PlanSettingsType,
     library: ArrayType(PlanLibraryTabType),
@@ -412,13 +405,14 @@ export interface PlanProps<K extends PlanAxisKindLiteral = PlanAxisKindLiteral, 
      */
     vocabulary?: PlanVocabularyProp;
     /**
-     * The drop veto, by what it vets — its arm from its East type:
-     * `Fn(DragEvent) → Boolean` over a card or an element dragged onto
-     * `data`'s rows, consulted where the drag rests and again before it
-     * becomes a draft; or `Fn(Schedule.Types.Candidate) → Option<String>` over
-     * an event kind's drop, its message on the ghost, as the Calendar's.
+     * The drop veto (#1541, U7): `Fn(Plan.Types.Candidate) → Option<String>`,
+     * asked what a drop would do — a template, a backlog card or an author's
+     * card landing; an event kind's element or a data series' item moved,
+     * resized or taken off the canvas — where the drag rests and again before
+     * it becomes an unsaved edit. `some(message)` refuses it, the message
+     * said on the ghost; `none` lets it land.
      */
-    canDrop?: PlanConfig<K>["canDrop"] | SubtypeExprOrValue<PlanEventCanDropType>;
+    canDrop?: SubtypeExprOrValue<PlanCanDropType>;
     /**
      * The app's optimiser (#1409, #1622): `Func.bind` of its `e3.function` from `Plan.Types.OptimiseRequest` — the plan
      * window in view, the run number and the rail's narrowing, and no row — to `Plan.Types.OptimiseResult(E)`, a patch of
@@ -606,7 +600,7 @@ function checkedRowsRange(config: ExprType<RecordSliceConfigType>): ExprType<Nul
  *   over no rows, or over a `series` known only as it runs; an event kind's `resource.of` naming no resources series or
  *   kinds case, or one whose rows are not keyed by String; an event kind with no `title` (#1367); event kinds on a number
  *   or ordinal axis; a link naming an event kind `events` has not; a `rows` item that is neither a hand-built row nor
- *   `Plan.over`'s; a `canDrop` over neither a drag nor a candidate, or over a candidate with no event kinds; an
+ *   `Plan.over`'s; a `canDrop` that is no function of `Plan.Types.Candidate` to an Option of its refusal's words; an
  *   `optimise` with no event kinds, or one that is not `Func.bind` of a function from `OptimiseRequest` to
  *   `OptimiseResult(E)` over the event kinds' records (#1409, #1622); an `inspector` that is no boolean; over rows read a
  *   page at a time, an event kind with no source of the slice — its record read whole, or the days in view read through
@@ -738,22 +732,9 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
     }
     // The pane shows a selected row's own fields with or without event kinds (#1541, U5).
     const inspected = inspector === true;
-    // The drop veto, by what it vets: a drag on `data`'s rows, or an event kind's drop.
-    let canvasCanDrop: unknown;
-    let eventCanDrop: ExprType<PlanEventCanDropType> | undefined;
-    if (canDrop !== undefined) {
-        const fn = East.value(canDrop as SubtypeExprOrValue<EastType>) as ExprType<EastType>;
-        const type = Expr.type(fn as unknown as Expr) as EastType;
-        if (isTypeEqual(type, PlanEventCanDropType)) {
-            if (events === undefined) throw new Error("Plan: `canDrop` over Schedule.Types.Candidate vets an event kind's drop, and this Plan has no event kinds");
-            eventCanDrop = fn as unknown as ExprType<PlanEventCanDropType>;
-        } else if (isTypeEqual(type, CanDropFnType)) {
-            canvasCanDrop = fn;
-        } else {
-            throw new Error("Plan: `canDrop` vets a drop — Fn(DragEvent) → Boolean over a drag on `data`'s rows, or Fn(Schedule.Types.Candidate) → Option<String> over an event kind's drop, its message on the ghost — and this one is " + printType(type));
-        }
-    }
-    const veto = East.value(eventCanDrop === undefined ? none : some(eventCanDrop), OptionType(PlanEventCanDropType));
+    // The one drop veto (#1541, U7), over what any drop would do: the canvas carries it, for its rows' gestures and
+    // the event kinds' alike.
+    const veto = canDrop === undefined ? undefined : checkedCanDrop(canDrop);
     const settings = East.value({ date: date === undefined ? none : some(date), autosave: autosave ?? false } as never, PlanSettingsType);
     // `data`'s series a viewer can hide are picked where the library lists the Series tab (#1541, U3), kept under the
     // Plan's `id`.
@@ -788,7 +769,7 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
         // takes for the one it has.
         const own = rows === undefined ? undefined : $.const(rowsBlocks(rows));
         const plan = buildPlanRoot(
-            { ...canvas, data, axis, links, ...(editing === undefined ? {} : { editing }), ...(canvasCanDrop === undefined ? {} : { canDrop: canvasCanDrop }) } as Parameters<typeof buildPlanRoot>[0],
+            { ...canvas, data, axis, links, ...(editing === undefined ? {} : { editing }), ...(veto === undefined ? {} : { canDrop: veto }) } as Parameters<typeof buildPlanRoot>[0],
             own,
             sources.chrome,
             rowsNested,
@@ -804,21 +785,20 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
         }
         const tabs = buildLibrary(library, { events: eventKinds, rows, picked, sources: sources.names });
         if (events === undefined) {
-            return East.value({ plan, landings: onWire, events: [], seam: none, paged, canDrop: veto, optimise: optimiser, settings, library: tabs, inspector: inspected, vocabulary: words, narrowed } as never, PlanPayloadType);
+            return East.value({ plan, landings: onWire, events: [], seam: none, paged, optimise: optimiser, settings, library: tabs, inspector: inspected, vocabulary: words, narrowed } as never, PlanPayloadType);
         }
         // The payload is assembled in one function, so each kind is built once: the seam made inside it captures the very
         // array of event kinds the payload holds (#1192).
         const assemble = East.function(
-            [PlanRootType, ArrayType(PlanEventKindType), OptionType(PlanEventCanDropType), OptionType(FuncBindingType), PlanSettingsType, ArrayType(PlanLibraryTabType), NarrowedType],
+            [PlanRootType, ArrayType(PlanEventKindType), OptionType(FuncBindingType), PlanSettingsType, ArrayType(PlanLibraryTabType), NarrowedType],
             PlanPayloadType,
-            (_$, root, built, canDropFn, optimiseFn, chosen, listed, keys) => East.value({
+            (_$, root, built, optimiseFn, chosen, listed, keys) => East.value({
                 plan: root,
                 landings: onWire,
                 events: built,
                 // What the viewer hides is read at each placing: a landing hidden puts nothing on the Unassigned rows (U3).
                 seam: some(createEventSeam(landings, eventKinds, built, vocabulary?.unassigned, shown.hidden)),
                 paged,
-                canDrop: canDropFn,
                 optimise: optimiseFn,
                 settings: chosen,
                 library: listed,
@@ -831,13 +811,31 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
             plan,
             // Each event kind narrowed through its own source of the slice, when the slice has one (#1344).
             eventKinds.map(([slot, kind]) => kind.buildPlan(slot, bound.parts[slot])),
-            veto,
             optimiser,
             settings,
             tabs,
             narrowed,
         );
     }) as ExprType<PlanPayloadType>;
+}
+
+/**
+ * A Plan's `canDrop`, checked to be its one veto (#1541, U7): a function of what a drop would do to its refusal's words.
+ * Either of the two checks it replaces — a drag's, over `data`'s rows, and an event kind's, over the schedule family's
+ * candidate — is refused naming it.
+ *
+ * @param canDrop - The prop
+ * @returns The veto
+ * @throws {Error} Naming the type it takes, and what a check of either older type is rewritten against
+ */
+function checkedCanDrop(canDrop: unknown): ExprType<PlanCanDropType> {
+    const fn = East.value(canDrop as SubtypeExprOrValue<EastType>) as ExprType<EastType>;
+    const type = Expr.type(fn as unknown as Expr) as EastType;
+    if (isTypeEqual(type, PlanCanDropType)) return fn as unknown as ExprType<PlanCanDropType>;
+    const was = isTypeEqual(type, CanDropFnType) ? " — a check over a drag (Fn(DragEvent) → Boolean) is rewritten against it: its row is `row`, its card `from`, and it answers some(message) to refuse"
+        : isTypeEqual(type, FunctionType([ScheduleCandidateType], OptionType(StringType))) ? " — a check over Schedule.Types.Candidate is rewritten against it: its kind is `into`, its resource the `row`, its times `start` and `end`"
+            : "";
+    throw new Error("Plan: `canDrop` is Fn(Plan.Types.Candidate) → Option<String>, the one check of every drop, its message on the ghost, and this one is " + printType(type) + was);
 }
 
 /**

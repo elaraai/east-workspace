@@ -20,7 +20,7 @@ import {
     StringType,
     StructType,
 } from "@elaraai/east";
-import { CanDropFnType, PickBindType, UIComponentType } from "@elaraai/east-ui";
+import { PickBindType, UIComponentType } from "@elaraai/east-ui";
 import { RecordSlicesChromeType } from "@elaraai/east-ui/internal";
 import {
     PlanAxisType,
@@ -36,6 +36,7 @@ import {
     PlanEditingType,
 } from "./types.js";
 import { PlanNestedType } from "./nested-read.js";
+import { PlanCanDropType } from "./candidate.js";
 
 // ============================================================================
 // Resolved types — the UIComponent-coupled shapes at `UIComponentType`
@@ -98,10 +99,12 @@ export const PlanRootType = StructType({
     // DnD target role — the shared grammar (contracts/drag.ts); no id, no
     // library card lands (#824 — it used to be `""`), though the canvas's own
     // elements still move (#825). A drop or a move is a gesture of the editing
-    // session (#880); `canDrop` vets it first.
+    // session (#880); `canDrop` vets it first — the Plan's one veto (#1541, U7),
+    // over what any drop would do, an event kind's or a data series', its
+    // message said on the ghost.
     id: OptionType(StringType),
     sources: ArrayType(StringType),
-    canDrop: OptionType(CanDropFnType),
+    canDrop: OptionType(PlanCanDropType),
     // Selection + the one element click (#824).
     onSelect: OptionType(FunctionType([PlanRowIdType], NullType)),
     onElementClick: OptionType(FunctionType([PlanElementRefType], NullType)),

@@ -28,7 +28,7 @@ import {
     type ValueTypeOf,
     type option,
 } from "@elaraai/east";
-import { DragEventType, Editing, EventStateType, State, StatusValueType, Style, UIComponentType } from "@elaraai/east-ui";
+import { Editing, EventStateType, State, StatusValueType, Style, UIComponentType } from "@elaraai/east-ui";
 import { Badge, Box, Button, Chart, Configurator, Format, HStack, Progress, Reactive, SegmentGroup, Select, Slice, Sparkline, Text, VStack } from "@elaraai/east-ui";
 import { Data, Plan, Record } from "@elaraai/e3-ui";
 import e3 from "@elaraai/e3";
@@ -2004,8 +2004,8 @@ export const planDropCards = e3.input("plan_drop_cards", DictType(StringType, Dr
  *     admits only the matching FAMILY: a job goes on a press, a delivery on
  *     a van, a shift on a crew, a milestone on a stream. The `PALLET` card
  *     is of a family no row takes and is therefore refused everywhere — the ⊘
- *     stage on every row, which is what a card with nowhere to go should look
- *     like.
+ *     stage on every row, its ghost saying what the row takes, which is what
+ *     a card with nowhere to go should look like.
  *  3. **As a draft.** A drop is a gesture of the editing session: the entry is
  *     drafted with the new item in its list and its rows derived again —
  *     drawn at once with the pending mark, undone with ⌘Z — and Save writes
@@ -2085,22 +2085,29 @@ export const planRowDrop = example({
             ]), DictType(StringType, StringType));
 
             // ── The drop veto ────────────────────────────────────────────
-            // Consulted with the candidate event the pointer's CURRENT bucket
-            // would produce, so the ⊘ appears while dragging rather than after,
-            // and once more before the drop becomes a draft. A card is vetted
-            // by its family; a run moved or resized is the canvas's own, which
-            // lands only on a row of its item type, so the veto lets it through.
-            const canDrop = $.const(East.function([DragEventType], BooleanType, ($, event) => {
-                const yes = $.const(true, BooleanType);
-                return event.match({
-                    add: ($, add) => {
-                        const row = $.let(add.into.row);
-                        const card = $.let(add.from.key);
-                        return rowAccepts.has(row)
-                            .and(_$ => palette.has(card))
-                            .and(_$ => rowAccepts.get(row).equal(palette.get(card).family));
-                    },
-                }, _$ => yes);
+            // Asked what a drop would do (`Plan.Types.Candidate`) where the
+            // pointer's CURRENT bucket would put it, so the refusal shows on
+            // the ghost while dragging rather than after, and once more before
+            // the drop becomes a draft. A card is vetted by its family; a run
+            // moved or resized is the canvas's own, which lands only on a row
+            // of its item type, so the veto lets it through.
+            const canDrop = $.const(East.function([Plan.Types.Candidate], OptionType(StringType), ($, candidate) => {
+                const refusal = $.let(none, OptionType(StringType));
+                $.match(candidate.from, { card: ($, card) => {
+                    $.match(candidate.row, { some: ($, row) => {
+                        // The policy table is keyed by the text of a row's id.
+                        const at = $.let(East.print(row));
+                        const takes = $.let(rowAccepts.has(at)
+                            .and(_$ => palette.has(card.key))
+                            .and(_$ => rowAccepts.get(at).equal(palette.get(card.key).family)));
+                        $.if(takes.not(), ($) => {
+                            $.assign(refusal, some(rowAccepts.has(at).ifElse(
+                                _$ => East.str`This row takes a ${rowAccepts.get(at)}`,
+                                _$ => East.value("This row takes no card", StringType))));
+                        });
+                    } });
+                } });
+                return refusal;
             }));
 
             // ── The session ──────────────────────────────────────────────

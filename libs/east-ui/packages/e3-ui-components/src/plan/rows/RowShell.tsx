@@ -17,20 +17,21 @@
  */
 
 import { useCallback, useLayoutEffect, useMemo, useRef, useSyncExternalStore, type ReactNode } from "react";
+import { variant } from "@elaraai/east";
 import { Box, useChakraContext } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faCaretDown, faLink, faUpRightAndDownLeftFromCenter } from "@fortawesome/free-solid-svg-icons";
 import {
     getSomeorUndefined, useDropCell, useDragLayerOptional, type CellCoord, type DragEventValue, type DragPayload, type DropCellOptions,
-    type DropVeto,
 } from "@elaraai/east-ui-components";
 import { proposeAt, spanFracs, unitsBetween } from "../../shared/time/drag.js";
 import { NowLine } from "../../shared/time/now-line.js";
 import { slotOfEnd, slotOfInstant } from "../../shared/time/slot.js";
-import { toPlanSlot } from "../slot.js";
+import { fromPlanSlot, toPlanSlot } from "../slot.js";
 import { spanWords } from "../edit/movable.js";
 import { usePlanEdit, type PlanProposal } from "../edit/store.js";
-import { holdsKey } from "../edit/use-carry.js";
+import { holdsKey, movedCandidate } from "../edit/use-carry.js";
+import { itemCandidate, type PlanCandidateGesture, type PlanVeto } from "../edit/candidate.js";
 import type { PlanEventDrop } from "../edit/event-drag.js";
 import { LoadingWash, resolveColor } from "@elaraai/east-ui-components/internal";
 import { usePlanCursor, usePlanDispatch, usePlanGeometry, usePlanScale } from "../context.js";
@@ -102,10 +103,10 @@ export interface PlanRowDrop {
     libraries: ReadonlySet<string>;
     /** Whether `data`'s session takes a gesture now (#880): its rows take moves, and cards. */
     data: boolean;
-    /** The canvas's veto over its IR `canDrop` (`useIRCanDrop`), asked of the
-     *  candidate event the drag's CURRENT bucket would produce — its duplicate
-     *  flag included. */
-    canDrop?: DropVeto | undefined;
+    /** The Plan's veto over what a drop would do (`canDrop`, #1541 U7), asked of
+     *  what the drag's CURRENT bucket would make of it on one of `data`'s rows —
+     *  its duplicate flag included — its refusal's words the ghost's. */
+    canDrop?: PlanVeto | undefined;
     /** The event kinds' drag and drop (#1196): what lands on their rows, its verdict and the ghost's words. */
     events?: PlanEventDrop | undefined;
 }
@@ -325,6 +326,37 @@ export function RowShell({
         () => (drop !== undefined ? { surface: drop.surface, row: row.key, slot: firstSlot } : null),
         [drop, row.key, firstSlot],
     );
+    /** Why the Plan's `canDrop` refuses a card landing on this row of `data`'s, at a slot — on an item, where it lands on one. */
+    const cardRefusal = useCallback((from: { readonly library: string; readonly key: string }, slot: string, onto: string | undefined, duplicate: boolean): string | undefined =>
+        drop?.canDrop?.refusal(itemCandidate(
+            variant("add", { duplicate }) as PlanCandidateGesture, row.id.value.series, variant("card", { library: from.library, key: from.key }),
+            { row: row.id, start: slot === "" ? undefined : fromPlanSlot(scale.kind, slot) },
+            onto === undefined ? undefined : { row: row.key, key: onto })),
+    [drop, row, scale]);
+    /**
+     * Why the Plan's `canDrop` refuses what a drag event would do on this row of `data`'s (#1541, U7); `undefined` where it
+     * lands. A moved element is asked where the drag holds it here — or, before it rests here, where the event's bucket
+     * would put it, by the buckets between its press and that bucket, as a pointer there would.
+     */
+    const dataRefusal = useCallback((candidate: DragEventValue): string | undefined => {
+        const veto = drop?.canDrop;
+        if (veto === undefined) return undefined;
+        if (candidate.type === "add") {
+            const into = candidate.value.into;
+            return cardRefusal(candidate.value.from, into.slot, getSomeorUndefined(into.event), candidate.value.duplicate);
+        }
+        const grab = store?.grab;
+        if (grab === null || grab === undefined) return undefined;
+        let to = landingHere();
+        if (to === undefined) {
+            const slot = candidate.type === "move" ? candidate.value.to.slot : candidate.type === "resize" ? candidate.value.event.slot : "";
+            const bucket = scale.buckets.find((b) => toPlanSlot(b.start) === slot);
+            if (bucket === undefined) return undefined;
+            to = { rowKey: row.key, span: proposeAt(scale, grab.movable.span, grab.mode, grab.grabFrac, (bucket.x0 + bucket.x1) / 2, false) };
+        }
+        const moved = movedCandidate(grab.movable, to);
+        return moved === undefined ? undefined : veto.refusal(moved);
+    }, [drop, store, landingHere, scale, row.key, cardRefusal]);
     const dropVeto = useCallback((candidate: DragEventValue): boolean => {
         if (drop === undefined) return true;
         // No bucket under the drag (past a truncated axis's coverage), or a
@@ -350,16 +382,26 @@ export function RowShell({
             if (grab === null || grab === undefined || !events.isEvent(grab.movable)) return false;
             return events.element(row, grab.movable, landingHere()).allowed;
         }
-        return drop.canDrop?.(candidate) ?? true;
-    }, [drop, row, eventTarget, events, store, landingHere]);
-    /** What the ghost says while the drag rests here (#1187): on an event kind's row, what lands where, or why not (#1196). */
+        return dataRefusal(candidate) === undefined;
+    }, [drop, row, eventTarget, events, store, landingHere, dataRefusal]);
+    /**
+     * What the ghost says while the drag rests here (#1187): on an event kind's row, what lands where, or why not
+     * (#1196); on one of `data`'s, why the Plan's `canDrop` refuses it (#1541, U7).
+     */
     const caption = useCallback((coord: CellCoord, payload: DragPayload): string | undefined => {
-        if (eventTarget === undefined || events === undefined) return undefined;
+        if (eventTarget === undefined || events === undefined) {
+            if (drop?.canDrop === undefined) return undefined;
+            if (payload.kind === "item") return cardRefusal(payload.from, coord.slot, coord.event, false);
+            const grab = store?.grab;
+            const to = landingHere();
+            const moved = grab === null || grab === undefined || to === undefined ? undefined : movedCandidate(grab.movable, to);
+            return moved === undefined ? undefined : drop.canDrop.refusal(moved);
+        }
         if (payload.kind === "item") return events.card(row, payload.from, coord.slot, coord.event).caption;
         const grab = store?.grab;
         if (grab === null || grab === undefined || !events.isEvent(grab.movable)) return undefined;
         return events.element(row, grab.movable, landingHere()).caption;
-    }, [eventTarget, events, row, store, landingHere]);
+    }, [eventTarget, events, row, store, landingHere, drop, cardRefusal]);
 
     // ── The landing band ──────────────────────────────────────────────────
     // While a card is over this row, show WHERE it would come to rest. The

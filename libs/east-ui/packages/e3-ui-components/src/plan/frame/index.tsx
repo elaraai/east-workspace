@@ -95,7 +95,7 @@
 
 import { Fragment, memo, useCallback, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { Box, Button, useSlotRecipe } from "@chakra-ui/react";
-import { StringType, equalFor, equivalentFor, none, type ValueTypeOf } from "@elaraai/east";
+import { StringType, equalFor, equivalentFor, type ValueTypeOf } from "@elaraai/east";
 import { FuncBindingType, Plan, PlanComponent, PlanEventSeamType, PlanPayloadType, planKeys } from "@elaraai/e3-ui/internal";
 import {
     BannerView, BuilderFrame, SessionBanners, getSomeorUndefined, historyShortcut, implementUIComponent, takeKey, typedInto, useDataStable, usePersistedState,
@@ -164,14 +164,8 @@ const libraryEqual = equalFor(PlanPayloadType.fields.library);
 const landingsEqual = equalFor(PlanPayloadType.fields.landings);
 /** Whether two optimiser bindings are one: the function's name, and the records it lists and reads. */
 const optimiseEqual = equalFor(FuncBindingType);
-/** Whether two drop vetoes are one: by their IR and what they capture (#809). */
-const canDropEquivalent = equivalentFor(PlanPayloadType.fields.canDrop);
-
-/** The event kinds' drop veto, when the payload has one. */
-type PlanEventCanDrop = PlanValue["canDrop"];
 
 /** No veto: every drop the event kinds take lands. */
-const NO_VETO: PlanEventCanDrop = none;
 
 /** No event kind has an event on the canvas. */
 const NO_PATCH_KINDS: ReadonlySet<string> = new Set();
@@ -251,8 +245,6 @@ export interface EastChakraPlanProps {
     library?: PlanLibraryTabs | undefined;
     /** Whether the Plan has its inspector pane (#1197) — the payload carries it; left out, no pane. */
     inspector?: boolean | undefined;
-    /** The event kinds' drop veto (#1196) — the payload carries it: where a drop would put an event, to the refusal's message. */
-    canDrop?: PlanEventCanDrop | undefined;
     /** What each source of the slice the frame follows shows (#1344) — each templates list's and tab's; none, a Plan whose payload follows none. */
     followed?: FollowedSources | undefined;
     /**
@@ -271,7 +263,7 @@ export interface EastChakraPlanProps {
  * @returns The Plan, in its frame
  */
 export const EastChakraPlan = memo(function EastChakraPlan({
-    value, storageKey, events, kinds, landings: givenLandings, library: given, inspector, canDrop, followed = NONE_FOLLOWED, optimise, autosave,
+    value, storageKey, events, kinds, landings: givenLandings, library: given, inspector, followed = NONE_FOLLOWED, optimise, autosave,
 }: EastChakraPlanProps) {
     const library = useDataStable(given ?? NO_LIBRARY, libraryEqual);
     const id = getSomeorUndefined(value.id);
@@ -290,13 +282,11 @@ export const EastChakraPlan = memo(function EastChakraPlan({
     const eventKinds = useMemo(() => (kinds ?? NO_KINDS).map((kind) => kind.key), [kinds]);
     // The panel's own tabs whose cards land on the rows (#1259): the author's.
     const panel = useMemo(() => library.flatMap((tab) => (tab.type === "tab" ? [tabLibrary(keys, tab.value)] : [])), [library, keys]);
-    // Each event kind a session over its record, under one history with `data`'s (#1194), its drags on the canvas (#1196).
-    const veto = useMemo(() => getSomeorUndefined(canDrop ?? NO_VETO), [canDrop]);
     // The series the event kinds land on (#1541): what an event's resource is named by.
     const landings = givenLandings ?? NO_LANDINGS;
     const canvas = usePlanCanvas({
         value, storageKey, events, hidden, rowsHidden, eventKinds, panel, kinds: kinds ?? NO_KINDS,
-        landings, tabs: library, canDrop: veto, optimise, autosave: autosave === true,
+        landings, tabs: library, optimise, autosave: autosave === true,
     });
     return <>{canvas.provide(
         <PlanFrame canvas={canvas} root={value} kinds={kinds ?? NO_KINDS} landings={landings} library={library}
@@ -307,7 +297,6 @@ export const EastChakraPlan = memo(function EastChakraPlan({
     && (prev.inspector === true) === (next.inspector === true)
     && (prev.autosave === true) === (next.autosave === true)
     && (prev.optimise === undefined ? next.optimise === undefined : next.optimise !== undefined && optimiseEqual(prev.optimise, next.optimise))
-    && (Object.is(prev.canDrop, next.canDrop) || canDropEquivalent(prev.canDrop ?? NO_VETO, next.canDrop ?? NO_VETO))
     && sameEventRows(prev.events, next.events)
     && (prev.kinds === next.kinds || eventKindsEquivalent(prev.kinds ?? NO_KINDS, next.kinds ?? NO_KINDS))
     && (prev.landings === next.landings || landingsEqual(prev.landings ?? NO_LANDINGS, next.landings ?? NO_LANDINGS))
@@ -578,7 +567,7 @@ function PlanPayloadFrame({ value, storageKey }: EastChakraPlanPayloadProps) {
             {(followed) => (
                 <EastChakraPlan value={value.plan} storageKey={storageKey} events={events} kinds={value.events}
                     landings={value.landings} library={value.library} inspector={value.inspector}
-                    canDrop={value.canDrop} followed={followed} optimise={getSomeorUndefined(value.optimise)}
+                    followed={followed} optimise={getSomeorUndefined(value.optimise)}
                     autosave={value.settings.autosave} />
             )}
         </FollowSources>
