@@ -26,7 +26,7 @@ import { Plan, Record, Schedule } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
 import { rowKeyOf, type PlanRowId } from "./model.js";
 import { PLAN_GEOMETRY } from "./geometry.js";
-import { el, elementKey, entry, planHarness, rowAt, settle, slot } from "./frame/harness.test-utils.js";
+import { el, elementKey, entry, planHarness, ribbonWidth, rowAt, settle, slot } from "./frame/harness.test-utils.js";
 
 // The print works on e3.
 const h = planHarness({ "plan/plan-events": ex });
@@ -216,34 +216,8 @@ describe("nesting (PB14)", () => {
 // ============================================================================
 
 describe("a link's event ends", () => {
-    /**
-     * jsdom lays nothing out. Give the ribbon layer its width — the 168px
-     * gutter and a 1000px plot — and a bounded frame a view tall enough for
-     * every row (TanStack sizes the frame by `offsetHeight`, the view reads
-     * `clientHeight`), so every row mounts and no end clamps to an edge; every
-     * other element keeps measuring 0.
-     */
-    function ribbonWidth(): () => void {
-        const heightOf = (el: HTMLElement) => (el.getAttribute("data-virtual-rows") === "bounded" ? 4000 : 0);
-        const stubs: Record<string, (el: HTMLElement) => number> = {
-            clientWidth: (el) => (el.hasAttribute("data-plan-ribbons") ? 1168 : 0),
-            clientHeight: heightOf,
-            offsetHeight: heightOf,
-        };
-        const saved = Object.keys(stubs).map((k) => [k, Object.getOwnPropertyDescriptor(HTMLElement.prototype, k)] as const);
-        for (const [k, get] of Object.entries(stubs)) {
-            Object.defineProperty(HTMLElement.prototype, k, { configurable: true, get(this: HTMLElement) { return get(this); } });
-        }
-        return () => {
-            for (const [k, d] of saved) {
-                if (d !== undefined) Object.defineProperty(HTMLElement.prototype, k, d);
-                else delete (HTMLElement.prototype as unknown as Record<string, unknown>)[k];
-            }
-        };
-    }
-
     test("each end is found where its event draws — a plate's mark, a job's bar, a bindery job's chip, a delivery's tile: every row a link touches takes the links control, and a row's family draws every link (#1258)", async () => {
-        const restore = ribbonWidth();
+        const restore = ribbonWidth({ tall: true });
         try {
             const { container } = await h.mount(ex.planEventLinks);
             await settle();
@@ -301,7 +275,7 @@ describe("a link's event ends", () => {
     });
 
     test("a link kind's link selects by a click and is removed by Delete or by its ×, each a draft that Undo takes back (#1541, U10)", async () => {
-        const restore = ribbonWidth();
+        const restore = ribbonWidth({ tall: true });
         try {
             const { container } = await h.mount(ex.planEventLinks);
             await settle();
@@ -357,7 +331,7 @@ describe("a link's event ends", () => {
     };
 
     test("a ribbon meets its event however it draws — at the edge of a stop's mark, not across its row (#1258)", async () => {
-        const restore = ribbonWidth();
+        const restore = ribbonWidth({ tall: true });
         try {
             const program = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
                 const presses = $.let(Record.bind(ex.planPrintPresses, []));

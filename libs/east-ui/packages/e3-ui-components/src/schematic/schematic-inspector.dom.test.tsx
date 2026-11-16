@@ -33,7 +33,7 @@ import { Editing, Reactive, State, UIComponentType } from "@elaraai/east-ui/inte
 import { editingMessages, getRegisteredPlatformImplementations } from "@elaraai/east-ui-components";
 import { Data, Record, Schematic } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/schematic/schematic";
-import { e3Harness, settle, slot } from "../e3-web-mount.test-utils.js";
+import { e3Harness, retypeNumber as typeNumber, settle, slot } from "../e3-web-mount.test-utils.js";
 import { at, card, drawingCounts, fitted, layOutCanvas, near, tap, unsaved } from "./schematic.test-utils.js";
 import "./index.js";
 
@@ -148,17 +148,7 @@ async function retype(c: HTMLElement, name: string, key: string, text: string): 
 
 /** Types a number field's new value, a key at a time — the shared input writes back on a frame — and commits it with ⏎. */
 async function retypeNumber(c: HTMLElement, name: string, key: string, text: string): Promise<void> {
-    const user = userEvent.setup();
-    const input = within(field(c, name, key)).getByRole("spinbutton");
-    await user.clear(input);
-    await settle();
-    for (const ch of text) {
-        await user.type(input, ch);
-        await settle();
-        await act(async () => { for (let i = 0; i < 3; i++) await new Promise<void>((resolve) => requestAnimationFrame(() => resolve())); });
-    }
-    await user.type(input, "{Enter}");
-    await settle();
+    await typeNumber(within(field(c, name, key)).getByRole("spinbutton"), text);
 }
 
 /** Picks a choice of a Chooser in Details, by its section, its field and its words. */

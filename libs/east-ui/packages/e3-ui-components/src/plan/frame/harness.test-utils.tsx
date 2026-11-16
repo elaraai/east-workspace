@@ -185,3 +185,31 @@ export const dropPressRow = (container: HTMLElement, press: string) => container
  */
 export const dropRunOf = (container: HTMLElement, press: string, id: string) =>
     container.querySelector<HTMLElement>(`${rowAt(entry("press", press))} [data-run=${JSON.stringify(id)}]`);
+
+/**
+ * jsdom lays nothing out. Gives the ribbons' layer its width — a 168px gutter
+ * and a 1000px plot — so a links focus lays its ribbons out, every other
+ * element measuring 0; and, given `tall`, a bounded frame a view tall enough
+ * for every row (TanStack sizes the frame by `offsetHeight`, the view reads
+ * `clientHeight`), so every row mounts and no end clamps to an edge.
+ *
+ * @param options - Whether a bounded frame's view is tall enough for every row
+ * @returns The restore
+ */
+export function ribbonWidth({ tall = false }: { tall?: boolean } = {}): () => void {
+    const heightOf = (el: HTMLElement) => (el.getAttribute("data-virtual-rows") === "bounded" ? 4000 : 0);
+    const stubs: Record<string, (el: HTMLElement) => number> = {
+        clientWidth: (el) => (el.hasAttribute("data-plan-ribbons") ? 1168 : 0),
+        ...(tall ? { clientHeight: heightOf, offsetHeight: heightOf } : {}),
+    };
+    const saved = Object.keys(stubs).map((k) => [k, Object.getOwnPropertyDescriptor(HTMLElement.prototype, k)] as const);
+    for (const [k, get] of Object.entries(stubs)) {
+        Object.defineProperty(HTMLElement.prototype, k, { configurable: true, get(this: HTMLElement) { return get(this); } });
+    }
+    return () => {
+        for (const [k, d] of saved) {
+            if (d !== undefined) Object.defineProperty(HTMLElement.prototype, k, d);
+            else delete (HTMLElement.prototype as unknown as Record<string, unknown>)[k];
+        }
+    };
+}

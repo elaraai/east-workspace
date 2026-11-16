@@ -56,7 +56,7 @@ import { editingMessages, getRegisteredPlatformImplementations } from "@elaraai/
 import { Data, Flowchart, Record } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/flowchart/flowchart";
 import * as fx from "@elaraai/e3-ui/fixtures/flowchart/flowchart-keys";
-import { slot } from "../e3-web-mount.test-utils.js";
+import { retypeNumber as typeNumber, slot } from "../e3-web-mount.test-utils.js";
 import { act, enabled, flowchartHarness, press, settle, type FlowchartTestProps } from "./flowchart.test-utils.js";
 import { measureLibrary } from "./library-measure.test-utils.js";
 import { DEFAULT_FLOWCHART_NOUNS, flowchartMessages, flowchartMessagesOf } from "./messages.js";
@@ -687,19 +687,9 @@ describe("a key that would move while rows that may name it aren't held (#1580)"
  * with ⏎: a field holding no value yet, Not set, takes Set first.
  */
 async function retypeNumber(c: HTMLElement, key: string, text: string): Promise<void> {
-    const user = userEvent.setup();
     const set = field(c, key).querySelector<HTMLElement>("[data-field-set]");
     if (set !== null) await gesture(() => { fireEvent.click(set); });
-    const input = within(field(c, key)).getByRole("spinbutton");
-    await user.clear(input);
-    await settle();
-    for (const ch of text) {
-        await user.type(input, ch);
-        await settle();
-        await act(async () => { for (let i = 0; i < 3; i++) await new Promise<void>((resolve) => requestAnimationFrame(() => resolve())); });
-    }
-    await user.type(input, "{Enter}");
-    await settle();
+    await typeNumber(within(field(c, key)).getByRole("spinbutton"), text);
 }
 
 /** Types a text field of Details' new text and commits it with ⏎. */

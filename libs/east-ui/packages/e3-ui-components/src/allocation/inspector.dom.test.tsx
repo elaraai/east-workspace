@@ -15,11 +15,10 @@
  */
 import { describe, expect, test, vi } from "vitest";
 import { fireEvent, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { none, some } from "@elaraai/east";
 import { editingMessages, formatters } from "@elaraai/east-ui-components";
 import * as ex from "@elaraai/e3-ui/examples/allocation/allocation";
-import { conflictCards } from "../e3-web-mount.test-utils.js";
+import { conflictCards, retypeNumber } from "../e3-web-mount.test-utils.js";
 import { TUE, act, allocationHarness, offering, settle, slot } from "./harness.test-utils.js";
 import { allocationWords } from "./model.js";
 import { RESERVE_PROBE } from "./table.js";
@@ -474,12 +473,7 @@ describe("a conflict's Go to", () => {
     test("selects its bin and shows its details, as its issue's Show does", async () => {
         const c = await open();
         await press(card(c, "3113"));
-        const user = userEvent.setup();
-        const quantity = within(details(c).querySelector<HTMLElement>('[data-field="quantity"]')!).getByRole("spinbutton");
-        await user.clear(quantity);
-        for (const k of "30") { await user.type(quantity, k); await settle(); }
-        await user.keyboard("{Enter}");
-        await settle();
+        await retypeNumber(within(details(c).querySelector<HTMLElement>('[data-field="quantity"]')!).getByRole("spinbutton"), "30");
         // Another bin selected, and the Issues open, before another session sets the same quantity otherwise.
         await press(card(c, "3101"));
         await tab(c, "Issues");
@@ -500,12 +494,7 @@ describe("the conflicts example (allocationConflicts)", () => {
     test("an m³ typed here, then Someone else saves, is one card under the board's word for a quantity, its split going with it, the bin wearing the ring", async () => {
         const c = await open(ex.allocationConflicts);
         await press(card(c, "3113"));
-        const user = userEvent.setup();
-        const quantity = within(details(c).querySelector<HTMLElement>('[data-field="quantity"]')!).getByRole("spinbutton");
-        await user.clear(quantity);
-        for (const k of "30") { await user.type(quantity, k); await settle(); }
-        await user.keyboard("{Enter}");
-        await settle();
+        await retypeNumber(within(details(c).querySelector<HTMLElement>('[data-field="quantity"]')!).getByRole("spinbutton"), "30");
         // Someone else's save puts 1 m³ more on each of the bin's kilns, its m³ with them.
         const before = (await h.read(ex.conflictBins)).get("3113")!;
         await press(within(c).getByRole("button", { name: "Someone else saves" }));
@@ -537,12 +526,7 @@ describe("the conflicts example (allocationConflicts)", () => {
     test("from another day, its card names the bin as it does on its own, and Go to goes back to its day and selects it", async () => {
         const c = await open(ex.allocationConflicts);
         await press(card(c, "3113"));
-        const user = userEvent.setup();
-        const quantity = within(details(c).querySelector<HTMLElement>('[data-field="quantity"]')!).getByRole("spinbutton");
-        await user.clear(quantity);
-        for (const k of "30") { await user.type(quantity, k); await settle(); }
-        await user.keyboard("{Enter}");
-        await settle();
+        await retypeNumber(within(details(c).querySelector<HTMLElement>('[data-field="quantity"]')!).getByRole("spinbutton"), "30");
         await press(within(c).getByRole("button", { name: "Someone else saves" }));
         await waitFor(() => expect(c.querySelector('[data-session-banner="conflicts"]')).not.toBeNull());
         const named = (await conflictCards(c))[0]!.item;
