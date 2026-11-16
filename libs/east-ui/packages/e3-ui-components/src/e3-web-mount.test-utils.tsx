@@ -32,6 +32,7 @@
 import { useLayoutEffect, useMemo, useReducer, type ReactNode } from "react";
 import { afterAll, afterEach, beforeAll, beforeEach, vi } from "vitest";
 import { cleanup, render, waitFor, type RenderResult } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { ChakraProvider } from "@chakra-ui/react";
 import type { EastIR, EastType, ValueTypeOf } from "@elaraai/east";
 import { UIComponentType } from "@elaraai/east-ui/internal";
@@ -720,6 +721,28 @@ const turns = () => act(async () => { for (let i = 0; i < 8; i++) await new Prom
  */
 export async function settle(): Promise<void> {
     await settleE3(current?.e3, turns);
+}
+
+/**
+ * Types a number field's new value into the shared number input, a key at a
+ * time, and commits it with ⏎. The input writes each key back on a frame:
+ * typed in one go, a key lands before the last is written back, and the field
+ * commits what it held then.
+ *
+ * @param input - The field's input: its `spinbutton`
+ * @param text - The value, as it is typed
+ */
+export async function retypeNumber(input: HTMLElement, text: string): Promise<void> {
+    const user = userEvent.setup();
+    await user.clear(input);
+    await settle();
+    for (const ch of text) {
+        await user.type(input, ch);
+        await settle();
+        await act(async () => { for (let i = 0; i < 3; i++) await new Promise<void>((resolve) => requestAnimationFrame(() => resolve())); });
+    }
+    await user.type(input, "{Enter}");
+    await settle();
 }
 
 /**

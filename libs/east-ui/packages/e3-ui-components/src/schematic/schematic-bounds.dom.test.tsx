@@ -19,13 +19,12 @@
 
 import { expect, test } from "vitest";
 import { act, fireEvent, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { East } from "@elaraai/east";
 import { Fields, Reactive, UIComponentType } from "@elaraai/east-ui/internal";
 import { editingMessages } from "@elaraai/east-ui-components";
 import { Record, Schematic } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/schematic/schematic";
-import { e3Harness, settle, slot } from "../e3-web-mount.test-utils.js";
+import { e3Harness, retypeNumber as typeNumber, settle, slot } from "../e3-web-mount.test-utils.js";
 import { card, fitted, layOutCanvas, near, tap } from "./schematic.test-utils.js";
 import "./index.js";
 
@@ -84,17 +83,7 @@ async function openTab(c: HTMLElement, name: "Details" | "Issues"): Promise<void
 
 /** Types a number field's new value, a key at a time — the shared input writes back on a frame — and commits it with ⏎. */
 async function retypeNumber(c: HTMLElement, key: string, text: string): Promise<void> {
-    const user = userEvent.setup();
-    const input = within(field(c, key)).getByRole("spinbutton");
-    await user.clear(input);
-    await settle();
-    for (const ch of text) {
-        await user.type(input, ch);
-        await settle();
-        await act(async () => { for (let i = 0; i < 3; i++) await new Promise<void>((resolve) => requestAnimationFrame(() => resolve())); });
-    }
-    await user.type(input, "{Enter}");
-    await settle();
+    await typeNumber(within(field(c, key)).getByRole("spinbutton"), text);
 }
 
 test("a stored load over its most: A04's card wears the warn ring, Issues warns of it and Details says it under the field, holding no Save — another rack's change saves; A04's capacity changed, Save waits, Issues says it among what blocks and the ring stays (#1585)", async () => {

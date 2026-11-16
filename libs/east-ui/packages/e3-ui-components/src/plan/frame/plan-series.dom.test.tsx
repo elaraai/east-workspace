@@ -58,7 +58,7 @@ import { PLAN_GEOMETRY } from "../geometry.js";
 import { rowKeyOf } from "../model.js";
 import { carry } from "../plan-move.test-utils.js";
 import { emulateWindowScroll } from "../window-scroll.test-utils.js";
-import { act, el, elementKey, entry, planHarness, rowAt, settle, slot, tabs } from "./harness.test-utils.js";
+import { act, el, elementKey, entry, planHarness, ribbonWidth, rowAt, settle, slot, tabs } from "./harness.test-utils.js";
 import { evaluatesAgain } from "../../e3-web-mount.test-utils.js";
 import { editedThroughReload, redrawnThroughReload, savedThroughReload } from "../../shared/save-held.test-utils.js";
 import { keptName } from "@elaraai/east-ui-components/internal";
@@ -358,24 +358,6 @@ async function drawnByWindow(gestures: (c: HTMLElement) => Promise<void>): Promi
     await settle();
     await gestures(container);
     return drawn(container);
-}
-
-/**
- * jsdom lays nothing out: the ribbons' layer its width — a 168px gutter and a
- * 1000px plot — so a links focus lays its ribbons out, every other element
- * measuring 0.
- *
- * @returns The restore
- */
-function ribbonWidth(): () => void {
-    const saved = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientWidth");
-    Object.defineProperty(HTMLElement.prototype, "clientWidth", {
-        configurable: true, get(this: HTMLElement) { return this.hasAttribute("data-plan-ribbons") ? 1168 : 0; },
-    });
-    return () => {
-        if (saved !== undefined) Object.defineProperty(HTMLElement.prototype, "clientWidth", saved);
-        else delete (HTMLElement.prototype as unknown as { clientWidth?: number }).clientWidth;
-    };
 }
 
 /** The footer's count of the events in the window. */
