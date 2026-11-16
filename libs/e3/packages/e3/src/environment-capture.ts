@@ -45,6 +45,7 @@ import { variant, none, encodeBeast2For } from '@elaraai/east';
 import type { EnvironmentSpec } from '@elaraai/e3-types';
 import { EnvironmentSpecType } from '@elaraai/e3-types';
 import { validateEnvironmentDecl, type EnvironmentDecl } from './environment.js';
+import { STOCK_PLATFORMS_BY_RUNNER } from './runner.js';
 
 const encodeEnvironmentSpec = encodeBeast2For(EnvironmentSpecType);
 
@@ -58,6 +59,11 @@ const encodeEnvironmentSpec = encodeBeast2For(EnvironmentSpecType);
 // transitively depends on — so editing one package invalidates only the
 // environments whose closure contains it.
 //
+// A project that is its own root is a `python` spec, whose lock is all its
+// own. A member of a workspace is a `workspace_python` spec, which names the
+// member: its environment installs the member's dependencies and not those
+// of the workspace's root or of its other members (#1654).
+//
 // The lock is the single source of truth: we do not mirror uv's workspace
 // discovery, we only trust what `uv lock` recorded. The materializer's
 // fail-closed `uv pip check` (#275) means a closure that misses a local
@@ -65,14 +71,16 @@ const encodeEnvironmentSpec = encodeBeast2For(EnvironmentSpecType);
 // walk favours simplicity and slight over-capture over cleverness.
 // ---------------------------------------------------------------------------
 
-interface UvLockPackage {
+/** One package of a uv lock. */
+export interface UvLockPackage {
   name: string;
   source?: Record<string, string>;
   dependencies?: Array<{ name: string; extra?: string[] }>;
   'optional-dependencies'?: Record<string, Array<{ name: string }>>;
   'dev-dependencies'?: Record<string, Array<{ name: string }>>;
 }
-interface UvLock {
+/** A uv lock, for what a capture reads of it. */
+export interface UvLock {
   version?: number;
   manifest?: { members?: string[] };
   package?: UvLockPackage[];
@@ -264,21 +272,89 @@ function buildMemberSdists(
   return sdists;
 }
 
+/** The distributions every east-py task runs with: the runtime, and the
+ *  command that is its runner. */
+const PYTHON_RUNTIME_DISTRIBUTIONS = ['elaraai-east-py', 'elaraai-east-py-cli'];
+
+/**
+ * The registry distributions a workspace member's environment installs beside
+ * the member's own dependencies: the runtime's, and those of the stock
+ * platform packages its task's runner names, as the lock pins them.
+ *
+ * @remarks
+ * A workspace commonly lists these on its root alone, which an environment
+ * that installs a member's dependencies would otherwise leave out. A stock
+ * platform package `east-py-std` is the distribution `elaraai-east-py-std`.
+ * One the lock does not hold, or holds as a local package, is not named: the
+ * first comes from wherever the task runs, the second rides as an sdist.
+ *
+ * @internal
+ * @param root - The workspace root
+ * @param lock - Its lock
+ * @param platforms - The platform packages the runner names
+ * @returns The distributions, by PEP 503 name, sorted
+ */
+export function pythonRequires(root: string, lock: UvLock, platforms: readonly string[]): string[] {
+  const stock: readonly string[] = STOCK_PLATFORMS_BY_RUNNER.east_py;
+  const wanted = new Set([...PYTHON_RUNTIME_DISTRIBUTIONS, ...platforms.filter((name) => stock.includes(name)).map((name) => `elaraai-${name}`)]
+    .map(canonicalPythonName));
+  return (lock.package ?? [])
+    .filter((pkg) => wanted.has(canonicalPythonName(pkg.name)) && localSource(root, pkg.source) === null)
+    .map((pkg) => canonicalPythonName(pkg.name))
+    .sort();
+}
+
+/**
+ * Captures the environment of members of a uv workspace: the root's manifest
+ * and lock, the sdists of the members and of every local package they depend
+ * on, and the distributions installed beside the members' own.
+ *
+ * @param root - The workspace root
+ * @param lock - Its lock
+ * @param subjects - The members, by the lock's names
+ * @param platforms - The platform packages the task's runner names
+ * @returns The encoded `workspace_python` spec
+ */
+function captureWorkspacePython(
+  root: string,
+  lock: UvLock,
+  subjects: readonly string[],
+  platforms: readonly string[],
+  owner: string,
+  addBlob: (data: Buffer) => string,
+  onEvent?: CaptureEventFn,
+): Uint8Array {
+  // Union the members' closures, deduped by package name.
+  const union = new Map<string, string>();
+  for (const subject of subjects) {
+    for (const member of pythonClosure(lock, root, subject, owner)) union.set(member.name, member.dir);
+  }
+  const pyproject = addBlob(readProjectFile(root, 'pyproject.toml', owner));
+  const lockBlob = addBlob(readProjectFile(root, 'uv.lock', owner));
+  const members = [...union.entries()].map(([name, dir]) => ({ name, dir })).sort((a, b) => (a.name < b.name ? -1 : 1));
+  const sdists = buildMemberSdists(members, owner, addBlob, onEvent);
+  return encodeEnvironmentSpec(variant('workspace_python', {
+    pyproject, lock: lockBlob, subjects: [...subjects].sort(), sdists, requires: pythonRequires(root, lock, platforms),
+  }));
+}
+
 /**
  * Derive a python environment from the platform packages a task's runner
  * references. Each `custom` name that resolves to a LOCAL workspace member
  * (a directory/workspace/editable source in the governing `uv.lock`)
- * contributes its transitive closure; the union rides ONE `python` spec —
- * shared root manifest + lock, union of member sdists (byte-identical to the
- * explicit capture of a project depending on all of them). Names are matched
- * by PEP 503 canonical form, so an import-style ref (`platform_module`)
- * finds its lock entry (`platform-module`). Registry / first-party names
- * (e.g. `east-py-std`) are skipped — `uv sync` installs them. Returns null
- * when `anchorDir` has no uv workspace or no referenced name is a local
- * member (nothing to capture beyond the ambient runtime).
+ * contributes its transitive closure; the union rides ONE `workspace_python`
+ * spec — shared root manifest + lock, the members as its subjects, the union
+ * of their sdists. Names are matched by PEP 503 canonical form, so an
+ * import-style ref (`platform_module`) finds its lock entry
+ * (`platform-module`). A stock platform package the runner names
+ * (`east-py-std`) is no member: it is installed from the registry, as the
+ * lock pins it ({@link pythonRequires}). Returns null when `anchorDir` has no
+ * uv workspace or no referenced name is a local member (nothing to capture
+ * beyond the ambient runtime).
  */
 function capturePythonPlatforms(
   customNames: string[],
+  platforms: readonly string[],
   anchorDir: string,
   owner: string,
   addBlob: (data: Buffer) => string,
@@ -300,16 +376,7 @@ function capturePythonPlatforms(
       .filter((n): n is string => n !== null),
   )];
   if (subjects.length === 0) return null;
-  // Union the referenced members' closures, deduped by package name.
-  const union = new Map<string, string>();
-  for (const subject of subjects) {
-    for (const member of pythonClosure(lock, root, subject, owner)) union.set(member.name, member.dir);
-  }
-  const pyproject = addBlob(readProjectFile(root, 'pyproject.toml', owner));
-  const lockBlob = addBlob(readProjectFile(root, 'uv.lock', owner));
-  const members = [...union.entries()].map(([name, dir]) => ({ name, dir })).sort((a, b) => (a.name < b.name ? -1 : 1));
-  const sdists = buildMemberSdists(members, owner, addBlob, onEvent);
-  return encodeEnvironmentSpec(variant('python', { pyproject, lock: lockBlob, sdists }));
+  return captureWorkspacePython(root, lock, subjects, platforms, owner, addBlob, onEvent);
 }
 
 /**
@@ -487,6 +554,10 @@ function captureNodePlatforms(
  * @param anchorDir - Directory the workspace is resolved from (the export cwd)
  * @param owner - The declaring task/function name, for error messages
  * @param addBlob - Stores a blob in the bundle's object store, returning its hash
+ * @param onEvent - Told each member's artifact as it is built
+ * @param platforms - The stock platform packages the runner names beside its
+ *   custom ones (`east-py-std`): a python workspace member's environment
+ *   installs their distributions too
  * @returns The beast2-encoded EnvironmentSpec, or null when nothing local is
  *   referenced (no workspace, or every platform is a registry/first-party package)
  */
@@ -497,12 +568,13 @@ export function captureAutoEnvironment(
   owner: string,
   addBlob: (data: Buffer) => string,
   onEvent?: CaptureEventFn,
+  platforms: readonly string[] = [],
 ): Uint8Array | null {
   if (customNames.length === 0) return null;
   // east-py resolves against a uv workspace, east-node against an npm
   // workspace. east-c (tools) is never derived — it uses explicit
   // `environment: { tools }`. Unknown runtimes never auto-derive.
-  if (runtime === 'east-py') return capturePythonPlatforms(customNames, anchorDir, owner, addBlob, onEvent);
+  if (runtime === 'east-py') return capturePythonPlatforms(customNames, platforms, anchorDir, owner, addBlob, onEvent);
   if (runtime === 'east-node') return captureNodePlatforms(customNames, anchorDir, owner, addBlob, onEvent);
   return null;
 }
@@ -712,6 +784,10 @@ function npmClosure(lock: NpmLock, root: string, subject: string, owner: string)
  * @param decl - The declaration to resolve
  * @param owner - The declaring task/function name, for error messages
  * @param addBlob - Stores a blob in the bundle's object store, returning its hash
+ * @param onEvent - Told each member's artifact as it is built
+ * @param platforms - The stock platform packages the declaring task's runner
+ *   names (`east-py-std`): the environment of a python workspace's member
+ *   installs their distributions too
  * @returns The beast2-encoded EnvironmentSpec bytes
  * @throws {Error} if the project is missing its manifest/lockfile or the build fails
  */
@@ -720,6 +796,7 @@ export function captureEnvironment(
   owner: string,
   addBlob: (data: Buffer) => string,
   onEvent?: CaptureEventFn,
+  platforms: readonly string[] = [],
 ): Uint8Array {
   let spec: EnvironmentSpec;
 
@@ -748,12 +825,17 @@ export function captureEnvironment(
     spec = variant('tools', { files });
   } else if ('python' in decl) {
     const project = path.resolve(decl.python.project);
-    // Identity + closure come from the governing (root) lock; the ROOT
-    // manifest/lockfile are captured so materialization can `uv sync
-    // --all-packages` the whole third-party set. A member's own pyproject
-    // rides inside its sdist. For a standalone project root === project, so
-    // the captured spec is byte-identical to the pre-#278 single-project one.
+    // Identity + closure come from the governing (root) lock. A member's own
+    // pyproject rides inside its sdist.
     const { root, lock, subject } = discoverPythonRoot(project, owner);
+    // A member of a workspace names itself, so its environment installs its
+    // own dependencies and not its workspace's (#1654)
+    if (canonicalPath(root) !== canonicalPath(project)) {
+      return captureWorkspacePython(root, lock, [subject], platforms, owner, addBlob, onEvent);
+    }
+    // A project that is its own root: the ROOT manifest/lockfile are its own,
+    // and materialization syncs the whole of its lock. The captured spec is
+    // byte-identical to the pre-#278 single-project one.
     const pyproject = addBlob(readProjectFile(root, 'pyproject.toml', owner));
     const lockBlob = addBlob(readProjectFile(root, 'uv.lock', owner));
     const sdists = buildMemberSdists(pythonClosure(lock, root, subject, owner), owner, addBlob, onEvent);

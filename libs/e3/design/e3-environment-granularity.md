@@ -163,6 +163,22 @@ uv pip check --python .venv                                          # loud sati
 - **"We capture what you locked":** no lock-freshness check beyond the membership gate (no `uv lock --check`, which can hit the network). A stale-but-consistent lock materializes exactly what was locked — same semantics as today's standalone envs; drift surfaces as loud import errors. (Contrast node, §3.2.4, where the package manager is provably *not* a loud oracle.)
 - Default dependency-groups (dev) of members remain installed (matches sync's default; leaner runtime envs rejected as a behavior change).
 
+> **Amended (#1654).** The first position above no longer holds for a
+> workspace's member. A member's environment is a `workspace_python` spec,
+> which names the members it is of (`subjects`) and the registry distributions
+> installed beside their own (`requires`: the runtime's, and those of the stock
+> platform packages the task's runner names). Its build syncs the subjects'
+> locked dependencies alone — `uv sync --frozen --package <member>`, what
+> `uv export --frozen --package <member>` lists — and then installs `requires`
+> at the lock's versions, checked against the lock's hashes. A frozen sync
+> reads the lock and no member's manifest, so the build directory still holds
+> the root's manifest and lock alone. A torch-heavy sibling, or a heavy
+> dependency the root lists, is no longer in a member's environment. A project
+> that is its own root keeps the `python` spec, whose lock is all its own; a
+> package exported before this keeps its `python` spec and installs as it did
+> until it is exported again. The wire field the `--package` alternative needed
+> is the new spec case, which sorts after `workspace_node`.
+
 #### 3.1.7 Error catalogue (single source of truth; all at export unless noted)
 
 - **P1** `pyproject.toml` missing in project — existing message.

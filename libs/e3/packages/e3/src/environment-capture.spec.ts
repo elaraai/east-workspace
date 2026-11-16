@@ -25,22 +25,24 @@ import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { decodeBeast2For } from '@elaraai/east';
 import { EnvironmentSpecType } from '@elaraai/e3-types';
-import { captureEnvironment, captureAutoEnvironment } from './environment-capture.js';
+import { captureEnvironment, captureAutoEnvironment, pythonRequires } from './environment-capture.js';
 
 function toolAvailable(cmd: string): boolean {
   try { execFileSync(cmd, ['--version'], { stdio: 'ignore', shell: process.platform === 'win32' }); return true; } catch { return false; }
 }
 
-/** Capture a member's env and return [sorted sdist filenames, spec-bytes sha]. */
-function capture(project: string): { sdists: string[]; specHash: string } {
+/** Capture a workspace member's env and return its sorted sdist filenames,
+ *  the members it is of, and its spec-bytes sha. */
+function capture(project: string): { sdists: string[]; subjects: string[]; specHash: string } {
   const specBytes = captureEnvironment(
     { python: { project } }, 'test',
     (buf) => createHash('sha256').update(buf).digest('hex'),
   );
   const spec = decodeBeast2For(EnvironmentSpecType)(specBytes);
-  assert.ok(spec.type === 'python');
+  assert.ok(spec.type === 'workspace_python', 'a workspace member names itself');
   return {
     sdists: spec.value.sdists.map((s) => s.filename.replace(/-0\.1\.0\.tar\.gz$/, '')).sort(),
+    subjects: spec.value.subjects,
     specHash: createHash('sha256').update(specBytes).digest('hex'),
   };
 }
@@ -86,6 +88,43 @@ describe('python closure capture (#278)', () => {
       assert.deepStrictEqual(capture(path.join(ws, 'packages', 'other')).sdists, ['other']);
     });
 
+  it('names the member a workspace environment is of, so only its dependencies are installed, and leaves a project that is its own root a python spec (#1654)',
+    { skip: hasUv ? false : 'uv not on PATH' }, () => {
+      assert.deepStrictEqual(capture(path.join(ws, 'packages', 'pricing')).subjects, ['pricing'], 'the member, not the local packages it depends on');
+      const alone = fs.mkdtempSync(path.join(os.tmpdir(), 'e3-cap-alone-'));
+      try {
+        fs.mkdirSync(path.join(alone, 'src', 'alone'), { recursive: true });
+        fs.writeFileSync(path.join(alone, 'pyproject.toml'),
+          '[project]\nname = "alone"\nversion = "0.1.0"\nrequires-python = ">=3.11"\n\n[build-system]\nrequires = ["hatchling"]\nbuild-backend = "hatchling.build"\n');
+        fs.writeFileSync(path.join(alone, 'src', 'alone', '__init__.py'), 'VALUE = 1\n');
+        execFileSync('uv', ['lock'], { cwd: alone, stdio: 'ignore', shell: process.platform === 'win32' });
+        const spec = decodeBeast2For(EnvironmentSpecType)(captureEnvironment({ python: { project: alone } }, 'test',
+          (buf) => createHash('sha256').update(buf).digest('hex'), undefined, ['east-py-std']));
+        assert.ok(spec.type === 'python', 'its lock is all its own');
+        assert.deepStrictEqual(spec.value.sdists.map((s) => s.filename), ['alone-0.1.0.tar.gz']);
+      } finally { fs.rmSync(alone, { recursive: true, force: true }); }
+    });
+
+  it('requires the runtime and the stock platform distributions a runner names, as the lock holds them from a registry', () => {
+    const registry = { registry: 'https://pypi.org/simple' };
+    const lock = { version: 1, package: [
+      { name: 'elaraai-east-py', source: registry },
+      { name: 'elaraai-east-py-cli', source: registry },
+      { name: 'elaraai-east-py-std', source: registry },
+      { name: 'elaraai-east-py-datascience', source: registry },
+      // Held as a local package: it rides as an sdist, when a member depends on it
+      { name: 'elaraai-east-py-io', source: { editable: 'vendor/io' } },
+      { name: 'six', source: registry },
+    ] };
+    assert.deepStrictEqual(pythonRequires('/ws', lock, ['east-py-std']),
+      ['elaraai-east-py', 'elaraai-east-py-cli', 'elaraai-east-py-std'], 'not the datascience package its runner does not name');
+    assert.deepStrictEqual(pythonRequires('/ws', lock, ['east-py-datascience', 'east-py-io', 'east-py-std', 'six']),
+      ['elaraai-east-py', 'elaraai-east-py-cli', 'elaraai-east-py-datascience', 'elaraai-east-py-std'], 'a stock package alone, and none held locally');
+    assert.deepStrictEqual(pythonRequires('/ws', lock, []), ['elaraai-east-py', 'elaraai-east-py-cli'], 'the runtime, whatever the runner names');
+    assert.deepStrictEqual(pythonRequires('/ws', { version: 1, package: [{ name: 'six', source: registry }] }, ['east-py-std']), [],
+      'a lock that holds none of them requires none: they come from where the task runs');
+  });
+
   it('does NOT cross-invalidate: editing an unrelated sibling leaves the spec byte-identical',
     { skip: hasUv ? false : 'uv not on PATH' }, () => {
       const before = capture(path.join(ws, 'packages', 'pricing')).specHash;
@@ -125,13 +164,19 @@ describe('python closure capture (#278)', () => {
         const bytes = captureAutoEnvironment('east-py', customs, ws, 'test', (b) => createHash('sha256').update(b).digest('hex'));
         if (bytes === null) return null;
         const spec = decodeBeast2For(EnvironmentSpecType)(bytes);
-        assert.ok(spec.type === 'python');
+        assert.ok(spec.type === 'workspace_python');
         return spec.value.sdists.map((s) => s.filename.replace(/-0\.1\.0\.tar\.gz$/, '')).sort();
       };
       assert.deepStrictEqual(auto(['pricing']), ['common', 'pricing'], 'a member ref pulls its transitive closure');
       assert.deepStrictEqual(auto(['other']), ['other'], 'an independent member is captured alone');
       assert.deepStrictEqual(auto(['pricing', 'other']), ['common', 'other', 'pricing'], 'multiple refs union their closures');
       assert.strictEqual(auto(['east-py-std']), null, 'a non-member (registry/first-party) name derives nothing');
+      // The members it is of are its subjects, sorted, and a stock platform package this lock does not hold is not required
+      const both = decodeBeast2For(EnvironmentSpecType)(captureAutoEnvironment('east-py', ['pricing', 'other'], ws, 'test',
+        (b) => createHash('sha256').update(b).digest('hex'), undefined, ['east-py-std'])!);
+      assert.ok(both.type === 'workspace_python');
+      assert.deepStrictEqual(both.value.subjects, ['other', 'pricing']);
+      assert.deepStrictEqual(both.value.requires, []);
     });
 
   it('resolves an import-style { custom } ref to its PEP 503 lock entry (#391)',
@@ -140,7 +185,7 @@ describe('python closure capture (#278)', () => {
         const bytes = captureAutoEnvironment('east-py', customs, ws, 'test', (b) => createHash('sha256').update(b).digest('hex'));
         if (bytes === null) return null;
         const spec = decodeBeast2For(EnvironmentSpecType)(bytes);
-        assert.ok(spec.type === 'python');
+        assert.ok(spec.type === 'workspace_python');
         return spec.value.sdists.map((s) => s.filename.replace(/-0\.1\.0\.tar\.gz$/, '')).sort();
       };
       // The task declares the import name; the lock stores `sim-engine`. A

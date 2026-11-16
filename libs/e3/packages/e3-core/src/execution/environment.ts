@@ -69,6 +69,7 @@ const decodeFile = decodeBeast2For(BlobType);
 function environmentBinDir(envDir: string, spec: EnvironmentSpec): string {
   switch (spec.type) {
     case 'python':
+    case 'workspace_python':
       return path.join(envDir, '.venv', process.platform === 'win32' ? 'Scripts' : 'bin');
     case 'node':
     case 'workspace_node':
@@ -153,20 +154,52 @@ export function nodeLockFilename(lock: Uint8Array): 'package-lock.json' | 'pnpm-
   return head.startsWith('{') ? 'package-lock.json' : 'pnpm-lock.yaml';
 }
 
+/** A python environment's spec: a project that is its own root, or members
+ *  of a workspace. */
+type PythonSpec = Extract<EnvironmentSpec, { type: 'python' | 'workspace_python' }>;
+
 /**
  * What a sync of a python environment's locked third-party closure is asked,
- * for every platform: the whole closure but no first-party code.
- * `--no-install-workspace` skips every workspace member and the root,
- * `--no-install-local` skips any local/path source (a sibling member's dir
- * need not even exist on this machine). The project's own code comes from the
- * captured sdists. Superset of the old `--no-install-project` for a
- * single-project env (verified equivalent).
+ * for every platform: third-party code alone. `--no-install-workspace` skips
+ * every workspace member and the root, `--no-install-local` skips any
+ * local/path source (a sibling member's dir need not even exist on this
+ * machine: a frozen sync reads the lock, and no member's manifest). The
+ * project's own code comes from the captured sdists.
  */
-const SYNC = ['sync', '--frozen', '--all-packages', '--no-install-workspace', '--no-install-local'];
+const SYNC = ['sync', '--frozen', '--no-install-workspace', '--no-install-local'];
+
+/**
+ * A distribution's name as an environment's spec carries it, which is wire
+ * data given to an install as an argument.
+ *
+ * @throws {Error} When it is not a package's name, as PEP 508 writes one
+ */
+function distributionName(name: string, what: string): string {
+  if (!/^[A-Za-z0-9]([A-Za-z0-9._-]*[A-Za-z0-9])?$/.test(name)) {
+    throw new Error(`environment materialization: ${what} '${name}' is not a package's name`);
+  }
+  return name;
+}
+
+/**
+ * Whose locked dependencies a python environment's sync installs: the whole
+ * lock, for a project that is its own root, whose lock is all its own; and
+ * for members of a workspace, theirs alone — what `uv export --frozen
+ * --package <member>` lists — so nothing the workspace's root or another
+ * member depends on is installed (#1654).
+ *
+ * @throws {Error} When a workspace environment names no member, or one that
+ *   is not a package's name
+ */
+function syncedPackages(spec: PythonSpec): string[] {
+  if (spec.type === 'python') return ['--all-packages'];
+  if (spec.value.subjects.length === 0) throw new Error('environment materialization: a workspace environment names no member');
+  return spec.value.subjects.flatMap((subject) => ['--package', distributionName(subject, 'the member')]);
+}
 
 /** Writes a python environment's manifest and lock into the build directory. */
 async function writePythonProject(
-  storage: StorageBackend, repo: string, spec: Extract<EnvironmentSpec, { type: 'python' }>, buildDir: string,
+  storage: StorageBackend, repo: string, spec: PythonSpec, buildDir: string,
 ): Promise<void> {
   await writeBlob(storage, repo, spec.value.pyproject, path.join(buildDir, 'pyproject.toml'));
   await writeBlob(storage, repo, spec.value.lock, path.join(buildDir, 'uv.lock'));
@@ -175,7 +208,7 @@ async function writePythonProject(
 /** Writes a python environment's captured sdists under the build directory's
  *  `.sdists`, and answers their paths. */
 async function writeSdists(
-  storage: StorageBackend, repo: string, spec: Extract<EnvironmentSpec, { type: 'python' }>, buildDir: string,
+  storage: StorageBackend, repo: string, spec: PythonSpec, buildDir: string,
 ): Promise<string[]> {
   const sdistDir = path.join(buildDir, '.sdists');
   await fs.mkdir(sdistDir);
@@ -193,6 +226,13 @@ async function writeSdists(
 /**
  * Builds a python environment in `buildDir`.
  *
+ * @remarks
+ * The locked third-party dependencies first ({@link syncedPackages}); then,
+ * for members of a workspace, the distributions the environment requires
+ * beside its members' own, each at the version the lock pins and checked
+ * against the lock's hashes, with what it depends on; then the project's own
+ * packages, from their sdists; and a check that what is installed is whole.
+ *
  * @param platform - The platform it is installed for, when not this machine's:
  *   its dependencies are then the platform's wheels alone, copied, the
  *   project's packages are built to wheels here and must be pure, and it
@@ -204,9 +244,12 @@ async function writeSdists(
  */
 async function buildPython(
   storage: StorageBackend, repo: string,
-  spec: Extract<EnvironmentSpec, { type: 'python' }>, buildDir: string, settings: ProcessSettings,
+  spec: PythonSpec, buildDir: string, settings: ProcessSettings,
   platform?: TargetPlatform,
 ): Promise<TargetParts> {
+  // Wire data, read before anything is installed by it
+  const synced = syncedPackages(spec);
+  const required = spec.type === 'python' ? [] : spec.value.requires.map((name) => distributionName(name, 'the required distribution'));
   await writePythonProject(storage, repo, spec, buildDir);
   const venv = path.join(buildDir, '.venv');
   // Relocatable: the venv is built in a temp sibling and atomically renamed
@@ -216,7 +259,18 @@ async function buildPython(
   // the tree is packed and sent, never linked into this machine's cache.
   const forPlatform = platform === undefined ? [] : ['--python-platform', platform.name, '--no-build', '--link-mode=copy'];
   try {
-    await run('uv', [...SYNC, ...forPlatform], buildDir, 'locked dependency sync', settings);
+    await run('uv', [...SYNC, ...synced, ...forPlatform], buildDir, 'locked dependency sync', settings);
+    if (required.length > 0) {
+      // The lock's pins and hashes of everything it holds, as constraints: a
+      // required distribution, and what it depends on, is installed as the
+      // lock names it, and refused when its hash is not the lock's
+      const constraints = path.join(buildDir, '.constraints.txt');
+      await run('uv', ['export', '--frozen', '--all-packages', '--no-emit-workspace', '--no-emit-local', '--quiet', '--output-file', constraints],
+        buildDir, 'locked versions export', settings);
+      await run('uv', ['pip', 'install', '--python', venv, '--constraint', constraints, ...forPlatform, ...required],
+        buildDir, 'required distribution install', settings);
+      await fs.rm(constraints, { force: true });
+    }
   } catch (err) {
     throw (platform === undefined ? null : unbuiltWheel(err, platform)) ?? err;
   }
@@ -1014,6 +1068,7 @@ export async function materializeEnvironment(
       await giveDirectory(buildDir, settings);
       switch (spec.type) {
         case 'python':
+        case 'workspace_python':
           await buildPython(storage, repo, spec, buildDir, settings);
           break;
         case 'node':
@@ -1117,6 +1172,7 @@ export async function materializeEnvironmentFor(
     let parts: TargetParts;
     switch (spec.type) {
       case 'python':
+      case 'workspace_python':
         parts = await buildPython(storage, repo, spec, buildDir, settings, platform);
         break;
       case 'node':

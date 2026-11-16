@@ -158,6 +158,49 @@ export type WorkspaceNodeEnvironmentType = typeof WorkspaceNodeEnvironmentType;
 export type WorkspaceNodeEnvironment = ValueTypeOf<typeof WorkspaceNodeEnvironmentType>;
 
 /**
+ * A Python **workspace-member** environment (a uv workspace).
+ *
+ * Where {@link PythonEnvironmentType} captures one self-contained project,
+ * whose locked dependencies are all its own, this captures members of a
+ * workspace: the workspace root's manifest and lock, which pin everything,
+ * and the code of exactly the members the environment is of and the local
+ * packages they depend on. Materialized by installing, from the root lock,
+ * the third-party dependencies of those members alone — what `uv export
+ * --frozen --package <member>` lists — then the distributions `requires`
+ * names, then the members' own sdists. Nothing else the workspace root or
+ * another member depends on is installed.
+ *
+ * @remarks
+ * - `pyproject`: object hash of the workspace **root** `pyproject.toml` blob.
+ * - `lock`: object hash of the **root** `uv.lock` blob.
+ * - `subjects`: the members the environment is of, by the names the lock
+ *   gives them, sorted: a task's runner names one or more as its custom
+ *   platform packages.
+ * - `sdists`: the source distributions of the subjects and of every local
+ *   package they depend on, each with its original filename, sorted by it.
+ * - `requires`: the lock's registry distributions installed beside the
+ *   subjects' own dependencies, sorted: the runtime's (`elaraai-east-py`,
+ *   `elaraai-east-py-cli`) and those of the stock platform packages the
+ *   task's runner names (`elaraai-east-py-std`), which a workspace commonly
+ *   lists on its root alone. Each is installed at the version the lock pins,
+ *   with what it depends on.
+ */
+export const WorkspacePythonEnvironmentType = StructType({
+  /** Object hash of the workspace root pyproject.toml blob */
+  pyproject: StringType,
+  /** Object hash of the root uv.lock blob */
+  lock: StringType,
+  /** The members the environment is of, by the lock's names, sorted */
+  subjects: ArrayType(StringType),
+  /** The closure's sdist blobs (original filename + object hash), sorted by filename */
+  sdists: ArrayType(StructType({ filename: StringType, hash: StringType })),
+  /** The lock's registry distributions installed beside the subjects' own, sorted */
+  requires: ArrayType(StringType),
+});
+export type WorkspacePythonEnvironmentType = typeof WorkspacePythonEnvironmentType;
+export type WorkspacePythonEnvironment = ValueTypeOf<typeof WorkspacePythonEnvironmentType>;
+
+/**
  * An execution environment specification.
  *
  * Stored beast2-encoded in the object store; the **environment hash** is the
@@ -170,9 +213,10 @@ export type WorkspaceNodeEnvironment = ValueTypeOf<typeof WorkspaceNodeEnvironme
  * repo persists specs by that order, and reordering the cases in a later
  * edit would re-tag every case after the insertion point and mis-decode
  * already-stored specs. New cases must therefore be added so the sorted
- * order only grows at the end (`tools` and `workspace_node` sort after the
- * original three). The frozen-order guard test in `environment.spec.ts`
- * turns an accidental reorder into a red test.
+ * order only grows at the end (`tools`, `workspace_node` and
+ * `workspace_python` sort after the original three, in that order). The
+ * frozen-order guard test in `environment.spec.ts` turns an accidental
+ * reorder into a red test.
  */
 export const EnvironmentSpecType = VariantType({
   /** Python (uv) project environment */
@@ -185,6 +229,8 @@ export const EnvironmentSpecType = VariantType({
   tools: ToolsEnvironmentType,
   /** Node workspace-member environment (npm/pnpm workspaces) */
   workspace_node: WorkspaceNodeEnvironmentType,
+  /** Python workspace-member environment (a uv workspace) */
+  workspace_python: WorkspacePythonEnvironmentType,
 });
 export type EnvironmentSpecType = typeof EnvironmentSpecType;
 export type EnvironmentSpec = ValueTypeOf<typeof EnvironmentSpecType>;
@@ -215,5 +261,7 @@ export function environmentSpecObjectHashes(spec: EnvironmentSpec): string[] {
         ...(spec.value.config.type === 'some' ? [spec.value.config.value] : []),
         ...spec.value.members.map((m) => m.tarball),
       ];
+    case 'workspace_python':
+      return [spec.value.pyproject, spec.value.lock, ...spec.value.sdists.map((s) => s.hash)];
   }
 }

@@ -75,6 +75,8 @@ export {
   type ToolsEnvironment,
   WorkspaceNodeEnvironmentType,
   type WorkspaceNodeEnvironment,
+  WorkspacePythonEnvironmentType,
+  type WorkspacePythonEnvironment,
   environmentSpecObjectHashes,
 } from './environment.js';
 

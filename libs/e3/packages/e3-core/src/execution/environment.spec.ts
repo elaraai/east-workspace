@@ -14,7 +14,7 @@ import {
   TASK_OBJECT_KIND, TaskObjectType, decodeTaskObject,
   FunctionObjectType, decodeFunctionObject,
   EnvironmentSpecType, environmentSpecObjectHashes,
-  type TaskObject, type FunctionObject,
+  type EnvironmentSpec, type TaskObject, type FunctionObject,
 } from '@elaraai/e3-types';
 import { StructType, StringType, ArrayType, BlobType, OptionType, EastTypeType, toEastTypeValue, IntegerType } from '@elaraai/east';
 import { TreePathType, RunnerType } from '@elaraai/e3-types';
@@ -26,6 +26,56 @@ import {
 
 /** An environment's file, as export stores it: a beast2 Blob of its bytes. */
 const encodeFile = encodeBeast2For(BlobType);
+
+/** A captured file of an environment: its original name and its object's hash. */
+interface CapturedSdist { filename: string; hash: string }
+
+/**
+ * A uv workspace of two members, locked, with its root's manifest and lock and
+ * each member's sdist stored as an environment's files (#1654).
+ *
+ * @remarks
+ * Its root lists `six`, which `trainer` alone uses, and `tomli`, which stands
+ * for a stock platform package a workspace lists on its root alone;
+ * `features` depends on `idna`, and `trainer` on `six` and on `features`.
+ *
+ * @param dir - Where the workspace is made: an empty directory
+ * @param write - Stores a file's bytes, answering its object's hash
+ * @returns The hashes of the root's manifest and lock, and the two sdists
+ */
+async function memberWorkspace(dir: string, write: (bytes: Uint8Array) => Promise<string>):
+Promise<{ pyproject: string; lock: string; features: CapturedSdist; trainer: CapturedSdist }> {
+  fs.writeFileSync(path.join(dir, 'pyproject.toml'),
+    '[project]\nname = "ws-root"\nversion = "0.1.0"\nrequires-python = ">=3.11"\n' +
+    'dependencies = ["six", "tomli", "features", "trainer"]\n\n' +
+    '[tool.uv.workspace]\nmembers = ["packages/*"]\n\n' +
+    '[tool.uv.sources]\nfeatures = { workspace = true }\ntrainer = { workspace = true }\n');
+  const member = (name: string, dependencies: string[]): void => {
+    const at = path.join(dir, 'packages', name);
+    fs.mkdirSync(path.join(at, 'src', name), { recursive: true });
+    fs.writeFileSync(path.join(at, 'pyproject.toml'),
+      `[project]\nname = "${name}"\nversion = "0.1.0"\nrequires-python = ">=3.11"\n` +
+      `dependencies = [${dependencies.map((d) => `"${d}"`).join(', ')}]\n` +
+      (dependencies.includes('features') ? '\n[tool.uv.sources]\nfeatures = { workspace = true }\n' : '') +
+      '\n[build-system]\nrequires = ["hatchling"]\nbuild-backend = "hatchling.build"\n');
+    fs.writeFileSync(path.join(at, 'src', name, '__init__.py'), `MARKER = "${name}"\n`);
+  };
+  member('features', ['idna']);
+  member('trainer', ['six', 'features']);
+  execFileSync('uv', ['lock'], { cwd: dir, stdio: 'ignore' });
+  const sdistOf = async (name: string): Promise<CapturedSdist> => {
+    const out = path.join(dir, 'dist', name);
+    execFileSync('uv', ['build', '--sdist', '--out-dir', out], { cwd: path.join(dir, 'packages', name), stdio: 'ignore' });
+    const filename = fs.readdirSync(out).find((f) => f.endsWith('.tar.gz'))!;
+    return { filename, hash: await write(fs.readFileSync(path.join(out, filename))) };
+  };
+  return {
+    pyproject: await write(fs.readFileSync(path.join(dir, 'pyproject.toml'))),
+    lock: await write(fs.readFileSync(path.join(dir, 'uv.lock'))),
+    features: await sdistOf('features'),
+    trainer: await sdistOf('trainer'),
+  };
+}
 
 describe('the files an environment names', () => {
   it('decodes a file as its bytes, and refuses one an older SDK stored raw, in the materializer\'s words', () => {
@@ -380,6 +430,44 @@ describe('materializeEnvironment', () => {
         await workingIn(tmpDir, () => materializeIn('named-python-repo'));
       } finally {
         fs.rmSync(projectDir, { recursive: true, force: true });
+      }
+    });
+
+  it('materializes a workspace member\'s python env with the member\'s dependencies alone: nothing its workspace\'s root or another member depends on, and the distributions it requires as the lock pins them (#1654)',
+    { skip: hasUv ? false : 'uv not on PATH' }, async () => {
+      const ws = fs.mkdtempSync(path.join(os.tmpdir(), 'e3-py-ws-'));
+      try {
+        const { pyproject, lock, features, trainer } = await memberWorkspace(ws, (bytes) => storage.objects.write(repo, encodeFile(bytes)));
+        /** The modules of the five that an environment built from the spec imports. */
+        const imports = async (spec: EnvironmentSpec): Promise<string[]> => {
+          const envHash = await storage.objects.write(repo, encodeBeast2For(EnvironmentSpecType)(spec));
+          const [bin] = await materializeEnvironment(storage, repo, envHash);
+          const found = execFileSync(path.join(bin!, process.platform === 'win32' ? 'python.exe' : 'python'), ['-c',
+            'import importlib.util as u; print(" ".join(n for n in ["features", "idna", "six", "tomli", "trainer"] if u.find_spec(n)))'], { encoding: 'utf-8' });
+          return found.trim().split(' ');
+        };
+
+        assert.deepStrictEqual(await imports(variant('workspace_python', { pyproject, lock, subjects: ['features'], sdists: [features], requires: ['tomli'] })),
+          ['features', 'idna', 'tomli'], 'its own dependency, what it requires, and itself: not the root\'s six, nor trainer');
+        assert.deepStrictEqual(await imports(variant('workspace_python', { pyproject, lock, subjects: ['trainer'], sdists: [features, trainer], requires: [] })),
+          ['features', 'idna', 'six', 'trainer'], 'a member that depends on another carries it and its dependencies, and not what the root alone lists');
+        // The whole lock, as a project that is its own root installs it
+        assert.deepStrictEqual(await imports(variant('python', { pyproject, lock, sdists: [features, trainer] })),
+          ['features', 'idna', 'six', 'tomli', 'trainer']);
+
+        // Names a spec carries are wire data, given to an install as arguments: refused before anything is installed
+        for (const [named, refusal] of [
+          [{ subjects: ['--all-packages'], requires: [] }, /the member '--all-packages' is not a package's name/],
+          [{ subjects: ['features'], requires: ['tomli --index-url=http://example.invalid'] }, /the required distribution 'tomli --index-url=http:\/\/example\.invalid' is not a package's name/],
+          [{ subjects: [], requires: [] }, /a workspace environment names no member/],
+        ] as const) {
+          const envHash = await storage.objects.write(repo, encodeBeast2For(EnvironmentSpecType)(
+            variant('workspace_python', { pyproject, lock, subjects: [...named.subjects], sdists: [features], requires: [...named.requires] })));
+          await assert.rejects(() => materializeEnvironment(storage, repo, envHash), refusal);
+          assert.ok(!fs.existsSync(path.resolve(repo, 'envs', envHash)), 'nothing was built');
+        }
+      } finally {
+        fs.rmSync(ws, { recursive: true, force: true });
       }
     });
 
@@ -914,6 +1002,20 @@ describe('materializeEnvironmentFor: an environment installed for a platform tha
       const [arch] = platform.split('-');
       return platform.endsWith('apple-darwin') ? `macosx_11_0_${arch === 'aarch64' ? 'arm64' : 'x86_64'}` : `manylinux_2_17_${arch!}`;
     };
+
+    it('installs a workspace member for a platform with the member\'s dependencies alone, and what it requires (#1654)', async () => {
+      const { pyproject, lock, features } = await memberWorkspace(fs.mkdtempSync(path.join(work, 'members-')), write);
+      const envHash = await storage.objects.write(repo, encodeBeast2For(EnvironmentSpecType)(
+        variant('workspace_python', { pyproject, lock, subjects: ['features'], sdists: [features], requires: ['tomli'] })));
+      const built = await materializeEnvironmentFor(storage, repo, envHash, { platform: host! }, path.join(work, 'member-target'));
+      const lib = path.join(built.dir, '.venv', 'lib');
+      const installed = fs.readdirSync(path.join(lib, fs.readdirSync(lib)[0]!, 'site-packages'));
+      for (const needed of ['features', 'idna', 'tomli']) assert.ok(installed.includes(needed), `${needed} is installed: ${installed.join(', ')}`);
+      for (const unused of ['six.py', 'trainer']) assert.ok(!installed.includes(unused), `${unused} is not installed: ${installed.join(', ')}`);
+      assert.ok(built.project.length > 0 && built.project.every((file) => /\/site-packages\/features(-0\.1\.0\.dist-info)?\//.test(file)),
+        `the project's own files are the member's alone, not what it requires: ${built.project.join(', ')}`);
+      assert.strictEqual(built.interpreter, '.python');
+    });
 
     for (const [what, platform] of [['this machine\'s own platform, and runs once moved', host], ['another platform', foreign]] as const) {
       it(`installs for ${what}: the platform's wheels, the project's own files named, an interpreter of its own, and no path of this machine`, async () => {

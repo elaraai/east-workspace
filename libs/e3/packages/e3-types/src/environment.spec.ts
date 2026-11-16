@@ -29,7 +29,7 @@ const decodeCurrent = decodeBeast2For(EnvironmentSpecType);
 const H = (c: string): string => c.repeat(64); // stand-in 64-hex object hash
 
 describe('EnvironmentSpecType frozen case order', () => {
-  it('is exactly [image, node, python, tools, workspace_node]', () => {
+  it('is exactly [image, node, python, tools, workspace_node, workspace_python]', () => {
     // BEAST2 tags are indices into this sorted list. A new case must be
     // added so the order only grows at the end (or readers must migrate to
     // name-based decoding first) — inserting before an existing case
@@ -37,7 +37,7 @@ describe('EnvironmentSpecType frozen case order', () => {
     // turns that mistake into a red test.
     assert.deepStrictEqual(
       Object.keys((EnvironmentSpecType as unknown as { cases: Record<string, unknown> }).cases),
-      ['image', 'node', 'python', 'tools', 'workspace_node'],
+      ['image', 'node', 'python', 'tools', 'workspace_node', 'workspace_python'],
     );
   });
 });
@@ -51,6 +51,10 @@ describe('EnvironmentSpecType round-trips every case', () => {
     variant('workspace_node', {
       packageJson: H('2'), lock: H('3'), config: none, subject: 'packages/pricing',
       members: [{ path: 'packages/pricing', name: '@acme/pricing', tarball: H('4') }],
+    }),
+    variant('workspace_python', {
+      pyproject: H('5'), lock: H('6'), subjects: ['features'],
+      sdists: [{ filename: 'features-0.1.0.tar.gz', hash: H('7') }], requires: ['elaraai-east-py', 'elaraai-east-py-std'],
     }),
   ];
 
@@ -113,6 +117,16 @@ describe('environmentSpecObjectHashes', () => {
         members: [{ path: 'packages/x', name: '@acme/x', tarball: 't1' }, { path: 'packages/y', name: '@acme/y', tarball: 't2' }],
       })),
       ['p', 'l', 'cfg', 't1', 't2'],
+    );
+  });
+
+  it('lists a workspace_python\'s root manifest, lock and every sdist', () => {
+    assert.deepStrictEqual(
+      environmentSpecObjectHashes(variant('workspace_python', {
+        pyproject: 'p', lock: 'l', subjects: ['features', 'trainer'],
+        sdists: [{ filename: 'features-0.1.0.tar.gz', hash: 's1' }, { filename: 'trainer-0.1.0.tar.gz', hash: 's2' }], requires: [],
+      })),
+      ['p', 'l', 's1', 's2'],
     );
   });
 

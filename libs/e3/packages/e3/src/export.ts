@@ -173,9 +173,15 @@ export async function export_<D extends Record<string, unknown>>(pkg: PackageDef
     return hash === '' ? null : hash;
   };
   const environmentHashFor = (decl: EnvironmentDecl | undefined, runner: Runner | undefined, owner: string): string | null => {
+    // The stock platform packages an east-py runner names beside its custom
+    // ones: a python workspace member's environment installs them too, so
+    // they are part of what it is
+    const stock = runner === undefined || runner.runtime !== 'east-py' ? []
+      : (runner.platforms ?? []).flatMap((p): string[] => (typeof p === 'string' ? [p] : [])).sort();
     // An explicit `environment` wins (and is the only path to tools/image).
     if (decl) {
-      return cachedEnvHash(`decl:${JSON.stringify(decl)}`, () => captureEnvironment(decl, owner, (file) => addObject(zipfile, Buffer.from(encodeFile(file))), onCapture));
+      const key = `decl:${JSON.stringify(decl)}${'python' in decl ? `:${stock.join(',')}` : ''}`;
+      return cachedEnvHash(key, () => captureEnvironment(decl, owner, (file) => addObject(zipfile, Buffer.from(encodeFile(file))), onCapture, stock));
     }
     // Otherwise derive it from the runner's `{ custom }` platform references, so
     // a project split into workspace packages gets per-package change-detection
@@ -185,8 +191,8 @@ export async function export_<D extends Record<string, unknown>>(pkg: PackageDef
       .filter((p): p is { custom: string } => typeof p === 'object' && p !== null && 'custom' in p)
       .map((p) => p.custom);
     if (customs.length === 0) return null;
-    const key = `auto:${runner.runtime}:${[...customs].sort().join(',')}`;
-    return cachedEnvHash(key, () => captureAutoEnvironment(runner.runtime, customs, process.cwd(), owner, (file) => addObject(zipfile, Buffer.from(encodeFile(file))), onCapture));
+    const key = `auto:${runner.runtime}:${[...customs].sort().join(',')}:${stock.join(',')}`;
+    return cachedEnvHash(key, () => captureAutoEnvironment(runner.runtime, customs, process.cwd(), owner, (file) => addObject(zipfile, Buffer.from(encodeFile(file))), onCapture, stock));
   };
   const resolveEnvironment = (decl: EnvironmentDecl | undefined, runner: Runner | undefined, owner: string): variant<'some', string> | variant<'none', null> => {
     const hash = environmentHashFor(decl, runner, owner);
