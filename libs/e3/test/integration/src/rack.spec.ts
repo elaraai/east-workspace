@@ -5,13 +5,18 @@
 
 import { afterEach, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { East, IntegerType, StringType, variant } from '@elaraai/east';
+import {
+  DictType, East, IntegerType, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, encodeEastIR, equalFor, printFor, variant,
+} from '@elaraai/east';
+import { FileSystem } from '@elaraai/east-node-std';
 import e3 from '@elaraai/e3';
-import { LocalStorage, hostEnvironmentPlatform, packageImport, repoInit, workspaceCreate, workspaceDeploy } from '@elaraai/e3-core';
+import { LocalStorage, hostEnvironmentPlatform, packageImport, packageRead, repoInit, workspaceCreate, workspaceDeploy } from '@elaraai/e3-core';
+import { encodeInSegmentsOf } from '@elaraai/e3-core/test';
+import { createDraftsPackageZip } from '@elaraai/e3-api-tests';
 import { E3_RACK_VERSION, HubClient } from '@elaraai/e3-rack';
 import { RACK_PROTOCOL, RackEnrollRequestType, RackEnrollResponseType, RackHeartbeatRequestType, RackHeartbeatResponseType } from '@elaraai/e3-rack/protocol';
 import { TestRackAgent, type TestRackAgentOptions } from '@elaraai/e3-rack/testing';
@@ -60,6 +65,28 @@ async function enrolled(as: Pick<TestRackAgentOptions, 'resources'> = {}) {
   const agent = await TestRackAgent.enroll(origin, token, { label: 't', certificateSha256: pin, ...as }); cleanup.push(() => agent.close());
   assert.match(ok(await f.cli('rack', 'list')), /t\s+.*ready/);
   return { ...f, agent, pin, client: new HubClient(f.home) };
+}
+
+const TableType = DictType(IntegerType, StringType);
+
+/** Lays a project's packages beside the fixture's repository, as a project
+ *  holds them: where work that runs here finds its runner and its platform. */
+async function asProject(f: Awaited<ReturnType<typeof fixture>>): Promise<void> {
+  await symlink(fileURLToPath(new URL('../node_modules', import.meta.url)), join(f.home, 'node_modules'), 'junction');
+}
+
+/** Imports a package of functions, and of a task split over its input, into
+ *  the fixture's repository, deployed to the workspace `calls`. */
+async function withCalls(f: Awaited<ReturnType<typeof fixture>>): Promise<void> {
+  const text = e3.input('text', StringType, variant('value', 'four'));
+  const measure = e3.function('measure', East.function([StringType], IntegerType, (_$, value) => value.length()));
+  const readConfig = e3.function('read_config', East.function([StringType], StringType, (_$, path) => FileSystem.readFile(path)));
+  const rows = e3.streamTask('rows_p', { inputs: [e3.partition(e3.input('table', TableType))], output: e3.output.dict(IntegerType, StringType) },
+    ($, table, emit) => { $.for(table, ($, value, key) => { $(emit(key, value)); }); });
+  const zip = join(f.home, 'calls.zip'); await e3.export(e3.package('cli_calls', '1.0.0', text, measure, readConfig, rows), zip);
+  const storage = new LocalStorage(); await packageImport(storage, f.repo, zip);
+  await workspaceCreate(storage, f.repo, 'calls');
+  await workspaceDeploy(storage, f.repo, 'calls', 'cli_calls', '1.0.0');
 }
 
 it('observes a new enrollment before the managed worker starts or advertises capacity', async () => {
@@ -217,9 +244,12 @@ it('cancels the final CLI subscriber and tells the rack to stop', {
 
 it('refuses remote rack flags before authentication and requires watch --start', async () => {
   const f = await fixture();
-  for (const flag of ['--rack', '--no-rack', '--rack-only']) {
-    const result = await f.cli('dataflow', 'run', 'https://example.invalid/repos/r', 'dev', flag);
-    assert.notEqual(result.exitCode, 0); assert.match(result.stderr, /rack delegation applies to local repositories/);
+  const remote = 'https://example.invalid/repos/r';
+  for (const args of [...['--rack', '--no-rack', '--rack-only'].map((flag) => ['dataflow', 'run', remote, 'dev', flag]),
+    ...['--rack', '--rack-only'].flatMap((flag) => [['run', remote, 'cli_rack.train_a', '-o', 'out.beast2', flag], ['call', remote, '-w', 'dev', 'measure', flag],
+      ['call', remote, '-w', 'dev', '--ir', 'add.beast2', '1', flag]])]) {
+    const result = await f.cli(...args);
+    assert.notEqual(result.exitCode, 0, args.join(' ')); assert.match(result.stderr, /rack delegation applies to local repositories/, args.join(' '));
   }
   const watch = await f.cli('watch', '.', 'ws1', '.', '--rack');
   assert.notEqual(watch.exitCode, 0); assert.match(watch.stderr, /requires --start/);
@@ -252,4 +282,115 @@ export default e3.package('watch_rack', '1.0.${increment}', task);
   assert.equal(ok(await f.cli('dataset', 'get', '.', 'watch.train_watch')).trim(), '2');
   watch.kill('SIGINT'); assert.equal((await watch.result).exitCode, 0);
   await waitFor(async () => (await f.client.status()).sessions.length === 0);
+});
+
+it('runs an ad-hoc task on a rack with --rack, recorded as a local run is, and leases nothing for a run the cache answers', async () => {
+  const f = await enrolled(); await asProject(f);
+  const input = join(f.home, 'text.beast2'); await writeFile(input, encodeBeast2For(StringType)('four'));
+  const [onRack, here] = [join(f.home, 'rack.beast2'), join(f.home, 'here.beast2')];
+  const running = f.cli('run', '.', 'cli_rack.train_a', input, '-o', onRack, '--rack');
+  const grant = await f.agent.claim(); assert(grant);
+  assert.equal((await f.agent.execute(grant)).status, 'success');
+  const output = ok(await running);
+  assert.match(output, /^ {2}\[RACK\] train_a → t\b/m);
+  assert.match(output, /^Rack summary: 1 task on t · 0 waited for capacity · 0 ran again · 0 transfers retried · 0 ran locally$/m);
+  assert.equal(decodeBeast2For(IntegerType)(await readFile(onRack)), 4n);
+
+  // Run here again, it writes the same output, and the task's history holds both runs
+  const local = ok(await f.cli('run', '.', 'cli_rack.train_a', input, '-o', here, '--force'));
+  assert.doesNotMatch(local, /\[RACK\]|Rack summary/);
+  const storage = new LocalStorage();
+  const taskHash = (await packageRead(storage, f.repo, 'cli_rack', '1.0.0')).tasks.get('train_a')!;
+  const inputs = await storage.refs.executionListForTask(f.repo, taskHash); assert.equal(inputs.length, 1);
+  const attempts = await storage.refs.executionListAttempts(f.repo, taskHash, inputs[0]!);
+  const outputs = attempts.map(({ status }) => (status?.type === 'success' ? status.value.outputHash : status?.type));
+  assert.equal(outputs.length, 2); assert.equal(outputs[0], outputs[1], 'the rack\'s run and the local run wrote the same output');
+  assert.equal(decodeBeast2For(IntegerType)(await readFile(here)), 4n);
+
+  // A run the cache answers is no rack's work
+  const cached = ok(await f.cli('run', '.', 'cli_rack.train_a', input, '-o', onRack, '--rack'));
+  assert.match(cached, /^Cached /m); assert.doesNotMatch(cached, /\[RACK\]|Rack summary/);
+  assert.equal((await f.client.status()).capacity.queued, 0n);
+});
+
+it('runs a task split over its input on a rack with --rack-only, its pieces and merges leased, and says where they ran', async () => {
+  const f = await enrolled({ resources: { cores: 4, memoryBytes: 8 * 1024 ** 3, gpus: 0 } }); await withCalls(f);
+  f.agent.start();
+  // Enough rows for several segments, a piece each at the test's piece size
+  const table = new SortedMap(Array.from({ length: 3_600 }, (_, i) => [BigInt(i), `row-${i}`] as [bigint, string]), compareFor(IntegerType));
+  const input = join(f.home, 'table.beast2'); await writeFile(input, encodeInSegmentsOf(TableType, 1_000)(table));
+  const out = join(f.home, 'rows.beast2');
+  const output = ok(await runE3Command(['run', '.', 'cli_calls.rows_p', input, '-o', out, '--rack-only'], f.repo,
+    { env: { ...f.env, E3_TEST_PIECE_BYTES: '256' } }));
+  const summary = /^Rack summary: (\d+) units on t · .* · 0 ran locally$/m.exec(output); assert(summary, output);
+  assert.ok(Number(summary[1]) > 2, `${summary[1]} units ran on the rack`);
+  assert.ok(equalFor(TableType)(decodeBeast2For(TableType)(await readFile(out)), table), 'the pieces\' outputs join into the table they were cut from');
+});
+
+it('calls a named function and an IR file\'s on a rack with --rack, with a dataset argument and a value past what a lease carries inline', async () => {
+  const f = await enrolled(); await withCalls(f);
+  const onRack = async (args: string[]): Promise<CliResult> => {
+    const calling = f.cli('call', '.', ...args, '--rack');
+    const grant = await f.agent.claim(); assert(grant, args.join(' '));
+    assert.equal((JSON.parse(grant.eventJson) as { runnerEvent: { mode: string } }).runnerEvent.mode, 'run-detached', 'a call\'s lease');
+    assert.equal((await f.agent.execute(grant)).status, 'success');
+    const result = await calling; assert.equal(result.exitCode, 0, result.stderr);
+    return result;
+  };
+  // `text` holds 'four'
+  const dataset = await onRack(['-w', 'calls', 'measure', '@.inputs.text']);
+  assert.equal(dataset.stdout, '4\n');
+  assert.match(dataset.stderr, /^ {2}\[RACK\] fn:measure → t\b/m);
+  const big = join(f.home, 'big.beast2'); await writeFile(big, encodeBeast2For(StringType)('x'.repeat(300 * 1024)));
+  assert.equal((await onRack(['cli_calls.measure', big])).stdout, `${300 * 1024}\n`);
+  const ir = join(f.home, 'add.beast2');
+  await writeFile(ir, encodeEastIR(East.function([IntegerType, IntegerType], IntegerType, (_$, a, b) => a.add(b)).toIR()));
+  const anonymous = await onRack(['--ir', ir, '2', '3']);
+  assert.equal(anonymous.stdout, '5\n');
+  assert.match(anonymous.stderr, /^ {2}\[RACK\] fn:add → t\b/m);
+});
+
+it('lays a call\'s drafts here and runs its function on a rack, with --rack, saving nothing', async () => {
+  const f = await enrolled(); await asProject(f);
+  // `jobs` holds j1 on P1, j2 on P2 and j3 on P1
+  const zip = await createDraftsPackageZip(f.home, 'rack_drafts', '1.0.0');
+  await packageImport(new LocalStorage(), f.repo, zip);
+  // Deployed as a user deploys it: its record's index is built here
+  ok(await f.cli('workspace', 'create', '.', 'drafted'));
+  ok(await f.cli('workspace', 'deploy', '.', 'drafted', 'rack_drafts@1.0.0'));
+  const p = (text: string) => printFor(StringType)(text);
+  const calling = f.cli('call', '.', '-w', 'drafted', 'jobs_on', p('P1'), '--rack', '--draft', 'jobs.move', p('j2'), p('P1'));
+  // The function's run is the call's one lease: its draft is laid here
+  const grant = await f.agent.claim(); assert(grant);
+  assert.equal((JSON.parse(grant.eventJson) as { runnerEvent: { mode: string } }).runnerEvent.mode, 'run-detached', 'a call\'s lease');
+  assert.equal((await f.agent.execute(grant)).status, 'success');
+  const result = await calling; assert.equal(result.exitCode, 0, result.stderr);
+  assert.match(result.stdout, /^3$/m, 'the function on the rack read j2 moved to P1');
+  assert.match(result.stderr, /^ {2}\[RACK\] fn:jobs_on → t\b/m);
+  assert.equal((await f.client.status()).capacity.queued, 0n, 'nothing else was leased');
+  assert.match(ok(await f.cli('call', '.', '-w', 'drafted', 'jobs_on', p('P1'))), /^2$/m, 'and the record reads as it was saved');
+});
+
+it('runs here a call no rack may run, under --rack, and says why', async () => {
+  const f = await enrolled(); await withCalls(f); await asProject(f);
+  const config = join(f.home, 'config.txt'); await writeFile(config, 'mode=fast');
+  const result = await f.cli('call', '.', 'cli_calls.read_config', printFor(StringType)(config), '--rack');
+  assert.equal(result.exitCode, 0, result.stderr);
+  assert.equal(result.stdout, `${printFor(StringType)('mode=fast')}\n`);
+  assert.match(result.stderr, /^ {2}\[LOCAL\] fn:read_config \(host-coupled:fs_read_file\)$/m);
+  assert.equal((await f.client.status()).capacity.queued, 0n, 'nothing was leased');
+});
+
+it('leaves a call\'s lease on Ctrl-C and tells its rack to stop', {
+  skip: process.platform === 'win32' ? 'a test cannot deliver Ctrl-C on Windows: process.kill ends the CLI outright' : false,
+}, async () => {
+  const f = await enrolled(); await withCalls(f);
+  const call = spawnE3Command(['call', '.', '-w', 'calls', 'measure', '@.inputs.text', '--rack'], f.repo, { env: f.env });
+  cleanup.push(async () => { call.kill('SIGKILL'); await call.result; });
+  const grant = await f.agent.claim(); assert(grant);
+  call.kill('SIGINT');
+  const result = await call.result;
+  assert.equal(result.exitCode, 130, result.stderr);
+  assert.match(result.stderr, /Interrupted: the call's rack is told to stop it/);
+  assert.deepEqual((await f.agent.heartbeat([grant])).stop, [{ repo: grant.repo, leaseId: grant.leaseId }]);
 });

@@ -9,15 +9,18 @@ import { connectHub } from '../client/connect.js';
 import { RackSession } from '../client/session.js';
 import { loadPolicy, policyTargetsRack, type RackPolicy } from '../routing/policy.js';
 import { compatibleRacks, rackResources, rackWidth } from './capacity.js';
-import { RackLayerBuilds, createRackBody, type RackPlacementEvent } from './rack-body.js';
+import { createRackBody, type RackPlacementEvent } from './rack-body.js';
+import { createRackCall } from './rack-call.js';
+import { RackLayerBuilds } from './rack-lease.js';
 import type { RackEnvironmentEvent } from './environment.js';
 import { RackTally, type RackRunSummary } from './summary.js';
 
-/** Configures rack delegation for one run or one watch session. */
+/** Configures rack delegation for one run, one watch session, or one command's piece of work. */
 export interface OpenRackRunnerOptions {
   /** Local repository path. */
   repoPath: string;
-  /** Workspace being run. */
+  /** Workspace being run, which the rack's activity view names: for a
+   *  command that runs in none, what its work comes from. */
   workspace: string;
   /** The run's repository backend. */
   storage: StorageBackend;
@@ -27,12 +30,20 @@ export interface OpenRackRunnerOptions {
   policy?: RackPolicy;
   /** Keeps eligible work queued when capacity is busy. */
   rackOnly?: boolean;
+  /**
+   * Whether all the runner's work is a rack's, whatever the policy's rules
+   * select: a command's `--rack`, which names its one piece of work — a task
+   * run ad hoc, or a function call. A rule that matches the work's name still
+   * gives its size, its timeout, its memory limit, its GPU and its
+   * host-coupling override. A session is opened under any policy.
+   */
+  selected?: boolean;
   /** How long work waits, under `rackOnly`, for a rack that runs its tier to
    *  be healthy before it runs locally, in ms; two minutes unless set. */
   unreachableWaitMs?: number;
   /** Milliseconds to await a healthy compatible rack; defaults to ten seconds. */
   waitForRackMs?: number;
-  /** Receives task/unit placement notifications. */
+  /** Receives task, unit and call placement notifications. */
   onPlacement?: (event: RackPlacementEvent) => void;
   /** Told an environment's layers are being built for a rack's platform, and
    *  what the build came to. */
@@ -40,7 +51,7 @@ export interface OpenRackRunnerOptions {
   /** The process's existing budget, preserved for every local body. */
   budget?: Budget;
   /** Settings preserved for every local process and detached call. */
-  settings?: Omit<LocalTaskRunnerOptions, 'body'>;
+  settings?: Omit<LocalTaskRunnerOptions, 'body' | 'detached'>;
   /** Overrides the user-wide private state home for an isolated deployment. */
   home?: string;
   /** Ends the wait for the hub and for capacity when the run is aborted. */
@@ -51,8 +62,13 @@ export interface OpenRackRunnerOptions {
 
 /** Owns the runner's session and reports capacity for the local orchestrator. */
 export interface RackRunnerHandle {
-  /** Core's LocalTaskRunner, with the delegation body when connected. */
+  /** Core's LocalTaskRunner, with the delegation body and call executor when
+   *  connected. */
   readonly runner: TaskRunner;
+  /** Why the runner runs all its work locally, when it opened no session, in
+   *  words: none of its work says where it runs, and a command that names one
+   *  piece of work says it for it. */
+  readonly unattached?: string;
   /** The work the compatible racks of the latest snapshot can hold at once:
    *  their cores, or the slots of one that admits by slots. A run is that
    *  much wider. */
@@ -96,9 +112,10 @@ export async function openRackRunner(options: OpenRackRunnerOptions): Promise<Ra
   try {
     const policy = options.policy ?? await loadPolicy(options.repoPath);
     // A policy that selects no task for a rack needs no session: nothing it
-    // routes would wait for one.
-    if (!policyTargetsRack(policy)) {
-      return { runner: local, rackSlots: 0, describe: () => 'Rack policy selects no task for a rack; running locally', refreshSlots: () => Promise.resolve(0), takeSummary, close: () => Promise.resolve() };
+    // routes would wait for one. A command's flag selects its work itself.
+    if (options.selected !== true && !policyTargetsRack(policy)) {
+      return { runner: local, unattached: 'the rack policy selects no task for a rack', rackSlots: 0, describe: () => 'Rack policy selects no task for a rack; running locally',
+        refreshSlots: () => Promise.resolve(0), takeSummary, close: () => Promise.resolve() };
     }
     const client = await connectHub({ home: options.home, log: options.log, signal: options.signal });
     session = await RackSession.open(client, options);
@@ -140,14 +157,18 @@ export async function openRackRunner(options: OpenRackRunnerOptions): Promise<Ra
       if (slots > 0 || enrolled === 0 || attached.hubLost || options.signal?.aborted === true || Date.now() >= deadline) break;
       await delay(Math.min(250, deadline - Date.now()), undefined, { signal: options.signal }).catch(() => {});
     } while (Date.now() <= deadline);
+    // A task's body and a call go to a rack alike, sharing the session's
+    // environment builds and its run's tally
+    const delegation = { session: attached, policy, workspace: options.workspace, rackOnly: options.rackOnly, selected: options.selected,
+      unreachableWaitMs: options.unreachableWaitMs, onEnvironment: options.onEnvironment, layerBuilds,
+      onPlacement: (event: RackPlacementEvent) => { tally.add(event); options.onPlacement?.(event); } };
     const runner = new LocalTaskRunner(options.repoPath, options.budget, { ...options.settings,
-      body: createRackBody({ session: attached, policy, workspace: options.workspace, rackOnly: options.rackOnly,
-        unreachableWaitMs: options.unreachableWaitMs, onEnvironment: options.onEnvironment, layerBuilds,
-        onPlacement: (event) => { tally.add(event); options.onPlacement?.(event); } }) });
+      body: createRackBody(delegation), detached: createRackCall(delegation) });
     return { runner, get rackSlots() { return slots; }, describe, refreshSlots, takeSummary, close: () => attached.close() };
   } catch (error) {
     await session?.close().catch(() => {});
-    const text = `${error instanceof Error ? error.message : String(error)}; running locally`;
-    return { runner: local, rackSlots: 0, describe: () => text, refreshSlots: () => Promise.resolve(0), takeSummary, close: () => Promise.resolve() };
+    const message = error instanceof Error ? error.message : String(error);
+    return { runner: local, unattached: message, rackSlots: 0, describe: () => `${message}; running locally`, refreshSlots: () => Promise.resolve(0), takeSummary,
+      close: () => Promise.resolve() };
   }
 }

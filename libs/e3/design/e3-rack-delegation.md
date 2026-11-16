@@ -2,9 +2,11 @@
 
 Design of record for [#863](https://github.com/elaraai/east-workspace/issues/863),
 with its follow-ons: a rack that scales as a local run does
-([#1634](https://github.com/elaraai/east-workspace/issues/1634)) and tasks that
+([#1634](https://github.com/elaraai/east-workspace/issues/1634)), tasks that
 declare an environment
-([#1633](https://github.com/elaraai/east-workspace/issues/1633)).
+([#1633](https://github.com/elaraai/east-workspace/issues/1633)), and ad-hoc
+runs and function calls from the CLI
+([#1627](https://github.com/elaraai/east-workspace/issues/1627)).
 The [reconciliation](e3-rack-reconciliation.md) links all ten children and
 records how current workspace and e3-cloud main change the original design.
 The [setup guide](../packages/e3-rack/README.md) contains runnable commands.
@@ -12,12 +14,13 @@ The [setup guide](../packages/e3-rack/README.md) contains runnable commands.
 ## Goals and non-goals
 
 Delegate expensive task bodies from a local repository, those of stock
-runtimes and those that declare an environment of their own, preserve
-ordinary e3 cache/results/history, and share one rack fleet across local
-projects. Keep planning, repository ownership and local fallback on the
-developer machine. Defer `tools` and `image` environments, environments from a
-Windows launching machine, remote function calls, automatic reattachment after
-hub restart and embedded UI integration.
+runtimes and those that declare an environment of their own, and the CLI's
+function calls, preserve ordinary e3 cache/results/history, and share one rack
+fleet across local projects. Keep planning, repository ownership and local
+fallback on the developer machine. Defer `tools` and `image` environments,
+environments from a Windows launching machine, a local API server's function
+calls, split calls, automatic reattachment after hub restart and embedded UI
+integration.
 
 ## Topology
 
@@ -50,7 +53,8 @@ client, routing and runner adapters. Its root exports the public local APIs;
 `./protocol` exports shared wire types; `./server` exports shared control-plane
 mechanisms without local hub/filesystem/runner adapters; `./testing` exports the real-runner
 test agent and contract suites; `./hub-main` starts the hub process. Core only
-knows the optional task-body hook; it has no dependency on rack code.
+knows the optional task-body and detached-call hooks; it has no dependency on
+rack code.
 
 The API server consumes an injected dataflow runner factory. `--rack` loads
 the optional package at runtime. Its optional peer creates a pnpm scheduling
@@ -101,7 +105,13 @@ Streamed object bodies are raw bytes. Existing `eventJson` and `resultJson`
 remain JSON strings for compatibility with the pinned cloud agent; replacing
 them requires a negotiated protocol change, not silently changing the decoder.
 The event is the current v2 task/unit envelope, including the unit's `merge`
-and `own`, input closure, e3 version, launch identity and timeout.
+and `own`, input closure, e3 version, launch identity and timeout; a function
+call's is the `run-detached` event (below).
+
+The hello also lists what the source takes beyond the protocol (`features`). A
+source that names `call-value-objects` takes a call's value as the object its
+lease's completion commits, named by hash (`RackFunctionResult.valueHash`); an
+agent sends a value that way to no other source.
 
 Output declaration names hash and length; the response is `held` or a PUT
 target with headers. A successful PUT returns an opaque receipt in
@@ -144,7 +154,9 @@ release, process identity and private data endpoints. The hub derives opaque
 repository aliases but never opens a repository or interprets its objects.
 
 Dispatch fairly interleaves session owners. Identical task/input work in the
-same canonical repository and release shares one lease. A late subscriber
+same canonical repository and release shares one lease; a call's lease is
+never joined to another, since two calls of one program differ only in their
+arguments, and its claim names no attempt and writes no log line. A late subscriber
 receives its current claim. A live compatible session takes over repository
 operations when an owner departs. Per-lease fences cover attempt transitions,
 commits, cancellation and logs; registration fences cover heartbeat/removal
@@ -402,13 +414,71 @@ history shape. Placement never enters cache keys. API dataflow factories receive
 the server's existing storage and shared budget, close their session after
 success/failure/cancellation or failed start, and leave calls/mutations local.
 
+## Ad-hoc runs and function calls from the CLI
+
+`e3 run --rack` and `e3 call --rack` open a session for the one piece of work
+they name (`OpenRackRunnerOptions.selected`): the flag selects it, whatever the
+policy's rules or its `enabled` switch say, and a rule that matches its name
+still gives its size, timeout, memory limit, GPU and host-access override. A
+call is named `fn:<name>`, as its lease names it; an IR file's call by the
+file's name without its extension. Fitness still applies, and the command
+prints every reason its work runs here. A server's URL is refused either flag:
+a server decides where its own work runs.
+
+`e3 run --rack` runs the task through the session's runner, as a dataflow
+runs its tasks: a whole task's body is leased, and a split task's pieces and
+merges are, its planning and assembly staying here. It ends with the rack
+summary a dataflow run ends with, which says where a split task's pieces ran.
+
+A call is a `run-detached` lease (`createRackCall`, beside `createRackBody`;
+`openRackRunner` gives e3-core's runner both). e3-core hands a detached call to
+its hook (`LocalTaskRunnerOptions.detached`) before any scratch directory or
+budget grant is taken; the hook's `local` continuation runs it here with the
+runner's budget and process settings, as a call with no hook runs. The two
+executors share what is not their own (`runner/rack-lease.ts`): work is
+admitted by one rule (`admitWork`), placed and queued through the fleet as it
+sees it (`RackFleet`), waited on (`awaitLease`) and reported
+(`RackPlacementReport`) the same way, and a rack's fault is worded once
+(`fallbackReason`). Each keeps what its work's end comes to: a task's records
+and logs, or a call's value and deadline.
+
+- **Fitness**: the runner's tier, the environment it declares, judged as a
+  task's is, and its program, scanned for platform calls that reach the host
+  by the scanner tasks use.
+- **The program** is an object of the repository, named by hash in the lease
+  and staged with its closure; a value argument past what a lease carries
+  inline (`RACK_INLINE_ARGS_MAX`, 192 KiB between them) is stored as an object
+  and staged as a dataset argument is. The caller holds the repository's
+  running work while the call runs, so no sweep takes them.
+- **Its lease** is sized as a whole task's is (`wholeResources`), from its
+  rule's size or the policy's default.
+- **Its deadline** is its own timeout, counted from when its lease is first
+  queued; a call that falls back to run here runs with the time left.
+- **Its value** returns inline up to `RACK_INLINE_VALUE_MAX` (192 KiB); a
+  larger one is committed as the lease's output and named by hash, to a source
+  that takes one (above). The shared routes take a hash only as the output a
+  successful completion commits, from a source that takes one.
+
+| The call | What it comes to |
+| --- | --- |
+| Not fit for a rack, or no healthy rack of its tier | Runs here; its line says why |
+| No rack claims it within the claim timeout | Runs here; under rack-only, waits while a compatible rack is healthy |
+| Success | The value, inline or read from the object its completion names |
+| `too_large`, `timed_out` | Its answer, as a local call's would be |
+| The function fails on the rack | Its answer, with its exit code and log tails; run again here only where the policy retries failures locally |
+| Its cap stops it | Fails, `memory-limit-exceeded`, naming the cap and the rack |
+| The rack cannot relay its value (`rackResultTooLarge`) | Runs here (`fallback:value-too-large-to-relay`) |
+| The hub or the lease is lost, or the rack's infrastructure fails | Runs here, with the time left |
+| Ctrl-C | The lease is left, its rack told to stop it; ends as an aborted local call |
+
 ## Versions and persisted forms
 
 The protocol golden fixtures were generated from e3-cloud's rack protocol; rack
 protocol 3 changed two of them, the lease request and the heartbeat, by one
 field of JSON text each.
 Agents advertise `+e3.<release>`; bundled e3 must meet the project's floor. Local control protocol is
-3 exactly; no numeric greater-than compatibility assumption is made for
+4 exactly (a call's claim, which names no attempt, made the `claimed` event's
+attempt optional); no numeric greater-than compatibility assumption is made for
 positional BEAST2 structs. A hub whose hello does not read at all is one from
 before replies lost their envelope: it is asked to drain, as an older one is.
 
@@ -455,7 +525,9 @@ Worker provisioning and the final source/lifecycle CLI remain companion work.
 ## Testing
 
 `TestRackAgent` speaks the real wire, stages the input closure, executes stock
-e3-core runners and uploads every written object. It reports that it composes
+e3-core runners and uploads every written object. It runs a call's lease with
+e3-core's `runDetached` over the closure it fetched, and completes it with the
+value inline, or, to a source that takes one, as the object it stages. It reports that it composes
 environments for the platform of the machine it runs on, and for a lease that
 names one it fetches the layers, checks each against its digest and size,
 unpacks them, and links the tree as the pre-built environment. Protocol fixtures validate

@@ -17,13 +17,14 @@ import type { HubClient } from './hub-client.js';
 
 /** Names the claim-time attempt; absent until an agent claims the lease. */
 export type LeaseAttempt = ValueTypeOf<typeof HubAttemptType>;
-/** Reports one lease transition after its repository effects have completed. */
+/** Reports one lease transition after its repository effects have completed.
+ *  A claim names the attempt it runs: a call's lease runs none. */
 export type LeaseUpdate =
-  | { kind: 'claimed'; rackId: string; rackLabel: string; attempt: LeaseAttempt }
+  | { kind: 'claimed'; rackId: string; rackLabel: string; attempt: LeaseAttempt | null }
   | { kind: 'completed'; result: RackLeaseResult; attempt: LeaseAttempt | null; at: Date }
   | { kind: 'lost'; reason: string }
   | { kind: 'cancelled' };
-/** A task/unit lease requested through the current control protocol. */
+/** A task, unit or call lease requested through the current control protocol. */
 export type LeaseRequest = CreateLease;
 /** One subscriber's ordered view of shared work. */
 export interface LeaseHandle {
@@ -50,8 +51,11 @@ class Handle implements LeaseHandle {
   push(update: LeaseUpdate): void {
     if (this.terminal !== undefined) return;
     if (update.kind === 'claimed') {
-      if (this.lastClaim === update.attempt.executionId) return;
-      this.lastClaim = update.attempt.executionId;
+      // A claim is one attempt's, or, for a call's lease, which runs none, one
+      // rack's: a rack never claims a lease again once it has held it.
+      const claim = update.attempt?.executionId ?? update.rackId;
+      if (this.lastClaim === claim) return;
+      this.lastClaim = claim;
       this.attempt = update.attempt;
     }
     else this.terminal = update;
@@ -250,7 +254,8 @@ export class RackSession {
 
   private update(event: SessionEvent['event']): LeaseUpdate {
     switch (event.type) {
-      case 'claimed': return { kind: 'claimed', rackId: event.value.rackId, rackLabel: event.value.rackLabel, attempt: event.value.attempt };
+      case 'claimed': return { kind: 'claimed', rackId: event.value.rackId, rackLabel: event.value.rackLabel,
+        attempt: event.value.attempt.type === 'some' ? event.value.attempt.value : null };
       case 'completed': return { kind: 'completed', result: JSON.parse(event.value.resultJson) as RackLeaseResult,
         attempt: event.value.attempt.type === 'some' ? event.value.attempt.value : null, at: event.value.at };
       case 'lost': return { kind: 'lost', reason: event.value.reason };

@@ -13,8 +13,14 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { IntegerType, variant } from '@elaraai/east';
+import e3 from '@elaraai/e3';
 import { ApiError } from '@elaraai/e3-api-client';
-import { formatError, defaultRepoArg, shortHash, HASH_DISPLAY_WIDTH } from './utils.js';
+import { LocalStorage, PackageNotFoundError, packageImport, repoInit } from '@elaraai/e3-core';
+import { formatError, defaultRepoArg, resolvePackageVersion, shortHash, HASH_DISPLAY_WIDTH } from './utils.js';
 
 describe('formatError', () => {
   // ---------------------------------------------------------------------------
@@ -215,5 +221,27 @@ describe('formatError', () => {
     it('converts an object to string', () => {
       assert.strictEqual(formatError({ code: 'oops' }), '[object Object]');
     });
+  });
+});
+
+describe('resolvePackageVersion', () => {
+  it('names the version a spec names, and for latest the greatest a local repository holds, 1.10.0 after 1.9.0', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'e3-cli-version-'));
+    try {
+      const repo = join(dir, 'repo');
+      assert.ok(repoInit(repo).success);
+      for (const version of ['1.9.0', '1.10.0', '1.2.0']) {
+        const zip = join(dir, `acme-${version}.zip`);
+        await e3.export(e3.package('acme', version, e3.input('n', IntegerType, variant('value', 1n))), zip);
+        await packageImport(new LocalStorage(), repo, zip);
+      }
+      const local = { type: 'local', path: repo } as const;
+      assert.strictEqual(await resolvePackageVersion(local, 'acme', 'latest'), '1.10.0');
+      assert.strictEqual(await resolvePackageVersion(local, 'acme', '1.2.0'), '1.2.0');
+      await assert.rejects(resolvePackageVersion(local, 'other', 'latest'),
+        (err: unknown) => err instanceof PackageNotFoundError && err.message === "Package 'other' not found");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });

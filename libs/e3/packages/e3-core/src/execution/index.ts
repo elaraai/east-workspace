@@ -113,6 +113,7 @@ export {
   oneShotExecute,
   oneShotPlatformUse,
   pinCallArguments,
+  readProgram,
   resolveExecuteLimits,
   resolveJobLimits,
   detachedToExecuteResult,

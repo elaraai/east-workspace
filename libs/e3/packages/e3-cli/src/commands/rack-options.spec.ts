@@ -5,7 +5,7 @@
 
 import { it } from 'node:test';
 import assert from 'node:assert/strict';
-import { rackEnvironmentLine, rackPlacementLine } from './rack-options.js';
+import { commandPlacement, rackEnvironmentLine, rackPlacementLine, unattachedLine } from './rack-options.js';
 
 const task = { taskName: 'train', role: 'task' as const };
 const unit = { taskName: 'score', role: 'unit' as const };
@@ -66,4 +66,25 @@ it('prints nothing for work that was never a rack\'s, and of a unit only what we
     '  [LOCAL] score (guest-crashed: out of memory)');
   assert.equal(rackPlacementLine({ kind: 'placed', ...unit, where: 'local', reason: 'memory-limit-exceeded',
     detail: { code: 'memory-limit-exceeded', needsBytes: 3 * 1024 ** 3, limitBytes: 2 * 1024 ** 3 } }), '  [LOCAL] score (memory-limit-exceeded: needs 3 GB, limit 2 GB)');
+});
+
+it('says every reason work runs here to a command that names one piece of work, and when it opened no rack session', () => {
+  const call = { taskName: 'fn:read_config', role: 'call' as const };
+  const hostCoupled = { kind: 'placed', ...call, where: 'local', reason: 'host-coupled:fs_read_file' } as const;
+  assert.equal(rackPlacementLine(hostCoupled), undefined, 'a dataflow run says nothing of work that was never a rack\'s');
+  assert.equal(rackPlacementLine(hostCoupled, true), '  [LOCAL] fn:read_config (host-coupled:fs_read_file)');
+  assert.equal(rackPlacementLine({ kind: 'placed', ...task, where: 'local', reason: 'gpu-not-east-py' }, true), '  [LOCAL] train (gpu-not-east-py)');
+  assert.equal(rackPlacementLine({ kind: 'placed', taskName: 'fn:score', role: 'call', where: 'rack', rackLabel: 'rack-a', leaseId: 'c',
+    needs: { kind: 'task', cores: 8, memoryBytes: 16 * 1024 ** 3, gpu: false } }, true), '  [RACK] fn:score → rack-a (cap 16 GB)');
+  assert.equal(rackPlacementLine({ kind: 'outgrew', taskName: 'fn:score', role: 'call', where: 'rack', rackLabel: 'rack-a', leaseId: 'c', capBytes: 4 * 1024 ** 3 }, true),
+    '  [RACK] fn:score failed: memory-limit-exceeded (cap 4 GB); raise --memory-limit or --size');
+  // A split task's progress still tells of its units
+  assert.equal(rackPlacementLine({ kind: 'placed', ...unit, where: 'local', reason: 'spill' }, true), undefined);
+
+  const lines: string[] = [];
+  const placement = commandPlacement((line) => lines.push(line));
+  placement(hostCoupled);
+  placement({ kind: 'placed', ...unit, where: 'rack', rackLabel: 'rack-a', leaseId: 'u' });
+  assert.deepEqual(lines, ['  [LOCAL] fn:read_config (host-coupled:fs_read_file)']);
+  assert.equal(unattachedLine('fn:score', 'no rack hub is running'), '  [LOCAL] fn:score (no-rack-session: no rack hub is running)');
 });

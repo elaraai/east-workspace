@@ -63,6 +63,7 @@ export {
   removeWorkspaceAfter,
   getE3CliPath,
   waitFor,
+  writeCliCredentials,
   type CliResult,
   type RunE3Options,
   type RunningCliProcess,

@@ -24,6 +24,7 @@ import e3 from '@elaraai/e3';
 import { workspaceDeploy as workspaceDeployRemote } from '@elaraai/e3-api-client';
 import { formatSize } from '@elaraai/e3-cli/internal';
 import { createServer, type Server } from '@elaraai/e3-api-server';
+import { writeCliCredentials } from '@elaraai/e3-api-tests';
 import {
   ArrayType,
   EastTypeType,
@@ -304,16 +305,7 @@ describe('e3 dataset set', () => {
       baseUrl = `http://localhost:${server.port}`;
       remoteUrl = `${baseUrl}/repos/remote`;
       credentialsPath = join(testDir, 'credentials.json');
-      writeFileSync(credentialsPath, JSON.stringify({
-        version: 1,
-        credentials: {
-          [baseUrl]: {
-            accessToken: 'mock-test-token',
-            refreshToken: 'mock-refresh-token',
-            expiresAt: new Date(Date.now() + 3600000).toISOString(),
-          },
-        },
-      }));
+      writeCliCredentials(credentialsPath, baseUrl, 'mock-test-token');
 
       // The developer's project: the source, the delivery beside it, and the
       // SAME @elaraai/e3 and @elaraai/east the CLI loads (the bundled source is

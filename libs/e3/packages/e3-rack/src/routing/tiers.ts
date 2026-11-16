@@ -10,12 +10,13 @@ import type { RunnerValue } from '@elaraai/e3-types';
 export type RackTier = 'node' | 'py' | 'py-datascience' | 'c';
 /**
  * A stable reason an execution stays on the local host. An `environment:`
- * reason says why the environment the task declares cannot go to a rack:
- * its kind (`tools`, `image`), the launching machine (`windows-host`), or
- * what its build for the rack's platform was refused or failed of
+ * reason says why the environment the task or call declares cannot go to a
+ * rack: its kind (`tools`, `image`), the launching machine (`windows-host`),
+ * or what its build for the rack's platform was refused or failed of
  * (`no-wheel:<package>`, `native-package:<package>`, `pnpm`, `build-failed`).
+ * A call that names no function (`no-function-name`) has no rule to select it.
  */
-export type IneligibleReason = 'no-task-name' | 'not-selected' | 'custom-runner' | 'gpu-not-east-py'
+export type IneligibleReason = 'no-task-name' | 'no-function-name' | 'not-selected' | 'custom-runner' | 'gpu-not-east-py'
   | `environment:${string}` | `non-stock-platform:${string}` | `host-coupled:${string}` | 'unscannable';
 
 /** What a task asks of a rack beyond its runner. */

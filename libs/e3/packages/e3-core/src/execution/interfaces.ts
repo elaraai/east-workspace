@@ -306,6 +306,10 @@ export interface DetachedRunOptions {
    *  `E3_RUNNER_SEARCH_DIRS`, `E3_FETCH_SEGMENTS`, which only a unit turns
    *  on) is refused. */
   extraEnv?: Readonly<Record<string, string>>;
+  /** The function's name, for labelling work that runs elsewhere: a named
+   *  function's own, or an IR file's without its extension. Runtime-only: no
+   *  runner reads it, and a call without one runs as before. */
+  functionName?: string;
 }
 
 /**

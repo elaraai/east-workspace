@@ -23,7 +23,7 @@ import {
   RackEnrollRequestType, RackEnrollResponseType, RackHeartbeatRequestType, RackHeartbeatResponseType,
   RackLeaseRequestType, RackLeaseGrantType, RackCompleteRequestType, RackCompleteResponseType,
   RackStorageRequestType, RackStorageResponseType, RackLogsRequestType,
-  RACK_PROTOCOL, RACK_PROTOCOL_HEADER, readRackHello, readRackRefusal,
+  RACK_CALL_VALUE_OBJECTS, RACK_PROTOCOL, RACK_PROTOCOL_HEADER, readRackHello, readRackRefusal,
   type RackLeaseEvent, type RackLeaseResult, type RackOffer, type RackReport,
 } from '../protocol/index.js';
 
@@ -505,7 +505,10 @@ it('answers the hello with the deployment\'s release and its transfer limit, and
   const f = await fixture({ e3Version: '1.0.85', transfersAtOnce: 3,
     onReport: (rackId, report) => { reports.push([rackId, report]); },
     canClaim: (_rack, _lease, offer) => { offers.push(offer); return true; } });
-  assert.deepEqual(readRackHello(await (await fetch(`${f.origin}/api/rack/hello`)).text()), { protocol: RACK_PROTOCOL, e3: '1.0.85', limits: { transfersAtOnce: 3 } });
+  assert.deepEqual(readRackHello(await (await fetch(`${f.origin}/api/rack/hello`)).text()), { protocol: RACK_PROTOCOL, e3: '1.0.85', limits: { transfersAtOnce: 3 }, features: [] },
+    'a host that names no feature takes none');
+  const takes = await fixture({ callValueObjects: true });
+  assert.deepEqual(readRackHello(await (await fetch(`${takes.origin}/api/rack/hello`)).text()).features, [RACK_CALL_VALUE_OBJECTS]);
 
   const { rackId } = await f.enroll();
   assert.deepEqual(reports, [[rackId, { features: [] }]], 'the enrolment\'s first heartbeat');

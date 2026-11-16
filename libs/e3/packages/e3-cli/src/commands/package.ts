@@ -21,7 +21,7 @@ import {
   packageList as packageListRemote,
   packageRemove as packageRemoveRemote,
 } from '@elaraai/e3-api-client';
-import { parseRepoLocation, parsePackageSpec, formatError, exitError } from '../utils.js';
+import { parseRepoLocation, parsePackageSpec, resolvePackageVersion, formatError, exitError } from '../utils.js';
 import { createProgress, formatBytes } from '../progress.js';
 
 export const packageCommand = {
@@ -82,7 +82,9 @@ export const packageCommand = {
   async export(repoArg: string, pkgSpec: string, zipPath: string, options: { quiet?: boolean } = {}): Promise<void> {
     try {
       const location = await parseRepoLocation(repoArg);
-      const { name, version } = parsePackageSpec(pkgSpec);
+      const { name, version: named } = parsePackageSpec(pkgSpec);
+      // A bare name exports the greatest version the repository holds
+      const version = await resolvePackageVersion(location, name, named);
       // Step-level progress on stderr (#311); stdout keeps the machine summary.
       const progress = createProgress({ quiet: options.quiet === true });
 

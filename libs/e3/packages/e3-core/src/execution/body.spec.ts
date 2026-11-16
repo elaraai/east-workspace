@@ -5,12 +5,15 @@
 
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { existsSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { DictType, East, IntegerType, SortedMap, compareFor, variant } from '@elaraai/east';
+import { DictType, East, IntegerType, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, encodeEastIR, variant } from '@elaraai/east';
 import e3, { type TaskDef } from '@elaraai/e3';
 import { ExecutionAttempt } from './attempt.js';
 import { Budget } from './budget.js';
-import { LocalTaskRunner, type TaskBodyRequest } from './LocalTaskRunner.js';
+import type { DetachedResult, DetachedSpec } from './interfaces.js';
+import { LocalTaskRunner, type DetachedCallRequest, type TaskBodyRequest } from './LocalTaskRunner.js';
+import { scratchRoot } from './scratch.js';
 import { MockTaskRunner } from './MockTaskRunner.js';
 import { readTestPieceBytesFrom } from './pieces.js';
 import { LocalOrchestrator } from '../dataflow/orchestrator/LocalOrchestrator.js';
@@ -166,5 +169,82 @@ describe('task body executor', () => {
     const orchestrator = new LocalOrchestrator(new InMemoryStateStore());
     await orchestrator.wait(await orchestrator.start(storage, repo, 'dev', { runner }));
     assert.deepEqual(runner.getCalls().map((call) => call.options?.taskName), ['double']);
+  });
+});
+
+describe('detached call executor', () => {
+  let repo: string;
+  const encodeInt = encodeBeast2For(IntegerType);
+  const limits = { timeoutMs: 60_000, maxResultBytes: 1024, maxLogBytes: 64 * 1024 };
+  const stock = variant('east_node', { platforms: [] as string[], decode: variant('lazy', null) });
+  const double = encodeEastIR(East.function([IntegerType], IntegerType, ($, value) => value.multiply(2n)).toIR());
+  const call = (n: bigint, more: Partial<DetachedSpec> = {}): DetachedSpec => ({ bodyIr: double, args: [encodeInt(n)], runner: stock, limits, ...more });
+  const valueOf = (result: DetachedResult): bigint => {
+    assert.ok(result.kind === 'success', `the call ended ${result.kind}: ${result.stderr}`);
+    return decodeBeast2For(IntegerType)(result.value);
+  };
+  /** Resolves once a call waits for one of the budget's cores. */
+  const queued = (budget: Budget) => new Promise<void>((resolve) => {
+    const poll = setInterval(() => { if (budget.queued === 1) { clearInterval(poll); resolve(); } }, 10);
+  });
+
+  beforeEach(() => { repo = createTestRepo(); });
+  afterEach(() => removeTestRepo(repo));
+
+  it('hands a call to its hook before anything of it runs here: no core, no environment, no scratch directory', async () => {
+    const budget = new Budget({ cores: 1, memory: 1024 ** 3 }, { sampler: null });
+    const held = await budget.acquire();
+    const calls: DetachedCallRequest[] = [];
+    try {
+      const runner = new LocalTaskRunner(repo, budget, { detached: (request) => {
+        calls.push(request);
+        return Promise.resolve({ kind: 'success', value: encodeInt(9n), stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false });
+      } });
+      // An environment no object of the repository is: installing it here would fail
+      const spec = call(2n, { environment: '0'.repeat(64) });
+      assert.equal(valueOf(await runner.runDetached(spec, { storage: new LocalStorage(), functionName: 'double' })), 9n);
+      assert.equal(calls.length, 1);
+      assert.equal(calls[0]!.repo, repo);
+      assert.equal(calls[0]!.spec, spec);
+      assert.equal(calls[0]!.options.functionName, 'double');
+      assert.equal(calls[0]!.budget, budget);
+      assert.deepEqual(calls[0]!.settings, {});
+      assert.equal(budget.queued, 0, 'the call never waited for a core');
+      assert.deepEqual(existsSync(scratchRoot(repo)) ? readdirSync(scratchRoot(repo)) : [], []);
+    } finally {
+      held.release();
+    }
+  });
+
+  it('runs the call here when its hook calls local, taking a core from the runner\'s budget, or the call local is given in its place', async () => {
+    const budget = new Budget({ cores: 1, memory: 1024 ** 3 }, { sampler: null });
+    const runner = new LocalTaskRunner(repo, budget, { detached: (_request, local) => local() });
+    assert.equal(valueOf(await runner.runDetached(call(2n))), 4n);
+    const instead = new LocalTaskRunner(repo, budget, { detached: (request, local) => local({ ...request.spec, args: [encodeInt(5n)] }) });
+    assert.equal(valueOf(await instead.runDetached(call(2n))), 10n);
+
+    // Run here, it waits for a core another holds, as a call with no hook does
+    const held = await budget.acquire();
+    const waiting = runner.runDetached(call(3n));
+    await queued(budget);
+    held.release();
+    assert.equal(valueOf(await waiting), 6n);
+    assert.equal(budget.inFlight, 0);
+  });
+
+  it('runs the call its hook runs here from the runner\'s base environment', async () => {
+    const env = { ...(process.platform === 'win32' && { SystemRoot: process.env.SystemRoot ?? 'C:\\Windows' }), E3_TEST_SECRET: 'the runner\'s' };
+    const seen: DetachedCallRequest[] = [];
+    const runner = new LocalTaskRunner(repo, undefined, { env, detached: (request, local) => { seen.push(request); return local(); } });
+    const result = await runner.runDetached({
+      bodyIr: new Uint8Array([1]),
+      args: [encodeBeast2For(StringType)('the value')],
+      runner: variant('custom', { command: [process.execPath, '-e',
+        'process.stdout.write(process.env.E3_TEST_SECRET ?? "unset"); const a = process.argv; require("node:fs").copyFileSync(a[a.indexOf("-i") + 1], a[a.indexOf("-o") + 1])', '--'] }),
+      limits: { timeoutMs: 30_000, maxResultBytes: 1024, maxLogBytes: 1024 },
+    });
+    assert.equal(result.kind, 'success', result.stderr);
+    assert.equal(result.stdout, 'the runner\'s');
+    assert.deepEqual(seen.map((request) => request.settings), [{ env }], 'the hook is told how the runner\'s processes run');
   });
 });

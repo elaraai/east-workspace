@@ -20,6 +20,7 @@ import { dirname, join } from 'node:path';
 import e3 from '@elaraai/e3';
 import { packageList as packageListRemote } from '@elaraai/e3-api-client';
 import { createServer, type Server } from '@elaraai/e3-api-server';
+import { writeCliCredentials } from '@elaraai/e3-api-tests';
 import { DictType, East, StringType, StructType } from '@elaraai/east';
 import { createTestDir, getE3CliPath, removeTestDir, runE3Command } from './helpers.js';
 
@@ -120,16 +121,7 @@ describe('a deploy plan from a zip or a source', () => {
       baseUrl = `http://localhost:${server.port}`;
       remoteUrl = `${baseUrl}/repos/remote`;
       credentialsPath = join(testDir, 'credentials.json');
-      writeFileSync(credentialsPath, JSON.stringify({
-        version: 1,
-        credentials: {
-          [baseUrl]: {
-            accessToken: 'mock-test-token',
-            refreshToken: 'mock-refresh-token',
-            expiresAt: new Date(Date.now() + 3600000).toISOString(),
-          },
-        },
-      }));
+      writeCliCredentials(credentialsPath, baseUrl, 'mock-test-token');
     });
 
     afterEach(async () => {

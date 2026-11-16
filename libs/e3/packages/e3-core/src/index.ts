@@ -318,6 +318,8 @@ export {
   objectAdoptFile,
   type DatasetAdoptOptions,
 } from './dataset-adopt-file.js';
+// And a stored value written out to a file, a segment or a range at a time
+export { datasetWriteFile } from './dataset-write-file.js';
 export {
   datasetAdoptObject,
   datasetAdoptKnown,
@@ -412,6 +414,8 @@ export {
   type ExecutionResult,
   type TaskBodyRequest,
   type TaskBodyExecutor,
+  type DetachedCallRequest,
+  type DetachedCallExecutor,
   type LocalTaskRunnerOptions,
 } from './execution/LocalTaskRunner.js';
 

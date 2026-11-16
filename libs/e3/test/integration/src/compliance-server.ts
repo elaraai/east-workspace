@@ -16,6 +16,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 
 import { createServer, generateKeyPair, signJwt, type KeyPair } from '@elaraai/e3-api-server';
+import { writeCliCredentials } from '@elaraai/e3-api-tests';
 
 /** Whom the harness's tokens name as their issuer and audience, which the
  *  server checks. */
@@ -85,16 +86,7 @@ export async function startComplianceServer(): Promise<ComplianceServer> {
   const baseUrl = `http://localhost:${server.port}`;
   // The CLI suites run as the admin
   const credentialsPath = join(tempDir, 'credentials.json');
-  writeFileSync(credentialsPath, JSON.stringify({
-    version: 1,
-    credentials: {
-      [baseUrl]: {
-        accessToken: adminToken,
-        refreshToken: 'mock-refresh-token',
-        expiresAt: new Date(Date.now() + 3600000).toISOString(),
-      },
-    },
-  }, null, 2));
+  writeCliCredentials(credentialsPath, baseUrl, adminToken);
 
   return {
     baseUrl,

@@ -6,7 +6,8 @@
 import { it } from 'node:test';
 import assert from 'node:assert/strict';
 import { unitCap } from '@elaraai/e3-core';
-import { RackLayerBuilds, leaseResources } from './rack-body.js';
+import { leaseResources } from './rack-body.js';
+import { RackLayerBuilds } from './rack-lease.js';
 
 const GiB = 1024 ** 3;
 const rule = { eligible: true as const, tier: 'node' as const, size: 'large' as const, timeoutMinutes: 1440, memoryLimit: null, gpu: false, environment: null };

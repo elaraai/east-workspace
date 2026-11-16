@@ -10,6 +10,7 @@
  */
 
 import { spawn } from 'node:child_process';
+import { writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import type { TestContext as NodeTestContext } from 'node:test';
 import { fileURLToPath } from 'node:url';
@@ -49,6 +50,33 @@ export function getE3CliPath(): string {
   const packagesDir = dirname(packageDir); // packages
   const cliPath = join(packagesDir, 'e3-cli', 'dist', 'src', 'cli.js');
   return cliPath;
+}
+
+/**
+ * Writes a credentials file the CLI signs in to a server with, holding one
+ * caller's token, valid for an hour: the CLI is pointed at it by
+ * `E3_CREDENTIALS_PATH`, and calls the server as that caller.
+ *
+ * @param path - Where the file is written
+ * @param baseUrl - The server's URL, whose origin the CLI looks the token up by
+ * @param token - The caller's token
+ * @returns The environment that points the CLI at the file
+ * @example
+ * const env = writeCliCredentials(join(dir, 'reader.json'), baseUrl, readerToken);
+ * await runE3Command(['call', `${baseUrl}/repos/r`, '-w', 'dev', 'add', '1', '2'], dir, { env });
+ */
+export function writeCliCredentials(path: string, baseUrl: string, token: string): Record<string, string> {
+  writeFileSync(path, JSON.stringify({
+    version: 1,
+    credentials: {
+      [new URL(baseUrl).origin]: {
+        accessToken: token,
+        refreshToken: 'mock-refresh-token',
+        expiresAt: new Date(Date.now() + 3600000).toISOString(),
+      },
+    },
+  }, null, 2));
+  return { E3_CREDENTIALS_PATH: path };
 }
 
 /**

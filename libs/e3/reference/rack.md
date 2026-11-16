@@ -13,6 +13,8 @@ Part of the `e3` skill.
 | `e3 rack policy [repo] show\|unset <glob>\|reset` | Inspect rules, remove an exact pattern, or delete the saved policy. | `e3 rack policy . show` |
 | `e3 dataflow run <repo> <ws> --rack\|--no-rack\|--rack-only` | Select rack routing for this run; rack-only disables capacity spill but keeps infrastructure fallback: work waits two minutes for an unhealthy rack to come back, and is leased once more after a failed transfer, before it runs locally. ❗ Refused for remote URLs. | `e3 dataflow run . dev --rack` |
 | `e3 watch <source> <repo> <ws> --start --rack` | Reuses a rack session across watch runs and refreshes capacity; a second Ctrl-C stops the watch at once. ❗ `--rack` and `--rack-only` require `--start`. | `e3 watch src/main.ts . dev --start --rack` |
+| `e3 run <repo> <pkg.task> <inputs…> -o <out> --rack\|--rack-only` | Runs one task ad hoc on a rack, whatever the policy selects (a rule naming the task still sizes it); a split task's pieces and merges are leased, its planning stays here. Writes the cache and history a local run writes, says where it ran and why, and ends with the rack summary. ❗ Refused for remote URLs. | `e3 run . acme-forecast.train ./sales.beast2 -o ./model.beast2 --rack` |
+| `e3 call <repo> [-w <ws>] <fn> [args…] --rack\|--rack-only` · `e3 call <repo> --ir <file> [args…] --rack` | Runs one call on a rack, whatever the policy selects, named by `fn:<name>` (an IR file's by its name): its own lease, sized as a whole task, its value back inline or, past 192 KiB, as an object. What no rack can run runs here; `[RACK] fn:<name> → <rack>` or `[LOCAL] fn:<name> (<reason>)` goes to stderr. Ctrl-C leaves the lease. ❗ Refused for remote URLs. | `e3 call . -w dev train_once @.inputs.sales --rack` |
 | `e3 rack status\|list\|remove <id-or-label>\|approve <id-or-label>\|stop` | Inspect fleet, revoke a rack, admit the boot a quarantined rack last reported, or stop the shared hub. Status never starts an absent hub, and lists how its last leases ended, each with its reason. | `e3 rack status` |
 | `e3 rack config [--listen <host:port>] [--allow <ip,...>] [--idle-exit <min>] [--advertise-url <origin>] [--tls\|--no-tls] [--require-approval\|--no-require-approval]` | Configure the shared listener (off by default; HTTPS with the hub's own certificate unless `--no-tls`); every rack and data URL is built on `--advertise-url` when set; zero idle-exit disables automatic shutdown; `--require-approval` quarantines a rack after each reboot until `e3 rack approve` admits it (enrollment admits the first boot). ❗ Plain HTTP only on the loopback or a private address, with `--allow`. | `e3 rack config --listen 10.0.0.5:7331` |
 
@@ -47,7 +49,11 @@ though it was leased again). On a rack that admits by
 its resources a split task's pieces are queued together, booked by what each
 reserves, and the rack's guard keeps them from running its host out of memory;
 a first run's piece reserves e3's estimate, as a local run does, so it is as
-wide as a later run and measures no piece first. Calls, mutations and intake stay local. Stock runner
+wide as a later run and measures no piece first. A function call goes to a rack
+only from `e3 call --rack`, and is fit for one as a task is: its runner's tier,
+the environment it declares, and its program, scanned for host access (`[LOCAL]
+fn:read_config (host-coupled:fs_read_file)`). A local API server's calls,
+mutations and intake stay local. Stock runner
 configurations qualify, and so does a task that declares a `python` or `node`
 environment, with the project platform packages its runner names; commands, a
 platform package with no environment (`non-stock-platform:<name>`) and
@@ -171,7 +177,7 @@ reach. A data URL lasts 15 minutes, which a transfer may use whole; an object is
 at most 5 GiB. The hub serves one rack eight transfers at once (one more is told
 to ask again), and reads an object from a byte on (`Range`), so a transfer a slow
 link cut short resumes; it keeps a rack's idle connection for 75 seconds.
-A hub and the e3 that calls it speak control protocol 3 exactly:
+A hub and the e3 that calls it speak control protocol 4 exactly:
 a hub an older e3 started is asked to exit once idle, and `e3 rack stop` with
 that e3 replaces it now. A rack's agent and its source speak rack protocol 3:
 an agent of another protocol is refused by name each time it asks, and
@@ -186,11 +192,11 @@ sessions of the same canonical repository and e3 release.
 
 | Signature | Description | Example |
 | --- | --- | --- |
-| `openRackRunner({ repoPath, workspace, storage, label, budget?, settings?, policy?, rackOnly?, unreachableWaitMs?, onPlacement?, onEnvironment? })` | Opens a runner/session; preserve the caller's existing budget and process settings, use `rackSlots` to extend orchestrator width, and close in `finally`. Under `rackOnly`, work waits `unreachableWaitMs` (two minutes) for an unhealthy rack before it runs locally. `onPlacement` is told where each task or unit runs; `onEnvironment` that an environment's layers are being built for a rack, and what the build came to. | `const rack = await openRackRunner({ repoPath, workspace: 'dev', storage, label: 'run', budget });` |
+| `openRackRunner({ repoPath, workspace, storage, label, budget?, settings?, policy?, rackOnly?, selected?, unreachableWaitMs?, onPlacement?, onEnvironment? })` | Opens a runner/session; preserve the caller's existing budget and process settings, use `rackSlots` to extend orchestrator width, and close in `finally`. The runner's `runDetached` leases a call (`{ functionName }` names it). `selected` takes every task and call to a rack whatever the policy's rules and `enabled` say, as `e3 run`/`e3 call --rack` do. Under `rackOnly`, work waits `unreachableWaitMs` (two minutes) for an unhealthy rack before it runs locally. `onPlacement` is told where each task, unit or call runs; `onEnvironment` that an environment's layers are being built for a rack, and what the build came to; `unattached` says why no session opened. | `const rack = await openRackRunner({ repoPath, workspace: 'dev', storage, label: 'run', budget });` |
 | `createDataflowRunnerFactory(options?)` | Pass to `createServer({ dataflowRunner })`; one session per API dataflow, using the server's shared budget. Explicit server opt-in overrides policy.enabled; rules still apply. | `const server = await createServer({ reposDir: './repos', dataflowRunner: createDataflowRunnerFactory() });` |
 
 The API server's optional rack package is needed only for
 `e3-api-server --repos ./repos --rack`. Portable handlers receive a runner
 factory and do not import hub code. `tools` and `image` environments on a
-rack, remote function delegation, automatic reconnect after hub restart and
-embedded UI integration are deferred.
+rack, a local API server's calls on a rack, split calls on a rack, automatic
+reconnect after hub restart and embedded UI integration are deferred.

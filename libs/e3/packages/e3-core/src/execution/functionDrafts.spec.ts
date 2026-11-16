@@ -160,6 +160,16 @@ class GatedRunner extends MockTaskRunner {
   }
 }
 
+/** A runner that keeps the options each function's run was given. */
+class OptionsRunner extends MockTaskRunner {
+  readonly given: Array<DetachedRunOptions | undefined> = [];
+
+  override runDetached(spec: DetachedSpec, options?: DetachedRunOptions): Promise<DetachedResult> {
+    this.given.push(options);
+    return super.runDetached(spec, options);
+  }
+}
+
 /**
  * The package the in-memory cases deploy: `jobs`, a Dict record with no index,
  * so a patch of it runs no program; `tally`, an Integer record, whose reducers
@@ -741,6 +751,27 @@ describe('a call\'s drafts', () => {
       assert.equal((await recordHistory(storage, REPO, WS, 'jobs')).length, 1, 'no commit joined its history');
       assert.equal(await workspaceGetDataset(storage, REPO, WS, TALLY), 0n, 'and another reader reads each as saved');
       assert.ok(sameResult(result, await kept('load', [], drafts, adding())), 'the call a store keeps answers the same');
+    });
+
+    it('runs its function on the runner it is given for it, named and stopped by its signal, its drafts laid on its own (e3 call --rack)', async () => {
+      const units = adding();
+      const elsewhere = new OptionsRunner();
+      elsewhere.setDetachedResult(ran({ kind: 'success', value: encodeInt(10n) }));
+      const stop = new AbortController();
+      const result = await functionCallUnkept(storage, units, REPO, WS, 'load', { args: [], drafts: [add(5n)] },
+        { limits: LIMITS, now, functionRunner: elsewhere, signal: stop.signal });
+      if (result.outcome.type !== 'success') assert.fail(`the call ended ${result.outcome.type}`);
+
+      assert.equal(units.getCalls().length, 1, 'its draft is laid on the runner the call was given');
+      assert.equal(units.getDetachedCalls().length, 0, 'which does not run its function');
+      const [tallyInput, jobsInput] = result.inputs;
+      assert.equal(tallyInput!.hash, sha256Hex(encodeInt(5n)));
+      assert.deepEqual(elsewhere.getDetachedCalls()[0]!.args, [{ dataset: tallyInput!.hash }, { dataset: jobsInput!.hash }],
+        'the function runs on the other, reading the drafted state');
+      const [given] = elsewhere.given;
+      assert.equal(given?.functionName, 'load', 'named, as a rack leases it by its name');
+      assert.equal(given?.signal, stop.signal, 'and stopped by the call\'s signal');
+      await noCallKept();
     });
 
     it('answers a draft found wrong invalid, in the words a kept call is filed with, and nothing runs', async () => {

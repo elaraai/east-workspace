@@ -39,6 +39,14 @@ export interface FunctionCallUnkeptOptions {
   readonly verbose?: boolean;
   /** The time, in epoch milliseconds (default `Date.now`). */
   readonly now?: () => number;
+  /** The runner its function runs on, when not the one its drafts are laid
+   *  on: an enrolled rack's (`e3 call --rack`), which leases the call by its
+   *  function's name. Its drafts are laid on `runner`, over this
+   *  repository's records. */
+  readonly functionRunner?: TaskRunner;
+  /** Stops its function's run: a rack's runner then leaves its lease. Its
+   *  drafts' laying is never stopped. */
+  readonly signal?: AbortSignal;
 }
 
 /**
@@ -79,7 +87,8 @@ export interface FunctionCallUnkeptOptions {
  * at. A call a draft ended names its inputs as they were pinned.
  *
  * @param storage - Storage backend
- * @param runner - The runner its drafts' programs and its function run on
+ * @param runner - The runner its drafts' programs run on, and its function
+ *   unless `options.functionRunner` names another
  * @param repo - Repository identifier
  * @param workspace - The workspace the call is made through
  * @param fnName - The function's name in the deployed package
@@ -160,13 +169,18 @@ export async function functionCallUnkept(
           draftEnd: staged.end.draftEnd,
         };
       case 'staged': {
-        const result = detachedToExecuteResult(await runner.runDetached({
+        const result = detachedToExecuteResult(await (options.functionRunner ?? runner).runDetached({
           bodyIr: await storage.objects.read(repo, fn.bodyIr),
           args: staged.args,
           runner: fn.runner,
           limits: { ...limits, timeoutMs: staged.left },
           ...(fn.environment.type === 'some' && { environment: fn.environment.value }),
-        }, { storage, ...(verbose !== undefined && { verbose }) }), staged.read);
+        }, {
+          storage,
+          functionName: fnName,
+          ...(options.signal !== undefined && { signal: options.signal }),
+          ...(verbose !== undefined && { verbose }),
+        }), staged.read);
         // One cut short names the call's timeout, whatever was left of it
         const outcome = result.outcome.type === 'timed_out' ? variant('timed_out', { ms: BigInt(limits.timeoutMs) }) : result.outcome;
         return { ...result, outcome, drafts: read };

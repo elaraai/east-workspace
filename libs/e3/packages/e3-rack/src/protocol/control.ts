@@ -31,7 +31,7 @@ export const OpenSessionType = StructType({
 });
 /** Returns the session's identity and stable rack-cache namespace. */
 export const OpenSessionResultType = StructType({ sessionId: StringType, repoAlias: StringType });
-/** Submits the current v2 task/unit event and the requested rack shape. */
+/** Submits the current v2 task, unit or call event and the requested rack shape. */
 export const CreateLeaseType = StructType({ eventJson: StringType, tier: StringType, computeSize: StringType });
 /** Names a claim-time attempt, which changes on reclaim. */
 export const HubAttemptType = StructType({ executionId: StringType, startedAt: DateTimeType });
@@ -39,9 +39,13 @@ export const HubAttemptType = StructType({ executionId: StringType, startedAt: D
 export const CreateLeaseResultType = StructType({ leaseId: StringType, attached: BooleanType, attempt: OptionType(HubAttemptType) });
 /** The attach-only answer: the lease attached to, or none when no identical work is queued or held. */
 export const AttachLeaseResultType = OptionType(CreateLeaseResultType);
-/** Reports a committed lease transition to every subscribing session. */
+/**
+ * Reports a committed lease transition to every subscribing session. A claim
+ * names the attempt it runs, which a task's or a unit's lease has and a call's
+ * has none of: a call is recorded nowhere.
+ */
 export const SessionEventType = StructType({ seq: IntegerType, event: VariantType({
-  claimed: StructType({ leaseId: StringType, rackId: StringType, rackLabel: StringType, attempt: HubAttemptType }),
+  claimed: StructType({ leaseId: StringType, rackId: StringType, rackLabel: StringType, attempt: OptionType(HubAttemptType) }),
   completed: StructType({ leaseId: StringType, attempt: OptionType(HubAttemptType), resultJson: StringType, at: DateTimeType }),
   lost: StructType({ leaseId: StringType, reason: StringType }),
   cancelled: StructType({ leaseId: StringType }),

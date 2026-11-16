@@ -14,13 +14,13 @@ import assert from 'node:assert/strict';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  IntegerType, PatchType, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, variant,
+  East, IntegerType, PatchType, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, encodeEastIR, variant,
   type PatchTypeOf, type ValueTypeOf,
 } from '@elaraai/east';
 
 import type { TestContext } from '../context.js';
 import type { TestSetup } from '../setup.js';
-import { removeWorkspaceAfter, runE3Command } from '../cli.js';
+import { removeWorkspaceAfter, runE3Command, writeCliCredentials } from '../cli.js';
 import {
   createPackageZip, createFunctionPackageZip, createDraftsPackageZip, createKeyedRecordPackageZip, createMigrationPackageZip,
   DraftJobsType, PlansType,
@@ -416,6 +416,40 @@ export function cliTests(
           assert.notStrictEqual(ghost.exitCode, 0);
           assert.match(ghost.stderr, new RegExp(`Draft 1 \\(ghost\\.add\\): record 'ghost' not found in workspace '${wsName}'`));
         });
+      });
+
+      it('calls a function from its IR file as one of a workspace\'s calls, a reader a platform-free one alone, and is refused one without -w', async (t) => {
+        const ctx = await withFunctionPackage(t);
+        const { remoteUrl, workDir, env } = ctx;
+        const wsName = `call-cli-ir-ws-${Date.now()}`;
+        for (const command of [['workspace', 'create', remoteUrl, wsName], ['workspace', 'deploy', remoteUrl, wsName, 'call-cli-pkg@1.0.0']]) {
+          const setup = await runE3Command(command, workDir, { env });
+          assert.strictEqual(setup.exitCode, 0, `${command[0]} ${command[1]} failed: ${setup.stderr}`);
+        }
+        // The program the package declares as `add`, in its IR file
+        const ir = join(workDir, 'add.beast2');
+        writeFileSync(ir, encodeEastIR(East.function([IntegerType, IntegerType], IntegerType, ($, a, b) => a.add(b)).toIR()));
+
+        // `value` holds 10
+        const result = await runE3Command(['call', remoteUrl, '-w', wsName, '--ir', ir, '@.inputs.value', '5'], workDir, { env });
+        assert.strictEqual(result.exitCode, 0, `Failed: ${result.stderr}`);
+        assert.match(result.stdout, /\b15\b/);
+
+        const unscoped = await runE3Command(['call', remoteUrl, '--ir', ir, '2', '3'], workDir, { env });
+        assert.notStrictEqual(unscoped.exitCode, 0);
+        assert.match(unscoped.stderr, /A call of an IR file through a server is one of a workspace's calls: pass -w <ws>/);
+
+        // A reader runs the call given no platform package, and is refused it
+        // loading its runtime's standard package, in the server's words
+        const reader = { ...env, ...writeCliCredentials(join(workDir, 'reader-credentials.json'), ctx.config.baseUrl, await ctx.config.getReaderToken(ctx.repoName)) };
+        const free = await runE3Command(['call', remoteUrl, '-w', wsName, '--ir', ir, '--platform', 'none', '@.inputs.value', '5'], workDir, { env: reader });
+        assert.strictEqual(free.exitCode, 0, `Failed: ${free.stderr}`);
+        assert.match(free.stdout, /\b15\b/);
+        const denied = await runE3Command(['call', remoteUrl, '-w', wsName, '--ir', ir, '@.inputs.value', '5'], workDir, { env: reader });
+        assert.notStrictEqual(denied.exitCode, 0);
+        assert.match(denied.stderr, /Permission denied: .*one-shot/);
+
+        await runE3Command(['workspace', 'remove', remoteUrl, wsName], workDir, { env });
       });
     });
 

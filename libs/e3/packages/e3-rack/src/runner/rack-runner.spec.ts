@@ -10,11 +10,12 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { East, IntegerType, StringType, encodeBeast2For, none, some, variant } from '@elaraai/east';
+import { ArrayType, East, IntegerType, StringType, decodeBeast2For, encodeBeast2For, encodeEastIR, none, some, variant, type EastType, type ValueTypeOf } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import { TaskObjectType, decodeTaskObject } from '@elaraai/e3-types';
 import { Budget, InMemoryStateStore, LocalOrchestrator, LocalStorage, LocalTaskRunner, datasetWrite, inputsHash,
-  packageImport, packageRead, repoInit, unitCap, workspaceCreate, workspaceDeploy, type UnitRequeue } from '@elaraai/e3-core';
+  packageImport, packageRead, repoInit, unitCap, workspaceCreate, workspaceDeploy, type DetachedArg, type DetachedResult, type DetachedSpec,
+  type UnitRequeue } from '@elaraai/e3-core';
 import { RackHub, type RackHubOptions } from '../hub/hub.js';
 import { defaultHubConfig, saveHubConfig } from '../hub/config.js';
 import { HubClient } from '../client/hub-client.js';
@@ -25,8 +26,8 @@ import { pinnedFetch } from '../tls/tls.js';
 import { DEFAULT_RACK_POLICY, setMode, setRule, type RackPolicy } from '../routing/policy.js';
 import { openRackRunner, type OpenRackRunnerOptions } from './rack-runner.js';
 import { createRackBody, ranLocally, type RackPlacementEvent } from './rack-body.js';
-import type { RackLeaseEvent } from '../protocol/task-envelope.js';
-import { RackHeartbeatRequestType } from '../protocol/rack-wire.js';
+import { RACK_INLINE_ARGS_MAX, RACK_INLINE_VALUE_MAX, type RackLeaseEvent } from '../protocol/task-envelope.js';
+import { RackHeartbeatRequestType, type RackLeaseGrant } from '../protocol/rack-wire.js';
 import { E3_RACK_VERSION } from '../version.js';
 import { describeRackSummary } from './summary.js';
 
@@ -591,4 +592,222 @@ it('leases a task whose size names more cores than any rack has for the most a r
   await withGpu.complete(grant, { taskName: 'length', status: 'failed', state: 'failed', exitCode: 1, error: 'the task failed', reason: { code: 'task-error' } });
   assert.equal((await running).state, 'failed');
   assert.deepEqual(local(), []);
+});
+
+// ── Function calls ─────────────────────────────────────────────────────────
+
+const encodeInt = encodeBeast2For(IntegerType);
+const Numbers = ArrayType(IntegerType);
+const node = variant('east_node', { platforms: [] as string[], decode: variant('lazy', null) });
+const callLimits = { timeoutMs: 60_000, maxResultBytes: 64 * 1024 ** 2, maxLogBytes: 64 * 1024 };
+const double = encodeEastIR(East.function([IntegerType], IntegerType, (_$, n) => n.multiply(2n)).toIR());
+/** A call of a program on east-node. */
+const callOf = (bodyIr: Uint8Array, args: DetachedArg[], limits = callLimits): DetachedSpec => ({ bodyIr, args, runner: node, limits });
+/** A call's value, read as its type. */
+const valueOf = <T extends EastType>(result: DetachedResult, type: T): ValueTypeOf<T> => {
+  assert(result.kind === 'success', `the call ended ${result.kind}: ${result.stderr}`);
+  return decodeBeast2For(type)(result.value);
+};
+const leaseOf = (grant: RackLeaseGrant) => JSON.parse(grant.eventJson) as RackLeaseEvent;
+const placed = (events: RackPlacementEvent[]) => events.flatMap((event) => event.kind === 'placed' ? [[event.where, event.role, event.taskName, event.where === 'local' ? event.reason : event.rackLabel]] : []);
+
+it('runs a call on a rack with no local grant, as its own lease naming its program by hash, records nothing of it, and returns its value', async () => {
+  const f = await fixture(); const agent = await f.agent(); const rack = await f.open({ selected: true });
+  const running = rack.runner.runDetached(callOf(double, [encodeInt(21n)]), { storage: f.storage, functionName: 'double' });
+  const grant = await agent.claim(); assert(grant);
+  const event = leaseOf(grant);
+  assert.equal(event.taskName, 'fn:double');
+  assert(event.runnerEvent.mode === 'run-detached');
+  assert.equal(event.runnerEvent.spec.bodyIr, '', 'the program travels by its hash');
+  const program = await f.storage.objects.write(f.repo, double);
+  assert.equal(event.program, program);
+  assert('hashes' in event.closure && event.closure.hashes.includes(program), 'its closure stages its program');
+  assert.deepEqual(event.resources, { kind: 'task', cores: 8, memoryBytes: 16 * 1024 ** 3, gpu: false }, 'sized as a whole task of the policy\'s default size');
+  const done = await agent.execute(grant); assert.equal(done.status, 'success', done.error);
+  assert.equal(valueOf(await running, IntegerType), 42n);
+  assert.equal(f.budget.peak, 0, 'nothing of it ran here');
+  assert.deepEqual(placed(f.placements), [['rack', 'call', 'fn:double', 'test rack']]);
+  assert.deepEqual(await f.storage.refs.executionListIds(f.repo, program, inputsHash([])), [], 'a call is recorded nowhere');
+  assert.equal(describeRackSummary(rack.takeSummary()), 'Rack summary: 1 call on test rack · 0 waited for capacity · 0 ran again · 0 transfers retried · 0 ran locally');
+});
+
+it('makes two calls of one function, made at once, two leases that each return their own value', async () => {
+  const f = await fixture(); const agent = await f.agent({ capacity: 2 });
+  const rack = await f.open({ selected: true, policy: { ...f.policy, spill: false } });
+  const options = { storage: f.storage, functionName: 'double' };
+  const calls = [rack.runner.runDetached(callOf(double, [encodeInt(1n)]), options), rack.runner.runDetached(callOf(double, [encodeInt(2n)]), options)];
+  const a = await agent.claim(); const b = await agent.claim(); assert(a && b, 'both are leased');
+  assert.notEqual(a.leaseId, b.leaseId);
+  for (const done of await Promise.all([agent.execute(a), agent.execute(b)])) assert.equal(done.status, 'success', done.error);
+  assert.deepEqual((await Promise.all(calls)).map((result) => valueOf(result, IntegerType)), [2n, 4n]);
+  assert.equal(f.budget.peak, 0);
+});
+
+it('stages a dataset argument, and a value argument past what a lease carries inline, through the call\'s closure', async () => {
+  const f = await fixture(); const agent = await f.agent(); const rack = await f.open({ selected: true });
+  const total = encodeEastIR(East.function([Numbers, Numbers, IntegerType], IntegerType, (_$, stored, sent, times) =>
+    stored.reduce((_$, sum, value) => sum.add(value), 0n).add(sent.reduce((_$, sum, value) => sum.add(value), 0n)).multiply(times)).toIR());
+  const stored = Array.from({ length: 1000 }, (_, i) => BigInt(i));
+  const sent = Array.from({ length: 60_000 }, (_, i) => BigInt(i) * 1_000_003n);
+  const dataset = await datasetWrite(f.storage, f.repo, stored, Numbers);
+  const large = encodeBeast2For(Numbers)(sent);
+  assert(large.length > RACK_INLINE_ARGS_MAX);
+  const running = rack.runner.runDetached(callOf(total, [{ dataset }, large, encodeInt(2n)]), { storage: f.storage, functionName: 'total' });
+  const grant = await agent.claim(); assert(grant);
+  const event = leaseOf(grant); assert(event.runnerEvent.mode === 'run-detached');
+  const [first, second, third] = event.runnerEvent.spec.args;
+  assert.deepEqual(first, { dataset });
+  assert(typeof second === 'object' && 'dataset' in second, 'a value past the inline budget is staged as a dataset argument is');
+  assert.equal(second.dataset, await f.storage.objects.write(f.repo, large));
+  assert.equal(third, Buffer.from(encodeInt(2n)).toString('base64'), 'a small value rides inline');
+  assert('hashes' in event.closure && event.closure.hashes.includes(dataset) && event.closure.hashes.includes(second.dataset));
+  const done = await agent.execute(grant); assert.equal(done.status, 'success', done.error);
+  const sum = (values: bigint[]) => values.reduce((a, b) => a + b, 0n);
+  assert.equal(valueOf(await running, IntegerType), (sum(stored) + sum(sent)) * 2n);
+});
+
+it('returns a value of several MiB from the object its completion commits', async () => {
+  const f = await fixture(); const agent = await f.agent(); const rack = await f.open({ selected: true });
+  const many = encodeEastIR(East.function([IntegerType], Numbers, (_$, n) => East.Array.generate(n, IntegerType, (_$, i) => i.multiply(1_000_003n))).toIR());
+  const running = rack.runner.runDetached(callOf(many, [encodeInt(500_000n)]), { storage: f.storage, functionName: 'many' });
+  const done = await agent.runOne(); assert.equal(done?.status, 'success', done?.error);
+  const hash = done.detached?.valueHash;
+  assert(hash !== undefined && done.detached?.valueB64 === undefined, 'the value travelled as an object, not inline');
+  assert.equal(done.outputHash, hash, 'committed as the completion\'s output');
+  const { size } = await f.storage.objects.stat(f.repo, hash);
+  assert(size > 2 * 1024 ** 2 && size > RACK_INLINE_VALUE_MAX, `the value is ${size} bytes`);
+  const values = valueOf(await running, Numbers);
+  assert.equal(values.length, 500_000);
+  assert.equal(values[499_999], 499_999n * 1_000_003n);
+  assert.equal(f.budget.peak, 0);
+});
+
+it('takes a call to a rack by its flag whatever the policy selects, sized by a rule that names it; without the flag, a policy that selects nothing opens no session', async () => {
+  const f = await fixture(); const agent = await f.agent();
+  const unselected = await f.open({ policy: DEFAULT_RACK_POLICY });
+  assert.equal(unselected.unattached, 'the rack policy selects no task for a rack');
+  assert.equal(valueOf(await unselected.runner.runDetached(callOf(double, [encodeInt(1n)]), { storage: f.storage, functionName: 'double' }), IntegerType), 2n);
+  assert.equal(f.budget.peak, 1, 'it ran here');
+  const flagged = await f.open({ policy: setRule(DEFAULT_RACK_POLICY, 'fn:double', 'local', { size: 'small' }), selected: true });
+  assert.equal(flagged.unattached, undefined);
+  const running = flagged.runner.runDetached(callOf(double, [encodeInt(2n)]), { storage: f.storage, functionName: 'double' });
+  const grant = await agent.claim(); assert(grant);
+  assert.deepEqual(leaseOf(grant).resources, { kind: 'task', cores: 2, memoryBytes: 4 * 1024 ** 3, gpu: false }, 'the rule that names it sizes it');
+  assert.equal((await agent.execute(grant)).status, 'success');
+  assert.equal(valueOf(await running, IntegerType), 4n);
+});
+
+it('runs here, by name, a call no rack can run, taking its local grant as a call with no rack does', async () => {
+  const f = await fixture(); await f.agent(); const rack = await f.open({ selected: true });
+  const custom = await rack.runner.runDetached({ bodyIr: new Uint8Array([1]), args: [encodeBeast2For(StringType)('the value')],
+    runner: variant('custom', { command: [process.execPath, '-e', 'const a = process.argv; require("node:fs").copyFileSync(a[a.indexOf("-i") + 1], a[a.indexOf("-o") + 1])', '--'] }),
+    limits: callLimits }, { storage: f.storage, functionName: 'copy' });
+  assert.equal(valueOf(custom, StringType), 'the value');
+  assert.deepEqual(placed(f.placements), [['local', 'call', 'fn:copy', 'custom-runner']]);
+  assert.equal(f.budget.peak, 1, 'it took the local budget\'s core');
+  assert.equal((await f.client.status()).capacity.queued, 0n, 'nothing was leased');
+});
+
+it('admits a task and a call by one rule: work bound to its runner\'s process settings, and a call given no repository, run here by name', async () => {
+  const f = await fixture(); await f.agent();
+  const env = Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined));
+  const bound = await f.open({ selected: true, settings: { env } });
+  assert.equal((await bound.runner.execute(f.storage, f.hash, f.inputs, { taskName: 'length' })).state, 'success');
+  assert.equal(valueOf(await bound.runner.runDetached(callOf(double, [encodeInt(5n)]), { storage: f.storage, functionName: 'double' }), IntegerType), 10n);
+  const rack = await f.open({ selected: true });
+  assert.equal(valueOf(await rack.runner.runDetached(callOf(double, [encodeInt(6n)]), { functionName: 'double' }), IntegerType), 12n);
+  assert.deepEqual(placed(f.placements), [['local', 'task', 'length', 'host-process-settings'], ['local', 'call', 'fn:double', 'host-process-settings'],
+    ['local', 'call', 'fn:double', 'no-repository']]);
+  assert.equal((await f.client.status()).capacity.queued, 0n, 'nothing was leased');
+});
+
+for (const outcome of [
+  { name: 'the function\'s own failure, its answer with its exit code and log tails', expected: 'rack' as const,
+    result: { status: 'failed' as const, reason: { code: 'task-error' }, detached: { kind: 'failed' as const, exitCode: 3, stdout: 'out', stderr: 'err', stdoutTruncated: false, stderrTruncated: true } },
+    answer: { kind: 'failed', exitCode: 3, stdout: 'out', stderr: 'err', stdoutTruncated: false, stderrTruncated: true } },
+  { name: 'a value over its limit, as a local run answers it', expected: 'rack' as const,
+    result: { status: 'failed' as const, detached: { kind: 'too_large' as const, bytes: 9000, limit: 1024, stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false } },
+    answer: { kind: 'too_large', bytes: 9000, limit: 1024, stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false } },
+  { name: 'its own time used up, as a local run answers it', expected: 'rack' as const,
+    result: { status: 'failed' as const, detached: { kind: 'timed_out' as const, ms: 50, stdout: '', stderr: 'slow', stdoutTruncated: false, stderrTruncated: false } },
+    answer: { kind: 'timed_out', ms: 50, stdout: '', stderr: 'slow', stdoutTruncated: false, stderrTruncated: false } },
+  { name: 'a value the rack could not relay, run here', expected: 'fallback:value-too-large-to-relay',
+    result: { status: 'failed' as const, detached: { kind: 'failed' as const, rackResultTooLarge: true, stdout: '', stderr: 'too large', stdoutTruncated: true, stderrTruncated: true } } },
+  { name: 'no outcome of the call, the rack\'s fault, run here', expected: 'fallback:guest-crashed: the VM died',
+    result: { status: 'failed' as const, state: 'error' as const, reason: { code: 'guest-crashed', detail: 'the VM died' } } },
+  { name: 'a stop of the rack\'s own, run here', expected: 'fallback:the agent is draining',
+    result: { status: 'failed' as const, state: 'error' as const, cancelled: true, error: 'the agent is draining' } },
+]) it(`ends a call whose rack answered ${outcome.name}`, async () => {
+  const f = await fixture(); const agent = await f.agent(); const rack = await f.open({ selected: true });
+  const running = rack.runner.runDetached(callOf(double, [encodeInt(5n)]), { storage: f.storage, functionName: 'double' });
+  const grant = await agent.claim(); assert(grant);
+  await agent.complete(grant, { taskName: 'fn:double', ...outcome.result });
+  const result = await running;
+  if (outcome.expected === 'rack') {
+    assert.deepEqual(result, outcome.answer);
+    assert.equal(f.budget.peak, 0, 'nothing of it ran here');
+  } else {
+    assert.equal(valueOf(result, IntegerType), 10n, 'it ran here instead');
+    assert.equal(f.budget.peak, 1);
+    assert.deepEqual(placed(f.placements).at(-1), ['local', 'call', 'fn:double', outcome.expected]);
+  }
+});
+
+it('fails a call its rack stopped at its cap, by name, and runs it here only under a policy that retries failures locally', async () => {
+  const f = await fixture(); const agent = await f.agent({ peak: () => 4 * 1024 ** 3 + 1 });
+  const policy = setRule(f.policy, 'fn:double', 'rack', { size: 'small' });
+  const rack = await f.open({ selected: true, policy });
+  const running = rack.runner.runDetached(callOf(double, [encodeInt(5n)]), { storage: f.storage, functionName: 'double' });
+  assert.equal((await agent.runOne())?.reason?.code, 'outgrew-cap');
+  const result = await running;
+  assert.equal(result.kind, 'failed');
+  assert.equal(result.stderr, 'e3: memory-limit-exceeded: the call outgrew its cap of 4096 MiB on rack test rack; raise --memory-limit or --size\n');
+  assert.equal(f.budget.peak, 0);
+  const retrying = await f.open({ selected: true, policy: { ...policy, retryTaskFailuresLocally: true } });
+  const again = retrying.runner.runDetached(callOf(double, [encodeInt(6n)]), { storage: f.storage, functionName: 'double' });
+  assert.equal((await agent.runOne())?.reason?.code, 'outgrew-cap');
+  assert.equal(valueOf(await again, IntegerType), 12n);
+  assert.equal(f.budget.peak, 1);
+});
+
+it('runs here a call no rack claims within the claim timeout, and leaves its lease', async () => {
+  const f = await fixture(); await f.agent();
+  const rack = await f.open({ selected: true, policy: { ...f.policy, claimTimeoutSeconds: 1n } });
+  const result = await rack.runner.runDetached(callOf(double, [encodeInt(7n)]), { storage: f.storage, functionName: 'double' });
+  assert.equal(valueOf(result, IntegerType), 14n);
+  assert.deepEqual(placed(f.placements), [['local', 'call', 'fn:double', 'fallback:not-claimed']]);
+  assert.equal((await f.client.status()).capacity.queued, 0n, 'its lease is left');
+});
+
+it('runs here a call whose lease was lost', async () => {
+  let time = Date.now();
+  const f = await fixture({ now: () => time, visibilityMs: 100 }); const agent = await f.agent(); const rack = await f.open({ selected: true });
+  const running = rack.runner.runDetached(callOf(double, [encodeInt(8n)]), { storage: f.storage, functionName: 'double' });
+  assert(await agent.claim());
+  time += 201; await f.hub.sweep();
+  assert.equal(valueOf(await running, IntegerType), 16n);
+  assert.deepEqual(placed(f.placements).at(-1)?.slice(0, 3), ['local', 'call', 'fn:double']);
+  assert.equal(f.budget.peak, 1);
+});
+
+it('answers a call timed_out once its own timeout has passed on a rack that has not answered, and leaves its lease', async () => {
+  const f = await fixture(); const agent = await f.agent(); const rack = await f.open({ selected: true });
+  const started = Date.now();
+  const running = rack.runner.runDetached(callOf(double, [encodeInt(9n)], { ...callLimits, timeoutMs: 500 }), { storage: f.storage, functionName: 'double' });
+  const grant = await agent.claim(); assert(grant);
+  assert.deepEqual(await running, { kind: 'timed_out', ms: 500, stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false });
+  assert(Date.now() - started >= 500);
+  assert.deepEqual((await agent.heartbeat([grant])).stop, [{ repo: grant.repo, leaseId: grant.leaseId }], 'its rack is told to stop it');
+  assert.equal(f.budget.peak, 0);
+});
+
+it('leaves the lease of a call its caller aborts, which ends as an aborted local call ends', async () => {
+  const f = await fixture(); const agent = await f.agent(); const rack = await f.open({ selected: true });
+  const abort = new AbortController();
+  const running = rack.runner.runDetached(callOf(double, [encodeInt(10n)]), { storage: f.storage, functionName: 'double', signal: abort.signal });
+  const grant = await agent.claim(); assert(grant);
+  abort.abort();
+  assert.deepEqual(await running, { kind: 'failed', exitCode: -1, stdout: '', stderr: '', stdoutTruncated: false, stderrTruncated: false });
+  assert.deepEqual((await agent.heartbeat([grant])).stop, [{ repo: grant.repo, leaseId: grant.leaseId }]);
+  assert.equal(f.budget.peak, 0);
 });

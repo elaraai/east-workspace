@@ -113,7 +113,7 @@ export type {
   EastNodePlatform,
   EastCPlatform,
 } from './runner.js';
-export { runnerToVariant, DEFAULT_RUNNER, DEFAULT_RECORD_RUNNER, STOCK_PLATFORM_FAMILIES, STOCK_PLATFORMS_BY_RUNNER } from './runner.js';
+export { runnerToVariant, DEFAULT_RUNNER, DEFAULT_RECORD_RUNNER, STANDARD_PLATFORM_BY_RUNNER, STOCK_PLATFORM_FAMILIES, STOCK_PLATFORMS_BY_RUNNER } from './runner.js';
 
 /**
  * The e3 SDK namespace.

@@ -4,7 +4,8 @@
  */
 
 /**
- * e3 call command - Invoke a named package function with argument values.
+ * e3 call command - Invoke a function with argument values: a named package
+ * function, or a function from its IR file.
  *
  * Usage:
  *   e3 call <repo> <pkg.fn> [args...] [-o out.beast2]      # package-scoped
@@ -13,6 +14,9 @@
  *   e3 call <repo> -w <ws> <fn> @.inputs.sales 5           # a dataset argument
  *   e3 call <repo> -w <ws> <fn> [args...] --draft <record>.<mutation> [args...]
  *                                                           # over an unsaved edit
+ *   e3 call <repo> --ir score.beast2 [args...]              # a function from its IR file
+ *   e3 call <url> -w <ws> --ir score.beast2 @.inputs.sales  # through a server's one-shot calls
+ *   e3 call <repo> -w <ws> <fn> [args...] --rack            # on an enrolled rack
  *
  * Each positional argument is an .east literal (e.g. `5`, `"hello"`,
  * `[1.0, 2.0]`) or a path to a .beast2 / .json / .east file, parsed against
@@ -33,6 +37,21 @@
  * a draft ends where its mutation's arguments do; and a word that starts with
  * a dash is written `--draft=<word>`.
  *
+ * With --ir the function is the IR file's — a function's or an async
+ * function's IR bundle, `.beast2`, or `.json` / `.east` as the runners' CLIs
+ * read one — and its signature is read from the IR. It runs on --runner's
+ * runtime, east-node unless named, with that runtime's standard platform
+ * package, or the packages --platform names (`none` for none). Through a
+ * server it is one of the workspace's one-shot calls, under the grant the
+ * server gives the caller: a reader may make a platform-free call alone. It
+ * reads no record, so it is passed no draft.
+ *
+ * With --rack a call of a local repository runs on an enrolled rack, whatever
+ * the repository's rack policy selects: a rule that names it (`fn:<name>`)
+ * still sizes it. A call no rack can run runs here, and a line on the
+ * terminal's stderr says where it ran and why. Its drafts are laid here, over
+ * this repository's records, and its function runs on the rack.
+ *
  * Calls are graph-free: the result is printed (or written with -o), and the
  * function's stdout and stderr go to the terminal's stderr, so the value can
  * be piped. A call of a local repository runs in this process and keeps
@@ -43,6 +62,7 @@
  */
 
 import { readFile, writeFile } from 'fs/promises';
+import { basename, extname } from 'path';
 import {
   IntegerType,
   decodeBeast2For,
@@ -56,18 +76,23 @@ import {
   type EastTypeValue,
   type EastType,
 } from '@elaraai/east';
+import { STANDARD_PLATFORM_BY_RUNNER } from '@elaraai/e3';
 import {
   packageObjectRead,
   packageRead,
-  packageGetLatestVersion,
   workspaceGetPackage,
   detachedToExecuteResult,
   functionCallUnkept,
+  pinCallArguments,
+  readProgram,
   recordDescribe,
+  withRunningWork,
   LocalStorage,
   LocalTaskRunner,
   type Budget,
   type DetachedArg,
+  type DetachedSpec,
+  type TaskRunner,
 } from '@elaraai/e3-core';
 import {
   type CallArg, type FunctionDraft, type FunctionInput, type FunctionObject, type PackageObject, type RecordSignature, type RunnerValue,
@@ -77,15 +102,17 @@ import {
   ApiError,
   functionDescribe,
   functionCall,
+  oneShotCall,
   workspaceFunctionDescribe,
   workspaceFunctionCall,
   workspaceRecordDescribe,
-  packageList as packageListRemote,
   type ExecuteResult,
+  type WorkspaceFunctionCallOptions,
 } from '@elaraai/e3-api-client';
-import { parseRepoLocation, formatError, exitError } from '../utils.js';
+import { parseRepoLocation, resolvePackageVersion, formatError, exitError } from '../utils.js';
 import { parseTaskSpec } from './run.js';
 import { commandBudget, refuseRemoteBudget, type BudgetFlags } from './budget.js';
+import { commandPlacement, openRack, rackEnvironmentLine, refuseRemoteRack, unattachedLine, type RackFlags } from './rack-options.js';
 import { arityRefusal, parseMutationSpec } from './mutation-spec.js';
 
 /** How long a remote call's start waits for it to end before the call is
@@ -106,12 +133,51 @@ const printInteger = printFor(IntegerType);
 /** Where a call's own arguments are written when it passes drafts. */
 const OWN_ARGUMENTS_FIRST = "a call's own arguments are written before the first --draft, which reads every word up to the next option";
 
-/** A function's callable signature, from either a local FunctionObject or a
- *  remote describe. */
+/** A function's callable signature, from either a local FunctionObject, a
+ *  remote describe or an IR file. */
 interface CallSignature {
   inputs: FunctionInput[];
   argTypes: EastTypeValue[];
   outputType: EastTypeValue;
+}
+
+/** The program a call runs: a named function's, or an IR file's. */
+interface CallProgram {
+  /** The function's name, as its rule and its placement name it
+   *  (`fn:<name>`): a named function's own, or its IR file's without its
+   *  extension */
+  name: string;
+  /** Whether it is a package's function, which a call through a workspace
+   *  resolves by its name in the package the workspace runs */
+  named: boolean;
+  /** Its IR bundle */
+  bodyIr: Uint8Array;
+  /** The runner it runs on */
+  runner: RunnerValue;
+  /** The environment it declares, when it declares one */
+  environment?: string;
+  /** What it takes and answers */
+  signature: CallSignature;
+}
+
+/** The options of `e3 call`. */
+export interface CallOptions extends BudgetFlags, RackFlags {
+  /** The workspace the call runs in, whose datasets an argument may name */
+  workspace?: string;
+  /** Where the value is written, in place of printing it */
+  output?: string;
+  /** Pass `-v` to the runner */
+  verbose?: boolean;
+  /** The words of every `--draft`: unsaved edits laid over the records a
+   *  named function reads */
+  draft?: string[];
+  /** An IR file whose function is called, in place of a named one */
+  ir?: string;
+  /** The runtime an IR file's function runs on: east-node unless named */
+  runner?: string;
+  /** The platform packages it loads, in place of its runtime's standard one:
+   *  `none` for none */
+  platform?: string[];
 }
 
 /**
@@ -156,6 +222,57 @@ export function parseFunctionSpec(
   }
   const { name, version, task } = parseTaskSpec(spec);
   return { name, version, fn: task };
+}
+
+/** The runtimes `--runner` names, by their wire tag. */
+const RUNTIMES = { 'east-node': 'east_node', 'east-c': 'east_c', 'east-py': 'east_py' } as const;
+
+/**
+ * The runner an IR file's function runs on: a stock runtime, east-node unless
+ * named, given the runtime's standard platform package, as `e3.function`'s
+ * default runner is, or the packages named in its place — none for `none`,
+ * which makes a platform-free call.
+ *
+ * @param runtime - `east-node`, `east-c` or `east-py`
+ * @param platforms - The packages it loads, in place of its standard one; `none` alone for none
+ * @returns The runner
+ * @throws {Error} For another runtime, and for `none` named beside a package
+ */
+export function irRunner(runtime = 'east-node', platforms?: readonly string[]): RunnerValue {
+  if (!Object.hasOwn(RUNTIMES, runtime)) throw new Error(`--runner names east-node, east-c or east-py, not '${runtime}'`);
+  const tag = RUNTIMES[runtime as keyof typeof RUNTIMES];
+  if (platforms?.includes('none') === true && platforms.length > 1) throw new Error('--platform none loads no package, and is named alone');
+  const named = platforms === undefined ? [STANDARD_PLATFORM_BY_RUNNER[tag]] : platforms.includes('none') ? [] : [...platforms];
+  const decode = variant('lazy', null);
+  switch (tag) {
+    case 'east_node': return variant('east_node', { platforms: named, decode });
+    case 'east_c': return variant('east_c', { platforms: named, decode });
+    case 'east_py': return variant('east_py', { platforms: named, decode });
+  }
+}
+
+/**
+ * Reads the function an IR file holds: its program as the bundle a runner is
+ * handed, its signature from the IR, and the runner it runs on.
+ *
+ * @param path - The IR file: `.beast2`, `.json` or `.east`
+ * @param runtime - The runtime it runs on ({@link irRunner})
+ * @param platforms - The packages it loads ({@link irRunner})
+ * @returns The program, named by its file without its extension
+ * @throws {Error} When the file cannot be read, holds no function's IR, or the
+ *   runner is not one
+ */
+export async function irProgram(path: string, runtime?: string, platforms?: readonly string[]): Promise<CallProgram> {
+  const runner = irRunner(runtime, platforms);
+  const bytes = new Uint8Array(await readFile(path));
+  let program: ReturnType<typeof readProgram>;
+  try {
+    program = readProgram(path, bytes);
+  } catch (err) {
+    throw new Error(`${path} holds no function's IR: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  return { name: basename(path, extname(path)), named: false, bodyIr: program.bodyIr, runner,
+    signature: { inputs: [], argTypes: program.argTypes, outputType: program.outputType } };
 }
 
 /**
@@ -392,20 +509,15 @@ async function renderResult(
 }
 
 /**
- * Call a function in a local repository (no server round trip).
+ * A named function of a local repository: of the package a workspace runs,
+ * or of a package by its name and version.
  */
-async function callLocal(
+async function namedProgram(
+  storage: LocalStorage,
   repoPath: string,
   spec: { name?: string; version?: string; fn: string },
   workspace: string | undefined,
-  rawArgs: string[],
-  draftWords: readonly string[],
-  budget: Budget,
-  outputPath?: string,
-  verbose?: boolean
-): Promise<void> {
-  const storage = new LocalStorage();
-
+): Promise<CallProgram & { pkg: string }> {
   // Through a workspace, the package it names by its hash, which a call
   // through it runs: never the package a name and a version name now, which
   // an import under the same version replaces before any deploy of it
@@ -419,14 +531,7 @@ async function callLocal(
     pkg = await packageObjectRead(storage, repoPath, deployed.hash);
   } else {
     pkgName = spec.name!;
-    version = spec.version!;
-    if (version === 'latest') {
-      const resolved = await packageGetLatestVersion(storage, repoPath, pkgName);
-      if (!resolved) {
-        exitError(`Package '${pkgName}' not found`);
-      }
-      version = resolved;
-    }
+    version = await resolvePackageVersion({ type: 'local', path: repoPath }, pkgName, spec.version!);
     pkg = await packageRead(storage, repoPath, pkgName, version);
   }
 
@@ -436,46 +541,177 @@ async function callLocal(
     exitError(`Function '${spec.fn}' not found in ${pkgName}@${version}. Available: ${available || '(none)'}`);
   }
   const fnObj: FunctionObject = decodeFunctionObject(Buffer.from(await storage.objects.read(repoPath, fnHash)));
+  return {
+    name: spec.fn,
+    named: true,
+    pkg: `${pkgName}@${version}`,
+    bodyIr: await storage.objects.read(repoPath, fnObj.bodyIr),
+    runner: fnObj.runner as RunnerValue,
+    ...(fnObj.environment.type === 'some' && { environment: fnObj.environment.value }),
+    signature: { inputs: fnObj.inputs, argTypes: fnObj.argTypes, outputType: fnObj.outputType },
+  };
+}
 
-  const signature: CallSignature = { inputs: fnObj.inputs, argTypes: fnObj.argTypes, outputType: fnObj.outputType };
-  checkCallArguments(spec.fn, signature, rawArgs, workspace, draftWords.length > 0);
-  const runner = new LocalTaskRunner(repoPath, budget);
+/**
+ * Runs a call on an enrolled rack, through a session opened for it alone: a
+ * rack is leased the call whatever the repository's policy selects, and where
+ * no rack can run it, it runs here. Where it ran, and why, goes to the
+ * terminal's stderr. Its program, and an argument too large to travel inline,
+ * are objects of the repository until the call ends, so no sweep takes them
+ * meanwhile. Ctrl-C leaves its lease, whose rack is told to stop it.
+ *
+ * @param label - What the rack's activity view names the call by: the
+ *   workspace, the package, or nothing for an IR file's call
+ * @param run - Runs the call's function on the rack's runner, which the
+ *   signal stops
+ * @returns The call's outcome, or null once Ctrl-C has stopped it
+ */
+async function callOnRack<T>(
+  storage: LocalStorage,
+  repoPath: string,
+  program: CallProgram,
+  label: string,
+  budget: Budget,
+  options: CallOptions,
+  run: (runner: TaskRunner, signal: AbortSignal) => Promise<T>,
+): Promise<T | null> {
+  const rack = await openRack({ repoPath, workspace: label, storage, label: `e3 call ${program.name} (pid ${process.pid})`, budget,
+    rackOnly: options.rackOnly, selected: true, onPlacement: commandPlacement((line) => console.error(line)),
+    onEnvironment: (event) => console.error(rackEnvironmentLine(event)), log: (line) => console.error(line) });
+  // Ctrl-C leaves the lease; a second stops this process at once
+  const stop = new AbortController();
+  const interrupt = (): void => stop.abort(new Error('interrupted'));
+  process.once('SIGINT', interrupt);
+  try {
+    if (rack.unattached !== undefined) console.error(unattachedLine(`fn:${program.name}`, rack.unattached));
+    const result = await withRunningWork(storage, repoPath, () => run(rack.runner, stop.signal));
+    if (!stop.signal.aborted) return result;
+    console.error('Interrupted: the call\'s rack is told to stop it');
+    process.exitCode = 130;
+    return null;
+  } finally {
+    process.off('SIGINT', interrupt);
+    await rack.close();
+  }
+}
 
+/**
+ * Call a function in a local repository (no server round trip): here, or
+ * with --rack on an enrolled rack.
+ */
+async function callLocal(
+  storage: LocalStorage,
+  repoPath: string,
+  program: CallProgram,
+  label: string,
+  workspace: string | undefined,
+  rawArgs: string[],
+  draftWords: readonly string[],
+  budget: Budget,
+  options: CallOptions,
+): Promise<void> {
+  const { signature } = program;
+  checkCallArguments(program.name, signature, rawArgs, workspace, draftWords.length > 0);
+  const onRack = options.rack === true || options.rackOnly === true;
+  const local = new LocalTaskRunner(repoPath, budget);
+
+  if (workspace !== undefined && program.named) {
+    const args = await serverArgs(signature, rawArgs);
+    const drafts = await readDrafts(draftWords, workspace, (record) => recordDescribe(storage, repoPath, workspace, record));
+    // Through a workspace the function is resolved again, its inputs and an
+    // argument that names one of its datasets pinned at the hash each holds
+    // now, under the workspace's shared lock, and its drafts are laid over the
+    // records it reads, as a server's call resolves, pins and lays them: the
+    // result names what was read. Nothing of the call is kept, and nothing of a
+    // draft is saved. With --rack its drafts are laid here and its function
+    // runs on the rack
+    const call = (functionRunner?: TaskRunner, signal?: AbortSignal): Promise<ExecuteResult> =>
+      functionCallUnkept(storage, local, repoPath, workspace, program.name, { args, drafts }, {
+        limits: LOCAL_LIMITS,
+        ...(options.verbose !== undefined && { verbose: options.verbose }),
+        ...(functionRunner !== undefined && { functionRunner }),
+        ...(signal !== undefined && { signal }),
+      });
+    const result = onRack ? await callOnRack(storage, repoPath, program, label, budget, options, call) : await call();
+    if (result !== null) await renderResult(result, signature.outputType, options.output);
+    return;
+  }
+
+  // An IR file's function, or a package's through no workspace: through a
+  // workspace an argument that names one of its datasets is pinned at the
+  // hash it holds now, as a server pins it, and named in the result; a call
+  // with none takes values only (`callCommand` refuses a dataset and a draft
+  // without -w, and a draft for an IR file's function)
+  let pinned: { args: DetachedArg[]; inputs: ExecuteResult['inputs'] } | ExecuteResult;
   if (workspace === undefined) {
-    // Through the package a call reads no workspace: it takes values only
-    // (`callCommand` refuses a dataset and a draft without -w)
     const values: DetachedArg[] = [];
     for (let i = 0; i < rawArgs.length; i++) {
       values.push(await encodeArg(rawArgs[i]!, signature.argTypes[i]!, i));
     }
-    const detached = await runner.runDetached({
-      bodyIr: await storage.objects.read(repoPath, fnObj.bodyIr),
-      args: values,
-      runner: fnObj.runner as RunnerValue,
-      limits: LOCAL_LIMITS,
-      environment: fnObj.environment.type === 'some' ? fnObj.environment.value : undefined,
-    }, { storage, verbose });
-    // The wire shape a server answers, rendered the same way
-    await renderResult(detachedToExecuteResult(detached), signature.outputType, outputPath);
+    pinned = { args: values, inputs: [] };
+  } else {
+    const args: CallArg[] = [];
+    for (let i = 0; i < rawArgs.length; i++) {
+      args.push(await callArg(rawArgs[i]!, signature.argTypes[i]!, i));
+    }
+    pinned = await pinCallArguments(storage, repoPath, workspace, args, { inputs: signature.inputs });
+  }
+  if (!('args' in pinned)) {
+    // An unassigned dataset, and nothing ran
+    await renderResult(pinned, signature.outputType, options.output);
     return;
   }
 
+  const spec: DetachedSpec = { bodyIr: program.bodyIr, args: pinned.args, runner: program.runner, limits: LOCAL_LIMITS,
+    ...(program.environment !== undefined && { environment: program.environment }) };
+  const detached = onRack
+    ? await callOnRack(storage, repoPath, program, label, budget, options, (runner, signal) => runner.runDetached(spec, { storage, functionName: program.name, signal,
+      ...(options.verbose !== undefined && { verbose: options.verbose }) }))
+    : await local.runDetached(spec, { storage, verbose: options.verbose });
+  if (detached === null) return;
+
+  // The wire shape a server answers, rendered the same way
+  await renderResult(detachedToExecuteResult(detached, pinned.inputs), signature.outputType, options.output);
+}
+
+/**
+ * Waits for a call a server keeps, which `start` starts: a call longer than a
+ * second is named then, so Ctrl-C reaches it at once, and Ctrl-C asks the
+ * server to stop it. A second Ctrl-C stops this process at once.
+ *
+ * @param start - Starts the call, given how it is stopped and told of
+ * @returns The call's result, or null once Ctrl-C has stopped it
+ */
+async function keptCall(start: (call: WorkspaceFunctionCallOptions) => Promise<ExecuteResult>): Promise<ExecuteResult | null> {
+  const stop = new AbortController();
+  const interrupt = (): void => stop.abort(new Error('interrupted'));
+  process.once('SIGINT', interrupt);
+  try {
+    return await start({
+      signal: stop.signal,
+      startWaitMs: CALL_START_WAIT_MS,
+      onStarted: (id) => console.error(`Call ${id} runs on; Ctrl-C asks the server to stop it`),
+    });
+  } catch (err) {
+    if (!stop.signal.aborted) throw err;
+    // The client asks the server to stop the call as it gives it up: this
+    // process exits once that request has gone
+    console.error('Interrupted: the server is asked to stop the call');
+    process.exitCode = 130;
+    return null;
+  } finally {
+    process.off('SIGINT', interrupt);
+  }
+}
+
+/** Reads a call's arguments as a server takes them: values, and with a
+ *  workspace its datasets, which the server pins. */
+async function serverArgs(signature: CallSignature, rawArgs: readonly string[]): Promise<CallArg[]> {
   const args: CallArg[] = [];
   for (let i = 0; i < rawArgs.length; i++) {
     args.push(await callArg(rawArgs[i]!, signature.argTypes[i]!, i));
   }
-  const drafts = await readDrafts(draftWords, workspace, (record) => recordDescribe(storage, repoPath, workspace, record));
-  // Through a workspace the function is resolved again, its inputs and an
-  // argument that names one of its datasets pinned at the hash each holds
-  // now, under the workspace's shared lock, and its drafts are laid over the
-  // records it reads, as a server's call resolves, pins and lays them: the
-  // result names what was read. Nothing of the call is kept, and nothing of a
-  // draft is saved
-  const result = await functionCallUnkept(storage, runner, repoPath, workspace, spec.fn, { args, drafts }, {
-    limits: LOCAL_LIMITS,
-    ...(verbose !== undefined && { verbose }),
-  });
-  await renderResult(result, signature.outputType, outputPath);
+  return args;
 }
 
 /**
@@ -494,17 +730,8 @@ async function callRemote(
 ): Promise<void> {
   const opts = { token, verbose };
 
-  let version = spec.version;
-  if (!workspace && version === 'latest') {
-    const versions = (await packageListRemote(baseUrl, repo, opts))
-      .filter((p) => p.name === spec.name)
-      .map((p) => p.version)
-      .sort();
-    if (versions.length === 0) {
-      exitError(`Package '${spec.name}' not found`);
-    }
-    version = versions[versions.length - 1]!;
-  }
+  // A bare package name calls the greatest version the server holds
+  const version = workspace ? undefined : await resolvePackageVersion({ type: 'remote', baseUrl, repo, token }, spec.name!, spec.version!);
 
   const signature = workspace
     ? await workspaceFunctionDescribe(baseUrl, repo, workspace, spec.fn, opts)
@@ -513,10 +740,7 @@ async function callRemote(
   checkCallArguments(spec.fn, signature, rawArgs, workspace, draftWords.length > 0);
   // The server pins the function's inputs and a dataset argument in the
   // workspace
-  const args: CallArg[] = [];
-  for (let i = 0; i < rawArgs.length; i++) {
-    args.push(await callArg(rawArgs[i]!, signature.argTypes[i]!, i));
-  }
+  const args = await serverArgs(signature, rawArgs);
   // The server lays the drafts; each is read here against its mutation's
   // types, which the server describes (`callCommand` refuses one without -w)
   const drafts = workspace === undefined ? [] : await readDrafts(draftWords, workspace, async (record) => {
@@ -536,48 +760,65 @@ async function callRemote(
   }
 
   // A call through a workspace is the server's, and outlives any request: it
-  // is started and polled to its end, and Ctrl-C asks the server to stop it.
-  // A second Ctrl-C stops this process at once.
-  const stop = new AbortController();
-  const interrupt = (): void => stop.abort(new Error('interrupted'));
-  process.once('SIGINT', interrupt);
-  let result: ExecuteResult;
-  try {
-    result = await workspaceFunctionCall(baseUrl, repo, workspace, spec.fn, request, opts, {
-      signal: stop.signal,
-      // A call longer than a second is named then, so Ctrl-C reaches it at once
-      startWaitMs: CALL_START_WAIT_MS,
-      onStarted: (id) => console.error(`Call ${id} runs on; Ctrl-C asks the server to stop it`),
-    });
-  } catch (err) {
-    if (!stop.signal.aborted) throw err;
-    // The client asks the server to stop the call as it gives it up: this
-    // process exits once that request has gone
-    console.error('Interrupted: the server is asked to stop the call');
-    process.exitCode = 130;
-    return;
-  } finally {
-    process.off('SIGINT', interrupt);
-  }
-  await renderResult(result, signature.outputType, outputPath);
+  // is started and polled to its end
+  const result = await keptCall((call) => workspaceFunctionCall(baseUrl, repo, workspace, spec.fn, request, opts, call));
+  if (result !== null) await renderResult(result, signature.outputType, outputPath);
+}
+
+/**
+ * Call a function from its IR file through a server: one of a workspace's
+ * one-shot calls, under the grant the server gives the caller, started and
+ * polled as a workspace's function call is.
+ */
+async function callIrRemote(
+  baseUrl: string,
+  repo: string,
+  token: string,
+  program: CallProgram,
+  workspace: string | undefined,
+  rawArgs: string[],
+  outputPath?: string,
+  verbose?: boolean
+): Promise<void> {
+  if (workspace === undefined) throw new Error('A call of an IR file through a server is one of a workspace\'s calls: pass -w <ws>');
+  checkCallArguments(program.name, program.signature, rawArgs, workspace);
+  const request = { bodyIr: program.bodyIr, args: await serverArgs(program.signature, rawArgs), runner: program.runner, limits: none };
+  const result = await keptCall((call) => oneShotCall(baseUrl, repo, workspace, request, { token, verbose }, call));
+  if (result !== null) await renderResult(result, program.signature.outputType, outputPath);
 }
 
 /**
  * `e3 call` entry point.
+ *
+ * @param repoArg - The repository: a local path or a server's URL
+ * @param fnSpec - The function, as `pkg.fn` (or `fn` with -w); with --ir, the
+ *   first argument, or none
+ * @param args - The arguments
+ * @param options - The call's options
  */
 export async function callCommand(
   repoArg: string,
-  fnSpec: string,
+  fnSpec: string | undefined,
   args: string[],
-  options: BudgetFlags & { workspace?: string; output?: string; verbose?: boolean; draft?: string[] }
+  options: CallOptions
 ): Promise<void> {
   try {
-    const spec = parseFunctionSpec(fnSpec, options.workspace !== undefined);
+    // A server decides where its own work runs: refused before any credential is read
+    refuseRemoteRack(repoArg, options);
+    if (options.ir === undefined && (options.runner !== undefined || options.platform !== undefined)) {
+      throw new Error('--runner and --platform say what a function from its IR file runs on: a named function runs on its own runner');
+    }
+    if (options.ir === undefined && fnSpec === undefined) {
+      throw new Error('Name the function to call, as pkg.fn (or fn with -w), or call one from its IR file with --ir <file>');
+    }
+    // With --ir every positional is an argument
+    const positional = options.ir === undefined || fnSpec === undefined ? args : [fnSpec, ...args];
+    const spec = options.ir === undefined ? parseFunctionSpec(fnSpec!, options.workspace !== undefined) : undefined;
     // A dataset argument is the workspace's: without one it is refused,
     // before anything is read
-    const dataset = args.findIndex((arg) => arg.startsWith('@'));
+    const dataset = positional.findIndex((arg) => arg.startsWith('@'));
     if (dataset !== -1 && options.workspace === undefined) {
-      throw new Error(`Argument ${dataset + 1} (${args[dataset]}) is a dataset, which a call reads from the workspace it runs in: pass -w <ws>`);
+      throw new Error(`Argument ${dataset + 1} (${positional[dataset]}) is a dataset, which a call reads from the workspace it runs in: pass -w <ws>`);
     }
     // A draft is laid over a record of the workspace, and a call through the
     // package reads none: it is refused the same way
@@ -585,12 +826,28 @@ export async function callCommand(
     if (drafts.length > 0 && options.workspace === undefined) {
       throw new Error(`A draft (--draft ${drafts[0]}) is laid over a record of the workspace the call runs in: pass -w <ws>`);
     }
+    // A function from its IR file reads no record
+    if (drafts.length > 0 && options.ir !== undefined) {
+      throw new Error(`A draft (--draft ${drafts[0]}) is laid over a record a named function reads: a function from its IR file reads none`);
+    }
     const location = await parseRepoLocation(repoArg);
     if (location.type === 'local') {
-      await callLocal(location.path, spec, options.workspace, args, drafts, commandBudget(options), options.output, options.verbose);
+      const storage = new LocalStorage();
+      if (spec === undefined) {
+        const program = await irProgram(options.ir!, options.runner, options.platform);
+        await callLocal(storage, location.path, program, options.workspace ?? '', options.workspace, positional, drafts, commandBudget(options), options);
+      } else {
+        const program = await namedProgram(storage, location.path, spec, options.workspace);
+        await callLocal(storage, location.path, program, options.workspace ?? program.pkg, options.workspace, positional, drafts, commandBudget(options), options);
+      }
     } else {
       refuseRemoteBudget(options);
-      await callRemote(location.baseUrl, location.repo, location.token, spec, options.workspace, args, drafts, options.output, options.verbose);
+      if (spec === undefined) {
+        await callIrRemote(location.baseUrl, location.repo, location.token, await irProgram(options.ir!, options.runner, options.platform),
+          options.workspace, positional, options.output, options.verbose);
+      } else {
+        await callRemote(location.baseUrl, location.repo, location.token, spec, options.workspace, positional, drafts, options.output, options.verbose);
+      }
     }
   } catch (err) {
     exitError(formatError(err));

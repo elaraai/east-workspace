@@ -27,7 +27,7 @@ import { ApproveRackType, AttachLeaseResultType, CancelLeaseResultType, CreateLe
   HubEnrollResultType, HubEnrollType, HubStatusType, OpenSessionType, OpenSessionResultType, RemoveRackResultType, SessionPollType, SessionPollResultType } from '../protocol/control.js';
 import { RackRegistrationType, RackSecurityPolicyType } from '../protocol/registration.js';
 import { RackHeartbeatRequestType, RackHeartbeatResponseType } from '../protocol/rack-wire.js';
-import { RACK_LISTENER_IDLE_MS, RACK_PROTOCOL, RACK_TRANSFERS_AT_ONCE, readRackHello, readRackRefusal } from '../protocol/rack-json.js';
+import { RACK_CALL_VALUE_OBJECTS, RACK_LISTENER_IDLE_MS, RACK_PROTOCOL, RACK_TRANSFERS_AT_ONCE, readRackHello, readRackRefusal } from '../protocol/rack-json.js';
 import { TestRackAgent, type TestRackAgentOptions } from '../testing/test-rack-agent.js';
 import { SlowLink, type SlowLinkOptions } from '../testing/slow-link.js';
 import { certificateSha256, createHubCertificate, pinnedFetch } from '../tls/tls.js';
@@ -35,7 +35,7 @@ import { writeStateFile } from '../state-file.js';
 import { taskClosure } from '../lease/closure.js';
 import { envManifestKey, envManifestName, type EnvLayerManifest } from '../server/env-publication.js';
 import type { RackLeaseEvent, RackLeaseResources } from '../protocol/task-envelope.js';
-import { splitUnitToWire } from '../runner-event.js';
+import { detachedSpecToWire, splitUnitToWire } from '../runner-event.js';
 
 const cleanup: Array<() => Promise<void>> = [];
 afterEach(async () => { for (const close of cleanup.splice(0).reverse()) await close(); });
@@ -107,6 +107,14 @@ function event(input: string[] = [], resources?: RackLeaseResources): RackLeaseE
   return { version: 2, taskName: 'task', workspace: 'dev', closure: { hashes: input }, ...(resources !== undefined && { resources }),
     runnerEvent: { mode: 'task', repo: 'replaced-by-hub', taskHash: 'a'.repeat(64), inputHashes: input, launchId: uuidv7(), timeoutMs: 30000 } };
 }
+/** A call of a program, by its hash, with one integer argument: its lease's event. */
+function call(program: string, argument: bigint): RackLeaseEvent {
+  return { version: 2, taskName: 'fn:double', workspace: 'dev', program, closure: { hashes: [program] },
+    resources: { kind: 'task', cores: 1, memoryBytes: 1024 ** 3, gpu: false },
+    runnerEvent: { mode: 'run-detached', repo: 'replaced-by-hub', launchId: uuidv7(), timeoutMs: 30000,
+      spec: detachedSpecToWire({ bodyIr: new Uint8Array(), args: [encodeBeast2For(IntegerType)(argument)],
+        runner: variant('east_node', { platforms: [], decode: variant('lazy', null) }), limits: { timeoutMs: 30000, maxResultBytes: 1024, maxLogBytes: 1024 } }) } };
+}
 
 it('owns one hub, shares a task across sessions and commits a real runner output before publishing completion', async () => {
   const f = await fixture();
@@ -143,9 +151,10 @@ it('owns one hub, shares a task across sessions and commits a real runner output
   assert.deepEqual(events.events.map((e) => e.event.type), ['completed']);
   const secondEvents = await second.events();
   assert.deepEqual(secondEvents.events.map((e) => e.event.type), ['claimed', 'completed']);
-  const claimed = before.events[0]!.event; assert(claimed.type === 'claimed');
-  assert.equal((await f.storage.refs.executionGet(f.repo, hash, inputsHash([inputHash]), claimed.value.attempt.executionId))?.type, 'success');
-  const persisted = (await f.storage.logs.read(f.repo, hash, inputsHash([inputHash]), claimed.value.attempt.executionId, 'stdout')).data;
+  const claimed = before.events[0]!.event; assert(claimed.type === 'claimed' && claimed.value.attempt.type === 'some');
+  const executionId = claimed.value.attempt.value.executionId;
+  assert.equal((await f.storage.refs.executionGet(f.repo, hash, inputsHash([inputHash]), executionId))?.type, 'success');
+  const persisted = (await f.storage.logs.read(f.repo, hash, inputsHash([inputHash]), executionId, 'stdout')).data;
   assert.match(persisted, /^e3: running on rack test rack \(lease .+\)\nrack executing\n$/);
   assert.equal(first.logs.join(''), persisted);
   assert.deepEqual(second.logs, ['rack executing\n']);
@@ -195,6 +204,35 @@ it('attaches to identical work already queued without queuing, and queues nothin
   assert.equal(status.sessions.find((session) => session.sessionId === second.sessionId)?.pending, 1n, 'the attached session subscribes to the lease');
 });
 
+it('leases each call as its own lease, attaches none to another, and publishes a claim of one that names no attempt and writes no log line', async () => {
+  const f = await fixture();
+  const first = await f.session(); const second = await f.session();
+  const program = 'b'.repeat(64);
+  // Two calls of one program, made at once, are two leases: they differ by their arguments alone
+  const [a, b] = await Promise.all([first.create(call(program, 2n)), first.create(call(program, 3n))]);
+  assert.notEqual(a.leaseId, b.leaseId);
+  assert.deepEqual([a.attached, b.attached], [false, false]);
+  // The same call again, from another session, is its own lease too
+  const again = await second.create(call(program, 2n));
+  assert.equal(again.attached, false);
+  assert.equal(new Set([a.leaseId, b.leaseId, again.leaseId]).size, 3);
+  const attach = await socketRequest(f.socket, 'POST', `/v1/sessions/${second.sessionId}/leases/attach`, {
+    requestType: CreateLeaseType, body: { eventJson: JSON.stringify(call(program, 2n)), tier: 'node', computeSize: 'large' }, responseType: AttachLeaseResultType,
+  });
+  assert.equal(attach.type, 'none', 'a call joins no other, and an attach-only request of one queues nothing');
+  assert.equal((await f.status()).capacity.queued, 3n);
+
+  // One of them left in the queue, a rack claims it
+  for (const [session, id] of [[first, b.leaseId], [second, again.leaseId]] as const) assert.equal((await session.cancel(id)).status, 'cancelled');
+  const agent = await f.agent();
+  const grant = await agent.claim(); assert.equal(grant?.leaseId, a.leaseId);
+  const claims = (await first.events()).events.map((e) => e.event).filter((e) => e.type === 'claimed');
+  assert.equal(claims.length, 1); assert(claims[0]!.type === 'claimed');
+  assert.deepEqual(claims[0]!.value.attempt, none, 'a call\'s lease runs no attempt');
+  assert.deepEqual(first.logs, [], 'and keeps no log');
+  await assert.rejects(first.create({ ...call(program, 4n), program: 'not a hash' }), /A call's lease names its program/);
+});
+
 it('quarantines a rebooted rack until its boot is approved, only while the policy requires it', async () => {
   const f = await fixture();
   const agent = await f.agent();
@@ -242,11 +280,11 @@ it('reports lost rack work after its reclaim window and replays a fresh attempt 
   const f = await fixture({ now: () => time, visibilityMs: 100 });
   const session = await f.session(); await session.create(event());
   const first = await f.agent(); const grant = await first.claim(); assert(grant);
-  const before = (await session.events()).events[0]!.event; assert(before.type === 'claimed');
+  const before = (await session.events()).events[0]!.event; assert(before.type === 'claimed' && before.value.attempt.type === 'some');
   time += 101;
   const second = await f.agent(); assert(await second.claim());
-  const next = (await session.events()).events[0]!.event; assert(next.type === 'claimed');
-  assert.notEqual(before.value.attempt.executionId, next.value.attempt.executionId);
+  const next = (await session.events()).events[0]!.event; assert(next.type === 'claimed' && next.value.attempt.type === 'some');
+  assert.notEqual(before.value.attempt.value.executionId, next.value.attempt.value.executionId);
   assert.equal((await first.complete(grant, { taskName: 'task', status: 'failed' })).disposition.type, 'discarded');
   time += 201;
   await f.hub.sweep();
@@ -352,7 +390,8 @@ it('says what it speaks to anyone who reaches its listener, what each rack repor
   const f = await fixture({ log: (line) => { lines.push(line); } });
   const status = await f.status(); assert(status.rackListener.type === 'up');
   const hello = await f.fetch(`${status.rackListener.value.origin}/api/rack/hello`);
-  assert.deepEqual(readRackHello(await hello.text()), { protocol: RACK_PROTOCOL, e3: E3_RACK_VERSION, limits: { transfersAtOnce: RACK_TRANSFERS_AT_ONCE } });
+  assert.deepEqual(readRackHello(await hello.text()), { protocol: RACK_PROTOCOL, e3: E3_RACK_VERSION, limits: { transfersAtOnce: RACK_TRANSFERS_AT_ONCE },
+    features: [RACK_CALL_VALUE_OBJECTS] }, 'a session reads a call\'s value from the object its completion commits');
 
   const agent = await f.agent({ report: { features: ['resources', 'environments'], target: 'x86_64-manylinux_2_28' } });
   const rack = async () => (await f.status()).capacity.racks[0]!;

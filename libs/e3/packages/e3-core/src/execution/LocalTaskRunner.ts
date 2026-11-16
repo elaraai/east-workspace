@@ -117,11 +117,61 @@ export type TaskBodyExecutor = ((
   readonly stopsUnits?: boolean;
 };
 
-/** Runtime configuration of a local runner and its optional body executor. */
+/**
+ * One detached call — a function's, or a one-shot's — before anything of it
+ * has run here.
+ */
+export interface DetachedCallRequest {
+  /** The repository the call runs for: its runner's own. */
+  readonly repo: string;
+  /** The call: its program, its arguments, its runner and its limits. */
+  readonly spec: DetachedSpec;
+  /** Its options: the storage it stages from, its signal, its name. */
+  readonly options: DetachedRunOptions;
+  /** The runner's budget, which a run of the call here takes a core from;
+   *  absent when the runner's spawns are not budgeted. */
+  readonly budget?: Budget;
+  /** How the runner's processes run: the environment they start from, and
+   *  the user and group they run as ({@link ProcessSettings}). */
+  readonly settings: ProcessSettings;
+}
+
+/**
+ * Runs one detached call in place of the local spawn.
+ *
+ * @param request - The call
+ * @param local - Runs the call here, as the runner does with no hook: its
+ *   environment materialized, its scratch directory, its budget grant and the
+ *   runner's process settings. A spec given in place of the request's runs
+ *   instead: the same call with the time it has left, say.
+ * @returns The call's outcome
+ * @remarks
+ * A hook that does not call `local` takes no local budget grant, materializes
+ * no environment and creates no scratch directory. A detached call writes
+ * nothing durable, and neither does its hook for it. The hook is runtime-only;
+ * an intake unit never reaches it.
+ * @example
+ * ```ts
+ * const detached: DetachedCallExecutor = async (request, local) => {
+ *   console.log(request.options.functionName);
+ *   return local();
+ * };
+ * const runner = new LocalTaskRunner(repo, budget, { detached });
+ * ```
+ */
+export type DetachedCallExecutor = (
+  request: DetachedCallRequest,
+  local: (spec?: DetachedSpec) => Promise<DetachedResult>,
+) => Promise<DetachedResult>;
+
+/** Runtime configuration of a local runner and its optional executors. */
 export interface LocalTaskRunnerOptions extends ProcessSettings {
-  /** Replaces task and split-unit bodies after cache misses. Detached calls
-   *  and intake units still run locally. */
+  /** Replaces task and split-unit bodies after cache misses. Intake units
+   *  still run locally. */
   body?: TaskBodyExecutor;
+  /** Replaces a detached call — a function's, or a one-shot's — before
+   *  anything of it runs here. Intake units still run locally. */
+  detached?: DetachedCallExecutor;
 }
 
 declare module './cache.js' {
@@ -194,8 +244,9 @@ export class LocalTaskRunner implements TaskRunner {
    * @param settings - How every process the runner starts runs — task and
    *   unit runners, function calls, intake units and environment installs: the
    *   environment it starts from, and the user and group it runs as
-   *   ({@link ProcessSettings}), and optionally the body executor for tasks
-   *   and split units. Absent, this process's own settings and local bodies.
+   *   ({@link ProcessSettings}), and optionally the executors that replace
+   *   task and split-unit bodies and detached calls. Absent, this process's
+   *   own settings, and everything run here.
    * @throws {Error} When the settings name a user or group on Windows.
    * @throws {RangeError} When a user or group id is not a non-negative
    *   integer.
@@ -291,7 +342,21 @@ export class LocalTaskRunner implements TaskRunner {
     return (await runningCanFinish(storage, this.repo, taskHash, inputsHash, running)) === true;
   }
 
-  async runDetached(spec: DetachedSpec, options?: DetachedRunOptions): Promise<DetachedResult> {
+  /**
+   * Runs a detached call: through the runner's `detached` executor when it has
+   * one, which runs it here only if it calls `local`, and here otherwise.
+   */
+  runDetached(spec: DetachedSpec, options: DetachedRunOptions = {}): Promise<DetachedResult> {
+    const local = (call: DetachedSpec = spec) => this.runDetachedHere(call, options);
+    const { detached: hook, env, uid, gid } = this.settings;
+    if (hook === undefined) return local();
+    const settings: ProcessSettings = { ...(env !== undefined && { env }), ...(uid !== undefined && { uid }), ...(gid !== undefined && { gid }) };
+    return hook({ repo: this.repo, spec, options, settings, ...(this.budget !== undefined && { budget: this.budget }) }, local);
+  }
+
+  /** Runs a detached call here: its environment materialized, in a scratch
+   *  directory of the repository's, under the runner's budget and settings. */
+  private async runDetachedHere(spec: DetachedSpec, options?: DetachedRunOptions): Promise<DetachedResult> {
     let extraBins: string[] | undefined = options?.extraBins;
     if (spec.environment && !extraBins) {
       if (!options?.storage) {

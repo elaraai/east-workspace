@@ -5,18 +5,21 @@
 
 /**
  * `e3 call`'s reading of what it was written with: the count of a call's own
- * arguments, and the drafts after `--draft` (east-workspace#1619), which the
- * command line hands over as one list of words.
+ * arguments, the drafts after `--draft` (east-workspace#1619), which the
+ * command line hands over as one list of words, and a function from its IR
+ * file (east-workspace#1627).
  */
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ArrayType, IntegerType, PatchType, DictType, StringType, encodeBeast2For, equalFor, toEastTypeValue } from '@elaraai/east';
-import { FunctionDraftType, type RecordSignature } from '@elaraai/e3-types';
-import { checkCallArguments, readDrafts } from './call.js';
+import { ArrayType, East, IRType, IntegerType, PatchType, DictType, StringType, decodeEastIR, encodeBeast2For, encodeEastFor, encodeEastIR, encodeJSONFor,
+  equalFor, isTypeValueEqual, toEastTypeValue, variant } from '@elaraai/east';
+import { FunctionDraftType, RunnerType, type RecordSignature } from '@elaraai/e3-types';
+import { checkCallArguments, irProgram, irRunner, readDrafts } from './call.js';
 
 const encodeInt = encodeBeast2For(IntegerType);
 const encodeString = encodeBeast2For(StringType);
@@ -119,5 +122,56 @@ describe('checkCallArguments', () => {
       (err: Error) => err.message === "Function 'jobs_on' expects 1 argument(s), got 0");
     assert.throws(() => checkCallArguments('jobs_on', signature, [], 'dev', true),
       (err: Error) => err.message === `Function 'jobs_on' expects 1 argument(s), got 0 — ${OWN_FIRST}`);
+  });
+});
+
+const add = East.function([IntegerType, IntegerType], IntegerType, ($, a, b) => a.add(b));
+const runnerEqual = equalFor(RunnerType);
+const stock = (type: 'east_node' | 'east_c' | 'east_py', platforms: string[]) => variant(type, { platforms, decode: variant('lazy', null) });
+
+describe('irRunner', () => {
+  it('runs on east-node with its standard package unless told otherwise, on a runtime it names with that runtime\'s, and on the packages named in its place', () => {
+    assert.ok(runnerEqual(irRunner(), stock('east_node', ['@elaraai/east-node-std'])));
+    assert.ok(runnerEqual(irRunner('east-c'), stock('east_c', ['east-c-std'])));
+    assert.ok(runnerEqual(irRunner('east-py'), stock('east_py', ['east-py-std'])));
+    assert.ok(runnerEqual(irRunner('east-node', ['@elaraai/east-node-std', '@elaraai/east-node-io']), stock('east_node', ['@elaraai/east-node-std', '@elaraai/east-node-io'])));
+    assert.ok(runnerEqual(irRunner('east-c', ['none']), stock('east_c', [])), 'none loads none: a platform-free call');
+  });
+
+  it('refuses a runtime that is no stock one, and none named beside a package', () => {
+    assert.throws(() => irRunner('julia'), /--runner names east-node, east-c or east-py, not 'julia'/);
+    assert.throws(() => irRunner('east-node', ['none', '@elaraai/east-node-std']), /--platform none loads no package, and is named alone/);
+  });
+});
+
+describe('irProgram', () => {
+  let dir: string;
+  before(async () => { dir = await mkdtemp(join(tmpdir(), 'e3-call-ir-')); });
+  after(() => rm(dir, { recursive: true, force: true }));
+
+  it('reads the function an IR file holds, in each encoding a runner reads, named by its file, its signature from the IR', async () => {
+    const program = add.toIR();
+    const files = { 'add.beast2': encodeEastIR(program), 'add.json': encodeJSONFor(IRType)(program.ir), 'add.east': encodeEastFor(IRType)(program.ir) };
+    for (const [name, bytes] of Object.entries(files)) {
+      const path = join(dir, name);
+      await writeFile(path, bytes);
+      const read = await irProgram(path, 'east-c', ['none']);
+      assert.equal(read.name, 'add', name);
+      assert.ok(runnerEqual(read.runner, stock('east_c', [])), name);
+      assert.deepEqual(read.signature.inputs, [], name);
+      assert.equal(read.signature.argTypes.length, 2, name);
+      for (const type of [...read.signature.argTypes, read.signature.outputType]) assert.ok(isTypeValueEqual(type, toEastTypeValue(IntegerType)), name);
+      assert.ok(equalFor(IRType)(decodeEastIR(read.bodyIr).ir, program.ir), `${name} is the program`);
+    }
+  });
+
+  it('refuses a file that holds no function\'s IR, naming the file', async () => {
+    const path = join(dir, 'five.beast2');
+    await writeFile(path, encodeBeast2For(IntegerType)(5n));
+    await assert.rejects(irProgram(path), (err: Error) => err.message.startsWith(`${path} holds no function's IR: `));
+    const text = join(dir, 'add.txt');
+    await writeFile(text, encodeEastIR(add.toIR()));
+    await assert.rejects(irProgram(text), /add\.txt holds no function's IR: Unsupported file extension "\.txt"/);
+    await assert.rejects(irProgram(join(dir, 'absent.beast2')), (err: NodeJS.ErrnoException) => err.code === 'ENOENT', 'a missing file is said to be missing');
   });
 });

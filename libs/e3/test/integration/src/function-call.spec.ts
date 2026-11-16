@@ -12,10 +12,11 @@
 
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
-  IntegerType, PatchType, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, variant,
+  East, IRType, IntegerType, PatchType, SortedMap, StringType, compareFor, decodeBeast2For, encodeBeast2For, encodeEastFor, encodeEastIR,
+  encodeJSONFor, variant,
   type PatchTypeOf, type ValueTypeOf,
 } from '@elaraai/east';
 import { repoInit, packageImport, recordHistory, LocalStorage } from '@elaraai/e3-core';
@@ -242,6 +243,70 @@ describe('e3 call (local repository)', { timeout: 120_000, concurrency: false },
       assert.match(result.stderr, /refused: not today/, 'and the mutation\'s own stderr follows');
       assert.match(result.stderr, /Draft jobs\.refuse \(2 of 2\) failed with exit code: 1; the function did not run/);
       assert.equal(result.stdout.trim(), '');
+    });
+  });
+
+  describe('a function from its IR file (--ir)', { concurrency: false }, () => {
+    let irDir: string;
+    const file = (name: string) => join(irDir, name);
+
+    before(async () => {
+      irDir = join(testDir, 'ir');
+      mkdirSync(irDir, { recursive: true });
+      // The program the package declares as `add`, in each encoding a runner reads
+      const program = East.function([IntegerType, IntegerType], IntegerType, ($, a, b) => a.add(b)).toIR();
+      writeFileSync(file('add.beast2'), encodeEastIR(program));
+      writeFileSync(file('add.json'), encodeJSONFor(IRType)(program.ir));
+      writeFileSync(file('add.east'), encodeEastFor(IRType)(program.ir));
+      writeFileSync(file('five.beast2'), encodeBeast2For(IntegerType)(5n));
+      for (const command of [['workspace', 'create', repoPath, 'ir-ws'], ['workspace', 'deploy', repoPath, 'ir-ws', 'local-fn-pkg@1.0.0']]) {
+        const result = await runE3Command(command, process.cwd());
+        assert.equal(result.exitCode, 0, `${command.join(' ')}: ${result.stderr}`);
+      }
+    });
+
+    it('returns what the same function called by name returns, from each encoding a runner reads', async () => {
+      const named = await runE3Command(['call', repoPath, 'local-fn-pkg.add', '2', '3'], process.cwd());
+      assert.equal(named.exitCode, 0, `Failed: ${named.stderr}`);
+      for (const name of ['add.beast2', 'add.json', 'add.east']) {
+        const result = await runE3Command(['call', repoPath, '--ir', file(name), '2', '3'], process.cwd());
+        assert.equal(result.exitCode, 0, `${name}: ${result.stderr}`);
+        assert.equal(result.stdout, named.stdout, name);
+      }
+    });
+
+    it('takes file arguments and writes its value with -o, with -w a dataset of the workspace, and runs given no platform package', async () => {
+      const out = file('sum.beast2');
+      const written = await runE3Command(['call', repoPath, '--ir', file('add.beast2'), '20', '22', '-o', out], process.cwd());
+      assert.equal(written.exitCode, 0, `Failed: ${written.stderr}`);
+      assert.equal(decodeBeast2For(IntegerType)(readFileSync(out)), 42n);
+      const fed = await runE3Command(['call', repoPath, '--ir', file('add.beast2'), out, '8'], process.cwd());
+      assert.equal(fed.exitCode, 0, `Failed: ${fed.stderr}`);
+      assert.match(fed.stdout, /^50$/m);
+      // `value` holds 10
+      const dataset = await runE3Command(['call', repoPath, '-w', 'ir-ws', '--ir', file('add.beast2'), '@.inputs.value', '5'], process.cwd());
+      assert.equal(dataset.exitCode, 0, `Failed: ${dataset.stderr}`);
+      assert.match(dataset.stdout, /^15$/m);
+      const free = await runE3Command(['call', repoPath, '--ir', file('add.beast2'), '--platform', 'none', '2', '3'], process.cwd());
+      assert.equal(free.exitCode, 0, `Failed: ${free.stderr}`);
+      assert.match(free.stdout, /^5$/m);
+    });
+
+    it('refuses arguments its signature does not take before anything runs, a file holding no function, --runner for a named function, and a draft', async () => {
+      for (const [args, message] of [
+        [['--ir', file('add.beast2'), '1'], /Function 'add' expects 2 argument\(s\), got 1/],
+        [['--ir', file('add.beast2'), 'one', '2'], /Argument 1: failed to parse 'one'/],
+        [['--ir', file('five.beast2'), '1'], /five\.beast2 holds no function's IR/],
+        [['local-fn-pkg.add', '2', '3', '--runner', 'east-c'], /--runner and --platform say what a function from its IR file runs on/],
+        [[], /Name the function to call, as pkg\.fn \(or fn with -w\), or call one from its IR file with --ir <file>/],
+        // A function from its IR file reads no record: a draft is refused before the repository is read
+        [['-w', 'ir-ws', '--ir', file('add.beast2'), '2', '3', '--draft', 'tally.add', '1'],
+          /A draft \(--draft tally\.add\) is laid over a record a named function reads: a function from its IR file reads none/],
+      ] as const) {
+        const result = await runE3Command(['call', repoPath, ...args], process.cwd());
+        assert.notEqual(result.exitCode, 0, args.join(' '));
+        assert.match(result.stderr, message, args.join(' '));
+      }
     });
   });
 });

@@ -12,7 +12,8 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
-import { DictType, East, FunctionType, IntegerType, NullType, StringType, encodeBeast2For, encodeEastIR, none, some, variant } from '@elaraai/east';
+import { DictType, East, FunctionType, IRType, IntegerType, NullType, StringType, decodeEastIR, encodeBeast2For, encodeEastFor, encodeEastIR, encodeJSONFor, equalFor,
+  isTypeValueEqual, none, some, toEastTypeValue, variant } from '@elaraai/east';
 import e3 from '@elaraai/e3';
 import type { OneShotRequest, RunnerValue } from '@elaraai/e3-types';
 import { PermissionDeniedError } from '../errors.js';
@@ -22,7 +23,7 @@ import { workspaceGetDatasetHash } from '../trees.js';
 import { InMemoryStorage } from '../storage/in-memory/InMemoryStorage.js';
 import { createTempDir, removeTempDir } from '../test-helpers.js';
 import { MockTaskRunner } from './MockTaskRunner.js';
-import { oneShotExecute, oneShotPlatformUse, resolveExecuteLimits, type OneShotGrant } from './oneShot.js';
+import { oneShotExecute, oneShotPlatformUse, readProgram, resolveExecuteLimits, type OneShotGrant } from './oneShot.js';
 
 const REPO = 'r';
 const WS = 'ws';
@@ -70,6 +71,23 @@ describe('oneShotPlatformUse', () => {
 
   it('throws for a body that does not decode', () => {
     assert.throws(() => oneShotPlatformUse(request(new Uint8Array([1, 2, 3]))));
+  });
+});
+
+describe('readProgram', () => {
+  it('reads a program from its IR file in each encoding a runner reads, as the bundle a runner is handed, with its signature', () => {
+    const program = twice.toIR();
+    const bundle = encodeEastIR(program);
+    const files: Array<[string, Uint8Array]> = [['twice.beast2', bundle], ['twice.json', encodeJSONFor(IRType)(program.ir)], ['twice.east', encodeEastFor(IRType)(program.ir)]];
+    for (const [name, bytes] of files) {
+      const read = readProgram(name, bytes);
+      assert.equal(read.argTypes.length, 1, name);
+      assert(isTypeValueEqual(read.argTypes[0]!, toEastTypeValue(IntegerType)), name);
+      assert(isTypeValueEqual(read.outputType, toEastTypeValue(IntegerType)), name);
+      assert(equalFor(IRType)(decodeEastIR(read.bodyIr).ir, program.ir), `${name} is the same program`);
+    }
+    assert.throws(() => readProgram('twice.txt', bundle), /Unsupported file extension "\.txt"/);
+    assert.throws(() => readProgram('five.beast2', encodeBeast2For(IntegerType)(5n)), 'a value is no program');
   });
 });
 

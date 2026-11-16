@@ -8,7 +8,7 @@ import type { OpenRackRunnerOptions, RackEnvironmentEvent, RackPlacementEvent, R
 import { leaseReserve } from '@elaraai/e3-rack/protocol';
 import { formatSize } from '../format.js';
 
-/** Rack flags shared by dataflow run and watch. */
+/** Rack flags shared by dataflow run and watch, and by run and call, which take `--rack` alone. */
 export interface RackFlags {
   /** Enables or disables rack routing for this invocation. */
   rack?: boolean;
@@ -19,7 +19,7 @@ export interface RackFlags {
 /** Rejects rack flags on remote repository URLs before resolving credentials. */
 export function refuseRemoteRack(repo: string, flags: RackFlags): void {
   if (/^https?:\/\//.test(repo) && (flags.rack !== undefined || flags.rackOnly)) {
-    throw new Error('rack delegation applies to local repositories — a server decides where its own tasks run');
+    throw new Error('rack delegation applies to local repositories — a server decides where its own work runs');
   }
   if (flags.rackOnly && flags.rack === false) throw new Error('--rack-only and --no-rack cannot be combined');
 }
@@ -72,10 +72,16 @@ export async function openRack(options: OpenRackRunnerOptions): Promise<RackRunn
  *   environment cannot go to a rack, and `[LOCAL] fit
  *   (no-rack-for-environment:py)` where no rack composes environments.
  *
+ * A command that names one piece of work and asks for a rack for it (`e3 run
+ * --rack`, `e3 call --rack`) is told every reason its work runs here
+ * (`everyReason`): `[LOCAL] fn:read_config (host-coupled:fs_read_file)` too.
+ *
  * @param event - The event
+ * @param everyReason - Whether every reason work runs here is printed, not
+ *   only those of a rack's work that ran here after all
  * @returns The line, or undefined for an event a run does not print
  */
-export function rackPlacementLine(event: RackPlacementEvent): string | undefined {
+export function rackPlacementLine(event: RackPlacementEvent, everyReason = false): string | undefined {
   if (event.kind === 'retried') return `  [RACK] ${event.taskName} ${event.retry.transfer} transfer retried (${event.retry.attempt} of ${event.retry.of}): ${event.retry.cause}`;
   if (event.kind === 'waiting') {
     const cores = (n: number) => `${n} ${n === 1 ? 'core' : 'cores'}`;
@@ -101,9 +107,37 @@ export function rackPlacementLine(event: RackPlacementEvent): string | undefined
   }
   if (event.detail !== undefined) return `  [LOCAL] ${event.taskName} (${event.reason.replace(/^fallback:/, '')})`;
   if (event.role === 'unit') return undefined;
-  return event.reason === 'spill' || event.reason === 'source-unreachable' || event.reason.startsWith('fallback:') || event.reason.startsWith('no-rack-') ||
+  return everyReason || event.reason === 'spill' || event.reason === 'source-unreachable' || event.reason.startsWith('fallback:') || event.reason.startsWith('no-rack-') ||
     event.reason.startsWith('environment:')
     ? `  [LOCAL] ${event.taskName} (${event.reason})` : undefined;
+}
+
+/**
+ * What a command that names one piece of work says of where it runs, once it
+ * asked for a rack for it: each placement's line, every reason it runs here
+ * among them ({@link rackPlacementLine}).
+ *
+ * @param print - Where a line goes: a run's progress, or, for a call whose
+ *   value goes to stdout, the terminal's stderr
+ * @returns The placement sink
+ */
+export function commandPlacement(print: (line: string) => void): (event: RackPlacementEvent) => void {
+  return (event) => {
+    const line = rackPlacementLine(event, true);
+    if (line !== undefined) print(line);
+  };
+}
+
+/**
+ * What a command that names one piece of work says when it opened no rack
+ * session, whose work then runs here without a placement of its own.
+ *
+ * @param name - The work's name: a task's, or a call's `fn:<name>`
+ * @param why - Why the session was not opened, in words
+ * @returns The line
+ */
+export function unattachedLine(name: string, why: string): string {
+  return `  [LOCAL] ${name} (no-rack-session: ${why})`;
 }
 
 /**
