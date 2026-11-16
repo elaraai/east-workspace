@@ -56,6 +56,7 @@ import {
     KindSideFields, checkMadeKeys, fieldTypeOf, keyBuilderOf, kindBinding, kindWholeRows, linkEndFields, linkEndsWriter, readOf, recordSide, storedRows, valuesTypeOf,
     type KindKeyBuilder,
 } from "../utils/record-kind.js";
+import { createQuantity } from "./builders.js";
 import { PlanQuantityType } from "./types.js";
 
 // ============================================================================
@@ -509,18 +510,16 @@ export function planLinks<R extends StructType, FF extends KeyEndField<R>, TF ex
             throw new Error(`${where}: \`quantity.field\` names a Float field, or an Option of one, the quantity a link moves — "${quantity.field}" holds ${typeText(held)}`);
         }
     }
-    const format = quantity?.format === undefined ? undefined : East.value(quantity.format, TickFormatType);
     // A new link's key, built from its row — never typed, so an editable kind keyed by another type needs it (#1549).
     const keyBuilt = keyBuilderOf(bound.keyType, rowType, where, "a link", config.key);
     checkMadeKeys(bound, keyBuilt, where, "links", "Connect makes one");
     const fromRef = keyFieldRef(from, rowType);
     const toRef = keyFieldRef(to, rowType);
-    const quantityOf = (value: ExprType<FloatType>) => East.value({
-        value,
-        unit: quantity?.unit === undefined ? none : some(quantity.unit),
-        format: format === undefined ? none : some(format),
-        text: none,
-    }, PlanQuantityType);
+    // What a link moves, as the Plan builds every quantity (`Plan.quantity`): its value, with the kind's unit and format.
+    const quantityOf = (value: ExprType<FloatType>) => createQuantity(value, {
+        ...(quantity?.unit === undefined ? {} : { unit: quantity.unit }),
+        ...(quantity?.format === undefined ? {} : { format: quantity.format }),
+    });
 
     const rolesOf = East.function([rowType, bound.keyType], PlanLinkRolesType, ($, row, _key) => {
         const fromOf = $.const(fromRef);
