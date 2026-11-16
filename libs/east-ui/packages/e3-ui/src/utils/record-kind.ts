@@ -44,7 +44,7 @@ import {
 } from "@elaraai/east-ui/internal";
 import { RecordOutcomeType } from "../bind/record.js";
 import { scheduleAccessor } from "../schedule/accessor.js";
-import { fieldOf, fieldSetters } from "../schedule/fields.js";
+import { checkKeyField, fieldOf, fieldSetters, keyFieldValue, type KeyField } from "../schedule/fields.js";
 import { scheduleEntriesSeam, scheduleRecordSession } from "../schedule/session.js";
 import { ScheduleEntriesType, ScheduleFieldWriteType, ScheduleReadyEntryType } from "../schedule/types.js";
 import { checkEntries, keyOfText, keyTextOf, optionOf, scheduleEntryByKey, scheduleLastKey, typeText } from "../schedule/window.js";
@@ -486,6 +486,95 @@ export function called<T extends EastType>(
     if (fn === undefined) return otherwise;
     const bound = $.const(fn) as (row: unknown, key: unknown) => ExprType<T>;
     return wrap(bound(row, key));
+}
+
+// ============================================================================
+// A link's ends
+// ============================================================================
+
+/** How a link kind's refusals name its ends: what an end joins, and what its `of` names. */
+export interface LinkEndWords {
+    /** The kind, as a refusal names it. */
+    readonly where: string;
+    /** What an end joins (`item`, `event`). */
+    readonly noun: string;
+    /** What an end's `of` names, with its article (`the item slot`, `the event kind`). */
+    readonly of: string;
+}
+
+/**
+ * A link kind's two ends, checked: each `{ field, of }`, its field holding the
+ * key of what the link joins — of one kind, or of a kind per case of a variant
+ * — and never an Option, a link having both its ends; and the two are two
+ * fields. What a Schematic's links and a Plan's link kinds both declare.
+ *
+ * @param rowType - The record's row type
+ * @param from - The kind's `from`
+ * @param to - Its `to`
+ * @param words - How the refusals name the ends
+ * @returns The two fields, checked
+ * @throws {Error} Naming the end: one that is no `{ field, of }`, a field the row lacks or one no key is held in
+ *   (`checkKeyField`), an Option, and both ends naming one field
+ */
+export function linkEndFields(rowType: StructType, from: unknown, to: unknown, words: LinkEndWords): { readonly from: KeyField; readonly to: KeyField } {
+    const { where, noun, of } = words;
+    const fields = rowType.fields as Record<string, EastType>;
+    const typeOf = fieldTypeOf(rowType, where);
+    const one = `${/^[aeiou]/.test(noun) ? "an" : "a"} ${noun}`;
+    const end = (prop: "from" | "to", given: unknown): KeyField => {
+        const config = given as { field?: unknown; of?: unknown } | null | undefined;
+        if (config === undefined || config === null || typeof config.field !== "string") {
+            throw new Error(`${where}: \`${prop}\` is { field, of } — the field holding ${one}'s key, and ${of} it holds keys of`);
+        }
+        const checked = checkKeyField(config.field, typeOf(`${prop}.field`, config.field), config.of, { where, prop, noun });
+        if (checked.optional) {
+            throw new Error(`${where}: a link has both its ends — \`${prop}.field\` names a field holding ${one}'s key, or a variant holding one per case, ` +
+                `never an Option — and "${config.field}" holds ${typeText(fields[config.field]!)}`);
+        }
+        return checked;
+    };
+    const ends = { from: end("from", from), to: end("to", to) };
+    if (ends.from.field === ends.to.field) throw new Error(`${where}: \`from\` and \`to\` both name "${ends.from.field}" — a link's ends are two fields`);
+    return ends;
+}
+
+/** A block a link's ends are written in: what binds a constant, declares a variable and matches an Option. */
+interface EndsBlock {
+    const: (value: unknown) => unknown;
+    let: (value: unknown, type?: EastType) => unknown;
+    match: (value: unknown, arms: object) => void;
+}
+
+/**
+ * A link's row with its ends written: each end from a reference to what it
+ * joins — its kind's slot and its key's text, read back at the end field's
+ * type — and every other field from `source`. `none` for an end of a kind its
+ * field holds no keys of, or a text no key of that kind prints as.
+ *
+ * @param rowType - The record's row type
+ * @param from - The `from` field, checked
+ * @param to - The `to` field, checked
+ * @returns `($, source, ends)` → the row's bytes, in the block given: `source` the row, or a card's values, the other fields are read from
+ */
+export function linkEndsWriter(rowType: StructType, from: KeyField, to: KeyField) {
+    const fields = rowType.fields as Record<string, EastType>;
+    const fromValue = keyFieldValue(from, fields[from.field]!);
+    const toValue = keyFieldValue(to, fields[to.field]!);
+    return ($: EndsBlock, source: unknown, ends: { readonly from: unknown; readonly to: unknown }): ExprType<OptionType<BlobType>> => {
+        const fromOf = $.const(fromValue) as (ref: unknown) => ExprType<OptionType<EastType>>;
+        const toOf = $.const(toValue) as (ref: unknown) => ExprType<OptionType<EastType>>;
+        const result = $.let(East.value(none, OptionType(BlobType)), OptionType(BlobType)) as ExprType<OptionType<BlobType>>;
+        $.match(fromOf(some(ends.from)), {
+            some: ($2: { match: (value: unknown, arms: object) => void }, f: ExprType<EastType>) => {
+                $2.match(toOf(some(ends.to)), {
+                    some: ($3: { assign: (target: unknown, value: unknown) => void }, t: ExprType<EastType>) => {
+                        $3.assign(result, East.value(some(East.Blob.encodeBeast(rowWith(rowType, source, { [from.field]: f, [to.field]: t }), "v2")), OptionType(BlobType)));
+                    },
+                });
+            },
+        });
+        return result;
+    };
 }
 
 // ============================================================================
