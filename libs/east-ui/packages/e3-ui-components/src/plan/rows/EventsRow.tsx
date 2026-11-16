@@ -19,13 +19,15 @@
  * On a row whose series declares a move's fields (#825) a mark moves to
  * another instant, or another row of its item type, by its glyph; an event
  * kind's mark moves its event (#1196), and wears the brand tint's ring while
- * its drafts change it.
+ * its drafts change it. A locked mark (#1541, U9) takes no move, and draws a
+ * lock beside its glyph, where its label starts: the label then starts after it.
  */
 
 import { useMemo } from "react";
 import { variant, type ValueTypeOf } from "@elaraai/east";
 import { Box } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faLock } from "@fortawesome/free-solid-svg-icons";
 import type { IconName, IconPrefix } from "@fortawesome/fontawesome-svg-core";
 import { Plan } from "@elaraai/e3-ui/internal";
 import { getSomeorUndefined } from "@elaraai/east-ui-components";
@@ -45,6 +47,11 @@ import type { PlanMovable } from "../edit/store.js";
 type Styles = Record<string, Record<string, unknown>>;
 type EventsKindValue = Extract<ValueTypeOf<typeof Plan.Types.Row>["kind"], { type: "events" }>["value"];
 type MarkValue = EventsKindValue["marks"][number];
+
+/** Where a mark's label starts, past its glyph's centre: clear of the glyph. */
+const MARK_LABEL_AT = 9;
+/** What a locked mark's lock takes of that line (#1541, U9): its 8px square, and 3px before its label. */
+const MARK_LOCK_W = 11;
 
 export interface EventsRowProps {
     /** R2 context strip (#591) — marks keep their silhouette, shrink, and a
@@ -71,7 +78,8 @@ function MarkGlyph({ mark, x, rowKey, rowId, styles, ctx, move }: {
     const label = mark.label.type === "some" ? mark.label.value : undefined;
     const icon = mark.icon.type === "some" ? mark.icon.value : undefined;
     // A mark has one instant — its extent is that instant twice.
-    const movable = useMemo<PlanMovable | undefined>(() => (move !== undefined
+    // A locked mark takes no move (#1541, U9).
+    const movable = useMemo<PlanMovable | undefined>(() => (move !== undefined && !mark.locked
         ? { rowKey, key: mark.key, label: label ?? mark.key, kind: "mark", span: { start: mark.at, end: mark.at }, items: move.items, resize: false }
         : undefined), [move, rowKey, mark, label]);
     const { handle, carried } = usePlanMovable(movable);
@@ -100,6 +108,7 @@ function MarkGlyph({ mark, x, rowKey, rowId, styles, ctx, move }: {
         cursor: handle !== undefined ? undefined : "pointer",
         ...handle,
         "data-dragging": carried ? "" : undefined,
+        "data-locked": mark.locked ? "" : undefined,
         "data-selected": select.selected ? "" : undefined,
         "data-overlap": overlap ? "" : undefined,
         "data-draft": drafted ? "" : undefined,
@@ -146,9 +155,14 @@ export function EventsRow({ rowKey, rowId, kind, styles, ctx, move }: EventsRowP
                 return (
                     <Box as="span" key={mark.key} display="contents">
                         <MarkGlyph mark={mark} x={x} rowKey={rowKey} rowId={rowId} styles={styles} ctx={ctx} move={move} />
+                        {/* Its lock (#1541, U9), where its label would start. */}
+                        {mark.locked && (
+                            <Box css={styles.markLock} data-ctx={ctxAttr} data-plan-lock="" aria-hidden="true"
+                                style={{ left: `calc(${x * 100}% + ${MARK_LABEL_AT}px)` }}><FontAwesomeIcon icon={faLock} /></Box>
+                        )}
                         {label !== undefined && (
                             <Box css={styles.markLabel} data-ctx={ctxAttr} data-mark={mark.key} aria-hidden="true"
-                                style={{ left: `calc(${x * 100}% + 9px)` }}>{label}</Box>
+                                style={{ left: `calc(${x * 100}% + ${MARK_LABEL_AT + (mark.locked ? MARK_LOCK_W : 0)}px)` }}>{label}</Box>
                         )}
                     </Box>
                 );

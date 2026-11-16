@@ -33,14 +33,15 @@
  * On a row whose series declares a move's fields (#825) a tile moves to
  * another bucket, or another row of its item type; it has one instant, so no
  * end to drag. An event kind's tile moves its event (#1196), and wears the
- * brand tint in a brand border while its drafts change it (`data-draft`).
+ * brand tint in a brand border while its drafts change it (`data-draft`). A
+ * locked tile (#1541, U9) leads with a lock and takes no move.
  */
 
 import { useContext, useMemo, type ReactNode } from "react";
 import { Box, useChakraContext } from "@chakra-ui/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
-    faCheck, faCircle, faCircleCheck, faCircleInfo, faCircleXmark, faGripVertical, faTriangleExclamation,
+    faCheck, faCircle, faCircleCheck, faCircleInfo, faCircleXmark, faGripVertical, faLock, faTriangleExclamation,
     type IconDefinition,
 } from "@fortawesome/free-solid-svg-icons";
 import type { IconName, IconPrefix } from "@fortawesome/fontawesome-svg-core";
@@ -125,7 +126,8 @@ function EventChip({ ev, styles, rowKey, rowId, ctx, bucket, lane, move, folded 
     const optimised = drafted ? op : undefined;
     const label = ev.label.type === "some" ? ev.label.value : undefined;
     // A tile has one instant — its extent is that instant twice.
-    const movable = useMemo<PlanMovable | undefined>(() => (move !== undefined
+    // A locked tile takes no move (#1541, U9).
+    const movable = useMemo<PlanMovable | undefined>(() => (move !== undefined && !ev.locked
         ? { rowKey, key: ev.key, label: label ?? ev.key, kind: "tile", span: { start: ev.at, end: ev.at }, items: move.items, resize: false }
         : undefined), [move, rowKey, ev, label]);
     const { handle, carried } = usePlanMovable(movable);
@@ -158,6 +160,7 @@ function EventChip({ ev, styles, rowKey, rowId, ctx, bucket, lane, move, folded 
             data-fill={optimised !== undefined ? "own" : undefined}
             title={optimised?.provenance}
             data-folded={folded ? "" : undefined}
+            data-locked={ev.locked ? "" : undefined}
             data-pulse={ev.animation.type === "some" && ev.animation.value.type === "pulse" ? "" : undefined}
             flex={hFill ? "1" : undefined}
             // Stretch is a style PROP and outranks the recipe: in a strip
@@ -175,6 +178,8 @@ function EventChip({ ev, styles, rowKey, rowId, ctx, bucket, lane, move, folded 
             aria-pressed={select.selectable ? select.selected : undefined}
             onClick={select.onClick}
         >
+            {/* Its lock (#1541, U9), its first part: the last a tile short of room gives up. */}
+            {ev.locked && <FontAwesomeIcon icon={faLock} data-plan-lock="" />}
             {icon !== undefined && <FontAwesomeIcon icon={[icon.prefix as IconPrefix, icon.name as IconName]} data-plan-icon="" />}
             {label !== undefined ? <Box as="span" css={styles.tileLabel} data-plan-label="">{label}</Box>
                 : icon !== undefined ? null
@@ -294,10 +299,10 @@ export function BucketsRow({ rowKey, rowId, kind, styles, ctx, move }: BucketsRo
                 ),
             };
         });
-        // What sizes the tiles: each one's key, label, icon and state, and whether a draft changed it.
+        // What sizes the tiles: each one's key, label, icon, state and lock, and whether a draft changed it.
         const signature = events.map((ev) => [
             ev.key, ev.label.type === "some" ? ev.label.value : "", ev.icon.type === "some" ? ev.icon.value.name : "",
-            runStateKey(ev.state), drafted.has(ev.key) ? "draft" : "",
+            runStateKey(ev.state), drafted.has(ev.key) ? "draft" : "", ev.locked ? "locked" : "",
         ].join("\u0000")).join("\u0001");
         return (
             <Box as="span" key={`c${cellKey}`} display="contents">

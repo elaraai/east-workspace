@@ -23,11 +23,14 @@
  * pointer drags it, or one of its two end handles, and Space picks it up for
  * the keyboard (`edit/`). An event kind's bar moves and resizes its event
  * (#1196), and wears the brand tint in a brand border while its drafts change
- * it (`data-draft`).
+ * it (`data-draft`). A locked bar (#1541, U9) leads with a lock and takes no
+ * move: no handle, no end handles, nothing for Space to pick up.
  */
 
 import { useMemo } from "react";
 import { Box } from "@chakra-ui/react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faLock } from "@fortawesome/free-solid-svg-icons";
 import { variant, type ValueTypeOf } from "@elaraai/east";
 import { Plan } from "@elaraai/e3-ui/internal";
 import { getSomeorUndefined } from "@elaraai/east-ui-components";
@@ -87,7 +90,8 @@ function RunBar({ run, left, width, runoff, rowKey, rowId, styles, ctx, move }: 
 }) {
     const scale = usePlanScale();
     const words = usePlanWords();
-    const movable = useMemo<PlanMovable | undefined>(() => (move !== undefined
+    // A locked run takes no move (#1541, U9).
+    const movable = useMemo<PlanMovable | undefined>(() => (move !== undefined && !run.locked
         ? { rowKey, key: run.key, label: run.label, kind: "run", span: { start: run.start, end: run.end }, items: move.items, resize: move.resize }
         : undefined), [move, rowKey, run]);
     const { handle, edges, carried } = usePlanMovable(movable);
@@ -125,6 +129,7 @@ function RunBar({ run, left, width, runoff, rowKey, rowId, styles, ctx, move }: 
             data-fill={optimised !== undefined ? "own" : undefined}
             title={optimised?.provenance}
             data-runoff={runoff ? "" : undefined}
+            data-locked={run.locked ? "" : undefined}
             data-run={run.key}
             data-plan-frac={left.toFixed(4)}
             // Focusable: Enter opens its popover (#816), and the
@@ -140,6 +145,8 @@ function RunBar({ run, left, width, runoff, rowKey, rowId, styles, ctx, move }: 
             aria-pressed={select.selectable ? select.selected : undefined}
             onClick={select.onClick}
         >
+            {/* Its lock (#1541, U9), ahead of its label: whole, or not drawn. */}
+            {run.locked && <Box as="span" css={styles.lock} data-plan-lock="" aria-hidden="true"><FontAwesomeIcon icon={faLock} /></Box>}
             {/* Its label (`data-plan-label`): hidden below a letter and the ellipsis, its hover saying it (#1264). */}
             <Box as="span" css={styles.barLabel} data-plan-label="">{run.label}</Box>
             {qty !== undefined && <Box as="span" css={styles.barQty}>{qty}</Box>}

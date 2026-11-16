@@ -68,6 +68,11 @@ export interface OptimiseMessages {
      */
     refusedIncomplete: (p: { row: string }) => string;
     /**
+     * Why an answer is refused, where it changes or removes a row the app's own rule holds where it is (#1541, U9) —
+     * `Elara's answer changes Reprint 12, which is locked.`; `row` the builder's name for the row.
+     */
+    refusedLocked: (p: { row: string }) => string;
+    /**
      * Why a run ends where a record changed under the page's edits and a conflict waits to be chosen (rule 12): the
      * refused Save's words, as the banner's sentence — `2 of your changes conflict with newer changes.`; `conflicts`
      * the editing session's own words for them.
@@ -111,6 +116,7 @@ export const optimiseMessages: OptimiseMessages = {
     refusedDetail: ({ reason }) => `${reason} Nothing changed.`,
     refusedOutside: ({ row, period }) => `Elara's answer changes ${row}, outside ${period}.`,
     refusedIncomplete: ({ row }) => `Elara's answer changes ${row}, whose edit is not finished.`,
+    refusedLocked: ({ row }) => `Elara's answer changes ${row}, which is locked.`,
     refusedConflicts: ({ conflicts }) => `${conflicts}.`,
     step: ({ run }) => `Elara run #${run}`,
     entryAdded: ({ run }) => `Added by Elara · run #${run}`,

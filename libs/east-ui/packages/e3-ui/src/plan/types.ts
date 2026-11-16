@@ -1334,6 +1334,8 @@ export type PlanStatusType = typeof PlanStatusType;
  * `moved` collapses same-status churn to a `moved ×k`
  * counter. Rich click/hover surfaces resolve through the ROOT's `popover` /
  * `hover` functions with the `run` arm of {@link PlanElementRefType}.
+ * `locked` holds it where it is (#1541, U9): drawn with a lock, and not moved,
+ * resized or removed.
  */
 export const PlanRunType = StructType({
     key: StringType,
@@ -1345,6 +1347,7 @@ export const PlanRunType = StructType({
     status: OptionType(PlanStatusType),
     moved: OptionType(IntegerType),
     icon: OptionType(IconType),
+    locked: BooleanType,
 });
 /** Type alias for {@link PlanRunType}. */
 export type PlanRunType = typeof PlanRunType;
@@ -1389,6 +1392,8 @@ export const PlanBucketEventType = StructType({
     stretch: OptionType(PlanStretchType),
     content: OptionType(PlanContentType),
     animation: OptionType(PlanAnimationType),
+    // Held where it is (#1541, U9): drawn with a lock, and not moved or removed.
+    locked: BooleanType,
 });
 /** Type alias for {@link PlanBucketEventType}. */
 export type PlanBucketEventType = typeof PlanBucketEventType;
@@ -1400,6 +1405,8 @@ export type PlanBucketEventType = typeof PlanBucketEventType;
  * tap would accept. `status` rings the chip in its tone
  * ({@link PlanStatusType}). Chip detail resolves through the root's `popover`
  * with the `chip` arm of {@link PlanElementRefType}.
+ * `locked` holds it where it is (#1541, U9): drawn with a lock, and not moved,
+ * resized or removed.
  */
 export const PlanChipType = StructType({
     key: StringType,
@@ -1409,6 +1416,7 @@ export const PlanChipType = StructType({
     state: EventStateType,
     status: OptionType(PlanStatusType),
     icon: OptionType(IconType),
+    locked: BooleanType,
 });
 /** Type alias for {@link PlanChipType}. */
 export type PlanChipType = typeof PlanChipType;
@@ -1421,6 +1429,8 @@ export type PlanChipType = typeof PlanChipType;
  * `status` draws the glyph in its tone, in its kind's colour's place
  * ({@link PlanStatusType}). Mark detail resolves through the root's
  * `popover` with the `mark` arm of {@link PlanElementRefType}.
+ * `locked` holds it where it is (#1541, U9): drawn with a lock, and not moved,
+ * resized or removed.
  */
 export const PlanEventMarkType = StructType({
     key: StringType,
@@ -1429,6 +1439,7 @@ export const PlanEventMarkType = StructType({
     status: OptionType(PlanStatusType),
     icon: OptionType(IconType),
     label: OptionType(StringType),
+    locked: BooleanType,
 });
 /** Type alias for {@link PlanEventMarkType}. */
 export type PlanEventMarkType = typeof PlanEventMarkType;

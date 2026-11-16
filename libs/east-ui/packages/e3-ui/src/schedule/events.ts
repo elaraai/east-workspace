@@ -343,6 +343,12 @@ export interface ScheduleEventsBase<K extends EastType, R extends StructType, F 
     /** The app's check on a drafted event: a refusal holds Save, naming the event and the field. */
     ready?: (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<typeof EditingReadinessType>;
     /**
+     * The app's own lock on one event (#1541, U9): `true` holds it where it is. On a Plan a locked event draws with a
+     * lock, is not moved, resized or removed, shows its form read only, and an optimiser's answer that changes it is
+     * refused, naming it.
+     */
+    locked?: (row: ExprType<R>, key: ExprType<K>) => SubtypeExprOrValue<BooleanType>;
+    /**
      * A paged read of a day index over the record (`Data.bindPaged(record, {
      * index, join: true })`), keyed by `Schedule.days`: the kind's events over
      * a window are the rows the index files under the days in view, and the
@@ -623,6 +629,7 @@ interface AnyConfig {
     fields?: Readonly<Record<string, unknown>>;
     templates?: readonly { key: string; name: string; group?: string; at?: unknown; duration?: unknown; values: unknown }[] | ScheduleTemplates<StructType>;
     ready?: (row: unknown, key: unknown) => unknown;
+    locked?: (row: unknown, key: unknown) => unknown;
     window?: unknown;
     backlogWindow?: unknown;
     entries?: unknown;
@@ -2137,6 +2144,9 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                             text: none,
                         }),
                         lane: laneField === undefined ? none : some(fieldOf(row, laneField)),
+                        // The app's own lock on it (#1541, U9), read with the event: none where the kind gives no rule.
+                        locked: config.locked === undefined ? false
+                            : East.value(config.locked(row as never, entry.key as never) as SubtypeExprOrValue<BooleanType>, BooleanType),
                     } as never, PlanEventItemType);
                 })) as unknown as ExprType<FunctionType<[EastType], EastType>>;
                 // One event by its id, the drafts in place, as Plan draws it, and its events and its backlog as Plan draws

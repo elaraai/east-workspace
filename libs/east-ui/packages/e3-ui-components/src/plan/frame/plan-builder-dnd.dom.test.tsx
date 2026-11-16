@@ -826,7 +826,8 @@ describe("every gesture is one step of the Plan's one history", () => {
         y = layOutPlots(c, [A1, A3], [[sink, { left: 0, top: 600, width: 180, height: 300 }]]);
         await drop(bar(c, "J-1001")!, { x: xAt(0, 9), y: y(A1) }, { x: 90, y: 700 });
         await openTab(c, "Customers");
-        const job = bar(c, "J-1003")!;
+        // The course handbook: the event posters, where the card went before, are under way, and locked (#1541, U9).
+        const job = bar(c, "J-1004")!;
         y = layOutPlots(c, [A1, A3], [[job, { left: xAt(9, 7), top: 4, width: 20, height: 24 }]]);
         await drop(cardOf(c, "harbour-arts")!, OFF, { x: xAt(9, 8), y: y(A1) });
         // Five events drafted by the six gestures: the museum guide moved and resized.
@@ -836,7 +837,7 @@ describe("every gesture is one step of the Plan's one history", () => {
             forms: bar(c, "J-1024", A3) !== null,
             guide: named(bar(c, "J-1002"))?.split(", actual")[0] ?? null,
             catalogue: bar(c, "J-1001") !== null,
-            posters: bar(c, "J-1003")?.hasAttribute("data-draft") ?? null,
+            posters: bar(c, "J-1004")?.hasAttribute("data-draft") ?? null,
         });
         expect(state()).toEqual({ poster: true, forms: true, guide: "Museum guide, Oct 8, 2026, 06:00 – Oct 9, 2026, 12:00", catalogue: false, posters: true });
         // Each Undo takes one gesture back, the last first.
@@ -875,6 +876,83 @@ describe("every gesture is one step of the Plan's one history", () => {
         expect(carrySaid(c)).toBe("Dropped Market posters on Press B1, Oct 21, 2026, 06:00 – Oct 21, 2026, 12:00");
         expect(jobsOn(c, B1)).toContain(elementKey("job", "J-1018"));
         expect(pending(c)).toBe("1 pending");
+    });
+});
+
+// ============================================================================
+// A locked event (#1541, U9)
+// ============================================================================
+
+describe("an event its kind's `locked` holds where it is (#1541, U9)", () => {
+    test("draws with a lock and says so by name; it takes no move — no handle, no end handles, nothing for a drag or Space to pick up", async () => {
+        const { container: c } = await h.mount(ex.planPrintWorks, DRAG);
+        await settle();
+        // The event posters are under way: the works' own rule locks them.
+        const posters = bar(c, "J-1003")!;
+        expect([posters.hasAttribute("data-locked"), posters.querySelector("[data-plan-lock] svg") !== null]).toEqual([true, true]);
+        expect(named(posters)).toMatch(/^Event posters, Oct 14, 2026, 07:00 .*, locked$/);
+        expect([posters.hasAttribute("data-draggable"), posters.querySelector("[data-plan-edge]")]).toEqual([false, null]);
+        // The spring catalogue, printed, has no lock, and moves as any job does.
+        const catalogue = bar(c, "J-1001")!;
+        expect([catalogue.hasAttribute("data-locked"), catalogue.querySelector("[data-plan-lock]"), catalogue.hasAttribute("data-draggable")]).toEqual([false, null, true]);
+        expect(named(catalogue)).not.toMatch(/locked/);
+        // Dragged a day on, the posters go nowhere; and Space picks nothing up for the arrows to carry.
+        const y = layOutPlots(c, [A1]);
+        await drop(posters, { x: xAt(9, 9), y: y(A1) }, { x: xAt(10, 9), y: y(A1) });
+        posters.focus();
+        await keyOn({ key: " " });
+        await keyOn({ key: "ArrowRight" });
+        await keyOn({ key: " " });
+        expect(named(bar(c, "J-1003"))).toMatch(/^Event posters, Oct 14, 2026, 07:00/);
+        expect(historyButton(c, UNDO).disabled).toBe(true);
+    });
+
+    test("a card dropped onto it is refused, the ghost saying it is locked; a selection it is part of stays where it is, held by it", async () => {
+        const { container: c } = await h.mount(ex.planPrintWorks, DRAG);
+        await settle();
+        await openTab(c, "Customers");
+        let y = layOutPlots(c, [A1], [[bar(c, "J-1003")!, { left: xAt(9, 7), top: 4, width: 20, height: 24 }]]);
+        const letGo = await carry(cardOf(c, "harbour-arts")!, OFF, { x: xAt(9, 8), y: y(A1) });
+        expect(caption()).toBe("refused: Event posters is locked");
+        await letGo();
+        await settle();
+        expect(bar(c, "J-1003")!.hasAttribute("data-draft")).toBe(false);
+        // Selected with the spring catalogue, which is dragged a day on: a selection moves together, or not at all.
+        await select(bar(c, "J-1001")!);
+        await select(bar(c, "J-1003")!, true);
+        y = layOutPlots(c, [A1]);
+        const held = await carry(bar(c, "J-1001")!, { x: xAt(0, 9), y: y(A1) }, { x: xAt(1, 9), y: y(A1) });
+        expect(caption()).toBe("refused: Event posters is locked");
+        await held();
+        await settle();
+        expect(named(bar(c, "J-1001"))).toMatch(/^Spring catalogue, Oct 5, 2026, 06:00/);
+        expect(historyButton(c, UNDO).disabled).toBe(true);
+    });
+
+    test("the inspector says it is locked, its form read only and its gestures off; among several selected, a shift and Delete reach the others alone", async () => {
+        const { container: c } = await h.mount(ex.planPrintWorks, DRAG);
+        await settle();
+        await select(bar(c, "J-1003")!);
+        const end = slot(c, "end")!;
+        const edits = () => end.querySelector<HTMLFieldSetElement>("[data-inspector-edits]")!;
+        expect(end.querySelector("[data-inspector-locked]")?.textContent).toBe("LockedIt can't be moved, changed or deleted.");
+        expect(edits().disabled).toBe(true);
+        // The Delete key takes nothing either.
+        fireEvent.keyDown(bar(c, "J-1003")!, { key: "Delete" });
+        await settle();
+        expect([bar(c, "J-1003") !== null, historyButton(c, UNDO).disabled]).toEqual([true, true]);
+        // With the course handbook: both are listed, one of them locked, and an hour's shift moves the handbook alone.
+        await select(bar(c, "J-1004")!, true);
+        expect(end.querySelector("[data-inspector-locked]")?.textContent).toBe("1 locked: left as they are");
+        expect([...end.querySelectorAll("[data-inspector-event]")].map((n) => n.hasAttribute("data-locked"))).toEqual([true, false]);
+        expect(edits().disabled).toBe(false);
+        await press(end.querySelector<HTMLElement>('[data-inspector-action="shift:1hour"]')!);
+        expect(pending(c)).toBe("1 pending");
+        expect(named(bar(c, "J-1003"))).toMatch(/^Event posters, Oct 14, 2026, 07:00/);
+        expect(named(bar(c, "J-1004"))).toMatch(/^Course handbook, Oct 19, 2026, 07:00/);
+        // Delete takes the handbook, and leaves the posters where they are.
+        await press(end.querySelector<HTMLElement>('[data-inspector-action="delete"]')!);
+        expect([bar(c, "J-1003") !== null, bar(c, "J-1004")]).toEqual([true, null]);
     });
 });
 

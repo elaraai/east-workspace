@@ -51,6 +51,19 @@ const jobProgram = East.function([], Schedule.Types.PlanKind, ($) => {
     }).buildPlan("job");
 });
 
+/** The print job kind with the works' own lock (#1541, U9): a job the planner proposes is held where it is, and the catalogue run by its key. */
+const lockedJobProgram = East.function([], Schedule.Types.PlanKind, ($) => {
+    const jobs = $.let(Record.bind(sx.schedulePrintJobs, ["patch"]));
+    return Schedule.events(jobs, {
+        name: "Print job", icon: "file-lines", draw: "span",
+        title: "title", start: "start", end: "end",
+        resource: { field: "press", of: "presses" },
+        state: "state",
+        locked: (job, key) => key.equal("j2").or(() => job.state.hasTag("proposed")),
+        backlog: { duration: (j) => variant("hours", j.sheets.divide(8000.0)), due: (j) => j.due },
+    }).buildPlan("job");
+});
+
 /** The stop kind: one instant each, drawn as marks, a plate change dropped from the library. */
 const stopProgram = East.function([], Schedule.Types.PlanKind, ($) => {
     const stops = $.let(Record.bind(sx.schedulePrintStops, ["patch"]));
@@ -156,7 +169,30 @@ describe("Schedule.events — Plan's options (PB5)", () => {
             state: variant("proposed", variant("added", null)),
             quantity: some({ value: 40000, unit: some("sheets"), format: some(SHEETS_FORMAT), text: none }),
             lane: none,
+            locked: false,
         }));
+    });
+
+    test("`locked` is the kind's own rule over an event and its key: each event carries it, read with its drafts in place; a kind with no rule locks none (#1541, U9)", async () => {
+        const lockedKind = await built(lockedJobProgram);
+        // The brochure run is proposed: locked by its row. The catalogue run, in the backlog, by its key.
+        assert.deepEqual(onTheFifth(lockedKind).map((i) => [i.key, i.locked]), [["j1", true]]);
+        const waiting = lockedKind.planUnscheduled(...RANGE, NO_DRAFTS, none);
+        if (waiting.type !== "some") assert.fail("expected the backlog");
+        assert.deepEqual(waiting.value.map((i) => [i.key, i.locked]), [["j2", true]]);
+        // Read by its key, the same; and with a draft in place the rule reads the drafted row: confirmed, it is locked no more.
+        const j1 = (await h.read(sx.schedulePrintJobs)).get("j1")!;
+        const read = lockedKind.planEvent("j1", NO_DRAFTS, ...RANGE, none);
+        if (read.type !== "some") assert.fail("expected the job read");
+        assert.equal(read.value.item.locked, true);
+        const encodeDraft = encodeBeast2For(EditingDraftFieldType(sx.SchedulePrintJob));
+        const confirmed = new SortedMap<string, Uint8Array>([["j1", encodeDraft(variant("value", { ...j1, state: variant("confirmed", null) }))]], compareFor(StringType));
+        const drafted = lockedKind.planItems(at(DAY[0]), at(DAY[1]), confirmed, none);
+        if (drafted.type !== "some") assert.fail("expected the window read");
+        assert.deepEqual(drafted.value.map((i) => [i.key, i.locked]), [["j1", false]]);
+        // No rule: none locked, in the window or the backlog.
+        const plain = await built(jobProgram);
+        assert.deepEqual(onTheFifth(plain).map((i) => i.locked), [false]);
     });
 
     test("draws its backlog the same way, each row sized by its duration", async () => {

@@ -1342,3 +1342,18 @@ Each wire changed under this rule, with the kind it is.
   does not decode under the other: packages are re-exported, and the dataflow
   computes each UI task's output again under the new type. A UI task's output
   is not stored state, so no repository upgrade step ships with it.
+- **e3-ui's `Plan` holds one event or item where it is (#1541, U9)** —
+  package-borne. One event as a Plan draws it (`PlanEventItemType`) gains
+  `locked`, last: whether its kind's `locked`, a new option of
+  `Schedule.events`, holds it where it is, read with the event and its drafts
+  in place, and `false` for a kind with no such rule. A run, a bucket's tile,
+  a chip and an event mark (`PlanRunType`, `PlanBucketEventType`,
+  `PlanChipType`, `PlanEventMarkType`) each gain `locked`, last: an event
+  kind's from its event, a data series' from its item's map, `false` where the
+  map leaves it out. A locked one is drawn with a lock and is not moved,
+  resized, changed or removed, and an optimiser's answer that changes it is
+  refused. Nothing is stored of it: the rule is the application's, over its
+  own rows. A UI value encoded under either type does not decode under the
+  other: packages are re-exported, and the dataflow computes each UI task's
+  output again under the new type. A UI task's output is not stored state, so
+  no repository upgrade step ships with it.

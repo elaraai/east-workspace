@@ -20,6 +20,7 @@ import { fieldInRingedControl } from "../../field-chrome.js";
 import { lifecycleStates } from "./states.js";
 import { planElementConflicts, planElementOverlap, planElementStatus } from "./status.js";
 import { planElementDrafted, planElementFocus, planElementSelected } from "./focus.js";
+import { PLAN_LOCK_W, planLabelAfterLock } from "./elements.js";
 
 /**
  * The no-data hatch (#1039): a 45° rule in the ink at 7% across what no value shades — a heat cell, and the Calendar's
@@ -477,6 +478,8 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         display: "inline-flex",
         flex: "none",
         "@container (width < 1.25em)": { display: "none" },
+        // After a lock and the gap (#1541, U9): whole beside them, or not drawn.
+        "[data-locked] > &": { [`@container (width < calc(${PLAN_LOCK_W} + 4px + 1.25em))`]: { display: "none" } },
     },
     // A chip's label — whole, or ellipsized when it does not fit. Below a
     // letter and the ellipsis — in the chip's mono face each one `ch` wide,
@@ -490,6 +493,9 @@ export const cellsBase: Record<(typeof cellsSlots)[number], SystemStyleObject> =
         whiteSpace: "nowrap",
         "@container (width < 2ch)": { display: "none" },
         "[data-icon] > &": { "@container (width < calc(1.25em + 4px + 2ch))": { display: "none" } },
+        // After a lock and the gap too (#1541, U9), as a bar's label is — and after both where it has an icon.
+        ...planLabelAfterLock,
+        "[data-locked][data-icon] > &": { [`@container (width < calc(${PLAN_LOCK_W} + 4px + 1.25em + 4px + 2ch))`]: { display: "none" } },
     },
     // ── Table cells (K5) — mono numerals per bucket, CENTRED in their
     //    column as the ruler's ticks and the heat values are (#949); the

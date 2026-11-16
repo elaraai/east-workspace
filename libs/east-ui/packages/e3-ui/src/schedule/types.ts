@@ -459,12 +459,15 @@ export type ScheduleResourcesType = typeof ScheduleResourcesType;
  * @property state - The lifecycle it wears, from its kind's `state` field; confirmed when the kind has none
  * @property quantity - Its kind's `quantity` field, with the kind's unit and format: what a bar prints and a parent's rollup sums
  * @property lane - The lane its tile sits in, from its kind's `lane` field
+ * @property locked - Whether its kind's `locked` holds it where it is (#1541, U9): not moved, resized or removed, its
+ *   form read only, and an optimiser's answer that changes it refused; `false` for a kind with no such rule
  */
 export const PlanEventItemType = StructType({
     ...ScheduleItemType.fields,
     state: EventStateType,
     quantity: OptionType(PlanQuantityType),
     lane: OptionType(StringType),
+    locked: BooleanType,
 });
 
 /** Type representing {@link PlanEventItemType}. */

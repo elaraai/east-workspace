@@ -86,6 +86,18 @@ function statusWords(status: RunValue["status"]): string | undefined {
 }
 
 /**
+ * What an element's name says of one held where it is (#1541, U9), which its
+ * lock says by look.
+ *
+ * @param locked - Whether the element is locked
+ * @param w - The canvas's words
+ * @returns `locked`, or `undefined` for one that is not
+ */
+function lockedWords(locked: boolean, w: PlanWords): string | undefined {
+    return locked ? w.m.lockedWord() : undefined;
+}
+
+/**
  * A run bar's accessible name — its label, its span, its state, and what its
  * look adds: the quantity caption (#824), the `moved ×k` counter, its
  * status's words.
@@ -104,6 +116,7 @@ export function runName(run: RunValue, scale: PlanScale, w: PlanWords): string {
         quantity: run.quantity.type === "some" ? quantityText(run.quantity.value, w) : undefined,
         moved: moved > 0 ? w.m.movedTimes({ n: moved, count: w.number(moved) }) : undefined,
         status: statusWords(run.status),
+        locked: lockedWords(run.locked, w),
     });
 }
 
@@ -139,6 +152,7 @@ export function tileName(ev: BucketEventValue, bucket: PlanBucket, lane: string 
         lane,
         state: stateText(ev.state, w),
         status: statusWords(ev.status),
+        locked: lockedWords(ev.locked, w),
     });
 }
 
@@ -154,6 +168,7 @@ export function tileName(ev: BucketEventValue, bucket: PlanBucket, lane: string 
 export function chipName(chip: ChipValue, scale: PlanScale, w: PlanWords): string {
     return w.m.chipName({
         label: chip.label, span: spanText(scale, chip.from, chip.to, w), state: stateText(chip.state, w), status: statusWords(chip.status),
+        locked: lockedWords(chip.locked, w),
     });
 }
 
@@ -174,6 +189,7 @@ export function markName(mark: EventMarkValue, scale: PlanScale, w: PlanWords): 
         applied: mark.kind.type === "decision" && mark.kind.value.applied,
         at: scale.instantText(mark.at),
         status: statusWords(mark.status),
+        locked: lockedWords(mark.locked, w),
     });
 }
 

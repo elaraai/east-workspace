@@ -9,7 +9,8 @@
  * of its record, by its slot, lands key by key on the events the page holds ({@link landOptimisePatches}); each
  * operation's event is read as its kind reads a row, as it stood and as the answer leaves it; an answer that changes an
  * event outside the window it was asked of — where the event stood, or where the answer puts it — is refused whole,
- * naming the event; and each kind's operations are told by place: a backlog row the answer places is an add on the
+ * naming the event, and so is one that changes or removes an event its kind's own rule holds where it is (#1541, U9);
+ * and each kind's operations are told by place: a backlog row the answer places is an add on the
  * canvas, a placed event it takes back a remove, a moved one a change. What a builder draws of the landing — its
  * ghosts, its provenance — is its own.
  *
@@ -28,6 +29,8 @@ export interface OptimiseEvent {
     readonly title: string;
     readonly start: option<Date>;
     readonly end: option<Date>;
+    /** Whether its kind's own rule holds it where it is (#1541, U9): an answer that changes or removes it is refused. */
+    readonly locked?: boolean | undefined;
 }
 
 /**
@@ -84,7 +87,7 @@ export interface OptimiseEventsLanding<I extends OptimiseEvent> {
  * @typeParam I - The event as the builder's kinds read one
  * @param args - What the landing is made over
  * @returns The landing; the events to read first, by their keys (rule 8); a refusal naming the event an answer changes
- *   outside the window (rule 11); `undefined` for an answer with no patch for a kind, or one that does not fit the
+ *   outside the window (rule 11), or a locked one it changes (#1541, U9); `undefined` for an answer with no patch for a kind, or one that does not fit the
  *   events the page holds
  */
 export function landOptimiseEvents<I extends OptimiseEvent>(args: OptimiseEventsLanding<I>): OptimiseEventsLanded<I> | OptimiseMissing | OptimiseRefused | undefined {
@@ -110,6 +113,8 @@ export function landOptimiseEvents<I extends OptimiseEvent>(args: OptimiseEvents
             if (placedOutside(was, window) || placedOutside(now, window)) {
                 return { refused: optimiseMessages.refusedOutside({ row: (now ?? was)?.title ?? id, period }) };
             }
+            // Held where it is by its kind's own rule, as it stood (#1541, U9): the answer changes it, or takes it away.
+            if (was?.locked === true) return { refused: optimiseMessages.refusedLocked({ row: was.title }) };
             if (was?.start.type === "none" || now?.start.type === "none") backlogChanged = true;
             told.set(key, { was, now });
         }

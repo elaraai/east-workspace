@@ -161,6 +161,7 @@ Task → What do you need?
     │   ├─ The app's own words for what it draws              → vocabulary={{ unassigned, backlog, rows, dueThisWeek, confirmed, … }}
     │   ├─ Its inspector pane: what is selected               → inspector (+ an event kind's own: Schedule.events(record, { inspector }))
     │   ├─ Drags of templates, backlog cards and events       → built in with event kinds (+ library); canDrop={fn(Plan.Types.Candidate) => Option<String>}, the one check of every drop, its message on the ghost
+    │   ├─ Hold one event or item where it is: a lock, no move, form read only → Schedule.events(record, { locked: (row, key) => Boolean }) · a series item's map: locked
     │   ├─ The app's optimiser over the window and the backlog → optimise={Func.bind(e3.function)} from Plan.Types.OptimiseRequest (the window, the zoom's unit, the run, the rail's narrowing; no row) to Plan.Types.OptimiseResult({ job: Jobs }), a patch of each kind's record
     │   ├─ Overlap warnings, without dropping overlapping events → Schedule.events(record, { overlaps: "warn" | "allow" })
     │   └─ Dropped cards and moves of data rows as drafts      → a series' edit + record={Record.bind(rows)}, the record its data is read from (+ onPatch, ready)

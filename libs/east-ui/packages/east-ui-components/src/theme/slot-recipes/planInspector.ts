@@ -20,7 +20,8 @@
  * banner (#1198): the shared `Banner` in its guard tone, a line per event the
  * event overlaps — or per pair on the row — each a button that selects it.
  * Under it, an event's refusals holding Save (#1525): the `Banner` in its
- * warning tone.
+ * warning tone; and that it is locked (#1541, U9): the `Banner` in its neutral
+ * tone, under a lock.
  *
  * The parts it lays out as the Sheet's inspector does are the inspector's
  * shared parts (`inspector.ts`); this adds the Plan's own. Its words take the
@@ -41,7 +42,7 @@ export const planInspectorSlotRecipe = defineSlotRecipe({
         "facts", "factLabel", "factValue",
         "list", "listItem", "listText", "listTitle", "listWhen",
         "shift", "edits", "custom", "measures",
-        "overlaps", "overlapList", "overlapLine", "overlapItem", "overlapWhen", "overlapTitle", "refusals",
+        "overlaps", "overlapList", "overlapLine", "overlapItem", "overlapWhen", "overlapTitle", "refusals", "locked",
     ],
     base: {
         ...inspectorBase,
@@ -135,5 +136,7 @@ export const planInspectorSlotRecipe = defineSlotRecipe({
         },
         /* An event's refusals holding Save (#1525): their banner's section, padded as the overlaps banner's. */
         refusals: { ...INSPECTOR_SECTION, paddingY: "{spacing.3}" },
+        /* That an event is locked (#1541, U9), or how many of several are: its banner's section, padded the same. */
+        locked: { ...INSPECTOR_SECTION, paddingY: "{spacing.3}" },
     },
 });

@@ -610,6 +610,8 @@ export interface PlanRunLook {
     quantity?: PlanLookOption<PlanQuantityType>;
     /** The status — `Plan.status("Over dwell", "warning")` rings the bar in its tone; an `Option` of one passes as it is. */
     status?: PlanLookOption<PlanStatusType>;
+    /** Whether it is held where it is (#1541, U9): drawn with a lock, and not moved, resized or removed. */
+    locked?: SubtypeExprOrValue<BooleanType>;
     /** The same-status churn counter. */
     moved?: PlanLookOption<IntegerType, number>;
     /** The leading glyph. */
@@ -665,6 +667,8 @@ export interface PlanBucketEventLook {
     icon?: PlanIconInput | SubtypeExprOrValue<OptionType<IconType>>;
     /** The status — `Plan.status("Late", "warning")` rings the tile in its tone; an `Option` of one passes as it is. */
     status?: PlanLookOption<PlanStatusType>;
+    /** Whether it is held where it is (#1541, U9): drawn with a lock, and not moved, resized or removed. */
+    locked?: SubtypeExprOrValue<BooleanType>;
     /** A raw colour token (`"teal.solid"`). */
     color?: PlanLookOption<StringType>;
     /** A brand palette (`"teal"`). */
@@ -710,6 +714,8 @@ export interface PlanChipLook {
     state: SubtypeExprOrValue<EventStateType> | EventStateLiteral;
     /** The status — `Plan.status("Short", "warning")` rings the chip in its tone; an `Option` of one passes as it is. */
     status?: PlanLookOption<PlanStatusType>;
+    /** Whether it is held where it is (#1541, U9): drawn with a lock, and not moved, resized or removed. */
+    locked?: SubtypeExprOrValue<BooleanType>;
     /** The leading glyph. */
     icon?: PlanIconInput | SubtypeExprOrValue<OptionType<IconType>>;
 }
@@ -728,6 +734,8 @@ export interface PlanEventMarkLook {
     kind: SubtypeExprOrValue<PlanEventMarkKindType> | "milestone" | "exception";
     /** The status — `Plan.status("Missed", "danger")` draws the glyph in its tone; an `Option` of one passes as it is. */
     status?: PlanLookOption<PlanStatusType>;
+    /** Whether it is held where it is (#1541, U9): drawn with a lock, and not moved, resized or removed. */
+    locked?: SubtypeExprOrValue<BooleanType>;
     /** A glyph swap (still kind-coloured). */
     icon?: PlanIconInput | SubtypeExprOrValue<OptionType<IconType>>;
     /** The caption. */
@@ -854,6 +862,7 @@ export function runLookFields(look: PlanRunLook, where = "Plan.run icon") {
         status:   statusLook(look.status, "a run"),
         moved:    lookOption(look.moved, IntegerType, asInteger),
         icon:     lookOption(look.icon, IconType, (i: PlanIconInput) => resolveIcon(i, where)),
+        locked:   look.locked ?? false,
     };
 }
 
@@ -897,6 +906,7 @@ export function bucketEventLookFields(look: PlanBucketEventLook, where = "Plan.e
         stretch:      lookOption(look.stretch, PlanStretchType, (s: PlanStretchLiteral) => resolveTag(s, PlanStretchType)),
         content:      lookOption(look.content, PlanContentType, contentOf),
         animation:    lookOption(look.animation, PlanAnimationType, (a: PlanAnimationLiteral) => resolveTag(a, PlanAnimationType)),
+        locked:       look.locked ?? false,
     };
 }
 
@@ -916,6 +926,7 @@ export function chipLookFields(look: PlanChipLook, where = "Plan.chip icon") {
         state:  resolvePlanEventState(look.state),
         status: statusLook(look.status, "a chip"),
         icon:   lookOption(look.icon, IconType, (i: PlanIconInput) => resolveIcon(i, where)),
+        locked: look.locked ?? false,
     };
 }
 
@@ -926,6 +937,7 @@ export function eventMarkLookFields(look: PlanEventMarkLook, where = "Plan.mark 
         status: statusLook(look.status, "a mark"),
         icon:   lookOption(look.icon, IconType, (i: PlanIconInput) => resolveIcon(i, where)),
         label:  lookOption(look.label, StringType),
+        locked: look.locked ?? false,
     };
 }
 
@@ -1025,6 +1037,8 @@ export interface PlanRunInput<S extends PlanInstantInput = PlanInstantInput, E e
     state: SubtypeExprOrValue<EventStateType> | EventStateLiteral;
     /** Optional status — `Plan.status("Over dwell", "warning")` rings the bar in its tone (a warning's is the over-dwell ring). */
     status?: SubtypeExprOrValue<PlanStatusType>;
+    /** Whether it is held where it is (#1541, U9): drawn with a lock, and not moved, resized or removed. */
+    locked?: SubtypeExprOrValue<BooleanType>;
     /** Optional same-status churn counter (rendered `moved ×k`, never extra bars). */
     moved?: SubtypeExprOrValue<IntegerType> | number;
     /** Optional leading FA glyph (10px, inherits the bar text colour). */
@@ -1147,6 +1161,8 @@ export interface PlanBucketEventInput<A extends PlanInstantInput = PlanInstantIn
     state: SubtypeExprOrValue<EventStateType> | EventStateLiteral;
     /** Optional status — `Plan.status("Late", "warning")` rings the tile in its tone (it keeps its state's border style). */
     status?: SubtypeExprOrValue<PlanStatusType>;
+    /** Whether it is held where it is (#1541, U9): drawn with a lock, and not moved, resized or removed. */
+    locked?: SubtypeExprOrValue<BooleanType>;
     /** Optional raw colour token override (`"teal.solid"`). */
     color?: SubtypeExprOrValue<StringType>;
     /** Optional brand palette override (`"teal"`, `"purple"`). */
@@ -1451,6 +1467,8 @@ export interface PlanChipInput<F extends PlanInstantInput = PlanInstantInput, T 
     state: SubtypeExprOrValue<EventStateType> | EventStateLiteral;
     /** Optional status — `Plan.status("Short", "warning")` rings the chip in its tone. */
     status?: SubtypeExprOrValue<PlanStatusType>;
+    /** Whether it is held where it is (#1541, U9): drawn with a lock, and not moved, resized or removed. */
+    locked?: SubtypeExprOrValue<BooleanType>;
     /** Optional leading FA glyph (shift-type etc.). */
     icon?: PlanIconInput;
 }
@@ -1495,6 +1513,8 @@ export interface PlanEventMarkInput<A extends PlanInstantInput = PlanInstantInpu
     kind: SubtypeExprOrValue<PlanEventMarkKindType> | "milestone" | "exception";
     /** Optional status — `Plan.status("Missed", "danger")` draws the glyph in its tone, in its kind's colour's place. */
     status?: SubtypeExprOrValue<PlanStatusType>;
+    /** Whether it is held where it is (#1541, U9): drawn with a lock, and not moved, resized or removed. */
+    locked?: SubtypeExprOrValue<BooleanType>;
     /** Optional FA glyph swap (12px, still kind-coloured). */
     icon?: PlanIconInput;
     /** Optional caption (printed when there is room). */

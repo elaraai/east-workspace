@@ -1101,6 +1101,57 @@ One module makes the candidate (`plan/edit/candidate.ts`), for an event kind's
 gesture and for one on a data series' row, and one veto asks it, its answers
 kept while the check is the same function.
 
+## A lock on one event or item (#1541)
+
+Before #1541 a whole event kind was editable or not, by its record's binding,
+and a whole data series by its `edit`. Now one event, or one item, can be held
+where it is by the application's own rule:
+
+```tsx
+job: Schedule.events(jobs, {
+    name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
+    resource: { field: "press", of: "presses" }, state: "state",
+    // A job under way is locked.
+    locked: (job, key) => job.state.hasTag("in-progress"),
+}),
+```
+
+and on a data series, in the item's map:
+
+```tsx
+runs: Plan.items("jobs", { from: "start", to: "end" }, (job, id) => ({ label: job.label, state: "confirmed", locked: job.shipped })),
+```
+
+A locked event or item:
+
+- draws with a lock, and its accessible name ends `locked`;
+- is not moved or resized, by the pointer or the keyboard, and takes no card;
+- is not removed: a drag to the Backlog tab, Delete and the Delete key leave it;
+- shows its form read only in the inspector, under a banner that says it is
+  locked; among several selected, the bulk edit, a shift, Duplicate and Delete
+  reach the others alone, and the pane says how many are locked;
+- is not changed by an optimiser's answer: an answer that changes or removes
+  it is refused whole, naming it.
+
+A drop that would change it is refused where the drag rests, the ghost saying
+`<its title> is locked`. A selection it is part of moves together or not at
+all, so it holds the others where they are.
+
+The rule is read with the event's drafts in place, so an unsaved change that
+makes an event locked locks it at once, and Undo takes that back.
+
+### The wire
+
+`Plan.Types` items gain `locked` (`WIRE_MIGRATION.md`). A stored
+`UIComponentType` value re-emits.
+
+### Renderer (`@elaraai/e3-ui-components`)
+
+One rule holds a locked event against every gesture: the Plan's event editing
+(`plan/edit/events.ts`) records nothing of a gesture that changes or removes
+one, whatever asked. What draws a locked event says why before a gesture
+gets there.
+
 ## Extracted contracts (do this first when migrating imports)
 
 The shared audit vocabulary outlived the Planner and moved to `contracts/`:

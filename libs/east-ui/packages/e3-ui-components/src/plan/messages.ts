@@ -298,6 +298,12 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
     inspectorOverlapPair: (p: { first: string; second: string }) => string;
     /** The banner over one event's form while the app's `ready` refuses it, which holds Save (#1525). */
     inspectorRefusals: () => string;
+    /** The banner over one event its kind's `locked` holds where it is (#1541, U9): its form is read only, and it has no gestures. */
+    inspectorLocked: () => string;
+    /** The line under it. */
+    inspectorLockedDetail: () => string;
+    /** How many of several events selected are locked, which the bulk edit and Delete leave as they are — `2 locked: left as they are`. */
+    inspectorLockedCount: (p: { n: number; count: string }) => string;
 
     // ── The horizon, the ruler, the axis in words ──────────────────────────
     /** The horizon strip's caption — `HORIZON · 26 WK`. */
@@ -393,6 +399,8 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
     dropBusy: (p: { kind: string }) => string;
     /** Why a drop the kind's own write refuses can't land. */
     dropRefused: () => string;
+    /** Why a drop that would change an event its kind's `locked` holds where it is can't land (#1541, U9) — `Spring catalogue is locked`. */
+    dropLocked: (p: { event: string }) => string;
     /** An author's card over an event of its patch's kind — `Harbour Arts Society → Spring catalogue`. */
     dropCardOnEvent: (p: { card: string; event: string }) => string;
     /** An author's card anywhere but an event — `Drop a customer onto an event`: `fields` the fields its patch sets. */
@@ -442,16 +450,18 @@ export interface PlanMessages extends EditingMessages, TimeMessages, PagedLoadin
     span: (p: { from: string; to: string }) => string;
     /** A run bar's churn, in words. */
     movedTimes: (p: { n: number; count: string }) => string;
-    /** A run bar's accessible name; `status` its status's own words (#1541), which its ring says by colour. */
-    runName: (p: { label: string; span: string; state: string; quantity: string | undefined; moved: string | undefined; status: string | undefined }) => string;
+    /** What an element's name says of one held where it is (#1541, U9), which its lock says by look — `locked`. */
+    lockedWord: () => string;
+    /** A run bar's accessible name; `status` its status's own words (#1541), which its ring says by colour; `locked` the lock's word, on a locked one. */
+    runName: (p: { label: string; span: string; state: string; quantity: string | undefined; moved: string | undefined; status: string | undefined; locked: string | undefined }) => string;
     /** A span row's decision diamond's accessible name. */
     decisionName: (p: { at: string; applied: boolean }) => string;
     /** A bucket tile's accessible name; `status` its status's own words (#1541). */
-    tileName: (p: { label: string | undefined; bucket: string; lane: string | undefined; state: string; status: string | undefined }) => string;
+    tileName: (p: { label: string | undefined; bucket: string; lane: string | undefined; state: string; status: string | undefined; locked: string | undefined }) => string;
     /** A cards chip's accessible name; `status` its status's own words (#1541). */
-    chipName: (p: { label: string; span: string; state: string; status: string | undefined }) => string;
+    chipName: (p: { label: string; span: string; state: string; status: string | undefined; locked: string | undefined }) => string;
     /** An event mark's accessible name; `status` its status's own words (#1541). */
-    markName: (p: { label: string | undefined; kind: PlanMarkWord; applied: boolean; at: string; status: string | undefined }) => string;
+    markName: (p: { label: string | undefined; kind: PlanMarkWord; applied: boolean; at: string; status: string | undefined; locked: string | undefined }) => string;
     /** A heat cell's value — `91, at or above the warning threshold`. */
     heatValue: (p: { value: string; warn: boolean }) => string;
     /** A cell or bucket with no value. */
@@ -702,6 +712,9 @@ export const planMessages: PlanMessages = {
     inspectorRowOverlaps: ({ n, count }) => `${count} ${plural(n, "overlap", "overlaps")}`,
     inspectorOverlapPair: ({ first, second }) => `${first} · ${second}`,
     inspectorRefusals: () => "Not saved yet",
+    inspectorLocked: () => "Locked",
+    inspectorLockedDetail: () => "It can't be moved, changed or deleted.",
+    inspectorLockedCount: ({ count }) => `${count} locked: left as they are`,
 
     horizon: ({ count, unit }) => `HORIZON · ${count} ${HORIZON_UNIT[unit]}`,
     horizonMax: ({ n, count, unit }) => `max ${count} ${plural(n, "item", "items")} / ${HORIZON_PER[unit]}`,
@@ -748,6 +761,7 @@ export const planMessages: PlanMessages = {
     dropNeedsRow: ({ kind }) => `Drop on ${withArticle(kind)} row`,
     dropBusy: ({ kind }) => `${kind} can't change now`,
     dropRefused: () => "Can't go here",
+    dropLocked: ({ event }) => `${event} is locked`,
     dropCardOnEvent: ({ card, event }) => `${card} → ${event}`,
     dropCardNeedsEvent: ({ fields }) => `Drop ${withArticle(fieldNoun(fields))} onto an event`,
     dropKindTakesNo: ({ kind, fields }) => `${pluralName(kind)} take no ${fieldNoun(fields)}`,
@@ -773,15 +787,16 @@ export const planMessages: PlanMessages = {
     status: ({ tone }) => `Status: ${tone}`,
     span: ({ from, to }) => `${from} – ${to}`,
     movedTimes: ({ n, count }) => `moved ${count} ${plural(n, "time", "times")}`,
-    runName: ({ label, span, state, quantity, moved, status }) => listed([label, span, state, quantity, moved, status]),
+    lockedWord: () => "locked",
+    runName: ({ label, span, state, quantity, moved, status, locked }) => listed([label, span, state, quantity, moved, status, locked]),
     decisionName: ({ at, applied }) => `Decision, ${at}, ${applied ? "applied" : "pending"}`,
-    tileName: ({ label, bucket, lane, state, status }) => listed([label ?? "Event", bucket, lane, state, status]),
-    chipName: ({ label, span, state, status }) => listed([label, span, state, status]),
-    markName: ({ label, kind, applied, at, status }) => {
+    tileName: ({ label, bucket, lane, state, status, locked }) => listed([label ?? "Event", bucket, lane, state, status, locked]),
+    chipName: ({ label, span, state, status, locked }) => listed([label, span, state, status, locked]),
+    markName: ({ label, kind, applied, at, status, locked }) => {
         const what = kind === "decision" ? `decision, ${applied ? "applied" : "pending"}` : kind;
         return label !== undefined
-            ? listed([label, what, at, status])
-            : listed([what.charAt(0).toUpperCase() + what.slice(1), at, status]);
+            ? listed([label, what, at, status, locked])
+            : listed([what.charAt(0).toUpperCase() + what.slice(1), at, status, locked]);
     },
     heatValue: ({ value, warn }) => (warn ? `${value}, at or above the warning threshold` : value),
     noData: () => "no data",

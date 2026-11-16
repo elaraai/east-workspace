@@ -838,21 +838,21 @@ describe("a Save of the jobs read over the window: what it landed, as it left it
             e3: h.e3,
             container: c,
             reads: afterCommit(),
-            look: () => starts(c, ["J-1001", "J-1002", "J-1003", "J-1004"]),
+            look: () => starts(c, ["J-1001", "J-1002", "J-1004", "J-1005"]),
             save: () => { fireEvent.click(historyButton(c, SAVE)); },
             unsaved: () => pending(c) !== "0 pending",
-            // The event posters and the course handbook, on Press A1, which the Save did not hold: each one's original is
+            // The course handbook and the menu cards, on Press A1, which the Save did not hold: each one's original is
             // the canvas's own row of it. Picked, then — their Details drawn from the rows their bars were drawn from —
             // shifted an hour.
             again: [
-                () => select(bar(c, "J-1003")!),
-                () => select(bar(c, "J-1004")!, true),
+                () => select(bar(c, "J-1004")!),
+                () => select(bar(c, "J-1005")!, true),
                 () => press(action(c, "shift:1hour")),
             ],
         });
         const after = await readJobs();
         const hourOn = (key: string) => some(new Date(before.get(key)!.start.value!.getTime() + 3_600_000));
-        expect(["J-1001", "J-1002", "J-1003", "J-1004"].map((key) => after.get(key)!.start)).toEqual(["J-1001", "J-1002", "J-1003", "J-1004"].map(hourOn));
+        expect(["J-1001", "J-1002", "J-1004", "J-1005"].map((key) => after.get(key)!.start)).toEqual(["J-1001", "J-1002", "J-1004", "J-1005"].map(hourOn));
     });
 });
 

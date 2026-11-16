@@ -7,7 +7,7 @@
  * A run's answer landed on a builder's event kinds (#1409, east-workspace#1622, rules 7, 8 and 11; §9.5) — the
  * Calendar's and the Plan's: each kind's patch lands key by key as one diff, told by place, each operation's event read
  * as it stood and as it is left; an answer that changes an event outside the window it was asked of is refused whole,
- * naming it; an event the page does not hold is named, to be read first; an answer with no patch for a kind is no
+ * naming it; so is one that changes or removes an event its kind's own rule holds where it is (#1541, U9); an event the page does not hold is named, to be read first; an answer with no patch for a kind is no
  * landing. No DOM is under test: the refusal's words are east-ui-components', whose entry needs one as it loads.
  */
 
@@ -88,6 +88,23 @@ describe("landOptimiseEvents", () => {
         const before = jobs(["s1", job("Oil", at(28, 6, 8), at(28, 7, 8))]);
         const back = { job: diff(pageJobs, pageJobs), stop: diff(before, jobs(["s1", job("Oil")])) };
         expect(landOptimiseEvents(landing({ job: pageJobs, stop: before }, back))).toEqual({ refused: optimiseMessages.refusedOutside({ row: "Oil", period }) });
+    });
+
+    test("an answer that changes or removes an event its kind's own rule holds where it is is refused whole, naming it; one that leaves it, or adds a row the rule would hold, lands (#1541, U9)", () => {
+        // The packing is locked, as its kind reads it: every other event, and a row not yet an event, is not.
+        const locks = (held: typeof page, events: Record<string, unknown>): OptimiseEventsLanding<JobValue & { locked: boolean }> => ({
+            ...landing(held, events),
+            eventOf: (_kind, _id, row) => ({ ...(row as JobValue), locked: (row as JobValue).title === "Pack" }),
+        });
+        const moved = { job: diff(pageJobs, jobs(["j1", job("Cut")], ["j2", job("Pack", at(6, 9), at(6, 11))])), stop: diff(pageStops, pageStops) };
+        expect(landOptimiseEvents(locks(page, moved))).toEqual({ refused: optimiseMessages.refusedLocked({ row: "Pack" }) });
+        const removed = { job: diff(pageJobs, jobs(["j1", job("Cut")])), stop: diff(pageStops, pageStops) };
+        expect(landOptimiseEvents(locks(page, removed))).toEqual({ refused: optimiseMessages.refusedLocked({ row: "Pack" }) });
+        // Left as it is, with the cutting placed beside it: it lands. And a second packing the answer adds is a new event.
+        const beside = { job: diff(pageJobs, jobs(["j1", job("Cut", at(7, 9), at(7, 11))], ["j2", job("Pack", at(5, 9), at(5, 11))], ["j3", job("Pack", at(8, 9), at(8, 11))])), stop: diff(pageStops, pageStops) };
+        const got = landOptimiseEvents(locks(page, beside));
+        if (got === undefined || "missing" in got || "refused" in got) throw new Error(`no landing: ${JSON.stringify(got)}`);
+        expect([...got.diff.ops].map(([key, op]) => [key, op.op])).toEqual([[opKey("job", "j1"), "add"], [opKey("job", "j3"), "add"]]);
     });
 
     test("an event the page does not hold is named, to be read by its key first (rule 8); an answer with no patch for a kind is no landing", () => {

@@ -28,9 +28,20 @@ import { PLAN_DRAFT_HALO, PLAN_OVERLAP_RING, planElementConflict, planElementDra
 /** The slots this part styles. */
 export const elementsSlots = [
     "bar", "barLabel", "barQty", "rollBand", "rollBandLabel", "port", "diamond", "chartMarks", "chartRefBand", "chartTickLeft", "chartTickRight", "refLabel",
-    "chartReadout", "chartReadoutValue", "milestoneDot", "exceptionTri", "markIcon", "markLabel",
+    "chartReadout", "chartReadoutValue", "milestoneDot", "exceptionTri", "markIcon", "markLabel", "lock", "markLock",
     "moveEdge", "moveGhost", "moveGhostLabel", "moveGhostSpan",
 ] as const;
+
+/** A lock's square (#1541, U9): Font Awesome's lock, 9px, in a bar or a chip. */
+export const PLAN_LOCK_W = "9px";
+
+/**
+ * A label after a lock and the gap (#1541, U9), a bar's and a chip's: a letter
+ * and the ellipsis beside them, or not drawn at all (#1264).
+ */
+export const planLabelAfterLock = {
+    "[data-locked] > &": { [`@container (width < calc(${PLAN_LOCK_W} + 4px + 2ch))`]: { display: "none" } },
+} satisfies SystemStyleObject;
 
 /** An element that moves (#825) is picked up where it sits. */
 const grab = { "&[data-draggable]": { cursor: "grab" } } satisfies SystemStyleObject;
@@ -138,6 +149,7 @@ export const elementsBase = {
         textOverflow: "ellipsis",
         whiteSpace: "nowrap",
         ...hideShortText,
+        ...planLabelAfterLock,
     },
     // A span's quantity — the label's own weight (#949: one weight per span).
     // It never shrinks: when it does not fit beside the label it wraps out of
@@ -503,6 +515,35 @@ export const elementsBase = {
         letterSpacing: "0.06em",
         color: "fg.muted",
         whiteSpace: "nowrap",
+        zIndex: 3,
+        pointerEvents: "none",
+        "&[data-ctx]": { display: "none" },
+    },
+    // ── Locks (#1541, U9) ──
+    // What a bar or a chip its `locked` holds where it is leads with: Font
+    // Awesome's lock in the element's own ink, a 9px square. An element
+    // narrower inside than it draws none, never a part of it (#1264). In a
+    // bar, whose one line is the bar's inside height, its box is that line's.
+    lock: {
+        display: "inline-flex",
+        alignItems: "center",
+        flex: "none",
+        fontSize: PLAN_LOCK_W,
+        "--fa-width": "1em",
+        opacity: 0.72,
+        [`@container (width < ${PLAN_LOCK_W})`]: { display: "none" },
+        "[data-run] > &": { height: "100cqh" },
+        "[data-ctx] > &": { display: "none" },
+    },
+    // A locked mark's lock: beside its glyph, where its label would start —
+    // the label then starts after it. A strip draws none, as it draws no label.
+    markLock: {
+        position: "absolute",
+        top: "50%",
+        transform: "translateY(-50%)",
+        ...fontAwesomeSize("8px"),
+        display: "flex",
+        color: "fg.muted",
         zIndex: 3,
         pointerEvents: "none",
         "&[data-ctx]": { display: "none" },

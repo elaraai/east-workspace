@@ -433,6 +433,15 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
         };
 
         /**
+         * Why an event its kind's `locked` holds where it is takes no gesture (#1541, U9): what the ghost says of a
+         * drop that would move it, change it or take it off the canvas.
+         *
+         * @returns Its refusal's words; `undefined` for an event that is not locked
+         */
+        const lockOf = (read: PlanEventReadValue): string | undefined =>
+            (read.item.locked ? latest.current.words.m.dropLocked({ event: read.item.title }) : undefined);
+
+        /**
          * Whether one event of a kind lands as a gesture writes it: the kind
          * takes a gesture now, its own `write` takes this one, and the Plan's
          * `canDrop` lets it land.
@@ -498,6 +507,9 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
                 const end = getSomeorUndefined(read.item.end);
                 const span = start !== undefined && end !== undefined ? { start: timeInstant(start), end: timeInstant(end) } : undefined;
                 if (!a.editing.available(kind.key)) return refused(m.dropBusy({ kind: kind.name }), span);
+                // A locked event takes no card (#1541, U9).
+                const held = lockOf(read);
+                if (held !== undefined) return refused(held, span);
                 // What it would do: the card lands on the event, where the event stands.
                 const said = a.veto?.refusal(eventCandidate(ADD, kind.key, variant("card", { library: from.library, key: from.key }), {
                     row: row.id, start: span?.start, end: span?.end,
@@ -552,6 +564,9 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
             const end = kind.instant ? start : new Date(start.getTime() + Number(read.item.minutes) * MINUTE_MS);
             const span = { start: timeInstant(start), end: timeInstant(end) };
             const gesture = variant("place", { start, end, resource }) as PlanEventGestureValue;
+            // A locked event stays in the backlog (#1541, U9).
+            const held = lockOf(read);
+            if (held !== undefined) return refused(held, span);
             const why = judge(kind, { id: ref.key, entry: read.row, gesture },
                 eventCandidate(ADD, kind.key, variant("backlog", { kind: kind.key, key: ref.key }), landsOn(kind, target, start, end)), target.kind === "unassigned");
             if (why !== undefined) return refused(why, span);
@@ -628,8 +643,11 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
             // carried across, or the grabbed one let go where it stands — is none of it. Nothing changed, it lands as
             // nothing: the ghost says where the element stands, and the drop records no step.
             const changed = placed.filter((one) => one.moved);
-            // One part refused refuses the whole: a selection moves together, or not at all.
+            // One part refused refuses the whole: a selection moves together, or not at all — a locked one among it
+            // holding the rest where they are (#1541, U9).
             for (const one of changed) {
+                const held = lockOf(one.read);
+                if (held !== undefined) return refused(held, to.span);
                 const why = judge(one.kind, { id: one.id, entry: one.read.row, gesture: one.gesture }, eventCandidate(
                     origin.kind === "resize" ? variant("resize", variant(origin.edge, null)) as PlanCandidateValue["gesture"] : MOVE,
                     one.kind.key, variant("event", { kind: one.kind.key, key: one.id }),
@@ -663,6 +681,9 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
             if (!kind.backlog) return refused(m.dropNoBacklog({ kind: kind.name }));
             const read = readEvent(kind, ref.key);
             if (read === undefined) return refused(undefined);
+            // A locked event stays on the canvas (#1541, U9).
+            const held = lockOf(read);
+            if (held !== undefined) return refused(held);
             const gesture = variant("unplace", null) as PlanEventGestureValue;
             // Taken off the canvas, back to the Backlog tab: it lands on no row, at no time.
             const why = judge(kind, { id: ref.key, entry: read.row, gesture },

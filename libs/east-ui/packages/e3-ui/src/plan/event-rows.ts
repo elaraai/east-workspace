@@ -224,6 +224,7 @@ const placedRuns = East.function([PlacedListType], ArrayType(PlanRunType), ($, l
         status: ring(p.item.status),
         moved: none,
         icon: some(p.icon),
+        locked: p.item.locked,
     }, PlanRunType));
 });
 
@@ -244,6 +245,7 @@ const placedTiles = East.function([PlacedListType], ArrayType(PlanBucketEventTyp
         stretch: none,
         content: none,
         animation: none,
+        locked: p.item.locked,
     }, PlanBucketEventType));
 });
 
@@ -259,6 +261,7 @@ const placedChips = East.function([PlacedListType], ArrayType(PlanChipType), ($,
         state: p.item.state,
         status: ring(p.item.status),
         icon: some(p.icon),
+        locked: p.item.locked,
     }, PlanChipType));
 });
 
@@ -276,6 +279,7 @@ const placedMarks = East.function([PlacedListType], ArrayType(PlanEventMarkType)
             status: none,
             icon: some(p.icon),
             label: some(p.item.title),
+            locked: p.item.locked,
         }, PlanEventMarkType);
     });
 });

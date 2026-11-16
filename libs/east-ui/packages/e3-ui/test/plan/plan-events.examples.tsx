@@ -1021,6 +1021,9 @@ export const planPrintWorks = example({
                             resource: { field: "press", of: "presses" },
                             state: "state",
                             quantity: { field: "sheets", unit: "sheets" },
+                            // A job under way is locked, by the works' own rule: it draws with a lock, and is not
+                            // moved, resized, changed or removed.
+                            locked: (job) => job.state.hasTag("in-progress"),
                             backlog: { duration: j => variant("hours", j.sheets.divide(8000.0)), due: j => j.due },
                             fields: {
                                 customer: Schedule.field.text({ label: "Customer" }),

@@ -98,6 +98,29 @@ const SERIES = [
     }),
 ];
 
+/**
+ * The series with an item of each locked by its map (#1541, U9): the run `j1`, the chip `s1` and the tile `t1` are
+ * held where they are, and every other item moves.
+ */
+const LOCKED_SERIES = [
+    Plan.series.span(Press, {
+        key: "jobs", title: "Jobs", label: (m) => m.label,
+        runs: Plan.items("jobs", { from: "start", to: "end" }, (job, id) => ({ label: job.label, state: "confirmed", locked: id.equal("j1") })),
+        edit: true,
+    }),
+    SERIES[1]!,
+    Plan.series.cards(Press, {
+        key: "shifts", title: "Shifts", label: (m) => m.label,
+        chips: Plan.items("shifts", { from: "from", to: "to" }, (shift, id) => ({ label: shift.label, state: "confirmed", locked: id.equal("s1") })),
+        edit: true,
+    }),
+    Plan.series.buckets(Press, {
+        key: "slots", title: "Slots", label: (m) => m.label,
+        events: Plan.items("slots", { at: "at" }, (slot, id) => ({ label: slot.label, state: "confirmed", locked: id.equal("t1") })),
+        edit: true,
+    }),
+];
+
 /** A `canDrop` that refuses every move onto Press 2's jobs row. */
 const M2_JOBS = rowKey("m2", "jobs");
 const NOT_M2_JOBS = East.function([Plan.Types.Candidate], OptionType(StringType), ($, candidate) => {
@@ -142,17 +165,18 @@ export async function settle(): Promise<void> {
  * Build, compile and mount the presses canvas, and wait for it to draw.
  *
  * @param options - `veto`: a `canDrop` that refuses Press 2's jobs row; `seed`: the presses, in place of
- *   {@link SEED}; `id: false`: the canvas declares no drop-target id
+ *   {@link SEED}; `id: false`: the canvas declares no drop-target id; `locked`: the run `j1`, the chip `s1` and the
+ *   tile `t1` locked by their maps
  * @returns The mounted canvas
  */
-export async function mountMoves(options: { veto?: boolean; seed?: Map<string, PressValue>; id?: boolean } = {}): Promise<MoveCanvas> {
+export async function mountMoves(options: { veto?: boolean; seed?: Map<string, PressValue>; id?: boolean; locked?: boolean } = {}): Promise<MoveCanvas> {
     const seed = options.seed ?? SEED;
     const program = East.compile(East.function([], Plan.Types.Root, ($) => {
         const presses = $.const(State.bind([Presses], STATE_KEY, seed));
         return Plan.Root({
             axis: AXIS,
             data: presses,
-            series: SERIES,
+            series: options.locked === true ? LOCKED_SERIES : SERIES,
             ...(options.id !== false ? { id: SURFACE } : {}),
             ...(options.veto === true ? { canDrop: NOT_M2_JOBS } : {}),
             editing: { onApply: stateApply(Presses, STATE_KEY, presses) },

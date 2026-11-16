@@ -25,9 +25,12 @@
  *   holding Save, is an error (#1585); its kind's fields through `FieldForm`, the fields its roles
  *   read left to their own lines — or, when the kind has its own inspector,
  *   what that returns for the event in place of the form (PB60); then
- *   Duplicate and Delete;
+ *   Duplicate and Delete. An event its kind's `locked` holds where it is
+ *   (#1541, U9) says so in a banner under a lock, its form read only and its
+ *   gestures off;
  * - **several events** (PB39): how many, each kind's count, the list, and the
- *   bulk edit — the state, the resource and a shift in time;
+ *   bulk edit — the state, the resource and a shift in time — over those not
+ *   locked, with how many are locked, which every gesture leaves as they are;
  * - **a row** (PB40), on a Plan with or without event kinds (#1541, U5): a
  *   resource's name and lines — its landing row's (#1541) — the group it is
  *   drawn under; the banner of its refusals holding Save while the Plan's
@@ -492,6 +495,9 @@ function spanText(start: Date, end: Date, w: PlanWords): string {
 /** The glyph an overlaps banner leads with. */
 const OVERLAP_ICON = { prefix: "fas", name: "triangle-exclamation" } as const;
 
+/** The glyph a locked event's banner leads with (#1541, U9). */
+const LOCK_ICON = { prefix: "fas", name: "lock" } as const;
+
 /** One line of an overlaps banner: the events it selects, when, and what. */
 interface OverlapLine {
     /** The events a click selects, by their elements' keys. */
@@ -707,7 +713,9 @@ function OneEvent({ event, keys, words, styles, counts, chrome, selection }: One
     const names = usePlanResourceNames(chrome?.inspect, useNamedResource(getSomeorUndefined(item.resource)));
     // Its edits (#1194): steps of the Plan's one history, on while the canvas takes a write and its kind a gesture.
     const editing = chrome?.events;
-    const writable = writableFor([event], editing, chrome?.writable === true);
+    // A locked event takes none (#1541, U9): its form is read only, and Duplicate — whose copy its kind's rule would
+    // hold too — and Delete are off.
+    const writable = writableFor([event], editing, chrome?.writable === true) && !item.locked;
     // What its gestures ask as they land — this render's — so the kind's own inspector, handed `update`, is not made
     // again as the edits turn off and on.
     const writes = useRef(writable);
@@ -811,6 +819,12 @@ function OneEvent({ event, keys, words, styles, counts, chrome, selection }: One
                     lines={peers.map((peer) => ({ keys: [scheduleEventKey(peer)], when: whenText(peer, kind.instant, words), title: peer.title }))}
                     onSelect={chrome.selectEvents} />
             )}
+            {/* That it is locked (#1541, U9): why its form is read only and its gestures off. */}
+            {item.locked && (
+                <Box css={styles.locked} data-inspector-locked="">
+                    <BannerView status="neutral" icon={LOCK_ICON} title={m.inspectorLocked()} description={m.inspectorLockedDetail()} />
+                </Box>
+            )}
             {/* Over its form, as the Calendar's inspector shows an event's: each refusal's field by its form's label. */}
             {refusals.length > 0 && (
                 <Box css={styles.refusals} data-inspector-refusals="">
@@ -876,20 +890,25 @@ interface SeveralProps extends BodyProps {
 }
 
 /** Several events: how many, each kind's count, the list, and the bulk edit. */
-function SeveralEvents({ events, kinds, landings, words, styles, chrome, selection }: SeveralProps) {
+function SeveralEvents({ events: selected, kinds, landings, words, styles, chrome, selection }: SeveralProps) {
     const { m } = words;
     const button = useRecipe({ key: "button" });
+    // The events a gesture reaches (#1541, U9): those not locked. A locked one is listed and counted with the rest, and
+    // every gesture — the bulk edit, a shift, Duplicate, Delete — leaves it as it is.
+    const events = useMemo(() => selected.filter((event) => !event.item.locked), [selected]);
+    const locked = selected.length - events.length;
     // The resources the events are on, by name: each read by its key where the canvas does not hold its row (#1199, #1541).
     const named = useMemo(() => resourcesNamed(events.map((e) => getSomeorUndefined(e.item.resource))), [events]);
     const names = usePlanResourceNames(chrome?.inspect, named);
     // Its edits (#1194): steps of the Plan's one history, on while the canvas takes a write and every selected kind a gesture.
     const editing = chrome?.events;
     const writable = writableFor(events, editing, chrome?.writable === true);
-    // Each kind's count, in the kinds' order.
+    // Each kind's count, in the kinds' order: of every event selected.
     const counted = kinds
-        .map((kind) => ({ kind, n: events.filter((e) => stringEqual(e.kind.key, kind.key)).length }))
+        .map((kind) => ({ kind, n: selected.filter((e) => stringEqual(e.kind.key, kind.key)).length }))
         .filter(({ n }) => n > 0);
-    const selectedKinds = counted.map(({ kind }) => kind);
+    // The kinds the bulk edit reaches: those with an event not locked.
+    const selectedKinds = counted.map(({ kind }) => kind).filter((kind) => events.some((e) => stringEqual(e.kind.key, kind.key)));
     // The bulk edit's state and resource, as the form draws a choice and a reference: each an
     // Option — Not set where the events differ — its spec's type the Option, as the form reads one.
     const specs = useMemo((): FieldSpecValue[] => {
@@ -999,7 +1018,7 @@ function SeveralEvents({ events, kinds, landings, words, styles, chrome, selecti
     return (
         <Box css={styles.root} data-plan-inspector="events">
             <Box css={styles.head} {...FOCUS_HOME_PROPS}>
-                <Box css={styles.summary} data-inspector-several="">{m.inspectorEvents({ n: events.length, count: words.number(events.length) })}</Box>
+                <Box css={styles.summary} data-inspector-several="">{m.inspectorEvents({ n: selected.length, count: words.number(selected.length) })}</Box>
                 <Box css={styles.marks}>
                     {counted.map(({ kind, n }) => (
                         <Box as="span" key={kind.key} css={styles.chip} data-inspector-kind-count={kind.key}>
@@ -1009,9 +1028,9 @@ function SeveralEvents({ events, kinds, landings, words, styles, chrome, selecti
                 </Box>
             </Box>
             <Box as="ul" css={styles.list} data-inspector-list="">
-                {events.map((event) => (
-                    <Box as="li" key={event.key} css={styles.listItem} data-inspector-event={event.key}>
-                        <FontAwesomeIcon icon={["fas", event.kind.icon as IconName]} />
+                {selected.map((event) => (
+                    <Box as="li" key={event.key} css={styles.listItem} data-inspector-event={event.key} data-locked={event.item.locked ? "" : undefined}>
+                        <FontAwesomeIcon icon={["fas", (event.item.locked ? LOCK_ICON.name : event.kind.icon) as IconName]} />
                         <Box css={styles.listText}>
                             <Box as="span" css={styles.listTitle}>{event.item.title}</Box>
                             <Box as="span" css={styles.listWhen}>{whenText(event.item, event.kind.instant, words)}</Box>
@@ -1019,6 +1038,12 @@ function SeveralEvents({ events, kinds, landings, words, styles, chrome, selecti
                     </Box>
                 ))}
             </Box>
+            {/* How many are locked (#1541, U9), which no gesture below reaches. */}
+            {locked > 0 && (
+                <Box css={styles.locked} data-inspector-locked="">
+                    <BannerView status="neutral" icon={LOCK_ICON} title={m.inspectorLockedCount({ n: locked, count: words.number(locked) })} />
+                </Box>
+            )}
             <chakra.fieldset css={styles.edits} disabled={!writable} data-inspector-edits="">
                 <Box css={styles.bulk} data-inspector-bulk="">
                     <Box css={styles.sectionHead}>{m.inspectorSection({ section: "bulk" })}</Box>

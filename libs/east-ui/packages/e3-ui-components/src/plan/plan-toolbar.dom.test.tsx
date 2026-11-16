@@ -182,7 +182,7 @@ function onePair(): PlanOverlaps {
         kind: "job", key, title: `${key} title`,
         start: some(new Date(Date.UTC(2026, 9, 20, from))), end: some(new Date(Date.UTC(2026, 9, 20, to))),
         resource: some({ kind: "presses", key: "b2" }), status: none, minutes: 60n, due: none,
-        state: variant("confirmed", null), quantity: none, lane: none,
+        state: variant("confirmed", null), quantity: none, lane: none, locked: false,
     });
     return scheduleOverlaps([[job("J-1018", 6, 12), job("J-1019", 10, 13)]]);
 }
