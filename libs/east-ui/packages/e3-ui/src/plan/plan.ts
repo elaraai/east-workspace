@@ -684,8 +684,9 @@ function checkedRowsRange(config: ExprType<RecordSliceConfigType>): ExprType<Nul
  *   over no rows, or over a `series` known only as it runs; an event kind's `resource.of` naming no resources series or
  *   kinds case, or one whose rows are not keyed by String; an event kind with no `title` (#1367); event kinds on a number
  *   or ordinal axis; a link naming an event kind `events` has not; a `links` that is neither a list of links nor link
- *   kinds by slot, or a slot holding neither; a link kind's end naming no event kind, or holding another type than its
- *   kind is keyed by, naming the field and both types (#1541, U10); a `canConnect` on a Plan with no link kind, or that
+ *   kinds by slot, or a slot holding neither; a link kind under an event kind's slot; a link kind's end naming no
+ *   event kind, or holding another type than its kind is keyed by, naming the field and both types (#1541, U10); a
+ *   `canConnect` on a Plan with no link kind, or that
  *   is no function of `Plan.Types.ConnectCandidate` to an Option of its refusal's words; a `rows` item that is neither
  *   a hand-built row nor `Plan.over`'s; a `canDrop` that is no function of `Plan.Types.Candidate` to an Option of its
  *   refusal's words; an
@@ -817,8 +818,14 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
         return linked.includes(undefined) ? checkedLinkKinds(list, kinds, name) : East.value(list as PlanLinkList, ArrayType(PlanLinkType));
     });
     const links = lists.length === 0 ? undefined : lists.slice(1).reduce((all, list) => all.concat(list), lists[0]!);
-    // A link kind's ends name event kinds the Plan has, each at its kind's own key type.
-    for (const [slot, kind] of given.kinds) checkLinkEnds(slot, kind, (events ?? {}) as Readonly<Record<string, ScheduleEventKind<EastType, EastType>>>);
+    // A link kind's ends name event kinds the Plan has, each at its kind's own key type. Its slot is its own: a link
+    // kind's record is saved beside the event kinds', each session named by its slot.
+    for (const [slot, kind] of given.kinds) {
+        if (kinds.includes(slot)) {
+            throw new Error(`Plan: \`links.${slot}\` is a link kind under an event kind's slot — "${slot}" names an event kind in \`events\`: give the link kind a slot of its own`);
+        }
+        checkLinkEnds(slot, kind, (events ?? {}) as Readonly<Record<string, ScheduleEventKind<EastType, EastType>>>);
+    }
     // The connect veto, over the link a Connect would draw.
     const connectVeto = canConnect === undefined ? undefined : checkedCanConnect(canConnect, given.kinds.length);
     if (inspector !== undefined && typeof inspector !== "boolean") {

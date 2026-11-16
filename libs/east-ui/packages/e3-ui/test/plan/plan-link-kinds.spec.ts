@@ -294,6 +294,11 @@ describe("<Plan links>: link kinds by slot, held to the event kinds", () => {
         assert.equal(refusal(($) => planOf($, { runOn: between($, StringType) })), "");
     });
 
+    test("a link kind's slot is its own: one an event kind has is refused", () => {
+        assert.match(refusal(($) => planOf($, { job: between($, StringType) })),
+            /^Plan: `links\.job` is a link kind under an event kind's slot — "job" names an event kind in `events`: give the link kind a slot of its own$/);
+    });
+
     test("an end naming an event kind the Plan has not is refused, naming the kinds it has", () => {
         assert.match(refusal(($) => planOf($, { runOn: between($, StringType, { from: "job", to: "binding" }) })),
             /^Plan: the link kind "runOn"'s `to` holds keys of "binding", and `events` has no kind of that name \(job\)$/);
