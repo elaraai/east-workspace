@@ -13,7 +13,7 @@ import type { Location, SourceMap } from "../../location.js";
 import type { PlatformFunction } from "../../platform.js";
 import { printFor } from "../../serialization/east.js";
 import type { EastTypeValue } from "../../type_of_type.js";
-import { boundReader } from "./key_range.js";
+import { keyPrefix, keyRange } from "./key_range.js";
 import { buildTree, treeOrder, walkTree } from "./tree.js";
 
 /** The builtins for Dicts. @internal */
@@ -270,19 +270,9 @@ export const dict_builtins = {
   },
   // A key range (#1616): the entries from the first key at or past `from` up to the first at or
   // past `to`, found by a search down the tree and never by a walk. A new dictionary, never frozen.
-  DictRange: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], K: EastTypeValue, _V: EastTypeValue, F: EastTypeValue, T: EastTypeValue) => {
-    const from = boundReader(loc_id, source_map, "from", K, F);
-    const to = boundReader(loc_id, source_map, "to", K, T);
-    return (d: SortedMap<any, any>, fromBound: option<any>, toBound: option<any>) => d.range(
-      fromBound.type === "some" ? from.atOrPast(fromBound.value) : undefined,
-      toBound.type === "some" ? to.atOrPast(toBound.value) : undefined,
-    );
-  },
+  DictRange: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], K: EastTypeValue, _V: EastTypeValue, F: EastTypeValue, T: EastTypeValue) => keyRange(loc_id, source_map, K, F, T),
   // The entries whose key equals the prefix on every field it gives: from the first key at it up to the first past it.
-  DictPrefix: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], K: EastTypeValue, _V: EastTypeValue, P: EastTypeValue) => {
-    const prefix = boundReader(loc_id, source_map, "prefix", K, P);
-    return (d: SortedMap<any, any>, bound: any) => d.range(prefix.atOrPast(bound), prefix.past(bound));
-  },
+  DictPrefix: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], K: EastTypeValue, _V: EastTypeValue, P: EastTypeValue) => keyPrefix(loc_id, source_map, K, P),
   DictForEach: (loc_id: bigint, source_map: SourceMap | null, _platformDef: PlatformFunction[], _K: EastTypeValue, _V: EastTypeValue, _T2) => (d: Map<any, any>, f: (k: any, v: any) => any) => {
     lockForIteration(d);
     try {
