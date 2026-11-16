@@ -902,8 +902,8 @@ function eventLandings(series: unknown, events: readonly (readonly [string, Sche
                     `(${keys.join(", ") || "none"}) — the event kinds land on the rows of a Plan.series.resources series, or of a Plan.series.kinds case, by its key`);
             }
             if (!isTypeEqual(landing.keyType, StringType)) {
-                throw new Error(`Plan: events.${slot}'s resource field holds String keys of the rows of "${taken}", which are keyed by ` +
-                    `${printType(landing.keyType)} — key the rows by String`);
+                throw new Error(`Plan: events.${slot}'s resource field "${kind.resourceField ?? ""}" holds .String, the key of a row of "${taken}" — ` +
+                    `and those rows are keyed by ${printType(landing.keyType)}: key them by String`);
             }
         }
     }

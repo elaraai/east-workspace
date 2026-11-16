@@ -74,7 +74,7 @@ describe("the event rows' refusals", () => {
             axis, events: { job: jobsOf($) },
             data: $.const(new Map([[1n, { name: "Press 1" }]]), DictType(IntegerType, Counted)),
             series: [Plan.series.resources(Counted, { key: "presses", title: "Presses", keyType: IntegerType, label: (p) => p.name })],
-        })), "Plan: events.job's resource field holds String keys of the rows of \"presses\", which are keyed by .Integer — key the rows by String");
+        })), "Plan: events.job's resource field \"press\" holds .String, the key of a row of \"presses\" — and those rows are keyed by .Integer: key them by String");
         assert.equal(refusal(($) => {
             const stock = $.let(Data.bind(ex.planLinkStock));
             return Plan.Payload({
