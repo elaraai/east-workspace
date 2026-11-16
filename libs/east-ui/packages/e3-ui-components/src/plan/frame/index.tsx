@@ -106,7 +106,7 @@ import type { KeyVisibilityWords } from "../../shared/schedule/visibility.js";
 import { usePlanCanvas } from "../canvas.js";
 import { usePlanSelector } from "../controller/react.js";
 import { removePlanEvents } from "../edit/events.js";
-import { kindLinkOf } from "../links/kinds.js";
+import { kindLinkOf, linkStepLabel } from "../links/kinds.js";
 import type { PlanCanvasParts } from "../root/chrome.js";
 import type { PlanEventRows } from "../root/events.js";
 import { ROWS_SOURCE, planFollowedSources, planNouns, type PlanEventPart } from "../root/sources.js";
@@ -118,7 +118,9 @@ import { usePlanWords, useResolvedPlanWords } from "../words.js";
 import { PlanVocabularyProvider } from "../messages.js";
 import { PlanKindsReader, type PlanBacklogEntry, type PlanKindsRead, type PlanOverlaps } from "./counts.js";
 import { NONE_HIDDEN, hiddenOf, hides, rowsHiddenOf } from "./hidden.js";
-import { NO_INSPECTED, PlanSelectionReader, usePlanInspector, usePlanInspectorSelection, type PlanInspectedEvent } from "./inspector.js";
+import {
+    NO_INSPECTED, NO_INSPECTED_LINKS, PlanSelectionReader, usePlanInspector, usePlanInspectorSelection, type PlanInspectedEvent, type PlanInspectedLink,
+} from "./inspector.js";
 import { tabLibrary, usePlanLibrary, type PlanPickValue } from "./library.js";
 
 /** The Plan's payload, decoded — what `<Plan>` returns through the `Plan` carrier (#1191). */
@@ -347,9 +349,9 @@ interface PlanFrameProps {
  * @returns The label; `undefined` for a selection of events alone, which names itself
  */
 function deleteLabel(keys: readonly string[], linkKinds: PlanLinkKinds): string | undefined {
-    const links = keys.filter((key) => kindLinkOf(linkKinds, key) !== undefined).length;
-    if (links === 0) return undefined;
-    return links === keys.length ? `Delete ${links} ${links === 1 ? "link" : "links"}` : `Delete ${keys.length} selected`;
+    const kinds = keys.flatMap((key) => { const named = kindLinkOf(linkKinds, key); return named === undefined ? [] : [named.kind]; });
+    if (kinds.length === 0) return undefined;
+    return kinds.length === keys.length ? linkStepLabel("Delete", kinds) : `Delete ${keys.length} selected`;
 }
 
 /**
@@ -418,7 +420,9 @@ function PlanFrame({ canvas, root, kinds, landings, library, inspector, hidden, 
     // What is selected, and the selected events, read by a component of their own (#1344).
     const selection = usePlanInspectorSelection(inspector);
     const [selected, setSelected] = useState<readonly PlanInspectedEvent[]>(NO_INSPECTED);
-    const end = usePlanInspector({ shown: inspector, kinds, landings, chrome, counts, keys, words, selection, events: selected, hidden });
+    // The selected links of the link kinds (#1541, U10), read beside them.
+    const [selectedLinks, setSelectedLinks] = useState<readonly PlanInspectedLink[]>(NO_INSPECTED_LINKS);
+    const end = usePlanInspector({ shown: inspector, kinds, landings, chrome, counts, keys, words, selection, events: selected, links: selectedLinks, hidden });
     // The Plan's one history (#1194): the history item reads it as one session.
     const history = chrome?.history;
     const session = history?.session;
@@ -523,7 +527,7 @@ function PlanFrame({ canvas, root, kinds, landings, library, inspector, hidden, 
             )}
             {inspector && (
                 <PlanSelectionReader kinds={kinds} elements={selection.elements} drafts={chrome?.events?.drafts} editing={chrome?.events}
-                    held={chrome?.cells?.held} onRead={setSelected} />
+                    held={chrome?.cells?.held} onRead={setSelected} linkKinds={linkKinds} onLinks={setSelectedLinks} />
             )}
             <LoadingReveal waiting={waiting}>
                 <BuilderFrame

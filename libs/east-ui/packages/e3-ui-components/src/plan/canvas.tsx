@@ -111,8 +111,9 @@ import type { RowKey } from "./plan-state.js";
 import { conflictPlaceOf, entryOf, usePlanEditing, type PlanEntryRef } from "./use-plan-editing.js";
 import { timeInstant } from "./instant.js";
 import { removePlanEvents, usePlanEventEditing } from "./edit/events.js";
+import { lowerWord } from "../shared/schedule/words.js";
 import {
-    NO_LINK_KINDS, NO_LINK_KINDS_READ, kindLinkOf, kindLinks, linkKindRecords, linkedEventKinds, readLinkKinds, type PlanLinkKindValue,
+    NO_LINK_KINDS, NO_LINK_KINDS_READ, kindLinkOf, kindLinks, linkKindRecords, linkStepLabel, linkedEventKinds, readLinkKinds, type PlanLinkKindValue,
 } from "./links/kinds.js";
 import type { PlanLinkUnlink } from "./shell/LinksOverlay.js";
 import { DraftedStanding } from "../shared/schedule/drafted-rows.js";
@@ -1327,9 +1328,9 @@ export function usePlanCanvas({
         run: (key) => {
             const named = kindLinkOf(linkKinds, key);
             if (named === undefined || !takesWrites) return;
-            if (removePlanEvents([key], eventEditing, `Delete ${named.kind.name.toLocaleLowerCase(words.locale)}`)) selectEvents([]);
+            if (removePlanEvents([key], eventEditing, linkStepLabel("Delete", [named.kind]))) selectEvents([]);
         },
-        label: (key) => words.m.linkRemove({ name: (kindLinkOf(linkKinds, key)?.kind.name ?? "").toLocaleLowerCase(words.locale) }),
+        label: (key) => words.m.linkRemove({ name: lowerWord(kindLinkOf(linkKinds, key)?.kind.name ?? "") }),
     }), [linkKinds, takesWrites, eventEditing, selectEvents, words]);
     // What every row of this render shares (#616: per-row facts are computed
     // from it, and each row's memo skips unless ITS facts moved).

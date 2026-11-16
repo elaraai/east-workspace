@@ -31,8 +31,9 @@ import { Data, Plan, Record, Schedule } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
 import * as rowDrop from "@elaraai/e3-ui/examples/plan/plan";
 import { carryRun } from "../plan-move.test-utils.js";
+import { retypeNumber } from "../../e3-web-mount.test-utils.js";
 import { boundFrame } from "../../sheet/frame.test-utils.js";
-import { el, entry, planHarness, dropPressRow, rowAt, dropRunOf, settle, slot } from "./harness.test-utils.js";
+import { el, elementKey, entry, planHarness, dropPressRow, ribbonWidth, rowAt, dropRunOf, settle, slot } from "./harness.test-utils.js";
 
 const h = planHarness({ "plan/plan-events": ex, "plan/plan": rowDrop });
 
@@ -646,6 +647,110 @@ describe("a Plan of rows alone: its inspector, and a row's refusals holding Save
             expect(dropRunOf(c, "p03", "j4624")).toBeNull();
             expect(showing(c)).toBe("row");
             expect(banner()).toBeNull();
+        } finally {
+            restore();
+        }
+    });
+});
+
+describe("a link kind's link in the inspector (#1541, U10)", () => {
+    /** Example 16's Plan — the works' centres, their four event kinds and the flows between them — with its inspector. */
+    const flows = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
+        const works = $.let(Record.bind(ex.planLinkWorks, []));
+        const plates = $.let(Record.bind(ex.planLinkPlates));
+        const jobs = $.let(Record.bind(ex.planLinkCaseJobs));
+        const bindings = $.let(Record.bind(ex.planLinkBindings));
+        const deliveries = $.let(Record.bind(ex.planLinkDeliveries));
+        const links = $.let(Record.bind(ex.planLinkFlows));
+        const axis = $.const(Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "week" }));
+        return Plan({
+            axis,
+            data: works.read(),
+            series: [
+                Plan.series.resources(ex.PrintLinkCentre, { key: "setters", title: "Plate room", icon: "layer-group", match: (c) => c.what.hasTag("setter"), label: (c) => c.name }),
+                Plan.series.resources(ex.PrintLinkCentre, { key: "presses", title: "Presses", icon: "print", match: (c) => c.what.hasTag("press"), label: (c) => c.name }),
+                Plan.series.resources(ex.PrintLinkCentre, { key: "lines", title: "Bindery", icon: "book", match: (c) => c.what.hasTag("line"), label: (c) => c.name }),
+                Plan.series.resources(ex.PrintLinkCentre, { key: "bays", title: "Dispatch", icon: "warehouse", match: (c) => c.what.hasTag("bay"), label: (c) => c.name }),
+            ],
+            events: {
+                plate: Schedule.events(plates, { name: "Plates", icon: "clone", title: "title", at: "at", resource: { field: "setter", of: "setters" } }),
+                job: Schedule.events(jobs, { name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end", resource: { field: "press", of: "presses" } }),
+                binding: Schedule.events(bindings, { name: "Bindery job", icon: "book-open", draw: "cards", title: "title", start: "start", end: "end", resource: { field: "line", of: "lines" } }),
+                delivery: Schedule.events(deliveries, { name: "Delivery", icon: "truck", draw: "buckets", title: "title", at: "at", resource: { field: "bay", of: "bays" } }),
+            },
+            links: {
+                flow: Plan.links(links, {
+                    name: "Flow", icon: "arrow-right-long",
+                    from: { field: "from", of: { plate: "plate", job: "job", binding: "binding" } },
+                    to: { field: "to", of: { job: "job", binding: "binding", delivery: "delivery" } },
+                    quantity: { field: "sheets", unit: "k sheets" },
+                }),
+            },
+            inspector: true,
+        });
+    }))) };
+    const hit = (c: HTMLElement, key: string) => [...c.querySelectorAll("[data-link]")].find((path) => path.getAttribute("data-link-key") === elementKey("flow", key));
+    const fact = (c: HTMLElement, name: string) => pane(c).querySelector(`[data-fact="${name}"]`)?.textContent ?? null;
+    const toolbar = (c: HTMLElement) => within(slot(c, "toolbar")!);
+
+    test("one link shows its kind, the events it joins, what it moves and its form; an edit is a draft Undo takes back; Delete removes it", async () => {
+        const restore = ribbonWidth({ tall: true });
+        try {
+            const { container } = await h.mount(flows);
+            await settle();
+            fireEvent.click(container.querySelector(`${rowAt(entry("presses", "a1"))} [data-plan-control="links"]`)!);
+            await settle();
+            fireEvent.click(hit(container, "covers")!);
+            await settle();
+            expect(showing(container)).toBe("link");
+            // Its kind, and the two jobs it joins by their titles.
+            expect(pane(container).querySelector("[data-inspector-kind]")!.textContent).toBe("Flow");
+            expect(pane(container).querySelector("[data-inspector-title]")!.textContent).toBe("Catalogue covers → Catalogue");
+            expect([fact(container, "from"), fact(container, "to"), fact(container, "quantity")]).toEqual(["Catalogue covers", "Catalogue", "12 k sheets"]);
+            // Its form: the field no end is, its sheets.
+            const form = () => pane(container).querySelector<HTMLElement>("[data-inspector-fields='form']")!;
+            expect([...form().querySelectorAll("[data-field]")].map((field) => field.getAttribute("data-field"))).toEqual(["sheets"]);
+            // Its sheets typed: a draft of the flows' record — the link moves 30, and Save waits on it.
+            await retypeNumber(within(form().querySelector<HTMLElement>("[data-field='sheets']")!).getByRole("spinbutton"), "30");
+            expect(fact(container, "quantity")).toBe("30 k sheets");
+            expect(toolbar(container).getByRole("button", { name: editingMessages.apply() })).toHaveProperty("disabled", false);
+            // Undo takes it back.
+            fireEvent.click(toolbar(container).getByRole("button", { name: editingMessages.undo() }));
+            await settle();
+            expect(fact(container, "quantity")).toBe("12 k sheets");
+            // Delete removes the link, and leaves no link selected.
+            fireEvent.click(pane(container).querySelector('[data-inspector-action="delete"]')!);
+            await settle();
+            expect([hit(container, "covers"), showing(container) === "link"]).toEqual([undefined, false]);
+        } finally {
+            restore();
+        }
+    });
+
+    test("several links show how many, each by the events it joins, and Delete removes them all as one step", async () => {
+        const restore = ribbonWidth({ tall: true });
+        try {
+            const { container } = await h.mount(flows);
+            await settle();
+            fireEvent.click(container.querySelector(`${rowAt(entry("presses", "a1"))} [data-plan-control="links"]`)!);
+            await settle();
+            const drawn = () => container.querySelectorAll("[data-link]").length;
+            const all = drawn();
+            fireEvent.click(hit(container, "covers")!);
+            await settle();
+            fireEvent.click(hit(container, "plates")!, { shiftKey: true });
+            await settle();
+            expect(showing(container)).toBe("links");
+            expect(pane(container).querySelector("[data-inspector-several]")!.textContent).toBe("2 links");
+            expect([...pane(container).querySelectorAll("[data-inspector-link]")].map((line) => line.getAttribute("data-inspector-link")))
+                .toEqual([elementKey("flow", "covers"), elementKey("flow", "plates")]);
+            fireEvent.click(pane(container).querySelector('[data-inspector-action="delete"]')!);
+            await settle();
+            expect([hit(container, "covers"), hit(container, "plates"), drawn() < all]).toEqual([undefined, undefined, true]);
+            // One step: one Undo brings both back.
+            fireEvent.click(toolbar(container).getByRole("button", { name: editingMessages.undo() }));
+            await settle();
+            expect(drawn()).toBe(all);
         } finally {
             restore();
         }
