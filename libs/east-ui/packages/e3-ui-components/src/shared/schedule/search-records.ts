@@ -544,6 +544,41 @@ export function kindQuery(query: DatasetKeyQuery, box: EastTypeValue, keyed: Kin
     return parsed.kind === "query" ? parsed.query : undefined;
 }
 
+/** A block of a record source's matches among the rows its page holds: where it starts there, and how many it holds. */
+export interface MatchBlock {
+    /** Where it starts among the rows the page holds of the record — the record's own, or its scope's (#1621). */
+    readonly start: bigint;
+    /** How many matches it holds. */
+    readonly count: number;
+}
+
+/**
+ * The blocks of a record source's matches of a query among the rows its page
+ * holds — the record's own, or its scope's (#1621), a block for each of the
+ * scope's values that holds one — through the source's own key search
+ * (`recordSliceKeySearch`): none empty.
+ *
+ * @param part - The source's part of the slice
+ * @param query - The query, as the source seeks it
+ * @returns Each block, in the order of the rows the page holds
+ */
+export async function recordMatchBlocks(part: RecordPart, query: DatasetKeyQuery): Promise<MatchBlock[]> {
+    const blocks = await awaitTracked(() => recordSliceKeySearch(part, query));
+    return blocks.flatMap((block) => (block.count === 0n ? [] : [{ start: block.row, count: Number(block.count) }]));
+}
+
+/**
+ * What a find answers the box: whether its runs hold a match, and how many —
+ * the list's rows, from its first.
+ *
+ * @param runs - The find's runs, in the list's order, each with how many matches it holds
+ * @returns The box's match range
+ */
+export function foundRange(runs: readonly { readonly count: number }[]): DatasetKeyMatchRange {
+    const count = runs.reduce((sum, run) => sum + run.count, 0);
+    return { found: count > 0, row: 0, count };
+}
+
 /**
  * Seeks a query in each source, in order (see the module docs): a source
  * sought through e3 a block of matches at a time — one with no scope, one for
@@ -562,8 +597,8 @@ export async function searchRuns<T>(sources: readonly SoughtSource<T>[], query: 
         const asked = kindQuery(query, box, source.keys);
         if (asked === undefined) return [];
         if (throughE3(source)) {
-            const blocks = await awaitTracked(() => recordSliceKeySearch(source.part, asked));
-            return blocks.flatMap((block) => (block.count === 0n ? [] : [{ source, start: block.row, count: Number(block.count), rows: undefined }]));
+            const blocks = await recordMatchBlocks(source.part, asked);
+            return blocks.map((block) => ({ source, start: block.start, count: block.count, rows: undefined }));
         }
         if (bySeek(source)) {
             // The query as the key search's East value: what every source's `seek` reads.
@@ -803,8 +838,7 @@ export function useSearchRecords<T>(options: SearchRecordsOptions<T>): KeySearch
         const sought = latest.current.sources;
         const runs = await searchRuns(sought, query, boxKeyType(sought.map((source) => source.keys)));
         if (mine === asked.current) found.current = runs;
-        const count = runs.reduce((sum, run) => sum + run.count, 0);
-        return { found: count > 0, row: 0, count };
+        return foundRange(runs);
     }, []);
     // What the box last listed of the find, as the narrowings stood: a pick of a row it showed hidden goes as it showed it.
     const shown = useRef<Shown<T> | undefined>(undefined);

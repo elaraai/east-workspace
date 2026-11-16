@@ -25,8 +25,8 @@ import {
     type ExprType, type ValueTypeOf,
 } from "@elaraai/east";
 import {
-    MAX_AREA_RASTER, MAX_LANDED_SEARCHES, MAX_RECORD_SLICE_RUNS, RecordSliceReadType,
-    areaQueries, areaRaster, recordOnPrinter,
+    MAX_AREA_RASTER, MAX_LANDED_SEARCHES, RECORD_SLICE_RUNS_REFUSAL, RecordSliceReadType,
+    areaQueries, areaRaster, recordAreaBoxText, recordOnPrinter, recordPrefixesExtended,
     type AreaCell, type AreaWindow, type RecordOnPrinter, type RecordSliceChoiceType, type RecordSliceIndexType,
 } from "@elaraai/east-ui/internal";
 import type { SchematicBoxFieldsType } from "./types.js";
@@ -81,12 +81,6 @@ export interface SchematicAreaIndexes {
     readonly led: readonly Index[];
 }
 
-/** A box's fields and where it is placed, as a refusal names them. */
-function boxText(box: { x: string; y: string; width: BoxFields["width"]; height: BoxFields["height"] }, centre: boolean): string {
-    const sides = box.width.type === "some" && box.height.type === "some" ? `, width: "${box.width.value}", height: "${box.height.value}"` : "";
-    return `x: "${box.x}", y: "${box.y}"${sides}, at: "${centre ? "centre" : "corner"}"`;
-}
-
 /**
  * The area indexes a kind is read by (§10.4, §11.4, SC34): those its source of
  * the slice lists, each held to the kind's roles — the same `x`, `y`, `width`
@@ -110,9 +104,9 @@ export function schematicAreaIndexes(indexes: readonly Index[], box: BoxFields, 
         const area = index.area.value;
         if (!stringEqual(area.x, box.x) || !stringEqual(area.y, box.y) || !sideEqual(area.width, box.width) || !sideEqual(area.height, box.height)
             || !booleanEqual(area.centre, centre)) {
-            throw new Error(`${where}: the area index '${index.name}' boxes each row by { ${boxText(area, area.centre)} }, and the kind's roles place it by ` +
-                `{ ${boxText(box, centre)} } — an area index the kind is read by boxes each row as its roles place it: declare it ` +
-                `index.area({ ${boxText(box, centre)}, cell })`);
+            throw new Error(`${where}: the area index '${index.name}' boxes each row by { ${recordAreaBoxText(area, area.centre)} }, and the kind's roles place it by ` +
+                `{ ${recordAreaBoxText(box, centre)} } — an area index the kind is read by boxes each row as its roles place it: declare it ` +
+                `index.area({ ${recordAreaBoxText(box, centre)}, cell })`);
         }
     }
     // An area index's fields are its leading fields alone, its key's `on` (#1432).
@@ -120,7 +114,7 @@ export function schematicAreaIndexes(indexes: readonly Index[], box: BoxFields, 
     if (unled === undefined) {
         const named = areas.map((index) => `'${index.name}'`).join(", ");
         throw new Error(`${where}: a kind read by area reads its window through an area index led by no field, whatever the rail chooses, and ` +
-            `${named} ${areas.length === 1 ? "is" : "are"} led by fields — declare index.area({ ${boxText(box, centre)}, cell }) ` +
+            `${named} ${areas.length === 1 ? "is" : "are"} led by fields — declare index.area({ ${recordAreaBoxText(box, centre)}, cell }) ` +
             "beside it, and list it in Data.bindPaged's indexes");
     }
     return { unled, led: areas.filter((index) => index.fields.length > 0) };
@@ -210,11 +204,12 @@ function areaPlan(areas: SchematicAreaIndexes, where: Where, searches: (index: I
         for (const field of leading) {
             const choice = where.get(field);
             const values = choice?.type === "values" ? [...new Set(choice.value)] : [];
-            if (values.length === 0 || (index.sets.has(field) && values.length !== 1) || prefixes.length * values.length > MAX_RECORD_SLICE_RUNS) {
+            const extended = values.length === 0 || (index.sets.has(field) && values.length !== 1) ? undefined : recordPrefixesExtended(prefixes, values);
+            if (extended === undefined) {
                 fills = false;
                 break;
             }
-            prefixes = prefixes.flatMap((prefix) => values.map((value) => [...prefix, value]));
+            prefixes = extended;
         }
         // Past the bound an unscoped read takes another index; a scoped one asks each value's window at coarser cells.
         if (!fills || (scoped.length === 0 && prefixes.length * searches(index) > MAX_LANDED_SEARCHES)) continue;
@@ -230,7 +225,7 @@ function areaPlan(areas: SchematicAreaIndexes, where: Where, searches: (index: I
         if (scope.some((clause) => clause?.type === "values" && clause.value.length === 0)) {
             return { index: held, cell: cellOf(held), prefixes: [], residual: [...where.keys()].filter((field) => !leads(held!, field)), searches: MAX_LANDED_SEARCHES };
         }
-        throw new Error(`This combination needs more than ${MAX_RECORD_SLICE_RUNS} searches; choose fewer values`);
+        throw new Error(RECORD_SLICE_RUNS_REFUSAL);
     }
     return { index: areas.unled, cell: cellOf(areas.unled), prefixes: [[]], residual: [...where.keys()], searches: MAX_LANDED_SEARCHES };
 }

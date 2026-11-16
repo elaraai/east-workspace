@@ -68,7 +68,8 @@ import { datasetPathToString } from "../../platform/dataset-store.js";
 import { hiddenByText, hiddenLine, hiddenOf, useSourceHidden, type HiddenWords, type SourceHidden } from "./hidden.js";
 import { STRING_KEYS, kindKeys, type KindKeys } from "./kind-keys.js";
 import {
-    boxKeyType, keyMatches, kindQuery, listFound, pickPlace, readToken, readsRows, scopeHeld, searchRuns, stretchesAt, useSearchRecords, useSeekPlace,
+    boxKeyType, foundRange, keyMatches, kindQuery, listFound, pickPlace, readToken, readsRows, recordMatchBlocks, scopeHeld, searchRuns, stretchesAt,
+    useSearchRecords, useSeekPlace,
     type Found, type PagedSought, type PickTurn, type RecordSought, type SearchRecordsOptions, type SeekingSource, type WholeSought,
 } from "./search-records.js";
 
@@ -162,6 +163,14 @@ describe("stretchesAt", () => {
         expect(at(4, 1)).toEqual(["cooling 1+1@4"]);
         expect(at(5, 3)).toEqual([]);
         expect(at(1, 0)).toEqual([]);
+    });
+});
+
+describe("foundRange", () => {
+    test("a find answers the box its runs' matches together, the list from its first row; no match where no run holds one", () => {
+        expect(foundRange([{ count: 3 }, { count: 0 }, { count: 2 }])).toEqual({ found: true, row: 0, count: 5 });
+        expect(foundRange([{ count: 0 }])).toEqual({ found: false, row: 0, count: 0 });
+        expect(foundRange([])).toEqual({ found: false, row: 0, count: 0 });
     });
 });
 
@@ -855,6 +864,14 @@ describe("on a page whose sources hold a scope (#1621)", () => {
         expect(placed(await listFound(blocks, 3, 4))).toEqual([[3, "r6"], [4, "r7"], [5, "r4"], [6, "r5"]]);
         const gap = await listFound(blocks, 3, 4, { sources: [runsOf(runs, ({ id }) => some(stringEqual(id, "r7") ? none : some(id)))] });
         expect(placed(gap)).toEqual([[3, "r6"], [5, "r4"], [6, "r5"]]);
+    });
+
+    test("a record source's blocks of matches are its key search's, none empty — what every builder's search of it, the Calendar's Chooser among them, lists", async () => {
+        const { runs } = (await pressPages())(["P-2", "P-1"]);
+        const blocks = await recordMatchBlocks(runs, { prefix: "r" });
+        expect(blocks.map(({ start, count }) => [start, count])).toEqual([[0n, 5], [5n, 3]]);
+        expect(foundRange(blocks)).toEqual({ found: true, row: 0, count: 8 });
+        expect(await recordMatchBlocks(runs, { prefix: "x" })).toEqual([]);
     });
 
     test("each row a list reads carries its place among the page's rows — what a builder whose rows are those rows goes to it by, the Sheet's — however far apart the blocks it reads them from", async () => {

@@ -11,8 +11,8 @@ import {
 import { keyQueryRange, toSeekQuery, type DatasetKeyQuery } from "../collections/value-tree/key-search.js";
 import { recordSliceFieldSchema, recordSliceFieldTypes, type RecordSliceFieldSchema } from "../platform/slice/record.js";
 import {
-    MAX_RECORD_SLICE_RUNS, planRecordSlice, recordChoiceWhere, recordChoicesOf, recordEntriesFields, recordIndexFields, recordIndexGenerated,
-    recordPlanIndex, recordScopeEmpty, recordScopeSampled, recordScopeSearchIndex, recordScopedWhere,
+    RECORD_SLICE_RUNS_REFUSAL, planRecordSlice, recordChoiceWhere, recordChoicesOf, recordEntriesFields, recordIndexFields, recordIndexGenerated,
+    recordPlanIndex, recordPrefixesExtended, recordScopeEmpty, recordScopeSampled, recordScopeSearchIndex, recordScopedWhere,
     type RecordSlicePlan,
 } from "../platform/slice/record-plan.js";
 import { recordOnPrinters, recordOnTypeOf, type RecordOnPrinters } from "../platform/slice/record-on.js";
@@ -914,8 +914,10 @@ export class RecordSliceController {
         let combinations: string[][] = [[]];
         for (const field of index.fields) {
             const clause = this.config.scope.get(field);
-            const values = clause?.type === "values" ? clause.value : [];
-            combinations = combinations.flatMap(leading => values.map(value => [...leading, value]));
+            // The scope's rows are planned before they are read value by value (`basePlan`), which refuses more of them.
+            const extended = recordPrefixesExtended(combinations, clause?.type === "values" ? clause.value : []);
+            if (extended === undefined) throw new Error(RECORD_SLICE_RUNS_REFUSAL);
+            combinations = extended;
         }
         return combinations;
     }
@@ -1133,10 +1135,9 @@ export class RecordSliceController {
         for (const name of before) {
             const choice = proposal.get(name);
             if (choice?.type !== "values") throw new Error(`Searching '${field}' through '${index.name}' needs an exact choice of '${name}' first`);
-            combinations = combinations.flatMap(leading => [...new Set(choice.value)].map(value => [...leading, value]));
-            if (combinations.length > MAX_RECORD_SLICE_RUNS) {
-                throw new Error(`This combination needs more than ${MAX_RECORD_SLICE_RUNS} searches; choose fewer values`);
-            }
+            const extended = recordPrefixesExtended(combinations, [...new Set(choice.value)]);
+            if (extended === undefined) throw new Error(RECORD_SLICE_RUNS_REFUSAL);
+            combinations = extended;
         }
         const values: Count[] = [];
         const seen = new Set<string>();

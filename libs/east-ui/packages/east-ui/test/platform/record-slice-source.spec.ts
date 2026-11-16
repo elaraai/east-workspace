@@ -10,7 +10,9 @@ import {
     some, variant, type option, type ValueTypeOf,
 } from "@elaraai/east";
 import { RecordSliceIndexType, RecordSliceWhereType } from "../../src/platform/slice/record-types.js";
-import { planRecordSlice, type RecordSlicePlan } from "../../src/platform/slice/record-plan.js";
+import {
+    MAX_RECORD_SLICE_RUNS, RECORD_SLICE_RUNS_REFUSAL, planRecordSlice, recordAreaBoxText, recordPrefixesExtended, type RecordSlicePlan,
+} from "../../src/platform/slice/record-plan.js";
 import { MAX_RECORD_SLICE_BATCH, RecordSliceSource, type RecordSliceReader } from "../../src/runtime/record-slice-source.js";
 import type { SeekQueryType } from "../../src/contracts/source.js";
 
@@ -42,6 +44,23 @@ test("record paths preserve exact fields, scalar keys, half-open ranges and boun
     assert.equal(plan([["status", values('.held')], ["customer", values('"Acme"')]]), null);
     assert.equal(plan([["due", variant("range", { from: "1", to: "5" })]]), null, "a trailing field needs its leading exact choices");
     assert.throws(() => plan([["status", values(...Array.from({ length: 65 }, (_, i) => `v${i}`))]]), /choose fewer values/);
+});
+
+test("an index's leading values combine prefix by prefix, never past the searches one read makes", () => {
+    const valuesOf = (n: number) => Array.from({ length: n }, (_, i) => `v${i}`);
+    assert.deepEqual(recordPrefixesExtended([[]], [".held", ".late"]), [[".held"], [".late"]]);
+    assert.deepEqual(recordPrefixesExtended([[".held"], [".late"]], ['"Acme"', '"Bolt"']),
+        [[".held", '"Acme"'], [".held", '"Bolt"'], [".late", '"Acme"'], [".late", '"Bolt"']], "each prefix with each value after it, in order");
+    assert.equal(recordPrefixesExtended(valuesOf(8).map(() => []), valuesOf(8))?.length, MAX_RECORD_SLICE_RUNS, "as many as a read makes");
+    assert.equal(recordPrefixesExtended(valuesOf(8).map(() => []), valuesOf(9)), undefined, "and none past them");
+    assert.equal(recordPrefixesExtended([[]], valuesOf(MAX_RECORD_SLICE_RUNS + 1)), undefined);
+    assert.throws(() => plan([["status", values(...valuesOf(MAX_RECORD_SLICE_RUNS + 1))]]), new Error(RECORD_SLICE_RUNS_REFUSAL));
+});
+
+test("an area index's box is written as its declaration writes it: both sides or neither, and where a row is placed", () => {
+    assert.equal(recordAreaBoxText({ x: "x", y: "y", width: some("w"), height: some("h") }, true), 'x: "x", y: "y", width: "w", height: "h", at: "centre"');
+    assert.equal(recordAreaBoxText({ x: "left", y: "top", width: none, height: none }, false), 'x: "left", y: "top", at: "corner"');
+    assert.equal(recordAreaBoxText({ x: "x", y: "y", width: some("w"), height: none }, true), 'x: "x", y: "y", at: "centre"', "a box of one side names neither");
 });
 
 test("Set paths cannot repeat or omit primary rows under a partial or multiple choice", () => {

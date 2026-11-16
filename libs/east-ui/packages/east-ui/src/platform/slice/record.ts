@@ -12,7 +12,8 @@ import {
 import { IndexedEntryType, IndexedSourceType, type IndexedSource } from "../../contracts/indexed-source.js";
 import { toValueFormat, type SliceFieldFormat } from "./index.js";
 import {
-    planRecordSlice, recordChoiceNeeds, recordEntriesFields, recordIndexFields, recordPlanIndex, recordScopeAreaIndex, recordScopeSearchIndex,
+    planRecordSlice, recordAreaBoxText, recordChoiceNeeds, recordEntriesFields, recordIndexFields, recordPlanIndex, recordScopeAreaIndex,
+    recordScopeSearchIndex,
 } from "./record-plan.js";
 import { readAreaMarker } from "./record-area.js";
 import { readIntervalMarker } from "./record-interval.js";
@@ -419,10 +420,9 @@ export function bindRecord<K extends EastType, R extends StructType, P extends E
     const boxed = indexes.find(index => index.area.type === "some");
     if (scoped.length > 0 && boxed !== undefined && boxed.area.type === "some" && recordScopeAreaIndex(indexes, scoped) === undefined) {
         const box = boxed.area.value;
-        const sides = box.width.type === "some" && box.height.type === "some" ? `, width: "${box.width.value}", height: "${box.height.value}"` : "";
         throw new Error(`Slice.bindRecord: a scoped source read by area reads its window among the scope's (${scoped.map(name => `'${name}'`).join(", ")}) ` +
             `through an area index led by exactly the scope's fields — by_${scoped.join("_")}_area: index.area({ on: [${scoped.map(name => JSON.stringify(name)).join(", ")}], ` +
-            `x: "${box.x}", y: "${box.y}"${sides}, at: "${box.centre ? "centre" : "corner"}", cell }) among the record's indexes, as '${boxed.name}' boxes its rows, ` +
+            `${recordAreaBoxText(box, box.centre)}, cell }) among the record's indexes, as '${boxed.name}' boxes its rows, ` +
             "listed in Data.bindPaged's indexes");
     }
     /** What a refusal says of a scoped field named where the rail's own fields go. */

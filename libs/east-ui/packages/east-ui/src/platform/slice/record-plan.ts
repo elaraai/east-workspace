@@ -4,7 +4,7 @@
  */
 
 /** Query planning shared by authoring validation and the record Slice runtime. */
-import { none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { none, some, variant, type ValueTypeOf, type option } from "@elaraai/east";
 import type { SeekQueryType } from "../../contracts/source.js";
 import type { RecordSliceAreaType, RecordSliceChoiceType, RecordSliceIndexType } from "./record-types.js";
 import { intervalQueries } from "./record-interval.js";
@@ -289,6 +289,23 @@ export function recordSliceChosen(slice: RecordSliceNarrowed): boolean {
 /** Bound the fan-out of a multi-choice path; never replace it with a row scan. */
 export const MAX_RECORD_SLICE_RUNS = 64;
 
+/** Why a narrowing is refused whose choices combine into more searches than one read makes ({@link MAX_RECORD_SLICE_RUNS}). */
+export const RECORD_SLICE_RUNS_REFUSAL = `This combination needs more than ${MAX_RECORD_SLICE_RUNS} searches; choose fewer values`;
+
+/**
+ * The prefixes the exact values of an index's next leading field extend: each
+ * prefix with each value after it, in order — so, field by field, every
+ * combination of the values a narrowing chooses of an index's leading fields,
+ * each one search of it. A fan-out is bounded, never turned into a row scan.
+ * @param prefixes - The prefixes of the fields before it: one empty prefix before the first.
+ * @param values - The field's values, each once.
+ * @returns The prefixes they extend; `undefined` where they would be more than {@link MAX_RECORD_SLICE_RUNS}.
+ */
+export function recordPrefixesExtended(prefixes: readonly (readonly string[])[], values: readonly string[]): string[][] | undefined {
+    if (prefixes.length * values.length > MAX_RECORD_SLICE_RUNS) return undefined;
+    return prefixes.flatMap(prefix => values.map(value => [...prefix, value]));
+}
+
 /** One supported index path and the disjoint key searches it needs. */
 export interface RecordSlicePlan {
     /** Source selector. */
@@ -388,6 +405,20 @@ export function recordPlanIndex(indexes: readonly Index[], narrowing: ReadonlyMa
 }
 
 /**
+ * How an area index boxes each row, as its declaration writes it: its `x` and
+ * `y` fields, its `width` and `height` where it has both, and where in the box
+ * it places the row — what a refusal names an area index to declare by.
+ * @param box - The box's fields: an area index's, or the roles a reader places its rows by.
+ * @param centre - Whether a row is placed by its box's centre, else by its corner.
+ * @returns The declaration's fields: `x: "…", y: "…", …, at: "…"`.
+ */
+export function recordAreaBoxText(box: { readonly x: string; readonly y: string; readonly width: option<string>; readonly height: option<string> },
+    centre: boolean): string {
+    const sides = box.width.type === "some" && box.height.type === "some" ? `, width: "${box.width.value}", height: "${box.height.value}"` : "";
+    return `x: "${box.x}", y: "${box.y}"${sides}, at: "${centre ? "centre" : "corner"}"`;
+}
+
+/**
  * Why no listed index answers a read by area: the choice it cannot take
  * beside it, or the area index it needs, by the fields the narrowing chooses.
  */
@@ -458,10 +489,9 @@ export function planRecordSlice(indexes: readonly Index[], narrowing: ReadonlyMa
         if (choice.type !== "values") { tail = choice; break; }
         const values = [...new Set(choice.value)];
         if (values.length === 0) throw new Error(`Clear '${field}' instead of choosing no values`);
-        if (prefixes.length * values.length > MAX_RECORD_SLICE_RUNS) {
-            throw new Error(`This combination needs more than ${MAX_RECORD_SLICE_RUNS} searches; choose fewer values`);
-        }
-        prefixes = prefixes.flatMap(prefix => values.map(value => [...prefix, value]));
+        const extended = recordPrefixesExtended(prefixes, values);
+        if (extended === undefined) throw new Error(RECORD_SLICE_RUNS_REFUSAL);
+        prefixes = extended;
     }
     if (area !== undefined && index.area.type === "some") {
         const box = index.area.value;
@@ -475,9 +505,8 @@ export function planRecordSlice(indexes: readonly Index[], narrowing: ReadonlyMa
     if (index.interval.type === "some") {
         const interval = index.interval.value;
         const choice = where.get(interval.from);
-        if (choice?.type === "values" && prefixes.length * choice.value.length > MAX_RECORD_SLICE_RUNS) {
-            throw new Error(`This combination needs more than ${MAX_RECORD_SLICE_RUNS} searches; choose fewer values`);
-        }
+        // Each of the start's values is a search of each prefix, as a leading field's would be.
+        if (choice?.type === "values" && recordPrefixesExtended(prefixes, choice.value) === undefined) throw new Error(RECORD_SLICE_RUNS_REFUSAL);
         const on = onOf(index);
         return { index: index.name, queries: prefixes.flatMap(values => intervalQueries(values, choice, interval, on)) };
     }

@@ -46,18 +46,12 @@ import {
     type DatasetKeyMatchRange, type DatasetKeyQuery, type RecordSliceBindType,
 } from "@elaraai/east-ui/internal";
 import { DatasetKeySearch, useSliceReactivity, useTrackedEvaluation } from "@elaraai/east-ui-components";
-import { awaitTracked, recordSliceBaseWithinAt, recordSliceKeySearch, recordSliceWithinAt } from "@elaraai/east-ui-components/internal";
+import { awaitTracked, recordSliceBaseWithinAt, recordSliceWithinAt } from "@elaraai/east-ui-components/internal";
 import { useMoves } from "../shared/schedule/hidden.js";
-import { stretchesAt } from "../shared/schedule/search-records.js";
+import { foundRange, recordMatchBlocks, stretchesAt, type MatchBlock } from "../shared/schedule/search-records.js";
 import type { CalendarPagedValue } from "./pages.js";
 
 const printWhere = printFor(RecordSliceWhereType);
-
-/** A block of a scoped page's matches (#1621): where it starts among the rows the page holds, and how many it holds. */
-interface MatchBlock {
-    readonly start: bigint;
-    readonly count: number;
-}
 
 /** A stretch of the box's list, read from one window of the rows it lists: its first row there, how many, and its first line. */
 interface ListedStretch {
@@ -113,11 +107,9 @@ export function PagedChooser({ chooser, chosen, onPick, readOnly = false }: {
     const find = useCallback(async (query: DatasetKeyQuery): Promise<DatasetKeyMatchRange> => {
         if (part !== undefined && recordSliceScoped(part)) {
             const mine = ++finds.current;
-            const found = await awaitTracked(() => recordSliceKeySearch(part, query));
-            const runs = found.map((block): MatchBlock => ({ start: block.row, count: Number(block.count) }));
+            const runs = await recordMatchBlocks(part, query);
             if (mine === finds.current) blocks.current = runs;
-            const count = runs.reduce((sum, run) => sum + run.count, 0);
-            return { found: count > 0, row: 0, count };
+            return foundRange(runs);
         }
         if (paged.seek.type !== "some") return { found: false, row: 0, count: 0 };
         const seek = paged.seek.value;
