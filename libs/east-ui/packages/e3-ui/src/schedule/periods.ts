@@ -241,7 +241,7 @@ export function schedulePeriods(record: unknown, input: unknown): SchedulePeriod
         [SCHEDULE_DEF]: "periods",
         every,
         rowType,
-        record: (record as { binding: ExprType<StructType<{ name: StringType }>> }).binding.name,
+        record: session.name,
         build(): ExprType<SchedulePeriodsKindType> {
             const { editing, entries: seam } = session.build();
             // The row with one field replaced, and every other as it was.

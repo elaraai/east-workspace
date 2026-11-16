@@ -12,7 +12,10 @@
  * insert, drops a delete and fits no update; keys of another type are named as
  * their session names them; several kinds merge into one step, and several
  * records' answers land all or none; on a builder with a backlog the
- * operations are told by place (§9.5).
+ * operations are told by place (§9.5); a run's changes are recorded as one
+ * step, origin `optimise`, and one that changes nothing records nothing; and a
+ * builder's landing is answered to the run its counts, what it left kept first
+ * (R10).
  */
 
 import { describe, expect, test } from "vitest";
@@ -21,7 +24,8 @@ import {
     type option,
 } from "@elaraai/east";
 import {
-    diffOptimisePatch, isOptimiseDiff, landOptimisePatches, mergeOptimiseDiffs, opKey, optimiseIdOf, optimisePlacementOps, type OptimiseDiff,
+    diffOptimisePatch, isOptimiseDiff, landOptimisePatches, mergeOptimiseDiffs, opKey, optimiseIdOf, optimiseLandedCounts, optimisePlacementOps, recordOptimiseRun,
+    type OptimiseDiff,
 } from "./optimise-diff.js";
 
 const Row = StructType({ task: StringType, hours: IntegerType });
@@ -59,9 +63,9 @@ describe("diffOptimisePatch", () => {
         // The rows go as bytes the session decodes back.
         const b = got.changes.find((c) => c.id === "b")!;
         expect("row" in b && decode(b.row)).toEqual({ task: "Pack", hours: 6n });
-        expect(got.ops.get(opKey("duty", "b"))).toEqual({ kind: "duty", op: "chg", row: { task: "Pack", hours: 6n }, previous: { task: "Pack", hours: 8n } });
-        expect(got.ops.get(opKey("duty", "d"))).toEqual({ kind: "duty", op: "add", row: { task: "Count", hours: 2n } });
-        expect(got.ops.get(opKey("duty", "c"))).toEqual({ kind: "duty", op: "del", previous: { task: "Load", hours: 4n } });
+        expect(got.ops.get(opKey("duty", "b"))).toEqual({ kind: "duty", id: "b", op: "chg", row: { task: "Pack", hours: 6n }, previous: { task: "Pack", hours: 8n } });
+        expect(got.ops.get(opKey("duty", "d"))).toEqual({ kind: "duty", id: "d", op: "add", row: { task: "Count", hours: 2n } });
+        expect(got.ops.get(opKey("duty", "c"))).toEqual({ kind: "duty", id: "c", op: "del", previous: { task: "Load", hours: 4n } });
     });
 
     test("a patch of the whole Dict lands key by key — what East.diff answers for a few rows against none — and never as the record replaced", () => {
@@ -185,11 +189,68 @@ describe("landOptimisePatches", () => {
             .toEqual({ missing: [{ kind: "stop", id: "s9" }] });
     });
 
-    test("an incomplete edit refuses them all, before any row is read; an answer that fits no row is no landing", () => {
-        const far = diff(rows([["s9", { task: "Oil", hours: 1n }]]), rows([]));
-        expect(landOptimisePatches<RowValue>([{ kind: "job", record: Rows, patch: moreHours }, { kind: "stop", record: Rows, patch: far }], held,
-            (kind, id) => kind === "job" && id === "j1")).toEqual({ incomplete: [{ kind: "job", id: "j1" }] });
+    test("an answer that fits no row the page holds is no landing, however the other records' land", () => {
         const unfit = diff(rows([["j1", { task: "Fold", hours: 1n }]]), rows([["j1", { task: "Fold", hours: 2n }]]));
         expect(landOptimisePatches<RowValue>([{ kind: "job", record: Rows, patch: unfit }], held)).toBeUndefined();
+        expect(landOptimisePatches<RowValue>([{ kind: "stop", record: Rows, patch: diff(stops, rows([])) }, { kind: "job", record: Rows, patch: unfit }], held))
+            .toBeUndefined();
+    });
+});
+
+describe("optimiseLandedCounts", () => {
+    const counts = { added: 1, changed: 2, removed: 0 };
+
+    test("a landing answers its counts, keeping first what it left on the rows", () => {
+        const kept: string[] = [];
+        expect(optimiseLandedCounts({ counts, optimised: "marks" }, (left) => kept.push(left))).toEqual(counts);
+        expect(kept).toEqual(["marks"]);
+    });
+
+    test("one that changed nothing keeps nothing (R10): what earlier runs left stands", () => {
+        const kept: string[] = [];
+        expect(optimiseLandedCounts<string>({ counts: { added: 0, changed: 0, removed: 0 }, optimised: undefined }, (left) => kept.push(left)))
+            .toEqual({ added: 0, changed: 0, removed: 0 });
+        expect(kept).toEqual([]);
+    });
+
+    test("rows to read first, a refusal and no landing go to the run as they are, and keep nothing", () => {
+        const kept: string[] = [];
+        const keep = (left: string) => { kept.push(left); };
+        const missing = { missing: [{ kind: "job", id: "j9" }] };
+        expect(optimiseLandedCounts<string>(missing, keep)).toBe(missing);
+        const refused = { refused: "Elara moved J-1 outside Oct 5 – 9" };
+        expect(optimiseLandedCounts<string>(refused, keep)).toBe(refused);
+        expect(optimiseLandedCounts<string>(undefined, keep)).toBeUndefined();
+        expect(kept).toEqual([]);
+    });
+});
+
+describe("recordOptimiseRun", () => {
+    const counts = { added: 1, changed: 0, removed: 0 };
+    const nothing = { added: 0, changed: 0, removed: 0 };
+    /** A history that takes each step it is given, or refuses it, keeping what it was given. */
+    function history(takes: boolean) {
+        const steps: { changes: readonly string[]; origin: string; label: string }[] = [];
+        return { steps, record: (changes: readonly string[], origin: "optimise", label: string) => { steps.push({ changes, origin, label }); return takes; } };
+    }
+
+    test("a run that changes something is recorded as one step, origin optimise, and answers what the runs leave", () => {
+        const taking = history(true);
+        expect(recordOptimiseRun({ changes: ["j1"], counts }, taking, "Elara run #7", () => "marks")).toEqual({ counts, optimised: "marks" });
+        expect(taking.steps).toEqual([{ changes: ["j1"], origin: "optimise", label: "Elara run #7" }]);
+    });
+
+    test("one that changes nothing records nothing, and leaves what earlier runs left (R10)", () => {
+        const taking = history(true);
+        let made = 0;
+        expect(recordOptimiseRun({ changes: [], counts: nothing }, taking, "Elara run #7", () => { made++; return "marks"; }))
+            .toEqual({ counts: nothing, optimised: undefined });
+        expect([taking.steps, made]).toEqual([[], 0]);
+    });
+
+    test("one the history refuses lands nothing, and nothing is made of it", () => {
+        let made = 0;
+        expect(recordOptimiseRun({ changes: ["j1"], counts }, history(false), "Elara run #7", () => { made++; return "marks"; })).toBeUndefined();
+        expect(made).toBe(0);
     });
 });

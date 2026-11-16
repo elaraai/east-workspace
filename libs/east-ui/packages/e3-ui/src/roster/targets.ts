@@ -190,7 +190,7 @@ export function rosterTargets<R extends StructType>(record: ScheduleRecordHandle
     return {
         [ROSTER_TARGETS]: true,
         rowType,
-        record: (record as unknown as { binding: ExprType<StructType<{ name: StringType }>> }).binding.name,
+        record: session.name,
         build(part?: ScheduleKindPart): ExprType<RosterTargetsKindType> {
             if (part === undefined && entries !== undefined) {
                 throw new Error(`${where}: \`entries\` reads one target by its key beside the Roster's slice's \`targets\` source, which reads the week's — ` +

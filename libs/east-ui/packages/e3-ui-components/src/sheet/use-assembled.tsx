@@ -19,6 +19,7 @@ import { VirtualRows } from "@elaraai/east-ui-components/internal";
 import { BOTTOM_PAD_PX } from "./model.js";
 import { clearNarrowing, clearSearch, narrowingEqual, narrowingQuery, writeNarrowing } from "./view-state.js";
 import { none, some, variant, type option } from "@elaraai/east";
+import { optimiseLandedCounts } from "../shared/func/optimise-diff.js";
 import { useOptimiseParts } from "../shared/func/optimise-parts.js";
 import { optimiseSlice } from "../shared/func/optimise-slice.js";
 import { liftDraft, normalizeDraft } from "./draft-values.js";
@@ -178,10 +179,7 @@ export function useSheetAssembled(value: SheetRootValue, sheetDecode: SheetDecod
             record: recordVersions, before: optimised,
         });
         // Rows the sheet does not hold are read by their keys, and the answer lands once they are (rule 8).
-        if (landed === undefined || "missing" in landed || "refused" in landed) return landed;
-        // A run that changed nothing leaves what earlier runs left (R10).
-        if (landed.optimised !== undefined) { setOptimised(landed.optimised); landAfter(n); }
-        return landed.counts;
+        return optimiseLandedCounts(landed, (left) => { setOptimised(left); landAfter(n); });
     };
     // What a run left on the rows goes with the drafts (R17): once nothing is pending — Save, Discard — nothing is
     // marked. An Undo leaves nothing pending too, but its Redo brings the run's step back (R9): what the run left is

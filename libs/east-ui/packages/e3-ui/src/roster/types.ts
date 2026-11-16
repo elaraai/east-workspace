@@ -16,7 +16,7 @@
 
 import {
     ArrayType, BlobType, BooleanType, DateTimeType, DictType, EastTypeType, FloatType, FunctionType, IntegerType, NullType,
-    OptionType, PatchType, SetType, StringType, StructType, VariantType, printType, type EastType, type PatchTypeOf,
+    OptionType, PatchType, SetType, StringType, StructType, VariantType, type EastType, type PatchTypeOf,
 } from "@elaraai/east";
 import { RecordCommitInfoType } from "@elaraai/e3-types";
 import { ColorTokenType, StatusTokenType } from "@elaraai/east-ui";
@@ -24,7 +24,7 @@ import { EditingType } from "@elaraai/east-ui/internal";
 import { RowInspectorType } from "../utils/row-inspector.js";
 import { ScheduleClockType, ScheduleEntriesType, ScheduleFitType, SchedulePeriodStatusType, ScheduleRefusalType } from "../schedule/types.js";
 import { ScheduleOptimiseRequestType } from "../schedule/optimise.js";
-import { OptimisePeriodType, OptimiseSliceType } from "../utils/optimise.js";
+import { OptimisePeriodType, OptimiseSliceType, optimisedRecordType } from "../utils/optimise.js";
 
 /**
  * One shift of one group on one day of the week.
@@ -537,9 +537,7 @@ export type RosterOptimiseResultType<D extends DictType<EastType, EastType> = Di
  * @remarks A new duty's key is the optimiser's own. A published week stays read only: an answer that changes or removes one of the request's `fixed` duties, or a duty in a week that takes no edit (a day, where the periods are days), or puts one in a week beyond the weeks either side, is refused, naming the duty, and changes nothing.
  */
 export function RosterOptimiseResultTypeFor<D extends DictType<EastType, EastType>>(duties: D): RosterOptimiseResultType<D> {
-    const given = duties as EastType;
-    if (given === undefined || given.type !== "Dict") {
-        throw new Error(`Roster.Types.OptimiseResult: is given ${given === undefined ? "nothing" : printType(given)} — it takes the duties' record type, a Dict of duties by key: DictType(StringType, Duty)`);
-    }
-    return StructType({ duties: PatchType(given) }) as unknown as RosterOptimiseResultType<D>;
+    const record = optimisedRecordType(duties as EastType, (given) =>
+        `Roster.Types.OptimiseResult: is given ${given} — it takes the duties' record type, a Dict of duties by key: DictType(StringType, Duty)`);
+    return StructType({ duties: PatchType(record) }) as unknown as RosterOptimiseResultType<D>;
 }

@@ -24,18 +24,19 @@
 import { East, PatchType, encodeBeast2For, equalFor, parseFor, printFor, type DictType, type EastType, type option } from "@elaraai/east";
 import { optimiseChangesFor } from "@elaraai/e3-ui/internal";
 import type { ScheduleChange } from "../schedule/editing.js";
-import type { OptimiseCounts } from "./use-optimise.js";
+import type { OptimiseCounts, OptimiseMissing, OptimiseRefused } from "./use-optimise.js";
 
 /**
- * One operation of a run on an entry (R7): what it did, and the row before
- * it, for the provenance.
+ * One operation of a run on an entry (R7): the entry — its kind and its key's
+ * text, which {@link opKey} keeps it under — what the run did, and the row
+ * before it, for the provenance.
  *
  * @typeParam R - The entry's row
  */
 export type OptimiseOp<R = unknown> =
-    | { readonly kind: string; readonly op: "add"; readonly row: R }
-    | { readonly kind: string; readonly op: "chg"; readonly row: R; readonly previous: R }
-    | { readonly kind: string; readonly op: "del"; readonly previous: R };
+    | { readonly kind: string; readonly id: string; readonly op: "add"; readonly row: R }
+    | { readonly kind: string; readonly id: string; readonly op: "chg"; readonly row: R; readonly previous: R }
+    | { readonly kind: string; readonly id: string; readonly op: "del"; readonly previous: R };
 
 /**
  * A run's diff: its changes for one `record`, its operations by entry, and
@@ -106,9 +107,7 @@ type OptimiseChange<R> =
  * (rule 8); or rows whose own edit is still incomplete, which refuse it (rule 11). Each row by its kind and its key's
  * text, as its session names it.
  */
-export type OptimiseUnlanded =
-    | { readonly missing: readonly OptimiseRowRef[] }
-    | { readonly incomplete: readonly OptimiseRowRef[] };
+export type OptimiseUnlanded = OptimiseMissing | { readonly incomplete: readonly OptimiseRowRef[] };
 
 /** A row an answer touches: its kind's slot, or its record's key, and its key's text. */
 export interface OptimiseRowRef {
@@ -182,7 +181,7 @@ export function diffOptimisePatch<K, R>(kind: string, record: DictType<EastType,
             // A key no row stands under: gone already, by the page's own edit or another's save.
             if (was.type === "none") continue;
             changes.push({ kind, id, remove: true, was: landing.encode(was.value) });
-            ops.set(opKey(kind, id), { kind, op: "del", previous: was.value });
+            ops.set(opKey(kind, id), { kind, id, op: "del", previous: was.value });
             removed++;
             continue;
         }
@@ -192,7 +191,7 @@ export function diffOptimisePatch<K, R>(kind: string, record: DictType<EastType,
             // save has taken by the time this is saved is a conflict to choose, as for any key an app's function makes.
             if (was === undefined || was.type === "none") {
                 changes.push({ kind, id, row: landing.encode(row), created: true });
-                ops.set(opKey(kind, id), { kind, op: "add", row });
+                ops.set(opKey(kind, id), { kind, id, op: "add", row });
                 added++;
                 continue;
             }
@@ -206,7 +205,7 @@ export function diffOptimisePatch<K, R>(kind: string, record: DictType<EastType,
         if (landing.same(was.value, row)) continue;
         // The row it landed on goes with the change: what the step begins from where the session holds none of it.
         changes.push({ kind, id, row: landing.encode(row), was: landing.encode(was.value) });
-        ops.set(opKey(kind, id), { kind, op: "chg", row, previous: was.value });
+        ops.set(opKey(kind, id), { kind, id, op: "chg", row, previous: was.value });
         changed++;
     }
     if (refusing.length > 0) return { incomplete: refusing };
@@ -232,32 +231,94 @@ export interface OptimiseRecordPatch {
 }
 
 /**
- * Each record's answer landed on the rows the page holds ({@link diffOptimisePatch}), all or none: a row any record's
- * answer touches that the page does not hold keeps every record's from landing until it is read, and one whose edit
- * is incomplete refuses them all.
+ * Each record's answer landed on the rows the page holds ({@link diffOptimisePatch}), all or none, on a builder none of
+ * whose drafts is half made — a schedule builder's, every draft a whole row — so no edit of the page's refuses an answer:
+ * a row any record's answer touches that the page does not hold keeps every record's from landing until it is read.
  *
  * @typeParam R - The records' row
  * @param answers - Each record's patch, in the builder's order
  * @param held - The row the page holds under a kind's key ({@link diffOptimisePatch})
- * @param incomplete - Whether the page's edit of a kind's key is still incomplete
- * @returns Each record's landing, in order; the rows to read first, or those whose edit refuses the answer; `undefined`
- *   for an answer that does not fit the rows the page holds
+ * @returns Each record's landing, in order; the rows to read first; `undefined` for an answer that does not fit the rows
+ *   the page holds
  */
 export function landOptimisePatches<R>(answers: readonly OptimiseRecordPatch[], held: (kind: string, id: string) => option<R> | undefined,
-    incomplete: (kind: string, id: string) => boolean = () => false): readonly OptimiseDiff<R>[] | OptimiseUnlanded | undefined {
+): readonly OptimiseDiff<R>[] | OptimiseMissing | undefined {
     const diffs: OptimiseDiff<R>[] = [];
     const missing: OptimiseRowRef[] = [];
-    const refusing: OptimiseRowRef[] = [];
     for (const { kind, record, patch } of answers) {
-        const landed = diffOptimisePatch<unknown, R>(kind, record, optimiseIdOf(record.key as EastType), patch, (id) => held(kind, id), (id) => incomplete(kind, id));
+        const landed = diffOptimisePatch<unknown, R>(kind, record, optimiseIdOf(record.key as EastType), patch, (id) => held(kind, id));
         if (landed === undefined) return undefined;
         if ("missing" in landed) missing.push(...landed.missing);
-        else if ("incomplete" in landed) refusing.push(...landed.incomplete);
-        else diffs.push(landed);
+        else if (isOptimiseDiff(landed)) diffs.push(landed);
     }
-    if (refusing.length > 0) return { incomplete: refusing };
     if (missing.length > 0) return { missing };
     return diffs;
+}
+
+/**
+ * What a builder's landing of an answer came to (R7, R10): what it counted, and what the runs have left on its rows until
+ * Apply — `undefined` from a run that changed nothing, which leaves what earlier runs left as it is.
+ *
+ * @typeParam O - What the runs leave on the builder's rows
+ */
+export interface OptimiseLanded<O> {
+    readonly counts: OptimiseCounts;
+    readonly optimised: O | undefined;
+}
+
+/**
+ * A builder's landing as its run takes it (`useOptimise`'s `onLanded`; rules 8 and 11, R10): rows to read first and a
+ * refusal go as they are, and so does no landing, an answer that does not fit; a landing answers its counts, what it
+ * left on the rows kept first where it left anything — a run that changed nothing leaves what earlier runs left.
+ *
+ * @typeParam O - What the runs leave on the builder's rows
+ * @param landed - What the builder's landing answered
+ * @param keep - Keeps what the runs have left: the builder's marks of them, and its landing's replay
+ * @returns What the run is answered
+ */
+export function optimiseLandedCounts<O>(landed: OptimiseLanded<O> | OptimiseMissing | OptimiseRefused | undefined,
+    keep: (optimised: O) => void): OptimiseCounts | OptimiseMissing | OptimiseRefused | undefined {
+    if (landed === undefined || "missing" in landed || "refused" in landed) return landed;
+    if (landed.optimised !== undefined) keep(landed.optimised);
+    return landed.counts;
+}
+
+/**
+ * What records a run's changes as one step of a builder's history: its editing's `record`, or its session's.
+ *
+ * @typeParam C - A change, as the history records it
+ */
+export interface OptimiseRecorder<C> {
+    /**
+     * Records the changes as one step.
+     *
+     * @param changes - The changes
+     * @param origin - The step's origin, `optimise`
+     * @param label - The step's label — `Elara run #7`
+     * @returns Whether the history took the step
+     */
+    record(changes: readonly C[], origin: "optimise", label: string): boolean;
+}
+
+/**
+ * A run's changes recorded (R10, §12; east-workspace#1622, rule 10): a run that changes nothing records nothing and
+ * leaves what earlier runs left as they are; one that changes something is recorded as one step of the builder's
+ * history, origin `optimise`, and what the runs leave is made over it.
+ *
+ * @typeParam C - A change, as the history records it
+ * @typeParam O - What the runs leave on the builder's rows
+ * @param run - The run's changes, and what it counted
+ * @param history - What records the changes as one step
+ * @param label - The step's label — `Elara run #7`
+ * @param left - What the runs leave, made once the step is recorded
+ * @returns What the run counted, and what the runs leave — none from a run that changed nothing; `undefined` where the
+ *   history would not take the step
+ */
+export function recordOptimiseRun<C, O>(run: { readonly changes: readonly C[]; readonly counts: OptimiseCounts },
+    history: OptimiseRecorder<C>, label: string, left: () => O): OptimiseLanded<O> | undefined {
+    if (run.changes.length === 0) return { counts: run.counts, optimised: undefined };
+    if (!history.record(run.changes, "optimise", label)) return undefined;
+    return { counts: run.counts, optimised: left() };
 }
 
 /**
@@ -282,8 +343,8 @@ export function optimisePlacementOps<R>(diff: OptimiseDiff<R>, placed: (row: R, 
         let told: OptimiseOp<R> = op;
         if (op.op === "chg") {
             const was = placed(op.previous, key, "was"), now = placed(op.row, key, "now");
-            if (!was && now) told = { kind: op.kind, op: "add", row: op.row };
-            else if (was && !now) told = { kind: op.kind, op: "del", previous: op.previous };
+            if (!was && now) told = { kind: op.kind, id: op.id, op: "add", row: op.row };
+            else if (was && !now) told = { kind: op.kind, id: op.id, op: "del", previous: op.previous };
         }
         ops.set(key, told);
         if (told.op === "add") added++; else if (told.op === "chg") changed++; else removed++;

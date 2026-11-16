@@ -31,9 +31,9 @@ import {
     type SheetOptimiseRequestType,
 } from "@elaraai/e3-ui/internal";
 import { optimiseMessages } from "@elaraai/east-ui-components";
-import { diffOptimisePatch, optimiseIdOf, type OptimiseRowRef } from "../shared/func/optimise-diff.js";
+import { diffOptimisePatch, optimiseIdOf, recordOptimiseRun, type OptimiseLanded } from "../shared/func/optimise-diff.js";
 import type { OptimiseSlice } from "../shared/func/optimise-slice.js";
-import type { OptimiseCounts, OptimiseRefused } from "../shared/func/use-optimise.js";
+import type { OptimiseMissing, OptimiseRefused } from "../shared/func/use-optimise.js";
 import { liftDraft } from "./draft-values.js";
 import { NULL_CELL, cellIsBlank, countNoun, lineId } from "./model.js";
 import type { EntryUpdate, EntryVersion, Origin, Placement } from "./transactions.js";
@@ -222,11 +222,6 @@ function markRows(marks: Map<string, SheetRowOps>, before: SheetRowValue | undef
     }
 }
 
-/** What a landing answers that is no landing: rows to read first, by their keys (rule 8). */
-export interface SheetOptimiseMissing {
-    readonly missing: readonly OptimiseRowRef[];
-}
-
 /**
  * The result landed (R7, R8, R10, R25, §12; east-workspace#1622, rules 7, 8,
  * 10, 11): the answer's patch landed key by key on the rows the sheet holds,
@@ -245,12 +240,11 @@ export interface SheetOptimiseMissing {
  *   holds, or one the session would not take
  */
 export function landSheetOptimise(args: SheetLanding,
-): { counts: OptimiseCounts; optimised: SheetOptimised | undefined } | SheetOptimiseMissing | OptimiseRefused | undefined {
+): OptimiseLanded<SheetOptimised> | OptimiseMissing | OptimiseRefused | undefined {
     const { editing, types, draftType, keyed, result, label, runText, versionOf, held, incomplete, nameOf, record, before: earlier } = args;
     const rowType = types.rows.value as EastType;
     const diff = diffOptimisePatch<unknown, unknown>(ROWS, types.rows, optimiseIdOf(types.rows.key as EastType), result.rows, held, incomplete);
-    if (diff === undefined) return undefined;
-    if ("missing" in diff) return { missing: diff.missing };
+    if (diff === undefined || "missing" in diff) return diff;
     if ("incomplete" in diff) return { refused: optimiseMessages.refusedIncomplete({ row: nameOf(diff.incomplete[0]!.id) }) };
     const encodeEntry = encodeBeast2For(rowType) as (entry: unknown) => Uint8Array;
     const project = (row: unknown, id: string): SheetRowValue => decodeWire(editing.project(encodeEntry(row), id)) as SheetRowValue;
@@ -258,8 +252,8 @@ export function landSheetOptimise(args: SheetLanding,
     const place: Placement = keyed ? some(variant("keyOrder", null)) : some(variant("ordered", variant("end", null)));
     const updates: EntryUpdate[] = [];
     const marks = new Map<string, SheetRowOps>();
-    for (const [key, op] of diff.ops) {
-        const id = key.slice(ROWS.length + 1);
+    for (const op of diff.ops.values()) {
+        const { id } = op;
         const before = versionOf(id);
         if (op.op === "del") {
             updates.push({ id, before, after: { draft: undefined, wire: undefined, place: none } });
@@ -270,7 +264,5 @@ export function landSheetOptimise(args: SheetLanding,
         updates.push({ id, before, after });
         markRows(marks, op.op === "add" ? undefined : before.wire, wire, runText);
     }
-    if (updates.length === 0) return { counts: diff.counts, optimised: undefined };
-    if (!record(updates, "optimise", label)) return undefined;
-    return { counts: diff.counts, optimised: { rows: new Map([...(earlier?.rows ?? []), ...marks]) } };
+    return recordOptimiseRun({ changes: updates, counts: diff.counts }, { record }, label, () => ({ rows: new Map([...(earlier?.rows ?? []), ...marks]) }));
 }

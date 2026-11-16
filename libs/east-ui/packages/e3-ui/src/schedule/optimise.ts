@@ -20,7 +20,7 @@ import {
     type EastType, type ExprType, type PatchTypeOf, type StringType,
 } from "@elaraai/east";
 import { FuncBindingType } from "../bind/func.js";
-import { OptimisePeriodType, OptimiseSliceType, optimiseBinding } from "../utils/optimise.js";
+import { OptimisePeriodType, OptimiseSliceType, optimiseBinding, optimisedRecordType } from "../utils/optimise.js";
 
 /** The event kinds' records by slot, as an app writes them: each slot's record type, `DictType(K, R)`. */
 export type ScheduleOptimiseRecords = Readonly<Record<string, DictType<EastType, EastType>>>;
@@ -74,10 +74,8 @@ export function ScheduleOptimiseResultTypeFor<E extends ScheduleOptimiseRecords>
     // A list, in name order: an object would list a slot named like an integer first (#1574)
     return StructType({
         events: StructType(Object.keys(events).sort().map((slot): readonly [string, EastType] => {
-            const record: EastType = events[slot]!;
-            if (record.type !== "Dict") {
-                throw new Error(`OptimiseResult: \`${slot}\` is given ${printType(record)} — a result takes each event kind's record type, a Dict of its rows by key: { ${slot}: DictType(StringType, Row) }`);
-            }
+            const record = optimisedRecordType(events[slot], (given) =>
+                `OptimiseResult: \`${slot}\` is given ${given} — a result takes each event kind's record type, a Dict of its rows by key: { ${slot}: DictType(StringType, Row) }`);
             return [slot, PatchType(record)];
         })),
     }) as unknown as ScheduleOptimiseResultType<E>;

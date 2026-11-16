@@ -10,16 +10,17 @@
  * asks or answers; and the drafts rule, held as the page is evaluated — a
  * function that reads a record the builder edits, itself or by an index of
  * it, lists it in `drafts`, or the page fails naming the function, the record
- * and the remedy.
+ * and the remedy. And what an answer does to a record, key by key, and the
+ * record type it patches, checked.
  */
 import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import {
-    DateTimeType, DictType, East, IntegerType, OptionType, PatchType, SortedMap, StringType, StructType, compareFor, diffFor, dictPatchOpsType, equalFor, none, printFor,
-    printType, some, variant, type ExprType, type ValueTypeOf,
+    DateTimeType, DictType, East, IntegerType, OptionType, PatchType, SortedMap, StringType, StructType, compareFor, diffFor, dictPatchOpsType, equalFor, isTypeEqual,
+    none, printFor, printType, some, variant, type ExprType, type ValueTypeOf,
 } from "@elaraai/east";
 import e3, { type FunctionDef } from "@elaraai/e3";
-import { Func, FuncBindingType, Record, optimiseBinding, optimiseChangesFor, type OptimiseContract } from "@elaraai/e3-ui/internal";
+import { Func, FuncBindingType, Record, optimiseBinding, optimiseChangesFor, optimisedRecordType, type OptimiseContract } from "@elaraai/e3-ui/internal";
 import { refusingPlatform } from "../refusing-platform.js";
 
 const Job = StructType({ press: StringType, start: OptionType(DateTimeType), end: OptionType(DateTimeType) });
@@ -216,5 +217,18 @@ describe("rule 7: what an answer does to a record, key by key (`optimiseChangesF
 
     test("it takes a record's type alone, refusing any other", () => {
         assert.throws(() => optimiseChangesFor(Job as never), { message: `optimiseChangesFor: takes a record's type, a Dict of rows by key, and was given ${printType(Job)}` });
+    });
+});
+
+describe("the record type an answer patches, checked, each builder refusing another in its own words (`optimisedRecordType`)", () => {
+    const refusal = (given: string) => `Board.Types.OptimiseResult: is given ${given} — it takes the jobs' record type, a Dict of jobs by key`;
+
+    test("a Dict of rows by key is the record's type, as it is given", () => {
+        assert.ok(isTypeEqual(optimisedRecordType(JobsType, refusal), JobsType));
+    });
+
+    test("nothing, or a type that is no Dict, is refused in the factory's words, naming what it was given", () => {
+        assert.throws(() => optimisedRecordType(Job, refusal), { message: refusal(printType(Job)) });
+        assert.throws(() => optimisedRecordType(undefined, refusal), { message: refusal("nothing") });
     });
 });

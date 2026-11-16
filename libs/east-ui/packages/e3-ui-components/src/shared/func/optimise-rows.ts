@@ -47,6 +47,9 @@ export interface OptimiseRows {
 /** Several rows of one kind's record read by their keys, in one read: each row by its key's text; `undefined` while the read is on its way. */
 export type OptimiseRowsReader = (kind: string, ids: readonly string[]) => ReadonlyMap<string, option<unknown>> | undefined;
 
+/** No rows read by their keys: a builder with no session over its records — a read-only one, which has no optimiser — reads none. */
+export const NO_OPTIMISE_ROWS: OptimiseRowsReader = () => undefined;
+
 const NONE: readonly OptimiseRowRef[] = [];
 const NOTHING_READ: ReadonlyMap<string, option<unknown>> = new Map();
 

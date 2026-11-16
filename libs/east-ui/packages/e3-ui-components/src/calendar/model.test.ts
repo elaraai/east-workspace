@@ -11,7 +11,7 @@
 import { expect, test } from "vitest";
 import { decodeBeast2For, encodeBeast2For, none, some, variant } from "@elaraai/east";
 import { formatters } from "@elaraai/east-ui-components";
-import { calendarAhead, calendarRange, DAY, inputInstant, inWindow, navigate, periodWords, type CalendarValue, type CalendarView } from "./model.js";
+import { calendarAhead, calendarRange, DAY, inputInstant, inWindow, navigate, periodWords, viewPeriod, type CalendarValue, type CalendarView } from "./model.js";
 import { TIMELINE_GUTTER, timelineDayWidth, timelineDays, timelineLanes, timelineOpensAt, timelinePixels, timelineScrollTo, timelineVisible } from "./timeline.js";
 import { ScheduleItemType } from "@elaraai/e3-ui/internal";
 const settings: CalendarValue["settings"] = { layout: variant("calendar", null), views: [], viewPeriods: [], period: variant("week", null), date: none,
@@ -24,6 +24,13 @@ test("UTC week/month/day windows and weekends, including a year boundary", () =>
     const month = calendarRange({ ...view, period: "month", date: Date.UTC(2026, 11, 31) }, settings);
     expect(month.from.toISOString()).toBe("2026-11-30T00:00:00.000Z"); expect(month.to.toISOString()).toBe("2027-01-04T00:00:00.000Z");
     expect(navigate({ ...view, period: "month", date: Date.UTC(2026, 0, 31) }, 1).date).toBe(Date.UTC(2026, 1, 28));
+});
+test("a view shows its own period, the Resources layout a day whatever its period — and its window, its steps and an optimiser's request follow it", () => {
+    expect([viewPeriod(view), viewPeriod({ ...view, period: "month" }), viewPeriod({ ...view, layout: "timeline", period: "day" })]).toEqual(["week", "month", "day"]);
+    expect(viewPeriod({ ...view, layout: "resources", period: "month" })).toBe("day");
+    const resources = { ...view, layout: "resources" as const, period: "month" as const };
+    expect(calendarRange(resources, settings).days).toHaveLength(1);
+    expect(navigate(resources, 1).date).toBe(view.date + DAY);
 });
 test("the periods read ahead are the ones a step either way reads, the timeline's as every layout's (#1398, CL7; ruled 9 Nov 2026)", () => {
     const [next, previous] = calendarAhead(view, settings);

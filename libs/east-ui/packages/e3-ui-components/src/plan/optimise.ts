@@ -30,10 +30,10 @@ import {
     type PlanPayloadType, type ScheduleOptimiseRecords,
 } from "@elaraai/e3-ui/internal";
 import { optimiseMessages, type Formatters } from "@elaraai/east-ui-components";
-import { landOptimisePatches, mergeOptimiseDiffs, optimisePlacementOps, type OptimiseDiff, type OptimiseRowRef } from "../shared/func/optimise-diff.js";
+import { recordOptimiseRun, type OptimiseLanded } from "../shared/func/optimise-diff.js";
 import type { OptimiseSlice } from "../shared/func/optimise-slice.js";
-import type { OptimiseCounts, OptimiseRefused } from "../shared/func/use-optimise.js";
-import { placedOutside } from "../shared/schedule/window.js";
+import type { OptimiseMissing, OptimiseRefused } from "../shared/func/use-optimise.js";
+import { landOptimiseEvents } from "../shared/schedule/optimise-events.js";
 import type { PlanEventEditing, PlanEventReadValue } from "./edit/events.js";
 import type { PlanInstantValue } from "./instant.js";
 import { rowKeyOf, type PlanWireBlock } from "./model.js";
@@ -194,11 +194,6 @@ export interface PlanLanding {
     readonly before: PlanOptimised | undefined;
 }
 
-/** What a landing answers that is no landing: rows to read first, by their keys (rule 8). */
-export interface PlanOptimiseMissing {
-    readonly missing: readonly OptimiseRowRef[];
-}
-
 /**
  * The result landed (R7, R8, R10, R24, §12; east-workspace#1622, rules 7, 8,
  * 10, 11): each kind's patch landed key by key on the events the page holds,
@@ -210,54 +205,31 @@ export interface PlanOptimiseMissing {
  * nothing is recorded; one that changes an event outside the window it was
  * asked of — where the event stood, or where the answer puts it — is refused
  * whole, naming the event; one that touches an event the page does not hold
- * names it, to be read by its key; one that changes nothing records nothing
- * and leaves what earlier runs left as it is (R10); one that does lays its
- * operations and ghosts over theirs.
+ * names it, to be read by its key (`landOptimiseEvents`, shared with the
+ * Calendar); one that changes nothing records nothing and leaves what earlier
+ * runs left as it is (R10); one that does lays its operations and ghosts over
+ * theirs.
  *
  * @param args - What the landing is made over
  * @returns What the run counted, and what the runs have left on the events — unchanged by a run that changed nothing;
  *   the events to read first; a refusal, naming the event; `undefined` for an invalid result, or one the session would not take
  */
-export function landPlanOptimise(args: PlanLanding): { counts: OptimiseCounts; optimised: PlanOptimised | undefined } | PlanOptimiseMissing | OptimiseRefused | undefined {
+export function landPlanOptimise(args: PlanLanding): OptimiseLanded<PlanOptimised> | OptimiseMissing | OptimiseRefused | undefined {
     const { kinds, resources, types, editing, held, request, result, label, period, runText, blocks, format, before } = args;
-    const answers = [];
-    for (const kind of kinds) {
-        const record = types.records[kind.key];
-        const patch = result.events[kind.key];
-        if (record === undefined || patch === undefined) return undefined;
-        answers.push({ kind: kind.key, record, patch });
-    }
-    const landed = landOptimisePatches<unknown>(answers, held);
-    if (landed === undefined) return undefined;
-    if ("missing" in landed) return { missing: landed.missing };
-    // No event of a plan is half made: every draft is a whole row.
-    if ("incomplete" in landed) return undefined;
-    const diffs: OptimiseDiff<unknown>[] = [];
-    const ops = new Map<string, PlanElementOp>(before?.ops ?? []);
-    const ghosts = new Map<string, PlanGhost[]>([...(before?.ghosts ?? [])].map(([row, list]) => [row, [...list]]));
-    const placed = placedOf(blocks);
-    let backlogChanged = false;
-    for (const diff of landed) {
-        // Each operation's event as it stood and as the answer leaves it, read as its kind reads a row.
-        const told = new Map<string, { was: PlanEventItemValue | undefined; now: PlanEventItemValue | undefined }>();
+    const landed = landOptimiseEvents<PlanEventItemValue>({
+        kinds: kinds.map((kind) => kind.key), records: types.records, events: result.events, held,
+        eventOf: (kind, id, row) => editing.eventOf(kind, id, row)?.item, window: request, period,
+    });
+    if (landed === undefined || "missing" in landed || "refused" in landed) return landed;
+    const { diff, told, backlogChanged } = landed;
+    return recordOptimiseRun(diff, editing, label, () => {
+        const ops = new Map<string, PlanElementOp>(before?.ops ?? []);
+        const ghosts = new Map<string, PlanGhost[]>([...(before?.ghosts ?? [])].map(([row, list]) => [row, [...list]]));
+        const placed = placedOf(blocks);
         for (const [key, op] of diff.ops) {
-            const id = key.slice(op.kind.length + 1);
-            const was = "previous" in op ? editing.eventOf(op.kind, id, op.previous)?.item : undefined;
-            const now = "row" in op ? editing.eventOf(op.kind, id, op.row)?.item : undefined;
-            // Outside the window it was asked of, where it stood or where the answer puts it (rule 11).
-            if (placedOutside(was, request) || placedOutside(now, request)) {
-                return { refused: optimiseMessages.refusedOutside({ row: (now ?? was)?.title ?? id, period }) };
-            }
-            told.set(key, { was, now });
-        }
-        // A row's place is its kind's to read: placed, or in the backlog.
-        const byPlace = optimisePlacementOps(diff, (_row, key, side) => told.get(key)?.[side]?.start.type === "some");
-        diffs.push(byPlace);
-        for (const [key, op] of byPlace.ops) {
-            const id = key.slice(op.kind.length + 1);
+            const { id } = op;
             const element = printEventRef({ kind: op.kind, key: id });
             const at = told.get(key);
-            if (at?.was?.start.type === "none" || at?.now?.start.type === "none") backlogChanged = true;
             // Where the element stood: an earlier run's ghost of it gives way to this run's.
             for (const list of ghosts.values()) {
                 const index = list.findIndex((ghost) => ghost.key === element);
@@ -276,9 +248,6 @@ export function landPlanOptimise(args: PlanLanding): { counts: OptimiseCounts; o
                 (ghosts.get(stood.rowKey) ?? ghosts.set(stood.rowKey, []).get(stood.rowKey)!).push({ key: element, op: "from", run: runText, start: stood.start, end: stood.end, label: stood.label, shape: stood.shape });
             }
         }
-    }
-    const merged = mergeOptimiseDiffs(diffs);
-    if (merged.changes.length === 0) return { counts: merged.counts, optimised: undefined };
-    if (!editing.record(merged.changes, "optimise", label)) return undefined;
-    return { counts: merged.counts, optimised: { ops, ghosts, backlogChanged } };
+        return { ops, ghosts, backlogChanged };
+    });
 }

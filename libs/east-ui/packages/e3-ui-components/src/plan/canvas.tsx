@@ -170,6 +170,7 @@ import { PlanOptimisedContext, type PlanOptimisedMarks } from "./rows/element-op
 import { rowValueAt, type PlanCanvasInspect } from "./root/inspect.js";
 import { PLAIN_FUNC_BINDING, type FuncCallBound } from "../shared/func/use-func-call.js";
 import { useOptimise } from "../shared/func/use-optimise.js";
+import { optimiseLandedCounts } from "../shared/func/optimise-diff.js";
 import { useOptimiseParts } from "../shared/func/optimise-parts.js";
 import { scheduleOptimiseSessions } from "../shared/func/optimise-sessions.js";
 import { optimiseSlice } from "../shared/func/optimise-slice.js";
@@ -500,10 +501,7 @@ export function usePlanCanvas({
                 blocks: now.lead.blocks, format: now.format, before: now.optimised,
             });
             // Events the page does not hold are read by their keys, and the answer lands once they are (rule 8).
-            if (landed === undefined || "missing" in landed || "refused" in landed) return landed;
-            // A run that changed nothing leaves what earlier runs left (R10).
-            if (landed.optimised !== undefined) { setOptimised(landed.optimised); landAfter.current(n); }
-            return landed.counts;
+            return optimiseLandedCounts(landed, (left) => { setOptimised(left); landAfter.current(n); });
         },
     });
     // The lock (R2): while a call is out, nothing is dragged, dropped, carried or undone.

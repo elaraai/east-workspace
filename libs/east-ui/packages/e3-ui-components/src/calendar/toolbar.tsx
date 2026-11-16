@@ -26,7 +26,7 @@ import { scheduleIssueName } from "../shared/schedule/editing.js";
 import type { CalendarCommands } from "./actions.js";
 import type { CalendarWords } from "./messages.js";
 import type { CalendarEventPart } from "./window.js";
-import { dayStart, navigate, type CalendarItem, type CalendarRef, type CalendarStyles, type CalendarUncounted, type CalendarView } from "./model.js";
+import { dayStart, navigate, viewPeriod, type CalendarItem, type CalendarRef, type CalendarStyles, type CalendarUncounted, type CalendarView } from "./model.js";
 
 const LAYOUTS: readonly { readonly key: CalendarView["layout"]; readonly label: string }[] = [{ key: "calendar", label: "Calendar" }, { key: "resources", label: "Resources" }, { key: "timeline", label: "Timeline" }];
 const PERIODS = [{ key: "day", label: "Day" }, { key: "week", label: "Week" }, { key: "month", label: "Month" }] as const;
@@ -126,7 +126,7 @@ export function useCalendarToolbar(args: ToolbarArgs): ReadonlyArray<ToolbarItem
     // folds, to its icon, before the rail and the period's steps (ruled 25 Oct 2026); at the row's last step it goes into
     // the View, beside the date and the view controls.
     const seek = useKeySearchToolbarItem(args.search, { side: "end", rank: SEARCH_BOX_RANK, label: words.m.keySearch() });
-    const period = view.layout === "resources" ? "day" : view.period;
+    const period = viewPeriod(view);
     // The layouts this Calendar offers: its switch, in every form, only where there is a choice to make.
     const layouts = LAYOUTS.filter(layout => args.layouts.includes(layout.key)).map(layout => layout.key === "resources" ? { ...layout, label: args.resourcesWord } : layout);
     const switches = layouts.length > 1;

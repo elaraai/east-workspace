@@ -72,10 +72,20 @@ const compareDate = compareFor(DateTimeType);
 const compareRef = compareFor(ScheduleEventRefType);
 const compareString = compareFor(StringType);
 
+/**
+ * The period a view shows: its own on every layout but Resources, which shows a day whatever its period — what its
+ * window spans, a step moves it by, the toolbar names and an optimiser is asked of.
+ *
+ * @param view - The view: its layout and its period
+ * @returns The period it shows
+ */
+export function viewPeriod(view: Pick<CalendarView, "layout" | "period">): CalendarView["period"] {
+    return view.layout === "resources" ? "day" : view.period;
+}
 /** Calendar days including the surrounding weeks of a month. */
 export function calendarRange(view: CalendarView, settings: CalendarValue["settings"]): CalendarRange {
     const current = dayStart(view.date);
-    const period = view.layout === "resources" ? "day" : view.period;
+    const period = viewPeriod(view);
     let from = current;
     let to = new Date(from.getTime() + DAY);
     if (period === "week") {
@@ -124,7 +134,7 @@ export function calendarAhead(view: CalendarView, settings: CalendarValue["setti
 export function periodWords(view: CalendarView, range: CalendarRange, settings: CalendarValue["settings"],
     format: Pick<Formatters, "weekdayDate" | "monthYear" | "range">): string {
     const own = calendarRange(view, settings);
-    const period = view.layout === "resources" ? "day" : view.period;
+    const period = viewPeriod(view);
     const same = compareDate(range.from, own.from) === 0 && compareDate(range.to, own.to) === 0;
     if (same && period === "day") return format.weekdayDate(range.from);
     if (same && period === "month") return format.monthYear(dayStart(view.date));
@@ -133,7 +143,7 @@ export function periodWords(view: CalendarView, range: CalendarRange, settings: 
 /** Previous/next period, with resource columns retaining one day. */
 export function navigate(view: CalendarView, step: number): CalendarView {
     const date = new Date(view.date);
-    const period = view.layout === "resources" ? "day" : view.period;
+    const period = viewPeriod(view);
     return { ...view, date: shiftCalendar(date, period, step).getTime() };
 }
 /** Whether a scheduled event — one with a start and an end — meets a half-open window ({@link meetsWindow}). */

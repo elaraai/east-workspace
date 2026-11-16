@@ -88,6 +88,8 @@ import { LoadingReveal, PAGED_LIBRARY_PAGE } from "@elaraai/east-ui-components/i
 import { isBounded, rowBreaches } from "../shared/bounds.js";
 import { PLAIN_FUNC_BINDING } from "../shared/func/use-func-call.js";
 import { useOptimise } from "../shared/func/use-optimise.js";
+import { optimiseLandedCounts } from "../shared/func/optimise-diff.js";
+import { NO_OPTIMISE_ROWS } from "../shared/func/optimise-rows.js";
 import { useOptimiseParts } from "../shared/func/optimise-parts.js";
 import { scheduleOptimiseSessions } from "../shared/func/optimise-sessions.js";
 import { optimiseSlice } from "../shared/func/optimise-slice.js";
@@ -160,8 +162,6 @@ const NO_ITEMS: CalendarItem[] = [];
 const NO_ANCHOR: CalendarAnchor = {};
 /** The row an event with no resource sits on, in the Calendar's word for it. */
 const unassignedRow = (label: string): CalendarRow => ({ key: "", label, meta: "", group: "", resource: none });
-/** A read-only Calendar reads no row for an answer to land on: it has no optimiser. */
-const NO_ROWS_BY_KEY = (): undefined => undefined;
 /** No resource kind laid out: a view with no resource axis shades no resource (#1424). */
 const NO_CELL_RESOURCES: readonly ScheduleCellResources[] = [];
 /** A summary's tile the timeline shades a resource's row at, as the toolbar names the period (#1424). */
@@ -560,7 +560,7 @@ function CalendarFrame(props: HostProps) {
         binding: value.optimise.type === "some" ? value.optimise.value : PLAIN_FUNC_BINDING,
         sessions: optimiseSessions, settleKey: editing?.version ?? 0,
         // The events an answer touches that the page does not hold, read by their keys before it lands (rule 8).
-        rowsByKey: editing?.rowsByKey ?? NO_ROWS_BY_KEY,
+        rowsByKey: editing?.rowsByKey ?? NO_OPTIMISE_ROWS,
         requestType: optimiseTypes.request, resultType: optimiseTypes.result,
         scope: `${range.from.getTime()}:${range.to.getTime()}`, storageKey,
         onLanded: (result, request, n, read) => {
@@ -571,10 +571,7 @@ function CalendarFrame(props: HostProps) {
             const landed = landCalendarOptimise(value, optimiseTypes, live, (kind, id) => live.row(kind, id) ?? read(kind, id), request, result,
                 optimiseMessages.step({ run: runText }), now.periodName, runText, now.optimised);
             // Events the page does not hold are read by their keys, and the answer lands once they are (rule 8).
-            if (landed === undefined || "missing" in landed || "refused" in landed) return landed;
-            // A run that changed nothing leaves what earlier runs left (R10).
-            if (landed.optimised !== undefined) { setOptimised(landed.optimised); landAfter.current(n); }
-            return landed.counts;
+            return optimiseLandedCounts(landed, (left) => { setOptimised(left); landAfter.current(n); });
         },
     });
     // The eye is listed only where the window can be optimised (ruled 25 Oct 2026): never read only. It waits on nothing

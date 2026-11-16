@@ -41,6 +41,8 @@ import { LoadingReveal, keptRead } from "@elaraai/east-ui-components/internal";
 import { rowBreaches } from "../shared/bounds.js";
 import { PLAIN_FUNC_BINDING } from "../shared/func/use-func-call.js";
 import { useOptimise } from "../shared/func/use-optimise.js";
+import { optimiseLandedCounts } from "../shared/func/optimise-diff.js";
+import { NO_OPTIMISE_ROWS } from "../shared/func/optimise-rows.js";
 import { useOptimiseParts } from "../shared/func/optimise-parts.js";
 import { scheduleOptimiseSessions } from "../shared/func/optimise-sessions.js";
 import { optimiseSlice } from "../shared/func/optimise-slice.js";
@@ -88,8 +90,6 @@ const NO_DUTY_DRAFTS: ReadonlyMap<string, DraftedDuty | undefined> = new Map();
 const NO_TARGET_DRAFTS: ReadonlyMap<string, StoredTarget | undefined> = new Map();
 const NO_PERIOD_DRAFTS: ReadonlyMap<string, Uint8Array | undefined> = new Map();
 const NO_STORED: ReadonlyMap<string, StoredDuty> = new Map();
-/** A read-only Roster reads no row for an answer to land on: it has no optimiser. */
-const NO_ROWS_BY_KEY = (): undefined => undefined;
 const NO_STORED_TARGETS: ReadonlyMap<string, StoredTarget> = new Map();
 const NO_ISSUES: readonly Issue[] = [];
 /** No week of the span's coverage: a month drawing no work requirement. */
@@ -430,7 +430,7 @@ function RosterFrame(props: FrameProps) {
         // Where a row would stand moves it too: an answer waits for the periods it is judged by.
         sessions: optimiseSessions, settleKey: `${editing?.schedule.version ?? 0}\u0000${reach === undefined ? "" : "reach"}`,
         // The duties an answer touches that the page does not hold, read by their keys before it lands (rule 8).
-        rowsByKey: editing?.schedule.rowsByKey ?? NO_ROWS_BY_KEY,
+        rowsByKey: editing?.schedule.rowsByKey ?? NO_OPTIMISE_ROWS,
         requestType: optimiseTypes.request, resultType: optimiseTypes.result, scope: `${asked.from.getTime()}:${asked.to.getTime()}`, storageKey: key,
         onLanded: (result, request, n, read) => {
             const now = latestRun.current;
@@ -443,10 +443,7 @@ function RosterFrame(props: FrameProps) {
                 held: (kind, id) => schedule.row(kind, id) ?? read(kind, id), request, result, label: optimiseMessages.step({ run: runText }), runText,
                 period: now.weekLabel, format, before: now.optimised, reach: now.reach, edges: edgesForm, days, m: rosterMessages });
             // Duties the page does not hold are read by their keys, and the answer lands once they are (rule 8).
-            if (landed === undefined || "missing" in landed || "refused" in landed) return landed;
-            // A run that changed nothing leaves what earlier runs left (R10).
-            if (landed.optimised !== undefined) { setOptimised(landed.optimised); landAfter.current(n); }
-            return landed.counts;
+            return optimiseLandedCounts(landed, (left) => { setOptimised(left); landAfter.current(n); });
         },
     });
     // While a run is out (R2) the Roster takes no gesture: every command refused with the one reason, the drags off, the history locked.

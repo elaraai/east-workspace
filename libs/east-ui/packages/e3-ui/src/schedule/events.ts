@@ -1875,7 +1875,7 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
         [SCHEDULE_DEF]: "events",
         keyType,
         rowType,
-        record: (record as { binding: ExprType<StructType<{ name: StringType }>> }).binding.name,
+        record: session.name,
         name: config.name,
         icon: config.icon,
         titled: config.title !== undefined,

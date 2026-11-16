@@ -24,7 +24,7 @@ import {
     type DictType, type EastType, type ExprType, type PatchTypeOf,
 } from "@elaraai/east";
 import { FuncBindingType } from "../bind/func.js";
-import { OptimiseSliceType, optimiseBinding } from "../utils/optimise.js";
+import { OptimiseSliceType, optimiseBinding, optimisedRecordType } from "../utils/optimise.js";
 
 /**
  * What a sheet's Save writes, read from the record the sheet is handed
@@ -138,11 +138,9 @@ export type SheetOptimiseResultType<D extends DictType<EastType, EastType> = Dic
  * @property rows - The rows' patch; a new row's key is the optimiser's own
  */
 export function SheetOptimiseResultTypeFor<D extends DictType<EastType, EastType>>(rows: D): SheetOptimiseResultType<D> {
-    const given = rows as EastType;
-    if (given === undefined || given.type !== "Dict") {
-        throw new Error(`Sheet.Types.OptimiseResult: is given ${given === undefined ? "nothing" : printType(given)} — it takes the type of the rows the sheet saves, a Dict of rows by key: the record's own type, or over one entry's rows DictType(StringType, Row)`);
-    }
-    return StructType({ rows: PatchType(given) }) as unknown as SheetOptimiseResultType<D>;
+    const record = optimisedRecordType(rows as EastType, (given) =>
+        `Sheet.Types.OptimiseResult: is given ${given} — it takes the type of the rows the sheet saves, a Dict of rows by key: the record's own type, or over one entry's rows DictType(StringType, Row)`);
+    return StructType({ rows: PatchType(record) }) as unknown as SheetOptimiseResultType<D>;
 }
 
 /**

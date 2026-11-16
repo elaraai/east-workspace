@@ -40,9 +40,9 @@ import {
     RosterOptimiseRequestTypeFor, RosterOptimiseResultTypeFor, type RosterOptimiseEdgesRequestType, type RosterOptimiseRequestType,
 } from "@elaraai/e3-ui/internal";
 import { optimiseMessages, type Formatters } from "@elaraai/east-ui-components";
-import { landOptimisePatches, type OptimiseDiff, type OptimiseRowRef } from "../shared/func/optimise-diff.js";
+import { landOptimisePatches, recordOptimiseRun, type OptimiseDiff, type OptimiseLanded } from "../shared/func/optimise-diff.js";
 import type { OptimiseSlice } from "../shared/func/optimise-slice.js";
-import type { OptimiseCounts, OptimiseRefused } from "../shared/func/use-optimise.js";
+import type { OptimiseMissing, OptimiseRefused } from "../shared/func/use-optimise.js";
 import { meetsWindow } from "../shared/schedule/window.js";
 import type { RosterCommands } from "./actions.js";
 import type { RosterEditing } from "./editing.js";
@@ -235,17 +235,6 @@ export interface RosterLanding {
     readonly m: RosterOptimiseWords;
 }
 
-/** What a landing counted, and what the runs have left on the duties. */
-export interface RosterLanded {
-    readonly counts: OptimiseCounts;
-    readonly optimised: RosterOptimised | undefined;
-}
-
-/** What a landing answers that is no landing: duties to read first, by their keys (rule 8). */
-export interface RosterOptimiseMissing {
-    readonly missing: readonly OptimiseRowRef[];
-}
-
 /**
  * Why an answer is refused (rule 11, #1553), if it is: it changes or removes a duty it may not — one the request held
  * fixed, or one whose period takes no edit as it stands now — or puts a duty in such a period or beyond the weeks the
@@ -259,15 +248,14 @@ export interface RosterOptimiseMissing {
  */
 function refusal(args: RosterLanding, diff: OptimiseDiff): string | undefined {
     const { value, domain, format, request, reach, edges, days, m, period } = args;
-    const kind = value.duty.kind.key;
     const unit = days ? "day" : "week";
     // A duty's times outside the period: it meets no part of it, as a window's read takes one.
     const outside = (row: unknown, id: string): boolean => {
         const roles = value.duty.read(domain.encodeRow(row), id);
         return !meetsWindow(roles.start, roles.end, request.from, request.to);
     };
-    for (const [key, op] of diff.ops) {
-        const id = key.slice(kind.length + 1);
+    for (const op of diff.ops.values()) {
+        const { id } = op;
         const was = "previous" in op ? reach(op.previous, id) : undefined;
         const now = "row" in op ? reach(op.row, id) : undefined;
         // Outside the period it was asked of: where the duty stood, or where the answer puts it — by its times, or by
@@ -310,42 +298,39 @@ function refusal(args: RosterLanding, diff: OptimiseDiff): string | undefined {
  *   the duties to read first; a refusal's words for an answer the Roster refuses; `undefined` for an answer that does
  *   not fit the duties the page holds, or one the session would not take
  */
-export function landRosterOptimise(args: RosterLanding): RosterLanded | RosterOptimiseMissing | OptimiseRefused | undefined {
+export function landRosterOptimise(args: RosterLanding): OptimiseLanded<RosterOptimised> | OptimiseMissing | OptimiseRefused | undefined {
     const { value, types, editing, held, result, label, runText, format, before, reach } = args;
     const kind = value.duty.kind.key;
     const landed = landOptimisePatches<unknown>([{ kind, record: types.record, patch: result.duties }], held);
-    if (landed === undefined) return undefined;
-    if ("missing" in landed) return { missing: landed.missing };
-    // No duty is half made: every draft is a whole row.
-    if ("incomplete" in landed) return undefined;
+    if (landed === undefined || "missing" in landed) return landed;
     const diff = landed[0]!;
     const refused = refusal(args, diff);
     if (refused !== undefined) return { refused };
-    if (diff.changes.length === 0) return { counts: diff.counts, optimised: undefined };
-    if (!editing.schedule.record(diff.changes, "optimise", label)) return undefined;
-    // This run's operations over the earlier runs': a duty it touched again is its.
-    const ops = new Map<string, RosterDutyOp>(before?.ops ?? []);
-    const people = new Set<string>();
-    for (const [key, op] of diff.ops) {
-        const id = key.slice(kind.length + 1);
-        // What the duty was, where it stood in its own week, and what it is now: whose weeks the run changed.
-        const stood = "previous" in op ? reach(op.previous, id) : undefined;
-        const was = stood?.type === "placed" ? stood : undefined;
-        if (was?.assignment.who.type === "person") people.add(was.assignment.who.value);
-        if (op.op === "del") {
-            ops.set(id, { op: "del", run: runText, provenance: optimiseMessages.ghostRemoved({ run: runText }) });
-            continue;
+    return recordOptimiseRun(diff, editing.schedule, label, () => {
+        // This run's operations over the earlier runs': a duty it touched again is its.
+        const ops = new Map<string, RosterDutyOp>(before?.ops ?? []);
+        const people = new Set<string>();
+        for (const op of diff.ops.values()) {
+            const { id } = op;
+            // What the duty was, where it stood in its own week, and what it is now: whose weeks the run changed.
+            const stood = "previous" in op ? reach(op.previous, id) : undefined;
+            const was = stood?.type === "placed" ? stood : undefined;
+            if (was?.assignment.who.type === "person") people.add(was.assignment.who.value);
+            if (op.op === "del") {
+                ops.set(id, { op: "del", run: runText, provenance: optimiseMessages.ghostRemoved({ run: runText }) });
+                continue;
+            }
+            const stands = reach(op.row, id);
+            const now = stands.type === "placed" ? stands.assignment : undefined;
+            if (now?.who.type === "person") people.add(now.who.value);
+            if (op.op === "add" || was === undefined) {
+                ops.set(id, { op: "add", run: runText, provenance: optimiseMessages.entryAdded({ run: runText }) });
+                continue;
+            }
+            ops.set(id, { op: "chg", run: runText, provenance: optimiseMessages.entryChanged({ previous: rosterDutyWords(value, format, was.assignment, was.start), run: runText }) });
         }
-        const stands = reach(op.row, id);
-        const now = stands.type === "placed" ? stands.assignment : undefined;
-        if (now?.who.type === "person") people.add(now.who.value);
-        if (op.op === "add" || was === undefined) {
-            ops.set(id, { op: "add", run: runText, provenance: optimiseMessages.entryAdded({ run: runText }) });
-            continue;
-        }
-        ops.set(id, { op: "chg", run: runText, provenance: optimiseMessages.entryChanged({ previous: rosterDutyWords(value, format, was.assignment, was.start), run: runText }) });
-    }
-    return { counts: diff.counts, optimised: { ops, people } };
+        return { ops, people };
+    });
 }
 
 /**

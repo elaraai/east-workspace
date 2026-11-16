@@ -30,9 +30,9 @@ import { DictType, StringType, equalFor, type EastType, type ValueTypeOf, type o
 import { AllocationOptimiseRequestType, AllocationOptimiseResultTypeFor } from "@elaraai/e3-ui/internal";
 import { optimiseMessages } from "@elaraai/east-ui-components";
 import { formatDatePattern } from "@elaraai/east-ui-components/internal";
-import { landOptimisePatches, type OptimiseRowRef } from "../shared/func/optimise-diff.js";
+import { landOptimisePatches, recordOptimiseRun, type OptimiseLanded } from "../shared/func/optimise-diff.js";
 import type { OptimiseSlice } from "../shared/func/optimise-slice.js";
-import type { OptimiseCounts, OptimiseRefused } from "../shared/func/use-optimise.js";
+import type { OptimiseMissing, OptimiseRefused } from "../shared/func/use-optimise.js";
 import { meetsWindow } from "../shared/schedule/window.js";
 import type { AllocationCommands } from "./actions.js";
 import type { AllocationEditing } from "./editing.js";
@@ -181,11 +181,6 @@ export interface AllocationLanding {
     readonly m: Pick<AllocationMessages, "optimiseClosed">;
 }
 
-/** What a landing answers that is no landing: bins to read first, by their keys (rule 8). */
-export interface AllocationOptimiseMissing {
-    readonly missing: readonly OptimiseRowRef[];
-}
-
 /**
  * The result landed (R7, R8, R10, §12; east-workspace#1622, rules 7, 8, 10,
  * 11): the answer's patch landed key by key on the bins the page holds, and
@@ -207,14 +202,11 @@ export interface AllocationOptimiseMissing {
  *   holds, or one the session would not take
  */
 export function landAllocationOptimise(args: AllocationLanding,
-): { counts: OptimiseCounts; optimised: AllocationOptimised | undefined } | AllocationOptimiseMissing | OptimiseRefused | undefined {
+): OptimiseLanded<AllocationOptimised> | OptimiseMissing | OptimiseRefused | undefined {
     const { value, domain, types, editing, held, request, result, label, runText, period, plan, context, before, open, unit, m } = args;
     const kind = value.bin.kind.key;
     const landed = landOptimisePatches<unknown>([{ kind, record: types.record, patch: result.bins }], held);
-    if (landed === undefined) return undefined;
-    if ("missing" in landed) return { missing: landed.missing };
-    // No bin is half made: every draft is a whole row.
-    if ("incomplete" in landed) return undefined;
+    if (landed === undefined || "missing" in landed) return landed;
     const diff = landed[0]!;
     // Outside the day it was asked of (rule 11): where a bin stood, or where the answer puts it — a bin an instant, at its
     // time. The bin is named as the board names one — its load's code, or a reservation — as the day holds it, else as its
@@ -222,66 +214,66 @@ export function landAllocationOptimise(args: AllocationLanding,
     const from = request.day, to = new Date(request.day.getTime() + DAY);
     const binOf = (row: unknown): Bin => ({ ...value.bin.read(domain.encodeRow(row)), row }) as Bin;
     const outside = (bin: Bin | undefined): boolean => bin !== undefined && !meetsWindow(bin.at, undefined, from, to);
-    for (const [key, op] of diff.ops) {
+    for (const op of diff.ops.values()) {
         const was = "previous" in op ? binOf(op.previous) : undefined;
         const now = "row" in op ? binOf(op.row) : undefined;
-        const named = () => binCode(context, plan.bins.get(key.slice(kind.length + 1)) ?? was ?? now!, value.labels);
+        const named = () => binCode(context, plan.bins.get(op.id) ?? was ?? now!, value.labels);
         if (outside(was) || outside(now)) return { refused: optimiseMessages.refusedOutside({ row: named(), period }) };
         // A day that takes no edit — published, or closed, as it stands as the answer lands — takes none of the answer, as
         // it takes no gesture.
         if (!open) return { refused: m.optimiseClosed({ bin: named(), removes: op.op === "del", unit }) };
     }
-    if (diff.changes.length === 0) return { counts: diff.counts, optimised: undefined };
-    if (!editing.schedule.record(diff.changes, "optimise", label)) return undefined;
-    // This run's operations over the earlier runs': a bin it touched again is its, and an earlier ghost of it gives way.
-    const touched = new Set([...diff.ops.keys()].map(key => key.slice(kind.length + 1)));
-    const ops = new Map<string, AllocationBinOp>(before?.ops ?? []);
-    const links = new Map<string, ReadonlySet<string>>(before?.links ?? []);
-    const ghosts = (before?.ghosts ?? []).filter(ghost => !touched.has(ghost.id));
-    const lanes = new Set<string>();
-    let arrivalsChanged = false;
-    for (const [key, op] of diff.ops) {
-        const id = key.slice(kind.length + 1);
-        const was = plan.bins.get(id);
-        if (op.op === "del") {
-            ops.delete(id);
-            links.delete(id);
-            if (was === undefined) continue;
+    return recordOptimiseRun(diff, editing.schedule, label, () => {
+        // This run's operations over the earlier runs': a bin it touched again is its, and an earlier ghost of it gives way.
+        const touched = new Set([...diff.ops.values()].map(op => op.id));
+        const ops = new Map<string, AllocationBinOp>(before?.ops ?? []);
+        const links = new Map<string, ReadonlySet<string>>(before?.links ?? []);
+        const ghosts = (before?.ghosts ?? []).filter(ghost => !touched.has(ghost.id));
+        const lanes = new Set<string>();
+        let arrivalsChanged = false;
+        for (const op of diff.ops.values()) {
+            const { id } = op;
+            const was = plan.bins.get(id);
+            if (op.op === "del") {
+                ops.delete(id);
+                links.delete(id);
+                if (was === undefined) continue;
+                lanes.add(was.lane);
+                if (was.arrival.type === "some") arrivalsChanged = true;
+                ghosts.push({ id, op: "del", run: runText, lane: was.lane, at: was.at, label: binCode(context, was, value.labels), where: allocationPlaceWords(value, context, was),
+                    title: optimiseMessages.ghostRemoved({ run: runText }) });
+                continue;
+            }
+            // The row's roles, as the kind reads them: where the bin is now.
+            const roles = value.bin.read(domain.encodeRow(op.row));
+            lanes.add(roles.lane);
+            if (op.op === "add" || was === undefined) {
+                ops.set(id, { op: "add", run: runText, provenance: optimiseMessages.entryAdded({ run: runText }) });
+                if (roles.arrival.type === "some") arrivalsChanged = true;
+                if (roles.parts.size > 0) links.set(id, new Set(roles.parts.keys()));
+                continue;
+            }
+            ops.set(id, { op: "chg", run: runText, provenance: optimiseMessages.entryChanged({ previous: allocationPlaceWords(value, context, was), run: runText }) });
             lanes.add(was.lane);
-            if (was.arrival.type === "some") arrivalsChanged = true;
-            ghosts.push({ id, op: "del", run: runText, lane: was.lane, at: was.at, label: binCode(context, was, value.labels), where: allocationPlaceWords(value, context, was),
-                title: optimiseMessages.ghostRemoved({ run: runText }) });
-            continue;
+            // The parts this run added or changed, with an earlier run's the bin still has: the links the highlight draws.
+            const parts = new Set([...(links.get(id) ?? [])].filter(kiln => roles.parts.has(kiln)));
+            for (const [kiln, quantity] of roles.parts) {
+                const had = was.parts.get(kiln);
+                if (had === undefined || compareFloat(had, quantity) !== 0) parts.add(kiln);
+            }
+            if (parts.size > 0) links.set(id, parts); else links.delete(id);
+            // Booked or unbooked: the arrival leaves or returns.
+            if (was.arrival.type !== roles.arrival.type || (was.arrival.type === "some" && roles.arrival.type === "some" && !sameKey(was.arrival.value, roles.arrival.value))) arrivalsChanged = true;
+            // Moved to another lane slot: a ghost where it stood.
+            if (!sameKey(was.lane, roles.lane) || compareDate(was.at, roles.at) !== 0) {
+                ghosts.push({ id, op: "from", run: runText, lane: was.lane, at: was.at, label: binCode(context, was, value.labels), where: allocationPlaceWords(value, context, was),
+                    title: optimiseMessages.ghostMoved({ run: runText }) });
+            }
         }
-        // The row's roles, as the kind reads them: where the bin is now.
-        const roles = value.bin.read(domain.encodeRow(op.row));
-        lanes.add(roles.lane);
-        if (op.op === "add" || was === undefined) {
-            ops.set(id, { op: "add", run: runText, provenance: optimiseMessages.entryAdded({ run: runText }) });
-            if (roles.arrival.type === "some") arrivalsChanged = true;
-            if (roles.parts.size > 0) links.set(id, new Set(roles.parts.keys()));
-            continue;
-        }
-        ops.set(id, { op: "chg", run: runText, provenance: optimiseMessages.entryChanged({ previous: allocationPlaceWords(value, context, was), run: runText }) });
-        lanes.add(was.lane);
-        // The parts this run added or changed, with an earlier run's the bin still has: the links the highlight draws.
-        const parts = new Set([...(links.get(id) ?? [])].filter(kiln => roles.parts.has(kiln)));
-        for (const [kiln, quantity] of roles.parts) {
-            const had = was.parts.get(kiln);
-            if (had === undefined || compareFloat(had, quantity) !== 0) parts.add(kiln);
-        }
-        if (parts.size > 0) links.set(id, parts); else links.delete(id);
-        // Booked or unbooked: the arrival leaves or returns.
-        if (was.arrival.type !== roles.arrival.type || (was.arrival.type === "some" && roles.arrival.type === "some" && !sameKey(was.arrival.value, roles.arrival.value))) arrivalsChanged = true;
-        // Moved to another lane slot: a ghost where it stood.
-        if (!sameKey(was.lane, roles.lane) || compareDate(was.at, roles.at) !== 0) {
-            ghosts.push({ id, op: "from", run: runText, lane: was.lane, at: was.at, label: binCode(context, was, value.labels), where: allocationPlaceWords(value, context, was),
-                title: optimiseMessages.ghostMoved({ run: runText }) });
-        }
-    }
-    const resources = new Set<string>();
-    for (const kilns of links.values()) for (const kiln of kilns) resources.add(kiln);
-    return { counts: diff.counts, optimised: { ops, ghosts, lanes, arrivalsChanged, links, resources } };
+        const resources = new Set<string>();
+        for (const kilns of links.values()) for (const kiln of kilns) resources.add(kiln);
+        return { ops, ghosts, lanes, arrivalsChanged, links, resources };
+    });
 }
 
 /**

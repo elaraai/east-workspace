@@ -20,11 +20,11 @@
 
 import {
     ArrayType, BooleanType, DateTimeType, DictType, FloatType, IntegerType, NullType, OptionType, PatchType, StringType, StructType,
-    VariantType, printType, type EastType, type PatchTypeOf,
+    VariantType, type EastType, type PatchTypeOf,
 } from "@elaraai/east";
 import { StatusTokenType, TimeStepType } from "@elaraai/east-ui";
 import { ScheduleFitType, SchedulePeriodStatusType, ScheduleRefusalType } from "../schedule/types.js";
-import { OptimiseSliceType } from "../utils/optimise.js";
+import { OptimiseSliceType, optimisedRecordType } from "../utils/optimise.js";
 
 // ============================================================================
 // The day, as the board reads it
@@ -557,9 +557,7 @@ export type AllocationOptimiseResultType<D extends DictType<EastType, EastType> 
  * @property bins - The bins' patch; a new bin's key is the optimiser's own
  */
 export function AllocationOptimiseResultTypeFor<D extends DictType<EastType, EastType>>(bins: D): AllocationOptimiseResultType<D> {
-    const given = bins as EastType;
-    if (given === undefined || given.type !== "Dict") {
-        throw new Error(`Allocation.Types.OptimiseResult: is given ${given === undefined ? "nothing" : printType(given)} — it takes the bins' record type, a Dict of bins by key: DictType(StringType, Bin)`);
-    }
-    return StructType({ bins: PatchType(given) }) as unknown as AllocationOptimiseResultType<D>;
+    const record = optimisedRecordType(bins as EastType, (given) =>
+        `Allocation.Types.OptimiseResult: is given ${given} — it takes the bins' record type, a Dict of bins by key: DictType(StringType, Bin)`);
+    return StructType({ bins: PatchType(record) }) as unknown as AllocationOptimiseResultType<D>;
 }

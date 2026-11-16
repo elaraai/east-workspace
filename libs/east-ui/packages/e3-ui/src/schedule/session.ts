@@ -55,6 +55,11 @@ export interface ScheduleRecordSession {
     /** The record's commits, newest first, as its handle reads them. */
     readonly history: ExprType<EastType>;
     /**
+     * The record's name in the deployed package, as its handle's binding carries it: the session's source, and what a
+     * builder holds its optimiser's `drafts` to (east-workspace#1622) — a function that reads the record lists it.
+     */
+    readonly name: ExprType<StringType>;
+    /**
      * The session's wire: the shared `EditingType` over the record, and its read by key.
      *
      * @returns `editing`, the session; `entries`, the record read by key, `none` for a record read whole
@@ -79,6 +84,8 @@ export function scheduleRecordSession(record: unknown, keyType: EastType, rowTyp
     // Declared now, so a record bound without its patch door is refused where the builder's kind is.
     const save = Record.onApply(record as never, { keyed: true }) as unknown as ExprType<EastType>;
     const readAll = handle["read"] as unknown as () => ExprType<DictType<EastType, EastType>>;
+    // The record's name, as its handle's binding carries it.
+    const name = (handle["binding"] as unknown as { name: ExprType<StringType> }).name;
     const byKey = entries === undefined ? undefined : scheduleEntryByKey(entries, keyType, rowType);
     const lastKey = entries === undefined ? undefined : scheduleLastKey(entries, keyType);
     // An entry's id is its key's text: a String key as it is, any other key as East prints it.
@@ -92,6 +99,7 @@ export function scheduleRecordSession(record: unknown, keyType: EastType, rowTyp
         idOf,
         keyOf,
         history: handle["history"]!,
+        name,
         build() {
             // The shared session over the record: whole-entry drafts, keyed batches, Save through the patch door,
             // and the pending Save handed over as a draft of it.
@@ -120,7 +128,7 @@ export function scheduleRecordSession(record: unknown, keyType: EastType, rowTyp
                 // A record's Save is always the patch door's: `Record.onApply` answered it.
                 if (apply === undefined) throw new Error("Schedule: a record's session saves through the record's patch door");
                 return East.value({
-                    sourceId: (handle["binding"] as unknown as { name: ExprType<StringType> }).name,
+                    sourceId: name,
                     entryType: toEastTypeValue(rowType),
                     idField: none,
                     draftType: toEastTypeValue(draftType),

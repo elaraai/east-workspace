@@ -100,7 +100,9 @@ export {
 } from './utils/record-kind.js';
 // The `optimise` binding's check every builder's tag makes (#1409): `Func.bind` of a function from the builder's request to its answer;
 // and what an answer does to a record, key by key, which every builder lands it through (#1622).
-export { OptimisePeriodType, OptimiseSliceType, optimiseBinding, optimiseChangesFor, type OptimiseContract, type OptimiseHandle } from './utils/optimise.js';
+export {
+    OptimisePeriodType, OptimiseSliceType, optimiseBinding, optimiseChangesFor, optimisedRecordType, type OptimiseContract, type OptimiseHandle,
+} from './utils/optimise.js';
 
 // The Studio (#787): its components' factories and carriers, the payloads the
 // renderers take, and the East the renderers call. `Studio` here is the

@@ -143,6 +143,21 @@ export function optimiseBinding(optimise: unknown, contract: OptimiseContract): 
 }
 
 /**
+ * The record type a builder's `Types.OptimiseResult` patches, checked (east-workspace#1622): a Dict of rows by key — the
+ * record's type, as the app writes it. Each builder refuses another in its own words.
+ *
+ * @param given - The type the factory was given; `undefined` for none
+ * @param refusal - The factory's refusal, given what it was given in words: its name, and what it takes
+ * @returns The record's type
+ * @throws {Error} When it is given none, or a type that is no Dict, with the factory's refusal
+ * @internal
+ */
+export function optimisedRecordType(given: EastType | undefined, refusal: (given: string) => string): DictType<EastType, EastType> {
+    if (given === undefined || given.type !== "Dict") throw new Error(refusal(given === undefined ? "nothing" : printType(given)));
+    return given;
+}
+
+/**
  * What an optimiser's answer for one record does, key by key (east-workspace#1622, rule 7): each key the answer touches,
  * with what lands on it — the row the optimiser gave, inserted under its key; an update by a patch of the row; or a
  * delete. A patch of the whole Dict — `replace`, what `East.diff` answers where it judges the rows better replaced — lands
