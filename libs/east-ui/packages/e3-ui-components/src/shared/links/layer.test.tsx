@@ -87,6 +87,17 @@ describe("the shared links layer", () => {
         expect(container.querySelector("[data-plan-ribbon-unlink]")).toBeNull();
     });
 
+    test("several links selected at once are each marked, their captions too, and none has a × — one alone, given as a list, keeps its own", () => {
+        const onUnlink = vi.fn();
+        const several = mount({ selected: [0, 1], onUnlink });
+        expect([...several.container.querySelectorAll("[data-plan-link][data-selected]")].map((g) => g.getAttribute("data-plan-link"))).toEqual(["0", "1"]);
+        expect([...several.container.querySelectorAll("[data-plan-ribbon-label][data-selected]")].map((g) => g.getAttribute("data-plan-ribbon-label"))).toEqual(["0", "1"]);
+        expect(several.container.querySelector("[data-plan-ribbon-unlink]")).toBeNull();
+        several.unmount();
+        const one = mount({ selected: [1], onUnlink });
+        expect([...one.container.querySelectorAll("[data-plan-ribbon-unlink]")].map((x) => x.getAttribute("data-plan-ribbon-unlink"))).toEqual(["1"]);
+    });
+
     test("A69 — a link drag fades the moved link to its was line, and draws the new line to the pointer", () => {
         const line = routeRibbon(card(4), { leftX: 300, rightX: 300, top: 150, bottom: 150 }, 3);
         const { container } = mount({ preview: { was: 0, line: { stroke: line.stroke, head: line.head } } });

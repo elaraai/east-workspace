@@ -21,7 +21,8 @@
  *
  * What a host may add, unused unless it opts in: a SELECTED link, its caption
  * outlined, carrying a × in its own 16px target whose pointer-down is stopped
- * (never a drag) and whose click unlinks (A68); a link DRAG's preview — the
+ * (never a drag) and whose click unlinks (A68) — or several selected at once,
+ * each outlined and none with a × (#1541, U10); a link DRAG's preview — the
  * moved link faded to its `was` line, and the new line to the pointer (A69);
  * a GRIP on a link's line and its caption, the host's component drawn in their
  * place to spread its drag handle on them (`grip`, A69); thin GUIDES from the
@@ -113,6 +114,9 @@ export interface LinkGripProps {
     render: (handle: LinkGripHandle) => ReactNode;
 }
 
+/** No link selected. */
+const NO_PICK: readonly number[] = [];
+
 /** What the layer draws. */
 export interface LinksLayerProps {
     /** The routed links, in drawing order. */
@@ -126,8 +130,11 @@ export interface LinksLayerProps {
     clip: { left: number; width: number };
     /** What the hit area of a link carries beyond its geometry: its attributes and its click. */
     hit: (ribbon: LinkRibbon) => SVGProps<SVGPathElement>;
-    /** The selected link (A68): its caption outlined, with a × that unlinks. */
-    selected?: number | undefined;
+    /**
+     * The selected link (A68): its caption outlined, with a × that unlinks — or the selected links, several at once
+     * (#1541, U10): each drawn selected, and none with a ×, which is one link's control.
+     */
+    selected?: number | readonly number[] | undefined;
     /** Unlinks a link: the selected caption's ×. */
     onUnlink?: ((id: number) => void) | undefined;
     /** The ×'s words for a link (`Unlink LD-2210 · Delete`). */
@@ -205,6 +212,9 @@ function fitKnockouts(svg: SVGSVGElement | null, left: number, right: number): v
 export function LinksLayer({
     ribbons, edgeSlots = [], width, height, clip, hit, selected, onUnlink, unlinkLabel, preview, guides = [], caption, grip: Grip, lights = true, onLit, halo = true,
 }: LinksLayerProps): ReactNode {
+    // The selected links: each drawn selected; one alone carries its ×.
+    const picked = selected === undefined ? NO_PICK : typeof selected === "number" ? [selected] : selected;
+    const lone = picked.length === 1 ? picked[0] : undefined;
     // The link under the pointer — lit, drawn over the others, its ends haloed.
     const [lit, setLit] = useState<number | null>(null);
     // A lit link that is gone (the focus moved on) lights nothing, nor one while the layer lights nothing.
@@ -252,7 +262,7 @@ export function LinksLayer({
     const captionOf = (r: LinkRibbon, handle: LinkGripHandle) => {
         const { title, ...takes } = caption?.(r) ?? {};
         return (
-            <g key={`label-${r.id}`} data-plan-ribbon-label={r.id} data-tone={r.tone} data-selected={selected === r.id ? "" : undefined}
+            <g key={`label-${r.id}`} data-plan-ribbon-label={r.id} data-tone={r.tone} data-selected={picked.includes(r.id) ? "" : undefined}
                 data-lit={caption !== undefined && lit === r.id ? "" : undefined}
                 {...(caption === undefined ? {} : {
                     ...takes, ...handle,
@@ -289,7 +299,7 @@ export function LinksLayer({
                     const isLit = lit === r.id;
                     return (
                         <g key={r.id} data-plan-link={r.id} data-plan-route={r.route} data-lit={isLit ? "" : undefined} data-tone={r.tone}
-                            data-selected={selected === r.id ? "" : undefined} data-was={preview?.was === r.id ? "" : undefined}>
+                            data-selected={picked.includes(r.id) ? "" : undefined} data-was={preview?.was === r.id ? "" : undefined}>
                             {isLit && <Casing r={r} />}
                             <path data-plan-ribbon-band d={r.stroke} strokeWidth={r.width} />
                             <path data-plan-ribbon-head d={r.head} data-plan-stub={r.to.off} />
@@ -331,7 +341,7 @@ export function LinksLayer({
             )}
             {/* The selected caption's × in its own target, just past its knockout: a control, not a link, so the
                 bounds' clip does not cut it where its caption sits by an edge. */}
-            {ribbons.map((r) => (selected === r.id && r.label !== undefined && onUnlink !== undefined ? (
+            {ribbons.map((r) => (lone === r.id && r.label !== undefined && onUnlink !== undefined ? (
                 <foreignObject key={`unlink-${r.id}`} data-plan-ribbon-unlink={r.id} x={r.lx} y={r.ly - KNOCKOUT_RISE - (UNLINK_SIZE - KNOCKOUT_H) / 2}
                     width={UNLINK_SIZE} height={UNLINK_SIZE}>
                     <chakra.button type="button" aria-label={unlinkLabel?.(r) ?? "Unlink"} title={unlinkLabel?.(r) ?? "Unlink"}

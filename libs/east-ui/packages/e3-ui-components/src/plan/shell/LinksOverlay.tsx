@@ -49,8 +49,9 @@
  * A link kind's link (#1541, U10) selects as an event's element does: its key
  * names its kind and its row, and a click selects it — Shift, ⌘ or Ctrl adding
  * it to the selection or taking it out — so the inspector shows it and Delete
- * removes it. Selected, it draws in the ink, its caption outlined, with the
- * layer's × where its kind takes a removal (`unlink`).
+ * removes it. Selected, it draws in the ink, its caption outlined — each of
+ * several selected so — and one selected alone carries the layer's × where
+ * its kind takes a removal (`unlink`).
  *
  * The drawing is the shared links layer's (`shared/links/layer.tsx`, #1321),
  * which the Allocation's links draw through too; this overlay lays Plan's
@@ -75,6 +76,8 @@ type Styles = Record<string, Record<string, unknown>>;
 
 const NO_REF: RefObject<HTMLElement | null> = { current: null };
 const NO_LAYOUT: ReturnType<typeof layoutRibbons> = { ribbons: [], edgeSlots: [] };
+/** No link selected. */
+const NO_SELECTED: readonly number[] = [];
 
 export interface LinksOverlayProps {
     /** The resolved `plan` recipe styles (the `ribbons` slot). */
@@ -128,12 +131,14 @@ export function LinksOverlay({
     // A link kind's link selects by its key, as an event's element does (#1541, U10).
     const selectable = useContext(PlanSelectableContext);
     const elements = usePlanSelector(selectElements);
-    // The one link the layer draws selected: the first of the selection that is a link.
+    // The links the layer draws selected: those of the selection, by their places in the list.
     const selected = useMemo(() => {
-        if (elements.length === 0) return undefined;
-        const at = links.findIndex((link) => selectable(link.key) && elements.includes(link.key));
-        return at < 0 ? undefined : at;
+        if (elements.length === 0) return NO_SELECTED;
+        const picked = links.flatMap((link, at) => (selectable(link.key) && elements.includes(link.key) ? [at] : []));
+        return picked.length === 0 ? NO_SELECTED : picked;
     }, [links, elements, selectable]);
+    // One link selected alone carries its ×.
+    const lone = selected.length === 1 ? selected[0] : undefined;
     const layerRef = useRef<HTMLDivElement | null>(null);
     // The plot's px are the layer's width less the gutter's.
     const width = useElementWidth(layerRef, true);
@@ -174,7 +179,7 @@ export function LinksOverlay({
         };
     }, [links, onElementClick, selectable, dispatch]);
     // The selected link's ×, where its kind takes a removal.
-    const removable = selected !== undefined && unlink !== undefined && unlink.can(links[selected]!.key);
+    const removable = lone !== undefined && unlink !== undefined && unlink.can(links[lone]!.key);
     const onUnlink = useCallback((id: number) => { unlink?.run(links[id]!.key); }, [unlink, links]);
     const unlinkLabel = useCallback((r: LinkRibbon) => unlink?.label(links[r.id]!.key) ?? "", [unlink, links]);
     // Drawn inside the treegrid, over its rows, and pointer-only: a reader
