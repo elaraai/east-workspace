@@ -70,7 +70,10 @@ import {
 } from "@elaraai/east";
 import type { FieldHints } from "@elaraai/east-ui/internal";
 import type { ScheduleStatusCasesOf, ScheduleStatusField } from "../schedule/events.js";
-import { checkKeyField, fieldOf, keyFieldRef, keyFieldSlots, keyFieldValue, type FieldName, type FieldsOf, type KeyField } from "../schedule/fields.js";
+import {
+    checkKeyField, fieldOf, keyFieldRef, keyFieldRole, keyFieldSlots, keyFieldValue,
+    type FieldName, type FieldsOf, type KeyEndField, type KeyEndOf, type KeyField, type KeyFieldRole,
+} from "../schedule/fields.js";
 import { scheduleNewValues, type ScheduleNewValues } from "../schedule/values.js";
 import { checkEntries, optionOf, typeText } from "../schedule/window.js";
 import {
@@ -110,25 +113,19 @@ export type SchematicViaField<R extends StructType> = FieldsOf<R, ArrayType<Sche
  */
 export type SchematicMembersField<R extends StructType> = FieldsOf<R, SetType<ImmutableType> | ArrayType<ImmutableType>>;
 
-/** Whether a variant's cases are an Option's. */
-type IsOption<C> = "none" extends keyof C ? ("some" extends keyof C ? true : false) : false;
-
 /**
  * A field naming a link's end (#1549): a field of a type a Dict may be keyed
  * by, holding a key of one item slot, or a variant holding a key of the item
  * slot its case names — never an Option: a link has both its ends.
  */
-export type SchematicEndField<R extends StructType> = {
-    [F in FieldName<R>]: R["fields"][F] extends VariantType<infer C> ? (IsOption<C> extends true ? never : F)
-        : R["fields"][F] extends ImmutableType ? F : never
-}[FieldName<R>];
+export type SchematicEndField<R extends StructType> = KeyEndField<R>;
 
 /**
  * What a link's end's `of` takes (#1549): the item slot its field holds keys of — or, for a variant field, a slot per
  * case, each case holding a key of the slot it names. It decides the end's shape: a variant field naming one slot holds
  * that slot's keys whole.
  */
-export type SchematicEndOf<T> = T extends VariantType<infer C> ? string | { readonly [K in keyof C]: string } : string;
+export type SchematicEndOf<T> = KeyEndOf<T>;
 
 /** The status a variant field shows: the field, and a Status per case. */
 export interface SchematicStatusConfig<R extends StructType, SF extends string> {
@@ -906,15 +903,7 @@ export function schematicZones<R extends StructType, K extends EastType = String
  * its field, and for each item slot it holds keys of, the key it holds, which
  * `<Schematic>` checks against that slot's key type.
  */
-export interface SchematicKeyRole {
-    /** The field. */
-    readonly field: string;
-    /**
-     * Each item slot it holds keys of, in order: the slot, the key's type — the field's own, a case's, or a side's
-     * element — and the case holding it, for an end with a slot per case.
-     */
-    readonly slots: readonly { readonly slot: string; readonly key: EastType; readonly case: string | undefined }[];
-}
+export type SchematicKeyRole = KeyFieldRole;
 
 /**
  * A link's end: the field holding the key of the item it joins, and the item
@@ -1063,13 +1052,6 @@ export function schematicLinks<R extends StructType, FF extends SchematicEndFiel
     const from = end("from", config.from as { field: string; of: unknown });
     const to = end("to", config.to as { field: string; of: unknown });
     if (from.field === to.field) throw new Error(`${where}: \`from\` and \`to\` both name "${from.field}" — a link's ends are two fields`);
-    // Each end as `<Schematic>` checks it against its slots' key types (#1549): the key it holds of each — the field's
-    // own, or its case's.
-    const roleOf = (checked: KeyField): SchematicKeyRole => ({
-        field: checked.field,
-        slots: checked.shape === "key" ? [{ slot: checked.of, key: checked.key, case: undefined }]
-            : checked.cases.map((c) => ({ slot: checked.of[c]!, key: checked.keys[c]!, case: c })),
-    });
     const edge = edgeRoles(bound.keyType, rowType, where, config as never);
     const details = detailsOf(config.details, [], where, bound.keyType);
     const ValuesType = valuesTypeOf(rowType, [from.field, to.field]);
@@ -1136,7 +1118,9 @@ export function schematicLinks<R extends StructType, FF extends SchematicEndFiel
         rowType,
         keyType: bound.keyType,
         name: config.name,
-        ends: { from: roleOf(from), to: roleOf(to) },
+        // Each end as `<Schematic>` checks it against its slots' key types (#1549): the key it holds of each — the
+        // field's own, or its case's.
+        ends: { from: keyFieldRole(from), to: keyFieldRole(to) },
         hasTemplates: templates !== undefined,
         templatesSource: templates?.source,
         build(slot, part, every = false) {

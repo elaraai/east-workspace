@@ -29,7 +29,7 @@
 
 import {
     BlobType, East, NullType, OptionType, StringType, isImmutableType, isTypeEqual, none, some, variant,
-    type EastType, type ExprType, type FunctionType, type StructType,
+    type EastType, type ExprType, type FunctionType, type ImmutableType, type StructType, type VariantType,
 } from "@elaraai/east";
 import { ScheduleResourceRefType } from "./types.js";
 import { optionOf, typeText } from "./window.js";
@@ -142,6 +142,61 @@ export type KeyField =
         readonly field: string; readonly shape: "cases"; readonly of: Readonly<Record<string, string>>; readonly cases: readonly string[];
         readonly optional: boolean; readonly variant: EastType; readonly keys: Readonly<Record<string, EastType>>;
     };
+
+/** Whether a variant's cases are an Option's. */
+type IsOption<C> = "none" extends keyof C ? ("some" extends keyof C ? true : false) : false;
+
+/**
+ * A field naming one end of a link (#1549): a field of a type a Dict may be
+ * keyed by, holding a key of one kind, or a variant holding a key of the kind
+ * its case names — never an Option: a link has both its ends. The Schematic's
+ * links name their items so, and the Plan's link kinds their events.
+ *
+ * @typeParam R - The row type
+ */
+export type KeyEndField<R extends StructType> = {
+    [F in FieldName<R>]: R["fields"][F] extends VariantType<infer C> ? (IsOption<C> extends true ? never : F)
+        : R["fields"][F] extends ImmutableType ? F : never
+}[FieldName<R>];
+
+/**
+ * What an end's `of` takes (#1549): the slot its field holds keys of — or, for
+ * a variant field, a slot per case, each case holding a key of the slot it
+ * names. It decides the end's shape: a variant field naming one slot holds
+ * that slot's keys whole.
+ *
+ * @typeParam T - The field's type
+ */
+export type KeyEndOf<T> = T extends VariantType<infer C> ? string | { readonly [K in keyof C]: string } : string;
+
+/**
+ * A role naming keyed entities by their keys (#1549): its field, and for each
+ * slot it holds keys of, the key it holds — which the builder checks against
+ * that slot's key type, where both kinds are known.
+ */
+export interface KeyFieldRole {
+    /** The field. */
+    readonly field: string;
+    /**
+     * Each slot it holds keys of, in order: the slot, the key's type — the field's own, a case's, or a side's element —
+     * and the case holding it, for a field with a slot per case.
+     */
+    readonly slots: readonly { readonly slot: string; readonly key: EastType; readonly case: string | undefined }[];
+}
+
+/**
+ * A checked key field as the role its builder checks (see {@link KeyFieldRole}).
+ *
+ * @param field - The field, checked
+ * @returns Its field, and each slot it holds keys of with the key it holds
+ */
+export function keyFieldRole(field: KeyField): KeyFieldRole {
+    return {
+        field: field.field,
+        slots: field.shape === "key" ? [{ slot: field.of, key: field.key, case: undefined }]
+            : field.cases.map((c) => ({ slot: field.of[c]!, key: field.keys[c]!, case: c })),
+    };
+}
 
 /** How a key field's refusals name it. */
 export interface KeyFieldWords {
