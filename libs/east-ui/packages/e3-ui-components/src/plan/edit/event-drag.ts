@@ -101,7 +101,7 @@ export interface PlanEventVerdict {
 
 /** The event kinds' drag and drop, as the canvas's rows, its drop target and its carry ask it — see the module docs. */
 export interface PlanEventDrop {
-    /** The libraries whose cards the event kinds take: the Events tab's, the Backlog tab's, and each author's tab's with a `drop`. */
+    /** The libraries whose cards the event kinds take: the Events tab's, the Backlog tab's, and each author's tab's with a `drop` or a `create`. */
     readonly libraries: readonly string[];
     /** The Backlog tab's library: where an element returns to be unscheduled. */
     readonly backlog: string;
@@ -323,10 +323,11 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
     latest.current = args;
     const { keys, tabs } = args;
     const active = args.kinds.length > 0;
-    // The libraries the kinds take cards from: the Events and Backlog tabs', and each author's tab whose cards land on an event.
+    // The libraries the kinds take cards from: the Events and Backlog tabs', and each author's tab whose cards land on
+    // an event (`drop`) or make one (`create`, #1541 U1).
     const libraries = useMemo(() => [
         eventsLibrary(keys), backlogLibrary(keys),
-        ...tabs.flatMap((tab) => (tab.type === "tab" && tab.value.drop.type === "some" ? [tabLibrary(keys, tab.value)] : [])),
+        ...tabs.flatMap((tab) => (tab.type === "tab" && (tab.value.drop.type === "some" || tab.value.create.type === "some") ? [tabLibrary(keys, tab.value)] : [])),
     ], [keys, tabs]);
     // Each answer, kept until what it read moves.
     const held = useRef<{ read: readonly unknown[]; gestures: Map<string, PlanEventGesture> }>({ read: [], gestures: new Map() });
@@ -363,7 +364,8 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
         const authorTab = (library: string): PlanAuthorTabValue | undefined => {
             const a = latest.current;
             for (const tab of a.tabs) {
-                if (tab.type === "tab" && tab.value.drop.type === "some" && stringEqual(tabLibrary(a.keys, tab.value), library)) return tab.value;
+                if (tab.type === "tab" && (tab.value.drop.type === "some" || tab.value.create.type === "some")
+                    && stringEqual(tabLibrary(a.keys, tab.value), library)) return tab.value;
             }
             return undefined;
         };
@@ -485,20 +487,64 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
             return at !== undefined ? dateOf(at) : undefined;
         };
 
+        /**
+         * A new event of a kind, made at a bucket from a template (PB32) — one of the kind's own, or the one a library
+         * tab's card makes it from (#1541, U1): from its `at` on a whole day, for its duration, under a key made from
+         * `keyFrom`, the kind's own `write` making its row.
+         */
+        const planMade = (kind: PlanEventKindValue, target: PlanEventTarget, at: Date, template: PlanEventKindValue["templates"][number],
+            keyFrom: string, from: PlanCandidateValue["from"]): PlanEventGesture => {
+            const a = latest.current;
+            const m = a.words.m;
+            const where = whereName(target);
+            const clock = getSomeorUndefined(template.at);
+            const start = clock !== undefined && WHOLE_DAYS.includes(a.scale?.resolution ?? "")
+                ? new Date(at.getTime() + (Number(clock.hour) * 60 + Number(clock.minute)) * MINUTE_MS)
+                : at;
+            const end = kind.instant ? start : new Date(start.getTime() + durationMinutes(template.duration) * MINUTE_MS);
+            const span = { start: timeInstant(start), end: timeInstant(end) };
+            const id = a.editing.mint(kind.key, keyFrom, NONE_MINTED);
+            if (id === undefined) return refused(m.dropRefused(), span);
+            const gesture = variant("create", { template: template.key, start, end, resource: resourceOf(target) }) as PlanEventGestureValue;
+            const why = judge(kind, { id, entry: NO_ENTRY, gesture },
+                eventCandidate(ADD, kind.key, from, landsOn(kind, target, start, end)), target.kind === "unassigned");
+            if (why !== undefined) return refused(why, span);
+            return {
+                verdict: { allowed: true, caption: m.dropCaption({ what: template.name, where, ...whenOf(start) }), span },
+                changes: [{ kind: kind.key, id, gesture }],
+                origin: "drop",
+                label: `Drop ${template.name} on ${where}`,
+                selects: { keys: [printRef({ kind: kind.key, key: id })], row: rowFor(kind, target) },
+            };
+        };
+
         // ── A card where the drag rests ───────────────────────────────────────
         const planCard = (row: PlanRowValue, from: { readonly library: string; readonly key: string }, slot: string, event: string | undefined): PlanEventGesture => {
             const a = latest.current;
             const m = a.words.m;
             const target = targetOf(row);
             if (target === undefined) return refused(undefined);
-            // An author's card: the event under the pointer, of its patch's kind (PB63).
+            // An author's card: over an event of its patch's kind it sets what the patch sets (PB63); anywhere else, a
+            // tab with `create` makes an event of its kind there, as a template does (#1541, U1).
             const tab = authorTab(from.library);
             if (tab !== undefined) {
                 const card = tab.cards.find((c) => stringEqual(c.key, from.key));
-                if (card === undefined || tab.drop.type !== "some") return refused(undefined);
-                const fields = card.sets.map((set) => set.path[set.path.length - 1] ?? "");
+                if (card === undefined) return refused(undefined);
                 const ref = event !== undefined ? refOf(event) : undefined;
                 const kind = ref !== undefined ? kindOf(ref.kind) : undefined;
+                const create = getSomeorUndefined(tab.create);
+                const patches = tab.drop.type === "some" && kind !== undefined && stringEqual(kind.key, tab.drop.value);
+                if (create !== undefined && !patches) {
+                    const makes = kindOf(create.kind);
+                    const made = create.makes.find((one) => stringEqual(one.card, from.key));
+                    const at = bucketStart(slot);
+                    if (makes === undefined || made === undefined || at === undefined) return refused(undefined);
+                    if (!takes(makes, target)) return refused(needs(makes, target));
+                    // Its key is made from the card's own, never from the key its kind knows its template by.
+                    return planMade(makes, target, at, made.template, card.key, variant("card", { library: from.library, key: from.key }));
+                }
+                if (tab.drop.type !== "some") return refused(undefined);
+                const fields = card.sets.map((set) => set.path[set.path.length - 1] ?? "");
                 if (ref === undefined || kind === undefined) return refused(m.dropCardNeedsEvent({ fields }));
                 if (!stringEqual(kind.key, tab.drop.value)) return refused(m.dropKindTakesNo({ kind: kind.name, fields }));
                 const read = readEvent(kind, ref.key);
@@ -530,33 +576,15 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
             if (ref === undefined || kind === undefined) return refused(undefined);
             const at = bucketStart(slot);
             if (at === undefined) return refused(undefined);
-            const where = whereName(target);
-            const resource = resourceOf(target);
             if (!takes(kind, target)) return refused(needs(kind, target));
             if (isTemplate) {
                 // A template (PB32): a new event at the bucket — from its `at` on a whole day — for its duration.
                 const template = kind.templates.find((t) => stringEqual(t.key, ref.key));
                 if (template === undefined) return refused(undefined);
-                const clock = getSomeorUndefined(template.at);
-                const start = clock !== undefined && WHOLE_DAYS.includes(a.scale?.resolution ?? "")
-                    ? new Date(at.getTime() + (Number(clock.hour) * 60 + Number(clock.minute)) * MINUTE_MS)
-                    : at;
-                const end = kind.instant ? start : new Date(start.getTime() + durationMinutes(template.duration) * MINUTE_MS);
-                const span = { start: timeInstant(start), end: timeInstant(end) };
-                const id = a.editing.mint(kind.key, template.key, NONE_MINTED);
-                if (id === undefined) return refused(m.dropRefused(), span);
-                const gesture = variant("create", { template: template.key, start, end, resource }) as PlanEventGestureValue;
-                const why = judge(kind, { id, entry: NO_ENTRY, gesture },
-                    eventCandidate(ADD, kind.key, variant("template", template.key), landsOn(kind, target, start, end)), target.kind === "unassigned");
-                if (why !== undefined) return refused(why, span);
-                return {
-                    verdict: { allowed: true, caption: m.dropCaption({ what: template.name, where, ...whenOf(start) }), span },
-                    changes: [{ kind: kind.key, id, gesture }],
-                    origin: "drop",
-                    label: `Drop ${template.name} on ${where}`,
-                    selects: { keys: [printRef({ kind: kind.key, key: id })], row: rowFor(kind, target) },
-                };
+                return planMade(kind, target, at, template, template.key, variant("template", template.key));
             }
+            const where = whereName(target);
+            const resource = resourceOf(target);
             // A backlog event (PB33): scheduled at the bucket, for its own duration.
             const read = readEvent(kind, ref.key);
             if (read === undefined) return refused(undefined);
@@ -733,7 +761,8 @@ export function usePlanEventDrag(args: PlanEventDragArgs): PlanEventDrop | undef
                 return target !== undefined && kind !== undefined && takes(kind, target);
             },
             takesCard: (library) => libraries.some((l) => stringEqual(l, library)),
-            landsOnEvent: (library) => authorTab(library) !== undefined,
+            // An author's card with a `drop`: one of a tab with `create` alone lands at a bucket, as a template does.
+            landsOnEvent: (library) => authorTab(library)?.drop.type === "some",
             where: (row) => {
                 const target = targetOf(row);
                 return target !== undefined ? whereName(target) : undefined;

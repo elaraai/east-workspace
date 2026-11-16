@@ -340,11 +340,13 @@ export { PlanCandidateType, PlanCanDropType, PlanItemRefType };
 export { createOver, type PlanOverRows } from "./over.js";
 export { createEventRef, eventRefKind } from "./refs.js";
 export {
+    PlanAuthorTabType,
     PlanLibraryCardType,
     PlanLibraryHidesType,
     PlanLibraryRowsItemType,
     PlanLibrarySeriesType,
     PlanLibraryTabType,
+    PlanTabCreateType,
     libraryBacklog,
     libraryEvents,
     librarySeries,
@@ -352,6 +354,7 @@ export {
     planHideId,
     type PlanLibraryTab,
     type PlanLibraryTabConfig,
+    type PlanTabCreateConfig,
 } from "./library.js";
 export {
     resolvePlanEventState,
@@ -1142,6 +1145,7 @@ const PLAN_MEMBERS = {
  *     due: OptionType(DateTimeType),
  * });
  * export const PrintCustomer = StructType({ name: StringType, district: StringType, trade: StringType });
+ * export const PrintOrder = StructType({ title: StringType, customer: StringType, sheets: FloatType });
  * export const planPrintPresses = e3.record("plan_print_presses", DictType(StringType, PrintPress), {
  *     initial: new Map([
  *         ["a1", { name: "Press A1", hall: "Hall A", sheets_per_hour: 12000.0 }],
@@ -1186,6 +1190,17 @@ const PLAN_MEMBERS = {
  *         patch: mutation.patch(),
  *     }),
  * });
+ * export const planEventOrders = e3.record("plan_event_orders", DictType(StringType, PrintOrder), {
+ *     initial: new Map([
+ *         ["O-501", { title: "Market flyers", customer: "Orchard Street Market", sheets: 16000.0 }],
+ *         ["O-502", { title: "Season programme", customer: "Heathfield Theatre", sheets: 48000.0 }],
+ *         ["O-503", { title: "Trail maps", customer: "Kestrel Cycling Club", sheets: 24000.0 }],
+ *     ]),
+ *     mutations: (mutation) => ({
+ *         // The orders' patch door: the works takes its orders elsewhere, and a Plan reads them live.
+ *         patch: mutation.patch(),
+ *     }),
+ * });
  * export const planEventJobs = e3.record("plan_event_jobs", DictType(StringType, PrintJob), {
  *     initial: new Map([
  *         ["J-3001", { title: "Spring catalogue", start: some(new Date("2026-10-06T06:00:00Z")), end: some(new Date("2026-10-06T14:00:00Z")), press: some("a1"), state: variant("actual", null), sheets: 96000.0, customer: "Alder & Finch", stock: variant("coated", null), due: some(new Date("2026-10-08T00:00:00Z")) }],
@@ -1216,6 +1231,7 @@ const PLAN_MEMBERS = {
  *         const presses = $.let(Record.bind(planPrintPresses, []));
  *         const jobs = $.let(Record.bind(planEventJobs));
  *         const customers = $.let(Record.bind(planPrintCustomers, []));
+ *         const orders = $.let(Record.bind(planEventOrders, []));
  *         const axis = $.let(Plan.axis({
  *             window: { min: new Date("2026-10-05T00:00:00Z"), max: new Date("2026-11-02T00:00:00Z") },
  *             resolution: "day", now: new Date("2026-10-14T09:00:00Z"),
@@ -1244,6 +1260,20 @@ const PLAN_MEMBERS = {
  *                 }}
  *                 library={[
  *                     Plan.library.backlog(),
+ *                     // The orders to plan, by customer: a card dropped on a press makes a job there, as a
+ *                     // template would, running as long as its sheets take at 8,000 an hour.
+ *                     Plan.library.tab(orders.read(), {
+ *                         name: "Orders", icon: "inbox",
+ *                         label: o => o.title, group: o => o.customer,
+ *                         create: {
+ *                             kind: "job",
+ *                             duration: o => variant("hours", o.sheets.divide(8000.0)),
+ *                             values: o => ({
+ *                                 title: o.title, customer: o.customer, sheets: o.sheets,
+ *                                 state: variant("proposed", variant("added", null)), stock: variant("coated", null), due: none,
+ *                             }),
+ *                         },
+ *                     }),
  *                     // The customers, by district: a card dropped on a job sets its customer.
  *                     Plan.library.tab(customers.read(), {
  *                         name: "Customers", icon: "building",

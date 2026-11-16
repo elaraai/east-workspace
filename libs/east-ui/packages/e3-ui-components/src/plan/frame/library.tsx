@@ -490,7 +490,9 @@ export function usePlanLibrary({
                     icon: icon === undefined ? none : some(icon),
                     status: none,
                     trailing: none,
-                    draggable: takesCards || (tab.drop.type === "some" && patchKinds.has(tab.drop.value)),
+                    // Onto a row of `data`'s, onto an event its patch lands on, or — a tab with `create` — onto an
+                    // event kind's row, where it makes an event as a template does (#1541, U1).
+                    draggable: takesCards || (tab.drop.type === "some" && patchKinds.has(tab.drop.value)) || (tab.create.type === "some" && takesEvents),
                     filtered: false,
                     placed: chosen !== undefined && stringEqual(chosen, c.key),
                     search: some([c.key, c.label, meta ?? ""].join(" · ")),
@@ -501,7 +503,7 @@ export function usePlanLibrary({
             noun: noun("tab"),
             onCardClick: some((key: string) => { onAuthorCard(tabKey, key); return null; }),
         })];
-    })), [authorTabs, authorFollows, picked, keys, m, noun, onAuthorCard, takesCards, patchKinds]);
+    })), [authorTabs, authorFollows, picked, keys, m, noun, onAuthorCard, takesCards, patchKinds, takesEvents]);
 
     return useMemo((): BuilderFrameDock | undefined => {
         // No tab listed: no pane (PB61).

@@ -442,6 +442,64 @@ describe("the inspector (#1197, #1541 U5)", () => {
     });
 });
 
+describe("the library: a tab's `create` makes an event of a kind, as a template does (#1541, U1)", () => {
+    /** A customer's job: every field of a print job but its start, its end and its press. */
+    const jobFor = (c: { name: unknown }) => ({
+        title: c.name, state: variant("proposed", variant("added", null)), sheets: 8000.0, customer: c.name, stock: variant("coated", null), due: none,
+    });
+    /** A Plan of the jobs and the stops on the presses, with a Customers tab whose cards make what `create` says. */
+    const withTab = ($: BlockBuilder<NullType>, create: unknown) => {
+        const customers = $.let(Data.bind(ex.planPrintCustomers));
+        const stops = $.let(Record.bind(ex.planPrintStops));
+        return Plan.Payload({
+            axis: Plan.axis({ window: WINDOW, resolution: "day" }), data: pressRows($), series: [PRESSES],
+            events: {
+                job: jobsOf($),
+                stop: Schedule.events(stops, { name: "Stop", icon: "screwdriver-wrench", title: "title", at: "at", resource: { field: "press", of: "presses" } }),
+            },
+            library: [Plan.library.tab(customers.read(), { name: "Customers", label: (c) => c.name, group: (c) => c.district, create: create as never })],
+        });
+    };
+
+    test("a tab's cards make events of a span kind for their `duration`, and of an instant kind with none: each builds, beside a `drop` or alone", () => {
+        assert.equal(refusal(($) => {
+            const made = withTab($, { kind: "job", duration: () => variant("hours", 2.0), values: jobFor });
+            assert.ok(isTypeEqual(Expr.type(made as unknown as Expr) as EastType, PlanPayloadType));
+        }), "");
+        assert.equal(refusal(($) => withTab($, { kind: "stop", values: (c: { name: unknown }) => ({ title: c.name, kind: variant("plate_change", null) }) })), "");
+        assert.equal(refusal(($) => {
+            const customers = $.let(Data.bind(ex.planPrintCustomers));
+            return Plan.Payload({
+                axis: Plan.axis({ window: WINDOW, resolution: "day" }), data: pressRows($), series: [PRESSES], events: { job: jobsOf($) },
+                library: [Plan.library.tab(customers.read(), {
+                    name: "Customers", label: (c) => c.name,
+                    drop: (c) => Schedule.patch(ex.PrintJob, { customer: c.name }),
+                    create: { kind: "job", duration: () => variant("hours", 2.0), values: jobFor },
+                })],
+            });
+        }), "");
+    });
+
+    test("`create` names an event kind of the Plan's by its slot", () => {
+        assert.match(refusal(($) => withTab($, { kind: "shift", duration: () => variant("hours", 2.0), values: jobFor })),
+            /the "Customers" tab's `create` makes events of "shift", and this Plan has no such event kind — `kind` names one of `events` by its slot \(job, stop\)/);
+    });
+
+    test("a span kind's cards say how long their event runs, and an instant kind's give no `duration`: as a template of each does", () => {
+        assert.match(refusal(($) => withTab($, { kind: "job", values: jobFor })),
+            /the "Customers" tab's `create` gives how long the event a card makes runs — create: \{ kind: "job", duration: \(row\) => variant\("hours", …\), values \}/);
+        assert.match(refusal(($) => withTab($, { kind: "stop", duration: () => variant("hours", 1.0), values: (c: { name: unknown }) => ({ title: c.name, kind: variant("plate_change", null) }) })),
+            /the "Customers" tab's `create` gives a `duration`, and "stop" is an instant kind, whose events are one time — leave it out/);
+    });
+
+    test("`values` are the new event's own fields: every field of the kind's row but its start, its end and its resource", () => {
+        // No `due`, which a print job has.
+        const short = (c: { name: unknown }) => ({ title: c.name, state: variant("proposed", variant("added", null)), sheets: 8000.0, customer: c.name, stock: variant("coated", null) });
+        assert.match(refusal(($) => withTab($, { kind: "job", duration: () => variant("hours", 2.0), values: short })),
+            /the "Customers" tab's `create.values` gives the new event's own fields — every field of its kind's row but its start, its end and its resource, .*due.* — and these are not/);
+    });
+});
+
 describe("links between events (PB10)", () => {
     const axis = Plan.axis({ window: WINDOW, resolution: "day" });
 

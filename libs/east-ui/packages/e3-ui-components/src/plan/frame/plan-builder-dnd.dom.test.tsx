@@ -880,6 +880,61 @@ describe("every gesture is one step of the Plan's one history", () => {
 });
 
 // ============================================================================
+// A card that makes an event (#1541, U1)
+// ============================================================================
+
+describe("a card of a tab with `create`, dropped on a resource's row (#1541, U1)", () => {
+    /** Press A1 of the smallest builder: a row of its presses' record. */
+    const PRESS_A1 = entry("presses", "a1");
+    const eventJobs = () => h.read(ex.planEventJobs);
+
+    test("makes an event of the tab's kind there, as a template does — the ghost saying what lands where, its key made from the card's, one step Undo takes back; Save writes the order's values on the press", async () => {
+        const { container: c } = await h.mount(ex.planEvents, DRAG);
+        await settle();
+        const before = [...(await eventJobs()).keys()];
+        await openTab(c, "Orders");
+        const card = cardOf(c, "O-502")!;
+        expect(card.hasAttribute("data-draggable")).toBe(true);
+        const y = layOutPlots(c, [PRESS_A1]);
+        // Monday 12 October, a whole day: from its start.
+        const letGo = await carry(card, OFF, { x: xAt(7, 9), y: y(PRESS_A1) });
+        expect(caption()).toBe("Season programme · Press A1 · Mon, Oct 12, 2026");
+        await letGo();
+        await settle();
+        // 48,000 sheets at 8,000 an hour: six hours. Its key is made from the order's, never from its kind's key for it.
+        const [made, ...more] = jobsFrom(c, "O-502", PRESS_A1);
+        expect(more).toEqual([]);
+        expect(named(bar(c, made!, PRESS_A1))).toBe("Season programme, Oct 12, 2026 – Oct 12, 2026, 06:00, proposed");
+        expect(bar(c, made!, PRESS_A1)!.getAttribute("aria-pressed")).toBe("true");
+        expect(pending(c)).toBe("1 pending");
+        // One step.
+        await press(historyButton(c, UNDO));
+        expect([jobsFrom(c, "O-502", PRESS_A1), pending(c)]).toEqual([[], "0 pending"]);
+        await press(historyButton(c, REDO));
+        await press(historyButton(c, SAVE));
+        const after = await eventJobs();
+        const added = [...after.keys()].filter((key) => !before.includes(key));
+        expect(added.length).toBe(1);
+        expect(sameJob(after.get(added[0]!)!, {
+            title: "Season programme", start: some(new Date("2026-10-12T00:00:00Z")), end: some(new Date("2026-10-12T06:00:00Z")), press: some("a1"),
+            state: variant("proposed", variant("added", null)), sheets: 48000.0, customer: "Heathfield Theatre", stock: variant("coated", null), due: none,
+        })).toBe(true);
+    });
+
+    test("a tab with a `drop` alone still needs an event to land on: only a tab with `create` makes one", async () => {
+        const { container: c } = await h.mount(ex.planEvents, DRAG);
+        await settle();
+        await openTab(c, "Customers");
+        const y = layOutPlots(c, [PRESS_A1]);
+        const letGo = await carry(cardOf(c, "harbour-arts")!, OFF, { x: xAt(7, 9), y: y(PRESS_A1) });
+        expect(caption()).toBe("refused: Drop a customer onto an event");
+        await letGo();
+        await settle();
+        expect(pending(c)).toBe("0 pending");
+    });
+});
+
+// ============================================================================
 // A locked event (#1541, U9)
 // ============================================================================
 

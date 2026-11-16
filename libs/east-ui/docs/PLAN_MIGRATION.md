@@ -1152,6 +1152,53 @@ One rule holds a locked event against every gesture: the Plan's event editing
 one, whatever asked. What draws a locked event says why before a gesture
 gets there.
 
+## A library tab's cards make events (#1541)
+
+Before #1541 a card of an author's tab did one thing on an event kind's row:
+dropped on an event, it set what the tab's `drop` patch sets. A new event came
+only from a template of its kind, in the Events tab. Now a tab's cards can
+make events too, with `create`:
+
+```tsx
+Plan.library.tab(orders.read(), {
+    name: "Orders", icon: "inbox", label: (o) => o.title, group: (o) => o.customer,
+    // A card dropped on a press makes a job there, as a template does.
+    create: {
+        kind: "job",
+        duration: (o) => variant("hours", o.sheets.divide(8000.0)),
+        values: (o) => ({ title: o.title, customer: o.customer, sheets: o.sheets, state: variant("proposed", variant("added", null)), stock: variant("coated", null), due: none }),
+    },
+}),
+```
+
+| Field | What it says |
+|---|---|
+| `kind` | the event kind its cards make an event of, by its slot in `events` |
+| `duration` | how long the event runs: a span kind's cards give it, an instant kind's give none |
+| `at` | when it starts, where it is dropped on a whole day; left out, the day's start |
+| `values` | the new event's own fields: every field of the kind's row but its start, its end and its resource |
+
+A card lands as a template of the kind does: on a row the kind draws on, at
+the bucket under the pointer, the ghost saying what lands where, the Plan's
+`canDrop` asked with `from` the card. The new event's key is made from the
+card's. A tab may take `drop` beside `create`: over an event of the patch's
+kind a card sets what the patch sets, and anywhere else on a row of
+`create`'s kind it makes an event.
+
+The Plan refuses at build a `kind` it has no event kind for, a span kind's
+`create` with no `duration`, an instant kind's with one, and `values` that
+are not the kind's.
+
+### The wire
+
+A Plan's author's tab gains `create` (`WIRE_MIGRATION.md`). A stored
+`UIComponentType` value re-emits.
+
+### Renderer (`@elaraai/e3-ui-components`)
+
+One path makes an event from a template, a kind's own or a card's
+(`plan/edit/event-drag.ts`), and the kind's own `write` makes its row.
+
 ## Extracted contracts (do this first when migrating imports)
 
 The shared audit vocabulary outlived the Planner and moved to `contracts/`:

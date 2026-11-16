@@ -406,6 +406,52 @@ describe("the payload (PB8, PB11)", () => {
         assert.equal(overData.plan.canDrop.type, "some");
     });
 
+    test("a tab's `create` rides on its tab — the kind, and each card's template — and the kind's own `write` makes a card's event from it, as a template's (#1541, U1)", async () => {
+        const payload = await payloadOf(($) => {
+            const jobs = $.let(Record.bind(ex.planEventJobs));
+            const orders = $.let(Record.bind(ex.planEventOrders, []));
+            return Plan.Payload({
+                axis: Plan.axis({ window: WINDOW, resolution: "day" }),
+                ...pressesOf($),
+                events: { job: Schedule.events(jobs, { name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end", resource: { field: "press", of: "presses" }, state: "state" }) },
+                library: [Plan.library.tab(orders.read(), {
+                    name: "Orders", icon: "inbox", label: (o) => o.title, group: (o) => o.customer,
+                    create: {
+                        kind: "job",
+                        duration: (o) => variant("hours", o.sheets.divide(8000.0)),
+                        values: (o) => ({ title: o.title, customer: o.customer, sheets: o.sheets, state: variant("proposed", variant("added", null)), stock: variant("coated", null), due: none }),
+                    },
+                })],
+            });
+        });
+        const [tab] = payload.library;
+        if (tab?.type !== "tab" || tab.value.create.type !== "some") assert.fail("expected the Orders tab, making events");
+        const create = tab.value.create.value;
+        // No patch: its cards land on no event. Each card with its template, under a key of the tab's own.
+        assert.deepEqual([tab.value.drop.type, create.kind, tab.value.cards.map((card) => card.key)], ["none", "job", ["O-501", "O-502", "O-503"]]);
+        assert.deepEqual(create.makes.map((one) => [one.card, one.template.key, one.template.name, one.template.duration.type]), [
+            ["O-501", "tab:Orders:O-501", "Market flyers", "hours"],
+            ["O-502", "tab:Orders:O-502", "Season programme", "hours"],
+            ["O-503", "tab:Orders:O-503", "Trail maps", "hours"],
+        ]);
+        const programme = create.makes[1]!.template;
+        assert.ok(equalFor(OptionType(StringType))(programme.group, some("Heathfield Theatre")));
+        assert.equal(programme.duration.type === "hours" ? programme.duration.value : NaN, 6);
+        // The kind lists no template of its own, and none of the tab's: yet its `write` makes the order's job.
+        const [kind] = payload.events;
+        assert.deepEqual(kind!.templates, []);
+        const start = new Date("2026-10-12T00:00:00Z");
+        const end = new Date("2026-10-12T06:00:00Z");
+        const [made] = kind!.write([{ id: "O-502-1", entry: new Uint8Array(), gesture: variant("create", { template: programme.key, start, end, resource: some({ kind: "presses", key: "a1" }) }) }]);
+        if (made?.type !== "some") assert.fail("expected the job made");
+        assert.ok(equalFor(ex.PrintJob)(decodeBeast2For(ex.PrintJob)(made.value), {
+            title: "Season programme", start: some(start), end: some(end), press: some("a1"),
+            state: variant("proposed", variant("added", null)), sheets: 48000.0, customer: "Heathfield Theatre", stock: variant("coated", null), due: none,
+        }));
+        // A key no card stands under makes nothing.
+        assert.equal(kind!.write([{ id: "x", entry: new Uint8Array(), gesture: variant("create", { template: "tab:Orders:O-999", start, end, resource: none }) }])[0]?.type, "none");
+    });
+
     test("`inspector` gives the Plan its inspector pane, and each kind's own inspector rides on its kind; left out, or `false`, no pane (#1197)", async () => {
         const withPane = (inspector: boolean | undefined) => payloadOf(($) => {
             const jobs = $.let(Record.bind(ex.planPrintJobs, ["patch"]));

@@ -783,7 +783,7 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
                 if (part !== undefined) $(checkedScheduleTilings(slot, kind, paging, part.config, "Plan"));
             }
         }
-        const tabs = buildLibrary(library, { events: eventKinds, rows, picked, sources: sources.names });
+        const { tabs, made } = buildLibrary(library, { events: eventKinds, rows, picked, sources: sources.names });
         if (events === undefined) {
             return East.value({ plan, landings: onWire, events: [], seam: none, paged, optimise: optimiser, settings, library: tabs, inspector: inspected, vocabulary: words, narrowed } as never, PlanPayloadType);
         }
@@ -810,7 +810,8 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
         return assemble(
             plan,
             // Each event kind narrowed through its own source of the slice, when the slice has one (#1344).
-            eventKinds.map(([slot, kind]) => kind.buildPlan(slot, bound.parts[slot])),
+            // …and knowing the templates the library's tabs' cards make its events from (#1541, U1).
+            eventKinds.map(([slot, kind]) => kind.buildPlan(slot, bound.parts[slot], made.get(slot))),
             optimiser,
             settings,
             tabs,

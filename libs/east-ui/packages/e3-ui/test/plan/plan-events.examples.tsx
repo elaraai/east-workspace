@@ -84,6 +84,9 @@ export const PrintShift = StructType({ title: StringType, start: DateTimeType, e
 /** A customer: its name, the district it is in and its trade. */
 export const PrintCustomer = StructType({ name: StringType, district: StringType, trade: StringType });
 
+/** An order to plan: what is to be printed, who for, and the sheets it takes. */
+export const PrintOrder = StructType({ title: StringType, customer: StringType, sheets: FloatType });
+
 /** The presses: three in each hall. A Plan given no `record` writes none of its rows. */
 export const planPrintPresses = e3.record("plan_print_presses", DictType(StringType, PrintPress), {
     initial: new Map([
@@ -290,6 +293,22 @@ export const planPrintOutput = e3.input("plan_print_output", ArrayType(FloatType
 // ============================================================================
 
 /**
+ * The smallest builder's orders to plan, a record of its own: three, each a
+ * card of its Orders tab, which makes a job on the press it is dropped on.
+ */
+export const planEventOrders = e3.record("plan_event_orders", DictType(StringType, PrintOrder), {
+    initial: new Map([
+        ["O-501", { title: "Market flyers", customer: "Orchard Street Market", sheets: 16000.0 }],
+        ["O-502", { title: "Season programme", customer: "Heathfield Theatre", sheets: 48000.0 }],
+        ["O-503", { title: "Trail maps", customer: "Kestrel Cycling Club", sheets: 24000.0 }],
+    ]),
+    mutations: (mutation) => ({
+        // The orders' patch door: the works takes its orders elsewhere, and a Plan reads them live.
+        patch: mutation.patch(),
+    }),
+});
+
+/**
  * The smallest builder's jobs, a record of its own: eight on the presses, two
  * of them overlapping on Press B2 on the 20th; one timed and given no press
  * yet; and three with no start waiting in the backlog, due this week, next
@@ -326,9 +345,10 @@ export const planEventJobs = e3.record("plan_event_jobs", DictType(StringType, P
  * job a bar on its press, the jobs a record of the example's own. Jobs move
  * and resize along a press and between presses, and Save commits the drafts
  * as one patch through the jobs' patch door. Its library lists the backlog,
- * the jobs with no start by when each is due, and the customers, a card
- * apiece that sets the customer of the job it is dropped on
- * (`Schedule.patch`). Its inspector shows what is selected: a job through the
+ * the jobs with no start by when each is due; the orders to plan, a card
+ * apiece that makes a job on the press it is dropped on, as a template would
+ * (a tab's `create`); and the customers, a card apiece that sets the customer
+ * of the job it is dropped on (`Schedule.patch`). Its inspector shows what is selected: a job through the
  * form its customer and stock are hinted for. Press B2's two jobs on the 20th
  * overlap, and the toolbar's chip counts them; a job timed on no press draws
  * on the jobs' Unassigned row. Its `id` keeps its panes and its library's
@@ -339,7 +359,7 @@ export const planEvents = example({
     keywords: [
         "Plan", "Schedule", "Plan.series.resources", "Schedule.events", "Schedule.field", "event kinds", "events", "resources",
         "rows", "jobs", "presses", "bars", "state", "backlog", "duration", "due", "fields", "library", "Plan.library",
-        "Plan.library.backlog", "Plan.library.tab", "customers", "drop", "Schedule.patch", "inspector", "overlaps",
+        "Plan.library.backlog", "Plan.library.tab", "customers", "drop", "Schedule.patch", "orders", "create", "inspector", "overlaps",
         "Unassigned", "id", "record", "Record.bind", "e3.record", "mutation.patch", "patch", "smallest", "builder",
         "#1191", "#1195", "#1197", "#1198",
     ],
@@ -349,6 +369,7 @@ export const planEvents = example({
             const presses = $.let(Record.bind(planPrintPresses, []));
             const jobs = $.let(Record.bind(planEventJobs));
             const customers = $.let(Record.bind(planPrintCustomers, []));
+            const orders = $.let(Record.bind(planEventOrders, []));
             const axis = $.let(Plan.axis({
                 window: { min: new Date("2026-10-05T00:00:00Z"), max: new Date("2026-11-02T00:00:00Z") },
                 resolution: "day", now: new Date("2026-10-14T09:00:00Z"),
@@ -377,6 +398,20 @@ export const planEvents = example({
                     }}
                     library={[
                         Plan.library.backlog(),
+                        // The orders to plan, by customer: a card dropped on a press makes a job there, as a
+                        // template would, running as long as its sheets take at 8,000 an hour.
+                        Plan.library.tab(orders.read(), {
+                            name: "Orders", icon: "inbox",
+                            label: o => o.title, group: o => o.customer,
+                            create: {
+                                kind: "job",
+                                duration: o => variant("hours", o.sheets.divide(8000.0)),
+                                values: o => ({
+                                    title: o.title, customer: o.customer, sheets: o.sheets,
+                                    state: variant("proposed", variant("added", null)), stock: variant("coated", null), due: none,
+                                }),
+                            },
+                        }),
                         // The customers, by district: a card dropped on a job sets its customer.
                         Plan.library.tab(customers.read(), {
                             name: "Customers", icon: "building",

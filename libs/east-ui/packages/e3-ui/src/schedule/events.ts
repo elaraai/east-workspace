@@ -552,6 +552,13 @@ export interface ScheduleEventKind<K extends EastType, R extends EastType> {
      */
     readonly windowed: boolean;
     /**
+     * What a template of it gives (#1541, U1): its row less the fields a drop places — its start, its end and its
+     * resource. What a Plan holds a library tab's `create.values` to at build.
+     */
+    readonly templateValues: StructType;
+    /** Whether its events are each one instant (`at`): a template of it, and a library tab's `create`, gives no `duration`. */
+    readonly instant: boolean;
+    /**
      * The kind on the wire, under its slot: the Calendar's, which takes no
      * notice of Plan's options — its window, through its source, through its day
      * index or in memory, its record read whole, counted first and read only
@@ -576,10 +583,12 @@ export interface ScheduleEventKind<K extends EastType, R extends EastType> {
      *
      * @param slot - The builder's slot name for it
      * @param part - Its source of the builder's `Slice.bindRecords`, when the slice has one
+     * @param made - The templates the Plan's library tabs' cards make its events from (#1541, U1): its `write` makes
+     *   an event from one as from a template of its own, and its `templates` list none of them
      * @returns The kind, closed
      * @throws {Error} As `build` does
      */
-    buildPlan(slot: string, part?: ScheduleKindPart): ExprType<PlanEventKindType>;
+    buildPlan(slot: string, part?: ScheduleKindPart, made?: ExprType<ArrayType<ScheduleTemplateType>>): ExprType<PlanEventKindType>;
     /**
      * The kind on the wire as the Roster takes it, under its slot (#1367): the
      * Calendar's kind, its form over the fields none of the Roster's roles
@@ -1644,7 +1653,8 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
      * `pagedBacklog` (#1424, the Calendar's), a kind with a backlog narrowed through its source reads its window's rows
      * alone, its builder paging the backlog through the source itself.
      */
-    const kindParts = (once: Once, slot: string, part: ScheduleKindPart | undefined, form: typeof formSpecs, cap?: number, pagedBacklog = false) => {
+    const kindParts = (once: Once, slot: string, part: ScheduleKindPart | undefined, form: typeof formSpecs, cap?: number, pagedBacklog = false,
+        cardTemplates?: ExprType<ArrayType<ScheduleTemplateType>>) => {
         const reads = readsOf(once, slot, part, cap, pagedBacklog);
         // One event, as every view draws it.
         const itemOf = once(East.function([EntryRowType], ScheduleItemType, ($, entry) => {
@@ -1719,6 +1729,11 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
             const byTemplate = $.let(new Map(), DictType(StringType, BlobType));
             const presets = $.const(templateRows);
             $.for(presets, ($2, t) => { $2(byTemplate.insert(t.key, t.values)); });
+            // The templates a builder's library tabs' cards make its events from (#1541, U1): known here, listed nowhere.
+            if (cardTemplates !== undefined) {
+                const cards = $.const(cardTemplates) as unknown as typeof presets;
+                $.for(cards, ($2, t) => { $2(byTemplate.insert(t.key, t.values)); });
+            }
             // Each setter's path as East holds it: a field is named by its steps, never by text a dotted name could mimic.
             const setterFns = setters.map((setter) => ({ path: $.const([...setter.path], ArrayType(StringType)), set: $.const(setter.set) }));
             return requests.map(($2, request) => {
@@ -1896,6 +1911,8 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
         times: { start: startField, end: endField },
         resourceField: resource?.field,
         windowed: dayWindow !== undefined,
+        templateValues: valuesType,
+        instant: instantKind,
         build(slot: string, part?: ScheduleKindPart): ExprType<ScheduleKindType> {
             // Its window counted first, and read only within the cap (#1424): past it, no page is read. The Calendar pages
             // a narrowed kind's backlog through its source itself, so its window reads the window's rows alone.
@@ -2122,10 +2139,10 @@ export function scheduleEvents(record: unknown, input: unknown): ScheduleEventKi
                 } as never, ScheduleAllocationKindType);
             });
         },
-        buildPlan(slot: string, part?: ScheduleKindPart): ExprType<PlanEventKindType> {
+        buildPlan(slot: string, part?: ScheduleKindPart, made?: ExprType<ArrayType<ScheduleTemplateType>>): ExprType<PlanEventKindType> {
             return heldKind((once) => {
                 // Its window through its source counted first, and read only within the cap (#1039): past it, no page is read.
-                const parts = kindParts(once, slot, part, formSpecs, SCHEDULE_EVENT_CAP);
+                const parts = kindParts(once, slot, part, formSpecs, SCHEDULE_EVENT_CAP, false, made);
                 const quantity = config.quantity;
                 const format = quantity?.format === undefined ? undefined : East.value(quantity.format as SubtypeExprOrValue<TickFormatType>, TickFormatType);
                 // One event as Plan draws it: what every view draws, with its roles read from their fields.

@@ -371,14 +371,17 @@ export { nestedPartOf, planNestedIndex } from './plan/nested-checks.js';
 // cards, the Series tab's lines and what hiding each hides, and the ids a
 // viewer's hidden set holds.
 export {
+    PlanAuthorTabType,
     PlanLibraryCardType,
     PlanLibraryHidesType,
     PlanLibraryRowsItemType,
     PlanLibrarySeriesType,
     PlanLibraryTabType,
+    PlanTabCreateType,
     planHideId,
     type PlanLibraryTab,
     type PlanLibraryTabConfig,
+    type PlanTabCreateConfig,
 } from './plan/library.js';
 
 // The Sheet (#1179, #1216): `<Sheet>` with its namespace, the payload the
