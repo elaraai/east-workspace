@@ -68,6 +68,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { EastType, option } from "@elaraai/east";
 import { usePersistedState } from "@elaraai/east-ui-components";
 import { keptRead } from "@elaraai/east-ui-components/internal";
+import { draftRefusal } from "../../platform/index.js";
 import { afterConflict, readRecordsAgain } from "./conflict.js";
 import type { OptimiseRowRef } from "./optimise-diff.js";
 import { useOptimiseRows, type OptimiseRowsReader } from "./optimise-rows.js";
@@ -138,9 +139,20 @@ export interface OptimiseSessions {
      */
     drafts(listed: readonly string[]): readonly FuncCallDraft[] | OptimiseRefused;
     /**
+     * Whether the sessions over the records named can hand their edits over
+     * as they stand: none has a Save of its own on its way or being read
+     * back, or is carrying its drafts over to a record that moved, or has yet
+     * to be told its record did. What a fit's question waits on
+     * (east-workspace#1624): its answer lands nothing, so it waits on no
+     * session's taking a gesture.
+     *
+     * @param records - The records, by name
+     */
+    standing(records: readonly string[]): boolean;
+    /**
      * Whether the sessions over the records named stand on what the page has
-     * read of them: none is carrying its drafts over to a record that moved,
-     * or has yet to be told its record did.
+     * read of them ({@link OptimiseSessions.standing}), and each takes a
+     * gesture now: an answer lands as a gesture does.
      *
      * @param records - The records, by name
      */
@@ -354,7 +366,8 @@ export function useOptimise<Req, Res>(args: OptimiseArgs<Req, Res>): OptimiseRun
             out.answered = { conflict: call.error.message, records: out.drafted, read: false };
             read(out);
         } else if (call.status === "failed") {
-            finish({ kind: "fail", run: out.run, period: out.period, message: call.error?.message ?? "the call failed" });
+            // A draft its record refused as it was laid: the record's words, as a refused Save says them (rule 8).
+            finish({ kind: "fail", run: out.run, period: out.period, message: call.error === null ? "the call failed" : draftRefusal(call.error) ?? call.error.message });
         } else {
             // A channel cancelled elsewhere: nothing landed, nothing recorded.
             finish(undefined);

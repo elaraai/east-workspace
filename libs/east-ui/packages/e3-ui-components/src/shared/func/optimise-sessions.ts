@@ -58,7 +58,8 @@ function refusal(issues: readonly { readonly message: string }[], fallback: stri
  *
  * @param held - Each session over a record the builder edits, read as the run asks: the builder's sessions as they stand
  * @param words - The builder's editing words: a conflict to choose is said in the refused Save's, as the banner's sentence
- * @returns The sessions' drafts, whether they stand on what the page has read, and the conflicts they hold
+ * @returns The sessions' drafts, whether they can hand them over and whether they stand on what the page has read, and the
+ *   conflicts they hold
  */
 export function optimiseSessions(held: () => readonly OptimiseSession[], words: OptimiseSessionWords): OptimiseSessions {
     // Two kinds over one record share its session: each session once.
@@ -71,6 +72,10 @@ export function optimiseSessions(held: () => readonly OptimiseSession[], words: 
             return true;
         });
     };
+    // A Save on its way, or being read back, is the session's to finish before its edits are handed over or anything lands
+    // on it; and so is a carrying-over of its drafts.
+    const standing = (records: readonly string[]): boolean => over(records).every((part) => !(part.carrying?.() ?? part.session.carrying)
+        && part.session.status !== "applying" && part.session.status !== "reconciling");
     return {
         drafts(listed) {
             const drafts: FuncCallDraft[] = [];
@@ -84,10 +89,10 @@ export function optimiseSessions(held: () => readonly OptimiseSession[], words: 
             }
             return drafts;
         },
+        standing,
         settled(records) {
-            // A Save on its way, or being read back, is the session's to finish before anything lands on it.
-            return over(records).every((part) => !(part.carrying?.() ?? part.session.carrying) && part.available?.() !== false
-                && part.session.status !== "applying" && part.session.status !== "reconciling");
+            // An answer lands as a gesture does: it waits for a session that takes none.
+            return standing(records) && over(records).every((part) => part.available?.() !== false);
         },
         conflicts(records) {
             let n = 0;

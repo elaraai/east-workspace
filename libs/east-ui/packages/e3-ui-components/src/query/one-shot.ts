@@ -27,6 +27,7 @@ import {
 } from "@elaraai/east";
 import { TreePathType, pathToString, type ExecuteResult, type OneShotRequest, type RunnerValue } from "@elaraai/e3-types";
 import type { QueryInputType, QueryResultType, QueryRootEntryType } from "@elaraai/e3-ui/internal";
+import { runnerFailureOf } from "../platform/runner-failure.js";
 
 // ─── The root ────────────────────────────────────────────────────────────────
 
@@ -474,43 +475,6 @@ function answered(prepared: QueryReading, bytes: Uint8Array): QueryOutcome {
     }
 }
 
-/** A failure as every stock runner reports it on stderr. */
-interface RunnerFailure {
-    /** The error's message. */
-    readonly message: string;
-    /** Where it was raised, innermost first: a file, and a 1-based line and column. */
-    readonly places: readonly { readonly file: string; readonly line: number; readonly column: number }[];
-}
-
-/** The line that leads a runner's failure. */
-const FAILURE_LEAD = "Error: ";
-
-/** A place a failure was raised at, as a runner lists it under the failure. */
-const FAILURE_PLACE = /^ {2}at (.+):(\d+):(\d+)$/;
-
-/**
- * The failure a runner reported: `Error: <message>`, then `  at <file>:<line>:<column>`
- * for each place, innermost first, as east-c, east-node and east-py all write it.
- *
- * @param stderr - the tail of the runner's stderr
- * @returns the failure, or `undefined` when the runner reported none
- */
-function failureOf(stderr: string): RunnerFailure | undefined {
-    const lines = stderr.replace(/\r\n?/g, "\n").split("\n");
-    while (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
-    const places: { file: string; line: number; column: number }[] = [];
-    let end = lines.length;
-    for (; end > 0; end--) {
-        const place = FAILURE_PLACE.exec(lines[end - 1]!);
-        if (place === null) break;
-        places.unshift({ file: place[1]!, line: Number(place[2]), column: Number(place[3]) });
-    }
-    let start = end - 1;
-    while (start >= 0 && !lines[start]!.startsWith(FAILURE_LEAD)) start--;
-    if (start < 0) return undefined;
-    return { message: [lines[start]!.slice(FAILURE_LEAD.length), ...lines.slice(start + 1, end)].join("\n"), places };
-}
-
 /**
  * How each runtime says it cannot find a platform function: east-c's
  * `Unknown platform function: name`; and `Platform function 'name' not found`,
@@ -529,7 +493,7 @@ const MISSING_PLATFORM = /Unknown platform function: ([^\s'"]+)|Platform functio
  * @returns the outcome
  */
 function failed(checked: CheckJqResult, exitCode: bigint, stderr: string): QueryOutcome {
-    const failure = failureOf(stderr);
+    const failure = runnerFailureOf(stderr);
     const functions: string[] = [];
     // The failure's message names them; with no failure in the runners' framing, anything the runner said may.
     for (const match of (failure?.message ?? stderr).matchAll(MISSING_PLATFORM)) {

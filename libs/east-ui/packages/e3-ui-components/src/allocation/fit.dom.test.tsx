@@ -10,9 +10,11 @@
  * question about the day as it would be — a bin's arrival cell asking of the
  * day without it, a free slot's probe reservation, a removed bin back on it —
  * carries that change as one more draft of the bins' record, laid after the
- * pending Save, and a record that refuses it gives the question no answer
+ * pending Save, and a record that refuses it fails that question alone, in
+ * the record's words where the question is shown, the board's fit standing
  * (rule 10); and a subject an answer names no verdict for has none: a drop on
- * it is refused, and each Chooser leaves it out (rule 6). When the board asks
+ * it is refused, and each Chooser and a reservation's Book list leave it out
+ * (rule 6). When the board asks
  * — a draft, a record committed under it — is `drag.dom.test.tsx`'s (F1), and
  * a record that changed under the edits the shared fit's, which the Roster's
  * `fit.dom.test.tsx` holds on e3 (rule 12).
@@ -25,6 +27,7 @@ import { StateRuntime, UIStore } from "@elaraai/east-ui-components";
 import { pointAt } from "@elaraai/east-ui-components/testing";
 import * as ex from "@elaraai/e3-ui/examples/allocation/allocation";
 import { TUE, act, allocationHarness, kilnYard, offering, settle, slot, type Example, type FitRequest, type FitResult } from "./harness.test-utils.js";
+import { button as buttonIn, details, tableRow } from "./inspector.test-utils.js";
 import { dayKey } from "./model.js";
 import { RESERVE_PROBE } from "./table.js";
 
@@ -68,9 +71,12 @@ async function choose(cell: HTMLElement) {
 function chooser() {
     const list = document.querySelector<HTMLElement>("[data-chooser]")!;
     const label = (o: Element) => o.querySelector("span:nth-child(2) > span:first-child")!.textContent;
+    const option = (name: string) => [...list.querySelectorAll<HTMLElement>("[role=option]")].find(o => label(o) === name);
     return {
         labels: () => [...list.querySelectorAll("[role=option]")].map(label),
-        option: (name: string) => [...list.querySelectorAll<HTMLElement>("[role=option]")].find(o => label(o) === name),
+        option,
+        /** An option's line, under its label. */
+        line: (name: string) => option(name)?.querySelector("span:nth-child(2) > span:nth-child(2)")?.textContent,
     };
 }
 /** Closes an open Chooser. */
@@ -182,6 +188,22 @@ describe("an answer that names fewer (rule 6)", () => {
         fewer();
     });
 
+    test("a reservation's Book list leaves out an arrival the answer names no verdict for, as the arrival cell's Chooser does", async () => {
+        const { c } = await open();
+        const fewer = h.fits.answer((made) => ({ ...made, arrivals: new SortedMap([...made.arrivals].filter(([key]) => key !== "LD-2231"), byKey) }));
+        // A reservation on K-305 in B-1's 00:15 slot, selected: its Book list checks every arrival to book against K-305.
+        await press(tableRow(c, "slot:B-1|2027-05-11T00:15:00.000").querySelector("span"));
+        offering(["V1"]);
+        await press(buttonIn(details(c).querySelector<HTMLElement>('[data-allocation-reserve] [data-allocation-option="K-305"]')!, "Reserve"));
+        const book = () => details(c).querySelector<HTMLElement>("[data-allocation-book]")!;
+        await waitFor(() => expect(book().textContent).not.toContain("checking fits…"));
+        expect(called(isTake("K-305")).answer!.arrivals.has("LD-2231")).toBe(false);
+        // Once the answer has landed, an arrival it leaves out is no `checking fits…` left for good: it is not listed.
+        const listed = [...book().querySelectorAll("[data-allocation-option]")].map((o) => o.getAttribute("data-allocation-option"));
+        expect([listed.includes("arrival:LD-2232"), listed.includes("arrival:LD-2231")]).toEqual([true, false]);
+        fewer();
+    });
+
     test("a drop on a resource the answer names no verdict for is refused in the fit's words", async () => {
         const { c } = await open(kilnYard());
         const fewer = h.fits.answer((made) => ({ ...made, resources: new SortedMap([...made.resources].filter(([key]) => key !== "K-102"), byKey) }));
@@ -230,7 +252,7 @@ describe("a plan the board derives (rule 10)", () => {
         expect(back.answer?.resources.get("K-108")?.type).toBe("fits");
     });
 
-    test("a derived change the record refuses gives that question no answer, and shows as a failed fit; a question of the day as it stands is answered", async () => {
+    test("a derived change the record refuses fails that question alone, in the record's words where it is shown; the board's fit stands, and the day as it stands is still asked about", async () => {
         const { c } = await open(kilnYard({ locked: "bins" }));
         await press(toolbar(c).getByRole("radio", { name: "Table" }));
         // The day as it stands: no draft, and the locked bins' fit answers.
@@ -238,11 +260,18 @@ describe("a plan the board derives (rule 10)", () => {
         expect([h.fits.outcomes(ex.yardLockedFit.name).every(outcome => outcome === "success"), called(isPlace("3101")).drafts]).toEqual([true, []]);
         const answered = h.fits.answers(ex.yardLockedFit.name).length;
         await dismiss();
-        // A free slot's probe reservation is one more bin laid over the record, which refuses every change.
-        await choose(resourceCell(freeRow(c, "B-1", at(0, 15))));
-        const banner = await waitFor(() => { const el = failure(c); expect(el).toBeTruthy(); return el!; });
-        expect(banner.textContent).toContain("the yard's bins are locked for the day");
+        // A free slot's probe reservation is one more bin laid over the record, which refuses every change: each kiln says
+        // so, in the record's words, and none can be chosen.
+        const probe = await choose(resourceCell(freeRow(c, "B-1", at(0, 15))));
+        await waitFor(() => expect(probe.line("K-601")).toBe("fits unavailable · the yard's bins are locked for the day"));
+        expect(probe.option("K-601")!.getAttribute("aria-disabled")).toBe("true");
         expect(called(isPlace(RESERVE_PROBE)).drafts).toEqual([{ record: ex.kilnLockedBins.name, mutation: "patch" }]);
         expect([h.fits.outcomes(ex.yardLockedFit.name).at(-1), h.fits.answers(ex.yardLockedFit.name).length]).toEqual(["failed", answered]);
+        await dismiss();
+        // No failed fit for the board: no banner, and a question of the day as it stands is asked and answered.
+        expect(failure(c)).toBeUndefined();
+        const again = await choose(resourceCell(binRow(c, "3102")));
+        await waitFor(() => expect(h.fits.answers(ex.yardLockedFit.name).length).toBe(answered + 1));
+        expect([called(isPlace("3102")).drafts, again.labels().length > 0, failure(c)]).toEqual([[], true, undefined]);
     });
 });

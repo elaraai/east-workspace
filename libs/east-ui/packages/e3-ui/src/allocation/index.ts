@@ -35,7 +35,7 @@ import {
 } from "@elaraai/east";
 import { EastUI, StatusTokenType, TimeStepType, type UIElement } from "@elaraai/east-ui";
 import { RecordSlicesChromeType, RowSourceType, type RecordSlicesChromeOptions } from "@elaraai/east-ui/internal";
-import { FuncBindingType } from "../bind/func.js";
+import { FuncBindingType, type BoundDraftsFunc, type BoundFunc } from "../bind/func.js";
 import { scheduleCheck } from "../schedule/index.js";
 import type { ScheduleEventKind } from "../schedule/events.js";
 import type { SchedulePeriods } from "../schedule/periods.js";
@@ -288,7 +288,7 @@ export interface AllocationProps<R extends EastType = EastType, P extends EastTy
      * (`Allocation.Types.FitContext`). A resource, a bin or an arrival the answer does not name has no verdict. The board has
      * no fit of its own, and checks the handle at build, naming what it asks and answers.
      */
-    fit: OptimiseHandle;
+    fit: BoundFunc<[typeof T.AllocationFitRequestType], typeof T.AllocationFitResultType> | BoundDraftsFunc<[typeof T.AllocationFitRequestType], typeof T.AllocationFitResultType>;
     /**
      * The app's optimiser (#1409, east-workspace#1622): `Func.bind` of its `e3.function` from `Allocation.Types.OptimiseRequest` —
      * the day in view, the run's number and the rail's narrowing, no row — to `Allocation.Types.OptimiseResult(D)`, a patch of the

@@ -306,7 +306,7 @@ export const funcBindDrafted = example({
 
 export const funcBindDraftRefused = example({
     keywords: ["Func", "bind", "drafts", "error", "conflict", "failed", "refused", "draft", "kind", "stale edit", "changed under the edit", "FuncErrorType"],
-    description: "A draft the record refuses ends the call as a Save of it would have ended, and the function does not run: error() names the draft, its kind conflict where the record changed under the edit — the record, the mutation and the refusal's words — and failed where the mutation's own program refuses",
+    description: "A draft the record refuses ends the call as a Save of it would have ended, and the function does not run: error() names the draft, its kind conflict where the record changed under the edit — the record, the mutation and the refusal's words — and failed where the mutation's own program refuses — the draft's place among the call's and what the record said of it",
     fn: East.function([], UIComponentType, (_$) => (
         <Reactive>{$ => {
             const board = $.let(Record.bind(pressJobs));
@@ -325,6 +325,11 @@ export const funcBindDraftRefused = example({
             const detail = $.let(count.error().match({
                 some: (_$, error) => error.kind.match({
                     conflict: (_$, refused) => East.str`${refused.record}.${refused.mutation} changed under the edit: ${refused.message}`,
+                    // The mutation's own program refused the draft: its place, and the record's words, as a Save of it is refused in.
+                    failed: (_$, failed) => failed.draft.match({
+                        some: (_$2, draft) => East.str`draft ${draft.place} refused: ${draft.refusal}`,
+                        none: _$2 => error.message,
+                    }),
                 }, _$ => error.message),
                 none: _$ => East.str`no draft refused`,
             }));

@@ -149,9 +149,25 @@ export const yardRead = East.function([DayBins, DictType(StringType, Kiln), Dict
 });
 
 /**
- * The yard's fit, on e3 (#1624): the built-in rules, then a greedy look-ahead over the day's other loads — a fit that
- * leaves more of the day's unbooked loads with nowhere to go ranks lower. It is asked the day and the question, and
- * sent no row: it reads the day's bins through their interval index, the board's unsaved bins among them.
+ * The yard's verdicts over a day's bins as their roles (#1624): the built-in rules, then a greedy look-ahead over the
+ * day's other loads — a fit that leaves more of the day's unbooked loads with nowhere to go ranks lower. What each of
+ * the yard's fits answers, once it has read its own bins.
+ */
+export const yardAnswer = East.function([DayBins, DictType(StringType, Kiln), DictType(StringType, TimberLoad), Allocation.Types.FitRequest], Allocation.Types.FitResult,
+    ($, day, kilnRows, loadRows, request) => {
+        const read = $.const(yardRead);
+        const context = $.const(read(day, kilnRows, loadRows));
+        const answer = $.const(Allocation.answer);
+        const rule = $.const(Allocation.fit);
+        const ahead = $.const(Allocation.lookahead);
+        return answer(request, context, East.function([Allocation.Types.Candidate], Allocation.Types.Fit, (_$2, c) => ahead(context, c, rule)),
+            "ranked by load, kind and spare days, and what it leaves for the day's other loads");
+    });
+
+/**
+ * The yard's fit, on e3 (#1624): the yard's verdicts ({@link yardAnswer}) over the day's bins. It is asked the day and
+ * the question, and sent no row: it reads the day's bins through their interval index, the board's unsaved bins among
+ * them.
  */
 export const yardFit = e3.function("yard_fit", {
     inputs: [e3.index(kilnBins.indexes.kiln_bins_by_time), kilnBins, kilns, arrivals],
@@ -165,13 +181,8 @@ export const yardFit = e3.function("yard_fit", {
     const roles = $.const(yardBinRoles);
     const day = $.let(new Map(), DayBins);
     binsByTime.overlapping({ from: request.day, to: request.day.addDays(1n) }).each($, ($2, _carried, key) => { $2(day.insert(key, roles(bins.get(key)))); });
-    const read = $.const(yardRead);
-    const context = $.const(read(day, kilnRows, loadRows));
-    const answer = $.const(Allocation.answer);
-    const rule = $.const(Allocation.fit);
-    const ahead = $.const(Allocation.lookahead);
-    return answer(request, context, East.function([Allocation.Types.Candidate], Allocation.Types.Fit, (_$2, c) => ahead(context, c, rule)),
-        "ranked by load, kind and spare days, and what it leaves for the day's other loads");
+    const answer = $.const(yardAnswer);
+    return answer(day, kilnRows, loadRows, request);
 });
 
 /** The yard's fit over the two years of bins: the same rules, its day read through that record's own index. */
@@ -184,13 +195,8 @@ export const yardHistoryFit = e3.function("yard_history_fit", {
     const roles = $.const(yardBinRoles);
     const day = $.let(new Map(), DayBins);
     binsByTime.overlapping({ from: request.day, to: request.day.addDays(1n) }).each($, ($2, _carried, key) => { $2(day.insert(key, roles(bins.get(key)))); });
-    const read = $.const(yardRead);
-    const context = $.const(read(day, kilnRows, loadRows));
-    const answer = $.const(Allocation.answer);
-    const rule = $.const(Allocation.fit);
-    const ahead = $.const(Allocation.lookahead);
-    return answer(request, context, East.function([Allocation.Types.Candidate], Allocation.Types.Fit, (_$2, c) => ahead(context, c, rule)),
-        "ranked by load, kind and spare days, and what it leaves for the day's other loads");
+    const answer = $.const(yardAnswer);
+    return answer(day, kilnRows, loadRows, request);
 });
 
 /** The yard's fit over the locked bins: the same rules, its day read through that record's own index. */
@@ -203,13 +209,8 @@ export const yardLockedFit = e3.function("yard_locked_fit", {
     const roles = $.const(yardBinRoles);
     const day = $.let(new Map(), DayBins);
     binsByTime.overlapping({ from: request.day, to: request.day.addDays(1n) }).each($, ($2, _carried, key) => { $2(day.insert(key, roles(bins.get(key)))); });
-    const read = $.const(yardRead);
-    const context = $.const(read(day, kilnRows, loadRows));
-    const answer = $.const(Allocation.answer);
-    const rule = $.const(Allocation.fit);
-    const ahead = $.const(Allocation.lookahead);
-    return answer(request, context, East.function([Allocation.Types.Candidate], Allocation.Types.Fit, (_$2, c) => ahead(context, c, rule)),
-        "ranked by load, kind and spare days, and what it leaves for the day's other loads");
+    const answer = $.const(yardAnswer);
+    return answer(day, kilnRows, loadRows, request);
 });
 
 /** A yard rule over the ready-made fit, on e3: a bulk kiln takes no load under 20 m³. */

@@ -42,7 +42,7 @@ import { linkedQuantity, remainderOf, type AllocationCommands } from "./actions.
 import { useBinFocusTarget } from "./bin-focus.js";
 import { arrivalChoices, resourceChoices, type ChoiceWords } from "./choices.js";
 import { dropTarget, gripCoord, laneCoord, resourceCellCoord, type AllocationDrag, type Grip, type Target } from "./drag.js";
-import type { AllocationFit } from "./fit.js";
+import { fitFailure, type AllocationFit } from "./fit.js";
 import { bandLine, narrowBands, ownsRow, rowStatus, tableBands, tableRows, type TableBand, type TableRow } from "./table-rows.js";
 import { NarrowedEmpty, type AllocationNarrowed } from "./narrowed.js";
 import { a, lower, one, useNouns } from "./nouns.js";
@@ -623,11 +623,13 @@ export function ChoiceCell({ props, row, side, part, open, setOpen, words, trigg
     const { ask } = fit;
     useEffect(() => { if (open && question !== undefined) ask(question.ask, question.of); }, [open, question, ask]);
     const answer = question === undefined ? undefined : fit.answer(question.ask, question.of);
+    // None coming: the board's fit failed, or the record refused the day this question is asked of (rule 10).
+    const failure = question === undefined ? undefined : fitFailure(fit, question.ask, question.of);
     // `+ resource` offers the resources its bin is not on: each it is on is a part of its own (A71).
     const except = part === null && bin !== undefined ? new Set(bin.parts.keys()) : undefined;
     const sections: ChooserSection[] = !open ? [] : side === "arrival"
-        ? arrivalChoices({ plan, context, day, words, bin: row.bin, resource: current, answer, shown: props.visibleArrivals })
-        : resourceChoices({ context, words, binRow: row.kind === "bin", current: from, answer, shown: props.visibleResources, except });
+        ? arrivalChoices({ plan, context, day, words, bin: row.bin, resource: current, answer, failure, shown: props.visibleArrivals })
+        : resourceChoices({ context, words, binRow: row.kind === "bin", current: from, answer, failure, shown: props.visibleResources, except });
     const close = () => setOpen(undefined);
     const choose = (key: string) => {
         close();

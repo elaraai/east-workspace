@@ -102,7 +102,10 @@ export interface AllocationDomain {
 }
 
 /** The candidates' rule, over what a function read: the one a fit's function calls, here over the day the board holds. */
-const candidatesOf = East.compile(allocationCandidates, []) as unknown as (request: FitRequest, read: FitRead) => Candidate[];
+type CandidatesOf = (request: FitRequest, read: FitRead) => Candidate[];
+/** The rule compiled the first time a board previews a fit, never as the package loads. */
+let candidatesFn: CandidatesOf | undefined;
+const candidatesOf: CandidatesOf = (request, read) => (candidatesFn ??= East.compile(allocationCandidates, []) as unknown as CandidatesOf)(request, read);
 /** A preview asks of no scope: it reads the day the board holds. */
 const NO_SCOPE: FitRequest["scope"] = new SortedMap([], compareFor(StringType));
 
@@ -193,6 +196,35 @@ export function allocationContext(value: AllocationValue): Context {
         resources: new SortedMap(value.resources.map(r => [r.key, r] as const), compareString),
         rules: value.rules, unit: value.bin.unit.type === "some" ? value.bin.unit.value : "",
     };
+}
+
+/** What a list shows of a subject's verdict (east-workspace#1624): the fit's, still on its way, or none coming. */
+export type FitReading =
+    | { readonly state: "judged"; readonly verdict: Fit }
+    | { readonly state: "pending" }
+    | { readonly state: "unavailable"; readonly why: string };
+
+/**
+ * What the fit's answer says of an arrival (east-workspace#1624, rule 6): its verdict; `pending` while the answer is on
+ * its way; `unavailable`, in the fit's words, where none is coming — the board's fit failed, or the record refused the
+ * day the question is asked of (rule 10); and `undefined` where the answer has landed and names none, the fit having
+ * considered it for nothing, so no list offers it. The one reading a Chooser's arrivals and a reservation's Book list
+ * take.
+ *
+ * @param answer - The answer to the question, once landed
+ * @param failure - Why no answer is coming (`fitFailure`); `undefined` while one may yet come
+ * @param arrival - The arrival's key
+ * @returns What to show of it; `undefined` to leave it out
+ */
+export function arrivalVerdict(answer: FitResult | undefined, failure: string | undefined, arrival: string): FitReading | undefined {
+    if (answer === undefined) return failure === undefined ? { state: "pending" } : { state: "unavailable", why: failure };
+    const verdict = answer.arrivals.get(arrival);
+    return verdict === undefined ? undefined : { state: "judged", verdict };
+}
+
+/** What a list says of a subject no answer is coming for (F3, rule 10): `fits unavailable`, then the fit's words. */
+export function unavailableLine(why: string): string {
+    return `fits unavailable · ${why}`;
 }
 
 /** A bin's parts — or its roles' — the largest first (ties in key order): its first is the resource the bin is shown on. */

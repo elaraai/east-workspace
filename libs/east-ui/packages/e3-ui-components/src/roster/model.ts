@@ -25,7 +25,7 @@ import {
     RosterPayRequestTypeFor, RosterPayType, RosterPayloadType, RosterPlaceType, RosterRequirementType, RosterShiftType, RosterSlotType, RosterStatusType,
     RosterTargetRolesType,
     RosterWeekTypeFor, RosterWhoType, ScheduleRosterRolesType, rosterCheck, rosterCoverage, rosterDayOf, rosterMove, rosterNewDuty, rosterPlacement,
-    rosterShiftStart, rosterWeekHours,
+    rosterShiftStart, rosterSpanWindow, rosterWeekHours, rosterWindow,
 } from "@elaraai/e3-ui/internal";
 import type { Formatters } from "@elaraai/east-ui-components";
 import { DAY, weekStart } from "../shared/schedule/window.js";
@@ -311,13 +311,17 @@ let days: {
     spanWindow: (from: Date, to: Date) => { from: Date; to: Date };
 } | undefined;
 function rosterDays() {
-    days ??= {
-        window: East.compile(East.function([DateTimeType], SpanType, (_$, start) => ({ from: start.subtractHours(12n), to: start.addDays(7n).addHours(12n) })), []),
-        spanWindow: East.compile(East.function([DateTimeType, DateTimeType], SpanType, (_$, from, to) => ({ from: from.subtractHours(12n), to: to.addHours(12n) })), []),
+    if (days !== undefined) return days;
+    // How far a duty's start may stand from its shift's is e3-ui's, the one measure an app's fit reads the duties by too
+    // (east-workspace#1624): every window here is one of its.
+    const spanWindow = East.compile(rosterSpanWindow, []);
+    days = {
+        window: East.compile(rosterWindow, []),
+        spanWindow,
         week: East.compile(East.function([DateTimeType], SpanType, (_$, start) => ({ from: start, to: start.addDays(7n) })), []),
         before: East.compile(East.function([DateTimeType], DateTimeType, (_$, start) => start.subtractDays(7n)), []),
         moveTo: East.compile(East.function([DateTimeType, DateTimeType, DateTimeType], SpanType, (_$, from, to, at) => ({ from: at, to: at.addMilliseconds(from.durationMilliseconds(to)) })), []),
-        around: East.compile(East.function([DateTimeType], SpanType, (_$, at) => ({ from: at.subtractHours(12n), to: at.addHours(12n) })), []),
+        around: (at) => spanWindow(at, at),
         dayAt: East.compile(East.function([DateTimeType, IntegerType], DateTimeType, (_$, start, day) => start.addDays(day)), []),
         dayIndex: East.compile(East.function([DateTimeType, DateTimeType], IntegerType, (_$, start, day) => East.Float.roundHalf(start.durationDays(day))), []),
         shiftSpan: East.compile(East.function([DateTimeType, RosterShiftType], SpanType, ($, day, shift) => {

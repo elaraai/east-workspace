@@ -16,7 +16,7 @@
 import type { ChooserOption, ChooserSection } from "@elaraai/east-ui-components/internal";
 import { formatDatePattern } from "@elaraai/east-ui-components/internal";
 import type { option } from "@elaraai/east";
-import { compareDate, compareFloat, compareString, partsOf, type Context, type Day, type Fit, type FitResult } from "./model.js";
+import { arrivalVerdict, compareDate, compareFloat, compareString, partsOf, unavailableLine, type Context, type Day, type Fit, type FitResult } from "./model.js";
 import { DEFAULT_NOUNS, lower, type Nouns } from "./nouns.js";
 
 /** The words a Chooser's lines are written with: a quantity with its unit and without, and a lane's name. */
@@ -44,8 +44,9 @@ function judged(base: Omit<ChooserOption, "state" | "line">, verdict: Fit): Choo
  * shows (#1339), as the rest of the board shows them. The current one is
  * offered whatever it hides. Onto a resource, an arrival the fit's answer
  * names no verdict for has none, and is left out (east-workspace#1624, rule
- * 6), as a resource is from a resource cell's; while the answer is on its way
- * each reads `checking fits…`.
+ * 6), as a resource is from a resource cell's, and from a reservation's Book
+ * list (`arrivalVerdict`); while the answer is on its way each reads `checking
+ * fits…`, and where none is coming `fits unavailable · …` (F3, rule 10).
  *
  * @param args - The row and what the board knows
  * @returns The sections, in order
@@ -58,6 +59,8 @@ export function arrivalChoices(args: {
     resource: string | undefined;
     /** The fit's answer to `take` the resource, asked of the day without the row's bin. */
     answer: FitResult | undefined;
+    /** Why no answer is coming (`fitFailure`): each arrival says so, and none can be chosen; `undefined` while one may come. */
+    failure?: string | undefined;
     /** The arrivals the narrowing shows; `none`, every one. */
     shown?: option<ReadonlySet<string>> | undefined;
 }): ChooserSection[] {
@@ -81,11 +84,12 @@ export function arrivalChoices(args: {
         const base = { key, label: arrival.label, range: words.quantity(arrival.quantity), warn: overdue(key) };
         const meta = [arrival.meta.type === "some" ? arrival.meta.value : "", overdue(key) ? lower((words.nouns ?? DEFAULT_NOUNS).groups.overdue) : ""].filter(p => p !== "").join(" · ") || undefined;
         if (resource === undefined) return [{ ...base, line: meta, state: "enabled" }];
-        // The answer on its way: the fit has not said yet (F2).
-        if (answer === undefined) return [{ ...base, line: CHECKING, state: "disabled" }];
+        const reading = arrivalVerdict(answer, args.failure, key);
         // An arrival the answer names no verdict for has none: the fit considered it for nothing, and it is not offered (rule 6).
-        const verdict = answer.arrivals.get(key);
-        return verdict === undefined ? [] : [judged(base, verdict)];
+        if (reading === undefined) return [];
+        if (reading.state === "judged") return [judged(base, reading.verdict)];
+        // The answer on its way (F2), or none coming (F3, rule 10): nothing to choose yet.
+        return [{ ...base, line: reading.state === "pending" ? CHECKING : unavailableLine(reading.why), state: "disabled" }];
     });
     const fits = options.filter(o => o.state !== "refused"), refused = options.filter(o => o.state === "refused");
     if (fits.length > 0) sections.push({ label: name !== undefined ? `Fits ${name}` : own !== undefined && own.arrival.type === "some" ? "Replace with" : "Book here", options: fits });
@@ -128,12 +132,14 @@ export function resourceChoices(args: {
     current: string | undefined;
     /** The fit's answer to placing the row's bin, or a reservation in its slot. */
     answer: FitResult | undefined;
+    /** Why no answer is coming (`fitFailure`): each resource says so, and none can be chosen; `undefined` while one may come. */
+    failure?: string | undefined;
     /** The resources the narrowing shows; `none`, every one. The current one is offered whatever it hides. */
     shown: option<ReadonlySet<string>>;
     /** Resources not to offer: a split's bin's own (A71). */
     except?: ReadonlySet<string> | undefined;
 }): ChooserSection[] {
-    const { context, words, binRow, current, answer, shown, except } = args;
+    const { context, words, binRow, current, answer, failure, shown, except } = args;
     const range = (key: string) => { const r = context.resources.get(key)!; return `${words.number(r.min)}–${words.quantity(r.max)}`; };
     const sections: ChooserSection[] = [];
     if (current !== undefined && context.resources.has(current)) {
@@ -142,7 +148,9 @@ export function resourceChoices(args: {
     const others = [...context.resources.keys()].filter(key => key !== current && except?.has(key) !== true && (shown.type === "none" || shown.value.has(key)));
     const heading = binRow ? "Gaps that fit" : `Can be ${lower((words.nouns ?? DEFAULT_NOUNS).reserved)}`;
     if (answer === undefined) {
-        sections.push({ label: heading, options: others.map(key => ({ key, label: context.resources.get(key)!.label, line: CHECKING, range: range(key), state: "disabled" })) });
+        // On its way (F2), or none coming (F3, rule 10): nothing to choose yet.
+        const line = failure === undefined ? CHECKING : unavailableLine(failure);
+        sections.push({ label: heading, options: others.map(key => ({ key, label: context.resources.get(key)!.label, line, range: range(key), state: "disabled" })) });
         return sections;
     }
     const fits: { option: ChooserOption; score: number }[] = [];

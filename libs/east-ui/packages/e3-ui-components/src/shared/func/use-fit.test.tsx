@@ -11,13 +11,16 @@
  * function lists — made once for each context — and a derived plan's change
  * as one more draft after them (rule 10); a question whose own subject is an
  * edit not yet complete is not asked until it is (rule 8); while the sessions
- * cannot hand their edits over the question waits, and where they refuse them
- * the fit has failed in their words (rule 9); and a call e3 refuses because a
- * record moved under its drafts (rule 12) takes the optimiser's path — asked
- * again by itself with the drafts the sessions hand over then, failed in
- * their words where a conflict waits to be chosen, and failed in the
+ * cannot hand their edits over the question waits, whatever drafts its
+ * context was handed before, and where they refuse them the fit has failed in
+ * their words (rule 9); a derived plan's change its record refuses fails that
+ * question alone, in the record's words (rule 10); and a call e3 refuses
+ * because a record moved under its drafts (rule 12) takes the optimiser's path
+ * — asked again by itself with the drafts the sessions hand over then, failed
+ * in their words where a conflict waits to be chosen, and failed in the
  * refusal's once it has been refused as many times in a row as a refused Save
- * is sent again. What a builder shows of an answer is its own tests'.
+ * is sent again, each question counting its own. What a builder shows of an
+ * answer is its own tests'.
  */
 
 import { describe, expect, test } from "vitest";
@@ -54,17 +57,20 @@ interface Sessions {
     drafts: readonly FuncCallDraft[] | OptimiseRefused;
     /** What they hand over from the second time they are asked, where that differs: their edits carried over newer saves. */
     carried?: readonly FuncCallDraft[] | OptimiseRefused;
-    settled: boolean;
+    /** Whether they can hand their edits over: no Save of their own on its way, nothing carried over. */
+    standing: boolean;
     conflicts: string | undefined;
     /** Each list of records its drafts were asked of. */
     readonly asked: (readonly string[])[];
 }
-const sessionsOf = (): Sessions => ({ drafts: [], settled: true, conflicts: undefined, asked: [] });
+const sessionsOf = (): Sessions => ({ drafts: [], standing: true, conflicts: undefined, asked: [] });
 
 /** What a probe is given beside its sessions: the plan and the context it asks in, and the builder's own parts of a question. */
 interface Given {
     plan: object;
     context: object;
+    /** The function asked; the yard's fit unless given. */
+    name?: string;
     binding?: FuncCallBinding;
     further?: (of: object, base: object) => FuncCallDraft | undefined;
     complete?: (ask: Ask) => boolean;
@@ -74,11 +80,13 @@ function Probe({ sessions, given, onFit }: { sessions: Sessions; given: Given; o
     // Read as the ask asks, never kept: each answer is of the sessions as they stand.
     const asked: OptimiseSessions = {
         drafts: (listed) => { sessions.asked.push(listed); return sessions.asked.length > 1 && sessions.carried !== undefined ? sessions.carried : sessions.drafts; },
-        settled: () => sessions.settled,
+        standing: () => sessions.standing,
+        // A fit waits on no session's taking a gesture: it never asks this.
+        settled: () => { throw new Error("a fit asks whether its sessions stand, never whether they take a gesture"); },
         conflicts: () => sessions.conflicts,
     };
     const fit = useFit<Ask, object, object, Result>({
-        name: NAME, binding: given.binding ?? BINDING, sessions: asked, requestType: RequestType, resultType: ResultType,
+        name: given.name ?? NAME, binding: given.binding ?? BINDING, sessions: asked, requestType: RequestType, resultType: ResultType,
         key: askKey, answers: (result) => askKey(result.ask),
         request: (ask) => ({ day: DAY, ask, scope: new SortedMap([], byString) }),
         ...(given.further === undefined ? {} : { further: given.further }),
@@ -168,6 +176,35 @@ describe("useFit", () => {
         expect([fit().answer(LD_2231) !== undefined, fit().answer(LD_2231, derived) !== undefined, fit().answer(LD_2236, derived)]).toEqual([true, true, undefined]);
     });
 
+    test("rule 10 — a derived plan's change its record refuses fails that question alone, in the record's words: the fit has not failed, the plan as it stands is still asked about, and the question goes again only of a plan derived anew", async () => {
+        // The yard's locked bins: their door refuses every change, naming why — the message its program raises.
+        const LOCKED = ex.yardLockedFit.name, LOCKED_BINS = ex.kilnLockedBins.name;
+        const WORDS = "the yard's bins are locked for the day";
+        const read = await h.read(ex.kilnLockedBins);
+        const moved = new SortedMap([...read], byString);
+        moved.set("3101", { ...read.get("3101")!, at: new Date(read.get("3101")!.at.getTime() + 60_000) });
+        const more: FuncCallDraft = { record: LOCKED_BINS, mutation: "patch", args: [encodePatch(patchOf(read, moved) as never)] };
+        const derived = {};
+        const { ask, answered, fit } = mount(sessionsOf(), {
+            plan: {}, context: {}, name: LOCKED, binding: { drafts: [LOCKED_BINS], reads: [LOCKED_BINS, ex.kilns.name, ex.arrivals.name] }, further: () => more,
+        });
+        await ask(LD_2231, derived);
+        await waitFor(() => expect(fit().refused(LD_2231, derived)).toBe(WORDS), { timeout: 10_000 });
+        expect([fit().error, fit().pending, fit().answer(LD_2231, derived)]).toEqual([undefined, false, undefined]);
+        // A question of the plan as it stands carries no change of the bins, and is answered.
+        await ask(LD_2236);
+        await answered(LD_2236);
+        expect([calls.outcomes(LOCKED), fit().error, fit().refused(LD_2236)]).toEqual([["failed", "success"], undefined, undefined]);
+        // Asked again of the same derived plan, it stays failed and goes nowhere: the record would refuse it as it stands.
+        await ask(LD_2231, derived);
+        expect([calls.calls(LOCKED), fit().pending]).toEqual([2, false]);
+        // A plan derived anew is asked about anew.
+        const anew = {};
+        await ask(LD_2231, anew);
+        await waitFor(() => expect(fit().refused(LD_2231, anew)).toBe(WORDS), { timeout: 10_000 });
+        expect(calls.calls(LOCKED)).toBe(3);
+    });
+
     test("rule 8 — a question whose own subject is an edit not yet complete is not asked until it is, and waits as no pending answer", async () => {
         let complete = false;
         const given: Given = { plan: {}, context: {}, complete: (question) => complete || askKey(question) !== askKey(LD_2231) };
@@ -189,16 +226,33 @@ describe("useFit", () => {
     test("sessions that cannot hand their edits over yet — a Save of their own on its way — keep the question waiting; once they stand, it goes", async () => {
         const sessions = sessionsOf();
         sessions.drafts = { refused: "A Save is on its way" };
-        sessions.settled = false;
+        sessions.standing = false;
         const { ask, answered, again, fit } = mount(sessions);
         await ask(LD_2231);
         expect([calls.calls(NAME), fit().pending, fit().error]).toEqual([0, true, undefined]);
         // The Save answered: the sessions hand their edits over, and the builder renders as they move.
         sessions.drafts = [];
-        sessions.settled = true;
+        sessions.standing = true;
         await again();
         await answered(LD_2231);
         expect(calls.calls(NAME)).toBe(1);
+    });
+
+    test("a Save of the sessions' own going out after a question was answered keeps the next one waiting, never sent with the drafts handed over before it; once they stand, it goes", async () => {
+        const sessions = sessionsOf();
+        sessions.drafts = [await draft()];
+        const { ask, answered, again, fit } = mount(sessions);
+        await ask(LD_2231);
+        await answered(LD_2231);
+        // A Save goes out, or Autosave fires: the context is the same object, its drafts' bytes as they were.
+        sessions.standing = false;
+        await ask(LD_2236);
+        expect([calls.calls(NAME), fit().pending, fit().error]).toEqual([1, true, undefined]);
+        // The Save answered: the sessions stand, and the builder renders as they move.
+        sessions.standing = true;
+        await again();
+        await answered(LD_2236);
+        expect(calls.calls(NAME)).toBe(2);
     });
 
     test("rule 9 — sessions whose record refuses the edits as they stand fail the fit in the refusal's words, and no call is made; Retry asks them again", async () => {
@@ -253,6 +307,20 @@ describe("useFit", () => {
             await waitFor(() => expect(fit().error).toBeDefined(), { timeout: 20_000 });
             expect(calls.outcomes(NAME)).toEqual(Array.from({ length: SAVE_RESENDS + 1 }, () => "conflict"));
             expect([fit().error !== "", fit().answer(LD_2231)]).toEqual([true, undefined]);
+        });
+
+        test("each question counts its own: one asked while another goes again for its conflict goes again as many times as a refused Save is sent again", async () => {
+            const sessions = sessionsOf();
+            sessions.drafts = [await staleDraft()];
+            const { ask, fit } = mount(sessions);
+            await ask(LD_2231);
+            // LD-2231's call is refused, and while the page reads the records again the person selects something else.
+            await waitFor(() => expect(calls.outcomes(NAME).length).toBeGreaterThan(0), { timeout: 10_000 });
+            await ask(LD_2236);
+            await waitFor(() => expect(fit().error).toBeDefined(), { timeout: 40_000 });
+            // None of LD-2231's resends counted against it: the whole budget, and its first call.
+            const asked = calls.requests(NAME).map((request) => askKey(request.ask));
+            expect(asked.filter((key) => key === askKey(LD_2236))).toHaveLength(SAVE_RESENDS + 1);
         });
     });
 });

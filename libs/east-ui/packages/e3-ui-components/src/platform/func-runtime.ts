@@ -65,6 +65,7 @@ import {
     funcBindPlatformFn, FuncBindPrimitives, FuncDraftType, FuncDraftedType, FuncStatusType, FuncErrorType,
 } from "@elaraai/e3-ui/internal";
 import { functionDraftEnded, functionDraftLabel, functionDraftsOutlasted } from "@elaraai/e3-types";
+import { runnerFailureOf } from "./runner-failure.js";
 import {
     workspaceFunctionList,
     workspaceFunctionCall,
@@ -253,8 +254,10 @@ export function signatureOfFuncHandleType(handleType: EastTypeValue): FuncHandle
  * among the call's: by the outcome itself where the record refused it
  * (`conflict`), in the first line of the call's stderr where its mutation
  * failed or the call's time ran out (`functionDraftEnded` reads it back), and
- * in the diagnostic where the call may not pass it (`invalid`). A call whose
- * time ran out once its drafts were all laid says so
+ * in the diagnostic where the call may not pass it (`invalid`). Where its
+ * mutation failed, the error carries the draft too: its place and what its
+ * record said of it, the message the mutation's program raised after that
+ * first line. A call whose time ran out once its drafts were all laid says so
  * (`functionDraftsOutlasted`), not that its function ran out of it.
  */
 function errorOfExecuteResult(result: ExecuteResult): FuncError {
@@ -273,7 +276,11 @@ function errorOfExecuteResult(result: ExecuteResult): FuncError {
         }
         case "failed":
             return {
-                kind: variant("failed", { exitCode: outcome.value.exitCode }),
+                kind: variant("failed", {
+                    exitCode: outcome.value.exitCode,
+                    // The draft whose mutation failed, and what its record said of it: what follows the line naming it.
+                    draft: ended === null ? none : some({ place: BigInt(ended.place), refusal: draftWords(result.stderr) }),
+                }),
                 message: draft === null
                     ? `runner exited with code ${printInteger(outcome.value.exitCode)}`
                     : `${draft} failed with exit code ${printInteger(outcome.value.exitCode)}; the function did not run`,
@@ -320,21 +327,31 @@ function errorOfExecuteResult(result: ExecuteResult): FuncError {
 }
 
 /**
- * What a record said of a draft it refused as a call laid it (east-workspace#1619, rule 8): the draft's mutation's
- * own stderr, which follows the line that names the draft — the words a Save of the same edit is refused in. What
- * shows why a call ended says them beside the call's own summary, which names the draft and no reason.
+ * What a record said of a draft its mutation refused: the call's stderr after its first line, which names the draft
+ * — the message the mutation's program raised, without the places it was raised at, as a runner frames its failure;
+ * else what follows that line, trimmed.
+ *
+ * @param stderr - The call's stderr
+ * @returns The words; empty where there are none
+ */
+function draftWords(stderr: string): string {
+    const lineEnd = stderr.indexOf("\n");
+    const rest = lineEnd === -1 ? "" : stderr.slice(lineEnd + 1);
+    return (runnerFailureOf(rest)?.message ?? rest).trim();
+}
+
+/**
+ * What a record said of a draft it refused as a call laid it (east-workspace#1619, rule 8): the message its mutation's
+ * program raised, as the call's error carries it — the reason a Save of the same edit is refused for. What shows why
+ * a call ended says them in place of the call's own summary, which names the draft and no reason.
  *
  * @param error - A failed call's error, as {@link errorOfExecuteResult} makes it
- * @returns The record's words, trimmed; `undefined` for a call no draft's mutation failed, and for one that said nothing
+ * @returns The record's words; `undefined` for a call no draft's mutation failed, and for one that said nothing
  */
 export function draftRefusal(error: FuncError): string | undefined {
-    if (error.kind.type !== "failed") return undefined;
-    const lineEnd = error.stderr.indexOf("\n");
-    if (lineEnd === -1) return undefined;
-    // A call a draft ended names it in its stderr's first line, and its summary is made from that line's draft.
-    if (!error.message.startsWith(`${error.stderr.slice(0, lineEnd)} with exit code `)) return undefined;
-    const own = error.stderr.slice(lineEnd + 1).trim();
-    return own === "" ? undefined : own;
+    if (error.kind.type !== "failed" || error.kind.value.draft.type === "none") return undefined;
+    const said = error.kind.value.draft.value.refusal;
+    return said.length === 0 ? undefined : said;
 }
 
 function transportError(message: string): FuncError {

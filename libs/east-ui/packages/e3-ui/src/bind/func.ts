@@ -89,7 +89,12 @@ export type FuncStatusType = typeof FuncStatusType;
  * @property kind - Which way the call failed:
  *   `conflict` (a draft no longer fits its record, which changed under the
  *   edit: the record, the mutation, the draft's place among the call's and
- *   the refusal's words, as a Save's conflict gives them), `failed` (runner exited non-zero), `invalid`
+ *   the refusal's words, as a Save's conflict gives them), `failed` (runner
+ *   exited non-zero; where a draft's mutation failed, ending the call before
+ *   the function ran, the draft — its place among the call's, from 1, and
+ *   what its record said of it: the message its mutation's program raised,
+ *   without the places it was raised at, the reason a Save of the same edit
+ *   is refused for; empty where it said nothing), `invalid`
  *   (argument or signature diagnostics, or a draft the call may not pass),
  *   `too_large` (result exceeded the server limit), `timed_out` (server
  *   deadline hit), `transport` (HTTP/decode failure).
@@ -100,7 +105,7 @@ export type FuncStatusType = typeof FuncStatusType;
 export const FuncErrorType = StructType({
     kind: VariantType({
         conflict:  FunctionDraftConflictType,
-        failed:    StructType({ exitCode: IntegerType }),
+        failed:    StructType({ exitCode: IntegerType, draft: OptionType(StructType({ place: IntegerType, refusal: StringType })) }),
         invalid:   StructType({ diagnostics: ArrayType(StringType) }),
         too_large: StructType({ bytes: IntegerType, limit: IntegerType }),
         timed_out: StructType({ ms: IntegerType }),

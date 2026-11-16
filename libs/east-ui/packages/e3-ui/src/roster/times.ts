@@ -37,6 +37,14 @@ import {
 } from "./types.js";
 
 /**
+ * How far a duty's start may stand from its shift's start on its day, either
+ * way, in hours (§5.5, rules 1 and 4): the one measure of it, which a duty's
+ * day ({@link rosterDayOf}) and every window the Roster reads duties over
+ * ({@link rosterWindow}, {@link rosterSpanWindow}) are made from.
+ */
+const REACH_HOURS = 12n;
+
+/**
  * A duty's day (§5.5, rule 1): the UTC midnight of the day whose shift start is
  * nearest the duty's start.
  *
@@ -48,7 +56,7 @@ import {
  */
 export const rosterDayOf = East.function([DateTimeType, ScheduleClockType], DateTimeType, ($, start, clock) => {
     const minutes = $.const(clock.hour.multiply(60n).add(clock.minute));
-    return East.DateTime.roundDownDay(start.subtractMinutes(minutes).addHours(12n), 1n);
+    return East.DateTime.roundDownDay(start.subtractMinutes(minutes).addHours(REACH_HOURS), 1n);
 });
 
 /**
@@ -81,7 +89,8 @@ export const RosterStandingType = VariantType({ placed: RosterPlaceType, elsewhe
  * A week's window (east-workspace#1624): the span a week's duties are read
  * over — the week and the twelve hours either side, as far as a duty's start
  * may stand from its shift's ({@link rosterDayOf}). The one copy: the page's
- * reads and an app's function that reads the week's duties both use it.
+ * reads and an app's function that reads the week's duties both use it, and
+ * the page's reads of a span of weeks its span's ({@link rosterSpanWindow}).
  *
  * @param start - The week's first day, a UTC midnight
  * @returns The window, half open: from twelve hours before the week to twelve hours after it
@@ -94,7 +103,23 @@ export const RosterStandingType = VariantType({ placed: RosterPlaceType, elsewhe
  * ```
  */
 export const rosterWindow = East.function([DateTimeType], StructType({ from: DateTimeType, to: DateTimeType }), (_$, start) => ({
-    from: start.subtractHours(12n), to: start.addDays(7n).addHours(12n),
+    from: start.subtractHours(REACH_HOURS), to: start.addDays(7n).addHours(REACH_HOURS),
+}));
+
+/**
+ * A span's window (east-workspace#1624): the span a duty may start in for a
+ * shift that starts within the span — the span and the twelve hours either
+ * side, as far as a duty's start may stand from its shift's
+ * ({@link rosterDayOf}). What the page reads a span of weeks' duties over, and
+ * an instant's: the starts a duty of a shift starting then may take.
+ *
+ * @param from - The span's start
+ * @param to - Its end
+ * @returns The window, half open
+ * @internal
+ */
+export const rosterSpanWindow = East.function([DateTimeType, DateTimeType], StructType({ from: DateTimeType, to: DateTimeType }), (_$, from, to) => ({
+    from: from.subtractHours(REACH_HOURS), to: to.addHours(REACH_HOURS),
 }));
 
 /**

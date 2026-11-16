@@ -48,6 +48,19 @@ const sameScope = equalFor(OptimiseSliceType);
  */
 export type AllocationFit = FitAnswers<FitAsk, Day, FitResult>;
 
+/**
+ * Why a question has no answer and none is coming: the board's fit failed (F3), or the record refused the day the
+ * question is asked of (rule 10), that question alone.
+ *
+ * @param fit - The board's fit
+ * @param ask - The question
+ * @param of - The day it is asked of, where it is one the board derives
+ * @returns The fit's words; `undefined` while an answer may yet come
+ */
+export function fitFailure(fit: AllocationFit, ask: FitAsk, of?: Day): string | undefined {
+    return fit.error ?? fit.refused(ask, of);
+}
+
 /** What an ask takes beside its question: the board's sessions and their drafts. */
 export interface AllocationFitAsked {
     /** The board's sessions over the records it edits — the bins' and the periods': what an ask takes its drafts from. */

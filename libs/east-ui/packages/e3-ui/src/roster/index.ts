@@ -36,7 +36,7 @@ import {
 } from "@elaraai/east";
 import { EastUI, type UIElement } from "@elaraai/east-ui";
 import { RecordSlicesChromeType, RowSourceType, type RecordSlicesChromeOptions } from "@elaraai/east-ui/internal";
-import { FuncBindingType, boundFuncSignature } from "../bind/func.js";
+import { FuncBindingType, boundFuncSignature, type BoundDraftsFunc, type BoundFunc } from "../bind/func.js";
 import { scheduleCheck } from "../schedule/index.js";
 import type { ScheduleEventKind } from "../schedule/events.js";
 import { ScheduleAuthorTabType, buildScheduleTab } from "../schedule/library.js";
@@ -286,7 +286,7 @@ export interface RosterProps<R extends EastType = EastType, P extends EastType =
      * (`Roster.Types.FitContext`). Omitted, no Find fix is offered; `Roster.check(R)` still reports the issue. The Roster checks
      * the handle at build, naming what it asks and answers.
      */
-    fit?: OptimiseHandle;
+    fit?: BoundFunc<[typeof T.RosterFitRequestType], typeof T.RosterFitResultType> | BoundDraftsFunc<[typeof T.RosterFitRequestType], typeof T.RosterFitResultType>;
     /**
      * The app's optimiser (#1409, east-workspace#1622): `Func.bind` of its `e3.function` from `Roster.Types.OptimiseRequest()` —
      * the week in view, the run's number and the rail's narrowing, no row — to `Roster.Types.OptimiseResult(D)`, a patch of the

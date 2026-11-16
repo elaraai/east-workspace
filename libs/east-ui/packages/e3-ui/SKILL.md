@@ -396,27 +396,19 @@ and saves nothing. A draft that no longer fits its record ends the call
   record it edits (`East.diff`). The function lists those records in `drafts`,
   reads them through their indexes, and its answer lands as one undoable step.
 - **The app's fit** (the Roster's Find fix, the Allocation's board):
-  `fit={Func.bind(fn)}`, an `e3.function` from the builder's `Types.FitRequest`
-  — the question and the page's scope, never a row — to its `Types.FitResult`,
-  a verdict for each subject the function considered. The function lists in
-  `drafts` each record it reads that the builder edits, so it sees the unsaved
-  edits and nothing is saved; reads those records through their indexes and the
-  rest from the app's own records, in the app's row types; and makes of them the
-  builder's `Types.FitContext`, which the ready-made rules answer from
-  (`Roster.answer` + `Roster.fit()`; `Allocation.answer` + `Allocation.fit`).
-  A subject the answer leaves out has no verdict.
-- **Which views an instance offers**: a component that switches between views
-  takes `views` — the Roster's, Calendar's and Allocation's layouts, the
-  Ontology's display modes and `<Query.Builder>`'s
-  Visual · jq (and `resultViews`, Table · Tree). Literal tags (`views={["people"]}`),
-  variants of its `Types`, or an expression of an array of them, so a page's state
-  can choose them as it runs. Left out, or empty as the page runs, every view; one
+  `fit={Func.bind(fn)}` asks an `e3.function` the question and the page's
+  scope, never a row; listing in `drafts` the records it reads that the builder
+  edits, it answers over the unsaved edits. A subject it leaves out has no verdict.
+- **Which views and periods an instance offers**: a component that switches
+  between views takes `views` — the Roster's, Calendar's and Allocation's
+  layouts, the Ontology's display modes and `<Query.Builder>`'s Visual · jq (and
+  `resultViews`, Table · Tree). Literal tags (`views={["people"]}`), variants of
+  its `Types`, or an expression of an array of them, so a page's state can
+  choose them as it runs. Left out, or empty as the page runs, every view; one
   left, no switch shows in any form of the toolbar; the component's own order
   stands. `e3-ui:roster.examples.tsx:rosterViews` wires a multi-select into it.
-  `<DecisionQueue>`'s `facets` is the same.
-- **Which periods an instance offers**: `viewPeriods` on `<Roster>` and
-  `<Calendar>` does the same for Day · Week · Month. (A Plan's are its axis's
-  `resolutions`.)
+  `<DecisionQueue>`'s `facets` is the same, and so is `viewPeriods` on `<Roster>`
+  and `<Calendar>` for Day · Week · Month (a Plan's are its axis's `resolutions`).
 - **Misuse is refused at build**, naming the change — forms from earlier
   releases included — so read the error rather than guessing.
 

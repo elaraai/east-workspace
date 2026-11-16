@@ -101,6 +101,8 @@ function Probe({ name, scope, layout, sessions, settleKey, rowsByKey, onLanded, 
     // Read as the run asks, never kept: each answer is of the sessions as they stand.
     const asked: OptimiseSessions = {
         drafts: (listed) => { sessions.asked.push(listed); return sessions.asked.length > 1 && sessions.carried !== undefined ? sessions.carried : sessions.drafts; },
+        // These sessions take a gesture whenever they stand: standing is settling.
+        standing: () => sessions.settled,
         settled: () => sessions.settled,
         conflicts: () => sessions.conflicts,
     };

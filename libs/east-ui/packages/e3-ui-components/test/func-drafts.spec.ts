@@ -326,6 +326,12 @@ describe("a draft that ends its call (#1620)", () => {
         assert.equal(error.value.kind.type, "failed");
         assert.equal(error.value.message, "draft press_jobs.move (1 of 1) failed with exit code 1; the function did not run");
         assert.match(error.value.stderr, /the shop holds no job j9/);
+        // The draft that ended it, by its place, and what its record said of it: the words after the line naming it.
+        const kind = error.value.kind;
+        if (kind.type !== "failed" || kind.value.draft.type !== "some") assert.fail("the error names no draft");
+        assert.ok(equalFor(IntegerType)(kind.value.draft.value.place, 1n), "the first of the call's drafts");
+        // Its message alone: neither the runner's lead nor the places it was raised at, which the stderr holds.
+        assert.equal(kind.value.draft.value.refusal, "the shop holds no job j9");
         assert.ok(sameCount(page.count.read(), none), "the function did not run");
 
         const saved = await page.jobs.commit.move("save-1", "j9", "P1");

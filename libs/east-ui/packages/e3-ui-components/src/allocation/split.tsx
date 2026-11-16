@@ -25,7 +25,7 @@ import { FieldForm, SliceEditPopover } from "@elaraai/east-ui-components";
 import { Chooser } from "@elaraai/east-ui-components/internal";
 import { splitOf, type AllocationCommands } from "./actions.js";
 import { resourceChoices } from "./choices.js";
-import type { AllocationFit } from "./fit.js";
+import { fitFailure, type AllocationFit } from "./fit.js";
 import { binCode, type InspectorWords } from "./inspector-model.js";
 import { compareFloat, type Bin, type Context, type Day } from "./model.js";
 import { a } from "./nouns.js";
@@ -74,7 +74,7 @@ export function SplitPopover({ id, bin, from, context, plan, commands, fit, word
     const { ask: asking } = fit;
     useEffect(() => { if (open) asking(ask); }, [open, ask, asking, plan]);
     const except = useMemo(() => new Set(bin.parts.keys()), [bin.parts]);
-    const sections = open ? resourceChoices({ context, words, binRow: true, current: undefined, answer: fit.answer(ask), shown, except }) : [];
+    const sections = open ? resourceChoices({ context, words, binRow: true, current: undefined, answer: fit.answer(ask), failure: fitFailure(fit, ask), shown, except }) : [];
     const specs = useMemo(() => Fields.specs(SPLIT_FIELDS, {
         quantity: Fields.number({ label: nouns.quantity, min: least, max: most, step: 1, ...(context.unit === "" ? {} : { unit: context.unit }) }),
     }), [nouns.quantity, least, most, context.unit]);

@@ -33,12 +33,18 @@
  *
  * **Edits that cannot be asked about.** While a session cannot hand its edits
  * over — a Save of its own on its way, its drafts being carried over to a
- * record that moved — the question waits, and goes once the sessions stand.
- * Where the record refuses the pending Save (rule 9), the fit has failed in
- * its words — what the record said of the draft as e3 laid it, as a refused
- * Save says it: there is no state of the record with those edits to ask about.
- * A question whose own subject is an edit not yet complete (rule 8) is not
- * asked until it is ({@link FitQuestions.complete}).
+ * record that moved ({@link OptimiseSessions.standing}) — the question waits,
+ * whatever drafts were handed over in its context before, and goes once the
+ * sessions stand. Where the record refuses the pending Save (rule 9), the fit
+ * has failed in its words — what the record said of the draft as e3 laid it,
+ * as a refused Save says it: there is no state of the record with those edits
+ * to ask about. Where it refuses only a derived plan's change (rule 10), that
+ * question alone has failed, in the record's words ({@link FitAnswers.refused}),
+ * and is not asked again until the plan or the context moves on — the record
+ * would refuse it as it stands — while the drafts as they stand are still
+ * asked about. A question whose own subject
+ * is an edit not yet complete (rule 8) is not asked until it is
+ * ({@link FitQuestions.complete}).
  *
  * **A record that changed under the edits** (rule 12). A call the source
  * refused because another write got there first takes the optimiser's path
@@ -46,7 +52,9 @@
  * edits over the newer saves, and with nothing to choose the question is asked
  * again by itself; with a conflict to choose the fit has failed in the refused
  * Save's words, until the person chooses — and once the sessions hold no
- * conflict it is asked again, whatever was chosen.
+ * conflict it is asked again, whatever was chosen. A question goes again as many
+ * times in a row as a refused Save is sent again, each question counting its
+ * own.
  *
  * The Roster's Find fixes (#1334) and the Allocation's board
  * (`allocation/fit.ts`) ask through this.
@@ -55,14 +63,30 @@
  */
 
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
-import type { EastType } from "@elaraai/east";
+import { IntegerType, equalFor, type EastType } from "@elaraai/east";
 import { draftRefusal } from "../../platform/index.js";
 import { afterConflict, readRecordsAgain } from "./conflict.js";
-import { useFuncCall, type FuncCallBinding, type FuncCallDraft } from "./use-func-call.js";
+import { useFuncCall, type FuncCallBinding, type FuncCallDraft, type FuncCallError } from "./use-func-call.js";
 import type { OptimiseSessions } from "./use-optimise.js";
 
 /** How many questions wait at most: one older than these is no one's any more. */
 const WAITING = 8;
+
+const sameInteger = equalFor(IntegerType);
+
+/**
+ * What a record said of a derived plan's change it refused as e3 laid it (rule 10): a call's error where the draft
+ * whose mutation failed, ending the call before the function ran, is that change.
+ *
+ * @param error - The call's error
+ * @param place - The derived plan's change's place among the call's drafts, from 1: the last
+ * @returns The record's words, else the call's own summary; `undefined` for a call that change did not end
+ */
+function derivedRefusal(error: FuncCallError, place: number): string | undefined {
+    if (error.kind.type !== "failed" || error.kind.value.draft.type === "none") return undefined;
+    if (!sameInteger(error.kind.value.draft.value.place, BigInt(place))) return undefined;
+    return draftRefusal(error) ?? error.message;
+}
 
 /**
  * What a builder's fit asks, and how.
@@ -121,6 +145,13 @@ export interface FitAnswers<Q, P, R> {
      * flight. A new plan or context is a new `ask`, so an effect that asks, listing it, asks again then (F1).
      */
     ask: (question: Q, of?: P) => void;
+    /**
+     * Why a question about a derived plan has no answer, and none is coming: its record refused the plan's change as e3
+     * laid it (rule 10), in the record's words. That question alone has failed — the board's fit has not, and the drafts
+     * as they stand are still asked about — until the plan or the context moves on, when it is asked anew; `undefined`
+     * for any other question.
+     */
+    refused: (question: Q, of?: P) => string | undefined;
     /** Whether a question asked of the plan as it stands is unanswered (F2). */
     pending: boolean;
     /** Why the last call failed, or why the sessions' edits could not be asked about (F3; rules 9 and 12). */
@@ -139,6 +170,8 @@ interface Flight<P, C> {
     readonly context: C;
     /** The records the call passed drafts of, by name. */
     readonly drafted: readonly string[];
+    /** The derived plan's change's place among the call's drafts, from 1 — the last — where it carried one (rule 10). */
+    readonly derived: number | undefined;
     /** What the channel held before the call, a failure of this call told from it. */
     readonly errorBefore: unknown;
     /** Whether the channel was seen running for this call. */
@@ -168,6 +201,8 @@ export function useFit<Q, P extends object, C extends object, R>(questions: FitQ
     const call = useFuncCall<R>(questions.name, questions.name === null ? null : [questions.requestType], questions.resultType, questions.binding);
     // Answers, by the context and the plan they were asked of, then by question: new drafts ask again.
     const kept = useRef(new WeakMap<C, WeakMap<P, Map<string, R>>>());
+    // The questions that failed alone — a derived plan's change its record refused (rule 10) — kept as answers are, in the record's words.
+    const failures = useRef(new WeakMap<C, WeakMap<P, Map<string, string>>>());
     // The sessions' pending Save as drafts, made once for each context: the same drafts, the same patch.
     const handed = useRef(new WeakMap<C, readonly FuncCallDraft[]>());
     const [, changed] = useReducer((n: number) => n + 1, 0);
@@ -176,19 +211,16 @@ export function useFit<Q, P extends object, C extends object, R>(questions: FitQ
     // The questions waiting, the latest asked first.
     const waiting = useRef<Wanted<Q, P, C>[]>([]);
     const flight = useRef<Flight<P, C> | undefined>(undefined);
-    // How many times in a row a question went again because a record moved under its drafts (rule 12).
+    // How many times in a row a question went again because a record moved under its drafts (rule 12), and which question:
+    // a different one counts from none.
     const resent = useRef(0);
+    const resentFor = useRef<string | undefined>(undefined);
     // The failure of a call that went again for a conflict: the channel holds it until the next call is out, and it is no failure of the fit's.
     const passed = useRef<unknown>(undefined);
     const live = useRef({ call, plan, context, questions });
     live.current = { call, plan, context, questions };
-    const keptFor = useCallback((forContext: C, forPlan: P) => {
-        let byPlan = kept.current.get(forContext);
-        if (byPlan === undefined) { byPlan = new WeakMap(); kept.current.set(forContext, byPlan); }
-        let byQuestion = byPlan.get(forPlan);
-        if (byQuestion === undefined) { byQuestion = new Map(); byPlan.set(forPlan, byQuestion); }
-        return byQuestion;
-    }, []);
+    const keptFor = useCallback((forContext: C, forPlan: P) => byQuestionOf(kept.current, forContext, forPlan), []);
+    const failuresFor = useCallback((forContext: C, forPlan: P) => byQuestionOf(failures.current, forContext, forPlan), []);
     // An answer landing is kept for the plan it was asked of — if it answers the question in flight.
     useEffect(() => {
         const asked = flight.current, result = call.result;
@@ -198,14 +230,25 @@ export function useFit<Q, P extends object, C extends object, R>(questions: FitQ
         resent.current = 0;
         changed();
     }, [call.result, call.pending, call.status, keptFor]);
-    // A call refused because a record moved under its drafts lands nothing (rule 12): the page reads those records again.
+    // A call refused because a record moved under its drafts lands nothing (rule 12): the page reads those records again. One
+    // whose derived plan's change its record refused fails that question alone (rule 10).
     useEffect(() => {
         const asked = flight.current;
         if (asked === undefined || asked.conflict !== undefined || asked.refused !== undefined) return;
         if (call.pending) { asked.seenRunning = true; return; }
         // The same error the channel held before: this call has not failed yet (a new failure is a new object).
         if (!asked.seenRunning && Object.is(call.error, asked.errorBefore)) return;
-        if (call.status !== "failed" || call.error?.kind.type !== "conflict") return;
+        if (call.status !== "failed" || call.error === null) return;
+        const alone = asked.derived === undefined ? undefined : derivedRefusal(call.error, asked.derived);
+        if (alone !== undefined) {
+            failuresFor(asked.context, asked.plan).set(asked.key, alone);
+            // The channel holds the failure until the next call is out: the question's, no failure of the fit's.
+            passed.current = call.error;
+            flight.current = undefined;
+            changed();
+            return;
+        }
+        if (call.error.kind.type !== "conflict") return;
         const conflict = { message: call.error.message, read: false };
         asked.conflict = conflict;
         changed();
@@ -214,7 +257,7 @@ export function useFit<Q, P extends object, C extends object, R>(questions: FitQ
             conflict.read = true;
             changed();
         });
-    }, [call.pending, call.status, call.error]);
+    }, [call.pending, call.status, call.error, failuresFor]);
     // The next question goes once nothing is in flight — after every effect of the commit has asked its own, so the commit's
     // latest goes first.
     const scheduled = useRef(false), alive = useRef(true);
@@ -232,7 +275,7 @@ export function useFit<Q, P extends object, C extends object, R>(questions: FitQ
             // stand on what it read: asked again with the new drafts, or failed where a conflict is to choose (rule 12).
             const conflicted = flight.current;
             if (conflicted?.conflict !== undefined) {
-                if (!conflicted.conflict.read || !sessions.settled(conflicted.drafted)) return;
+                if (!conflicted.conflict.read || !sessions.standing(conflicted.drafted)) return;
                 const next = afterConflict(sessions, conflicted.drafted, resent.current, conflicted.conflict.message);
                 delete conflicted.conflict;
                 if ("again" in next) {
@@ -251,15 +294,16 @@ export function useFit<Q, P extends object, C extends object, R>(questions: FitQ
             // A question that failed for a conflict to choose is asked again once the person has chosen: whatever they chose,
             // the sessions stand on the newer saves, and hand over their edits as they are now.
             const chosen = flight.current;
-            if (chosen?.choosing !== undefined && sessions.settled(chosen.choosing) && sessions.conflicts(chosen.choosing) === undefined) {
+            if (chosen?.choosing !== undefined && sessions.standing(chosen.choosing) && sessions.conflicts(chosen.choosing) === undefined) {
                 handed.current.delete(chosen.context);
                 flight.current = undefined;
                 resent.current = 0;
                 setRefused(undefined);
             }
-            // A question of drafts or a context the builder has moved on from is no one's any more; an answered one is done.
+            // A question of drafts or a context the builder has moved on from is no one's any more; an answered one is done, and
+            // so is one that failed alone (rule 10).
             waiting.current = waiting.current.filter(w => Object.is(w.base, now.plan) && Object.is(w.context, now.context)
-                && !keptFor(now.context, w.of ?? now.plan).has(w.key));
+                && !keptFor(now.context, w.of ?? now.plan).has(w.key) && !failuresFor(now.context, w.of ?? now.plan).has(w.key));
             // A question whose own subject is an edit not yet complete is not asked until it is (rule 8).
             const next = waiting.current.find(w => now.questions.complete?.(w.question) !== false);
             if (next === undefined) return;
@@ -268,19 +312,21 @@ export function useFit<Q, P extends object, C extends object, R>(questions: FitQ
             if (asked !== undefined && asked.key === next.key && Object.is(asked.plan, of) && Object.is(asked.context, now.context)) return;
             // The sessions' pending Save, as drafts — for a function that lists none, its request alone.
             let drafts: readonly FuncCallDraft[] = [];
+            let derived: number | undefined;
             if (listed.length > 0) {
+                // A Save of a session's own on its way, or its drafts being carried over to a record that moved: the question
+                // waits until the sessions stand, whatever drafts were handed over in this context before.
+                if (!sessions.standing(listed)) return;
                 let pending = handed.current.get(now.context);
                 if (pending === undefined) {
                     const made = sessions.drafts(listed);
                     if ("refused" in made) {
-                        // A Save of a session's own on its way, or its drafts being carried over: asked once the sessions stand.
-                        if (!sessions.settled(listed)) return;
                         // The record's refusal of the edits as they stand (rule 9), or a conflict to choose: in its words.
                         const toChoose = sessions.conflicts(listed);
                         const why = toChoose ?? made.refused;
                         flight.current = {
-                            key: next.key, plan: of, context: now.context, drafted: [], errorBefore: now.call.error, seenRunning: false, refused: why,
-                            ...(toChoose === undefined ? {} : { choosing: listed }),
+                            key: next.key, plan: of, context: now.context, drafted: [], derived: undefined, errorBefore: now.call.error, seenRunning: false,
+                            refused: why, ...(toChoose === undefined ? {} : { choosing: listed }),
                         };
                         setRefused(why);
                         return;
@@ -291,9 +337,12 @@ export function useFit<Q, P extends object, C extends object, R>(questions: FitQ
                 // A derived plan's change, as one more draft laid after the pending Save (rule 10).
                 const more = next.of === undefined ? undefined : now.questions.further?.(next.of, next.base);
                 drafts = more === undefined ? pending : [...pending, more];
+                if (more !== undefined) derived = drafts.length;
             }
+            // How many times a question goes again is its own to count (rule 12): a different question counts from none.
+            if (resentFor.current !== next.key) { resentFor.current = next.key; resent.current = 0; }
             flight.current = {
-                key: next.key, plan: of, context: now.context, drafted: [...new Set(drafts.map(draft => draft.record))],
+                key: next.key, plan: of, context: now.context, drafted: [...new Set(drafts.map(draft => draft.record))], derived,
                 errorBefore: now.call.error, seenRunning: false,
             };
             setRefused(undefined);
@@ -303,6 +352,7 @@ export function useFit<Q, P extends object, C extends object, R>(questions: FitQ
         });
     });
     const answer = useCallback((question: Q, of?: P) => kept.current.get(context)?.get(of ?? plan)?.get(live.current.questions.key(question)), [context, plan]);
+    const refusedOf = useCallback((question: Q, of?: P) => failures.current.get(context)?.get(of ?? plan)?.get(live.current.questions.key(question)), [context, plan]);
     // A new plan or context, a new `ask`: an effect that asks, listing it, asks again (F1). It asks of them as they stand when it
     // runs, so a caller holding an older one still asks of these.
     const ask = useCallback((question: Q, of?: P) => {
@@ -319,7 +369,25 @@ export function useFit<Q, P extends object, C extends object, R>(questions: FitQ
     const failed = call.status === "failed" && !carrying && !(call.error !== null && Object.is(call.error, passed.current));
     // A draft its record refused as it was laid fails the fit in the record's words, as a Save of the edit is refused (rule 9).
     const error = refused ?? (failed ? (call.error === null ? undefined : draftRefusal(call.error) ?? call.error.message) ?? "the fit could not run" : undefined);
-    // A question asked of the drafts as they are, still unanswered — but one waiting on its own subject's edit, which shows no verdict.
-    const unanswered = waiting.current.some(w => Object.is(w.base, plan) && questions.complete?.(w.question) !== false && answer(w.question, w.of) === undefined);
-    return { answer, ask, pending: error === undefined && (call.pending || unanswered), error, retry };
+    // A question asked of the drafts as they are, still unanswered — but one waiting on its own subject's edit, which shows no verdict,
+    // and one that failed alone (rule 10).
+    const unanswered = waiting.current.some(w => Object.is(w.base, plan) && questions.complete?.(w.question) !== false && answer(w.question, w.of) === undefined
+        && refusedOf(w.question, w.of) === undefined);
+    return { answer, ask, refused: refusedOf, pending: error === undefined && (call.pending || unanswered), error, retry };
+}
+
+/**
+ * What a store keeps for a context and a plan, by question: made the first time either is asked of.
+ *
+ * @param store - The store, by context then by plan
+ * @param context - The context
+ * @param plan - The plan
+ * @returns Its map of questions
+ */
+function byQuestionOf<C extends object, P extends object, V>(store: WeakMap<C, WeakMap<P, Map<string, V>>>, context: C, plan: P): Map<string, V> {
+    let byPlan = store.get(context);
+    if (byPlan === undefined) { byPlan = new WeakMap(); store.set(context, byPlan); }
+    let byQuestion = byPlan.get(plan);
+    if (byQuestion === undefined) { byQuestion = new Map(); byPlan.set(plan, byQuestion); }
+    return byQuestion;
 }

@@ -110,11 +110,9 @@ test("funcBindDraftRefused: a draft the record refuses ends the call and the pag
     const conflict = await waitFor(() => within(container).getByText((text) => text.startsWith(lead)));
     expect((conflict.textContent ?? "").length, "in the record's own words").toBeGreaterThan(lead.length);
 
-    // The shop holds no j9: the move's own program refuses it.
+    // The shop holds no j9: the move's own program refuses it, and the page says its place and the record's words.
     await press(container, "An unknown job");
-    await waitFor(() => expect(
-        within(container).getByText("draft press_jobs.move (1 of 1) failed with exit code 1; the function did not run", { exact: true }),
-    ).toBeTruthy());
+    await waitFor(() => expect(within(container).getByText("draft 1 refused: the shop holds no job j9", { exact: true })).toBeTruthy());
 
     await jobs.unchanged();
 });

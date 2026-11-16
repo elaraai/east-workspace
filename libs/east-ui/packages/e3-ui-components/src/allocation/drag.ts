@@ -28,7 +28,7 @@ import {
 } from "@elaraai/east-ui-components";
 import { formatDatePattern } from "@elaraai/east-ui-components/internal";
 import { linkedQuantity, type AllocationCommands } from "./actions.js";
-import type { AllocationFit } from "./fit.js";
+import { fitFailure, type AllocationFit } from "./fit.js";
 import { compareDate, compareFloat, dayKey, parseDay, partsOf, type Context, type Day, type Fit, type FitAsk, type FitResult, type Slot } from "./model.js";
 import { a, lower, one, type Nouns } from "./nouns.js";
 import { rowOfKey } from "./table-rows.js";
@@ -200,6 +200,11 @@ export interface Verdict {
     reason?: string | undefined;
     /** The fit's answer is still on its way. */
     pending: boolean;
+    /**
+     * Why no answer is coming, in the fit's words: the board's fit failed (F3), or the record refused the day the drop's
+     * question is asked of (rule 10). The drop is refused, `fits unavailable`.
+     */
+    unavailable?: string | undefined;
     /** The drop's command. */
     run: (() => boolean) | undefined;
 }
@@ -331,20 +336,27 @@ export function landing(slots: readonly Slot[], plan: Day, lane: string, at: Dat
 const refused = (caption: string, refusal: Refusal, reason?: string): Verdict => ({ allowed: false, caption, warn: false, refusal, reason, pending: false, run: undefined });
 const waiting: Verdict = { allowed: true, caption: "checking fits…", warn: false, refusal: undefined, pending: true, run: undefined };
 const taken = (caption: string, run: () => boolean): Verdict => ({ allowed: true, caption, warn: false, refusal: undefined, pending: false, run });
+/** A drop no answer is coming for (F3, rule 10): refused, `fits unavailable`, in the fit's words. */
+const unavailable = (word: string, why: string): Verdict => ({ ...refused("fits unavailable", { word, text: `Fits couldn't be checked: ${why}.` }), unavailable: why });
 /** No drop here, and nothing to say: a resource's card over a resource row, or a Table arrival cell. */
 const nowhere: Verdict = { allowed: false, caption: "", warn: false, refusal: undefined, pending: false, run: undefined };
 
 /**
  * The fit's answer to a question, as a verdict: refused when the fit gives
- * none (F3, F4), waiting while it is on its way — asked, when `asking`.
+ * none (F3, F4) — its call failed, or the record refused the day it is asked
+ * of (rule 10) — waiting while it is on its way, asked when `asking`.
  */
 function answered(scene: DropScene, asked: Asked | undefined, word: string, asking: boolean, verdict: (answer: FitResult) => Verdict): Verdict {
     if (asked === undefined) return refused("not on the board", { word, text: `The ${one(scene.nouns.bin)} is no longer on the board.` });
-    if (scene.fit.error !== undefined) return refused("fits unavailable", { word, text: `Fits couldn't be checked: ${scene.fit.error}.` });
+    if (scene.fit.error !== undefined) return unavailable(word, scene.fit.error);
     const answer = scene.fit.answer(asked.ask, asked.of);
+    if (answer !== undefined) return verdict(answer);
+    // This question alone has none coming: its record refused the day it is asked of (rule 10).
+    const alone = scene.fit.refused(asked.ask, asked.of);
+    if (alone !== undefined) return unavailable(word, alone);
     // Unanswered, it is asked: the fill's question is the reservation's own (A23).
-    if (answer === undefined) { if (asking) scene.fit.ask(asked.ask, asked.of); return waiting; }
-    return verdict(answer);
+    if (asking) scene.fit.ask(asked.ask, asked.of);
+    return waiting;
 }
 
 /** A fit's verdict for a placement on a resource, its caption and its refusal; `suffix` follows a fit's caption (the landing slot, A36). */
@@ -524,6 +536,8 @@ export interface AllocationDrag {
     arm: (grip: Grip) => void;
     /** The fit's answer about the subject (A27–A29, A32). */
     answer: FitResult | undefined;
+    /** Why none is coming, in the fit's words: the board's fit failed, or the record refused the day it is asked of (F3, rule 10). */
+    unavailable: string | undefined;
     /** Its three best fits, best first (A28). */
     ranks: readonly string[];
     /** A drop's verdict where a drag rests, kept for this drag, these drafts and this answer (A35); it asks the fit what it has not answered. */
@@ -602,6 +616,7 @@ export function useAllocationDrag(surface: string, enabled: boolean, scene: Drop
         [pickKey, scene.plan, fit.ask]);
     const asked = subject === undefined || subject.kind === "body" ? undefined : askOf(scene, subject);
     const answer = asked === undefined ? undefined : fit.answer(asked.ask, asked.of);
+    const unavailableNow = asked === undefined ? undefined : fitFailure(fit, asked.ask, asked.of);
     const ranks = useMemo(() => subject === undefined ? [] : rankOf(answer, currentOf(scene.plan, subject)), [answer, subject, scene.plan]);
     // Verdicts, kept for these drafts and this answer: pointer motion asks again, and nothing is recomputed (A35).
     // What the verdicts read is the cache's key: a new key, a new cache.
@@ -677,5 +692,6 @@ export function useAllocationDrag(surface: string, enabled: boolean, scene: Drop
     // Where the drag rests: one store for the board's life, empty once no drag is under way.
     const [rest] = useState(() => new DragRestStore());
     useEffect(() => { if (grip === undefined) rest.clear(); }, [grip, rest]);
-    return { surface, libraries, enabled, grip, subject, asked, arm: setArmed, answer, ranks, verdict: judge(true), peek: judge(false), gripOfPayload, gripOfEvent, rest, name };
+    return { surface, libraries, enabled, grip, subject, asked, arm: setArmed, answer, unavailable: unavailableNow, ranks, verdict: judge(true), peek: judge(false),
+        gripOfPayload, gripOfEvent, rest, name };
 }

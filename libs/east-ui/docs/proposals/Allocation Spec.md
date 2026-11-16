@@ -1152,14 +1152,15 @@ nothing again.
 
 The function lists in its `drafts` each record it reads that the board edits —
 the bins', and the days' or weeks' where it publishes. One that reads such a
-record, itself or by an index of it, and does not list it is refused where the
-page is built, naming the record: it would answer around edits it cannot see
-(the optimiser's rule 4, by the same check).
+record, itself or by an index of it, and does not list it is refused as the
+page is evaluated, naming the record: it would answer around edits it cannot
+see (the optimiser's rule 4, by the same check).
 
 The result echoes its `ask`, so the board matches each answer to its question:
 `Func.bind` calls are latest-wins on one channel per function. A subject the
 answer does not name has no verdict: a drop on the resource is refused (`The
-fit gave no verdict for …`), and a Chooser leaves the option out.
+fit gave no verdict for …`), and a Chooser, or a reservation's Book list, leaves
+the option out.
 
 What the request once carried, the function reads for itself: the day's bins
 through their record's index; the arrivals and the resources from the app's own
@@ -1187,13 +1188,17 @@ is not in the context; the board shows it as it shows any failed fit.
   narrowing hides and the ones off screen among them, whether or not a check is
   holding Save. e3 lays the drafts over the records and runs the function;
   nothing is saved (#1619). While a session cannot hand its edits over — a Save
-  of its own on its way — the question waits.
+  of its own on its way, or its drafts carried over to a record that moved —
+  the question waits, whatever was handed over for the same drafts before.
 - **F1b. A plan the board derives.** Some questions are asked of the day as it
   would be: without a reservation that a fill replaces, with a probe
   reservation in a free slot, or with a removed bin back on it. Such a call
   carries the pending Save and then the derived change as one more draft of the
   bins' record, laid in order. A record that refuses the derived change gives
-  that question no answer, and it shows as a failed fit.
+  that question alone no answer: wherever it is shown — a Chooser's options, a
+  list in the inspector, a drop — it reads `fits unavailable · …` in the
+  record's words, while the day as drafted is still asked about. It is asked
+  again once the drafts or what the board reads move on.
 - **F1c. Edits the record refuses, and a record that changed under them.**
   Where the record refuses the pending Save, the call ends as that Save would
   and the fit fails in its words: there is no state of the record with those
@@ -1206,7 +1211,10 @@ is not in the context; the board shows it as it shows any failed fit.
   reads `checking fits…`, and a drop waits: the ghost stays at the drop until the
   answer lands, then the command runs or refuses.
 - **F3.** A failed call shows the banner `Fits couldn't be checked` with the
-  function's message and Retry; drops are refused with `fits unavailable`.
+  function's message and Retry; drops are refused with `fits unavailable`, and
+  a Chooser's options and the inspector's lists read `fits unavailable · …`. A
+  question goes again for a conflict as many times as a refused Save is sent
+  again, each question counting its own.
 - **F4.** The renderer computes no fit of its own; every rank, refusal, reason,
   Chooser section, drop-list row and Find result comes from the answer.
 
