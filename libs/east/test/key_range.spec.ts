@@ -30,20 +30,9 @@ import {
     compareFor, fromEastTypeValue, isTypeEqual, none, some, toEastTypeValue, variant, type EastType, type EastTypeValue, type IR,
 } from "../src/index.js";
 import { analyzeIR } from "../src/analyze.js";
+import { randomStream } from "../src/fuzz.js";
 import { describeEast, assertEast } from "./platforms.spec.js";
 import * as ex from "./key_range.examples.js";
-
-/** A seeded generator: the same numbers on every run, on every runtime the suite is exported to. */
-function seeded(seed: number): () => number {
-    let state = seed >>> 0;
-    return () => {
-        state = (state + 0x6D2B79F5) >>> 0;
-        let t = state;
-        t = Math.imul(t ^ (t >>> 15), t | 1);
-        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-    };
-}
 
 /** A key type cut short to its first leaves: its type, and the cut of a key, a value or an expression alike. */
 interface Cut {
@@ -130,7 +119,8 @@ const SHEETS: [{ press: string; day: Date; job: string }, bigint][] = [
 /** Sheets as a Dict holds them: keyed by East's order of a sheet. */
 const sheetsOf = (entries: readonly [{ press: string; day: Date; job: string }, bigint][]) => new SortedMap(entries, compareFor(Sheet));
 
-const random = seeded(1616);
+/** The cases' numbers: the same on every run, on every runtime the suite is exported to. */
+const random = randomStream(1616);
 const pick = <T>(values: readonly T[]): T => values[Math.floor(random() * values.length)]!;
 const day = (): Date => new Date(Date.UTC(2026, 5, 1 + Math.floor(random() * 4)));
 

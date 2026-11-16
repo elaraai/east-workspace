@@ -15,6 +15,7 @@ import { describe, test } from "node:test";
 import assert from "node:assert/strict";
 import { compareFor } from "./comparison.js";
 import { none, some, variant } from "./containers/variant.js";
+import { randomStream } from "./fuzz.js";
 import { compareKeyToBoundFor, isKeyBoundType, keyAtOrPast, keyBoundRefusal, keyBoundValues, keyLeafAt, keyLeaves } from "./key_bound.js";
 import { toEastTypeValue } from "./type_of_type.js";
 import {
@@ -104,18 +105,6 @@ describe("a bound's type is the key's type cut short (#1616)", () => {
   });
 });
 
-/** A seeded generator: the same numbers on every run. */
-function seeded(seed: number): () => number {
-  let state = seed >>> 0;
-  return () => {
-    state = (state + 0x6D2B79F5) >>> 0;
-    let t = state;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
 describe("at or past a bound (#1616)", () => {
   /** A key whose leaves hold the orders that are easy to get wrong. */
   const Odd = StructType({
@@ -129,7 +118,7 @@ describe("at or past a bound (#1616)", () => {
   const tags = [none, some(""), some("a"), some("b\u{1F600}"), some("￿")];
   const whats = [variant("a", -1n), variant("a", 7n), variant("b", null)];
   const days = [new Date(0), new Date("2026-06-01T00:00:00Z"), new Date("2026-06-01T00:00:00.001Z")];
-  const random = seeded(1616);
+  const random = randomStream(1616);
   const pick = <T>(values: readonly T[]): T => values[Math.floor(random() * values.length)]!;
   const key = (): OddKey => ({ x: pick(floats), tag: pick(tags), what: pick(whats), at: { day: pick(days), n: BigInt(Math.floor(random() * 3)) } }) as OddKey;
   const keys = Array.from({ length: 400 }, key).sort(compareFor(Odd));
