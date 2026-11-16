@@ -55,6 +55,7 @@ import {
     compareFor, decodeBeast2, equalFor, fromEastTypeValue, isTypeEqual, isVariant, toEastTypeValue, variant,
     type EastType, type ValueTypeOf,
 } from '@elaraai/east';
+import { randomStream } from '@elaraai/east/internal';
 import { datasetGetStatus, oneShotExecute, splitCall, splitCallExplain } from '@elaraai/e3-api-client';
 import type { RunnerValue, TreePath } from '@elaraai/e3-types';
 import {
@@ -138,11 +139,8 @@ function credit(count: number): SortedMap<string, number> {
 function orders(first: number, n: number, seed: number, customerCount = CUSTOMER_COUNT): Order[] {
     return Array.from({ length: n }, (_, j) => {
         const id = first + j;
-        let state = ((id * 2654435761) ^ (seed * 0x9e3779b9)) >>> 0 || 7;
-        const rnd = (): number => {
-            state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
-            return state / 4294967296;
-        };
+        // East's seeded stream, seeded by the run's seed and the order's id: an order is the same in whatever range it is written.
+        const rnd = randomStream((id * 2654435761) ^ (seed * 0x9e3779b9));
         const lines = Array.from({ length: 1 + Math.floor(rnd() * 4) }, () => ({
             sku: `SKU-${Math.floor(rnd() * 300)}`, qty: BigInt(1 + Math.floor(rnd() * 9)), price: Math.round(rnd() * 2000) / 100,
         }));

@@ -31,6 +31,7 @@ import { I18nProvider, type ValueTreePaging } from "@elaraai/east-ui-components"
 import * as ex from "@elaraai/e3-ui/examples/bind/data/data";
 import type { E3Dataset } from "../e3-web.test-utils.js";
 import { act, e3Harness, settle } from "../e3-web-mount.test-utils.js";
+import { noise } from "../noise.test-utils.js";
 
 const mocks = vi.hoisted(() => ({
     /** The paging contract the preview last handed the tree. */
@@ -137,33 +138,10 @@ const asked = (path: string) => h.requests("page", path).map((request) => [Numbe
 const LINES = "inputs.preview_lines";
 const ROWS = "inputs.preview_rows";
 
-/**
- * Lines e3 cannot compress, which it stores at about their width: each drawn
- * from 64 letters by xorshift, from one seed, so every run writes the same.
- *
- * @param count - How many lines
- * @param width - Each line's characters
- * @returns The lines
- */
-function noise(count: number, width: number): string[] {
-    const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let state = 0x9e3779b9;
-    return Array.from({ length: count }, () => {
-        let line = "";
-        for (let i = 0; i < width; i++) {
-            state = (state ^ (state << 13)) >>> 0;
-            state = (state ^ (state >>> 17)) >>> 0;
-            state = (state ^ (state << 5)) >>> 0;
-            line += letters[state & 63];
-        }
-        return line;
-    });
-}
-
 describe("PagedDatasetPreview — the served page size (#829)", () => {
     test("a trimmed first page sets the size the tree and every later request use", async () => {
         // 450 lines of some 15 KB each, stored: e3's byte budget serves fewer than 300 of them a page.
-        await h.write(ex.previewLinesInput, noise(450, 20_000));
+        await h.write(ex.previewLinesInput, Array.from({ length: 450 }, (_, i) => noise(20_000, i + 1)));
         await renderPreview(ex.previewLinesInput, LINES, ArrayType(StringType));
         await waitFor(() => expect(mocks.paging?.pageSize).toBeLessThan(500));
         const served = mocks.paging!.pageSize;

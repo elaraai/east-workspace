@@ -9,6 +9,7 @@
 
 import { describe, test, expect } from "vitest";
 import { none, some, variant } from "@elaraai/east";
+import { randomStream } from "@elaraai/east/internal";
 import { placeInOrder } from "./placement.js";
 import type { Placement } from "./transactions.js";
 
@@ -37,13 +38,10 @@ function spliceInOrder(rows: readonly string[], moves: readonly (readonly [strin
     return out;
 }
 
-/** A small deterministic generator — the same moves on every run. */
+/** Integers below `n`, drawn from East's seeded stream: the same moves on every run. */
 function generator(seed: number) {
-    let s = seed >>> 0;
-    return (n: number) => {
-        s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
-        return s % n;
-    };
+    const next = randomStream(seed);
+    return (n: number) => Math.floor(next() * n);
 }
 
 describe("placeInOrder", () => {

@@ -11,6 +11,7 @@
  */
 
 import { describe, expect, test } from "vitest";
+import { randomStream } from "@elaraai/east/internal";
 import { makeTouches, pinchMoves, type Touches } from "./touches.js";
 
 describe("one finger", () => {
@@ -242,10 +243,10 @@ test("over every state three fingers can reach — each put down, moved, ended a
 });
 
 test("over long runs of fingers put down, moved anywhere, ended and never heard to end, a record told every event answers each as a plain list of them would", () => {
-    // A seeded run, the same each time it is run: the paths the walk above reaches each state by are its shortest, and
-    // these are long.
-    let seed = 20261112;
-    const random = (n: number) => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed % n; };
+    // A seeded run of East's stream, the same each time it is run: the paths the walk above reaches each state by are
+    // its shortest, and these are long.
+    const next = randomStream(20261112);
+    const random = (n: number) => Math.floor(next() * n);
     for (let run = 0; run < 200; run++) {
         const touches = makeTouches();
         // The page's fingers, and what the record should hold: each finger's point, in the order they landed.

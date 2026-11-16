@@ -13,6 +13,7 @@
  */
 
 import { describe, expect, test } from "vitest";
+import { randomStream } from "@elaraai/east/internal";
 import { makeGestures, type GestureHost, type Gestures, type PointerState } from "./gestures.js";
 
 /** What a host heard, in order, and whether a gesture or a pinch stands as it heard it. */
@@ -296,8 +297,9 @@ test("over every state two fingers and a mouse can bring a surface to — each p
 });
 
 test("over long runs of the same events in any order, the host never hears what it should not, and each gesture pressed ends exactly once", () => {
-    let seed = 20261112;
-    const random = (n: number): number => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed % n; };
+    // East's seeded stream: the same runs each time it is run.
+    const next = randomStream(20261112);
+    const random = (n: number): number => Math.floor(next() * n);
     for (let run = 0; run < 300; run++) {
         const { heard, host } = listen();
         const gestures = makeGestures(host);
