@@ -132,6 +132,9 @@ type PlanLandings = PlanValue["landings"];
 /** The library pane's tabs, as the payload lists them (#1195). */
 type PlanLibraryTabs = PlanValue["library"];
 
+/** The Plan's link kinds, as its payload carries them (#1541, U10). */
+type PlanLinkKinds = PlanValue["linkKinds"];
+
 type Styles = Record<string, Record<string, unknown>>;
 
 // The memo compares CLOSURES too (#809). A Plan root is function-heavy — the
@@ -157,6 +160,11 @@ const NO_LANDINGS: PlanLandings = [];
 
 /** No library: no pane. */
 const NO_LIBRARY: PlanLibraryTabs = [];
+
+/** No link kind: a Plan of the links built in code alone. */
+const NO_LINK_KINDS: PlanLinkKinds = [];
+/** Whether two lists of link kinds read the same records, their functions compared by their IR and what they capture. */
+const linkKindsEquivalent = equivalentFor(PlanPayloadType.fields.linkKinds);
 
 /** Whether two libraries list the same tabs and cards: they hold data alone. */
 const libraryEqual = equalFor(PlanPayloadType.fields.library);
@@ -252,6 +260,8 @@ export interface EastChakraPlanProps {
     optimise?: ValueTypeOf<typeof FuncBindingType> | undefined;
     /** Whether the Plan's Autosave begins on — the payload carries its author's word; left out, off. */
     autosave?: boolean | undefined;
+    /** The link kinds (#1541, U10), whose links the canvas draws beside the root's own — the payload carries them; none, a Plan with none. */
+    linkKinds?: PlanLinkKinds | undefined;
 }
 
 /**
@@ -261,7 +271,7 @@ export interface EastChakraPlanProps {
  * @returns The Plan, in its frame
  */
 export const EastChakraPlan = memo(function EastChakraPlan({
-    value, storageKey, events, kinds, landings: givenLandings, library: given, inspector, followed = NONE_FOLLOWED, optimise, autosave,
+    value, storageKey, events, kinds, landings: givenLandings, library: given, inspector, followed = NONE_FOLLOWED, optimise, autosave, linkKinds,
 }: EastChakraPlanProps) {
     const library = useDataStable(given ?? NO_LIBRARY, libraryEqual);
     const id = getSomeorUndefined(value.id);
@@ -284,7 +294,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({
     const landings = givenLandings ?? NO_LANDINGS;
     const canvas = usePlanCanvas({
         value, storageKey, events, hidden, rowsHidden, eventKinds, panel, kinds: kinds ?? NO_KINDS,
-        landings, tabs: library, optimise, autosave: autosave === true,
+        landings, tabs: library, optimise, autosave: autosave === true, linkKinds: linkKinds ?? NO_LINK_KINDS,
     });
     return <>{canvas.provide(
         <PlanFrame canvas={canvas} root={value} kinds={kinds ?? NO_KINDS} landings={landings} library={library}
@@ -298,6 +308,7 @@ export const EastChakraPlan = memo(function EastChakraPlan({
     && sameEventRows(prev.events, next.events)
     && (prev.kinds === next.kinds || eventKindsEquivalent(prev.kinds ?? NO_KINDS, next.kinds ?? NO_KINDS))
     && (prev.landings === next.landings || landingsEqual(prev.landings ?? NO_LANDINGS, next.landings ?? NO_LANDINGS))
+    && (prev.linkKinds === next.linkKinds || linkKindsEquivalent(prev.linkKinds ?? NO_LINK_KINDS, next.linkKinds ?? NO_LINK_KINDS))
     && (prev.library === next.library || libraryEqual(prev.library ?? NO_LIBRARY, next.library ?? NO_LIBRARY)));
 
 /** Props of {@link PlanFrame}. */
@@ -569,7 +580,7 @@ function PlanPayloadFrame({ value, storageKey }: EastChakraPlanPayloadProps) {
                 <EastChakraPlan value={value.plan} storageKey={storageKey} events={events} kinds={value.events}
                     landings={value.landings} library={value.library} inspector={value.inspector}
                     followed={followed} optimise={getSomeorUndefined(value.optimise)}
-                    autosave={value.settings.autosave} />
+                    autosave={value.settings.autosave} linkKinds={value.linkKinds} />
             )}
         </FollowSources>
     );
