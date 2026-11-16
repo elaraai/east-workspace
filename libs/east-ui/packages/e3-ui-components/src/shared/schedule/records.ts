@@ -21,7 +21,8 @@ import {
     DateTimeType, EastTypeType, StringType, decodeBeast2For, encodeBeast2For, equalFor, fromEastTypeValue, isVariant, none, parseFor, some, variant, type EastType,
     type EastTypeValue, type StructType, type ValueTypeOf, type option,
 } from "@elaraai/east";
-import type { ScheduleKindType, SchedulePeriodsKindType } from "@elaraai/e3-ui/internal";
+import type { FieldSpecValue } from "@elaraai/east-ui/internal";
+import type { ScheduleFieldWriteType, ScheduleKindType, SchedulePeriodsKindType } from "@elaraai/e3-ui/internal";
 import type { EditHistory, EntryVersion } from "@elaraai/east-ui-components";
 import type { ScheduleChange, ScheduleEditingRecord, ScheduleEntryRef, ScheduleRowRead } from "./editing.js";
 import { meetsWindow } from "./window.js";
@@ -53,11 +54,33 @@ export function rowCodec(rowType: EastTypeValue): RowCodec {
     return codec;
 }
 
+/** One field written: its path, and its value as bytes at the field's type — what a kind's `write` and a record's `set` take. */
+export type ScheduleFieldWrite = ValueTypeOf<typeof ScheduleFieldWriteType>;
+
+/**
+ * A field of a form edited, as a record's `set` and an event kind's `write`
+ * take it: its path, and its value as bytes at the field's type — its form's
+ * spec's, else the row's own field's. What every builder's inspector turns a
+ * form's edit into.
+ *
+ * @param specs - The form's specs
+ * @param rowType - The record's row type
+ * @param path - The field's path
+ * @param next - Its new value
+ * @returns The write; `undefined` for a path no field is at
+ */
+export function fieldWrite(specs: readonly FieldSpecValue[], rowType: EastTypeValue, path: readonly string[], next: unknown): ScheduleFieldWrite | undefined {
+    const spec = specs.find(field => field.path.length === path.length && field.path.every((part, i) => stringEqual(part, path[i]!)));
+    const row = fromEastTypeValue(rowType) as StructType;
+    const type = spec !== undefined ? fromEastTypeValue(spec.type) as EastType : path.length === 1 ? row.fields[path[0]!] : undefined;
+    if (type === undefined) return undefined;
+    return { path: [...path], value: encodeBeast2For(type)(next as never) };
+}
+
 /**
  * A field of an event's row edited, as its kind writes it: the inspector's
- * form's edit of one of the fields no role of the builder's maps, its value as
- * bytes at the field's type — the kind's form's spec's, else the row's own
- * field's.
+ * form's edit of one of the fields no role of the builder's maps
+ * ({@link fieldWrite}).
  *
  * @param kind - The event kind: its form's specs and its row type
  * @param id - The event's key's text
@@ -67,11 +90,8 @@ export function rowCodec(rowType: EastTypeValue): RowCodec {
  */
 export function fieldChange(kind: Pick<ValueTypeOf<typeof ScheduleKindType>, "key" | "fields" | "editing">, id: string, path: readonly string[],
     next: unknown): ScheduleChange | undefined {
-    const spec = kind.fields.find(field => field.path.length === path.length && field.path.every((part, i) => stringEqual(part, path[i]!)));
-    const rowType = fromEastTypeValue(kind.editing.entryType) as StructType;
-    const type = spec !== undefined ? fromEastTypeValue(spec.type) as EastType : path.length === 1 ? rowType.fields[path[0]!] : undefined;
-    if (type === undefined) return undefined;
-    return { kind: kind.key, id, gesture: variant("field", { path: [...path], value: encodeBeast2For(type)(next as never) }) };
+    const write = fieldWrite(kind.fields, kind.editing.entryType, path, next);
+    return write === undefined ? undefined : { kind: kind.key, id, gesture: variant("field", write) };
 }
 
 /**

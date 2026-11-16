@@ -134,8 +134,7 @@
 import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Box, chakra, useRecipe, useSlotRecipe, type SystemStyleObject } from "@chakra-ui/react";
 import {
-    ArrayType, FloatType, StringType, StructType, encodeBeast2For, equalFor, fromEastTypeValue, none, some,
-    type EastType, type StructType as EastStructType, type option,
+    ArrayType, FloatType, StringType, StructType, equalFor, none, some, type option,
 } from "@elaraai/east";
 import { Fields, type FieldSpecValue } from "@elaraai/east-ui/internal";
 import {
@@ -150,7 +149,7 @@ import { keyFieldSpecs, kindKeys } from "../shared/schedule/kind-keys.js";
 import { askHiding, hiddenLine, hiddenOf, type RowHidden, type RowHiding, type SourceHiding } from "../shared/schedule/hidden.js";
 import type { HiddenPicks } from "../shared/schedule/hidden-pick.js";
 import { ScheduleInspectorHead } from "../shared/schedule/inspector-head.js";
-import { draftedRow, rowCodec } from "../shared/schedule/records.js";
+import { draftedRow, fieldWrite, rowCodec } from "../shared/schedule/records.js";
 import { entryRefusals, refusedFields, type RefusedFields } from "../shared/schedule/refusals.js";
 import { kindPlural } from "../shared/schedule/words.js";
 import { sameDay } from "../shared/schedule/window.js";
@@ -160,7 +159,7 @@ import type { SchematicCounts, SchematicDrawingCount, SchematicSavedRecord, Sche
 import type { SchematicValue } from "./data.js";
 import {
     NO_SESSION, connectStep, deleteEdits, editKinds, joinedPairs, linkRefusal, placeholderRefusal, retargetEdits, vetoOfPairs,
-    type ConnectVetoOf, type DeleteSelection, type EditRefusal, type NetLeg, type SchematicEdit, type SchematicFieldWrite, type SchematicKeyRefusal,
+    type ConnectVetoOf, type DeleteSelection, type EditRefusal, type NetLeg, type SchematicEdit, type SchematicKeyRefusal,
 } from "./edits.js";
 import { detailsKey, type SchematicEditing } from "./editing.js";
 import { joinsOf, nameOfEntity, type SchematicDrawnEntity, type SchematicInspected, type SchematicUnplaced } from "./inspect.js";
@@ -492,24 +491,6 @@ function useOwnDetails(author: OwnDetails | undefined, bytes: Uint8Array | undef
             return undefined;
         }
     }, [author, bytes, update, what]);
-}
-
-/**
- * A field of a form edited, as its record's `set` takes it: its path, and its
- * value as bytes at the field's type — its spec's, else the row's own field's.
- *
- * @param specs - The form's specs
- * @param rowType - The row type
- * @param path - The field's path
- * @param next - Its new value
- * @returns The write; `undefined` for a path no field is at
- */
-function fieldWrite(specs: readonly FieldSpecValue[], rowType: RecordSide["rowType"], path: readonly string[], next: unknown): SchematicFieldWrite | undefined {
-    const spec = specs.find((field) => field.path.length === path.length && field.path.every((part, i) => stringEqual(part, path[i]!)));
-    const row = fromEastTypeValue(rowType) as EastStructType;
-    const type = spec !== undefined ? fromEastTypeValue(spec.type) as EastType : path.length === 1 ? row.fields[path[0]!] : undefined;
-    if (type === undefined) return undefined;
-    return { path: [...path], value: encodeBeast2For(type)(next as never) };
 }
 
 /** A refusal's words, as the canvas says them. */

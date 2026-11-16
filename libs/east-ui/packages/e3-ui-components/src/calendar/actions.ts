@@ -9,6 +9,7 @@ import type { Origin } from "@elaraai/east-ui-components";
 import type { ScheduleChange, ScheduleEditing } from "../shared/schedule/editing.js";
 import { scheduleCellId } from "../shared/schedule/cells.js";
 import { durationMinutes } from "../shared/schedule/due.js";
+import { fieldChange } from "../shared/schedule/records.js";
 import { lowerWord } from "../shared/schedule/words.js";
 import {
     QUARTER, resourceKey, type CalendarItem, type CalendarKind, type CalendarRef, type CalendarResource, type CalendarRow, type CalendarTemplate, type CalendarValue,
@@ -199,11 +200,9 @@ export function calendarCommands(value: CalendarValue, editing: ScheduleEditing,
         },
         field(item, path, next) {
             const kind = kindOf(item); if (kind === undefined) return;
-            const spec = kind.fields.find(field => field.path.length === path.length && field.path.every((part, i) => part === path[i]));
-            const rowType = fromEastTypeValue(kind.editing.entryType) as StructType;
-            const type = spec?.type ?? (path.length === 1 ? rowType.fields[path[0]!] : undefined);
-            if (type === undefined) return;
-            editing.record([{ kind: item.kind, id: item.key, gesture: variant("field", { path: [...path], value: encodeBeast2For(type)(next as never) }) }], "typed", `Edit ${item.title}`);
+            // The form's edit as its kind writes it: the one rule every builder's inspector shares (`fieldChange`).
+            const change = fieldChange(kind, item.key, path, next);
+            if (change !== undefined) editing.record([change], "typed", `Edit ${item.title}`);
         },
         patch(items, fields) {
             const changes = items.flatMap(item => fields.map(field => ({ kind: item.kind, id: item.key,
