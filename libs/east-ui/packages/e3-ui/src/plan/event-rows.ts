@@ -55,7 +55,7 @@ import {
 import { planGutter, planRow } from "./assemble.js";
 import { bucketsKind, cardsKind, eventsKind, spanKind } from "./factories.js";
 import { planHideId } from "./library.js";
-import { PlanHiddenType, type PlanLanding, type PlanTreeLanding } from "./series.js";
+import { PlanHiddenType, type PlanTreeLanding } from "./series.js";
 
 // ============================================================================
 // The wire
@@ -140,7 +140,6 @@ export type PlanEventSeamType = typeof PlanEventSeamType;
  *
  * @property key - Its key: what an event kind's `resource.of` names, and its landing rows' ids' series
  * @property name - Its name, as a viewer reads it: the kinds' "on" words, the inspector's eyebrow
- * @property icon - Its Font Awesome icon
  * @property draws - The ways its kinds draw, in its rows' order: the landing row the first's, a row `<key>.<draw>` each of the rest's
  * @property kinds - The slots of the event kinds landing on it, in `events` order
  * @property series - The keys of its own series: the rows beneath each of its resources, at its path
@@ -150,7 +149,6 @@ export type PlanEventSeamType = typeof PlanEventSeamType;
 export const PlanLandingType = StructType({
     key: StringType,
     name: StringType,
-    icon: StringType,
     draws: ArrayType(PlanDrawType),
     kinds: ArrayType(StringType),
     series: ArrayType(StringType),
@@ -605,19 +603,16 @@ export function createEventSeam(
  *
  * @param landings - The landing series, in the series tree's order, a kinds block's cases in its variant's
  * @param events - The event kinds, by slot, in order
- * @param iconOf - Each landing's icon's name
  * @returns The landings on the wire
  * @internal
  */
 export function landingsOnWire(
     landings: readonly PlanTreeLanding[],
     events: readonly (readonly [string, AnyEventKind])[],
-    iconOf: (landing: PlanLanding) => string,
 ): ExprType<ArrayType<PlanLandingType>> {
     return East.value(landings.map((landing) => ({
         key: landing.key,
         name: landing.title,
-        icon: iconOf(landing),
         draws: eventDrawsOf(landing.key, events).map((draw) => variant(draw, null)),
         kinds: events.filter(([, k]) => k.takes.includes(landing.key)).map(([slot]) => slot),
         series: [...landing.series],

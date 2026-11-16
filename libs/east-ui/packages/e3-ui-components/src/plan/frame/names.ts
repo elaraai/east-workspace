@@ -71,17 +71,21 @@ export function useNamedResource(ref: PlanResourceRef | undefined): readonly Pla
  * @returns A resource's name: its landing row's on the canvas, else its row's once read by its key; `undefined` until then
  */
 export function usePlanResourceNames(inspect: PlanCanvasInspect | undefined, wanted: readonly PlanResourceRef[]): PlanResourceNames {
+    // The two reads a name is made of, each the same function while the rows it reads are: the names are read again, and
+    // the function returned made again, as the rows move — never as the canvas's drafts, scale or derivations do.
+    const resource = inspect?.resource;
+    const resourceByKey = inspect?.resourceByKey;
     // Each resource named that the canvas does not hold, read by its key — tracked, so a read in flight lands here.
     const read = useCallback((): ReadonlyMap<string, string> => {
-        if (inspect === undefined || wanted.length === 0) return NOTHING_READ;
+        if (resource === undefined || resourceByKey === undefined || wanted.length === 0) return NOTHING_READ;
         const out = new Map<string, string>();
         for (const ref of wanted) {
-            if (inspect.resource(ref) !== undefined) continue;
-            const name = getSomeorUndefined(inspect.resourceByKey(ref));
+            if (resource(ref) !== undefined) continue;
+            const name = getSomeorUndefined(resourceByKey(ref));
             if (name !== undefined && name.type === "some") out.set(printRef(ref), name.value);
         }
         return out;
-    }, [inspect, wanted]);
+    }, [resource, resourceByKey, wanted]);
     const { result } = useTrackedEvaluation(read);
     // The last names read stand while a read fails.
     const held = useRef(NOTHING_READ);
@@ -93,5 +97,5 @@ export function usePlanResourceNames(inspect: PlanCanvasInspect | undefined, wan
         held.current = result.value;
         return result.value;
     }, [result]);
-    return useCallback((ref: PlanResourceRef) => inspect?.resource(ref)?.gutter.label ?? named.get(printRef(ref)), [inspect, named]);
+    return useCallback((ref: PlanResourceRef) => resource?.(ref)?.gutter.label ?? named.get(printRef(ref)), [resource, named]);
 }

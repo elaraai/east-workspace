@@ -762,7 +762,7 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
         checkSchedulePagedEventKinds(paging, eventKinds, sources.names, "Plan");
         checkEventRows(landings, eventKinds, canvas.series, rows);
     }
-    const onWire = landingsOnWire(landings, eventKinds, landingIcon);
+    const onWire = landingsOnWire(landings, eventKinds);
     return Expr.block(($) => {
         const bound = sources.bind($);
         // The canvas's rows never follow the dates (#1344): a range on the `rows` source, which its controls name only as
@@ -775,7 +775,8 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
         // read through captures this block's constant, never the author's own variable, so it is the same function from
         // one evaluation of the author's block to the next.
         const data = bound.data[ROWS] ?? heldHandle($, canvas.data);
-        // The canvas first, then the event kinds, then the library: each refuses in that order.
+        // What the event kinds land on, and the keys the Plan gives its own rows, were checked above, before any of it
+        // was built. Here the canvas is built first, then the event kinds, then the library: each refuses in that order.
         // The binding the `rows` source narrows (#1438): what the canvas reads its rows' nested series index through.
         const rowsBinding = pagesRows ? (bound.parts[ROWS] as unknown as { source: ExprType<StructType> }).source : undefined;
         // What the canvas shows of its series (#1541, U3): the pick, bound and held here once — a constant, which a
@@ -840,19 +841,6 @@ export function createPlanPayload(props: PlanProps): ExprType<PlanPayloadType> {
 }
 
 /**
- * A landing series' icon's name (#1541, U1): its own, given by name or as a solid icon; else the resources' mark.
- *
- * @param landing - The landing series
- * @returns The Font Awesome name
- */
-function landingIcon(landing: PlanLanding): string {
-    const icon = landing.icon;
-    if (typeof icon === "string") return icon;
-    if (typeof icon === "object" && icon !== null && !(icon instanceof Expr) && typeof (icon as { name?: unknown }).name === "string") return (icon as { name: string }).name;
-    return "cubes";
-}
-
-/**
  * The words `<Plan>` refuses `resources` in (#1541, U1), naming what replaces it.
  *
  * @returns The refusal
@@ -902,7 +890,8 @@ function eventLandings(series: unknown, events: readonly (readonly [string, Sche
 /**
  * What a Plan of event kinds checks before it draws them (#1192, #1541): every key the Plan gives its own rows is no
  * other series' — a row's id is its series' key and its path: a landing row's further ways of drawing, and each
- * kind's Unassigned row.
+ * kind's Unassigned row. Two series of `series` that share a key are not its to refuse: the canvas's own check names
+ * both, and where each sits.
  *
  * @param landings - The series the event kinds land on
  * @param events - The event kinds, by slot
@@ -928,7 +917,9 @@ function checkEventRows(
         for (const draw of eventDrawsOf(landing.key, events).slice(1)) claim(`${landing.key}.${draw}`, `the ${draw} rows of "${landing.key}"`);
     }
     for (const [slot] of events) claim(`${slot}.unassigned`, `the Unassigned row of events.${slot}`);
-    for (const key of planSeriesKeys(series) ?? []) claim(key, "a series in `series`");
+    // Each of `series`' keys once: two of its series sharing one are the canvas's to refuse, which names both and where
+    // each sits in the tree.
+    for (const key of new Set(planSeriesKeys(series) ?? [])) claim(key, "a series in `series`");
     (rows ?? []).forEach((item, i) => {
         for (const key of overSeriesKeys(item) ?? []) claim(key, `rows[${i}] (Plan.over)`);
     });

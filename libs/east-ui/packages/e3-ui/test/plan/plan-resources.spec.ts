@@ -205,6 +205,9 @@ describe("a kinds block", () => {
             /Plan\.series\.kinds "what": every case of "what" says false — draw at least one/);
         assert.throws(() => Plan.series.kinds(Resource, "name" as never, {} as never),
             /Plan\.series\.kinds "name": "name" is no variant field of its rows/);
+        // A case names its resources: one with no `label` is refused by its name.
+        assert.throws(() => Plan.series.kinds(Resource, "what", { press: { title: "Presses" }, crew: false, bay: false } as never),
+            /^Error: Plan\.series\.kinds "what": case "press": `label` is the resource's name in the gutter, a function of the row — label: \(row\) => row\.name$/);
     });
 
     test("a case's key is unique across the series tree, as every series' is", () => {
@@ -315,6 +318,9 @@ describe("#1541 §3.5's series", () => {
             /gives no `label` — each of its rows is an entry's, named by it/);
         // Beneath a resource it builds, named by its title.
         assert.doesNotThrow(() => Plan.series.resources(Press, { key: "presses", title: "Presses", label: (p) => p.name, series: [unlabelled()] }));
+        // A resources series names its own rows: with no `label` it is refused by its key.
+        assert.throws(() => Plan.series.resources(Press, { key: "presses", title: "Presses" } as never),
+            /^Error: Plan\.series\.resources "presses": `label` is the resource's name in the gutter, a function of the row — label: \(row\) => row\.name$/);
     });
 });
 

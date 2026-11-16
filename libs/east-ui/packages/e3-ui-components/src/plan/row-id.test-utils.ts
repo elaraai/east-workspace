@@ -5,12 +5,13 @@
 
 /**
  * A Plan row's id, as the package's tests and specs name one (test use): by
- * the series that made it and the path of keys to it — written once, for
- * every test that names a row.
+ * the series that made it and the path of keys to it — the renderer's own
+ * maker of an entry row's id (`landingRowId`), named once for every test that
+ * names a row.
  *
  * @packageDocumentation
  */
-import { variant } from "@elaraai/east";
+import { landingRowId } from "./root/landings.js";
 import type { PlanRowId } from "./row-key.js";
 
 /**
@@ -20,4 +21,4 @@ import type { PlanRowId } from "./row-key.js";
  * @param path - Its path: the keys to it, its group's first
  * @returns The id
  */
-export const entry = (series: string, ...path: string[]): PlanRowId => variant("entry", { series, path });
+export const entry = (series: string, ...path: string[]): PlanRowId => landingRowId(series, path);

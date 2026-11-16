@@ -1234,24 +1234,27 @@ export function usePlanCanvas({
         }
         return { byRef, bySeries };
     }, [index, landings]);
+    // A resource's landing row (#1541), and one the canvas does not hold named by its landing row read by its key
+    // (#1199, #1541) — the rows as the canvas draws them, its drafts in place, and one the slice's `rows` source leaves
+    // out, which they never find, among every row the source narrows. Each is its own function, the same while what it
+    // reads is, so a pane's names are made again as the rows move and never as a draft, the scale or a derivation does.
+    const resource = useCallback<PlanCanvasInspect["resource"]>((ref) => resourceRows.byRef.get(scheduleCellId(ref.kind, ref.key)), [resourceRows]);
+    const resourceByKey = useCallback<PlanCanvasInspect["resourceByKey"]>((ref) => {
+        const landing = landingsByKey.get(ref.kind);
+        const drawn = landingNameByKey(rowsDrawn, landing, ref.key);
+        const left = drawn.type === "some" && drawn.value.type === "none";
+        return left && rowsUnnarrowed !== undefined ? landingNameByKey(rowsUnnarrowed, landing, ref.key) : drawn;
+    }, [landingsByKey, rowsDrawn, rowsUnnarrowed]);
     // What the inspector reads of the rows (#1197): a row, what it draws at a bucket — as the canvas draws it — and a
-    // resource's landing row (#1541), a series' every one only where the canvas holds them all.
+    // resource's landing row, a series' every one only where the canvas holds them all.
     const inspect = useMemo<PlanCanvasInspect>(() => ({
         row: (key) => index.byKey.get(key),
         valueAt: (key, at) => {
             const row = index.byKey.get(key);
             return row === undefined || scale === undefined ? undefined : rowValueAt(row, derived, scale, words, at);
         },
-        resource: (ref) => resourceRows.byRef.get(scheduleCellId(ref.kind, ref.key)),
-        // A resource it does not hold, named by its landing row read by its key (#1199, #1541): the rows as the canvas
-        // draws them, its drafts in place — and one the slice's `rows` source leaves out, which they never find, among
-        // every row the source narrows.
-        resourceByKey: (ref) => {
-            const landing = landingsByKey.get(ref.kind);
-            const drawn = landingNameByKey(rowsDrawn, landing, ref.key);
-            const left = drawn.type === "some" && drawn.value.type === "none";
-            return left && rowsUnnarrowed !== undefined ? landingNameByKey(rowsUnnarrowed, landing, ref.key) : drawn;
-        },
+        resource,
+        resourceByKey,
         resources: (landing) => (paged ? undefined : resourceRows.bySeries.get(landing) ?? NO_RESOURCE_ROWS),
         // What the session the rows save through refuses of the entry a row came from (#1541, U5), read as the pane draws:
         // a read-only row, an Unassigned row, or a Plan whose rows save through none, has none.
@@ -1259,7 +1262,7 @@ export function usePlanCanvas({
             const at = sourceEntries.get(key);
             return at === undefined || !editing.enabled ? NO_REFUSALS : sessionEntryRefusals(editing.session, at);
         },
-    }), [index, derived, scale, words, resourceRows, rowsDrawn, rowsUnnarrowed, landingsByKey, paged, sourceEntries, editing.enabled, editing.session]);
+    }), [index, derived, scale, words, resource, resourceByKey, resourceRows, paged, sourceEntries, editing.enabled, editing.session]);
     // Events selected from the frame (#1198) — the overlaps chip's pair, the
     // inspector's banner, a duplicate the inspector made (#1194): on the row
     // given, else the row that draws the first, which the controller brings

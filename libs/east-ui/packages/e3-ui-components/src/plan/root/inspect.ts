@@ -48,19 +48,23 @@ export interface PlanCanvasInspect {
      * A resource's landing row (#1541): the row of the series an event's resource names whose path ends in its key, as
      * the canvas holds it — what the panes name the resource by.
      *
+     * The same function while the rows it reads are: a pane's names are made again only as they move.
+     *
      * @param ref - The resource: its series' key and its key's text
      * @returns Its row; `undefined` for one the canvas does not hold — over rows read a page at a time, one not read
      */
-    resource(ref: { readonly kind: string; readonly key: string }): PlanRowValue | undefined;
+    readonly resource: (ref: { readonly kind: string; readonly key: string }) => PlanRowValue | undefined;
     /**
      * A resource's name where the canvas does not hold its landing row (#1199, #1541): its row read by its key
      * ({@link landingNameByKey}) — among the canvas's rows, then, for one the slice's `rows` source leaves out, among
      * every row the source narrows. Called inside a tracked evaluation, so a pane names it once the read lands.
      *
+     * The same function while the rows it reads through are.
+     *
      * @param ref - The resource: its series' key and its key's text
      * @returns `none` while the read is in flight; `some(none)` where no row is read for it; else `some(some(name))`
      */
-    resourceByKey(ref: { readonly kind: string; readonly key: string }): option<option<string>>;
+    readonly resourceByKey: (ref: { readonly kind: string; readonly key: string }) => option<option<string>>;
     /**
      * A series' resources, its landing rows in the canvas's order (#1541): what the bulk edit offers.
      *

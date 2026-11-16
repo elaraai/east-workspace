@@ -11,7 +11,7 @@
  * @packageDocumentation
  */
 
-import { ArrayType, equalFor, none, some, variant, type ValueTypeOf } from "@elaraai/east";
+import { ArrayType, StringType, equalFor, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Plan } from "@elaraai/e3-ui/internal";
 import { getSomeorUndefined, type TickFormatOpt } from "@elaraai/east-ui-components";
 import { instantOrder, type PlanAxisKind, type PlanInstantValue } from "./instant.js";
@@ -418,17 +418,37 @@ function inheritedFormat(arms: readonly HeatCellsValue[]): HeatCellsValue["value
     return none;
 }
 
-/** Every span run across a subtree (any depth), skipping the runs of
- *  diagnostic rows — a row that cannot be placed rolls up nothing (#811). */
+const samePath = equalFor(ArrayType(StringType));
+
+/**
+ * Whether a row nested under another is a row of the same entry: one at its
+ * parent's own path, as a resource's own series is drawn over the resource's
+ * row (#1541), where a row beneath an entry stands at a longer path.
+ *
+ * @param row - The nested row
+ * @param parent - The row it is nested under
+ * @returns Whether both are rows of one entry
+ */
+function ofOneEntry(row: PlanRowValue, parent: PlanRowValue): boolean {
+    return samePath(row.id.value.path, parent.id.value.path);
+}
+
+/** Every span run of the rows beneath a row (any depth): the entries under
+ *  it, never another row of its own entry nor what stands under one — a
+ *  resource's bands roll up the resources beneath it, not its own series'
+ *  runs or theirs (#1541) — skipping the runs of diagnostic rows, since a row
+ *  that cannot be placed rolls up nothing (#811). */
 function subtreeRuns(index: PlanRowIndex, key: RowKey, diagnosed: ReadonlyMap<RowKey, PlanRowDiagnostic>): RunValue[] {
     const out: RunValue[] = [];
-    const walk = (k: RowKey) => {
-        for (const child of index.children.get(k) ?? []) {
+    const walk = (parent: PlanRowValue) => {
+        for (const child of index.children.get(parent.key) ?? []) {
+            if (ofOneEntry(child, parent)) continue;
             if (child.kind.type === "span" && !diagnosed.has(child.key)) appendAll(out, child.kind.value.runs);
-            walk(child.key);
+            walk(child);
         }
     };
-    walk(key);
+    const top = index.byKey.get(key);
+    if (top !== undefined) walk(top);
     return out;
 }
 

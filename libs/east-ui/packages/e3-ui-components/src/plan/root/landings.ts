@@ -116,9 +116,9 @@ export function landingSeriesTargetOf(id: PlanRowId, landings: readonly PlanLand
  * @returns The row's id; `undefined` for a resource of a landing the kind's way of drawing has no row on
  */
 export function kindRowId(kind: PlanEventKindValue, target: PlanLandingTarget): PlanRowId | undefined {
-    if (target.kind === "unassigned") return variant("entry", { series: `${kind.key}.unassigned`, path: [kind.draw.type] }) as PlanRowId;
+    if (target.kind === "unassigned") return landingRowId(`${kind.key}.unassigned`, [kind.draw.type]);
     const series = drawSeries(target.landing, kind.draw.type);
-    return series === undefined ? undefined : variant("entry", { series, path: [...target.path] }) as PlanRowId;
+    return series === undefined ? undefined : landingRowId(series, target.path);
 }
 
 /**

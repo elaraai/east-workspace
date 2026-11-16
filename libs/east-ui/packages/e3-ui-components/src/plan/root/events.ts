@@ -80,7 +80,7 @@ import type { PlanInstantValue } from "../instant.js";
 import { windowedArm, type PlanPagedSourceValue } from "../use-plan-paging.js";
 import type { ScheduleCellsRead } from "../../shared/schedule/cells.js";
 import { usePlanCells, type PlanCellSpanStore, type PlanCellsArgs } from "./cells.js";
-import type { PlanLandingValue } from "./landings.js";
+import { landingRowId, type PlanLandingValue } from "./landings.js";
 
 /** The payload's seam, decoded: the events of a range, filed, and how they join any rows (#1541). */
 export type PlanEventSeamValue = ValueTypeOf<typeof PlanEventSeamType>;
@@ -526,8 +526,9 @@ function isEventEnd(end: PlanLinkEnd): boolean {
 /**
  * A root's links with each event end named where its event draws: the row
  * holding the element whose key is the event's ref as East prints it, and
- * that key — over rows read a page at a time, the resource's row by its id,
- * from the events placed (see the module docs).
+ * that key — over rows read a page at a time, for an event on a row no window
+ * holds, the resource's row by its id, from the events placed, where the
+ * resource is an entry of the rows (see the module docs).
  *
  * @param links - The root's links
  * @param blocks - The rows with the events joined in, when they are all at hand
@@ -544,17 +545,23 @@ export function resolveEventLinks(
     for (const block of blocks) {
         for (const row of block.rows) for (const key of elementKeysOf(row)) where.set(key, row.id);
     }
-    // Over rows read a page at a time (#1199, #1541): an event on its resource's row, named from the event alone — its
-    // landing series' row for the first way its kinds draw, `<landing>.<draw>` for each further one.
+    // Over rows read a page at a time (#1199, #1541): an event on a row the page does not hold is named from the event
+    // alone — its landing series' row for the first way its kinds draw, `<landing>.<draw>` for each further one — where
+    // its resource is an entry of the rows, its row's path its key alone. A resource nested beneath another row stands
+    // at a path the event does not say: its row names the event once a window holds it, as every row found above does,
+    // which a name made here never replaces.
     if (placed !== undefined && landings !== undefined) {
         for (const landing of landings) {
-            const byDraw = placed.on.get(landing.key);
+            const byDraw = landing.top ? placed.on.get(landing.key) : undefined;
             if (byDraw === undefined) continue;
             landing.draws.forEach((draw, i) => {
                 const series = i === 0 ? landing.key : `${landing.key}.${draw.type}`;
                 for (const [resource, list] of byDraw.get(draw.type) ?? []) {
-                    const row: PlanRowId = variant("entry", { series, path: [resource] });
-                    for (const one of list) where.set(printEventRef({ kind: one.item.kind, key: one.item.key }), row);
+                    const row = landingRowId(series, [resource]);
+                    for (const one of list) {
+                        const key = printEventRef({ kind: one.item.kind, key: one.item.key });
+                        if (!where.has(key)) where.set(key, row);
+                    }
                 }
             });
         }

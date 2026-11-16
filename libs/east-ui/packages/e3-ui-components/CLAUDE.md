@@ -363,7 +363,7 @@ the first leading, and the date navigator, the horizon brush, the keys and the
 resolution write each of them (`writePlanWindow`); a source that holds none
 takes it unless that would replace a choice of its own
 (`recordSliceWindowFits`). The canvas's rows never follow the dates: the
-`rows` source and each resource kind's hold no window (`planRowSources`), so a
+`rows` source holds no window (`PLAN_ROW_SOURCES`), so a
 pan reads no row and the rows in view stay where they are; a canvas whose
 slice has no source holding the window holds its own (`PlanWindowHold`), which
 the same controls move, the brush's horizon the axis's stated window and the
@@ -380,9 +380,9 @@ series read where it reads a nested series index (`PlanWindowHold.span`), so
 the year shows the works' ten years. The
 Plan reads its event kinds' rows, counts and backlog and the selected events
 in components of their own (`PlanEventsReader`, `PlanKindsReader`,
-`PlanSelectionReader`). An event kind placed on a paged resource kind, whose
-source lists a series and a summary index (#1039) — the only form the Plan
-takes there — is read a cell at a time by the shared schedule reader
+`PlanSelectionReader`). An event kind over rows read a page at a time (#1541),
+whose source lists a series and a summary index (#1039) — the only form the
+Plan takes there — is read a cell at a time by the shared schedule reader
 (`shared/schedule/cells.ts`' `useScheduleCells`, which holds no Plan type, so
 the Calendar reads through it next) through the Plan's adapter (`root/cells.ts`'
 `usePlanCells`: the payload's paged seam, its links, its rows' ids and the span
@@ -421,14 +421,14 @@ are — and one line names what it does not count (`Print jobs and Press check
 hours not counted: too many to draw at this resolution`). A kind hidden in the
 Series tab is in none of these figures, read by its cells or counted, and
 nothing says so (`frame/hidden.ts`' `hides`); its backlog is the Backlog
-tab's still. A selected row of the paged kind whose cells the reader does not
+tab's still. A selected resource's row, over paged rows, whose cells the reader does not
 hold — scrolled out of the blocks read, or before the first read lands: not
 in the reader's `drawn` — draws its facts as the shared placeholders
 (`PlaceholderShape`), never 0, until they land, and the counts wait for a
 kind's cells to land once before they count its hours. The selected events of
-a kind given cells are read again as its cells move. A
-paged resource kind its source narrows (#1344) pages that source's
-narrowed rows themselves, in its index's order: the canvas's source over the
+a kind given cells are read again as its cells move. Rows
+read a page at a time that the `rows` source narrows (#1344) are paged from
+that source's narrowed rows themselves, in its index's order: the canvas's source over the
 payload's `paged` is a live one, so a choice is a new result, the last view
 standing in, retained, until its first window lands; the frame follows no such
 source (`planFollowedSources`), so none of its keys is scanned; and the span
@@ -548,8 +548,8 @@ builder supplies only its own:
   lines are listed again as the layout comes to lay resources out or leaves
   off, and a pick steps to the event's period and selects it. The time grids,
   the month and the agenda narrow no event by its resource, and name none.
-- **The Plan**: the source of the rows it pages, its `rows` source or a paged
-  resource kind's (`plan/find.ts`, #1513): the box seeks and
+- **The Plan**: the source of the rows it pages, its `rows` source
+  (`plan/find.ts`, #1513): the box seeks and
   lists the rows the page holds of the record — the record's own, or, on a
   page whose source holds a scope, the scope's alone (#1621) — as the binding
   reads them with no choice of the viewer's — by key where it joins its rows,
@@ -2406,7 +2406,7 @@ be"): Rows its own count, as the rail counts it, and Measures the chart rows
 it makes — its count times what each entry makes across the paged blocks,
 beside the chart rows of the blocks no entry makes — where every entry makes as
 many, as each block says of its series (the IR's `charts`: a chart series' one,
-a views entry's chart members, a paged resource kind's chart measures the
+a views entry's chart members, a resource's chart series the
 viewer shows), and `not counted`, as the Plan's event counts say theirs, where
 a `match` or children decide it by entry; `…` while the source has not counted
 itself or a new narrowing's rows are read (`plan-narrow.dom.test.tsx`). The
@@ -2649,7 +2649,7 @@ Allocation's Table keeps the line its view rested on so too, once the
 narrowing's rows are in (`useRowAnchor`'s `narrowing`: the board's narrowing as
 text, the bins' own choices and its lanes', resources' and arrivals'). A
 bounded Plan keeps the row at the top of its view across a new narrowing of its
-paged rows — the `rows` source's or a paged resource kind's (#1344) — by its key
+paged rows, the `rows` source's (#1344), by its key
 and the px into it where the new rows' first windows draw it, and else starts
 at the top, telling the paging driver nothing of where the view rested
 meanwhile; it seeks none, a narrowing's searches running in its index's order. The

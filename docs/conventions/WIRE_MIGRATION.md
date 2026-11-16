@@ -1292,7 +1292,7 @@ Each wire changed under this rule, with the kind it is.
   windows (`PlanEventPagedType`), becomes a Boolean, whether the canvas's rows
   are read a page at a time. It gains `landings`, after `plan`: the series of
   its own rows the event kinds land on (`PlanLandingType`), each resources
-  series and `kinds` case by its key, with its name, its icon, the ways its
+  series and `kinds` case by its key, with its name, the ways its
   kinds draw, the kinds landing on it, its own series' keys, and whether its
   resources are the canvas's own entries, read by their keys over rows read a
   page at a time. And it gains `seam`, after `events`: how the events join the

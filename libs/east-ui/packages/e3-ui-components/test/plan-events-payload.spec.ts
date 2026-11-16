@@ -124,8 +124,8 @@ describe("the payload (PB8, PB11)", () => {
         assert.equal(payload.plan.editing.type, "none");
         assert.deepEqual(payload.plan.links, []);
         // The series the jobs land on, as the canvas reads it.
-        assert.deepEqual(payload.landings.map((l) => [l.key, l.name, l.icon, l.draws.map((d) => d.type), l.kinds, l.series]), [
-            ["presses", "Presses", "print", ["span"], ["job"], []],
+        assert.deepEqual(payload.landings.map((l) => [l.key, l.name, l.draws.map((d) => d.type), l.kinds, l.series, l.top]), [
+            ["presses", "Presses", ["span"], ["job"], [], true],
         ]);
         // The jobs: bars on the presses, twenty-two in the window and eight in the backlog.
         const [jobs, ...more] = payload.events;
@@ -204,8 +204,9 @@ describe("the payload (PB8, PB11)", () => {
         });
         // Two series the kinds land on — the crews, and the presses with their utilisation beneath each — in the variant's
         // case order; each hall a strip, the presses' sub lines their speeds.
-        assert.deepEqual(payload.landings.map((l) => [l.key, l.name, l.draws.map((d) => d.type), l.kinds, l.series]), [
-            ["crews", "Crews", ["cards"], ["shift"], []], ["presses", "Presses", ["span", "marks"], ["job", "stop"], ["util"]],
+        // Each stands under a hall's strip, so its resources are no entries of the canvas's own.
+        assert.deepEqual(payload.landings.map((l) => [l.key, l.name, l.draws.map((d) => d.type), l.kinds, l.series, l.top]), [
+            ["crews", "Crews", ["cards"], ["shift"], [], false], ["presses", "Presses", ["span", "marks"], ["job", "stop"], ["util"], false],
         ]);
         const own = blocksOf(payload)[0]!.rows;
         const a1 = own.find((r) => rowIds([r.id], [entry("presses", "1-presses-a", "a1")]));
@@ -232,6 +233,23 @@ describe("the payload (PB8, PB11)", () => {
         assert.ok(rowIds([chart!.id], [variant("entry", { series: "", path: ["output"] })]));
         // The grain, on the canvas.
         assert.equal(payload.plan.grain.type === "some" ? payload.plan.grain.value.type : "", "resource");
+    });
+
+    test("a landing in a section at the top is of the canvas's own entries, as one at the top is: a section draws its entries by its members (#1541)", async () => {
+        const payload = await payloadOf(($) => {
+            const jobs = $.let(Record.bind(ex.planPrintJobs, ["patch"]));
+            const { data, series } = pressesOf($);
+            return Plan.Payload({
+                axis: Plan.axis({ window: WINDOW, resolution: "day" }),
+                data,
+                series: [Plan.series.section(ex.PrintPress, { key: "works", title: "Works" }, series)],
+                events: { job: Schedule.events(jobs, { name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end", resource: { field: "press", of: "presses" } }) },
+            });
+        });
+        assert.deepEqual(payload.landings.map((l) => [l.key, l.top]), [["presses", true]]);
+        // Each press's row is at its own key, under the section's header: an entry of the rows, found by it.
+        const rows = blocksOf(payload).flatMap((b) => b.rows).filter((r) => r.id.type === "entry");
+        assert.ok(rowIds(rows.map((r) => r.id), ["a1", "a2", "a3", "b1", "b2", "b3"].map((k) => entry("presses", k))), rows.map((r) => printId(r.id)).join("\n"));
     });
 
     test("each kind's templates are a record of its own, read whole and naming their source of the slice: a span kind's run as long as each says, an instant kind's are one time (#1344)", async () => {

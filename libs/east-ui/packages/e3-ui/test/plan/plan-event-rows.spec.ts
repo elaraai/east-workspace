@@ -105,5 +105,15 @@ describe("the event rows' refusals", () => {
                 rows: [Plan.over(stock, [Plan.series.table(ex.PrintStock, { key: "presses.marks", title: "Stock", label: (s) => s.name })])],
             });
         }), /^Plan: the marks rows of "presses" and rows\[0\] \(Plan\.over\) have the same key, "presses\.marks"/);
+        // Two series of `series` that share a key are the canvas's to refuse: it names both, and where each sits.
+        assert.equal(refusal(($) => Plan.Payload({
+            axis, events: { job: jobsOf($) }, data: pressRows($),
+            series: [
+                presses(),
+                Plan.series.events(ex.PrintPress, { key: "marks", title: "Marks", label: (p) => p.name, marks: () => [] }),
+                Plan.series.events(ex.PrintPress, { key: "marks", title: "Checks", label: (p) => p.name, marks: () => [] }),
+            ],
+        })), 'Plan: two series share the key "marks" — series[1] events "Marks" and series[2] events "Checks". A row\'s id is its ' +
+            "series key and its path, so every series key must be unique across the whole series tree.");
     });
 });

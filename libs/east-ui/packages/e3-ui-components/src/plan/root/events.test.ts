@@ -25,6 +25,7 @@ import { SortedMap, StringType, compareFor, none, printFor, some, variant } from
 import { ScheduleEventRefType } from "@elaraai/e3-ui/internal";
 import type { PlanLinkValue, PlanRootValue, PlanRowId, PlanWireBlock, PlanWireRow } from "../model.js";
 import { NO_EDITS, rowId, timeAt, utcAt } from "../plan.test-utils.js";
+import { entry } from "../row-id.test-utils.js";
 import { planScale, type PlanScale } from "../scale.js";
 import type { PlanPagedSourceValue } from "../use-plan-paging.js";
 import {
@@ -56,9 +57,9 @@ const eventEnd = (kind: string, key: string) => ({ row: variant("entry", { serie
 const link = (key: string, from: unknown, to: unknown): PlanLinkValue =>
     ({ key, from, to, quantity: some({ value: 1, unit: none, format: none, text: none }) }) as PlanLinkValue;
 
-/** A series the event kinds land on, drawing the ways given, its landing row the first's. */
-const landing = (key: string, draws: readonly string[]): PlanLandingValue =>
-    ({ key, name: key, icon: "cubes", draws: draws.map((draw) => variant(draw, null)), kinds: [], series: [] }) as unknown as PlanLandingValue;
+/** A series the event kinds land on, drawing the ways given, its landing row the first's: its resources the rows' own entries unless said. */
+const landing = (key: string, draws: readonly string[], top = true): PlanLandingValue =>
+    ({ key, name: key, draws: draws.map((draw) => variant(draw, null)), kinds: [], series: [], top }) as unknown as PlanLandingValue;
 
 /** Presses, whose landing row draws bars, beside a row of tiles and one of marks; crews, whose landing row draws chips. */
 const LANDINGS = [landing("presses", ["span", "buckets", "marks"]), landing("crews", ["cards"])];
@@ -160,6 +161,19 @@ describe("a link's event ends (#1192)", () => {
         ]);
         // Without the events placed, they are ends no row has.
         expect(resolveEventLinks(links, BLOCKS)[0]).toEqual(links[0]);
+    });
+
+    test("over rows read a page at a time, a resource nested beneath another row is named by the row a window holds, never from the event alone (#1541)", () => {
+        // The halls' presses: a press's row stands under its hall, its path its hall and then its key.
+        const nested = [landing("presses", ["span", "marks"], false)];
+        const held = entry("presses", "hall-a", "a1");
+        const blocks = [{ fixed: false, parent: none, charts: none, rows: [row(held, BLOCKS[0]!.rows[0]!.kind)] }] as unknown as PlanWireBlock[];
+        // J-1's bar is on a row a window holds; W-1's press is in none.
+        const placed = placedOn([["presses", "span", "a1", "job", "J-1"], ["presses", "span", "b9", "job", "W-1"]]);
+        const links = [link("held-to-unread", eventEnd("job", "J-1"), eventEnd("job", "W-1"))] as PlanRootValue["links"];
+        // The row found keeps its own id, its hall in its path; an event on a press no window holds keeps its end, where
+        // a row named by the press's key alone would be no row of the canvas.
+        expect(resolveEventLinks(links, blocks, placed, nested)).toEqual([{ ...links[0], from: { row: held, run: elementKey("job", "J-1") } }]);
     });
 
     test("a section at no path is no event, and links that name none come back as they were — the same array", () => {

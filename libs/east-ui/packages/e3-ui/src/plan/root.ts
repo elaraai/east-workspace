@@ -99,7 +99,7 @@ import { checkPlanNested, nestedPartOf, planNestedIndex, type PlanNestedIndex, t
 import { planNestedRestatement } from "./nested-patch.js";
 import { PlanNestedType, planNestedUses } from "./nested-read.js";
 import { pickRefusal, planShown, type PlanShown } from "./pick.js";
-import { checkSeries, seriesApplyFn, seriesWriteFn, PlanCarriedType, PlanHiddenType, type PlanSeriesInput } from "./series.js";
+import { checkSeries, planLandings, seriesApplyFn, seriesWriteFn, PlanCarriedType, PlanHiddenType, type PlanSeriesInput } from "./series.js";
 
 
 // ============================================================================
@@ -572,7 +572,12 @@ export function buildPlanRoot(config: PlanCanvasOptions, extra: ExprType<PlanBlo
         // narrowing narrows, made by the same series — what a pane names a resource the narrowing leaves out by, its row
         // read by its key, where the narrowing's own key search finds none of them.
         // Its entries come as the canvas's own do: in an index's order, where the binding serves them so.
-        const every = rowsBinding === undefined ? undefined : resolveRowSource(rowsBinding as unknown as SubtypeExprOrValue<EastType>, "Plan");
+        // Only a resource that is an entry of the rows is read by its key among them: with no landing at the top of the
+        // series, none is, and the Plan carries no second source of its rows. A series list not known until it runs
+        // may hold one.
+        const landings = planLandings(seriesInput);
+        const named = landings === undefined || landings.some((landing) => landing.top);
+        const every = rowsBinding === undefined || !named ? undefined : resolveRowSource(rowsBinding as unknown as SubtypeExprOrValue<EastType>, "Plan");
         const everyOrdered = every?.kind === "ordered" ? orderedPlanSource(every) : undefined;
         const unnarrowed = every === undefined ? undefined
             : buildCarriedRowSource(every, PlanBlocksType, (source) => (everyOrdered === undefined ? apply(source) : everyOrdered.make(apply, source)),

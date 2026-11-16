@@ -39,17 +39,22 @@ async function payloadOf(build: ($: BlockBuilder<typeof PlanPayloadType>) => Exp
     return East.compile(program, implementations)() as Payload;
 }
 
-/** The jobs as the canvas's rows, through the slice's `rows` source over their interval index — naming a range of their starts, or not. */
-const rowsPlan = (range: boolean) => ($: BlockBuilder<typeof PlanPayloadType>) => {
+/**
+ * The jobs as the canvas's rows, through the slice's `rows` source over their interval index — naming a range of their
+ * starts, or not; each a row of bars, or a resource an event kind could land on.
+ */
+const rowsPlan = (range: boolean, landing = false) => ($: BlockBuilder<typeof PlanPayloadType>) => {
     const source = { source: Data.bindPaged(events.planPrintJobs, { indexes: ["plan_print_jobs_by_time"] }), fields: { start: { label: "Dates" } } };
     const slice = $.let(Slice.bindRecords("spec.rows.range", { rows: range ? { ...source, range: "start" as const } : source }));
     return Plan.Payload({
         axis: Plan.axis({ window: WINDOW, resolution: "day" }),
         slice: { slice },
-        series: [Plan.series.span(events.PrintJob, {
-            key: "jobs", title: "Jobs", label: (j) => j.title,
-            runs: (j, k) => [Plan.run({ key: k, start: j.start.unwrap("some"), end: j.end.unwrap("some"), label: j.title, state: "confirmed" })],
-        })],
+        series: [landing
+            ? Plan.series.resources(events.PrintJob, { key: "jobs", title: "Jobs", label: (j) => j.title })
+            : Plan.series.span(events.PrintJob, {
+                key: "jobs", title: "Jobs", label: (j) => j.title,
+                runs: (j, k) => [Plan.run({ key: k, start: j.start.unwrap("some"), end: j.end.unwrap("some"), label: j.title, state: "confirmed" })],
+            })],
     });
 };
 
@@ -60,5 +65,12 @@ describe("a range on the canvas's rows' source is refused as the payload is eval
         // Left out, the field is the rail's: the Plan builds.
         const payload = await payloadOf(rowsPlan(false));
         assert.equal(payload.plan.slice.type, "some");
+    });
+
+    test("the root carries every row the `rows` source narrows only where a resource is read by its key among them: a series an event kind lands on, at the top (#1541)", async () => {
+        // Rows of bars name no resource: no second source of the rows rides the payload.
+        assert.equal((await payloadOf(rowsPlan(false))).plan.unnarrowed.type, "none");
+        // A resources series at the top: a resource the narrowing leaves out is named from every row it narrows.
+        assert.equal((await payloadOf(rowsPlan(false, true))).plan.unnarrowed.type, "some");
     });
 });

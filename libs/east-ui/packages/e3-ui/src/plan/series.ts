@@ -1455,9 +1455,9 @@ export interface PlanLanding {
  *
  * @internal
  * @property within - The keys of the series it is nested in, outermost first
- * @property top - Whether its resources are the canvas's own entries — it is at the top of the series list, or a case of
- *   a kinds block there, which deals the entries out — so one is found by its key among them; beneath another series'
- *   rows, each is no entry of theirs
+ * @property top - Whether its resources are the canvas's own entries — it is at the top of the series list, a case of a
+ *   kinds block there, which deals the entries out, or a member of a section there, which draws them — so one is found
+ *   by its key among them; beneath another series' rows, each is no entry of theirs
  */
 export interface PlanTreeLanding extends PlanLanding {
     readonly within: readonly string[];
@@ -1529,6 +1529,19 @@ function shapeOf(collection: EastType, where: string): { entry: EastType; key: E
     if (collection.type === "Dict") return { entry: collection.value, key: collection.key };
     if (collection.type === "Array") return { entry: collection.value, key: IntegerType };
     throw new Error(`${where}: entries come from a Dict (keyed) or an Array (by index) — got a ${collection.type}`);
+}
+
+/**
+ * An entry as an accessor receives it: its node, where the rows nest more of
+ * themselves — a recursive entry's fields are read off its node at every
+ * depth — else the entry itself.
+ *
+ * @param rowType - The entry type
+ * @returns The node of an entry value
+ */
+function entryNodeOf(rowType: EastType): (value: ExprType<EastType>) => ExprType<EastType> {
+    const recursive = (rowType as { type: string }).type === "Recursive";
+    return (value) => (recursive ? (value as unknown as RecursiveExpr<EastType>).unwrap() as ExprType<EastType> : value);
 }
 
 /** Refuse a collection whose entries are not the series' entry type. */
@@ -1664,10 +1677,10 @@ function childRefOf(
     keyType: EastType,
     accessor: (v: ExprType<EastType>, k: ExprType<EastType>) => Expr,
 ): ChildRef | undefined {
-    const recursive = (rowType as { type: string }).type === "Recursive";
+    const nodeOf = entryNodeOf(rowType);
     let found: ChildRef | undefined;
     East.function([rowType, keyType], undefined, (_$, v, k) => {
-        const node = recursive ? (v as unknown as RecursiveExpr<EastType>).unwrap() as ExprType<EastType> : v;
+        const node = nodeOf(v);
         const out = accessor(node, k);
         const ast = Expr.ast(out) as unknown as { ast_type: string; field?: string; struct?: unknown };
         const param = Expr.ast(v as unknown as Expr) as unknown;
@@ -2505,9 +2518,7 @@ function dataSpec(rowType: EastType, cfg: AnyRowConfig, recipe: KindRecipe): Pla
     // A recursive entry reaches the accessors as its NODE (`PlanEntryExpr`),
     // so they read its fields directly at every depth.
     const recursive = (rowType as { type: string }).type === "Recursive";
-    const nodeOf = (value: ExprType<EastType>): ExprType<EastType> => recursive
-        ? (value as unknown as RecursiveExpr<EastType>).unwrap() as ExprType<EastType>
-        : value;
+    const nodeOf = entryNodeOf(rowType);
     /** An accessor over entries, applied to an entry value (its node, when recursive). */
     const onEntry = (accessor: (v: ExprType<EastType>, k: ExprType<EastType>) => Expr) =>
         (v: ExprType<EastType>, k: ExprType<EastType>): Expr => accessor(nodeOf(v), k);
@@ -3142,10 +3153,7 @@ function viewsSpec(rowType: EastType, cfg: PlanViewsSeriesConfig<EastType, EastT
     const bare: ((v: ExprType<EastType>, k: ExprType<EastType>) => Expr) | undefined = treeField !== undefined
         ? (v) => collectionOn(v, treeField) as unknown as Expr
         : typeof children === "function" ? children as (v: ExprType<EastType>, k: ExprType<EastType>) => Expr : undefined;
-    const recursive = (rowType as { type: string }).type === "Recursive";
-    const nodeOf = (value: ExprType<EastType>): ExprType<EastType> => recursive
-        ? (value as unknown as RecursiveExpr<EastType>).unwrap() as ExprType<EastType>
-        : value;
+    const nodeOf = entryNodeOf(rowType);
     const entryAccess = (value: ExprType<EastType>) => nodeOf(value) as unknown as Record<string, ExprType<EastType>>;
     const childOfs = new ByType<ExprType<FunctionType<[EastType, EastType], EastType>>>();
     /** The bare accessor, built for entries keyed by `kt` — the child collection's type is its output. */
@@ -3487,6 +3495,7 @@ type AnyLandingConfig = Omit<PlanResourcesSeriesConfig<EastType, EastType>, "chi
  */
 function landingSpec(rowType: EastType, cfg: AnyLandingConfig, members: readonly PlanSeriesValue<PlanAxisKindLiteral>[]): PlanSeriesSpec {
     const where = `Plan.series.resources "${cfg.key}"`;
+    if (typeof cfg.label !== "function") throw new Error(`${where}: ${LANDING_LABEL}`);
     const memberSpecs = members.map((m, i) => {
         const spec = nestedSpec(m, `${where} › series[${i}]`);
         if (!LANDING_MEMBER_ARMS.includes(spec.arm)) {
@@ -3496,9 +3505,7 @@ function landingSpec(rowType: EastType, cfg: AnyLandingConfig, members: readonly
         return spec;
     });
     const recursive = (rowType as { type: string }).type === "Recursive";
-    const nodeOf = (value: ExprType<EastType>): ExprType<EastType> => recursive
-        ? (value as unknown as RecursiveExpr<EastType>).unwrap() as ExprType<EastType>
-        : value;
+    const nodeOf = entryNodeOf(rowType);
     const tree = cfg.children;
     if (tree !== undefined && typeof tree !== "string") {
         throw new Error(`${where}: children names the Dict field of its rows holding more of them, each a resource its kinds land on — ` +
@@ -3818,15 +3825,21 @@ function kindsSpec(field: string, cases: readonly { readonly tag: string; readon
             return emitters.get(collection, () => {
                 const { entry, key: kt } = shapeOf(collection, at);
                 const single = DictType(kt, entry);
-                const emits = caseSpecs.map((c) => c.emitter(single, `${at} › ${where}`));
+                const nodeOf = entryNodeOf(entry);
+                const emits = cases.map((c) => ({ tag: c.tag, rows: c.spec.emitter(single, `${at} › ${where}`) }));
                 return East.function([collection, PathType, IdOptType, PlanHiddenType], PlanRowsCollectionType, ($, coll, prefix, parent, hidden) => {
-                    const each = emits.map((e) => $.const(e));
+                    const each = emits.map((e) => ({ tag: e.tag, rows: $.const(e.rows) }));
                     const out = $.let([], PlanRowsCollectionType);
-                    // Each entry as one: its case's landing row takes it, every other case's leaves it.
+                    // Each entry as one, handed to the case its field holds alone: one match an entry, where asking every
+                    // case of every entry was a call and a collection a case, each but one to leave it. An entry of a case
+                    // not drawn is no case's.
                     $.for(coll as ExprType<ArrayType<EastType>>, ($2, value, k) => {
-                        const one = $2.let(new Map(), single);
-                        $2(one.insert(k as ExprType<EastType>, value as ExprType<EastType>));
-                        for (const rowsOf of each) $2(out.append(rowsOf(one, prefix, parent, hidden)));
+                        const held = (nodeOf(value as ExprType<EastType>) as unknown as Record<string, ExprType<EastType>>)[field]!;
+                        $2.match(held as never, Object.fromEntries(each.map(({ tag, rows }) => [tag, ($3: typeof $2) => {
+                            const one = $3.let(new Map(), single);
+                            $3(one.insert(k as ExprType<EastType>, value as ExprType<EastType>));
+                            $3(out.append(rows(one, prefix, parent, hidden)));
+                        }])) as never);
                     });
                     return out;
                 }) as unknown as EmitFn;
@@ -4323,9 +4336,9 @@ export function planLandings(series: unknown): readonly PlanTreeLanding[] | unde
     const walk = (spec: PlanSeriesSpec, within: readonly string[], top: boolean): void => {
         if (spec.landing !== undefined) out.push({ ...spec.landing, within, top });
         const below = [...within, spec.key];
-        // A kinds block deals its entries out among its cases, each case's rows the entries themselves: every other series
-        // nests its own beneath the entry's row.
-        for (const nested of spec.nested) walk(nested, below, top && spec.arm === "kinds");
+        // A kinds block deals its entries out among its cases, and a section draws its entries by its members, each row
+        // the entry itself: every other series nests its own beneath the entry's row.
+        for (const nested of spec.nested) walk(nested, below, top && (spec.arm === "kinds" || spec.arm === "section"));
     };
     for (const one of series) {
         const spec = specOf(one);
@@ -5131,6 +5144,9 @@ export function createSeriesViews<
     return seriesValue(rowType, cfg.keyType, spec, cfg) as PlanSeriesValue<K, PlanReadsNormal<PlanIntersect<PlanReadsOfSeries<S[number]>> & PlanChildrenReads<CT, CU, CF, CS>>>;
 }
 
+/** What a resources series, and a kinds case, is told of a `label` that is no function of the row. */
+const LANDING_LABEL = "`label` is the resource's name in the gutter, a function of the row — label: (row) => row.name";
+
 /**
  * A resources series (#1541, U1): the rows the Plan's event kinds land on —
  * the record's own rows, each a resource. One landing row per entry, labelled
@@ -5200,7 +5216,7 @@ export function createSeriesResources<
  * @param cases - A resources series' config per case ({@link PlanKindsCase}), or `false`
  * @returns A series value
  * @throws {Error} Naming the field or the case: no variant field of the rows, a case missing or one the variant lacks,
- *   no case drawn, cases of other key types, and what a resources series refuses
+ *   no case drawn, cases of other key types, a case with no `label`, and what a resources series refuses
  */
 export function createSeriesKinds<
     R extends EastType, F extends PlanVariantField<R>, KT extends EastType = StringType,
@@ -5229,6 +5245,7 @@ export function createSeriesKinds<
     }
     const built = drawn.map((tag) => {
         const c = given[tag] as PlanKindsCase<EastType, EastType, EastType>;
+        if (typeof c.label !== "function") throw new Error(`${where}: case "${tag}": ${LANDING_LABEL}`);
         type Acc<T extends EastType> = PlanCaseAccessor<EastType, T, EastType, EastType> | undefined;
         // A case's accessor over the row and its key: the case's value read off the row as the accessor receives it — its
         // node, where the rows nest more of themselves — and handed after them.
