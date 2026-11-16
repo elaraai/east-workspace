@@ -317,7 +317,9 @@ const windowed = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(
     return Plan({
         axis: Plan.axis({ window: { min: new Date("2026-10-05T00:00:00Z"), max: new Date("2026-11-02T00:00:00Z") }, resolution: "day", now: new Date("2026-10-14T09:00:00Z") }),
         slice: { slice }, optimise,
-        resources: { presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name }) },
+        // The presses are the canvas's rows, a landing row each (#1541).
+        data: presses.read(),
+        series: [Plan.series.resources(events.PrintPress, { key: "presses", title: "Presses", icon: "print", label: (p) => p.name })],
         events: {
             job: Schedule.events(jobs, {
                 name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
@@ -377,7 +379,9 @@ const zooming = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(E
             resolution: "day", resolutions: ["day", "week", "month", "quarter"], now: new Date("2026-10-14T09:00:00Z"),
         }),
         slice: { slice }, optimise,
-        resources: { presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name }) },
+        // The presses are the canvas's rows, a landing row each (#1541).
+        data: presses.read(),
+        series: [Plan.series.resources(events.PrintPress, { key: "presses", title: "Presses", icon: "print", label: (p) => p.name })],
         events: {
             job: Schedule.events(jobs, {
                 name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
@@ -484,7 +488,9 @@ const coated = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(Ea
     return Plan({
         axis: Plan.axis({ window: { min: new Date("2026-10-05T00:00:00Z"), max: new Date("2026-11-02T00:00:00Z") }, resolution: "day", now: new Date("2026-10-14T09:00:00Z") }),
         slice: { slice }, optimise,
-        resources: { presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name }) },
+        // The presses are the canvas's rows, a landing row each (#1541).
+        data: presses.read(),
+        series: [Plan.series.resources(events.PrintPress, { key: "presses", title: "Presses", icon: "print", label: (p) => p.name })],
         events: {
             job: Schedule.events(jobs, {
                 name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
@@ -524,12 +530,12 @@ describe("a job the Plan does not hold (rule 8)", () => {
 });
 
 /**
- * The print works' jobs on its presses and its crews' shifts on its crews, each kind read a window at a time through
- * its source's interval index, and no optimiser: one failed read of the event kinds' rows, and the kind it is of.
+ * The print works' jobs on its presses and its crews' shifts on its crews — the works' halls, one record of rows, each
+ * hall a group of presses or of crews (#1541) — each kind read a window at a time through its source's interval index,
+ * and no optimiser: one failed read of the event kinds' events, and the kind it is of.
  */
 const twoKinds = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-    const presses = $.const(Record.bind(events.planPrintPresses, []));
-    const crews = $.const(Record.bind(events.planPrintCrews, []));
+    const works = $.const(Data.bind(events.planPrintWorksRows));
     const jobs = $.const(Record.bind(events.planPrintJobs, ["patch"]));
     const shifts = $.const(Record.bind(events.planPrintShifts, ["patch"]));
     const jobEntries = $.const(Data.bindPaged(events.planPrintJobs));
@@ -541,10 +547,16 @@ const twoKinds = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(
     return Plan({
         axis: Plan.axis({ window: { min: new Date("2026-10-05T00:00:00Z"), max: new Date("2026-11-02T00:00:00Z") }, resolution: "day", now: new Date("2026-10-14T09:00:00Z") }),
         slice: { slice },
-        resources: {
-            presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name }),
-            crews: Schedule.resources(crews.read(), { name: "Crews", icon: "user-group", label: (c) => c.name }),
-        },
+        // The halls alone: the plate room, the bindery, dispatch and the vans draw no kind here.
+        data: works.read().filter(($2, _group, key) => key.lessThan("5")),
+        series: [Plan.series.group(events.PrintWorksGroup, {
+            key: "groups", title: "Works", label: (g) => g.name,
+            children: Plan.children("resources", [Plan.series.kinds(events.PrintResource, "what", {
+                press: { key: "presses", title: "Presses", icon: "print", label: (r) => r.name },
+                crew: { key: "crews", title: "Crews", icon: "user-group", label: (r) => r.name },
+                setter: false, line: false, bay: false, van: false,
+            })]),
+        })],
         events: {
             job: Schedule.events(jobs, {
                 name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",

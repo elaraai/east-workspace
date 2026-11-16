@@ -17,8 +17,8 @@
  * own `canDrop` over `Schedule.Types.Candidate` puts its message on the ghost
  * and in the carry's words, and refuses a selection whole when one part is
  * refused; a kind whose Save is out takes a drop as any other, drafted beside
- * the Save's own change; and `data`'s rows beside the kinds take no move while
- * `data`'s own session takes none.
+ * the Save's own change; and a series beneath a press that declares its moves
+ * takes none while `data`'s own session takes none.
  *
  * Pointer geometry is laid out in jsdom (`layOutPlots`): each row's plot spans
  * the four weeks from Monday 5 October 2026, 100px a day.
@@ -43,17 +43,20 @@ const DRAG = { drag: true } as const;
 
 // ── The rows a drag lands on ──────────────────────────────────────────────────
 
-/** Each press's bars, Press A1's marks and its tiles, and Crew 1's chips. */
-const A1 = entry("presses.span", "Hall A", "a1");
-const A2 = entry("presses.span", "Hall A", "a2");
-const A3 = entry("presses.span", "Hall A", "a3");
-const B1 = entry("presses.span", "Hall B", "b1");
-const B2 = entry("presses.span", "Hall B", "b2");
-const B3 = entry("presses.span", "Hall B", "b3");
-const A1_MARKS = entry("presses.marks", "Hall A", "a1");
-const A1_TILES = entry("presses.buckets", "Hall A", "a1");
-const A2_TILES = entry("presses.buckets", "Hall A", "a2");
-const C1 = entry("crews.cards", "Hall A", "c1");
+/**
+ * Each press's own row, which its bars draw on; Press A1's marks and its tiles, each a row beside it; and Crew 1's
+ * own row, which its chips draw on — each press and crew a resource of the works' halls (#1541).
+ */
+const A1 = entry("presses", "1-presses-a", "a1");
+const A2 = entry("presses", "1-presses-a", "a2");
+const A3 = entry("presses", "1-presses-a", "a3");
+const B1 = entry("presses", "2-presses-b", "b1");
+const B2 = entry("presses", "2-presses-b", "b2");
+const B3 = entry("presses", "2-presses-b", "b3");
+const A1_MARKS = entry("presses.marks", "1-presses-a", "a1");
+const A1_TILES = entry("presses.buckets", "1-presses-a", "a1");
+const A2_TILES = entry("presses.buckets", "1-presses-a", "a2");
+const C1 = entry("crews", "3-crews-a", "c1");
 
 /** A row's plot: its drop cell. */
 const plotOf = (c: HTMLElement, row: PlanRowId) => c.querySelector<HTMLElement>(`${rowAt(row)} [data-plan-plot]`)!;
@@ -172,7 +175,7 @@ const LAST = new Date("2026-11-02T00:00:00Z");
  * is down for service, whatever is dropped there.
  */
 const vetoed = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-    const presses = $.let(Record.bind(ex.planPrintPresses, []));
+    const works = $.let(Data.bind(ex.planPrintWorksRows));
     const jobs = $.let(Record.bind(ex.planPrintJobs, ["patch"]));
     const stops = $.let(Record.bind(ex.planPrintStops, ["patch"]));
     const jobTemplates = $.let(Data.bind(ex.planPrintJobTemplates));
@@ -189,9 +192,15 @@ const vetoed = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(Ea
     }));
     return Plan({
         axis,
-        resources: {
-            presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name, group: (p) => p.hall }),
-        },
+        // The works' halls of presses, each a strip over its presses — the canvas's own rows (#1541).
+        data: works.read().filter(($2, _group, key) => key.lessThan("3")),
+        series: [Plan.series.group(ex.PrintWorksGroup, {
+            key: "groups", title: "Works", label: (g) => g.name,
+            children: Plan.children("resources", [Plan.series.kinds(ex.PrintResource, "what", {
+                press: { key: "presses", title: "Presses", icon: "print", label: (r) => r.name },
+                crew: false, setter: false, line: false, bay: false, van: false,
+            })]),
+        })],
         events: {
             job: Schedule.events(jobs, {
                 name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
@@ -212,33 +221,35 @@ const vetoed = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(Ea
     });
 }))) };
 
-/** A bindery line: its name and its runs, by id. */
-const BinderyRun = StructType({ label: StringType, start: DateTimeType, end: DateTimeType });
-const BinderyLine = StructType({ label: StringType, runs: DictType(StringType, BinderyRun) });
-/** Line 1's row, under the jobs on the presses. */
-const LINE_1 = entry("bindery", "l1");
+/** A run a press is booked for outside the jobs: its name and its times. */
+const PressRun = StructType({ label: StringType, start: DateTimeType, end: DateTimeType });
+/** A press and the runs it is booked for, by id. */
+const BookedPress = StructType({ name: StringType, runs: DictType(StringType, PressRun) });
+/** Press A1's own row, which its jobs draw on, and the row of its booked runs beneath it. */
+const BOOKED_A1 = entry("presses", "a1");
+const RUNS_A1 = entry("booked", "a1");
 
 /**
- * The jobs on the presses beside `data`'s bindery line, a series that declares
- * its moves — and no editing session of its own, so its runs take no gesture.
+ * The jobs on Press A1, a row of `data`'s, with the runs it is booked for a
+ * series beneath it that declares its moves — and no editing session of
+ * `data`'s, so those runs take no gesture.
  */
 const beside = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-    const presses = $.let(Record.bind(ex.planPrintPresses, []));
     const jobs = $.let(Record.bind(ex.planPrintJobs, ["patch"]));
-    const lines = $.const(new Map([["l1", {
-        label: "Line 1", runs: new Map([["w1", { label: "Folding", start: new Date("2026-10-06T06:00:00Z"), end: new Date("2026-10-06T12:00:00Z") }]]),
-    }]]), DictType(StringType, BinderyLine));
+    const presses = $.const(new Map([["a1", {
+        name: "Press A1", runs: new Map([["w1", { label: "Make-ready", start: new Date("2026-10-06T06:00:00Z"), end: new Date("2026-10-06T12:00:00Z") }]]),
+    }]]), DictType(StringType, BookedPress));
     return Plan({
         axis: Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "day" }),
-        data: lines,
-        series: [Plan.series.span(BinderyLine, {
-            key: "bindery", title: "Bindery", label: (l) => l.label,
-            runs: Plan.items("runs", { from: "start", to: "end" }, (r) => ({ label: r.label, state: "confirmed" })),
-            edit: true,
+        data: presses,
+        series: [Plan.series.resources(BookedPress, {
+            key: "presses", title: "Presses", icon: "print", label: (p) => p.name,
+            series: [Plan.series.span(BookedPress, {
+                key: "booked", title: "Booked",
+                runs: Plan.items("runs", { from: "start", to: "end" }, (r) => ({ label: r.label, state: "confirmed" })),
+                edit: true,
+            })],
         })],
-        resources: {
-            presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name, group: (p) => p.hall }),
-        },
         events: {
             job: Schedule.events(jobs, {
                 name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
@@ -255,13 +266,19 @@ const beside = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(Ea
  * when one runs.
  */
 const tiled = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-    const presses = $.let(Record.bind(ex.planPrintPresses, []));
+    const works = $.let(Data.bind(ex.planPrintWorksRows));
     const jobs = $.let(Record.bind(ex.planPrintJobs, ["patch"]));
     return Plan({
         axis: Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "day" }),
-        resources: {
-            presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name, group: (p) => p.hall }),
-        },
+        // The works' halls of presses, each a strip over its presses — the canvas's own rows (#1541).
+        data: works.read().filter(($2, _group, key) => key.lessThan("3")),
+        series: [Plan.series.group(ex.PrintWorksGroup, {
+            key: "groups", title: "Works", label: (g) => g.name,
+            children: Plan.children("resources", [Plan.series.kinds(ex.PrintResource, "what", {
+                press: { key: "presses", title: "Presses", icon: "print", label: (r) => r.name },
+                crew: false, setter: false, line: false, bay: false, van: false,
+            })]),
+        })],
         events: {
             job: Schedule.events(jobs, {
                 name: "Print job", icon: "file-lines", draw: "buckets", title: "title", start: "start", end: "end",
@@ -275,14 +292,20 @@ const tiled = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(Eas
 
 /** The jobs on the presses, and the customers: a card dropped on a job sets its customer and its stock. */
 const stocked = { fn: East.function([], UIComponentType, (_$) => Reactive.Root(East.function([], UIComponentType, ($) => {
-    const presses = $.let(Record.bind(ex.planPrintPresses, []));
+    const works = $.let(Data.bind(ex.planPrintWorksRows));
     const jobs = $.let(Record.bind(ex.planPrintJobs, ["patch"]));
     const customers = $.let(Record.bind(ex.planPrintCustomers, []));
     return Plan({
         axis: Plan.axis({ window: { min: FIRST, max: LAST }, resolution: "day" }),
-        resources: {
-            presses: Schedule.resources(presses.read(), { name: "Presses", icon: "print", label: (p) => p.name, group: (p) => p.hall }),
-        },
+        // The works' halls of presses, each a strip over its presses — the canvas's own rows (#1541).
+        data: works.read().filter(($2, _group, key) => key.lessThan("3")),
+        series: [Plan.series.group(ex.PrintWorksGroup, {
+            key: "groups", title: "Works", label: (g) => g.name,
+            children: Plan.children("resources", [Plan.series.kinds(ex.PrintResource, "what", {
+                press: { key: "presses", title: "Presses", icon: "print", label: (r) => r.name },
+                crew: false, setter: false, line: false, bay: false, van: false,
+            })]),
+        })],
         events: {
             job: Schedule.events(jobs, {
                 name: "Print job", icon: "file-lines", title: "title", start: "start", end: "end",
@@ -632,13 +655,14 @@ describe("an element moved along its row or onto another resource's (PB34)", () 
     test("a tile of a kind with a start and an end moves its event's times by the days crossed — its length kept", async () => {
         const { container: c } = await h.mount(tiled, DRAG);
         await settle();
-        const y = layOutPlots(c, [A1_TILES]);
-        const tile = () => c.querySelector<HTMLElement>(`${rowAt(A1_TILES)} ${el("data-event", "job", "J-1001")}`);
+        // The jobs are the presses' one way of drawing: their tiles are on each press's own row.
+        const y = layOutPlots(c, [A1]);
+        const tile = () => c.querySelector<HTMLElement>(`${rowAt(A1)} ${el("data-event", "job", "J-1001")}`);
         const when = () => slot(c, "end")!.querySelector("[data-inspector-when]")?.textContent ?? null;
         await select(tile()!);
         expect(when()).toBe("Mon, Oct 5, 2026 · 06:00–14:00");
         // The spring catalogue's tile, in Monday's cell, two days on.
-        await drop(tile()!, { x: xAt(0), y: y(A1_TILES) }, { x: xAt(2), y: y(A1_TILES) });
+        await drop(tile()!, { x: xAt(0), y: y(A1) }, { x: xAt(2), y: y(A1) });
         await select(tile()!);
         expect(named(tile())).toMatch(/Oct 7, 2026/);
         expect(when()).toBe("Wed, Oct 7, 2026 · 06:00–14:00");
@@ -854,13 +878,13 @@ describe("every gesture is one step of the Plan's one history", () => {
 // `data`'s rows beside the event kinds
 // ============================================================================
 
-describe("data's rows beside the event kinds", () => {
-    test("take no move while data's own session takes none: the jobs drag, the bindery's runs never do", async () => {
+describe("a series of data's beneath a press", () => {
+    test("takes no move while data's own session takes none: the jobs on the press drag, the press's own runs never do", async () => {
         const { container: c } = await h.mount(beside, DRAG);
         await settle();
-        expect(bar(c, "J-1001")!.hasAttribute("data-draggable")).toBe(true);
-        const run = c.querySelector<HTMLElement>(`${rowAt(LINE_1)} [data-run="w1"]`)!;
-        expect(named(run)).toMatch(/^Folding/);
+        expect(bar(c, "J-1001", BOOKED_A1)!.hasAttribute("data-draggable")).toBe(true);
+        const run = c.querySelector<HTMLElement>(`${rowAt(RUNS_A1)} [data-run="w1"]`)!;
+        expect(named(run)).toMatch(/^Make-ready/);
         expect(run.hasAttribute("data-draggable")).toBe(false);
         // Nor does the keyboard pick one up.
         run.focus();
