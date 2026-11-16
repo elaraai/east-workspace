@@ -461,23 +461,9 @@ export function stockRunners(): { readonly runtimes: StockRunner[]; readonly mis
   return { runtimes, missing };
 }
 
-/**
- * A seeded stream of numbers in [0, 1) (mulberry32): the same rows on every
- * run of a spec that draws them.
- *
- * @param seed - The seed
- * @returns The next number of the stream, each call
- */
-export function seededStream(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a = (a + 0x6D2B79F5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
+// A seeded stream of numbers in [0, 1) (mulberry32), the same rows on every
+// run of a spec that draws them: East's own, which its fuzz generator draws from
+export { randomStream as seededStream } from '@elaraai/east/internal';
 
 /**
  * A value written as East prints one, read by East's parser: how a spec
