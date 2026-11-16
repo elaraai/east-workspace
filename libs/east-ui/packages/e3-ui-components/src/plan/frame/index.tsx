@@ -107,6 +107,7 @@ import { usePlanCanvas } from "../canvas.js";
 import { usePlanSelector } from "../controller/react.js";
 import { removePlanEvents } from "../edit/events.js";
 import { kindLinkOf, linkStepLabel } from "../links/kinds.js";
+import { lowerWord } from "../../shared/schedule/words.js";
 import type { PlanCanvasParts } from "../root/chrome.js";
 import type { PlanEventRows } from "../root/events.js";
 import { ROWS_SOURCE, planFollowedSources, planNouns, type PlanEventPart } from "../root/sources.js";
@@ -488,6 +489,15 @@ function PlanFrame({ canvas, root, kinds, landings, library, inspector, hidden, 
                     title={notice.events === undefined ? m.tooManyEventsNotCounted({ kind })
                         : m.tooManyEvents({ kind, n: notice.events, count: words.number(notice.events) })}
                     description={m.tooManyEventsHint({ resolution: notice.resolution === undefined ? undefined : m.resolutionName({ resolution: notice.resolution }).toLocaleLowerCase(words.locale) })} />
+            </Box>,
+        );
+    }
+    // A link kind holding more links than are read (#1541, U10): none of them is drawn, and this says how many there are.
+    for (const over of chrome?.linksOver ?? []) {
+        bannerNodes.push(
+            <Box key={`links:${over.kind}`} data-plan-banner="links" data-plan-kind={over.kind}>
+                <BannerView status="info" title={m.tooManyLinks({ kind: lowerWord(over.name), n: over.links, count: words.number(over.links) })}
+                    description={m.tooManyLinksHint()} />
             </Box>,
         );
     }

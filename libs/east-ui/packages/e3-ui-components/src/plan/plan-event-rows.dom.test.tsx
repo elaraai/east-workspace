@@ -18,11 +18,11 @@
  */
 
 import { describe, test, expect, vi } from "vitest";
-import { act, fireEvent, within } from "@testing-library/react";
+import { act, fireEvent, waitFor, within } from "@testing-library/react";
 import { editingMessages } from "@elaraai/east-ui-components";
-import { ArrayType, DictType, East, RecursiveType, StringType, StructType, some, type ValueTypeOf } from "@elaraai/east";
+import { ArrayType, DictType, East, RecursiveType, StringType, StructType, none, some, variant, type ValueTypeOf } from "@elaraai/east";
 import { Reactive, UIComponentType } from "@elaraai/east-ui/internal";
-import { Plan, Record, Schedule } from "@elaraai/e3-ui/internal";
+import { Plan, Record, SCHEDULE_EVENT_CAP, Schedule } from "@elaraai/e3-ui/internal";
 import * as ex from "@elaraai/e3-ui/examples/plan/plan-events";
 import { rowKeyOf, type PlanRowId } from "./model.js";
 import { PLAN_GEOMETRY } from "./geometry.js";
@@ -319,6 +319,36 @@ describe("a link's event ends", () => {
             await act(async () => { fireEvent.click(undo()); });
             await settle();
             expect(keys()).toHaveLength(17);
+        } finally {
+            restore();
+        }
+    });
+
+    test("a link kind holding more links than are read draws none and says how many it holds; within the cap again, its links draw and the notice goes (#1541, U10)", async () => {
+        const restore = ribbonWidth({ tall: true });
+        try {
+            const before = await h.read(ex.planLinkFlows);
+            // Another planner books flows past the 10,000 a kind is read under: each from one job to another.
+            const many = new Map(before);
+            for (let i = 0; i < SCHEDULE_EVENT_CAP - before.size + 1; i++) {
+                many.set(`extra-${String(i).padStart(5, "0")}`, { from: variant("job", "J-2001"), to: variant("job", "J-2013"), sheets: none });
+            }
+            await h.commit(ex.planLinkFlows, many);
+            const { container } = await h.mount(ex.planEventLinks);
+            await settle();
+            const notice = () => container.querySelector('[data-plan-banner="links"]');
+            expect(notice()?.getAttribute("data-plan-kind")).toBe("flow");
+            expect(notice()!.textContent).toBe("10,001 flow links" + "Too many to draw: none of them is shown.");
+            // No row has a link to focus on: none is read, so none is drawn.
+            expect(container.querySelector('[data-plan-control="links"]')).toBeNull();
+            expect(container.querySelectorAll("[data-link]")).toHaveLength(0);
+            // The flows taken away again: within the cap, the seventeen draw and the notice goes.
+            await h.commit(ex.planLinkFlows, new Map(before));
+            await settle();
+            await waitFor(() => expect(notice()).toBeNull());
+            fireEvent.click(container.querySelector(`${rowAt(entry("presses", "a1"))} [data-plan-control="links"]`)!);
+            await settle();
+            expect(container.querySelectorAll("[data-link]")).toHaveLength(17);
         } finally {
             restore();
         }

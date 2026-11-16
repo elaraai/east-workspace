@@ -24,6 +24,7 @@ import type { PlanWords } from "../words.js";
 import type { PlanEntryRef } from "../use-plan-editing.js";
 import type { PlanDiagnostics } from "../shell/Diagnostics.js";
 import type { PlanTransport } from "../shell/transport.js";
+import type { PlanLinksOver } from "../links/kinds.js";
 import type { ScheduleCellsRead } from "../../shared/schedule/cells.js";
 import type { PlanCanvasInspect } from "./inspect.js";
 import type { PlanEventPart, PlanSlicesChrome, PlanSourcePart } from "./sources.js";
@@ -152,6 +153,8 @@ export interface PlanChrome {
      * their cells nor counts.
      */
     cells: ScheduleCellsRead | undefined;
+    /** The link kinds holding more links than are read (#1541, U10): none of such a kind's links is drawn, and the frame's notice says how many it holds. */
+    linksOver: readonly PlanLinksOver[];
     /** Where one of the session's issues is: its entry's first row on the canvas, by name. */
     where: (issue: EditIssue) => string;
     /** The author's footer items, in order. */

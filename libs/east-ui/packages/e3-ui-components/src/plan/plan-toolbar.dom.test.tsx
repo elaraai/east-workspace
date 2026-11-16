@@ -212,7 +212,7 @@ function Items({ parts, overlaps }: { parts: ChromeParts; overlaps?: PlanOverlap
         // How the frame shows the source being read (#1398): the toolbar never reads it.
         cold: undefined, busy: false, pitch: 42,
         diagnostics: { skipped: 0 },
-        history: undefined, sessions: [], events: undefined, cells: undefined, where: (issue) => issue.entry, footer: [], id: undefined, narrow: false,
+        history: undefined, sessions: [], events: undefined, cells: undefined, linksOver: [], where: (issue) => issue.entry, footer: [], id: undefined, narrow: false,
         // Whether a command writes now: the toolbar's items write nothing of their own.
         writable: true,
         // The inspector's reads: the toolbar takes none.
