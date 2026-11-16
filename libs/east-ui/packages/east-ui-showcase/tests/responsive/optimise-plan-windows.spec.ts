@@ -31,7 +31,7 @@ import { settled } from "./settle";
 
 const PLAN = "[data-plan-frame]";
 /** The press down for maintenance, as the workspace's input says it: its row. */
-const DOWN = rowSel("presses.span", "P-1003");
+const DOWN = rowSel("presses", "P-1003");
 /** The fortnight the Plan opens on, from Monday 5 October 2026, a day a bucket. */
 const DAYS = 14;
 

@@ -407,7 +407,7 @@ test.describe("Plan links focus (#818, #1258)", { tag: "@desktop" }, () => {
         { label: "planTargetState (H1-P09's family)", name: "planTargetState", file: PLAN_EXAMPLES, row: rowSel("detail", "H1-P09"), weights: [2, 4, 8, 4, 2, 8], slots: 1 },
         { label: "planTargetState (H1-P03's transfer)", name: "planTargetState", file: PLAN_EXAMPLES, row: rowSel("presses", "Hall 1", "H1-P03"), weights: [8], slots: 0 },
         {
-            label: "planEventLinks", name: "planEventLinks", file: PLAN_EVENT_EXAMPLES, row: rowSel("presses.span", "Hall A", "a1"),
+            label: "planEventLinks", name: "planEventLinks", file: PLAN_EVENT_EXAMPLES, row: rowSel("presses", "a1"),
             weights: [1.5, 2, 2, 8, 4, 8, 2, 4, 2, 2, 4, 4, 4, 2, 4], slots: 2,
         },
     ] as const;
@@ -728,7 +728,7 @@ test.describe("Plan element text (#1258, #1264, #1266, #1269)", { tag: "@desktop
             const host = entry.locator("[data-plan-frame]").first().locator("xpath=..");
             await host.evaluate(el => { (el as HTMLElement).style.width = "1440px"; });
             await settled(page);
-            await entry.locator(`${rowSel("presses.span", "Hall A", "a1")} [data-run]`, { hasText: "Spring catalogue" }).click();
+            await entry.locator(`${rowSel("presses", "1-presses-a", "a1")} [data-run]`, { hasText: "Spring catalogue" }).click();
             for (const width of [1440, 1280]) await test.step(`${width}px`, async () => {
                 await page.setViewportSize({ width, height: 900 });
                 await host.evaluate((el, w) => { (el as HTMLElement).style.width = `${w}px`; }, width);

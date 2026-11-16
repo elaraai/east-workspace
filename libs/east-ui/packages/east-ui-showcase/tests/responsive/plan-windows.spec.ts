@@ -123,17 +123,17 @@ test.describe("a Plan read a window at a time (#1199)", () => {
         const line = entry.locator("[data-frame-slot='footer'] [data-footer-line]");
         await expect(entry.locator("[data-frame-slot='main']")).toHaveAttribute("aria-busy", "false");
         await expect(line).toHaveAttribute("data-idle", "");
-        await expect(entry.locator(rowSel("presses.span", "P-1601"))).toHaveCount(0);
+        await expect(entry.locator(rowSel("presses", "P-1601"))).toHaveCount(0);
         // Scrolled to the last presses read, the next window's place in view under them, each row its 42px.
         await entry.locator(SCROLLER).evaluate((el) => { el.scrollTop = 600 * 42 - 200; });
         await watch(entry);
-        await expect(entry.locator(rowSel("presses.span", "P-1601"))).toHaveCount(1);
+        await expect(entry.locator(rowSel("presses", "P-1601"))).toHaveCount(1);
         await settled(page);
         const frames = await framesOf(page);
         expect(movedIn(frames, false)).toEqual([]);
         // The rows above the window that landed, and its first, all in view.
         const last = frames[frames.length - 1]!;
-        expect(Object.keys(last.rows)).toEqual(expect.arrayContaining([rowId("presses.span", "P-1600"), rowId("presses.span", "P-1601")]));
+        expect(Object.keys(last.rows)).toEqual(expect.arrayContaining([rowId("presses", "P-1600"), rowId("presses", "P-1601")]));
         // Landed, nothing is in flight again: the footer's line says nothing, and counted nothing meanwhile.
         await expect(line).toHaveAttribute("data-idle", "");
         await expect(entry.locator("[data-frame-slot='footer']")).not.toContainText("loaded");
@@ -145,7 +145,7 @@ test.describe("a Plan read a window at a time (#1199)", () => {
         await expect(tickets).toHaveCount(0);
         await expect(entry.locator("[data-plan-count='events']")).toHaveText("13 events");
         // `n` brings now a third of the way in: Saturday 10 to Friday 23 October.
-        await entry.locator(rowSel("presses.span", "P-1001")).focus();
+        await entry.locator(rowSel("presses", "P-1001")).focus();
         await watch(entry);
         await page.keyboard.press("n");
         await expect(tickets).toHaveCount(1);
@@ -194,7 +194,7 @@ for (const theme of LAYOUT_THEMES) {
             await view.getByRole("textbox").fill("P-287");
             const match = view.locator("[data-key-search-row]", { hasText: "P-2870" });
             await expect(match).toBeVisible();
-            await expect(entry.locator(rowSel("presses.span", "P-2870"))).toHaveCount(0);
+            await expect(entry.locator(rowSel("presses", "P-2870"))).toHaveCount(0);
             await expect(view.getByRole("status")).toContainText("10");
             await match.click();
             await expect(view).toHaveCount(0);
@@ -208,7 +208,7 @@ for (const theme of LAYOUT_THEMES) {
         const option = page.getByRole("option", { name: "P-2870", exact: true });
         await expect(option).toBeVisible();
         // The match is fetched for the popup before its canvas window is loaded.
-        await expect(entry.locator(rowSel("presses.span", "P-2870"))).toHaveCount(0);
+        await expect(entry.locator(rowSel("presses", "P-2870"))).toHaveCount(0);
         await expect(search.getByRole("status")).toHaveText("10 matches");
         const field = search.locator('[data-scope="combobox"][data-part="control"]');
         expect(await field.evaluate(el => {
@@ -259,7 +259,7 @@ for (const theme of LAYOUT_THEMES) {
         // The cells' entries held: the presses scrolled to below are on their way, their counts landed.
         const held = await holdE3(page, { kinds: ["runs"], dataset: JOBS });
         await entry.locator(SCROLLER).evaluate((el) => { el.scrollTop = 140 * 42; });
-        const row = entry.locator(rowSel("presses.span", "P-1150"));
+        const row = entry.locator(rowSel("presses", "P-1150"));
         await expect(row).toHaveCount(1);
         await expect.poll(() => heldE3(page, held)).toBeGreaterThan(0);
         await settled(page, { holding: true });

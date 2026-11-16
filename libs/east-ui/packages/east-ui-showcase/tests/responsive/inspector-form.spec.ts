@@ -592,10 +592,13 @@ async function openPrintWorks(page: Page, theme: "light" | "dark", phone: boolea
 }
 
 /** The spring catalogue's run on Press A1, and the press's other runs. */
-const pressA1 = rowSel("presses.span", "Hall A", "a1");
+const pressA1 = rowSel("presses", "1-presses-a", "a1");
 
 /** Press B2, whose two jobs on the 20th overlap (#1198): the market posters and the loyalty cards. */
-const PRESS_B2 = rowId("presses.span", "Hall B", "b2");
+const PRESS_B2 = rowId("presses", "2-presses-b", "b2");
+
+/** A press's name folds its utilisation beneath it; its marks' row's name selects the press (#1541). */
+const pressHead = (hall: string, press: string) => `${rowSel("presses.marks", hall, press)} [role="rowheader"]`;
 
 for (const phone of [false, true]) {
     test.describe(`The Plan's inspector form — ${phone ? "on a phone" : "pinned beside main"} (#1220)`, { tag: phone ? "@mobile" : "@desktop" }, () => {
@@ -607,7 +610,7 @@ for (const phone of [false, true]) {
                     await test.step("a press's row and nothing selected: facts, counts and hints inside the pane", async () => {
                         await expect(pane.locator("[data-plan-inspector='none']")).toBeVisible();
                         expect(await paneFaults(pane)).toEqual([]);
-                        await select(page, frame, entry.locator(`${pressA1} [role="rowheader"]`), phone);
+                        await select(page, frame, entry.locator(pressHead("1-presses-a", "a1")), phone);
                         await expect(pane.locator("[data-plan-inspector='row']")).toBeVisible();
                         expect(await paneFaults(pane)).toEqual([]);
                     });
@@ -642,7 +645,7 @@ for (const phone of [false, true]) {
                         await holder.scrollIntoViewIfNeeded();
                     }
                     // The press's row: its pair on the 20th — the overlap's time, and both jobs' names.
-                    await select(page, frame, phone ? holder.getByText("Press B2", { exact: true }) : holder.locator("[role='rowheader']"), phone);
+                    await select(page, frame, phone ? holder.getByText("Press B2", { exact: true }) : entry.locator(pressHead("2-presses-b", "b2")), phone);
                     await expect(pane.locator("[data-plan-inspector='row'] [data-inspector-overlap]")).toHaveCount(1);
                     expect(await paneFaults(pane)).toEqual([]);
                     // One of its jobs: the job it overlaps — its time, and its name. The loyalty cards, drawn over the market

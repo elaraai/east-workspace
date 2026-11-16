@@ -16,7 +16,7 @@ import { PLAN_EVENT_EXAMPLES, openExample, planBox, rowSel, sizeBox } from "./pl
 import { settled } from "./settle";
 
 /** Press A1's bars. */
-export const PRESS_A1 = rowSel("presses.span", "Hall A", "a1");
+export const PRESS_A1 = rowSel("presses", "1-presses-a", "a1");
 
 /** The print works' window: four weeks from Monday 5 October 2026, a day a bucket. */
 export const PRINT_WORKS_DAYS = 28;

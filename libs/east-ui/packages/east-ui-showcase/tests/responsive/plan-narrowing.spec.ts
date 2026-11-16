@@ -4,18 +4,19 @@
  */
 /**
  * The Plan's narrowing (#1344) on the real in-page e3: the print works' one
- * rail over its ten records — the jobs' and the shifts', read through their
- * interval indexes, the presses', the customers' and each templates record's.
+ * rail over its nine records — the jobs' and the shifts', read through their
+ * interval indexes, the customers' and each templates record's. The presses,
+ * the works' rows, are read whole, and no source of the rail narrows them
+ * (#1541).
  * At every width of its frame, in both themes, the rail stands in the
  * toolbar's one row, nothing leaving it, and every source's field is in it —
  * live, folded to its chip, or named by its one trigger — but the jobs' and
  * the shifts' start, which is the one window, the date navigator's and never a
  * field of the rail.
  *
- * Each source narrows its own places alone: the presses' Hall the presses'
- * rows, never the crews'; the customers' District the Customers tab, `6 of
- * 16`; and a stock the jobs on the canvas and the Backlog, which counts `N of
- * M`. At every width the Customers tab, or the collapsed pane's badge, says
+ * Each source narrows its own places alone: the customers' District the
+ * Customers tab, `6 of 16`; and a stock the jobs on the canvas and the
+ * Backlog, which counts `N of M` — every press's row standing. At every width the Customers tab, or the collapsed pane's badge, says
  * what it shows.
  *
  * The window is every event source's: the date navigator's Range panel, its
@@ -40,9 +41,9 @@ import { LAYOUT_THEMES } from "./themes";
 /** The rail, in the toolbar's row. */
 const RAIL = '[data-frame-slot="toolbar"] [data-slice-rail="record-slices"]';
 /** The rail's fields, as `source.field`, sorted: every source's but the jobs' and the shifts' start, which is the window. */
-const FIELDS = "bindingTemplates.group,customers.district,deliveryTemplates.group,job.stock,jobTemplates.group,platesTemplates.group,presses.hall,shiftTemplates.group,stopTemplates.group";
+const FIELDS = "bindingTemplates.group,customers.district,deliveryTemplates.group,job.stock,jobTemplates.group,platesTemplates.group,shiftTemplates.group,stopTemplates.group";
 /** Each field's label, as the folded rail's one trigger names the fields it holds. */
-const LABELS = ["Stock", "Hall", "District", "Job templates", "Stop templates", "Shift templates", "Plates templates", "Bindery templates", "Delivery templates"];
+const LABELS = ["Stock", "District", "Job templates", "Stop templates", "Shift templates", "Plates templates", "Bindery templates", "Delivery templates"];
 
 /** The print works' frame. */
 const frameOf = (entry: Locator) => entry.locator("[data-plan-frame]").first();
@@ -104,7 +105,7 @@ async function expectCounts(page: Page, frame: Locator, jobs: readonly [number, 
 
 /** Each source heading the rail's sources get in its editor, by source: its heading's own count, as a Library tab counts — the total, or `N of M` while narrowed. */
 const HEADINGS: Readonly<Record<string, RegExp>> = {
-    job: /^22 of 30$/, presses: /^6$/, customers: /^16$/, jobTemplates: /^4$/, stopTemplates: /^2$/,
+    job: /^22 of 30$/, customers: /^16$/, jobTemplates: /^4$/, stopTemplates: /^2$/,
     shiftTemplates: /^3$/, platesTemplates: /^1$/, bindingTemplates: /^1$/, deliveryTemplates: /^1$/,
 };
 
@@ -179,7 +180,7 @@ for (const theme of LAYOUT_THEMES) {
         }
     });
 
-    test(`each source narrows its own places alone: the presses' Hall their rows, never the crews'; the customers' District the Customers tab, \`6 of 16\`; a stock the jobs on the canvas and the Backlog, \`N of M\`; at every width the Customers tab, or the pane's badge, says what it shows (${theme}) @desktop`, async ({ page }) => {
+    test(`each source narrows its own places alone, every press's row standing: the customers' District the Customers tab, \`6 of 16\`; a stock the jobs on the canvas and the Backlog, \`N of M\`; at every width the Customers tab, or the pane's badge, says what it shows (${theme}) @desktop`, async ({ page }) => {
         await page.setViewportSize({ width: 2160, height: 1200 });
         const entry = await openExample(page, "planPrintWorks", PLAN_EVENT_EXAMPLES, theme);
         await sizePlanFrame(page, entry, 1920);
@@ -192,24 +193,20 @@ for (const theme of LAYOUT_THEMES) {
             await expect(page.getByRole("dialog")).toHaveCount(0);
             await settled(page);
         };
-        await expect.poll(() => tabs(page, start)).toEqual(["Events 12", "Backlog 8", "Series 15", "Customers 16"]);
-        // The presses' Hall: the presses' rows, and their group strips; the crews follow no source.
-        await expect(frame.locator(rowSel("presses.span", "Hall B", "b1"))).toHaveCount(1);
-        await choose("presses", "hall", /^Hall A/);
-        await expect(frame.locator(rowSel("presses.span", "Hall B", "b1"))).toHaveCount(0);
-        await expect(frame.locator(rowSel("presses.span", "Hall A", "a1"))).toHaveCount(1);
-        await expect(frame.locator(rowSel("crews.cards", "Hall B", "c3"))).toHaveCount(1);
-        await expect.poll(() => tabs(page, start)).toEqual(["Events 12", "Backlog 8", "Series 15", "Customers 16"]);
-        // The customers' District: the Customers tab, which names the customers' source, alone.
+        await expect.poll(() => tabs(page, start)).toEqual(["Events 12", "Backlog 8", "Series 16", "Customers 16"]);
+        // The customers' District: the Customers tab, which names the customers' source, alone — every press's row standing.
+        const b1 = frame.locator(rowSel("presses", "2-presses-b", "b1"));
+        await expect(b1).toHaveCount(1);
         await choose("customers", "district", /^Old Town/);
-        await expect.poll(() => tabs(page, start)).toEqual(["Events 12", "Backlog 8", "Series 15", "Customers 6 of 16"]);
+        await expect.poll(() => tabs(page, start)).toEqual(["Events 12", "Backlog 8", "Series 16", "Customers 6 of 16"]);
+        await expect(b1).toHaveCount(1);
         // A stock: the jobs on the canvas — Press A1's menu cards are on board, its spring catalogue is coated — and the Backlog.
-        const a1 = frame.locator(`${rowSel("presses.span", "Hall A", "a1")} [data-run]`);
+        const a1 = frame.locator(`${rowSel("presses", "1-presses-a", "a1")} [data-run]`);
         await expect.poll(async () => (await said(a1)).some((text) => text.includes("Spring catalogue"))).toBe(true);
         await choose("job", "stock", /^board/i);
         await expect.poll(async () => (await said(a1)).some((text) => text.includes("Spring catalogue"))).toBe(false);
         await expect.poll(async () => (await said(a1)).some((text) => text.includes("Menu cards"))).toBe(true);
-        await expect.poll(() => tabs(page, start)).toEqual(["Events 12", "Backlog 1 of 8", "Series 15", "Customers 6 of 16"]);
+        await expect.poll(() => tabs(page, start)).toEqual(["Events 12", "Backlog 1 of 8", "Series 16", "Customers 6 of 16"]);
         // The Customers tab open: the open tab stays on the row, however narrow the pane.
         await openTab(page, start, /^Customers/);
         // At every width the Customers tab says what it shows — or, the pane on its rail, its badge counts the backlog — the row whole.
